@@ -1,0 +1,26 @@
+[package]
+name = "wipemark-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Wipemark command line — the same pipeline, for scripts, pre-commit hooks and agents."
+
+[[bin]]
+name = "wipemark-cli"
+path = "src/main.rs"
+
+[dependencies]
+wipemark-core.workspace = true
+wipemark-pipeline.workspace = true
+wipemark-models.workspace = true
+clap.workspace = true
+
+[features]
+default = []
+local-llama = ["wipemark-pipeline/local-llama"]
+
+[lints]
+workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "wipemark-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Layer A — deterministic Unicode taxonomy, scrubber and report types. Zero dependencies, by rule."
+
+# NO [dependencies] SECTION. See the crate docs: this is a rule, not an
+# accident. The UCD tables land here as build.rs-generated statics
+# (epic E1), not as a crate.
+
+[lints]
+workspace = true

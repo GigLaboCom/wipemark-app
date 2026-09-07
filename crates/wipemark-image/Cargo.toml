@@ -1,0 +1,20 @@
+[package]
+name = "wipemark-image"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Phase 2 — container-level metadata stripping for PNG/JPEG/WebP/TIFF. Never re-encodes pixels."
+
+# Depends on wipemark-core and nothing else in the workspace: stripping
+# a C2PA manifest out of a PNG has nothing to do with engines, models or
+# the job pipeline. Enforced by scripts/check-dep-direction.sh.
+
+[dependencies]
+wipemark-core.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

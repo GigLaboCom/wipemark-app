@@ -1,0 +1,25 @@
+[package]
+name = "wipemark-pipeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Job state machine, chunking, candidate/round selection, scorers and the batch queue."
+
+[features]
+default = []
+# Forwarded so `cargo build --features local-llama` works from the app
+# and the CLI without either of them naming the engine crate's feature.
+local-llama = ["wipemark-engine/local-llama"]
+
+[dependencies]
+wipemark-core.workspace = true
+wipemark-engine.workspace = true
+flume.workspace = true
+thiserror.workspace = true
+tokio-util.workspace = true
+
+[lints]
+workspace = true

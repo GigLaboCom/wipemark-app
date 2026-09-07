@@ -1,0 +1,48 @@
+[package]
+name = "wipemark-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Wipemark — native GPUI desktop app"
+
+[[bin]]
+name = "wipemark"
+path = "src/main.rs"
+
+[dependencies]
+gpui.workspace = true
+gpui_platform.workspace = true
+gpui-component.workspace = true
+wipemark-core.workspace = true
+wipemark-engine.workspace = true
+wipemark-models.workspace = true
+wipemark-pipeline.workspace = true
+wipemark-license.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[features]
+default = []
+# Forwarded to the engine crate: builds llama.cpp and links it in.
+local-llama = ["wipemark-engine/local-llama"]
+
+# cargo-bundle / cargo-packager metadata (epic E10). The identifier is
+# the same string `wipemark-models::layout::BUNDLE_ID` derives the data
+# directory and keychain service from — changing one without the other
+# strands every existing install.
+#
+# `icon` is deliberately absent: there is no artwork yet, and pointing at
+# a file that does not exist fails the bundle step with a worse message
+# than its absence does. See assets/icon/README.md.
+[package.metadata.bundle]
+name = "Wipemark"
+identifier = "com.GigLabo.wipemark"
+short_description = "Strips AI provenance marks from your own content."
+category = "public.app-category.productivity"
+
+[lints]
+workspace = true

@@ -1,0 +1,115 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/wipemark-core",
+    "crates/wipemark-engine",
+    "crates/wipemark-models",
+    "crates/wipemark-pipeline",
+    "crates/wipemark-image",
+    "crates/wipemark-license",
+    "apps/wipemark-app",
+    "apps/wipemark-cli",
+]
+# The submodule is its own workspace and must not be pulled into ours.
+exclude = ["vendor/gpui-component"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+# Commercial product with an activation flow (spec §8), not an open
+# licence. `LicenseRef-` is the SPDX form for a non-listed licence; the
+# EULA text itself lands with epic E9.
+license = "LicenseRef-Proprietary"
+publish = false
+repository = "https://github.com/heretic-tools/wipemark"
+authors = ["Wipemark contributors"]
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+# Platform data/config dirs. Same crate heretic-amuse-merge uses, so the
+# two products resolve their paths through one implementation.
+directories = "6"
+# The GPUI executor and tokio cannot await each other's futures. Every
+# long operation therefore returns a flume Receiver that the GPUI side
+# polls from `cx.spawn` (spec §1.2) — flume is one of the few channels
+# that is both sync-usable and async-awaitable from either side.
+flume = "0.11"
+async-trait = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+# CancellationToken threads through every engine and pipeline call.
+tokio-util = "0.7"
+
+# GPUI is consumed from the Zed repo. Pinned to 81b16f464c — the same rev
+# heretic-amuse-merge pins, which is the last commit before `gpui:
+# Improve Anchored to support center position` (#47154) removed
+# `gpui::Corner` and renamed `Bounds::from_corner_and_size` in ways the
+# vendored gpui-component rev has not caught up with. Bump this in
+# lockstep with the submodule, never on its own.
+gpui = { git = "https://github.com/zed-industries/zed", rev = "81b16f464ce91e40c1c645b56675c26ee0b2b6c4" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "81b16f464ce91e40c1c645b56675c26ee0b2b6c4", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
+
+# gpui-component is vendored as a submodule under vendor/gpui-component
+# and referenced by path (see CONTRIBUTING.md). The submodule lists its
+# own `gpui` deps WITHOUT a rev, so it would otherwise resolve against
+# whatever is on zed's main today and drift away from our copy — a
+# separate `gpui` package in the same binary, which does not link.
+# `scripts/pin-gpui-component.sh` rewrites those five lines in the
+# submodule to our rev; run it after every clone or submodule update.
+gpui-component = { path = "vendor/gpui-component/crates/ui" }
+
+wipemark-core = { path = "crates/wipemark-core" }
+wipemark-engine = { path = "crates/wipemark-engine" }
+wipemark-models = { path = "crates/wipemark-models" }
+wipemark-pipeline = { path = "crates/wipemark-pipeline" }
+wipemark-image = { path = "crates/wipemark-image" }
+wipemark-license = { path = "crates/wipemark-license" }
+
+# Lints — adapted from qdrant, via heretic-mnemoria and
+# heretic-amuse-merge. Kept identical to Merge on purpose: code that
+# moves between the two repos should not have to be re-linted.
+[workspace.lints.clippy]
+cast_lossless = "warn"
+doc_link_with_quotes = "warn"
+enum_glob_use = "warn"
+explicit_into_iter_loop = "warn"
+filter_map_next = "warn"
+flat_map_option = "warn"
+from_iter_instead_of_collect = "warn"
+implicit_clone = "warn"
+inconsistent_struct_constructor = "warn"
+inefficient_to_string = "warn"
+manual_is_variant_and = "warn"
+manual_let_else = "warn"
+needless_continue = "warn"
+needless_raw_string_hashes = "warn"
+ptr_as_ptr = "warn"
+ref_option_ref = "warn"
+uninlined_format_args = "warn"
+unnecessary_wraps = "warn"
+unused_self = "warn"
+used_underscore_binding = "warn"
+match_wildcard_for_single_variants = "warn"
+needless_pass_by_ref_mut = "warn"
+unused_async = "warn"
+
+[workspace.lints.rustdoc]
+private_intra_doc_links = "allow"
+
+# A debug build of a GPUI app is unusable if the framework itself is
+# unoptimised — scrolling drops to single-digit FPS. Cost is paid once
+# per gpui bump, not per edit of our own crates.
+[profile.dev.package]
+gpui = { opt-level = 3 }
+gpui_platform = { opt-level = 3 }
+gpui_macros = { opt-level = 3 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

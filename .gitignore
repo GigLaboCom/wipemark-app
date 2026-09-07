@@ -1,0 +1,57 @@
+# ── Rust build output ────────────────────────────────────────────────
+# Only the workspace root has a target/; the leading slash keeps a
+# future crate or directory literally named `target` trackable.
+/target/
+# The vendored submodule builds into its own target/ when examples are
+# run from inside it.
+/vendor/*/target/
+
+# rustfmt / rustc leftovers
+**/*.rs.bk
+*.pdb
+
+# Cargo.lock IS committed. This workspace ships binaries (wipemark,
+# wipemark-cli) and pins gpui by git rev — a reproducible resolve is the
+# whole point. Only the backup file cargo writes on `cargo update` is
+# ignored.
+Cargo.lock.bak
+
+# ── Local spec / design drops (ssd-docs) ─────────────────────────────
+# Watchword-sourced specs and working design documents land here so they
+# sit next to the code without ever being committed. Anything durable
+# belongs in docs/ instead; the canonical copy of a spec is its
+# Watchword key.
+/ssd-docs/
+
+# ── Agent + editor state ─────────────────────────────────────────────
+/.claude/
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── OS ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Product runtime data ─────────────────────────────────────────────
+# Downloaded GGUF weights and partial downloads. In normal operation
+# these live under the OS data dir (see wipemark-models::layout), but a
+# dev run with WIPEMARK_DATA_DIR pointed at the repo would drop them
+# here — a multi-GB commit is not the way to find that out.
+/models/
+*.gguf
+*.partial
+
+# Config / queue / history written by the app or CLI during development.
+*.log
+/config.toml
+/presets.toml
+/queue.json
+/history.jsonl
+
+# ── Packaging output ─────────────────────────────────────────────────
+/dist/
+*.dmg
+*.AppImage
+*.deb

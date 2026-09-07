@@ -1,0 +1,29 @@
+[package]
+name = "wipemark-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "RewriteEngine trait and its implementations: OpenAI-compatible (E2), llama.cpp behind a feature (E2), and the deterministic FakeEngine."
+
+[features]
+default = []
+# Local GGUF inference through llama-cpp-2. Off by default: it drags a
+# C++ build of llama.cpp into every `cargo test`, and the remote engine
+# is the one that ships first. Wired in epic E2 / S2.5.
+local-llama = []
+
+[dependencies]
+wipemark-core.workspace = true
+async-trait.workspace = true
+flume.workspace = true
+thiserror.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
+[lints]
+workspace = true

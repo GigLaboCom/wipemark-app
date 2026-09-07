@@ -1,0 +1,23 @@
+[package]
+name = "wipemark-models"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Model manifest, on-disk layout and (epic E3) the resumable verifying downloader."
+
+# Deliberately does NOT depend on wipemark-engine. The manifest
+# describes files on disk; nothing here loads a model. Enforced by
+# scripts/check-dep-direction.sh.
+
+[dependencies]
+wipemark-core.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+directories.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
