@@ -14,9 +14,19 @@ path = "src/main.rs"
 
 [dependencies]
 wipemark-core.workspace = true
+wipemark-i18n.workspace = true
 wipemark-pipeline.workspace = true
 wipemark-models.workspace = true
+tracing.workspace = true
+# Same log file shape as the app, in the same directory, under a
+# different stem. A hook that fails in CI leaves the same evidence a
+# window would. See docs/architecture/logging.md.
+wipemark-log.workspace = true
+wipemark-store.workspace = true
 clap.workspace = true
+# Only to read `[ui] language` out of config.toml. The writer, and the
+# rest of the settings model, are the app's — and both converge on one
+# implementation with S6.2. See `configured_language`.
 
 [features]
 default = []

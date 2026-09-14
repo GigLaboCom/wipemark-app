@@ -17,13 +17,117 @@ gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component.workspace = true
 wipemark-core.workspace = true
+wipemark-i18n.workspace = true
 wipemark-engine.workspace = true
 wipemark-models.workspace = true
 wipemark-pipeline.workspace = true
 wipemark-license.workspace = true
+wipemark-store.workspace = true
+# What was dropped, and what it turns out to be. A leaf with no
+# dependencies of its own — see crates/wipemark-intake: the panel, the
+# main window, the CLI and the MCP server all ask the same question, and
+# this is the one place it is answered.
+wipemark-intake.workspace = true
+# The API key, and only the API key. Every other preference is a row in
+# wipemark.db; a credential goes to the operating system's own store.
+# See src/engine.rs and docs/architecture/engine-settings.md.
+wipemark-secret.workspace = true
 anyhow.workspace = true
+toml.workspace = true
+# The Settings window's remembered rectangle, which goes into the store
+# as JSON. See src/window_state.rs — it is four named numbers rather
+# than a `Bounds<Pixels>` because it is a file format.
+serde = { workspace = true, features = ["derive"] }
+# The MCP connection snippets (src/mcp.rs). Built as JSON values and
+# serialized, rather than assembled with `format!`, so that what a user
+# pastes into a client's configuration file is valid by construction
+# rather than by review. Already in the tree via wipemark-store.
+serde_json.workspace = true
+# The menu-bar item hands its clicks back through a channel: the
+# callback muda calls has no application state in scope, and no way to
+# be given any. See src/tray.rs.
+flume.workspace = true
+# The "Arrived" column of the queue (src/queue.rs): a local wall-clock
+# time for each row. The same pin the log uses for its timestamps, and
+# already in the tree through it.
+chrono.workspace = true
+# Decodes the embedded tray template: `tray_icon::Icon` takes raw RGBA
+# and nothing else. Already in the tree via gpui's `image`, and the
+# version tray-icon itself pulls.
+png = "0.17"
+# The Compare window's finer marks (src/compare.rs) go to the editor
+# through gpui-component's document-colour provider, whose answer is
+# spelled in these types — a position, a range, a colour — and which
+# gpui-component takes but does not re-export. The same pin it uses,
+# so the two are one type; already in the tree through it.
+lsp-types = "0.97"
 tracing.workspace = true
-tracing-subscriber.workspace = true
+# The rotating file, the stderr mirror and the panic hook. The app
+# does not build a subscriber itself — see `init_logging` in main.rs
+# and docs/architecture/logging.md.
+wipemark-log.workspace = true
+# Bakes assets/icons/*.svg into the binary. A packaged .app has no
+# assets/ directory beside the executable, so an AssetSource that
+# reads from disk works under `cargo run` and paints nothing once
+# bundled. See src/assets.rs.
+rust-embed = { version = "8", features = ["interpolate-folder-path", "include-exclude"] }
+
+[dev-dependencies]
+# `test-support` is what makes `#[gpui::test]`, `add_empty_window` and
+# `debug_bounds` exist — the icon size regression can only be caught
+# by measuring what actually painted.
+gpui = { workspace = true, features = ["test-support"] }
+
+# macOS-only, and both of these are affordances rather than features:
+# the Dock icon of an unbundled dev build (src/dock_icon.rs) and the
+# menu-bar item (src/tray.rs). gpui already pulls the objc2 crates in at
+# these exact versions, so they cost no build time; `tray-icon` is the
+# crate Tauri's own tray is built on, which is what heretic-lazy-shot
+# uses one layer up. It brings `muda` for the menu, re-exported as
+# `tray_icon::menu` — depending on it twice is how the two drift.
+#
+# Linux needs a GTK main loop for the same crate and Windows a win32
+# message pump, neither of which a GPUI process runs, so the dependency
+# is not merely unused off macOS — it would not work. E10.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+# `NSScreen` and `NSEvent` answer which display the pointer is on and
+# what each display is called (src/screen.rs); `NSView` and `NSWindow`
+# are the two calls that move a window, which GPUI's `PlatformWindow`
+# has no method for on any backend. Every one of these is a feature gpui
+# already turns on — naming them here is what keeps this crate building
+# the day it stops.
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication",
+    # The drop zone (src/pasteboard.rs): the destination protocol, the
+    # pasteboard it reads, and the per-item accessors. GPUI registers
+    # its window for filenames and nothing else, so text and images are
+    # refused by AppKit before an event exists — these four features are
+    # what it takes to answer a drag ourselves.
+    "NSDragging",
+    "NSPasteboard",
+    "NSPasteboardItem",
+    "NSEvent",
+    "NSImage",
+    "NSResponder",
+    "NSScreen",
+    "NSView",
+    "NSWindow",
+] }
+objc2-foundation = { version = "0.3", features = ["NSData", "NSGeometry", "NSString", "NSArray"] }
+# The `NSView` GPUI opened a window with, which is the only handle it
+# hands out. See `screen::translate`. Already in the tree via gpui, at
+# the version gpui itself pins.
+raw-window-handle = "0.6"
+tray-icon = "0.21"
+# System-wide shortcuts (src/hotkey.rs). The crate Tauri's own
+# global-shortcut plugin is built on and a sibling of `muda`, so the
+# event-handler-into-a-channel shape is the tray's. It registers through
+# Carbon's `RegisterEventHotKey`, which needs no Accessibility
+# permission; Linux wants X11 and Windows a message loop on the
+# registering thread, which is E10 alongside the tray. Its
+# `keyboard-types` is the one `muda` already pulls.
+global-hotkey = "0.7"
 
 [features]
 default = []
@@ -35,14 +139,27 @@ local-llama = ["wipemark-engine/local-llama"]
 # directory and keychain service from — changing one without the other
 # strands every existing install.
 #
-# `icon` is deliberately absent: there is no artwork yet, and pointing at
-# a file that does not exist fails the bundle step with a worse message
-# than its absence does. See assets/icon/README.md.
+# `icon` paths are relative to this crate root and every one of them is
+# generated — run `icons/create-icons.sh` from the repo root rather than
+# editing a PNG by hand. The .icns is listed first because cargo-bundle
+# copies a pre-built one through verbatim on macOS instead of rebuilding
+# a lossier one from the PNGs; the PNGs are what the .deb path reads
+# dimensions from to lay out its hicolor tree. `icon.ico` is installed
+# alongside them but deliberately not listed: the deb bundler has no
+# case for that extension. It is there for cargo-packager and for the
+# Windows resource script E10 adds.
 [package.metadata.bundle]
 name = "Wipemark"
 identifier = "com.GigLabo.wipemark"
 short_description = "Strips AI provenance marks from your own content."
 category = "public.app-category.productivity"
+icon = [
+    "assets/icon/icon.icns",
+    "assets/icon/32x32.png",
+    "assets/icon/128x128.png",
+    "assets/icon/128x128@2x.png",
+    "assets/icon/icon.png",
+]
 
 [lints]
 workspace = true

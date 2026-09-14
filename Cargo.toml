@@ -2,11 +2,16 @@
 resolver = "2"
 members = [
     "crates/wipemark-core",
+    "crates/wipemark-i18n",
     "crates/wipemark-engine",
     "crates/wipemark-models",
     "crates/wipemark-pipeline",
     "crates/wipemark-image",
+    "crates/wipemark-intake",
     "crates/wipemark-license",
+    "crates/wipemark-log",
+    "crates/wipemark-store",
+    "crates/wipemark-secret",
     "apps/wipemark-app",
     "apps/wipemark-cli",
 ]
@@ -28,10 +33,23 @@ authors = ["Wipemark contributors"]
 anyhow = "1"
 thiserror = "2"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# `chrono` is the timer feature: it is what gives every line a local
+# wall-clock timestamp with milliseconds, the same shape
+# heretic-lazy-shot writes. chrono is already in the tree via gpui.
+tracing-subscriber = { version = "0.3", features = ["env-filter", "chrono"] }
+# Local time for the log file name and the age half of the rotation
+# rule. `clock` + `std` only — no serde, no oldtime.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
+# The local database (crates/wipemark-store). `bundled` compiles the
+# SQLite amalgamation in rather than linking whatever libsqlite3 the
+# host ships: a desktop product cannot require the user to have one new
+# enough for WAL and `ON CONFLICT`, and a macOS .app that links the
+# system library is a notarization problem waiting for an OS release to
+# move it. It is one C file and it is cached like any other build.
+rusqlite = { version = "0.32", features = ["bundled"] }
 clap = { version = "4", features = ["derive"] }
 # Platform data/config dirs. Same crate heretic-amuse-merge uses, so the
 # two products resolve their paths through one implementation.
@@ -42,9 +60,46 @@ directories = "6"
 # that is both sync-usable and async-awaitable from either side.
 flume = "0.11"
 async-trait = "0.1"
+# Localization. Project Fluent is the format (asymmetric plurals,
+# per-locale selectors, bidi isolation) and `fluent-langneg` is the
+# standard BCP-47 negotiation algorithm; `unic-langid` is the language
+# tag type both of them speak. Catalogues are embedded with the same
+# rust-embed the app already uses for icons, so a packaged .app needs no
+# `i18n/` directory beside the executable. See crates/wipemark-i18n.
+fluent-bundle = "0.16"
+fluent-syntax = "0.12"
+# Pinned to 0.13, not 0.14: 0.14 moved to `icu_locid` for its language
+# tag type while fluent-bundle 0.16 still speaks `unic-langid`, and
+# mixing them means converting every tag through a string. 0.13 is the
+# unic-langid line and the same pair `i18n-embed` ships.
+fluent-langneg = "0.13"
+unic-langid = { version = "0.9", features = ["macros"] }
+# Reads LANG/LC_ALL on unix, the user's preferred languages on macOS and
+# Windows. Already in the tree via gpui, so this pins no new build.
+sys-locale = "0.3"
+rust-embed = { version = "8", features = ["interpolate-folder-path", "include-exclude"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 # CancellationToken threads through every engine and pipeline call.
 tokio-util = "0.7"
+
+# The model downloader (crates/wipemark-models/src/store.rs). Blocking on
+# purpose: a download runs on its own thread and reports through a
+# `flume` channel, which is the shape every long operation in this
+# product already has — an async client would drag a second runtime in
+# beside GPUI's for no gain. `default-features = false` drops `gzip`:
+# a GGUF file is already compressed, and a `Content-Encoding` on the wire
+# makes the byte counter and the `Range` resume both wrong. The trust
+# roots come from the operating system rather than a baked-in bundle, so
+# a machine behind a corporate TLS proxy can still fetch a model.
+ureq = { version = "3.4", default-features = false, features = ["rustls", "platform-verifier"] }
+# Verifies a downloaded file against the manifest's sha256. Already in
+# the tree via gpui's dependencies, so this pins no new build.
+sha2 = "0.10"
+hex = "0.4"
+# Total RAM, and the free space on the volume the weights land on — both
+# cross-platform, both consulted before a multi-gigabyte download starts.
+# Already in the tree via gpui.
+sysinfo = "0.31"
 
 # GPUI is consumed from the Zed repo. Pinned to 81b16f464c — the same rev
 # heretic-amuse-merge pins, which is the last commit before `gpui:
@@ -65,11 +120,16 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "81b16f46
 gpui-component = { path = "vendor/gpui-component/crates/ui" }
 
 wipemark-core = { path = "crates/wipemark-core" }
+wipemark-i18n = { path = "crates/wipemark-i18n" }
 wipemark-engine = { path = "crates/wipemark-engine" }
 wipemark-models = { path = "crates/wipemark-models" }
 wipemark-pipeline = { path = "crates/wipemark-pipeline" }
 wipemark-image = { path = "crates/wipemark-image" }
+wipemark-intake = { path = "crates/wipemark-intake" }
 wipemark-license = { path = "crates/wipemark-license" }
+wipemark-log = { path = "crates/wipemark-log" }
+wipemark-store = { path = "crates/wipemark-store" }
+wipemark-secret = { path = "crates/wipemark-secret" }
 
 # Lints — adapted from qdrant, via heretic-mnemoria and
 # heretic-amuse-merge. Kept identical to Merge on purpose: code that

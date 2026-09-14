@@ -10,12 +10,16 @@ own. Source: Watchword FILE
 | crate | real | stub |
 |---|---|---|
 | `wipemark-core` | finding taxonomy, default actions, confidence floors, guard trait, report types, the three-shelf honesty contract | classifier, scrubber, UCD tables, guard implementations |
+| `wipemark-i18n` | message catalogues (en-US, de, ru), BCP-47 negotiation and the fallback chain, generated `Message` keys, the catalogue gates | nothing — this one is finished for the surfaces that exist |
 | `wipemark-engine` | `RewriteEngine` trait, request/completion types, error taxonomy, **`FakeEngine`** | `OpenAiCompatEngine`, `LlamaEngine` |
-| `wipemark-models` | manifest schema + validation, embedded catalogue, on-disk layout, containment check | downloader, signature verification, GC |
+| `wipemark-models` | manifest schema + validation, the two shipped entries, on-disk layout and containment, the host probe and fit policy, the **resumable verifying downloader** | signature verification of a mirrored manifest (E9), garbage collection |
 | `wipemark-pipeline` | job/stage/event vocabulary, the non-origin rule | state machine, chunking, selection loop, scorers, batch queue |
 | `wipemark-image` | container and metadata-kind taxonomy, strip report shape | every parser |
 | `wipemark-license` | licence states, trial shapes, *Layer A is never locked* | token verification, fingerprint, keychain |
-| `wipemark-app` | window, theme, three-pane layout, bundle metadata | everything inside the panes |
+| `wipemark-log` | the rotating file, the level defaults, the panic hook, `Elided` | nothing — the surfaces that reveal a log directory (E6 / S6.1) |
+| `wipemark-store` | the SQLite file, its migrations, the `settings` key/value table | the history and queue tables (E4 / E6) |
+| `wipemark-secret` | the OS credential store behind one type, the `Secret` wrapper that will not print itself, an in-memory vault for tests | nothing — it is one job and it does it |
+| `wipemark-app` | window, theme, the toolbar and the queue (a table of what was dropped or imported, with previews — see [queue.md](queue.md)), bundle metadata, the typed icon set, the menu-bar item, the Settings window and its General / Engine / MCP sections, and the MCP server itself — it binds, speaks the protocol and lists its tools | the editors and the inspector that open from a row; the work those MCP tools will do, which refuses and names epic E1; and the requests the Engine section configures, which name epic E2 |
 | `wipemark-cli` | argument surface, exit codes, request echo | every command body |
 
 Stubs refuse loudly. `wipemark-cli` exits **2** and names the epic that
@@ -26,7 +30,8 @@ success is a hook that silently passes.
 
 **S0.1 — crates and the dependency rule.** `core ← engine ← pipeline ←
 app/cli`, `models` independent of `engine`, `image` depending only on
-`core`, nothing depending on an app. Enforced by
+`core`, `i18n` a leaf that no library may depend on, nothing depending
+on an app. Enforced by
 `scripts/check-dep-direction.sh`, which reads manifests rather than the
 resolved graph so it runs offline in a second. A crate that is not
 classified in that script fails the check — adding a crate means
@@ -62,7 +67,10 @@ lives in `wipemark-models::layout` and is repeated in the app's
 service name, derive from it. `Layout` takes its root as a value, so a
 test gets a scratch root without mutating process-global environment.
 `WIPEMARK_DATA_DIR` redirects everything for development. The icon is
-absent on purpose — see `apps/wipemark-app/assets/icon/README.md`.
+generated from one SVG by `icons/create-icons.sh` and installed into
+`apps/wipemark-app/assets/icon/`, which `[package.metadata.bundle]`
+names; the packaging around it — signing, notarisation, the `.desktop`
+entry — is still E10's.
 
 **S0.5 — `FakeEngine`.** Deterministic (SplitMix64 over seed ⊕ FNV-1a of
 the prompt), no I/O, streams token by token, checks cancellation between
@@ -100,15 +108,17 @@ from it.
    Mistral — two of those are not the same actor — and `Unknown` is not
    evidence. A warning that fires on everything is a warning users learn
    to click through.
-7. **The manifest ships empty.** Every entry carries a `sha256` and a
-   `size_bytes` the downloader enforces; inventing them would produce a
-   catalogue that fails verification on first use. E3 fills it after
-   checking current file names on Hugging Face.
+7. **The manifest shipped empty, and no longer does.** Every entry
+   carries a `sha256` and a `size_bytes` the downloader enforces, so it
+   stayed empty until those could be *read* off Hugging Face rather than
+   invented. Two rewriters ship now — see
+   `docs/architecture/model-downloads.md` — and the rule that produced
+   the empty file is the same one that governs the full one.
 
 ## Deliberately absent
 
 UCD table generation and the classifier (E1) · the two real engines
-(E2) · the resumable downloader and signature verification (E3) · the
+(E2) · signature verification of a mirrored manifest (E9) · the
 job state machine, chunking, tactics, selection loop and scorers (E4) ·
 every CLI command body (E5) · the tokio ↔ GPUI bridge, settings
 hot-reload, theming and onboarding (E6) · the panes' contents (E7, E8) ·

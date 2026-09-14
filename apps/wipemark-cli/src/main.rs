@@ -19,6 +19,19 @@
 //! those files are unmarked, and a hook that treats that as success is
 //! worse than no hook.
 //!
+//! # Language
+//!
+//! `--language`, then `WIPEMARK_LANG`, then the `ui.language` setting
+//! the app stores in `wipemark.db`, then the desktop. The flag is read out of `argv`
+//! *before* clap parses, because `--help` is printed during parsing and
+//! `wipemark-cli --language=de --help` has to print German.
+//!
+//! Output is rendered as [`Rendering::PlainText`], which is not a
+//! cosmetic choice: Fluent isolates interpolated values with U+2068 and
+//! U+2069 by default, those are `UnicodeClass::BidiControl`, and this
+//! program exists to remove them. A `--json` report carrying isolation
+//! marks would fail Wipemark's own inspection.
+//!
 //! # Skeleton status
 //!
 //! Epic **E0**: argument surface and exit codes are real and tested; the
@@ -28,7 +41,8 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Command, CommandFactory, FromArgMatches, Parser, Subcommand};
+use wipemark_i18n::{args, t, t_args, LanguagePreference, Message, Rendering};
 
 /// Process exit codes. `#[repr(u8)]` and the `From` impl keep the
 /// numbers in one place — a hook contract that drifts is a hook that
@@ -53,116 +67,114 @@ impl From<Exit> for ExitCode {
 }
 
 #[derive(Debug, Parser)]
-#[command(
-    name = "wipemark-cli",
-    version,
-    about = "Strip AI provenance marks from your own text and images",
-    long_about = None,
-)]
+#[command(name = "wipemark-cli", version, long_about = None)]
 struct Cli {
+    /// Help text comes from the catalogue — see `localized`. Declared
+    /// here so that clap validates it and lists it, and read after
+    /// parsing to tell the user when the language they asked for is not
+    /// one this build ships.
+    #[arg(long, global = true, value_name = "TAG")]
+    language: Option<String>,
     #[command(subcommand)]
-    command: Command,
+    command: Action,
 }
 
+/// The commands. Deliberately carrying no doc comments.
+///
+/// clap's derive turns a doc comment into help text, and every one of
+/// these has a `cli-command-*` or `cli-arg-*` message behind it that
+/// [`localized`] sets instead. A doc comment here would be the same
+/// English in a second place — dead, because it is always overwritten,
+/// and free to drift from the string users actually read. It would also
+/// hide the one failure this arrangement can have: an argument added
+/// with no catalogue entry has *no* help at all, which
+/// `every_argument_and_subcommand_has_help` catches, and would not if a
+/// doc comment were quietly standing in for it.
 #[derive(Debug, Subcommand)]
-enum Command {
-    /// Report what is in a document without changing it.
+enum Action {
     Inspect {
-        /// File to read, or `-` for stdin.
         path: String,
         #[arg(long)]
         json: bool,
     },
-    /// Layer A only: deterministic, verifiable, no model involved.
     Clean {
         path: String,
-        /// Output file. Defaults to `<name>.cleaned.<ext>` beside the
-        /// input; in-place needs an explicit flag, never a default.
         #[arg(short, long)]
         out: Option<PathBuf>,
-        /// Apply NFKC normalisation (off by default — it rewrites more
-        /// than provenance marks).
         #[arg(long)]
         nfkc: bool,
-        /// Also act on homoglyphs and exotic spaces. Higher false
-        /// positive rate, hence opt-in.
         #[arg(long)]
         aggressive: bool,
         #[arg(long)]
         json: bool,
     },
-    /// Layer A, then a model rewrite, then Layer A again.
     Rewrite {
         path: String,
         #[arg(short, long)]
         out: Option<PathBuf>,
-        /// `local` or `remote`.
         #[arg(long, default_value = "local")]
         engine: String,
-        /// Manifest model id.
         #[arg(long)]
         model: Option<String>,
-        /// Tactic ladder entry: paraphrase, humanize, back_translate,
-        /// structural, code.
         #[arg(long, default_value = "paraphrase")]
         tactic: String,
         #[arg(long, default_value_t = 2)]
         candidates: u8,
         #[arg(long, default_value_t = 2)]
         rounds: u8,
-        /// Proceed even when the rewriting engine is the vendor
-        /// suspected of marking the document — which is likely to
-        /// re-apply the mark (spec §4.4).
+        /// The non-origin rule (spec §4.4). Opt-in, never a default —
+        /// the only flag whose *meaning* is a product rule rather than a
+        /// convenience, which is why it keeps a note here as well as a
+        /// help string.
         #[arg(long)]
         force: bool,
         #[arg(long)]
         json: bool,
     },
-    /// Manage downloaded weights.
     #[command(subcommand)]
-    Models(ModelsCommand),
-    /// Walk a directory and report findings, for CI.
+    Models(ModelsAction),
     Audit {
         dir: PathBuf,
         #[arg(long)]
         json: bool,
-        /// SARIF output, for code scanning dashboards.
         #[arg(long)]
         sarif: bool,
     },
 }
 
 #[derive(Debug, Subcommand)]
-enum ModelsCommand {
-    /// List the manifest and what is installed.
+enum ModelsAction {
     List,
-    /// Download a model by id, resuming if a partial file exists.
     Pull { id: String },
-    /// Re-hash an installed model against the manifest.
     Verify { id: String },
-    /// Delete an installed model.
     Rm { id: String },
 }
 
-impl Command {
-    /// Epic that implements this command — named in the "not
-    /// implemented" message so the message is actionable.
+impl Action {
+    /// Epic that implements this command.
+    ///
+    /// For the **log line** and nothing else. It used to be in the
+    /// refusal the user reads, and a build number from our own backlog
+    /// is not something anybody outside this repository can act on —
+    /// what they can act on is "not implemented yet", which the message
+    /// says. Whoever is debugging still gets it, in the file, where
+    /// every other unlocalized fact goes.
     fn epic(&self) -> &'static str {
         match self {
-            Command::Inspect { .. } | Command::Clean { .. } => "E1 + E5",
-            Command::Rewrite { .. } => "E2 + E4 + E5",
-            Command::Models(_) => "E3",
-            Command::Audit { .. } => "E5",
+            Action::Inspect { .. } | Action::Clean { .. } => "E1 + E5",
+            Action::Rewrite { .. } => "E2 + E4 + E5",
+            Action::Models(_) => "E3",
+            Action::Audit { .. } => "E5",
         }
     }
 
     fn name(&self) -> &'static str {
         match self {
-            Command::Inspect { .. } => "inspect",
-            Command::Clean { .. } => "clean",
-            Command::Rewrite { .. } => "rewrite",
-            Command::Models(_) => "models",
-            Command::Audit { .. } => "audit",
+            Action::Inspect { .. } => "inspect",
+            Action::Clean { .. } => "clean",
+            Action::Rewrite { .. } => "rewrite",
+            Action::Models(_) => "models",
+            Action::Audit { .. } => "audit",
         }
     }
 
@@ -176,10 +188,10 @@ impl Command {
     /// flag.
     fn summary(&self) -> String {
         match self {
-            Command::Inspect { path, json } => {
+            Action::Inspect { path, json } => {
                 format!("inspect {path} (json={json})")
             }
-            Command::Clean {
+            Action::Clean {
                 path,
                 out,
                 nfkc,
@@ -189,7 +201,7 @@ impl Command {
                 "clean {path} -> {} (nfkc={nfkc}, aggressive={aggressive}, json={json})",
                 render_out(out.as_deref())
             ),
-            Command::Rewrite {
+            Action::Rewrite {
                 path,
                 out,
                 engine,
@@ -205,13 +217,13 @@ impl Command {
                 render_out(out.as_deref()),
                 model.as_deref().unwrap_or("<from config>"),
             ),
-            Command::Models(models) => match models {
-                ModelsCommand::List => "models list".to_owned(),
-                ModelsCommand::Pull { id } => format!("models pull {id}"),
-                ModelsCommand::Verify { id } => format!("models verify {id}"),
-                ModelsCommand::Rm { id } => format!("models rm {id}"),
+            Action::Models(models) => match models {
+                ModelsAction::List => "models list".to_owned(),
+                ModelsAction::Pull { id } => format!("models pull {id}"),
+                ModelsAction::Verify { id } => format!("models verify {id}"),
+                ModelsAction::Rm { id } => format!("models rm {id}"),
             },
-            Command::Audit { dir, json, sarif } => {
+            Action::Audit { dir, json, sarif } => {
                 format!("audit {} (json={json}, sarif={sarif})", dir.display())
             }
         }
@@ -225,32 +237,476 @@ fn render_out(out: Option<&std::path::Path>) -> String {
     }
 }
 
+/// Argument help, by clap id.
+///
+/// Ids repeat across subcommands — `clean`, `rewrite` and `audit` all
+/// take `--json` — and an argument that means the same thing reads the
+/// same way, so the table is flat and [`localized`] applies whichever
+/// entries a given subcommand actually has. `path` is the exception and
+/// is set per subcommand: only `inspect` takes `-` for stdin, and help
+/// that offers it everywhere would be help that lies.
+const ARGUMENT_HELP: [(&str, Message); 14] = [
+    ("path", Message::CliArgPath),
+    ("out", Message::CliArgOut),
+    ("nfkc", Message::CliArgNfkc),
+    ("aggressive", Message::CliArgAggressive),
+    ("json", Message::CliArgJson),
+    ("engine", Message::CliArgEngine),
+    ("model", Message::CliArgModel),
+    ("tactic", Message::CliArgTactic),
+    ("candidates", Message::CliArgCandidates),
+    ("rounds", Message::CliArgRounds),
+    ("force", Message::CliArgForce),
+    ("id", Message::CliArgId),
+    ("dir", Message::CliArgDir),
+    ("sarif", Message::CliArgSarif),
+];
+
+/// Put one command's own description, its arguments' help and the frame
+/// around them into the current language.
+fn localized(command: Command, about: Message) -> Command {
+    let template = help_template(&command);
+    let mut command = command.about(t(about)).help_template(template);
+    for (id, message) in ARGUMENT_HELP {
+        // `mut_arg` panics on an id the command does not have, and most
+        // of these are on one subcommand each.
+        if command
+            .get_arguments()
+            .any(|argument| argument.get_id() == id)
+        {
+            command = command.mut_arg(id, |argument| argument.help(t(message)));
+        }
+    }
+    command
+}
+
+/// The two flags clap generates for itself. Their help is an English
+/// constant inside the crate; `mut_arg` reaches it, but only after
+/// `build` has created them — see [`localized_command`].
+const BUILT_IN_HELP: [(&str, Message); 2] = [
+    ("help", Message::CliHelpPrintHelp),
+    ("version", Message::CliHelpPrintVersion),
+];
+
+/// Translate everything clap generated for itself, at every depth.
+///
+/// `-h`, `-V` and the `help` subcommand are created by `build`, so none
+/// of them exists while the tree is being described and all of them are
+/// still English once it is. Walking the built tree is what is left, and
+/// it has to recurse: `wipemark-cli models pull --help` is three levels
+/// down and prints its own `-h` line.
+fn localize_built_ins(command: Command) -> Command {
+    let mut command = command;
+    for (id, message) in BUILT_IN_HELP {
+        if command
+            .get_arguments()
+            .any(|argument| argument.get_id() == id)
+        {
+            command = command.mut_arg(id, |argument| argument.help(t(message)));
+        }
+    }
+
+    let names: Vec<String> = command
+        .get_subcommands()
+        .map(|subcommand| subcommand.get_name().to_owned())
+        .collect();
+    for name in names {
+        command = command.mut_subcommand(&name, |subcommand| {
+            let subcommand = if subcommand.get_name() == "help" {
+                // The one generated subcommand, and the only place its
+                // description can be set.
+                subcommand.about(t(Message::CliCommandHelp))
+            } else {
+                subcommand
+            };
+            localize_built_ins(subcommand)
+        });
+    }
+    command
+}
+
+/// clap's section headings, in the current language.
+///
+/// clap has no localization: `Usage:`, `Commands:`, `Options:` and
+/// `Arguments:` are constants inside it, and the only way out is to
+/// stop using the `{all-args}` placeholder that draws them and lay the
+/// sections out by hand. Which sections exist differs per command — a
+/// leaf takes no subcommands — so the template is built per command
+/// rather than shared, and an empty heading never gets printed.
+///
+/// The order is clap's own, so a reader who knows the tool is not
+/// reading a different shape in German.
+fn help_template(command: &Command) -> String {
+    use std::fmt::Write as _;
+
+    let mut template = format!(
+        "{{before-help}}{{about-with-newline}}\n{} {{usage}}\n",
+        t(Message::CliHelpUsage)
+    );
+    if command.get_subcommands().next().is_some() {
+        let _ = write!(
+            template,
+            "\n{}\n{{subcommands}}\n",
+            t(Message::CliHelpCommands)
+        );
+    }
+    if command.get_positionals().next().is_some() {
+        let _ = write!(
+            template,
+            "\n{}\n{{positionals}}\n",
+            t(Message::CliHelpArguments)
+        );
+    }
+    let _ = write!(
+        template,
+        "\n{}\n{{options}}{{after-help}}",
+        t(Message::CliHelpOptions)
+    );
+    template
+}
+
+/// The whole command tree, in the current language.
+///
+/// Built rather than derived-and-left-alone because clap takes its help
+/// from doc comments, which are `&'static str` and therefore English
+/// forever. Everything user-visible is set here from the catalogue; the
+/// *structure* — flags, defaults, arities — stays in the derive, where
+/// `debug_assert` can check it.
+fn command() -> Command {
+    localized(Cli::command(), Message::CliAbout)
+        .mut_arg("language", |argument| {
+            argument.help(t(Message::CliArgLanguage))
+        })
+        .mut_subcommand("inspect", |inspect| {
+            localized(inspect, Message::CliCommandInspect)
+                .mut_arg("path", |path| path.help(t(Message::CliArgPathOrStdin)))
+        })
+        .mut_subcommand("clean", |clean| localized(clean, Message::CliCommandClean))
+        .mut_subcommand("rewrite", |rewrite| {
+            localized(rewrite, Message::CliCommandRewrite)
+        })
+        .mut_subcommand("audit", |audit| localized(audit, Message::CliCommandAudit))
+        .mut_subcommand("models", |models| {
+            localized(models, Message::CliCommandModels)
+                .mut_subcommand("list", |c| localized(c, Message::CliCommandModelsList))
+                .mut_subcommand("pull", |c| localized(c, Message::CliCommandModelsPull))
+                .mut_subcommand("verify", |c| localized(c, Message::CliCommandModelsVerify))
+                .mut_subcommand("rm", |c| localized(c, Message::CliCommandModelsRm))
+        })
+}
+
+/// The command tree, fully translated — ours and clap's own.
+///
+/// Two passes, because of an ordering rule inside clap: `-h`, `-V` and
+/// the `help` subcommand do not exist until `build` runs, and asking for
+/// any of them earlier panics with "Command `help` is undefined". So
+/// [`command`] describes the tree, `build` fills in clap's own pieces,
+/// and [`localize_built_ins`] translates those.
+fn localized_command() -> Command {
+    let mut command = command();
+    command.build();
+    localize_built_ins(command)
+}
+
+/// Find `--language` in the raw arguments, before clap has run.
+///
+/// The chicken and egg: `--help` and `--version` are printed *during*
+/// parsing and then the process exits, so a language chosen on the
+/// command line has to be known before the parser is built. Both
+/// spellings clap accepts are recognised, and scanning stops at a bare
+/// `--` because everything after it is an operand, not a flag.
+///
+/// A pure function over a slice so the shapes can be tested without a
+/// subprocess.
+fn preparse_language<S: AsRef<str>>(arguments: &[S]) -> Option<String> {
+    let mut arguments = arguments.iter().map(AsRef::as_ref);
+    while let Some(argument) = arguments.next() {
+        if argument == "--" {
+            return None;
+        }
+        if let Some(value) = argument.strip_prefix("--language=") {
+            return Some(value.to_owned());
+        }
+        if argument == "--language" {
+            return arguments.next().map(ToOwned::to_owned);
+        }
+    }
+    None
+}
+
+/// The `ui.language` setting out of the local database, or `None` for
+/// every way it can be absent — no database yet, a database this build
+/// cannot read, or a value that is not a language tag. None of those is
+/// a reason for the CLI to refuse to run; the app is the surface that
+/// reports them.
+///
+/// A reader and no writer, and deliberately a *read-only* open: a
+/// `--help` run has no business creating a database in a fresh home
+/// directory, and none at all migrating one the app has open. WAL is
+/// what makes this safe to do while the app is running — see
+/// `crates/wipemark-store`.
+fn configured_language() -> Option<LanguagePreference> {
+    let path = wipemark_models::layout::Layout::discover().ok()?.db_path();
+    let store = wipemark_store::Store::open_read_only(path).ok()??;
+    // Spelled out rather than shared: `config::LANGUAGE_KEY` lives in
+    // the app crate, and a library must not depend on an app. The key
+    // is a format — it is never translated and never renamed without
+    // renaming it here too.
+    let value: String = store.settings().get("ui.language").ok()??;
+    LanguagePreference::parse(&value)
+}
+
+/// Install the rotating log and the panic hook.
+///
+/// Same file shape, same directory and same rotation as the app, under
+/// the stem `wipemark-cli` so that the two share a directory without
+/// pruning each other's history.
+///
+/// **The stderr mirror is off by default, and that is a contract and
+/// not a preference.** This program's stderr carries the diagnostic a
+/// pre-commit hook shows its user, and its stdout carries `--json`.
+/// Pouring INFO lines into either would put log text inside somebody's
+/// parser. `WIPEMARK_LOG` turns the mirror on — asking for logs on a
+/// terminal is the one moment the mirror is what you wanted.
+///
+/// Failures are silent for the same reason: a program that could not
+/// open its log file must not say so on a stream that is being parsed.
+/// A missing data directory means no file and no complaint.
+fn init_logging() {
+    let Ok(directory) = wipemark_models::layout::Layout::discover().map(|l| l.logs_dir()) else {
+        return;
+    };
+    let stderr = std::env::var_os(wipemark_log::FILTER_ENV).is_some();
+    let _ = wipemark_log::init(
+        wipemark_log::Options::new("wipemark-cli", directory).with_stderr(stderr),
+    );
+}
+
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    // Before the parser and before the catalogue: `--help` exits inside
+    // `get_matches` and never returns here, and a panic anywhere in the
+    // argument surface should leave the same trace as one anywhere else.
+    init_logging();
+
+    // Before the parser, because `--help` never reaches the code below.
+    let arguments: Vec<String> = std::env::args().collect();
+    let requested = preparse_language(&arguments);
+    let preference = LanguagePreference::resolve(requested.as_deref(), configured_language());
+    // PlainText, not Ui: this output is piped, redirected and committed.
+    // See the module header.
+    let resolved = wipemark_i18n::init(&preference, Rendering::PlainText);
+
+    let cli = match Cli::from_arg_matches(&localized_command().get_matches()) {
+        Ok(cli) => cli,
+        // clap has already printed its own diagnostic, localized above.
+        Err(error) => error.exit(),
+    };
+
+    // Only when the user asked out loud. A desktop set to a language
+    // this build does not ship is not something to complain about on
+    // every run; `--language pt-BR` is.
+    if let Some(asked) = cli.language.as_deref() {
+        let asked = LanguagePreference::parse(asked);
+        if !asked.is_some_and(|asked| asked.is_honoured_by(&resolved)) {
+            let available = wipemark_i18n::available_languages()
+                .iter()
+                .map(|language| language.id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            eprintln!(
+                "wipemark-cli: {}",
+                t_args(
+                    Message::CliUnknownLanguage,
+                    &args!(
+                        "requested" => cli.language.clone().unwrap_or_default(),
+                        "available" => available,
+                    ),
+                )
+            );
+        }
+    }
+
+    // The catalogue string below is for the person reading the terminal.
+    // This line is for the file, in English, unlocalized: nothing a
+    // machine reads is translated, and a log is read by whoever is
+    // debugging, not by whoever ran it.
+    tracing::info!(
+        command = cli.command.name(),
+        epic = cli.command.epic(),
+        "not implemented"
+    );
 
     eprintln!(
-        "wipemark-cli: parsed `{}`, but `{}` is not implemented yet (epic {}).\n\
-         This build is the E0 skeleton: the argument surface and the exit\n\
-         codes are final, the behaviour is not. Exiting 2 rather than 0 —\n\
-         a hook that passes because nothing ran is worse than no hook.",
-        cli.command.summary(),
-        cli.command.name(),
-        cli.command.epic(),
+        "wipemark-cli: {}",
+        t_args(
+            Message::CliNotImplemented,
+            &args!(
+                "summary" => cli.command.summary(),
+                "command" => cli.command.name(),
+            ),
+        )
     );
     Exit::Usage.into()
 }
 
 #[cfg(test)]
 mod tests {
-    use clap::{CommandFactory, Parser};
+    use clap::Parser;
+    use wipemark_i18n::{t, Message};
 
-    use super::{Cli, Command, Exit, ModelsCommand};
+    use super::{command, localized_command, preparse_language, Action, Cli, Exit, ModelsAction};
 
     /// clap's own consistency check: duplicate short flags, bad defaults
     /// and conflicting arg names fail here instead of at a user's shell.
+    ///
+    /// Run over the localized tree rather than the derived one, because
+    /// `mut_arg` and `mut_subcommand` panic on an id that does not
+    /// exist: building it at all is most of the check.
     #[test]
     fn arg_surface_is_well_formed() {
-        Cli::command().debug_assert();
+        command().debug_assert();
+        let _ = localized_command();
+    }
+
+    /// Walk the built tree, applying `check` to every command in it.
+    fn for_every_command(command: &clap::Command, check: &mut impl FnMut(&clap::Command)) {
+        check(command);
+        for subcommand in command.get_subcommands() {
+            for_every_command(subcommand, check);
+        }
+    }
+
+    /// The gate that replaces the doc comments this file used to carry.
+    ///
+    /// Help now comes from the catalogue, so an argument added without a
+    /// `cli-arg-*` message has *no* help rather than a wrong one — an
+    /// empty column in `--help` that nothing else would notice. Same for
+    /// a subcommand with no `cli-command-*`.
+    #[test]
+    fn every_argument_and_subcommand_has_help() {
+        let mut missing: Vec<String> = Vec::new();
+        for_every_command(&localized_command(), &mut |command| {
+            let path = command.get_name().to_owned();
+            if command.get_about().is_none() && path != "wipemark-cli" {
+                missing.push(format!("{path}: no description"));
+            }
+            for argument in command.get_arguments() {
+                if argument.get_help().is_none() {
+                    missing.push(format!("{path} --{}: no help", argument.get_id()));
+                }
+            }
+        });
+        assert!(missing.is_empty(), "{missing:#?}");
+    }
+
+    /// Nothing in `--help` renders as a catalogue key. A message that
+    /// no language defines would print `cli-arg-sarif` into the help of
+    /// a shipped binary.
+    #[test]
+    fn no_help_string_is_a_catalogue_key() {
+        let keys: Vec<&str> = Message::ALL.iter().map(|message| message.id()).collect();
+        for_every_command(&localized_command(), &mut |command| {
+            let about = command.get_about().map(ToString::to_string);
+            if let Some(about) = about {
+                assert!(
+                    !keys.contains(&about.as_str()),
+                    "{about} is a key, not prose"
+                );
+            }
+            for argument in command.get_arguments() {
+                if let Some(help) = argument.get_help().map(ToString::to_string) {
+                    assert!(!keys.contains(&help.as_str()), "{help} is a key, not prose");
+                }
+            }
+        });
+    }
+
+    /// clap draws `Usage:`, `Commands:` and `Options:` from constants
+    /// inside itself. `help_template` is what replaces them, and this is
+    /// what notices if a clap upgrade stops honouring it — in whatever
+    /// language the suite happens to run in.
+    #[test]
+    fn the_help_headings_are_the_catalogue_ones() {
+        let help = localized_command().render_help().to_string();
+        for heading in [
+            t(Message::CliHelpUsage),
+            t(Message::CliHelpCommands),
+            t(Message::CliHelpOptions),
+        ] {
+            assert!(help.contains(&heading), "{heading:?} missing from:\n{help}");
+        }
+    }
+
+    /// The product's own rule, turned on the product's own help.
+    ///
+    /// `Rendering::PlainText` is what keeps Fluent's U+2068/U+2069 out
+    /// of this, and `--help` is the longest interpolated text the binary
+    /// prints. A hook that pipes it into a file must not be handed
+    /// characters Layer A would then flag.
+    #[test]
+    fn help_carries_no_character_layer_a_would_strip() {
+        let mut rendered = String::new();
+        let mut command = localized_command();
+        collect_help(&mut command, &mut rendered);
+
+        for character in rendered.chars() {
+            let code = character as u32;
+            assert!(
+                !matches!(code,
+                    0x00AD | 0x00A0 | 0x2000..=0x200F | 0x202A..=0x202E
+                    | 0x2060 | 0x2066..=0x2069 | 0xFEFF
+                ),
+                "the help text contains U+{code:04X}, which Layer A removes"
+            );
+        }
+    }
+
+    fn collect_help(command: &mut clap::Command, into: &mut String) {
+        into.push_str(&command.render_help().to_string());
+        let names: Vec<String> = command
+            .get_subcommands()
+            .map(|subcommand| subcommand.get_name().to_owned())
+            .collect();
+        for name in names {
+            if let Some(subcommand) = command.find_subcommand_mut(&name) {
+                collect_help(subcommand, into);
+            }
+        }
+    }
+
+    /// `--help` is printed *during* parsing, so the language has to be
+    /// known before clap runs. Both spellings, and the `--` that ends
+    /// the flags.
+    #[test]
+    fn the_language_flag_is_found_before_the_parser_runs() {
+        assert_eq!(
+            preparse_language(&["wipemark-cli", "--language", "de", "--help"]),
+            Some("de".to_owned())
+        );
+        assert_eq!(
+            preparse_language(&["wipemark-cli", "--language=ru", "inspect", "x"]),
+            Some("ru".to_owned())
+        );
+        assert_eq!(
+            preparse_language(&["wipemark-cli", "inspect", "x", "--language", "de"]),
+            Some("de".to_owned()),
+            "the flag is global, so it can come after the subcommand"
+        );
+        assert_eq!(
+            preparse_language(&["wipemark-cli", "inspect", "--"]),
+            None,
+            "no flag at all"
+        );
+        assert_eq!(
+            preparse_language(&["wipemark-cli", "--", "--language", "de"]),
+            None,
+            "everything after `--` is an operand, not a flag"
+        );
+        assert_eq!(
+            preparse_language(&["wipemark-cli", "--language"]),
+            None,
+            "a flag with no value is clap's error to report, not a panic here"
+        );
     }
 
     /// The hook contract. These four numbers are documented in the
@@ -268,7 +724,7 @@ mod tests {
     fn stdin_is_addressable_as_dash() {
         let cli = Cli::parse_from(["wipemark-cli", "inspect", "-", "--json"]);
         match cli.command {
-            Command::Inspect { path, json } => {
+            Action::Inspect { path, json } => {
                 assert_eq!(path, "-");
                 assert!(json);
             }
@@ -282,7 +738,7 @@ mod tests {
     fn rewrite_defaults_match_the_spec() {
         let cli = Cli::parse_from(["wipemark-cli", "rewrite", "note.md"]);
         match cli.command {
-            Command::Rewrite {
+            Action::Rewrite {
                 candidates,
                 rounds,
                 tactic,
@@ -321,7 +777,7 @@ mod tests {
     fn models_subcommands_parse() {
         let cli = Cli::parse_from(["wipemark-cli", "models", "pull", "qwen3-8b"]);
         match cli.command {
-            Command::Models(ModelsCommand::Pull { id }) => assert_eq!(id, "qwen3-8b"),
+            Action::Models(ModelsAction::Pull { id }) => assert_eq!(id, "qwen3-8b"),
             other => panic!("parsed as {other:?}"),
         }
     }

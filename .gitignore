@@ -50,8 +50,27 @@ Thumbs.db
 /queue.json
 /history.jsonl
 
+# ── Font Awesome Free staging (icon curation) ────────────────────────
+# The corpus is pulled into dev-staging/ to promote single glyphs into
+# apps/wipemark-app/assets/icons/. None of it is committed:
+# node_modules/ is large and exactly reproducible from package.json,
+# an unpacked tarball is the same thing by another road, and
+# package-lock.json records the resolved registry URL. The build reads
+# only the promoted SVGs, which are committed. See
+# docs/architecture/icons.md.
+/dev-staging/node_modules/
+/dev-staging/fontawesome-free/
+/dev-staging/package-lock.json
+
 # ── Packaging output ─────────────────────────────────────────────────
 /dist/
 *.dmg
 *.AppImage
 *.deb
+
+# ── Scratch clones / upstream reference checkouts ────────────────────
+# Third-party repositories cloned for reference (e.g. the
+# watermarks-remover survey in docs/sdd/). Read-only, never vendored:
+# vendoring goes through .gitmodules so the rev is pinned and the
+# licence is recorded in NOTICE.
+/tmp/

@@ -26,6 +26,22 @@ pub mod not_established {
     /// Whether a mark survives in a form we do not parse.
     pub const UNKNOWN_MARK_SCHEMES: &str =
         "marks in schemes this build does not implement — not searched for";
+
+    /// The whole shelf, as `(id, canonical English)`, in the order a
+    /// report lists it.
+    ///
+    /// The id is a format — `--json` emits it, and `wipemark-i18n` keys
+    /// `report-not-established-<id>` off it — so it is renamed with the
+    /// same care as a config key. The English beside it is the
+    /// locale-neutral canon, not a label: the translations live in the
+    /// catalogue, and the i18n suite goes red for an entry here that has
+    /// none. That is what stops the shelf from quietly emptying in every
+    /// language but this one.
+    pub const ALL: [(&str, &str); 3] = [
+        ("vendor-detector-evasion", VENDOR_DETECTOR_EVASION),
+        ("human-authorship", HUMAN_AUTHORSHIP),
+        ("unknown-mark-schemes", UNKNOWN_MARK_SCHEMES),
+    ];
 }
 
 /// Cheap document statistics, used for chunk budgeting, language

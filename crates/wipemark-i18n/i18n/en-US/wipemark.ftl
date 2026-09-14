@@ -1,0 +1,1013 @@
+### Wipemark — the message catalogue.
+###
+### `en-US` is the source of truth. `build.rs` walks this file and
+### generates the `Message` enum from it, so a key that is not here does
+### not exist in Rust either and a typo is a compile error rather than a
+### `???` in a shipped window.
+###
+### Rules for anyone editing a translation:
+###
+###   * Every language file carries exactly these keys. Adding one here
+###     and nowhere else is fine — the missing languages fall back to
+###     English. Adding one to a translation *only* fails the suite,
+###     because it is a key nothing will ever ask for.
+###   * Keep the `{ $variables }`. `catalogue_variables_match_the_
+###     fallback` fails on a renamed one, because a placeable that names
+###     a variable the caller does not pass renders as its own name.
+###   * Nothing here may claim the result is undetectable, in any
+###     language. There is no oracle for it (spec §0.1 rule 3), and
+###     `no_language_promises_more_than_the_product_does` is the gate.
+
+# The product name. A term rather than a message: terms exist to be
+# referenced instead of shown on their own, and a brand is not
+# translated — the same rule `wipemark_core::Vendor` states for vendor
+# names.
+-brand-name = Wipemark
+
+# The deterministic Unicode scrubber, as the product names it. A term so
+# that a language which would rather write "Ebene A" decides that once
+# here instead of in nine separate messages.
+-layer-a = cleaning
+
+# The model rewrite, likewise. Best-effort by construction, which is
+# why nothing that names it may claim more — see the third-shelf rule
+# above.
+-layer-b = rewriting
+
+## Window
+
+window-title = { -brand-name }
+
+## The toolbar.
+##
+## Two buttons over the queue. Import opens the platform's file picker;
+## `toolbar-import-choose` is the picker's own confirm button, so it is
+## a verb on its own. Help is a popover of four lines, the panel's help
+## in shape: how things get in, what the preview and the Actions menu
+## do, what is not here yet, and where the rest of the application is.
+
+toolbar-import = Import…
+toolbar-import-tooltip = Choose files or folders. They arrive the way a drop does.
+toolbar-import-choose = Import
+toolbar-paste = Paste
+toolbar-paste-text = Paste text
+toolbar-paste-image = Paste image
+toolbar-paste-files = Paste { $count ->
+        [one] file
+       *[other] { $count } files
+    }
+toolbar-paste-items = Paste { $count } items
+toolbar-paste-tooltip = What is on the clipboard arrives the way a drop does. Greyed out while there is nothing this window can take.
+toolbar-help = Help
+toolbar-help-tooltip = What this window does
+toolbar-help-drop = Drop text, an image or files anywhere on this window, press Import to choose them, or Paste what is on the clipboard.
+toolbar-help-preview = Rest the pointer on a preview to see it larger. The Actions menu at the end of a row opens a file with the app the system would.
+toolbar-help-pending = The cleaning itself is not in this version yet: the window takes what arrives and says what it is.
+toolbar-help-elsewhere = The quick-scrub panel is in the menu bar; the preferences are behind the gear at the bottom right.
+
+## The queue — the main window's table.
+##
+## One row per thing that arrived, lazy-shot's table in shape: a filter
+## bar (id and keyword, both substrings), a sortable Arrived column and
+## a paginator. Column titles are short because the columns are; the
+## values under them are formats and names, which are never translated.
+## `queue-count`, `queue-count-filtered`, `queue-page-size` and
+## `queue-page` take numbers.
+
+queue-column-preview = Preview
+queue-column-id = ID
+queue-column-keyword = Keyword
+queue-column-name = Name
+queue-column-kind = Kind
+queue-column-format = Format
+queue-column-size = Size
+queue-column-arrived = Arrived
+queue-column-actions = Actions
+queue-empty-invite = Nothing here yet. Drop text, an image or files, press Import, or paste from the clipboard.
+queue-empty-release = Let go, and it will say what it is.
+queue-count = { $count ->
+        [one] { $count } item
+       *[other] { $count } items
+    }
+queue-pending = The cleaning itself is not in this version yet. What is real today is that this list takes what you drop or import and says what it is.
+queue-preview-pending = Reading…
+queue-preview-cut = The first { $count } characters; the rest is not shown here.
+queue-actions = Actions
+queue-action-open = Open with the default app
+queue-action-compare = Compare with the result
+queue-copy = Copy
+queue-filter-id = Search by ID
+queue-filter-keyword = Search by keyword
+queue-reset-filters = Reset filters
+queue-count-filtered = { $count } of { $total ->
+        [one] { $total } item
+       *[other] { $total } items
+    }
+queue-empty-filtered = Nothing matches these filters.
+queue-sort-newest = Newest first
+queue-sort-oldest = Oldest first
+queue-page-size = { $count } per page
+queue-page = Page { $page } of { $pages }
+queue-previous = Previous
+queue-next = Next
+
+## Status bar
+
+# Honest by default: with no engine configured the product is a
+# deterministic scrubber and says so, rather than implying a rewrite is
+# available. Layer A is never licence-gated.
+status-idle-no-engine = Idle · no engine configured · { -layer-a } only
+# Somebody is on duty and nothing would leave: local weights, or an
+# endpoint on this machine. $model is the model's own name, never
+# translated.
+status-idle-here = Idle · { $model } · nothing leaves this machine · { -layer-a } only
+# $host is scheme, host and port — the machine the document would go to.
+status-idle-away = Idle · { $model } at { $host } · the document would leave this machine · { -layer-a } only
+
+## Settings.
+##
+## One dialog, reached from the menu bar or from the gear in the status
+## bar, rather than controls sitting in the status bar itself: a
+## preference is something you go and change, not something you trip
+## over while working.
+##
+## Each row is a title and a sentence under it. The sentence is where
+## the honest half of the promise goes — what `System` follows, and
+## when it stops following — because that is the difference between the
+## three appearance choices and the three language ones, and neither
+## title has room to say it.
+
+settings-title = Settings
+
+# The menu item that opens the dialog. The ellipsis is the platform
+# convention for "this opens something further"; it is punctuation
+# rather than a word, so a translation keeps it.
+settings-open = Settings…
+
+settings-appearance-title = Appearance
+settings-appearance-description = System follows the desktop, including a change made while { -brand-name } is open.
+
+settings-language-title = Language
+settings-language-description = Every language is listed under its own name. System follows the desktop and is resolved when { -brand-name } starts.
+
+# The row that reopens the walk-through below. Its stored value is
+# whether the walk-through has been through once; the button does not
+# touch that — Finish and Skip inside the walk-through do.
+settings-setup-title = Setup
+settings-setup-description = The walk-through that opens on the first launch: what this machine has room for, who would rewrite, and the model or the endpoint that takes. It changes the same rows the Engine and Models pages do, and nothing else.
+settings-setup-run = Run again…
+# Debug builds only. Forgets that the walk-through was shown, so the
+# next launch opens it by itself — the path "Run again" does not take.
+# Named as such on the button, because a control that exists in one
+# build and not the other should say which.
+settings-setup-reset = Forget it was shown (debug build)
+
+## Setup — the walk-through.
+##
+## Over the main window on the first launch, and from the row above
+## afterwards. It is not a sixth page of preferences: every choice it
+## offers is a row on the Engine or Models page, and it writes those
+## rows and the one saying it has been through. The bargain the Engine
+## and Models banners keep is kept here too — nothing rewrites in this
+## version — and the last step says so in the banner it borrows from
+## the Engine page. Nothing here may promise more than those pages do.
+
+setup-title = Set up { -brand-name }
+setup-skip = Skip
+setup-back = Back
+setup-next = Next
+setup-finish = Finish
+
+# The steps, as the row of numbered circles across the top names them.
+# The fourth is one of two, decided by the answer to the third.
+setup-step-welcome = Welcome
+setup-step-machine = This machine
+setup-step-who = Who rewrites
+setup-step-model = The model
+setup-step-endpoint = The endpoint
+setup-step-done = Done
+
+setup-welcome-body = { -brand-name } strips AI provenance marks from your own content in two layers: { -layer-a }, which removes the invisible characters and is deterministic, and { -layer-b }, which asks a language model for a paraphrase. Neither runs in this version yet. What these steps settle is what { -layer-b } will need when it does: who would rewrite, and what that takes.
+setup-welcome-again = Everything here can be changed later under Settings, and this walk-through can be run again from its General page.
+
+# Step 2. $model is the catalogue entry's display name, $ram what it
+# needs and $total what the machine has — all in MB, the figures the
+# Models page shows, so the two never disagree in front of the reader.
+setup-machine-reading = Reading this machine…
+setup-machine-here = This machine reports { $total } MB of memory and has room for { $model }, which needs about { $ram } MB. The rewrite can stay on this computer, and that is the recommendation.
+setup-machine-tight = This machine reports { $total } MB of memory and can hold { $model }, which needs about { $ram } MB — with little left for anything else. Keeping the rewrite here is still the recommendation; an endpoint is the alternative.
+# $short is how far the smallest entry is out of reach.
+setup-machine-away = This machine reports { $total } MB of memory, and nothing in the catalogue fits: the smallest model, { $model }, needs { $short } MB more. An endpoint — a server somewhere else — is the recommendation, and the document would go to it.
+setup-machine-unjudged = This machine's memory could not be read, so nothing is judged against it and nothing is recommended. Either choice on the next step works; { $model } is the smallest model in the catalogue.
+setup-machine-nothing = The catalogue ships no model for rewriting, so an endpoint is the only way to have one.
+# One line under the verdict about the pool the model would compete
+# for. Never "no video memory": unknown is unknown, and a model refused
+# on that account would be the worse mistake.
+setup-machine-unified = One pool of memory, shared by the model and everything else that is running.
+setup-machine-vram = Video memory: { $vram } MB. That decides how fast, not whether a model runs.
+setup-machine-vram-unknown = Video memory: not measured. It decides how fast, not whether a model runs, so nothing is refused on its account.
+
+# Step 3. The two labels are the Engine page's own — see
+# `settings-engine-serves-machine` and `-endpoint` — and these are the
+# lines under them.
+setup-who-body = Two things can rewrite a document, and they differ in the one way that matters: whether the document leaves this computer.
+setup-who-machine-line = The document never leaves this computer. Needs a downloaded model.
+setup-who-endpoint-line = A server you name. The document is sent to it — and a remote one also needs “{ settings-engine-allow-remote-title }” on the Engine page before anything is.
+setup-who-ordered = Asking one and then the other is a choice too, on the Engine page.
+
+# Step 4, when this machine rewrites. The card under it is the Models
+# page's card for the recommended entry.
+setup-model-body = Weights are downloaded once, checked against the catalogue's checksum before anything is kept, and stay under { -brand-name }'s data directory until removed. The first model to arrive is chosen for rewriting.
+setup-model-others = The rest of the catalogue is on the Models page.
+setup-open-models = Open the Models page…
+
+# Step 4, when an endpoint rewrites. The rows live on the Engine page,
+# and this step opens it rather than repeating them.
+setup-endpoint-body = The provider, the address, the model's name and the key are the Engine page's rows, and this step opens it rather than repeating them. Come back here and the line below says what those rows add up to.
+setup-open-engine = Open the Engine page…
+
+# Step 5. The banner above this sentence is the Engine page's own, so
+# whatever it says there it says here.
+setup-done-body = Everything chosen here is on the Engine and Models pages, and this walk-through is under Settings › General.
+
+## System-wide shortcuts — the keys that reach { -brand-name } from any
+## application. One row per action; the recorder under each is
+## src/recorder.rs and the rules are src/hotkey.rs. The chord itself is
+## painted by the component library in the platform's own spelling
+## (⌥⇧⌘L, Alt+Shift+Ctrl+L) and is not a catalogue string; neither are
+## the key names on the two buttons under a listening field. What is
+## here is every sentence around them.
+##
+## The description deliberately names no modifier glyph: it is read on
+## three desktops with three spellings of the same key.
+
+# The panel is the action a system-wide shortcut is really for: it is
+# summoned over somebody else's document, from inside whatever the user
+# is reading. It is also the only row that arrives with a chord already
+# in it — the sentence says so without naming the keys, because the
+# field beside it paints them in the platform's own spelling.
+settings-shortcut-panel-title = Shortcut for the panel
+settings-shortcut-panel-description = Summons the panel over whatever you are working in, and sends it away again. This one arrives with a shortcut already set: record other keys to change it, Backspace clears it for good, Escape keeps what was there.
+
+settings-shortcut-show-title = Shortcut to bring { -brand-name } forward
+settings-shortcut-show-description = Works from any application while { -brand-name } runs, including while the window is hidden behind the menu-bar item. Click the field and press the keys — a modifier other than Shift is required. Backspace clears it, Escape keeps what was there.
+
+# The field before anything has been recorded.
+hotkey-placeholder = Click to set
+# The field while it listens and nothing is held yet.
+hotkey-recording = Press the keys…
+hotkey-needs-modifier = Hold a modifier key other than Shift as well.
+hotkey-unrecordable = That key cannot be part of a shortcut.
+# $action is the title of the row that already holds the same keys.
+hotkey-taken = Already used by "{ $action }".
+
+# Under the field: what the desktop said when it was asked for the
+# chord. The row is the request and this is the answer, and the two are
+# shown apart for the reason the MCP page shows the port it asked for
+# beside the one it got.
+hotkey-registered = Active from any application while { -brand-name } runs.
+# $reason is the operating system's own account, in its own words.
+hotkey-refused = The system did not accept it: { $reason }
+hotkey-unavailable = Stored, and not active: system-wide shortcuts are not available on this platform yet.
+
+## The sections, as the sidebar lists them.
+##
+## Two rows did not need a sidebar; two rows plus a server's address
+## do. `General` is the word every desktop uses for the section a
+## preference falls into when it does not belong to a named feature,
+## and keeping it means the theme is found where it was expected
+## rather than under a Wipemark coinage.
+
+settings-section-general = General
+settings-section-placement = Placement
+settings-section-compare = Compare
+settings-section-engine = Engine
+settings-section-mcp = MCP
+settings-section-retention = Retention
+
+## The Placement section — which screen a window opens on, and where on
+## it.
+##
+## Two questions, and they take two different shapes of answer. *Which
+## screen* is one answer for the whole product, so it is a row with a
+## pair of radio buttons like any other preference. *Where on it* is one
+## answer per display, because a laptop panel and the display beside it
+## are not the same question — so it is not a row at all: every display
+## gets a card with its own grid, and the window is dragged onto the
+## part of the screen it should open in.
+##
+## `settings-placement-only-window` is the honest half. The panel is the
+## only window these choices place: the main window and the Settings
+## window are not, and the workspace windows arrive in epic E7 and will
+## land under the same choices.
+
+## The panel — the window you summon.
+
+panel-title = Quick scrub
+panel-pending = The cleaning itself is not in this version yet. What is real today is that this window takes what you drop and says what it is — and that it opens where you told it to.
+panel-dismiss = Escape sends it away.
+
+# The panel has no titlebar, no traffic lights and no menu of its own,
+# so everything it *can* do is invisible. These four lines are that,
+# behind the info button.
+panel-help = What you can do here
+panel-help-move = Drag anywhere on the panel to move it.
+panel-help-resize = Pull an edge or a corner to resize it.
+panel-help-dismiss = Escape sends it away; the menu bar and its own shortcut bring it back.
+panel-help-placement = Where it opens is remembered per display, under Settings, Placement — and moving it by hand beats anything chosen there.
+
+## What lands on the panel, and what it turned out to be.
+##
+## Recognising a drop is `wipemark-intake`, which answers in kinds and
+## formats and never in words — a library that formatted its own prose
+## would be unusable from a CLI in another language. These are the
+## words, and this is the only place they exist.
+
+panel-drop-invite = Drop text, an image or files here.
+panel-drop-release = Let go, and it will say what it is.
+panel-drop-nothing = That drop carried nothing this machine could read.
+panel-drop-more = … and { $count ->
+        [one] one more
+       *[other] { $count } more
+    }
+
+# The two lines that say how much the answer rests on. The first is a
+# file whose bytes said nothing; the second is a file whose bytes and
+# whose name disagree, which is worth knowing about whatever is done
+# next.
+panel-drop-by-name = Going by the name — the contents say nothing either way.
+panel-drop-mismatch = Named { $named }, and the contents are { $found }.
+
+# What would happen to it, once cleaning arrives — the Retention
+# page's choices, read against this one thing. $name is a file name
+# and $folder a folder, both as the operating system spells them;
+# $period is one of the `settings-retention-span-*` lines.
+panel-drop-result-beside = Its result would go beside it, as { $name }; the file itself would not be touched.
+panel-drop-result-into-file = Its result would go into { $folder }; the file itself would not be touched.
+panel-drop-result-into = Its result would go into { $folder }.
+panel-drop-result-over = Its result would take its place, once the original had been set aside as { $name }.
+panel-drop-result-as-text = Its result would come back as text; no file would be written.
+panel-drop-each-file = Every file in it would be handled the way a dropped file is.
+panel-drop-kept-originals = A copy of the original would be kept { $period }.
+panel-drop-kept-results = A copy of the result would be kept { $period }.
+panel-drop-kept-both = Copies of the original and of the result would be kept { $period }.
+
+# What something is, at the level the product acts on it.
+kind-text = Text
+kind-image = Image
+kind-document = Document
+kind-archive = Archive
+kind-media = Sound or video
+kind-data = Data
+kind-folder = Folder
+kind-unknown = Unrecognised
+
+## The Compare window — the result beside its original.
+##
+## Opened from a row's Actions menu, or with `--compare=<path>`. Two
+## editors side by side: the original on the left, read-only, and the
+## result on the right with a toolbar of the editor's own operations
+## over it. Every line that differs is marked on both sides. The result
+## starts as a copy of the original, because nothing cleans anything in
+## this version yet — `compare-pending` says so and stays until it does.
+## `compare-title` takes the thing's name; `compare-changed` takes two
+## counts; `compare-refused-too-big` takes two sizes already spelled.
+
+compare-title = Compare · { $name }
+compare-original = Original
+compare-result = Result
+compare-pending = Nothing is cleaned in this version yet: the result starts as a copy of the original. Edit it, and every line that differs is marked on both sides.
+compare-reading = Reading…
+compare-same = The result is the original, line for line.
+compare-changed = { $added ->
+        [one] { $added } line added
+       *[other] { $added } lines added
+    }, { $removed ->
+        [one] { $removed } line removed
+       *[other] { $removed } lines removed
+    }
+compare-refused-not-text = This is not text, so there is nothing to compare line by line.
+compare-refused-too-big = At { $size } it is more than this window compares; the limit is { $limit }.
+compare-refused-unreadable = It could not be read.
+compare-reset = Back to the original
+compare-reset-tooltip = Throw the edits away; the result is the original again.
+compare-help = What this window does
+compare-help-marks = A red mark on the original is a line the result no longer has; a green one on the result is a line the original never had.
+compare-help-follows = The original follows the result's cursor, so the two sides stay in step.
+compare-help-toolbar = The toolbar over the result is the editor's own operations, with the shortcuts it already answers to.
+compare-help-words = Within a passage that changed, the words that differ are marked more strongly.
+compare-help-characters = Within a passage that changed, the characters that differ are marked more strongly.
+compare-help-settings = What is marked, and whether the original follows, is chosen on the Compare page of Settings — for the next window opened.
+compare-help-close = Closing this window writes nothing; the result lives only here.
+
+# The result's toolbar: one label per editor operation, shown as a
+# tooltip beside the shortcut the editor already binds to it, and two
+# ways of showing the text that are toggles rather than operations.
+result-undo = Undo
+result-redo = Redo
+result-cut = Cut
+result-copy = Copy
+result-paste = Paste
+result-select-all = Select all
+result-indent = Indent
+result-outdent = Outdent
+result-find = Find and replace
+result-soft-wrap = Wrap long lines
+result-whitespace = Show whitespace
+
+
+settings-compare-title = How a result is compared
+settings-compare-description = What the Compare window marks when a result is put beside its original. A window reads these as it opens; one already open keeps what it was opened with.
+settings-compare-exact = Every character counts: the comparison never overlooks a space, a line ending or a character that cannot be seen.
+
+settings-compare-grain-title = What is marked
+settings-compare-grain-description = Every line that differs is marked on both sides, whatever is chosen here. Within a passage that changed — rather than only came or went — the marks can go finer: the words that differ, or the single characters.
+settings-compare-grain-lines = Lines only
+settings-compare-grain-words = Changed words
+settings-compare-grain-characters = Changed characters
+
+settings-compare-follow-title = The original follows the cursor
+settings-compare-follow-description = Moving the cursor in the result scrolls the original to the line that stands where that one does, so the two sides stay in step. Off, each side scrolls on its own.
+
+settings-placement-title = Where windows open
+settings-placement-description = Which screen a { -brand-name } window opens on, and where on that screen it lands.
+
+settings-placement-looking = Reading the displays…
+settings-placement-attached = { $count ->
+        [one] One display attached.
+       *[other] { $count } displays attached.
+    }
+settings-placement-only-window = These choices place the { -brand-name } panel — the window you summon from the menu bar. The workspace windows will open under the same rules once they arrive; the main window and this one are never placed by them.
+
+settings-placement-close-title = Close after a drop
+settings-placement-close-description = Dropping the window onto a part of a screen closes this window, so you can see where it landed. Clicking a part leaves this window open.
+
+settings-placement-screen-title = Open on
+settings-placement-screen-description = The active screen is the one the pointer is on when the window opens. The primary screen is the one the desktop puts the menu bar on, wherever the pointer happens to be.
+settings-placement-screen-active = The active screen
+settings-placement-screen-primary = The primary screen
+
+# A display the platform gives no name for. The number is the card's
+# position in the list, which is the only other thing there is to call
+# it.
+settings-placement-display = Display { $number }
+settings-placement-resolution = { $width } × { $height }
+settings-placement-primary = Primary
+# The card for the display the main window is on — and the one whose
+# grid moves it while you watch.
+settings-placement-here = The panel is here
+settings-placement-opens-in = A window opens at the { $zone } of this display.
+settings-placement-opens-where-left = Where you put it on this display, at the size you gave it.
+settings-placement-where-it-was-left = Where I put it
+# Throws away the cell *and* the hand-placed rectangle, size included:
+# anything less would not be a default.
+settings-placement-restore-default = Restore default
+settings-placement-drag-hint = Drag it onto a part of the screen, or click one. Moving or resizing the panel itself wins over both.
+
+# The six parts a screen is divided into, as the sentence above reads
+# them: "A window opens at the top left of this display."
+settings-placement-zone-top-left = top left
+settings-placement-zone-top-centre = top centre
+settings-placement-zone-top-right = top right
+settings-placement-zone-bottom-left = bottom left
+settings-placement-zone-bottom-centre = bottom centre
+settings-placement-zone-bottom-right = bottom right
+
+## The Engine section — Layer B, and the endpoint it talks to.
+##
+## Two shapes of request behind one page: Ollama's native /api/chat,
+## and the /v1/chat/completions every OpenAI-compatible server speaks —
+## OpenAI itself, OpenRouter, LM Studio, a company's own gateway. The
+## field is free text with presets beside it, the shape the MCP bind
+## address already uses, because the list of endpoints somebody has is
+## not one this product can close.
+##
+## Nothing here sends a request. The engine is configured in this
+## build and called in epic E2, and `settings-engine-pending` is where
+## that is said out loud rather than left for the user to discover by
+## clicking something that does nothing — the same bargain
+## `settings-mcp-tools-pending` and `cli-not-implemented` make.
+##
+## The key is the one setting that is not a row in the database. It
+## goes to the operating system's own credential store, and the
+## sentences below are careful about what that does and does not
+## promise.
+
+settings-engine-title = Rewriting engine
+settings-engine-description = Rewriting sends the document to a model and scores what comes back. Cleaning never needs one, and is never locked behind one.
+
+# The honest half, and it stays until E2 lands.
+settings-engine-pending = These settings are stored, and nothing sends them anywhere yet: rewriting is not in this version. Until it is, { -brand-name } cleans and does nothing else, and says so in the status bar.
+
+## The banner at the top of the page: what this configuration would do,
+## or the first thing standing in the way of it doing anything. One at
+## a time, because three of the four stop applying the moment the first
+## is fixed.
+
+settings-engine-state-off = No engine. { -brand-name } cleans and does nothing else, which is deterministic and complete on its own.
+# $endpoint is the full URL a request would go to, path included.
+settings-engine-state-ready-local = Configured, and the document would stay on this machine: { $endpoint }
+# No provider is not "no engine": it means not over HTTP, so the role
+# falls to this machine and the model chosen on the Models page answers
+# it. $model is the catalogue's display name, never translated.
+settings-engine-state-ready-machine = Configured, and the document would not leave this machine: { $model } runs here.
+# The role fell to this machine and the model chosen for it is not on
+# the disk. Deliberately not a warning: nothing is broken, something is
+# unfinished.
+settings-engine-state-model-not-here = The model chosen for rewriting is not on this machine yet. Download it on the Models page, or point this page at a server.
+# $model is the stored id, because the entry it names is not in this
+# build's catalogue and so has no display name to show.
+settings-engine-state-model-unusable = The model chosen for rewriting, { $model }, is not one this version can use for it. Choose another on the Models page.
+# $name is the profile that was asked for by name.
+settings-engine-state-no-such-profile = No profile named “{ $name }”. Nothing was substituted for it.
+# The same, for an endpoint that is not this machine. Deliberately a
+# separate sentence rather than the same one with a different noun —
+# this is the line that has to be readable at a glance.
+settings-engine-state-ready-remote = Configured. The document would be sent to { $endpoint }, which is not this machine.
+settings-engine-state-no-model = No model named. Every request has to say which model answers it.
+# The machine's own absence, distinct from “no engine”. Rendered in two
+# places — as the banner's first line when this machine is asked and
+# has nothing, and after “Answering because the first choice cannot:”
+# when an ordered choice passed it over — so it is a whole sentence
+# that reads in both, like every other state here. It used to be a
+# lower-case clause for the second place, and the setup walk-through
+# made the first place the one a fresh install sees.
+settings-engine-state-no-model-chosen = No model is chosen for rewriting on this machine. One is chosen on the Models page, once it is downloaded.
+# $host is the host that was typed.
+settings-engine-state-remote-refused = { $host } is not this machine, and sending documents off it has not been allowed. Turn on “{ settings-engine-allow-remote-title }” below, or point the endpoint back at this machine.
+# $origin is scheme, host and port — the endpoint the key belongs to.
+settings-engine-state-no-key = No key stored for { $origin }. This provider needs one.
+settings-engine-state-key-in-the-clear = { $origin } is an unencrypted connection to another machine, so the key would cross the network in the clear. { -brand-name } will not send it. Use https, or an endpoint on this machine.
+# $reason is the credential store's own account, in its own words.
+settings-engine-state-key-unreadable = The key could not be read: { $reason }
+settings-engine-state-checking = Looking for a stored key…
+
+## Who answers a rewrite at all: the choice above every other setting
+## on this page, because it decides which of the two halves of the
+## product the rest of the page is even describing.
+
+settings-engine-serves-title = Who rewrites
+settings-engine-serves-description = Two things can rewrite a document: a model downloaded on the Models page, which never leaves this computer, and the endpoint below, which is a server somewhere. An ordered choice is announced rather than hidden — when the second one answers, the notice above says which and why — and a remote endpoint still needs “{ settings-engine-allow-remote-title }” before anything is sent anywhere.
+settings-engine-serves-machine = This machine
+settings-engine-serves-endpoint = The endpoint
+settings-engine-serves-machine-first = Machine, then endpoint
+settings-engine-serves-endpoint-first = Endpoint, then machine
+# $reason is the sentence describing what the first choice could not do.
+settings-engine-state-second-choice = Answering because the first choice cannot: { $reason }
+
+## The rows, and the first of them is the one that sets all the others.
+##
+## A profile is every setting on this page except the key. It is a row
+## in the database, and a credential is never a row — which is exactly
+## what makes profiles safe to keep: two profiles pointing at two hosts
+## look under two different accounts in the credential store, and
+## neither of them has ever held a key. `settings-engine-profile-no-key`
+## says so wherever the control is, in every state it can be in.
+
+settings-engine-profile-title = Saved profile
+settings-engine-profile-description = Every endpoint setting on this page except the key, kept under a name. Choosing one applies all of it at once, and saving under a name you have used before replaces it. The key stays in this computer's credential store, filed under the endpoint, and is shared by every profile pointing at it.
+# Shown when the settings on this page match no saved profile. Never
+# shown for an empty list: the control is not drawn at all until there is
+# something in it.
+settings-engine-profile-placeholder = Choose a saved profile
+settings-engine-profile-name-placeholder = Name these settings
+settings-engine-profile-save = Save…
+settings-engine-profile-delete = Delete
+settings-engine-profile-saved = Saved as “{ $name }”.
+# The settings on screen came from a profile and have been edited since.
+# Saving again is what keeps them; nothing is lost by not saving.
+settings-engine-profile-modified = “{ $name }”, with unsaved changes.
+settings-engine-profile-unsaved = Not saved under a name.
+# Always shown, in every state above, and deliberately short: it sits in
+# the 240 px control column beside the buttons, and the sentence that
+# explains it in full is the row description, which has the width of the
+# page.
+settings-engine-profile-no-key = The key is not part of a profile.
+
+## The rest of the rows.
+
+## The two dialogs the row opens.
+##
+## Naming is a dialog and not a field beside the button because the
+## question it asks has two answers — a new name, or one already taken —
+## and the second is a list. Deleting asks because it is the one thing
+## on these pages that cannot be undone by clicking the other way; what
+## the confirmation owes the reader is not "are you sure" but what goes
+## and what stays.
+
+settings-engine-profile-name-title = Save these settings
+settings-engine-profile-name-body = Under a new name, or one you already use.
+settings-engine-profile-name-taken = Replace one of these:
+settings-engine-profile-name-confirm = Save
+settings-engine-profile-delete-title = Delete “{ $name }”?
+# What goes, and — the half a confirmation usually leaves out — what does
+# not. Nothing on the page changes, so the worst this costs is the name.
+settings-engine-profile-delete-body = Only the saved copy goes. The settings on this page stay exactly as they are, and so does the key in this computer's credential store.
+settings-engine-profile-delete-confirm = Delete
+settings-engine-profile-cancel = Cancel
+
+settings-engine-provider-title = Provider
+settings-engine-provider-description = Ollama speaks its own /api/chat; the other reaches anything serving /v1/chat/completions. No engine leaves { -layer-a } running on its own.
+settings-engine-provider-off = No engine
+# "OpenAI-compatible" is what this shape of API is called by everyone
+# who serves it. The brand inside the word stays as it is spelled.
+settings-engine-provider-openai = OpenAI-compatible
+
+settings-engine-endpoint-title = Endpoint
+settings-engine-endpoint-description = The base URL, without the path — { -brand-name } appends the one the provider uses. http and https only, and a URL carrying a user name or a password in it is refused.
+
+settings-engine-model-title = Model
+settings-engine-model-description = The name the endpoint knows the model by, exactly as it spells it — llama3.1:8b, gpt-4o-mini, deepseek/deepseek-chat.
+
+settings-engine-key-title = API key
+settings-engine-key-description = Kept in this computer's credential store, filed under the endpoint it was entered for, and never written to { -brand-name }'s own settings. It is never shown again after it is saved.
+settings-engine-key-placeholder = Paste a key to store it
+settings-engine-key-save = Save
+settings-engine-key-forget = Forget
+# Shown under the field once there is a key. $origin is the endpoint it
+# belongs to.
+settings-engine-key-stored = A key is stored for { $origin }.
+settings-engine-key-absent = No key stored for { $origin }.
+# This provider's requests carry no Authorization header at all, so a
+# key stored for it would be one nothing ever sends.
+settings-engine-key-not-used = This provider sends no key. Ollama's own API takes no Authorization header.
+# The warning that belongs to the field while it applies, shown before
+# the key is typed rather than after it is sent.
+settings-engine-key-would-be-in-the-clear = { $origin } is unencrypted and is not this machine. A key stored for it could only be sent in the clear, so { -brand-name } will not send one.
+# The credential store said no. $reason is its own wording.
+settings-engine-key-failed = The credential store refused: { $reason }
+# A vault that does not outlive the process — no keychain on this
+# machine, or none this build could reach.
+settings-engine-key-not-persistent = This computer has no credential store { -brand-name } can reach, so a key entered here lasts only until the application closes.
+
+settings-engine-allow-remote-title = Allow a remote endpoint
+settings-engine-allow-remote-description = Off, the endpoint has to be this machine. On, the text of every document is sent to whoever runs it — which is the point of a hosted model, and worth choosing rather than arriving at.
+
+settings-engine-temperature-title = Temperature
+settings-engine-temperature-description = Between 0 and 2. Higher wanders further from the original wording, which is the point of a rewrite and also how a fact gets lost.
+
+settings-engine-reasoning-title = Reasoning effort
+settings-engine-reasoning-description = A paraphrase has no reasoning in it. Sent as “none” by default; “off” leaves the field out altogether, for servers that reject the value rather than ignoring it.
+settings-engine-reasoning-off = Off (omit)
+settings-engine-reasoning-none = None
+settings-engine-reasoning-low = Low
+settings-engine-reasoning-medium = Medium
+settings-engine-reasoning-high = High
+
+settings-engine-timeout-title = Timeout
+settings-engine-timeout-description = Seconds to wait for one response before giving up on it. A reasoning model asked to paraphrase can spend minutes on a sentence.
+
+
+## The Models section — the weights that live on this machine.
+##
+## The Engine page points {-brand-name} at a server; this page fills the
+## machine that server runs on. Two rewriters ship: a 12B that wants
+## roughly nine gigabytes and a 4B that wants under five, so a laptop and
+## a workstation are both offered something rather than the same thing
+## with a warning.
+##
+## Downloading weights does not make {-layer-b} work. The catalogue,
+## the download and the verification are epic E3; the engine that loads
+## a file is E2, and `settings-models-pending` says so for as long as
+## that is true.
+##
+## Sizes are gigabytes, and the numbers beside them are estimates: they
+## are weights plus a context cache plus a fixed overhead, not a
+## measurement of this machine running this model. The words below are
+## careful not to promise otherwise.
+
+settings-section-models = Models
+settings-models-title = Local models
+settings-models-description = Open weights downloaded to this machine, verified against the checksum in { -brand-name }'s catalogue. Nothing is downloaded until you ask for it.
+
+# The honest half, and it stays until E2 and E3 both land.
+settings-models-pending = A downloaded model is a file on disk and nothing more in this version: nothing loads one yet. Cleaning needs none of it.
+
+## The folder. One row, because the question it answers is "which
+## disk", and it is read recursively because a folder another tool
+## filled is sorted whichever way that tool sorts it. The field is the
+## setting; the buttons write into it, the way the address presets do.
+
+settings-models-folder-title = Models folder
+settings-models-folder-description = Where downloads are kept, and where { -brand-name } looks for model files — in this folder and every folder under it. Emptying the field puts the default back.
+settings-models-folder-choose = Choose…
+settings-models-folder-default = Default
+# Shown under the field while a download is running, when the folder
+# cannot be moved: the bytes are landing in the old one.
+settings-models-folder-busy = Wait for the download to finish before moving the folder.
+# The banner's second line, in the three states a folder can be in.
+# $path is the folder as the operating system spells it.
+settings-models-folder-missing = Models folder: { $path } — it does not exist yet; the first download creates it.
+# $reason is the operating system's own words, never localized.
+settings-models-folder-unreadable = Models folder: { $path } — it could not be read: { $reason }
+# $installed is how many catalogue entries are on this machine;
+# $other how many model files were found that the catalogue did not
+# put there.
+settings-models-folder-read = Models folder: { $path } — { $installed ->
+        [one] one catalogue model here
+       *[other] { $installed } catalogue models here
+    }, { $other ->
+        [0] nothing else that looks like a model
+        [one] one other model file
+       *[other] { $other } other model files
+    }.
+
+settings-models-rewrite-title = Model for rewriting
+settings-models-rewrite-description = Which downloaded model a rewrite would use. Only models already on this machine are listed; a model is chosen for a purpose, and rewriting is the only purpose this build ships weights for.
+settings-models-rewrite-none = No local model
+
+## Everything else the look through the folder turned up: model files
+## the catalogue did not put there. Listed so a folder full of weights
+## is not reported as an empty shelf — and *only* listed, because
+## nothing verifies a file the catalogue has no checksum for, and
+## nothing loads one yet.
+
+settings-models-found-title = Also in this folder
+settings-models-found-description = Model files found by looking through the folder and every folder under it. They are not in this version's catalogue, so nothing here can verify them, and nothing puts them to work yet.
+
+## One card per catalogue entry: what it is, what it costs, and the one
+## thing you can do with it right now.
+
+# $size is a human-readable download size, e.g. "6.9 GB".
+settings-models-size = { $size } download
+# $ram is whole megabytes of memory the entry is estimated to need.
+settings-models-needs = Needs about { $ram } MB
+settings-models-download = Download
+settings-models-resume = Resume
+settings-models-cancel = Stop
+settings-models-remove = Remove
+settings-models-installed = On this machine
+# $done and $total are human-readable byte counts.
+settings-models-progress = { $done } of { $total }
+settings-models-verifying = Checking what is already here…
+
+## What this machine can hold. `unknown` is not `no`: there is no
+## portable way to ask a graphics card its size without linking a
+## vendor driver, so a machine with one we cannot measure is told that
+## rather than told it will not work.
+
+# $ram is whole megabytes of physical memory.
+settings-models-host = This machine reports { $ram } MB of memory.
+settings-models-host-unknown = This machine's memory could not be read, so nothing below is judged against it.
+settings-models-fit-roomy = Room for this, with the rest of the machine still usable.
+settings-models-recommended = Recommended for this machine
+settings-models-fit-tight = Would fit, with little left for anything else.
+# $short is whole megabytes.
+settings-models-fit-too-big = { $short } MB more memory than this machine has.
+settings-models-fit-unknown = Not judged: this machine's memory could not be read.
+# Present on disk, but the bytes are not the bytes the catalogue
+# describes. Never repaired silently — the user is told and asked.
+settings-models-damaged = On this machine, but not what the catalogue describes. Remove it and download it again.
+# $reason is the store's own words, never localized.
+settings-models-failed = The download stopped: { $reason }
+settings-models-stopped = Stopped. What was downloaded is kept, and the next attempt carries on from it.
+
+## The Retention section — what is written, where, and what is kept.
+##
+## Two questions with two shapes of answer. Where a result goes is one
+## answer for the whole product, and it follows `mat2` and spec §4.5:
+## `name.cleaned.ext` beside the file, and the file itself touched only
+## when asked, and then never without the original set aside first.
+## Whether Wipemark keeps a copy of its own is a question only for
+## things that arrived with no file behind them — a paste, a drag out
+## of a browser — because a file *is* the original. Both switches are
+## off by default and the period is bounded by default: a product
+## whose purpose is removing provenance must not quietly build an
+## archive of it. `name.cleaned.ext` and `name.original.ext` are
+## formats — a script looks for them — and are spelled the same in
+## every language.
+##
+## `settings-retention-pending` is the honest half, and it stays until
+## E1 and E4 land: nothing is written yet.
+
+settings-retention-title = What is kept
+settings-retention-description = Where a result goes, what happens to the file it came from, and whether { -brand-name } keeps a copy of what arrived without one.
+
+# The banner's first line: where results go, in the three states the
+# row can be in. $folder is the results folder as the operating system
+# spells it.
+settings-retention-beside = Results are written beside the file, as name.cleaned.ext; the file itself is never touched.
+settings-retention-into = Results are written into { $folder }; the file itself is never touched.
+settings-retention-over = A file is replaced by its result once the original has been set aside as name.original.ext — and an original already there is never overwritten.
+# The second line: what is kept of the things that have no file. $folder
+# is Wipemark's own folder; $period is one of the `settings-retention-span-*`
+# lines, so the sentence reads "kept in … for a week".
+settings-retention-keeps-nothing = Nothing that arrives without a file — a paste, a drag out of a browser — is kept once its result has replaced it.
+settings-retention-keeps-originals = The original of a paste or a drag is kept in { $folder } { $period }; results are not.
+settings-retention-keeps-results = The result of a paste or a drag is kept in { $folder } { $period }; originals are not.
+settings-retention-keeps-both = The original and the result of a paste or a drag are kept in { $folder } { $period }.
+# The last line, in every state.
+settings-retention-pending = Nothing is written yet: { -layer-a } and { -layer-b } are not in this version. These choices decide what happens to a file, and to what you paste, once they are.
+
+settings-retention-destination-title = Where results go
+settings-retention-destination-description = Beside the file writes name.cleaned.ext next to it and leaves the file as it is. The results folder is the one below. In place of the file replaces it — after the original has been set aside as name.original.ext, and never over an original already there.
+settings-retention-destination-beside = Beside the file
+settings-retention-destination-folder = In the results folder
+settings-retention-destination-replace = In place of the file
+
+settings-retention-folder-title = Results folder
+settings-retention-folder-description = Where results go when they go into one folder — and where a result goes that has no file to sit beside, such as an image dragged out of a browser. Emptying the field puts the Downloads folder back.
+
+settings-retention-originals-title = Keep what you paste
+settings-retention-originals-description = Text you paste and images you drag in have no file behind them, so once the result has replaced them the original is gone. Keep a copy in { -brand-name }'s own folder for the period below, as it arrived, markup and all. A file is never copied here: the file is the original.
+
+settings-retention-results-title = Keep results
+settings-retention-results-description = The result of a paste or a drag, kept in { -brand-name }'s own folder for the period below, so it can be reached again after the clipboard has moved on. A result written to a file is not copied here.
+
+settings-retention-period-title = For how long
+settings-retention-period-description = How long a kept copy stays before { -brand-name } removes it. Nothing outside { -brand-name }'s own folder is ever removed by this.
+# The dropdown's rows.
+settings-retention-period-day = A day
+settings-retention-period-week = A week
+settings-retention-period-month = A month
+settings-retention-period-quarter = Three months
+settings-retention-period-forever = Until removed by hand
+# The same five inside a sentence: "…is kept in that folder for a week."
+settings-retention-span-day = for a day
+settings-retention-span-week = for a week
+settings-retention-span-month = for a month
+settings-retention-span-quarter = for three months
+settings-retention-span-forever = until removed by hand
+
+## The MCP section.
+##
+## Wipemark's own work, offered to an agent over the Model Context
+## Protocol — the arrangement heretic-lazy-shot makes for its captures.
+## Layer A is deterministic and verifiable, which is exactly the sort
+## of step an agent should be able to run over its own output.
+##
+## The server is real and running; its tools are not implemented yet,
+## and `settings-mcp-tools-pending` is where that is said out loud. It
+## is not a placeholder — a tool that answered "nothing found" because
+## nothing ran would be worse than one that refuses, which is the same
+## bargain `cli-not-implemented` makes at the other end of the product.
+
+settings-mcp-title = MCP server
+settings-mcp-description = Let an agent run { -layer-a } over its own output, through the Model Context Protocol.
+
+# The honest half. The server answers; the work it will do does not
+# exist yet, and every call is refused by name rather than answered
+# with an empty result.
+settings-mcp-tools-pending = The server answers, but its tools do not: cleaning is not in this version, and until it is every call is refused rather than answered with a report of nothing.
+
+## What the server is doing right now, in the banner at the top of the
+## page. Read from the server itself rather than from the switch — the
+## switch is what was asked for, and these four are what happened.
+
+settings-mcp-status-off = Not running.
+settings-mcp-status-starting = Starting…
+# $url is where a client connects, which is not always where the server
+# binds. See settings-mcp-endpoint.
+settings-mcp-status-listening = Running, and answering on { $url }
+# $wanted is the port that was asked for and $port the one it got.
+# Both arrive as text, never as numbers: a number would be grouped by
+# the locale and 5056 would read as "5,056" — which is not a port.
+settings-mcp-status-moved = Port { $wanted } was already taken, so it took { $port }. The snippet below is the one that works.
+# $reason is the operating system's own account, in its own words.
+settings-mcp-status-failed = Could not start: { $reason }
+
+# Shown only while the address is not loopback. $address is the one
+# that was chosen.
+settings-mcp-exposed = { $address } is reachable from the network, and this server asks for no password. Anything that can route to this machine can run { -layer-a } on it.
+
+settings-mcp-enabled-title = Serve over MCP
+settings-mcp-enabled-description = Starts with { -brand-name } and stays up while it runs. Editing the address or the port below restarts it.
+
+settings-mcp-bind-title = Listen on
+settings-mcp-bind-description = Any address this machine holds — 127.0.0.1 answers this machine only, 0.0.0.0 answers anything that can reach it, and 192.168.1.101 answers on that interface alone.
+
+settings-mcp-port-title = Port
+settings-mcp-port-description = Between 1024 and 65535. A port something else already holds is stepped over: the server takes the next free one and says which.
+
+# $url is the address a client dials, which is not always the address
+# the server binds to: 0.0.0.0 is a wildcard to listen on and not an
+# address to connect to.
+settings-mcp-endpoint = Clients connect to { $url }
+
+settings-mcp-snippets-title = Connect a client
+settings-mcp-snippets-description = Paste this into the client's configuration. Merge it into an mcpServers block that is already there rather than replacing one.
+settings-mcp-copy = Copy
+settings-mcp-copied = Copied
+
+# The tab for a client with no configuration shape of its own. A
+# description rather than a product name, so unlike the other three
+# tabs this one is translated.
+settings-mcp-client-generic = Any MCP client
+
+## The three appearance choices.
+##
+## Shown in the Settings dialog and again in the menu bar's Appearance
+## submenu, from the same three keys — the two are kept in step with
+## each other, and one wording is what makes that visible.
+
+theme-system = System
+theme-light = Light
+theme-dark = Dark
+
+## Language.
+##
+## `language-autonym` is this language's own name for itself, and it is
+## the one string that is never translated into anything else: a reader
+## who has landed in a language they cannot read still has to find their
+## way out, and "Deutsch" is legible from any UI while "German" is not.
+
+language-autonym = English
+language-selector-label = Language
+
+# $language is the autonym of whatever the operating system asked for.
+language-system = System ({ $language })
+
+## The third shelf (spec §0.1 rule 3).
+##
+## Claims the product refuses to make. `wipemark_core::report::
+## not_established` holds the canonical, locale-neutral English that
+## `--json` emits; these are the display strings beside it. Every id in
+## that list needs an entry here, in every language — adding a fourth
+## item to core without translating it turns the suite red, which is
+## what keeps the third shelf from quietly emptying.
+
+report-not-established-title = Not established
+report-not-established-vendor-detector-evasion = evasion of a vendor's own detector — not tested, no oracle exists here
+report-not-established-human-authorship = human authorship — not established by any check in this tool
+report-not-established-unknown-mark-schemes = marks in schemes this build does not implement — not searched for
+
+## Menu bar.
+##
+## macOS builds this menu once and keeps it; `Tray::relabel` is what
+## carries a language change up into it, the same way `show_theme`
+## carries a theme change. A menu bar showing last language's words is
+## the tray equivalent of a stale tick.
+
+tray-show = Show { -brand-name }
+# The panel is the one window of this application that is summoned
+# rather than opened: no titlebar, and it arrives wherever the
+# Placement page says. Clicking this again sends it away, the way the
+# same item in every menu bar does.
+tray-panel = Show the panel
+tray-clean-clipboard = Clean Clipboard — not yet
+tray-appearance = Appearance
+tray-quit = Quit { -brand-name }
+
+## Command line.
+##
+## The argument surface is final even though the behaviour is not (see
+## the crate docs on `wipemark-cli`), so these strings are worth
+## translating now: they are what `--help` prints, and they are not
+## going to move under the translation.
+
+cli-about = Strip AI provenance marks from your own text and images
+
+## The frame around the help text.
+##
+## clap has no localization of its own: these headings and the two
+## built-in flags are English constants inside the crate. They are
+## reachable through `help_template` and `mut_arg`, so `wipemark-cli`
+## sets them rather than shipping a German help screen with an
+## "Options:" in the middle of it.
+
+cli-help-usage = Usage:
+cli-help-commands = Commands:
+cli-help-arguments = Arguments:
+cli-help-options = Options:
+cli-help-print-help = Print help
+cli-help-print-version = Print version
+cli-command-help = Print this message, or the help of the given subcommand.
+
+cli-command-inspect = Report what is in a document without changing it.
+cli-command-clean = { -layer-a } only: deterministic, verifiable, no model involved.
+cli-command-rewrite = { -layer-a }, then a model rewrite, then { -layer-a } again.
+cli-command-models = Manage downloaded weights.
+cli-command-models-list = List the manifest and what is installed.
+cli-command-models-pull = Download a model by id, resuming if a partial file exists.
+cli-command-models-verify = Re-hash an installed model against the manifest.
+cli-command-models-rm = Delete an installed model.
+cli-command-audit = Walk a directory and report findings, for CI.
+
+cli-arg-path-or-stdin = File to read, or `-` for stdin.
+cli-arg-path = File to read.
+cli-arg-out = Output file. Defaults to `<name>.cleaned.<ext>` beside the input; in-place needs an explicit flag, never a default.
+cli-arg-nfkc = Apply NFKC normalisation (off by default — it rewrites more than provenance marks).
+cli-arg-aggressive = Also act on homoglyphs and exotic spaces. Higher false positive rate, hence opt-in.
+cli-arg-json = Machine-readable JSON instead of prose.
+cli-arg-engine = Rewriting engine: `local` or `remote`.
+cli-arg-model = Manifest model id.
+cli-arg-tactic = Tactic ladder entry: paraphrase, humanize, back_translate, structural, code.
+cli-arg-candidates = Candidates generated per chunk.
+cli-arg-rounds = Rewrite rounds per chunk.
+cli-arg-force = Proceed even when the rewriting engine is the vendor suspected of marking the document — which is likely to re-apply the mark.
+cli-arg-id = Manifest model id.
+cli-arg-dir = Directory to walk.
+cli-arg-sarif = SARIF output, for code scanning dashboards.
+cli-arg-language = Language for messages and help, as a BCP-47 tag such as de or ru. Overrides WIPEMARK_LANG, the language saved in the app's settings and the operating system, in that order.
+
+# $requested is what the user typed, $available a comma-separated list.
+cli-unknown-language = unknown language `{ $requested }`, falling back. Available: { $available }
+
+# The skeleton's refusal. $summary echoes the parsed command so a hook
+# author can see their flags arrived intact, $command names what was
+# asked for and $epic the epic that implements it.
+cli-not-implemented =
+    parsed `{ $summary }`, but `{ $command }` is not implemented yet.
+    In this version the argument surface and the exit codes are final
+    and the behaviour is not. Exiting 2 rather than 0 — a hook that
+    passes because nothing ran is worse than no hook.

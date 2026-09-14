@@ -68,7 +68,10 @@ steps:
     environment: *ci_env
     commands:
       - rustup toolchain install nightly --component rustfmt --profile minimal
-      - cargo +nightly fmt --all -- --check
+      # Not `cargo fmt --all`: it reaches into vendor/gpui-component,
+      # which is upstream's code formatted to upstream's rules and is
+      # not ours to reformat. rustfmt still reads our rustfmt.toml.
+      - rustup run nightly rustfmt --edition 2021 --check $(find crates apps -name '*.rs')
 
   # ── 3. System libraries GPUI needs on Linux. Same list as
   #       heretic-amuse-merge's CI, which is proven on Debian/Ubuntu.

@@ -4,6 +4,8 @@
 #   core ← engine ← pipeline ← app / cli
 #   models is independent of engine
 #   image depends only on core
+#   store is a leaf: it takes a path and hands back rows
+#   i18n is a leaf: apps localize, libraries stay locale-neutral
 #   nothing depends on an app crate
 #
 # Why a script rather than a convention: the rule is invisible in the
@@ -32,20 +34,65 @@ ROOT = pathlib.Path.cwd()
 # where it sits.
 LIBS = {
     "wipemark-core",
+    "wipemark-i18n",
     "wipemark-engine",
     "wipemark-models",
     "wipemark-pipeline",
     "wipemark-image",
+    "wipemark-intake",
     "wipemark-license",
+    "wipemark-store",
+    "wipemark-secret",
+    "wipemark-log",
 }
 ALLOWED = {
     # Zero dependencies at all — external ones too. See the crate docs.
     "wipemark-core": set(),
+    # Message catalogues and language negotiation. Depends on core only
+    # as a DEV dependency, for the gate that every claim on the report's
+    # third shelf has a translation in every language.
+    #
+    # Nothing below the applications is allowed to depend on i18n, and
+    # that is the architectural statement: a library hands up structured
+    # values, and the surface that knows whether it is drawing a window
+    # or writing to a pipe is the one that turns them into prose. A
+    # `wipemark-engine` that formatted its own error messages would be
+    # unusable from a CLI that had chosen a different language.
+    "wipemark-i18n": {"wipemark-core"},
     "wipemark-engine": {"wipemark-core"},
     "wipemark-models": {"wipemark-core"},
     "wipemark-pipeline": {"wipemark-core", "wipemark-engine"},
     "wipemark-image": {"wipemark-core"},
+    # What was handed to the application, and what it turns out to be.
+    # A leaf, and a strict one: no workspace dependency and no external
+    # one either. It is reached from the panel's drop zone, from the
+    # CLI's argument list and from the MCP server's blobs, which is
+    # three surfaces with nothing else in common — so anything it
+    # depended on would be inherited by all three. It names kinds
+    # (`Kind::Image`) rather than importing the crates that act on them:
+    # `wipemark-image` is what opens a container, and knowing one is
+    # there is not opening it.
+    "wipemark-intake": set(),
     "wipemark-license": set(),
+    # The rotating file and the panic hook. No wipemark dependency
+    # at all, on purpose: an application installs it before the data
+    # layout has been resolved, so it is handed a directory rather
+    # than resolving one. Listed among the libraries so that rule 1a
+    # applies — a logger that localized its own lines would put
+    # translated prose in a file only a developer ever reads.
+    "wipemark-log": set(),
+    # The local SQLite database. A leaf on purpose: it is handed a path
+    # rather than finding one (that is wipemark-models::layout) and it is
+    # handed keys rather than knowing what any of them mean (that is the
+    # surface that has the preference). Depending on models would make a
+    # scratch database in a test require a mutated environment.
+    "wipemark-store": set(),
+    # The OS credential store. A leaf for the same reasons as the one
+    # above and one more: it is handed a service name rather than
+    # deriving one, so a test files a credential under a name of its own
+    # instead of under the identifier a real install uses. Depending on
+    # models to read BUNDLE_ID would put the two one import apart.
+    "wipemark-secret": set(),
     "wipemark-app": LIBS,
     "wipemark-cli": LIBS,
 }
@@ -72,6 +119,16 @@ for member in members:
     deps = set()
     for table in ("dependencies", "dev-dependencies", "build-dependencies"):
         deps |= set(manifest.get(table, {}).keys())
+
+    # Rule 1a: no library may depend on the localizer. Applications
+    # localize; libraries hand up values. Stated separately from the
+    # table because the table is about *direction*, and this is about a
+    # layer that has no business knowing what language anyone reads.
+    if name in LIBS and name != "wipemark-i18n" and "wipemark-i18n" in deps:
+        failures.append(
+            f"{name} -> wipemark-i18n: only apps localize. A library returns "
+            "structured values and lets the surface render them."
+        )
 
     # Rule 1: core is zero-dependency, full stop.
     if name == "wipemark-core" and deps:

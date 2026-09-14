@@ -1,0 +1,575 @@
+### Wipemark — deutscher Katalog.
+###
+### Die Schlüssel stammen aus `en-US/wipemark.ftl`; dort steht auch, was
+### beim Übersetzen zu beachten ist. Ein Schlüssel, den es dort nicht
+### gibt, lässt die Testsuite scheitern.
+
+-brand-name = Wipemark
+-layer-a = Bereinigung
+-layer-b = Umschreiben
+
+## Fenster
+
+window-title = { -brand-name }
+
+## Die drei Bereiche
+
+toolbar-import = Importieren…
+toolbar-import-tooltip = Dateien oder Ordner auswählen. Sie kommen an wie beim Ablegen.
+toolbar-import-choose = Importieren
+toolbar-paste = Einfügen
+toolbar-paste-text = Text einfügen
+toolbar-paste-image = Bild einfügen
+toolbar-paste-files = { $count ->
+        [one] Datei einfügen
+       *[other] { $count } Dateien einfügen
+    }
+toolbar-paste-items = { $count } Einträge einfügen
+toolbar-paste-tooltip = Was in der Zwischenablage liegt, kommt an wie beim Ablegen. Ausgegraut, solange nichts darin ist, was dieses Fenster nehmen kann.
+toolbar-help = Hilfe
+toolbar-help-tooltip = Was dieses Fenster tut
+toolbar-help-drop = Text, ein Bild oder Dateien irgendwo in diesem Fenster ablegen, mit Importieren auswählen – oder aus der Zwischenablage einfügen.
+toolbar-help-preview = Den Zeiger auf einer Vorschau ruhen lassen, um sie größer zu sehen. Das Aktionen-Menü am Ende einer Zeile öffnet eine Datei mit der App, die das System nehmen würde.
+toolbar-help-pending = Die Reinigung selbst gibt es in dieser Version noch nicht: Das Fenster nimmt entgegen, was ankommt, und sagt, was es ist.
+toolbar-help-elsewhere = Das Schnellreinigungs-Panel sitzt in der Menüleiste; die Einstellungen liegen hinter dem Zahnrad unten rechts.
+
+queue-column-preview = Vorschau
+queue-column-id = ID
+queue-column-keyword = Stichwort
+queue-column-name = Name
+queue-column-kind = Art
+queue-column-format = Format
+queue-column-size = Größe
+queue-column-arrived = Angekommen
+queue-column-actions = Aktionen
+queue-empty-invite = Noch nichts hier. Text, ein Bild oder Dateien ablegen, Importieren drücken – oder aus der Zwischenablage einfügen.
+queue-empty-release = Loslassen, und es sagt, was es ist.
+queue-count = { $count ->
+        [one] { $count } Eintrag
+       *[other] { $count } Einträge
+    }
+queue-pending = Die Reinigung selbst gibt es in dieser Version noch nicht. Was heute schon geht: Diese Liste nimmt entgegen, was abgelegt oder importiert wird, und sagt, was es ist.
+queue-preview-pending = Wird gelesen…
+queue-preview-cut = Die ersten { $count } Zeichen; der Rest wird hier nicht gezeigt.
+queue-actions = Aktionen
+queue-action-open = Mit der Standard-App öffnen
+queue-action-compare = Mit dem Ergebnis vergleichen
+queue-copy = Kopieren
+queue-filter-id = Nach ID suchen
+queue-filter-keyword = Nach Stichwort suchen
+queue-reset-filters = Filter zurücksetzen
+queue-count-filtered = { $count } von { $total ->
+        [one] { $total } Eintrag
+       *[other] { $total } Einträgen
+    }
+queue-empty-filtered = Nichts passt zu diesen Filtern.
+queue-sort-newest = Neueste zuerst
+queue-sort-oldest = Älteste zuerst
+queue-page-size = { $count } pro Seite
+queue-page = Seite { $page } von { $pages }
+queue-previous = Zurück
+queue-next = Weiter
+
+## Statuszeile
+
+status-idle-no-engine = Bereit · keine Engine konfiguriert · nur { -layer-a }
+status-idle-here = Bereit · { $model } · nichts verlässt diesen Rechner · nur { -layer-a }
+status-idle-away = Bereit · { $model } auf { $host } · das Dokument verließe diesen Rechner · nur { -layer-a }
+
+## Einstellungen
+
+settings-title = Einstellungen
+settings-open = Einstellungen…
+settings-appearance-title = Erscheinungsbild
+settings-appearance-description = System folgt dem Schreibtisch, auch wenn er sich ändert, während { -brand-name } geöffnet ist.
+
+settings-language-title = Sprache
+settings-language-description = Jede Sprache steht unter ihrem eigenen Namen. System folgt dem Schreibtisch und wird beim Start von { -brand-name } aufgelöst.
+
+settings-setup-title = Einrichtung
+settings-setup-description = Der Rundgang, der sich beim ersten Start öffnet: wofür der Speicher dieses Rechners reicht, wer umschreibt, und das Modell oder die Adresse, die das braucht. Er ändert dieselben Zeilen wie die Seiten „Engine“ und „Modelle“ und sonst nichts.
+settings-setup-run = Noch einmal durchgehen…
+settings-setup-reset = Vergessen, dass er gezeigt wurde (Debug-Build)
+
+## Einrichtung — der Rundgang.
+
+setup-title = { -brand-name } einrichten
+setup-skip = Überspringen
+setup-back = Zurück
+setup-next = Weiter
+setup-finish = Fertig
+
+setup-step-welcome = Willkommen
+setup-step-machine = Dieser Rechner
+setup-step-who = Wer umschreibt
+setup-step-model = Das Modell
+setup-step-endpoint = Die Adresse
+setup-step-done = Fertig
+
+setup-welcome-body = { -brand-name } entfernt KI-Herkunftsspuren aus Ihren eigenen Inhalten in zwei Schichten: { -layer-a }, die die unsichtbaren Zeichen entfernt und deterministisch ist, und { -layer-b }, das ein Sprachmodell um eine Umformulierung bittet. Keines von beiden läuft in dieser Version schon. Diese Schritte klären, was das Umschreiben brauchen wird, wenn es kommt: wer umschreibt, und was dafür nötig ist.
+setup-welcome-again = Alles hier lässt sich später in den Einstellungen ändern, und dieser Rundgang lässt sich von deren Seite „Allgemein“ aus wiederholen.
+
+setup-machine-reading = Lese diesen Rechner…
+setup-machine-here = Dieser Rechner meldet { $total } MB Arbeitsspeicher und hat Platz für { $model }, das etwa { $ram } MB braucht. Das Umschreiben kann auf diesem Rechner bleiben, und das ist die Empfehlung.
+setup-machine-tight = Dieser Rechner meldet { $total } MB Arbeitsspeicher und fasst { $model }, das etwa { $ram } MB braucht — mit wenig Rest für alles andere. Das Umschreiben hier zu behalten bleibt die Empfehlung; eine Adresse ist die Alternative.
+setup-machine-away = Dieser Rechner meldet { $total } MB Arbeitsspeicher, und nichts aus dem Katalog passt: dem kleinsten Modell, { $model }, fehlen { $short } MB. Eine Adresse — ein Server anderswo — ist die Empfehlung, und das Dokument ginge dorthin.
+setup-machine-unjudged = Der Speicher dieses Rechners ließ sich nicht lesen, also wird nichts daran gemessen und nichts empfohlen. Im nächsten Schritt geht beides; { $model } ist das kleinste Modell im Katalog.
+setup-machine-nothing = Der Katalog liefert kein Modell zum Umschreiben, also ist eine Adresse der einzige Weg zu einem.
+setup-machine-unified = Ein gemeinsamer Speicher, den sich das Modell mit allem anderen teilt, was gerade läuft.
+setup-machine-vram = Grafikspeicher: { $vram } MB. Er entscheidet, wie schnell, nicht ob ein Modell läuft.
+setup-machine-vram-unknown = Grafikspeicher: nicht gemessen. Er entscheidet, wie schnell, nicht ob ein Modell läuft, also wird seinetwegen nichts abgelehnt.
+
+setup-who-body = Zwei Dinge können ein Dokument umschreiben, und sie unterscheiden sich in dem einen Punkt, der zählt: ob das Dokument diesen Rechner verlässt.
+setup-who-machine-line = Das Dokument verlässt diesen Rechner nie. Braucht ein geladenes Modell.
+setup-who-endpoint-line = Ein Server, den Sie benennen. Das Dokument wird dorthin geschickt — und eine entfernte Adresse braucht zudem „{ settings-engine-allow-remote-title }“ auf der Seite „Engine“, bevor irgendetwas geschickt wird.
+setup-who-ordered = Erst den einen und dann den anderen zu fragen ist ebenfalls eine Wahl, auf der Seite „Engine“.
+
+setup-model-body = Gewichte werden einmal geladen, vor dem Behalten gegen die Prüfsumme des Katalogs geprüft und bleiben im Datenordner von { -brand-name }, bis sie entfernt werden. Das erste Modell, das ankommt, wird zum Umschreiben gewählt.
+setup-model-others = Der übrige Katalog steht auf der Seite „Modelle“.
+setup-open-models = Seite „Modelle“ öffnen…
+
+setup-endpoint-body = Anbieter, Adresse, Modellname und Schlüssel sind die Zeilen der Seite „Engine“, und dieser Schritt öffnet sie, statt sie zu wiederholen. Kommen Sie hierher zurück, und die Zeile unten sagt, was diese Zeilen ergeben.
+setup-open-engine = Seite „Engine“ öffnen…
+
+setup-done-body = Alles hier Gewählte steht auf den Seiten „Engine“ und „Modelle“, und dieser Rundgang unter Einstellungen › Allgemein.
+
+settings-shortcut-panel-title = Tastenkürzel für das Panel
+settings-shortcut-panel-description = Ruft das Panel über das, woran Sie gerade arbeiten, und schickt es wieder weg. Dieses kommt mit einem bereits gesetzten Kürzel: andere Tasten aufnehmen, um es zu ändern; Rücktaste löscht es dauerhaft, Escape lässt es, wie es war.
+
+settings-shortcut-show-title = Tastenkürzel, das { -brand-name } nach vorn holt
+settings-shortcut-show-description = Wirkt aus jeder Anwendung, solange { -brand-name } läuft — auch, während das Fenster hinter dem Menüleisten-Symbol verborgen ist. Ins Feld klicken und die Tasten drücken; eine Zusatztaste außer Umschalt ist nötig. Rücktaste löscht es, Escape lässt es, wie es war.
+
+hotkey-placeholder = Zum Festlegen klicken
+hotkey-recording = Tasten drücken…
+hotkey-needs-modifier = Zusätzlich eine Zusatztaste außer Umschalt gedrückt halten.
+hotkey-unrecordable = Diese Taste kann nicht Teil eines Tastenkürzels sein.
+hotkey-taken = Wird bereits von „{ $action }“ verwendet.
+
+hotkey-registered = Aktiv aus jeder Anwendung, solange { -brand-name } läuft.
+hotkey-refused = Das System hat es nicht angenommen: { $reason }
+hotkey-unavailable = Gespeichert, aber nicht aktiv: systemweite Tastenkürzel gibt es auf dieser Plattform noch nicht.
+
+## Bereiche der Seitenleiste
+
+settings-section-general = Allgemein
+settings-section-placement = Platzierung
+settings-section-compare = Vergleich
+settings-section-engine = Engine
+settings-section-mcp = MCP
+settings-section-retention = Aufbewahrung
+
+## Platzierung der Fenster
+
+## Das Panel — das Fenster, das man ruft.
+
+panel-title = Schnelle Reinigung
+panel-pending = Das Reinigen selbst gibt es in dieser Version noch nicht. Echt ist heute, dass dieses Fenster annimmt, was man darauf ablegt, und sagt, was es ist — und dass es dort aufgeht, wo man es hingelegt hat.
+panel-dismiss = Escape schickt es wieder weg.
+
+panel-help = Was hier möglich ist
+panel-help-move = Ziehen Sie das Panel an einer beliebigen Stelle, um es zu verschieben.
+panel-help-resize = Ziehen Sie an einer Kante oder Ecke, um die Größe zu ändern.
+panel-help-dismiss = Escape schickt es weg; die Menüleiste und sein eigener Kurzbefehl holen es zurück.
+panel-help-placement = Wo es aufgeht, wird pro Bildschirm gemerkt — in den Einstellungen unter „Platzierung“; und es von Hand zu verschieben sticht alles, was dort gewählt ist.
+
+## Was auf dem Panel landet und was es sich als sein herausstellt.
+
+panel-drop-invite = Text, ein Bild oder Dateien hierher ziehen.
+panel-drop-release = Loslassen — dann steht hier, was es ist.
+panel-drop-nothing = Bei diesem Ablegen kam nichts an, was sich lesen ließe.
+panel-drop-more = … und { $count ->
+        [one] ein weiteres
+       *[other] { $count } weitere
+    }
+
+panel-drop-by-name = Nach dem Namen geurteilt — der Inhalt sagt weder das eine noch das andere.
+panel-drop-mismatch = Der Name verspricht { $named }, der Inhalt ist { $found }.
+
+panel-drop-result-beside = Das Ergebnis käme daneben, als { $name }; die Datei selbst bliebe unberührt.
+panel-drop-result-into-file = Das Ergebnis käme nach { $folder }; die Datei selbst bliebe unberührt.
+panel-drop-result-into = Das Ergebnis käme nach { $folder }.
+panel-drop-result-over = Das Ergebnis träte an seine Stelle, sobald das Original als { $name } beiseitegelegt wäre.
+panel-drop-result-as-text = Das Ergebnis käme als Text zurück; keine Datei würde geschrieben.
+panel-drop-each-file = Jede Datei darin würde behandelt wie eine abgelegte Datei.
+panel-drop-kept-originals = Eine Kopie des Originals bliebe { $period } erhalten.
+panel-drop-kept-results = Eine Kopie des Ergebnisses bliebe { $period } erhalten.
+panel-drop-kept-both = Kopien des Originals und des Ergebnisses blieben { $period } erhalten.
+
+kind-text = Text
+kind-image = Bild
+kind-document = Dokument
+kind-archive = Archiv
+kind-media = Ton oder Video
+kind-data = Daten
+kind-folder = Ordner
+kind-unknown = Nicht erkannt
+
+## Das Vergleichsfenster — das Ergebnis neben seinem Original.
+
+compare-title = Vergleich · { $name }
+compare-original = Original
+compare-result = Ergebnis
+compare-pending = Das Reinigen selbst gibt es in dieser Version noch nicht: das Ergebnis beginnt als Kopie des Originals. Bearbeiten Sie es, und jede Zeile, die abweicht, wird auf beiden Seiten markiert.
+compare-reading = Wird gelesen…
+compare-same = Das Ergebnis ist das Original, Zeile für Zeile.
+compare-changed = { $added ->
+        [one] { $added } Zeile hinzugefügt
+       *[other] { $added } Zeilen hinzugefügt
+    }, { $removed ->
+        [one] { $removed } Zeile entfernt
+       *[other] { $removed } Zeilen entfernt
+    }
+compare-refused-not-text = Das ist kein Text, also gibt es nichts, was sich Zeile für Zeile vergleichen ließe.
+compare-refused-too-big = Mit { $size } ist es mehr, als dieses Fenster vergleicht; die Grenze liegt bei { $limit }.
+compare-refused-unreadable = Es ließ sich nicht lesen.
+compare-reset = Zurück zum Original
+compare-reset-tooltip = Die Änderungen verwerfen; das Ergebnis ist wieder das Original.
+compare-help = Was dieses Fenster tut
+compare-help-marks = Eine rote Markierung am Original ist eine Zeile, die das Ergebnis nicht mehr hat; eine grüne am Ergebnis eine Zeile, die das Original nie hatte.
+compare-help-follows = Das Original folgt dem Cursor im Ergebnis, damit beide Seiten im Gleichschritt bleiben.
+compare-help-toolbar = Die Leiste über dem Ergebnis sind die Befehle des Editors selbst, mit den Kurzbefehlen, auf die er ohnehin hört.
+compare-help-words = Innerhalb einer geänderten Passage werden die Wörter, die abweichen, stärker markiert.
+compare-help-characters = Innerhalb einer geänderten Passage werden die Zeichen, die abweichen, stärker markiert.
+compare-help-settings = Was markiert wird und ob das Original folgt, wird auf der Seite „Vergleich“ der Einstellungen gewählt — für das nächste Fenster, das aufgeht.
+compare-help-close = Wird dieses Fenster geschlossen, wird nichts geschrieben; das Ergebnis lebt nur hier.
+
+result-undo = Rückgängig
+result-redo = Wiederholen
+result-cut = Ausschneiden
+result-copy = Kopieren
+result-paste = Einfügen
+result-select-all = Alles auswählen
+result-indent = Einrücken
+result-outdent = Ausrücken
+result-find = Suchen und ersetzen
+result-soft-wrap = Lange Zeilen umbrechen
+result-whitespace = Leerzeichen anzeigen
+
+
+settings-compare-title = Wie ein Ergebnis verglichen wird
+settings-compare-description = Was das Vergleichsfenster markiert, wenn ein Ergebnis neben sein Original gestellt wird. Ein Fenster liest diese Einstellungen beim Öffnen; ein bereits offenes behält, womit es geöffnet wurde.
+settings-compare-exact = Jedes Zeichen zählt: der Vergleich übersieht kein Leerzeichen, kein Zeilenende und kein Zeichen, das man nicht sehen kann.
+
+settings-compare-grain-title = Was markiert wird
+settings-compare-grain-description = Jede Zeile, die abweicht, wird auf beiden Seiten markiert, was auch immer hier gewählt ist. Innerhalb einer Passage, die sich geändert hat — statt nur hinzugekommen oder weggefallen zu sein — können die Markierungen feiner werden: die Wörter, die abweichen, oder die einzelnen Zeichen.
+settings-compare-grain-lines = Nur Zeilen
+settings-compare-grain-words = Geänderte Wörter
+settings-compare-grain-characters = Geänderte Zeichen
+
+settings-compare-follow-title = Das Original folgt dem Cursor
+settings-compare-follow-description = Wird der Cursor im Ergebnis bewegt, rollt das Original zu der Zeile, die an derselben Stelle steht, damit beide Seiten im Gleichschritt bleiben. Ausgeschaltet rollt jede Seite für sich.
+
+settings-placement-title = Wo Fenster aufgehen
+settings-placement-description = Auf welchem Bildschirm ein { -brand-name }-Fenster aufgeht, und an welcher Stelle dieses Bildschirms.
+
+settings-placement-looking = Die Bildschirme werden gelesen…
+settings-placement-attached = { $count ->
+        [one] Ein Bildschirm angeschlossen.
+       *[other] { $count } Bildschirme angeschlossen.
+    }
+settings-placement-only-window = Diese Einstellungen platzieren das { -brand-name }-Panel — das Fenster, das man aus der Menüleiste ruft. Die Fenster der Arbeitsfläche gehen nach denselben Regeln auf, sobald es sie gibt; das Hauptfenster und dieses hier platzieren sie nie.
+
+settings-placement-close-title = Nach dem Ablegen schließen
+settings-placement-close-description = Wird das Fenster auf einen Bildschirmteil gezogen, schließt sich dieses Fenster, damit sichtbar wird, wo es gelandet ist. Ein Klick auf einen Teil lässt dieses Fenster offen.
+
+settings-placement-screen-title = Öffnen auf
+settings-placement-screen-description = Der aktive Bildschirm ist der, auf dem der Zeiger steht, wenn das Fenster aufgeht. Der primäre ist der, auf dem der Schreibtisch die Menüleiste zeigt, wo der Zeiger auch sein mag.
+settings-placement-screen-active = Der aktive Bildschirm
+settings-placement-screen-primary = Der primäre Bildschirm
+
+settings-placement-display = Bildschirm { $number }
+settings-placement-resolution = { $width } × { $height }
+settings-placement-primary = Primär
+settings-placement-here = Das Panel ist hier
+settings-placement-opens-in = Ein Fenster geht { $zone } auf diesem Bildschirm auf.
+settings-placement-opens-where-left = Dort, wo Sie es auf diesem Bildschirm hingestellt haben, in der Größe, die Sie ihm gegeben haben.
+settings-placement-where-it-was-left = Wo ich es hingestellt habe
+settings-placement-restore-default = Standard wiederherstellen
+settings-placement-drag-hint = Ziehen Sie es auf einen Teil des Bildschirms, oder klicken Sie einen an. Das Panel selbst zu verschieben oder zu vergrößern sticht beides.
+
+settings-placement-zone-top-left = oben links
+settings-placement-zone-top-centre = oben in der Mitte
+settings-placement-zone-top-right = oben rechts
+settings-placement-zone-bottom-left = unten links
+settings-placement-zone-bottom-centre = unten in der Mitte
+settings-placement-zone-bottom-right = unten rechts
+
+## Engine
+
+settings-engine-title = Umschreib-Engine
+settings-engine-description = Umschreiben schickt das Dokument an ein Modell und bewertet, was zurückkommt. Die Bereinigung braucht dafür nie eine Engine und wird auch nie hinter einer verriegelt.
+
+settings-engine-pending = Diese Einstellungen werden gespeichert, und noch schickt sie niemand irgendwohin: Umschreiben gibt es in dieser Version nicht. Bis dahin bereinigt { -brand-name } nur und sagt das auch in der Statuszeile.
+
+settings-engine-state-off = Keine Engine. { -brand-name } bereinigt nur, was für sich genommen deterministisch und vollständig ist.
+settings-engine-state-ready-local = Konfiguriert, und das Dokument bliebe auf diesem Rechner: { $endpoint }
+settings-engine-state-ready-machine = Konfiguriert, und das Dokument verließe diesen Rechner nicht: { $model } läuft hier.
+settings-engine-state-model-not-here = Das zum Umschreiben gewählte Modell liegt noch nicht auf diesem Rechner. Laden Sie es auf der Seite „Modelle“ herunter, oder richten Sie diese Seite auf einen Server.
+settings-engine-state-model-unusable = Das zum Umschreiben gewählte Modell { $model } kann diese Version dafür nicht verwenden. Wählen Sie auf der Seite „Modelle“ ein anderes.
+settings-engine-state-no-such-profile = Kein Profil namens „{ $name }“. Es wurde nichts an seiner Stelle verwendet.
+settings-engine-state-ready-remote = Konfiguriert. Das Dokument ginge an { $endpoint } — nicht an diesen Rechner.
+settings-engine-state-no-model = Kein Modell benannt. Jede Anfrage muss sagen, welches Modell sie beantwortet.
+settings-engine-state-no-model-chosen = Auf diesem Rechner ist kein Modell zum Umschreiben gewählt. Gewählt wird eines auf der Seite „Modelle“, sobald es geladen ist.
+settings-engine-state-remote-refused = { $host } ist nicht dieser Rechner, und Dokumente von ihm fortzuschicken wurde nicht erlaubt. Schalten Sie unten „{ settings-engine-allow-remote-title }“ ein, oder richten Sie die Adresse wieder auf diesen Rechner.
+settings-engine-state-no-key = Für { $origin } ist kein Schlüssel hinterlegt. Dieser Anbieter braucht einen.
+settings-engine-state-key-in-the-clear = { $origin } ist eine unverschlüsselte Verbindung zu einem anderen Rechner, der Schlüssel ginge also im Klartext über das Netz. { -brand-name } schickt ihn nicht. Nehmen Sie https oder eine Adresse auf diesem Rechner.
+settings-engine-state-key-unreadable = Der Schlüssel ließ sich nicht lesen: { $reason }
+settings-engine-state-checking = Suche nach einem hinterlegten Schlüssel…
+
+settings-engine-serves-title = Wer umschreibt
+settings-engine-serves-description = Zwei Dinge können ein Dokument umschreiben: ein auf der Seite „Modelle“ geladenes Modell, das diesen Rechner nie verlässt, und die Adresse unten, also ein Server irgendwo. Eine Reihenfolge wird angesagt und nicht verborgen — antwortet die zweite Wahl, sagt der Hinweis oben, welche und warum — und eine entfernte Adresse braucht weiterhin „{ settings-engine-allow-remote-title }“, bevor irgendetwas verschickt wird.
+settings-engine-serves-machine = Dieser Rechner
+settings-engine-serves-endpoint = Die Adresse
+settings-engine-serves-machine-first = Rechner, dann Adresse
+settings-engine-serves-endpoint-first = Adresse, dann Rechner
+settings-engine-state-second-choice = Antwortet, weil die erste Wahl es nicht kann: { $reason }
+
+settings-engine-profile-title = Gespeichertes Profil
+settings-engine-profile-description = Alle Einstellungen dieser Seite außer dem Schlüssel, unter einem Namen abgelegt. Ein Profil auszuwählen übernimmt alles auf einmal, und unter einem schon vergebenen Namen zu speichern ersetzt es. Der Schlüssel bleibt im Anmeldeinformationsspeicher dieses Rechners, abgelegt unter der Adresse, und gilt für jedes Profil, das dorthin zeigt.
+settings-engine-profile-placeholder = Gespeichertes Profil wählen
+settings-engine-profile-name-placeholder = Diesen Einstellungen einen Namen geben
+settings-engine-profile-save = Speichern…
+settings-engine-profile-delete = Löschen
+settings-engine-profile-saved = Gespeichert als „{ $name }“.
+settings-engine-profile-modified = „{ $name }“, mit ungespeicherten Änderungen.
+settings-engine-profile-unsaved = Unter keinem Namen gespeichert.
+settings-engine-profile-no-key = Der Schlüssel gehört nicht zum Profil.
+
+settings-engine-profile-name-title = Diese Einstellungen speichern
+settings-engine-profile-name-body = Unter einem neuen Namen oder unter einem, den Sie schon verwenden.
+settings-engine-profile-name-taken = Eines davon ersetzen:
+settings-engine-profile-name-confirm = Speichern
+settings-engine-profile-delete-title = „{ $name }“ löschen?
+settings-engine-profile-delete-body = Nur die gespeicherte Kopie verschwindet. Die Einstellungen auf dieser Seite bleiben genau so, wie sie sind, und der Schlüssel im Anmeldeinformationsspeicher dieses Rechners ebenso.
+settings-engine-profile-delete-confirm = Löschen
+settings-engine-profile-cancel = Abbrechen
+
+settings-engine-provider-title = Anbieter
+settings-engine-provider-description = Ollama spricht sein eigenes /api/chat; der andere erreicht alles, was /v1/chat/completions bedient. Ohne Engine läuft { -layer-a } für sich weiter.
+settings-engine-provider-off = Keine Engine
+settings-engine-provider-openai = OpenAI-kompatibel
+
+settings-engine-endpoint-title = Adresse
+settings-engine-endpoint-description = Die Basis-URL ohne Pfad — den passenden hängt { -brand-name } selbst an. Nur http und https, und eine URL mit Benutzernamen oder Passwort darin wird abgelehnt.
+
+settings-engine-model-title = Modell
+settings-engine-model-description = Der Name, unter dem die Gegenstelle das Modell kennt, genau so geschrieben — llama3.1:8b, gpt-4o-mini, deepseek/deepseek-chat.
+
+settings-engine-key-title = API-Schlüssel
+settings-engine-key-description = Liegt im Anmeldeinformationsspeicher dieses Rechners, abgelegt unter der Adresse, für die er eingegeben wurde, und nie in den eigenen Einstellungen von { -brand-name }. Nach dem Speichern wird er nicht wieder angezeigt.
+settings-engine-key-placeholder = Schlüssel einfügen, um ihn zu hinterlegen
+settings-engine-key-save = Speichern
+settings-engine-key-forget = Verwerfen
+settings-engine-key-stored = Für { $origin } ist ein Schlüssel hinterlegt.
+settings-engine-key-absent = Für { $origin } ist kein Schlüssel hinterlegt.
+settings-engine-key-not-used = Dieser Anbieter schickt keinen Schlüssel. Ollamas eigene API kennt keinen Authorization-Header.
+settings-engine-key-would-be-in-the-clear = { $origin } ist unverschlüsselt und nicht dieser Rechner. Ein dort hinterlegter Schlüssel ginge nur im Klartext hinaus, also schickt { -brand-name } keinen.
+settings-engine-key-failed = Der Anmeldeinformationsspeicher hat abgelehnt: { $reason }
+settings-engine-key-not-persistent = Dieser Rechner hat keinen Anmeldeinformationsspeicher, den { -brand-name } erreicht; ein hier eingegebener Schlüssel hält nur, bis die Anwendung schließt.
+
+settings-engine-allow-remote-title = Entfernte Adresse erlauben
+settings-engine-allow-remote-description = Aus muss die Adresse dieser Rechner sein. An geht der Text jedes Dokuments an den, der sie betreibt — genau der Sinn eines gehosteten Modells, und eine Entscheidung, die man trifft statt in sie hineinzurutschen.
+
+settings-engine-temperature-title = Temperatur
+settings-engine-temperature-description = Zwischen 0 und 2. Höher entfernt sich weiter vom Wortlaut, was der Sinn des Umschreibens ist und zugleich der Weg, auf dem eine Tatsache verloren geht.
+
+settings-engine-reasoning-title = Denkaufwand
+settings-engine-reasoning-description = In einer Paraphrase steckt kein Schlussfolgern. Wird als „none“ geschickt; „off“ lässt das Feld ganz weg, für Server, die den Wert ablehnen statt ihn zu übergehen.
+settings-engine-reasoning-off = Aus (weglassen)
+settings-engine-reasoning-none = Keiner
+settings-engine-reasoning-low = Gering
+settings-engine-reasoning-medium = Mittel
+settings-engine-reasoning-high = Hoch
+
+settings-engine-timeout-title = Zeitlimit
+settings-engine-timeout-description = Sekunden, die auf eine Antwort gewartet wird, bevor sie aufgegeben wird. Ein Modell, das denkt, kann für einen Satz Minuten brauchen.
+
+## MCP
+
+settings-section-models = Modelle
+settings-models-title = Lokale Modelle
+settings-models-description = Offene Gewichte, die auf dieses Gerät geladen und gegen die Prüfsumme im Katalog von { -brand-name } geprüft werden. Nichts wird geladen, bevor Sie es verlangen.
+settings-models-pending = Ein geladenes Modell ist in dieser Version eine Datei und sonst nichts: Geladen wird noch keines. Die Bereinigung braucht davon nichts.
+settings-models-folder-title = Modellordner
+settings-models-folder-description = Wohin Downloads gelegt werden und wo { -brand-name } nach Modelldateien sucht — in diesem Ordner und in jedem Ordner darunter. Ein geleertes Feld stellt den Standard wieder her.
+settings-models-folder-choose = Auswählen…
+settings-models-folder-default = Standard
+settings-models-folder-busy = Warten Sie, bis der Download beendet ist, bevor Sie den Ordner verschieben.
+settings-models-folder-missing = Modellordner: { $path } — existiert noch nicht; der erste Download legt ihn an.
+settings-models-folder-unreadable = Modellordner: { $path } — konnte nicht gelesen werden: { $reason }
+settings-models-folder-read = Modellordner: { $path } — { $installed ->
+        [one] ein Katalogmodell hier
+       *[other] { $installed } Katalogmodelle hier
+    }, { $other ->
+        [0] sonst nichts, das wie ein Modell aussieht
+        [one] eine weitere Modelldatei
+       *[other] { $other } weitere Modelldateien
+    }.
+settings-models-found-title = Außerdem in diesem Ordner
+settings-models-found-description = Modelldateien, die beim Durchsuchen des Ordners und aller Unterordner gefunden wurden. Sie stehen nicht im Katalog dieser Version, also kann hier nichts sie prüfen, und noch nichts setzt sie ein.
+settings-models-rewrite-title = Modell zum Umschreiben
+settings-models-rewrite-description = Welches geladene Modell ein Umschreiben verwenden würde. Aufgeführt sind nur Modelle, die bereits auf diesem Gerät liegen; ein Modell wird für einen Zweck gewählt, und Umschreiben ist der einzige Zweck, für den dieser Build Gewichte mitbringt.
+settings-models-rewrite-none = Kein lokales Modell
+settings-models-size = { $size } Download
+settings-models-needs = Braucht etwa { $ram } MB
+settings-models-download = Laden
+settings-models-resume = Fortsetzen
+settings-models-cancel = Anhalten
+settings-models-remove = Entfernen
+settings-models-installed = Auf diesem Gerät
+settings-models-progress = { $done } von { $total }
+settings-models-verifying = Prüfe, was schon da ist …
+settings-models-host = Dieses Gerät meldet { $ram } MB Arbeitsspeicher.
+settings-models-host-unknown = Der Arbeitsspeicher dieses Geräts war nicht lesbar, daher wird unten nichts daran gemessen.
+settings-models-fit-roomy = Dafür ist Platz, und der Rest des Geräts bleibt benutzbar.
+settings-models-recommended = Für diesen Rechner empfohlen
+settings-models-fit-tight = Würde passen, mit wenig Rest für alles andere.
+settings-models-fit-too-big = { $short } MB mehr Arbeitsspeicher, als dieses Gerät hat.
+settings-models-fit-unknown = Nicht beurteilt: Der Arbeitsspeicher dieses Geräts war nicht lesbar.
+settings-models-damaged = Auf diesem Gerät, aber nicht das, was der Katalog beschreibt. Entfernen und neu laden.
+settings-models-failed = Der Download wurde beendet: { $reason }
+settings-models-stopped = Angehalten. Das bereits Geladene bleibt erhalten, der nächste Versuch setzt darauf auf.
+
+settings-retention-title = Was aufbewahrt wird
+settings-retention-description = Wohin ein Ergebnis geht, was mit der Datei geschieht, aus der es stammt, und ob { -brand-name } eine Kopie von dem behält, was ohne Datei ankam.
+
+settings-retention-beside = Ergebnisse werden neben die Datei geschrieben, als name.cleaned.ext; die Datei selbst wird nie angerührt.
+settings-retention-into = Ergebnisse werden nach { $folder } geschrieben; die Datei selbst wird nie angerührt.
+settings-retention-over = Eine Datei wird durch ihr Ergebnis ersetzt, sobald das Original als name.original.ext beiseitegelegt ist — und ein bereits vorhandenes Original wird nie überschrieben.
+settings-retention-keeps-nothing = Was ohne Datei ankommt — Eingefügtes, aus einem Browser Gezogenes — wird nicht aufbewahrt, sobald das Ergebnis es ersetzt hat.
+settings-retention-keeps-originals = Das Original von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten; Ergebnisse nicht.
+settings-retention-keeps-results = Das Ergebnis von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten; Originale nicht.
+settings-retention-keeps-both = Original und Ergebnis von Eingefügtem oder Gezogenem bleiben in { $folder } { $period } erhalten.
+settings-retention-pending = Noch wird nichts geschrieben: { -layer-a } und { -layer-b } sind in dieser Version nicht enthalten. Diese Einstellungen legen fest, was mit einer Datei und mit Eingefügtem geschieht, sobald sie da sind.
+
+settings-retention-destination-title = Wohin Ergebnisse gehen
+settings-retention-destination-description = „Neben die Datei“ schreibt name.cleaned.ext daneben und lässt die Datei, wie sie ist. Der Ergebnisordner ist der unten. „Anstelle der Datei“ ersetzt sie — nachdem das Original als name.original.ext beiseitegelegt wurde, und nie über ein bereits vorhandenes Original.
+settings-retention-destination-beside = Neben die Datei
+settings-retention-destination-folder = In den Ergebnisordner
+settings-retention-destination-replace = Anstelle der Datei
+
+settings-retention-folder-title = Ergebnisordner
+settings-retention-folder-description = Wohin Ergebnisse gehen, wenn sie in einen Ordner gehen — und wohin ein Ergebnis geht, das neben keiner Datei liegen kann, etwa ein aus einem Browser gezogenes Bild. Ein leeres Feld stellt den Downloads-Ordner wieder her.
+
+settings-retention-originals-title = Eingefügtes behalten
+settings-retention-originals-description = Eingefügter Text und hineingezogene Bilder haben keine Datei hinter sich; sobald das Ergebnis sie ersetzt hat, ist das Original weg. Behält eine Kopie im eigenen Ordner von { -brand-name } für den Zeitraum unten, so wie sie ankam, samt Auszeichnung. Eine Datei wird nie hierher kopiert: Die Datei ist das Original.
+
+settings-retention-results-title = Ergebnisse behalten
+settings-retention-results-description = Das Ergebnis von Eingefügtem oder Gezogenem, für den Zeitraum unten im eigenen Ordner von { -brand-name } behalten, damit es erreichbar bleibt, wenn die Zwischenablage längst etwas anderes enthält. Ein in eine Datei geschriebenes Ergebnis wird nicht hierher kopiert.
+
+settings-retention-period-title = Wie lange
+settings-retention-period-description = Wie lange eine behaltene Kopie bleibt, bevor { -brand-name } sie entfernt. Außerhalb des eigenen Ordners von { -brand-name } wird dadurch nie etwas entfernt.
+settings-retention-period-day = Einen Tag
+settings-retention-period-week = Eine Woche
+settings-retention-period-month = Einen Monat
+settings-retention-period-quarter = Drei Monate
+settings-retention-period-forever = Bis zum Löschen von Hand
+settings-retention-span-day = einen Tag lang
+settings-retention-span-week = eine Woche lang
+settings-retention-span-month = einen Monat lang
+settings-retention-span-quarter = drei Monate lang
+settings-retention-span-forever = bis zum Löschen von Hand
+
+settings-mcp-title = MCP-Server
+settings-mcp-description = Ein Agent kann { -layer-a } über das Model Context Protocol auf seine eigene Ausgabe anwenden.
+settings-mcp-tools-pending = Der Server antwortet, seine Werkzeuge noch nicht: Bereinigen gibt es in dieser Version nicht, und bis dahin wird jeder Aufruf abgelehnt, statt mit einem Bericht über nichts beantwortet zu werden.
+
+settings-mcp-status-off = Läuft nicht.
+settings-mcp-status-starting = Startet…
+settings-mcp-status-listening = Läuft und antwortet unter { $url }
+settings-mcp-status-moved = Port { $wanted } war bereits belegt, daher wurde { $port } genommen. Das Snippet unten ist das passende.
+settings-mcp-status-failed = Start fehlgeschlagen: { $reason }
+
+settings-mcp-exposed = { $address } ist aus dem Netz erreichbar, und dieser Server verlangt kein Passwort. Alles, was diesen Rechner erreicht, kann { -layer-a } darauf ausführen.
+
+settings-mcp-enabled-title = Über MCP anbieten
+settings-mcp-enabled-description = Startet mit { -brand-name } und läuft, solange es läuft. Wird die Adresse oder der Port unten geändert, startet er neu.
+
+settings-mcp-bind-title = Lauschen auf
+settings-mcp-bind-description = Jede Adresse dieses Rechners — 127.0.0.1 antwortet nur ihm selbst, 0.0.0.0 antwortet allem, was ihn erreicht, und 192.168.1.101 antwortet nur auf dieser Schnittstelle.
+
+settings-mcp-port-title = Port
+settings-mcp-port-description = Zwischen 1024 und 65535. Ein bereits belegter Port wird übersprungen: der Server nimmt den nächsten freien und sagt, welchen.
+
+settings-mcp-endpoint = Clients verbinden sich mit { $url }
+
+settings-mcp-snippets-title = Client verbinden
+settings-mcp-snippets-description = Dies in die Konfiguration des Clients einfügen. In einen vorhandenen mcpServers-Block einfügen, statt ihn zu ersetzen.
+settings-mcp-copy = Kopieren
+settings-mcp-copied = Kopiert
+
+settings-mcp-client-generic = Beliebiger MCP-Client
+
+## Erscheinungsbild
+
+theme-system = System
+theme-light = Hell
+theme-dark = Dunkel
+
+## Sprache
+
+language-autonym = Deutsch
+language-selector-label = Sprache
+language-system = System ({ $language })
+
+## Das dritte Regal (Spezifikation §0.1, Regel 3)
+
+report-not-established-title = Nicht belegt
+report-not-established-vendor-detector-evasion = Umgehung des herstellereigenen Detektors — nicht geprüft, ein Orakel dafür gibt es nicht
+report-not-established-human-authorship = menschliche Urheberschaft — von keiner Prüfung dieses Werkzeugs belegt
+report-not-established-unknown-mark-schemes = Markierungen in Verfahren, die dieser Build nicht umsetzt — es wurde nicht danach gesucht
+
+## Menüleiste
+
+tray-show = { -brand-name } anzeigen
+tray-panel = Panel anzeigen
+tray-clean-clipboard = Zwischenablage säubern — noch nicht
+tray-appearance = Erscheinungsbild
+tray-quit = { -brand-name } beenden
+
+## Kommandozeile
+
+cli-about = Entfernt KI-Herkunftsmarkierungen aus Ihren eigenen Texten und Bildern
+
+cli-help-usage = Aufruf:
+cli-help-commands = Befehle:
+cli-help-arguments = Argumente:
+cli-help-options = Optionen:
+cli-help-print-help = Hilfe anzeigen
+cli-help-print-version = Version anzeigen
+cli-command-help = Diese Meldung anzeigen, oder die Hilfe zum angegebenen Befehl.
+
+cli-command-inspect = Meldet, was in einem Dokument steckt, ohne es zu ändern.
+cli-command-clean = Nur { -layer-a }: deterministisch, nachprüfbar, ohne Modell.
+cli-command-rewrite = { -layer-a }, dann ein Umschreiben durch das Modell, dann wieder { -layer-a }.
+cli-command-models = Heruntergeladene Gewichte verwalten.
+cli-command-models-list = Das Manifest und das Installierte auflisten.
+cli-command-models-pull = Ein Modell anhand seiner Id herunterladen, eine Teildatei wird fortgesetzt.
+cli-command-models-verify = Ein installiertes Modell erneut gegen das Manifest hashen.
+cli-command-models-rm = Ein installiertes Modell löschen.
+cli-command-audit = Ein Verzeichnis durchlaufen und Funde melden, für CI.
+
+cli-arg-path-or-stdin = Zu lesende Datei, oder `-` für die Standardeingabe.
+cli-arg-path = Zu lesende Datei.
+cli-arg-out = Ausgabedatei. Standard ist `<name>.cleaned.<ext>` neben der Eingabe; direktes Überschreiben braucht ein ausdrückliches Flag und ist nie der Standard.
+cli-arg-nfkc = NFKC-Normalisierung anwenden (standardmäßig aus — sie ändert mehr als nur Herkunftsmarkierungen).
+cli-arg-aggressive = Auch Homoglyphen und exotische Leerzeichen behandeln. Höhere Falsch-positiv-Rate, deshalb nur auf Wunsch.
+cli-arg-json = Maschinenlesbares JSON statt Fließtext.
+cli-arg-engine = Engine zum Umschreiben: `local` oder `remote`.
+cli-arg-model = Modell-Id aus dem Manifest.
+cli-arg-tactic = Eintrag der Taktik-Leiter: paraphrase, humanize, back_translate, structural, code.
+cli-arg-candidates = Kandidaten je Abschnitt.
+cli-arg-rounds = Durchgänge je Abschnitt.
+cli-arg-force = Auch dann fortfahren, wenn die umschreibende Engine von dem Hersteller stammt, der das Dokument vermutlich markiert hat — die Markierung wird dann wahrscheinlich erneut gesetzt.
+cli-arg-id = Modell-Id aus dem Manifest.
+cli-arg-dir = Zu durchlaufendes Verzeichnis.
+cli-arg-sarif = SARIF-Ausgabe für Code-Scanning-Dashboards.
+cli-arg-language = Sprache für Meldungen und Hilfe, als BCP-47-Tag wie de oder ru. Hat Vorrang vor WIPEMARK_LANG, der in den Einstellungen gespeicherten Sprache und dem Betriebssystem, in dieser Reihenfolge.
+
+cli-unknown-language = unbekannte Sprache `{ $requested }`, es wird zurückgefallen. Verfügbar: { $available }
+
+cli-not-implemented =
+    `{ $summary }` wurde gelesen, aber `{ $command }` ist noch nicht implementiert.
+    In dieser Version stehen die Argumente und die Exit-Codes fest, das
+    Verhalten nicht. Beendet wird mit 2 statt 0 — ein Hook, der
+    durchgeht, weil nichts lief, ist schlimmer als kein Hook.

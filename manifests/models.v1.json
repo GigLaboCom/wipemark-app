@@ -1,4 +1,49 @@
 {
   "schema": 1,
-  "models": []
+  "models": [
+    {
+      "id": "gemma-3-12b-it-qat-ud-q4",
+      "display": "Gemma 3 12B Instruct (QAT, UD-Q4_K_XL)",
+      "roles": ["rewrite"],
+      "format": "gguf",
+      "status": "stable",
+      "files": [
+        {
+          "url": "hf://unsloth/gemma-3-12b-it-qat-GGUF@858acec7ec0541a46c39985c95d3b52d8f3ab183/gemma-3-12b-it-qat-UD-Q4_K_XL.gguf",
+          "sha256": "da98f81c86916ed1c76b3eeda56b25cb7b8352b01093e2edb8028110fe2cb53b",
+          "size_bytes": 7432229248
+        }
+      ],
+      "mem": { "min_ram_mb": 9216, "min_vram_mb": 9216 },
+      "ctx_default": 8192,
+      "quant": "UD-Q4_K_XL",
+      "quality_tier": 8,
+      "license": "gemma",
+      "langs": ["multi"],
+      "vendor": "open-llm",
+      "notes": "Quantization-aware training, not a post-hoc quantization: the damage is trained around rather than measured after. Estimated memory is 7089 MiB of weights, about 832 MiB of KV cache at 8192 tokens (Gemma 3 interleaves five 1024-token local layers per global one, so long contexts cost far less than the layer count suggests), and roughly 1.3 GiB of compute buffer and runtime overhead. Weights are the ungated unsloth mirror because google/gemma-3-12b-it-qat-q4_0-gguf is gated 'manual' on Hugging Face and a downloader with no account cannot fetch it. Gemma is Google's open-weight family: the non-origin rule is satisfied by running it locally under the user's control, not by it being unrelated to Gemini."
+    },
+    {
+      "id": "qwen3-4b-instruct-2507-ud-q4",
+      "display": "Qwen3 4B Instruct 2507 (UD-Q4_K_XL)",
+      "roles": ["rewrite"],
+      "format": "gguf",
+      "status": "stable",
+      "files": [
+        {
+          "url": "hf://unsloth/Qwen3-4B-Instruct-2507-GGUF@a06e946bb6b655725eafa393f4a9745d460374c9/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf",
+          "sha256": "4bbe1f2f8ebe69fad3be8e15d69f220b06448a9dd26f82d7d81cce88ebfc39fd",
+          "size_bytes": 2546340960
+        }
+      ],
+      "mem": { "min_ram_mb": 4608, "min_vram_mb": 4608 },
+      "ctx_default": 8192,
+      "quant": "UD-Q4_K_XL",
+      "quality_tier": 5,
+      "license": "apache-2.0",
+      "langs": ["multi"],
+      "vendor": "open-llm",
+      "notes": "4.0B parameters, 3.6B of them outside the embeddings. The 2507 Instruct build and not the hybrid Qwen3-4B on purpose: the hybrid reasons before it answers, and the measurement recorded in docs/sdd/layer-b-rewrite-reference.md is 9894 completion tokens against 12 for the same rewrite. A rewriter that thinks out loud is paying for tokens nobody reads. Estimated memory is 2429 MiB of weights, 1152 MiB of KV cache at 8192 tokens, and about 1 GiB of compute buffer and overhead."
+    }
+  ]
 }

@@ -1,0 +1,36 @@
+[package]
+name = "wipemark-log"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The rotating on-disk log and the panic hook that fills it. Installed by applications only."
+
+# Deliberately depends on NO other wipemark crate. It is installed by an
+# application before anything else exists — including the data layout —
+# so it takes its directory as a value rather than resolving one. That
+# also keeps it out of the way of the dependency direction rule: nothing
+# in the tree has a reason to depend on it except an app.
+#
+# It is a library and not a module inside each app for one reason: there
+# are two surfaces (window and pipe) and one log format, and a crash in
+# the CLI has to be as readable as a crash in the app.
+
+[dependencies]
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
+# Local wall-clock time, for the file name and the age half of the
+# rotation rule. Already in the tree via gpui, so this pins no new build
+# for the app; the CLI pays for `clock` + `std` and nothing else.
+chrono = { workspace = true }
+
+# Reads the workspace member list so that `default_filter` cannot
+# drift from it. See build.rs.
+[build-dependencies]
+toml.workspace = true
+
+[lints]
+workspace = true

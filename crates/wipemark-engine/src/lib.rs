@@ -50,7 +50,16 @@ pub struct EngineInfo {
     /// True when inference happens on this machine. Drives the "text
     /// leaves your machine" banner.
     pub local: bool,
-    pub ctx_len: u32,
+    /// The context window, when it is known.
+    ///
+    /// `None` is **unknown**, and never rendered as a number. Local
+    /// weights carry the figure their catalogue entry records; an HTTP
+    /// endpoint's window is the server's business, and a settings page
+    /// that reported one would be reporting a guess. A zero here would
+    /// read as "no context" to every consumer that did arithmetic on
+    /// it, which is the same mistake `Host::vram_mb` exists as an
+    /// `Option` to avoid.
+    pub ctx_len: Option<u32>,
 }
 
 /// Sampling knobs. Every one of them is a config value, never a

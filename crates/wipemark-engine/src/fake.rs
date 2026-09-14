@@ -94,7 +94,7 @@ impl RewriteEngine for FakeEngine {
             vendor: Vendor::OpenLlm,
             model_id: self.model_id.clone(),
             local: true,
-            ctx_len: self.ctx_len,
+            ctx_len: Some(self.ctx_len),
         }
     }
 

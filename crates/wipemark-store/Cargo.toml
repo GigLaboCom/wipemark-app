@@ -1,0 +1,31 @@
+[package]
+name = "wipemark-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The local SQLite database: schema, migrations and the settings key/value table."
+
+# A leaf. It takes a path and hands back rows; it does not know where
+# the data directory is (that is `wipemark-models::layout`) and it does
+# not know what any key means (that is the application). Enforced by
+# scripts/check-dep-direction.sh.
+
+[dependencies]
+# `bundled` compiles the SQLite amalgamation into the binary rather than
+# linking whatever the host happens to ship. A desktop product cannot
+# depend on the user having a `libsqlite3` new enough for WAL and
+# `ON CONFLICT` — and a macOS .app that links the system one is a
+# notarization problem waiting for a macOS release to move it.
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json.workspace = true
+thiserror.workspace = true
+# Macros only. A library never installs a subscriber; the application
+# does. See the note in wipemark-i18n.
+tracing.workspace = true
+
+[lints]
+workspace = true

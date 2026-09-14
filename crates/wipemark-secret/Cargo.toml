@@ -1,0 +1,22 @@
+[package]
+name = "wipemark-secret"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Wipemark — the OS credential store, behind one type"
+
+[dependencies]
+# The OS credential store: macOS Keychain, Windows Credential Manager,
+# Secret Service on Linux. Default features are the `v1` set, which is
+# the three native backends and nothing else — on macOS that resolves
+# to `security-framework` and eleven crates, all of which gpui already
+# pulls in for its own use of Core Foundation.
+keyring = "4.2"
+thiserror.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
