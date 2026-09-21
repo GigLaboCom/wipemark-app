@@ -1063,6 +1063,8 @@ What exists so far:
 | `wipemark-intake-drag-and-drop-2026-09-11` | FILE | the spec: accepting a drop, recognising what it was, and the contract every surface consumes it through |
 | `wipemark-intake-drag-and-drop-closed-2026-09-11` | TEXT | its closure: what landed, the gates and the four RED checks, the deviations from the decomposition, what is left open |
 | `wipemark-drag-and-drop-architecture-2026-09-11` | FILE | a snapshot of `docs/architecture/drag-and-drop.md`, so the knowledge survives a machine this repository is not pushed from |
+| `wipemark-q1-name-decision-2026-09-21` | TEXT | Q1 closed: the name is Wipemark; nothing renames |
+| `wipemark-core-layer-a-2026-09-21` | FILE | the E1 spec: the UCD tables and their `build.rs`, the classifier and what it keeps, the scrubber, NFKC, homoglyphs, the five guards, and the MCP and CLI `inspect`/`clean` that are its first callers. Pins Unicode **18.0.0** |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
