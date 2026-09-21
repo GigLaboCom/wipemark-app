@@ -1047,8 +1047,11 @@ copies in `ssd-docs/` — gitignored — and put anything durable in
 `docs/`.
 
 The spec still calls the product "Heretic Unmark"; that was a
-placeholder pending owner question Q1. This repo uses **Wipemark**
-throughout. If Q1 lands elsewhere, rename before E1.
+placeholder pending owner question Q1. **Q1 is closed: the name is
+Wipemark** (owner decision, 2026-09-21). This repo already uses it
+throughout — crates `wipemark-*`, binaries `wipemark` and
+`wipemark-cli`, bundle `com.GigLabo.wipemark` — so nothing renames;
+only the spec's key keeps the old word, and a key is a format.
 
 An implementation spec is a Watchword FILE of its own, ttl 0, and the
 closure of a scope is a TEXT beside it — the convention the overview's

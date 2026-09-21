@@ -80,13 +80,13 @@ from it.
 
 ## Decisions the skeleton had to make
 
-1. **Name: Wipemark.** The spec's `heretic-unmark` is explicitly a
+1. **Name: Wipemark.** The spec's `heretic-unmark` was explicitly a
    placeholder pending owner question Q1; this repository and its README
-   are named `wipemark`, which is the freshest signal. Crates are
-   `wipemark-*`, binaries `wipemark` (GUI) and `wipemark-cli`, bundle
-   `com.GigLabo.wipemark`. **If Q1 lands elsewhere, rename before E1** —
-   it is a `git mv` plus one `sed` over the manifests today, and a much
-   larger diff once seven epics reference the crate names.
+   were named `wipemark`, which was the freshest signal, and the owner
+   confirmed it on 2026-09-21. Crates are `wipemark-*`, binaries
+   `wipemark` (GUI) and `wipemark-cli`, bundle `com.GigLabo.wipemark`.
+   Nothing renames; the spec's Watchword key keeps the old word because
+   a key is a format.
 2. **`license = "LicenseRef-Proprietary"`, `publish = false`.** The
    product has an activation flow and a trial (spec §8), so
    heretic-amuse-merge's Apache-2.0 would be simply wrong. The EULA text
@@ -133,7 +133,7 @@ it as is rather than writing a second one (spec §1.2).
 
 | # | question | blocks |
 |---|---|---|
-| Q1 | product name | answered provisionally as **Wipemark**, from the repo name — confirm before E1 |
+| Q1 | product name | **closed 2026-09-21: Wipemark** — confirmed by the owner; nothing renames |
 | Q2 | `llama-cpp-2` vs `mistral.rs` | E2 / S2.5 |
 | Q3 | stylometric "AI-likelihood" score as an informational finding — spec recommends **no** | E4 / S4.6 |
 | Q4 | default `pivot_lang` and prompt language | E4 / S4.4 |
@@ -142,7 +142,7 @@ it as is rather than writing a second one (spec §1.2).
 | Q7 | editor: Merge's own, or `gpui-component` TextArea | E7 / S7.2 |
 | Q8 | "Sign" mode — apply *your own* invisible marker | backlog or v1 |
 
-None of them block E1, which is the next epic.
+None of the open ones block E1, which is the next epic.
 
 ## Gate evidence
 
