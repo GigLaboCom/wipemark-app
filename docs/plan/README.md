@@ -413,6 +413,8 @@ tell a decision from an accident.
 | **D48** | llama.cpp source is fetched by `crates/wipemark-llama-sys/vendor/fetch.sh` into a gitignored tree pinned to `d8a24cc` (ggml 0.15.1); `build.rs` refuses a drifted tree. No whisper, so no matched-triple rule. | Mnemoria's pin, carrying the Gemma 4 12B fix; a submodule would make every CI checkout clone llama.cpp. |
 | **D49** | `wipemark-llama` is synchronous; `LocalEngine` owns one worker thread that owns the model; the seed is per request, not per load. | E4's candidates differ by seed (`SamplingParams::seed`); mnemoria fixed the seed at load. A thread + flume is how every long operation here already crosses to an executor. |
 | **D50** | A load is refused before any native allocation when the estimate exceeds the memory the caller says is available (`None` = unknown = no refusal); mnemoria's multi-device `Ledger` and slot-sized fit planner are not copied. | One user, one model; `wipemark-models` already knows the sizes. |
+| **D51** | **Keeping the local model loaded (owner, 2026-10-03).** `EngineHost` (OV §1.3) owns the loaded `LocalEngine` and applies one preference, `engine.local.keep`, with two values: `on_demand` (load at the first job, unload after `engine.local.idle_minutes` of idle, default **15**) — the default — and `resident` (load when the application starts and never unload while it runs; a model/engine change swaps it). No "unload after every job" mode: `on_demand` with a short idle covers it. Both are Settings rows on the Engine page (`every_persisted_preference_has_a_row`). Weights stay mmap'd, no `mlock` by default; pinning is a separate advanced row (`engine.local.mlock`, off) whose page says what it costs. The status bar shows the loaded model and its memory; the Engine page and the menu-bar item carry "Unload now". Under critical memory pressure `on_demand` unloads early; `resident` does not (the user chose it). The Engine page says that on a platform without a menu-bar item closing the window quits the app and with it the model. `LocalEngine` itself never unloads on its own (E2-1); the policy is E2-2's. | OV §1.3 "выгружает локальную модель по idle-таймауту (память!)" stays the default; `resident` is the owner's ask. |
+| **D52** | **The CLI and agents use the application's loaded model (owner, 2026-10-03).** When the application is running, a rewrite asked of `wipemark-cli` or of an MCP client is served by the application's `EngineHost` through its MCP server on loopback (the endpoint `settings::on_screen` reports); the CLI says, on stderr and in `--json`, that the running application did the rewrite. With no application running, the CLI loads the model itself. The document never leaves the machine either way; a non-loopback MCP bind is never used for this. | `resident` only pays off if the callers that are not the window can reach the warm model; a second process would load a second copy. Lands with the MCP `rewrite` tool (E2-2/E5). |
 
 ---
 
@@ -507,7 +509,9 @@ the gate the overview set, and the open edges.
 - **Series.** [E2-1-local-engine.md](E2-1-local-engine.md) — the local
   engine carried over from mnemoria (S2.5, the build half of S2.6;
   D45–D50) — status: done — [reports/E2-1-2026-10-03.md](reports/E2-1-2026-10-03.md). E2-2 wires it (`duty::engine_for`, the
-  app, the CLI); E2-3 is the HTTP engine.
+  app, the CLI) and adds `EngineHost` with the keep-loaded policy (D51)
+  and the CLI/agents reaching the application's loaded model (D52); E2-3
+  is the HTTP engine.
 - **Rule.** Q2 is answered (D45). The rule `engine_for` must keep: a
   decision becomes an engine or a refusal, never plausible text with no
   model behind it.
