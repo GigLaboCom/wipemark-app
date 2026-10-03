@@ -117,7 +117,7 @@ guards that reject a bad rewrite are E1 code (A §6).
 
 | id | document | spec scopes | depends on | unblocks | size | status |
 |---|---|---|---|---|---|---|
-| **E1-1** | [E1-1-ucd-tables.md](E1-1-ucd-tables.md) — the committed UCD 18.0.0 files, `scripts/fetch-ucd.sh`, the std-only `build.rs`, the generated tables and their query functions, the `Script` enum, character names | S1.1 | — | everything below | ~2 days | not started |
+| **E1-1** | [E1-1-ucd-tables.md](E1-1-ucd-tables.md) — the committed UCD 18.0.0 files, `scripts/fetch-ucd.sh`, the std-only `build.rs`, the generated tables and their query functions, the `Script` enum, character names | S1.1 | — | everything below | ~2 days | done — [reports/E1-1-2026-10-03.md](reports/E1-1-2026-10-03.md) |
 | **E1-2** | [E1-2-classifier.md](E1-2-classifier.md) — `class_of`, the context rules that keep orthography (emoji, joining scripts, RTL, flags, Mongolian, Khmer, Hangul), the hit stream, `TextStats::of` | S1.2, S1.4 | E1-1 | E1-3, E1-5 | ~3 days | not started |
 | **E1-3** | [E1-3-scrubber-and-nfkc.md](E1-3-scrubber-and-nfkc.md) — the public API (`inspect`, `clean`, `Options`, `Cleaned`), the report changes, aggregation, the second pass, NFKC (UAX #15) and its conformance gate, idempotence, the JSON form of the report, `fixtures/text/` | S1.3, S1.5 | E1-2 | E1-4, E1-6 | ~4 days | not started |
 | **E1-4** | [E1-4-homoglyphs.md](E1-4-homoglyphs.md) — confusables in both directions, the mixed-word rule, whole-word redraws, the 10 % rule | S1.6 | E1-3 | E1-6 | ~2 days | not started |

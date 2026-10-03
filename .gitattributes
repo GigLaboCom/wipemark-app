@@ -1,0 +1,10 @@
+# Unicode data, crates/wipemark-core/ucd/: byte-exact, because
+# SHA256SUMS hashes these bytes and build.rs refuses a carriage return;
+# and never diffed, because a version bump is megabytes nobody reads —
+# the checksum file (diffable) and the suite are what gets reviewed.
+crates/wipemark-core/ucd/**/*.txt   -text -diff
+crates/wipemark-core/ucd/SHA256SUMS -text
+
+# Fixtures are byte-exact: a normalised line ending is a changed fixture
+# (fixtures/README.md, rule 1). E1-3 adds the files.
+fixtures/text/**                    -text
