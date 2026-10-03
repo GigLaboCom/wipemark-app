@@ -31,6 +31,19 @@
 
 ## 1. Where we are (verified 2026-10-03)
 
+> **Since this section was written, E1 has landed** (same day, E1-1 …
+> E1-7, `45ebb17` … `7e606b8`; closure: Watchword TEXT
+> `wipemark-core-layer-a-closed-2026-10-03`). What changed against the
+> snapshot below: Layer A exists in `wipemark-core` (tables, classifier,
+> scrubber and NFKC, homoglyphs, guards); MCP `inspect`/`clean` and CLI
+> `inspect`/`clean` do real work (exit 0/1/3), and the windows say that
+> cleaning *from a window* is not in this version yet and runs from the
+> CLI and over MCP. Gates at `7e606b8`: **778 passed, 0 failed,
+> 1 ignored**; **466** catalogue keys × 3 languages; workspace clippy
+> green on Linux since `f07e291` (it was red there before E1). The
+> tables below are kept as the snapshot at `497eafa` that the E1
+> documents were written against.
+
 **One sentence.** Everything *around* the two layers is built and tested;
 neither layer exists. A user can drop, paste and import things, see what
 each one is, compare a result with its original, configure an engine, a
@@ -246,6 +259,7 @@ pub enum Script { Latin, Cyrillic, Greek, Arabic, Hebrew, Han, Hiragana, Katakan
                   Common, Inherited, Other }
 impl Script { pub fn as_str(self) -> &'static str; /* the UCD long name: "Latin", "Hanifi_Rohingya", …;
                                                       "Other" for the 122 script values folded into Other plus Unknown */ }
+// (as built: `#[cfg(test)]` since E1-7 — no shipped caller; three tests read Scripts.txt through it)
 
 // name.rs — re-exported as wipemark_core::name_of
 pub fn name_of(c: char) -> Option<std::borrow::Cow<'static, str>>;
@@ -427,7 +441,10 @@ tell a decision from an accident.
 - **Dead code between documents.** Nothing calls the E1-1 lookups until
   E1-3, so E1-1 scopes `#![cfg_attr(not(test), allow(dead_code))]` to
   `tables.rs` and `script.rs`; each later document removes it for what it
-  now calls, and E1-7 removes what remains.
+  now calls, and E1-7 removes what remains. *(Resolved at E1-7: one
+  module-wide `expect(dead_code)` stays in `tables.rs` for five generated
+  lookups with no caller yet; `expect` fails the build when the last one
+  gets one.)*
 - **A test that cannot fail.** Every protection in A §8 is painted red
   by the stated mutation before it counts; the report lists each one.
   CLAUDE.md: "a test that stays green with its subject deleted is worse

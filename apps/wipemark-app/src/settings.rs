@@ -5971,9 +5971,10 @@ fn screens_banner(attached: usize, scanned: bool) -> Vec<String> {
 /// The first line is where results go and what happens to the file;
 /// the second is what the product keeps of its own, which for a file
 /// is nothing and for a paste is whatever the two switches say. The
-/// last line never changes: nothing is written until E1 and E4 land,
-/// and a page that described a product writing files would be
-/// describing one that does not exist yet.
+/// last line never changes: no window writes anything until E4/E7, and
+/// the CLI, which does write, never reads these rows — a page that
+/// described a window writing files would describe one that does not
+/// exist yet.
 fn retention_banner(retention: &Retention, results: &Path, kept: &Path) -> Vec<String> {
     let destination = match retention.destination {
         Destination::Beside => t(Message::SettingsRetentionBeside),

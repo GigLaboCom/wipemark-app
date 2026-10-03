@@ -52,9 +52,10 @@
 //! was. Showing the invitation again for the middle one would look like
 //! the drop never happened.
 //!
-//! The clean-up itself is not implemented yet, so the panel says what
-//! it will do and does not pretend to do it — the same bargain the MCP
-//! tools, the Engine banner and the disabled tray item make. What is
+//! Cleaning from this window is not implemented yet — Layer A runs from
+//! the CLI and over MCP — so the panel says what it will do and does not
+//! pretend to do it, the same bargain the Engine banner and the disabled
+//! tray item make. What is
 //! real today is the window: that it arrives where it was told to, on
 //! the display it was told to, that it can be moved and resized, that
 //! it takes a drop and names it, and that Escape dismisses it.

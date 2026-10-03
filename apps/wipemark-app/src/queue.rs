@@ -46,13 +46,13 @@
 //!
 //! Clean anything. The row says what a thing is and, in its hover
 //! card, what would happen to it under the Retention page's choices;
-//! the footer says the cleaning is not in this version, for the same
-//! reason the MCP tools refuse by name. Folders and archives are listed
+//! the footer says cleaning from this list is not in this version and
+//! where it does run (the CLI and MCP), because a surface that cannot do
+//! the thing says so out loud. Folders and archives are listed
 //! as what they are and never expanded — an item that silently became
 //! four hundred rows is not what anybody dropped. A keyword is shown and
 //! searched but not yet *assigned*: in lazy-shot that is the MCP
-//! server's `assign_keyword`, and the tool that will do it here is the
-//! one that refuses by name today.
+//! server's `assign_keyword`, and this server has no such tool yet.
 //!
 //! # Nothing blocks the window
 //!
@@ -1238,9 +1238,9 @@ impl Queue {
             .child(div().text_sm().child(SharedString::from(t(line))))
     }
 
-    /// The line under the table: that none of it has been cleaned — the
-    /// same sentence the panel and the MCP tools pane keep until E1
-    /// lands — and lazy-shot's paginator at the right.
+    /// The line under the table: that this list does not clean yet and
+    /// where cleaning does run — the sentence the panel keeps too until
+    /// E4/E7 — and lazy-shot's paginator at the right.
     fn footer(&self, visible: usize, cx: &Context<Self>) -> Div {
         let theme = cx.theme();
         let pages = pages(visible, self.page_size);
