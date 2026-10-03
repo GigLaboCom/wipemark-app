@@ -170,15 +170,46 @@ mod tests {
     /// which is the one that would otherwise be left behind in a window
     /// that had just been fully retranslated.
     ///
-    /// The only test in this crate that moves the process-wide language.
-    /// Everything else here and in `theme.rs` asserts things that hold
-    /// in every language — that a label is non-empty, that a value round
-    /// trips — so a reader running concurrently sees a different
-    /// language and still passes. The per-language properties that
-    /// would *not* survive that are gated in `wipemark-i18n`, which can
-    /// pin a language without a global at all.
+    /// The only test in this crate that moves the process-wide language,
+    /// and it does so **in a process of its own**. The test binary runs
+    /// every other test on threads beside it, and some of them read
+    /// English through the same global — the queue's footer, the status
+    /// bar — so a switch to Russian in this process was a coin toss for
+    /// whichever of them happened to format a string in that window.
+    /// The body below re-runs this test binary on exactly one test,
+    /// [`switching_language_in_a_process_of_its_own`], and asserts that
+    /// it ran and passed: a filter that matched nothing would also exit
+    /// zero, and a gate that never ran is the thing this repository
+    /// refuses to keep.
     #[test]
     fn switching_language_retranslates_the_selector_and_the_window() {
+        const BODY: &str = "language::tests::switching_language_in_a_process_of_its_own";
+        let output = std::process::Command::new(std::env::current_exe().expect("the test binary"))
+            .args(["--exact", BODY, "--ignored", "--test-threads=1"])
+            .env(ISOLATED, "1")
+            .output()
+            .expect("the test binary runs");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && stdout.contains("test result: ok. 1 passed"),
+            "the language switch failed in its own process:\n{stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// Set by the test above for the child process it starts.
+    const ISOLATED: &str = "WIPEMARK_TEST_LANGUAGE_ISOLATED";
+
+    /// The switch itself. Ignored so that a run of the suite never
+    /// executes it beside the readers; run alone, by the test above.
+    /// Under a plain `--ignored` run (without the variable) it does
+    /// nothing rather than race — the test above is the gate.
+    #[test]
+    #[ignore = "moves the process-wide language; run in its own process by switching_language_retranslates_the_selector_and_the_window"]
+    fn switching_language_in_a_process_of_its_own() {
+        if std::env::var_os(ISOLATED).is_none() {
+            return;
+        }
         let english = LanguagePreference::parse("en-US").expect("a valid tag");
         // Russian and not German, and the reason is worth writing down:
         // German for "System" is "System", and the autonym in the
@@ -205,8 +236,9 @@ mod tests {
             "the row order is not language-dependent, only the labels are"
         );
 
-        // Back to following the desktop, which is where the process
-        // started and what every other test expects to be ambient.
+        // Back to following the desktop: the process ends here, but a
+        // test that leaves a global moved is a trap for the next one
+        // added beside it.
         wipemark_i18n::select(&LanguagePreference::System);
     }
 }
