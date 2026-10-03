@@ -85,6 +85,7 @@ use gpui_component::{
     h_flex, v_flex, ActiveTheme, Disableable as _, IndexPath, Root, Selectable, Sizable,
     StyledExt as _,
 };
+use wipemark_engine::http::KeyFault;
 use wipemark_engine::Unavailable;
 use wipemark_i18n::{args, t, t_args, LanguagePreference, Message};
 use wipemark_models::host::Host;
@@ -117,6 +118,7 @@ use crate::recorder::{Recorder, RecorderEvent};
 use crate::retention::{self, Destination, Homes, Period, Retention};
 use crate::screen::{self, Connected, Screen};
 use crate::theme::ThemePreference;
+use crate::title::Title;
 use crate::tray::Tray;
 use crate::{display_watch, models, panel, window_state};
 
@@ -765,6 +767,10 @@ pub struct Preferences {
     /// endpoint's engine when it moves: the account is the same, the key
     /// under it is not.
     key_saves: u64,
+    /// The last Save, when it refused the key before the credential store
+    /// was touched: no request could have carried it. Cleared by the next
+    /// lookup, Save or Forget.
+    key_refused: Option<KeyFault>,
     /// The operating system's credential store. `Arc` for the reason
     /// the store is one: every call to it happens on the background
     /// executor, because a keychain read blocks and can put a
@@ -1066,6 +1072,7 @@ impl Preferences {
             key: KeyState::Unknown,
             key_lookups: 0,
             key_saves: 0,
+            key_refused: None,
             vault,
             catalogue: models::catalogue(),
             // Deliberately not probed or scanned here, for the reason
@@ -2228,6 +2235,11 @@ impl Preferences {
         self.key_saves
     }
 
+    /// Why the last Save refused its key, while that is still the news.
+    pub fn key_refused(&self) -> Option<KeyFault> {
+        self.key_refused
+    }
+
     /// Whether what is put in the credential store outlives the
     /// process. The pane says so when the answer is no, because a key
     /// that lasts until the window closes is a thing to know before
@@ -2485,6 +2497,7 @@ impl Preferences {
     pub fn look_up_key(&mut self, after: Duration, cx: &mut Context<Self>) {
         self.key_lookups += 1;
         self.key = KeyState::Unknown;
+        self.key_refused = None;
         cx.notify();
 
         if !self.engine.provider.takes_a_key() {
@@ -2543,27 +2556,45 @@ impl Preferences {
     /// not keep it: the value goes to the background executor, is
     /// written, and is dropped there. What comes back is a
     /// [`KeyState`] — whether there is one, never what it is.
-    pub fn store_key(&mut self, secret: Secret, cx: &Context<Self>) {
+    ///
+    /// A key no request could carry ([`engine::admit_key`]) is refused
+    /// here, on the click, and goes nowhere: not to the background, not
+    /// to the vault. What was stored before stays stored.
+    pub fn store_key(&mut self, secret: Secret, cx: &mut Context<Self>) {
+        if let Err(fault) = engine::admit_key(&secret) {
+            tracing::info!(
+                ?fault,
+                "a key was refused at Save: no request could carry it"
+            );
+            self.key_refused = Some(fault);
+            cx.notify();
+            return;
+        }
+        self.key_refused = None;
         self.key_lookups += 1;
         let mine = self.key_lookups;
         let vault = self.vault.clone();
         let account = engine::account_of(&self.engine.base_url);
 
         cx.spawn(async move |preferences, cx| {
-            let outcome = cx
+            let saved = cx
                 .background_executor()
-                .spawn(async move {
-                    match vault.set(&account, &secret) {
-                        Ok(()) => KeyState::Stored,
-                        Err(error) => {
-                            tracing::warn!(%error, "could not store a credential");
-                            KeyState::Failed(error.to_string())
-                        }
-                    }
-                })
+                .spawn(async move { engine::save_key(&vault, &account, &secret) })
                 .await;
             preferences
                 .update(cx, |preferences, cx| {
+                    let outcome = match saved {
+                        engine::KeySaved::Stored => KeyState::Stored,
+                        engine::KeySaved::Failed(reason) => KeyState::Failed(reason),
+                        // Asked on the click already; a refusal here is the
+                        // same rule answering twice, and the state is what
+                        // it was.
+                        engine::KeySaved::Refused(fault) => {
+                            preferences.key_refused = Some(fault);
+                            cx.notify();
+                            return;
+                        }
+                    };
                     if outcome == KeyState::Stored {
                         preferences.key_saves += 1;
                         cx.notify();
@@ -2581,6 +2612,7 @@ impl Preferences {
     /// Forget this endpoint's key. Only this endpoint's — the account
     /// is the origin, so a key for another provider is untouched.
     pub fn forget_key(&mut self, cx: &Context<Self>) {
+        self.key_refused = None;
         self.key_lookups += 1;
         let mine = self.key_lookups;
         let vault = self.vault.clone();
@@ -3598,7 +3630,7 @@ impl SettingsView {
     /// left alone: it would otherwise be the one stale string in a
     /// window that had just been fully retranslated.
     fn retranslate(&self, window: &mut Window, cx: &mut Context<Self>) {
-        window.set_window_title(&t(Message::SettingsTitle));
+        window.set_window_title(&Title::Settings.text());
 
         let choices = language::choices();
         let row = language::row_of(&choices, &self.language).map(IndexPath::new);
@@ -4207,6 +4239,7 @@ impl SettingsView {
         let in_the_clear = engine::key_would_travel_in_the_clear(&engine.base_url);
         let persists = preferences.credentials_persist();
         let state = preferences.key().clone();
+        let refused = preferences.key_refused();
         let stored = state == KeyState::Stored;
         // The one thing on this page that depends on what is *in* a
         // field rather than on what has been chosen — see the
@@ -4312,6 +4345,17 @@ impl SettingsView {
                     .text_color(tone)
                     .child(SharedString::from(note)),
             )
+            // The last Save, when it refused the key: under the state
+            // line rather than instead of it, because a key stored before
+            // is still stored and the page should still say so.
+            .when_some(refused.filter(|_| wanted), |control, fault| {
+                control.child(
+                    div()
+                        .text_xs()
+                        .text_color(danger)
+                        .child(SharedString::from(t(engine::key_refusal_message(fault)))),
+                )
+            })
             // Both of these are conditions rather than states, and each
             // is only on screen while it is true. A warning that is
             // always there is one nobody reads on the day it starts
@@ -7203,7 +7247,7 @@ pub fn open(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
-                title: Some(t(Message::SettingsTitle).into()),
+                title: Some(Title::Settings.text().into()),
                 ..Default::default()
             }),
             window_min_size: Some(MIN_SIZE),

@@ -755,6 +755,13 @@ settings-engine-key-not-used = This provider sends no key. Ollama's own API take
 settings-engine-key-would-be-in-the-clear = { $origin } is unencrypted and is not this machine. A key stored for it could only be sent in the clear, so { -brand-name } will not send one.
 # The credential store said no. $reason is its own wording.
 settings-engine-key-failed = The credential store refused: { $reason }
+# Save refused a key before the credential store was touched: it could
+# never be sent in an Authorization header. Nothing was stored, and the
+# field is already empty — the sentence asks for it again.
+settings-engine-key-refused-not-ascii = Not saved: this key has a character that is not plain ASCII — a letter from another keyboard layout, a typographic dash or an invisible character from a paste — and a request cannot carry it. Paste the key again.
+settings-engine-key-refused-control = Not saved: this key has a control character in it, which a request cannot carry. Paste the key again.
+settings-engine-key-refused-space = Not saved: this key has a space inside it, and no provider issues a key with one. Paste the key again.
+settings-engine-key-refused-empty = Not saved: there is no key in the field.
 # A vault that does not outlive the process — no keychain on this
 # machine, or none this build could reach.
 settings-engine-key-not-persistent = This computer has no credential store { -brand-name } can reach, so a key entered here lasts only until the application closes.
@@ -1135,8 +1142,8 @@ cli-arg-json = Machine-readable JSON instead of prose.
 cli-arg-engine = Rewriting engine: `local` or `remote`.
 cli-arg-model = Manifest model id.
 cli-arg-tactic = Tactic ladder entry: paraphrase, humanize, back_translate, structural, code.
-cli-arg-candidates = Candidates generated per chunk.
-cli-arg-rounds = Rewrite rounds per chunk.
+cli-arg-candidates = Candidates generated per chunk. Without it, whoever rewrites decides: 1 for a model on this machine's processor alone, 2 for one on a graphics card or an endpoint.
+cli-arg-rounds = Rewrite rounds per chunk, at most. Without it, up to 2, and the second only when no candidate of the first passed.
 cli-arg-id = Manifest model id.
 cli-arg-dir = Directory to walk.
 cli-arg-sarif = SARIF output, for code scanning dashboards.

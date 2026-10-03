@@ -25,6 +25,11 @@
 //!   connection and caps every wait on the socket instead.
 //! * **No gzip** (the workspace builds ureq without it), so the byte counts
 //!   in the log are what crossed the wire.
+//! * **A key that cannot travel in a header is never sent.**
+//!   [`authorization`] is the one builder of the `Authorization` value and
+//!   the rule the Settings window's Save asks through [`super::sendable`],
+//!   so the page and the transport cannot disagree; a stored key that
+//!   breaks it is refused before a socket opens.
 //!
 //! Nothing here logs a prompt, a completion, a header value or a key:
 //! status codes, byte counts, timings and the origin.
@@ -180,13 +185,21 @@ pub(crate) fn exchange(
     forward: &mut dyn FnMut(String) -> bool,
 ) -> Result<Completion, EngineError> {
     checked(request.endpoint)?;
+    // Built once, before anything is opened, and reused by every retry.
+    let authorization = request
+        .key
+        .map(authorization)
+        .transpose()
+        .map_err(|fault| {
+            EngineError::Transport(format!("the stored key {fault}; nothing was sent"))
+        })?;
     let mut attempt = 0;
     let response = loop {
         if stop.now() {
             return Err(EngineError::Cancelled);
         }
         let asked = Instant::now();
-        let response = match send(request) {
+        let response = match send(request, authorization.as_deref()) {
             Ok(response) => response,
             Err(error) => {
                 if attempt < RETRIES && worth_retrying(&error) {
@@ -331,17 +344,68 @@ fn streamed(
     assembled.completion()
 }
 
-fn send(request: &Request) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+fn send(
+    request: &Request,
+    authorization: Option<&str>,
+) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
     let mut builder = request
         .agent
         .post(request.endpoint)
         .header("Content-Type", "application/json")
         .header("Accept", request.accept);
-    if let Some(key) = request.key {
-        // The one place a key leaves its wrapper (D57).
-        builder = builder.header("Authorization", &format!("Bearer {}", key.expose()));
+    if let Some(value) = authorization {
+        builder = builder.header("Authorization", value);
     }
     builder.send(&request.body[..])
+}
+
+/// Why a key cannot be sent as `Authorization: Bearer <key>`.
+///
+/// A value, not a sentence: the window says it from its own catalogue,
+/// and the transport's `Display` is for a log line and an error detail.
+/// None of the variants carries the key or any character of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum KeyFault {
+    /// Nothing there — a field that was cleared, or only spaces.
+    #[error("is empty")]
+    Empty,
+    /// A character outside ASCII: a letter typed on another keyboard
+    /// layout, a typographic dash, a zero-width character carried along
+    /// by a paste. A header value cannot carry one.
+    #[error("has a character that is not ASCII")]
+    NotAscii,
+    /// A control character — a newline, a NUL, DEL.
+    #[error("has a control character")]
+    Control,
+    /// A space or a tab inside it. Surrounding space is already trimmed by
+    /// `Secret`; an inner one splits the token, and no provider issues a
+    /// key with one.
+    #[error("has a space inside it")]
+    Space,
+}
+
+/// The `Authorization` header's value for `key`, or why there cannot be
+/// one.
+///
+/// The one place a key leaves its wrapper (D57), and the rule: a bearer
+/// token is visible ASCII, `!` to `~`, and at least one of them. Stricter
+/// than what a header value may carry (obs-text, an inner space) and
+/// looser than RFC 6750's `b64token` — every provider's key fits, and a
+/// key that does not fit was mistyped or mis-pasted rather than issued.
+pub(crate) fn authorization(key: &Secret) -> Result<String, KeyFault> {
+    let token = key.expose();
+    if token.is_empty() {
+        return Err(KeyFault::Empty);
+    }
+    for character in token.chars() {
+        match character {
+            '!'..='~' => {}
+            ' ' | '\t' => return Err(KeyFault::Space),
+            _ if !character.is_ascii() => return Err(KeyFault::NotAscii),
+            _ => return Err(KeyFault::Control),
+        }
+    }
+    Ok(format!("Bearer {token}"))
 }
 
 /// Refuse an endpoint that is not plain `http`/`https` to a bare
@@ -465,6 +529,35 @@ fn detail(response: ureq::http::Response<ureq::Body>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_key_is_sendable_only_as_visible_ascii() {
+        let header = authorization(&Secret::from("sk-proj_A1.b2~c3+d4/e5=")).expect("a key");
+        assert_eq!(header, "Bearer sk-proj_A1.b2~c3+d4/e5=");
+        // Surrounding space is the `Secret`'s to trim, and it does.
+        assert!(authorization(&Secret::from("  sk-padded\n")).is_ok());
+
+        for (key, fault) in [
+            ("", KeyFault::Empty),
+            ("   ", KeyFault::Empty),
+            ("ыл-кириллица", KeyFault::NotAscii),
+            ("sk-caf\u{e9}", KeyFault::NotAscii),
+            ("sk-\u{200b}hidden", KeyFault::NotAscii),
+            ("sk\u{2014}dash", KeyFault::NotAscii),
+            ("sk-a\u{0}b", KeyFault::Control),
+            ("sk-a\u{7f}b", KeyFault::Control),
+            ("sk-a\nb", KeyFault::Control),
+            ("sk-a b", KeyFault::Space),
+            ("sk-a\tb", KeyFault::Space),
+        ] {
+            assert_eq!(
+                authorization(&Secret::from(key)),
+                Err(fault),
+                "{:?}",
+                key.escape_debug().to_string()
+            );
+        }
+    }
 
     #[test]
     fn a_redirect_names_only_an_origin() {

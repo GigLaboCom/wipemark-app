@@ -30,6 +30,12 @@
 //! only to an OpenAI-compatible endpoint, only as `Authorization: Bearer`,
 //! and [`Secret::expose`] is called in one place — where that header is
 //! built. Never in the URL, the body, a log line or an error.
+//!
+//! A key that could not travel in that header — a character outside
+//! ASCII, a control character, a space inside it — is refused by the same
+//! function that builds the header, and [`sendable`] is that function for
+//! the Settings window's Save: a key the page accepts is a key the
+//! transport sends.
 
 mod ollama;
 mod openai;
@@ -50,8 +56,16 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 use wipemark_core::Vendor;
 use wipemark_secret::Secret;
+pub use wire::KeyFault;
 
 use crate::{ChatRequest, Completion, EngineError, EngineInfo, RewriteEngine, TokenSink};
+
+/// Whether `key` can be sent as `Authorization: Bearer <key>`, by the very
+/// function that builds that header — so the window's Save and the
+/// transport cannot come to disagree about a key.
+pub fn sendable(key: &Secret) -> Result<(), KeyFault> {
+    wire::authorization(key).map(drop)
+}
 
 /// Which wire format a request is sent in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -40,10 +40,10 @@ use std::path::{Path, PathBuf};
 
 use wipemark_core::Options;
 use wipemark_i18n::{args, t, t_args, FluentArgs, Message};
+use wipemark_intake::inplace::{self, Failure, Keep};
 use wipemark_intake::name::{with_infix, RESULT_INFIX};
 use wipemark_log::Elided;
 
-use crate::inplace::{self, Failure, Keep};
 use crate::input::{self, Source, Unread};
 use crate::report::{Say, Written};
 use crate::{report, Exit};

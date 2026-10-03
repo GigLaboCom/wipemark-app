@@ -224,6 +224,31 @@ async fn a_redirect_is_refused_and_not_followed() {
     assert_eq!(server.requests().len(), 1, "the redirect was followed");
 }
 
+/// A key the header cannot carry is refused before a socket opens, and the
+/// refusal names the fault and never the key.
+#[tokio::test]
+async fn a_key_that_cannot_be_a_header_is_never_sent() {
+    let unsendable = "sk-кириллица";
+    assert_eq!(
+        super::sendable(&Secret::from(unsendable)),
+        Err(super::KeyFault::NotAscii)
+    );
+    assert_eq!(super::sendable(&Secret::from(KEY)), Ok(()));
+
+    let server = FakeServer::start(vec![Reply::sse(&[delta("hi"), done()])]);
+    let (result, streamed) = ask(&openai(&server, Some(unsendable))).await;
+    match result {
+        Err(EngineError::Transport(detail)) => {
+            assert!(detail.contains("not ASCII"), "{detail}");
+            assert!(!detail.contains("кириллица"), "the key is in the error");
+        }
+        other => panic!("expected a refusal before sending, got {other:?}"),
+    }
+    assert!(streamed.is_empty());
+    assert!(server.requests().is_empty(), "an unsendable key was sent");
+    assert_eq!(server.connections(), 0, "a connection was opened for it");
+}
+
 #[tokio::test]
 async fn the_key_goes_only_in_the_authorization_header() {
     let bearer = format!("Bearer {KEY}");
@@ -662,6 +687,14 @@ async fn a_real_endpoint_answers_cancels_and_repeats_itself() {
     if answers[0] == answers[1] {
         eprintln!("the server honours the seed");
     } else {
-        eprintln!("the server does not reproduce a seeded answer");
+        // Not this client: it sends the same body both times. A server
+        // with a prompt cache (llama-server's default) evaluates a prompt
+        // it has seen differently from one it has not, and the low bits of
+        // the logits move — docs/architecture/remote-engine.md,
+        // "Reproducibility".
+        eprintln!(
+            "the server does not reproduce a seeded answer (a prompt cache? \
+             llama-server: --no-cache-prompt)"
+        );
     }
 }

@@ -112,6 +112,26 @@ accessibility tree, and buy nothing: what a user needs from the control
 afterwards is the answer to "is there a key", which is the sentence
 underneath it.
 
+**A key no request could carry is refused at Save.** The rule is the
+transport's own — `wipemark_engine::http::sendable`, the very function
+that builds the `Authorization` header: visible ASCII, `!` to `~`, at
+least one character (`Secret` has already trimmed the space around it).
+A letter typed on another keyboard layout, a typographic dash, a
+zero-width character a paste carried along, a control character or a
+space inside the key is refused on the click (`engine::admit_key`), with
+one sentence per fault from the catalogue
+(`settings-engine-key-refused-*`, shown in the danger colour under the
+state line), and nothing goes to the credential store — what was stored
+before stays stored. `engine::save_key`, the background half, asks the
+same rule again before `Vault::set`, so the one road into the vault
+cannot store such a key whoever calls it. The field empties either way:
+a refused key is still a key, and the sentence asks for it to be pasted
+again rather than keeping it on screen. Before this, the page stored such
+a key and the first request failed with ureq's "authorization header is
+not a string" (E2-3's live check).
+`a_key_that_could_not_be_sent_is_refused_at_save_and_stored_nowhere` and
+`every_refused_key_has_a_sentence_in_every_language` are the gates.
+
 Saving is a button and not a keystroke. Every other field on the page
 writes on change; this one writes to a store that blocks and can raise a
 permission dialog, and a key typed a character at a time would be forty

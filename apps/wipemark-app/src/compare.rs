@@ -109,6 +109,7 @@ use crate::diff::{Diff, Grain};
 use crate::icon::{Icon, IconName};
 use crate::result::{ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
 use crate::screen::{self, Screen};
+use crate::title::{self, Title};
 use crate::{drop, placement, preview, wording};
 
 actions!(wipemark, [CloseCompare]);
@@ -329,7 +330,13 @@ pub fn open(
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
                 // The name comes with the text, a moment later.
-                title: Some(t_args(Message::CompareTitle, &args!("name" => "…")).into()),
+                title: Some(
+                    Title::Compare {
+                        name: title::NAME_PENDING,
+                    }
+                    .text()
+                    .into(),
+                ),
                 ..Default::default()
             }),
             window_min_size: Some(MIN_SIZE),
@@ -690,7 +697,7 @@ impl CompareView {
     ) {
         match loaded {
             Ok(Loaded { name, text }) => {
-                window.set_window_title(&t_args(Message::CompareTitle, &args!("name" => &name)));
+                window.set_window_title(&Title::Compare { name: &name }.text());
                 self.name = name;
                 self.original_text = Arc::from(text.as_str());
                 // The finer marks, if the page asks for any — installed

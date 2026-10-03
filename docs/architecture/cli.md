@@ -8,9 +8,11 @@ command that still refuses is `rewrite` (it needs E4).
 `apps/wipemark-cli/src/`: `main.rs` is the argument surface and the exit
 codes; `input.rs` reads and decodes a path or stdin through
 `wipemark-intake`; `run.rs` is `inspect` and `clean`; `report.rs` the
-human report; `inplace.rs` every write to disk and `--in-place`;
-`audit.rs` the walk and its three renderings; `models.rs` the catalogue
-and the downloader. Layer A itself is `docs/architecture/layer-a.md`.
+human report; `audit.rs` the walk and its three renderings; `models.rs` the catalogue
+and the downloader. Every write to disk — `-o`, beside the input, and
+`--in-place` — is `wipemark_intake::inplace` (moved there from the CLI's
+own `inplace.rs` in tails-1, behaviour unchanged, so the windows can share
+it in E7). Layer A itself is `docs/architecture/layer-a.md`.
 
 ## Exit codes are the interface
 
@@ -46,7 +48,7 @@ A **per-run flag**, never a preference, and the CLI reads none of the
 Retention page's rows — a hook must not start replacing files because
 somebody clicked a radio button in a window.
 
-The order is the protection, and it is `inplace::replace`'s:
+The order is the protection, and it is `wipemark_intake::inplace::replace`'s:
 
 1. Read and clean as `clean` always does. A refusal to read is a refusal:
    nothing is touched.
@@ -74,7 +76,8 @@ The check in step 3 and the rename are two calls: a file created under
 that name between them would be replaced. `std` has no no-clobber rename
 (`renameat2(RENAME_NOREPLACE)` is Linux-only and needs `unsafe`), and a
 race against another process naming a file `x.original.md` in the same
-moment is accepted rather than hidden.
+moment is accepted rather than hidden — and documented in
+`wipemark_intake::inplace` itself, where the next caller will read it.
 
 Two refusals the document did not list: **standard input** (`-`) has no
 file to replace, and **a symbolic link** is refused — renaming it aside
@@ -244,6 +247,11 @@ audit root are `Elided` (`nothing_reaches_the_log_but_the_shape`).
 ## Not here
 
 * `rewrite` — the pipeline (E4), then E5-2; and the CLI's route to a
-  running application's loaded model (D52).
+  running application's loaded model (D52). Its flags already say D61:
+  `--candidates` and `--rounds` have **no default** — absent is "whoever
+  rewrites decides" (1 × up to 2 for a model on this machine's CPU alone,
+  2 × up to 2 on a GPU or an endpoint), a given count is kept as given,
+  and `0` is refused by clap (`rewrite_counts_are_left_to_whoever_rewrites`).
+  The help says so in every language; the echo prints `by-executor`.
 * Reading `.gitignore` in `audit`.
 * Writing any Retention row, or a history.

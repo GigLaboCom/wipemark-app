@@ -232,14 +232,15 @@ the page's choices can be seen against a real thing.
   bytes as they arrived (rule 7), one directory per job, and removes
   them on the period — on launch and once a day while running, the way
   the log rotates.
-* **Setting aside — done for the CLI (E5-1).** The filesystem half of
-  rule 2 is `apps/wipemark-cli/src/inplace.rs`: rename the file to
-  `name.original.ext`, refusing with *already exists* rather than
-  overwriting, then write the result over the path; a failed write puts
-  the original back. Nothing is set aside when nothing changed. The
-  window's *In place of the file* destination still writes nothing until
-  E7 / the batch (E4), which will need the same function from a library
-  rather than from the CLI. See `docs/architecture/cli.md`.
+* **Setting aside — in a library since tails-1, called by the CLI
+  (E5-1).** The filesystem half of rule 2 is `wipemark_intake::inplace`:
+  rename the file to `name.original.ext`, refusing with *already exists*
+  rather than overwriting, then write the result over the path through a
+  synced temporary file; a failed write puts the original back. Nothing
+  is set aside when nothing changed (the caller's check). The window's
+  *In place of the file* destination still writes nothing until E7 / the
+  batch (E4), which call the same `replace` and `write_atomically` the
+  CLI does. See `docs/architecture/cli.md`.
 * **The per-run "no copy" flag — done for the CLI (E5-1):**
   `clean --in-place --no-original`, never a preference. The batch
   queue's own flag is E4's.

@@ -99,7 +99,8 @@ whole (`a_character_split_across_two_reads_arrives_whole`).
 | A key never crosses a plaintext hop to another machine | `engine::refusal` (`KeyInTheClear`); `a_key_for_a_plaintext_remote_endpoint_never_reaches_engine_for` |
 | `http`/`https` only; no credentials in the URL | `engine::BaseUrl::parse` (app), and again `wire::checked` before a socket opens — defence in depth |
 | No redirect is followed | `max_redirects(0)` on the agent; a 3xx is `Unavailable::Redirected { status, to_origin }` naming the origin it pointed at, never its path or query |
-| The key goes only in `Authorization: Bearer`, only to an OpenAI-compatible endpoint | `http::request` picks the key per provider; `wire::send` is the one `Secret::expose` outside the vault crate |
+| The key goes only in `Authorization: Bearer`, only to an OpenAI-compatible endpoint | `http::request` picks the key per provider; `wire::authorization` is the one `Secret::expose` outside the vault crate |
+| A key no header can carry is never sent — and never saved | `wire::authorization` refuses an empty key, a character outside ASCII, a control character and an inner space or tab (`KeyFault`), before a socket opens (`a_key_that_cannot_be_a_header_is_never_sent`); `http::sendable` is the same function for the Settings window's Save (`engine::admit_key`, `engine::save_key` in the app) |
 | Retries only before the first byte of an answer | `wire::exchange`: a connection that could not be made (refused, reset, DNS, TLS, connect timeout), a 429, a 502/503/504 — at most twice, waiting `Retry-After` up to 10 s (500 ms, then 1 s, when the server names none). Never once a 2xx has started |
 | A read timeout, not a total one | `timeout` (the settings row) caps every wait on the socket — before the headers and between two pieces — through `wire::IdleRead`, a connector that wraps ureq's transport; a long answer that keeps talking is never cut off. Connecting has its own 10 s |
 | No gzip | the workspace builds `ureq` without it, so the byte counts in the log are what crossed the wire |
@@ -176,9 +177,17 @@ the next check asks again. Anything about the endpoint changing, or a key
 saved or forgotten, puts a fresh `Keyed` slot in its place
 (`an_endpoints_key_is_read_when_first_asked_and_not_at_startup`).
 `Secret::expose` is called in exactly one place outside `wipemark-secret`:
-where the `Authorization` header is built
+`wire::authorization`, where the `Authorization` header's value is built
 (`rg -n 'expose\(' crates apps` finds that line, the vault's own
-definition, and nothing else). `the_key_goes_only_in_the_authorization_header`
+definition, and nothing else). The same function is the rule for what a
+key may be — visible ASCII, `!` to `~`, at least one character — and
+`http::sendable` hands that rule to the Settings window, whose **Save**
+refuses a key that breaks it with a sentence from the catalogue
+(`settings-engine-key-refused-*`) and stores nothing
+(`a_key_that_could_not_be_sent_is_refused_at_save_and_stored_nowhere`). A
+key that reached the store before that rule existed is refused by the
+transport instead: "transport: the stored key has a character that is not
+ASCII; nothing was sent". `the_key_goes_only_in_the_authorization_header`
 checks the header, the URL, the body, every other header, the engine's
 `Debug` and the `Display`/`Debug` of the errors.
 
@@ -193,6 +202,66 @@ pieces per second after it. When the endpoint is not this machine, the
 note under the button says that this fixed sentence — never a document —
 is sent there (`the_check_on_an_endpoint_says_where_its_prompt_went`).
 It is not a rewrite and says so.
+
+## Reproducibility: what a seed promises against an endpoint
+
+`seed` is sent as given (D59), and the request body is the same bytes
+every time the same `ChatRequest` is asked: nothing in this client varies
+between two calls. What a seed **does** guarantee, against llama.cpp's
+server: the same seed and the same server state give the same text, and a
+different seed gives a different one. What it **does not**: the same text
+when the server evaluates the prompt differently — and a server with a
+prompt cache does exactly that.
+
+`llama-server` keeps each slot's KV cache, and (since the pinned
+`d8a24cc`) a RAM prompt cache it restores from (`--cache-ram`, 8 GiB by
+default). A prompt it has seen before is not evaluated again: only the
+tokens after the longest cached prefix are, and when the whole prompt is
+cached the last token alone ("need to evaluate at least 1 token… n_past
+was set to 26" in its log). The logits at the last position then come out
+of a batch of a different size than they did the first time, differ in
+their low bits, and at temperature 0.9 that is enough to sample a
+different token now and then. A **cancel** only matters because it
+changes what is cached: a cancelled stream leaves a slot holding a
+different prompt, so the next request is evaluated from its shared prefix
+on rather than restored whole — which is why E2-3 saw run 1 of 3 differ
+"right after a cancel". The number of slots only changes which slot's
+cache is hit.
+
+Measured on 2026-10-03 (tails-1) against `llama-server` at `d8a24cc`,
+CPU, Qwen3 4B Instruct 2507 Q4_K_XL, `-c 4096`, the body `HttpEngine`
+sends (`stream: true`, the system line "You are a terse assistant.",
+"Write two sentences about a lighthouse.", `temperature` 0.9, `top_p` 1,
+`seed` 1234, `max_tokens` 64) — six requests per fresh server: twice cold,
+a cancelled stream then twice, a completed other request then once, a
+cancelled stream then once after 3 s. "A" is "…a beacon of hope for
+*mariners*…", "B" the same sentence with *sailors*:
+
+| server | `cache_prompt` in the body | cold, cold | cancel → 1st, 2nd | other → | cancel, wait → |
+|---|---|---|---|---|---|
+| `-np 1` | absent / `true` | A, **B** | A, **B** | **B** | A |
+| `-np 1` | `false` | A, A | A, A | A | A |
+| `-np 2` | absent / `true` | A, **B** | **B**, **B** | A | A |
+| `-np 2` | `false` | A, A | A, A | A | A |
+| `-np 2 --no-cache-prompt` | absent | A, A | A, A | A | A |
+
+Every "A" is a request whose prompt was evaluated from scratch or from
+the system prefix on; every "B" one whose prompt was restored whole. With
+the cache off, all thirty requests agree; seeds 1234 and 99 still differ,
+and two unseeded requests differ, so the seed is honoured, not ignored.
+The engine's own ignored live test (`a_real_endpoint_answers_cancels_and_repeats_itself`)
+shows the same: against `-np 2`, run 1 "Blue and a dolphin." / "Blue and
+dolphin." and run 2 the same twice; against `-np 2 --no-cache-prompt`,
+both runs "Blue and a dolphin." twice.
+
+So the cause is the server's, and the fix is not a field this client
+sends: `cache_prompt` is llama.cpp's own spelling, a server that rejects
+unknown fields would refuse every request for it (the reason `min_p` is
+not sent, D59), and the cache is also what keeps a second candidate of one
+prompt from paying for the prompt again. Whoever needs a seeded answer to
+repeat runs the server with `--no-cache-prompt`. A seed here is a way to
+get *different* candidates on purpose (E4), not a promise that a rerun is
+byte-identical — and nothing in the product should claim more than that.
 
 ## Diagnostics
 
@@ -243,10 +312,10 @@ And the window once: a scratch `WIPEMARK_DATA_DIR` whose rows say
 for its origin — the rule `engine::refusal` has always had — so either
 start the server with `--api-key` and paste the same key into the page,
 or the banner says none is stored. A key with a character that is not
-visible ASCII is refused by the HTTP client before anything is sent ("The
-check did not run: transport: protocol: authorization header is not a
-string") — which is what synthetic keystrokes on a desktop whose active
-layout is not Latin produce; the 2026-10-03 run met exactly that. The
+visible ASCII is refused by **Save** itself ("Not saved: this key has a
+character that is not plain ASCII…") — which is what synthetic keystrokes
+on a desktop whose active layout is not Latin produce; the 2026-10-03 run
+met exactly that, before Save asked. The
 engine is rebuilt only when an endpoint setting or the saved key changes,
 so a key put in the store behind the page's back is picked up after any
 endpoint field is changed. Afterwards: **Forget** the key, kill the

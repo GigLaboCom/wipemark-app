@@ -60,7 +60,7 @@ mod preference;
 #[cfg(test)]
 mod tests;
 
-use std::sync::{LazyLock, PoisonError, RwLock};
+use std::sync::{LazyLock, OnceLock, PoisonError, RwLock};
 
 use fluent_bundle::concurrent::FluentBundle;
 use fluent_bundle::FluentResource;
@@ -109,6 +109,12 @@ pub struct Localizer {
     /// Best match first, [`FALLBACK_LANGUAGE`] last. Never empty.
     chain: Vec<Loaded>,
     rendering: Rendering,
+    /// The same chain in [`Rendering::PlainText`], for the few strings a
+    /// window hands to something that is not a text renderer — a window
+    /// title, which the platform puts in a window list, a taskbar and a
+    /// screen reader's ear. Built on the first such call and never for a
+    /// localizer that is plain already.
+    plain: OnceLock<Vec<Loaded>>,
 }
 
 struct Loaded {
@@ -147,7 +153,11 @@ impl Localizer {
                 "no catalogue loaded; every message will render as its own id"
             );
         }
-        Self { chain, rendering }
+        Self {
+            chain,
+            rendering,
+            plain: OnceLock::new(),
+        }
     }
 
     /// The language actually being displayed — the first link of the
@@ -183,18 +193,53 @@ impl Localizer {
         self.format_with(message, Some(args))
     }
 
-    /// Walk the chain. The last resort is the message id itself: ugly
+    /// [`format`](Self::format) without isolation marks, whatever this
+    /// localizer's rendering — for a string a `Ui` surface hands to the
+    /// platform rather than draws: a window title.
+    pub fn format_plain(&self, message: Message) -> String {
+        Self::format_in(self.plain_chain(), message, None)
+    }
+
+    /// [`format_args`](Self::format_args) without isolation marks — see
+    /// [`format_plain`](Self::format_plain).
+    pub fn format_args_plain(&self, message: Message, args: &FluentArgs) -> String {
+        Self::format_in(self.plain_chain(), message, Some(args))
+    }
+
+    /// The chain in [`Rendering::PlainText`]: this one, or its plain twin.
+    fn plain_chain(&self) -> &[Loaded] {
+        if self.rendering == Rendering::PlainText {
+            return &self.chain;
+        }
+        self.plain.get_or_init(|| {
+            self.chain
+                .iter()
+                .filter_map(|loaded| {
+                    catalogue::bundle(&loaded.language, Rendering::PlainText).map(|bundle| Loaded {
+                        language: loaded.language.clone(),
+                        bundle,
+                    })
+                })
+                .collect()
+        })
+    }
+
+    fn format_with(&self, message: Message, args: Option<&FluentArgs>) -> String {
+        Self::format_in(&self.chain, message, args)
+    }
+
+    /// Walk a chain. The last resort is the message id itself: ugly
     /// on screen, but it names the missing key, which a blank label
     /// does not.
-    fn format_with(&self, message: Message, args: Option<&FluentArgs>) -> String {
-        for loaded in &self.chain {
+    fn format_in(chain: &[Loaded], message: Message, args: Option<&FluentArgs>) -> String {
+        for loaded in chain {
             if let Some(text) = catalogue::format_from(&loaded.bundle, message, args) {
                 return text;
             }
         }
         tracing::warn!(
             message = message.id(),
-            chain = ?self.chain(),
+            chain = ?chain.iter().map(|loaded| &loaded.language).collect::<Vec<_>>(),
             "no catalogue in the chain defines this message"
         );
         message.id().to_owned()
@@ -231,15 +276,27 @@ impl Localizer {
     /// shipped catalogues are gated against ever being in.
     #[cfg(test)]
     fn from_sources(sources: &[(&str, &str)], rendering: Rendering) -> Self {
-        let chain = sources
-            .iter()
-            .map(|(tag, source)| {
-                let language: LanguageIdentifier = tag.parse().expect("test language tag");
-                let bundle = catalogue::bundle_from_source(&language, source, rendering);
-                Loaded { language, bundle }
-            })
-            .collect();
-        Self { chain, rendering }
+        let load = |rendering| {
+            sources
+                .iter()
+                .map(|(tag, source)| {
+                    let language: LanguageIdentifier = tag.parse().expect("test language tag");
+                    let bundle = catalogue::bundle_from_source(&language, source, rendering);
+                    Loaded { language, bundle }
+                })
+                .collect::<Vec<_>>()
+        };
+        // The plain twin from the same sources, not from the shipped
+        // catalogues the lazy road would load.
+        let plain = OnceLock::new();
+        if rendering == Rendering::Ui {
+            let _ = plain.set(load(Rendering::PlainText));
+        }
+        Self {
+            chain: load(rendering),
+            rendering,
+            plain,
+        }
     }
 
     /// Whether this chain's *first* catalogue defines the message —
@@ -333,6 +390,28 @@ pub fn t_args(message: Message, args: &FluentArgs) -> String {
         .read()
         .unwrap_or_else(PoisonError::into_inner)
         .format_args(message, args)
+}
+
+/// [`t`] without isolation marks, whatever rendering [`init`] chose.
+///
+/// For the strings a window hands to the platform instead of drawing —
+/// a window title — where U+2068/U+2069 are not layout hints but two
+/// `BidiControl` characters in somebody's window list. Everything drawn
+/// stays [`t`].
+pub fn t_plain(message: Message) -> String {
+    with_localizer(|localizer| localizer.format_plain(message))
+}
+
+/// [`t_args`] without isolation marks — see [`t_plain`].
+pub fn t_args_plain(message: Message, args: &FluentArgs) -> String {
+    with_localizer(|localizer| localizer.format_args_plain(message, args))
+}
+
+/// Run `read` against the process-wide localizer — for a surface whose
+/// builders take a [`Localizer`] so that a test can hand them one of its
+/// own instead of moving the process's language.
+pub fn with_localizer<R>(read: impl FnOnce(&Localizer) -> R) -> R {
+    read(&LOCALIZER.read().unwrap_or_else(PoisonError::into_inner))
 }
 
 /// Build [`FluentArgs`] without importing `fluent-bundle` at the call

@@ -69,6 +69,7 @@ mod screen;
 mod settings;
 mod setup;
 mod theme;
+mod title;
 mod tray;
 mod window_state;
 mod wording;
@@ -102,6 +103,7 @@ use crate::queue::Queue;
 use crate::settings::{OpenSettings, Preferences, Section};
 use crate::setup::{Setup, SetupEvent};
 use crate::theme::ThemePreference;
+use crate::title::Title;
 use crate::tray::TrayCommand;
 
 /// How far above everything else the setup walk-through is painted.
@@ -195,7 +197,7 @@ impl Shell {
             // set it here rather than later, when the first language
             // that translates it would otherwise leave a titlebar
             // behind.
-            window.set_window_title(&t(Message::WindowTitle));
+            window.set_window_title(&Title::Main.text());
             // "Run again" on the General page. The Settings window has
             // no handle to this one, so it asks by moving a counter,
             // and this is where the counter is read.
@@ -910,7 +912,7 @@ fn main() {
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     titlebar: Some(TitlebarOptions {
-                        title: Some(t(Message::WindowTitle).into()),
+                        title: Some(Title::Main.text().into()),
                         ..Default::default()
                     }),
                     ..Default::default()

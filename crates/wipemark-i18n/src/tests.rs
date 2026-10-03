@@ -421,6 +421,41 @@ fn a_window_isolates_what_a_pipe_must_not() {
     );
 }
 
+/// A window's localizer still has a road to plain text, per call: the
+/// title it hands the platform. Every language, because the twin chain is
+/// built per link.
+#[test]
+fn a_window_can_ask_for_plain_text_per_call() {
+    let args = args!("language" => "עברית");
+    for language in available_languages() {
+        let ui = Localizer::for_languages(std::slice::from_ref(&language.id), Rendering::Ui);
+        let isolated = ui.format_args(Message::LanguageSystem, &args);
+        let plain = ui.format_args_plain(Message::LanguageSystem, &args);
+        assert!(
+            isolated.contains('\u{2068}'),
+            "{}: {isolated:?}",
+            language.id
+        );
+        assert!(
+            !plain.contains(['\u{2068}', '\u{2069}']),
+            "{}: a plain call carried isolates: {plain:?}",
+            language.id
+        );
+        assert_eq!(isolated.replace(['\u{2068}', '\u{2069}'], ""), plain);
+        assert_eq!(
+            ui.format_plain(Message::SettingsTitle),
+            ui.format(Message::SettingsTitle),
+            "{}: a message with nothing interpolated reads the same",
+            language.id
+        );
+        // And the localizer itself is still a window's.
+        assert_eq!(ui.rendering(), Rendering::Ui);
+        assert!(ui
+            .format_args(Message::LanguageSystem, &args)
+            .contains('\u{2068}'));
+    }
+}
+
 // ─── Negotiation ─────────────────────────────────────────────────────
 
 #[test]

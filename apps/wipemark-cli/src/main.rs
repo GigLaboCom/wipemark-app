@@ -56,15 +56,15 @@
 //!
 //! `inspect` and `clean` run Layer A (`input` reads and decodes through
 //! `wipemark-intake`, `run` is the two flows and their exit codes,
-//! `report` the human report, `inplace` every write to disk and
-//! `--in-place`); `audit` walks a folder through the same reader
+//! `report` the human report; every write to disk, `--in-place`
+//! included, is `wipemark_intake::inplace`, which the windows will share);
+//! `audit` walks a folder through the same reader
 //! (`audit`); `models` is the catalogue and the downloader of
 //! `wipemark-models` (`models`). `rewrite` refuses with 2 until the
 //! pipeline lands. A stub that exits 0 would be a hook that silently
 //! passes.
 
 mod audit;
-mod inplace;
 mod input;
 mod models;
 mod report;
@@ -150,10 +150,14 @@ enum Action {
         model: Option<String>,
         #[arg(long, default_value = "paraphrase")]
         tactic: String,
-        #[arg(long, default_value_t = 2)]
-        candidates: u8,
-        #[arg(long, default_value_t = 2)]
-        rounds: u8,
+        // Absent is "decided by who rewrites" (D61): 1 on a local model on
+        // the CPU alone, 2 on a GPU-backed one or an endpoint; rounds up to
+        // 2 either way. Never 0. Comments, not doc comments: a doc comment
+        // is clap's help, and the help is the catalogue's.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..))]
+        candidates: Option<u8>,
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..))]
+        rounds: Option<u8>,
         #[arg(long)]
         json: bool,
     },
@@ -254,9 +258,11 @@ impl Action {
                 json,
             } => format!(
                 "rewrite {path} -> {} (engine={engine}, model={}, tactic={tactic}, \
-                 candidates={candidates}, rounds={rounds}, json={json})",
+                 candidates={}, rounds={}, json={json})",
                 render_out(out.as_deref()),
                 model.as_deref().unwrap_or("<from config>"),
+                by_executor(*candidates),
+                by_executor(*rounds),
             ),
             Action::Models(models) => match models {
                 ModelsAction::List { json } => format!("models list (json={json})"),
@@ -269,6 +275,11 @@ impl Action {
             }
         }
     }
+}
+
+/// A count the user gave, or the word for "whoever rewrites decides" (D61).
+fn by_executor(count: Option<u8>) -> String {
+    count.map_or_else(|| "by-executor".to_owned(), |count| count.to_string())
 }
 
 fn render_out(out: Option<&std::path::Path>) -> String {
@@ -587,9 +598,9 @@ fn main() -> ExitCode {
             path,
             out.as_deref(),
             in_place.then_some(if *no_original {
-                inplace::Keep::Nothing
+                wipemark_intake::inplace::Keep::Nothing
             } else {
-                inplace::Keep::Original
+                wipemark_intake::inplace::Keep::Original
             }),
             *nfkc,
             *aggressive,
@@ -840,24 +851,49 @@ mod tests {
         }
     }
 
-    /// Defaults that the report and the cost estimate both quote
-    /// (spec §4.4): two candidates, two rounds.
+    /// D61: how many candidates and rounds is decided by who rewrites —
+    /// 1 × up to 2 on a CPU-only local model, 2 × up to 2 on a GPU-backed
+    /// one or an endpoint — so the flags have no default of their own. An
+    /// absent flag stays absent all the way to whoever decides; a given one
+    /// is kept as given; zero is not a count.
     #[test]
-    fn rewrite_defaults_match_the_spec() {
-        let cli = Cli::parse_from(["wipemark-cli", "rewrite", "note.md"]);
-        match cli.command {
-            Action::Rewrite {
-                candidates,
-                rounds,
-                tactic,
-                ..
-            } => {
-                assert_eq!(candidates, 2);
-                assert_eq!(rounds, 2);
-                assert_eq!(tactic, "paraphrase");
+    fn rewrite_counts_are_left_to_whoever_rewrites() {
+        let counts = |extra: &[&str]| {
+            let argv = [&["wipemark-cli", "rewrite", "note.md"][..], extra].concat();
+            match Cli::try_parse_from(argv).map(|cli| cli.command) {
+                Ok(Action::Rewrite {
+                    candidates,
+                    rounds,
+                    tactic,
+                    ..
+                }) => {
+                    assert_eq!(tactic, "paraphrase");
+                    Ok((candidates, rounds))
+                }
+                Ok(other) => panic!("parsed as {other:?}"),
+                Err(error) => Err(error.kind()),
             }
-            other => panic!("parsed as {other:?}"),
+        };
+        assert_eq!(counts(&[]), Ok((None, None)));
+        assert_eq!(counts(&["--candidates", "3"]), Ok((Some(3), None)));
+        assert_eq!(counts(&["--rounds", "1"]), Ok((None, Some(1))));
+        assert_eq!(
+            counts(&["--candidates", "1", "--rounds", "2"]),
+            Ok((Some(1), Some(2)))
+        );
+        for zero in [["--candidates", "0"], ["--rounds", "0"]] {
+            assert_eq!(
+                counts(&zero),
+                Err(clap::error::ErrorKind::ValueValidation),
+                "{zero:?}"
+            );
         }
+
+        // And the echo says who decides rather than inventing a number.
+        let cli = Cli::parse_from(["wipemark-cli", "rewrite", "note.md", "--rounds", "1"]);
+        let summary = cli.command.summary();
+        assert!(summary.contains("candidates=by-executor"), "{summary}");
+        assert!(summary.contains("rounds=1"), "{summary}");
     }
 
     /// The summary is what a hook author sees when their flags did not

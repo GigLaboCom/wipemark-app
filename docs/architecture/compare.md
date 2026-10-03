@@ -47,6 +47,13 @@ taken out.
   The path is examined on the way in exactly as a dropped one is
   (`wipemark_intake::of`, on the background executor).
 
+The window is called "Compare · *name*" — "Compare · …" until the text
+has been read — and the title is built by `title::Title::Compare` as
+plain text: the application's catalogue runs in `Rendering::Ui`, which
+put U+2068/U+2069 around the file name in the window list and the
+screen reader's ear until tails-1 (`docs/architecture/i18n.md`,
+`no_window_title_carries_an_invisible_character`).
+
 Either click defers, for the reason `SetupEvent::Open` does: it runs
 inside the main window's update, and `compare::open` measures the main
 window to centre the new one over it, which from in there comes back

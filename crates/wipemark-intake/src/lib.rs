@@ -59,6 +59,12 @@
 //! answer. Call it off the foreground thread, the way everything else
 //! in this workspace treats a blocking call (spec §1.2).
 //!
+//! [`inplace`] is the one module that *writes*, and only when called: a
+//! result written beside a file or over it, the original set aside first
+//! as the [`name`] module spells it. It is here because the CLI and the
+//! windows both need it and neither may depend on the other — see its
+//! docs. Blocking, like [`of_path`].
+//!
 //! # Status
 //!
 //! Recognising what arrived is still all this crate does. The CLI and
@@ -73,6 +79,7 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 pub mod format;
+pub mod inplace;
 pub mod magic;
 pub mod name;
 pub mod text;

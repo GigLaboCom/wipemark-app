@@ -58,7 +58,9 @@ use std::fmt;
 
 use gpui::SharedString;
 use gpui_component::select::SelectItem;
+use wipemark_engine::http::KeyFault;
 use wipemark_i18n::{t, Message};
+use wipemark_secret::{Secret, Vault};
 
 /// The default endpoint: Ollama, where it listens, on this machine.
 ///
@@ -592,6 +594,57 @@ pub fn account_of(base: &BaseUrl) -> String {
     base.origin()
 }
 
+/// Whether a key could be sent at all — the transport's own rule
+/// (`wipemark_engine::http::sendable`, the function that builds the
+/// `Authorization` header), asked before the key is stored. A key the
+/// page accepted and the first request then could not carry is what E2-3's
+/// live check found; a key refused here never reaches the vault.
+pub fn admit_key(secret: &Secret) -> Result<(), KeyFault> {
+    wipemark_engine::http::sendable(secret)
+}
+
+/// What Save did with a key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeySaved {
+    /// In the credential store, under the endpoint's account.
+    Stored,
+    /// Refused before the credential store was touched: no request could
+    /// carry it.
+    Refused(KeyFault),
+    /// The credential store said no, in its own words.
+    Failed(String),
+}
+
+/// The whole of Save: the rule first, then the vault — so the one road
+/// into the credential store refuses a key no request could carry.
+///
+/// Blocking (the vault write is), so it runs on the background executor;
+/// the window also asks [`admit_key`] on the click, which keeps a refused
+/// key from costing a trip there at all.
+pub fn save_key(vault: &Vault, account: &str, secret: &Secret) -> KeySaved {
+    if let Err(fault) = admit_key(secret) {
+        return KeySaved::Refused(fault);
+    }
+    match vault.set(account, secret) {
+        Ok(()) => KeySaved::Stored,
+        Err(error) => {
+            tracing::warn!(%error, "could not store a credential");
+            KeySaved::Failed(error.to_string())
+        }
+    }
+}
+
+/// The sentence for a key Save refused. It names what is wrong and never
+/// a character of the key.
+pub fn key_refusal_message(fault: KeyFault) -> Message {
+    match fault {
+        KeyFault::Empty => Message::SettingsEngineKeyRefusedEmpty,
+        KeyFault::NotAscii => Message::SettingsEngineKeyRefusedNotAscii,
+        KeyFault::Control => Message::SettingsEngineKeyRefusedControl,
+        KeyFault::Space => Message::SettingsEngineKeyRefusedSpace,
+    }
+}
+
 /// Everything the engine settings are, as one value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EngineSettings {
@@ -818,16 +871,82 @@ mod tests {
     use std::collections::BTreeSet;
 
     use gpui_component::select::SelectItem as _;
+    use wipemark_engine::http::KeyFault;
+    use wipemark_secret::{Secret, Vault};
 
     use super::{
-        account_of, from_value, key_would_travel_in_the_clear, model, provider_choices,
-        reasoning_choices, refusal, row_of, temperature, timeout, typeable_model,
-        typeable_temperature, typeable_timeout, typeable_url, BaseUrl, EngineSettings, KeyState,
-        Preset, Provider, ReasoningEffort, Refusal, Scheme, DEFAULT_BASE_URL,
+        account_of, admit_key, from_value, key_refusal_message, key_would_travel_in_the_clear,
+        model, provider_choices, reasoning_choices, refusal, row_of, save_key, temperature,
+        timeout, typeable_model, typeable_temperature, typeable_timeout, typeable_url, BaseUrl,
+        EngineSettings, KeySaved, KeyState, Preset, Provider, ReasoningEffort, Refusal, Scheme,
+        DEFAULT_BASE_URL,
     };
 
     fn url(value: &str) -> BaseUrl {
         BaseUrl::parse(value).unwrap_or_else(|| panic!("{value} is a base URL"))
+    }
+
+    /// Save refuses a key no request could carry, and the credential store
+    /// is never touched: E2-3 stored Cyrillic letters typed on the wrong
+    /// layout and learned so from the first request.
+    #[test]
+    fn a_key_that_could_not_be_sent_is_refused_at_save_and_stored_nowhere() {
+        let vault = Vault::in_memory("com.GigLabo.wipemark.test");
+        let account = account_of(&url("https://api.openai.com"));
+        for (typed, fault) in [
+            ("sk-ключ", KeyFault::NotAscii),
+            ("sk-\u{200b}abc", KeyFault::NotAscii),
+            ("sk-a\u{1b}b", KeyFault::Control),
+            ("sk-a b", KeyFault::Space),
+        ] {
+            let secret = Secret::from(typed);
+            assert_eq!(admit_key(&secret), Err(fault), "{}", typed.escape_debug());
+            assert_eq!(
+                save_key(&vault, &account, &secret),
+                KeySaved::Refused(fault),
+                "{}",
+                typed.escape_debug()
+            );
+            assert!(
+                !vault.has(&account).expect("the test vault answers"),
+                "a refused key reached the vault: {}",
+                typed.escape_debug()
+            );
+        }
+
+        // The rule is not a wall: a key that can be sent is stored.
+        let good = Secret::from("sk-proj-Abc_123.def");
+        assert_eq!(admit_key(&good), Ok(()));
+        assert_eq!(save_key(&vault, &account, &good), KeySaved::Stored);
+        assert_eq!(vault.get(&account).expect("read"), Some(good));
+    }
+
+    /// Every refusal has its own sentence, in every shipped language, and
+    /// none of them is the credential store's.
+    #[test]
+    fn every_refused_key_has_a_sentence_in_every_language() {
+        let faults = [
+            KeyFault::Empty,
+            KeyFault::NotAscii,
+            KeyFault::Control,
+            KeyFault::Space,
+        ];
+        for language in wipemark_i18n::available_languages() {
+            let localizer = wipemark_i18n::Localizer::for_languages(
+                std::slice::from_ref(&language.id),
+                wipemark_i18n::Rendering::PlainText,
+            );
+            let mut seen = BTreeSet::new();
+            for fault in faults {
+                let message = key_refusal_message(fault);
+                assert!(localizer.defines(message), "{}: {fault:?}", language.id);
+                assert!(
+                    seen.insert(localizer.format(message)),
+                    "{}: two faults read alike",
+                    language.id
+                );
+            }
+        }
     }
 
     /// A fresh install rewrites nothing and talks to nobody.
