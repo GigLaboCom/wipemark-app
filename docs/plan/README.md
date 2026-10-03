@@ -407,6 +407,12 @@ tell a decision from an accident.
 | **D42** | A twin **with a decomposition** is never a replacement (e.g. U+0063 → U+03F2 refused); the veto applies **before** the lowest-code-point choice of D21. | E1-3's convergence argument (D26) assumes homoglyph replacements are NFKC-stable. |
 | **D43** | `IdentifierGuard`'s edge-trim set adds the curly quotes U+2018, U+2019, U+201C, U+201D, U+201E, U+2039, U+203A and the backtick U+0060 to A §6's `.,;:!?()[]{}"'«»<>`. | A rewrite that straightens or curls the quotes around an identifier would otherwise be thrown away as having lost it. |
 | **D44** | E1-5's own choices G1–G12 (E1-5 §4.12) are adopted: ASCII-only canonical placeholder digits fitting `usize`; "as often as in the source"; a fixed order of reasons; `ScriptDrift` reports the first script over the limit in the order latin, cyrillic, cjk, other, with a signed delta; an empty source passes only an empty candidate; guard names `placeholder`, `numbers`, `length-drift`, `script`, `identifier`. | A §6 leaves them open; each is a format or a tie-break that has to be one thing. |
+| **D45** | **Q2 closed (owner, 2026-10-03):** the local engine is llama.cpp through heretic-mnemoria's `ee/ml` engine, **copied** into this repository at `a160f8c` — not `llama-cpp-2`, not `mistral.rs`. | Mnemoria is closed as a project, so a dependency on it would be on code nobody maintains; its engine already did the hard parts on real hardware (runtime-loaded backends, one binary for Metal/CUDA/Vulkan, cancel between decode steps, memory estimate, the Gemma 4 fixes). `mistral.rs` has no Vulkan; `llama-cpp-2` would mean writing those parts again. |
+| **D46** | Two crates: `wipemark-llama-sys` (cmake + bindgen, no hand-written `unsafe`, no wipemark dependency) and `wipemark-llama` (the safe layer, `unsafe` confined to its `ffi` module); `wipemark-engine` depends on the second under a feature. | `wipemark-engine` is `forbid(unsafe_code)`; the boundary is the audit unit. |
+| **D47** | `local-llama` compiles the Rust surface over a shim (no C++ toolchain, every load refused as not built); `llama-native` implies it and builds llama.cpp. | The CI lane `cargo check --features local-llama` runs on an arm64 image with no cmake or libclang (OV §12 R3). |
+| **D48** | llama.cpp source is fetched by `crates/wipemark-llama-sys/vendor/fetch.sh` into a gitignored tree pinned to `d8a24cc` (ggml 0.15.1); `build.rs` refuses a drifted tree. No whisper, so no matched-triple rule. | Mnemoria's pin, carrying the Gemma 4 12B fix; a submodule would make every CI checkout clone llama.cpp. |
+| **D49** | `wipemark-llama` is synchronous; `LocalEngine` owns one worker thread that owns the model; the seed is per request, not per load. | E4's candidates differ by seed (`SamplingParams::seed`); mnemoria fixed the seed at load. A thread + flume is how every long operation here already crosses to an executor. |
+| **D50** | A load is refused before any native allocation when the estimate exceeds the memory the caller says is available (`None` = unknown = no refusal); mnemoria's multi-device `Ledger` and slot-sized fit planner are not copied. | One user, one model; `wipemark-models` already knows the sizes. |
 
 ---
 
@@ -414,7 +420,7 @@ tell a decision from an accident.
 
 | # | question | blocks | meanwhile |
 |---|---|---|---|
-| Q2 | local engine: `llama-cpp-2` or `mistral.rs` | E2 / S2.5 | Nothing in E1 depends on it. `wipemark-uzu-evaluation-2026-09-11`: uzu covers Metal on Apple Silicon only (no Vulkan, no CUDA) and is not a candidate for the whole grid; `local-llama` is already named after llama.cpp. |
+| Q2 | local engine: `llama-cpp-2` or `mistral.rs` | E2 / S2.5 | **Answered 2026-10-03 by D45:** neither — mnemoria's llama.cpp engine, copied. |
 | Q3 | stylometric "AI-likelihood" score as an informational finding | E4 / S4.6 | Not built. The spec recommends no; nothing in E1 would host it. |
 | Q4 | default `pivot_lang` for back-translation, prompt language | E4 / S4.4 | — |
 | Q5 | v1 platforms | E10 | macOS first, as everything platform-specific today (`pasteboard.rs`, `tray.rs`, hotkeys). |
@@ -498,7 +504,11 @@ the gate the overview set, and the open edges.
 - **Gate (OV §10).** A redirect carrying a key is an error, not a request;
   cancel mid-stream < 500 ms; llama live gate on a Mac (Metal) and on the
   CUDA host.
-- **Open.** Q2 (engine library). The rule `engine_for` must keep: a
+- **Series.** [E2-1-local-engine.md](E2-1-local-engine.md) — the local
+  engine carried over from mnemoria (S2.5, the build half of S2.6;
+  D45–D50) — status: dispatched. E2-2 wires it (`duty::engine_for`, the
+  app, the CLI); E2-3 is the HTTP engine.
+- **Rule.** Q2 is answered (D45). The rule `engine_for` must keep: a
   decision becomes an engine or a refusal, never plausible text with no
   model behind it.
 
