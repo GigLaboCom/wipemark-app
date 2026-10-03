@@ -335,8 +335,7 @@ pub enum Performer {
 }
 
 impl Performer {
-    /// What a report records for every attempt, and the input to the
-    /// non-origin rule (spec §4.4).
+    /// What a report records for every attempt.
     pub fn info(&self) -> EngineInfo {
         match self {
             Performer::Machine(local) => EngineInfo {
@@ -649,15 +648,13 @@ fn endpoint(
     }))
 }
 
-/// Who is behind an endpoint, for the non-origin rule.
+/// Who is behind an endpoint, as the report records it.
 ///
-/// A floor rather than a promise. The three commercial vendors are the
-/// only ones [`Vendor::is_same_origin_as`] fires on, and their own
-/// hosts are the case worth catching: a document suspected of carrying
-/// OpenAI's mark should not be handed to `api.openai.com` to be
-/// rewritten. Anything else is [`Vendor::Unknown`], which the rule
-/// treats as no evidence at all — the honest answer for a gateway whose
-/// hostname says nothing about what is behind it.
+/// A floor rather than a promise: only the three commercial vendors' own
+/// hosts are recognised. Anything else is [`Vendor::Unknown`] — the
+/// honest answer for a gateway whose hostname says nothing about what is
+/// behind it. It decides nothing: there is no rule that refuses a vendor
+/// (D62).
 ///
 /// Ollama is the one provider named rather than sniffed: it serves GGUF
 /// weights it has on its own disk and proxies nobody.

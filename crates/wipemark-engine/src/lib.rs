@@ -71,7 +71,7 @@ pub use wipemark_llama::LoadParams;
 pub type TokenSink = flume::Sender<String>;
 
 /// Which engine produced a result — recorded on every attempt in the
-/// report, and the input to the non-origin rule (spec §4.4).
+/// report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineInfo {
     pub vendor: Vendor,

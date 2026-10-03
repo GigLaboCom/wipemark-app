@@ -298,7 +298,7 @@ pub struct ModelEntry {
 }
 
 impl ModelEntry {
-    /// The parsed vendor, for the non-origin rule.
+    /// The parsed vendor, as the report records it.
     #[must_use]
     pub fn vendor(&self) -> Option<Vendor> {
         Vendor::parse(&self.vendor)
@@ -567,8 +567,8 @@ mod tests {
         assert!(manifest.get("nope").is_none());
     }
 
-    /// A vendor string that does not map to a known vendor would slip
-    /// past the non-origin rule silently — refuse the manifest instead.
+    /// A vendor string that does not map to a known vendor would leave
+    /// the report with nothing to record — refuse the manifest instead.
     #[test]
     fn unknown_vendor_is_refused() {
         let err =

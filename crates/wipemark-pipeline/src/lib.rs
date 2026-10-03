@@ -16,14 +16,18 @@
 //! single frame (spec §1.2 and §12: *any blocking call on the
 //! foreground is a frozen UI, no exceptions*).
 //!
-//! # Skeleton status
+//! # Status
 //!
-//! Epic **E0**: the vocabulary is here, the machine is not. Epic E4
-//! implements it.
+//! The vocabulary below is E0's. Of E4: [`lang::Lang`], the languages the
+//! templates are written in, and [`prompt`] — the shipped templates, the
+//! assembler, validation, adaptations and the clean-up of an answer
+//! (E4-2). The machine that drives them — chunks, candidates, rounds,
+//! guards — is still to come.
 
 #![forbid(unsafe_code)]
 
 pub mod lang;
+pub mod prompt;
 
 use std::time::Duration;
 
@@ -104,45 +108,6 @@ pub enum PipelineError {
     Engine(#[from] wipemark_engine::EngineError),
     #[error("cancelled")]
     Cancelled,
-    /// The engine's vendor matches the vendor suspected of marking the
-    /// document — rewriting would re-apply the mark (spec §4.4).
-    #[error("non-origin rule: {vendor} is the suspected origin of this document")]
-    SameOrigin { vendor: &'static str },
     #[error("not implemented yet: {0}")]
     NotImplemented(&'static str),
-}
-
-/// The non-origin rule, in one place so the GUI warning and the CLI's
-/// `--force` cannot drift apart.
-pub fn violates_non_origin(
-    engine: wipemark_core::Vendor,
-    suspected: Option<wipemark_core::Vendor>,
-) -> bool {
-    suspected.is_some_and(|suspected| engine.is_same_origin_as(suspected))
-}
-
-#[cfg(test)]
-mod tests {
-    use wipemark_core::Vendor;
-
-    use super::violates_non_origin;
-
-    #[test]
-    fn rewriting_with_the_suspected_vendor_is_a_violation() {
-        assert!(violates_non_origin(Vendor::Claude, Some(Vendor::Claude)));
-    }
-
-    #[test]
-    fn an_open_model_is_always_allowed() {
-        assert!(!violates_non_origin(Vendor::OpenLlm, Some(Vendor::Claude)));
-        assert!(!violates_non_origin(Vendor::OpenLlm, Some(Vendor::OpenLlm)));
-    }
-
-    /// No suspicion, no block. The warning has to mean something when it
-    /// does appear.
-    #[test]
-    fn no_suspicion_never_blocks() {
-        assert!(!violates_non_origin(Vendor::Claude, None));
-        assert!(!violates_non_origin(Vendor::Claude, Some(Vendor::Unknown)));
-    }
 }

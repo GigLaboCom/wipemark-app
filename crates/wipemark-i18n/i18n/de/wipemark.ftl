@@ -651,7 +651,6 @@ cli-arg-model = Modell-Id aus dem Manifest.
 cli-arg-tactic = Eintrag der Taktik-Leiter: paraphrase, humanize, back_translate, structural, code.
 cli-arg-candidates = Kandidaten je Abschnitt.
 cli-arg-rounds = Durchgänge je Abschnitt.
-cli-arg-force = Auch dann fortfahren, wenn die umschreibende Engine von dem Hersteller stammt, der das Dokument vermutlich markiert hat — die Markierung wird dann wahrscheinlich erneut gesetzt.
 cli-arg-id = Modell-Id aus dem Manifest.
 cli-arg-dir = Zu durchlaufendes Verzeichnis.
 cli-arg-sarif = SARIF-Ausgabe für Code-Scanning-Dashboards.

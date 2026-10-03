@@ -94,13 +94,13 @@ for it. Show your arithmetic in `notes`.
 
 ## Which models belong here
 
-Open-weight only, and never a model from Claude / Gemini / OpenAI — the
-non-origin rule (spec §4.4) means a document suspected of carrying a
-vendor's mark must not be rewritten by that same vendor, and the shipped
-catalogue should make the safe choice the easy one. `vendor: "open-llm"`
-is a statement about how the model is *served* — locally, under the
-user's control — and the entry's `notes` is where a family's provenance
-belongs when it needs saying out loud.
+Open-weight only: a catalogue entry is a file this product downloads
+and runs on the user's machine, which a commercial vendor's model is not.
+`vendor: "open-llm"` is a statement about how the model is *served* —
+locally, under the user's control — and the entry's `notes` is where a
+family's provenance belongs when it needs saying out loud. (The spec's
+"non-origin rule", which once gave this section a second reason, was
+dropped by D62: nothing refuses a vendor.)
 
 Two more rules the shipped entries follow:
 

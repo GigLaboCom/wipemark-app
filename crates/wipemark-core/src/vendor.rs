@@ -1,18 +1,19 @@
-//! Who produced the text, and who is being asked to rewrite it.
+//! Who is behind a rewriting engine.
 
-/// Provenance vendor — either the one the user suspects marked a
-/// document, or the one behind a rewriting engine.
+/// The vendor behind a rewriting engine — part of the engine's identity
+/// that a report records on every attempt.
 ///
-/// The pair drives the **non-origin rule** (spec §4.4): rewriting a
-/// Claude-marked document with Claude re-applies the same mark, so the
-/// UI blocks it and the CLI demands `--force`.
+/// It decides nothing. The spec once had a "non-origin rule" that refused
+/// to rewrite a document with the vendor suspected of marking it; there is
+/// none (D62): Layer A has no detector that could say who wrote a text,
+/// and the user's choice of model is the answer to that question.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Vendor {
     Claude,
     Gemini,
     OpenAi,
     /// Any open-weight model run locally or behind an
-    /// OpenAI-compatible endpoint — the safe rewriting side.
+    /// OpenAI-compatible endpoint — a category, not one actor.
     OpenLlm,
     Unknown,
 }
@@ -43,31 +44,11 @@ impl Vendor {
             _ => None,
         }
     }
-
-    /// True when rewriting with `self` would hand the document back to
-    /// the vendor suspected of marking it.
-    ///
-    /// Only the three named commercial vendors trigger the rule. They
-    /// are single actors running a scheme of their own, so re-running
-    /// their model over their own mark plausibly re-applies it.
-    /// [`Vendor::OpenLlm`] is a *category* covering dozens of unrelated
-    /// open models, and [`Vendor::Unknown`] is not evidence at all —
-    /// blocking on either would make the warning noise, and a warning
-    /// users learn to click through protects nobody.
-    pub fn is_same_origin_as(self, suspected: Vendor) -> bool {
-        matches!(self, Vendor::Claude | Vendor::Gemini | Vendor::OpenAi) && self == suspected
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Vendor;
-
-    #[test]
-    fn same_vendor_is_same_origin() {
-        assert!(Vendor::Claude.is_same_origin_as(Vendor::Claude));
-        assert!(!Vendor::OpenLlm.is_same_origin_as(Vendor::Claude));
-    }
 
     #[test]
     fn ids_round_trip() {
@@ -81,14 +62,5 @@ mod tests {
             assert_eq!(Vendor::parse(vendor.as_str()), Some(vendor));
         }
         assert_eq!(Vendor::parse("Claude"), None, "ids are exact, not fuzzy");
-    }
-
-    /// Categories are not origins. `OpenLlm` covers Qwen, Gemma, Llama
-    /// and Mistral alike — two of them are not the same actor, and
-    /// `Unknown` is a shrug, not a finding.
-    #[test]
-    fn categories_never_trigger_the_rule() {
-        assert!(!Vendor::Unknown.is_same_origin_as(Vendor::Unknown));
-        assert!(!Vendor::OpenLlm.is_same_origin_as(Vendor::OpenLlm));
     }
 }

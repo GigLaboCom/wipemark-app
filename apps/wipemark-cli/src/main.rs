@@ -154,12 +154,6 @@ enum Action {
         candidates: u8,
         #[arg(long, default_value_t = 2)]
         rounds: u8,
-        /// The non-origin rule (spec §4.4). Opt-in, never a default —
-        /// the only flag whose *meaning* is a product rule rather than a
-        /// convenience, which is why it keeps a note here as well as a
-        /// help string.
-        #[arg(long)]
-        force: bool,
         #[arg(long)]
         json: bool,
     },
@@ -257,11 +251,10 @@ impl Action {
                 tactic,
                 candidates,
                 rounds,
-                force,
                 json,
             } => format!(
                 "rewrite {path} -> {} (engine={engine}, model={}, tactic={tactic}, \
-                 candidates={candidates}, rounds={rounds}, force={force}, json={json})",
+                 candidates={candidates}, rounds={rounds}, json={json})",
                 render_out(out.as_deref()),
                 model.as_deref().unwrap_or("<from config>"),
             ),
@@ -294,7 +287,7 @@ fn render_out(out: Option<&std::path::Path>) -> String {
 /// is set per subcommand: `inspect` and `clean` take `-` for stdin and
 /// `rewrite` does not yet, and help that offered it everywhere would be
 /// help that lies.
-const ARGUMENT_HELP: [(&str, Message); 16] = [
+const ARGUMENT_HELP: [(&str, Message); 15] = [
     ("path", Message::CliArgPath),
     ("out", Message::CliArgOut),
     ("in_place", Message::CliArgInPlace),
@@ -307,7 +300,6 @@ const ARGUMENT_HELP: [(&str, Message); 16] = [
     ("tactic", Message::CliArgTactic),
     ("candidates", Message::CliArgCandidates),
     ("rounds", Message::CliArgRounds),
-    ("force", Message::CliArgForce),
     ("id", Message::CliArgId),
     ("dir", Message::CliArgDir),
     ("sarif", Message::CliArgSarif),
@@ -858,13 +850,11 @@ mod tests {
                 candidates,
                 rounds,
                 tactic,
-                force,
                 ..
             } => {
                 assert_eq!(candidates, 2);
                 assert_eq!(rounds, 2);
                 assert_eq!(tactic, "paraphrase");
-                assert!(!force, "the non-origin rule must be opt-out, never default");
             }
             other => panic!("parsed as {other:?}"),
         }

@@ -25,6 +25,14 @@ architecture: Wipemark is one process with no service, no Python and no
 torch. We port the taxonomy, the ladder of tactics, the non-origin rule
 and the honest-report discipline.
 
+> **Wipemark dropped the non-origin rule (D62, 2026-10-03).** Upstream's
+> description of it is kept below as upstream's; Wipemark has no rule
+> about which vendor may rewrite a document. Layer A has no detector that
+> could say who wrote a text, so the rule could only fire on the user's
+> own say-so, and the owner's answer is that choosing the model is that
+> say-so. The shipped templates are E4-2's — see
+> `docs/architecture/prompts.md`.
+
 ---
 
 ## 1. The two backends, on the wire
@@ -522,7 +530,7 @@ interactive product.
 | Prompts as source constants | **reject** | Ours are config templates, editable in Settings (§4.3) |
 | No `seed` / `stream` / `max_tokens` | **add all three** | Reproducible candidates; token streaming to the GPUI side |
 | No protected spans | **add** | `⟦n⟧` placeholders for code/URLs/paths/numbers (§4.2). Upstream only *asks* the model to preserve identifiers |
-| Non-origin rule in prose | **make blocking** | Ours is a blocking UI warning with `--force` in the CLI (§4.4) |
+| Non-origin rule in prose | **dropped** (D62) | First planned as a blocking UI warning with `--force` in the CLI; there is no such rule — the user's choice of model is the answer |
 
 ### The language problem
 

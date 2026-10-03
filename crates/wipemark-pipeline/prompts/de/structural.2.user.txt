@@ -1,0 +1,5 @@
+Schreib aus der Gliederung zwischen den Markierungen den vollständigen Text in natürlicher, abwechslungsreicher Prosa, wie ihr Autor es täte. Verwende jeden Stichpunkt; füge nichts hinzu, was nicht in der Gliederung steht. Vermeide formelhafte Überleitungen.
+
+{PREV_CONTEXT}
+
+{TEXT}

@@ -55,8 +55,8 @@ impl FakeEngine {
         }
     }
 
-    /// Pose as a specific model — used by the non-origin tests, which
-    /// need an engine that claims a vendor.
+    /// Pose as a specific model — for a test that needs an engine with
+    /// another id or window.
     pub fn with_model(model_id: impl Into<String>, ctx_len: u32) -> Self {
         Self {
             model_id: model_id.into(),

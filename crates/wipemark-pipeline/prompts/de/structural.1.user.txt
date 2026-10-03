@@ -1,0 +1,3 @@
+Erstelle eine Gliederung des Textes zwischen den Markierungen: alle Aussagen, Fakten, Zahlen, Namen und Platzhalter in ihrer Reihenfolge, als kurze Stichpunkte ohne ganze Sätze. Lass nichts weg. Gib nur die Gliederung aus.
+
+{TEXT}

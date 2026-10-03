@@ -55,7 +55,8 @@ A test that cannot fail is not a test. Two habits this repo keeps:
   never demonstrated anything.
 * **Mutation check.** For the protections that matter — the emoji ZWJ
   and variation-selector rules in `wipemark-core`, the containment check
-  in `wipemark-models::layout`, the non-origin rule — delete the
+  in `wipemark-models::layout`, the marker ownership and the
+  placeholder rule of the prompts (`wipemark-pipeline::prompt`) — delete the
   protection locally and confirm the suite goes red. If it does not, the
   test is decorative.
 

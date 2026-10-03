@@ -13,7 +13,7 @@ own. Source: Watchword FILE
 | `wipemark-i18n` | message catalogues (en-US, de, ru), BCP-47 negotiation and the fallback chain, generated `Message` keys, the catalogue gates | nothing — this one is finished for the surfaces that exist |
 | `wipemark-engine` | `RewriteEngine` trait, request/completion types, error taxonomy, **`FakeEngine`** | `OpenAiCompatEngine`, `LlamaEngine` |
 | `wipemark-models` | manifest schema + validation, the two shipped entries, on-disk layout and containment, the host probe and fit policy, the **resumable verifying downloader** | signature verification of a mirrored manifest (E9), garbage collection |
-| `wipemark-pipeline` | job/stage/event vocabulary, the non-origin rule | state machine, chunking, selection loop, scorers, batch queue |
+| `wipemark-pipeline` | job/stage/event vocabulary; the document languages (`lang::Lang`); the prompts — shipped en/ru/de templates, the assembler, validation, adaptations, the answer clean-up (E4-2, [prompts.md](prompts.md)) | state machine, chunking, selection loop, scorers, batch queue |
 | `wipemark-image` | container and metadata-kind taxonomy, strip report shape | every parser |
 | `wipemark-license` | licence states, trial shapes, *Layer A is never locked* | token verification, fingerprint, keychain |
 | `wipemark-log` | the rotating file, the level defaults, the panic hook, `Elided` | nothing — the surfaces that reveal a log directory (E6 / S6.1) |
@@ -104,11 +104,13 @@ from it.
    `url."git@github.com:".insteadOf` rewrite without an ssh-agent
    identity, and fails to fetch a *public* repository. The git CLI
    handles it.
-6. **`Vendor::is_same_origin_as` fires only for Claude, Gemini and
-   OpenAI.** `OpenLlm` is a category spanning Qwen, Gemma, Llama and
-   Mistral — two of those are not the same actor — and `Unknown` is not
-   evidence. A warning that fires on everything is a warning users learn
-   to click through.
+6. **There is no rule about which vendor may rewrite a document.** The
+   skeleton shipped one — a "non-origin rule" that refused to rewrite a
+   document with the vendor suspected of marking it — and E4-2 removed it
+   (D62): Layer A has no detector that could say who wrote a text, so the
+   rule could only fire on the user's own say-so, and the owner's answer
+   is that the choice of model is that say-so. `Vendor` stays, as the
+   engine's identity in the report.
 7. **The manifest shipped empty, and no longer does.** Every entry
    carries a `sha256` and a `size_bytes` the downloader enforces, so it
    stayed empty until those could be *read* off Hugging Face rather than

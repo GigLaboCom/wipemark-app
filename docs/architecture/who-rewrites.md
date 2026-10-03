@@ -195,8 +195,8 @@ behind it, and a caller that received one would file a document as
 rewritten by a rewriter that never ran.
 
 `Performer::info()` is the other half of the bridge — the `EngineInfo`
-a report records on every attempt, and the input to the non-origin rule.
-Two fields in it are worth reading twice:
+a report records on every attempt. Two fields in it are worth reading
+twice:
 
 * `ctx_len` is an `Option<u32>`. Local weights carry the figure their
   catalogue entry records; an endpoint's window is the server's
@@ -205,12 +205,12 @@ Two fields in it are worth reading twice:
   an endpoint, and a `0` there would have read as "no context" to
   everything that did arithmetic on it.
 * `vendor` for an endpoint is read off the origin, and only the three
-  commercial vendors' own hosts are recognised. Those are the only
-  vendors `Vendor::is_same_origin_as` fires on, and everything else is
-  `Vendor::Unknown` — which the rule treats as no evidence at all, and
-  which is the honest answer for a gateway whose hostname says nothing
-  about what is behind it. Ollama is named rather than sniffed: it
-  serves GGUF weights off its own disk and proxies nobody.
+  commercial vendors' own hosts are recognised; everything else is
+  `Vendor::Unknown`, which is the honest answer for a gateway whose
+  hostname says nothing about what is behind it. Ollama is named rather
+  than sniffed: it serves GGUF weights off its own disk and proxies
+  nobody. The field decides nothing — there is no rule that refuses a
+  vendor (D62) — it is what the report says rewrote.
 
 ## Where the answer shows up
 

@@ -9099,6 +9099,10 @@ name = "wipemark-pipeline"
 version = "0.1.0"
 dependencies = [
  "flume",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.20",
  "tokio-util",
  "wipemark-core",

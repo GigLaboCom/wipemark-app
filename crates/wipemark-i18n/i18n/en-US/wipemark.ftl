@@ -1137,7 +1137,6 @@ cli-arg-model = Manifest model id.
 cli-arg-tactic = Tactic ladder entry: paraphrase, humanize, back_translate, structural, code.
 cli-arg-candidates = Candidates generated per chunk.
 cli-arg-rounds = Rewrite rounds per chunk.
-cli-arg-force = Proceed even when the rewriting engine is the vendor suspected of marking the document — which is likely to re-apply the mark.
 cli-arg-id = Manifest model id.
 cli-arg-dir = Directory to walk.
 cli-arg-sarif = SARIF output, for code scanning dashboards.
