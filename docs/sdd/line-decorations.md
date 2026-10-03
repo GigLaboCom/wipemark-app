@@ -149,7 +149,7 @@ together.
 | also copied | the other five `heretic/*` branches from the personal fork `glani/gpui-component` (which stays until heretic-amuse-merge is switched too) |
 | this repository | `.gitmodules` points at the org fork with `branch = heretic/epic-4-line-decorations`; CI runs `git submodule sync --recursive` before `update` |
 | patches here | `line-decorations/patches/0001-…` (P1), `0002-…` (P2), `0003-…` (P3 + P4), `git format-patch` of the three commits |
-| on current upstream | being ported to branch `heretic/line-decorations-on-upstream` on the org fork (upstream `main` underneath, the patch on top) — see §6 |
+| on current upstream | **ported**: branch `heretic/line-decorations-on-upstream` (`07404aa`) on the org fork — upstream `main` `2c5162f8` underneath, four commits on top (`row_bounds`, line decorations, the gutter cursor, a marker-placement fix) — and **draft upstream PR [longbridge/gpui-kit#3359](https://github.com/longbridge/gpui-kit/pull/3359)**. API, old → new mapping, how `compare::Marks` migrates, test results and the PR text: [`line-decorations/upstream-port.md`](line-decorations/upstream-port.md) |
 
 ---
 
@@ -195,9 +195,12 @@ window needs all of this, and its tests say so:
    tested (`the_first_lines_sit_level`).
 
 The port to current upstream (§4, last row) is the first step toward
-both dropping the fork and proposing the API upstream in the shape the
-maintainer will accept (next to #3040's collections rather than as a
-separate provider trait, if that fits). Moving *wipemark* onto that
+both dropping the fork and getting the API upstream: it is built in
+#3040's shape — `EditorState::create_line_decorations_collection`, a
+`LineDecorationProvider` asked per frame, `LineDecoration::new(row)
+.with_background(..).with_marker(GutterMarker::DiffAdded)`, a
+`gutter_marker_renderer` beside `fold_icon_renderer`, and `row_bounds`
+for the on-screen band of a row — and is up for review as #3359. Moving *wipemark* onto that
 branch is a separate piece of work: it also moves `gpui` by about eight
 months (`Corner` → `Anchor` and whatever else changed underneath the
 AppKit code in `pasteboard.rs`, `screen.rs`, `panel.rs`,
