@@ -508,8 +508,8 @@ the gate the overview set, and the open edges.
   CUDA host.
 - **Series.** [E2-1-local-engine.md](E2-1-local-engine.md) — the local
   engine carried over from mnemoria (S2.5, the build half of S2.6;
-  D45–D50) — status: done — [reports/E2-1-2026-10-03.md](reports/E2-1-2026-10-03.md). E2-2 wires it (`duty::engine_for`, the
-  app, the CLI) and adds `EngineHost` with the keep-loaded policy (D51)
+  D45–D50) — status: done — [reports/E2-1-2026-10-03.md](reports/E2-1-2026-10-03.md). [E2-2-keeping-a-model.md](E2-2-keeping-a-model.md)
+  (status: dispatched) wires it (`duty::engine_for`, the app) and adds `EngineHost` with the keep-loaded policy (D51)
   and the CLI/agents reaching the application's loaded model (D52); E2-3
   is the HTTP engine.
 - **Rule.** Q2 is answered (D45). The rule `engine_for` must keep: a
