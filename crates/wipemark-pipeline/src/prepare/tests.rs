@@ -696,6 +696,16 @@ fn a_missing_duplicated_unknown_or_reordered_placeholder_is_refused_by_name() {
         Err(RestoreError::OutOfOrder { index: 1 })
     );
     assert!(list.restore(&format!("uno{}dos{}tres", g(1), g(2))).is_ok());
+    assert!(
+        list.restore(&format!("uno\n{}dos\n\n{}tres", g(1), g(2)))
+            .is_ok(),
+        "the newline before glue is the glue's: kept, dropped or doubled"
+    );
+    assert_eq!(
+        list.restore(&format!("uno and\ndos{};\ntres{}.", g(1), g(2))),
+        Err(RestoreError::ItemBroken { item: 1 }),
+        "words moved across an item's boundary"
+    );
     assert_eq!(
         prepared.assemble(&[Some("Use nothing.")]),
         Err(AssembleError::Count {

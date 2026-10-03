@@ -27,6 +27,10 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio-util.workspace = true
+# The job's log lines (E4-3): counts, seeds, tactics and rejection kinds,
+# never a chunk or a candidate. Libraries emit and install nothing
+# (CLAUDE.md, "Diagnostics go to a file").
+tracing.workspace = true
 # Markdown structure for preparing the text (E4-1, D69): every event carries
 # its byte range in the source, which is what lets everything that is not
 # rewritten come back from the source's own bytes. `default-features =

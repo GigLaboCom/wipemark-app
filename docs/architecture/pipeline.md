@@ -4,8 +4,9 @@ What happens between "the user pressed Rewrite" and "here is the
 document", in `crates/wipemark-pipeline`. Epic **E4**, built as a series
 (README §7 E4, decision D76): preparing the text (E4-1), the prompts
 (E4-2), the loop that joins them (E4-3), the queue (E4-4), the bench
-(E4-5), the surfaces (E4-6). Nothing rewrites a document until E4-3 lands;
-this page grows a section per step.
+(E4-5), the surfaces (E4-6). Since E4-3 a job rewrites a document; nothing
+in a window or the CLI starts one until E4-6. This page grows a section per
+step.
 
 ## Preparing the text
 
@@ -121,7 +122,9 @@ that for whatever the model wrote, in this order:
    (`Duplicated`), list glue out of its order (`OutOfOrder`, since glue
    carries `2.`). Restore never guesses which span a damaged placeholder
    meant; the loop's `PlaceholderGuard` will normally have rejected the
-   candidate first.
+   candidate first. In a chunk with list glue, an item that came back
+   with more line breaks than it went in with (`ItemBroken`, E4-3 — see
+   "One attempt" below).
 3. Whitespace touching glue dropped (the glue holds the source's own).
 4. Every newline written as the chunk's line ending plus the container's
    **continuation prefix** — derived from the piece's first line: `>` and
@@ -187,8 +190,9 @@ its length, which no per-character rule sees (a per-word rule did no
 better — German's long compounds pull the other way). An overcount only
 makes a chunk smaller than the budget. The paragraphs and their counts
 are `prepare/calibration.rs`; a test holds the rule to them. Another
-model's tokenizer may differ — the loop uses the estimate for packing and
-for the price shown before a run, never as a limit sent to an engine.
+model's tokenizer may differ — the loop uses the estimate for packing, for
+the price shown before a run, and doubled plus 64 as a generous *ceiling*
+on an answer (`max_tokens`, see "The loop"), never as an exact limit.
 
 ### Cost
 
@@ -199,3 +203,146 @@ opens nothing is now skipped whole) and HTML full of unclosed tags (an
 unclosed tag now runs to the end of the document, as in a browser's
 tokenizer, and the rest is kept). One-line spans — markers, backtick
 spans — look at most 1 KiB ahead.
+
+## The loop
+
+E4-3 (spec S4.3, S4.5, S4.6; decisions D61, D67, D70–D73, D77, D78; the
+plan document `docs/plan/E4-3-the-loop.md`).
+
+```
+crates/wipemark-pipeline/src/job/mod.rs      Options, Document, start, JobHandle, Refused, the job's thread
+crates/wipemark-pipeline/src/job/plan.rs     plan → Planned: Layer A first, the budget, the usable ladder, template fallbacks, cost()
+crates/wipemark-pipeline/src/job/attempt.rs  one attempt: render → complete → clean_response → Layer A → guards → restore → no-op
+crates/wipemark-pipeline/src/job/drive.rs    the few lines of std::task that drive an engine's future and forward its tokens
+crates/wipemark-pipeline/src/select.rs       divergence, the no-op floor, the length penalty, the scorer seam, the winner
+crates/wipemark-pipeline/src/cost.rs         Executor, Effort (D61), Cost
+crates/wipemark-pipeline/src/report.rs       Rejection, EngineFailure, JobReport and its records, the ASCII JSON form
+crates/wipemark-pipeline/tests/live.rs       the live gate on Qwen3 4B (llama-native, #[ignore])
+```
+
+### What a job is
+
+`start(id, Document { text, format }, Options, Arc<dyn RewriteEngine>)`
+checks the options, spawns a thread and returns at once with a
+`JobHandle` (cancel) and a `flume::Receiver<Event>`. On that thread:
+
+1. **Layer A** over the document — its report is the *before* of the
+   verifiable shelf. Everything after starts from the cleaned text, so a
+   chunk no candidate wins comes back cleaned, never with its marks.
+2. **Plan.** `prepare` the cleaned text; for each rung of the ladder,
+   `templates_for` — `back_translate` over an undetected language is
+   *skipped and recorded*, not fatal; every step is rendered once over a
+   probe word, and an override that does not render is dropped for the
+   shipped template and recorded (a shipped one that does not is a bug and
+   fails the job). The chunk budget is D70's less the prompt around the
+   chunk: `Budget::for_context(ctx_len − overhead)`, with `overhead` the
+   largest probe render — on an 8192 window it is still 600.
+3. **Nothing to ask** — a `Code` document, a document of headings and
+   tables, a ladder with no usable rung — calls no engine at all.
+4. `warmup`, then per chunk, round by round (one rung per round, the last
+   rung repeated): every candidate of the round is an **attempt**; the
+   next round runs only if **no** candidate of this one passed (D61).
+5. The winner of each chunk, or its cleaned source; `assemble`; **Layer A
+   again over the whole result** — the *after*.
+
+The result is the last event, `Finished { outcome: { text, report } }`;
+or `Cancelled` (no document: half a rewrite is not a result) or `Failed`.
+
+### One attempt
+
+```
+render(step, chunk text | step 1's cleaned answer, the chunk's context, intensity)
+→ into_request(seed, max_tokens) → engine.complete (tokens → Event::Token as they arrive)
+→ clean_response                         (D67: think blocks, markers, one fence or quote pair; never a preface)
+→ Layer A over the final answer          (what the model slipped in, removed and counted per attempt)
+→ the five guards (chunk.text, answer)   (first reject wins; the length window is the options')
+→ chunk.restore(answer)                  (any RestoreError is a rejection — OutOfOrder and ItemBroken are what a guard cannot see)
+→ divergence < 0.05 → no-op              (D71)
+→ passed: divergence, length ratio, score
+```
+
+`ItemBroken` came out of the first live run: Qwen3 4B gave a three-item
+list back with every glue placeholder present and in order, but with item
+2's words on a new line inside item 1 and item 2 reduced to `;`. In a
+chunk with list glue, `restore` now refuses an item that comes back with
+more line breaks than it went in with (edges trimmed, so the newline before
+a glue placeholder — the glue's own — may be kept, dropped or doubled). A
+paragraph is not checked: re-wrapped, it is still one paragraph. Words
+moved across an item boundary *without* a new line break are not seen.
+
+Layer A runs **before** the guards so that a U+200B the model put into an
+identifier costs the candidate nothing: it is removed, counted, and the
+identifier is whole again. Every rejection is a value
+(`Rejection::{Engine, Truncated, Empty, Guard { guard, reason },
+Restore, NoOp, MarkerInAnswer}`) carried by `Event::CandidateRejected`
+and the report; the surface words it. A candidate that was rejected is
+never used — rejected attempts carry no text.
+
+An engine error rejects the attempt (`Transport`, `Protocol`,
+`ContextOverflow`, `NotImplemented`) and the loop goes on; `Unavailable`
+fails the job (asking every candidate of every chunk would repeat it);
+`Cancelled` cancels it. `max_tokens`, when the options leave it unset, is
+`2 × estimate_tokens(input) + 64` — the estimate never undercounts by more
+than 5 %, the length guard rejects past 1.6×, and the engines clip to the
+window; without a ceiling a runaway answer costs minutes on a CPU.
+
+### Choosing
+
+`min-divergence` (D71): the passed candidate with the lowest score wins,
+score = bigram-Jaccard divergence from the chunk (words are placeholders
+or runs of letters and digits, lower-cased), plus 0.15 when the length
+ratio is outside 0.5–2×. With the default length guard (0.6–1.6) the
+penalty cannot fire; it is live for a wider window, which is what the
+options' `length` field is for (the bench, E4-5). A tie goes to the
+earlier attempt. `Scorer::Divergence` is the only scorer; the keyed one
+of D72 would be another arm of the same enum.
+
+### Seeds
+
+`base_seed + (chunk · rounds + (round − 1)) · candidates + (candidate − 1)`,
+wrapping — unique across the job (OV §4.4's `base_seed + round · c`
+collides at (1, 2) and (2, 1), and repeats per chunk), recorded per
+attempt, and the same seed for both steps of a two-step attempt.
+
+### Effort and price
+
+`Effort::for_executor` is D61: 1 × 2 for a local model on the CPU alone,
+2 × 2 for a GPU or an endpoint. `Planned::cost(options, tokens_per_second)`
+gives calls exactly — worst (every round) and expected (every chunk passes
+in round 1) — prompt tokens from the real renders, answer tokens as the
+chunk's estimate per step, and seconds only from a rate the caller
+measured (prompt processing not counted). `plan` is pure and may take a
+while on a large document: a surface calls it off the GPUI thread.
+
+### The report
+
+`JobReport` — Layer A before and after; the engine (`vendor`, model,
+local, window); format, language, pivot, the usable ladder, the skipped
+rungs, the template fallbacks; intensity, effort, base seed, scorer; per
+chunk every attempt (round, candidate, tactic, seed, per step the
+`Version` of both turns, tokens out, finish, what `clean_response` took
+off; Layer A over the answer; the verdict with its numbers) and the
+outcome; and `not_established`, which is the baseline shelf plus "unknown
+mark schemes", because Layer B searches for none. `totals()` counts
+attempts made — the honest denominator. `to_json()` is one line of ASCII
+(every non-ASCII character `\u`-escaped, as core's A §7.1 writer does);
+`Serialize` gives the same value. Its keys are the shelves:
+`verifiable`, `best_effort`, `not_established`.
+
+### Driving an engine without a runtime
+
+The engines' futures wait on channels their own threads feed, so the
+job's thread polls the future with a waker that unparks it — no tokio, no
+`futures`. While the future is pending it also polls the token channel's
+`recv_async` with the same waker, so a token wakes the thread and goes out
+as `Event::Token` at once, in order with the job's other events (one
+thread sends them all). A dropped receiver cancels the job.
+
+### The application's engine
+
+`start` takes `Arc<dyn RewriteEngine>`. The application's `EngineHandle`
+is not one: it has `complete` but no `info`, and an endpoint's engine is
+built on first use. E4-6 wraps it in an adapter that implements the
+trait — `info` from the engine on duty when the job starts, `complete`
+through the handle (busy count, keep policy), `warmup` through the host's
+load.
