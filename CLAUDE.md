@@ -1062,13 +1062,21 @@ What exists so far:
 |---|---|---|
 | `wipemark-intake-drag-and-drop-2026-09-11` | FILE | the spec: accepting a drop, recognising what it was, and the contract every surface consumes it through |
 | `wipemark-intake-drag-and-drop-closed-2026-09-11` | TEXT | its closure: what landed, the gates and the four RED checks, the deviations from the decomposition, what is left open |
-| `wipemark-drag-and-drop-architecture-2026-09-11` | FILE | a snapshot of `docs/architecture/drag-and-drop.md`, so the knowledge survives a machine this repository is not pushed from |
+| `wipemark-drag-and-drop-architecture-2026-09-11` | FILE | the first snapshot of `docs/architecture/drag-and-drop.md`; stale since the document moved on 2026-09-14, superseded by the `-2026-10-03` one |
+| `wipemark-uzu-evaluation-2026-09-11` | FILE | `trymirai/uzu` read at `7096cf3`: Metal on Apple Silicon and nothing else — no Vulkan, no CUDA. Material for Q2 |
+| `wipemark-product-overview-nontechnical-2026-09-14` | FILE | the product for a reader who does not write code: what it is, why, what it will look like, what was done by 2026-09-14 |
+| `wipemark-week-2026-09-14-21` | TEXT | the week's report: one commit (E6), a pause, and nothing pushed |
 | `wipemark-q1-name-decision-2026-09-21` | TEXT | Q1 closed: the name is Wipemark; nothing renames |
 | `wipemark-core-layer-a-2026-09-21` | FILE | the E1 spec: the UCD tables and their `build.rs`, the classifier and what it keeps, the scrubber, NFKC, homoglyphs, the five guards, and the MCP and CLI `inspect`/`clean` that are its first callers. Pins Unicode **18.0.0** |
+| `wipemark-drag-and-drop-architecture-2026-10-03` | FILE | a snapshot of `docs/architecture/drag-and-drop.md` as of `9b54032`, so the knowledge survives a machine this repository is not pushed from |
+| `wipemark-interfaces-map-2026-10-03` | FILE | the status page as HTML: the epics, these entries, and every surface drawn from the code and the `ru` catalogue |
+| `wipemark-status-2026-10-03` | TEXT | where the project stood on 2026-10-03, and the branch that first took E0–E6 to `origin` |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
-disagreeing. Re-upload it when the document in `docs/` moves.
+disagreeing. Re-upload it when the document in `docs/` moves — under a
+new dated key, because an upload under a taken key is renamed with a
+suffix rather than replaced — and move this table to the new key.
 
 ## Epic order
 
