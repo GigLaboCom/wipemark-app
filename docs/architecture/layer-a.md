@@ -447,3 +447,225 @@ The Unicode facts in this section were read from the committed `ucd/`
 files (18.0.0); after a version bump, run
 `every_class_has_exactly_the_members_unicode_18_gives_it` and read its
 diff before touching anything else.
+
+## Scrubber, report and NFKC
+
+### What
+
+`wipemark_core::inspect(text, &options)` and `wipemark_core::clean(text,
+&options)` are the public API of Layer A, and they are **one decision
+over one pass**. A run is, in order:
+
+1. **hits** — `scrub::collect_hits`: E1-2's context pass
+   (`context::hits`), merged by byte offset with the homoglyph hits
+   (E1-4, an empty list today);
+2. **one decision per hit** — `scrub::decide`, the only place a hit is
+   kept, removed or replaced;
+3. **rows and counters** — `scrub::run` aggregates the decisions into
+   report rows and counts removals per class and replacements per kind;
+4. **output** — in the same walk, when `clean` asked for it: the text
+   between hits is copied as slices, so a clean text costs one copy;
+5. **with `nfkc`** — NFKC and the pass again, in rounds, until a pass
+   acts on nothing (below).
+
+`inspect` is steps 1–3 with `build: false`; nothing else differs, so an
+`inspect` can never see something other than what `clean` removes (A
+§5.2), and `inspect_and_clean_agree` holds them to it on every fixture
+and 2,000 generated strings under all 16 `Options`.
+
+**The knobs** (`Options`, all off by default) correct the class default
+and nothing else — `Options::action_for` is the whole table:
+
+| class | default | knob | with the knob |
+|---|---|---|---|
+| `SoftHyphen` | remove | `keep_soft_hyphen` | keep |
+| `ExoticSpace` | keep | `normalize_spaces` | replace with U+0020 |
+| `Homoglyph` | keep | `aggressive` | replace with the hit's letter |
+| the other eight | remove | — | — |
+| any | — | `nfkc` | no effect on the action |
+
+**Context beats every knob.** A hit E1-2 marked `kept_by_context` is
+kept whatever `Options` say — the first line of `decide`, and
+`context_beats_every_knob` is its gate. A homoglyph hit with no
+replacement is kept rather than deleted: a letter is never removed for
+want of a substitute.
+
+**Two lists.** `findings` are the rows `clean` acted on (removed or
+replaced), `kept` the rows it found and left — by context (at
+`LikelyFalsePositive`) or by a knob or the class default (at the class's
+own confidence: a kept soft hyphen is `Informational`, a homoglyph kept
+without `aggressive` is `Probable`). Rows aggregate hits by `(acted,
+class, code point, confidence)` (D6). `acted` is in the key so that an
+acted row and a kept row of the same code point never merge; within one
+run that can only happen to a homoglyph with and one without a
+replacement, because the knobs are global — `acted_and_kept_rows_never_merge`.
+A ZWJ kept in a family and a ZWJ removed between two letters are two
+rows already, by confidence. The key is a `BTreeMap` key ordered as the
+report must be: **class in `UnicodeClass::ALL` order, then code point,
+then confidence from highest to lowest** — there is no second ordering
+table to drift.
+
+**`suspicious`** (D4) is "some row, in `findings` or `kept`, is at least
+`Probable`". Soft hyphens and exotic spaces alone are `Informational`
+and do not make a text suspicious; neither does orthography, which is
+`LikelyFalsePositive`. A homoglyph kept for want of `aggressive` does,
+because that is the case a user has to be told about. It is computed
+once, in `scrub::is_suspicious`, and the JSON writer writes the field
+rather than recomputing it.
+
+**Positions are byte offsets into the source** handed to `inspect` or
+`clean`, never into the output, and `count == positions.len()` always.
+There is one place a count exceeds the positions behind it: with `nfkc`,
+the passes after NFKC remove code points from NFKC *output* — U+2139
+U+FE0F becomes U+0069 U+FE0F, and the now-orphaned U+FE0F goes — and no
+byte offset there names a byte of the source. So those passes add to
+`removed` and never to `findings`; and a row of `kept` can name a code
+point that is not in the output. `CleanReport`'s doc comment says so in
+full; `counters_agree_with_the_rows_on_every_fixture` holds the
+invariant without `nfkc`.
+
+`CleanReport` carries `suspicious` and `stats` too (D28), both over the
+**source** by `inspect`'s rules — `TextStats::of(source)` once — so a
+`clean` and an `inspect` of the same text agree on both, and E1-6 takes
+the CLI's exit code for `clean` straight from `report.suspicious`.
+`removed` lists only non-zero classes, in `ALL` order; `normalized`
+lists `SpaceToAscii`, `Nfkc`, `Homoglyph` in that order, each only when
+non-zero — except `Nfkc`, which is present whenever `nfkc` was asked
+for, `0` included: "ran and changed nothing" is not "not asked".
+
+### Where
+
+| file | what |
+|---|---|
+| `src/lib.rs` | `inspect`, `clean`, `Options` and `action_for`, `Cleaned` |
+| `src/scrub.rs` | `collect_hits` (the seam), `decide`, `run`, `is_suspicious`, the rounds |
+| `src/nfkc.rs` | UAX #15 NFKC and its count |
+| `src/json.rs` | `InspectReport::to_json`, `CleanReport::to_json` |
+| `src/report.rs` | `InspectReport`, `CleanReport`, `NormKind` |
+| `src/class.rs` | `Action { Remove, Replace, Keep }`, `Action::as_str`, `Confidence::as_str` |
+| `tests/fixtures.rs` | every file of `fixtures/text/` and its claim |
+| `tests/corpus.rs` | 10,000 generated strings: idempotence and agreement |
+| `fixtures/text/` | `<class id>.txt` (cleaned), `survive-*.txt` and E1-2's `keep-*.txt` (byte-identical) |
+
+### Why the rounds
+
+A §5.3 asked for one more pass after NFKC. One is not enough (D26):
+`U+2139 U+FE0F U+0301` with `nfkc` — the first pass keeps U+FE0F after
+an emoji base; NFKC gives `U+0069 U+FE0F U+0301` (U+FE0F is a starter,
+so it blocks U+0301 from composing with `i`); the second pass removes
+the orphan and leaves `U+0069 U+0301`, which is not NFKC, and a second
+`clean` would turn it into U+00ED. So `clean` runs NFKC and the pass in
+rounds until a pass acts on nothing, at most `MAX_ROUNDS` (8) with a
+`debug_assert!` at the cap — a context rule that one day breaks
+convergence is a failed assertion, never a hung MCP thread.
+
+Why that is idempotent: `clean(x, o)` ends on a text that is (a) a
+fixpoint of the pass — the last pass acted on nothing — and, with
+`nfkc`, (b) NFKC output, which NFKC leaves alone. `clean` of it runs a
+pass that acts on nothing and, with `nfkc`, an NFKC that changes
+nothing. (a) rests on E1-2's rule that no context decision leans on a
+code point the pass removes (D34). The loop ends because after the
+first NFKC no step lengthens the text — a removal creates no
+compatibility character, U+0020 and homoglyph letters are NFKC-stable
+(D42), composition only shortens — and every continuing round acts on
+at least one code point. The gates: `nfkc_rounds_reach_a_fixed_point`
+on the counterexample, `clean_is_idempotent_on_every_fixture`, and
+`clean_is_idempotent_on_a_generated_corpus`, whose alphabet carries the
+trap atoms so that "stop after one round" fails deterministically.
+
+### NFKC
+
+`nfkc::nfkc_counted` is UAX #15 over E1-1's tables: the full
+compatibility decomposition (`tables::decomposition`, already expanded
+at build time), canonical ordering (a stable sort of every run of
+non-starters by `ccc`), canonical composition. Hangul is in none of the
+tables: a syllable is decomposed and composed by the arithmetic of §3.12
+(`S_BASE` U+AC00, `L_BASE` U+1100, `V_BASE` U+1161, `T_BASE` U+11A7; LV,
+then LV + T with T strictly above U+11A7). The **blocked** rule (D115)
+needs only the last unit pushed after the starter, because the buffer is
+in canonical order: a unit composes with the starter when nothing was
+pushed after it or that unit's class is non-zero and lower than its own;
+a starter that does not compose becomes the next starter, which is what
+makes the chained composites of Part 5 work.
+
+**The conformance gate** is the Unicode file itself:
+`nfkc_conforms_to_the_unicode_test_file` runs every data line of all six
+parts of `ucd/NormalizationTest.txt` — 20,171 lines in 18.0.0 (D23),
+`c4 == NFKC(cK)` for all five columns — and
+`every_code_point_the_test_file_does_not_list_is_its_own_nfkc` is the
+file's conformance clause 2 over the 293,187 assigned code points Part 1
+does not list, which catches a table entry that should not exist.
+
+**The count** (`(Nfkc, n)`, D27) is the number of input code points NFKC
+did not carry through unchanged, summed over the rounds. A code point is
+carried through when exactly one output unit came from it, that unit
+is still in source order in the output (a composite counts as coming
+from every code point it absorbed), and it is the code point itself. Examples: U+FB01 → `fi`
+counts 1 (one became two); `e` U+0301 → U+00E9 counts 2 (two merged);
+`x` U+0301 U+0316 → `x` U+0316 U+0301 counts 2 (reordered); U+00E9 →
+U+00E9 counts 0. The count is 0 exactly when the output equals the input
+(`the_count_is_zero_exactly_when_nothing_changed`, over every column of
+the test file). "In source order" is judged on the output, not on the
+reordering: U+1E0A U+031B is its own NFKC although its decomposition's
+U+0307 is reordered past U+031B on the way, and it counts 0.
+
+### The JSON form
+
+Both reports serialise themselves (`to_json`), in `wipemark-core`, with
+a `std`-only writer (D9) — one format, one writer, for the CLI's
+`--json` and the MCP server. One line, no whitespace outside strings,
+keys in a fixed order:
+
+```
+inspect: unicode_version, suspicious, findings, kept, stats, not_established
+clean:   unicode_version, suspicious, findings, kept, removed, normalized, output_len, stats, not_established
+```
+
+A row is `{"codepoint":"U+200B","name":"ZERO WIDTH SPACE","class":"zero-width","confidence":"confirmed","action":"remove","count":2,"positions":[5,40]}`;
+`action` is `keep` for a row of `kept` and, for a row of `findings`,
+the action `clean` took — a function of the class alone with today's
+knobs (`replace` for exotic spaces and homoglyphs, `remove` for the
+rest). A whole inspect report:
+
+```json
+{"unicode_version":"18.0.0","suspicious":true,"findings":[{"codepoint":"U+200B","name":"ZERO WIDTH SPACE","class":"zero-width","confidence":"confirmed","action":"remove","count":2,"positions":[5,40]}],"kept":[{"codepoint":"U+200D","name":"ZERO WIDTH JOINER","class":"zwj","confidence":"likely-false-positive","action":"keep","count":1,"positions":[12]}],"stats":{"chars":42,"words":7,"latin_ratio":0.98,"cyrillic_ratio":0.0,"cjk_ratio":0.0,"code_blocks":0,"urls":1},"not_established":["vendor-detector-evasion","human-authorship","unknown-mark-schemes"]}
+```
+
+**Escaping** (D29): `"` and `\` are escaped, and every character below
+U+0020 or from U+007F upward is written as `\u` and four lowercase hex
+digits per UTF-16 unit (a surrogate pair above U+FFFF). No short
+escapes. The output is ASCII by construction: a report carries no user
+text, only ids, `U+XXXX`, UCD names and numbers, so this costs nothing,
+and "the JSON a client renders carries no invisible character" is a
+property of the writer rather than of the data. **The third shelf** is
+written by the writer, from `report::not_established::ALL`, as the last
+key of both forms — a surface cannot forget it, and
+`every_json_report_carries_the_third_shelf` checks every fixture.
+Ratios are `f32` `Debug` (`0.98`, `1.0`), a valid JSON number for every
+finite value; `TextStats::of` never makes a non-finite one.
+
+### How to extend
+
+- **Homoglyphs (E1-4)** change one expression: `Vec::new()` in
+  `scrub::collect_hits` becomes `homoglyph::hits(text)`. The `Replace`
+  path, `NormKind::Homoglyph`, its counter, its JSON and the merge are
+  here already, exercised with synthetic hits. `NOT_YET` in
+  `tests/fixtures.rs` loses `Homoglyph` when `homoglyph.txt` lands.
+- **A new class** fails to compile in `scrub::replacement`,
+  `json::acted_action` and `UnicodeClass::as_str` until it is placed,
+  and `every_class_has_a_fixture` demands `<class id>.txt`.
+- **A Unicode bump**: fetch, rebuild, and let the conformance tests and
+  the fixtures decide; the tables are E1-1's.
+- **Per-class overrides** (Q-A1) would make the action of a finding
+  depend on more than its class: `the_json_action_is_the_action_clean_took`
+  is the test that goes red that day, and `collect_hits`'s `_options`
+  parameter is reserved for them.
+
+### What it does not do
+
+- **Positions into the output.** Every position is a byte of the
+  source; the output has none.
+- **NFKC that knows about code.** With `nfkc`, Layer A normalises
+  everything, code blocks included — it cannot see a code block (A §2).
+- **A byte-exact way back.** `CleanReport` offers counts and positions
+  for every removal, not a reversal.

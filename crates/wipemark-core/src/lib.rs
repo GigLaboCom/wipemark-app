@@ -21,23 +21,29 @@
 //! and hide which version produced a finding; the report has to name
 //! that version.
 //!
-//! # Skeleton status
+//! # What is here
 //!
-//! The Unicode tables and their lookups exist (E1-1). The classifier,
-//! the scrubber and NFKC, the homoglyph detector and the guards land in
-//! E1-2 … E1-5 (see `docs/plan/README.md` and
-//! `docs/architecture/skeleton.md`).
+//! [`inspect`] and [`clean`] — one decision over one pass of the text:
+//! `inspect` reports what `clean` would do, `clean` does it and reports
+//! what it did, positions always in bytes of the source. [`Options`] are
+//! the four knobs, all off by default. Both reports serialise to the
+//! JSON form the CLI and the MCP server print (`to_json`), third shelf
+//! included. Homoglyph detection (E1-4) and the five guards (E1-5) are
+//! not here yet.
 
 #![forbid(unsafe_code)]
 
 pub mod class;
-mod context;
+mod context; // E1-2: the pre-passes and the context rules → hits
 pub mod guard;
-mod name;
+mod json; // E1-3: the A §7.1 form, std-only
+mod name; // E1-1: name_of
+mod nfkc; // E1-3: UAX #15 NFKC
 pub mod report;
-mod script;
-mod stats;
-mod tables;
+mod script; // E1-1
+mod scrub; // E1-3: collect_hits, the decision, the pass, the rounds
+mod stats; // E1-2: TextStats::of
+mod tables; // E1-1: the generated tables
 pub mod vendor;
 
 pub use class::{Action, Confidence, UnicodeClass, UnicodeFinding};
@@ -48,3 +54,139 @@ pub use report::{
 };
 pub use tables::UNICODE_VERSION;
 pub use vendor::Vendor;
+
+/// The four knobs of Layer A — all off by default, which is what every
+/// caller without a preference uses (`Options::default()`).
+///
+/// Context beats every knob: a code point A §4.2 keeps for its context is
+/// kept whatever these say.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Options {
+    /// Replace each homoglyph with the letter of its word's script.
+    /// Detection runs either way (D3) — without this flag a homoglyph is
+    /// reported in `kept` at `Probable`; with it, it is replaced.
+    pub aggressive: bool,
+    /// After the pass, apply NFKC (UAX #15) and pass again, until a pass
+    /// changes nothing. Normalises everything, code included — Layer A
+    /// cannot see a code block (A §2).
+    pub nfkc: bool,
+    /// Replace every exotic space (`General_Category=Zs` other than U+0020)
+    /// with U+0020 SPACE.
+    pub normalize_spaces: bool,
+    /// Keep soft hyphens (U+00AD) instead of removing them.
+    pub keep_soft_hyphen: bool,
+}
+
+impl Options {
+    /// The class default, corrected by the knobs (A §5.2). This is the
+    /// knob table; context is applied on top of it, never under it.
+    pub fn action_for(&self, class: UnicodeClass) -> Action {
+        match class {
+            UnicodeClass::SoftHyphen if self.keep_soft_hyphen => Action::Keep,
+            UnicodeClass::ExoticSpace if self.normalize_spaces => Action::Replace,
+            UnicodeClass::Homoglyph if self.aggressive => Action::Replace,
+            other => other.default_action(),
+        }
+    }
+}
+
+/// What `clean` returns: the cleaned text and exactly what changed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cleaned {
+    pub text: String,
+    pub report: CleanReport,
+}
+
+/// Look without touching. Every finding-capable code point of `text`,
+/// decided exactly as [`clean`] decides it, aggregated into rows whose
+/// positions are byte offsets into `text`. `options.nfkc` is not read:
+/// nothing NFKC changes can be positioned in the source.
+pub fn inspect(text: &str, options: &Options) -> InspectReport {
+    scrub::inspect(text, options)
+}
+
+/// Remove and replace what `options` ask for, keep what context
+/// protects, and report every change. Idempotent for every `options`:
+/// `clean(&clean(x, o).text, o).text == clean(x, o).text`.
+pub fn clean(text: &str, options: &Options) -> Cleaned {
+    scrub::clean(text, options)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Action, Options, UnicodeClass};
+
+    /// Bit 0 `aggressive`, bit 1 `nfkc`, bit 2 `normalize_spaces`, bit 3
+    /// `keep_soft_hyphen`.
+    fn options(bits: u8) -> Options {
+        Options {
+            aggressive: bits & 1 != 0,
+            nfkc: bits & 2 != 0,
+            normalize_spaces: bits & 4 != 0,
+            keep_soft_hyphen: bits & 8 != 0,
+        }
+    }
+
+    #[test]
+    fn options_default_is_all_off() {
+        assert_eq!(
+            Options::default(),
+            Options {
+                aggressive: false,
+                nfkc: false,
+                normalize_spaces: false,
+                keep_soft_hyphen: false,
+            }
+        );
+        for class in UnicodeClass::ALL {
+            assert_eq!(
+                Options::default().action_for(class),
+                class.default_action(),
+                "{class:?}"
+            );
+        }
+    }
+
+    /// The knob table of E1-3 §4.3, written out independently of
+    /// `action_for` and `default_action`.
+    #[test]
+    fn the_knob_table_is_exact() {
+        for bits in 0..16 {
+            let o = options(bits);
+            for class in UnicodeClass::ALL {
+                let expected = match class {
+                    UnicodeClass::ZeroWidth
+                    | UnicodeClass::ZeroWidthJoiner
+                    | UnicodeClass::BidiControl
+                    | UnicodeClass::TagCharacter
+                    | UnicodeClass::VariationSelector
+                    | UnicodeClass::Noncharacter
+                    | UnicodeClass::PrivateUse
+                    | UnicodeClass::DefaultIgnorable => Action::Remove,
+                    UnicodeClass::SoftHyphen => {
+                        if o.keep_soft_hyphen {
+                            Action::Keep
+                        } else {
+                            Action::Remove
+                        }
+                    }
+                    UnicodeClass::ExoticSpace => {
+                        if o.normalize_spaces {
+                            Action::Replace
+                        } else {
+                            Action::Keep
+                        }
+                    }
+                    UnicodeClass::Homoglyph => {
+                        if o.aggressive {
+                            Action::Replace
+                        } else {
+                            Action::Keep
+                        }
+                    }
+                };
+                assert_eq!(o.action_for(class), expected, "{o:?} {class:?}");
+            }
+        }
+    }
+}

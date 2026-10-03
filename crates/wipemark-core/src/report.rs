@@ -76,12 +76,23 @@ pub struct TextStats {
 }
 
 /// The result of looking without touching.
+///
+/// `findings` and `kept` are exactly the rows [`crate::clean`] reports for
+/// the same text and options: one decision over one pass (A §5.2).
+/// Positions are byte offsets into the inspected text.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InspectReport {
+    /// What `clean` would act on: remove, or replace with the equivalent
+    /// the tables name.
     pub findings: Vec<UnicodeFinding>,
-    /// True when at least one finding is worth acting on. Deliberately
-    /// not "has any finding": informational classes alone do not make a
-    /// document suspicious.
+    /// What `clean` would find and leave — kept by context (orthography or
+    /// presentation, at `LikelyFalsePositive`) or by a knob or the class
+    /// default (at the class's own confidence).
+    pub kept: Vec<UnicodeFinding>,
+    /// True when some row in `findings` or `kept` is at least
+    /// [`crate::Confidence::Probable`] (D4). Deliberately not "has any row": soft
+    /// hyphens and exotic spaces alone do not make a document suspicious,
+    /// and neither does orthography kept by context.
     pub suspicious: bool,
     pub stats: TextStats,
     /// The UCD version the tables were generated from. Pinned at build
@@ -93,21 +104,79 @@ pub struct InspectReport {
 /// A normalisation the scrubber performed, as opposed to a removal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NormKind {
-    /// An exotic space became U+0020.
+    /// An exotic space became U+0020 (`Options::normalize_spaces`).
     SpaceToAscii,
-    /// NFKC was applied (opt-in).
+    /// NFKC was applied (`Options::nfkc`). The count is the number of code
+    /// points NFKC did not carry through unchanged, over every round (D27).
     Nfkc,
+    /// A homoglyph became the letter of its word's script
+    /// (`Options::aggressive`). Detection is E1-4; the count is ready.
+    Homoglyph,
 }
 
-/// Layer A output: exactly what changed.
+impl NormKind {
+    /// Stable identifier for `--json` and MCP. A format, never translated.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NormKind::SpaceToAscii => "space-to-ascii",
+            NormKind::Nfkc => "nfkc",
+            NormKind::Homoglyph => "homoglyph",
+        }
+    }
+}
+
+/// Layer A output: exactly what changed, and where.
+///
+/// `findings` are the code points `clean` acted on — removed, or replaced
+/// with the equivalent the tables name — and `kept` the ones it found and
+/// left, by context (orthography, presentation) or by a knob. Every entry
+/// of `positions` is a **byte offset into the source text handed to
+/// `clean`**, never into the output: the Inspector jumps to them in the
+/// original. Rows are sorted by class (in [`UnicodeClass::ALL`] order),
+/// then code point, then confidence from highest to lowest; `count` is
+/// always `positions.len()`.
+///
+/// `removed` counts removals per class and `normalized` replacements per
+/// kind. Without `Options::nfkc` they agree with the rows exactly: a
+/// class's count in `removed` is the sum of the `count`s of its rows in
+/// `findings`, and likewise `SpaceToAscii` for exotic spaces and
+/// `Homoglyph` for homoglyphs. **With `nfkc` they can be larger, and this
+/// is the only place where a count exceeds the positions behind it:** NFKC
+/// can orphan a code point the first pass kept for its context (U+2139
+/// U+FE0F becomes U+0069 U+FE0F), the passes that run after NFKC (in
+/// rounds, until one acts on nothing) remove it, and the text they remove
+/// it from is NFKC output — no byte offset there names a byte of the
+/// source. So the passes after NFKC count and never position. For the same
+/// reason a row in `kept` can name a code point that is not in the output
+/// when `nfkc` was on.
+///
+/// `suspicious` and `stats` describe the **source**, by the rules
+/// `inspect` uses: `suspicious` is D4 over `findings` and `kept` (so what
+/// the passes after NFKC remove never makes a text suspicious), and
+/// `stats` is `TextStats::of(source)`, computed once. A `clean` and an
+/// `inspect` of the same text and options agree on both.
+///
+/// `removed` lists only classes with a non-zero count, in
+/// [`UnicodeClass::ALL`] order. `normalized` lists `SpaceToAscii`, `Nfkc`,
+/// `Homoglyph` in that order, each only when non-zero — except `Nfkc`,
+/// which is present whenever `nfkc` was asked for, `0` included, so a
+/// reader can tell "ran and changed nothing" from "not asked".
 ///
 /// Byte-exact reversibility is not offered and never will be. What is
 /// offered instead is this: counts and positions for every removal.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CleanReport {
+    pub findings: Vec<UnicodeFinding>,
+    pub kept: Vec<UnicodeFinding>,
+    /// D4 over `findings` and `kept` — the input, not the output (D28).
+    pub suspicious: bool,
+    /// `TextStats::of` the source text (D28).
+    pub stats: TextStats,
     pub removed: Vec<(UnicodeClass, u32)>,
     pub normalized: Vec<(NormKind, u32)>,
+    /// Length of the cleaned text, in bytes.
     pub output_len: usize,
+    pub unicode_version: &'static str,
 }
 
 /// Layer B output: which attempt was chosen and on what evidence.
@@ -163,7 +232,7 @@ impl FinalReport {
 
 #[cfg(test)]
 mod tests {
-    use super::{not_established, FinalReport};
+    use super::{not_established, FinalReport, NormKind};
 
     /// Guarding the honesty contract, not the vec: a build that ships
     /// with an empty third shelf is a build that implies a claim we
@@ -181,5 +250,12 @@ mod tests {
             let lowered = claim.to_lowercase();
             assert!(!lowered.contains("undetectable"), "{claim}");
         }
+    }
+
+    #[test]
+    fn norm_kind_ids_are_exact() {
+        assert_eq!(NormKind::SpaceToAscii.as_str(), "space-to-ascii");
+        assert_eq!(NormKind::Nfkc.as_str(), "nfkc");
+        assert_eq!(NormKind::Homoglyph.as_str(), "homoglyph");
     }
 }

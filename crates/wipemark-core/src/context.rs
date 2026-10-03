@@ -29,10 +29,6 @@ use crate::script::Script;
 use crate::tables;
 
 /// One finding-capable code point of a text, with the context verdict.
-#[cfg_attr(
-    not(test),
-    allow(dead_code, reason = "first caller: E1-3 scrub::collect_hits")
-)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Hit {
     /// Byte offset into the **source** text.
@@ -55,10 +51,6 @@ pub(crate) struct Hit {
 ///
 /// "Byte 0" and "paragraph" are relative to `text`: a caller that splits
 /// a document must not split it where either would change (A §5.3).
-#[cfg_attr(
-    not(test),
-    allow(dead_code, reason = "first caller: E1-3 scrub::collect_hits")
-)]
 pub(crate) fn hits(text: &str) -> Vec<Hit> {
     let mut state = State {
         prev: None,

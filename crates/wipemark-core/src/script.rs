@@ -14,13 +14,6 @@
 //! name there that `Scripts.txt` does not use fails the build, so a typo
 //! cannot fold a whole script into `Other` silently.
 
-// Until E1-2…E1-4 call `script_of`, only the tests do, and in a
-// non-test build the variants are constructed only inside a dead
-// static. The allow is scoped to non-test builds so that an item with
-// no test is still a dead-code warning under `cargo clippy
-// --all-targets`. E1-7 removes it.
-#![cfg_attr(not(test), allow(dead_code))]
-
 /// A script of the Unicode Character Database, folded to the ones Layer
 /// A tells apart (see the module docs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -92,6 +85,10 @@ impl Script {
     ///
     /// An identifier, like `UnicodeClass::as_str`: a format, never shown
     /// translated.
+    // No non-test caller until E1-4 or E1-6 names a script in a report;
+    // scoped to non-test builds so that it is still dead code to clippy
+    // the day it loses its test. E1-7 removes it.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn as_str(self) -> &'static str {
         match self {
             Script::Latin => "Latin",

@@ -17,17 +17,33 @@
 use crate::script::Script;
 use crate::tables;
 
-/// What the scrubber does with a finding when the user has not
-/// overridden it.
+/// What the scrubber does with a finding.
+///
+/// [`crate::Options::action_for`] picks one per class from the class
+/// default and the knobs. Context (A §4.2) can only turn a decision into
+/// `Keep`, never the other way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    /// Delete the code point.
+    /// Delete the code point. Counted in `CleanReport::removed`.
     Remove,
-    /// Replace with U+0020 SPACE.
-    NormalizeToSpace,
-    /// Report it and change nothing — the default for classes that are
-    /// off unless explicitly enabled.
+    /// Replace it with the equivalent the tables name: U+0020 SPACE for an
+    /// exotic space, the letter of its word's script for a homoglyph.
+    /// Counted in `CleanReport::normalized`, never in `removed`.
+    Replace,
+    /// Report it and change nothing.
     Keep,
+}
+
+impl Action {
+    /// Stable identifier for `--json` and MCP. A format: never translated,
+    /// renamed with the care of a config key.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Action::Remove => "remove",
+            Action::Replace => "replace",
+            Action::Keep => "keep",
+        }
+    }
 }
 
 /// How much weight a finding carries in the report.
@@ -41,6 +57,19 @@ pub enum Confidence {
     Informational,
     Probable,
     Confirmed,
+}
+
+impl Confidence {
+    /// Stable identifier for `--json` and MCP; the catalogue keys
+    /// `confidence-<id>` (E1-6) hang off it. A format, never translated.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Confidence::Confirmed => "confirmed",
+            Confidence::Probable => "probable",
+            Confidence::Informational => "informational",
+            Confidence::LikelyFalsePositive => "likely-false-positive",
+        }
+    }
 }
 
 /// A class of Layer A finding. See spec §3.1 for ranges; [`class_of`]
@@ -589,5 +618,35 @@ mod tests {
         }
         assert!(JOINING_SCRIPTS.contains(&Script::Arabic));
         assert!(JOINING_SCRIPTS.contains(&Script::Devanagari));
+    }
+
+    #[test]
+    fn action_ids_are_exact() {
+        assert_eq!(Action::Remove.as_str(), "remove");
+        assert_eq!(Action::Replace.as_str(), "replace");
+        assert_eq!(Action::Keep.as_str(), "keep");
+    }
+
+    #[test]
+    fn confidence_ids_are_exact() {
+        assert_eq!(Confidence::Confirmed.as_str(), "confirmed");
+        assert_eq!(Confidence::Probable.as_str(), "probable");
+        assert_eq!(Confidence::Informational.as_str(), "informational");
+        assert_eq!(
+            Confidence::LikelyFalsePositive.as_str(),
+            "likely-false-positive"
+        );
+        let ids = [
+            Confidence::Confirmed,
+            Confidence::Probable,
+            Confidence::Informational,
+            Confidence::LikelyFalsePositive,
+        ]
+        .map(Confidence::as_str);
+        for (i, a) in ids.iter().enumerate() {
+            for b in &ids[i + 1..] {
+                assert_ne!(a, b, "two confidences share an id");
+            }
+        }
     }
 }
