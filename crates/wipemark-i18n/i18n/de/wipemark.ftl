@@ -75,6 +75,10 @@ queue-next = Weiter
 status-idle-no-engine = Bereit · keine Engine konfiguriert · nur { -layer-a }
 status-idle-here = Bereit · { $model } · nichts verlässt diesen Rechner · nur { -layer-a }
 status-idle-away = Bereit · { $model } auf { $host } · das Dokument verließe diesen Rechner · nur { -layer-a }
+status-local-loading = { $model } wird geladen · nichts verlässt diesen Rechner · nur { -layer-a }
+status-local-loaded = { $model } geladen · { -brand-name } belegt { $ram } · nichts verlässt diesen Rechner · nur { -layer-a }
+status-local-loaded-unmeasured = { $model } geladen · nichts verlässt diesen Rechner · nur { -layer-a }
+status-local-failed = { $model } konnte nicht geladen werden: { $reason } · nur { -layer-a }
 
 ## Einstellungen
 
@@ -324,6 +328,55 @@ settings-engine-serves-machine-first = Rechner, dann Adresse
 settings-engine-serves-endpoint-first = Adresse, dann Rechner
 settings-engine-state-second-choice = Antwortet, weil die erste Wahl es nicht kann: { $reason }
 
+## Das Modell auf diesem Rechner.
+
+settings-engine-keep-title = Modell geladen halten
+settings-engine-keep-description = „{ settings-engine-keep-on-demand }“ lädt das Modell, wenn es gebraucht wird, und gibt seinen Speicher nach den Minuten unten ohne Arbeit wieder frei. „{ settings-engine-keep-resident }“ lädt es kurz nach dem Start von { -brand-name } und hält es, bis { -brand-name } beendet oder ein anderes Modell gewählt wird. „{ settings-engine-local-unload }“ gibt es in beiden Fällen frei.
+settings-engine-keep-on-demand = Bei Bedarf laden
+settings-engine-keep-resident = Geladen halten
+settings-engine-idle-title = Entladen nach
+settings-engine-idle-description = Wie lange ein bei Bedarf geladenes Modell ohne Arbeit im Speicher bleibt. Ohne Wirkung, solange das Modell geladen gehalten wird.
+settings-engine-idle-minutes = { $count ->
+        [one] { $count } Minute
+       *[other] { $count } Minuten
+    }
+settings-engine-advanced = Erweitert
+settings-engine-lock-title = Modell im Arbeitsspeicher halten (nicht auslagern lassen)
+settings-engine-lock-description = Die erste Anfrage nach einer Pause wird dann nicht dadurch gebremst, dass das Modell von der Platte zurückgelesen wird; der Preis ist dieser Speicher, den kein anderes Programm leihen kann, solange das Modell geladen ist. Verweigert das System die Sperre, wird das Modell trotzdem geladen und das Protokoll sagt es.
+
+settings-engine-local-title = Das Modell auf diesem Rechner
+settings-engine-local-not-here = Was gerade zuständig ist, läuft nicht auf diesem Rechner; hier gibt es kein Modell zu laden.
+settings-engine-local-not-loaded = { $model } ist nicht geladen.
+settings-engine-local-resident-again = „{ settings-engine-keep-resident }“ ist weiterhin gewählt, also wird es beim nächsten Start von { -brand-name } wieder geladen.
+settings-engine-local-loading = { $model } wird geladen…
+settings-engine-local-loaded = { $model } ist geladen. { -brand-name } belegt { $ram } Speicher, gemessen. Geladen um { $since }.
+settings-engine-local-loaded-unmeasured = { $model } ist geladen, seit { $since }. Wie viel Speicher es belegt, ließ sich nicht lesen.
+settings-engine-local-file = Die Modelldatei belegt { $size } auf der Platte.
+settings-engine-local-failed = Konnte nicht geladen werden: { $reason }
+settings-engine-local-unload = Jetzt entladen
+settings-engine-local-unload-tooltip = Den Speicher des Modells jetzt freigeben. Die nächste Anfrage lädt es wieder.
+settings-engine-local-unload-disabled = Es ist kein Modell geladen, es gibt nichts zu entladen.
+settings-engine-local-check = Prüfen
+settings-engine-local-check-tooltip = Das Modell laden, falls es nicht geladen ist, und ein paar Wörter schreiben lassen.
+settings-engine-local-check-cancel = Abbrechen
+settings-engine-local-checking = Wird geprüft…
+settings-engine-local-check-answered = Das Modell antwortete: „{ $text }“
+settings-engine-local-check-load = Das Laden dauerte { $seconds } s.
+settings-engine-local-check-speed = { $tokens } Tokens, { $rate } pro Sekunde nach dem ersten.
+settings-engine-local-check-speed-unknown = { $tokens } Tokens — zu wenige, um sie zu messen.
+settings-engine-local-check-failed = Die Prüfung lief nicht: { $reason }
+settings-engine-local-check-cancelled = Die Prüfung wurde abgebrochen.
+settings-engine-local-check-note = Eine Prüfung zeigt, dass das Modell lädt und schreibt. Sie ist keine Umschreibung: In dieser Version schreibt noch nichts ein Dokument um.
+settings-engine-local-no-tray = Auf diesem System gibt es keinen Eintrag in der Menüleiste; das Schließen des Hauptfensters beendet { -brand-name } also und gibt das Modell frei.
+
+engine-refusal-not-built = Dieser Build hat keine lokale Engine.
+engine-refusal-no-such-file = Die Modelldatei ist nicht da: { $path }
+engine-refusal-would-not-fit = Das Modell braucht etwa { $need }, und dieser Rechner hat { $have }.
+engine-refusal-no-backend = Es wurde kein Prozessor gefunden, auf dem das Modell laufen könnte.
+engine-refusal-load-failed = Das Modell konnte nicht geladen werden.
+engine-refusal-stopped = Die lokale Engine wurde beendet. Das Modell erneut zu wählen startet sie neu.
+engine-refusal-nothing-on-duty = Es ist nichts zuständig, das antworten könnte.
+
 settings-engine-profile-title = Gespeichertes Profil
 settings-engine-profile-description = Alle Einstellungen dieser Seite außer dem Schlüssel, unter einem Namen abgelegt. Ein Profil auszuwählen übernimmt alles auf einmal, und unter einem schon vergebenen Namen zu speichern ersetzt es. Der Schlüssel bleibt im Anmeldeinformationsspeicher dieses Rechners, abgelegt unter der Adresse, und gilt für jedes Profil, das dorthin zeigt.
 settings-engine-profile-placeholder = Gespeichertes Profil wählen
@@ -389,7 +442,7 @@ settings-engine-timeout-description = Sekunden, die auf eine Antwort gewartet wi
 settings-section-models = Modelle
 settings-models-title = Lokale Modelle
 settings-models-description = Offene Gewichte, die auf dieses Gerät geladen und gegen die Prüfsumme im Katalog von { -brand-name } geprüft werden. Nichts wird geladen, bevor Sie es verlangen.
-settings-models-pending = Ein geladenes Modell ist in dieser Version eine Datei und sonst nichts: Geladen wird noch keines. Die Bereinigung braucht davon nichts.
+settings-models-pending = Ein heruntergeladenes Modell kann auf der Seite „Engine“ geladen und geprüft werden, und in dieser Version schreibt noch nichts damit um. Die Bereinigung braucht davon nichts.
 settings-models-folder-title = Modellordner
 settings-models-folder-description = Wohin Downloads gelegt werden und wo { -brand-name } nach Modelldateien sucht — in diesem Ordner und in jedem Ordner darunter. Ein geleertes Feld stellt den Standard wieder her.
 settings-models-folder-choose = Auswählen…
@@ -541,6 +594,7 @@ confidence-likely-false-positive = wahrscheinlich keine Markierung
 tray-show = { -brand-name } anzeigen
 tray-panel = Panel anzeigen
 tray-clean-clipboard = Zwischenablage säubern — noch nicht
+tray-unload-model = Modell entladen
 tray-appearance = Erscheinungsbild
 tray-quit = { -brand-name } beenden
 

@@ -1,0 +1,1706 @@
+//! `EngineHost` — the one place a model is loaded, kept or dropped.
+//!
+//! OV §1.3. [`duty`](crate::duty) decides *who* rewrites and
+//! [`duty::engine_for`] turns that decision into an engine; this module
+//! decides *when* that engine holds its model in memory. `LocalEngine`
+//! never unloads on its own and knows nothing of preferences, timers or
+//! windows, and it stays that way: the policy is the application's, and it
+//! lives here.
+//!
+//! # Two halves
+//!
+//! The **policy** is [`decide`]: a pure function from what is loaded,
+//! whether a job is running, which keep mode the user chose and what just
+//! happened, to a list of [`Action`]s. It is tested without a window, a
+//! timer or a model, the shape `duty::on_duty`, `retention::plan` and
+//! `placement::spot_for` already have. Its ten rules are the comments on
+//! its arms and the tests at the bottom of this file.
+//!
+//! The **execution** is [`EngineHost`], a GPUI entity that observes
+//! [`Preferences`], turns what moved into an [`Event`], asks [`decide`],
+//! and carries the answer out — a load or an unload awaited from
+//! `cx.spawn` (the engine's futures are runtime-agnostic, so no tokio
+//! runtime is started here), an idle timer that is a GPUI [`Task`] dropped
+//! to disarm it. Nothing it does blocks the thread that draws a window:
+//! a load is seconds on the engine's own worker, and the resident-memory
+//! reading after it runs on the background executor.
+//!
+//! # The two modes, and why on demand is the default
+//!
+//! *On demand* loads the model when a job or a check needs it and drops it
+//! after `engine.local.idle_minutes` with nothing to do — gigabytes the
+//! user did not agree to lend this application indefinitely are given
+//! back. *Resident* loads it a second after launch and keeps it until the
+//! application quits or the model changes; **Unload now** still unloads it,
+//! and the next launch loads it again, because resident is the user's word
+//! and nothing but the user overrides it (D51). Memory-pressure unloading
+//! is not here (D55).
+//!
+//! # The handle
+//!
+//! [`EngineHandle`] is `Send + Sync + Clone`: the MCP server holds one from
+//! startup, and the CLI's route to the running application will (D52). A
+//! job through it goes through the same busy count and the same
+//! [`Event::JobStarted`]/[`Event::JobEnded`] a window's job would, so one
+//! loaded model serves every surface and nothing loads a second copy.
+//! Nothing calls it yet: the MCP `rewrite` tool lands with the pipeline,
+//! because a model's raw output handed to anybody as a rewrite is the
+//! failure this product exists to avoid (D56).
+
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
+
+use gpui::{App, AppContext as _, Context, Entity, Global, Subscription, Task};
+use wipemark_engine::{
+    CancellationToken, ChatRequest, Completion, EngineError, RewriteEngine, SamplingParams,
+    TokenSink, Unavailable,
+};
+use wipemark_i18n::{args, t_args, Message};
+use wipemark_models::manifest::Role;
+
+use crate::duty::{self, LocalOptions, Performer};
+use crate::settings::Preferences;
+
+/// The idle spans the Engine page offers, in minutes.
+pub const IDLE_MINUTES: [u32; 5] = [1, 5, 15, 30, 60];
+
+/// How long the local model is kept: the `engine.local.keep` row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Keeping {
+    /// Loaded when a job or a check needs it, unloaded after the idle span.
+    #[default]
+    OnDemand,
+    /// Loaded when the application starts, kept until it quits.
+    Resident,
+}
+
+impl Keeping {
+    /// Both, in the order the page lists them.
+    pub const ALL: [Keeping; 2] = [Self::OnDemand, Self::Resident];
+
+    /// The stored value. A format: never translated.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::OnDemand => "on_demand",
+            Self::Resident => "resident",
+        }
+    }
+
+    /// Read a stored value back; `None` for anything else.
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|keeping| keeping.id() == value.trim())
+    }
+
+    pub fn title(self) -> Message {
+        match self {
+            Self::OnDemand => Message::SettingsEngineKeepOnDemand,
+            Self::Resident => Message::SettingsEngineKeepResident,
+        }
+    }
+}
+
+/// The Engine page's three rows for the model on this machine, as values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalPolicy {
+    pub keeping: Keeping,
+    /// One of [`IDLE_MINUTES`]. Means nothing while `keeping` is resident.
+    pub idle_minutes: u32,
+    /// Ask the operating system to keep the weights in RAM.
+    pub lock: bool,
+}
+
+impl Default for LocalPolicy {
+    fn default() -> Self {
+        Self {
+            keeping: Keeping::OnDemand,
+            idle_minutes: 15,
+            lock: false,
+        }
+    }
+}
+
+impl LocalPolicy {
+    /// The keep mode [`decide`] reads.
+    pub fn keep(&self) -> Keep {
+        match self.keeping {
+            Keeping::OnDemand => Keep::OnDemand {
+                idle: Duration::from_secs(u64::from(self.idle_minutes) * 60),
+            },
+            Keeping::Resident => Keep::Resident,
+        }
+    }
+}
+
+/// The keep mode, as the policy reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Keep {
+    OnDemand { idle: Duration },
+    Resident,
+}
+
+/// Whether the model is in memory.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Loaded {
+    No,
+    /// A load is in flight on the engine's worker.
+    Loading,
+    /// In memory. `resident_mb` is the **process's** resident memory,
+    /// measured after the load (D55) — `None` when it could not be read,
+    /// and then it is not shown.
+    Yes {
+        since: Instant,
+        resident_mb: Option<u64>,
+    },
+    /// The last load was refused. Not retried by a timer (rule 9).
+    Failed(Unavailable),
+}
+
+impl Loaded {
+    /// A model is in memory, or on its way there.
+    pub fn holds(&self) -> bool {
+        matches!(self, Loaded::Loading | Loaded::Yes { .. })
+    }
+}
+
+/// What happened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Event {
+    /// The duty became known: the models scan and the host probe landed.
+    Started,
+    /// Another model, another window, the lock row, or no machine at all.
+    DutyChanged,
+    JobStarted,
+    JobEnded,
+    /// The idle timer went off.
+    IdleElapsed,
+    /// **Unload now**, or the menu bar's **Unload model**.
+    UnloadAsked,
+    /// The keep row or the idle span moved.
+    KeepChanged,
+    /// The Engine page's **Check**.
+    CheckAsked,
+}
+
+/// What to do about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// Load the model into the engine that is on duty.
+    Load,
+    /// Drop the model from memory; the engine stays.
+    Unload,
+    /// Build the engine for the duty as it stands now, replacing the old.
+    Swap,
+    ArmIdle(Duration),
+    DisarmIdle,
+    /// Hold this event until the running job has ended, then decide again
+    /// (rule 10).
+    Defer(Event),
+    Nothing,
+}
+
+/// The keep policy (D51).
+///
+/// Every rule is one arm below and one test at the bottom of this file:
+///
+/// 1. `Started`: build the engine; resident → load, on demand → nothing.
+/// 2. `JobStarted`/`CheckAsked` with nothing loaded → load, in both modes.
+/// 3. `JobEnded`: on demand → arm the idle timer; resident → nothing.
+/// 4. `JobStarted` (and a check, which is a job) disarms the timer.
+/// 5. `IdleElapsed`: on demand and idle → unload; resident → nothing — a
+///    stale timer from before a switch to resident does nothing.
+/// 6. `UnloadAsked`: unload in both modes and disarm. Resident stays the
+///    preference; the next `Started` loads again.
+/// 7. `DutyChanged`: loaded → unload, then swap, then resident → load.
+/// 8. `KeepChanged` to resident → load if not loaded; to on demand while
+///    loaded and idle → arm the timer.
+/// 9. A failed load is not retried by a timer; the next explicit
+///    `Started`/`CheckAsked`/`DutyChanged` (or job) tries again.
+/// 10. Busy defers an unload and a swap until the job ends — never unload
+///     under a running decode.
+pub fn decide(keep: &Keep, loaded: &Loaded, busy: bool, event: Event) -> Vec<Action> {
+    let resident = *keep == Keep::Resident;
+    let held = loaded.holds();
+    let mut actions = Vec::new();
+    match event {
+        // Rule 1.
+        Event::Started => {
+            actions.push(Action::Swap);
+            if resident && !held {
+                actions.push(Action::Load);
+            }
+        }
+        // Rules 2 and 4; rule 9's explicit retry.
+        Event::JobStarted | Event::CheckAsked => {
+            actions.push(Action::DisarmIdle);
+            if !held {
+                actions.push(Action::Load);
+            }
+        }
+        // Rule 3. Another job still running arms nothing: its own end will.
+        Event::JobEnded => {
+            if let Keep::OnDemand { idle } = keep {
+                if held && !busy {
+                    actions.push(Action::ArmIdle(*idle));
+                }
+            }
+        }
+        // Rules 5 and 9: only a held model is unloaded, and a failed one is
+        // never loaded again from here.
+        Event::IdleElapsed => {
+            if !resident && held && !busy {
+                actions.push(Action::Unload);
+            }
+        }
+        // Rules 6 and 10.
+        Event::UnloadAsked => {
+            actions.push(Action::DisarmIdle);
+            if busy {
+                actions.push(Action::Defer(Event::UnloadAsked));
+            } else if held {
+                actions.push(Action::Unload);
+            }
+        }
+        // Rules 7 and 10.
+        Event::DutyChanged => {
+            if busy {
+                actions.push(Action::Defer(Event::DutyChanged));
+            } else {
+                actions.push(Action::DisarmIdle);
+                if held {
+                    actions.push(Action::Unload);
+                }
+                actions.push(Action::Swap);
+                if resident {
+                    actions.push(Action::Load);
+                }
+            }
+        }
+        // Rule 8.
+        Event::KeepChanged => match keep {
+            Keep::Resident => {
+                actions.push(Action::DisarmIdle);
+                if !held {
+                    actions.push(Action::Load);
+                }
+            }
+            Keep::OnDemand { idle } => {
+                if held && !busy {
+                    actions.push(Action::ArmIdle(*idle));
+                }
+            }
+        },
+    }
+    if actions.is_empty() {
+        actions.push(Action::Nothing);
+    }
+    actions
+}
+
+/// What a check (D54) asks of the model. English and fixed: it is a test
+/// that the model runs, not a request anybody wrote.
+///
+/// A count rather than "reply with the single word: ready", which the plan
+/// first named: an instruction model answers that in **one** token and
+/// stops, and one token has no speed — the page could only ever have said
+/// "too few to time". Counting to twenty runs into the 16-token ceiling on
+/// every model, so the rate after the first piece is always measured.
+fn check_request() -> ChatRequest {
+    ChatRequest {
+        system: Some("You are a terse assistant.".to_owned()),
+        prompt: "Count from one to twenty in words, separated by spaces.".to_owned(),
+        params: SamplingParams {
+            temperature: 0.0,
+            top_p: 1.0,
+            min_p: None,
+            seed: Some(0),
+            max_tokens: Some(CHECK_TOKENS),
+        },
+    }
+}
+
+/// How many tokens a check generates at most.
+const CHECK_TOKENS: u32 = 16;
+
+/// How much of a check's answer is shown.
+const CHECK_SHOWN: usize = 80;
+
+/// What a check found.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CheckOutcome {
+    /// The model answered. `load_ms` is `None` when it was already loaded;
+    /// `per_second` is tokens per second after the first piece, `None`
+    /// when there was no second token to time.
+    Answered {
+        load_ms: Option<u64>,
+        tokens: u32,
+        per_second: Option<f32>,
+        text: String,
+    },
+    Refused(Unavailable),
+    /// Failed in a way that is not a refusal: llama.cpp's own words.
+    Failed(String),
+    Cancelled,
+}
+
+/// The check, if one has been asked for.
+#[derive(Debug, Clone, Default)]
+pub enum Check {
+    #[default]
+    Idle,
+    Running {
+        cancel: CancellationToken,
+    },
+    Done(CheckOutcome),
+}
+
+/// What the engine on duty is, as both the host and every handle see it.
+#[derive(Clone, Default)]
+enum Slot {
+    /// Nothing is on duty.
+    #[default]
+    Nothing,
+    Engine(Arc<dyn RewriteEngine>),
+    /// The machine is on duty and this build cannot run it.
+    Refused(Unavailable),
+    /// An endpoint is on duty; it has no local engine (E2-3).
+    Elsewhere,
+}
+
+struct Shared {
+    slot: Mutex<Slot>,
+    /// Jobs and checks running now, through any handle or the page.
+    busy: AtomicUsize,
+    events: flume::Sender<Event>,
+}
+
+/// A way to the engine on duty from any thread — `Send + Sync + Clone`.
+///
+/// Every job through it is counted as busy and announced to the host as
+/// [`Event::JobStarted`] and [`Event::JobEnded`], so a job from the MCP
+/// server and a job from a window are one policy over one model.
+#[derive(Clone)]
+pub struct EngineHandle {
+    shared: Arc<Shared>,
+}
+
+impl std::fmt::Debug for EngineHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EngineHandle")
+            .field("busy", &self.busy())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Counts a job while it lives — also when the future running it is
+/// dropped half way.
+struct Busy<'a>(&'a Shared);
+
+impl<'a> Busy<'a> {
+    fn enter(shared: &'a Shared) -> Self {
+        shared.busy.fetch_add(1, Ordering::SeqCst);
+        Busy(shared)
+    }
+}
+
+impl Drop for Busy<'_> {
+    fn drop(&mut self) {
+        self.0.busy.fetch_sub(1, Ordering::SeqCst);
+        let _ = self.0.events.send(Event::JobEnded);
+    }
+}
+
+impl EngineHandle {
+    /// A handle with nothing on duty, and the receiving end of its events —
+    /// which [`EngineHost::new`] takes.
+    pub fn new() -> (EngineHandle, flume::Receiver<Event>) {
+        let (events, inbox) = flume::unbounded();
+        (
+            EngineHandle {
+                shared: Arc::new(Shared {
+                    slot: Mutex::new(Slot::Nothing),
+                    busy: AtomicUsize::new(0),
+                    events,
+                }),
+            },
+            inbox,
+        )
+    }
+
+    /// How many jobs are running now.
+    pub fn busy(&self) -> usize {
+        self.shared.busy.load(Ordering::SeqCst)
+    }
+
+    fn slot(&self) -> Slot {
+        self.shared
+            .slot
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    fn set(&self, slot: Slot) {
+        *self
+            .shared
+            .slot
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = slot;
+    }
+
+    /// The engine on duty, or why there is none.
+    fn engine(&self) -> Result<Arc<dyn RewriteEngine>, EngineError> {
+        match self.slot() {
+            Slot::Engine(engine) => Ok(engine),
+            Slot::Refused(why) => Err(EngineError::Unavailable(why)),
+            Slot::Elsewhere => Err(EngineError::NotImplemented(duty::ENDPOINT_NOT_YET)),
+            Slot::Nothing => Err(EngineError::Unavailable(Unavailable::NothingOnDuty)),
+        }
+    }
+
+    /// Run one job on the engine on duty, through the host's policy.
+    ///
+    /// Fails with [`Unavailable::NothingOnDuty`] when nothing is on duty,
+    /// and with the build's refusal when the machine is on duty and cannot
+    /// run. Nothing calls this yet (D56): the MCP `rewrite` tool and the
+    /// CLI's route land with the pipeline, which puts Layer A and the
+    /// guards around it.
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "D56: held by the MCP server from startup; called once the pipeline (E4) exists"
+        )
+    )]
+    pub async fn complete(
+        &self,
+        req: ChatRequest,
+        sink: TokenSink,
+        cancel: CancellationToken,
+    ) -> Result<Completion, EngineError> {
+        let engine = self.engine()?;
+        let busy = Busy::enter(&self.shared);
+        let _ = self.shared.events.send(Event::JobStarted);
+        let result = engine.complete(req, sink, cancel).await;
+        drop(busy);
+        result
+    }
+
+    /// Whether two handles reach the same host.
+    #[cfg(test)]
+    pub fn reaches_the_same_host_as(&self, other: &EngineHandle) -> bool {
+        Arc::ptr_eq(&self.shared, &other.shared)
+    }
+}
+
+/// What the engine is built for, as far as rebuilding it is concerned.
+///
+/// Not the [`Performer`]: its `fit` moves when the host probe lands, and a
+/// resident model reloaded because a verdict about it was refreshed would
+/// be gigabytes read for nothing.
+#[derive(Debug, Clone, PartialEq)]
+enum Wanted {
+    Nobody,
+    Endpoint,
+    Machine {
+        id: String,
+        weights: PathBuf,
+        ctx: u32,
+        lock: bool,
+        available_mb: Option<u64>,
+    },
+}
+
+/// What the host reads off the preferences.
+#[derive(Debug, Clone)]
+struct Reading {
+    performer: Option<Performer>,
+    options: LocalOptions,
+    policy: LocalPolicy,
+    /// Whether the duty can be known yet.
+    known: bool,
+}
+
+impl Reading {
+    fn of(preferences: &Preferences) -> Self {
+        let duty = preferences.duty(Role::Rewrite);
+        Reading {
+            performer: duty.performer().cloned(),
+            options: preferences.local_options(),
+            policy: preferences.local_policy(),
+            known: preferences.models_scanned(),
+        }
+    }
+
+    fn wanted(&self) -> Wanted {
+        match &self.performer {
+            None => Wanted::Nobody,
+            Some(Performer::Endpoint(_)) => Wanted::Endpoint,
+            Some(Performer::Machine(local)) => Wanted::Machine {
+                id: local.id.clone(),
+                weights: local.weights.clone(),
+                ctx: local.ctx,
+                lock: self.options.lock,
+                available_mb: duty::available_mb(self.options.host, self.options.gpu),
+            },
+        }
+    }
+}
+
+/// The host, while the application runs.
+pub struct Hosted(pub Entity<EngineHost>);
+
+impl Global for Hosted {}
+
+/// Owns the one loaded engine and applies the keep policy.
+///
+/// An entity held in a [`Hosted`] global — the arrangement the tray uses
+/// — because three surfaces with no handle on each other read it: the
+/// status bar, the Engine page and the menu bar.
+pub struct EngineHost {
+    handle: EngineHandle,
+    started: bool,
+    /// What the preferences said last.
+    reading: Option<Reading>,
+    /// What the engine in the slot was built for.
+    built_for: Wanted,
+    /// The display name of the model the engine in the slot loads.
+    model: Option<String>,
+    loaded: Loaded,
+    /// The wall-clock time the model was loaded at, for the page.
+    loaded_at: Option<chrono::DateTime<chrono::Local>>,
+    /// Bumped by every load, unload and swap: an answer from a load that
+    /// was overtaken is dropped rather than believed.
+    generation: u64,
+    /// The idle timer, while it is armed. Dropping it disarms it.
+    idle: Option<Task<()>>,
+    /// Events held until the running job ends (rule 10).
+    deferred: Vec<Event>,
+    check: Check,
+    /// The observer of the preferences, while there is one.
+    preferences: Option<Subscription>,
+    _quit: Subscription,
+}
+
+impl EngineHost {
+    /// Build the host and start listening to its handles.
+    pub fn new(
+        preferences: Entity<Preferences>,
+        handle: EngineHandle,
+        inbox: flume::Receiver<Event>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut host = Self::listening(handle, inbox, cx);
+        host.preferences = Some(cx.observe(&preferences, |host, preferences, cx| {
+            let reading = Reading::of(preferences.read(cx));
+            host.preferences_moved(reading, cx);
+        }));
+        let reading = Reading::of(preferences.read(cx));
+        host.preferences_moved(reading, cx);
+        host
+    }
+
+    /// The host, listening to its handles and to the application's quit,
+    /// and to no preferences yet: [`EngineHost::new`] adds those, and a
+    /// test feeds readings itself.
+    fn listening(handle: EngineHandle, inbox: flume::Receiver<Event>, cx: &Context<Self>) -> Self {
+        let quit = cx.on_app_quit(|host: &mut Self, _| {
+            // The engine goes with the slot; its worker exits with the
+            // last reference, after the job in hand.
+            host.handle.set(Slot::Nothing);
+            host.idle = None;
+            async {}
+        });
+        cx.spawn(async move |host, cx| {
+            while let Ok(event) = inbox.recv_async().await {
+                if host.update(cx, |host, cx| host.on(event, cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+
+        Self {
+            handle,
+            started: false,
+            reading: None,
+            built_for: Wanted::Nobody,
+            model: None,
+            loaded: Loaded::No,
+            loaded_at: None,
+            generation: 0,
+            idle: None,
+            deferred: Vec::new(),
+            check: Check::Idle,
+            preferences: None,
+            _quit: quit,
+        }
+    }
+
+    pub fn loaded(&self) -> &Loaded {
+        &self.loaded
+    }
+
+    /// When the model was loaded, on the wall clock.
+    pub fn loaded_at(&self) -> Option<chrono::DateTime<chrono::Local>> {
+        self.loaded_at
+    }
+
+    /// The display name of the model the engine on duty loads.
+    pub fn model(&self) -> Option<&str> {
+        self.model.as_deref()
+    }
+
+    /// Whether the machine is on duty with an engine that can load.
+    pub fn can_load(&self) -> bool {
+        matches!(self.handle.slot(), Slot::Engine(_))
+    }
+
+    pub fn check(&self) -> &Check {
+        &self.check
+    }
+
+    /// The preferences moved: decide whether that is an event.
+    fn preferences_moved(&mut self, reading: Reading, cx: &mut Context<Self>) {
+        if !self.started {
+            if !reading.known {
+                return;
+            }
+            self.started = true;
+            self.reading = Some(reading);
+            self.on(Event::Started, cx);
+            return;
+        }
+        let before = self.reading.replace(reading.clone());
+        let keep_moved = before
+            .as_ref()
+            .is_none_or(|before| before.policy.keep() != reading.policy.keep());
+        if keep_moved {
+            self.on(Event::KeepChanged, cx);
+        }
+        if reading.wanted() != self.built_for {
+            // A deferred swap is still pending: deciding again would only
+            // queue the same event twice.
+            if !self.deferred.contains(&Event::DutyChanged) {
+                self.on(Event::DutyChanged, cx);
+            }
+        }
+    }
+
+    /// One event through the policy.
+    fn on(&mut self, event: Event, cx: &mut Context<Self>) {
+        if !self.started {
+            return;
+        }
+        let keep = self
+            .reading
+            .as_ref()
+            .map_or(LocalPolicy::default(), |reading| reading.policy)
+            .keep();
+        let busy = self.handle.busy() > 0;
+        let actions = decide(&keep, &self.loaded, busy, event);
+        tracing::debug!(?event, ?actions, busy, "engine host");
+        for action in actions {
+            self.execute(action, cx);
+        }
+        // A job just ended and nothing else runs: what waited for it is
+        // decided again now.
+        if event == Event::JobEnded && self.handle.busy() == 0 {
+            for deferred in std::mem::take(&mut self.deferred) {
+                self.on(deferred, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    fn execute(&mut self, action: Action, cx: &Context<Self>) {
+        match action {
+            Action::Nothing => {}
+            Action::Defer(event) => {
+                if !self.deferred.contains(&event) {
+                    self.deferred.push(event);
+                }
+            }
+            Action::DisarmIdle => self.idle = None,
+            Action::ArmIdle(idle) => {
+                self.idle = Some(cx.spawn(async move |host, cx| {
+                    cx.background_executor().timer(idle).await;
+                    host.update(cx, |host, cx| {
+                        host.idle = None;
+                        host.on(Event::IdleElapsed, cx);
+                    })
+                    .ok();
+                }));
+            }
+            Action::Swap => self.swap(),
+            Action::Load => self.load(cx),
+            Action::Unload => self.unload(cx),
+        }
+    }
+
+    /// Build the engine for the duty as it stands.
+    fn swap(&mut self) {
+        self.generation += 1;
+        let Some(reading) = self.reading.clone() else {
+            return;
+        };
+        let wanted = reading.wanted();
+        let (slot, model) = match &reading.performer {
+            None => (Slot::Nothing, None),
+            Some(performer) => {
+                let model = match performer {
+                    Performer::Machine(local) => Some(local.display.clone()),
+                    Performer::Endpoint(_) => None,
+                };
+                match duty::engine_for(performer, &reading.options) {
+                    Ok(engine) => {
+                        tracing::info!(
+                            model = engine.info().model_id,
+                            lock = reading.options.lock,
+                            available_mb = ?duty::available_mb(reading.options.host, reading.options.gpu),
+                            "engine built for the rewrite duty"
+                        );
+                        (Slot::Engine(engine), model)
+                    }
+                    Err(EngineError::Unavailable(why)) => {
+                        tracing::info!(%why, "the rewrite duty has no engine in this build");
+                        (Slot::Refused(why), model)
+                    }
+                    Err(other) => {
+                        tracing::info!(%other, "the rewrite duty is not served from here");
+                        (Slot::Elsewhere, model)
+                    }
+                }
+            }
+        };
+        self.handle.set(slot);
+        self.built_for = wanted;
+        self.model = model;
+        self.loaded = Loaded::No;
+        self.loaded_at = None;
+    }
+
+    fn load(&mut self, cx: &Context<Self>) {
+        match self.handle.slot() {
+            Slot::Engine(engine) => {
+                if self.loaded.holds() {
+                    return;
+                }
+                self.generation += 1;
+                let generation = self.generation;
+                self.loaded = Loaded::Loading;
+                cx.spawn(async move |host, cx| {
+                    let started = Instant::now();
+                    let result = engine.warmup().await;
+                    let elapsed_ms = started.elapsed().as_millis();
+                    let resident_mb = match result {
+                        Ok(()) => {
+                            cx.background_executor()
+                                .spawn(async { resident_mb() })
+                                .await
+                        }
+                        Err(_) => None,
+                    };
+                    host.update(cx, |host, cx| {
+                        host.load_said(generation, result, resident_mb, elapsed_ms, cx);
+                    })
+                    .ok();
+                })
+                .detach();
+            }
+            Slot::Refused(why) => self.loaded = Loaded::Failed(why),
+            Slot::Nothing | Slot::Elsewhere => self.loaded = Loaded::No,
+        }
+    }
+
+    fn load_said(
+        &mut self,
+        generation: u64,
+        result: Result<(), EngineError>,
+        resident_mb: Option<u64>,
+        elapsed_ms: u128,
+        cx: &mut Context<Self>,
+    ) {
+        if generation != self.generation {
+            tracing::debug!("a load answered after it was overtaken; ignored");
+            return;
+        }
+        self.loaded = match result {
+            Ok(()) => {
+                tracing::info!(elapsed_ms, ?resident_mb, "local model loaded");
+                self.loaded_at = Some(chrono::Local::now());
+                Loaded::Yes {
+                    since: Instant::now(),
+                    resident_mb,
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "the local model could not be loaded");
+                Loaded::Failed(unavailable_of(error))
+            }
+        };
+        cx.notify();
+    }
+
+    fn unload(&mut self, cx: &Context<Self>) {
+        self.generation += 1;
+        self.loaded = Loaded::No;
+        self.loaded_at = None;
+        if let Slot::Engine(engine) = self.handle.slot() {
+            cx.spawn(async move |_, _| {
+                engine.unload().await;
+            })
+            .detach();
+        }
+    }
+
+    /// **Unload now**, from the page or the menu bar.
+    pub fn unload_now(&mut self, cx: &mut Context<Self>) {
+        self.on(Event::UnloadAsked, cx);
+    }
+
+    /// **Check** (D54): load if needed, generate a few tokens from a fixed
+    /// prompt, and say how long it took.
+    pub fn run_check(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.check, Check::Running { .. }) {
+            return;
+        }
+        let engine = match self.handle.slot() {
+            Slot::Engine(engine) => engine,
+            Slot::Refused(why) => {
+                self.check = Check::Done(CheckOutcome::Refused(why));
+                cx.notify();
+                return;
+            }
+            Slot::Nothing | Slot::Elsewhere => return,
+        };
+        let was_loaded = matches!(self.loaded, Loaded::Yes { .. });
+        let cancel = CancellationToken::new();
+        self.check = Check::Running {
+            cancel: cancel.clone(),
+        };
+        self.handle.shared.busy.fetch_add(1, Ordering::SeqCst);
+        self.on(Event::CheckAsked, cx);
+
+        cx.spawn(async move |host, cx| {
+            let outcome = run_the_check(engine, was_loaded, cancel, cx).await;
+            host.update(cx, |host, cx| {
+                host.handle.shared.busy.fetch_sub(1, Ordering::SeqCst);
+                if let CheckOutcome::Answered { text, tokens, .. } = &outcome {
+                    // The length, never the words: a log is read by
+                    // whoever is debugging.
+                    tracing::info!(text_bytes = text.len(), tokens, "check answered");
+                }
+                host.check = Check::Done(outcome);
+                host.on(Event::JobEnded, cx);
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Stop a running check.
+    pub fn cancel_check(&self) {
+        if let Check::Running { cancel } = &self.check {
+            cancel.cancel();
+        }
+    }
+}
+
+/// The check itself, off the GPUI thread: the engine's futures wait on its
+/// worker and the first-piece timer on the background executor.
+async fn run_the_check(
+    engine: Arc<dyn RewriteEngine>,
+    was_loaded: bool,
+    cancel: CancellationToken,
+    cx: &gpui::AsyncApp,
+) -> CheckOutcome {
+    let asked = Instant::now();
+    match cancel.run_until_cancelled(engine.warmup()).await {
+        None => return CheckOutcome::Cancelled,
+        Some(Err(error)) => return outcome_of_error(error),
+        Some(Ok(())) => {}
+    }
+    let load_ms = (!was_loaded).then(|| millis(asked.elapsed()));
+
+    let (sink, pieces) = flume::unbounded::<String>();
+    // When the first piece arrived: the prompt's prefill is not decode
+    // speed, and a figure that included it would understate the model.
+    let first = cx.background_executor().spawn(async move {
+        let first = pieces.recv_async().await.ok().map(|_| Instant::now());
+        while pieces.recv_async().await.is_ok() {}
+        first
+    });
+    let result = engine.complete(check_request(), sink, cancel).await;
+    let ended = Instant::now();
+    let first = first.await;
+    match result {
+        Ok(completion) => {
+            let per_second = first.and_then(|first| {
+                let span = ended.duration_since(first).as_secs_f32();
+                (completion.tokens_out > 1 && span > 0.0)
+                    .then(|| (completion.tokens_out - 1) as f32 / span)
+            });
+            CheckOutcome::Answered {
+                load_ms,
+                tokens: completion.tokens_out,
+                per_second,
+                text: shown(&completion.text),
+            }
+        }
+        Err(error) => outcome_of_error(error),
+    }
+}
+
+fn millis(elapsed: Duration) -> u64 {
+    u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+}
+
+fn outcome_of_error(error: EngineError) -> CheckOutcome {
+    match error {
+        EngineError::Cancelled => CheckOutcome::Cancelled,
+        EngineError::Unavailable(why) => CheckOutcome::Refused(why),
+        other => CheckOutcome::Failed(other.to_string()),
+    }
+}
+
+/// A load's refusal as a value the page can say.
+fn unavailable_of(error: EngineError) -> Unavailable {
+    match error {
+        EngineError::Unavailable(why) => why,
+        other => Unavailable::LoadFailed {
+            detail: other.to_string(),
+        },
+    }
+}
+
+/// At most [`CHECK_SHOWN`] characters of a check's answer, trimmed.
+fn shown(text: &str) -> String {
+    let text = text.trim();
+    let mut shown: String = text.chars().take(CHECK_SHOWN).collect();
+    if text.chars().count() > CHECK_SHOWN {
+        shown.push('…');
+    }
+    shown
+}
+
+/// This process's resident memory, in MiB, measured (D55). `None` when the
+/// platform will not say — and then it is not shown at all.
+pub fn resident_mb() -> Option<u64> {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+
+    let pid = sysinfo::get_current_pid().ok()?;
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        ProcessRefreshKind::new().with_memory(),
+    );
+    let bytes = system.process(pid)?.memory();
+    (bytes > 0).then_some(bytes / 1_048_576)
+}
+
+/// Memory in MiB as a person reads it — the Models page's units.
+pub fn memory_label(mb: u64) -> String {
+    crate::models::bytes_label(mb.saturating_mul(1_048_576))
+}
+
+/// The sentence for a refusal, from the catalogue — never an epic, never
+/// a feature flag. `LoadFailed`'s detail is not in it: it is llama.cpp's
+/// own words, shown beside the sentence and never translated.
+pub fn refusal_line(why: &Unavailable) -> String {
+    t_args(refusal_message(why), &refusal_args(why))
+}
+
+/// Which catalogue sentence a refusal is.
+fn refusal_message(why: &Unavailable) -> Message {
+    match why {
+        Unavailable::NotBuilt => Message::EngineRefusalNotBuilt,
+        Unavailable::NoSuchFile { .. } => Message::EngineRefusalNoSuchFile,
+        Unavailable::WouldNotFit { .. } => Message::EngineRefusalWouldNotFit,
+        Unavailable::NoBackend => Message::EngineRefusalNoBackend,
+        Unavailable::LoadFailed { .. } => Message::EngineRefusalLoadFailed,
+        Unavailable::Stopped => Message::EngineRefusalStopped,
+        Unavailable::NothingOnDuty => Message::EngineRefusalNothingOnDuty,
+    }
+}
+
+/// The numbers and the path a refusal's sentence interpolates — as text,
+/// so a size is never regrouped by a locale.
+fn refusal_args(why: &Unavailable) -> wipemark_i18n::FluentArgs<'static> {
+    match why {
+        Unavailable::NoSuchFile { path } => args!("path" => path.display().to_string()),
+        Unavailable::WouldNotFit { need_mb, have_mb } => args!(
+            "need" => memory_label(*need_mb),
+            "have" => memory_label(*have_mb),
+        ),
+        _ => args!(),
+    }
+}
+
+/// The detail a refusal carries beside its sentence, if any.
+pub fn refusal_detail(why: &Unavailable) -> Option<&str> {
+    match why {
+        Unavailable::LoadFailed { detail } => Some(detail),
+        _ => None,
+    }
+}
+
+/// The host, when the application has one.
+pub fn hosted(cx: &App) -> Option<Entity<EngineHost>> {
+    cx.try_global::<Hosted>().map(|hosted| hosted.0.clone())
+}
+
+/// Build the host over `preferences` and park it in its global.
+pub fn install(
+    preferences: Entity<Preferences>,
+    handle: EngineHandle,
+    inbox: flume::Receiver<Event>,
+    cx: &mut App,
+) -> Entity<EngineHost> {
+    let host = cx.new(|cx| EngineHost::new(preferences, handle, inbox, cx));
+    cx.set_global(Hosted(host.clone()));
+    host
+}
+
+/// Poll a future that is expected to be ready without a reactor — for
+/// tests that drive an engine whose futures complete on the spot, or wait
+/// on a thread.
+#[cfg(test)]
+pub(crate) fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    use std::sync::Arc as StdArc;
+    use std::task::{Context as TaskContext, Poll, Wake, Waker};
+
+    struct Unpark(std::thread::Thread);
+    impl Wake for Unpark {
+        fn wake(self: StdArc<Self>) {
+            self.0.unpark();
+        }
+    }
+
+    let waker = Waker::from(StdArc::new(Unpark(std::thread::current())));
+    let mut context = TaskContext::from_waker(&waker);
+    let mut future = std::pin::pin!(future);
+    loop {
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(output) => return output,
+            Poll::Pending => std::thread::park(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use wipemark_core::Vendor;
+    use wipemark_engine::{async_trait, EngineInfo, FinishReason};
+
+    use super::*;
+
+    const IDLE: Duration = Duration::from_secs(15 * 60);
+    const ON_DEMAND: Keep = Keep::OnDemand { idle: IDLE };
+
+    fn yes() -> Loaded {
+        Loaded::Yes {
+            since: Instant::now(),
+            resident_mb: Some(4_000),
+        }
+    }
+
+    #[test]
+    fn a_resident_model_loads_at_startup_and_an_on_demand_one_does_not() {
+        let resident = decide(&Keep::Resident, &Loaded::No, false, Event::Started);
+        assert!(resident.contains(&Action::Load), "{resident:?}");
+        assert!(resident.contains(&Action::Swap), "{resident:?}");
+
+        let on_demand = decide(&ON_DEMAND, &Loaded::No, false, Event::Started);
+        assert!(!on_demand.contains(&Action::Load), "{on_demand:?}");
+        assert!(
+            on_demand.contains(&Action::Swap),
+            "the engine is built either way, so a job has one to ask"
+        );
+    }
+
+    #[test]
+    fn the_first_job_loads_a_model_in_either_mode() {
+        for keep in [ON_DEMAND, Keep::Resident] {
+            for event in [Event::JobStarted, Event::CheckAsked] {
+                let actions = decide(&keep, &Loaded::No, false, event);
+                assert!(
+                    actions.contains(&Action::Load),
+                    "{keep:?} {event:?}: {actions:?}"
+                );
+            }
+            // Already loaded: nothing to load again.
+            let actions = decide(&keep, &yes(), false, Event::JobStarted);
+            assert!(!actions.contains(&Action::Load), "{actions:?}");
+        }
+    }
+
+    #[test]
+    fn an_idle_on_demand_model_is_unloaded_and_a_resident_one_is_not() {
+        // Rule 3: the end of a job arms the timer on demand, and only then.
+        assert_eq!(
+            decide(&ON_DEMAND, &yes(), false, Event::JobEnded),
+            vec![Action::ArmIdle(IDLE)]
+        );
+        assert_eq!(
+            decide(&Keep::Resident, &yes(), false, Event::JobEnded),
+            vec![Action::Nothing]
+        );
+        // Rule 5: the timer unloads on demand; a stale one under resident
+        // does nothing.
+        assert_eq!(
+            decide(&ON_DEMAND, &yes(), false, Event::IdleElapsed),
+            vec![Action::Unload]
+        );
+        assert_eq!(
+            decide(&Keep::Resident, &yes(), false, Event::IdleElapsed),
+            vec![Action::Nothing]
+        );
+    }
+
+    #[test]
+    fn a_job_disarms_the_idle_timer() {
+        for loaded in [Loaded::No, yes()] {
+            for event in [Event::JobStarted, Event::CheckAsked] {
+                let actions = decide(&ON_DEMAND, &loaded, false, event);
+                assert_eq!(actions.first(), Some(&Action::DisarmIdle), "{actions:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn unload_now_works_in_both_modes() {
+        for keep in [ON_DEMAND, Keep::Resident] {
+            let actions = decide(&keep, &yes(), false, Event::UnloadAsked);
+            assert!(actions.contains(&Action::Unload), "{keep:?}: {actions:?}");
+            assert!(
+                actions.contains(&Action::DisarmIdle),
+                "{keep:?}: {actions:?}"
+            );
+        }
+        // And resident is still the preference: the next start loads.
+        assert!(decide(&Keep::Resident, &Loaded::No, false, Event::Started).contains(&Action::Load));
+    }
+
+    #[test]
+    fn another_model_swaps_and_a_resident_one_comes_back() {
+        assert_eq!(
+            decide(&Keep::Resident, &yes(), false, Event::DutyChanged),
+            vec![
+                Action::DisarmIdle,
+                Action::Unload,
+                Action::Swap,
+                Action::Load
+            ]
+        );
+        assert_eq!(
+            decide(&ON_DEMAND, &yes(), false, Event::DutyChanged),
+            vec![Action::DisarmIdle, Action::Unload, Action::Swap]
+        );
+        // Nothing loaded: nothing to unload, and a resident one loads.
+        assert_eq!(
+            decide(&Keep::Resident, &Loaded::No, false, Event::DutyChanged),
+            vec![Action::DisarmIdle, Action::Swap, Action::Load]
+        );
+    }
+
+    #[test]
+    fn switching_to_resident_loads_and_switching_back_arms_the_timer() {
+        let to_resident = decide(&Keep::Resident, &Loaded::No, false, Event::KeepChanged);
+        assert!(to_resident.contains(&Action::Load), "{to_resident:?}");
+        let already = decide(&Keep::Resident, &yes(), false, Event::KeepChanged);
+        assert!(!already.contains(&Action::Load), "{already:?}");
+
+        assert_eq!(
+            decide(&ON_DEMAND, &yes(), false, Event::KeepChanged),
+            vec![Action::ArmIdle(IDLE)]
+        );
+        // Not loaded: no timer to arm.
+        assert_eq!(
+            decide(&ON_DEMAND, &Loaded::No, false, Event::KeepChanged),
+            vec![Action::Nothing]
+        );
+    }
+
+    #[test]
+    fn a_failed_load_is_not_retried_by_a_timer() {
+        let failed = Loaded::Failed(Unavailable::WouldNotFit {
+            need_mb: 9000,
+            have_mb: 8000,
+        });
+        for keep in [ON_DEMAND, Keep::Resident] {
+            let actions = decide(&keep, &failed, false, Event::IdleElapsed);
+            assert!(!actions.contains(&Action::Load), "{keep:?}: {actions:?}");
+            assert_eq!(actions, vec![Action::Nothing]);
+        }
+        // An explicit request does try again.
+        assert!(decide(&ON_DEMAND, &failed, false, Event::CheckAsked).contains(&Action::Load));
+        assert!(decide(&Keep::Resident, &failed, false, Event::Started).contains(&Action::Load));
+        assert!(decide(&Keep::Resident, &failed, false, Event::DutyChanged).contains(&Action::Load));
+    }
+
+    #[test]
+    fn nothing_is_unloaded_under_a_running_decode() {
+        for keep in [ON_DEMAND, Keep::Resident] {
+            for event in [
+                Event::UnloadAsked,
+                Event::DutyChanged,
+                Event::IdleElapsed,
+                Event::KeepChanged,
+            ] {
+                let actions = decide(&keep, &yes(), true, event);
+                assert!(
+                    !actions.contains(&Action::Unload) && !actions.contains(&Action::Swap),
+                    "{keep:?} {event:?} under a running job: {actions:?}"
+                );
+            }
+            // Deferred, not dropped: the button press and the new model
+            // are decided again when the job ends.
+            assert!(decide(&keep, &yes(), true, Event::UnloadAsked)
+                .contains(&Action::Defer(Event::UnloadAsked)));
+            assert!(decide(&keep, &yes(), true, Event::DutyChanged)
+                .contains(&Action::Defer(Event::DutyChanged)));
+        }
+    }
+
+    /// A test double: answers at once, and records what the handle had
+    /// said about it by the time it was asked.
+    struct Probe {
+        handle: EngineHandle,
+        inbox: flume::Receiver<Event>,
+        seen: Mutex<Option<(usize, Vec<Event>)>>,
+    }
+
+    #[async_trait]
+    impl RewriteEngine for Probe {
+        fn info(&self) -> EngineInfo {
+            EngineInfo {
+                vendor: Vendor::OpenLlm,
+                model_id: "probe".to_owned(),
+                local: true,
+                ctx_len: Some(512),
+            }
+        }
+
+        async fn complete(
+            &self,
+            _req: ChatRequest,
+            _sink: TokenSink,
+            _cancel: CancellationToken,
+        ) -> Result<Completion, EngineError> {
+            *self.seen.lock().expect("lock") =
+                Some((self.handle.busy(), self.inbox.drain().collect()));
+            Ok(Completion {
+                text: "ready".to_owned(),
+                tokens_out: 1,
+                finish: FinishReason::Stop,
+            })
+        }
+
+        async fn warmup(&self) -> Result<(), EngineError> {
+            Ok(())
+        }
+
+        async fn unload(&self) {}
+    }
+
+    #[test]
+    fn the_handle_runs_jobs_through_the_same_policy() {
+        let (handle, inbox) = EngineHandle::new();
+
+        // Nothing on duty: a refusal, and nothing counted.
+        let (sink, _) = flume::unbounded();
+        let refused = block_on(handle.complete(check_request(), sink, CancellationToken::new()));
+        assert!(
+            matches!(
+                refused,
+                Err(EngineError::Unavailable(Unavailable::NothingOnDuty))
+            ),
+            "{refused:?}"
+        );
+        assert!(inbox.is_empty(), "a refused job is not a job");
+
+        let probe = Arc::new(Probe {
+            handle: handle.clone(),
+            inbox: inbox.clone(),
+            seen: Mutex::new(None),
+        });
+        handle.set(Slot::Engine(probe.clone()));
+        let (sink, _) = flume::unbounded();
+        let answer = block_on(handle.complete(check_request(), sink, CancellationToken::new()))
+            .expect("the probe answers");
+        assert_eq!(answer.text, "ready");
+
+        let (busy, before) = probe.seen.lock().expect("lock").clone().expect("asked");
+        assert_eq!(busy, 1, "the job was not counted while it ran");
+        assert_eq!(
+            before,
+            vec![Event::JobStarted],
+            "the host was not told first"
+        );
+        let after: Vec<Event> = inbox.drain().collect();
+        assert_eq!(after, vec![Event::JobEnded], "the host was not told after");
+        assert_eq!(handle.busy(), 0);
+
+        // And those are the events the policy loads on and arms after.
+        assert!(decide(&ON_DEMAND, &Loaded::No, true, before[0]).contains(&Action::Load));
+        assert_eq!(
+            decide(&ON_DEMAND, &yes(), false, after[0]),
+            vec![Action::ArmIdle(IDLE)]
+        );
+    }
+
+    /// Every refusal, and a match that stops compiling the day a variant
+    /// is added without being listed here.
+    fn every_refusal() -> Vec<Unavailable> {
+        let all = vec![
+            Unavailable::NotBuilt,
+            Unavailable::NoSuchFile {
+                path: PathBuf::from("/models/qwen/weights.gguf"),
+            },
+            Unavailable::WouldNotFit {
+                need_mb: 9_600,
+                have_mb: 8_000,
+            },
+            Unavailable::NoBackend,
+            Unavailable::LoadFailed {
+                detail: "llama_model_load_from_file returned null".to_owned(),
+            },
+            Unavailable::Stopped,
+            Unavailable::NothingOnDuty,
+        ];
+        for why in &all {
+            match why {
+                Unavailable::NotBuilt
+                | Unavailable::NoSuchFile { .. }
+                | Unavailable::WouldNotFit { .. }
+                | Unavailable::NoBackend
+                | Unavailable::LoadFailed { .. }
+                | Unavailable::Stopped
+                | Unavailable::NothingOnDuty => {}
+            }
+        }
+        all
+    }
+
+    #[test]
+    fn every_refusal_has_a_sentence_in_every_language() {
+        let languages = wipemark_i18n::available_languages();
+        assert!(languages.len() >= 3, "en, de and ru at least");
+        for language in languages {
+            let localizer = wipemark_i18n::Localizer::for_languages(
+                std::slice::from_ref(&language.id),
+                wipemark_i18n::Rendering::PlainText,
+            );
+            let mut seen = std::collections::BTreeSet::new();
+            for why in every_refusal() {
+                let message = refusal_message(&why);
+                assert!(
+                    localizer.defines(message),
+                    "{}: no sentence for {why:?}",
+                    language.id
+                );
+                let line = localizer.format_args(message, &refusal_args(&why));
+                assert!(
+                    seen.insert(line.clone()),
+                    "{}: two refusals read {line:?}",
+                    language.id
+                );
+                // No step number and no feature flag: a person can do
+                // nothing with either.
+                let lower = line.to_lowercase();
+                for leak in ["local-llama", "llama-native", "feature", "epic"] {
+                    assert!(
+                        !lower.contains(leak),
+                        "{}: {line:?} names {leak}",
+                        language.id
+                    );
+                }
+                assert!(
+                    !line
+                        .as_bytes()
+                        .windows(2)
+                        .any(|pair| pair[0] == b'E' && pair[1].is_ascii_digit()),
+                    "{}: {line:?} names an epic",
+                    language.id
+                );
+                // The numbers and the path reach the sentence.
+                match &why {
+                    Unavailable::NoSuchFile { path } => {
+                        assert!(line.contains(&path.display().to_string()), "{line:?}");
+                    }
+                    Unavailable::WouldNotFit { need_mb, have_mb } => {
+                        assert!(line.contains(&memory_label(*need_mb)), "{line:?}");
+                        assert!(line.contains(&memory_label(*have_mb)), "{line:?}");
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// The Check's request on the real model, and the memory an unload
+    /// gives back — the parts of the live check that do not need a window.
+    /// `WIPEMARK_TEST_GGUF` names the catalogue's Qwen3 4B.
+    #[cfg(feature = "llama-native")]
+    #[test]
+    #[ignore = "needs a GGUF: WIPEMARK_TEST_GGUF=/path/to/model.gguf"]
+    fn a_real_model_answers_the_check_and_gives_its_memory_back() {
+        let weights = PathBuf::from(
+            std::env::var_os("WIPEMARK_TEST_GGUF").expect("WIPEMARK_TEST_GGUF names a GGUF"),
+        );
+        let local = duty::Local {
+            id: "qwen3-4b-instruct-2507-ud-q4".to_owned(),
+            display: "Qwen3 4B Instruct".to_owned(),
+            weights,
+            format: wipemark_models::manifest::Format::Gguf,
+            ctx: 8192,
+            vendor: Vendor::OpenLlm,
+            fit: wipemark_models::host::Fit::Unknown,
+        };
+        let engine = duty::engine_for(&Performer::Machine(local), &LocalOptions::default())
+            .expect("a native build hands out an engine");
+
+        let before = resident_mb().expect("RSS is readable on Linux");
+        let asked = Instant::now();
+        block_on(engine.warmup()).expect("the model loads");
+        let load_ms = millis(asked.elapsed());
+        let loaded = resident_mb().expect("RSS");
+
+        let (sink, pieces) = flume::unbounded::<String>();
+        let started = Instant::now();
+        let answer = block_on(engine.complete(check_request(), sink, CancellationToken::new()))
+            .expect("the check answers");
+        let elapsed = started.elapsed().as_secs_f32();
+        let streamed: String = pieces.drain().collect();
+        assert_eq!(streamed, answer.text);
+        assert!(answer.tokens_out >= 1 && answer.tokens_out <= CHECK_TOKENS);
+
+        block_on(engine.unload());
+        let unloaded = resident_mb().expect("RSS");
+        eprintln!(
+            "check: load {load_ms} ms; {} tokens in {elapsed:.2} s; answer {:?}; \
+             RSS {before} MiB before, {loaded} MiB loaded, {unloaded} MiB after the unload",
+            answer.tokens_out,
+            shown(&answer.text),
+        );
+        assert!(loaded > before + 1_000, "the load did not show in RSS");
+        assert!(unloaded + 1_000 < loaded, "the unload gave nothing back");
+    }
+
+    /// A test double for the host: loads and unloads at once, counts both,
+    /// streams a few pieces, and — when `gate` is set — holds its answer
+    /// until the test lets it go.
+    #[derive(Default)]
+    struct Model {
+        warmups: AtomicUsize,
+        unloads: AtomicUsize,
+        gate: Option<flume::Receiver<()>>,
+    }
+
+    #[async_trait]
+    impl RewriteEngine for Model {
+        fn info(&self) -> EngineInfo {
+            EngineInfo {
+                vendor: Vendor::OpenLlm,
+                model_id: "double".to_owned(),
+                local: true,
+                ctx_len: Some(512),
+            }
+        }
+
+        async fn complete(
+            &self,
+            _req: ChatRequest,
+            sink: TokenSink,
+            _cancel: CancellationToken,
+        ) -> Result<Completion, EngineError> {
+            if let Some(gate) = &self.gate {
+                let _ = gate.recv_async().await;
+            }
+            for piece in ["one", " two", " three"] {
+                let _ = sink.send(piece.to_owned());
+            }
+            Ok(Completion {
+                text: "one two three".to_owned(),
+                tokens_out: 3,
+                finish: FinishReason::Stop,
+            })
+        }
+
+        async fn warmup(&self) -> Result<(), EngineError> {
+            self.warmups.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn unload(&self) {
+            self.unloads.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// A host started with a one-minute idle span, the machine on duty,
+    /// `model` in its slot, and `keeping` as the keep row.
+    fn host_over(
+        model: Arc<Model>,
+        keeping: Keeping,
+        cx: &mut gpui::TestAppContext,
+    ) -> Entity<EngineHost> {
+        let (handle, inbox) = EngineHandle::new();
+        let host = cx.new(|cx| EngineHost::listening(handle, inbox, cx));
+        host.update(cx, |host, cx| {
+            host.preferences_moved(
+                Reading {
+                    performer: Some(Performer::Machine(duty::Local {
+                        id: "double".to_owned(),
+                        display: "Double".to_owned(),
+                        weights: PathBuf::from("/models/double.gguf"),
+                        format: wipemark_models::manifest::Format::Gguf,
+                        ctx: 512,
+                        vendor: Vendor::OpenLlm,
+                        fit: wipemark_models::host::Fit::Unknown,
+                    })),
+                    options: LocalOptions::default(),
+                    // Started on demand, so this build's own engine is
+                    // built and never asked to load: a real worker
+                    // answering on its own thread is not this test's clock.
+                    policy: LocalPolicy {
+                        keeping: Keeping::OnDemand,
+                        idle_minutes: 1,
+                        lock: false,
+                    },
+                    known: true,
+                },
+                cx,
+            );
+            // What `engine_for` built is this build's (a refusal, or an
+            // engine over a file that is not there); the double stands in.
+            // And whatever that build's load would answer is overtaken.
+            host.handle.set(Slot::Engine(model));
+            host.generation += 1;
+            host.loaded = Loaded::No;
+            if let Some(reading) = host.reading.as_mut() {
+                reading.policy.keeping = keeping;
+            }
+        });
+        host
+    }
+
+    /// The execution half, with a clock: a check loads the model, its end
+    /// arms the timer, and a minute later the model is unloaded by itself.
+    #[gpui::test]
+    fn a_checked_model_is_unloaded_by_itself_after_the_idle_span(cx: &mut gpui::TestAppContext) {
+        let model = Arc::new(Model::default());
+        let host = host_over(model.clone(), Keeping::OnDemand, cx);
+
+        host.update(cx, |host, cx| host.run_check(cx));
+        cx.run_until_parked();
+        host.read_with(cx, |host, _| {
+            assert!(
+                matches!(host.loaded(), Loaded::Yes { .. }),
+                "{:?}",
+                host.loaded()
+            );
+            match host.check() {
+                Check::Done(CheckOutcome::Answered { text, tokens, .. }) => {
+                    assert_eq!(text, "one two three");
+                    assert_eq!(*tokens, 3);
+                }
+                other => panic!("the check did not answer: {other:?}"),
+            }
+            assert!(host.idle.is_some(), "the end of the check armed no timer");
+        });
+        assert_eq!(model.unloads.load(Ordering::SeqCst), 0);
+
+        cx.executor().advance_clock(Duration::from_secs(30));
+        cx.run_until_parked();
+        assert_eq!(model.unloads.load(Ordering::SeqCst), 0, "unloaded early");
+
+        cx.executor().advance_clock(Duration::from_secs(31));
+        cx.run_until_parked();
+        host.read_with(cx, |host, _| {
+            assert_eq!(host.loaded(), &Loaded::No);
+        });
+        assert_eq!(model.unloads.load(Ordering::SeqCst), 1);
+    }
+
+    /// Unload now pressed while a check decodes waits for the check, then
+    /// unloads — and a resident model is not unloaded by a timer at all.
+    #[gpui::test]
+    fn unload_now_waits_for_the_running_check(cx: &mut gpui::TestAppContext) {
+        let (release, gate) = flume::unbounded();
+        let model = Arc::new(Model {
+            gate: Some(gate),
+            ..Model::default()
+        });
+        let host = host_over(model.clone(), Keeping::Resident, cx);
+
+        host.update(cx, |host, cx| host.run_check(cx));
+        cx.run_until_parked();
+        host.read_with(cx, |host, _| {
+            assert!(matches!(host.check(), Check::Running { .. }));
+            assert!(matches!(host.loaded(), Loaded::Yes { .. }));
+        });
+
+        host.update(cx, |host, cx| host.unload_now(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            model.unloads.load(Ordering::SeqCst),
+            0,
+            "unloaded under a running decode"
+        );
+
+        release.send(()).expect("the double waits");
+        cx.run_until_parked();
+        host.read_with(cx, |host, _| {
+            assert!(matches!(host.check(), Check::Done(_)));
+            assert_eq!(host.loaded(), &Loaded::No);
+            assert!(host.idle.is_none(), "a resident model armed a timer");
+        });
+        assert_eq!(model.unloads.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn the_handle_crosses_threads() {
+        fn send_sync_clone<T: Send + Sync + Clone>() {}
+        send_sync_clone::<EngineHandle>();
+    }
+
+    #[test]
+    fn a_check_shows_at_most_eighty_characters() {
+        assert_eq!(shown("  ready \n"), "ready");
+        let long = "a".repeat(200);
+        let cut = shown(&long);
+        assert_eq!(cut.chars().count(), CHECK_SHOWN + 1);
+        assert!(cut.ends_with('…'));
+    }
+
+    #[test]
+    fn the_idle_span_is_the_row_in_minutes() {
+        let policy = LocalPolicy {
+            keeping: Keeping::OnDemand,
+            idle_minutes: 1,
+            lock: false,
+        };
+        assert_eq!(
+            policy.keep(),
+            Keep::OnDemand {
+                idle: Duration::from_secs(60)
+            }
+        );
+        assert_eq!(
+            LocalPolicy {
+                keeping: Keeping::Resident,
+                ..policy
+            }
+            .keep(),
+            Keep::Resident
+        );
+        for keeping in Keeping::ALL {
+            assert_eq!(Keeping::parse(keeping.id()), Some(keeping));
+        }
+        assert_eq!(Keeping::parse("forever"), None);
+    }
+}

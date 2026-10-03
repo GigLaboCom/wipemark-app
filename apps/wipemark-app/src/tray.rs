@@ -91,6 +91,10 @@ pub enum TrayCommand {
     /// appears is the Placement page's business — see
     /// `crate::placement`.
     Panel,
+    /// Drop the local model from memory, whatever the keep mode — the
+    /// Engine page's **Unload now**, reachable with every window closed.
+    /// Enabled only while a model is loaded (see [`Tray::show_loaded`]).
+    UnloadModel,
     /// Open the Settings dialog, bringing the window back first if it
     /// is hidden. Everything the tray cannot fit lives there.
     Settings,
@@ -119,9 +123,10 @@ impl TrayCommand {
     /// `every_theme_the_app_offers_has_a_menu_command` rather than
     /// quietly going untested.
     #[cfg(test)]
-    pub const ALL: [TrayCommand; 7] = [
+    pub const ALL: [TrayCommand; 8] = [
         Self::Show,
         Self::Panel,
+        Self::UnloadModel,
         Self::Theme(ThemePreference::System),
         Self::Theme(ThemePreference::Light),
         Self::Theme(ThemePreference::Dark),
@@ -135,6 +140,7 @@ impl TrayCommand {
         match self {
             Self::Show => "show".to_owned(),
             Self::Panel => "panel".to_owned(),
+            Self::UnloadModel => "unload-model".to_owned(),
             Self::Theme(choice) => format!("{THEME_PREFIX}{}", choice.as_str()),
             Self::Settings => "settings".to_owned(),
             Self::Quit => "quit".to_owned(),
@@ -150,6 +156,7 @@ impl TrayCommand {
         match id {
             "show" => Some(Self::Show),
             "panel" => Some(Self::Panel),
+            "unload-model" => Some(Self::UnloadModel),
             "settings" => Some(Self::Settings),
             "quit" => Some(Self::Quit),
             other => other
@@ -240,6 +247,7 @@ struct Items {
     show: tray_icon::menu::MenuItem,
     panel: tray_icon::menu::MenuItem,
     clipboard: tray_icon::menu::MenuItem,
+    unload: tray_icon::menu::MenuItem,
     appearance: tray_icon::menu::Submenu,
     settings: tray_icon::menu::MenuItem,
     quit: tray_icon::menu::MenuItem,
@@ -287,12 +295,20 @@ impl Tray {
         self.items
             .clipboard
             .set_text(t(Message::TrayCleanClipboard));
+        self.items.unload.set_text(t(Message::TrayUnloadModel));
         self.items.appearance.set_text(t(Message::TrayAppearance));
         self.items.settings.set_text(t(Message::SettingsOpen));
         self.items.quit.set_text(t(Message::TrayQuit));
         for (choice, item) in &self.appearance {
             item.set_text(choice.label());
         }
+    }
+
+    /// Enable "Unload model" while a model is loaded, and only then.
+    /// Called from the GPUI foreground thread — the main thread on macOS,
+    /// which `muda` requires.
+    pub fn show_loaded(&self, loaded: bool) {
+        self.items.unload.set_enabled(loaded);
     }
 }
 
@@ -307,6 +323,10 @@ impl Tray {
     }
 
     pub fn relabel(&self) {
+        match *self {}
+    }
+
+    pub fn show_loaded(&self, _loaded: bool) {
         match *self {}
     }
 }
@@ -373,6 +393,16 @@ pub fn install(current: ThemePreference) -> Option<Tray> {
     // enabled one that logs "not implemented" is not.
     let clipboard = MenuItem::with_id("clipboard", t(Message::TrayCleanClipboard), false, None);
 
+    // The Engine page's Unload now, for a model kept loaded while every
+    // window is closed. Disabled until the engine host says a model is in
+    // memory — `main::install_tray` follows it from then on.
+    let unload = MenuItem::with_id(
+        TrayCommand::UnloadModel.menu_id(),
+        t(Message::TrayUnloadModel),
+        false,
+        None,
+    );
+
     let appearance: Vec<(ThemePreference, CheckMenuItem)> = ThemePreference::ALL
         .iter()
         .map(|choice| {
@@ -422,6 +452,7 @@ pub fn install(current: ThemePreference) -> Option<Tray> {
         &show,
         &panel,
         &clipboard,
+        &unload,
         &PredefinedMenuItem::separator(),
         &submenu,
         &PredefinedMenuItem::separator(),
@@ -472,6 +503,7 @@ pub fn install(current: ThemePreference) -> Option<Tray> {
             show,
             panel,
             clipboard,
+            unload,
             appearance: submenu,
             settings,
             quit,
@@ -512,6 +544,18 @@ mod tests {
             ids.len(),
             TrayCommand::ALL.len(),
             "two menu items share an id, so one of them fires the other's command: {ids:?}"
+        );
+    }
+
+    #[test]
+    fn the_unload_command_round_trips_its_id() {
+        let id = TrayCommand::UnloadModel.menu_id();
+        assert_eq!(id, "unload-model");
+        assert_eq!(TrayCommand::parse(&id), Some(TrayCommand::UnloadModel));
+        assert_ne!(
+            TrayCommand::parse("unload"),
+            Some(TrayCommand::UnloadModel),
+            "a near miss is not the command"
         );
     }
 

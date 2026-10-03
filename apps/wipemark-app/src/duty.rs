@@ -62,15 +62,19 @@
 //! # Calling the logic
 //!
 //! [`engine_for`] is where a [`Performer`] becomes a
-//! [`RewriteEngine`]. Epic **E2** builds both implementations, so today
-//! it refuses and names the epic rather than handing back a
+//! [`RewriteEngine`]: the machine becomes a `LocalEngine` in a build with
+//! `local-llama`, and a refusal that says so — `Unavailable::NotBuilt` —
+//! in one without; an endpoint still refuses until its transport lands
+//! (E2-3). It never hands back a
 //! [`fake::FakeEngine`](wipemark_engine::fake::FakeEngine): an engine
 //! that returns plausible text with no model behind it is exactly the
 //! failure `a_tool_that_cannot_run_refuses_rather_than_reporting_nothing` exists
-//! to prevent, one layer down.
+//! to prevent, one layer down. *When* the engine holds its model is not
+//! decided here either: that is [`crate::engine_host`].
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use wipemark_core::Vendor;
 use wipemark_engine::{EngineError, EngineInfo, RewriteEngine};
@@ -672,22 +676,102 @@ fn vendor_of(origin: &str, provider: Provider) -> Vendor {
     }
 }
 
+/// What an endpoint's refusal says until its transport lands. Read by a
+/// log line and never by a person: a window renders "not in this version
+/// yet" from the catalogue.
+pub const ENDPOINT_NOT_YET: &str = "E2-3 / S2.1 — the Ollama and OpenAI-compatible transports";
+
+/// How the machine's engine is built, beside the duty that names it.
+///
+/// Gathered by the caller from state it already holds, for the reason a
+/// [`Roster`] is: nothing here reads a row, probes a machine or loads a
+/// backend library.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LocalOptions {
+    /// `engine.local.mlock`: ask the system to keep the weights in RAM.
+    pub lock: bool,
+    /// What this machine holds, once the probe has answered.
+    pub host: Option<Host>,
+    /// Whether a ggml backend other than the CPU registered. `None` until
+    /// the backends have been loaded (off the GPUI thread, with the scan),
+    /// and always `None` in a build without the local engine.
+    pub gpu: Option<bool>,
+}
+
+/// The memory a local load may claim, in MiB, or `None` for "do not
+/// refuse on memory".
+///
+/// The machine's **total** RAM, and only where RAM is the pool the model
+/// competes for: unified memory, or a process with no GPU backend. With a
+/// discrete card the weights live in video memory nobody can read
+/// portably, so any figure would be a guess. And total rather than
+/// available, because the estimate is unreliable both ways — about a third
+/// under the real resident memory on a CPU, over it for a sliding-window
+/// model (D55) — so the refusal exists only for a model that cannot fit
+/// at all. A machine not yet read refuses nothing.
+pub fn available_mb(host: Option<Host>, gpu: Option<bool>) -> Option<u64> {
+    let host = host?;
+    (host.unified_memory || gpu == Some(false)).then_some(host.total_ram_mb)
+}
+
 /// Build the engine that serves this duty.
 ///
-/// Epic **E2** — nothing in this build sends a request, so this refuses
-/// and names the epic. It does *not* fall back to
-/// [`fake::FakeEngine`](wipemark_engine::fake::FakeEngine): a fake
-/// hands back plausible text with no model behind it, and a caller that
+/// The machine becomes a `LocalEngine` over the verified weights, at the
+/// catalogue's context window, with the lock row and [`available_mb`]. The
+/// engine is built, not loaded: its worker thread starts and loads nothing
+/// until it is warmed up or asked, which is [`crate::engine_host`]'s
+/// decision. A build without `local-llama` refuses with
+/// `Unavailable::NotBuilt`, and an endpoint refuses until its transport
+/// lands.
+///
+/// It never falls back to
+/// [`fake::FakeEngine`](wipemark_engine::fake::FakeEngine): a fake hands
+/// back plausible text with no model behind it, and a caller that
 /// received one would file a document as rewritten by a rewriter that
 /// never ran. That is the failure the MCP tools refuse for, one layer
-/// down, and the answer here is the same shape.
-pub fn engine_for(performer: &Performer) -> Result<Box<dyn RewriteEngine>, EngineError> {
-    Err(EngineError::NotImplemented(match performer {
-        Performer::Machine(_) => {
-            "E2 / S2.5 — local GGUF inference, behind the `local-llama` feature"
-        }
-        Performer::Endpoint(_) => "E2 / S2.1 — the Ollama and OpenAI-compatible transports",
-    }))
+/// down, and the answer here is the same shape. `Arc` and not `Box`,
+/// because the host and every handle it gives out share one engine.
+pub fn engine_for(
+    performer: &Performer,
+    local: &LocalOptions,
+) -> Result<Arc<dyn RewriteEngine>, EngineError> {
+    match performer {
+        Performer::Machine(machine) => machine_engine(machine, local),
+        Performer::Endpoint(_) => Err(EngineError::NotImplemented(ENDPOINT_NOT_YET)),
+    }
+}
+
+#[cfg(feature = "local-llama")]
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "one signature for both builds; the one without the local engine refuses"
+)]
+fn machine_engine(
+    machine: &Local,
+    local: &LocalOptions,
+) -> Result<Arc<dyn RewriteEngine>, EngineError> {
+    use wipemark_engine::{LoadParams, LocalConfig};
+
+    Ok(Arc::new(wipemark_engine::LocalEngine::new(LocalConfig {
+        model_id: machine.id.clone(),
+        weights: machine.weights.clone(),
+        load: LoadParams {
+            n_ctx: machine.ctx,
+            use_mlock: local.lock,
+            ..LoadParams::default()
+        },
+        available_mb: available_mb(local.host, local.gpu),
+    })))
+}
+
+#[cfg(not(feature = "local-llama"))]
+fn machine_engine(
+    _machine: &Local,
+    _local: &LocalOptions,
+) -> Result<Arc<dyn RewriteEngine>, EngineError> {
+    Err(EngineError::Unavailable(
+        wipemark_engine::Unavailable::NotBuilt,
+    ))
 }
 
 #[cfg(test)]
@@ -1184,17 +1268,109 @@ mod tests {
         );
     }
 
+    /// The machine becomes an engine that runs on this machine, for the
+    /// model that was chosen — and which, handed a file that is not
+    /// there, refuses by name rather than writing a word.
+    #[cfg(feature = "local-llama")]
     #[test]
-    fn a_performer_this_build_cannot_run_refuses_and_names_the_epic() {
+    fn engine_for_never_hands_out_a_fake() {
+        use wipemark_engine::{CancellationToken, ChatRequest, SamplingParams, Unavailable};
+
         let bench = Bench::new().with_a_local_rewriter();
         let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
-        let refused = engine_for(duty.performer().expect("assigned"))
-            .err()
-            .expect("nothing in this build runs a model");
+        let engine = engine_for(
+            duty.performer().expect("assigned"),
+            &LocalOptions::default(),
+        )
+        .expect("a build with the local engine hands one out");
 
-        assert!(
-            matches!(refused, EngineError::NotImplemented(named) if named.contains("E2")),
-            "the refusal has to name the epic, got {refused}"
+        let info = engine.info();
+        assert!(info.local, "the machine's engine runs on this machine");
+        assert_eq!(
+            info.model_id, REWRITER,
+            "the engine is not for the chosen model"
         );
+
+        let (sink, streamed) = flume::unbounded();
+        let answer = crate::engine_host::block_on(engine.complete(
+            ChatRequest {
+                system: None,
+                prompt: "The quick brown fox.".to_owned(),
+                params: SamplingParams::default(),
+            },
+            sink,
+            CancellationToken::new(),
+        ));
+        match answer {
+            Err(EngineError::Unavailable(Unavailable::NoSuchFile { path })) => {
+                assert_eq!(path, PathBuf::from("/models/qwen/weights.gguf"));
+            }
+            other => panic!("a missing file must be refused by name, got {other:?}"),
+        }
+        assert!(streamed.is_empty(), "the sink was handed text");
+    }
+
+    /// A build without the local engine says so as a value a window can
+    /// translate — not "not implemented", which is the endpoint's.
+    #[cfg(not(feature = "local-llama"))]
+    #[test]
+    fn a_build_without_the_local_engine_refuses_by_name() {
+        let bench = Bench::new().with_a_local_rewriter();
+        let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
+        let refused = engine_for(
+            duty.performer().expect("assigned"),
+            &LocalOptions::default(),
+        )
+        .err()
+        .expect("this build cannot run a model");
+        assert!(
+            matches!(
+                refused,
+                EngineError::Unavailable(wipemark_engine::Unavailable::NotBuilt)
+            ),
+            "got {refused}"
+        );
+    }
+
+    /// An endpoint still refuses, naming the step in the string a log
+    /// reads — and only there.
+    #[test]
+    fn an_endpoint_is_not_served_from_here_yet() {
+        let bench = Bench::new().with_engine(Provider::Ollama, "http://127.0.0.1:11434");
+        let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
+        let refused = engine_for(
+            duty.performer().expect("assigned"),
+            &LocalOptions::default(),
+        )
+        .err()
+        .expect("no transport in this build");
+        assert!(
+            matches!(refused, EngineError::NotImplemented(named) if named.contains("E2-3")),
+            "got {refused}"
+        );
+    }
+
+    /// The memory a load may claim is the RAM only where the RAM is the
+    /// pool, and unknown refuses nothing.
+    #[test]
+    fn a_load_is_measured_against_the_ram_only_where_the_ram_is_the_pool() {
+        let pc = Host {
+            total_ram_mb: 32_000,
+            available_ram_mb: 20_000,
+            vram_mb: None,
+            unified_memory: false,
+        };
+        let mac = Host {
+            unified_memory: true,
+            vram_mb: Some(16_000),
+            total_ram_mb: 16_000,
+            available_ram_mb: 8_000,
+        };
+        assert_eq!(available_mb(None, Some(false)), None);
+        assert_eq!(available_mb(Some(pc), Some(false)), Some(32_000));
+        assert_eq!(available_mb(Some(pc), Some(true)), None);
+        assert_eq!(available_mb(Some(pc), None), None);
+        assert_eq!(available_mb(Some(mac), None), Some(16_000));
+        assert_eq!(available_mb(Some(mac), Some(true)), Some(16_000));
     }
 }

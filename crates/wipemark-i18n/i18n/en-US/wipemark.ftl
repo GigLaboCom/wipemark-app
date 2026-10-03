@@ -123,6 +123,17 @@ status-idle-no-engine = Idle · no engine configured · { -layer-a } only
 status-idle-here = Idle · { $model } · nothing leaves this machine · { -layer-a } only
 # $host is scheme, host and port — the machine the document would go to.
 status-idle-away = Idle · { $model } at { $host } · the document would leave this machine · { -layer-a } only
+# The model on this machine, while it loads, once it is in memory, and
+# when it could not be. $model is the catalogue's display name, never
+# translated; $ram is the memory the whole process holds, measured after
+# the load (e.g. "4.2 GB") — not an estimate, and absent when it could not
+# be read. Every one still ends in "cleaning only": a loaded model is a
+# fact about memory, not a claim that rewriting works.
+status-local-loading = Loading { $model } · nothing leaves this machine · { -layer-a } only
+status-local-loaded = { $model } loaded · { -brand-name } holds { $ram } · nothing leaves this machine · { -layer-a } only
+status-local-loaded-unmeasured = { $model } loaded · nothing leaves this machine · { -layer-a } only
+# $reason is one of the engine-refusal-* sentences.
+status-local-failed = { $model } could not be loaded: { $reason } · { -layer-a } only
 
 ## Settings.
 ##
@@ -556,6 +567,74 @@ settings-engine-serves-endpoint-first = Endpoint, then machine
 # $reason is the sentence describing what the first choice could not do.
 settings-engine-state-second-choice = Answering because the first choice cannot: { $reason }
 
+## The model on this machine: how long it stays in memory, and a check
+## that it runs. Shown under "Who rewrites", because it is the half of that
+## choice that lives here. A loaded model is memory, not a rewrite: nothing
+## here rewrites a document, and the check says so.
+
+settings-engine-keep-title = Keeping the model loaded
+settings-engine-keep-description = “{ settings-engine-keep-on-demand }” loads the model when it is needed and frees its memory after the minutes below with nothing to do. “{ settings-engine-keep-resident }” loads it a moment after { -brand-name } starts and holds it until { -brand-name } quits or another model is chosen. “{ settings-engine-local-unload }” frees it either way.
+settings-engine-keep-on-demand = Load when needed
+settings-engine-keep-resident = Keep loaded
+settings-engine-idle-title = Unload after
+settings-engine-idle-description = How long a model loaded when needed stays in memory with nothing to do. Not used while the model is kept loaded.
+settings-engine-idle-minutes = { $count ->
+        [one] { $count } minute
+       *[other] { $count } minutes
+    }
+settings-engine-advanced = Advanced
+settings-engine-lock-title = Keep the model in RAM (do not let the system page it out)
+settings-engine-lock-description = The first request after a quiet spell is then not slowed by reading the model back from disk; the cost is that memory, which no other program can borrow while the model is loaded. A system that refuses the lock loads the model anyway and says so in the log.
+
+settings-engine-local-title = The model on this machine
+settings-engine-local-not-here = Nothing on duty runs on this machine, so there is no model here to load.
+# $model is the catalogue's display name.
+settings-engine-local-not-loaded = { $model } is not loaded.
+settings-engine-local-resident-again = “{ settings-engine-keep-resident }” is still chosen, so it loads again the next time { -brand-name } starts.
+settings-engine-local-loading = Loading { $model }…
+# $ram is the memory the whole process holds, measured after the load;
+# $since is the time it was loaded, e.g. "14:05".
+settings-engine-local-loaded = { $model } is loaded. { -brand-name } holds { $ram } of memory, measured. Loaded at { $since }.
+settings-engine-local-loaded-unmeasured = { $model } is loaded, since { $since }. How much memory it holds could not be read.
+settings-engine-local-file = The model file is { $size } on disk.
+# $reason is one of the engine-refusal-* sentences.
+settings-engine-local-failed = Could not load: { $reason }
+settings-engine-local-unload = Unload now
+settings-engine-local-unload-tooltip = Free the model's memory now. The next request loads it again.
+settings-engine-local-unload-disabled = No model is loaded, so there is nothing to unload.
+settings-engine-local-check = Check
+settings-engine-local-check-tooltip = Load the model if it is not loaded, and have it write a few words.
+settings-engine-local-check-cancel = Cancel
+settings-engine-local-checking = Checking…
+# $text is the model's own words, at most eighty characters, never translated.
+settings-engine-local-check-answered = The model answered: “{ $text }”
+# $seconds is a number with one decimal, e.g. "2.4".
+settings-engine-local-check-load = Loading it took { $seconds } s.
+# $tokens is a count, $rate a number with one decimal.
+settings-engine-local-check-speed = { $tokens } tokens, { $rate } per second after the first.
+settings-engine-local-check-speed-unknown = { $tokens } tokens — too few to time.
+settings-engine-local-check-failed = The check did not run: { $reason }
+settings-engine-local-check-cancelled = The check was cancelled.
+settings-engine-local-check-note = A check proves the model loads and writes. It is not a rewrite: nothing rewrites a document in this version yet.
+settings-engine-local-no-tray = There is no menu-bar item on this system, so closing the main window quits { -brand-name } and frees the model.
+
+## Why the model on this machine cannot do anything at all — one sentence
+## per reason. Shown in the block above, in the status bar and after a
+## check. No feature flag and no step number: a person can do nothing with
+## either.
+
+engine-refusal-not-built = This build has no local engine.
+# $path is the weights file that was expected.
+engine-refusal-no-such-file = The model file is not there: { $path }
+# $need and $have are sizes, e.g. "9.6 GB".
+engine-refusal-would-not-fit = The model needs about { $need } and this machine has { $have }.
+engine-refusal-no-backend = No processor could be found to run the model on.
+# The detail — llama.cpp's own words — is shown on the next line,
+# untranslated.
+engine-refusal-load-failed = The model could not be loaded.
+engine-refusal-stopped = The local engine has stopped. Choosing the model again restarts it.
+engine-refusal-nothing-on-duty = Nothing is on duty to answer.
+
 ## The rows, and the first of them is the one that sets all the others.
 ##
 ## A profile is every setting on this page except the key. It is a row
@@ -682,7 +761,7 @@ settings-models-title = Local models
 settings-models-description = Open weights downloaded to this machine, verified against the checksum in { -brand-name }'s catalogue. Nothing is downloaded until you ask for it.
 
 # The honest half, and it stays until E2 and E3 both land.
-settings-models-pending = A downloaded model is a file on disk and nothing more in this version: nothing loads one yet. Cleaning needs none of it.
+settings-models-pending = A downloaded model can be loaded and checked on the Engine page, and nothing rewrites with it in this version yet. Cleaning needs none of it.
 
 ## The folder. One row, because the question it answers is "which
 ## disk", and it is read recursively because a folder another tool
@@ -969,6 +1048,7 @@ tray-show = Show { -brand-name }
 # same item in every menu bar does.
 tray-panel = Show the panel
 tray-clean-clipboard = Clean Clipboard — not yet
+tray-unload-model = Unload model
 tray-appearance = Appearance
 tray-quit = Quit { -brand-name }
 

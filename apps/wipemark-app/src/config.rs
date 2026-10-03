@@ -47,6 +47,7 @@ use crate::compare::Comparison;
 use crate::diff::Grain;
 use crate::duty::Serves;
 use crate::engine::{self, BaseUrl, EngineSettings, Provider, ReasoningEffort};
+use crate::engine_host::{Keeping, LocalPolicy, IDLE_MINUTES};
 use crate::hotkey::{Action, Hotkey};
 use crate::mcp::{self, BindAddress, Endpoint};
 use crate::placement::{self, Onto, Spot};
@@ -148,6 +149,22 @@ pub const ENGINE_TIMEOUT_KEY: &str = "engine.timeout";
 /// with changes” and “not saved”, and the second is not a name the
 /// Save button could update.
 pub const ENGINE_PROFILE_KEY: &str = "engine.profile";
+
+/// How long the local model stays loaded: `"on_demand"` (unloaded after
+/// [`ENGINE_LOCAL_IDLE_KEY`] minutes of idle) or `"resident"` (loaded when
+/// the application starts and kept until it quits). See
+/// `engine_host::Keeping`.
+///
+/// `engine.local.` because these three rows are about the model on this
+/// machine and not about an endpoint, which is also why none of them is
+/// part of a saved profile: a profile names an endpoint.
+pub const ENGINE_LOCAL_KEEP_KEY: &str = "engine.local.keep";
+
+/// How many idle minutes unload an on-demand model: 1, 5, 15, 30 or 60.
+pub const ENGINE_LOCAL_IDLE_KEY: &str = "engine.local.idle_minutes";
+
+/// Whether the local model's pages are locked in RAM (`use_mlock`).
+pub const ENGINE_LOCAL_MLOCK_KEY: &str = "engine.local.mlock";
 
 /// The namespace every saved profile is filed under.
 ///
@@ -320,7 +337,7 @@ pub fn model_key(role: Role) -> &'static str {
 /// below name their own key — and `-D warnings` fails a bin target on
 /// dead code. Same idiom as `TrayCommand::ALL`.
 #[cfg(test)]
-pub const PERSISTED: [&str; 28] = [
+pub const PERSISTED: [&str; 31] = [
     THEME_KEY,
     LANGUAGE_KEY,
     WINDOW_SCREEN_KEY,
@@ -347,6 +364,9 @@ pub const PERSISTED: [&str; 28] = [
     ENGINE_REASONING_KEY,
     ENGINE_TIMEOUT_KEY,
     ENGINE_PROFILE_KEY,
+    ENGINE_LOCAL_KEEP_KEY,
+    ENGINE_LOCAL_IDLE_KEY,
+    ENGINE_LOCAL_MLOCK_KEY,
     MODEL_REWRITE_KEY,
     MODELS_DIR_KEY,
 ];
@@ -381,6 +401,8 @@ pub struct Stored {
     pub models_dir: Option<PathBuf>,
     /// Which side answers a rewrite, and in what order.
     pub serves: Serves,
+    /// How long the local model is kept, and whether it is locked in RAM.
+    pub local: LocalPolicy,
     /// The system-wide shortcuts, per action. Absent for an action
     /// nobody has given a chord — see [`read_hotkeys`].
     pub hotkeys: BTreeMap<Action, Hotkey>,
@@ -430,6 +452,7 @@ pub fn read_all(store: &Store) -> Stored {
         rewrite_model: read_model(store, Role::Rewrite),
         models_dir: read_models_dir(store),
         serves: read_engine_serves(store),
+        local: read_local(store),
         hotkeys: read_hotkeys(store),
         onto: read_window_screen(store),
         close_after_drop: read_close_after_drop(store),
@@ -1169,6 +1192,60 @@ pub fn read_engine_serves(store: &Store) -> Serves {
     }
 }
 
+/// Read the local model's three rows, falling back to a model loaded when
+/// it is needed, unloaded after fifteen idle minutes, and not locked.
+///
+/// The bargain every row here keeps: a value this build cannot use —
+/// `"forever"` in the keep row, 7 in the minutes row — is read as the
+/// default, warned about, and **left in the row**.
+pub fn read_local(store: &Store) -> LocalPolicy {
+    let defaults = LocalPolicy::default();
+    let keeping = match read_string(store, ENGINE_LOCAL_KEEP_KEY) {
+        None => defaults.keeping,
+        Some(value) => Keeping::parse(&value).unwrap_or_else(|| {
+            tracing::warn!(
+                value,
+                "unknown {ENGINE_LOCAL_KEEP_KEY}, expected on_demand or resident"
+            );
+            defaults.keeping
+        }),
+    };
+    let idle_minutes = match read_json::<u32>(store, ENGINE_LOCAL_IDLE_KEY) {
+        None => defaults.idle_minutes,
+        Some(minutes) if IDLE_MINUTES.contains(&minutes) => minutes,
+        Some(minutes) => {
+            tracing::warn!(
+                minutes,
+                "unusable {ENGINE_LOCAL_IDLE_KEY}, expected one of {IDLE_MINUTES:?}"
+            );
+            defaults.idle_minutes
+        }
+    };
+    LocalPolicy {
+        keeping,
+        idle_minutes,
+        lock: read_json::<bool>(store, ENGINE_LOCAL_MLOCK_KEY).unwrap_or(defaults.lock),
+    }
+}
+
+/// Persist how long the local model is kept.
+pub fn write_local_keep(store: &Store, keeping: Keeping) -> Result<()> {
+    store.settings().set(ENGINE_LOCAL_KEEP_KEY, keeping.id())?;
+    Ok(())
+}
+
+/// Persist how many idle minutes unload an on-demand model.
+pub fn write_local_idle(store: &Store, minutes: u32) -> Result<()> {
+    store.settings().set(ENGINE_LOCAL_IDLE_KEY, &minutes)?;
+    Ok(())
+}
+
+/// Persist whether the local model is locked in RAM.
+pub fn write_local_mlock(store: &Store, lock: bool) -> Result<()> {
+    store.settings().set(ENGINE_LOCAL_MLOCK_KEY, &lock)?;
+    Ok(())
+}
+
 /// Persist who answers a rewrite.
 pub fn write_engine_serves(store: &Store, serves: Serves) -> Result<()> {
     store.settings().set(ENGINE_SERVES_KEY, serves.id())?;
@@ -1339,15 +1416,17 @@ mod tests {
 
     use super::{
         forget_profile, forget_setup, open, profile_key, read_active_profile,
-        read_close_after_drop, read_comparison, read_engine, read_hotkeys, read_language, read_mcp,
-        read_models_dir, read_profiles, read_retention, read_setup_done, read_theme,
-        write_active_profile, write_close_after_drop, write_compare_follow, write_compare_grain,
-        write_engine, write_engine_allow_remote, write_engine_base_url, write_engine_model,
-        write_engine_provider, write_engine_reasoning, write_engine_temperature,
-        write_engine_timeout, write_hotkey, write_keep_for, write_keep_originals,
-        write_keep_results, write_language, write_mcp_bind, write_mcp_enabled, write_mcp_port,
+        read_close_after_drop, read_comparison, read_engine, read_hotkeys, read_language,
+        read_local, read_mcp, read_models_dir, read_profiles, read_retention, read_setup_done,
+        read_theme, write_active_profile, write_close_after_drop, write_compare_follow,
+        write_compare_grain, write_engine, write_engine_allow_remote, write_engine_base_url,
+        write_engine_model, write_engine_provider, write_engine_reasoning,
+        write_engine_temperature, write_engine_timeout, write_hotkey, write_keep_for,
+        write_keep_originals, write_keep_results, write_language, write_local_idle,
+        write_local_keep, write_local_mlock, write_mcp_bind, write_mcp_enabled, write_mcp_port,
         write_models_dir, write_profile, write_results_destination, write_results_folder,
         write_setup_done, write_theme, COMPARE_FOLLOW_KEY, COMPARE_GRAIN_KEY, ENGINE_BASE_URL_KEY,
+        ENGINE_LOCAL_IDLE_KEY, ENGINE_LOCAL_KEEP_KEY, ENGINE_LOCAL_MLOCK_KEY,
         ENGINE_PROFILES_PREFIX, ENGINE_PROVIDER_KEY, ENGINE_TEMPERATURE_KEY, HOTKEY_PANEL_KEY,
         HOTKEY_SHOW_KEY, KEEP_FOR_KEY, KEEP_ORIGINALS_KEY, LANGUAGE_KEY, MCP_BIND_KEY,
         MCP_PORT_KEY, MODELS_DIR_KEY, PERSISTED, RESULTS_DESTINATION_KEY, RESULTS_FOLDER_KEY,
@@ -1356,6 +1435,7 @@ mod tests {
     use crate::compare::Comparison;
     use crate::diff::Grain;
     use crate::engine::{BaseUrl, EngineSettings, Provider, ReasoningEffort};
+    use crate::engine_host::{Keeping, LocalPolicy};
     use crate::hotkey::{Action, Hotkey};
     use crate::mcp::{self, BindAddress, Endpoint};
     use crate::profile::Profile;
@@ -1377,6 +1457,10 @@ mod tests {
     }
 
     fn store() -> Store {
+        store_in_memory()
+    }
+
+    fn store_in_memory() -> Store {
         Store::in_memory().expect("in-memory store")
     }
 
@@ -1888,6 +1972,88 @@ mod tests {
                 .get::<String>(COMPARE_GRAIN_KEY)
                 .expect("read"),
             Some("characters".to_owned())
+        );
+    }
+
+    /// The local model's three rows come back as they were written, a
+    /// fresh install keeps nothing loaded and locks nothing, and a value
+    /// this build cannot use is read as the default and left in its row.
+    #[test]
+    fn the_keep_rows_read_what_they_wrote_and_keep_what_they_cannot_read() {
+        let dir = scratch("keep");
+        let path = dir.join("wipemark.db");
+        let store = Store::open(&path).expect("open");
+        assert_eq!(
+            read_local(&store),
+            LocalPolicy {
+                keeping: Keeping::OnDemand,
+                idle_minutes: 15,
+                lock: false,
+            },
+            "a fresh install loads a model when it is needed and keeps it fifteen minutes"
+        );
+
+        write_local_keep(&store, Keeping::Resident).expect("keep");
+        write_local_idle(&store, 60).expect("idle");
+        write_local_mlock(&store, true).expect("lock");
+        drop(store);
+        let store = Store::open(&path).expect("reopen");
+        assert_eq!(
+            read_local(&store),
+            LocalPolicy {
+                keeping: Keeping::Resident,
+                idle_minutes: 60,
+                lock: true,
+            }
+        );
+        // Spelled as the format, so a database client can read it.
+        assert_eq!(
+            store
+                .settings()
+                .get::<String>(ENGINE_LOCAL_KEEP_KEY)
+                .expect("read"),
+            Some("resident".to_owned())
+        );
+
+        // What this build cannot use: read as the default, never
+        // corrected in the row.
+        let store = store_in_memory();
+        store
+            .settings()
+            .set(ENGINE_LOCAL_KEEP_KEY, "forever")
+            .expect("seed");
+        store
+            .settings()
+            .set(ENGINE_LOCAL_IDLE_KEY, &7_u32)
+            .expect("seed");
+        store
+            .settings()
+            .set(ENGINE_LOCAL_MLOCK_KEY, "yes")
+            .expect("seed");
+        assert_eq!(read_local(&store), LocalPolicy::default());
+        assert_eq!(
+            store
+                .settings()
+                .get::<String>(ENGINE_LOCAL_KEEP_KEY)
+                .expect("read"),
+            Some("forever".to_owned()),
+            "an unusable keep row was rewritten"
+        );
+        assert_eq!(
+            store
+                .settings()
+                .get::<u32>(ENGINE_LOCAL_IDLE_KEY)
+                .expect("read"),
+            Some(7),
+            "an unusable minutes row was rewritten"
+        );
+        assert_eq!(
+            store
+                .settings()
+                .get::<String>(ENGINE_LOCAL_MLOCK_KEY)
+                .expect("read"),
+            Some("yes".to_owned()),
+            "an unusable lock row was rewritten"
         );
     }
 

@@ -107,6 +107,11 @@ steps:
       # workspace test does not enable `local-llama`, so without this line
       # its refusals are never run in CI.
       - cargo test -p wipemark-engine --features local-llama --locked
+      # And the application's half: with `local-llama`, `duty::engine_for`
+      # hands out a `LocalEngine` (`engine_for_never_hands_out_a_fake`),
+      # which the default build only ever refuses. Over the same shim, so
+      # no toolchain either.
+      - cargo test -p wipemark-app --features local-llama --locked
 
   # ── 4. Feature wiring. `local-llama` compiles the local engine over a
   #       shim — no cmake, no libclang, which this image has neither of

@@ -45,6 +45,7 @@ mod dock_icon;
 mod drop;
 mod duty;
 mod engine;
+mod engine_host;
 mod hotkey;
 mod icon;
 mod keys;
@@ -93,6 +94,7 @@ use wipemark_secret::Vault;
 
 use crate::clipboard::Clipboard;
 use crate::duty::{Duty, Performer};
+use crate::engine_host::{EngineHandle, EngineHost, Loaded};
 use crate::hotkey::Registration;
 use crate::icon::{Icon, IconName};
 use crate::placement::Origin;
@@ -127,6 +129,11 @@ struct Shell {
     /// Dropped with the view: a change on the clipboard repaints the
     /// toolbar, and the window coming forward looks at it again.
     _clipboard: [Subscription; 2],
+    /// Whether the model on this machine is in memory — read on every
+    /// frame for the status bar, beside the duty.
+    host: Entity<EngineHost>,
+    /// Repaints the bar when the model loads or unloads.
+    _host: Subscription,
     /// Read on every frame for the one sentence in the status bar that
     /// is about the product rather than about the window: who would
     /// rewrite a document, and whether it would leave this machine.
@@ -168,6 +175,7 @@ impl Shell {
     )]
     fn new(
         preferences: Entity<Preferences>,
+        host: Entity<EngineHost>,
         walk_through: bool,
         import: Vec<PathBuf>,
         window: &mut Window,
@@ -234,10 +242,13 @@ impl Shell {
             queue.update(cx, |queue, cx| queue.hand(import, cx));
         }
 
+        let loaded = cx.observe(&host, |_, _, cx| cx.notify());
         let mut shell = Self {
             queue,
             clipboard,
             _clipboard: [watched, activated],
+            host,
+            _host: loaded,
             preferences,
             _appearance: appearance,
             _language: language,
@@ -304,18 +315,54 @@ impl Shell {
     }
 }
 
-/// The status bar's sentence: who is on duty, and whether the document
-/// would leave this machine.
+/// The status bar's sentence: who is on duty, whether the document
+/// would leave this machine, and — for the model on this machine —
+/// whether it is in memory and how much the process holds.
 ///
-/// A free function over a [`Duty`] so the sentence can be checked
-/// without a window. Every vacancy reads as the sentence a fresh
-/// install shows — nobody is on duty, and [`Layer A`](wipemark_core) is
-/// the product without one — because the bar has room for what the
-/// application is doing and the Engine page has room for why.
-fn status_line(duty: &Duty) -> String {
+/// A free function over a [`Duty`] and a [`Loaded`] so the sentence can
+/// be checked without a window. Every vacancy reads as the sentence a
+/// fresh install shows — nobody is on duty, and [`Layer A`](wipemark_core)
+/// is the product without one — because the bar has room for what the
+/// application is doing and the Engine page has room for why. Every
+/// sentence still ends "Layer A only": a loaded model is a fact about
+/// memory, not a claim that rewriting works. The memory is shown only
+/// when it was measured; unknown is never a number.
+fn status_line(duty: &Duty, loaded: &Loaded) -> String {
     let Some(performer) = duty.performer() else {
         return t(Message::StatusIdleNoEngine);
     };
+    if let Performer::Machine(local) = performer {
+        let model = local.display.clone();
+        match loaded {
+            Loaded::No => {}
+            Loaded::Loading => {
+                return t_args(Message::StatusLocalLoading, &args!("model" => model));
+            }
+            Loaded::Yes {
+                resident_mb: Some(mb),
+                ..
+            } => {
+                return t_args(
+                    Message::StatusLocalLoaded,
+                    &args!("model" => model, "ram" => engine_host::memory_label(*mb)),
+                );
+            }
+            Loaded::Yes {
+                resident_mb: None, ..
+            } => {
+                return t_args(
+                    Message::StatusLocalLoadedUnmeasured,
+                    &args!("model" => model),
+                );
+            }
+            Loaded::Failed(why) => {
+                return t_args(
+                    Message::StatusLocalFailed,
+                    &args!("model" => model, "reason" => engine_host::refusal_line(why)),
+                );
+            }
+        }
+    }
     // The model's own name either way: a catalogue entry's display for
     // local weights, and the name the endpoint spells it with for a
     // server. Neither is translated.
@@ -493,6 +540,7 @@ impl Render for Shell {
                     .child(Icon::new(IconName::CircleInfo).small().color(muted))
                     .child(SharedString::from(status_line(
                         &self.preferences.read(cx).duty(Role::Rewrite),
+                        self.host.read(cx).loaded(),
                     )))
                     .child(div().flex_1())
                     // The far end of the status bar, which is where a
@@ -833,6 +881,12 @@ fn main() {
             let preferences_slot: Rc<RefCell<Option<Entity<Preferences>>>> = Rc::default();
             let slot = preferences_slot.clone();
 
+            // The road to the engine on duty, built before anything that
+            // holds one: the MCP server takes it when `Preferences` starts
+            // it, and the host that serves it is built over `Preferences`
+            // just after.
+            let (engine_handle, engine_inbox) = EngineHandle::new();
+
             let opened = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -862,16 +916,28 @@ fn main() {
                             models_default.clone(),
                             homes.clone(),
                             launch.profile.clone(),
+                            engine_handle.clone(),
                             cx,
                         )
                     });
                     *slot.borrow_mut() = Some(preferences.clone());
+                    // The one place a model is loaded, kept or dropped. It
+                    // waits for the scan the shell asks for below, so a
+                    // resident model starts loading a second or so after
+                    // the window is up — never before, and never on this
+                    // thread.
+                    let host = engine_host::install(
+                        preferences.clone(),
+                        engine_handle.clone(),
+                        engine_inbox.clone(),
+                        cx,
+                    );
                     // The walk-through opens over a fresh install, and
                     // over any launch that asked for it.
                     let walk_through = launch.setup || !stored.setup_done;
                     let import = launch.import.clone();
-                    let shell =
-                        cx.new(|cx| Shell::new(preferences, walk_through, import, window, cx));
+                    let shell = cx
+                        .new(|cx| Shell::new(preferences, host, walk_through, import, window, cx));
 
                     // The first level inside a window has to be a Root —
                     // dialogs, sheets, notifications and tooltips all mount
@@ -1096,6 +1162,21 @@ fn install_tray(
     // exists to bring back.
     cx.set_global(tray);
 
+    // "Unload model" is enabled only while there is a model to unload.
+    // Observed rather than polled: the host notifies on every load and
+    // unload, and the menu is built once and has to be told.
+    if let Some(host) = engine_host::hosted(cx) {
+        let loaded = host.read(cx).loaded().holds();
+        cx.global::<tray::Tray>().show_loaded(loaded);
+        cx.observe(&host, |host, cx| {
+            let loaded = host.read(cx).loaded().holds();
+            if let Some(tray) = cx.try_global::<tray::Tray>() {
+                tray.show_loaded(loaded);
+            }
+        })
+        .detach();
+    }
+
     // With an item in the menu bar, the close button hides the
     // application instead of ending it — the same bargain lazy-shot
     // makes, and only defensible because "Show Wipemark" is now a click
@@ -1134,6 +1215,11 @@ fn install_tray(
                     });
                     if let Err(error) = applied {
                         tracing::warn!(%error, "could not apply the theme chosen in the menu bar");
+                    }
+                }
+                TrayCommand::UnloadModel => {
+                    if let Some(host) = engine_host::hosted(cx) {
+                        host.update(cx, |host, cx| host.unload_now(cx));
                     }
                 }
                 TrayCommand::Settings => {
@@ -1279,34 +1365,43 @@ mod tests {
     /// Nobody on duty reads as the sentence a fresh install shows. The
     /// gate is that the other two do **not**: a status bar that said
     /// "no engine configured" over a configured engine is the sentence
-    /// this whole module exists to stop.
+    /// this whole module exists to stop. And for the model on this
+    /// machine, the bar says whether it is loading, loaded — with the
+    /// memory the process holds when it was measured, and never a made-up
+    /// number when it was not — or refused.
     #[test]
     fn the_status_bar_says_who_is_on_duty() {
-        let nobody = status_line(&Duty::Vacant(duty::Vacancy::NoModelChosen));
-        let here = status_line(&Duty::assigned(Performer::Endpoint(duty::Remote {
-            profile: None,
-            provider: engine::Provider::Ollama,
-            endpoint: "http://127.0.0.1:11434/api/chat".to_owned(),
-            origin: "http://127.0.0.1:11434".to_owned(),
-            model: "llama3.1:8b".to_owned(),
-            temperature: 0.9,
-            reasoning: engine::ReasoningEffort::None,
-            timeout: 120,
-            account: None,
-            on_this_machine: true,
-        })));
-        let away = status_line(&Duty::assigned(Performer::Endpoint(duty::Remote {
-            profile: None,
-            provider: engine::Provider::OpenAiCompatible,
-            endpoint: "https://api.openai.com/v1/chat/completions".to_owned(),
-            origin: "https://api.openai.com".to_owned(),
-            model: "gpt-4o-mini".to_owned(),
-            temperature: 0.9,
-            reasoning: engine::ReasoningEffort::None,
-            timeout: 120,
-            account: Some("https://api.openai.com".to_owned()),
-            on_this_machine: false,
-        })));
+        let nobody = status_line(&Duty::Vacant(duty::Vacancy::NoModelChosen), &Loaded::No);
+        let here = status_line(
+            &Duty::assigned(Performer::Endpoint(duty::Remote {
+                profile: None,
+                provider: engine::Provider::Ollama,
+                endpoint: "http://127.0.0.1:11434/api/chat".to_owned(),
+                origin: "http://127.0.0.1:11434".to_owned(),
+                model: "llama3.1:8b".to_owned(),
+                temperature: 0.9,
+                reasoning: engine::ReasoningEffort::None,
+                timeout: 120,
+                account: None,
+                on_this_machine: true,
+            })),
+            &Loaded::No,
+        );
+        let away = status_line(
+            &Duty::assigned(Performer::Endpoint(duty::Remote {
+                profile: None,
+                provider: engine::Provider::OpenAiCompatible,
+                endpoint: "https://api.openai.com/v1/chat/completions".to_owned(),
+                origin: "https://api.openai.com".to_owned(),
+                model: "gpt-4o-mini".to_owned(),
+                temperature: 0.9,
+                reasoning: engine::ReasoningEffort::None,
+                timeout: 120,
+                account: Some("https://api.openai.com".to_owned()),
+                on_this_machine: false,
+            })),
+            &Loaded::No,
+        );
 
         assert_ne!(nobody, here);
         assert_ne!(nobody, away);
@@ -1319,6 +1414,89 @@ mod tests {
             "the bar did not name where the document would go: {away:?}"
         );
         assert_ne!(here, away, "leaving this machine reads the same as staying");
+
+        // The model on this machine.
+        let machine = Duty::assigned(Performer::Machine(duty::Local {
+            id: "qwen3-4b-instruct-2507-ud-q4".to_owned(),
+            display: "Qwen3 4B Instruct".to_owned(),
+            weights: PathBuf::from("/models/qwen/weights.gguf"),
+            format: wipemark_models::manifest::Format::Gguf,
+            ctx: 8192,
+            vendor: wipemark_core::Vendor::OpenLlm,
+            fit: wipemark_models::host::Fit::Unknown,
+        }));
+        let idle = status_line(&machine, &Loaded::No);
+        let loading = status_line(&machine, &Loaded::Loading);
+        let measured = status_line(
+            &machine,
+            &Loaded::Yes {
+                since: std::time::Instant::now(),
+                resident_mb: Some(4_000),
+            },
+        );
+        let unmeasured = status_line(
+            &machine,
+            &Loaded::Yes {
+                since: std::time::Instant::now(),
+                resident_mb: None,
+            },
+        );
+        let failed = status_line(
+            &machine,
+            &Loaded::Failed(wipemark_engine::Unavailable::NotBuilt),
+        );
+        for line in [&idle, &loading, &measured, &unmeasured, &failed] {
+            assert!(line.contains("Qwen3 4B Instruct"), "{line:?}");
+        }
+        let all = [&idle, &loading, &measured, &unmeasured, &failed];
+        for (i, one) in all.iter().enumerate() {
+            for other in &all[i + 1..] {
+                assert_ne!(one, other, "two states of the model read the same");
+            }
+        }
+        assert!(
+            reads_as(&loading, Message::StatusLocalLoading),
+            "{loading:?}"
+        );
+        // The measured figure, in the Models page's units.
+        assert!(
+            measured.contains(&engine_host::memory_label(4_000)),
+            "{measured:?}"
+        );
+        // Unknown memory is not a number: it is the sentence without one.
+        assert!(
+            reads_as(&unmeasured, Message::StatusLocalLoadedUnmeasured),
+            "an unread memory figure was rendered as one: {unmeasured:?}"
+        );
+        assert!(
+            !unmeasured.contains(&engine_host::memory_label(0)),
+            "{unmeasured:?}"
+        );
+        assert!(reads_as(&failed, Message::StatusLocalFailed), "{failed:?}");
+    }
+
+    /// Whether `line` is `message` rendered in any shipped language, with
+    /// the model's name as its `$model` — the comparison that cannot race
+    /// a test that moves the process's language.
+    fn reads_as(line: &str, message: Message) -> bool {
+        // Both renderings: the process-wide catalogue a test reaches is
+        // whichever one the suite initialised, and only `Ui` isolates an
+        // interpolated value.
+        wipemark_i18n::available_languages().iter().any(|language| {
+            [Rendering::Ui, Rendering::PlainText]
+                .into_iter()
+                .any(|rendering| {
+                    let localizer = wipemark_i18n::Localizer::for_languages(
+                        std::slice::from_ref(&language.id),
+                        rendering,
+                    );
+                    let reason = localizer.format(Message::EngineRefusalNotBuilt);
+                    localizer.format_args(
+                        message,
+                        &args!("model" => "Qwen3 4B Instruct", "reason" => reason),
+                    ) == line
+                })
+        })
     }
 
     #[test]

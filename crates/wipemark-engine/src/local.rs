@@ -12,8 +12,13 @@
 //! model behind it: a build without llama.cpp (`local-llama` without
 //! `llama-native`), a missing weights file and a model larger than the
 //! memory the caller says is available are each
-//! [`EngineError::Unavailable`] naming which, before anything is
-//! generated.
+//! [`EngineError::Unavailable`] carrying an [`Unavailable`] that names
+//! which, before anything is generated — a value, not a sentence (D53).
+//!
+//! The engine never unloads on its own and knows nothing of preferences,
+//! timers or windows: when a model is loaded, kept or dropped is the
+//! application's policy (its `EngineHost`), executed through
+//! [`RewriteEngine::warmup`] and [`RewriteEngine::unload`].
 //!
 //! Nothing here logs a prompt or a completion — only their lengths.
 
@@ -25,11 +30,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 use wipemark_core::Vendor;
-use wipemark_llama::{estimate, refusal, Finish, LlamaError, LoadParams, Model, Sampling};
+use wipemark_llama::{estimate, refusal, Finish, LlamaError, LoadParams, Model, Runtime, Sampling};
 
 use crate::{
     ChatRequest, Completion, EngineError, EngineInfo, FinishReason, RewriteEngine, SamplingParams,
-    TokenSink,
+    TokenSink, Unavailable,
 };
 
 /// top-k for every local request. Not a knob yet: `SamplingParams` has no
@@ -108,7 +113,18 @@ impl LocalEngine {
 }
 
 fn stopped() -> EngineError {
-    EngineError::Unavailable("the local engine's worker has stopped".to_owned())
+    EngineError::Unavailable(Unavailable::Stopped)
+}
+
+/// Whether this process can offload to anything but the CPU.
+///
+/// Registers ggml's backends first if nobody has ([`Runtime::init`] with no
+/// extra directories — the first call wins). That loads every backend
+/// library it finds and scores the CPU variants, so it **blocks**: call it
+/// off the thread that draws a window. A shim build registers nothing and
+/// answers `false`.
+pub fn has_gpu_backend() -> bool {
+    Runtime::init(&[]).has_gpu()
 }
 
 #[async_trait]
@@ -320,14 +336,22 @@ pub fn sampling_of(params: &SamplingParams, n_ctx: u32) -> Sampling {
     }
 }
 
-/// llama.cpp's refusals as the trait's.
+/// llama.cpp's refusals as the trait's: structured where the surface has a
+/// sentence for them, llama.cpp's own words kept as the detail where it
+/// does not.
 fn engine_error(e: LlamaError) -> EngineError {
     match e {
         LlamaError::ContextOverflow { used, limit } => EngineError::ContextOverflow { used, limit },
         LlamaError::Inference(message) => EngineError::Protocol(message),
-        LlamaError::Load(message) => EngineError::Unavailable(message),
-        LlamaError::NotBuilt | LlamaError::NoSuchFile(_) | LlamaError::WouldNotFit { .. } => {
-            EngineError::Unavailable(e.to_string())
+        LlamaError::Load(detail) => EngineError::Unavailable(Unavailable::LoadFailed { detail }),
+        LlamaError::NotBuilt => EngineError::Unavailable(Unavailable::NotBuilt),
+        LlamaError::NoSuchFile(path) => EngineError::Unavailable(Unavailable::NoSuchFile { path }),
+        LlamaError::WouldNotFit { need_mb, have_mb } => {
+            EngineError::Unavailable(Unavailable::WouldNotFit { need_mb, have_mb })
+        }
+        LlamaError::NoBackend { searched } => {
+            tracing::warn!(?searched, "no ggml backend registered");
+            EngineError::Unavailable(Unavailable::NoBackend)
         }
     }
 }
@@ -340,7 +364,7 @@ mod tests {
     use wipemark_llama::LoadParams;
 
     use super::{sampling_of, LocalConfig, LocalEngine, TOP_K};
-    use crate::{ChatRequest, EngineError, RewriteEngine, SamplingParams};
+    use crate::{ChatRequest, EngineError, RewriteEngine, SamplingParams, Unavailable};
 
     fn config(weights: PathBuf) -> LocalConfig {
         LocalConfig {
@@ -374,17 +398,13 @@ mod tests {
             .complete(request(), sink, CancellationToken::new())
             .await;
         match refused {
-            Err(EngineError::Unavailable(why)) => {
-                assert!(why.contains("built without llama.cpp"), "{why}");
-            }
+            Err(EngineError::Unavailable(Unavailable::NotBuilt)) => {}
             other => panic!("a shim build must refuse, got {other:?}"),
         }
         assert!(streamed.is_empty(), "the sink was handed text");
 
         match engine.warmup().await {
-            Err(EngineError::Unavailable(why)) => {
-                assert!(why.contains("built without llama.cpp"), "{why}");
-            }
+            Err(EngineError::Unavailable(Unavailable::NotBuilt)) => {}
             other => panic!("a shim warmup must refuse, got {other:?}"),
         }
     }
@@ -402,8 +422,8 @@ mod tests {
                 .map(Some),
         ] {
             match refused {
-                Err(EngineError::Unavailable(why)) => {
-                    assert!(why.contains("/nonexistent/models/qwen3-4b.gguf"), "{why}");
+                Err(EngineError::Unavailable(Unavailable::NoSuchFile { path })) => {
+                    assert_eq!(path, PathBuf::from("/nonexistent/models/qwen3-4b.gguf"));
                 }
                 other => panic!("a missing file must be refused by name, got {other:?}"),
             }

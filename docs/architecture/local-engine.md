@@ -5,10 +5,12 @@ document leaving it. That is `wipemark_engine::LocalEngine`: a GGUF
 loaded by llama.cpp, owned by one worker thread, cancelled between
 decode steps, refused rather than faked when it cannot run.
 
-It exists and is tested against a real model; **nothing hands it out
-yet**. `duty::engine_for` still refuses (E2-2 wires it, along with the
-app's status bar and the CLI), so no window and no command rewrites
-anything today.
+It exists and is tested against a real model, and the application hands
+it out: `duty::engine_for` turns the machine performer into a
+`LocalEngine`, and `EngineHost` decides when it holds its model (below,
+"Keeping a model"). A window can load the model and **check** it; nothing
+rewrites a document yet — that needs the pipeline (E4) — so no window and
+no command rewrites anything today.
 
 ## Three crates, two of them new
 
@@ -193,8 +195,9 @@ pure: `Some(WouldNotFit { need_mb, have_mb })` when the estimate is
 `LocalEngine` checks, in this order and before llama.cpp allocates
 anything: the file exists; then, when `LocalConfig::available_mb` is
 `Some`, the estimate against it; then the build. `None` is unknown, and
-unknown refuses nothing. What `available_mb` should be is E2-2's
-question.
+unknown refuses nothing. What the application passes is
+`duty::available_mb`: the machine's **total** RAM on unified memory or
+when no GPU backend registered, `None` otherwise (see "Keeping a model").
 
 What the estimate does not count, measured on the live gate (Qwen3 4B
 UD-Q4_K_XL, CPU, `n_ctx` 4096): the test process peaked at **4.16 GB
@@ -205,6 +208,138 @@ file pages. A sliding-window model (Gemma 3) is over-estimated the other
 way: the context is created with `swa_full = false`, but the header does
 not say which layers are windowed, so every layer is counted at the full
 window.
+
+## Keeping a model (E2-2, D51–D56)
+
+`LocalEngine` never unloads on its own and knows nothing of preferences,
+timers or windows. When a model is loaded, kept or dropped is the
+application's policy, in one place: `apps/wipemark-app/src/engine_host.rs`.
+
+### The engine handed out
+
+`duty::engine_for(&Performer, &LocalOptions) -> Result<Arc<dyn
+RewriteEngine>, EngineError>` builds a `LocalEngine` for the machine
+performer — the catalogue id, the verified weights, `LoadParams { n_ctx:
+the catalogue's ctx_default, use_mlock: the lock row, .. }`, and
+`available_mb` — and loads nothing. A build without `local-llama` refuses
+with `Unavailable::NotBuilt`; an endpoint still refuses with
+`NotImplemented` until E2-3. It never returns `FakeEngine`. `Arc`, because
+the host and every handle share one engine.
+
+`available_mb` is `duty::available_mb(host, gpu)`: `Host::total_ram_mb` on
+unified memory or when the process registered no GPU backend, `None`
+otherwise. Total and not available, because the estimate is unreliable in
+both directions — about a third under the real resident memory on a CPU,
+over it for a sliding-window model — so the refusal exists only for a
+model that cannot fit at all. `None` on a discrete card, whose memory no
+portable call can read. Whether a GPU backend registered is asked once,
+with the models scan, on the background executor
+(`wipemark_engine::has_gpu_backend`, which runs `Runtime::init` — it
+dlopens every backend library).
+
+Refusals are values now (D53): `EngineError::Unavailable(Unavailable)`,
+with `NotBuilt`, `NoSuchFile { path }`, `WouldNotFit { need_mb, have_mb }`,
+`NoBackend`, `LoadFailed { detail }`, `Stopped` and `NothingOnDuty`. The
+`Display` form is English and for logs; each variant has a sentence in
+every catalogue (`engine-refusal-*`), and `LoadFailed`'s detail is
+llama.cpp's own words, shown under the sentence and never translated.
+
+### Two modes, and why on demand is the default
+
+| `engine.local.keep` | what happens |
+|---|---|
+| `on_demand` (default) | loaded when a job or a **Check** needs it; unloaded after `engine.local.idle_minutes` (1, 5, **15**, 30, 60) with nothing to do |
+| `resident` | loaded a second or so after launch — once the models scan and the host probe have landed, never before the window is up and never on the GPUI thread — and kept until the application quits or the model changes |
+
+On demand is the default because a loaded 4B holds about four gigabytes
+of this machine, and a user who has not asked for that should get it back
+when nothing is using it. Resident is the user's word: **Unload now** (the
+Engine page, or the menu bar's **Unload model**) still unloads it, and the
+next launch loads it again; nothing else — no timer, and not memory
+pressure — overrides it.
+
+`engine.local.mlock` (off) passes `use_mlock` to llama.cpp; mmap stays on.
+At this pin a lock the system refuses is a warning in llama.cpp's log
+(`failed to mlock …`, routed to `tracing` at warn) and the load carries on
+unlocked.
+
+### `decide`, and its ten rules
+
+The policy is a pure function, tested without a window, a timer or a model:
+
+```rust
+decide(keep: &Keep, loaded: &Loaded, busy: bool, event: Event) -> Vec<Action>
+```
+
+`Event` is `Started`, `DutyChanged`, `JobStarted`, `JobEnded`,
+`IdleElapsed`, `UnloadAsked`, `KeepChanged`, `CheckAsked`; `Action` is
+`Load`, `Unload`, `Swap` (build the engine for the duty as it stands),
+`ArmIdle(d)`, `DisarmIdle`, `Defer(event)` and `Nothing`.
+
+1. `Started`: swap (build the engine); resident → load, on demand → nothing.
+2. `JobStarted`/`CheckAsked` with nothing loaded → load, in both modes.
+3. `JobEnded`: on demand → arm the idle timer; resident → nothing.
+4. `JobStarted` (and a check, which is a job) disarms the timer.
+5. `IdleElapsed`: on demand and idle → unload; resident → nothing (a stale
+   timer from before a switch to resident does nothing).
+6. `UnloadAsked`: unload in both modes, and disarm.
+7. `DutyChanged` (another model, another window, the lock row, an endpoint
+   now on duty): loaded → unload; then swap; then resident → load.
+8. `KeepChanged` to resident → load if not loaded; to on demand while
+   loaded and idle → arm the timer.
+9. A failed load is not retried by a timer; the next explicit `Started`,
+   `CheckAsked`, `DutyChanged` or job tries again.
+10. Busy (a job or a check running) defers an unload and a swap —
+    `Defer(event)`, decided again when the last job ends. Never unload
+    under a running decode.
+
+`EngineHost` is the GPUI entity that executes it: it observes
+`Preferences`, turns what moved into an event (the duty is compared by
+model, weights, window, lock and `available_mb` — not by the `fit`
+verdict, which moves when the probe lands), awaits `warmup`/`unload` from
+`cx.spawn`, holds the idle timer as a `Task` dropped to disarm, and drops
+the engine when the application quits. It lives in a `Hosted` global,
+because the status bar, the Engine page and the menu bar all read it and
+none of them can see the others.
+
+### What the Check proves, and what it does not (D54)
+
+**Check** loads the model if needed and generates up to 16 tokens from a
+fixed prompt ("Count from one to twenty in words, separated by spaces.",
+temperature 0), and shows the load time, tokens per second after the first
+piece, and at most 80 characters of the answer — as the model's output.
+The plan named "Reply with the single word: ready."; an instruction model
+answers that in one token, and one token has no speed, so the check counts
+instead and always reaches its ceiling. On this machine (Ryzen 5 2600X,
+CPU) the Qwen3 4B loads in about 2.5 s and answers "one two three … " in
+16 tokens; the process holds about 4.4 GB once it is loaded and about
+65 MB again after **Unload now** (`a_real_model_answers_the_check_and_gives_its_memory_back`,
+an ignored native test). It proves the
+weights load and decode on this machine at that speed. It does not prove
+anything about rewriting: no Layer A, no guards, no document, and the page
+says so under the button. The text is never logged; its length is.
+
+### Memory is measured (D55)
+
+The figure shown for a loaded model is the **process's** resident memory,
+read with `sysinfo` after the load, with the model's name beside it — not
+`MemEstimate`, which this machine measured at about a third under. It is
+the whole process (the window included), and it says so ("Wipemark holds
+…"). VRAM is not shown: no backend this build links reports it, and an
+unknown is not a number.
+
+### Deferred
+
+* **Memory-pressure unloading** (D51's last clause): a macOS dispatch
+  source, platform code this Linux machine cannot compile or check. It
+  moves to the first step run on a Mac (D55).
+* **The MCP/CLI route** (D52, D56): `EngineHandle` (`Send + Sync + Clone`)
+  runs a job through the same busy count and events, and the MCP server
+  holds one from startup — but no tool calls it. The MCP `rewrite` tool
+  lands with the pipeline (E4), the CLI's routing to the running
+  application with its `rewrite` (E5): a model's raw output handed to
+  anybody as a cleaned document is the failure this product exists to
+  avoid.
 
 ## What was left behind, and why
 

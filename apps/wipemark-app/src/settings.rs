@@ -95,9 +95,12 @@ use crate::compare::Comparison;
 use crate::config::{self, SettingsStore};
 use crate::dialog::{Answer, Chosen, Confirm, Naming};
 use crate::diff::Grain;
-use crate::duty::{self, Duty, OnDisk, Performer, Roster, Serves, Vacancy};
+use crate::duty::{self, Duty, LocalOptions, OnDisk, Performer, Roster, Serves, Vacancy};
 use crate::engine::{
     self, BaseUrl, Choice, EngineSettings, KeyState, Provider, ReasoningEffort, Refusal,
+};
+use crate::engine_host::{
+    self, Check, CheckOutcome, EngineHandle, EngineHost, Keeping, Loaded, LocalPolicy, IDLE_MINUTES,
 };
 use crate::hotkey::{self, Hotkey, Registration};
 use crate::icon::{Icon, IconName};
@@ -333,6 +336,9 @@ pub enum Setting {
     CompareGrain,
     CompareFollow,
     EngineServes,
+    EngineKeep,
+    EngineIdle,
+    EngineLock,
     EngineProfile,
     EngineProvider,
     EngineEndpoint,
@@ -386,7 +392,7 @@ impl Setting {
     ///
     /// The Compare rows put what is *marked* before how the two sides
     /// *move*: a reader opens the window for the marks.
-    pub const ALL: [Setting; 29] = [
+    pub const ALL: [Setting; 32] = [
         Self::Appearance,
         Self::Language,
         Self::ShortcutShow,
@@ -397,6 +403,9 @@ impl Setting {
         Self::CompareGrain,
         Self::CompareFollow,
         Self::EngineServes,
+        Self::EngineKeep,
+        Self::EngineIdle,
+        Self::EngineLock,
         Self::EngineProfile,
         Self::EngineProvider,
         Self::EngineEndpoint,
@@ -429,6 +438,9 @@ impl Setting {
             Self::WindowScreen | Self::CloseAfterDrop => Section::Placement,
             Self::CompareGrain | Self::CompareFollow => Section::Compare,
             Self::EngineServes
+            | Self::EngineKeep
+            | Self::EngineIdle
+            | Self::EngineLock
             | Self::EngineProfile
             | Self::EngineProvider
             | Self::EngineEndpoint
@@ -461,6 +473,9 @@ impl Setting {
             Self::CompareGrain => Message::SettingsCompareGrainTitle,
             Self::CompareFollow => Message::SettingsCompareFollowTitle,
             Self::EngineServes => Message::SettingsEngineServesTitle,
+            Self::EngineKeep => Message::SettingsEngineKeepTitle,
+            Self::EngineIdle => Message::SettingsEngineIdleTitle,
+            Self::EngineLock => Message::SettingsEngineLockTitle,
             Self::EngineProfile => Message::SettingsEngineProfileTitle,
             Self::EngineProvider => Message::SettingsEngineProviderTitle,
             Self::EngineEndpoint => Message::SettingsEngineEndpointTitle,
@@ -504,6 +519,9 @@ impl Setting {
             Self::CompareGrain => Message::SettingsCompareGrainDescription,
             Self::CompareFollow => Message::SettingsCompareFollowDescription,
             Self::EngineServes => Message::SettingsEngineServesDescription,
+            Self::EngineKeep => Message::SettingsEngineKeepDescription,
+            Self::EngineIdle => Message::SettingsEngineIdleDescription,
+            Self::EngineLock => Message::SettingsEngineLockDescription,
             Self::EngineProfile => Message::SettingsEngineProfileDescription,
             Self::EngineProvider => Message::SettingsEngineProviderDescription,
             Self::EngineEndpoint => Message::SettingsEngineEndpointDescription,
@@ -523,6 +541,15 @@ impl Setting {
             Self::ServeOverMcp => Message::SettingsMcpEnabledDescription,
             Self::McpBind => Message::SettingsMcpBindDescription,
             Self::McpPort => Message::SettingsMcpPortDescription,
+        }
+    }
+
+    /// A caption over the row, for the one row that is set apart from
+    /// the rows above it.
+    pub fn caption(self) -> Option<Message> {
+        match self {
+            Self::EngineLock => Some(Message::SettingsEngineAdvanced),
+            _ => None,
         }
     }
 
@@ -553,6 +580,9 @@ impl Setting {
             Self::CompareGrain => Storage::Row(config::COMPARE_GRAIN_KEY),
             Self::CompareFollow => Storage::Row(config::COMPARE_FOLLOW_KEY),
             Self::EngineServes => Storage::Row(config::ENGINE_SERVES_KEY),
+            Self::EngineKeep => Storage::Row(config::ENGINE_LOCAL_KEEP_KEY),
+            Self::EngineIdle => Storage::Row(config::ENGINE_LOCAL_IDLE_KEY),
+            Self::EngineLock => Storage::Row(config::ENGINE_LOCAL_MLOCK_KEY),
             Self::EngineProfile => Storage::Row(config::ENGINE_PROFILE_KEY),
             Self::EngineProvider => Storage::Row(config::ENGINE_PROVIDER_KEY),
             Self::EngineEndpoint => Storage::Row(config::ENGINE_BASE_URL_KEY),
@@ -808,6 +838,14 @@ pub struct Preferences {
     /// profile names an endpoint, and whether an endpoint is asked at
     /// all is not the endpoint's business.
     serves: Serves,
+    /// How long the model on this machine is kept, and whether it is
+    /// locked in RAM — the three `engine.local.*` rows. Read by the
+    /// `EngineHost`, which is where they take effect.
+    local: LocalPolicy,
+    /// Whether a ggml backend other than the CPU registered — `None` until
+    /// the backends have been loaded with the scan, and always in a build
+    /// without the local engine. See `duty::available_mb`.
+    gpu: Option<bool>,
     /// Which screen a window opens on. One answer for every window,
     /// which is why it is a row and a radio button.
     onto: Onto,
@@ -930,6 +968,10 @@ impl Preferences {
     /// have to reach this entity from a plain thread. `flume` is the
     /// channel that spans the two executors — the same arrangement
     /// every long operation in this product uses.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "each is gathered by `main` before the window exists; a struct of them would be a second `Stored`"
+    )]
     pub fn new(
         stored: config::Stored,
         store: SettingsStore,
@@ -937,6 +979,7 @@ impl Preferences {
         models_default: PathBuf,
         homes: Homes,
         pinned: Option<String>,
+        engine_handle: EngineHandle,
         cx: &Context<Self>,
     ) -> Self {
         let config::Stored {
@@ -950,6 +993,7 @@ impl Preferences {
             rewrite_model,
             models_dir,
             serves,
+            local,
             hotkeys,
             onto,
             close_after_drop,
@@ -959,7 +1003,10 @@ impl Preferences {
             comparison,
         } = stored;
         let (events, heard) = flume::unbounded();
-        let supervisor = Supervisor::spawn(events);
+        // The server holds a way to the engine from the start (D56): no
+        // tool calls it until the pipeline puts Layer A and the guards
+        // around a model, but the road is built and tested now.
+        let supervisor = Supervisor::spawn(events, engine_handle);
 
         cx.spawn(async move |preferences, cx| {
             while let Ok(event) = heard.recv_async().await {
@@ -1041,6 +1088,10 @@ impl Preferences {
             scans: 0,
             store,
             serves,
+            local,
+            // Asked with the scan, off this thread: registering the
+            // backends loads every one of their libraries.
+            gpu: None,
             onto,
             close_after_drop,
             spots,
@@ -1524,6 +1575,51 @@ impl Preferences {
         self.serves
     }
 
+    /// The local model's three rows.
+    pub fn local_policy(&self) -> LocalPolicy {
+        self.local
+    }
+
+    /// How the machine's engine would be built now.
+    pub fn local_options(&self) -> LocalOptions {
+        LocalOptions {
+            lock: self.local.lock,
+            host: self.host,
+            gpu: self.gpu,
+        }
+    }
+
+    /// Load when needed, or keep loaded.
+    pub fn select_keeping(&mut self, keeping: Keeping, cx: &mut Context<Self>) {
+        if self.local.keeping == keeping {
+            return;
+        }
+        self.local.keeping = keeping;
+        cx.notify();
+        self.persist(cx, move |store| config::write_local_keep(store, keeping));
+    }
+
+    /// How many idle minutes unload an on-demand model.
+    pub fn select_idle(&mut self, minutes: u32, cx: &mut Context<Self>) {
+        if self.local.idle_minutes == minutes || !IDLE_MINUTES.contains(&minutes) {
+            return;
+        }
+        self.local.idle_minutes = minutes;
+        cx.notify();
+        self.persist(cx, move |store| config::write_local_idle(store, minutes));
+    }
+
+    /// Lock the model in RAM, or not. Takes effect at the next load: the
+    /// engine is rebuilt with it, and a loaded model is unloaded first.
+    pub fn select_lock(&mut self, lock: bool, cx: &mut Context<Self>) {
+        if self.local.lock == lock {
+            return;
+        }
+        self.local.lock = lock;
+        cx.notify();
+        self.persist(cx, move |store| config::write_local_mlock(store, lock));
+    }
+
     /// The catalogue this build ships.
     pub fn catalogue(&self) -> &Manifest {
         &self.catalogue
@@ -1723,6 +1819,7 @@ impl Preferences {
                 .background_executor()
                 .spawn(async move {
                     let host = Host::probe();
+                    let gpu = gpu_backend();
                     let states: BTreeMap<String, State> = entries
                         .iter()
                         .map(|entry| (entry.id.clone(), models.state(entry)))
@@ -1744,7 +1841,7 @@ impl Preferences {
                         wipemark_models::scan::weights_under(models.models_dir()),
                         |path| weights.values().any(|ours| ours == path),
                     );
-                    (host, states, weights, folder)
+                    (host, gpu, states, weights, folder)
                 })
                 .await;
 
@@ -1755,8 +1852,9 @@ impl Preferences {
                     if preferences.scans != mine {
                         return;
                     }
-                    let (host, states, weights, folder) = found;
+                    let (host, gpu, states, weights, folder) = found;
                     preferences.host = Some(host);
+                    preferences.gpu = gpu;
                     preferences.installed = states;
                     preferences.weights = weights;
                     preferences.folder = folder;
@@ -1791,15 +1889,16 @@ impl Preferences {
             return;
         };
         let about = performer.info();
+        // Not `engine_for` here: building an engine starts a worker
+        // thread, and a log line is not a reason to. The `EngineHost`
+        // logs what it built, or why it could not, when it builds it.
         tracing::info!(
             role = Role::Rewrite.id(),
             vendor = about.vendor.as_str(),
             model = about.model_id,
             ctx = ?about.ctx_len,
             stays_here = performer.stays_on_this_machine(),
-            // `Ok` the day E2 lands, and this line is then the one that
-            // says so.
-            engine = ?duty::engine_for(performer).err(),
+            local = ?self.local,
             "on duty to rewrite"
         );
     }
@@ -2561,6 +2660,29 @@ impl Preferences {
     }
 }
 
+/// Whether a ggml backend other than the CPU registered.
+///
+/// Blocks — it registers the backends, which loads every one of their
+/// libraries — so it runs with the scan on the background executor. A
+/// build without the local engine has no backends to ask about.
+#[cfg_attr(
+    feature = "local-llama",
+    allow(
+        clippy::unnecessary_wraps,
+        reason = "one signature for both builds; the one without the local engine has no answer"
+    )
+)]
+fn gpu_backend() -> Option<bool> {
+    #[cfg(feature = "local-llama")]
+    {
+        Some(wipemark_engine::has_gpu_backend())
+    }
+    #[cfg(not(feature = "local-llama"))]
+    {
+        None
+    }
+}
+
 /// The one dialog a Settings window can have open.
 ///
 /// Two variants rather than a boxed `AnyView` so that closing one is a
@@ -2723,6 +2845,11 @@ struct SettingsView {
     results_shown: PathBuf,
     /// How long a kept copy stays. A dropdown of five fixed spans.
     period_select: Entity<SelectState<Vec<Choice<Period>>>>,
+    /// How many idle minutes unload an on-demand model. Five fixed spans.
+    idle_select: Entity<SelectState<Vec<Choice<u32>>>>,
+    /// The engine host, for the Engine page's local-model block — `None`
+    /// only where nothing installed one.
+    host: Option<Entity<EngineHost>>,
     /// Which section the sidebar has selected. View state and not a
     /// preference: it is where the user is, not what they chose, and a
     /// window that reopens on the page you last visited rather than the
@@ -2759,6 +2886,9 @@ struct SettingsView {
     _timeout: Subscription,
     _results_folder: Subscription,
     _period: Subscription,
+    _idle: Subscription,
+    /// Repaints the page when the model loads, unloads or is checked.
+    _host: Option<Subscription>,
     _preferences: Subscription,
     _geometry: Subscription,
     _activation: Subscription,
@@ -3239,6 +3369,34 @@ impl SettingsView {
             },
         );
 
+        let idle_select = cx.new(|cx| {
+            let choices = idle_choices();
+            let minutes = preferences.read(cx).local_policy().idle_minutes;
+            let row = engine::row_of(&choices, &minutes).map(IndexPath::new);
+            SelectState::new(choices, row, window, cx)
+        });
+
+        let chose_idle = cx.subscribe_in(
+            &idle_select,
+            window,
+            |view, _, event: &SelectEvent<Vec<Choice<u32>>>, _, cx| {
+                let SelectEvent::Confirm(value) = event;
+                let Some(value) = value else {
+                    return;
+                };
+                if let Some(minutes) = engine::from_value(&idle_choices(), value) {
+                    view.preferences.update(cx, |preferences, cx| {
+                        preferences.select_idle(minutes, cx);
+                    });
+                }
+            },
+        );
+
+        let host = engine_host::hosted(cx);
+        let watched_host = host
+            .as_ref()
+            .map(|host| cx.observe(host, |_, _, cx| cx.notify()));
+
         // The first moment anything needs to know whether a key is
         // stored, and the reason `Preferences::new` deliberately did
         // not ask: the read blocks and, for an unsigned build, prompts.
@@ -3352,6 +3510,8 @@ impl SettingsView {
             results_folder: results_field,
             results_shown,
             period_select,
+            idle_select,
+            host,
             section: at.unwrap_or(Section::General),
             client: Client::ClaudeCode,
             copied: false,
@@ -3374,6 +3534,8 @@ impl SettingsView {
             _timeout: typed_timeout,
             _results_folder: typed_results,
             _period: chose_period,
+            _idle: chose_idle,
+            _host: watched_host,
             _preferences: observed,
             _geometry: geometry,
             _activation: activation,
@@ -3459,6 +3621,14 @@ impl SettingsView {
             select.set_selected_index(row, window, cx);
         });
 
+        let minutes = self.preferences.read(cx).local_policy().idle_minutes;
+        let choices = idle_choices();
+        let row = engine::row_of(&choices, &minutes).map(IndexPath::new);
+        self.idle_select.update(cx, |select, cx| {
+            select.set_items(choices, window, cx);
+            select.set_selected_index(row, window, cx);
+        });
+
         // Not a row label, but the one string inside a control that
         // would otherwise stay in the language the window opened in.
         self.api_key.update(cx, |field, cx| {
@@ -3523,6 +3693,13 @@ impl SettingsView {
                 // Between the rows and never above the first one: the
                 // heading above already draws that line.
                 .when(index > 0, |row| row.border_t_1().border_color(border))
+                .children(setting.caption().map(|caption| {
+                    div()
+                        .text_xs()
+                        .font_semibold()
+                        .text_color(muted)
+                        .child(SharedString::from(t(caption)))
+                }))
                 .child(
                     h_flex()
                         .gap_6()
@@ -3581,6 +3758,9 @@ impl SettingsView {
             Setting::CompareGrain => self.grain_choice(cx).into_any_element(),
             Setting::CompareFollow => self.follow_switch(cx).into_any_element(),
             Setting::EngineServes => self.serves_selector().into_any_element(),
+            Setting::EngineKeep => self.keep_choice(cx).into_any_element(),
+            Setting::EngineIdle => self.idle_selector(cx).into_any_element(),
+            Setting::EngineLock => self.lock_switch(cx).into_any_element(),
             Setting::EngineProfile => self.profile_control(cx).into_any_element(),
             Setting::EngineProvider => self.provider_selector().into_any_element(),
             Setting::EngineEndpoint => self.endpoint_control(cx).into_any_element(),
@@ -4159,7 +4339,185 @@ impl SettingsView {
                 cx,
             ))
             .child(self.state_of_the_engine(cx))
+            .child(self.local_model(cx))
             .child(self.rows(Section::Engine, cx))
+    }
+
+    /// The model on this machine: whether it is in memory, how much the
+    /// process holds, **Unload now**, and **Check** with what it found.
+    ///
+    /// Between the banner and the rows, rather than inside a row: it is a
+    /// state with two buttons and a result, and the 240 px control column
+    /// would wrap every one of its sentences. The three rows that decide
+    /// it are directly under "Who rewrites", below.
+    fn local_model(&self, cx: &Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let muted = theme.muted_foreground;
+        let border = theme.border;
+        let background = theme.muted;
+        let Some(host) = self.host.clone() else {
+            return div().into_any_element();
+        };
+        let preferences = self.preferences.read(cx);
+        let duty = preferences.duty(Role::Rewrite);
+        let keeping = preferences.local_policy().keeping;
+        let (here, file) = match duty.performer() {
+            Some(Performer::Machine(local)) => (
+                true,
+                match preferences.model_state(&local.id) {
+                    State::Present { bytes } => Some(bytes),
+                    _ => None,
+                },
+            ),
+            _ => (false, None),
+        };
+        let state = host.read(cx);
+        let (tone, lines) = local_status(
+            here,
+            state.model(),
+            state.loaded(),
+            state
+                .loaded_at()
+                .map(|at| at.format("%H:%M").to_string())
+                .as_deref(),
+            keeping,
+            file,
+        );
+        let checked = check_lines(state.check());
+        let running = matches!(state.check(), Check::Running { .. });
+        let can_unload = state.loaded().holds();
+        let can_check = here && state.can_load() && !running;
+        let tray = cx.try_global::<Tray>().is_some();
+
+        let unloading = host.clone();
+        let checking = host.clone();
+        let cancelling = host;
+        v_flex()
+            .gap_2()
+            .p_3()
+            .rounded_md()
+            .border_1()
+            .border_color(border)
+            .bg(background)
+            .text_xs()
+            .child(
+                div()
+                    .font_semibold()
+                    .child(SharedString::from(t(Message::SettingsEngineLocalTitle))),
+            )
+            .child(
+                v_flex()
+                    .gap_1()
+                    .children(lines.into_iter().enumerate().map(|(index, line)| {
+                        div()
+                            .text_color(if index == 0 { tone.colour(cx) } else { muted })
+                            .child(SharedString::from(line))
+                    })),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Button::new("engine-unload")
+                            .small()
+                            .outline()
+                            .label(SharedString::from(t(Message::SettingsEngineLocalUnload)))
+                            .tooltip(SharedString::from(t(if can_unload {
+                                Message::SettingsEngineLocalUnloadTooltip
+                            } else {
+                                Message::SettingsEngineLocalUnloadDisabled
+                            })))
+                            .disabled(!can_unload)
+                            .on_click(move |_, _, cx| {
+                                unloading.update(cx, |host, cx| host.unload_now(cx));
+                            }),
+                    )
+                    .child(
+                        Button::new("engine-check")
+                            .small()
+                            .outline()
+                            .label(SharedString::from(t(Message::SettingsEngineLocalCheck)))
+                            .tooltip(SharedString::from(t(
+                                Message::SettingsEngineLocalCheckTooltip,
+                            )))
+                            .disabled(!can_check)
+                            .on_click(move |_, _, cx| {
+                                checking.update(cx, |host, cx| host.run_check(cx));
+                            }),
+                    )
+                    .when(running, |row| {
+                        row.child(
+                            Button::new("engine-check-cancel")
+                                .small()
+                                .ghost()
+                                .label(SharedString::from(t(
+                                    Message::SettingsEngineLocalCheckCancel,
+                                )))
+                                .on_click(move |_, _, cx| {
+                                    cancelling.read(cx).cancel_check();
+                                }),
+                        )
+                    }),
+            )
+            .children(
+                checked
+                    .into_iter()
+                    .map(|line| div().child(SharedString::from(line))),
+            )
+            .child(
+                div()
+                    .text_color(muted)
+                    .child(SharedString::from(t(Message::SettingsEngineLocalCheckNote))),
+            )
+            .when(keeping == Keeping::Resident && !tray, |card| {
+                card.child(
+                    div()
+                        .text_color(muted)
+                        .child(SharedString::from(t(Message::SettingsEngineLocalNoTray))),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// Load when needed, or keep loaded: two radio buttons.
+    fn keep_choice(&self, cx: &Context<Self>) -> impl IntoElement {
+        let current = self.preferences.read(cx).local_policy().keeping;
+        RadioGroup::vertical("engine-keep")
+            .selected_index(Keeping::ALL.iter().position(|k| *k == current))
+            .children(
+                Keeping::ALL.map(|keeping| Radio::new(keeping.id()).label(t(keeping.title()))),
+            )
+            .on_click(cx.listener(|view, index: &usize, _, cx| {
+                let Some(keeping) = Keeping::ALL.get(*index).copied() else {
+                    return;
+                };
+                view.preferences.update(cx, |preferences, cx| {
+                    preferences.select_keeping(keeping, cx);
+                });
+            }))
+    }
+
+    /// The idle span. Disabled while the model is kept loaded, when it
+    /// means nothing.
+    fn idle_selector(&self, cx: &Context<Self>) -> impl IntoElement {
+        let resident = self.preferences.read(cx).local_policy().keeping == Keeping::Resident;
+        Select::new(&self.idle_select)
+            .small()
+            .menu_width(CONTROL_COLUMN)
+            .disabled(resident)
+    }
+
+    /// The switch that locks the model in RAM.
+    fn lock_switch(&self, cx: &Context<Self>) -> impl IntoElement {
+        let lock = self.preferences.read(cx).local_policy().lock;
+        Switch::new("engine-lock")
+            .checked(lock)
+            .on_click(cx.listener(|view, lock: &bool, _, cx| {
+                let lock = *lock;
+                view.preferences.update(cx, |preferences, cx| {
+                    preferences.select_lock(lock, cx);
+                });
+            }))
     }
 
     /// The banner at the top of the Engine page.
@@ -6339,6 +6697,148 @@ fn vacancy_line(vacancy: &Vacancy) -> (IconName, Tone, String) {
     }
 }
 
+/// The idle spans, as the dropdown lists them.
+fn idle_choices() -> Vec<Choice<u32>> {
+    IDLE_MINUTES
+        .into_iter()
+        .map(|minutes| {
+            Choice::new(
+                minutes,
+                t_args(
+                    Message::SettingsEngineIdleMinutes,
+                    &args!("count" => minutes),
+                ),
+                minutes.to_string(),
+            )
+        })
+        .collect()
+}
+
+/// The local-model block's state, as values: a tone and its lines.
+///
+/// A free function over values, like the banners, so the sentences can be
+/// checked without a window. Memory is the process's, measured (D55), and
+/// is shown only when it was read; nothing here says a word about
+/// rewriting, because nothing rewrites.
+fn local_status(
+    here: bool,
+    model: Option<&str>,
+    loaded: &Loaded,
+    since: Option<&str>,
+    keeping: Keeping,
+    file: Option<u64>,
+) -> (Tone, Vec<String>) {
+    let Some(model) = model.filter(|_| here) else {
+        return (Tone::Quiet, vec![t(Message::SettingsEngineLocalNotHere)]);
+    };
+    let model = model.to_owned();
+    let since = since.unwrap_or("").to_owned();
+    match loaded {
+        Loaded::No => {
+            let mut lines = vec![t_args(
+                Message::SettingsEngineLocalNotLoaded,
+                &args!("model" => model),
+            )];
+            if keeping == Keeping::Resident {
+                lines.push(t(Message::SettingsEngineLocalResidentAgain));
+            }
+            (Tone::Quiet, lines)
+        }
+        Loaded::Loading => (
+            Tone::Quiet,
+            vec![t_args(
+                Message::SettingsEngineLocalLoading,
+                &args!("model" => model),
+            )],
+        ),
+        Loaded::Yes { resident_mb, .. } => {
+            let mut lines = vec![match resident_mb {
+                Some(mb) => t_args(
+                    Message::SettingsEngineLocalLoaded,
+                    &args!(
+                        "model" => model,
+                        "ram" => engine_host::memory_label(*mb),
+                        "since" => since,
+                    ),
+                ),
+                None => t_args(
+                    Message::SettingsEngineLocalLoadedUnmeasured,
+                    &args!("model" => model, "since" => since),
+                ),
+            }];
+            // The file beside the measurement (D55): the two are what a
+            // reader compares, and neither is the estimate.
+            lines.extend(file.map(|bytes| {
+                t_args(
+                    Message::SettingsEngineLocalFile,
+                    &args!("size" => models::bytes_label(bytes)),
+                )
+            }));
+            (Tone::Good, lines)
+        }
+        Loaded::Failed(why) => {
+            let mut lines = vec![t_args(
+                Message::SettingsEngineLocalFailed,
+                &args!("reason" => engine_host::refusal_line(why)),
+            )];
+            lines.extend(engine_host::refusal_detail(why).map(str::to_owned));
+            (Tone::Warn, lines)
+        }
+    }
+}
+
+/// What the last check found, as lines.
+///
+/// The model's words are shown as its output — quoted, at most eighty
+/// characters — and never as a rewrite of anything (D54).
+fn check_lines(check: &Check) -> Vec<String> {
+    match check {
+        Check::Idle => Vec::new(),
+        Check::Running { .. } => vec![t(Message::SettingsEngineLocalChecking)],
+        Check::Done(CheckOutcome::Answered {
+            load_ms,
+            tokens,
+            per_second,
+            text,
+        }) => {
+            let mut lines = vec![t_args(
+                Message::SettingsEngineLocalCheckAnswered,
+                &args!("text" => text.clone()),
+            )];
+            if let Some(ms) = load_ms {
+                lines.push(t_args(
+                    Message::SettingsEngineLocalCheckLoad,
+                    &args!("seconds" => format!("{:.1}", *ms as f64 / 1000.0)),
+                ));
+            }
+            lines.push(match per_second {
+                Some(rate) => t_args(
+                    Message::SettingsEngineLocalCheckSpeed,
+                    &args!("tokens" => tokens.to_string(), "rate" => format!("{rate:.1}")),
+                ),
+                None => t_args(
+                    Message::SettingsEngineLocalCheckSpeedUnknown,
+                    &args!("tokens" => tokens.to_string()),
+                ),
+            });
+            lines
+        }
+        Check::Done(CheckOutcome::Refused(why)) => {
+            let mut lines = vec![t_args(
+                Message::SettingsEngineLocalCheckFailed,
+                &args!("reason" => engine_host::refusal_line(why)),
+            )];
+            lines.extend(engine_host::refusal_detail(why).map(str::to_owned));
+            lines
+        }
+        Check::Done(CheckOutcome::Failed(reason)) => vec![t_args(
+            Message::SettingsEngineLocalCheckFailed,
+            &args!("reason" => reason.clone()),
+        )],
+        Check::Done(CheckOutcome::Cancelled) => vec![t(Message::SettingsEngineLocalCheckCancelled)],
+    }
+}
+
 /// The MCP page's banner, as values: what is running, and what the
 /// tools do. The last line never changes with the server — it is what
 /// the tools are, not what the socket is doing.
@@ -7558,6 +8058,110 @@ mod tests {
             .format(message)
                 == line
         })
+    }
+
+    /// The local-model block says what is in memory: the measured figure
+    /// when there is one and no figure at all when there is not, the file
+    /// beside it, the refusal's own sentence with llama.cpp's words under
+    /// it — and after an unload, that "keep loaded" is still the answer.
+    #[test]
+    fn the_local_block_shows_memory_only_when_it_was_measured() {
+        let model = Some("Qwen3 4B Instruct");
+        let measured = Loaded::Yes {
+            since: std::time::Instant::now(),
+            resident_mb: Some(4_000),
+        };
+        let unmeasured = Loaded::Yes {
+            since: std::time::Instant::now(),
+            resident_mb: None,
+        };
+        let (tone, lines) = local_status(
+            true,
+            model,
+            &measured,
+            Some("14:05"),
+            Keeping::OnDemand,
+            Some(2_546_340_960),
+        );
+        assert_eq!(tone, Tone::Good);
+        assert!(
+            lines[0].contains(&engine_host::memory_label(4_000)),
+            "{lines:?}"
+        );
+        assert!(lines[0].contains("14:05"), "{lines:?}");
+        assert!(
+            lines[1].contains(&models::bytes_label(2_546_340_960)),
+            "{lines:?}"
+        );
+
+        let (_, lines) = local_status(
+            true,
+            model,
+            &unmeasured,
+            Some("14:05"),
+            Keeping::OnDemand,
+            None,
+        );
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            !lines[0].contains(&engine_host::memory_label(0)),
+            "an unread figure was shown as a number: {lines:?}"
+        );
+
+        let (tone, lines) = local_status(
+            true,
+            model,
+            &Loaded::Failed(wipemark_engine::Unavailable::LoadFailed {
+                detail: "llama_model_load_from_file returned null".to_owned(),
+            }),
+            None,
+            Keeping::OnDemand,
+            None,
+        );
+        assert_eq!(tone, Tone::Warn);
+        assert_eq!(lines[1], "llama_model_load_from_file returned null");
+
+        let (_, resident) = local_status(true, model, &Loaded::No, None, Keeping::Resident, None);
+        let (_, on_demand) = local_status(true, model, &Loaded::No, None, Keeping::OnDemand, None);
+        assert_eq!(
+            resident.len(),
+            2,
+            "unloaded under keep-loaded says it comes back"
+        );
+        assert_eq!(on_demand.len(), 1);
+
+        // Not on duty here: one quiet line, and no model named.
+        let (tone, lines) = local_status(false, model, &measured, None, Keeping::OnDemand, None);
+        assert_eq!(tone, Tone::Quiet);
+        assert!(!lines[0].contains("Qwen3"), "{lines:?}");
+    }
+
+    /// A check's answer is the model's words and its timing; nothing in
+    /// what the block says about it calls it a rewrite.
+    #[test]
+    fn a_check_reports_what_it_measured() {
+        assert!(check_lines(&Check::Idle).is_empty());
+        let lines = check_lines(&Check::Done(CheckOutcome::Answered {
+            load_ms: Some(2_400),
+            tokens: 3,
+            per_second: Some(10.4),
+            text: "ready".to_owned(),
+        }));
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[0].contains("ready"), "{lines:?}");
+        assert!(lines[1].contains("2.4"), "{lines:?}");
+        assert!(lines[2].contains("10.4"), "{lines:?}");
+        let already = check_lines(&Check::Done(CheckOutcome::Answered {
+            load_ms: None,
+            tokens: 1,
+            per_second: None,
+            text: "ready".to_owned(),
+        }));
+        assert_eq!(
+            already.len(),
+            2,
+            "no load line for a model already loaded: {already:?}"
+        );
     }
 
     /// The Placement page's banner keeps the same bargain the Engine,

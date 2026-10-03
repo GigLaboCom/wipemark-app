@@ -18,8 +18,11 @@ so out loud wherever a user could mistake them for present — see
 `docs/architecture/skeleton.md` and `docs/architecture/layer-a.md`
 before assuming anything works. Of Layer B, the local engine exists —
 llama.cpp in `wipemark-llama{,-sys}` and `wipemark_engine::LocalEngine`
-behind `local-llama`, tested against a real GGUF — but nothing calls it
-yet (E2-2), so nothing rewrites; see `docs/architecture/local-engine.md`.
+behind `local-llama`, tested against a real GGUF — and the application
+hands it out: the windows can **load** the chosen model, keep it or let it
+go by the owner's policy (`EngineHost`), and **check** that it writes —
+but nothing rewrites a document yet (that is the pipeline, E4); see
+`docs/architecture/local-engine.md`.
 
 ## First command after any clone or submodule update
 
@@ -70,6 +73,7 @@ laptop — and what no gate above performs:
 cargo check --workspace --no-default-features --locked
 cargo check --workspace --features local-llama --locked
 cargo test  -p wipemark-engine --features local-llama --locked
+cargo test  -p wipemark-app    --features local-llama --locked
 ```
 
 `local-llama` compiles `LocalEngine` over a shim that refuses every
@@ -77,7 +81,8 @@ load — no cmake, no libclang, which the CI image has neither of — so it
 proves the local engine's Rust surface builds, that the feature still
 *resolves* through app/cli → pipeline → engine (a forwarded feature with
 a typo in the crate name compiles perfectly until the day someone
-enables it), and, with the third line, that the shim's refusals hold.
+enables it), and, with the last two lines, that the shim's refusals hold
+and that `duty::engine_for` hands out a `LocalEngine` rather than a fake.
 `cargo test --workspace` does not enable it.
 
 **None of the gates above compiles llama.cpp.** The `ffi` module and the
@@ -187,7 +192,8 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `clipboard.rs` | the clipboard, watched: what the Paste button says it would paste, and what it takes when pressed |
 | `settings.rs` | the Settings window: sections, rows, and the `Preferences` entity every page reads |
 | `config.rs` | every preference as a row in `wipemark.db` |
-| `duty.rs` | who rewrites — an endpoint or this machine — and in what order |
+| `duty.rs` | who rewrites — an endpoint or this machine — and in what order; `engine_for`, where that becomes an engine |
+| `engine_host.rs` | when the model on this machine is in memory: the keep policy (`decide`), the `EngineHost` that executes it, the Check, and the `EngineHandle` other threads reach it through |
 | `engine.rs` | the Layer B endpoint vocabulary and its refusals |
 | `profile.rs` | endpoint settings saved under a name |
 | `models.rs` | the Models page's vocabulary, the recommendation, the adoption |
@@ -901,9 +907,12 @@ Anything that needed more than a rule to explain is in `docs/`;
   the session and writes no row: applying would edit preferences a
   different launch set, and a name nobody saved is a refusal rather than
   a quiet substitution. `engine_for` is where a decision becomes a
-  `RewriteEngine`; until E2 it refuses and names the epic, and it never
-  falls back to `FakeEngine` — plausible text with no model behind it is
-  a document filed as rewritten by a rewriter that never ran.
+  `RewriteEngine`: the machine becomes a `LocalEngine` (built, not
+  loaded) in a build with `local-llama` and `Unavailable::NotBuilt`
+  without; an endpoint refuses until E2-3. It never falls back to
+  `FakeEngine` — plausible text with no model behind it is a document
+  filed as rewritten by a rewriter that never ran
+  (`engine_for_never_hands_out_a_fake`).
   `EngineInfo::ctx_len` became an `Option` for the same reason: an
   endpoint's window is the server's business, and a zero there reads as
   "no context" to everything that does arithmetic on it. See
@@ -980,8 +989,8 @@ Anything that needed more than a rule to explain is in `docs/`;
   extension, skipping hidden entries and linked *directories*; the
   catalogue's own files are subtracted and the rest is **listed and
   nothing more** under "Also in this folder" — no checksum, so nothing
-  verifies one, and nothing loads a model yet, and the sentence over
-  the list says both. "Does not exist yet" is the ordinary state on a
+  verifies one, and nothing loads one, and the sentence over the list
+  says both. "Does not exist yet" is the ordinary state on a
   fresh install and is not a fault; "could not be read" is.
   `the_banner_names_the_folder_once_it_has_been_read` and
   `an_unreadable_folder_is_a_warning_and_a_missing_one_is_not` are the
@@ -1100,6 +1109,29 @@ Anything that needed more than a rule to explain is in `docs/`;
   worker if it had taken the job up (one step, ~40 ms on a CPU), so the
   next request never starts on a model still decoding — and a request
   still queued is cancelled at once rather than after the one ahead. See `docs/architecture/local-engine.md`.
+* **A model is loaded by policy, in one place.**
+  `apps/wipemark-app/src/engine_host.rs`. `LocalEngine` never unloads on
+  its own; `EngineHost` decides, and the decision is `decide` — a pure
+  function from (keep mode, what is loaded, busy, event) to actions, with
+  ten rules and a test each. Two modes (`engine.local.keep`): **on
+  demand**, the default, loaded by a job or a Check and unloaded after
+  `engine.local.idle_minutes` idle; **resident**, loaded once the scan and
+  the probe land after launch and kept until quit or another model. Never
+  unload under a running decode: busy defers an unload or a swap until
+  the job ends (`nothing_is_unloaded_under_a_running_decode`). Resident is
+  the user's word — **Unload now** unloads it and the next launch loads it
+  again — and memory pressure does not override it (memory-pressure
+  unloading of on-demand is D55's, the first step run on a Mac). The
+  memory shown is the process's RSS, **measured** after the load, never
+  `MemEstimate`, and nothing when it could not be read. A refusal is a
+  value (`Unavailable`, D53) and the window's sentence comes from the
+  catalogue. **Check** is the one place a window shows a model's words
+  before E4, and it says it is a check, not a rewrite (D54). Every other
+  surface reaches the model through `EngineHandle` (`Send + Sync +
+  Clone`), whose jobs go through the same busy count and events; the MCP
+  server holds one from startup and no tool calls it until the pipeline
+  exists (D56). See `docs/architecture/local-engine.md`, "Keeping a
+  model".
 * **Layer A is never licence-gated.** Any state, expired or invalid,
   keeps the deterministic scrubber available.
 * **Exit codes are the CLI's interface, and there are four.** `0`

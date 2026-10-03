@@ -77,6 +77,10 @@ pub enum LlamaError {
     /// The prompt leaves no room in the context window.
     #[error("the prompt is {used} tokens and the context window is {limit}")]
     ContextOverflow { used: u32, limit: u32 },
+    /// No ggml backend registered — not even the CPU — so nothing can hold
+    /// a model. `searched` is every directory [`Runtime::init`] looked in.
+    #[error("no ggml backend registered (searched {searched:?})")]
+    NoBackend { searched: Vec<PathBuf> },
     /// llama.cpp would not load the model, or a context for it. The message
     /// is llama.cpp's, or names the call that failed.
     #[error("llama.cpp could not load the model: {0}")]

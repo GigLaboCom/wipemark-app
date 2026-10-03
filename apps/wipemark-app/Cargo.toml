@@ -62,6 +62,10 @@ png = "0.17"
 # so the two are one type; already in the tree through it.
 lsp-types = "0.97"
 tracing.workspace = true
+# The memory the process holds once a model is loaded (src/engine_host.rs,
+# D55): measured, not estimated. The same pin `wipemark-models` probes the
+# machine with, and already in the tree through it.
+sysinfo.workspace = true
 # The rotating file, the stderr mirror and the panic hook. The app
 # does not build a subscriber itself — see `init_logging` in main.rs
 # and docs/architecture/logging.md.

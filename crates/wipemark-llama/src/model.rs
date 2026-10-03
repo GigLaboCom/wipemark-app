@@ -34,6 +34,19 @@ pub struct LoadParams {
     /// Layers to offload to a GPU backend: `-1` all, `0` none (CPU only).
     pub n_gpu_layers: i32,
     pub kv_quant: KvQuant,
+    /// Ask the operating system to keep the weights in RAM rather than page
+    /// them out (`llama_model_params.use_mlock`). Off by default.
+    ///
+    /// The weights stay memory-mapped either way; this locks the mapped
+    /// pages (and any host buffer the weights are copied into) once they
+    /// are read. A lock the system refuses is **not** a failed load: at
+    /// this pin llama.cpp's `llama_mlock::raw_lock` logs `warning: failed
+    /// to mlock …-byte buffer` — with a hint to raise `RLIMIT_MEMLOCK` on
+    /// Linux — and carries on with the pages unlocked, and a platform with
+    /// no `mlock` logs `mlock not supported on this system` and does the
+    /// same. That warning reaches `tracing` at warn through the log hook
+    /// `ffi` installs before the first load.
+    pub use_mlock: bool,
 }
 
 impl Default for LoadParams {
@@ -42,7 +55,39 @@ impl Default for LoadParams {
             n_ctx: 8192,
             n_gpu_layers: -1,
             kv_quant: KvQuant::Q8_0,
+            use_mlock: false,
         }
+    }
+}
+
+/// The part of `llama_model_params` a [`LoadParams`] decides, as plain
+/// values: what `ffi` copies into the C struct before a load.
+///
+/// A function of its own so the mapping can be checked without llama.cpp
+/// (`a_lock_request_reaches_llama`); the copy in `ffi` is one assignment
+/// per field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ModelParams {
+    pub(crate) n_gpu_layers: i32,
+    pub(crate) use_mlock: bool,
+    /// Always on: a GGUF is mapped, not read into memory (D55's
+    /// measurement of resident memory counts the pages that were touched).
+    pub(crate) use_mmap: bool,
+}
+
+/// What a load asks of `llama_model_params`.
+#[cfg_attr(
+    not(feature = "native"),
+    allow(
+        dead_code,
+        reason = "read by ffi in a native build; tested in every build"
+    )
+)]
+pub(crate) fn model_params_of(params: &LoadParams) -> ModelParams {
+    ModelParams {
+        n_gpu_layers: params.n_gpu_layers,
+        use_mlock: params.use_mlock,
+        use_mmap: true,
     }
 }
 
@@ -200,10 +245,9 @@ impl Model {
         }
         let runtime = crate::Runtime::init(&[]);
         if runtime.backends().is_empty() {
-            return Err(LlamaError::Load(format!(
-                "no ggml backend registered (searched {:?})",
-                runtime.dirs()
-            )));
+            return Err(LlamaError::NoBackend {
+                searched: runtime.dirs().to_vec(),
+            });
         }
         let started = std::time::Instant::now();
         let session = crate::ffi::Session::load(path, &params)?;
@@ -453,6 +497,24 @@ mod tests {
         assert_eq!(refusal(&estimate(2429, 612), 16_000), None);
         // The boundary: exactly what is available fits.
         assert_eq!(refusal(&estimate(2429, 612), 3041), None);
+    }
+
+    #[test]
+    fn a_lock_request_reaches_llama() {
+        use super::{model_params_of, LoadParams};
+
+        let locked = model_params_of(&LoadParams {
+            use_mlock: true,
+            n_gpu_layers: 0,
+            ..LoadParams::default()
+        });
+        assert!(locked.use_mlock, "the lock was asked for and not passed on");
+        assert_eq!(locked.n_gpu_layers, 0);
+        assert!(locked.use_mmap, "the weights are mapped, locked or not");
+
+        let unlocked = model_params_of(&LoadParams::default());
+        assert!(!unlocked.use_mlock, "a default load locks nothing");
+        assert_eq!(unlocked.n_gpu_layers, -1);
     }
 
     #[cfg(not(feature = "native"))]

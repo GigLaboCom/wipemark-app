@@ -82,6 +82,10 @@ queue-next = Вперёд
 status-idle-no-engine = Простой · движок не настроен · только { -layer-a }
 status-idle-here = Простой · { $model } · ничего не покидает этот компьютер · только { -layer-a }
 status-idle-away = Простой · { $model } на { $host } · документ покинул бы этот компьютер · только { -layer-a }
+status-local-loading = Загружается { $model } · ничего не покидает этот компьютер · только { -layer-a }
+status-local-loaded = { $model } загружена · { -brand-name } занимает { $ram } · ничего не покидает этот компьютер · только { -layer-a }
+status-local-loaded-unmeasured = { $model } загружена · ничего не покидает этот компьютер · только { -layer-a }
+status-local-failed = { $model } не удалось загрузить: { $reason } · только { -layer-a }
 
 ## Настройки
 
@@ -335,6 +339,56 @@ settings-engine-serves-machine-first = Компьютер, затем адрес
 settings-engine-serves-endpoint-first = Адрес, затем компьютер
 settings-engine-state-second-choice = Отвечает, потому что первый выбор не может: { $reason }
 
+## Модель на этом компьютере.
+
+settings-engine-keep-title = Держать модель загруженной
+settings-engine-keep-description = «{ settings-engine-keep-on-demand }» загружает модель, когда она нужна, и освобождает её память через указанные ниже минуты без работы. «{ settings-engine-keep-resident }» загружает её вскоре после запуска { -brand-name } и держит, пока { -brand-name } не закроется или не будет выбрана другая модель. «{ settings-engine-local-unload }» освобождает её в любом случае.
+settings-engine-keep-on-demand = Загружать при необходимости
+settings-engine-keep-resident = Держать загруженной
+settings-engine-idle-title = Выгружать через
+settings-engine-idle-description = Сколько модель, загруженная при необходимости, остаётся в памяти без работы. Не действует, пока модель держится загруженной.
+settings-engine-idle-minutes = { $count ->
+        [one] { $count } минуту
+        [few] { $count } минуты
+       *[other] { $count } минут
+    }
+settings-engine-advanced = Дополнительно
+settings-engine-lock-title = Держать модель в оперативной памяти (не давать системе выгружать её на диск)
+settings-engine-lock-description = Тогда первый запрос после паузы не замедляется чтением модели обратно с диска; цена — эта память, которую ни одна другая программа не сможет занять, пока модель загружена. Если система откажет в блокировке, модель всё равно загрузится, а в журнале об этом будет запись.
+
+settings-engine-local-title = Модель на этом компьютере
+settings-engine-local-not-here = То, что сейчас отвечает за переписывание, работает не на этом компьютере, поэтому загружать здесь нечего.
+settings-engine-local-not-loaded = { $model } не загружена.
+settings-engine-local-resident-again = По-прежнему выбрано «{ settings-engine-keep-resident }», поэтому при следующем запуске { -brand-name } она загрузится снова.
+settings-engine-local-loading = Загружается { $model }…
+settings-engine-local-loaded = { $model } загружена. { -brand-name } занимает { $ram } памяти, измерено. Загружена в { $since }.
+settings-engine-local-loaded-unmeasured = { $model } загружена, с { $since }. Сколько памяти она занимает, прочитать не удалось.
+settings-engine-local-file = Файл модели занимает { $size } на диске.
+settings-engine-local-failed = Не удалось загрузить: { $reason }
+settings-engine-local-unload = Выгрузить сейчас
+settings-engine-local-unload-tooltip = Освободить память модели сейчас. Следующий запрос загрузит её снова.
+settings-engine-local-unload-disabled = Модель не загружена, выгружать нечего.
+settings-engine-local-check = Проверить
+settings-engine-local-check-tooltip = Загрузить модель, если она не загружена, и попросить её написать несколько слов.
+settings-engine-local-check-cancel = Отменить
+settings-engine-local-checking = Проверка…
+settings-engine-local-check-answered = Модель ответила: «{ $text }»
+settings-engine-local-check-load = Загрузка заняла { $seconds } с.
+settings-engine-local-check-speed = Токенов: { $tokens }, { $rate } в секунду после первого.
+settings-engine-local-check-speed-unknown = Токенов: { $tokens } — слишком мало, чтобы измерить скорость.
+settings-engine-local-check-failed = Проверка не выполнена: { $reason }
+settings-engine-local-check-cancelled = Проверка отменена.
+settings-engine-local-check-note = Проверка показывает, что модель загружается и пишет. Это не переписывание: в этой версии пока ничто не переписывает документ.
+settings-engine-local-no-tray = На этой системе нет значка в строке меню, поэтому закрытие главного окна завершает { -brand-name } и освобождает модель.
+
+engine-refusal-not-built = В этой сборке нет локального движка.
+engine-refusal-no-such-file = Файла модели нет на месте: { $path }
+engine-refusal-would-not-fit = Модели нужно около { $need }, а у этого компьютера { $have }.
+engine-refusal-no-backend = Не найден процессор, на котором можно запустить модель.
+engine-refusal-load-failed = Модель не удалось загрузить.
+engine-refusal-stopped = Локальный движок остановился. Повторный выбор модели перезапускает его.
+engine-refusal-nothing-on-duty = Отвечать некому: ничто не назначено.
+
 settings-engine-profile-title = Сохранённый профиль
 settings-engine-profile-description = Все настройки этой страницы, кроме ключа, сохранённые под именем. Выбор профиля применяет их разом, а сохранение под уже занятым именем заменяет его. Ключ остаётся в хранилище учётных данных этого компьютера, привязанный к адресу, и общий для всех профилей, которые на него указывают.
 settings-engine-profile-placeholder = Выберите сохранённый профиль
@@ -400,7 +454,7 @@ settings-engine-timeout-description = Сколько секунд ждать о�
 settings-section-models = Модели
 settings-models-title = Локальные модели
 settings-models-description = Открытые веса, загруженные на эту машину и сверенные с контрольной суммой из каталога { -brand-name }. Ничего не загружается, пока вы не попросите.
-settings-models-pending = В этой версии загруженная модель — это файл на диске и ничего больше: в память её пока никто не загружает. Очистке она не нужна.
+settings-models-pending = Загруженную модель можно загрузить в память и проверить на странице «Движок», но в этой версии ею пока ничто не переписывает. Очистке она не нужна.
 settings-models-folder-title = Папка моделей
 settings-models-folder-description = Куда складываются загрузки и где { -brand-name } ищет файлы моделей — в этой папке и во всех вложенных. Пустое поле возвращает папку по умолчанию.
 settings-models-folder-choose = Выбрать…
@@ -554,6 +608,7 @@ confidence-likely-false-positive = скорее всего, не метка
 tray-show = Показать { -brand-name }
 tray-panel = Показать панель
 tray-clean-clipboard = Очистить буфер обмена — пока нет
+tray-unload-model = Выгрузить модель
 tray-appearance = Оформление
 tray-quit = Выйти из { -brand-name }
 

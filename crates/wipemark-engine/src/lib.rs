@@ -20,7 +20,8 @@
 //!   one llama.cpp commit (D45, `crates/wipemark-llama-sys/PIN.md`,
 //!   `docs/architecture/local-engine.md`). `local-llama` alone compiles it
 //!   over a shim that refuses every load; `llama-native` builds llama.cpp
-//!   into it. Nothing hands it out yet (E2-2).
+//!   into it. The application's `duty::engine_for` hands it out, and its
+//!   `EngineHost` decides when it is loaded (E2-2).
 //! * [`fake::FakeEngine`] — deterministic, no I/O; the pipeline and UI
 //!   gates run on it, including on machines with no GPU.
 //!
@@ -37,11 +38,23 @@ pub mod fake;
 #[cfg(feature = "local-llama")]
 pub mod local;
 
-use async_trait::async_trait;
+use std::path::PathBuf;
+
+/// The attribute every [`RewriteEngine`] implementation is written under,
+/// re-exported so an implementor — a test double in the application —
+/// names the same macro this trait was declared with.
+pub use async_trait::async_trait;
 #[cfg(feature = "local-llama")]
-pub use local::{LocalConfig, LocalEngine};
-use tokio_util::sync::CancellationToken;
+pub use local::{has_gpu_backend, LocalConfig, LocalEngine};
+/// The cancellation every call takes, re-exported so a caller names the
+/// type the trait names.
+pub use tokio_util::sync::CancellationToken;
 use wipemark_core::Vendor;
+/// What a local load asks llama.cpp for — a field of [`LocalConfig`],
+/// re-exported so the application that builds one does not depend on the
+/// llama.cpp layer itself.
+#[cfg(feature = "local-llama")]
+pub use wipemark_llama::LoadParams;
 
 /// Where streamed tokens go.
 ///
@@ -135,12 +148,50 @@ pub enum EngineError {
     Protocol(String),
     #[error("context overflow: {used} tokens over a {limit}-token window")]
     ContextOverflow { used: u32, limit: u32 },
-    /// Refused before doing anything — no model loaded, not enough RAM,
-    /// remote endpoint without `allow_remote`.
+    /// Refused before doing anything, and why — as a value, so that the
+    /// surface that shows it chooses the sentence (D53).
     #[error("unavailable: {0}")]
-    Unavailable(String),
+    Unavailable(Unavailable),
     #[error("not implemented yet: {0}")]
     NotImplemented(&'static str),
+}
+
+/// Why an engine cannot do anything at all.
+///
+/// Structured, because only applications localize: a library that handed
+/// up an English sentence would leave every surface that is not in English
+/// quoting it (D53). The `Display` form is for a log line and stays
+/// English; a window renders each variant from its own catalogue.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum Unavailable {
+    /// This build has no llama.cpp in it, so it cannot load a model.
+    #[error("built without llama.cpp: this build cannot load a model")]
+    NotBuilt,
+    /// The weights file is not there.
+    #[error("no model file at {}", .path.display())]
+    NoSuchFile { path: PathBuf },
+    /// The load's estimate is larger than the memory the caller said is
+    /// available.
+    #[error("the model needs about {need_mb} MiB and {have_mb} MiB is available")]
+    WouldNotFit { need_mb: u64, have_mb: u64 },
+    /// No ggml backend registered — not even the CPU — so there is
+    /// nothing to load a model onto.
+    #[error("no ggml backend could be registered")]
+    NoBackend,
+    /// llama.cpp would not load the model, or a context for it. `detail`
+    /// is llama.cpp's own words (or names the call that failed): shown as
+    /// a detail beside the sentence, and never translated.
+    #[error("the model could not be loaded: {detail}")]
+    LoadFailed { detail: String },
+    /// The engine's worker thread has gone — it panicked, or could not be
+    /// started. Permanent for that engine; a new one has to be built.
+    #[error("the local engine's worker has stopped")]
+    Stopped,
+    /// Nothing is on duty to answer: no engine has been built for the
+    /// role, so there is nobody to ask. The application's `EngineHandle`
+    /// is the one site that says this.
+    #[error("nothing is on duty")]
+    NothingOnDuty,
 }
 
 /// The one thing every rewriting backend has to do.

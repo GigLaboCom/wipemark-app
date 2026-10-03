@@ -172,12 +172,19 @@ verdict travels beside the performer instead of withholding it.
 
 ## Calling the logic
 
-`duty::engine_for(&Performer)` is where a decision becomes a
-`RewriteEngine`. Epic **E2** builds both implementations, so today it
-refuses and names the epic. It does **not** fall back to `FakeEngine`: a
-fake hands back plausible text with no model behind it, and a caller
-that received one would file a document as rewritten by a rewriter that
-never ran.
+`duty::engine_for(&Performer, &LocalOptions)` is where a decision becomes
+a `RewriteEngine`, and it hands one out: the machine performer becomes a
+`LocalEngine` (in a build with `local-llama`) over the verified weights,
+at the catalogue's context window, with the lock row and the memory a
+load may claim (`duty::available_mb`). A build without the local engine
+refuses with `Unavailable::NotBuilt` — a value a window renders as "This
+build has no local engine." — and an endpoint still refuses until its
+transport lands (E2-3). The engine is `Arc`, built and not loaded; *when*
+it holds its model is `EngineHost`'s decision — see
+[local-engine.md](local-engine.md), "Keeping a model". It does **not**
+fall back to `FakeEngine`: a fake hands back plausible text with no model
+behind it, and a caller that received one would file a document as
+rewritten by a rewriter that never ran.
 
 `Performer::info()` is the other half of the bridge — the `EngineInfo`
 a report records on every attempt, and the input to the non-origin rule.
@@ -202,7 +209,9 @@ Two fields in it are worth reading twice:
 Three places, all reading the same function:
 
 * **the status bar** (`main::status_line`) — one sentence: who is on
-  duty and whether the document would leave. Every vacancy reads as the
+  duty and whether the document would leave, and for the model on this
+  machine whether it is loading, loaded (with the memory the process
+  holds, measured) or refused. Every vacancy reads as the
   sentence a fresh install shows, because the bar has room for what the
   application is doing and the Engine page has room for why;
 * **the Engine page's banner** (`settings::engine_banner`) — which is
@@ -214,7 +223,9 @@ Three places, all reading the same function:
   The first question a support answer asks is which engine was on duty,
   and a screenshot of a status bar is not evidence. Never localized, and
   it names a model id, an origin and a refusal — no document text ever
-  reaches it.
+  reaches it. It no longer calls `engine_for` (building an engine starts
+  a worker thread); `EngineHost` logs what it built, or why it could not,
+  when it builds it.
 
 A fourth surface reads the same banner rather than the function: the
 setup walk-through's endpoint and last steps draw

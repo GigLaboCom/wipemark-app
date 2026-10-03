@@ -49,6 +49,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use super::{protocol, Endpoint, PATH};
+use crate::engine_host::EngineHandle;
 
 /// How many ports the scan tries before giving up.
 ///
@@ -456,14 +457,22 @@ enum Command {
 ///
 /// Dropping this disconnects the command channel, which is how the
 /// supervisor thread learns to stop the listener and exit.
+///
+/// It also holds the way to the engine on duty, from startup (D56): the
+/// server will reach the one loaded model through it rather than load a
+/// second copy. No tool calls it in this version — a rewrite needs the
+/// pipeline, Layer A before and after a model and the guards around it,
+/// and a model's raw output handed to an agent as a cleaned document is
+/// the failure this product exists to avoid.
 pub struct Supervisor {
     commands: flume::Sender<Command>,
+    engine: EngineHandle,
 }
 
 impl Supervisor {
     /// Start the supervisor thread. It has nothing to serve until it is
     /// asked.
-    pub fn spawn(events: flume::Sender<Event>) -> Self {
+    pub fn spawn(events: flume::Sender<Event>, engine: EngineHandle) -> Self {
         let (commands, requests) = flume::unbounded();
         if let Err(error) = thread::Builder::new()
             .name("wipemark-mcp-supervisor".to_owned())
@@ -476,7 +485,19 @@ impl Supervisor {
             // the same shape as a server that never starts.
             tracing::error!(%error, "MCP: the supervisor could not start");
         }
-        Self { commands }
+        Self { commands, engine }
+    }
+
+    /// The way to the engine on duty — the same host the windows use.
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "D56: no MCP tool rewrites until the pipeline (E4) exists"
+        )
+    )]
+    pub fn engine(&self) -> &EngineHandle {
+        &self.engine
     }
 
     /// Serve on this endpoint, replacing whatever is running.
@@ -907,7 +928,7 @@ mod tests {
     fn serving_twice_over_lands_on_the_same_port_both_times() {
         let port = a_port_with_a_free_neighbour();
         let (events, heard) = flume::unbounded();
-        let supervisor = Supervisor::spawn(events);
+        let supervisor = Supervisor::spawn(events, EngineHandle::new().0);
         let endpoint = Endpoint {
             bind: BindAddress::LOOPBACK,
             port,
@@ -935,6 +956,19 @@ mod tests {
                 .expect("an event"),
             Event::Stopped
         );
+    }
+
+    /// The server holds the handle it was given from the moment it is
+    /// spawned — the same host, not a second engine (D56).
+    #[test]
+    fn the_server_holds_the_engine_it_was_given() {
+        let (handle, _inbox) = EngineHandle::new();
+        let (events, _heard) = flume::unbounded();
+        let supervisor = Supervisor::spawn(events, handle.clone());
+        assert!(supervisor.engine().reaches_the_same_host_as(&handle));
+        assert!(!supervisor
+            .engine()
+            .reaches_the_same_host_as(&EngineHandle::new().0));
     }
 
     /// The request line and the headers, without a socket. Case is the

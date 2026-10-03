@@ -364,7 +364,10 @@ impl Session {
         let weights = unsafe {
             sys::llama_backend_init();
             let mut mparams = sys::llama_model_default_params();
-            mparams.n_gpu_layers = params.n_gpu_layers;
+            let wanted = crate::model::model_params_of(params);
+            mparams.n_gpu_layers = wanted.n_gpu_layers;
+            mparams.use_mlock = wanted.use_mlock;
+            mparams.use_mmap = wanted.use_mmap;
             let model = sys::llama_model_load_from_file(c_path.as_ptr(), mparams);
             if model.is_null() {
                 return Err(LlamaError::Load(
