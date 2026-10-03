@@ -191,7 +191,7 @@ it sits.
 | `wipemark-log` | the rotating file, the panic hook, `Elided` | real |
 | `wipemark-i18n` | the Fluent catalogues and the `Message` enum `build.rs` generates from them | real |
 | `wipemark-image` | container metadata, with pixels never re-encoded | types; **E11**, phase 2 |
-| `wipemark-intake` | what was handed over — text, bytes or a path — and what it turns out to be | real |
+| `wipemark-intake` | what was handed over — text, bytes or a path — and what it turns out to be; and `inplace`, the one module that writes: a result beside a file or over it, the original set aside first | real |
 | `wipemark-license` | activation, grace, and what a lapse never locks | types; **E9** |
 
 A crate marked "types" still has tests, and they still have to pass —
@@ -227,6 +227,7 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `recorder.rs` | the shortcut recorder — the field that is clicked, then pressed into |
 | `keys.rs` | a chord, painted: how its keys are spelled and what goes between them |
 | `window_state.rs` | the Settings window's rectangle, one row per display |
+| `title.rs` | every window title, built as plain text |
 | `panel.rs` | the third window: summoned from the menu bar, no titlebar, placed by nothing but the Placement page |
 | `setup.rs` | the first-launch walk-through: five steps over the main window, the recommendation the machine's memory makes, and the rows it writes through the pages' own methods |
 | `placement.rs` | which screen the panel opens on, and which sixth of it — one answer per display |
@@ -244,8 +245,9 @@ surface, the language flag read out of `argv` before clap parses (so
 it, `input.rs` reads and decodes a path or stdin through
 `wipemark-intake`, `report.rs` is the human report, `run.rs` is the
 two flows — `inspect` and `clean` — and their exit codes, `inplace.rs`
-every write to disk and `clean --in-place` (the original set aside
-first, never over one already there), `audit.rs` the walk of a folder
+`clean --in-place` over `wipemark_intake::inplace`, which is every write
+to disk (the original set aside first, never over one already there),
+`audit.rs` the walk of a folder
 and its human, `--json` and SARIF 2.1.0 renderings, and `models.rs`
 `models list|pull|verify|rm` over `wipemark-models`, reading the app's
 `models.dir` and `models.rewrite` rows read-only. Only `rewrite` still
@@ -305,7 +307,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   isolates interpolated values with U+2068/U+2069, those are
   `UnicodeClass::BidiControl`, and Layer A removes them — a CLI that
   printed them would be marking the files it was pointed at. The app
-  uses `Ui`, the CLI uses `PlainText`, and `PlainText` is the default.
+  uses `Ui`, the CLI uses `PlainText`, and `PlainText` is the default —
+  except for the one thing a window hands the platform rather than draws,
+  its title: `title::Title::text` goes through `t_plain` /
+  `format_args_plain`, because an X11 window list and a screen reader
+  read it (`no_window_title_carries_an_invisible_character`).
 * **`System` is a live promise, not a palette.** The theme preference is
   applied through `ThemePreference::apply`, and while it is `System` a
   window-appearance observer re-applies it — an OS flip with the app
@@ -797,7 +803,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   first time the endpoint is asked (a Check or a job), on a thread of
   its own, and held as a `Secret` up to the one `Authorization` header
   that carries it — `Secret::expose` has one caller outside the vault
-  crate (D57).
+  crate (D57). Save refuses a key no request could carry — not printable
+  ASCII, empty, a space inside — with a catalogue sentence and stores
+  nothing, through `wipemark_engine::http::sendable`, the very rule that
+  builds the header, so the page and the transport cannot disagree
+  (`a_key_that_could_not_be_sent_is_refused_at_save_and_stored_nowhere`).
   `a_key_is_never_written_to_the_settings_table` and
   `the_only_preference_that_is_not_a_row_is_the_credential` are the
   gates. `Secret` has no `Display`, no `Serialize` and a `Debug` that
@@ -1097,7 +1107,8 @@ Anything that needed more than a rule to explain is in `docs/`;
   deletes originals goes off months after it was set — on the CLI it is
   `clean --in-place --no-original` (E5-1), and `--in-place` alone sets
   the original aside by a rename first and refuses when one is already
-  there. The CLI reads **none** of these rows: its "in-place needs an
+  there; its file-system half is `wipemark_intake::inplace`, which E7
+  calls as the CLI does. The CLI reads **none** of these rows: its "in-place needs an
   explicit flag, never a default" would be broken by a radio button in
   a window. What the
   product keeps *of its own* — under `Layout::kept_dir`,
