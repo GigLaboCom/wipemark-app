@@ -1080,6 +1080,10 @@ What exists so far:
 | `wipemark-drag-and-drop-architecture-2026-10-03` | FILE | a snapshot of `docs/architecture/drag-and-drop.md` as of `9b54032`, so the knowledge survives a machine this repository is not pushed from |
 | `wipemark-interfaces-map-2026-10-03` | FILE | the status page as HTML: the epics, these entries, and every surface drawn from the code and the `ru` catalogue |
 | `wipemark-status-2026-10-03` | TEXT | where the project stood on 2026-10-03, and the branch that first took E0–E6 to `origin` |
+| `wipemark-plan-2026-10-03` | FILE | `docs/plan/README.md`: the plan of record — every remaining epic, decisions D1–D44, owner questions |
+| `wipemark-e1-1-ucd-tables-2026-10-03` … `wipemark-e1-7-closure-2026-10-03` | FILE ×7 | the E1 series, `docs/plan/E1-1` … `E1-7`: self-sufficient implementer documents for Layer A (`-e1-2-classifier`, `-e1-3-scrubber-and-nfkc`, `-e1-4-homoglyphs`, `-e1-5-guards`, `-e1-6-mcp-and-cli` between) |
+| `wipemark-line-decorations-2026-10-03` | FILE | `docs/sdd/line-decorations.md`: the fork's `LineDecorationProvider` patch, with `-screenshot-2026-10-03` (annotated PNG) and `-upstream-port-2026-10-03` (the port onto gpui-kit `main`, draft PR longbridge/gpui-kit#3359) |
+| `wipemark-e1-plan-filed-2026-10-03` | TEXT | what was filed on 2026-10-03 and the decisions the step authors forced out of the real Unicode 18.0.0 data |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
@@ -1088,6 +1092,11 @@ new dated key, because an upload under a taken key is renamed with a
 suffix rather than replaced — and move this table to the new key.
 
 ## Epic order
+
+The plan of record is `docs/plan/README.md`; E1 is split there into
+seven self-sufficient implementer documents (`docs/plan/E1-1` …
+`E1-7`) for the `implementer-xhigh` agent, and every decision taken
+beyond the specs is a numbered row (D1–D44) in its §4.
 
 E0 skeleton (done) → **E1 `wipemark-core` Layer A** → E2 engines →
 E3 models → E4 pipeline → E5 CLI → E6 GPUI shell → E7 workspace UI →

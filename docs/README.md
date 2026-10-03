@@ -2,6 +2,7 @@
 
 | document | what it is |
 |---|---|
+| [plan/README.md](plan/README.md) | **the plan of record**: where the project stands, every remaining epic in order with what it is built from, the decisions taken beyond the specs, the owner's open questions — and the E1 series of self-sufficient implementer documents (`plan/E1-1` … `plan/E1-7`) |
 | [architecture/skeleton.md](architecture/skeleton.md) | what epic E0 built, the decisions it had to make, and what is deliberately absent |
 | [architecture/icons.md](architecture/icons.md) | the typed icon set, the `currentColor` contract, and the Font Awesome Free pull-and-promote workflow |
 | [architecture/i18n.md](architecture/i18n.md) | the message catalogue, the generated `Message` enum, and the rule that only applications localize |
