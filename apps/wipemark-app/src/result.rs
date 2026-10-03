@@ -48,8 +48,8 @@ use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, Action, AnyElement, App, ClickEvent, Context, Entity, EventEmitter, SharedString,
-    Subscription, Window,
+    div, px, Action, AnyElement, App, ClickEvent, Context, Entity, EventEmitter, Pixels,
+    SharedString, Subscription, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::highlighter::LineDecorationProvider;
@@ -384,11 +384,11 @@ impl ResultEditor {
         let theme = cx.theme();
         let mut strip = h_flex()
             .w_full()
+            .h(TOOLBAR_HEIGHT)
             .flex_shrink_0()
             .items_center()
             .gap_0p5()
             .px_1()
-            .py_0p5()
             .border_b_1()
             .border_color(theme.border);
 
@@ -436,6 +436,17 @@ impl ResultEditor {
         strip.into_any_element()
     }
 }
+
+/// The strip's height, its bottom border included.
+///
+/// Written down rather than left to what an extra-small button and its
+/// padding happen to add up to (20 + 2 + 2, and the 1-pixel border),
+/// because the Compare window puts a blank strip of exactly this height
+/// over the original: the two editors start level only if the strips
+/// above them are the same height, and a sum nobody wrote down is a sum
+/// nobody keeps in step. `compare::tests::the_first_lines_sit_level` is
+/// the gate.
+pub const TOOLBAR_HEIGHT: Pixels = px(25.);
 
 /// The line between two groups on the strip.
 fn separator(cx: &App) -> AnyElement {

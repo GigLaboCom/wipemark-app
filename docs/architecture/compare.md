@@ -199,6 +199,16 @@ tooltip asks the window what the action is bound to
 `the_toolbar_undoes_what_the_keystroke_would` is the gate on the road,
 and it goes red with the dispatch deleted.
 
+The strip has a written-down height, `result::TOOLBAR_HEIGHT` (25 pt,
+border included), and the original carries a **blank strip of the same
+height** under its caption. The two sides are read across, line against
+line; without the blank strip every line on the left sat a toolbar
+higher than its counterpart on the right, which reads as an offset in
+the diff rather than as chrome. `the_first_lines_sit_level` compares the
+on-screen top of line 1 in both editors (`InputState::visible_line_bounds`,
+the fork's P4 accessor) and goes red — 77 px against 102 px — with the
+blank strip taken out.
+
 What the strip does not carry is deliberate: the forty movement and
 selection keys are not buttons anywhere; `ShowCharacterPalette` is the
 desktop's; `GoToDefinition` and `ToggleCodeActions` want a language

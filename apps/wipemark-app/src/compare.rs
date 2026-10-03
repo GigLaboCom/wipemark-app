@@ -107,7 +107,7 @@ use wipemark_intake::{Handed, Intake, Kind};
 
 use crate::diff::{Diff, Grain};
 use crate::icon::{Icon, IconName};
-use crate::result::{ResultEditor, ResultEvent};
+use crate::result::{ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
 use crate::screen::{self, Screen};
 use crate::{drop, placement, preview, wording};
 
@@ -882,6 +882,18 @@ impl CompareView {
             .border_r_1()
             .border_color(theme.border)
             .child(Self::caption(Message::CompareOriginal, cx))
+            // A blank strip the height of the result's toolbar. The two
+            // sides are read across, line against line, and without it
+            // every line on the left sits a toolbar higher than its
+            // counterpart on the right — which reads as an offset in
+            // the diff rather than as chrome.
+            .child(
+                div()
+                    .h(TOOLBAR_HEIGHT)
+                    .flex_shrink_0()
+                    .border_b_1()
+                    .border_color(theme.border),
+            )
             .child(
                 div().flex_1().min_h(px(0.0)).child(
                     Input::new(&self.original)
@@ -1386,6 +1398,30 @@ mod tests {
             cx.update(|_, cx| original.read(cx).value()).as_ref(),
             "the cat sat\n",
             "the empty edit was not empty"
+        );
+    }
+
+    /// The two sides are read across, line against line: the first
+    /// line of the original sits level with the first line of the
+    /// result. The blank strip over the original is what does it —
+    /// take it out and the original starts a toolbar higher, and this
+    /// goes red.
+    #[gpui::test]
+    fn the_first_lines_sit_level(cx: &mut TestAppContext) {
+        let (view, cx) = window_with(cx, "one\ntwo\n", Comparison::default());
+        settle(cx);
+        let (left, right) = cx.update(|_, cx| {
+            let view = view.read(cx);
+            (
+                view.original.read(cx).visible_line_bounds(0),
+                view.result.read(cx).state().read(cx).visible_line_bounds(0),
+            )
+        });
+        let left = left.expect("the original was painted");
+        let right = right.expect("the result was painted");
+        assert_eq!(
+            left.origin.y, right.origin.y,
+            "the original's first line is not level with the result's"
         );
     }
 
