@@ -1213,6 +1213,8 @@ What exists so far:
 | `wipemark-e1-plan-filed-2026-10-03` | TEXT | what was filed on 2026-10-03 and the decisions the step authors forced out of the real Unicode 18.0.0 data |
 | `wipemark-core-layer-a-closed-2026-10-03` | TEXT | the closure of `wipemark-core-layer-a-2026-09-21` (E1): what landed in E1-1…E1-7, the gates and every RED check, the live gate, the deviations, what is left open |
 | `wipemark-layer-a-architecture-2026-10-03` | FILE | a snapshot of `docs/architecture/layer-a.md` at the closure |
+| `wipemark-open-questions-2026-10-03` | FILE | the register of every open question, filed under the step that has to answer it (owner [В] or engineering [И]). Open a step's section before writing its document; a question answered moves to `docs/plan/README.md` §4 or §5 |
+| `wipemark-e4-prompts-open-questions-2026-10-03` | FILE | E4's prompt questions in detail (Q4, Q-B1…Q-B22), draft en/ru/de templates, how an edited template is validated and how one written in one language is adapted to another, and the prompt-bench plan |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
