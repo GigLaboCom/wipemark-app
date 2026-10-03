@@ -13,35 +13,43 @@ screenshots under [`line-decorations/`](line-decorations/).
 
 ## 1. What we want — the Compare window
 
-![The Compare window: the original on the left, the edited result on the right; changed lines carry a red minus or green plus in the gutter and a full-width tint, changed words a stronger tint](line-decorations/compare-window.png)
+![The Compare window with five numbered markers: 1 the red minus in the original's gutter, 2 the green plus in the result's gutter, 3 a full-row tint, 4 a changed word's stronger tint, 5 the blank strip over the original](line-decorations/compare-window-annotated.png)
 
 *The Compare window on `quarterly-update.md` after the result was
-edited: line 5 and 7 reworded, line 11 removed, a new line 12 added.
-Light theme, macOS, 1120 × 753 pt, captured at 2× from a debug build of
-`feat/e0-e6-shell`.*
+edited: lines 5 and 7 reworded, line 11 removed, a new line 12 added.
+Light theme, macOS, 1120 × 753 pt, captured at 2× with lazy-shot
+(screenshot `wipemark-compare-line-decorations`, id 1065; the markers
+are also kept as lazy-shot's own overlay,
+`wipemark-compare-line-decorations-annotated`, id 1066) from a debug
+build of `feat/e0-e6-shell` at `1d041be`.*
+
+| # | mark | what it says | painted by |
+|---|---|---|---|
+| 1 | **gutter glyph `−`** on the original, at the left edge of the line-number column | "this line is gone or changed", readable without colour | **`LineDecorationProvider`** (this patch) |
+| 2 | **gutter glyph `+`** on the result | "this line is new or changed" | **`LineDecorationProvider`** (this patch) |
+| 3 | **full-row tint**, edge to edge, red on the left and green on the right | which lines to read across — including a removed or added line, which has no words to mark | **`LineDecorationProvider`** (this patch) |
+| 4 | **stronger tint behind a changed word** — `previous` / `before`, `fell` / `dropped`, … | what inside a changed line differs | `DocumentColorProvider` — upstream's LSP document-colour road, not this patch (`docs/architecture/compare.md`) |
+| 5 | **blank strip** over the original, the height of the result's toolbar | line 1 on the left is level with line 1 on the right | our own layout (`result::TOOLBAR_HEIGHT`); its test reads both lines' tops through the patch's `visible_line_bounds` |
+
+The same window without markers, and a close-up of the marked rows:
+
+![The Compare window, unannotated](line-decorations/compare-window.png)
 
 ![Close-up of the marked lines](line-decorations/compare-marks-close-up.png)
-
-Three marks are visible, and they come from two mechanisms:
-
-| mark | what it says | painted by |
-|---|---|---|
-| **gutter glyph** — red `−` on the original, green `+` on the result, at the left edge of the line-number column | "this line differs", readable without colour | **`LineDecorationProvider`** (this patch) |
-| **full-width line tint** — the whole row, edge to edge, red on the left and green on the right | which lines to read across | **`LineDecorationProvider`** (this patch) |
-| **stronger tint behind the changed words** — `previous` / `before`, `fell` / `dropped`, … | what inside a changed line differs | `DocumentColorProvider` — upstream's LSP document-colour road, not this patch (`docs/architecture/compare.md`) |
 
 The tint sits *under* the text, the active-line outline stays on top of
 it, indent guides stay visible over it. Without the patch the first two
 rows disappear: only the word marks would remain, and a removed or added
 line — which has no words to mark against anything — would show nothing
 at all. For comparison, the same window before any edit, where nothing
-is marked:
+is marked (captured an hour earlier, before the blank strip of marker 5
+existed — note the original starting a toolbar higher):
 
 ![The Compare window before the result was edited — nothing marked](line-decorations/compare-window-unchanged.png)
 
-The two sides also line up: line 1 of the original is level with line 1
-of the result because the original carries a blank strip the height of
-the result's toolbar (`result::TOOLBAR_HEIGHT`; gate
+The two sides line up (marker 5): line 1 of the original is level with
+line 1 of the result because the original carries a blank strip the
+height of the result's toolbar (`result::TOOLBAR_HEIGHT`; gate
 `compare::tests::the_first_lines_sit_level`, which reads both lines'
 on-screen tops through the patch's `visible_line_bounds`).
 
