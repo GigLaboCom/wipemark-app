@@ -84,7 +84,7 @@ cleaned or rewritten, which every surface says out loud.
 | `wipemark-pipeline` | `JobId`, `Action`, `Stage`, `Event`, `PipelineError`, ~~`violates_non_origin`~~ (removed by E4-2, D62); since E4-1…E4-3 `prepare::*`, `lang::{Lang, detect}`, `prompt::*` and the loop (`start`, `JobReport`) | the state machine, chunking, tactics, the selection loop, scorers, batch — **E4** | `crates/wipemark-pipeline/src/lib.rs:115` |
 | `wipemark-models` | manifest (2 entries, commit-pinned, sha256), layout and containment, host probe and `fit`, `default_for_role`, recursive scan, the resumable verifying downloader | signed remote manifest (moved to E9), mirror, GC — rest of **E3** | `crates/wipemark-models/src/*.rs` |
 | `wipemark-intake` | the recogniser: 44 magic formats, names, encodings (BOM, UTF-8/16/32, `Other`), text-that-is-a-path, the four-case arbitration | folders and archives expanded (Q-D2) | `crates/wipemark-intake/src/*.rs` |
-| `wipemark-store` | SQLite file, migrations, `settings` table | history and queue tables (E4/E7) | `crates/wipemark-store/src/*.rs` |
+| `wipemark-store` | SQLite file, migrations, `settings` table; since E4-4 the queue's tables (schema 2) | history table (E7) | `crates/wipemark-store/src/*.rs` |
 | `wipemark-secret` | OS credential store behind one type, `Secret` | — | `crates/wipemark-secret/src/lib.rs` |
 | `wipemark-log` | rotating file, panic hook, `Elided` | — | `crates/wipemark-log/src/*.rs` |
 | `wipemark-i18n` | Fluent catalogues en-US/de/ru, generated `Message`, `Rendering::{Ui,PlainText}`, the catalogue gates | the E1 keys (`unicode-class-*`, `confidence-*`, CLI report lines) — added by E1-6 | `crates/wipemark-i18n/` |
@@ -462,6 +462,11 @@ tell a decision from an accident.
 | **D85** | **The report** (E4-3) is the pipeline's `JobReport` (core cannot take serde): Layer A before and after, every attempt (round, candidate, tactic, template versions, seed, tokens, what clean-up stripped, the structured rejection or the divergence), the winner or "kept the source", the engine's identity, the totals, the language and pivot; JSON keys are the three shelves, ASCII-only; `not_established` = the baseline plus unknown mark schemes. `RejectReason` and `Rejection` stay **exhaustive**: a new variant breaks every surface's build until it has a sentence. Core's `RewriteSummary`, `RiskLabel` and most of `FinalReport` have no caller — removed or given one when E4-6 lands. | Only applications localize; a reason a surface cannot word is a reason nobody reads. |
 | **D86** | **The chunk budget less the prompt** (E4-3): `Budget::for_context(ctx − rendered prompt overhead)`, floor 64 tokens. | D70's `ctx × 0.4` counted only the text. |
 | **D87** | **`RestoreError::ItemBroken`** (E4-3, amending D78): in a list chunk an item may not come back with more line breaks than it went in with. It cannot see words moved across an item boundary without a new line break. | The live gate on Qwen3 4B returned a list with every placeholder present and in order but the items re-split — it would have shipped as rewritten. |
+| **D88** | **The queue is a crate**, `wipemark-queue` = pipeline + store + intake (E4-4). OV §6.3's `queue.json` is superseded by the store's queue tables (schema 2). | Reading and writing files needs intake and the pipeline may reach neither intake nor the store; in the app it would be dead code until E4-6 and its gate would link GPUI. |
+| **D89** | **Resume per chunk** (E4-4): `start_resumable(…, carried: Vec<Decided>)` beside `start` (unchanged); a job fingerprint — document, format, options, engine identity, budget, rungs and their templates — invalidates **every** record of the job when it changes; a carried chunk's attempts stay as recorded JSON, marked `carried_over`, and count in the totals. | Chunks are independent (their context is the source's) and `Prepared` is deterministic; a partial invalidation would mix two jobs in one report. |
+| **D90** | **An item's options are stored with it**; an unreadable row fails the item, never falls back to defaults (E4-4). | A rewrite run with options nobody chose is a different job under the same name. |
+| **D91** | **Where a result goes is chosen at push** and executed as stored — the item's row, a new file beside the source or at a chosen path (never the source), or in place only by a per-run flag — in two phases, so a crash between writing and recording is finished at the next open. The queue reads no Retention rows; turning them into a destination, and `kept/`, is E4-6/E7. | Retention rule 2; a destination recomputed on resume could differ from the one the user saw. |
+| **D92** | **What the queue keeps** (E4-4): a pasted text stays in its row until the item is removed; every connection sets `PRAGMA secure_delete = ON` (the WAL may hold a copy until its next checkpoint); pause is a row, not a preference. | The product must not quietly archive what it removes provenance from (CLAUDE.md retention bullet). |
 
 ---
 
@@ -618,7 +623,8 @@ the gate the overview set, and the open edges.
   not).
 - **Gate.** On `FakeEngine`: guards reject a lost placeholder, number,
   length; ~~`keyed_gumbel` p-value separates marked from unmarked
-  synthetic text~~ (D72); the queue survives `kill -9`.
+  synthetic text~~ (D72); the queue survives `kill -9` — done
+  (`the_queue_survives_kill_9`, E4-4).
 - **Open.** Nothing for the owner (D60–D63). The engineering questions are
   decided in D64–D76; the bench (E4-5) confirms or moves their numbers.
   Working notes: Watchword `wipemark-e4-prompts-open-questions-2026-10-03`
@@ -639,7 +645,9 @@ the gate the overview set, and the open edges.
     guard, `min-divergence`, events with a structured rejection, cancel,
     the seed and every attempt in the report (S4.3, S4.5–S4.6; D71, D72,
     D83–D87) — status: done — [reports/E4-3-2026-10-03.md](reports/E4-3-2026-10-03.md).
-  - E4-4 — the batch queue, persisted, surviving `kill -9` (S4.8).
+  - [E4-4-the-queue.md](E4-4-the-queue.md) — the batch queue, a crate of
+    its own (`wipemark-queue`), persisted per chunk, surviving `kill -9`
+    (S4.8; D88–D92) — status: done — [reports/E4-4-2026-10-03.md](reports/E4-4-2026-10-03.md).
   - E4-5 — the prompt bench: en/ru/de corpus, Qwen3 4B and Gemma 3 12B,
     guard pass rates, placeholder survival, language retention, no-op rate,
     injection obedience; picks the templates and thresholds.

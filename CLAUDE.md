@@ -39,7 +39,9 @@ loop: `wipemark_pipeline::start` runs a job — Layer A, candidates ×
 rounds, the guards and the no-op guard, `min-divergence`, Layer A again —
 tested on `FakeEngine` and against Qwen3 4B; but nothing in a window,
 the MCP server or the CLI starts one yet (E4-6); see
-`docs/architecture/pipeline.md`, "The loop".
+`docs/architecture/pipeline.md`, "The loop". The batch queue exists too —
+`wipemark-queue`: one document at a time, pause, cancel, resumable per
+chunk, surviving `kill -9` — and nothing pushes to it yet (E4-6/E7).
 
 ## First command after any clone or submodule update
 
@@ -174,7 +176,7 @@ over the `settings` table — one row per key, values as JSON.
 
 ## Where things are
 
-Thirteen libraries under `crates/`, two applications under `apps/`. The
+Fourteen libraries under `crates/`, two applications under `apps/`. The
 dependency rule below is what keeps them apart, and
 `scripts/check-dep-direction.sh` prints the whole graph in a second —
 it reads the manifests rather than the resolved graph, so it runs
@@ -188,9 +190,10 @@ it sits.
 | `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP) | both engines real, handed out by `duty::engine_for` and asked by the Check; the pipeline that rewrites with them is **E4** |
 | `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`) | real under `native`; an empty shim without it |
 | `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends | real under `native`; refuses every load without it |
-| `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation, prompts and the loop real (E4-1…E4-3); the queue is **E4-4**, the surfaces **E4-6** |
+| `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation, prompts and the loop real (E4-1…E4-3), and the resumable job the queue drives (E4-4); the surfaces are **E4-6** |
 | `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader | real |
-| `wipemark-store` | the SQLite file and the `settings` table | real |
+| `wipemark-store` | the SQLite file, the `settings` table and the queue's tables (schema 2) | real |
+| `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination | real; no surface pushes to it (**E4-6**) |
 | `wipemark-secret` | the OS credential store, and `Secret` | real |
 | `wipemark-log` | the rotating file, the panic hook, `Elided` | real |
 | `wipemark-i18n` | the Fluent catalogues and the `Message` enum `build.rs` generates from them | real |
@@ -270,7 +273,8 @@ Anything that needed more than a rule to explain is in `docs/`;
 * **Dependency direction:** `core ← engine ← pipeline ← app/cli`;
   `engine → wipemark-llama → wipemark-llama-sys`, and neither llama crate
   depends on anything of ours; `models` never depends on `engine`;
-  `image` depends only on `core`; nothing depends on an app crate.
+  `image` depends only on `core`; `pipeline ← queue → store, intake`;
+  nothing depends on an app crate.
 * **Nothing blocks the GPUI thread.** Long work returns a
   `flume::Receiver<Event>` that the GPUI side polls from `cx.spawn`.
   One `std::fs::read` of a 2 GB model on the foreground thread is a
@@ -1210,6 +1214,19 @@ Anything that needed more than a rule to explain is in `docs/`;
   Every rejection is a structured value (`Rejection`, exhaustive — D85),
   seeds are unique per job and recorded (D83), and the report's third
   shelf is never empty. See `docs/architecture/pipeline.md`, "The loop".
+* **The queue remembers every decided chunk, and a changed job forgets
+  them all.** Every item and every `Event::ChunkDecided` is a row the
+  moment it happens (`crates/wipemark-queue`, store schema 2), so a
+  `kill -9` costs at most the chunk in flight; the next open turns
+  `running` into `queued` and hands the rows to `start_resumable`, which
+  uses a record only under the same fingerprint — document, format,
+  options, engine, budget, templates — and asks the rest. A result goes
+  where the item said when it was pushed (its row, beside, a chosen path,
+  or in place by a per-run flag), in two phases so a crash between them is
+  finished rather than lost. A database that will not open is left alone
+  and the queue says it runs in memory. A pasted text stays in its row
+  until the item is removed (`secure_delete` on). `the_queue_survives_kill_9`
+  is the gate.
 * **The prompts are data, and the assembler owns the markers.**
   `crates/wipemark-pipeline/prompts/<lang>/` holds one file per slot
   (`<tactic>.<step>.<role>.txt`, the row key's shape), en/ru/de, `code`
