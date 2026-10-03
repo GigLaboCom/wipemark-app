@@ -412,9 +412,9 @@ tell a decision from an accident.
 | Q-A3 | unassigned code points | E7 | Not findings (A §2). |
 | Q-A4 | MCP text limit | — | **Answered by D13.** |
 | Q-A5 | `arabic_ratio`, `hebrew_ratio` in `TextStats` | E4 | Not added. |
-| Q-A6 | names exception to the i18n rule | E1-6 | **Taken as D16**; the owner may veto. |
-| Q-A7 | known false positives E1 leaves unprotected: legacy Malayalam chillu (consonant + virama + ZWJ at a word end), U+034F COMBINING GRAPHEME JOINER, German ligature-breaking ZWNJ | after real files | Removed as findings; listed in E1-2 §4.2.6. Each is one keep rule when a real document shows it matters. |
-| Q-A8 | D39 narrows tag sequences to emoji flags (Annex C.1) | — | Decided by the coordinator for safety; the owner may widen it. |
+| Q-A6 | names exception to the i18n rule | E1-6 | **Taken as D16**; kept by the owner 2026-10-03. |
+| Q-A7 | known false positives E1 leaves unprotected: legacy Malayalam chillu (consonant + virama + ZWJ at a word end), U+034F COMBINING GRAPHEME JOINER, German ligature-breaking ZWNJ | after real files | Removed as findings; listed in E1-2 §4.2.6. Each is one keep rule when a real document shows it matters. The owner kept this, and D21, on 2026-10-03. |
+| Q-A8 | D39 narrows tag sequences to emoji flags (Annex C.1) | — | Decided by the coordinator for safety; **kept by the owner 2026-10-03**. |
 | Q-D1–Q-D6 | drag-and-drop: paste ⌘V, folders and archives, drop position, size limits, CLI exit on `Disagreed`, UTF-16 without BOM | E7 / E5 | Unchanged by E1. Q-D5 meets E1-6: the CLI reads a file whose name and bytes disagree by its bytes and says so on stderr; the exit code is decided by findings as for any file. |
 
 ---
