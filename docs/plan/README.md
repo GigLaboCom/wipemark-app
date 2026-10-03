@@ -516,7 +516,7 @@ the gate the overview set, and the open edges.
   wires it (`duty::engine_for`, the app) and adds `EngineHost` with the keep-loaded policy (D51),
   the Check (D54) and the handle the CLI/agents will reach the application's loaded model through
   (D52, staged by D56; D53–D56) — status: done — [reports/E2-2-2026-10-03.md](reports/E2-2-2026-10-03.md); E2-3
-  is the HTTP engine.
+  is the HTTP engine — [E2-3-the-endpoint.md](E2-3-the-endpoint.md) (status: dispatched).
 - **Rule.** Q2 is answered (D45). The rule `engine_for` must keep: a
   decision becomes an engine or a refusal, never plausible text with no
   model behind it.
