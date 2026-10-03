@@ -1,10 +1,10 @@
 //! The local database.
 //!
 //! One SQLite file under the data directory holds everything the
-//! product remembers between runs. Today that is the settings table;
-//! the job history of spec §6.3 and the batch queue of §4.5 are the
-//! next two tenants, and they are why this is a database rather than
-//! four more files beside `config.toml`.
+//! product remembers between runs: the settings table, and since schema
+//! version 2 the batch queue of spec §4.5 ([`Queue`], E4-4). The job
+//! history of §6.3 is the next tenant; they are why this is a database
+//! rather than more files beside `config.toml`.
 //!
 //! # Why SQLite and not more TOML
 //!
@@ -67,8 +67,10 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
 
+mod queue;
 mod settings;
 
+pub use queue::{Queue, QueueRow};
 pub use settings::Settings;
 
 /// How long a write waits for another process to finish before it gives
@@ -96,6 +98,30 @@ const MIGRATIONS: &[&str] = &[
          key   TEXT PRIMARY KEY,
          value TEXT NOT NULL
      )",
+    // 1 -> 2: the batch queue (E4-4). Rows of JSON the store does not read:
+    // what an item is and what came of it are the queue's vocabulary, and
+    // a chunk's record is the pipeline's. `AUTOINCREMENT` so an id is never
+    // handed out twice, even after the newest item was removed — an id a
+    // surface remembered keeps naming the item it named. The chunk rows go
+    // with their item (`ON DELETE CASCADE`; foreign keys are on for every
+    // connection). One control row holds whether the queue is paused.
+    "CREATE TABLE IF NOT EXISTS queue (
+         id     INTEGER PRIMARY KEY AUTOINCREMENT,
+         state  TEXT NOT NULL,
+         item   TEXT NOT NULL,
+         result TEXT
+     );
+     CREATE TABLE IF NOT EXISTS queue_chunks (
+         item   INTEGER NOT NULL REFERENCES queue(id) ON DELETE CASCADE,
+         idx    INTEGER NOT NULL,
+         record TEXT NOT NULL,
+         PRIMARY KEY (item, idx)
+     );
+     CREATE TABLE IF NOT EXISTS queue_control (
+         id     INTEGER PRIMARY KEY CHECK (id = 1),
+         paused INTEGER NOT NULL
+     );
+     INSERT OR IGNORE INTO queue_control (id, paused) VALUES (1, 0)",
 ];
 
 /// The version [`MIGRATIONS`] arrives at. A database numbered higher
@@ -150,6 +176,14 @@ pub enum Error {
 
     #[error("listing settings")]
     List(#[source] rusqlite::Error),
+
+    /// A queue statement failed; `what` names which, never a value.
+    #[error("the queue: {what}")]
+    Queue {
+        what: &'static str,
+        #[source]
+        source: rusqlite::Error,
+    },
 
     /// The stored text is not the JSON this build expected. Kept
     /// separate from [`Error::Read`] because the callers treat it
@@ -285,6 +319,11 @@ impl Store {
         Settings::new(self)
     }
 
+    /// The batch queue's tables, as an API.
+    pub fn queue(&self) -> Queue<'_> {
+        Queue::new(self)
+    }
+
     /// Pragmas, then migrations. `migrate` is false for a read-only
     /// open, which still has to *check* the version — a file from a
     /// newer build is not readable just because we are not writing.
@@ -314,6 +353,15 @@ impl Store {
         }
         if let Err(error) = connection.execute_batch("PRAGMA foreign_keys = ON;") {
             tracing::warn!(path = %self.path.display(), %error, "could not enable foreign keys");
+        }
+        // A queued paste is a document with no file behind it, held in a
+        // row until the item is removed (E4-4). Deleting the row should
+        // delete the text, not leave it in a free page of the file for
+        // anyone who opens it with a hex editor. The WAL can still hold a
+        // copy until its next checkpoint; that is SQLite's, and stated in
+        // `docs/architecture/pipeline.md`.
+        if let Err(error) = connection.execute_batch("PRAGMA secure_delete = ON;") {
+            tracing::warn!(path = %self.path.display(), %error, "could not enable secure delete");
         }
 
         let found: i64 = connection

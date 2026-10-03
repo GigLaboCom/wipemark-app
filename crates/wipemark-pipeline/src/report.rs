@@ -213,8 +213,65 @@ pub struct ChunkReport {
     /// From 0, as `Chunk::index`.
     pub index: usize,
     pub est_tokens: u32,
+    /// The attempts this run made. Empty for a chunk carried over from an
+    /// earlier run: those are in [`ChunkReport::carried`].
     pub attempts: Vec<Attempt>,
     pub outcome: ChunkOutcome,
+    /// `Some` when the chunk was decided by an earlier run of the same job
+    /// and taken back by [`crate::start_resumable`] (E4-4) — its attempts
+    /// as that run recorded them. `None` for every chunk [`crate::start`]
+    /// reports.
+    pub carried: Option<Carried>,
+}
+
+impl ChunkReport {
+    /// What this chunk cost: the attempts this run made, or the counts the
+    /// earlier run recorded.
+    pub fn counts(&self) -> ChunkCounts {
+        if let Some(carried) = &self.carried {
+            return carried.counts;
+        }
+        let mut counts = ChunkCounts::default();
+        for attempt in &self.attempts {
+            counts.attempts += 1;
+            if matches!(attempt.verdict, Verdict::Rejected(_)) {
+                counts.rejected += 1;
+            }
+            counts.calls += count(attempt.steps.len());
+            // A step that failed in the engine was a call too.
+            if matches!(attempt.verdict, Verdict::Rejected(Rejection::Engine { .. })) {
+                counts.calls += 1;
+            }
+            counts.tokens_out += attempt
+                .steps
+                .iter()
+                .map(|step| u64::from(step.tokens_out))
+                .sum::<u64>();
+        }
+        counts
+    }
+}
+
+/// A chunk decided by an earlier run, as it was recorded (E4-4).
+///
+/// Its attempts are the report's own JSON of them rather than typed
+/// [`Attempt`]s: an attempt carries core's `CleanReport`, and core — zero
+/// dependencies — has a writer for it and no reader. They go back into the
+/// final report exactly as they were written.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Carried {
+    /// The `attempts` array of the chunk's JSON, as recorded.
+    pub attempts: Value,
+    pub counts: ChunkCounts,
+}
+
+/// One chunk's share of [`Totals`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct ChunkCounts {
+    pub attempts: u32,
+    pub rejected: u32,
+    pub calls: u32,
+    pub tokens_out: u64,
 }
 
 /// A rung of the ladder this document could not use.
@@ -291,22 +348,11 @@ impl JobReport {
                 ChunkOutcome::Rewritten { .. } => totals.rewritten += 1,
                 ChunkOutcome::KeptSource(_) => totals.kept_source += 1,
             }
-            for attempt in &chunk.attempts {
-                totals.attempts += 1;
-                if matches!(attempt.verdict, Verdict::Rejected(_)) {
-                    totals.rejected += 1;
-                }
-                totals.calls += count(attempt.steps.len());
-                // A step that failed in the engine was a call too.
-                if matches!(attempt.verdict, Verdict::Rejected(Rejection::Engine { .. })) {
-                    totals.calls += 1;
-                }
-                totals.tokens_out += attempt
-                    .steps
-                    .iter()
-                    .map(|step| u64::from(step.tokens_out))
-                    .sum::<u64>();
-            }
+            let counts = chunk.counts();
+            totals.attempts += counts.attempts;
+            totals.rejected += counts.rejected;
+            totals.calls += counts.calls;
+            totals.tokens_out += counts.tokens_out;
         }
         totals
     }
@@ -414,7 +460,33 @@ fn float(x: f32) -> Value {
 }
 
 fn chunk_value(chunk: &ChunkReport) -> Value {
-    let outcome = match chunk.outcome {
+    match &chunk.carried {
+        // `carried_over` only where it is true: the JSON of a job that
+        // carried nothing is what it was before E4-4, byte for byte.
+        Some(carried) => json!({
+            "index": chunk.index,
+            "est_tokens": chunk.est_tokens,
+            "outcome": outcome_value(chunk.outcome),
+            "carried_over": true,
+            "attempts": carried.attempts,
+        }),
+        None => json!({
+            "index": chunk.index,
+            "est_tokens": chunk.est_tokens,
+            "outcome": outcome_value(chunk.outcome),
+            "attempts": attempts_value(&chunk.attempts),
+        }),
+    }
+}
+
+/// The `attempts` array of a chunk's JSON.
+pub(crate) fn attempts_value(attempts: &[Attempt]) -> Value {
+    Value::Array(attempts.iter().map(attempt_value).collect())
+}
+
+/// A chunk's outcome in the report's JSON shape.
+pub(crate) fn outcome_value(outcome: ChunkOutcome) -> Value {
+    match outcome {
         ChunkOutcome::Rewritten { round, candidate } => {
             json!({"rewritten": {"round": round, "candidate": candidate}})
         }
@@ -425,13 +497,37 @@ fn chunk_value(chunk: &ChunkReport) -> Value {
             }
             value
         }
+    }
+}
+
+/// [`outcome_value`] read back; `None` for anything it could not have
+/// written.
+pub(crate) fn outcome_of(value: &Value) -> Option<ChunkOutcome> {
+    if let Some(rewritten) = value.get("rewritten") {
+        let number = |key: &str| {
+            rewritten
+                .get(key)
+                .and_then(Value::as_u64)
+                .and_then(|n| u8::try_from(n).ok())
+        };
+        return Some(ChunkOutcome::Rewritten {
+            round: number("round")?,
+            candidate: number("candidate")?,
+        });
+    }
+    let kept = match value.get("kept_source")?.as_str()? {
+        "no-candidate-passed" => Kept::NoCandidatePassed,
+        "no-tactic" => Kept::NoTactic,
+        "marker-in-text" => {
+            let named = value.get("marker")?.as_str()?;
+            let marker = Marker::ALL
+                .into_iter()
+                .find(|marker| marker.as_str() == named)?;
+            Kept::MarkerInText { marker }
+        }
+        _ => return None,
     };
-    json!({
-        "index": chunk.index,
-        "est_tokens": chunk.est_tokens,
-        "outcome": outcome,
-        "attempts": chunk.attempts.iter().map(attempt_value).collect::<Vec<_>>(),
-    })
+    Some(ChunkOutcome::KeptSource(kept))
 }
 
 fn attempt_value(attempt: &Attempt) -> Value {

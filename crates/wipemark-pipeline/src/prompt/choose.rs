@@ -63,6 +63,12 @@ impl Overrides {
         self.rows.remove(&slot)
     }
 
+    /// Every override, in slot order — what a queued job's options are
+    /// stored with (E4-4).
+    pub fn iter(&self) -> impl Iterator<Item = (Slot, &Override)> {
+        self.rows.iter().map(|(slot, row)| (*slot, row))
+    }
+
     /// The text a slot will be rendered from: its override's, else the
     /// shipped one. `None` only for a slot the shipped table lacks, which
     /// the complete-set gate does not let happen.

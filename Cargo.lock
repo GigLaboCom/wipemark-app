@@ -9123,6 +9123,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "wipemark-queue"
+version = "0.1.0"
+dependencies = [
+ "flume",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tracing",
+ "tracing-subscriber",
+ "wipemark-engine",
+ "wipemark-intake",
+ "wipemark-log",
+ "wipemark-pipeline",
+ "wipemark-store",
+]
+
+[[package]]
 name = "wipemark-secret"
 version = "0.1.0"
 dependencies = [

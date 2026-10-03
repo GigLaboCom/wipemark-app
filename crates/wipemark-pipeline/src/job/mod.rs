@@ -23,13 +23,20 @@
 mod attempt;
 mod drive;
 mod plan;
+pub mod resume;
+#[cfg(test)]
+mod resume_tests;
+mod stored;
 #[cfg(test)]
 mod tests;
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub use plan::{plan, Planned, Rung};
+pub use resume::{Decided, RecordError};
+pub use stored::{OptionsError, OPTIONS_VERSION};
 use wipemark_core::{default_guards, Guard, LengthDriftGuard};
 use wipemark_engine::{CancellationToken, EngineError, RewriteEngine, SamplingParams};
 
@@ -37,7 +44,7 @@ use crate::cost::{Effort, Executor};
 use crate::lang::Lang;
 use crate::prepare::TextFormat;
 use crate::prompt::{Intensity, Overrides, Tactic};
-use crate::report::{ChunkOutcome, ChunkReport, EngineFailure, JobReport, Kept, Verdict};
+use crate::report::{Carried, ChunkOutcome, ChunkReport, EngineFailure, JobReport, Kept, Verdict};
 use crate::select::{self, Scorer};
 use crate::{Event, JobId, PipelineError, Stage};
 
@@ -218,6 +225,43 @@ pub fn start(
     options: Options,
     engine: Arc<dyn RewriteEngine>,
 ) -> Result<(JobHandle, flume::Receiver<Event>), Refused> {
+    spawn(id, document, options, engine, None)
+}
+
+/// [`start`], for a job that may be taken up again (E4-4).
+///
+/// The same job, with two differences. Every chunk it decides is handed
+/// out as [`Event::ChunkDecided`] — a [`Decided`] that outlives the
+/// process — and `carried`, the decisions an earlier run of the same job
+/// handed out, are taken back: a chunk with a usable record is not asked
+/// again, its winner (or its kept source) goes into the assembly as it was
+/// decided, and its report is the record's, marked as carried over. After
+/// planning, [`Event::Resumed`] says how many records were used and how
+/// many were discarded — when anything was handed in.
+///
+/// A record is usable only when the job's fingerprint is the one it was
+/// decided under (the document, its format, the options, the engine, the
+/// budget and the templates — [`resume`]), it names a chunk of this plan
+/// whose digest it carries, and its winner still restores into that chunk.
+/// Anything else is discarded and the chunk asked again; nothing is
+/// repaired.
+pub fn start_resumable(
+    id: JobId,
+    document: Document,
+    options: Options,
+    engine: Arc<dyn RewriteEngine>,
+    carried: Vec<Decided>,
+) -> Result<(JobHandle, flume::Receiver<Event>), Refused> {
+    spawn(id, document, options, engine, Some(carried))
+}
+
+fn spawn(
+    id: JobId,
+    document: Document,
+    options: Options,
+    engine: Arc<dyn RewriteEngine>,
+    carried: Option<Vec<Decided>>,
+) -> Result<(JobHandle, flume::Receiver<Event>), Refused> {
     options.check()?;
     let (events, receiver) = flume::unbounded();
     let cancel = CancellationToken::new();
@@ -234,7 +278,7 @@ pub fn start(
                 cancel,
                 started: Instant::now(),
             };
-            run(&emit, &document, &options, engine.as_ref());
+            run(&emit, &document, &options, engine.as_ref(), carried);
         })
         .map_err(|error| Refused::Thread {
             reason: error.to_string(),
@@ -289,8 +333,51 @@ impl Emit {
     }
 }
 
+/// What a resumable job keeps beside its loop: its fingerprint and the
+/// records it may use, by chunk.
+struct Journal {
+    fingerprint: String,
+    usable: BTreeMap<usize, Decided>,
+}
+
+impl Journal {
+    /// Sort what was handed in into what fits this plan and what does not.
+    fn of(
+        fingerprint: String,
+        carried: Vec<Decided>,
+        chunks: &[crate::prepare::Chunk],
+    ) -> (Journal, u32) {
+        let handed = carried.len();
+        let mut usable = BTreeMap::new();
+        for decided in carried {
+            let fits = chunks
+                .get(decided.index)
+                .is_some_and(|chunk| decided.fits(chunk, &fingerprint));
+            if fits {
+                usable.entry(decided.index).or_insert(decided);
+            }
+        }
+        let discarded = u32::try_from(handed - usable.len()).unwrap_or(u32::MAX);
+        (
+            Journal {
+                fingerprint,
+                usable,
+            },
+            discarded,
+        )
+    }
+}
+
 /// The job, start to end. Every path ends in exactly one terminal event.
-fn run(emit: &Emit, document: &Document, options: &Options, engine: &dyn RewriteEngine) {
+/// `carried` is `None` for [`start`] — no records out, none in — and the
+/// earlier run's records for [`start_resumable`].
+fn run(
+    emit: &Emit,
+    document: &Document,
+    options: &Options,
+    engine: &dyn RewriteEngine,
+    carried: Option<Vec<Decided>>,
+) {
     emit.stage(Stage::CleaningLayerA);
     let info = engine.info();
     let planned = match plan(document, options, &info) {
@@ -306,11 +393,31 @@ fn run(emit: &Emit, document: &Document, options: &Options, engine: &dyn Rewrite
         budget = planned.budget.max_tokens,
         "the job is planned"
     );
+    let mut journal = carried.map(|carried| {
+        let handed = carried.len();
+        let fingerprint = resume::fingerprint(document, options, &info, &planned);
+        let (journal, discarded) = Journal::of(fingerprint, carried, chunks);
+        if handed > 0 {
+            let carried = u32::try_from(journal.usable.len()).unwrap_or(u32::MAX);
+            tracing::info!(job = emit.job.0, carried, discarded, "the job is resumed");
+            emit.send(Event::Resumed {
+                job: emit.job,
+                carried,
+                discarded,
+            });
+        }
+        journal
+    });
     if emit.cancel.is_cancelled() {
         return emit.cancelled();
     }
 
-    let work = !planned.rungs.is_empty() && !chunks.is_empty();
+    let carried_over = |index: usize| {
+        journal
+            .as_ref()
+            .is_some_and(|journal| journal.usable.contains_key(&index))
+    };
+    let work = !planned.rungs.is_empty() && chunks.iter().any(|chunk| !carried_over(chunk.index));
     if work {
         emit.stage(Stage::LoadingModel);
         let (_, nothing) = flume::unbounded::<String>();
@@ -337,9 +444,42 @@ fn run(emit: &Emit, document: &Document, options: &Options, engine: &dyn Rewrite
     let count = u32::try_from(chunks.len()).unwrap_or(u32::MAX);
     let mut reports = Vec::with_capacity(chunks.len());
     let mut winners: Vec<Option<String>> = Vec::with_capacity(chunks.len());
+    // A chunk's decision, handed out by a resumable job as soon as it is
+    // made — what a `kill -9` a moment later does not lose.
+    let decided = |reports: &[ChunkReport],
+                   winners: &[Option<String>],
+                   chunk: &crate::prepare::Chunk,
+                   journal: &Option<Journal>| {
+        let (Some(journal), Some(report)) = (journal, reports.last()) else {
+            return;
+        };
+        let winner = winners.last().cloned().flatten();
+        emit.send(Event::ChunkDecided {
+            job: emit.job,
+            chunk: u32::try_from(chunk.index + 1).unwrap_or(u32::MAX),
+            decided: Box::new(Decided::of(report, chunk, &journal.fingerprint, winner)),
+        });
+    };
     for chunk in chunks {
         if emit.cancel.is_cancelled() {
             return emit.cancelled();
+        }
+        if let Some(record) = journal
+            .as_mut()
+            .and_then(|journal| journal.usable.remove(&chunk.index))
+        {
+            reports.push(ChunkReport {
+                index: chunk.index,
+                est_tokens: chunk.est_tokens,
+                attempts: Vec::new(),
+                outcome: record.outcome,
+                carried: Some(Carried {
+                    attempts: record.attempts,
+                    counts: record.counts,
+                }),
+            });
+            winners.push(record.winner);
+            continue;
         }
         let kept = if planned.rungs.is_empty() {
             Some(Kept::NoTactic)
@@ -354,8 +494,10 @@ fn run(emit: &Emit, document: &Document, options: &Options, engine: &dyn Rewrite
                 est_tokens: chunk.est_tokens,
                 attempts: Vec::new(),
                 outcome: ChunkOutcome::KeptSource(kept),
+                carried: None,
             });
             winners.push(None);
+            decided(&reports, &winners, chunk, &journal);
             continue;
         }
 
@@ -449,8 +591,10 @@ fn run(emit: &Emit, document: &Document, options: &Options, engine: &dyn Rewrite
             est_tokens: chunk.est_tokens,
             attempts,
             outcome,
+            carried: None,
         });
         winners.push(winner);
+        decided(&reports, &winners, chunk, &journal);
     }
 
     let answers: Vec<Option<&str>> = winners.iter().map(Option::as_deref).collect();

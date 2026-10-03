@@ -1,0 +1,33 @@
+[package]
+name = "wipemark-queue"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The batch queue: documents run one at a time, persisted per chunk, surviving kill -9."
+
+# Where a job meets the database and the user's files (E4-4). The pipeline
+# may reach neither and the store is a leaf, so the queue is a crate of
+# its own above both — see docs/plan/E4-4-the-queue.md §0.2 and
+# scripts/check-dep-direction.sh.
+
+[dependencies]
+wipemark-engine.workspace = true
+wipemark-pipeline.workspace = true
+wipemark-store.workspace = true
+wipemark-intake.workspace = true
+# `Elided` only: a log line about a document carries its shape.
+wipemark-log.workspace = true
+flume.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+# The log gate captures every line the queue and the pipeline write.
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

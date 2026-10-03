@@ -29,8 +29,11 @@
 //! no-op guard, restore, assembly, Layer A again), [`select`]
 //! (`min-divergence` and the scorer seam), [`cost`] (D61's effort by
 //! executor and the price before a run) and [`report`] (every attempt,
-//! the three shelves, the JSON form). The batch queue is E4-4; the
-//! surfaces that start a job are E4-6.
+//! the three shelves, the JSON form). E4-4 added the job that can be
+//! taken up again — [`start_resumable`], [`Decided`] and the options as a
+//! row — which the batch queue drives: `wipemark-queue`, a crate of its
+//! own, because a queue also needs the store and the user's files and this
+//! crate may reach neither. The surfaces that start a job are E4-6.
 
 #![forbid(unsafe_code)]
 
@@ -44,8 +47,11 @@ pub mod select;
 
 use std::time::Duration;
 
-pub use job::{seed_for, start, Document, JobHandle, Options, Outcome, Refused};
-pub use report::{EngineFailure, JobReport, Rejection};
+pub use job::{
+    seed_for, start, start_resumable, Decided, Document, JobHandle, Options, OptionsError, Outcome,
+    RecordError, Refused,
+};
+pub use report::{Carried, ChunkCounts, EngineFailure, JobReport, Rejection};
 
 /// Identifies a job for the lifetime of the process and in the persisted
 /// queue.
@@ -118,6 +124,27 @@ pub enum Event {
         round: u8,
         candidate: u8,
         rejection: Rejection,
+    },
+    /// One chunk was decided — rewritten, or kept with the reason why. Only
+    /// a job started by [`start_resumable`] sends it, once per chunk it
+    /// asked about (never for a carried one), as soon as the decision is
+    /// made: what a caller stores so that a `kill -9` a moment later costs
+    /// at most the chunk in flight.
+    ChunkDecided {
+        job: JobId,
+        /// 1-based, as [`Stage::Rewriting`] counts.
+        chunk: u32,
+        decided: Box<Decided>,
+    },
+    /// A resumable job sorted the records it was handed: `carried` stand
+    /// for their chunks, `discarded` did not fit this job (another
+    /// document, other options, another engine or template, another
+    /// chunk) and their chunks are asked again. Sent once, after planning,
+    /// and only when anything was handed in.
+    Resumed {
+        job: JobId,
+        carried: u32,
+        discarded: u32,
     },
     /// The job ran to its end: the document and the report.
     Finished {

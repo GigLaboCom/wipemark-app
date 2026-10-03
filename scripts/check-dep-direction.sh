@@ -2,6 +2,7 @@
 # Epic E0 gate: the dependency direction rule.
 #
 #   core ← engine ← pipeline ← app / cli
+#   pipeline ← queue → store, intake (the batch queue, E4-4)
 #   engine → wipemark-llama → wipemark-llama-sys (the local engine)
 #   engine → wipemark-secret (an HTTP engine's key, D57)
 #   models is independent of engine
@@ -42,6 +43,7 @@ LIBS = {
     "wipemark-llama",
     "wipemark-models",
     "wipemark-pipeline",
+    "wipemark-queue",
     "wipemark-image",
     "wipemark-intake",
     "wipemark-license",
@@ -81,6 +83,20 @@ ALLOWED = {
     "wipemark-llama": {"wipemark-llama-sys"},
     "wipemark-models": {"wipemark-core"},
     "wipemark-pipeline": {"wipemark-core", "wipemark-engine"},
+    # The batch queue (E4-4): where a job meets the database and the
+    # user's files. The pipeline may reach neither, the store is a leaf,
+    # and nothing depends on an application — so the one crate that runs
+    # jobs one after another, remembers them across a `kill -9`, reads a
+    # file the way the CLI does and writes a result by the Retention rules
+    # sits above all four. `wipemark-log` for `Elided` alone: a line about
+    # a document carries its shape, never its text.
+    "wipemark-queue": {
+        "wipemark-engine",
+        "wipemark-pipeline",
+        "wipemark-store",
+        "wipemark-intake",
+        "wipemark-log",
+    },
     "wipemark-image": {"wipemark-core"},
     # What was handed to the application, and what it turns out to be.
     # A leaf, and a strict one: no workspace dependency and no external

@@ -8,6 +8,7 @@ members = [
     "crates/wipemark-llama",
     "crates/wipemark-models",
     "crates/wipemark-pipeline",
+    "crates/wipemark-queue",
     "crates/wipemark-image",
     "crates/wipemark-intake",
     "crates/wipemark-license",
@@ -140,6 +141,7 @@ wipemark-llama-sys = { path = "crates/wipemark-llama-sys" }
 wipemark-llama = { path = "crates/wipemark-llama" }
 wipemark-models = { path = "crates/wipemark-models" }
 wipemark-pipeline = { path = "crates/wipemark-pipeline" }
+wipemark-queue = { path = "crates/wipemark-queue" }
 wipemark-image = { path = "crates/wipemark-image" }
 wipemark-intake = { path = "crates/wipemark-intake" }
 wipemark-license = { path = "crates/wipemark-license" }

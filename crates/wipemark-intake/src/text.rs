@@ -19,9 +19,13 @@
 //!   [`Encoding::Other`] is the honest answer; guessing a code page
 //!   from letter frequencies is a different product.
 //!
-//! Nothing here decodes anything. The verdict is about the *bytes*, and
-//! it is reached from at most [`crate::HEAD`] of them, because the
-//! caller may be holding the front of a four gigabyte file.
+//! The verdict is about the *bytes*, and it is reached from at most
+//! [`crate::HEAD`] of them, because the caller may be holding the front
+//! of a four gigabyte file. Decoding is separate and comes after a
+//! verdict: [`decode`] and [`encode`] take an encoding this module named
+//! (never [`Encoding::Other`]) and the whole of a file the caller chose to
+//! read — the CLI's `inspect`/`clean` and the queue, which must read a
+//! file the same way.
 
 /// How the characters are stored, when they are characters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -206,6 +210,89 @@ pub fn shape(head: &[u8]) -> Option<crate::Format> {
         return Some(crate::Format::Html);
     }
     None
+}
+
+// Moved from the CLI's `input.rs` (E4-4): the queue reads and writes a
+// file the way `clean` does, and nothing can depend on an application.
+
+/// Bytes to text. `Err` is the byte offset of the first unit that is not
+/// valid in `encoding` — a sequence cut short by the end of the file
+/// included. Never lossy: a replacement character would be a change
+/// Layer A did not make and the report would not mention.
+pub fn decode(bytes: &[u8], encoding: Encoding) -> Result<String, usize> {
+    match encoding {
+        Encoding::Utf8 => std::str::from_utf8(bytes)
+            .map(str::to_owned)
+            .map_err(|error| error.valid_up_to()),
+        Encoding::Utf16Le | Encoding::Utf16Be => {
+            let big = encoding == Encoding::Utf16Be;
+            let units = bytes.chunks_exact(2).map(|pair| {
+                let pair = [pair[0], pair[1]];
+                if big {
+                    u16::from_be_bytes(pair)
+                } else {
+                    u16::from_le_bytes(pair)
+                }
+            });
+            let mut text = String::with_capacity(bytes.len() / 2);
+            let mut unit = 0;
+            for decoded in char::decode_utf16(units) {
+                match decoded {
+                    Ok(character) => {
+                        text.push(character);
+                        unit += character.len_utf16();
+                    }
+                    Err(_) => return Err(2 * unit),
+                }
+            }
+            if !bytes.len().is_multiple_of(2) {
+                return Err(bytes.len() - 1);
+            }
+            Ok(text)
+        }
+        Encoding::Utf32Le | Encoding::Utf32Be => {
+            let big = encoding == Encoding::Utf32Be;
+            let mut text = String::with_capacity(bytes.len() / 4);
+            for (index, quad) in bytes.chunks_exact(4).enumerate() {
+                let quad = [quad[0], quad[1], quad[2], quad[3]];
+                let value = if big {
+                    u32::from_be_bytes(quad)
+                } else {
+                    u32::from_le_bytes(quad)
+                };
+                text.push(char::from_u32(value).ok_or(4 * index)?);
+            }
+            if !bytes.len().is_multiple_of(4) {
+                return Err(bytes.len() - bytes.len() % 4);
+            }
+            Ok(text)
+        }
+        // Never reached: an encoding intake will not name is refused
+        // before anything is decoded. Guessing one here — Latin-1, say —
+        // would be reading a file in an encoding nobody established.
+        Encoding::Other => Err(0),
+    }
+}
+
+/// Text to bytes, in the encoding it was read in. A U+FEFF at the front
+/// of `text` becomes that encoding's byte order mark by the same
+/// arithmetic as every other character.
+pub fn encode(text: &str, encoding: Encoding) -> Vec<u8> {
+    match encoding {
+        Encoding::Utf16Le => text.encode_utf16().flat_map(u16::to_le_bytes).collect(),
+        Encoding::Utf16Be => text.encode_utf16().flat_map(u16::to_be_bytes).collect(),
+        Encoding::Utf32Le => text
+            .chars()
+            .flat_map(|c| u32::from(c).to_le_bytes())
+            .collect(),
+        Encoding::Utf32Be => text
+            .chars()
+            .flat_map(|c| u32::from(c).to_be_bytes())
+            .collect(),
+        // `Other` is never read, so never written; UTF-8 is what
+        // anything else would have to be.
+        Encoding::Utf8 | Encoding::Other => text.as_bytes().to_vec(),
+    }
 }
 
 #[cfg(test)]

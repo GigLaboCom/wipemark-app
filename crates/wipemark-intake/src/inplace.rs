@@ -179,6 +179,31 @@ pub fn write_atomically(destination: &Path, bytes: &[u8], model: Option<&Path>) 
     written
 }
 
+// Moved from the CLI's `input.rs` (E4-4), for the queue's own check.
+
+/// Whether `out` names the same file as `input` — the same inode on
+/// Unix, so `-o note.md`, `-o ./note.md`, a symlink and a hard link to
+/// the input are all caught; the same canonical path elsewhere. False
+/// when `out` does not exist: nothing can be overwritten there.
+pub fn same_file(input: &Path, out: &Path) -> bool {
+    let (Ok(input_meta), Ok(out_meta)) = (std::fs::metadata(input), std::fs::metadata(out)) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        input_meta.dev() == out_meta.dev() && input_meta.ino() == out_meta.ino()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (input_meta, out_meta);
+        match (std::fs::canonicalize(input), std::fs::canonicalize(out)) {
+            (Ok(input), Ok(out)) => input == out,
+            _ => false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io;

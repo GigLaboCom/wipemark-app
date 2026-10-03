@@ -346,3 +346,143 @@ built on first use. E4-6 wraps it in an adapter that implements the
 trait — `info` from the engine on duty when the job starts, `complete`
 through the handle (busy count, keep policy), `warmup` through the host's
 load.
+
+## The queue
+
+E4-4 (spec S4.8, OV §4.5; the plan document `docs/plan/E4-4-the-queue.md`).
+
+```
+crates/wipemark-pipeline/src/job/resume.rs   Decided (one chunk's decision, ASCII JSON), the fingerprint, the chunk digest
+crates/wipemark-pipeline/src/job/stored.rs   Options::to_json / from_json — a queued item's options after a restart
+crates/wipemark-store/src/queue.rs           schema 2: queue, queue_chunks, queue_control — strings and integers
+crates/wipemark-queue/src/lib.rs             Queue (the handle), QueueEvent, End, Failure, ItemView, Durability
+crates/wipemark-queue/src/worker.rs          the queue's thread: commands, the running job, rows, delivery
+crates/wipemark-queue/src/item.rs            ItemId, Source, Destination, Request, State, the item row
+crates/wipemark-queue/src/read.rs            reading a file the way the CLI does
+crates/wipemark-queue/src/deliver.rs         writing a result through wipemark_intake::inplace
+crates/wipemark-queue/tests/kill.rs          the gate: a child process killed with SIGKILL mid-document
+```
+
+### Why a crate of its own
+
+A queue runs jobs, remembers them, reads the user's files and writes
+results. The pipeline may depend on core and engine only, the store is a
+leaf, and nothing may depend on an application — so `wipemark-queue` sits
+above the pipeline, the store and intake and is the one place they meet
+(`scripts/check-dep-direction.sh`). The pipeline gained values, not
+storage: a resumable entry point and a per-chunk record. The store gained
+tables of JSON it does not read.
+
+### A job that can be taken up again
+
+`start_resumable(id, document, options, engine, carried)` is `start` plus
+two things. Every chunk it decides is handed out at once as
+`Event::ChunkDecided { decided: Decided }` — the chunk's index, the job's
+fingerprint, the chunk's digest, the outcome, the winner (placeholders
+and all) or none, the report's JSON of its attempts and their counts.
+And `carried`, an earlier run's records, are taken back: after planning,
+`Event::Resumed { carried, discarded }`, and a chunk with a usable record
+is not asked again — its winner goes into the assembly as decided and its
+report is the record's, `"carried_over": true` with the attempts as they
+were recorded (core's `CleanReport` has a writer and no reader, so a
+carried attempt stays JSON; `ChunkReport::carried`, `totals()` counts it).
+`start` itself is unchanged: no new event, no new JSON key.
+
+A record is used only when **all** of these hold, and is otherwise
+discarded — never repaired:
+
+- its fingerprint is the job's: sha256 over a version tag, the document's
+  text and format, the options' `Debug` (every field and override), the
+  engine's identity, the chunk budget and the usable rungs with their
+  templates. So a source edited between a crash and the restart, other
+  options, another model or a new build's template invalidates every
+  record of the job — half a document rewritten under one set of rules
+  and half under another would be a report that lies;
+- it names a chunk of this plan and carries that chunk's digest (text,
+  context, protected spans);
+- its outcome and winner agree, and the winner still restores into the
+  chunk.
+
+This works because chunks are independent (a chunk's context is the
+source's previous sentences), `Prepared` is deterministic for the same
+text, format and budget, and an attempt's seed depends only on the
+chunk's index (D83): the chunks a resumed job asks produce what an
+uninterrupted job would have, and the final text is the same.
+
+### The queue
+
+`Queue::open(path, engine)` — or `Queue::on(store, durability, engine)`
+for the application's own store — loads the rows and starts the queue's
+thread. The handle (`push`, `pause`, `resume`, `cancel`, `remove`,
+`items`, `events`, `result`, `shutdown`) sends commands and returns: every
+statement, file read and write is on that thread. The constructors and
+`result` read rows, so a window calls them off its foreground thread.
+
+- **One at a time, oldest first.** Ids come from `AUTOINCREMENT` and are
+  never reused; the handle allocates them so `push` returns at once.
+- **Rows.** `queue (id, state, item, result)`: the state is the queue's
+  word — `queued`, `running`, `delivering`, `done`, `failed`,
+  `cancelled`; `item` is the request (the source path, or the text with
+  no file behind it; the format; the destination; the options as
+  `Options::to_json` wrote them); `result` the end (the report's JSON, what
+  was written, the failure as ids). `queue_chunks (item, idx, record)` is
+  one `Decided` per chunk, written the moment its event arrives — the
+  whole of surviving a `kill -9`; they go when the item ends.
+  `queue_control` is whether the queue is paused.
+- **A restart.** `running` becomes `queued` and keeps its chunk rows;
+  starting it hands them to `start_resumable`. `delivering` is finished
+  first.
+- **Pause** is persisted; the running job is cancelled (E4-3: "a paused
+  job is a cancelled one to be started again") and its item waits again
+  with its chunks. **Cancel** ends an item as `cancelled`, a waiting one
+  never starts. **Remove** deletes the row. **Shutdown** leaves the
+  running item waiting for the next open.
+- **Progress.** `QueueEvent::Job { item, event }` forwards every pipeline
+  event of the running item; `ItemView::decided` counts its decided chunks.
+- **A source that cannot be read** ends its item `failed` with the reason
+  (missing, folder, unreadable, not text, an unnamed eight-bit encoding,
+  invalid at a byte) and the next one starts. A file is read like the CLI
+  reads it — the head through `wipemark_intake::identify`, refused before
+  the rest is read, then `wipemark_intake::text::decode` (moved there from
+  the CLI, with `encode` and `inplace::same_file`).
+- **A database that will not open** is left on disk byte for byte; the
+  queue runs on an in-memory store and `Durability::Memory` says it will
+  not survive a restart. A failed write later is `QueueEvent::Unsaved`,
+  and the queue goes on.
+
+### Where a result goes
+
+The destination is chosen when the item is pushed, stored with it, and
+executed as stored — the queue reads no Retention row; the surface that
+pushes does (E4-6, E7):
+
+- `Row` — nothing written; the text stays in the row until the item is
+  removed. The only destination text with no file behind it has short of a
+  path somebody chose; `InPlace` for text is refused at push.
+- `File(path)` — `Destination::beside(source)` is `name.cleaned.ext` by
+  `with_infix`; or a folder's path. Written by
+  `inplace::write_atomically`, in the source's encoding with its byte
+  order mark and the source's permissions. A destination that *is* the
+  source is refused at push (the same path) and at delivery (the same
+  inode); the result then stays in the row.
+- `InPlace(Keep)` — the per-run flag: `inplace::replace`, the original set
+  aside first unless `Keep::Nothing`, never over an original already there;
+  nothing changed, nothing touched.
+
+Delivery is two-phase: the result goes into the row as `delivering`, then
+the file is written, then the row is `done` (and loses the text when the
+text is on disk). The next open finishes a `delivering` item: a file is
+written again; an in-place item whose original is already aside is done
+when the file is missing or already holds the result, and fails with
+"original exists" when it holds anything else.
+
+### What it keeps
+
+The row holds a paste's text until the item is removed, and the result's
+text when it has nowhere else to be. Chunk rows go when the item ends.
+Every connection runs with `PRAGMA secure_delete = ON`, so a removed row's
+text is overwritten in the database file; the WAL may hold a copy until
+its next checkpoint, which is SQLite's and not something this product can
+promise away. Log lines carry ids, counts, states and failure kinds; a
+document only as `wipemark_log::Elided`'s shape
+(`no_document_text_or_path_reaches_a_log_line`).
