@@ -1,9 +1,10 @@
 //! `fixtures/text/` — every file's claim, through the public API.
 //!
 //! Two sets live there. The 22 of E1-3 (`docs/plan/E1-3-scrubber-and-nfkc.md`
-//! §4.7): one `<class id>.txt` per class the scrubber acts on, with the
-//! exact output and rows, and the `survive-*.txt` set of A §4.2, which must
-//! come out byte-identical. And E1-2's twelve `keep-*.txt`, whose hit
+//! §4.7) and E1-4's two (`docs/plan/E1-4-homoglyphs.md` §4.9): one
+//! `<class id>.txt` per class the scrubber acts on, with the exact output
+//! and rows, and the `survive-*.txt` set of A §4.2, which must come out
+//! byte-identical. And E1-2's twelve `keep-*.txt`, whose hit
 //! counts `context.rs` asserts; here they are held to the same survival
 //! and idempotence claims through `clean`.
 
@@ -19,8 +20,8 @@ use wipemark_core::{
 };
 use Confidence::{Confirmed, Informational, LikelyFalsePositive as Lfp, Probable};
 use UnicodeClass::{
-    BidiControl, DefaultIgnorable, ExoticSpace, Noncharacter, PrivateUse, SoftHyphen, TagCharacter,
-    VariationSelector, ZeroWidth, ZeroWidthJoiner,
+    BidiControl, DefaultIgnorable, ExoticSpace, Homoglyph, Noncharacter, PrivateUse, SoftHyphen,
+    TagCharacter, VariationSelector, ZeroWidth, ZeroWidthJoiner,
 };
 
 struct Row {
@@ -177,6 +178,16 @@ const FIXTURES: &[Fixture] = &[
         kept: &[],
         suspicious: true,
     },
+    // E1-4 §4.9: four paragraphs, one homoglyph case each — kept without
+    // `aggressive` (D3), which still makes the text suspicious (D4).
+    Fixture {
+        name: "homoglyph.txt",
+        text: include_str!("../../../fixtures/text/homoglyph.txt"),
+        cleaned: include_str!("../../../fixtures/text/homoglyph.txt"),
+        findings: &[],
+        kept: HOMOGLYPHS,
+        suspicious: true,
+    },
     survivor(
         "survive-emoji-presentation.txt",
         include_str!("../../../fixtures/text/survive-emoji-presentation.txt"),
@@ -263,6 +274,23 @@ const FIXTURES: &[Fixture] = &[
         include_str!("../../../fixtures/text/survive-leading-bom.txt"),
         &[],
     ),
+    // E1-4 §4.9: Russian prose, an English quotation in it, an acronym and
+    // an IPA letter in long Russian paragraphs, a Russian quotation in
+    // English — none of it is a homoglyph.
+    survivor(
+        "survive-homoglyph-prose.txt",
+        include_str!("../../../fixtures/text/survive-homoglyph-prose.txt"),
+        &[],
+    ),
+];
+
+/// `homoglyph.txt`'s rows, in code point order.
+const HOMOGLYPHS: &[Row] = &[
+    r('a', Homoglyph, Probable, &[27]),
+    r('o', Homoglyph, Probable, &[90]),
+    r('\u{430}', Homoglyph, Probable, &[8, 42]),
+    r('\u{440}', Homoglyph, Probable, &[40]),
+    r('\u{443}', Homoglyph, Probable, &[44]),
 ];
 
 const EXOTIC_SPACES: &[Row] = &[
@@ -337,9 +365,6 @@ const KEEP_FIXTURES: &[(&str, &str)] = &[
     ),
 ];
 
-/// Classes with no fixture yet. E1-4 adds homoglyph.txt and empties this.
-const NOT_YET: &[UnicodeClass] = &[UnicodeClass::Homoglyph];
-
 /// Every text in `fixtures/text/`, both sets.
 fn every_text() -> Vec<(&'static str, &'static str)> {
     FIXTURES
@@ -373,7 +398,7 @@ fn rows(rows: &[Row]) -> Vec<UnicodeFinding> {
 fn removed_of(findings: &[UnicodeFinding]) -> Vec<(UnicodeClass, u32)> {
     UnicodeClass::ALL
         .iter()
-        .filter(|&&c| c != ExoticSpace && c != UnicodeClass::Homoglyph)
+        .filter(|&&c| c != ExoticSpace && c != Homoglyph)
         .map(|&class| {
             let n = findings
                 .iter()
@@ -418,9 +443,6 @@ fn every_fixture_is_asserted() {
 #[test]
 fn every_class_has_a_fixture() {
     for class in UnicodeClass::ALL {
-        if NOT_YET.contains(&class) {
-            continue;
-        }
         let name = format!("{}.txt", class.as_str());
         assert!(FIXTURES.iter().any(|f| f.name == name), "no fixture {name}");
     }
@@ -658,6 +680,20 @@ fn assert_counters_agree(what: &str, report: &CleanReport) {
         .find(|(k, _)| *k == NormKind::SpaceToAscii)
         .map_or(0, |&(_, n)| n);
     assert_eq!(normalized, spaces, "{what}");
+    // E1-4: without `nfkc`, every replaced homoglyph is a position of a
+    // `findings` row, and a kept one is counted nowhere.
+    let homoglyphs: u32 = report
+        .findings
+        .iter()
+        .filter(|r| r.class == Homoglyph)
+        .map(|r| r.count)
+        .sum();
+    let replaced = report
+        .normalized
+        .iter()
+        .find(|(k, _)| *k == NormKind::Homoglyph)
+        .map_or(0, |&(_, n)| n);
+    assert_eq!(replaced, homoglyphs, "{what}");
 }
 
 #[test]

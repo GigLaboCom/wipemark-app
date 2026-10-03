@@ -458,7 +458,7 @@ over one pass**. A run is, in order:
 
 1. **hits** — `scrub::collect_hits`: E1-2's context pass
    (`context::hits`), merged by byte offset with the homoglyph hits
-   (E1-4, an empty list today);
+   (`homoglyph::hits`, E1-4 — below);
 2. **one decision per hit** — `scrub::decide`, the only place a hit is
    kept, removed or replaced;
 3. **rows and counters** — `scrub::run` aggregates the decisions into
@@ -646,11 +646,10 @@ finite value; `TextStats::of` never makes a non-finite one.
 
 ### How to extend
 
-- **Homoglyphs (E1-4)** change one expression: `Vec::new()` in
-  `scrub::collect_hits` becomes `homoglyph::hits(text)`. The `Replace`
-  path, `NormKind::Homoglyph`, its counter, its JSON and the merge are
-  here already, exercised with synthetic hits. `NOT_YET` in
-  `tests/fixtures.rs` loses `Homoglyph` when `homoglyph.txt` lands.
+- **Another detector** — homoglyphs (E1-4) were the first — is one
+  more list merged in `scrub::collect_hits`: the `Replace` path, the
+  counter, the JSON and the merge are shared, and the merge's debug
+  assertion catches two detectors claiming one code point.
 - **A new class** fails to compile in `scrub::replacement`,
   `json::acted_action` and `UnicodeClass::as_str` until it is placed,
   and `every_class_has_a_fixture` demands `<class id>.txt`.
@@ -669,6 +668,213 @@ finite value; `TextStats::of` never makes a non-finite one.
   everything, code blocks included — it cannot see a code block (A §2).
 - **A byte-exact way back.** `CleanReport` offers counts and positions
   for every removal, not a reversal.
+
+## Homoglyphs
+
+### What
+
+A homoglyph mark is a letter of one script typed inside a word of
+another, where it looks the same: a Cyrillic U+0430 in the English word
+"pay", a Latin U+0061 in the Russian word "парк". It is the eleventh
+class, and the only one that needs a *word* to exist: `class_of` never
+returns `Homoglyph` (a Latin `a` is a homoglyph only next to Cyrillic
+letters), so it has its own detector, `homoglyph::hits(text)`, merged
+into the hit list by byte offset in `scrub::collect_hits`.
+
+**Detection always runs; replacement needs `aggressive`** (D3). Without
+the knob a homoglyph is a row of `kept` at `Probable`, which makes the
+text `suspicious` (D4) — a user who did not ask for letters to be
+rewritten is still told the text carries look-alikes. With it the letter
+is replaced and counted under `normalized` as `homoglyph`. That is why
+every precision point below leans towards *not* finding: each false
+positive is a "this text is marked" claim to someone who asked for
+nothing to change.
+
+The data is E1-1's: `confusable_target(c)` is the one-code-point
+skeleton of a letter of Latin, Cyrillic or Greek that `confusables.txt`
+(UTS #39) lists as a source, `None` for everything else including a
+prototype; `confusables_with(k, script)` is every letter of that script
+whose skeleton is `k`, prototype included, ascending. Two letters are
+confusable when their skeletons are equal, and the rule uses that in
+both directions.
+
+### The two cases
+
+Words and paragraphs first. A **paragraph** runs between U+000A (U+000D,
+U+2028 and U+2029 do not end one). A **word** is a maximal run of
+letters, marks and decimal digits; characters Layer A removes or keeps
+for context (`class_of` is `Some`, exotic spaces excepted) neither end a
+word nor belong to it. Only **voting letters** — letters whose script is
+not `Common` or `Inherited` — decide anything, and only they are ever
+findings. A word's script is the unique majority of its voting letters;
+two scripts sharing the maximum make it *tied*.
+
+**The mixed word.** `pаy` = U+0070 U+0430 U+0079 is one word, Latin two
+to one. U+0430 is Cyrillic (M1: a script the rule knows), not the
+word's script (M2: the word mixes scripts), and has a Latin twin (M3):
+U+0061. One finding, at byte 1, replaced by U+0061. Symmetrically, the
+Latin `a` in `пaрк` = U+043F U+0061 U+0440 U+043A becomes U+0430.
+
+**The whole word.** `рау` = U+0440 U+0430 U+0443 in "Please рау the
+invoice before the end of the month." mixes nothing — every letter is
+Cyrillic — and is still an attack: it is drawn entirely in look-alikes
+of the paragraph's script. It is redrawn into Latin (U+0070 U+0061
+U+0079) when all of W1–W5 hold: the paragraph has a script `S_p` of
+Latin, Cyrillic or Greek that is not the word's (W1); every letter
+resolves in the word's own script (W2) and has a twin in `S_p` (W3);
+the word's script holds under 10 % of the paragraph's voting letters,
+counted per word (W4, A §5.4's rule); and every letter not already of
+`S_p` is a confusables *source* whose prototype is a letter of `S_p`
+(W5, D40). `S_p` itself is the unique largest credit among the words
+that have a script and are **not** redrawable — the words a pass might
+change are left out of the vote that decides whether to change them.
+
+### Why Russian prose is safe
+
+Nineteen of the 33 lower-case Russian letters have a Latin twin under
+D21 and D42 — 35 of the 66 letters counting capitals — and common words
+("нет", "как", "все", "он", "мама", "Тариф") are spelled entirely in
+them. A detector that asked only "does this letter have a Latin twin?"
+would rewrite Russian prose letter by letter; the reference
+implementation does. Two conditions stop it here:
+
+- **M2.** A letter of the word's own script is never a finding. A
+  Russian word in Russian is one script, so the mixed-word rule has
+  nothing to say. Delete M2 and every Cyrillic letter with a Cyrillic
+  twin becomes a hit replacing itself —
+  `russian_prose_is_not_a_homoglyph_attack` and
+  `fullwidth_in_japanese_is_typography` both go red.
+- **W5 (D40).** The 10 % share of W4 protects a quotation or a short
+  paragraph, not one acronym in a long one: BMW, HTTP, SSH, Java and
+  the IPA ɑ in a long Russian paragraph are under 10 % and redrawable
+  into Cyrillic. W5 asks whether the word is spelled in *imitations* of
+  the paragraph's letters. U+0440 is a source whose prototype is Latin
+  `p`, so `рау` is; Latin `B`, `M`, `W` are prototypes, sources of
+  nothing, so BMW is not; U+0251 ɑ is a source, but of a *Latin*
+  prototype, so it is not an imitation of a Cyrillic letter. This is A
+  §5.4's "`pay` in a Russian paragraph is an English word", made
+  mechanical.
+
+`fixtures/text/survive-homoglyph-prose.txt` holds all of it — Russian
+prose, an English quotation in Russian, BMW and ɑ in long Russian
+paragraphs, a Russian quotation in English — and comes out byte-identical
+with no row under all 16 `Options`.
+
+### The replacement (D21 revised, D42)
+
+`twin(c, script)`: the candidates are `confusables_with(skeleton(c),
+script)` that are letters of **the same case as `c`** (Lu, Ll, or
+caseless — matched on the letters, because skeletons drop case: U+0049
+and U+0406 have the skeleton U+006C) and have **no decomposition**
+(D42, applied before any choice: a letter NFKC would rewrite is never a
+replacement, which is what E1-3's convergence argument needs). Then:
+the skeleton itself when it is a candidate (T2); else the **lowest code
+point** (T3); else no twin and no finding (T4).
+
+The twin is what the eye sees, not what a keyboard would have typed:
+U+043A CYRILLIC SMALL LETTER KA becomes U+0138 LATIN SMALL LETTER KRA,
+not `k`; U+0432 becomes U+0299 LATIN LETTER SMALL CAPITAL B. A reader
+saw "ĸey" and still does.
+
+Where more than one candidate is left, the lowest code point is the
+letter in daily use; the others are historic or minority-language
+letters added later. The twelve choices among ASCII letters, as the
+18.0.0 tables produce them:
+
+| letter | into | twin | not |
+|---|---|---|---|
+| `c` | Cyrillic | U+0441 | U+1C83 |
+| `e` | Cyrillic | U+0435 | U+04BD |
+| `i` | Cyrillic | U+0456 | U+A647 |
+| `o` | Cyrillic | U+043E | U+1C82 |
+| `w` | Cyrillic | U+0448 | U+0461, U+051D |
+| `y` | Cyrillic | U+0443 | U+04AF |
+| `I` | Cyrillic | U+0406 | U+04C0 |
+| `Y` | Cyrillic | U+0423 | U+04AE |
+| `o` | Greek | U+03BF | U+03C3 |
+| `p` | Greek | U+03C1 | U+03F8 (U+03F1 vetoed by D42) |
+| `M` | Greek | U+039C | U+03FA |
+| `Y` | Greek | U+03A5 | — (U+03D2 is `<compat> U+03A5`, vetoed by D42) |
+
+For seven letters the prototype is not the lowest candidate, and T2
+decides: U+0444, U+03C6 and U+03D5 → U+0278 LATIN SMALL LETTER PHI (not
+U+0239 QP DIGRAPH); U+03B5, U+03F5, U+0454 and U+0511 → U+A793 LATIN
+SMALL LETTER C WITH BAR (not U+025B OPEN E). Latin `c` and `C` have no
+Greek twin at all: their only Greek members, U+03F2 and U+03F9, are
+compatibility characters. 488 (letter, other script) pairs resolve in
+18.0.0, and `every_twin_is_a_stable_letter_of_the_same_case` holds every
+one to "a letter of the target script, same case, no decomposition".
+
+### Where it is more precise than A §5.4
+
+Each point is required by the data or by idempotence (A §5.3:
+`clean(clean(x)) == clean(x)`). The counts are strings of the 10,000 of
+`homoglyph_replacement_is_idempotent`'s corpus that stop being
+idempotent under `aggressive` when the point is removed. (With `nfkc`
+too, E1-3's rounds re-run the pass inside one `clean` and absorb them,
+which is why the gate runs under `aggressive` alone as well.)
+
+| # | decision | what | why | test that goes red without it |
+|---|---|---|---|---|
+| H1 | D41 | a removable character inside a word does not split it | U+200B inside `pаy` would hide the mixed word until `clean` removed it, and the second `clean` would find it | `invisible_characters_inside_a_word_do_not_split_it`; corpus 1,398 |
+| H2 | D41 | a tie goes to `S_p` only when `S_p` is in the tie; otherwise the word has no script | a word of Latin and Cyrillic letters is not Greek, and a tie settled outside itself moves the majority it was settled by | `a_tie_is_never_settled_by_a_script_the_word_does_not_have`; corpus 1 |
+| H3 | D41 | the basis credits whole words to their script, and leaves tied and redrawable words out | replacing a mixed word's minority must not move the paragraph's script | corpus 67 |
+| H4 | D41 | the 10 % share counts words, as the basis does | a letter its word outvotes is about to become that word's script | `a_letter_its_word_outvotes_does_not_count_for_its_script`; corpus 161 |
+| H5 | D41 | a redraw is judged on resolved letters ρ | a mixed word in a foreign paragraph is redrawn in one pass, not fixed now and redrawn by the next `clean` | `a_mixed_word_in_a_foreign_paragraph_is_redrawn_in_one_pass`; corpus 30 |
+| H6 | D40 | W5: a redrawn word is spelled in imitations of the paragraph's letters | W4 alone redraws BMW, HTTP and ɑ in any long Russian paragraph and marks it suspicious | `a_latin_word_in_russian_prose_is_not_redrawn`, `the_survivors_survive_every_option` |
+| H7 | D42 | never a replacement with a decomposition, vetoed before the choice | E1-3's rounds converge only if a replaced letter is NFKC-stable | `a_replacement_is_never_a_compatibility_character`, `every_twin_is_a_stable_letter_of_the_same_case` |
+| H8 | definition | only voting letters are findings; digits and marks keep a word whole | a digit must never become a letter (U+FF10 has the skeleton U+004F) — but none could resolve anyway, so no test can fail without it | — |
+| H9 | definition | a paragraph is the text between U+000A | A §4.2's "абзац", the same paragraph E1-2's RTL rule uses | `a_paragraph_ends_at_a_line_feed` |
+
+Why one pass is a fixpoint of itself: removing a transparent character
+changes no word (H1); a replaced letter moves into the script that
+already won its word, or into `S_p` for a redraw, so no word's script
+moves; `S_p` is computed from words a pass never changes and can only
+gain credit; a script's share only falls after a pass, and every word of
+that script that could be redrawn was redrawn in the same pass (H4, H5).
+
+### What it deliberately does not do
+
+- **No mark veto.** A replaced letter followed by a combining mark it
+  composes with (`voilа` U+0300) is replaced; with `nfkc`, D26's next
+  round composes it to U+00E0
+  (`a_replacement_that_meets_its_accent_is_composed_by_nfkc`). Refusing
+  such letters would only hide a mixed word from the report.
+- **No decomposition of precomposed letters.** UTS #39 skeletons run
+  NFD first; E1-1 keeps one-code-point targets only, so a Cyrillic ё in
+  a Latin word is not found.
+- **No dictionary.** `рау` (an attack) and `сор` (a Russian word) look
+  alike to the rule; W4 and W5 are the whole of the judgement, and a lone
+  Russian word of imitation letters in a long English paragraph *is*
+  redrawn, as A §5.4 intends.
+- **No script outside Latin, Cyrillic and Greek.** A Han, Arabic or
+  Hangul word is never examined, an Armenian `ո` in a Latin word is not a
+  finding, and the halfwidth Katakana and Hangul sources are gone with
+  the width-form clause (D22). Fullwidth Latin in a Latin word is width,
+  which `nfkc` folds, not a homoglyph.
+- **No language-aware choice among twins.** D21 takes the lowest code
+  point; a Kazakh text would want U+04AF for `y`. That is an owner
+  decision.
+
+### Where
+
+| file | what |
+|---|---|
+| `src/homoglyph.rs` | `hits`, `twin`, the words, the basis, the shares, W1–W5 and M1–M3; the unit tests (D24) |
+| `src/scrub.rs` | `collect_hits`: `merge_in_source_order(context::hits(text), homoglyph::hits(text))` |
+| `src/tables.rs` | `confusable_target`, `confusables_with` (E1-1) |
+| `tests/homoglyphs.rs` | D3 through the API, the fixture under `aggressive`, idempotence over a 10,000-string corpus, the NFKC composition |
+| `fixtures/text/homoglyph.txt`, `survive-homoglyph-prose.txt` | the four cases, and the prose that must survive |
+
+### Gates
+
+The unit tests of `src/homoglyph.rs` name every rule above;
+`homoglyph_replacement_is_idempotent` (under `aggressive` and
+`aggressive` + `nfkc`) is the idempotence gate; E1-3's
+`clean_is_idempotent_on_a_generated_corpus`,
+`inspect_and_clean_agree` and the fixture suite run with homoglyphs on.
+The report `docs/plan/reports/E1-4-2026-10-03.md` records the mutation
+that paints each one red.
 
 ## Guards
 

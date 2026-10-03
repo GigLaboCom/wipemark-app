@@ -28,14 +28,16 @@
 //! what it did, positions always in bytes of the source. [`Options`] are
 //! the four knobs, all off by default. Both reports serialise to the
 //! JSON form the CLI and the MCP server print (`to_json`), third shelf
-//! included. Homoglyph detection (E1-4) and the five guards (E1-5) are
-//! not here yet.
+//! included. Homoglyphs are found always and replaced only under
+//! `aggressive` (E1-4, `homoglyph`); the five guards that judge a rewrite
+//! are [`default_guards`] (E1-5).
 
 #![forbid(unsafe_code)]
 
 pub mod class;
 mod context; // E1-2: the pre-passes and the context rules → hits
 pub mod guard;
+mod homoglyph; // E1-4: confusables, the mixed-word rule, whole-word redraws
 mod json; // E1-3: the A §7.1 form, std-only
 mod name; // E1-1: name_of
 mod nfkc; // E1-3: UAX #15 NFKC

@@ -1,9 +1,9 @@
 //! The scrubber: one decision over one pass, for `inspect` and `clean`.
 //!
-//! A run is: the hits ([`collect_hits`] — E1-2's context pass, and E1-4's
-//! homoglyphs when they land), one [`decide`] per hit, the decisions
-//! aggregated into report rows and counters, and — for `clean` — the
-//! output text, built in the same walk. `inspect` is the same walk without
+//! A run is: the hits ([`collect_hits`] — E1-2's context pass and E1-4's
+//! homoglyphs), one [`decide`] per hit, the decisions aggregated into
+//! report rows and counters, and — for `clean` — the output text, built
+//! in the same walk. `inspect` is the same walk without
 //! the output (A §5.2: an `inspect` that saw something other than what
 //! `clean` removes would be a lie in the report). With `Options::nfkc`,
 //! `clean` then runs NFKC and the pass again, in rounds until a pass acts
@@ -17,7 +17,7 @@ use crate::class::{Action, Confidence, UnicodeClass, UnicodeFinding};
 use crate::context::{self, Hit};
 use crate::report::{CleanReport, InspectReport, NormKind, TextStats};
 use crate::tables::UNICODE_VERSION;
-use crate::{nfkc, Cleaned, Options};
+use crate::{homoglyph, nfkc, Cleaned, Options};
 
 /// How many times `clean` may run NFKC and the pass again (D26). Two
 /// rounds are the most any input in the corpus needs (E1-3 §5.4); the cap
@@ -35,9 +35,9 @@ const HOMOGLYPH: usize = 2;
 /// Every hit in `text`, in source order: the context hits (E1-2) merged
 /// with the homoglyph hits (E1-4). The one place a detector is wired in.
 pub(crate) fn collect_hits(text: &str, _options: &Options) -> Vec<Hit> {
-    // E1-4 replaces `Vec::new()` with `homoglyph::hits(text)` — that one
-    // expression is the whole of its change here.
-    merge_in_source_order(context::hits(text), Vec::new())
+    // Homoglyphs run whatever the `Options` say (D3); `aggressive` only
+    // changes the action.
+    merge_in_source_order(context::hits(text), homoglyph::hits(text))
 }
 
 /// Two hit lists, each in source order, merged into one in source order.

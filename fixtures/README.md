@@ -11,10 +11,10 @@ text/     one file per Unicode class from spec §3.1, plus the
           false-positive set: emoji ZWJ sequences, VS15/VS16, CJK
           ideographic variation sequences, Arabic U+061C and
           U+0600–0605, Mongolian FVS, Egyptian quadrat controls.
-          Files named `<class id>.txt` are cleaned — one per class
-          (`homoglyph.txt` arrives with E1-4); files named
-          `survive-*.txt` must come out byte-identical. Every file's
-          claim is in `crates/wipemark-core/tests/fixtures.rs`, and
+          Files named `<class id>.txt` are cleaned — one per class;
+          files named `survive-*.txt` must come out byte-identical.
+          Every file's claim is in
+          `crates/wipemark-core/tests/fixtures.rs`, and
           `every_fixture_is_asserted` fails for a file that has none.
 image/    PNG/JPEG/WebP/TIFF carrying C2PA manifests, XMP
           DigitalSourceType, Stable Diffusion `parameters` blocks.
