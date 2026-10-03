@@ -98,8 +98,8 @@ pub struct SamplingParams {
     pub temperature: f32,
     pub top_p: f32,
     pub min_p: Option<f32>,
-    /// Set per candidate as `base_seed + round * candidate`, so a run is
-    /// reproducible from the report.
+    /// Set per attempt by the pipeline (`wipemark_pipeline::seed_for`:
+    /// unique across a job), so a run is reproducible from the report.
     pub seed: Option<u64>,
     pub max_tokens: Option<u32>,
 }

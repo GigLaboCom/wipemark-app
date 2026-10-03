@@ -206,6 +206,13 @@ pub enum RestoreError {
     /// marker it carries (`2.`) would number the wrong item.
     #[error("list glue {index} came back out of order")]
     OutOfOrder { index: usize },
+    /// Item `item` (1-based) of a list came back with more line breaks
+    /// than it went in with: the model moved text across the items'
+    /// boundaries (E4-3's live gate — an item became `;` and its words
+    /// moved into the item before), which every placeholder still in its
+    /// place and in its order does not show.
+    #[error("list item {item} came back broken across lines")]
+    ItemBroken { item: usize },
 }
 
 /// Why a document cannot be assembled.
@@ -326,7 +333,8 @@ impl Chunk {
     /// whitespace dropped (the chunk's text has none, and the bytes around
     /// a chunk are the source's); every placeholder checked — unknown,
     /// missing, duplicated, or list glue out of order is a
-    /// [`RestoreError`] naming it; whitespace touching list glue dropped
+    /// [`RestoreError`] naming it; in a list, an item with more line
+    /// breaks than it had is one too; whitespace touching list glue dropped
     /// (the glue holds the source's own); every newline written as the
     /// source's line ending followed by the container's continuation
     /// prefix; every `⟦k⟧` replaced by `protected[k-1]` exactly.
@@ -335,6 +343,7 @@ impl Chunk {
         let candidate = candidate.trim();
         let found = placeholders_in(candidate);
         self.check(&found)?;
+        self.check_items(candidate, &found)?;
 
         let mut out = String::with_capacity(candidate.len() + 64);
         let mut prefix = self.layout.segments[0].prefix.as_str();
@@ -402,6 +411,46 @@ impl Chunk {
             }
         }
         Ok(())
+    }
+
+    /// In a list chunk, no item comes back with more line breaks than it
+    /// went in with (its edges trimmed: the newline before a glue
+    /// placeholder is the glue's, and a model may keep, drop or double it).
+    /// A chunk without glue is not a list and is not checked — a paragraph
+    /// a model re-wraps is still one paragraph.
+    fn check_items(
+        &self,
+        candidate: &str,
+        found: &[(Range<usize>, usize)],
+    ) -> Result<(), RestoreError> {
+        if !self.layout.glue.contains(&true) {
+            return Ok(());
+        }
+        let ours = self.item_breaks(&self.text, &placeholders_in(&self.text));
+        let theirs = self.item_breaks(candidate, found);
+        match ours
+            .iter()
+            .zip(&theirs)
+            .position(|(ours, theirs)| theirs > ours)
+        {
+            Some(i) => Err(RestoreError::ItemBroken { item: i + 1 }),
+            None => Ok(()),
+        }
+    }
+
+    /// The line breaks inside each item of `text`: the pieces between its
+    /// glue placeholders, edges trimmed.
+    fn item_breaks(&self, text: &str, found: &[(Range<usize>, usize)]) -> Vec<usize> {
+        let mut breaks = Vec::new();
+        let mut at = 0;
+        for (range, n) in found {
+            if self.layout.glue.get(n - 1).copied().unwrap_or(false) {
+                breaks.push(text[at..range.start].trim().matches('\n').count());
+                at = range.end;
+            }
+        }
+        breaks.push(text[at..].trim().matches('\n').count());
+        breaks
     }
 
     /// `text` with every newline written as the source's line ending and

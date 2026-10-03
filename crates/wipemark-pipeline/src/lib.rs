@@ -18,22 +18,34 @@
 //!
 //! # Status
 //!
-//! The vocabulary below is E0's. Of E4: [`lang`] — the languages the
-//! templates are written in, and the detection of a document's (E4-1);
-//! [`prepare`] — what of a document is prose, the protected spans and
-//! their placeholders, the chunks and their context, and the way back
-//! byte for byte (E4-1); and [`prompt`] — the shipped templates, the
-//! assembler, validation, adaptations and the clean-up of an answer
-//! (E4-2). The machine that drives them — candidates, rounds, guards —
-//! is still to come (E4-3).
+//! The vocabulary below is E0's, reshaped by E4-3. Of E4: [`lang`] — the
+//! languages the templates are written in, and the detection of a
+//! document's (E4-1); [`prepare`] — what of a document is prose, the
+//! protected spans and their placeholders, the chunks and their context,
+//! and the way back byte for byte (E4-1); [`prompt`] — the shipped
+//! templates, the assembler, validation, adaptations and the clean-up of
+//! an answer (E4-2); and the loop that drives them (E4-3) — [`job`] (the
+//! job on its thread: Layer A, candidates × rounds, the guards, the
+//! no-op guard, restore, assembly, Layer A again), [`select`]
+//! (`min-divergence` and the scorer seam), [`cost`] (D61's effort by
+//! executor and the price before a run) and [`report`] (every attempt,
+//! the three shelves, the JSON form). The batch queue is E4-4; the
+//! surfaces that start a job are E4-6.
 
 #![forbid(unsafe_code)]
 
+pub mod cost;
+pub mod job;
 pub mod lang;
 pub mod prepare;
 pub mod prompt;
+pub mod report;
+pub mod select;
 
 use std::time::Duration;
+
+pub use job::{seed_for, start, Document, JobHandle, Options, Outcome, Refused};
+pub use report::{EngineFailure, JobReport, Rejection};
 
 /// Identifies a job for the lifetime of the process and in the persisted
 /// queue.
@@ -78,6 +90,10 @@ pub enum Stage {
 }
 
 /// Progress, streamed to whoever is watching.
+///
+/// A job's events arrive in the order they happened, from one thread, and
+/// end with exactly one of [`Event::Finished`], [`Event::Cancelled`] or
+/// [`Event::Failed`], each preceded by the [`Stage`] of the same name.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     Stage {
@@ -85,33 +101,59 @@ pub enum Event {
         stage: Stage,
     },
     /// A token arrived from the engine. The UI appends it to the Result
-    /// pane; a CLI ignores it.
+    /// pane; a CLI ignores it. It belongs to the attempt the last
+    /// [`Stage::Rewriting`] announced — rejected attempts stream too.
     Token {
         job: JobId,
         text: String,
     },
-    /// One candidate was rejected by a guard. Kept as an event rather
-    /// than swallowed: the honest denominator in the report is "attempts
-    /// made", not "attempts shown".
+    /// One candidate was rejected. Kept as an event rather than
+    /// swallowed: the honest denominator in the report is "attempts
+    /// made", not "attempts shown". The reason is structured — the surface
+    /// renders it from its catalogue.
     CandidateRejected {
         job: JobId,
+        /// 1-based, as [`Stage::Rewriting`] counts.
+        chunk: u32,
         round: u8,
         candidate: u8,
-        guard: &'static str,
-        reason: String,
+        rejection: Rejection,
     },
+    /// The job ran to its end: the document and the report.
     Finished {
         job: JobId,
         elapsed: Duration,
+        outcome: Box<Outcome>,
+    },
+    /// The job was cancelled. No document comes back: half a rewrite is
+    /// not a result.
+    Cancelled {
+        job: JobId,
+        elapsed: Duration,
+    },
+    /// The job could not go on.
+    Failed {
+        job: JobId,
+        elapsed: Duration,
+        error: PipelineError,
     },
 }
 
-#[derive(Debug, thiserror::Error)]
+/// Why a job stopped before its end. A value: the surface words it.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum PipelineError {
-    #[error("engine: {0}")]
-    Engine(#[from] wipemark_engine::EngineError),
-    #[error("cancelled")]
-    Cancelled,
-    #[error("not implemented yet: {0}")]
-    NotImplemented(&'static str),
+    /// Nothing can answer — no model built in, no file, no key. Asking
+    /// again for every candidate of every chunk would only repeat it.
+    #[error("the engine is unavailable: {0}")]
+    Unavailable(wipemark_engine::Unavailable),
+    /// The engine failed while getting ready.
+    #[error("the engine failed while getting ready: {0:?}")]
+    Engine(EngineFailure),
+    /// A shipped template does not render: a bug in this build.
+    #[error("the shipped template {slot:?} does not render")]
+    ShippedTemplate { slot: prompt::Slot },
+    /// The winners could not be put back: a bug, since every winner was
+    /// restored once already.
+    #[error("assembly failed: {0}")]
+    Assemble(prepare::AssembleError),
 }

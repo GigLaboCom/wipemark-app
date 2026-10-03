@@ -34,8 +34,12 @@ context, the document's language, and the way back byte for byte — in
 prompts — the
 shipped en/ru/de templates, the assembler that owns the markers, the
 validation of an edited template and the clean-up of an answer, in
-`wipemark_pipeline::prompt` — but nothing sends them yet (the loop is
-E4-3); see `docs/architecture/prompts.md`.
+`wipemark_pipeline::prompt` (`docs/architecture/prompts.md`). And the
+loop: `wipemark_pipeline::start` runs a job — Layer A, candidates ×
+rounds, the guards and the no-op guard, `min-divergence`, Layer A again —
+tested on `FakeEngine` and against Qwen3 4B; but nothing in a window,
+the MCP server or the CLI starts one yet (E4-6); see
+`docs/architecture/pipeline.md`, "The loop".
 
 ## First command after any clone or submodule update
 
@@ -184,7 +188,7 @@ it sits.
 | `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP) | both engines real, handed out by `duty::engine_for` and asked by the Check; the pipeline that rewrites with them is **E4** |
 | `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`) | real under `native`; an empty shim without it |
 | `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends | real under `native`; refuses every load without it |
-| `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation (E4-1) and prompts (E4-2) real; the loop is **E4-3** |
+| `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation, prompts and the loop real (E4-1…E4-3); the queue is **E4-4**, the surfaces **E4-6** |
 | `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader | real |
 | `wipemark-store` | the SQLite file and the `settings` table | real |
 | `wipemark-secret` | the OS credential store, and `Secret` | real |
@@ -1187,10 +1191,25 @@ Anything that needed more than a rule to explain is in `docs/`;
   shown to a model. Protected spans become `⟦n⟧` numbered per chunk from
   1; `placeholder()` is the one place the format lives; `restore` never
   guesses — a missing, invented, duplicated or reordered placeholder is a
-  `RestoreError`, which the loop treats as a rejection. `lang::detect`
+  `RestoreError` — and so is a list item that comes back with more line
+  breaks than it went in with (`ItemBroken`) — which the loop treats as
+  a rejection. `lang::detect`
   answers `None` rather than guess, and its neighbours' stop-word lists
   exist only to make French or Ukrainian read as unknown. See
   `docs/architecture/pipeline.md`.
+* **A job is a thread and a channel, and a failed candidate is never
+  used.** `wipemark_pipeline::start` returns at once with a `JobHandle`
+  and a `flume::Receiver<Event>`; the engine's future is driven on the
+  job's own thread by `job::drive` — about twenty lines of `std::task`,
+  no runtime beside GPUI's. Layer A runs over the document, over **every
+  answer before the guards** (a model that slips U+200B into an
+  identifier must not lose the candidate to `IdentifierGuard`), and over
+  the assembled result. Round 2 runs only when no candidate of round 1
+  passed (D61); the winner is the least diverged that passed (D71); with
+  no pass the chunk keeps its cleaned source and the report says so.
+  Every rejection is a structured value (`Rejection`, exhaustive — D85),
+  seeds are unique per job and recorded (D83), and the report's third
+  shelf is never empty. See `docs/architecture/pipeline.md`, "The loop".
 * **The prompts are data, and the assembler owns the markers.**
   `crates/wipemark-pipeline/prompts/<lang>/` holds one file per slot
   (`<tactic>.<step>.<role>.txt`, the row key's shape), en/ru/de, `code`
