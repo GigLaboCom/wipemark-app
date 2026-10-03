@@ -23,6 +23,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod lang;
+
 use std::time::Duration;
 
 /// Identifies a job for the lifetime of the process and in the persisted
