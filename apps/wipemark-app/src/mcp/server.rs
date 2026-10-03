@@ -976,6 +976,74 @@ mod tests {
         assert_eq!(read_head(&mut empty), None);
     }
 
+    /// The text limit is the transport's (D13), and the tool listing
+    /// promises it: a body over a megabyte is refused whole, before a
+    /// byte of it is read — never truncated into a report about the
+    /// first megabyte — and a body of exactly the limit is answered.
+    #[test]
+    fn a_body_over_the_limit_is_refused_whole() {
+        let port = a_port_with_a_free_neighbour();
+        let (server, _) = start(Endpoint {
+            bind: BindAddress::LOOPBACK,
+            port,
+        })
+        .expect("a free port");
+
+        // A head that announces one byte too many, and no body at all.
+        // A server that waited for the body would answer only when
+        // `PATIENCE` ran out, and then with a 400.
+        let asked = std::time::Instant::now();
+        let answer = ask(
+            port,
+            &format!(
+                "POST {PATH} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n\
+                 Content-Length: {}\r\n\r\n",
+                LARGEST_BODY + 1
+            ),
+        );
+        assert!(answer.starts_with("HTTP/1.1 413"), "{answer}");
+        assert!(
+            asked.elapsed() < PATIENCE,
+            "the refusal waited for a body it should never have read"
+        );
+
+        // Exactly the limit: a `tools/call inspect` padded to the byte.
+        let frame = |text: &str| {
+            format!(
+                r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"inspect","arguments":{{"text":"{text}"}}}}}}"#
+            )
+        };
+        let padding = LARGEST_BODY - frame("").len();
+        let body = frame(&"word ".repeat(padding / 5 + 1)[..padding]);
+        assert_eq!(body.len(), LARGEST_BODY);
+
+        // Layer A over a megabyte in a debug build takes a while; this
+        // client waits longer than `ask` does.
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("the server is listening");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(120)))
+            .expect("a deadline");
+        stream
+            .write_all(post(&body, "").as_bytes())
+            .expect("the request went out");
+        let mut answer = String::new();
+        stream.read_to_string(&mut answer).expect("an answer");
+        assert!(
+            answer.starts_with("HTTP/1.1 200 OK"),
+            "{}",
+            &answer[..answer.len().min(200)]
+        );
+        let reply = answer.split_once("\r\n\r\n").expect("a body").1;
+        let response: serde_json::Value = serde_json::from_str(reply).expect("JSON");
+        assert_eq!(
+            response["result"]["structuredContent"]["unicode_version"],
+            serde_json::json!(wipemark_core::UNICODE_VERSION),
+            "not a report"
+        );
+
+        server.stop();
+    }
+
     /// Every answer carries its own length and closes the connection,
     /// because there is no keep-alive state machine here to carry the
     /// next request.

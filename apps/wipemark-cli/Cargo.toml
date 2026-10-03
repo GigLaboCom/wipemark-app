@@ -22,11 +22,18 @@ tracing.workspace = true
 # different stem. A hook that fails in CI leaves the same evidence a
 # window would. See docs/architecture/logging.md.
 wipemark-log.workspace = true
+# A read-only open of `wipemark.db`, for one row: the `ui.language` the
+# app saved (`configured_language`). The writer, and the rest of the
+# settings model, are the app's.
 wipemark-store.workspace = true
+# The CLI reads a file the way a drop is read, and names its result the
+# way the app does (`wipemark_intake::name::with_infix`).
+wipemark-intake.workspace = true
+# Only to escape the one string — the cleaned text, the path written — a
+# `--json` answer carries beside core's report, and for the tests to read
+# that answer back.
+serde_json.workspace = true
 clap.workspace = true
-# Only to read `[ui] language` out of config.toml. The writer, and the
-# rest of the settings model, are the app's — and both converge on one
-# implementation with S6.2. See `configured_language`.
 
 [features]
 default = []

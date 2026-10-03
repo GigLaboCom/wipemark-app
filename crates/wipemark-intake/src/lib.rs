@@ -59,11 +59,13 @@
 //! answer. Call it off the foreground thread, the way everything else
 //! in this workspace treats a blocking call (spec §1.2).
 //!
-//! # Skeleton status
+//! # Status
 //!
-//! Epic **E6**: recognising what arrived is all this does. Acting on
-//! it — scrubbing the text, stripping the image, unpacking the
-//! archive — is E1, E11 and later, and nothing here pretends otherwise.
+//! Recognising what arrived is still all this crate does. The CLI and
+//! the MCP server now act on its verdict — a text this crate has placed
+//! is decoded by the caller and handed to `wipemark-core`'s Layer A —
+//! while images (E11) and archives (Q-D2) are still only named, and
+//! nothing here pretends otherwise.
 
 #![forbid(unsafe_code)]
 

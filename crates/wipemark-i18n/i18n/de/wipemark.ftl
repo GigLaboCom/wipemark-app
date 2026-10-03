@@ -472,7 +472,7 @@ settings-retention-span-forever = bis zum Löschen von Hand
 
 settings-mcp-title = MCP-Server
 settings-mcp-description = Ein Agent kann { -layer-a } über das Model Context Protocol auf seine eigene Ausgabe anwenden.
-settings-mcp-tools-pending = Der Server antwortet, seine Werkzeuge noch nicht: Bereinigen gibt es in dieser Version nicht, und bis dahin wird jeder Aufruf abgelehnt, statt mit einem Bericht über nichts beantwortet zu werden.
+settings-mcp-tools-layer-a = Beide Werkzeuge arbeiten: inspect zeigt, was die { -layer-a } an einem Text ändern würde, und clean nimmt diese Änderungen vor und meldet jede mit ihrer Position. Umgeschrieben wird nichts: { -layer-b } gibt es in dieser Version noch nicht.
 
 settings-mcp-status-off = Läuft nicht.
 settings-mcp-status-starting = Startet…
@@ -519,6 +519,23 @@ report-not-established-vendor-detector-evasion = Umgehung des herstellereigenen 
 report-not-established-human-authorship = menschliche Urheberschaft — von keiner Prüfung dieses Werkzeugs belegt
 report-not-established-unknown-mark-schemes = Markierungen in Verfahren, die dieser Build nicht umsetzt — es wurde nicht danach gesucht
 
+unicode-class-zero-width = breitenloses Zeichen
+unicode-class-zwj = breitenloser Verbinder
+unicode-class-bidi-control = Steuerzeichen der Schreibrichtung
+unicode-class-tag-character = Tag-Zeichen
+unicode-class-variation-selector = Variantenselektor
+unicode-class-soft-hyphen = bedingter Trennstrich
+unicode-class-exotic-space = ungewöhnliches Leerzeichen
+unicode-class-noncharacter = Nichtzeichen
+unicode-class-private-use = Zeichen für private Nutzung
+unicode-class-default-ignorable = ignorierbares Formatzeichen
+unicode-class-homoglyph = Buchstabe aus einer anderen Schrift
+
+confidence-confirmed = bestätigt
+confidence-probable = wahrscheinlich
+confidence-informational = zur Information
+confidence-likely-false-positive = wahrscheinlich keine Markierung
+
 ## Menüleiste
 
 tray-show = { -brand-name } anzeigen
@@ -551,9 +568,9 @@ cli-command-audit = Ein Verzeichnis durchlaufen und Funde melden, für CI.
 
 cli-arg-path-or-stdin = Zu lesende Datei, oder `-` für die Standardeingabe.
 cli-arg-path = Zu lesende Datei.
-cli-arg-out = Ausgabedatei. Standard ist `<name>.cleaned.<ext>` neben der Eingabe; direktes Überschreiben braucht ein ausdrückliches Flag und ist nie der Standard.
+cli-arg-out = Ausgabedatei, oder `-` für die Standardausgabe. Standard ist `<name>.cleaned.<ext>` neben der Eingabe, und die Standardausgabe, wenn die Eingabe die Standardeingabe ist; direktes Überschreiben braucht ein ausdrückliches Flag und ist nie der Standard.
 cli-arg-nfkc = NFKC-Normalisierung anwenden (standardmäßig aus — sie ändert mehr als nur Herkunftsmarkierungen).
-cli-arg-aggressive = Auch Homoglyphen und exotische Leerzeichen behandeln. Höhere Falsch-positiv-Rate, deshalb nur auf Wunsch.
+cli-arg-aggressive = Auch einen Buchstaben aus einer anderen Schrift innerhalb eines Wortes ersetzen (ein Homoglyph). Gemeldet werden solche Buchstaben in jedem Fall; höhere Falsch-positiv-Rate, deshalb nur auf Wunsch.
 cli-arg-json = Maschinenlesbares JSON statt Fließtext.
 cli-arg-engine = Engine zum Umschreiben: `local` oder `remote`.
 cli-arg-model = Modell-Id aus dem Manifest.
@@ -565,6 +582,49 @@ cli-arg-id = Modell-Id aus dem Manifest.
 cli-arg-dir = Zu durchlaufendes Verzeichnis.
 cli-arg-sarif = SARIF-Ausgabe für Code-Scanning-Dashboards.
 cli-arg-language = Sprache für Meldungen und Hilfe, als BCP-47-Tag wie de oder ru. Hat Vorrang vor WIPEMARK_LANG, der in den Einstellungen gespeicherten Sprache und dem Betriebssystem, in dieser Reihenfolge.
+
+cli-report-stdin = Standardeingabe
+cli-report-none = { $source }: Keines der Zeichen, nach denen diese Version sucht, wurde gefunden.
+cli-report-noted = { $source }: { $count ->
+        [one] ein Zeichen gefunden, und es ist wahrscheinlich keine Markierung.
+       *[other] { $count } Zeichen gefunden, und keines davon ist wahrscheinlich eine Markierung.
+    }
+cli-report-suspicious = { $source }: { $count ->
+        [one] ein Zeichen gefunden, und es sieht nach einer Markierung aus.
+       *[other] { $count } Zeichen gefunden, und mindestens eines davon sieht nach einer Markierung aus.
+    }
+cli-report-would-remove = Würde entfernt:
+cli-report-would-replace = Würde ersetzt:
+cli-report-would-keep = Würde behalten:
+cli-report-removed = Entfernt:
+cli-report-replaced = Ersetzt:
+cli-report-kept = Behalten:
+cli-report-row = { $character } · { $class } · { $confidence } · { $count ->
+        [one] einmal, bei Byte { $positions }
+       *[other] { $count }-mal, bei den Bytes { $positions }
+    }
+cli-report-more = { $shown } und { $more } weitere
+cli-report-homoglyphs-kept = Buchstaben aus einer anderen Schrift wurden gefunden und nicht ersetzt; clean ersetzt sie nur mit --aggressive, jeweils durch den gleich aussehenden Buchstaben der eigenen Schrift des Wortes.
+cli-report-offsets = Die Byte-Positionen zählen den Text als UTF-8; die Eingabe war { $encoding }.
+cli-report-unicode = Geprüft gegen Unicode { $version }.
+cli-clean-written = Das Ergebnis steht in { $path }.
+cli-clean-untouched = { $source } selbst wurde nicht verändert.
+cli-clean-nfkc = Zusätzlich wurde die NFKC-Normalisierung angewendet; was sie freigelegt hat, wurde in weiteren Durchgängen bereinigt, und --json zählt es ohne Positionen.
+cli-clean-later = { $count ->
+        [one] Ein weiteres Zeichen, das NFKC freigelegt hat, wurde in einem weiteren Durchgang entfernt oder ersetzt; es hat keine Position in der Eingabe, daher kann eine Zeile oben es noch als behalten aufführen.
+       *[other] { $count } weitere Zeichen, die NFKC freigelegt hat, wurden in weiteren Durchgängen entfernt oder ersetzt; sie haben keine Position in der Eingabe, daher kann eine Zeile oben sie noch als behalten aufführen.
+    }
+cli-no-such-file = { $path } existiert nicht.
+cli-is-a-folder = { $path } ist ein Ordner. inspect und clean lesen eine Datei oder die Standardeingabe; einen Ordner zu durchlaufen gibt es in dieser Version noch nicht.
+cli-out-is-a-folder = --out nennt einen Ordner, { $path }. Erwartet wird der Name einer Datei.
+cli-out-is-input = --out nennt die Datei, die gelesen wird, { $path }. Die Eingabe zu überschreiben braucht ein eigenes Flag, und diese Version hat noch keines.
+cli-unreadable = { $path } konnte nicht gelesen werden: { $reason }. Nicht gelesen heißt nicht sauber.
+cli-not-text = { $path }: Der Inhalt ist { $format }, kein Text, also hat die { -layer-a } hier nichts zu lesen. Nicht gelesen heißt nicht sauber.
+cli-not-text-unknown = { $path } ist in keiner Kodierung Text, die diese Version liest. Nicht gelesen heißt nicht sauber.
+cli-unnamed-encoding = { $path } ist Text in einer 8-Bit-Kodierung, die diese Version nicht benennt. Als UTF-8 speichern und erneut ausführen; bis dahin ist die Datei nicht gelesen, und nicht gelesen heißt nicht sauber.
+cli-invalid-encoding = { $path } ist bei Byte { $offset } kein gültiges { $encoding }. Nicht gelesen heißt nicht sauber.
+cli-name-disagrees = { $path }: Der Name verspricht { $named }, der Inhalt ist { $found }; gelesen wurde nach dem Inhalt.
+cli-write-failed = { $path } konnte nicht geschrieben werden: { $reason }. Das Ergebnis wurde nicht gespeichert.
 
 cli-unknown-language = unbekannte Sprache `{ $requested }`, es wird zurückgefallen. Verfügbar: { $available }
 

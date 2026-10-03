@@ -20,12 +20,17 @@
 //! # What answers, and what refuses
 //!
 //! The server is real: it binds, it speaks the protocol, it introduces
-//! itself, and it lists its tools. Those tools then **refuse**, by
-//! name, and say which epic implements them — Layer A is epic E1 and
-//! this build does not have it. That is the same bargain
-//! `wipemark-cli` makes when it exits 2 rather than 0, and for the same
-//! reason: a tool that answered "nothing found" would be a scrubber
-//! reporting a clean document it never read.
+//! itself, and it lists its tools — and the tools run. `inspect` and
+//! `clean` hand the text to `wipemark-core`'s Layer A and answer with
+//! its report, the third shelf included (see [`protocol`]). What they
+//! refuse is only what they cannot run: a call with no `text`, a flag
+//! that is not a boolean, an argument the tool does not take — by name,
+//! as a result carrying `isError`, never as an empty report. That is the
+//! bargain `wipemark-cli` makes when it exits 2 or 3 rather than 0, and
+//! for the same reason: a tool that answered "nothing found" about a
+//! text it never read would be a scrubber reporting a clean document.
+//! Nothing rewrites — Layer B is not in this version — and the pane's
+//! banner says so in every state of the server.
 //!
 //! # Everything a client reads is a format
 //!

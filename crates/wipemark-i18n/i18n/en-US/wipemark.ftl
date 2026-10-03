@@ -485,8 +485,9 @@ settings-placement-zone-bottom-right = bottom right
 ## Nothing here sends a request. The engine is configured in this
 ## build and called in epic E2, and `settings-engine-pending` is where
 ## that is said out loud rather than left for the user to discover by
-## clicking something that does nothing — the same bargain
-## `settings-mcp-tools-pending` and `cli-not-implemented` make.
+## clicking something that does nothing — the same bargain the MCP
+## banner's last line (`settings-mcp-tools-layer-a`) and
+## `cli-not-implemented` make.
 ##
 ## The key is the one setting that is not a row in the database. It
 ## goes to the operating system's own credential store, and the
@@ -836,19 +837,18 @@ settings-retention-span-forever = until removed by hand
 ## Layer A is deterministic and verifiable, which is exactly the sort
 ## of step an agent should be able to run over its own output.
 ##
-## The server is real and running; its tools are not implemented yet,
-## and `settings-mcp-tools-pending` is where that is said out loud. It
-## is not a placeholder — a tool that answered "nothing found" because
-## nothing ran would be worse than one that refuses, which is the same
-## bargain `cli-not-implemented` makes at the other end of the product.
+## The server is real and so are its two tools: `inspect` and `clean`
+## run Layer A and answer with its report. What is not here is Layer B,
+## the rewrite, and `settings-mcp-tools-layer-a` is where that is said
+## out loud, in every state of the server — the same bargain
+## `cli-not-implemented` makes for the commands that do not run yet.
 
 settings-mcp-title = MCP server
 settings-mcp-description = Let an agent run { -layer-a } over its own output, through the Model Context Protocol.
 
-# The honest half. The server answers; the work it will do does not
-# exist yet, and every call is refused by name rather than answered
-# with an empty result.
-settings-mcp-tools-pending = The server answers, but its tools do not: cleaning is not in this version, and until it is every call is refused rather than answered with a report of nothing.
+# The MCP banner's last line, in every state of the server: what the two
+# tools do, and that nothing rewrites.
+settings-mcp-tools-layer-a = Both tools run: inspect lists what { -layer-a } would change in a text, and clean makes those changes and reports each one with its position. Nothing is rewritten: { -layer-b } is not in this version yet.
 
 ## What the server is doing right now, in the banner at the top of the
 ## page. Read from the server itself rather than from the switch — the
@@ -931,6 +931,29 @@ report-not-established-vendor-detector-evasion = evasion of a vendor's own detec
 report-not-established-human-authorship = human authorship — not established by any check in this tool
 report-not-established-unknown-mark-schemes = marks in schemes this build does not implement — not searched for
 
+## What a finding is, and how sure — the eleven classes of
+## `wipemark_core::UnicodeClass` and the four confidences, keyed by their
+## stable ids (`UnicodeClass::as_str`, `Confidence::as_str`). The ids are
+## formats; these are the words. A character's own name is not here — it
+## is an identifier of the Unicode standard and is never translated.
+
+unicode-class-zero-width = zero-width character
+unicode-class-zwj = zero-width joiner
+unicode-class-bidi-control = bidirectional control
+unicode-class-tag-character = tag character
+unicode-class-variation-selector = variation selector
+unicode-class-soft-hyphen = soft hyphen
+unicode-class-exotic-space = unusual space
+unicode-class-noncharacter = noncharacter
+unicode-class-private-use = private-use character
+unicode-class-default-ignorable = ignorable format character
+unicode-class-homoglyph = letter from another script
+
+confidence-confirmed = confirmed
+confidence-probable = probable
+confidence-informational = for information
+confidence-likely-false-positive = likely not a mark
+
 ## Menu bar.
 ##
 ## macOS builds this menu once and keeps it; `Tray::relabel` is what
@@ -985,9 +1008,9 @@ cli-command-audit = Walk a directory and report findings, for CI.
 
 cli-arg-path-or-stdin = File to read, or `-` for stdin.
 cli-arg-path = File to read.
-cli-arg-out = Output file. Defaults to `<name>.cleaned.<ext>` beside the input; in-place needs an explicit flag, never a default.
+cli-arg-out = Output file, or `-` for standard output. Defaults to `<name>.cleaned.<ext>` beside the input, and to standard output when the input is standard input; in-place needs an explicit flag, never a default.
 cli-arg-nfkc = Apply NFKC normalisation (off by default — it rewrites more than provenance marks).
-cli-arg-aggressive = Also act on homoglyphs and exotic spaces. Higher false positive rate, hence opt-in.
+cli-arg-aggressive = Also replace a letter borrowed from another script inside a word (a homoglyph). Such letters are reported either way; higher false-positive rate, hence opt-in.
 cli-arg-json = Machine-readable JSON instead of prose.
 cli-arg-engine = Rewriting engine: `local` or `remote`.
 cli-arg-model = Manifest model id.
@@ -999,6 +1022,88 @@ cli-arg-id = Manifest model id.
 cli-arg-dir = Directory to walk.
 cli-arg-sarif = SARIF output, for code scanning dashboards.
 cli-arg-language = Language for messages and help, as a BCP-47 tag such as de or ru. Overrides WIPEMARK_LANG, the language saved in the app's settings and the operating system, in that order.
+
+## The reports `inspect` and `clean` print, and what they say when they
+## cannot run.
+##
+## Read in a terminal, piped into a file, shown by a pre-commit hook — so
+## plain text (`Rendering::PlainText`). What a machine reads is not here:
+## `--json`, the code point and the character's Unicode name (an
+## identifier of the standard, never translated — see
+## docs/architecture/i18n.md), format and encoding names, and paths.
+## $source is a path exactly as typed, or `cli-report-stdin`.
+
+cli-report-stdin = standard input
+# The first line of every report: nothing at all, things noted that are
+# not likely marks, or at least one likely mark. Never "clean": what was
+# not looked for is the third shelf at the bottom.
+cli-report-none = { $source }: none of the characters this version looks for were found.
+cli-report-noted = { $source }: { $count ->
+        [one] one character was found, and it is not a likely mark.
+       *[other] { $count } characters were found, and none of them is a likely mark.
+    }
+cli-report-suspicious = { $source }: { $count ->
+        [one] one character was found, and it looks like a mark.
+       *[other] { $count } characters were found, and at least one of them looks like a mark.
+    }
+# Headings over the rows. `inspect` says what would happen; `clean` what did.
+cli-report-would-remove = Would be removed:
+cli-report-would-replace = Would be replaced:
+cli-report-would-keep = Would be kept:
+cli-report-removed = Removed:
+cli-report-replaced = Replaced:
+cli-report-kept = Kept:
+# One row. $character is the code point and its Unicode name
+# ("U+200B ZERO WIDTH SPACE"), never translated; $class and $confidence
+# are the `unicode-class-*` and `confidence-*` lines; $positions is a
+# list of byte offsets, already spelled.
+cli-report-row = { $character } · { $class } · { $confidence } · { $count ->
+        [one] once, at byte { $positions }
+       *[other] { $count } times, at bytes { $positions }
+    }
+# When a row has more offsets than are shown. $shown is the list shown.
+cli-report-more = { $shown } and { $more } more
+# Under the rows whenever a letter from another script was found and left
+# in place. Without --aggressive nothing replaces one, yet the text counts
+# as marked and the exit code is 1 — a reader who sees that next to an
+# unchanged text has to be told why. Never "the ASCII letter": the
+# replacement is the look-alike letter of the word's own script.
+cli-report-homoglyphs-kept = Letters from another script were found and not replaced; clean replaces them only with --aggressive, each with the look-alike letter of its word's own script.
+# Only when the input was not UTF-8. $encoding is UTF-16LE and the like.
+cli-report-offsets = Byte offsets count the text as UTF-8; the input was { $encoding }.
+cli-report-unicode = Checked against Unicode { $version }.
+# $path is where the result went, as the operating system spells it.
+cli-clean-written = The result is in { $path }.
+cli-clean-untouched = { $source } itself was not changed.
+cli-clean-nfkc = NFKC normalisation was applied as well; whatever it uncovered was cleaned in further passes, and --json counts those without positions.
+# Under --nfkc only, when those further passes acted on something: a
+# selector NFKC left without its base, for instance. It has no position in
+# the input, so a row above can still list it as kept, and this line is
+# what keeps the two from reading as a contradiction. $count is how many.
+cli-clean-later = { $count ->
+        [one] One more character, uncovered by NFKC, was removed or replaced in a further pass; it has no position in the input, so a row above may still list it as kept.
+       *[other] { $count } more characters, uncovered by NFKC, were removed or replaced in further passes; they have no position in the input, so a row above may still list them as kept.
+    }
+
+## Why `inspect` or `clean` did not run, or did not finish. Each ends the
+## run: the ones about arguments with exit 2, the rest with exit 3 —
+## "not read is not clean". $reason is the operating system's own words,
+## never translated.
+
+cli-no-such-file = { $path } does not exist.
+cli-is-a-folder = { $path } is a folder. inspect and clean read one file, or standard input; walking a folder is not in this version yet.
+cli-out-is-a-folder = --out names a folder, { $path }. It takes the name of a file.
+cli-out-is-input = --out names the file being read, { $path }. Writing over the input needs a flag of its own, and this version does not have one yet.
+cli-unreadable = { $path } could not be read: { $reason }. Not read is not clean.
+# $format is a format name such as PDF or PNG, never translated.
+cli-not-text = { $path }: the contents are { $format }, not text, so there is nothing for { -layer-a } to read. Not read is not clean.
+cli-not-text-unknown = { $path } is not text in any encoding this version reads. Not read is not clean.
+cli-unnamed-encoding = { $path } is text in an 8-bit encoding this version does not name. Save it as UTF-8 and run again; until then it is not read, and not read is not clean.
+# $encoding is UTF-8, UTF-16LE and the like; $offset a byte offset.
+cli-invalid-encoding = { $path } is not valid { $encoding } at byte { $offset }. Not read is not clean.
+# A note, not a failure: the file is read by what it contains.
+cli-name-disagrees = { $path }: named as { $named }, and the contents are { $found }; it was read by its contents.
+cli-write-failed = { $path } could not be written: { $reason }. The result was not saved.
 
 # $requested is what the user typed, $available a comma-separated list.
 cli-unknown-language = unknown language `{ $requested }`, falling back. Available: { $available }

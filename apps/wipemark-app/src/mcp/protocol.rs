@@ -5,23 +5,51 @@
 //! which is a notification and gets no reply at all — so every method
 //! this server answers can be tested without binding anything.
 //!
-//! # The tools refuse, and say why
+//! # The tools run, and refuse only what they cannot run
 //!
-//! The server is real and the protocol is real; Layer A is epic **E1**
-//! and is not. So `tools/list` lists what is coming and `tools/call`
-//! refuses by name, with the epic in the message. That is the rule the
-//! whole repository keeps — *stubs refuse loudly, and nothing exits 0
-//! for work that did not happen* — pointed at a protocol instead of at
-//! a shell. An agent that got `{"removed": 0}` back from a scrubber
-//! that never ran would file the document as clean, and the next thing
-//! it did with that document would be built on it.
+//! `tools/call inspect { text, aggressive }` runs
+//! `wipemark_core::inspect` and answers with the report of A §7.1 —
+//! `InspectReport::to_json`, verbatim, as `content[0].text`, and the same
+//! object parsed as `structuredContent`, the two places MCP 2025-06-18
+//! asks a tool with structured output to put it. `tools/call clean
+//! { text, aggressive, nfkc }` runs `wipemark_core::clean` and answers
+//! with `{"text": <cleaned>, "report": <§7.1>}` in the same two places.
+//! Positions are byte offsets into the UTF-8 text as the server received
+//! it, and every report carries the third shelf — core's writer puts
+//! `not_established` into every one, so a surface cannot forget it.
 //!
-//! A refusal is reported the way MCP wants one: a *successful*
-//! JSON-RPC response carrying `isError: true`, so the failure reaches
-//! the model as a tool result it can read and act on, rather than as a
-//! transport error the client swallows before the model sees it. That
-//! distinction is the protocol's, not ours — a `-32603` here would be
-//! a server that broke, and this server did not break.
+//! A call that cannot run — `text` missing or not a string, a flag that
+//! is not a boolean, an argument the tool does not take — is **refused**,
+//! as a *successful* JSON-RPC response carrying `isError: true` and a
+//! sentence that names the argument. Never as an empty report: an agent
+//! that got `{"findings": []}` back for a text that was never read would
+//! file the document as clean, and the next thing it did with it would
+//! be built on that. `a_tool_that_cannot_run_refuses_rather_than_reporting_nothing`
+//! is the gate. A refusal is a *result* rather than a protocol error
+//! because that is the difference between the model reading it and the
+//! client swallowing it on its way past — the case the 2025-11-25
+//! revision of the specification moved to tool execution errors "that
+//! language models can use to self-correct". Only a request that is not
+//! a `CallToolRequest` at all (an `arguments` that is not an object, a
+//! missing `name`, a tool this build does not have) stays a `-32602`.
+//!
+//! The text limit is the transport's: a body over a megabyte is answered
+//! `413` before it is read (D13), never truncated.
+//!
+//! # What is said back
+//!
+//! Three answers quote something the client sent — an unknown method, an
+//! unknown tool, an argument the tool does not take — and each goes
+//! through [`spelled`] first: printable ASCII as itself, anything else as
+//! `U+XXXX`. A tool called `cl` U+200B `ean` must not come back carrying
+//! the U+200B. Two things are said back unspelled, on purpose: the
+//! JSON-RPC `id`, which the client needs back exactly, and the cleaned
+//! text of a `clean` result, which carries exactly what Layer A *kept* —
+//! a ZWJ inside an emoji family, a U+FEFF at byte 0 — because it is the
+//! user's text and not the server's words.
+//! `nothing_the_server_says_carries_an_invisible_character` permits a
+//! forbidden character only where the same response's report declares
+//! it kept, and counts it.
 //!
 //! # Nothing here is localized
 //!
@@ -58,6 +86,7 @@ const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
 const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
+const INTERNAL_ERROR: i64 = -32603;
 
 /// The work this server will offer, one variant per tool.
 ///
@@ -86,29 +115,47 @@ impl Tool {
     }
 
     /// What the tool does, for the model choosing between them.
+    ///
+    /// ASCII, every byte of it: a listing is what an agent reads to call
+    /// this tool, and a non-ASCII letter in it is exactly the sort of
+    /// thing this product flags.
     pub fn description(self) -> &'static str {
         match self {
             Self::Inspect => {
-                "Report the invisible Unicode in a piece of text — zero-width characters, bidi \
-                 controls, tag characters, variation selectors, private-use and noncharacter \
-                 code points — with a count and a position for each, without changing anything."
+                "Report what Wipemark's deterministic Unicode scrubber finds in a piece of text, \
+                 without changing anything: zero-width characters, bidi controls, tag \
+                 characters, variation selectors, soft hyphens, unusual spaces, private-use and \
+                 noncharacter code points, other invisible format characters, and letters \
+                 borrowed from another script inside a word (homoglyphs). Each finding has its \
+                 code point, its Unicode name, a confidence and every position as a byte offset \
+                 into the UTF-8 text. Characters that carry real orthography - an emoji \
+                 sequence, a Persian non-joiner - are listed as kept. Every report also lists \
+                 what it does not establish. Takes up to about 1 MB of text."
             }
             Self::Clean => {
                 "Remove the invisible Unicode from a piece of text and return the cleaned text \
-                 with a report of exactly what was removed and where. Deterministic: the same \
-                 input always gives the same output, and every removal is verifiable."
+                 with a report of exactly what was removed or replaced and where (byte offsets \
+                 into the UTF-8 text you sent). Deterministic: the same text and options always \
+                 give the same result, and cleaning the result again changes nothing. \
+                 Characters that carry real orthography are kept and listed as kept; homoglyphs \
+                 are replaced only with aggressive. Every report also lists what it does not \
+                 establish. Takes up to about 1 MB of text."
             }
         }
     }
 
     /// The arguments, as the JSON Schema a client validates against.
+    ///
+    /// `additionalProperties: false` because it is true: an argument the
+    /// tool does not take is refused by name rather than ignored.
     pub fn schema(self) -> Value {
         let mut properties = Map::new();
         properties.insert(
             "text".to_owned(),
             json!({
                 "type": "string",
-                "description": "The text to read. Passed in full rather than as a path.",
+                "description": "The text itself, as a string - not a path. Up to about 1 MB; a \
+                                larger request is refused whole, never truncated.",
             }),
         );
         properties.insert(
@@ -116,8 +163,19 @@ impl Tool {
             json!({
                 "type": "boolean",
                 "default": false,
-                "description": "Also act on homoglyphs and exotic spaces. Higher false positive \
-                                rate, hence opt-in.",
+                "description": match self {
+                    Self::Inspect => {
+                        "List homoglyphs as findings clean would replace, rather than as kept. \
+                         They are reported either way. Default false."
+                    }
+                    Self::Clean => {
+                        "Also replace homoglyphs - a letter from another script inside a word, \
+                         such as a Cyrillic letter that looks like a Latin one in an English \
+                         word - with the matching letter of the word's own script. They are \
+                         reported either way; higher false-positive rate, hence opt-in. Default \
+                         false."
+                    }
+                },
             }),
         );
         if self == Self::Clean {
@@ -126,8 +184,11 @@ impl Tool {
                 json!({
                     "type": "boolean",
                     "default": false,
-                    "description": "Apply NFKC normalisation. Off by default — it rewrites more \
-                                    than provenance marks.",
+                    "description": "Apply NFKC normalisation after cleaning, and clean again \
+                                    whatever NFKC uncovers until nothing is left to clean. Off \
+                                    by default: NFKC changes more than provenance marks \
+                                    (ligatures, full-width letters, superscripts), code \
+                                    included.",
                 }),
             );
         }
@@ -136,7 +197,27 @@ impl Tool {
             "type": "object",
             "properties": Value::Object(properties),
             "required": ["text"],
+            "additionalProperties": false,
         })
+    }
+
+    /// The arguments this tool takes, in the order a refusal lists them.
+    fn arguments(self) -> &'static [&'static str] {
+        match self {
+            Self::Inspect => &["text", "aggressive"],
+            Self::Clean => &["text", "aggressive", "nfkc"],
+        }
+    }
+
+    /// The same list, spelled for a sentence.
+    fn argument_list(self) -> &'static str {
+        match self {
+            Self::Inspect => "`text` (a string, required), `aggressive` (true or false)",
+            Self::Clean => {
+                "`text` (a string, required), `aggressive` (true or false), `nfkc` (true or \
+                 false)"
+            }
+        }
     }
 
     /// The entry `tools/list` reports.
@@ -154,23 +235,221 @@ impl Tool {
         Self::ALL.into_iter().find(|tool| tool.name() == name)
     }
 
-    /// The refusal, in the shape MCP reserves for a tool that ran and
-    /// could not do the job.
-    fn refusal(self) -> Value {
+    /// Run Layer A over a call that has been read and checked.
+    ///
+    /// On the connection thread: Layer A is O(n), a body is at most a
+    /// megabyte, and nothing here is near the GPUI thread.
+    fn run(self, call: &Call) -> Answer {
+        let (json, findings, kept) = match self {
+            Self::Inspect => {
+                let report = wipemark_core::inspect(&call.text, &call.options);
+                (report.to_json(), report.findings.len(), report.kept.len())
+            }
+            Self::Clean => {
+                let cleaned = wipemark_core::clean(&call.text, &call.options);
+                // `to_string` of a `&str` cannot fail; the report goes in
+                // verbatim so the text block keeps §7.1's key order.
+                let text = serde_json::to_string(&cleaned.text).unwrap_or_default();
+                (
+                    format!(r#"{{"text":{text},"report":{}}}"#, cleaned.report.to_json()),
+                    cleaned.report.findings.len(),
+                    cleaned.report.kept.len(),
+                )
+            }
+        };
+        tracing::info!(
+            tool = self.name(),
+            text = %wipemark_log::Elided::from(&call.text),
+            aggressive = call.options.aggressive,
+            nfkc = call.options.nfkc,
+            findings,
+            kept,
+            "MCP: tools/call answered"
+        );
+        answered(json)
+    }
+
+    /// The refusal, in the shape MCP reserves for a tool that was called
+    /// and could not do the job: a result a model reads, carrying
+    /// `isError`, and never a report — no `structuredContent`, no
+    /// `findings`, nothing an agent could mistake for a scan that ran.
+    fn refuse(self, problems: &[Problem]) -> Value {
+        let kinds: Vec<&'static str> = problems.iter().map(Problem::kind).collect();
+        tracing::info!(tool = self.name(), problems = ?kinds, "MCP: tools/call refused");
+        let said = problems
+            .iter()
+            .map(Problem::said)
+            .collect::<Vec<_>>()
+            .join("; ");
         json!({
             "content": [{
                 "type": "text",
                 "text": format!(
-                    "`{name}` is not implemented yet. In {IMPLEMENTATION} {VERSION} the protocol, \
-                     the tool names and the argument shapes are final, the behaviour is not. \
-                     Refusing rather than answering — a report that says nothing was found \
-                     because nothing was read is worse than no report at all.",
+                    "`{name}` did not run: {said}. Its arguments are {list}. Refusing rather \
+                     than answering — a report about text that was never read would say that \
+                     nothing was found.",
                     name = self.name(),
+                    list = self.argument_list(),
                 ),
             }],
             "isError": true,
         })
     }
+}
+
+/// One call, read and checked.
+struct Call {
+    text: String,
+    /// `aggressive` and `nfkc` from the call; `normalize_spaces` and
+    /// `keep_soft_hyphen` stay off on every surface in E1 (A §7.4, Q-A1).
+    options: wipemark_core::Options,
+}
+
+/// What is wrong with a call, in the order the refusal says it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Problem {
+    /// A required argument is not there.
+    Missing(&'static str),
+    /// An argument is there and is the wrong kind of value. `wants` is
+    /// "a string" or "true or false".
+    WrongType {
+        name: &'static str,
+        wants: &'static str,
+    },
+    /// An argument the tool does not take, already [`spelled`].
+    NotTaken(String),
+}
+
+impl Problem {
+    /// The clause of the refusal that says this one.
+    fn said(&self) -> String {
+        match self {
+            Self::Missing(name) => format!("the argument `{name}` is missing"),
+            Self::WrongType { name, wants } => format!("the argument `{name}` must be {wants}"),
+            Self::NotTaken(name) => format!("it takes no argument `{name}`"),
+        }
+    }
+
+    /// The log's word for it: static, because the argument names are
+    /// the client's and a log line is not where they go.
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Missing(_) => "missing text",
+            Self::WrongType { name: "text", .. } => "wrong type: text",
+            Self::WrongType {
+                name: "aggressive", ..
+            } => "wrong type: aggressive",
+            Self::WrongType { .. } => "wrong type: nfkc",
+            Self::NotTaken(_) => "not taken",
+        }
+    }
+}
+
+/// Read a call's arguments against what the tool takes.
+///
+/// Every problem is collected rather than the first returned, so a model
+/// that got two things wrong is told both in one round trip. An empty
+/// `text` is valid: Layer A runs over it and reports nothing, which is a
+/// true report of a scan that ran.
+fn read_call(tool: Tool, arguments: &Map<String, Value>) -> Result<Call, Vec<Problem>> {
+    let mut problems = Vec::new();
+
+    let text = match arguments.get("text") {
+        None => {
+            problems.push(Problem::Missing("text"));
+            None
+        }
+        Some(Value::String(text)) => Some(text.clone()),
+        Some(_) => {
+            problems.push(Problem::WrongType {
+                name: "text",
+                wants: "a string",
+            });
+            None
+        }
+    };
+
+    let mut flag = |name: &'static str| match arguments.get(name) {
+        None => false,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => {
+            problems.push(Problem::WrongType {
+                name,
+                wants: "true or false",
+            });
+            false
+        }
+    };
+    let aggressive = flag("aggressive");
+    let nfkc = tool.arguments().contains(&"nfkc") && flag("nfkc");
+
+    // Sorted, so the sentence does not depend on whether `serde_json`
+    // was built with `preserve_order` in this particular build.
+    let mut extra: Vec<&String> = arguments
+        .keys()
+        .filter(|key| !tool.arguments().contains(&key.as_str()))
+        .collect();
+    extra.sort();
+    problems.extend(extra.into_iter().map(|key| Problem::NotTaken(spelled(key))));
+
+    match text {
+        Some(text) if problems.is_empty() => Ok(Call {
+            text,
+            options: wipemark_core::Options {
+                aggressive,
+                nfkc,
+                ..wipemark_core::Options::default()
+            },
+        }),
+        _ => Err(problems),
+    }
+}
+
+/// The answer MCP asks for when a tool returns structured content: the
+/// object, and the same object serialized in a text block "for backwards
+/// compatibility" (MCP 2025-06-18, Tools › Structured Content).
+///
+/// The text block is the string Layer A's writer produced, not a
+/// re-serialization of the parsed value: `serde_json` orders keys
+/// differently from one build of this workspace to the next, and the
+/// text an older client shows a model should be the same bytes every
+/// time.
+fn answered(json: String) -> Answer {
+    match serde_json::from_str::<Value>(&json) {
+        Ok(structured) => Answer::Result(json!({
+            "content": [{ "type": "text", "text": json }],
+            "structuredContent": structured,
+            "isError": false,
+        })),
+        // Unreachable while `to_json` is right; `an_mcp_report_is_json_a_client_can_parse`
+        // is what keeps it so. A server that broke says so at the protocol level.
+        Err(error) => {
+            tracing::error!(%error, "MCP: a Layer A report is not JSON");
+            Answer::Error {
+                code: INTERNAL_ERROR,
+                message: "the report could not be rendered".to_owned(),
+            }
+        }
+    }
+}
+
+/// A string the client sent, safe to say back: printable ASCII as itself,
+/// anything else spelled as `U+XXXX`.
+///
+/// The rule `nothing_the_server_says_carries_an_invisible_character`
+/// enforces, applied at the three places an answer quotes the client.
+fn spelled(client: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(client.len());
+    for character in client.chars() {
+        if character == ' ' || character.is_ascii_graphic() {
+            out.push(character);
+        } else {
+            let _ = write!(out, "U+{:04X}", u32::from(character));
+        }
+    }
+    out
 }
 
 /// Answer one request body.
@@ -251,12 +530,12 @@ fn dispatch(method: &str, params: &Value) -> Option<Answer> {
 
         other => Some(Answer::Error {
             code: METHOD_NOT_FOUND,
-            message: format!("method not found: {other}"),
+            message: format!("method not found: {}", spelled(other)),
         }),
     }
 }
 
-/// `tools/call`, which is the whole of what this build refuses.
+/// `tools/call`: name → tool → arguments → read → run or refuse.
 fn call(params: &Value) -> Answer {
     let Some(name) = params.get("name").and_then(Value::as_str) else {
         return Answer::Error {
@@ -264,21 +543,38 @@ fn call(params: &Value) -> Answer {
             message: "tools/call needs a `name`".to_owned(),
         };
     };
-    match Tool::named(name) {
-        // A tool that exists and cannot run yet. Reported as a result
-        // so the model reads the refusal, not as a transport error the
-        // client swallows on its way past.
-        Some(tool) => Answer::Result(tool.refusal()),
-        // A tool that does not exist is the client's mistake and
-        // belongs at the protocol level, where a client can tell it
-        // apart from a tool that ran.
-        None => Answer::Error {
+    let Some(tool) = Tool::named(name) else {
+        // A tool that does not exist is the client's mistake and belongs
+        // at the protocol level, where a client can tell it apart from a
+        // tool that ran.
+        return Answer::Error {
             code: INVALID_PARAMS,
             message: format!(
-                "unknown tool: {name}. This build offers: {}",
+                "unknown tool: {}. This build offers: {}",
+                spelled(name),
                 Tool::ALL.map(|tool| tool.name()).join(", ")
             ),
-        },
+        };
+    };
+    // Absent and `null` are the same thing: no arguments. Anything else
+    // that is not an object fails the `CallToolRequest` shape itself,
+    // which both revisions of MCP put at the protocol level.
+    let empty = Map::new();
+    let arguments = match params.get("arguments") {
+        None | Some(Value::Null) => &empty,
+        Some(Value::Object(arguments)) => arguments,
+        Some(_) => {
+            return Answer::Error {
+                code: INVALID_PARAMS,
+                message: "tools/call `arguments` must be an object".to_owned(),
+            };
+        }
+    };
+    match read_call(tool, arguments) {
+        Ok(call) => tool.run(&call),
+        // Reported as a result so the model reads the refusal, not as a
+        // transport error the client swallows on its way past.
+        Err(problems) => Answer::Result(tool.refuse(&problems)),
     }
 }
 
@@ -369,34 +665,44 @@ mod tests {
     }
 
     /// The rule the whole repository keeps, pointed at a protocol: a
-    /// tool that has not been implemented refuses, names itself, and
-    /// says the work did not happen. The failure this catches is the
-    /// worst one this build could ship — an agent filing a document as
-    /// clean because a scrubber that never ran reported nothing.
+    /// tool that cannot run refuses, names itself and the argument it is
+    /// missing, and says the work did not happen. The failure this
+    /// catches is the worst one this build could ship — an agent filing
+    /// a document as clean because a scrubber that never read it
+    /// reported nothing. So a refusal carries no report at all: no
+    /// `structuredContent`, nothing shaped like findings (D14).
     #[test]
     fn a_tool_that_cannot_run_refuses_rather_than_reporting_nothing() {
         for tool in Tool::ALL {
-            let response = answer(&format!(
-                r#"{{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{{"name":"{}","arguments":{{"text":"hi"}}}}}}"#,
-                tool.name()
-            ));
-            let result = &response["result"];
-            assert_eq!(
-                result["isError"],
-                json!(true),
-                "{tool:?} answered as though it had done the work: {response}"
-            );
-            let text = result["content"][0]["text"]
-                .as_str()
-                .expect("a refusal a model can read");
-            assert!(
-                text.contains(tool.name()),
-                "the refusal does not name the tool"
-            );
-            assert!(
-                text.contains("not implemented"),
-                "the refusal does not say that the work did not happen"
-            );
+            for params in [
+                format!(r#"{{"name":"{}","arguments":{{}}}}"#, tool.name()),
+                format!(r#"{{"name":"{}"}}"#, tool.name()),
+            ] {
+                let response = answer(&format!(
+                    r#"{{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{params}}}"#
+                ));
+                let result = &response["result"];
+                assert_eq!(
+                    result["isError"],
+                    json!(true),
+                    "{tool:?} answered as though it had done the work: {response}"
+                );
+                assert!(
+                    result.get("structuredContent").is_none(),
+                    "{tool:?} refused with a report attached: {response}"
+                );
+                let text = result["content"][0]["text"]
+                    .as_str()
+                    .expect("a refusal a model can read");
+                assert!(
+                    text.contains(tool.name()),
+                    "the refusal does not name the tool"
+                );
+                assert!(
+                    text.contains("`text`"),
+                    "the refusal does not name the missing argument: {text}"
+                );
+            }
         }
     }
 
@@ -414,6 +720,253 @@ mod tests {
             "the refusal was filed as a transport error, where a model never reads it"
         );
         assert!(response["result"]["isError"].as_bool().unwrap_or(false));
+    }
+
+    /// Send `tools/call` for `tool` with these arguments (a JSON
+    /// literal) and parse the answer.
+    fn called(tool: &str, arguments: &str) -> Value {
+        answer(&format!(
+            r#"{{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{{"name":"{tool}","arguments":{arguments}}}}}"#
+        ))
+    }
+
+    /// The refusal's sentence, asserting on the way that it is one.
+    fn refusal_text(response: &Value) -> String {
+        assert!(response["error"].is_null(), "a protocol error: {response}");
+        assert_eq!(response["result"]["isError"], json!(true), "{response}");
+        assert!(
+            response["result"].get("structuredContent").is_none(),
+            "a refusal with a report attached: {response}"
+        );
+        response["result"]["content"][0]["text"]
+            .as_str()
+            .expect("a refusal a model can read")
+            .to_owned()
+    }
+
+    /// A value of the wrong kind is refused, by the argument's name. A
+    /// flag coerced to `false` would run a different scan from the one
+    /// that was asked for and report it as that one.
+    #[test]
+    fn an_argument_of_the_wrong_type_is_refused_by_name() {
+        for (tool, arguments, named) in [
+            ("inspect", r#"{"text":5}"#, "`text`"),
+            ("clean", r#"{"text":null}"#, "`text`"),
+            (
+                "inspect",
+                r#"{"text":"a","aggressive":"yes"}"#,
+                "`aggressive`",
+            ),
+            ("clean", r#"{"text":"a","aggressive":null}"#, "`aggressive`"),
+            ("clean", r#"{"text":"a","nfkc":1}"#, "`nfkc`"),
+        ] {
+            let text = refusal_text(&called(tool, arguments));
+            assert!(text.contains(named), "{tool} {arguments}: {text}");
+        }
+    }
+
+    /// An argument the tool does not take is refused rather than
+    /// ignored — `aggresive` misspelled would otherwise run the default
+    /// scan under a name that says it was the aggressive one. The
+    /// schema says so too.
+    #[test]
+    fn an_argument_the_tool_does_not_take_is_refused_by_name() {
+        for (tool, arguments, named) in [
+            ("inspect", r#"{"text":"a","nfkc":true}"#, "`nfkc`"),
+            ("clean", r#"{"text":"a","aggresive":true}"#, "`aggresive`"),
+        ] {
+            let text = refusal_text(&called(tool, arguments));
+            assert!(text.contains(named), "{tool} {arguments}: {text}");
+            let listed = Tool::named(tool).expect("a tool").argument_list();
+            assert!(
+                text.contains(listed),
+                "{tool}: the arguments are not listed: {text}"
+            );
+        }
+
+        let response = answer(r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#);
+        for listed in response["result"]["tools"].as_array().expect("tools") {
+            assert_eq!(
+                listed["inputSchema"]["additionalProperties"],
+                json!(false),
+                "{listed}"
+            );
+        }
+    }
+
+    /// A request that is not a `CallToolRequest` at all is the client's
+    /// protocol mistake, and is answered at the protocol level.
+    #[test]
+    fn arguments_that_are_not_an_object_are_a_protocol_error() {
+        for arguments in [r#""text""#, "[1]"] {
+            let response = called("inspect", arguments);
+            assert_eq!(
+                response["error"]["code"],
+                json!(INVALID_PARAMS),
+                "{response}"
+            );
+            assert!(response.get("result").is_none(), "{response}");
+        }
+    }
+
+    /// `clean` hands back the text with the mark gone, and the report of
+    /// what went and where.
+    #[test]
+    fn a_clean_result_carries_the_cleaned_text_and_its_report() {
+        let response = called("clean", r#"{"text":"a\u200Bb"}"#);
+        let result = &response["result"];
+        assert_eq!(result["isError"], json!(false), "{response}");
+        let structured = &result["structuredContent"];
+        assert_eq!(structured["text"], json!("ab"));
+        assert_eq!(structured["report"]["removed"], json!({"zero-width": 1}));
+        let finding = &structured["report"]["findings"][0];
+        assert_eq!(finding["codepoint"], json!("U+200B"));
+        assert_eq!(finding["name"], json!("ZERO WIDTH SPACE"));
+        assert_eq!(finding["positions"], json!([1]));
+    }
+
+    /// Every input the report tests below walk: a mark, nothing, and a
+    /// homoglyph, each without and with `aggressive` — and for `clean`
+    /// without and with `nfkc` too.
+    fn report_calls() -> Vec<(Tool, String)> {
+        let mut calls = Vec::new();
+        for text in [r#""a\u200Bb""#, r#""""#, r#""p\u0430y""#] {
+            for aggressive in [false, true] {
+                calls.push((
+                    Tool::Inspect,
+                    format!(r#"{{"text":{text},"aggressive":{aggressive}}}"#),
+                ));
+                for nfkc in [false, true] {
+                    calls.push((
+                        Tool::Clean,
+                        format!(r#"{{"text":{text},"aggressive":{aggressive},"nfkc":{nfkc}}}"#),
+                    ));
+                }
+            }
+        }
+        calls
+    }
+
+    /// The text block and the structured content are the same object,
+    /// and that object is the §7.1 report — `suspicious` and `stats`
+    /// included in the clean form (D28), ASCII in the inspect text
+    /// block (D29).
+    #[test]
+    fn an_mcp_report_is_json_a_client_can_parse() {
+        for (tool, arguments) in report_calls() {
+            let response = called(tool.name(), &arguments);
+            let result = &response["result"];
+            assert_eq!(result["isError"], json!(false), "{response}");
+            let text = result["content"][0]["text"].as_str().expect("a text block");
+            let parsed: Value = serde_json::from_str(text).expect("the text block is JSON");
+            let structured = &result["structuredContent"];
+            assert!(structured.is_object(), "{tool:?} {arguments}: {response}");
+            assert_eq!(&parsed, structured, "{tool:?} {arguments}");
+            match tool {
+                Tool::Inspect => {
+                    assert!(text.is_ascii(), "{arguments}: {text}");
+                    assert_eq!(
+                        structured["unicode_version"],
+                        json!(wipemark_core::UNICODE_VERSION)
+                    );
+                    for key in ["suspicious", "findings", "kept", "stats"] {
+                        assert!(structured.get(key).is_some(), "{arguments}: no {key}");
+                    }
+                }
+                Tool::Clean => {
+                    let keys: Vec<&String> =
+                        structured.as_object().expect("an object").keys().collect();
+                    assert_eq!(keys.len(), 2, "{arguments}: {keys:?}");
+                    assert!(structured["text"].is_string(), "{arguments}");
+                    for key in [
+                        "suspicious",
+                        "stats",
+                        "findings",
+                        "kept",
+                        "removed",
+                        "normalized",
+                        "output_len",
+                        "unicode_version",
+                    ] {
+                        assert!(
+                            structured["report"].get(key).is_some(),
+                            "{arguments}: the report has no {key}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The third shelf on every answer that is a report, in core's order.
+    #[test]
+    fn every_layer_a_answer_carries_the_third_shelf() {
+        let ids: Vec<Value> = wipemark_core::report::not_established::ALL
+            .iter()
+            .map(|(id, _)| json!(id))
+            .collect();
+        for (tool, arguments) in report_calls() {
+            let response = called(tool.name(), &arguments);
+            let structured = &response["result"]["structuredContent"];
+            let shelf = match tool {
+                Tool::Inspect => &structured["not_established"],
+                Tool::Clean => &structured["report"]["not_established"],
+            };
+            assert_eq!(shelf, &Value::Array(ids.clone()), "{tool:?} {arguments}");
+        }
+    }
+
+    /// `inspect` reports and changes nothing: no text comes back, no
+    /// counters of what was removed — and what it reports is exactly
+    /// what `clean` would act on (A §5.2).
+    #[test]
+    fn inspect_does_not_change_anything() {
+        fn has_key(value: &Value, wanted: &str) -> bool {
+            match value {
+                Value::Object(map) => map
+                    .iter()
+                    .any(|(key, inner)| key == wanted || has_key(inner, wanted)),
+                Value::Array(items) => items.iter().any(|inner| has_key(inner, wanted)),
+                _ => false,
+            }
+        }
+        for text in [r#""a\u200Bb""#, r#""p\u0430y""#] {
+            for aggressive in [false, true] {
+                let arguments = format!(r#"{{"text":{text},"aggressive":{aggressive}}}"#);
+                let inspected =
+                    called("inspect", &arguments)["result"]["structuredContent"].clone();
+                assert!(!has_key(&inspected, "text"), "{arguments}: {inspected}");
+                for key in ["removed", "normalized", "output_len"] {
+                    assert!(inspected.get(key).is_none(), "{arguments}: {key}");
+                }
+                let cleaned = called("clean", &arguments)["result"]["structuredContent"].clone();
+                assert_eq!(
+                    inspected["findings"], cleaned["report"]["findings"],
+                    "{arguments}"
+                );
+                assert_eq!(inspected["kept"], cleaned["report"]["kept"], "{arguments}");
+            }
+        }
+    }
+
+    /// What an agent reads to call these tools: ASCII throughout, the
+    /// limit and the unit of a position stated, and nothing promised
+    /// that there is no oracle for.
+    #[test]
+    fn the_tool_listing_says_what_it_takes_and_promises_nothing_more() {
+        let body = respond(r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#).expect("an answer");
+        assert!(body.is_ascii(), "the listing is not ASCII: {body}");
+        for tool in Tool::ALL {
+            let description = tool.description();
+            assert!(description.contains("1 MB"), "{tool:?}: no limit");
+            assert!(description.contains("byte offset"), "{tool:?}: no unit");
+            assert!(
+                !description.to_lowercase().contains("undetect"),
+                "{tool:?} promises what nothing can establish"
+            );
+        }
+        assert!(Tool::Inspect.schema()["properties"].get("nfkc").is_none());
+        assert!(Tool::Clean.schema()["properties"].get("nfkc").is_some());
     }
 
     /// A tool the client invented is the client's mistake, and it
@@ -529,9 +1082,31 @@ mod tests {
     /// `UnicodeClass::BidiControl` — Layer A removes them — so a
     /// localized response would hand an agent the exact invisible
     /// characters it asked this server to take out. Nothing this
-    /// server says may carry one, by any route.
+    /// server says may carry one, by any route: not its own words, not
+    /// a client's string quoted back, not a report.
+    ///
+    /// The second half is the one declared exception, counted: the
+    /// cleaned text of a `clean` result carries what Layer A *kept*,
+    /// because it is the user's text. A forbidden character is allowed
+    /// there only as often as the same response's report says it was
+    /// kept (twice per kept character: the text block and the
+    /// structured content), or — for U+FEFF — as the mark the input
+    /// began with. Escaping the text instead would hide a character
+    /// from this test without hiding it from the agent, which decodes
+    /// the JSON.
     #[test]
     fn nothing_the_server_says_carries_an_invisible_character() {
+        fn forbidden(character: char) -> bool {
+            matches!(
+                character,
+                '\u{2066}'..='\u{2069}'   // bidi isolates, Fluent's own
+                    | '\u{200b}'..='\u{200f}' // zero width and the bidi marks
+                    | '\u{202a}'..='\u{202e}' // the embedding overrides
+                    | '\u{feff}'              // the byte order mark, mid-string
+                    | '\u{e0000}'..='\u{e007f}' // tag characters
+            )
+        }
+
         // Every method `dispatch` answers, and both ways of failing to
         // be a request. A method missing from this list is a method
         // that can go on carrying an isolate unnoticed, which is how
@@ -546,6 +1121,12 @@ mod tests {
             r#"{"jsonrpc":"2.0","id":6,"method":"tools/call"}"#.to_owned(),
             "{".to_owned(),
             "[]".to_owned(),
+            // The three places an answer quotes the client.
+            r#"{"jsonrpc":"2.0","id":8,"method":"ping\u200B"}"#.to_owned(),
+            r#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"cl\u200Bean"}}"#
+                .to_owned(),
+            r#"{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"inspect","arguments":{"text":"a","te\u200Bxt":"b"}}}"#
+                .to_owned(),
         ];
         requests.extend(Tool::ALL.map(|tool| {
             format!(
@@ -553,22 +1134,53 @@ mod tests {
                 tool.name()
             )
         }));
+        // And the reports, over a text carrying a zero-width space, an
+        // override and a tag character — none of which Layer A keeps.
+        let marked = r#""a\u200Bb\u202Ec\uDB40\uDC41d""#;
+        for aggressive in [false, true] {
+            requests.push(format!(
+                r#"{{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{{"name":"inspect","arguments":{{"text":{marked},"aggressive":{aggressive}}}}}}}"#
+            ));
+            for nfkc in [false, true] {
+                requests.push(format!(
+                    r#"{{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{{"name":"clean","arguments":{{"text":{marked},"aggressive":{aggressive},"nfkc":{nfkc}}}}}}}"#
+                ));
+            }
+        }
         for request in requests {
             let body = respond(&request).expect("an answer");
             for character in body.chars() {
                 assert!(
-                    !matches!(
-                        character,
-                        '\u{2066}'..='\u{2069}'   // bidi isolates, Fluent's own
-                            | '\u{200b}'..='\u{200f}' // zero width and the bidi marks
-                            | '\u{202a}'..='\u{202e}' // the embedding overrides
-                            | '\u{feff}'              // the byte order mark, mid-string
-                            | '\u{e0000}'..='\u{e007f}' // tag characters
-                    ),
+                    !forbidden(character),
                     "the answer to {request} carries U+{:04X}",
                     character as u32
                 );
             }
         }
+
+        // The declared exceptions, counted.
+        let family =
+            r#""\uD83D\uDC69\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66 a\u200Bb""#;
+        let body = respond(&format!(
+            r#"{{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{{"name":"clean","arguments":{{"text":{family}}}}}}}"#
+        ))
+        .expect("an answer");
+        let carried: Vec<char> = body.chars().filter(|c| forbidden(*c)).collect();
+        assert_eq!(
+            carried,
+            vec!['\u{200d}'; 6],
+            "the family's joiners, twice each"
+        );
+        let response: Value = serde_json::from_str(&body).expect("JSON");
+        let kept = &response["result"]["structuredContent"]["report"]["kept"];
+        assert_eq!(kept[0]["codepoint"], json!("U+200D"), "{kept}");
+        assert_eq!(kept[0]["count"], json!(3), "{kept}");
+
+        let body = respond(
+            r#"{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"clean","arguments":{"text":"\uFEFFa\u200Bb"}}}"#,
+        )
+        .expect("an answer");
+        let carried: Vec<char> = body.chars().filter(|c| forbidden(*c)).collect();
+        assert_eq!(carried, vec!['\u{feff}'; 2], "the leading mark, twice");
     }
 }

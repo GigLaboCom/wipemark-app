@@ -15,6 +15,16 @@
 //!    being the file's contents, and treating `/Users/me/notes.txt` as
 //!    a nine-word document would be a scrubber pointed at the wrong
 //!    thing entirely.
+//!
+//! And a third, which is the same vocabulary pointed the other way:
+//!
+//! 3. [`with_infix`] — what a result made from this name is called.
+//!    `report.docx` cleaned is `report.cleaned.docx`, wherever it was
+//!    cleaned. A file name is this crate's vocabulary, and the CLI and
+//!    the app must spell a result the same way — a script that looks
+//!    for `*.cleaned.*` after a drop on the window has to find what the
+//!    command line wrote too — so the spelling lives here, where both
+//!    applications can reach it, and not in either of them.
 
 use std::path::PathBuf;
 
@@ -121,6 +131,43 @@ const EXTENSIONS: &[(&str, Format)] = &[
     ("vtt", Format::PlainText),
 ];
 
+/// The infix a result carries: `report.docx` → `report.cleaned.docx`.
+///
+/// A **format** — never localized, because a shell script that looks
+/// for `*.cleaned.*` has to find the file whatever language the window
+/// was in — and `mat2`'s spelling, so a person who has used that tool
+/// recognises this one's output. The CLI's `--out` help names the same
+/// pattern.
+pub const RESULT_INFIX: &str = "cleaned";
+
+/// The infix a set-aside original carries when a file is replaced:
+/// `report.docx` → `report.original.docx`.
+///
+/// An infix and not ExifTool's `report.docx_original` or `sed`'s
+/// `report.docx.bak`, because both of those hide the extension and a
+/// copy that Finder cannot open is a copy nobody checks. Kept
+/// symmetrical with [`RESULT_INFIX`] on purpose: the two files beside
+/// each other read as a pair.
+pub const ORIGINAL_INFIX: &str = "original";
+
+/// `report.docx` + `cleaned` → `report.cleaned.docx`.
+///
+/// The infix goes before the *last* extension and only when there is a
+/// stem in front of it: `archive.tar.gz` becomes `archive.tar.cleaned.gz`
+/// (which is what `mat2` does too), `README` becomes `README.cleaned`,
+/// and `.bashrc` — a name that is all extension — becomes
+/// `.bashrc.cleaned` rather than `.cleaned.bashrc`. A name that already
+/// carries the infix gets it again: `x.cleaned.md` → `x.cleaned.cleaned.md`,
+/// because collapsing it would make the result *the input*, and a
+/// destination called "beside" must never write over what it was
+/// handed.
+pub fn with_infix(name: &str, infix: &str) -> String {
+    match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => format!("{stem}.{infix}.{ext}"),
+        _ => format!("{name}.{infix}"),
+    }
+}
+
 /// What the name claims, if anything.
 ///
 /// Takes a file name rather than a path — the caller has already
@@ -224,8 +271,58 @@ fn unescape(text: &str) -> String {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{of, path_in};
+    use super::{of, path_in, with_infix, ORIGINAL_INFIX, RESULT_INFIX};
     use crate::format::Format;
+
+    #[test]
+    fn a_result_is_named_after_its_file() {
+        assert_eq!(
+            with_infix("report.docx", RESULT_INFIX),
+            "report.cleaned.docx"
+        );
+        assert_eq!(
+            with_infix("archive.tar.gz", RESULT_INFIX),
+            "archive.tar.cleaned.gz"
+        );
+        assert_eq!(with_infix("README", RESULT_INFIX), "README.cleaned");
+        assert_eq!(with_infix(".bashrc", RESULT_INFIX), ".bashrc.cleaned");
+        assert_eq!(
+            with_infix("photo.original.png", ORIGINAL_INFIX),
+            "photo.original.original.png"
+        );
+    }
+
+    #[test]
+    fn the_infixes_are_formats_and_stay_ascii() {
+        for infix in [RESULT_INFIX, ORIGINAL_INFIX] {
+            assert!(infix.is_ascii() && !infix.contains('.'), "{infix:?}");
+        }
+        assert_ne!(RESULT_INFIX, ORIGINAL_INFIX);
+    }
+
+    /// The one case where collapsing would be wrong, for every shape a
+    /// name can take: whatever it is given, the answer is a different
+    /// name — so a result written "beside" can never land on its input.
+    /// The app's `a_result_beside_a_file_is_never_the_file_itself` and
+    /// the CLI's own tests rest on this.
+    #[test]
+    fn with_infix_never_returns_the_name_it_was_given() {
+        for name in [
+            "x.cleaned.md",
+            "x.md",
+            "x",
+            ".x",
+            "x.",
+            "a.b.c",
+            "",
+            "x.cleaned",
+            "заметки.cleaned.md",
+        ] {
+            for infix in [RESULT_INFIX, ORIGINAL_INFIX] {
+                assert_ne!(with_infix(name, infix), name, "{name:?} + {infix:?}");
+            }
+        }
+    }
 
     #[test]
     fn an_extension_is_matched_whatever_its_case() {

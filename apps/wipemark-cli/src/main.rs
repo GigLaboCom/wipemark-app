@@ -8,16 +8,24 @@
 //! # Exit codes are the interface
 //!
 //! ```text
-//! 0  clean       nothing found, or everything found was removed
-//! 1  findings    marks were found (inspect), or remain (clean/rewrite)
-//! 2  usage       bad arguments, or a refusal (non-origin without --force)
-//! 3  partial     the scan could not cover everything it was pointed at
+//! 0  clean       the input was read in full and nothing in it looks like a
+//!                mark; for clean, the result was written
+//! 1  findings    the input was read in full and carries something that looks
+//!                like a mark — for clean as well, after removing it: a
+//!                pre-commit hook wants to know what was there; for clean,
+//!                the result was written
+//! 2  usage       bad arguments, or a refusal: a path that does not exist, a
+//!                folder, --out naming a folder or the input; and every
+//!                invocation of rewrite, models and audit in this version
+//! 3  partial     inconclusive: a file that exists and cannot be read, is not
+//!                text, is in an 8-bit encoding this version does not name or
+//!                holds an invalid sequence; a result that could not be
+//!                written; standard output that could not be written
 //! ```
 //!
 //! Code 3 is the one that earns its keep: *inconclusive is not clean*.
-//! A directory scan that skipped six unreadable files has not proven
-//! those files are unmarked, and a hook that treats that as success is
-//! worse than no hook.
+//! A file that was not read has not been proven unmarked, and a hook
+//! that treats that as success is worse than no hook.
 //!
 //! # Language
 //!
@@ -32,11 +40,17 @@
 //! program exists to remove them. A `--json` report carrying isolation
 //! marks would fail Wipemark's own inspection.
 //!
-//! # Skeleton status
+//! # Status
 //!
-//! Epic **E0**: argument surface and exit codes are real and tested; the
-//! commands themselves return "not implemented" with code 2 until epic
-//! E5. A stub that exits 0 would be a hook that silently passes.
+//! `inspect` and `clean` run Layer A (`input` reads and decodes through
+//! `wipemark-intake`, `run` is the two flows and their exit codes,
+//! `report` the human report); `rewrite`, `models` and `audit` refuse
+//! with 2 until their epics land. A stub that exits 0 would be a hook
+//! that silently passes.
+
+mod input;
+mod report;
+mod run;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -49,11 +63,7 @@ use wipemark_i18n::{args, t, t_args, LanguagePreference, Message, Rendering};
 /// lies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-#[allow(
-    dead_code,
-    reason = "all four codes are the published hook contract; E5 constructs the rest"
-)]
-enum Exit {
+pub(crate) enum Exit {
     Clean = 0,
     Findings = 1,
     Usage = 2,
@@ -161,7 +171,8 @@ impl Action {
     /// every other unlocalized fact goes.
     fn epic(&self) -> &'static str {
         match self {
-            Action::Inspect { .. } | Action::Clean { .. } => "E1 + E5",
+            // Never refused since E1-6; the arm keeps the match total.
+            Action::Inspect { .. } | Action::Clean { .. } => "E1",
             Action::Rewrite { .. } => "E2 + E4 + E5",
             Action::Models(_) => "E3",
             Action::Audit { .. } => "E5",
@@ -243,8 +254,9 @@ fn render_out(out: Option<&std::path::Path>) -> String {
 /// take `--json` — and an argument that means the same thing reads the
 /// same way, so the table is flat and [`localized`] applies whichever
 /// entries a given subcommand actually has. `path` is the exception and
-/// is set per subcommand: only `inspect` takes `-` for stdin, and help
-/// that offers it everywhere would be help that lies.
+/// is set per subcommand: `inspect` and `clean` take `-` for stdin and
+/// `rewrite` does not yet, and help that offered it everywhere would be
+/// help that lies.
 const ARGUMENT_HELP: [(&str, Message); 14] = [
     ("path", Message::CliArgPath),
     ("out", Message::CliArgOut),
@@ -381,7 +393,10 @@ fn command() -> Command {
             localized(inspect, Message::CliCommandInspect)
                 .mut_arg("path", |path| path.help(t(Message::CliArgPathOrStdin)))
         })
-        .mut_subcommand("clean", |clean| localized(clean, Message::CliCommandClean))
+        .mut_subcommand("clean", |clean| {
+            localized(clean, Message::CliCommandClean)
+                .mut_arg("path", |path| path.help(t(Message::CliArgPathOrStdin)))
+        })
         .mut_subcommand("rewrite", |rewrite| {
             localized(rewrite, Message::CliCommandRewrite)
         })
@@ -526,13 +541,36 @@ fn main() -> ExitCode {
         }
     }
 
+    let exit = match &cli.command {
+        Action::Inspect { path, json } => run::inspect(path, *json, &mut run::Io::standard()),
+        Action::Clean {
+            path,
+            out,
+            nfkc,
+            aggressive,
+            json,
+        } => run::clean(
+            path,
+            out.as_deref(),
+            *nfkc,
+            *aggressive,
+            *json,
+            &mut run::Io::standard(),
+        ),
+        other => refuse(other),
+    };
+    exit.into()
+}
+
+/// The commands this version does not run: `rewrite`, `models`, `audit`.
+fn refuse(command: &Action) -> Exit {
     // The catalogue string below is for the person reading the terminal.
     // This line is for the file, in English, unlocalized: nothing a
     // machine reads is translated, and a log is read by whoever is
     // debugging, not by whoever ran it.
     tracing::info!(
-        command = cli.command.name(),
-        epic = cli.command.epic(),
+        command = command.name(),
+        epic = command.epic(),
         "not implemented"
     );
 
@@ -541,16 +579,18 @@ fn main() -> ExitCode {
         t_args(
             Message::CliNotImplemented,
             &args!(
-                "summary" => cli.command.summary(),
-                "command" => cli.command.name(),
+                "summary" => command.summary(),
+                "command" => command.name(),
             ),
         )
     );
-    Exit::Usage.into()
+    Exit::Usage
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use clap::Parser;
     use wipemark_i18n::{t, Message};
 
@@ -727,6 +767,22 @@ mod tests {
             Action::Inspect { path, json } => {
                 assert_eq!(path, "-");
                 assert!(json);
+            }
+            other => panic!("parsed as {other:?}"),
+        }
+        let cli = Cli::parse_from(["wipemark-cli", "clean", "-", "--json"]);
+        match cli.command {
+            Action::Clean { path, json, .. } => {
+                assert_eq!(path, "-");
+                assert!(json);
+            }
+            other => panic!("parsed as {other:?}"),
+        }
+        let cli = Cli::parse_from(["wipemark-cli", "clean", "note.md", "-o", "-"]);
+        match cli.command {
+            Action::Clean { path, out, .. } => {
+                assert_eq!(path, "note.md");
+                assert_eq!(out, Some(PathBuf::from("-")));
             }
             other => panic!("parsed as {other:?}"),
         }

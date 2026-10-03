@@ -54,28 +54,13 @@
 use std::path::{Path, PathBuf};
 
 use wipemark_i18n::{t, Message};
+/// The result and set-aside names. They live in `wipemark_intake::name`
+/// because the CLI writes results too and must not depend on this crate
+/// (D10); re-exported so every caller here keeps its spelling.
+pub use wipemark_intake::name::{with_infix, ORIGINAL_INFIX, RESULT_INFIX};
 use wipemark_intake::{Intake, Kind};
 
 use crate::engine::Choice;
-
-/// The infix a result carries: `report.docx` → `report.cleaned.docx`.
-///
-/// A **format** — never localized, because a shell script that looks
-/// for `*.cleaned.*` has to find the file whatever language the window
-/// was in — and `mat2`'s spelling, so a person who has used that tool
-/// recognises this one's output. The CLI's `--out` help names the same
-/// pattern.
-pub const RESULT_INFIX: &str = "cleaned";
-
-/// The infix a set-aside original carries when a file is replaced:
-/// `report.docx` → `report.original.docx`.
-///
-/// An infix and not ExifTool's `report.docx_original` or `sed`'s
-/// `report.docx.bak`, because both of those hide the extension and a
-/// copy that Finder cannot open is a copy nobody checks. Kept
-/// symmetrical with [`RESULT_INFIX`] on purpose: the two files beside
-/// each other read as a pair.
-pub const ORIGINAL_INFIX: &str = "original";
 
 /// Where a result goes, and what happens to the file it came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -454,24 +439,6 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// `report.docx` + `cleaned` → `report.cleaned.docx`.
-///
-/// The infix goes before the *last* extension and only when there is a
-/// stem in front of it: `archive.tar.gz` becomes `archive.tar.cleaned.gz`
-/// (which is what `mat2` does too), `README` becomes `README.cleaned`,
-/// and `.bashrc` — a name that is all extension — becomes
-/// `.bashrc.cleaned` rather than `.cleaned.bashrc`. A name that already
-/// carries the infix gets it again: `x.cleaned.md` → `x.cleaned.cleaned.md`,
-/// because collapsing it would make the result *the input*, and a
-/// destination called "beside" must never write over what it was
-/// handed.
-pub fn with_infix(name: &str, infix: &str) -> String {
-    match name.rsplit_once('.') {
-        Some((stem, ext)) if !stem.is_empty() => format!("{stem}.{infix}.{ext}"),
-        _ => format!("{name}.{infix}"),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
@@ -479,8 +446,7 @@ mod tests {
     use wipemark_intake::{Arrived, Evidence, Format, Intake, Kind};
 
     use super::{
-        period_choices, plan, with_infix, Destination, Homes, Kept, Period, Plan, Retention,
-        Source, Written, ORIGINAL_INFIX, RESULT_INFIX,
+        period_choices, plan, Destination, Homes, Kept, Period, Plan, Retention, Source, Written,
     };
 
     fn homes() -> Homes {
@@ -517,24 +483,6 @@ mod tests {
         assert_eq!(
             planned,
             Plan::File(Written::Beside(PathBuf::from("/docs/report.cleaned.docx")))
-        );
-    }
-
-    #[test]
-    fn a_result_is_named_after_its_file() {
-        assert_eq!(
-            with_infix("report.docx", RESULT_INFIX),
-            "report.cleaned.docx"
-        );
-        assert_eq!(
-            with_infix("archive.tar.gz", RESULT_INFIX),
-            "archive.tar.cleaned.gz"
-        );
-        assert_eq!(with_infix("README", RESULT_INFIX), "README.cleaned");
-        assert_eq!(with_infix(".bashrc", RESULT_INFIX), ".bashrc.cleaned");
-        assert_eq!(
-            with_infix("photo.original.png", ORIGINAL_INFIX),
-            "photo.original.original.png"
         );
     }
 
@@ -821,13 +769,5 @@ mod tests {
         for (choice, period) in choices.iter().zip(Period::ALL) {
             assert_eq!(*choice.item(), period);
         }
-    }
-
-    #[test]
-    fn the_infixes_are_formats_and_stay_ascii() {
-        for infix in [RESULT_INFIX, ORIGINAL_INFIX] {
-            assert!(infix.is_ascii() && !infix.contains('.'), "{infix:?}");
-        }
-        assert_ne!(RESULT_INFIX, ORIGINAL_INFIX);
     }
 }

@@ -8959,9 +8959,11 @@ name = "wipemark-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "serde_json",
  "tracing",
  "wipemark-core",
  "wipemark-i18n",
+ "wipemark-intake",
  "wipemark-log",
  "wipemark-models",
  "wipemark-pipeline",

@@ -191,7 +191,10 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 
 `apps/wipemark-cli/src/main.rs` is the other application: the argument
 surface, the language flag read out of `argv` before clap parses (so
-`--language=de --help` prints German), and the exit codes below.
+`--language=de --help` prints German), and the exit codes below. Beside
+it, `input.rs` reads and decodes a path or stdin through
+`wipemark-intake`, `report.rs` is the human report, and `run.rs` is the
+two flows — `inspect` and `clean` — and their exit codes.
 
 Anything that needed more than a rule to explain is in `docs/`;
 `docs/README.md` is the index.
@@ -220,8 +223,8 @@ Anything that needed more than a rule to explain is in `docs/`;
   can do nothing with them — what they can act on is "not in this
   version yet", which is what every pending surface now says: the
   queue's footer and the toolbar's help, the panel, the Engine and
-  Models banners, the MCP tools pane, the tray's disabled item, the MCP
-  refusal and the CLI's.
+  Models banners, the MCP tools pane, the tray's disabled item and the
+  CLI's refusal.
   The rule that produced them is unchanged and is the point — a surface
   that cannot do the thing says so out loud — only the shorthand is
   gone. Epic ids stay in the code, in this file and in `docs/`, and in
@@ -231,7 +234,12 @@ Anything that needed more than a rule to explain is in `docs/`;
   the source of truth — `build.rs` generates the `Message` enum from it,
   so a key that is not there does not compile. Catalogue ids, `--json`
   fields, config keys and `Vendor` names are formats, and translating one
-  strands a file. See `docs/architecture/i18n.md`.
+  strands a file. See `docs/architecture/i18n.md`. One thing reads like
+  prose and is not: a character's Unicode name (`ZERO WIDTH SPACE`, from
+  `wipemark_core::name_of`) is an identifier of the standard, shown beside
+  its `U+XXXX` and never translated — the class and the confidence beside
+  it are what the catalogue localizes (`unicode-class-*`, `confidence-*`);
+  see `docs/architecture/i18n.md`.
 * **Only applications localize.** `check-dep-direction.sh` fails on any
   library that depends on `wipemark-i18n`. Libraries hand up structured
   values; the surface renders them, because only the surface knows
@@ -646,18 +654,25 @@ Anything that needed more than a rule to explain is in `docs/`;
   because that stream is a hook's contract. See
   `docs/architecture/logging.md`.
 
-* **The MCP server answers; its tools refuse.** The server in
-  `apps/wipemark-app/src/mcp/` is real — it binds, speaks JSON-RPC over
-  `POST /mcp`, introduces itself and lists `inspect` and `clean`. Layer A
-  is not implemented, so `tools/call` refuses by name and says so, as a
-  *result* carrying `isError: true` rather than as a JSON-RPC error: the
-  difference decides whether the model reads the refusal or the client
-  swallows it. Never answer a tool call with an empty report —
-  `a_tool_that_cannot_run_refuses_rather_than_reporting_nothing` is the gate, and
-  the failure it exists for is an agent filing a document as clean
-  because a scrubber that never ran found nothing. The banner at the top
-  of the pane carries both facts, and the second one stays until E1
-  lands.
+* **The MCP server answers, and its tools run Layer A.** The server in
+  `apps/wipemark-app/src/mcp/` binds, speaks JSON-RPC over `POST /mcp`,
+  introduces itself and lists `inspect` and `clean`; `tools/call` runs
+  `wipemark_core::inspect`/`clean` and answers with the A §7.1 report as
+  `content[0].text` and as `structuredContent` (`clean`: `{"text",
+  "report"}`), every report carrying the third shelf. A call it cannot
+  run — `text` missing or not a string, a flag that is not a boolean, an
+  argument the tool does not take — is refused as a *result* carrying
+  `isError: true` that names the argument, rather than as a JSON-RPC
+  error: the difference decides whether the model reads the refusal or
+  the client swallows it. Never answer a tool call with an empty report —
+  `a_tool_that_cannot_run_refuses_rather_than_reporting_nothing` is the
+  gate, for the same reason as before: an agent filing a document as
+  clean because a scrubber that never read it found nothing. The text
+  limit is the transport's 1 MiB `413` (`a_body_over_the_limit_is_refused_whole`),
+  never a truncation. A string the client sent is said back spelled
+  (`U+XXXX`), except the `id` and the kept characters of a cleaned text.
+  The banner at the top of the pane says what the tools do, and that
+  nothing rewrites.
 * **Nothing the MCP server says comes from the catalogue.** The
   application initializes `wipemark-i18n` with `Rendering::Ui`, which
   keeps Fluent's U+2068/U+2069 isolates around interpolated values —

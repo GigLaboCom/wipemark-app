@@ -5496,53 +5496,13 @@ impl SettingsView {
     ///
     /// Two facts and one box. The first line changes with the server —
     /// off, coming up, answering somewhere, or refusing to start with
-    /// the operating system's reason — and the last one never does,
-    /// because the tools land in E1 and until then every call is
-    /// refused by name. A user who reads nothing else on this page has
-    /// to read both.
+    /// the operating system's reason — and the last one never does: the
+    /// tools clean, with Layer A, and nothing rewrites, because Layer B
+    /// is not in this version. A user who reads nothing else on this
+    /// page has to read both. The decision is [`mcp_banner`]'s.
     fn state_of_the_server(&self, cx: &Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let (glyph, tone, mut lines) = match self.preferences.read(cx).status() {
-            Status::Off => (
-                IconName::CircleInfo,
-                theme.muted_foreground,
-                vec![t(Message::SettingsMcpStatusOff)],
-            ),
-            Status::Starting => (
-                IconName::CircleInfo,
-                theme.muted_foreground,
-                vec![t(Message::SettingsMcpStatusStarting)],
-            ),
-            Status::Listening { endpoint, wanted } => {
-                let mut lines = vec![t_args(
-                    Message::SettingsMcpStatusListening,
-                    &args!("url" => endpoint.url()),
-                )];
-                if endpoint.port != *wanted {
-                    // Both as text. A Fluent number is grouped by the
-                    // locale, and a port that reads "5 056" is not a
-                    // port anybody can type back in.
-                    lines.push(t_args(
-                        Message::SettingsMcpStatusMoved,
-                        &args!(
-                            "wanted" => wanted.to_string(),
-                            "port" => endpoint.port.to_string(),
-                        ),
-                    ));
-                }
-                (IconName::Plug, theme.success, lines)
-            }
-            Status::Failed(reason) => (
-                IconName::TriangleExclamation,
-                theme.danger,
-                vec![t_args(
-                    Message::SettingsMcpStatusFailed,
-                    &args!("reason" => reason.clone()),
-                )],
-            ),
-        };
-        lines.push(t(Message::SettingsMcpToolsPending));
-        notice(glyph, tone, lines, cx)
+        let (glyph, tone, lines) = mcp_banner(self.preferences.read(cx).status());
+        notice(glyph, tone.colour(cx), lines, cx)
     }
 
     /// Copy the snippet, and say so for two seconds.
@@ -6378,6 +6338,57 @@ fn vacancy_line(vacancy: &Vacancy) -> (IconName, Tone, String) {
     }
 }
 
+/// The MCP page's banner, as values: what is running, and what the
+/// tools do. The last line never changes with the server — it is what
+/// the tools are, not what the socket is doing.
+///
+/// A free function over values, like [`on_screen`] below and
+/// [`models_banner`] above, so the sentences can be checked without a
+/// window.
+fn mcp_banner(status: &Status) -> (IconName, Tone, Vec<String>) {
+    let (glyph, tone, mut lines) = match status {
+        Status::Off => (
+            IconName::CircleInfo,
+            Tone::Quiet,
+            vec![t(Message::SettingsMcpStatusOff)],
+        ),
+        Status::Starting => (
+            IconName::CircleInfo,
+            Tone::Quiet,
+            vec![t(Message::SettingsMcpStatusStarting)],
+        ),
+        Status::Listening { endpoint, wanted } => {
+            let mut lines = vec![t_args(
+                Message::SettingsMcpStatusListening,
+                &args!("url" => endpoint.url()),
+            )];
+            if endpoint.port != *wanted {
+                // Both as text. A Fluent number is grouped by the
+                // locale, and a port that reads "5 056" is not a port
+                // anybody can type back in.
+                lines.push(t_args(
+                    Message::SettingsMcpStatusMoved,
+                    &args!(
+                        "wanted" => wanted.to_string(),
+                        "port" => endpoint.port.to_string(),
+                    ),
+                ));
+            }
+            (IconName::Plug, Tone::Good, lines)
+        }
+        Status::Failed(reason) => (
+            IconName::TriangleExclamation,
+            Tone::Bad,
+            vec![t_args(
+                Message::SettingsMcpStatusFailed,
+                &args!("reason" => reason.clone()),
+            )],
+        ),
+    };
+    lines.push(t(Message::SettingsMcpToolsLayerA));
+    (glyph, tone, lines)
+}
+
 /// The endpoint a page should describe, given what the server is doing
 /// and what it was asked to do.
 ///
@@ -7122,6 +7133,57 @@ mod tests {
             );
             for line in &lines {
                 assert!(!line.is_empty(), "{settings:?} produced an empty line");
+            }
+        }
+    }
+
+    /// The MCP pane's bargain: whatever the socket is doing, the last
+    /// line says what the tools do — they clean, and nothing rewrites.
+    /// A state added with a cheerful first line and no second one would
+    /// let a user read "Running" as "the tools rewrite".
+    #[test]
+    fn the_mcp_banner_always_says_what_the_tools_do() {
+        let here = |port| Endpoint {
+            bind: crate::mcp::BindAddress::LOOPBACK,
+            port,
+        };
+        for (status, count, tone) in [
+            (Status::Off, 2, Tone::Quiet),
+            (Status::Starting, 2, Tone::Quiet),
+            (
+                Status::Listening {
+                    endpoint: here(5056),
+                    wanted: 5056,
+                },
+                2,
+                Tone::Good,
+            ),
+            (
+                Status::Listening {
+                    endpoint: here(5057),
+                    wanted: 5056,
+                },
+                3,
+                Tone::Good,
+            ),
+            (
+                Status::Failed("Address already in use".to_owned()),
+                2,
+                Tone::Bad,
+            ),
+        ] {
+            let (_, said, lines) = mcp_banner(&status);
+            assert_eq!(lines.len(), count, "{status:?}: {lines:?}");
+            assert_eq!(said, tone, "{status:?}");
+            assert!(
+                reads_as(
+                    lines.last().expect("at least one line"),
+                    Message::SettingsMcpToolsLayerA
+                ),
+                "{status:?} does not end by saying what the tools do: {lines:?}"
+            );
+            for line in &lines {
+                assert!(!line.is_empty(), "{status:?} produced an empty line");
             }
         }
     }

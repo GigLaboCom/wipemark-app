@@ -993,3 +993,187 @@ chars → `cjk_length_is_counted_in_chars_not_bytes`; no `min_letters` →
 → `default_guards_are_in_spec_order`. The URL shape is nearly subsumed
 by the path shape — every URL with a host has two segments — so its
 table row is `file:///`, the one kind of URL only it sees.
+
+## Surfaces
+
+Layer A has two callers, both applications, and both run it on a
+thread that is not the GPUI thread: the **MCP server**
+(`apps/wipemark-app/src/mcp/protocol.rs`, on the connection thread the
+server spawns per request) and the **CLI** (`apps/wipemark-cli/src/`,
+`input.rs` → `run.rs` → `report.rs`). Neither re-derives anything core
+decided: the exit code, the `suspicious` verdict, the actions and the
+JSON are core's, read, never recomputed. The window seams of A §7.4 —
+the Compare window's result, the panel's count, the queue's Clean
+action — are E7's.
+
+### MCP
+
+`tools/call` reads `params.arguments`:
+
+| what arrives | answer |
+|---|---|
+| absent or `null` | `{}` |
+| not an object | protocol error `-32602`, `` tools/call `arguments` must be an object `` |
+| an object | checked; any problem is a refusal result |
+
+| tool | `text` | `aggressive` | `nfkc` |
+|---|---|---|---|
+| `inspect` | string, required | boolean, default `false` | not taken |
+| `clean` | string, required | boolean, default `false` | boolean, default `false` |
+
+Problems are collected in a fixed order — `text` missing, `text` not a
+string (`null` included), `aggressive` not a boolean, `nfkc` not a
+boolean, then every key the tool does not take, sorted — and any one of
+them makes the call a **refusal**: a result with `isError: true`, a
+sentence naming the tool, each problem and the arguments it does take,
+and no `structuredContent`. Never a report: a report of a scan that did
+not run would say nothing was found
+(`a_tool_that_cannot_run_refuses_rather_than_reporting_nothing`, D14).
+An empty `text` is valid — Layer A ran over it. A missing `name` and an
+unknown tool stay `-32602`; a report that is not JSON (a bug) is
+`-32603`. `normalize_spaces` and `keep_soft_hyphen` are off on every
+surface in E1 (Q-A1).
+
+The answers:
+
+| tool | `content[0].text` | `structuredContent` |
+|---|---|---|
+| `inspect` | `InspectReport::to_json()`, verbatim | that string parsed |
+| `clean` | `{"text":<cleaned>,"report":<CleanReport::to_json()>}` | that string parsed |
+
+The text block is assembled from core's string rather than
+re-serialized from the parsed value because `serde_json` orders keys
+differently in different builds of this workspace (`preserve_order` is
+on in some), and the bytes an older client shows a model should not
+move. `an_mcp_report_is_json_a_client_can_parse` holds the two equal.
+
+**What is said back.** Nothing the server says comes from the
+catalogue (CLAUDE.md), and three answers quote the client — an unknown
+method, an unknown tool, an argument the tool does not take — so each
+goes through `spelled`: printable ASCII as itself, anything else as
+`U+XXXX`. Two things are deliberately said back unspelled: the JSON-RPC
+`id`, and the cleaned text of a `clean` result, which carries exactly
+what Layer A kept (a ZWJ in an emoji family, a U+FEFF at byte 0) because
+it is the user's text. `nothing_the_server_says_carries_an_invisible_character`
+permits a forbidden character only where the same response's
+`report.kept` declares it (or a leading U+FEFF), and counts it. The
+rule is not weakened into "escape everything": a `‍` escape would
+hide the character from the test and not from the agent, which decodes
+JSON. The report itself is ASCII by construction (D29) and carries no
+user text.
+
+**The limit** is the transport's (D13): `server.rs` answers a body over
+1 MiB with `413` before reading it, never truncating, and the tool
+descriptions say "up to about 1 MB". `a_body_over_the_limit_is_refused_whole`
+holds both sides of the boundary. The descriptions are ASCII, say
+"byte offset", and promise nothing there is no oracle for
+(`the_tool_listing_says_what_it_takes_and_promises_nothing_more`); the
+schemas carry `additionalProperties: false`, because it is true. No
+`outputSchema`: a second description of §7.1 would drift from `json.rs`.
+
+### CLI
+
+`inspect <path|-> [--json]` and `clean <path|-> [-o <out>|-o -]
+[--nfkc] [--aggressive] [--json]`.
+
+**Reading** (`input.rs`). A file is opened once and its first
+`wipemark_intake::HEAD` (4 KiB) bytes are read first, so a 4 GB model
+file named `notes.txt` is refused after 4 KB. Those bytes go to
+`wipemark_intake::identify` — the pure function, not `of_path`, which
+turns an unreadable file into a name-only answer without an error. Not
+textual, or no encoding: not text. `Encoding::Other`: an 8-bit encoding
+this version does not name, refused rather than guessed. Otherwise the
+rest is read on the same handle and decoded. A zero-byte file is empty
+text. Standard input is read whole and identified on its head.
+
+**Encodings** (D11). UTF-8, UTF-16LE/BE and UTF-32LE/BE, with or
+without a byte order mark; an invalid sequence is refused at its byte
+offset (never decoded lossily). **The mark is never stripped**: it
+decodes to U+FEFF at byte 0, which Layer A neither reports nor removes
+(A §4.1), and encoding the result in the input's encoding writes the
+same mark back — "in the input's encoding, with its BOM if it had one"
+without a flag to carry around. Standard output is always UTF-8.
+
+**Where the result goes.** Decided before anything is read: beside the
+input as `with_infix(name, RESULT_INFIX)` — the same function the app's
+Retention plan uses, in `wipemark_intake::name` (D10) — or the `-o`
+file, or standard output (`-o -`, or stdin with no `-o`; `-o -` is E1-6's
+generalisation of D12). An `-o` that is a folder, or the input itself
+(same device and inode on Unix — a symlink and a hard link included),
+is refused with 2. A file is written atomically: a temporary file in
+the destination's folder, the input's permissions, then a rename — which
+replaces a directory entry and never writes into an existing inode, so
+the input is never opened for writing.
+
+**Where each output goes.** Standard output carries one product: the
+JSON, the cleaned text, or the human report — which moves to stderr
+only when stdout carries the text. On a refusal or a failure stdout is
+empty.
+
+| command | `--json` | result to | stdout |
+|---|---|---|---|
+| `inspect` | no / yes | — | human report / `InspectReport::to_json()` |
+| `clean` | no | a file | human report |
+| `clean` | no | stdout | the cleaned text (report on stderr) |
+| `clean` | yes | a file | `{"report":<§7.1>,"written":"<path>"}` |
+| `clean` | yes | stdout | `{"report":<§7.1>,"text":"<cleaned>"}` |
+
+**Exit codes.** `0` read in full and not `suspicious`; `1` read in full
+and `suspicious` — **for `clean` too, by the input, even though the
+result no longer carries it** (A §7.3: a hook wants to know what was
+there; `CleanReport::suspicious` is computed over the source, D28); `2`
+a usage error or a refusal (a missing path, a folder, `-o` naming a
+folder or the input, and `rewrite`/`models`/`audit`); `3` inconclusive
+— unreadable, not text, 8-bit, invalid, the result or stdout could not
+be written. "Not read is not clean." A homoglyph found without
+`--aggressive` is in `kept`, at `probable`, so the text is suspicious
+and the exit is 1 although nothing was replaced; the human report says
+so in its own line (`cli-report-homoglyphs-kept`), and never promises
+an ASCII replacement — the replacement is the look-alike letter of the
+word's own script.
+
+**The human report** (`report.rs`, `Rendering::PlainText`): a summary
+that never calls a text clean; rows under *would be removed / replaced
+/ kept* (`inspect`) or *removed / replaced / kept* (`clean`), each
+`U+XXXX NAME · class · confidence · count, at byte offsets` with at
+most ten offsets spelled; the homoglyph line; a note that offsets count
+the text as UTF-8 when the input was not; under `--nfkc`, a line saying
+NFKC ran and — when the passes after it acted on characters no row
+lists — how many, because a row can then list as kept a character a
+later pass removed (the one place a count exceeds its positions, E1-3);
+where the result went and that the input was not changed; the Unicode
+version; and the third shelf. The class and confidence words are
+`unicode-class-<id>` and `confidence-<id>`; the name is not translated
+(D16, `docs/architecture/i18n.md`).
+
+**Logs.** One line per run, `Elided` for the path — never the text,
+never the path in clear, an `io::ErrorKind` and never the OS message
+(`nothing_reaches_the_log_but_the_shape`).
+
+### Positions
+
+Byte offsets into the UTF-8 text, everywhere. For a UTF-8 file they are
+the file's own offsets, a byte order mark counted
+(`positions_are_byte_offsets_into_a_utf8_file`); for UTF-16/UTF-32 input
+they count the decoded text as UTF-8, and the human report says so. For
+an MCP client they count the text as the server received it, after JSON
+decoding — **not** UTF-16 code units, which is what a JavaScript
+client's string indices are; the tool descriptions say "byte offsets
+into the UTF-8 text".
+
+### The third shelf, in both
+
+Core's writer puts `not_established` into every JSON (D9), so neither
+surface can drop it from a machine-read answer; the human report prints
+the title and one line per entry of `not_established::ALL` from the
+catalogue, falling back to the canonical English beside the id — an
+entry is never dropped. `every_layer_a_answer_carries_the_third_shelf`
+is the gate in both applications.
+
+### What still refuses
+
+`rewrite`, `models list|pull|verify|rm` and `audit` refuse with exit 2
+and `cli-not-implemented`, and their log line still carries the epic.
+The MCP server has no tool for Layer B; the pane's banner says that
+nothing rewrites in this version, in every state of the server
+(`the_mcp_banner_always_says_what_the_tools_do`).

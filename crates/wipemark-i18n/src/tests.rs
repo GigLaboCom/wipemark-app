@@ -16,6 +16,7 @@
 use fluent_syntax::{ast, parser};
 use unic_langid::LanguageIdentifier;
 use wipemark_core::report::not_established;
+use wipemark_core::{Confidence, UnicodeClass};
 
 use crate::{
     args, available_languages, catalogue, LanguagePreference, Localizer, Message, Rendering,
@@ -233,6 +234,62 @@ fn the_third_shelf_is_never_empty_in_any_language() {
             assert!(
                 only(&language).defines(*message),
                 "{language} has no translation for the third-shelf item `{id}`"
+            );
+        }
+    }
+}
+
+/// Every confidence `wipemark_core` has, listed by hand — core has no
+/// `Confidence::ALL` — and kept honest by [`confidence_ordinal`]'s
+/// exhaustive `match`: a fifth confidence does not compile there until
+/// it is added here too.
+const CONFIDENCES: [Confidence; 4] = [
+    Confidence::LikelyFalsePositive,
+    Confidence::Informational,
+    Confidence::Probable,
+    Confidence::Confirmed,
+];
+
+fn confidence_ordinal(confidence: Confidence) -> usize {
+    match confidence {
+        Confidence::LikelyFalsePositive => 0,
+        Confidence::Informational => 1,
+        Confidence::Probable => 2,
+        Confidence::Confirmed => 3,
+    }
+}
+
+/// What a finding is and how sure, in every language.
+///
+/// A report row reads "U+200B ZERO WIDTH SPACE · zero-width character ·
+/// confirmed": the name is the standard's and never translated, and the
+/// other two are this catalogue's, keyed by the stable ids
+/// (`unicode-class-<id>`, `confidence-<id>`). A class added to core with
+/// no key, or a key renamed in one catalogue, would print a key — or
+/// English inside a German report — in exactly the line a reader needs.
+#[test]
+fn every_unicode_class_and_confidence_reads_in_every_language() {
+    for (index, confidence) in CONFIDENCES.iter().enumerate() {
+        assert_eq!(confidence_ordinal(*confidence), index, "{confidence:?}");
+    }
+
+    let keys = UnicodeClass::ALL
+        .iter()
+        .map(|class| format!("unicode-class-{}", class.as_str()))
+        .chain(
+            CONFIDENCES
+                .iter()
+                .map(|confidence| format!("confidence-{}", confidence.as_str())),
+        );
+    for key in keys {
+        let message = Message::ALL
+            .iter()
+            .find(|message| message.id() == key)
+            .unwrap_or_else(|| panic!("`{key}` is not in the catalogue"));
+        for language in languages() {
+            assert!(
+                only(&language).defines(*message),
+                "{language} has no translation for `{key}`"
             );
         }
     }

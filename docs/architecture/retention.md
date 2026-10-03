@@ -65,7 +65,12 @@ default.
    again: `x.cleaned.md` → `x.cleaned.cleaned.md`, because collapsing
    it would make the result *the input*, and a destination called
    "beside" must never write over what it was handed.
-   `a_result_beside_a_file_is_never_the_file_itself` is the gate.
+   `a_result_beside_a_file_is_never_the_file_itself` is the gate. The
+   CLI's `clean` writes beside by the same `with_infix`, which lives in
+   `wipemark_intake::name` (with `RESULT_INFIX` and `ORIGINAL_INFIX`;
+   `retention.rs` re-exports them) so the two applications cannot spell
+   a result differently — and, as rule 3 says, the CLI reads none of the
+   rows on this page.
 
 2. **Replacing is never destructive.** The third destination replaces
    the file — a cleaned document with the same name is what a document

@@ -267,10 +267,17 @@ and `scripts/check-dep-direction.sh` fails the build if they stop.
 ## CLI exit codes
 
 ```
-0  clean       nothing found
-1  findings    marks found, or still present after cleaning
-2  usage       bad arguments, or a refusal (non-origin without --force)
-3  partial     the scan could not cover everything — inconclusive is not clean
+0  clean       the input was read in full and nothing in it looks like a mark;
+               for clean, the result was written
+1  findings    the input carries something that looks like a mark — for clean
+               as well, after removing it; for clean, the result was written
+2  usage       bad arguments, or a refusal: a path that does not exist, a
+               folder, --out naming a folder or the input; and rewrite,
+               models and audit, which this version does not run yet
+3  partial     inconclusive: the input exists and could not be read, is not
+               text, is in an 8-bit encoding this version does not name, or
+               holds an invalid sequence; or the result or standard output
+               could not be written — inconclusive is not clean
 ```
 
 Which makes the binary usable as a pre-commit hook or a CI step.
