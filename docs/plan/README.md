@@ -81,7 +81,7 @@ cleaned or rewritten, which every surface says out loud.
 |---|---|---|---|
 | `wipemark-core` | `UnicodeClass` (11 classes, default actions, confidence ceilings), `Confidence`, `Action`, `UnicodeFinding`, `Guard` trait + `RejectReason`, `InspectReport`, `CleanReport`, `TextStats` (struct only), `not_established::ALL`, `Vendor` | UCD tables, `build.rs`, every function that takes text: classifier, scrubber, NFKC, homoglyphs, guards, `TextStats::of` — **E1** | `crates/wipemark-core/src/{class,guard,report,vendor}.rs` (650 lines of `src/`) |
 | `wipemark-engine` | `RewriteEngine` trait, `EngineInfo` (with `ctx_len: Option`), `SamplingParams`, `ChatRequest`, `Completion`, `EngineError`, `FakeEngine` | every real engine — **E2** | `crates/wipemark-engine/src/lib.rs:138`, `fake.rs` |
-| `wipemark-pipeline` | `JobId`, `Action`, `Stage`, `Event`, `PipelineError`, `violates_non_origin` (removed by D62) | the state machine, chunking, tactics, the selection loop, scorers, batch — **E4** | `crates/wipemark-pipeline/src/lib.rs:115` |
+| `wipemark-pipeline` | `JobId`, `Action`, `Stage`, `Event`, `PipelineError`, ~~`violates_non_origin`~~ (removed by E4-2, D62); since E4-2 `prompt::*` and `lang::Lang` | the state machine, chunking, tactics, the selection loop, scorers, batch — **E4** | `crates/wipemark-pipeline/src/lib.rs:115` |
 | `wipemark-models` | manifest (2 entries, commit-pinned, sha256), layout and containment, host probe and `fit`, `default_for_role`, recursive scan, the resumable verifying downloader | signed remote manifest (moved to E9), mirror, GC — rest of **E3** | `crates/wipemark-models/src/*.rs` |
 | `wipemark-intake` | the recogniser: 44 magic formats, names, encodings (BOM, UTF-8/16/32, `Other`), text-that-is-a-path, the four-case arbitration | folders and archives expanded (Q-D2) | `crates/wipemark-intake/src/*.rs` |
 | `wipemark-store` | SQLite file, migrations, `settings` table | history and queue tables (E4/E7) | `crates/wipemark-store/src/*.rs` |
@@ -451,6 +451,7 @@ tell a decision from an accident.
 | **D74** | **Editable templates (Q-B4, Q-B22).** Only overrides are stored: a row `prompts.<lang>.<tactic>.<step>.<role>` whose value is `{"text", "based_on", "adapted_from", "origin"}` (`origin`: `hand`, `machine`, `machine-reviewed`) — dynamic keys outside `config::PERSISTED`, like `engine.profiles.<id>`. Validation is a pure function in `wipemark-pipeline` returning values, never prose. An adaptation into another language is made by hand or by the rewriting model on a button — **never automatically** — and is checked for the source's exact set of variables. A row this build cannot read is the shipped template, and the row stays. | The owner's decisions of 2026-10-03; the rest of the repository's row rules. |
 | **D75** | **The CLI's templates (Q-B21):** `rewrite` reads the same rows read-only, plus `--prompts <file.json>` over them; an invalid template exits 2 naming the set and the rule. | The window and the CLI must rewrite alike. |
 | **D76** | **E4 is a series of six documents** (§7 E4); E4-1 (preparing the text) and E4-2 (the prompts) run in parallel worktrees and meet in E4-3 (the loop). Their only shared type is `wipemark_pipeline::lang::Lang`, committed by the coordinator before either starts. | The two are pure functions over disjoint modules; the loop needs both. |
+| **D77** | **E4-2's own choices** (its report, "Deviations"), adopted: the fallback clause goes at the **end of the user prompt**, after `[[[END TEXT]]]`; the English rewrite and structural contracts say "the language of the text", never "English"; both `back_translate` steps share one translation contract; intensity applies to `paraphrase` and `humanize` only; the intensity clauses and other fragments are not editable in v1 (D74's key is `(lang, tactic, step, role)` only); a template containing any `⟦` or `⟧` is refused; a pivot row equal to the document's language reads as the default; `has_protected` is derived from the text, not passed in. | The last instruction is the one a small model follows best; a contract that said English would argue with the fallback clause; each of the rest is a format or a tie-break that has to be one thing. |
 
 ---
 
@@ -576,8 +577,9 @@ the gate the overview set, and the open edges.
 ### E4 — the pipeline (`wipemark-pipeline`)
 
 - **Exists.** The vocabulary (`JobId`, `Action`, `Stage`, `Event`,
-  `PipelineError`) and the non-origin rule
-  (`crates/wipemark-pipeline/src/lib.rs:115`).
+  `PipelineError`), `lang::Lang`, and since E4-2 the prompts
+  (`crates/wipemark-pipeline/src/prompt/`, `prompts/`). The non-origin
+  rule is gone (D62).
 - **Build.** S4.1 format parsing (Markdown, HTML text nodes, code) and
   protected spans → `⟦n⟧` placeholders; S4.2 chunking under `ctx_len ×
   0.4` with the previous chunk's last two sentences as context; S4.3 the
@@ -615,8 +617,8 @@ the gate the overview set, and the open edges.
   - [E4-2-the-prompts.md](E4-2-the-prompts.md) — the shipped en/ru/de
     templates, the assembler and its markers, validation of an edited
     template, adaptations, the response clean-up, the row format; and the
-    non-origin rule removed (S4.4; D62, D64, D66, D67, D73–D75) — status:
-    not started, worktree `e4/prompts`.
+    non-origin rule removed (S4.4; D62, D64, D66, D67, D73–D75, D77) —
+    status: done — [reports/E4-2-2026-10-03.md](reports/E4-2-2026-10-03.md).
   - E4-3 — the loop: the job state machine, candidates × rounds with D61's
     defaults and the cost estimate, Layer A before and after, the guards
     and the no-op guard, `min-divergence`, events with a structured

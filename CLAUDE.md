@@ -26,7 +26,11 @@ but nothing rewrites a document yet (that is the pipeline, E4); see
 `wipemark_engine::HttpEngine`, Ollama's native API or any
 OpenAI-compatible server, streamed, tested against a fake server and a
 live llama.cpp server — and the same **Check** asks it a fixed sentence;
-see `docs/architecture/remote-engine.md`.
+see `docs/architecture/remote-engine.md`. And the prompts exist — the
+shipped en/ru/de templates, the assembler that owns the markers, the
+validation of an edited template and the clean-up of an answer, in
+`wipemark_pipeline::prompt` — but nothing sends them yet (the loop is
+E4-3); see `docs/architecture/prompts.md`.
 
 ## First command after any clone or submodule update
 
@@ -175,7 +179,7 @@ it sits.
 | `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP) | both engines real, handed out by `duty::engine_for` and asked by the Check; the pipeline that rewrites with them is **E4** |
 | `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`) | real under `native`; an empty shim without it |
 | `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends | real under `native`; refuses every load without it |
-| `wipemark-pipeline` | the job state machine, chunking, candidates × rounds, the scorers | types; **E4** |
+| `wipemark-pipeline` | the job state machine, chunking, candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer); `Lang` | the prompts are real (E4-2); the loop is **E4-3** |
 | `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader | real |
 | `wipemark-store` | the SQLite file and the `settings` table | real |
 | `wipemark-secret` | the OS credential store, and `Secret` | real |
@@ -1157,6 +1161,25 @@ Anything that needed more than a rule to explain is in `docs/`;
   server holds one from startup and no tool calls it until the pipeline
   exists (D56). See `docs/architecture/local-engine.md`, "Keeping a
   model".
+* **The prompts are data, and the assembler owns the markers.**
+  `crates/wipemark-pipeline/prompts/<lang>/` holds one file per slot
+  (`<tactic>.<step>.<role>.txt`, the row key's shape), en/ru/de, `code`
+  English only; `every_language_has_a_complete_shipped_set` fails on a
+  `Lang` without its whole set. A step's prompt is in the language of the
+  text that step produces (D64) — an English instruction over a Russian
+  text is how a rewrite becomes a translation; a document whose language
+  is not detected gets the English set and a clause at the end of the
+  user prompt, and the English contracts therefore never say "English".
+  Only `render` writes `[[[BEGIN TEXT]]]` and its siblings; a template
+  that does is refused. `{PROTECTED}` is the one mandatory line of the
+  contract, once per step, because without it `PlaceholderGuard` rejects
+  every candidate of a document with code or links. An override is a row
+  `prompts.<lang>.<tactic>.<step>.<role>` (outside `config::PERSISTED`);
+  one this build cannot read is the shipped template, and the row stays.
+  An adaptation into another language is never automatic (Q-B22), and
+  `clean_response` never cuts a preface (D67) — a sentence removed by a
+  pattern is a content edit. There is no non-origin rule (D62): the
+  model the user chose rewrites. See `docs/architecture/prompts.md`.
 * **Layer A is never licence-gated.** Any state, expired or invalid,
   keeps the deterministic scrubber available.
 * **Exit codes are the CLI's interface, and there are four.** `0`
@@ -1172,7 +1195,7 @@ Anything that needed more than a rule to explain is in `docs/`;
   finding, like a mark.
 * **Tests must be able to fail.** RED first, and for the protections
   that matter (emoji ZWJ / VS16 preservation, path containment, the
-  non-origin rule) delete the protection locally and confirm the suite
+  prompts' marker ownership and placeholder rule) delete the protection locally and confirm the suite
   goes red.
 
 ## Specs
