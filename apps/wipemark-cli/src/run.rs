@@ -17,6 +17,15 @@
 //! | `clean` | no | stdout | the cleaned text | the report, note, refusal |
 //! | `clean` | yes | a file | `{"report":…,"written":…}` | note, refusal |
 //! | `clean` | yes | stdout | `{"report":…,"text":…}` | note, refusal |
+//! | `clean --in-place` | no | the file itself | the report | note, refusal |
+//! | `clean --in-place` | yes | the file itself | `{"report":…,"written":{"path","original"}\|null}` | note, refusal |
+//!
+//! `--in-place` is the one way the input is ever replaced, and it sets the
+//! original aside first (`inplace`). When the cleaned text is the input's
+//! text, nothing is written and nothing is set aside — `"written"` is
+//! `null` — and the exit code is still core's: a homoglyph kept without
+//! `--aggressive` is a finding with no change, and exits 1 over a file
+//! that was not touched.
 //!
 //! # The exit code reads core's answer
 //!
@@ -26,7 +35,6 @@
 //! because a pre-commit hook wants to know what was there. There is no
 //! second pass over the result and no second spelling of the rule here.
 
-use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -35,7 +43,9 @@ use wipemark_i18n::{args, t, t_args, FluentArgs, Message};
 use wipemark_intake::name::{with_infix, RESULT_INFIX};
 use wipemark_log::Elided;
 
+use crate::inplace::{self, Failure, Keep};
 use crate::input::{self, Source, Unread};
+use crate::report::{Say, Written};
 use crate::{report, Exit};
 
 /// The three standard streams, as values a test can replace.
@@ -67,6 +77,9 @@ enum Destination {
     Out(PathBuf),
     /// Standard output: `-o -`, or standard input with no `-o`.
     Stdout,
+    /// `--in-place`: the input file itself, its original set aside first
+    /// unless `--no-original`.
+    InPlace(PathBuf, Keep),
 }
 
 impl Destination {
@@ -76,13 +89,17 @@ impl Destination {
             Self::Beside(_) => "beside",
             Self::Out(_) => "out",
             Self::Stdout => "stdout",
+            Self::InPlace(_, Keep::Original) => "in place",
+            Self::InPlace(_, Keep::Nothing) => "in place, no original",
         }
     }
 
+    /// A file written beside or to `-o` — not the in-place file, which
+    /// goes through [`inplace::replace`].
     fn file(&self) -> Option<&Path> {
         match self {
             Self::Beside(path) | Self::Out(path) => Some(path),
-            Self::Stdout => None,
+            Self::Stdout | Self::InPlace(..) => None,
         }
     }
 }
@@ -136,10 +153,12 @@ pub(crate) fn inspect(path: &str, json: bool, io: &mut Io) -> Exit {
     exit
 }
 
-/// `clean <path|-> [-o <out>|-o -] [--nfkc] [--aggressive] [--json]`.
+/// `clean <path|-> [-o <out>|-o -|--in-place [--no-original]] [--nfkc]
+/// [--aggressive] [--json]`. `in_place` is `None` without `--in-place`.
 pub(crate) fn clean(
     path: &str,
     out: Option<&Path>,
+    in_place: Option<Keep>,
     nfkc: bool,
     aggressive: bool,
     json: bool,
@@ -150,35 +169,51 @@ pub(crate) fn clean(
 
     // Where the result goes, before a byte is read: a destination that
     // would be refused should not cost a read of the input first.
-    let destination = match (&source, out) {
-        (_, Some(out)) if out == Path::new("-") => Destination::Stdout,
-        (_, Some(out)) => {
-            if out.is_dir() {
-                let line = t_args(
-                    Message::CliOutIsAFolder,
-                    &args!("path" => out.display().to_string()),
-                );
-                return refused(io, "clean", path, &line, "out is a folder", Exit::Usage);
+    let destination = match (&source, out, in_place) {
+        (Source::Stdin, _, Some(_)) => {
+            let line = t(Message::CliInPlaceStdin);
+            return refused(io, "clean", path, &line, "in place from stdin", Exit::Usage);
+        }
+        (Source::File(input), _, Some(keep)) => {
+            // A link would be renamed aside as a link and replaced by a
+            // file, leaving the file it pointed at as it was — a run that
+            // reports success over a document it did not change.
+            if std::fs::symlink_metadata(input).is_ok_and(|meta| meta.file_type().is_symlink()) {
+                let line = t_args(Message::CliInPlaceLink, &args!("path" => label.as_str()));
+                return refused(io, "clean", path, &line, "in place on a link", Exit::Usage);
             }
-            if let Source::File(input) = &source {
-                if input::same_file(input, out) {
+            Destination::InPlace(input.clone(), keep)
+        }
+        (_, out, None) => match (&source, out) {
+            (_, Some(out)) if out == Path::new("-") => Destination::Stdout,
+            (_, Some(out)) => {
+                if out.is_dir() {
                     let line = t_args(
-                        Message::CliOutIsInput,
+                        Message::CliOutIsAFolder,
                         &args!("path" => out.display().to_string()),
                     );
-                    return refused(io, "clean", path, &line, "out is input", Exit::Usage);
+                    return refused(io, "clean", path, &line, "out is a folder", Exit::Usage);
                 }
+                if let Source::File(input) = &source {
+                    if input::same_file(input, out) {
+                        let line = t_args(
+                            Message::CliOutIsInput,
+                            &args!("path" => out.display().to_string()),
+                        );
+                        return refused(io, "clean", path, &line, "out is input", Exit::Usage);
+                    }
+                }
+                Destination::Out(out.to_owned())
             }
-            Destination::Out(out.to_owned())
-        }
-        (Source::Stdin, None) => Destination::Stdout,
-        (Source::File(input), None) => match input.file_name() {
-            Some(name) => Destination::Beside(
-                input.with_file_name(with_infix(&name.to_string_lossy(), RESULT_INFIX)),
-            ),
-            // No last component — `..`, `/`. Nothing of that shape is a
-            // file, and the read below says what it is instead.
-            None => Destination::Stdout,
+            (Source::Stdin, None) => Destination::Stdout,
+            (Source::File(input), None) => match input.file_name() {
+                Some(name) => Destination::Beside(
+                    input.with_file_name(with_infix(&name.to_string_lossy(), RESULT_INFIX)),
+                ),
+                // No last component — `..`, `/`. Nothing of that shape is a
+                // file, and the read below says what it is instead.
+                None => Destination::Stdout,
+            },
         },
     };
 
@@ -209,13 +244,25 @@ pub(crate) fn clean(
     };
 
     // The result first: the report says where it is, so it must be there.
+    let mut replaced = None;
+    if let Destination::InPlace(file, keep) = &destination {
+        // Nothing changed is nothing touched: no original set aside, no
+        // write, the modification time where it was.
+        if cleaned.text != read.text {
+            let bytes = input::encode(&cleaned.text, read.encoding);
+            match inplace::replace(file, &bytes, *keep) {
+                Ok(done) => replaced = Some(done),
+                Err(failure) => return refuse_replacement(io, path, file, &failure),
+            }
+        }
+    }
     if let Some(file) = destination.file() {
         let bytes = input::encode(&cleaned.text, read.encoding);
         let model = match &source {
             Source::File(input) => Some(input.as_path()),
             Source::Stdin => None,
         };
-        if let Err(error) = write_atomically(file, &bytes, model) {
+        if let Err(error) = inplace::write_atomically(file, &bytes, model) {
             let line = t_args(
                 Message::CliWriteFailed,
                 &args!(
@@ -235,16 +282,34 @@ pub(crate) fn clean(
     }
 
     let report_json = || cleaned.report.to_json();
+    let from_file = matches!(source, Source::File(_));
+    let file_shown = destination.file().map(|file| file.display().to_string());
+    let in_place_shown = match (&destination, &replaced) {
+        (Destination::InPlace(file, _), Some(done)) => Some((
+            file.display().to_string(),
+            done.original
+                .as_ref()
+                .map(|original| original.display().to_string()),
+        )),
+        _ => None,
+    };
+    let written = match (&destination, &in_place_shown, &file_shown) {
+        (Destination::InPlace(..), Some((path, original)), _) => Written::Replaced {
+            path,
+            original: original.as_deref(),
+        },
+        (Destination::InPlace(..), None, _) => Written::Unchanged,
+        (_, _, Some(path)) => Written::File { path, from_file },
+        (_, _, None) => Written::Stdout { from_file },
+    };
     let human = || {
-        let written = destination.file().map(|file| file.display().to_string());
         joined(report::clean_lines(
             &say,
             &label,
             &cleaned.report,
             &options,
             read.encoding,
-            written.as_deref(),
-            matches!(source, Source::File(_)),
+            written,
         ))
     };
     let stdout = match (&destination, json) {
@@ -260,6 +325,16 @@ pub(crate) fn clean(
         )
         .into_bytes(),
         (_, false) => human().into_bytes(),
+        (Destination::InPlace(file, _), true) => {
+            let written = match &replaced {
+                Some(done) => serde_json::json!({
+                    "path": file.to_string_lossy(),
+                    "original": done.original.as_ref().map(|original| original.to_string_lossy()),
+                }),
+                None => serde_json::Value::Null,
+            };
+            format!(r#"{{"report":{},"written":{}}}"#, report_json(), written).into_bytes()
+        }
         (_, true) => {
             let written = destination
                 .file()
@@ -301,40 +376,6 @@ pub(crate) fn clean(
     exit
 }
 
-/// Write `bytes` to `destination` without ever writing into an existing
-/// file: a temporary file in the same folder, then a rename over the
-/// destination. A rename replaces a directory entry rather than writing
-/// into the inode behind it, so even a hard link to the input is left
-/// alone — and a run that fails halfway leaves no half-written result.
-/// The input's permissions are copied onto the result when there was an
-/// input file.
-fn write_atomically(destination: &Path, bytes: &[u8], model: Option<&Path>) -> io::Result<()> {
-    let folder = match destination.parent() {
-        Some(folder) if !folder.as_os_str().is_empty() => folder.to_owned(),
-        _ => PathBuf::from("."),
-    };
-    let name = destination
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let temporary = folder.join(format!(".{name}.wipemark-{}.tmp", std::process::id()));
-
-    let written = (|| {
-        let mut file = File::create_new(&temporary)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        drop(file);
-        if let Some(model) = model {
-            std::fs::set_permissions(&temporary, std::fs::metadata(model)?.permissions())?;
-        }
-        std::fs::rename(&temporary, destination)
-    })();
-    if written.is_err() {
-        let _ = std::fs::remove_file(&temporary);
-    }
-    written
-}
-
 /// What a report calls the input: the path exactly as typed, or the
 /// catalogue's words for standard input.
 fn label_of(source: &Source, path: &str) -> String {
@@ -346,11 +387,11 @@ fn label_of(source: &Source, path: &str) -> String {
 
 /// The production [`report::Say`]: the process-wide catalogue, which
 /// `main` installed in `Rendering::PlainText`.
-fn say(message: Message, args: &FluentArgs) -> String {
+pub(crate) fn say(message: Message, args: &FluentArgs) -> String {
     t_args(message, args)
 }
 
-fn joined(lines: Vec<String>) -> String {
+pub(crate) fn joined(lines: Vec<String>) -> String {
     let mut text = lines.join("\n");
     text.push('\n');
     text
@@ -359,7 +400,7 @@ fn joined(lines: Vec<String>) -> String {
 /// Write and flush. `write_all`, never `println!`, which panics on a
 /// closed pipe — and a hook that closed its end early is owed an exit
 /// code, not a panic.
-fn emit(stream: &mut Box<dyn Write + '_>, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn emit(stream: &mut Box<dyn Write + '_>, bytes: &[u8]) -> io::Result<()> {
     stream.write_all(bytes)?;
     stream.flush()
 }
@@ -379,71 +420,122 @@ fn say_note(read: &input::Read, label: &str, io: &mut Io) {
     }
 }
 
+/// Why a text was not read, in one sentence — the line `inspect` and
+/// `clean` refuse with, and the line `audit` lists an unreadable file
+/// under. `say` is the catalogue in the user's language, or in English
+/// for SARIF, which is a format.
+pub(crate) fn unread_line(say: Say, label: &str, unread: &Unread) -> String {
+    match unread {
+        Unread::Missing => say(Message::CliNoSuchFile, &args!("path" => label)),
+        Unread::Folder => say(Message::CliIsAFolder, &args!("path" => label)),
+        Unread::Unreadable(error) => say(
+            Message::CliUnreadable,
+            &args!("path" => label, "reason" => error.to_string()),
+        ),
+        // A format that is itself text (an RTF whose head is not readable
+        // characters) is not one to name as "not text".
+        Unread::NotText { found, .. } => match found.filter(|format| !format.is_textual()) {
+            Some(format) => say(
+                Message::CliNotText,
+                &args!("path" => label, "format" => format.name()),
+            ),
+            None => say(Message::CliNotTextUnknown, &args!("path" => label)),
+        },
+        Unread::UnnamedEncoding => say(Message::CliUnnamedEncoding, &args!("path" => label)),
+        Unread::Invalid { encoding, offset } => say(
+            Message::CliInvalidEncoding,
+            &args!(
+                "path" => label,
+                "encoding" => encoding.name(),
+                "offset" => offset.to_string(),
+            ),
+        ),
+    }
+}
+
 /// Why a text was not read, on stderr, and the exit code that goes with
 /// it: 2 for a path that is not there or is a folder, 3 — "not read is
 /// not clean" — for everything else.
 fn refuse_unread(command: &str, path: &str, label: &str, unread: &Unread, io: &mut Io) -> Exit {
-    let (line, exit, kind) = match unread {
-        Unread::Missing => (
-            t_args(Message::CliNoSuchFile, &args!("path" => label)),
-            Exit::Usage,
-            None,
-        ),
-        Unread::Folder => (
-            t_args(Message::CliIsAFolder, &args!("path" => label)),
-            Exit::Usage,
-            None,
-        ),
-        Unread::Unreadable(error) => (
+    let (exit, kind) = match unread {
+        Unread::Missing | Unread::Folder => (Exit::Usage, None),
+        Unread::Unreadable(error) => (Exit::Partial, Some(error.kind())),
+        Unread::NotText { found, named } => {
+            // What the name claimed goes to the log: the refusal is about
+            // the contents, and they decide.
+            tracing::info!(
+                found = found.map(|format| format.name()),
+                named = named.map(|format| format.name()),
+                "not text"
+            );
+            (Exit::Partial, None)
+        }
+        Unread::UnnamedEncoding | Unread::Invalid { .. } => (Exit::Partial, None),
+    };
+    let line = unread_line(&say, label, unread);
+    let _ = writeln!(io.stderr, "wipemark-cli: {line}");
+    failed(command, path, unread.reason(), kind, exit)
+}
+
+/// An in-place replacement that did not happen, on stderr. Exit 2 every
+/// time: the file is as it was — or, when even putting it back failed,
+/// the line says where the original is now.
+fn refuse_replacement(io: &mut Io, path: &str, file: &Path, failure: &Failure) -> Exit {
+    let shown = file.display().to_string();
+    let (line, reason, kind) = match failure {
+        Failure::OriginalExists(original) => (
             t_args(
-                Message::CliUnreadable,
-                &args!("path" => label, "reason" => error.to_string()),
+                Message::CliInPlaceOriginalExists,
+                &args!("path" => shown, "original" => original.display().to_string()),
             ),
-            Exit::Partial,
+            "original exists",
+            None,
+        ),
+        Failure::Unnamed => (
+            t_args(Message::CliIsAFolder, &args!("path" => shown)),
+            "unnamed",
+            None,
+        ),
+        Failure::SetAside { original, error } => (
+            t_args(
+                Message::CliInPlaceSetAsideFailed,
+                &args!(
+                    "path" => shown,
+                    "original" => original.display().to_string(),
+                    "reason" => error.to_string(),
+                ),
+            ),
+            "set aside failed",
             Some(error.kind()),
         ),
-        Unread::NotText { found, named } => (
-            // A format that is itself text (an RTF whose head is not
-            // readable characters) is not one to name as "not text".
-            // What the name claimed goes to the log: the refusal is
-            // about the contents, and they decide.
-            match found.filter(|format| !format.is_textual()) {
-                Some(format) => t_args(
-                    Message::CliNotText,
-                    &args!("path" => label, "format" => format.name()),
-                ),
-                None => t_args(Message::CliNotTextUnknown, &args!("path" => label)),
-            },
-            Exit::Partial,
-            {
-                tracing::info!(
-                    found = found.map(|format| format.name()),
-                    named = named.map(|format| format.name()),
-                    "not text"
-                );
-                None
-            },
-        ),
-        Unread::UnnamedEncoding => (
-            t_args(Message::CliUnnamedEncoding, &args!("path" => label)),
-            Exit::Partial,
-            None,
-        ),
-        Unread::Invalid { encoding, offset } => (
+        Failure::Write(error) => (
             t_args(
-                Message::CliInvalidEncoding,
+                Message::CliInPlaceWriteFailed,
+                &args!("path" => shown, "reason" => error.to_string()),
+            ),
+            "write failed",
+            Some(error.kind()),
+        ),
+        Failure::Stranded {
+            original,
+            error,
+            restore,
+        } => (
+            t_args(
+                Message::CliInPlaceStranded,
                 &args!(
-                    "path" => label,
-                    "encoding" => encoding.name(),
-                    "offset" => offset.to_string(),
+                    "path" => shown,
+                    "original" => original.display().to_string(),
+                    "reason" => error.to_string(),
+                    "restore" => restore.to_string(),
                 ),
             ),
-            Exit::Partial,
-            None,
+            "stranded",
+            Some(error.kind()),
         ),
     };
     let _ = writeln!(io.stderr, "wipemark-cli: {line}");
-    failed(command, path, unread.reason(), kind, exit)
+    failed("clean", path, reason, kind, Exit::Usage)
 }
 
 /// A refusal about the arguments: the line on stderr, the log, the code.
@@ -499,7 +591,7 @@ mod tests {
     #[test]
     fn standard_input_is_cleaned_onto_standard_output() {
         let (exit, stdout, stderr) = run("a\u{200B}b".as_bytes(), |io| {
-            clean("-", None, false, false, false, io)
+            clean("-", None, None, false, false, false, io)
         });
         assert_eq!(exit, Exit::Findings);
         assert_eq!(stdout, b"ab");

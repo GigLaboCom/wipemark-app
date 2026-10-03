@@ -90,7 +90,9 @@ default.
    version control wants — is deliberately **not a preference**. It is a
    per-run flag for the CLI and the batch queue to carry (E4, E5). A row
    that deletes originals is a landmine that goes off months after it
-   was set.
+   was set. The CLI carries it now: `clean --in-place` sets the original
+   aside, `--in-place --no-original` keeps no copy
+   (`docs/architecture/cli.md`).
 
 3. **The CLI reads none of these rows.** `results.destination` is the
    window's preference and the batch queue's. A pre-commit hook that
@@ -230,12 +232,17 @@ the page's choices can be seen against a real thing.
   bytes as they arrived (rule 7), one directory per job, and removes
   them on the period — on launch and once a day while running, the way
   the log rotates.
-* **Setting aside.** The filesystem half of rule 2 — rename the file to
+* **Setting aside — done for the CLI (E5-1).** The filesystem half of
+  rule 2 is `apps/wipemark-cli/src/inplace.rs`: rename the file to
   `name.original.ext`, refusing with *already exists* rather than
-  overwriting — is a ten-line function with a test on a scratch
-  directory, and it lands with the first caller that can rename a file.
-* **The per-run "no copy" flag** for the CLI (`--in-place`, and
-  `--no-original` or similar beside it) and for the batch queue.
+  overwriting, then write the result over the path; a failed write puts
+  the original back. Nothing is set aside when nothing changed. The
+  window's *In place of the file* destination still writes nothing until
+  E7 / the batch (E4), which will need the same function from a library
+  rather than from the CLI. See `docs/architecture/cli.md`.
+* **The per-run "no copy" flag — done for the CLI (E5-1):**
+  `clean --in-place --no-original`, never a preference. The batch
+  queue's own flag is E4's.
 * **History.** Spec §6.3's job history — hashes, actions, engines,
   outcomes, never text — is the third thing the product will keep, and
   its span is a natural sixth row here. It is not a copy, so it is not

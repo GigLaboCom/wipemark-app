@@ -62,16 +62,32 @@ pub(crate) fn inspect_lines(
     lines
 }
 
-/// `clean`'s report. `written` is where the result went when that is a
-/// file; `untouched` says the input was a file, and was not changed.
+/// Where `clean`'s result went, as the report says it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Written<'a> {
+    /// Standard output carried the text. `from_file`: the input was a
+    /// file, and it was not changed.
+    Stdout { from_file: bool },
+    /// A file — beside the input, or `-o`. `from_file` as above.
+    File { path: &'a str, from_file: bool },
+    /// `--in-place`: the file itself was replaced, its original set aside
+    /// at `original`, or not kept (`--no-original`).
+    Replaced {
+        path: &'a str,
+        original: Option<&'a str>,
+    },
+    /// `--in-place`, and nothing needed changing: nothing was touched.
+    Unchanged,
+}
+
+/// `clean`'s report. `written` is where the result went.
 pub(crate) fn clean_lines(
     say: Say,
     source: &str,
     report: &CleanReport,
     options: &Options,
     encoding: Encoding,
-    written: Option<&str>,
-    untouched: bool,
+    written: Written,
 ) -> Vec<String> {
     let mut lines = body(
         say,
@@ -90,11 +106,32 @@ pub(crate) fn clean_lines(
             lines.push(say(Message::CliCleanLater, &args!("count" => later)));
         }
     }
-    if let Some(path) = written {
-        lines.push(say(Message::CliCleanWritten, &args!("path" => path)));
-    }
-    if untouched {
-        lines.push(say(Message::CliCleanUntouched, &args!("source" => source)));
+    let untouched = || say(Message::CliCleanUntouched, &args!("source" => source));
+    match written {
+        Written::Stdout { from_file } => {
+            if from_file {
+                lines.push(untouched());
+            }
+        }
+        Written::File { path, from_file } => {
+            lines.push(say(Message::CliCleanWritten, &args!("path" => path)));
+            if from_file {
+                lines.push(untouched());
+            }
+        }
+        Written::Replaced { path, original } => {
+            lines.push(say(Message::CliCleanWritten, &args!("path" => path)));
+            lines.push(match original {
+                Some(original) => say(Message::CliInPlaceOriginal, &args!("original" => original)),
+                None => say(Message::CliInPlaceNoOriginal, &FluentArgs::new()),
+            });
+        }
+        Written::Unchanged => {
+            lines.push(say(
+                Message::CliInPlaceUnchanged,
+                &args!("source" => source),
+            ));
+        }
     }
     lines.extend(footer(say, report.unicode_version));
     lines
@@ -247,8 +284,9 @@ fn row(say: Say, row: &UnicodeFinding) -> String {
 }
 
 /// The Unicode version, then the third shelf — the title and one line per
-/// entry of `not_established::ALL`, in its order.
-fn footer(say: Say, version: &str) -> Vec<String> {
+/// entry of `not_established::ALL`, in its order. `audit` ends with it
+/// too, once for the whole walk.
+pub(crate) fn footer(say: Say, version: &str) -> Vec<String> {
     let mut lines = vec![
         say(Message::CliReportUnicode, &args!("version" => version)),
         say(Message::ReportNotEstablishedTitle, &FluentArgs::new()),
@@ -263,7 +301,7 @@ fn footer(say: Say, version: &str) -> Vec<String> {
 
 /// A class's words. Exhaustive, so a twelfth class does not compile here
 /// until it has a key — as it does not pass the i18n gate.
-fn class_label(class: UnicodeClass) -> Message {
+pub(crate) fn class_label(class: UnicodeClass) -> Message {
     match class {
         UnicodeClass::ZeroWidth => Message::UnicodeClassZeroWidth,
         UnicodeClass::ZeroWidthJoiner => Message::UnicodeClassZwj,
@@ -280,7 +318,7 @@ fn class_label(class: UnicodeClass) -> Message {
 }
 
 /// A confidence's words. Exhaustive, for the same reason.
-fn confidence_label(confidence: Confidence) -> Message {
+pub(crate) fn confidence_label(confidence: Confidence) -> Message {
     match confidence {
         Confidence::Confirmed => Message::ConfidenceConfirmed,
         Confidence::Probable => Message::ConfidenceProbable,
@@ -310,7 +348,7 @@ mod tests {
     use wipemark_i18n::{FluentArgs, Localizer, Message, Rendering};
     use wipemark_intake::Encoding;
 
-    use super::{class_label, clean_lines, confidence_label, inspect_lines, shelf_line};
+    use super::{class_label, clean_lines, confidence_label, inspect_lines, shelf_line, Written};
 
     const CONFIDENCES: [Confidence; 4] = [
         Confidence::LikelyFalsePositive,
@@ -396,8 +434,40 @@ mod tests {
                     &cleaned.report,
                     options,
                     Encoding::Utf8,
-                    Some("note.cleaned.md"),
-                    true,
+                    Written::File {
+                        path: "note.cleaned.md",
+                        from_file: true,
+                    },
+                ));
+                lines.extend(clean_lines(
+                    &say,
+                    "note.md",
+                    &cleaned.report,
+                    options,
+                    Encoding::Utf8,
+                    Written::Replaced {
+                        path: "note.md",
+                        original: Some("note.original.md"),
+                    },
+                ));
+                lines.extend(clean_lines(
+                    &say,
+                    "note.md",
+                    &cleaned.report,
+                    options,
+                    Encoding::Utf8,
+                    Written::Replaced {
+                        path: "note.md",
+                        original: None,
+                    },
+                ));
+                lines.extend(clean_lines(
+                    &say,
+                    "note.md",
+                    &cleaned.report,
+                    options,
+                    Encoding::Utf8,
+                    Written::Unchanged,
                 ));
             }
             for line in &lines {
@@ -439,8 +509,7 @@ mod tests {
             &cleaned.report,
             &gentle,
             Encoding::Utf8,
-            None,
-            false,
+            Written::Stdout { from_file: false },
         );
         assert!(lines.contains(&note), "{lines:#?}");
         let lines = inspect_lines(
@@ -464,8 +533,7 @@ mod tests {
             &cleaned.report,
             &aggressive,
             Encoding::Utf8,
-            None,
-            false,
+            Written::Stdout { from_file: false },
         );
         assert!(!lines.contains(&note), "{lines:#?}");
     }
@@ -494,8 +562,7 @@ mod tests {
             &cleaned.report,
             &options,
             Encoding::Utf8,
-            None,
-            false,
+            Written::Stdout { from_file: false },
         );
         let later =
             english.format_args(Message::CliCleanLater, &wipemark_i18n::args!("count" => 2));
@@ -507,8 +574,7 @@ mod tests {
             &wipemark_core::clean(text, &Options::default()).report,
             &Options::default(),
             Encoding::Utf8,
-            None,
-            false,
+            Written::Stdout { from_file: false },
         );
         assert!(
             !lines.iter().any(|line| line.contains("NFKC")),

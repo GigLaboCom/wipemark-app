@@ -7,8 +7,8 @@ is model rewriting.
 **Layer A exists; Layer B does not yet.** Layer A — the UCD 18.0.0
 tables, the classifier and what it keeps, the scrubber, NFKC,
 homoglyphs and the five guards, in `wipemark-core` — is real, and two
-surfaces call it: `wipemark-cli inspect|clean` and the MCP tools
-`inspect`/`clean`. Real around it: the workspace and its four gates, the
+surfaces call it: `wipemark-cli inspect|clean|audit` (and `clean
+--in-place`) and the MCP tools `inspect`/`clean`. Real around it: the workspace and its four gates, the
 GPUI shell and its Settings window, preferences as rows in SQLite, the
 API key in the OS credential store, the model catalogue and its
 verifying downloader, the MCP server, the rule that decides who would
@@ -137,7 +137,7 @@ cargo test   -p wipemark-engine --features llama-native --locked -- --ignored --
 
 ```sh
 cargo run -p wipemark-app                   # the window; the binary is `wipemark`
-cargo run -p wipemark-cli -- --help         # the CLI (inspect and clean run; the rest refuses by name)
+cargo run -p wipemark-cli -- --help         # the CLI (everything runs but rewrite, which refuses by name)
 cargo test -p wipemark-app duty::           # one module's tests
 cargo test -p wipemark-app -- --nocapture   # with the log lines
 ```
@@ -233,8 +233,15 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 surface, the language flag read out of `argv` before clap parses (so
 `--language=de --help` prints German), and the exit codes below. Beside
 it, `input.rs` reads and decodes a path or stdin through
-`wipemark-intake`, `report.rs` is the human report, and `run.rs` is the
-two flows — `inspect` and `clean` — and their exit codes.
+`wipemark-intake`, `report.rs` is the human report, `run.rs` is the
+two flows — `inspect` and `clean` — and their exit codes, `inplace.rs`
+every write to disk and `clean --in-place` (the original set aside
+first, never over one already there), `audit.rs` the walk of a folder
+and its human, `--json` and SARIF 2.1.0 renderings, and `models.rs`
+`models list|pull|verify|rm` over `wipemark-models`, reading the app's
+`models.dir` and `models.rewrite` rows read-only. Only `rewrite` still
+refuses. The table of every command's exit codes and streams is
+`docs/architecture/cli.md`.
 
 Anything that needed more than a rule to explain is in `docs/`;
 `docs/README.md` is the index.
@@ -1078,9 +1085,12 @@ Anything that needed more than a rule to explain is in `docs/`;
   already there is never overwritten — ExifTool's `_original` rule.
   "In place with no copy" is deliberately **not a preference**; it is a
   per-run flag for the CLI and the batch (E4, E5), because a row that
-  deletes originals goes off months after it was set. The CLI reads
-  **none** of these rows: its "in-place needs an explicit flag, never a
-  default" would be broken by a radio button in a window. What the
+  deletes originals goes off months after it was set — on the CLI it is
+  `clean --in-place --no-original` (E5-1), and `--in-place` alone sets
+  the original aside by a rename first and refuses when one is already
+  there. The CLI reads **none** of these rows: its "in-place needs an
+  explicit flag, never a default" would be broken by a radio button in
+  a window. What the
   product keeps *of its own* — under `Layout::kept_dir`,
   `<data dir>/kept` — is only what arrived with **no file behind it**:
   a paste, a drag out of a browser, an MCP `text` argument. A file is
@@ -1153,9 +1163,13 @@ Anything that needed more than a rule to explain is in `docs/`;
   clean, `1` findings, `2` usage or a refusal, `3` partial. The third
   one earns its keep: *inconclusive is not clean* — a scan that could
   not read six files has not proven them unmarked, and a pre-commit
-  hook that reads that as success is worse than no hook. Stubs refuse
-  loudly at **2** and say what did not run; never exit 0 for work that
-  did not happen.
+  hook that reads that as success is worse than no hook. So `audit`
+  exits 3 when any file could not be read **even if another had
+  findings**: 3 beats 1, because a hook must not read a scan with a
+  hole in it as a complete one. Stubs refuse loudly at **2** and say
+  what did not run; never exit 0 for work that did not happen. A model
+  that `models verify` finds absent or not matching exits **1**: a
+  finding, like a mark.
 * **Tests must be able to fail.** RED first, and for the protections
   that matter (emoji ZWJ / VS16 preservation, path containment, the
   non-origin rule) delete the protection locally and confirm the suite

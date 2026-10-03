@@ -285,6 +285,21 @@ impl Downloads {
     /// Re-check an installed entry against the catalogue, hashing only
     /// the files whose size or mtime moved since the last verify.
     pub fn verify(&self, entry: &ModelEntry) -> Result<(), StoreError> {
+        self.check(entry, true)
+    }
+
+    /// [`Downloads::verify`] without the stamp: every file hashed in full,
+    /// whatever its size and mtime say, and the stamp refreshed on a match.
+    ///
+    /// The stamp is a cache of the last verify — enough to notice a file
+    /// that was *replaced*, not one whose bytes changed under the same
+    /// size and mtime. A command that is asked to verify
+    /// (`wipemark-cli models verify`) is not asked to consult a cache.
+    pub fn rehash(&self, entry: &ModelEntry) -> Result<(), StoreError> {
+        self.check(entry, false)
+    }
+
+    fn check(&self, entry: &ModelEntry, trust_stamp: bool) -> Result<(), StoreError> {
         let dir = self
             .model_dir(&entry.id)
             .ok_or_else(|| StoreError::UnusableId(entry.id.clone()))?;
@@ -299,7 +314,7 @@ impl Downloads {
             let Some(expected) = file.sha256.as_deref() else {
                 continue;
             };
-            if stamp_is_current(&target, expected)? {
+            if trust_stamp && stamp_is_current(&target, expected)? {
                 continue;
             }
             let actual = hash_file(&target)?;
@@ -796,6 +811,48 @@ mod tests {
             "a replaced file passed verification"
         );
         assert!(matches!(store.state(&entry), State::Corrupt { .. }));
+    }
+
+    /// The stamp notices a file that was replaced, not bytes that changed
+    /// under the same size and mtime — a byte swapped in place. `verify`
+    /// trusts it; `rehash` reads every byte and does not.
+    #[test]
+    fn a_full_rehash_does_not_trust_the_stamp() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Downloads::new(dir.path());
+        let bytes = b"the weights".to_vec();
+        let entry = entry(
+            "m",
+            vec![file(
+                "https://x/m.gguf",
+                Some(&sha_of(&bytes)),
+                bytes.len() as u64,
+            )],
+        );
+        let model_dir = store.model_dir("m").expect("model dir");
+        std::fs::create_dir_all(&model_dir).expect("mkdir");
+        let weights = model_dir.join("m.gguf");
+        std::fs::write(&weights, &bytes).expect("write");
+        store.rehash(&entry).expect("a matching file rehashes");
+
+        let mtime = std::fs::metadata(&weights)
+            .and_then(|meta| meta.modified())
+            .expect("an mtime");
+        std::fs::write(&weights, b"the wEights").expect("one byte swapped");
+        std::fs::File::options()
+            .write(true)
+            .open(&weights)
+            .and_then(|file| file.set_modified(mtime))
+            .expect("the old mtime back");
+
+        assert!(
+            store.verify(&entry).is_ok(),
+            "the stamp is a cache, and verify reads it"
+        );
+        assert!(
+            matches!(store.rehash(&entry), Err(StoreError::Corrupt { .. })),
+            "a full rehash trusted the stamp"
+        );
     }
 
     #[test]

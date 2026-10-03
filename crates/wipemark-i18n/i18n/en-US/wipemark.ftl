@@ -1120,11 +1120,11 @@ cli-command-inspect = Report what is in a document without changing it.
 cli-command-clean = { -layer-a } only: deterministic, verifiable, no model involved.
 cli-command-rewrite = { -layer-a }, then a model rewrite, then { -layer-a } again.
 cli-command-models = Manage downloaded weights.
-cli-command-models-list = List the manifest and what is installed.
+cli-command-models-list = List every model in the catalogue, what is on this machine for it, and whether it fits.
 cli-command-models-pull = Download a model by id, resuming if a partial file exists.
-cli-command-models-verify = Re-hash an installed model against the manifest.
+cli-command-models-verify = Re-hash an installed model in full against the catalogue. Exit 1 when it does not match or is not there.
 cli-command-models-rm = Delete an installed model.
-cli-command-audit = Walk a directory and report findings, for CI.
+cli-command-audit = Walk a folder and report every text file in it that carries findings, for pre-commit hooks and CI. Exit 3 when any file could not be read — even if others had findings: a scan with a hole in it is not complete.
 
 cli-arg-path-or-stdin = File to read, or `-` for stdin.
 cli-arg-path = File to read.
@@ -1141,6 +1141,8 @@ cli-arg-force = Proceed even when the rewriting engine is the vendor suspected o
 cli-arg-id = Manifest model id.
 cli-arg-dir = Directory to walk.
 cli-arg-sarif = SARIF output, for code scanning dashboards.
+cli-arg-in-place = Replace the file with its cleaned text. The original is first set aside beside it as `<name>.original.<ext>`, and an original already there is never overwritten: the run refuses instead. Nothing is touched when nothing needs changing.
+cli-arg-no-original = With --in-place: keep no copy of the original — for files under version control, where the history is the copy.
 cli-arg-language = Language for messages and help, as a BCP-47 tag such as de or ru. Overrides WIPEMARK_LANG, the language saved in the app's settings and the operating system, in that order.
 
 ## The reports `inspect` and `clean` print, and what they say when they
@@ -1211,9 +1213,9 @@ cli-clean-later = { $count ->
 ## never translated.
 
 cli-no-such-file = { $path } does not exist.
-cli-is-a-folder = { $path } is a folder. inspect and clean read one file, or standard input; walking a folder is not in this version yet.
+cli-is-a-folder = { $path } is a folder. inspect and clean read one file, or standard input; audit walks a folder.
 cli-out-is-a-folder = --out names a folder, { $path }. It takes the name of a file.
-cli-out-is-input = --out names the file being read, { $path }. Writing over the input needs a flag of its own, and this version does not have one yet.
+cli-out-is-input = --out names the file being read, { $path }. To replace the file, use --in-place, which sets the original aside first.
 cli-unreadable = { $path } could not be read: { $reason }. Not read is not clean.
 # $format is a format name such as PDF or PNG, never translated.
 cli-not-text = { $path }: the contents are { $format }, not text, so there is nothing for { -layer-a } to read. Not read is not clean.
@@ -1224,6 +1226,67 @@ cli-invalid-encoding = { $path } is not valid { $encoding } at byte { $offset }.
 # A note, not a failure: the file is read by what it contains.
 cli-name-disagrees = { $path }: named as { $named }, and the contents are { $found }; it was read by its contents.
 cli-write-failed = { $path } could not be written: { $reason }. The result was not saved.
+
+## `clean --in-place`. $path is the file being replaced, $original the
+## name it is set aside under (`name.original.ext`), $reason and $restore
+## the operating system's own words.
+
+cli-in-place-stdin = --in-place replaces a file, and standard input is not one. Name a file, or write the result with --out.
+cli-in-place-link = { $path } is a symbolic link. --in-place replaces files, not links; run it on the file the link points to.
+cli-in-place-original-exists = { $original } already exists, and an original set aside earlier is never overwritten. { $path } was not changed. Move { $original } away, or run with --no-original.
+cli-in-place-set-aside-failed = { $path } could not be set aside as { $original }: { $reason }. Nothing was changed.
+cli-in-place-write-failed = The cleaned text could not be written to { $path }: { $reason }. { $path } was not changed.
+cli-in-place-stranded = The cleaned text could not be written to { $path } ({ $reason }), and the original could not be put back ({ $restore }). The original is now { $original }.
+cli-in-place-original = The original was set aside as { $original }.
+cli-in-place-no-original = No copy of the original was kept (--no-original).
+cli-in-place-unchanged = { $source }: nothing needed changing, so the file was not touched and no original was set aside.
+
+## `audit`. $path is a path below the folder, `/`-separated; $classes a
+## list such as "zero-width ×2, bidirectional control ×1", already
+## spelled; the counts in the summary are numbers.
+
+cli-audit-not-a-folder = { $path } is not a folder. audit walks a folder; inspect and clean read one file.
+cli-audit-file = { $path }: { $count ->
+        [one] { $count } finding
+       *[other] { $count } findings
+    } ({ $classes })
+cli-audit-summary = { $root }: scanned { $scanned } · with findings { $findings } · skipped { $skipped } · could not be read { $unreadable }
+cli-audit-unreadable-title = Could not be read, so not shown to be clean:
+
+## `models`. $id is a catalogue id and $name the model's name, both
+## never translated; $path a folder or a file; sizes and percentages
+## arrive already spelled.
+
+cli-models-folder = Models folder: { $path }
+cli-models-entry = { $id } · { $name } · { $roles } · { $size } · { $state } · { $fit }
+cli-models-chosen = chosen for rewriting
+cli-models-state-present = on this machine, matches the catalogue
+cli-models-state-absent = not downloaded
+cli-models-state-partial = partly downloaded ({ $percent } %), pull resumes it
+cli-models-state-mismatch = on this machine, and does not match the catalogue
+cli-models-fit-fits = fits this machine
+cli-models-fit-tight = fits this machine with little to spare
+cli-models-fit-too-big = needs { $short } MB more memory than this machine has
+cli-models-fit-unknown = whether it fits this machine is unknown
+cli-models-size = { $gigabytes } GB
+cli-models-others-title = Also in this folder, not in the catalogue — listed only, not verified, and nothing loads them:
+cli-models-folder-unreadable = The models folder { $path } could not be read: { $reason }.
+cli-models-unknown-id = { $id } is not in the catalogue. Its ids are: { $ids }.
+cli-models-pull-present = { $id } is already on this machine and matches the catalogue: { $path }
+cli-models-pull-progress = { $id }: { $done } of { $total } MB ({ $percent } %)
+cli-models-pull-done = { $id } was downloaded and matches the catalogue: { $path }
+cli-models-pull-cancelled = { $id }: cancelled. What was downloaded is kept; run pull again to resume.
+cli-models-pull-mismatch = { $id }: { $file } does not match the catalogue (expected sha256 { $expected }, got { $actual }), so it was thrown away, the partial file with it. Nothing was installed.
+cli-models-pull-no-room = { $id } needs { $need } MB on the volume holding { $path }, and { $free } MB is free. Nothing was downloaded.
+cli-models-pull-failed = { $id } could not be downloaded: { $reason }. What was downloaded so far is kept; run pull again to resume.
+cli-models-verify-ok = { $id } matches the catalogue: every file was hashed in full.
+cli-models-verify-absent = { $id } is not on this machine ({ $file } is missing), so it does not match the catalogue.
+cli-models-verify-mismatch = { $id }: { $file } does not match the catalogue (expected sha256 { $expected }, got { $actual }). pull downloads it again.
+cli-models-verify-unreadable = { $id }: { $file } could not be read: { $reason }. Not read is not verified.
+cli-models-rm-removed = { $id } was removed from { $path }.
+cli-models-rm-absent = { $id } was not on this machine; nothing was removed.
+cli-models-rm-chosen = It was the model chosen for rewriting: the application will show no model chosen until another is picked. This command does not change that setting.
+cli-models-rm-failed = { $id } could not be removed from { $path }: { $reason }.
 
 # $requested is what the user typed, $available a comma-separated list.
 cli-unknown-language = unknown language `{ $requested }`, falling back. Available: { $available }

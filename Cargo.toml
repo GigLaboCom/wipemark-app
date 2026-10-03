@@ -108,6 +108,12 @@ hex = "0.4"
 # cross-platform, both consulted before a multi-gigabyte download starts.
 # Already in the tree via gpui.
 sysinfo = "0.31"
+# Ctrl-C for `wipemark-cli models pull`: the first press cancels the
+# download through `wipemark_models::Cancel`, so the `.part` is flushed and
+# kept and the run exits 2 saying how to resume. std has no portable way
+# to install a signal handler, and a hand-written one would be the only
+# `unsafe` in the CLI. The CLI is its only user.
+ctrlc = "3"
 
 # GPUI is consumed from the Zed repo. Pinned to 81b16f464c — the same rev
 # heretic-amuse-merge pins, which is the last commit before `gpui:
