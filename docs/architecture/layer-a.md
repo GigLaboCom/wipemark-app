@@ -669,3 +669,121 @@ finite value; `TextStats::of` never makes a non-finite one.
   everything, code blocks included — it cannot see a code block (A §2).
 - **A byte-exact way back.** `CleanReport` offers counts and positions
   for every removal, not a reversal.
+
+## Guards
+
+`src/guard.rs`. Five predicates over a pair *(source, candidate)* that
+throw away a rewrite which lost something: a version number "improved",
+a protected span dropped, a paragraph translated, a file path gone. They
+are pure text with no engine, so they live in `core` and read the same
+18.0.0 tables as the scrubber.
+
+### Who calls them
+
+Nobody in E1 but their tests. E4's selection loop (OV §4.4) runs
+`default_guards()` over every candidate of every round, **in that
+order**, and reports the first rejection. It runs them on text whose
+protected spans — code, URLs, e-mails, paths, numbers with units, the
+user's regex list — are already `⟦n⟧` placeholders (OV §4.2); making
+those is E4's, and a guard trusts that the source it is handed has them.
+A guard compares the texts as given: E4 should run Layer A over a
+candidate before its guards, or a model that writes U+200B inside
+`snake_case` loses the identifier here.
+
+### The five rules
+
+| guard · `name()` | rule | reason | threshold |
+|---|---|---|---|
+| `PlaceholderGuard` · `placeholder` | every `⟦n⟧` of the source comes back as often as it went in, and no other comes back | `PlaceholderMissing { index }`, `PlaceholderDuplicated { index, count }`, `PlaceholderInvented { index }` — missing/duplicated by ascending index first, then invented by ascending index | — |
+| `NumbersGuard` · `numbers` | every number token of the source is in the candidate, as an exact string, as a set | `NumberMissing { value }`, the first missing in source order | — |
+| `LengthDriftGuard` · `length-drift` | `chars(candidate) / chars(source)` in `[min, max]`, both inclusive, code points never bytes; an empty source passes only an empty candidate, else the ratio is `∞` | `LengthDrift { ratio, min, max }` | `min: 0.6, max: 1.6` |
+| `ScriptGuard` · `script` | no letter share (latin, cyrillic, cjk, other) moved by **more than** `max_delta_pp`; passes when either side has fewer than `min_letters` letters | `ScriptDrift { script, delta_pp }` — the first over the limit in the order latin, cyrillic, cjk, other; `delta_pp` signed, candidate minus source | `max_delta_pp: 15.0, min_letters: 20` |
+| `IdentifierGuard` · `identifier` | every identifier-shaped token of the source is in the candidate, exactly, as a set | `IdentifierMissing { token }`, the first missing in source order | — |
+
+The shares are E1-2's `stats::letter_shares`, in percent among letters
+(`gc=L*`); CJK is Han, Hiragana, Katakana, Hangul and Bopomofo. A fixed
+order rather than "the largest delta" keeps the verdict free of `f32`
+ties: a two-script swap moves both shares by the same amount. The edges
+of the length window are exact in `f32` (`6.0 / 10.0 == 0.6`,
+`16.0 / 10.0 == 1.6`). `min > max` or a NaN bound rejects everything —
+the caller's configuration, not a guess.
+
+### The three tokenizers
+
+All private, O(n), slices of their input in source order.
+
+- **Placeholders** — U+27E6, a run of **ASCII** digits that is `0` or
+  has no leading zero and fits `usize`, U+27E7. E4 writes `⟦{n}⟧` with
+  `{}` and restores by exact text, so anything else is text that was
+  lost: `⟦1⟧⟦2⟧` → `[1, 2]`; `⟦⟦1⟧⟧` → `[1]`; `⟦03⟧`, `⟦٣⟧` (U+0663),
+  and twenty nines → nothing.
+- **Numbers** — starts and ends with a `gc=Nd` digit (fullwidth and
+  Arabic-Indic included), digits and `. , : / -` between, a `%` only
+  when it touches the last digit; maximal munch: `v1.2.3` → `1.2.3`;
+  `It was 3.` → `3`; `0.5 %` → `0.5`; `12:00-13:00` → itself; `-5` → `5`.
+- **Identifiers** — maximal runs of non-`White_Space` (E1-2's
+  definition, re-stated in `guard.rs` because `stats::is_white_space` is
+  private; U+200B is not whitespace), trimmed at both ends by `TRIM`,
+  kept when any of five shapes holds: **URL** (contains `://`),
+  **e-mail** (an `@` with a character before it and a `.` after it),
+  **path** (at least two non-empty segments when split on `/` and `\`),
+  **snake_case** (a run of `_` with a letter or `Nd` digit right before
+  and right after it), **CamelCase** (an `Ll` letter right before an `Lu`
+  letter — Unicode's case, so `кВт` is one). `(parse_config()),` →
+  `parse_config`; `/usr` → nothing (a root is one segment);
+  `HTTPServer`, `__init__`, `a@b` → nothing.
+
+`TRIM` is twenty-six characters: A §6's `.,;:!?()[]{}"'«»<>` and D43's
+U+2018, U+2019, U+201C, U+201D, U+201E, U+2039, U+203A and the backtick
+U+0060 — so a rewrite that curls or straightens the quotes around an
+identifier, or drops its Markdown backticks, has not lost it. Only the
+ends are trimmed; the `’` inside `user’s` stays.
+
+### Why strict, and what they cannot see
+
+A false reject costs one more candidate; a false pass costs the user a
+number in their document. So the guards are strict and simple, and
+their blind spots are deliberate and written on each type:
+
+- **numbers as words** — `twenty-three` protects nothing, and a
+  candidate that spells `23` as `twenty-three` is rejected;
+- **signs** — `-5` and `5` are the same token;
+- **units** — not tracked; `50 %` holds the token `50`, so `50 %` →
+  `50%` passes and `50%` → `50 %` is rejected;
+- **an identifier glued to a dash or an ellipsis** — `foo_bar—see` is
+  one token, so a candidate that glues it loses it and is rejected;
+- **Arabic, Hebrew and every other script** are one bucket, `other`:
+  English translated into Arabic is caught as Latin falling, but the
+  reason does not name Arabic (A §9 Q-A5).
+
+Where the implementation is more precise than A §6 — canonical ASCII
+placeholders, "as often as in the source", the order of reasons, the
+inclusive window, strict `>` on the share delta, `<` on `min_letters`,
+two segments for a path, a run of `_` — is E1-5 §4.12 (G1–G12), adopted
+as D44 (G9 as amended by D43).
+
+### Formats
+
+`RejectReason`'s **fields** are the format: a surface a person reads
+renders the variant through the catalogue, never its `Display`, which is
+English for logs and diagnostics. `script` is one of `latin`,
+`cyrillic`, `cjk`, `other`. The five `name()`s — `placeholder`,
+`numbers`, `length-drift`, `script`, `identifier` — are kebab-case,
+unique, never translated, and renamed only with the care of a config key:
+E4's `Event::CandidateRejected.guard` carries one.
+
+### Tests
+
+All in `guard.rs`'s `mod tests` (D24; the tokenizers are private), plus
+one doc-test on `default_guards` that reaches it from outside the crate.
+A faithful pair (`SOURCE`, `FAITHFUL`) passes all five, and each
+rejection test is a one-phrase edit of it. Every protection was deleted
+locally and seen red (E1-5 report, `docs/plan/reports/E1-5-2026-10-03.md`):
+counts compared as presence → `a_duplicated_placeholder_is_rejected`;
+`.` ending a number → `a_lost_version_number_is_rejected`; bytes for
+chars → `cjk_length_is_counted_in_chars_not_bytes`; no `min_letters` →
+`a_short_text_has_no_script_share`; no path shape →
+`a_lost_identifier_is_rejected`; two entries of `default_guards` swapped
+→ `default_guards_are_in_spec_order`. The URL shape is nearly subsumed
+by the path shape — every URL with a host has two segments — so its
+table row is `file:///`, the one kind of URL only it sees.

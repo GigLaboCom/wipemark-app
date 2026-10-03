@@ -47,7 +47,10 @@ mod tables; // E1-1: the generated tables
 pub mod vendor;
 
 pub use class::{Action, Confidence, UnicodeClass, UnicodeFinding};
-pub use guard::{Guard, GuardOutcome, RejectReason};
+pub use guard::{
+    default_guards, Guard, GuardOutcome, IdentifierGuard, LengthDriftGuard, NumbersGuard,
+    PlaceholderGuard, RejectReason, ScriptGuard,
+};
 pub use name::name_of;
 pub use report::{
     CleanReport, FinalReport, InspectReport, NormKind, RewriteSummary, RiskLabel, TextStats,
