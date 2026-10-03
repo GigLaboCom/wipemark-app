@@ -18,15 +18,19 @@
 //!
 //! # Status
 //!
-//! The vocabulary below is E0's. Of E4: [`lang::Lang`], the languages the
-//! templates are written in, and [`prompt`] — the shipped templates, the
+//! The vocabulary below is E0's. Of E4: [`lang`] — the languages the
+//! templates are written in, and the detection of a document's (E4-1);
+//! [`prepare`] — what of a document is prose, the protected spans and
+//! their placeholders, the chunks and their context, and the way back
+//! byte for byte (E4-1); and [`prompt`] — the shipped templates, the
 //! assembler, validation, adaptations and the clean-up of an answer
-//! (E4-2). The machine that drives them — chunks, candidates, rounds,
-//! guards — is still to come.
+//! (E4-2). The machine that drives them — candidates, rounds, guards —
+//! is still to come (E4-3).
 
 #![forbid(unsafe_code)]
 
 pub mod lang;
+pub mod prepare;
 pub mod prompt;
 
 use std::time::Duration;

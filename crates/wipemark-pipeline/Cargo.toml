@@ -27,6 +27,13 @@ serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio-util.workspace = true
+# Markdown structure for preparing the text (E4-1, D69): every event carries
+# its byte range in the source, which is what lets everything that is not
+# rewritten come back from the source's own bytes. `default-features =
+# false` drops the HTML renderer and the `getopts` binary — only the
+# parser is wanted. Pinned here rather than in the workspace table because
+# nothing else in the workspace parses Markdown.
+pulldown-cmark = { version = "0.13", default-features = false }
 
 [lints]
 workspace = true

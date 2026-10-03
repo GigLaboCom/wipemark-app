@@ -26,7 +26,12 @@ but nothing rewrites a document yet (that is the pipeline, E4); see
 `wipemark_engine::HttpEngine`, Ollama's native API or any
 OpenAI-compatible server, streamed, tested against a fake server and a
 live llama.cpp server — and the same **Check** asks it a fixed sentence;
-see `docs/architecture/remote-engine.md`. And the prompts exist — the
+see `docs/architecture/remote-engine.md`. What the pipeline will feed a
+model exists too: the preparation of a document — prose told from code
+and markup, protected spans as `⟦n⟧`, chunks by paragraph with their
+context, the document's language, and the way back byte for byte — in
+`wipemark_pipeline::prepare` (`docs/architecture/pipeline.md`); and the
+prompts — the
 shipped en/ru/de templates, the assembler that owns the markers, the
 validation of an edited template and the clean-up of an answer, in
 `wipemark_pipeline::prompt` — but nothing sends them yet (the loop is
@@ -179,7 +184,7 @@ it sits.
 | `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP) | both engines real, handed out by `duty::engine_for` and asked by the Check; the pipeline that rewrites with them is **E4** |
 | `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`) | real under `native`; an empty shim without it |
 | `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends | real under `native`; refuses every load without it |
-| `wipemark-pipeline` | the job state machine, chunking, candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer); `Lang` | the prompts are real (E4-2); the loop is **E4-3** |
+| `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation (E4-1) and prompts (E4-2) real; the loop is **E4-3** |
 | `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader | real |
 | `wipemark-store` | the SQLite file and the `settings` table | real |
 | `wipemark-secret` | the OS credential store, and `Secret` | real |
@@ -1161,6 +1166,20 @@ Anything that needed more than a rule to explain is in `docs/`;
   server holds one from startup and no tool calls it until the pipeline
   exists (D56). See `docs/architecture/local-engine.md`, "Keeping a
   model".
+* **A document goes back byte for byte.** `wipemark_pipeline::prepare`
+  turns a document into chunks — one paragraph each, or one list with the
+  bytes between its items as glue placeholders, never merged — and every
+  byte outside a chunk is reassembled from the source itself:
+  `assemble(&[None; n]) == source` for every format, a property over
+  thousands of generated documents and every Markdown file here. What is
+  not prose (headings, front matter, code, tables, HTML blocks) is never
+  shown to a model. Protected spans become `⟦n⟧` numbered per chunk from
+  1; `placeholder()` is the one place the format lives; `restore` never
+  guesses — a missing, invented, duplicated or reordered placeholder is a
+  `RestoreError`, which the loop treats as a rejection. `lang::detect`
+  answers `None` rather than guess, and its neighbours' stop-word lists
+  exist only to make French or Ukrainian read as unknown. See
+  `docs/architecture/pipeline.md`.
 * **The prompts are data, and the assembler owns the markers.**
   `crates/wipemark-pipeline/prompts/<lang>/` holds one file per slot
   (`<tactic>.<step>.<role>.txt`, the row key's shape), en/ru/de, `code`
