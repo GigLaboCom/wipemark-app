@@ -48,6 +48,9 @@ steps:
     image: *rust_image
     environment: *ci_env
     commands:
+      # sync first: a cached checkout keeps the submodule URL it was
+      # cloned with, and the fork moved to GigLaboCom on 2026-10-03.
+      - git submodule sync --recursive
       - git submodule update --init --recursive
       - scripts/pin-gpui-component.sh
       - git -C vendor/gpui-component log --oneline -1

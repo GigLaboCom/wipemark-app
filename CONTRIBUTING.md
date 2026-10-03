@@ -8,9 +8,15 @@
 `Cargo.toml`:
 
 ```sh
+git submodule sync --recursive
 git submodule update --init --recursive
 scripts/pin-gpui-component.sh
 ```
+
+`sync` matters once: on 2026-10-03 the submodule URL moved from upstream
+(where the pinned commit never was) to the organisation's fork,
+`GigLaboCom/gpui-component`, branch `heretic/epic-4-line-decorations`.
+A checkout made before that keeps the old URL until it is synced.
 
 The script is idempotent. It exists because gpui-component declares its
 own `gpui`, `gpui_platform`, `gpui_web`, `gpui_macros` and

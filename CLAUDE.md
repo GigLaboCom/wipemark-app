@@ -17,9 +17,18 @@ say so out loud wherever a user could mistake them for present — see
 ## First command after any clone or submodule update
 
 ```sh
+git submodule sync --recursive      # picks up a moved URL in .gitmodules
 git submodule update --init --recursive
 scripts/pin-gpui-component.sh
 ```
+
+The submodule comes from **`GigLaboCom/gpui-component`** (a fork of
+upstream `longbridge/gpui-kit`), branch
+`heretic/epic-4-line-decorations`, which is protected against deletion
+and force-push. The pinned commit carries the `LineDecorationProvider`
+patch that upstream does not have — see
+`docs/sdd/line-decorations.md`. It moved there from a personal fork on
+2026-10-03; nothing else about the pin changed.
 
 Skipping the pin script produces two different `gpui` packages in one
 binary and a type error deep inside gpui-component that reads like a
