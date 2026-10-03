@@ -6,7 +6,7 @@ license.workspace = true
 publish.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "RewriteEngine trait and its implementations: OpenAI-compatible (E2), llama.cpp behind a feature, and the deterministic FakeEngine."
+description = "RewriteEngine trait and its implementations: Ollama and OpenAI-compatible over HTTP, llama.cpp behind a feature, and the deterministic FakeEngine."
 
 [features]
 default = []
@@ -26,6 +26,17 @@ flume.workspace = true
 thiserror.workspace = true
 tokio-util.workspace = true
 wipemark-llama = { workspace = true, optional = true }
+# The key an HTTP engine sends, held as a `Secret` from the credential
+# store to the one header that carries it (D57). A `String` in an engine
+# struct is one `{:?}` away from a log line.
+wipemark-secret.workspace = true
+# The HTTP engines (src/http/, D58): the blocking client the downloader
+# already uses, on one thread per request, bridged to the trait with
+# `flume` — no second async runtime beside GPUI's. Always compiled: the
+# endpoint needs no C++ toolchain.
+ureq.workspace = true
+# The two wire formats' bodies and every streamed payload.
+serde_json.workspace = true
 # Log lines from the local engine's worker: lengths and timings, never a
 # prompt or a completion.
 tracing.workspace = true

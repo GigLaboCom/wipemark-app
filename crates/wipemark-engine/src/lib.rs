@@ -9,10 +9,14 @@
 //!
 //! Three implementations (spec §4.1):
 //!
-//! * `OpenAiCompatEngine` — not written yet (E2-3), testable against a
-//!   fake HTTP server. Redirects are refused outright (an `Authorization`
-//!   header must not follow a redirect to an unvalidated host) and a
-//!   non-loopback `base_url` requires `allow_remote = true`.
+//! * [`http::HttpEngine`] — an endpoint over HTTP: Ollama's native
+//!   `/api/chat` or any OpenAI-compatible `/v1/chat/completions`, streamed,
+//!   on a thread per request with the blocking `ureq` client (D58). It
+//!   refuses a non-`http(s)` scheme and never follows a redirect (an
+//!   `Authorization` header must not follow one to an unvalidated host);
+//!   that a non-loopback endpoint needs `allow_remote` is the application's
+//!   rule (`engine::refusal`), decided before the engine is built. Tested
+//!   against a fake server on `127.0.0.1:0` and nothing else.
 //! * `local::LocalEngine` — behind the `local-llama` feature: a GGUF on
 //!   this machine, owned by one worker thread, `cancel` read between
 //!   decode steps. Its llama.cpp is `wipemark-llama`, code copied into
@@ -35,6 +39,7 @@
 #![forbid(unsafe_code)]
 
 pub mod fake;
+pub mod http;
 #[cfg(feature = "local-llama")]
 pub mod local;
 
@@ -44,6 +49,7 @@ use std::path::PathBuf;
 /// re-exported so an implementor — a test double in the application —
 /// names the same macro this trait was declared with.
 pub use async_trait::async_trait;
+pub use http::{HttpConfig, HttpEngine, HttpProvider, Reasoning};
 #[cfg(feature = "local-llama")]
 pub use local::{has_gpu_backend, LocalConfig, LocalEngine};
 /// The cancellation every call takes, re-exported so a caller names the
@@ -192,6 +198,38 @@ pub enum Unavailable {
     /// is the one site that says this.
     #[error("nothing is on duty")]
     NothingOnDuty,
+    /// The endpoint answered with a redirect, which is never followed.
+    /// `to_origin` is where it pointed — scheme, host and port, never a
+    /// path or a query — when it said.
+    #[error("the endpoint answered {status} and pointed {}; redirects are not followed", .to_origin.as_deref().unwrap_or("nowhere"))]
+    Redirected {
+        status: u16,
+        to_origin: Option<String>,
+    },
+    /// 401 or 403: the endpoint did not accept the key, or wants one.
+    #[error("the endpoint refused the key ({status})")]
+    KeyRejected { status: u16 },
+    /// 404: a wrong path, or a model the server does not have (for Ollama,
+    /// one not pulled). `detail` is the server's own words, at most 2 KiB.
+    #[error("the endpoint has no such model or path: {detail}")]
+    NotFound { detail: String },
+    /// 429, still, after the retries. `retry_after_s` is what the server
+    /// last asked for.
+    #[error("the endpoint is rate-limiting requests")]
+    RateLimited { retry_after_s: Option<u32> },
+    /// Any other error status, after the retries a 502/503/504 gets.
+    /// `detail` is the server's own words, at most 2 KiB.
+    #[error("the endpoint refused the request ({status}): {detail}")]
+    Refused { status: u16, detail: String },
+    /// The credential store would not say whether there is a key. Not "no
+    /// key": a locked keychain and a missing key have different fixes.
+    /// `reason` is the store's own words.
+    #[error("the key could not be read: {reason}")]
+    KeyUnreadable { reason: String },
+    /// The provider sends a key and the credential store has none for this
+    /// endpoint.
+    #[error("no key is stored for this endpoint")]
+    NoKey,
 }
 
 /// The one thing every rewriting backend has to do.

@@ -22,7 +22,11 @@ behind `local-llama`, tested against a real GGUF — and the application
 hands it out: the windows can **load** the chosen model, keep it or let it
 go by the owner's policy (`EngineHost`), and **check** that it writes —
 but nothing rewrites a document yet (that is the pipeline, E4); see
-`docs/architecture/local-engine.md`.
+`docs/architecture/local-engine.md`. The endpoint exists too —
+`wipemark_engine::HttpEngine`, Ollama's native API or any
+OpenAI-compatible server, streamed, tested against a fake server and a
+live llama.cpp server — and the same **Check** asks it a fixed sentence;
+see `docs/architecture/remote-engine.md`.
 
 ## First command after any clone or submodule update
 
@@ -168,7 +172,7 @@ it sits.
 | crate | what it owns | today |
 |---|---|---|
 | `wipemark-core` | Layer A: the UCD tables, the Unicode taxonomy, the classifier and scrubber, NFKC, homoglyphs, the guards, the report and its JSON | real (the guards have no caller until **E4**) |
-| `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, and `LocalEngine` behind `local-llama` | the trait and `LocalEngine` (nothing calls it until **E2-2**); the HTTP engine is **E2** |
+| `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP) | both engines real, handed out by `duty::engine_for` and asked by the Check; the pipeline that rewrites with them is **E4** |
 | `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`) | real under `native`; an empty shim without it |
 | `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends | real under `native`; refuses every load without it |
 | `wipemark-pipeline` | the job state machine, chunking, candidates × rounds, the scorers | types; **E4** |
@@ -194,7 +198,7 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `settings.rs` | the Settings window: sections, rows, and the `Preferences` entity every page reads |
 | `config.rs` | every preference as a row in `wipemark.db` |
 | `duty.rs` | who rewrites — an endpoint or this machine — and in what order; `engine_for`, where that becomes an engine |
-| `engine_host.rs` | when the model on this machine is in memory: the keep policy (`decide`), the `EngineHost` that executes it, the Check, and the `EngineHandle` other threads reach it through |
+| `engine_host.rs` | when the model on this machine is in memory: the keep policy (`decide`), the `EngineHost` that executes it, the Check (for the machine or an endpoint), an endpoint's key read when it is first asked, and the `EngineHandle` other threads reach it through |
 | `engine.rs` | the Layer B endpoint vocabulary and its refusals |
 | `profile.rs` | endpoint settings saved under a name |
 | `models.rs` | the Models page's vocabulary, the recommendation, the adoption |
@@ -773,6 +777,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   lookup happens when the Settings window opens rather than at startup,
   for the same reason every long operation is off the foreground
   thread — a keychain read blocks and can raise a permission dialog.
+  The engine host keeps the same rule: an endpoint's key is read the
+  first time the endpoint is asked (a Check or a job), on a thread of
+  its own, and held as a `Secret` up to the one `Authorization` header
+  that carries it — `Secret::expose` has one caller outside the vault
+  crate (D57).
   `a_key_is_never_written_to_the_settings_table` and
   `the_only_preference_that_is_not_a_row_is_the_credential` are the
   gates. `Secret` has no `Display`, no `Serialize` and a `Debug` that
@@ -786,10 +795,14 @@ Anything that needed more than a rule to explain is in `docs/`;
   (`https://user:key@host`) is refused as a URL rather than quietly
   stripped — that is a credential in a settings row. Loopback over
   `http` is fine and has to be: there is no wire, and demanding TLS
-  from a local Ollama is a rule everyone would route around. The Engine
-  banner's last line names epic E2 in every state the page can be in —
-  `the_engine_banner_always_says_a_rewrite_is_not_here_yet` — for the
-  same reason `wipemark-cli rewrite` refuses by name.
+  from a local Ollama is a rule everyone would route around. The engine
+  also refuses a redirect and a scheme other than `http`/`https` itself
+  (`wipemark_engine::http`, before a socket opens or a 3xx is followed) —
+  defence in depth under `engine::refusal`, not a second rule. The Engine
+  banner's last line says, in every state the page can be in, that no
+  document is sent anywhere and the Check is the one request the page
+  makes — `the_engine_banner_always_says_a_rewrite_is_not_here_yet` — for
+  the same reason `wipemark-cli rewrite` refuses by name.
 * **A saved profile is every *endpoint* setting except the key.** The
   endpoint settings are keepable under a name — `engine.profiles.<id>`,
   one row each, so saving one cannot disturb another — and two things
@@ -910,7 +923,8 @@ Anything that needed more than a rule to explain is in `docs/`;
   a quiet substitution. `engine_for` is where a decision becomes a
   `RewriteEngine`: the machine becomes a `LocalEngine` (built, not
   loaded) in a build with `local-llama` and `Unavailable::NotBuilt`
-  without; an endpoint refuses until E2-3. It never falls back to
+  without; an endpoint becomes an `HttpEngine` holding the key it is
+  handed. It never falls back to
   `FakeEngine` — plausible text with no model behind it is a document
   filed as rewritten by a rewriter that never ran
   (`engine_for_never_hands_out_a_fake`).

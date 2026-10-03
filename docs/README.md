@@ -9,6 +9,7 @@
 | [architecture/i18n.md](architecture/i18n.md) | the message catalogue, the generated `Message` enum, and the rule that only applications localize |
 | [architecture/engine-settings.md](architecture/engine-settings.md) | the Layer B endpoint settings, and why the API key is the one preference that is not a row in the database |
 | [architecture/who-rewrites.md](architecture/who-rewrites.md) | which of an endpoint and this machine serves a role, why there is no fallback between them, and how a decision becomes an engine |
+| [architecture/remote-engine.md](architecture/remote-engine.md) | the endpoint over HTTP: the two wire formats as sent, the transport rules and where each is enforced, the error table, threads and cancel, and the live check against llama.cpp's own server |
 | [architecture/local-engine.md](architecture/local-engine.md) | the local engine: llama.cpp copied in at a named commit and pinned, the two features and which gate builds which, where the backends come from, why a cancel waits for the worker, the memory refusal, and how to run the native gates |
 | [architecture/model-downloads.md](architecture/model-downloads.md) | the model catalogue, the resumable verifying downloader, and how the machine's memory decides what is offered |
 | [architecture/setup.md](architecture/setup.md) | the first-launch walk-through: what it recommends from the machine's memory, what it writes and when, and what it took from mnemoria-lvkb |

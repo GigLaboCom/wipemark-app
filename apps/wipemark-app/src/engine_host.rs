@@ -46,6 +46,24 @@
 //! Nothing calls it yet: the MCP `rewrite` tool lands with the pipeline,
 //! because a model's raw output handed to anybody as a rewrite is the
 //! failure this product exists to avoid (D56).
+//!
+//! # An endpoint
+//!
+//! When an endpoint is on duty the slot holds an `HttpEngine` (E2-3), and
+//! the keep policy has nothing to keep: [`Action::Load`] is a no-op for it
+//! and nothing is ever "loaded", so no idle timer is armed and **Unload
+//! now** has nothing to do. Changing the provider, the URL, the model, the
+//! key, the temperature, the reasoning, the timeout or the profile rebuilds
+//! it, as another model does.
+//!
+//! A provider that sends a key gets its engine when the key is first
+//! **needed** — the first Check, or the first job through a handle — and
+//! not when the duty is decided: the credential store is not read at
+//! startup (CLAUDE.md, "A credential is never a row"), because the read
+//! blocks and can put a permission dialog on screen with nobody having
+//! asked for anything. Until then the slot holds the endpoint and the
+//! vault; the read runs on a thread of its own, and a store that will not
+//! answer is a refusal (`Unavailable::KeyUnreadable`), not "no key".
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -59,8 +77,9 @@ use wipemark_engine::{
 };
 use wipemark_i18n::{args, t_args, Message};
 use wipemark_models::manifest::Role;
+use wipemark_secret::Vault;
 
-use crate::duty::{self, LocalOptions, Performer};
+use crate::duty::{self, LocalOptions, Performer, Remote};
 use crate::settings::Preferences;
 
 /// The idle spans the Engine page offers, in minutes.
@@ -340,6 +359,16 @@ pub enum CheckOutcome {
         per_second: Option<f32>,
         text: String,
     },
+    /// The endpoint answered. There is nothing to load: `first_ms` is the
+    /// time from the request to the first piece, and `pieces` is what the
+    /// stream was made of — counted here, whatever the server calls a
+    /// token. `per_second` is pieces per second after the first.
+    EndpointAnswered {
+        first_ms: Option<u64>,
+        pieces: u32,
+        per_second: Option<f32>,
+        text: String,
+    },
     Refused(Unavailable),
     /// Failed in a way that is not a refusal: llama.cpp's own words.
     Failed(String),
@@ -364,10 +393,18 @@ enum Slot {
     #[default]
     Nothing,
     Engine(Arc<dyn RewriteEngine>),
+    /// An endpoint that sends a key, on duty, whose key has not been read
+    /// yet: the first check or job reads it and builds the engine
+    /// ([`EngineHandle::engine`]). `generation` is the host's at the swap
+    /// that put it here — a read that finds the slot moved on keeps its
+    /// engine to itself.
+    Keyed {
+        remote: Remote,
+        vault: Arc<Vault>,
+        generation: u64,
+    },
     /// The machine is on duty and this build cannot run it.
     Refused(Unavailable),
-    /// An endpoint is on duty; it has no local engine (E2-3).
-    Elsewhere,
 }
 
 struct Shared {
@@ -452,13 +489,40 @@ impl EngineHandle {
     }
 
     /// The engine on duty, or why there is none.
-    fn engine(&self) -> Result<Arc<dyn RewriteEngine>, EngineError> {
+    ///
+    /// An endpoint whose key has not been read yet is built here: the key
+    /// is read on a thread of its own (the read blocks), and the engine
+    /// takes the slot unless another swap got there first. A refusal from
+    /// the read is not kept — the next check asks the store again, which
+    /// is what a keychain unlocked in the meantime needs.
+    async fn engine(&self) -> Result<Arc<dyn RewriteEngine>, EngineError> {
         match self.slot() {
             Slot::Engine(engine) => Ok(engine),
             Slot::Refused(why) => Err(EngineError::Unavailable(why)),
-            Slot::Elsewhere => Err(EngineError::NotImplemented(duty::ENDPOINT_NOT_YET)),
             Slot::Nothing => Err(EngineError::Unavailable(Unavailable::NothingOnDuty)),
+            Slot::Keyed {
+                remote,
+                vault,
+                generation,
+            } => {
+                let engine = keyed(remote, vault).await?;
+                let mut slot = self
+                    .shared
+                    .slot
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                if matches!(&*slot, Slot::Keyed { generation: now, .. } if *now == generation) {
+                    *slot = Slot::Engine(Arc::clone(&engine));
+                }
+                Ok(engine)
+            }
         }
+    }
+
+    /// Whether there is anything to ask — an engine, or an endpoint whose
+    /// engine is built on the first ask.
+    fn askable(&self) -> bool {
+        matches!(self.slot(), Slot::Engine(_) | Slot::Keyed { .. })
     }
 
     /// Run one job on the engine on duty, through the host's policy.
@@ -481,7 +545,7 @@ impl EngineHandle {
         sink: TokenSink,
         cancel: CancellationToken,
     ) -> Result<Completion, EngineError> {
-        let engine = self.engine()?;
+        let engine = self.engine().await?;
         let busy = Busy::enter(&self.shared);
         let _ = self.shared.events.send(Event::JobStarted);
         let result = engine.complete(req, sink, cancel).await;
@@ -496,6 +560,59 @@ impl EngineHandle {
     }
 }
 
+/// An endpoint's engine, with its key read from the credential store on a
+/// thread of its own — never on an executor's, because the read blocks.
+async fn keyed(remote: Remote, vault: Arc<Vault>) -> Result<Arc<dyn RewriteEngine>, EngineError> {
+    let Some(account) = remote.account.clone() else {
+        return duty::engine_for(&Performer::Endpoint(remote), &LocalOptions::default(), None);
+    };
+    let (reply, answer) = flume::bounded(1);
+    std::thread::Builder::new()
+        .name("wipemark-key".to_owned())
+        .spawn(move || {
+            let _ = reply.send(vault.get(&account));
+        })
+        .map_err(|error| {
+            EngineError::Unavailable(Unavailable::KeyUnreadable {
+                reason: error.to_string(),
+            })
+        })?;
+    let read = answer.recv_async().await.map_err(|_| {
+        EngineError::Unavailable(Unavailable::KeyUnreadable {
+            reason: "the read stopped".to_owned(),
+        })
+    })?;
+    match read {
+        Ok(Some(key)) => {
+            let engine = duty::engine_for(
+                &Performer::Endpoint(remote.clone()),
+                &LocalOptions::default(),
+                Some(key),
+            )?;
+            tracing::info!(
+                model = remote.model,
+                origin = remote.origin,
+                "the endpoint's key was read and its engine built"
+            );
+            Ok(engine)
+        }
+        Ok(None) => {
+            tracing::info!(
+                origin = remote.origin,
+                "no key is stored for the endpoint on duty"
+            );
+            Err(EngineError::Unavailable(Unavailable::NoKey))
+        }
+        Err(error) => {
+            // The store's words, never the account's contents.
+            tracing::warn!(%error, "could not read the endpoint's key");
+            Err(EngineError::Unavailable(Unavailable::KeyUnreadable {
+                reason: error.to_string(),
+            }))
+        }
+    }
+}
+
 /// What the engine is built for, as far as rebuilding it is concerned.
 ///
 /// Not the [`Performer`]: its `fit` moves when the host probe lands, and a
@@ -504,7 +621,13 @@ impl EngineHandle {
 #[derive(Debug, Clone, PartialEq)]
 enum Wanted {
     Nobody,
-    Endpoint,
+    /// Every endpoint setting, the profile among them — and how many times
+    /// a key was saved or forgotten, because the same account can hold a
+    /// different key than the one the engine was built with.
+    Endpoint {
+        remote: Remote,
+        key_saves: u64,
+    },
     Machine {
         id: String,
         weights: PathBuf,
@@ -522,6 +645,8 @@ struct Reading {
     policy: LocalPolicy,
     /// Whether the duty can be known yet.
     known: bool,
+    /// Keys saved or forgotten so far — see [`Wanted::Endpoint`].
+    key_saves: u64,
 }
 
 impl Reading {
@@ -532,13 +657,17 @@ impl Reading {
             options: preferences.local_options(),
             policy: preferences.local_policy(),
             known: preferences.models_scanned(),
+            key_saves: preferences.key_saves(),
         }
     }
 
     fn wanted(&self) -> Wanted {
         match &self.performer {
             None => Wanted::Nobody,
-            Some(Performer::Endpoint(_)) => Wanted::Endpoint,
+            Some(Performer::Endpoint(remote)) => Wanted::Endpoint {
+                remote: remote.clone(),
+                key_saves: self.key_saves,
+            },
             Some(Performer::Machine(local)) => Wanted::Machine {
                 id: local.id.clone(),
                 weights: local.weights.clone(),
@@ -562,6 +691,8 @@ impl Global for Hosted {}
 /// status bar, the Engine page and the menu bar.
 pub struct EngineHost {
     handle: EngineHandle,
+    /// Where an endpoint's key is read from, when it takes one.
+    vault: Arc<Vault>,
     started: bool,
     /// What the preferences said last.
     reading: Option<Reading>,
@@ -593,7 +724,8 @@ impl EngineHost {
         inbox: flume::Receiver<Event>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut host = Self::listening(handle, inbox, cx);
+        let vault = preferences.read(cx).vault();
+        let mut host = Self::listening(handle, inbox, vault, cx);
         host.preferences = Some(cx.observe(&preferences, |host, preferences, cx| {
             let reading = Reading::of(preferences.read(cx));
             host.preferences_moved(reading, cx);
@@ -606,7 +738,12 @@ impl EngineHost {
     /// The host, listening to its handles and to the application's quit,
     /// and to no preferences yet: [`EngineHost::new`] adds those, and a
     /// test feeds readings itself.
-    fn listening(handle: EngineHandle, inbox: flume::Receiver<Event>, cx: &Context<Self>) -> Self {
+    fn listening(
+        handle: EngineHandle,
+        inbox: flume::Receiver<Event>,
+        vault: Arc<Vault>,
+        cx: &Context<Self>,
+    ) -> Self {
         let quit = cx.on_app_quit(|host: &mut Self, _| {
             // The engine goes with the slot; its worker exits with the
             // last reference, after the job in hand.
@@ -625,6 +762,7 @@ impl EngineHost {
 
         Self {
             handle,
+            vault,
             started: false,
             reading: None,
             built_for: Wanted::Nobody,
@@ -654,9 +792,23 @@ impl EngineHost {
         self.model.as_deref()
     }
 
-    /// Whether the machine is on duty with an engine that can load.
-    pub fn can_load(&self) -> bool {
-        matches!(self.handle.slot(), Slot::Engine(_))
+    /// Whether an engine is on duty — the machine's, which can load, or an
+    /// endpoint's — so that a check has something to ask.
+    pub fn can_check(&self) -> bool {
+        self.handle.askable()
+    }
+
+    /// Why the duty has no engine, when it has a refusal in its place.
+    pub fn refused(&self) -> Option<Unavailable> {
+        match self.handle.slot() {
+            Slot::Refused(why) => Some(why),
+            Slot::Nothing | Slot::Engine(_) | Slot::Keyed { .. } => None,
+        }
+    }
+
+    /// Whether the engine on duty is an endpoint's.
+    fn serves_an_endpoint(&self) -> bool {
+        matches!(self.built_for, Wanted::Endpoint { .. })
     }
 
     pub fn check(&self) -> &Check {
@@ -742,6 +894,10 @@ impl EngineHost {
     }
 
     /// Build the engine for the duty as it stands.
+    ///
+    /// An endpoint whose provider sends a key is not built yet: the slot
+    /// holds it with the vault, and the first check or job reads the key
+    /// and builds it ([`EngineHandle::engine`]).
     fn swap(&mut self) {
         self.generation += 1;
         let Some(reading) = self.reading.clone() else {
@@ -750,30 +906,27 @@ impl EngineHost {
         let wanted = reading.wanted();
         let (slot, model) = match &reading.performer {
             None => (Slot::Nothing, None),
+            Some(Performer::Endpoint(remote)) if remote.account.is_some() => {
+                tracing::info!(
+                    model = remote.model,
+                    origin = remote.origin,
+                    "an endpoint is on duty; its key is read when it is first asked"
+                );
+                (
+                    Slot::Keyed {
+                        remote: remote.clone(),
+                        vault: Arc::clone(&self.vault),
+                        generation: self.generation,
+                    },
+                    None,
+                )
+            }
             Some(performer) => {
                 let model = match performer {
                     Performer::Machine(local) => Some(local.display.clone()),
                     Performer::Endpoint(_) => None,
                 };
-                match duty::engine_for(performer, &reading.options) {
-                    Ok(engine) => {
-                        tracing::info!(
-                            model = engine.info().model_id,
-                            lock = reading.options.lock,
-                            available_mb = ?duty::available_mb(reading.options.host, reading.options.gpu),
-                            "engine built for the rewrite duty"
-                        );
-                        (Slot::Engine(engine), model)
-                    }
-                    Err(EngineError::Unavailable(why)) => {
-                        tracing::info!(%why, "the rewrite duty has no engine in this build");
-                        (Slot::Refused(why), model)
-                    }
-                    Err(other) => {
-                        tracing::info!(%other, "the rewrite duty is not served from here");
-                        (Slot::Elsewhere, model)
-                    }
-                }
+                (built(performer, &reading.options), model)
             }
         };
         self.handle.set(slot);
@@ -781,9 +934,20 @@ impl EngineHost {
         self.model = model;
         self.loaded = Loaded::No;
         self.loaded_at = None;
+        // A finished check spoke for the engine just replaced; under
+        // another endpoint or model it would be a result nobody asked
+        // this one for. A running one ends on its own and says so.
+        if matches!(self.check, Check::Done(_)) {
+            self.check = Check::Idle;
+        }
     }
 
     fn load(&mut self, cx: &Context<Self>) {
+        // An endpoint has nothing to load: nothing on the other side is ours
+        // to keep, so nothing is ever "loaded" and no timer is armed for it.
+        if self.serves_an_endpoint() {
+            return;
+        }
         match self.handle.slot() {
             Slot::Engine(engine) => {
                 if self.loaded.holds() {
@@ -812,7 +976,7 @@ impl EngineHost {
                 .detach();
             }
             Slot::Refused(why) => self.loaded = Loaded::Failed(why),
-            Slot::Nothing | Slot::Elsewhere => self.loaded = Loaded::No,
+            Slot::Nothing | Slot::Keyed { .. } => self.loaded = Loaded::No,
         }
     }
 
@@ -868,16 +1032,18 @@ impl EngineHost {
         if matches!(self.check, Check::Running { .. }) {
             return;
         }
-        let engine = match self.handle.slot() {
-            Slot::Engine(engine) => engine,
+        match self.handle.slot() {
+            Slot::Engine(_) | Slot::Keyed { .. } => {}
             Slot::Refused(why) => {
                 self.check = Check::Done(CheckOutcome::Refused(why));
                 cx.notify();
                 return;
             }
-            Slot::Nothing | Slot::Elsewhere => return,
-        };
+            Slot::Nothing => return,
+        }
+        let handle = self.handle.clone();
         let was_loaded = matches!(self.loaded, Loaded::Yes { .. });
+        let remote = self.serves_an_endpoint();
         let cancel = CancellationToken::new();
         self.check = Check::Running {
             cancel: cancel.clone(),
@@ -886,13 +1052,35 @@ impl EngineHost {
         self.on(Event::CheckAsked, cx);
 
         cx.spawn(async move |host, cx| {
-            let outcome = run_the_check(engine, was_loaded, cancel, cx).await;
+            // An endpoint that sends a key is built here, its key read on a
+            // thread of its own: the first moment anything needs it.
+            let outcome = match cancel.run_until_cancelled(handle.engine()).await {
+                None => CheckOutcome::Cancelled,
+                Some(Err(error)) => outcome_of_error(error),
+                Some(Ok(engine)) => run_the_check(engine, was_loaded, remote, cancel, cx).await,
+            };
             host.update(cx, |host, cx| {
                 host.handle.shared.busy.fetch_sub(1, Ordering::SeqCst);
-                if let CheckOutcome::Answered { text, tokens, .. } = &outcome {
+                match &outcome {
                     // The length, never the words: a log is read by
                     // whoever is debugging.
-                    tracing::info!(text_bytes = text.len(), tokens, "check answered");
+                    CheckOutcome::Answered { text, tokens, .. } => {
+                        tracing::info!(text_bytes = text.len(), tokens, "check answered");
+                    }
+                    CheckOutcome::EndpointAnswered {
+                        text,
+                        pieces,
+                        first_ms,
+                        ..
+                    } => {
+                        tracing::info!(
+                            text_bytes = text.len(),
+                            pieces,
+                            ?first_ms,
+                            "the endpoint answered the check"
+                        );
+                    }
+                    _ => {}
                 }
                 host.check = Check::Done(outcome);
                 host.on(Event::JobEnded, cx);
@@ -910,11 +1098,48 @@ impl EngineHost {
     }
 }
 
+/// The engine for `performer`, or the refusal in its place — and a log line
+/// saying which, with the model and the origin. Never an endpoint that
+/// sends a key: that one is built when its key is read.
+fn built(performer: &Performer, options: &LocalOptions) -> Slot {
+    match duty::engine_for(performer, options, None) {
+        Ok(engine) => {
+            let info = engine.info();
+            match performer {
+                Performer::Machine(_) => tracing::info!(
+                    model = info.model_id,
+                    lock = options.lock,
+                    available_mb = ?duty::available_mb(options.host, options.gpu),
+                    "engine built for the rewrite duty"
+                ),
+                Performer::Endpoint(remote) => tracing::info!(
+                    model = info.model_id,
+                    origin = remote.origin,
+                    on_this_machine = remote.on_this_machine,
+                    "endpoint engine built for the rewrite duty"
+                ),
+            }
+            Slot::Engine(engine)
+        }
+        Err(EngineError::Unavailable(why)) => {
+            tracing::info!(%why, "the rewrite duty has no engine in this build");
+            Slot::Refused(why)
+        }
+        Err(other) => {
+            tracing::warn!(%other, "the rewrite duty's engine could not be built");
+            Slot::Refused(Unavailable::LoadFailed {
+                detail: other.to_string(),
+            })
+        }
+    }
+}
+
 /// The check itself, off the GPUI thread: the engine's futures wait on its
 /// worker and the first-piece timer on the background executor.
 async fn run_the_check(
     engine: Arc<dyn RewriteEngine>,
     was_loaded: bool,
+    remote: bool,
     cancel: CancellationToken,
     cx: &gpui::AsyncApp,
 ) -> CheckOutcome {
@@ -927,30 +1152,40 @@ async fn run_the_check(
     let load_ms = (!was_loaded).then(|| millis(asked.elapsed()));
 
     let (sink, pieces) = flume::unbounded::<String>();
-    // When the first piece arrived: the prompt's prefill is not decode
-    // speed, and a figure that included it would understate the model.
+    // When the first piece arrived, and how many came: the prompt's prefill
+    // is not decode speed, and a figure that included it would understate
+    // the model.
     let first = cx.background_executor().spawn(async move {
         let first = pieces.recv_async().await.ok().map(|_| Instant::now());
-        while pieces.recv_async().await.is_ok() {}
-        first
+        let mut count = u32::from(first.is_some());
+        while pieces.recv_async().await.is_ok() {
+            count += 1;
+        }
+        (first, count)
     });
+    let sent = Instant::now();
     let result = engine.complete(check_request(), sink, cancel).await;
     let ended = Instant::now();
-    let first = first.await;
+    let (first, count) = first.await;
+    let rate = |units: u32| {
+        first.and_then(|first| {
+            let span = ended.duration_since(first).as_secs_f32();
+            (units > 1 && span > 0.0).then(|| (units - 1) as f32 / span)
+        })
+    };
     match result {
-        Ok(completion) => {
-            let per_second = first.and_then(|first| {
-                let span = ended.duration_since(first).as_secs_f32();
-                (completion.tokens_out > 1 && span > 0.0)
-                    .then(|| (completion.tokens_out - 1) as f32 / span)
-            });
-            CheckOutcome::Answered {
-                load_ms,
-                tokens: completion.tokens_out,
-                per_second,
-                text: shown(&completion.text),
-            }
-        }
+        Ok(completion) if remote => CheckOutcome::EndpointAnswered {
+            first_ms: first.map(|first| millis(first.duration_since(sent))),
+            pieces: count,
+            per_second: rate(count),
+            text: shown(&completion.text),
+        },
+        Ok(completion) => CheckOutcome::Answered {
+            load_ms,
+            tokens: completion.tokens_out,
+            per_second: rate(completion.tokens_out),
+            text: shown(&completion.text),
+        },
         Err(error) => outcome_of_error(error),
     }
 }
@@ -1030,6 +1265,23 @@ fn refusal_message(why: &Unavailable) -> Message {
         Unavailable::LoadFailed { .. } => Message::EngineRefusalLoadFailed,
         Unavailable::Stopped => Message::EngineRefusalStopped,
         Unavailable::NothingOnDuty => Message::EngineRefusalNothingOnDuty,
+        Unavailable::Redirected {
+            to_origin: Some(_), ..
+        } => Message::EngineRefusalRedirected,
+        Unavailable::Redirected {
+            to_origin: None, ..
+        } => Message::EngineRefusalRedirectedNowhere,
+        Unavailable::KeyRejected { .. } => Message::EngineRefusalKeyRejected,
+        Unavailable::NotFound { .. } => Message::EngineRefusalNotFound,
+        Unavailable::RateLimited {
+            retry_after_s: Some(_),
+        } => Message::EngineRefusalRateLimitedFor,
+        Unavailable::RateLimited {
+            retry_after_s: None,
+        } => Message::EngineRefusalRateLimited,
+        Unavailable::Refused { .. } => Message::EngineRefusalRefused,
+        Unavailable::KeyUnreadable { .. } => Message::EngineRefusalKeyUnreadable,
+        Unavailable::NoKey => Message::EngineRefusalNoKey,
     }
 }
 
@@ -1042,14 +1294,30 @@ fn refusal_args(why: &Unavailable) -> wipemark_i18n::FluentArgs<'static> {
             "need" => memory_label(*need_mb),
             "have" => memory_label(*have_mb),
         ),
+        Unavailable::Redirected { status, to_origin } => args!(
+            "status" => status.to_string(),
+            "origin" => to_origin.clone().unwrap_or_default(),
+        ),
+        Unavailable::KeyRejected { status } | Unavailable::Refused { status, .. } => {
+            args!("status" => status.to_string())
+        }
+        Unavailable::RateLimited {
+            retry_after_s: Some(seconds),
+        } => args!("seconds" => seconds.to_string()),
+        Unavailable::KeyUnreadable { reason } => args!("reason" => reason.clone()),
         _ => args!(),
     }
 }
 
-/// The detail a refusal carries beside its sentence, if any.
+/// The detail a refusal carries beside its sentence, if any: llama.cpp's
+/// words, or the endpoint's own body for a 404 and an error status.
 pub fn refusal_detail(why: &Unavailable) -> Option<&str> {
     match why {
-        Unavailable::LoadFailed { detail } => Some(detail),
+        Unavailable::LoadFailed { detail }
+        | Unavailable::NotFound { detail }
+        | Unavailable::Refused { detail, .. } => {
+            Some(detail.as_str()).filter(|detail| !detail.is_empty())
+        }
         _ => None,
     }
 }
@@ -1377,6 +1645,32 @@ mod tests {
             },
             Unavailable::Stopped,
             Unavailable::NothingOnDuty,
+            Unavailable::Redirected {
+                status: 301,
+                to_origin: Some("https://elsewhere.example".to_owned()),
+            },
+            Unavailable::Redirected {
+                status: 302,
+                to_origin: None,
+            },
+            Unavailable::KeyRejected { status: 401 },
+            Unavailable::NotFound {
+                detail: "model 'qwen3' not found".to_owned(),
+            },
+            Unavailable::RateLimited {
+                retry_after_s: Some(30),
+            },
+            Unavailable::RateLimited {
+                retry_after_s: None,
+            },
+            Unavailable::Refused {
+                status: 500,
+                detail: "internal error".to_owned(),
+            },
+            Unavailable::KeyUnreadable {
+                reason: "the keychain is locked".to_owned(),
+            },
+            Unavailable::NoKey,
         ];
         for why in &all {
             match why {
@@ -1386,7 +1680,14 @@ mod tests {
                 | Unavailable::NoBackend
                 | Unavailable::LoadFailed { .. }
                 | Unavailable::Stopped
-                | Unavailable::NothingOnDuty => {}
+                | Unavailable::NothingOnDuty
+                | Unavailable::Redirected { .. }
+                | Unavailable::KeyRejected { .. }
+                | Unavailable::NotFound { .. }
+                | Unavailable::RateLimited { .. }
+                | Unavailable::Refused { .. }
+                | Unavailable::KeyUnreadable { .. }
+                | Unavailable::NoKey => {}
             }
         }
         all
@@ -1442,6 +1743,23 @@ mod tests {
                         assert!(line.contains(&memory_label(*need_mb)), "{line:?}");
                         assert!(line.contains(&memory_label(*have_mb)), "{line:?}");
                     }
+                    Unavailable::Redirected { status, to_origin } => {
+                        assert!(line.contains(&status.to_string()), "{line:?}");
+                        if let Some(origin) = to_origin {
+                            assert!(line.contains(origin), "{line:?}");
+                        }
+                    }
+                    Unavailable::KeyRejected { status } | Unavailable::Refused { status, .. } => {
+                        assert!(line.contains(&status.to_string()), "{line:?}");
+                    }
+                    Unavailable::RateLimited {
+                        retry_after_s: Some(seconds),
+                    } => {
+                        assert!(line.contains(&seconds.to_string()), "{line:?}");
+                    }
+                    Unavailable::KeyUnreadable { reason } => {
+                        assert!(line.contains(reason), "{line:?}");
+                    }
                     _ => {}
                 }
             }
@@ -1467,7 +1785,7 @@ mod tests {
             vendor: Vendor::OpenLlm,
             fit: wipemark_models::host::Fit::Unknown,
         };
-        let engine = duty::engine_for(&Performer::Machine(local), &LocalOptions::default())
+        let engine = duty::engine_for(&Performer::Machine(local), &LocalOptions::default(), None)
             .expect("a native build hands out an engine");
 
         let before = resident_mb().expect("RSS is readable on Linux");
@@ -1555,7 +1873,8 @@ mod tests {
         cx: &mut gpui::TestAppContext,
     ) -> Entity<EngineHost> {
         let (handle, inbox) = EngineHandle::new();
-        let host = cx.new(|cx| EngineHost::listening(handle, inbox, cx));
+        let vault = Arc::new(Vault::in_memory("com.GigLabo.wipemark.test"));
+        let host = cx.new(|cx| EngineHost::listening(handle, inbox, vault, cx));
         host.update(cx, |host, cx| {
             host.preferences_moved(
                 Reading {
@@ -1578,6 +1897,7 @@ mod tests {
                         lock: false,
                     },
                     known: true,
+                    key_saves: 0,
                 },
                 cx,
             );
@@ -1666,6 +1986,94 @@ mod tests {
             assert!(host.idle.is_none(), "a resident model armed a timer");
         });
         assert_eq!(model.unloads.load(Ordering::SeqCst), 1);
+    }
+
+    /// An endpoint that sends a key is not built when the duty lands — the
+    /// credential store is not read at startup — but on the first ask; a
+    /// missing key is a refusal that is not kept, so a key saved afterwards
+    /// is found by the next ask.
+    #[gpui::test]
+    fn an_endpoints_key_is_read_when_first_asked_and_not_at_startup(cx: &mut gpui::TestAppContext) {
+        let origin = "https://api.example.com";
+        let vault = Arc::new(Vault::in_memory("com.GigLabo.wipemark.test"));
+        let (handle, inbox) = EngineHandle::new();
+        let host = cx.new(|cx| EngineHost::listening(handle.clone(), inbox, vault.clone(), cx));
+        host.update(cx, |host, cx| {
+            host.preferences_moved(
+                Reading {
+                    performer: Some(Performer::Endpoint(Remote {
+                        profile: None,
+                        provider: crate::engine::Provider::OpenAiCompatible,
+                        endpoint: format!("{origin}/v1/chat/completions"),
+                        origin: origin.to_owned(),
+                        model: "gpt-4o-mini".to_owned(),
+                        temperature: 0.9,
+                        reasoning: crate::engine::ReasoningEffort::None,
+                        timeout: 120,
+                        account: Some(origin.to_owned()),
+                        on_this_machine: false,
+                    })),
+                    options: LocalOptions::default(),
+                    policy: LocalPolicy::default(),
+                    known: true,
+                    key_saves: 0,
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        assert!(
+            matches!(handle.slot(), Slot::Keyed { .. }),
+            "the key was read before anything asked for it"
+        );
+        host.read_with(cx, |host, _| {
+            assert!(host.can_check(), "nothing to check");
+            assert_eq!(host.loaded(), &Loaded::No, "an endpoint is never loaded");
+        });
+
+        match block_on(handle.engine()) {
+            Err(EngineError::Unavailable(Unavailable::NoKey)) => {}
+            Err(other) => panic!("expected no key, got {other:?}"),
+            Ok(_) => panic!("expected no key, got an engine"),
+        }
+        assert!(
+            matches!(handle.slot(), Slot::Keyed { .. }),
+            "a missing key was kept as the answer"
+        );
+
+        vault
+            .set(origin, &wipemark_secret::Secret::from("sk-test"))
+            .expect("the test vault takes a key");
+        let engine = block_on(handle.engine()).expect("the key is found on the next ask");
+        assert_eq!(engine.info().model_id, "gpt-4o-mini");
+        assert!(!engine.info().local);
+        assert!(
+            matches!(handle.slot(), Slot::Engine(_)),
+            "the engine was not kept"
+        );
+    }
+
+    /// A check's result belongs to the engine that gave it: another duty
+    /// clears it, rather than leaving one endpoint's answer under the next.
+    #[gpui::test]
+    fn a_check_result_does_not_outlive_its_engine(cx: &mut gpui::TestAppContext) {
+        let model = Arc::new(Model::default());
+        let host = host_over(model, Keeping::OnDemand, cx);
+        host.update(cx, |host, cx| host.run_check(cx));
+        cx.run_until_parked();
+        host.read_with(cx, |host, _| {
+            assert!(matches!(host.check(), Check::Done(_)), "{:?}", host.check());
+        });
+
+        host.update(cx, |host, cx| {
+            let mut reading = host.reading.clone().expect("a reading");
+            reading.performer = None;
+            host.preferences_moved(reading, cx);
+        });
+        cx.run_until_parked();
+        host.read_with(cx, |host, _| {
+            assert!(matches!(host.check(), Check::Idle), "{:?}", host.check());
+        });
     }
 
     #[test]

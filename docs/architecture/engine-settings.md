@@ -4,8 +4,12 @@ How the Settings window configures Layer B — the provider, the
 endpoint, the model, the knobs — and why the API key is the only
 preference in this product that is not a row in `wipemark.db`.
 
-Epic **E6 / S6.3**. The requests themselves are epic **E2**; nothing in
-this build sends one, and the banner at the top of the page says so.
+Epic **E6 / S6.3**. The requests themselves are `wipemark-engine`'s
+`HttpEngine` (E2-3, [remote-engine.md](remote-engine.md)), built from
+these settings by `duty::engine_for`. The one request this build sends is
+the page's **Check** — a fixed sentence, never a document — and nothing
+rewrites a document yet (that is the pipeline, E4); the banner at the top
+of the page says so.
 `docs/sdd/layer-b-rewrite-reference.md` is where the wire format and the
 security rules were read out of upstream, and §8 of it is the table this
 page is the other half of.
@@ -167,7 +171,19 @@ is the gate; delete the `contains('@')` check and it goes red.
 
 Redirects are refused too, and that one belongs to the transport: urllib
 re-sends `Authorization` on a 3xx, and the shape of that bug is identical
-in every HTTP client. It lands with E2.
+in every HTTP client. The engine is built with `max_redirects(0)` and
+answers a 3xx with `Unavailable::Redirected`, naming the status and the
+origin it pointed at; it also refuses a scheme other than `http`/`https`
+before a socket opens. Both are defence in depth under `engine::refusal`,
+not a second rule — see [remote-engine.md](remote-engine.md).
+
+The key reaches the request as a `Secret` (D57): the engine host reads it
+from the credential store, on a thread of its own, the first time the
+endpoint is asked — the first **Check** or job, never at startup — then
+`duty::engine_for` hands it to the `HttpEngine`, and `Secret::expose` is
+called once — where the `Authorization` header is built. A store that will not answer is `Unavailable::KeyUnreadable`, and
+an OpenAI-compatible endpoint with no key stored is `Unavailable::NoKey`;
+neither is ever "send it without one".
 
 ## The banner has to be honest
 
@@ -176,8 +192,8 @@ what this configuration would actually do, or the first thing standing
 in the way of it doing anything — one at a time, because three of the
 five refusals stop applying the moment the first is fixed and a banner
 listing all of them is one a reader gives up on. The last line never
-changes: Layer B lands in E2, and until then nothing here sends a
-request.
+changes: rewriting is not in this version, no document is sent anywhere,
+and the one request the page makes is the **Check**.
 
 Three gates hold that shape, and the failure they exist for is the one
 that ships — somebody adds a state, writes a cheerful first line for it,
@@ -424,7 +440,9 @@ round * c`) are spec §4.4 and belong to the pipeline, not to the
 endpoint; they land with E4 and will want a section of their own rather
 than a row on this page. The cost preview that §4.4 requires —
 `chunks × candidates × max_rounds`, with an estimate from the warmup —
-needs a warmup, which needs E2.
+needs a measure of what a request costs; the Check now gives one
+(the time to the first piece, and pieces per second), and E4 decides
+what to do with it.
 
 ## Who actually answers a rewrite
 
@@ -442,3 +460,24 @@ while reading this file:
 * A profile can be pinned for a session with `--profile=<name>` without
   being applied. Applying writes every field on this page into the
   database; a pin decides who answers and writes nothing.
+
+## The Check, for an endpoint
+
+The block between the banner and the rows is the machine's model when the
+machine is on duty, and the endpoint when an endpoint is. For an endpoint
+there is nothing to load or unload — **Unload now** is not drawn, and the
+keep rows below say they concern the model on this machine — and
+**Check** sends the same fixed prompt the local check sends, through the
+`HttpEngine` on duty, with `max_tokens` 16 and temperature 0. It shows the
+endpoint's answer (quoted, at most eighty characters), the time from the
+request to the first piece, and pieces per second after it; **Cancel**
+answers at once. The note under it says a check is not a rewrite, and —
+when the endpoint is not this machine — that the check's prompt, a fixed
+sentence and never a document, was sent there
+(`the_check_on_an_endpoint_says_where_its_prompt_went`).
+
+Changing the provider, the URL, the model, the key, the temperature, the
+reasoning, the timeout or the profile rebuilds the engine, as choosing
+another model does: the host compares every endpoint field and a count of
+keys saved or forgotten, because the same account can come to hold a
+different key.

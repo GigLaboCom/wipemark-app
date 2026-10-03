@@ -508,8 +508,9 @@ settings-placement-zone-bottom-right = bottom right
 settings-engine-title = Rewriting engine
 settings-engine-description = Rewriting sends the document to a model and scores what comes back. Cleaning never needs one, and is never locked behind one.
 
-# The honest half, and it stays until E2 lands.
-settings-engine-pending = These settings are stored, and nothing sends them anywhere yet: rewriting is not in this version. Until it is, { -brand-name } cleans and does nothing else, and says so in the status bar.
+# The honest half, and it stays until a rewrite exists (E4): the Check
+# sends a fixed sentence, never a document.
+settings-engine-pending = These settings are stored, and no document is sent anywhere: rewriting is not in this version. The one request this page makes is the Check below, and it sends a fixed sentence. Until rewriting arrives, { -brand-name } cleans and does nothing else, and says so in the status bar.
 
 ## The banner at the top of the page: what this configuration would do,
 ## or the first thing standing in the way of it doing anything. One at
@@ -573,7 +574,7 @@ settings-engine-state-second-choice = Answering because the first choice cannot:
 ## here rewrites a document, and the check says so.
 
 settings-engine-keep-title = Keeping the model loaded
-settings-engine-keep-description = “{ settings-engine-keep-on-demand }” loads the model when it is needed and frees its memory after the minutes below with nothing to do. “{ settings-engine-keep-resident }” loads it a moment after { -brand-name } starts and holds it until { -brand-name } quits or another model is chosen. “{ settings-engine-local-unload }” frees it either way.
+settings-engine-keep-description = For the model on this machine; an endpoint keeps nothing here. “{ settings-engine-keep-on-demand }” loads the model when it is needed and frees its memory after the minutes below with nothing to do. “{ settings-engine-keep-resident }” loads it a moment after { -brand-name } starts and holds it until { -brand-name } quits or another model is chosen. “{ settings-engine-local-unload }” frees it either way.
 settings-engine-keep-on-demand = Load when needed
 settings-engine-keep-resident = Keep loaded
 settings-engine-idle-title = Unload after
@@ -618,6 +619,28 @@ settings-engine-local-check-cancelled = The check was cancelled.
 settings-engine-local-check-note = A check proves the model loads and writes. It is not a rewrite: nothing rewrites a document in this version yet.
 settings-engine-local-no-tray = There is no menu-bar item on this system, so closing the main window quits { -brand-name } and frees the model.
 
+## The endpoint on duty, in the same place: where a check goes, and what it
+## found. Nothing is loaded for an endpoint, so there is no "Unload now".
+
+settings-engine-remote-title = The endpoint
+# $model is the name the endpoint knows the model by; $endpoint the full URL.
+settings-engine-remote-asks = A check asks { $model } at { $endpoint }.
+# $reason is one of the engine-refusal-* sentences.
+settings-engine-remote-refused = The endpoint cannot be asked: { $reason }
+settings-engine-remote-check-tooltip = Send a fixed sentence to the endpoint and show what it writes back.
+# $text is the endpoint's own words, at most eighty characters, never translated.
+settings-engine-remote-check-answered = The endpoint answered: “{ $text }”
+# $seconds is a number with one decimal, e.g. "0.4".
+settings-engine-remote-check-first = The first piece arrived after { $seconds } s.
+# $pieces is a count of the pieces the answer streamed in; $rate a number
+# with one decimal.
+settings-engine-remote-check-speed = { $pieces } pieces, { $rate } per second after the first.
+settings-engine-remote-check-speed-unknown = { $pieces } pieces — too few to time.
+settings-engine-remote-check-note = A check proves the endpoint answers. It is not a rewrite: nothing rewrites a document in this version yet.
+# Shown only when the endpoint is not this machine. $origin is scheme, host
+# and port.
+settings-engine-remote-check-sent-to = Its prompt — a fixed sentence, never a document — is sent to { $origin }, which is not this machine.
+
 ## Why the model on this machine cannot do anything at all — one sentence
 ## per reason. Shown in the block above, in the status bar and after a
 ## check. No feature flag and no step number: a person can do nothing with
@@ -634,6 +657,22 @@ engine-refusal-no-backend = No processor could be found to run the model on.
 engine-refusal-load-failed = The model could not be loaded.
 engine-refusal-stopped = The local engine has stopped. Choosing the model again restarts it.
 engine-refusal-nothing-on-duty = Nothing is on duty to answer.
+
+# The endpoint's refusals. $status is an HTTP status code, e.g. "401";
+# $origin is scheme, host and port, never a path.
+engine-refusal-redirected = The endpoint answered { $status } and pointed to { $origin }. Redirects are not followed: correct the address instead.
+engine-refusal-redirected-nowhere = The endpoint answered { $status }, a redirect. Redirects are not followed: correct the address instead.
+engine-refusal-key-rejected = The endpoint did not accept the key ({ $status }).
+# The server's own words are shown on the next line, untranslated.
+engine-refusal-not-found = The endpoint has no such model or address. Check the model's name — for Ollama, that it has been pulled.
+# $seconds is what the server asked for.
+engine-refusal-rate-limited-for = The endpoint is limiting requests and asked to wait { $seconds } s.
+engine-refusal-rate-limited = The endpoint is limiting requests. Try again later.
+# The server's own words are shown on the next line, untranslated.
+engine-refusal-refused = The endpoint refused the request ({ $status }).
+# $reason is the credential store's own wording.
+engine-refusal-key-unreadable = The key could not be read from the credential store: { $reason }
+engine-refusal-no-key = No key is stored for this endpoint.
 
 ## The rows, and the first of them is the one that sets all the others.
 ##

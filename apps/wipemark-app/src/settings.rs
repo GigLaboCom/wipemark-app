@@ -85,6 +85,7 @@ use gpui_component::{
     h_flex, v_flex, ActiveTheme, Disableable as _, IndexPath, Root, Selectable, Sizable,
     StyledExt as _,
 };
+use wipemark_engine::Unavailable;
 use wipemark_i18n::{args, t, t_args, LanguagePreference, Message};
 use wipemark_models::host::Host;
 use wipemark_models::manifest::{Manifest, ModelEntry, Role};
@@ -759,6 +760,11 @@ pub struct Preferences {
     /// typed past. Without it, the last answer to arrive wins rather
     /// than the last one asked.
     key_lookups: u64,
+    /// How many times a key was saved or forgotten — by anyone, whether
+    /// or not the pane was still asking. The engine host rebuilds an
+    /// endpoint's engine when it moves: the account is the same, the key
+    /// under it is not.
+    key_saves: u64,
     /// The operating system's credential store. `Arc` for the reason
     /// the store is one: every call to it happens on the background
     /// executor, because a keychain read blocks and can put a
@@ -1059,6 +1065,7 @@ impl Preferences {
             // anything needs the answer.
             key: KeyState::Unknown,
             key_lookups: 0,
+            key_saves: 0,
             vault,
             catalogue: models::catalogue(),
             // Deliberately not probed or scanned here, for the reason
@@ -2210,6 +2217,17 @@ impl Preferences {
         &self.key
     }
 
+    /// The credential store, for the engine host: it reads an endpoint's
+    /// key when it builds the engine, on the background executor.
+    pub fn vault(&self) -> Arc<Vault> {
+        Arc::clone(&self.vault)
+    }
+
+    /// How many times a key was saved or forgotten.
+    pub fn key_saves(&self) -> u64 {
+        self.key_saves
+    }
+
     /// Whether what is put in the credential store outlives the
     /// process. The pane says so when the answer is no, because a key
     /// that lasts until the window closes is a thing to know before
@@ -2546,6 +2564,10 @@ impl Preferences {
                 .await;
             preferences
                 .update(cx, |preferences, cx| {
+                    if outcome == KeyState::Stored {
+                        preferences.key_saves += 1;
+                        cx.notify();
+                    }
                     if preferences.key_lookups == mine {
                         preferences.key = outcome;
                         cx.notify();
@@ -2579,6 +2601,10 @@ impl Preferences {
                 .await;
             preferences
                 .update(cx, |preferences, cx| {
+                    if outcome == KeyState::Absent {
+                        preferences.key_saves += 1;
+                        cx.notify();
+                    }
                     if preferences.key_lookups == mine {
                         preferences.key = outcome;
                         cx.notify();
@@ -4343,13 +4369,16 @@ impl SettingsView {
             .child(self.rows(Section::Engine, cx))
     }
 
-    /// The model on this machine: whether it is in memory, how much the
-    /// process holds, **Unload now**, and **Check** with what it found.
+    /// The model on this machine — whether it is in memory, how much the
+    /// process holds, **Unload now** — or, when an endpoint is on duty, the
+    /// endpoint; and **Check** with what it found, for either.
     ///
     /// Between the banner and the rows, rather than inside a row: it is a
-    /// state with two buttons and a result, and the 240 px control column
+    /// state with buttons and a result, and the 240 px control column
     /// would wrap every one of its sentences. The three rows that decide
-    /// it are directly under "Who rewrites", below.
+    /// how long the machine's model is kept are directly under "Who
+    /// rewrites", below, and say that they concern the model on this
+    /// machine — an endpoint keeps nothing here.
     fn local_model(&self, cx: &Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
@@ -4361,33 +4390,50 @@ impl SettingsView {
         let preferences = self.preferences.read(cx);
         let duty = preferences.duty(Role::Rewrite);
         let keeping = preferences.local_policy().keeping;
-        let (here, file) = match duty.performer() {
-            Some(Performer::Machine(local)) => (
-                true,
-                match preferences.model_state(&local.id) {
-                    State::Present { bytes } => Some(bytes),
-                    _ => None,
-                },
-            ),
-            _ => (false, None),
-        };
         let state = host.read(cx);
-        let (tone, lines) = local_status(
-            here,
-            state.model(),
-            state.loaded(),
-            state
-                .loaded_at()
-                .map(|at| at.format("%H:%M").to_string())
-                .as_deref(),
-            keeping,
-            file,
-        );
+        let endpoint = match duty.performer() {
+            Some(Performer::Endpoint(remote)) => Some(remote),
+            _ => None,
+        };
+        let (title, (tone, lines)) = match endpoint {
+            Some(remote) => (
+                Message::SettingsEngineRemoteTitle,
+                endpoint_status(remote, state.refused().as_ref()),
+            ),
+            None => {
+                let (here, file) = match duty.performer() {
+                    Some(Performer::Machine(local)) => (
+                        true,
+                        match preferences.model_state(&local.id) {
+                            State::Present { bytes } => Some(bytes),
+                            _ => None,
+                        },
+                    ),
+                    _ => (false, None),
+                };
+                (
+                    Message::SettingsEngineLocalTitle,
+                    local_status(
+                        here,
+                        state.model(),
+                        state.loaded(),
+                        state
+                            .loaded_at()
+                            .map(|at| at.format("%H:%M").to_string())
+                            .as_deref(),
+                        keeping,
+                        file,
+                    ),
+                )
+            }
+        };
+        let notes = check_note(duty.performer());
         let checked = check_lines(state.check());
         let running = matches!(state.check(), Check::Running { .. });
         let can_unload = state.loaded().holds();
-        let can_check = here && state.can_load() && !running;
+        let can_check = duty.performer().is_some() && state.can_check() && !running;
         let tray = cx.try_global::<Tray>().is_some();
+        let machine = endpoint.is_none();
 
         let unloading = host.clone();
         let checking = host.clone();
@@ -4400,11 +4446,7 @@ impl SettingsView {
             .border_color(border)
             .bg(background)
             .text_xs()
-            .child(
-                div()
-                    .font_semibold()
-                    .child(SharedString::from(t(Message::SettingsEngineLocalTitle))),
-            )
+            .child(div().font_semibold().child(SharedString::from(t(title))))
             .child(
                 v_flex()
                     .gap_1()
@@ -4417,29 +4459,34 @@ impl SettingsView {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(
-                        Button::new("engine-unload")
-                            .small()
-                            .outline()
-                            .label(SharedString::from(t(Message::SettingsEngineLocalUnload)))
-                            .tooltip(SharedString::from(t(if can_unload {
-                                Message::SettingsEngineLocalUnloadTooltip
-                            } else {
-                                Message::SettingsEngineLocalUnloadDisabled
-                            })))
-                            .disabled(!can_unload)
-                            .on_click(move |_, _, cx| {
-                                unloading.update(cx, |host, cx| host.unload_now(cx));
-                            }),
-                    )
+                    // An endpoint has nothing loaded here to unload.
+                    .when(machine, |row| {
+                        row.child(
+                            Button::new("engine-unload")
+                                .small()
+                                .outline()
+                                .label(SharedString::from(t(Message::SettingsEngineLocalUnload)))
+                                .tooltip(SharedString::from(t(if can_unload {
+                                    Message::SettingsEngineLocalUnloadTooltip
+                                } else {
+                                    Message::SettingsEngineLocalUnloadDisabled
+                                })))
+                                .disabled(!can_unload)
+                                .on_click(move |_, _, cx| {
+                                    unloading.update(cx, |host, cx| host.unload_now(cx));
+                                }),
+                        )
+                    })
                     .child(
                         Button::new("engine-check")
                             .small()
                             .outline()
                             .label(SharedString::from(t(Message::SettingsEngineLocalCheck)))
-                            .tooltip(SharedString::from(t(
-                                Message::SettingsEngineLocalCheckTooltip,
-                            )))
+                            .tooltip(SharedString::from(t(if machine {
+                                Message::SettingsEngineLocalCheckTooltip
+                            } else {
+                                Message::SettingsEngineRemoteCheckTooltip
+                            })))
                             .disabled(!can_check)
                             .on_click(move |_, _, cx| {
                                 checking.update(cx, |host, cx| host.run_check(cx));
@@ -4464,12 +4511,12 @@ impl SettingsView {
                     .into_iter()
                     .map(|line| div().child(SharedString::from(line))),
             )
-            .child(
-                div()
-                    .text_color(muted)
-                    .child(SharedString::from(t(Message::SettingsEngineLocalCheckNote))),
+            .children(
+                notes
+                    .into_iter()
+                    .map(|line| div().text_color(muted).child(SharedString::from(line))),
             )
-            .when(keeping == Keeping::Resident && !tray, |card| {
+            .when(machine && keeping == Keeping::Resident && !tray, |card| {
                 card.child(
                     div()
                         .text_color(muted)
@@ -6787,6 +6834,55 @@ fn local_status(
     }
 }
 
+/// The endpoint block's state, as values: where a check goes, or why the
+/// endpoint on duty cannot be asked at all.
+fn endpoint_status(remote: &duty::Remote, refused: Option<&Unavailable>) -> (Tone, Vec<String>) {
+    match refused {
+        Some(why) => {
+            let mut lines = vec![t_args(
+                Message::SettingsEngineRemoteRefused,
+                &args!("reason" => engine_host::refusal_line(why)),
+            )];
+            lines.extend(engine_host::refusal_detail(why).map(str::to_owned));
+            (Tone::Warn, lines)
+        }
+        None => (
+            if remote.on_this_machine {
+                Tone::Good
+            } else {
+                Tone::Warn
+            },
+            vec![t_args(
+                Message::SettingsEngineRemoteAsks,
+                &args!("model" => remote.model.clone(), "endpoint" => remote.endpoint.clone()),
+            )],
+        ),
+    }
+}
+
+/// What a check is, under its button: that it is not a rewrite — and, for
+/// an endpoint that is not this machine, that its prompt was sent there.
+///
+/// A free function over values so the sentences can be checked without a
+/// window. The prompt is a fixed sentence and never a document, but it
+/// left this machine, and a page that let somebody press Check without
+/// saying so would be the quiet send this product refuses everywhere else.
+fn check_note(performer: Option<&Performer>) -> Vec<String> {
+    match performer {
+        Some(Performer::Endpoint(remote)) => {
+            let mut lines = vec![t(Message::SettingsEngineRemoteCheckNote)];
+            if !remote.on_this_machine {
+                lines.push(t_args(
+                    Message::SettingsEngineRemoteCheckSentTo,
+                    &args!("origin" => remote.origin.clone()),
+                ));
+            }
+            lines
+        }
+        _ => vec![t(Message::SettingsEngineLocalCheckNote)],
+    }
+}
+
 /// What the last check found, as lines.
 ///
 /// The model's words are shown as its output — quoted, at most eighty
@@ -6819,6 +6915,34 @@ fn check_lines(check: &Check) -> Vec<String> {
                 None => t_args(
                     Message::SettingsEngineLocalCheckSpeedUnknown,
                     &args!("tokens" => tokens.to_string()),
+                ),
+            });
+            lines
+        }
+        Check::Done(CheckOutcome::EndpointAnswered {
+            first_ms,
+            pieces,
+            per_second,
+            text,
+        }) => {
+            let mut lines = vec![t_args(
+                Message::SettingsEngineRemoteCheckAnswered,
+                &args!("text" => text.clone()),
+            )];
+            if let Some(ms) = first_ms {
+                lines.push(t_args(
+                    Message::SettingsEngineRemoteCheckFirst,
+                    &args!("seconds" => format!("{:.1}", *ms as f64 / 1000.0)),
+                ));
+            }
+            lines.push(match per_second {
+                Some(rate) => t_args(
+                    Message::SettingsEngineRemoteCheckSpeed,
+                    &args!("pieces" => pieces.to_string(), "rate" => format!("{rate:.1}")),
+                ),
+                None => t_args(
+                    Message::SettingsEngineRemoteCheckSpeedUnknown,
+                    &args!("pieces" => pieces.to_string()),
                 ),
             });
             lines
@@ -8162,6 +8286,88 @@ mod tests {
             2,
             "no load line for a model already loaded: {already:?}"
         );
+    }
+
+    /// An endpoint's check is timed from the request to its first piece —
+    /// there is nothing to load — and counts pieces, which is what a stream
+    /// is made of whatever the server calls a token.
+    #[test]
+    fn an_endpoint_check_reports_its_first_piece_and_its_pieces() {
+        let lines = check_lines(&Check::Done(CheckOutcome::EndpointAnswered {
+            first_ms: Some(1_250),
+            pieces: 16,
+            per_second: Some(12.5),
+            text: "one two three".to_owned(),
+        }));
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[0].contains("one two three"), "{lines:?}");
+        assert!(
+            lines[1].contains("1.2") || lines[1].contains("1.3"),
+            "{lines:?}"
+        );
+        assert!(
+            lines[2].contains("16") && lines[2].contains("12.5"),
+            "{lines:?}"
+        );
+        let quick = check_lines(&Check::Done(CheckOutcome::EndpointAnswered {
+            first_ms: None,
+            pieces: 1,
+            per_second: None,
+            text: "one".to_owned(),
+        }));
+        assert_eq!(quick.len(), 2, "{quick:?}");
+    }
+
+    /// The block between the banner and the rows is a state, not a row, and
+    /// no row is titled like it: the endpoint's URL field once read "The
+    /// endpoint", the block's title, instead of its own.
+    #[test]
+    fn no_row_is_titled_like_the_block_above_the_rows() {
+        for setting in Setting::ALL {
+            for block in [
+                Message::SettingsEngineRemoteTitle,
+                Message::SettingsEngineLocalTitle,
+            ] {
+                assert_ne!(setting.title(), block, "{setting:?}");
+            }
+        }
+    }
+
+    /// The check's note says what a check is — and, for an endpoint that is
+    /// not this machine, that its prompt went there. A fixed sentence and
+    /// not a document, but it left this machine, and the page says so.
+    #[test]
+    fn the_check_on_an_endpoint_says_where_its_prompt_went() {
+        let remote = |on_this_machine: bool, origin: &str| {
+            Performer::Endpoint(duty::Remote {
+                profile: None,
+                provider: Provider::OpenAiCompatible,
+                endpoint: format!("{origin}/v1/chat/completions"),
+                origin: origin.to_owned(),
+                model: "gpt-4o-mini".to_owned(),
+                temperature: 0.9,
+                reasoning: ReasoningEffort::None,
+                timeout: 120,
+                account: Some(origin.to_owned()),
+                on_this_machine,
+            })
+        };
+
+        let away = check_note(Some(&remote(false, "https://api.openai.com")));
+        assert_eq!(away.len(), 2, "{away:?}");
+        assert!(
+            reads_as(&away[0], Message::SettingsEngineRemoteCheckNote),
+            "{away:?}"
+        );
+        assert!(away[1].contains("https://api.openai.com"), "{away:?}");
+
+        let here = check_note(Some(&remote(true, "http://127.0.0.1:8089")));
+        assert_eq!(here.len(), 1, "nothing left this machine: {here:?}");
+        assert!(reads_as(&here[0], Message::SettingsEngineRemoteCheckNote));
+
+        let machine = check_note(None);
+        assert_eq!(machine.len(), 1);
+        assert!(reads_as(&machine[0], Message::SettingsEngineLocalCheckNote));
     }
 
     /// The Placement page's banner keeps the same bargain the Engine,

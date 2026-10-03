@@ -3,6 +3,7 @@
 #
 #   core ← engine ← pipeline ← app / cli
 #   engine → wipemark-llama → wipemark-llama-sys (the local engine)
+#   engine → wipemark-secret (an HTTP engine's key, D57)
 #   models is independent of engine
 #   image depends only on core
 #   store is a leaf: it takes a path and hands back rows
@@ -64,7 +65,12 @@ ALLOWED = {
     "wipemark-i18n": {"wipemark-core"},
     # The engine may reach llama.cpp, through the safe layer only and only
     # under its `local-llama` feature (D46). It never names the -sys crate.
-    "wipemark-engine": {"wipemark-core", "wipemark-llama"},
+    # And the credential store's `Secret` (D57): an HTTP engine holds its
+    # key in the type that has no `Display` and a `Debug` that prints
+    # nothing, from the store to the one header that carries it — a
+    # `String` there is one `{:?}` away from a log line. The engine reads
+    # nothing from the store itself; the application hands it the key.
+    "wipemark-engine": {"wipemark-core", "wipemark-llama", "wipemark-secret"},
     # llama.cpp's build and its bindings; knows nothing of this product.
     # No wipemark dependency at all, so the crate that runs cmake and
     # bindgen cannot drag a product decision into a C++ build.

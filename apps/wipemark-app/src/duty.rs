@@ -64,8 +64,8 @@
 //! [`engine_for`] is where a [`Performer`] becomes a
 //! [`RewriteEngine`]: the machine becomes a `LocalEngine` in a build with
 //! `local-llama`, and a refusal that says so — `Unavailable::NotBuilt` —
-//! in one without; an endpoint still refuses until its transport lands
-//! (E2-3). It never hands back a
+//! in one without; an endpoint becomes an `HttpEngine` in every build,
+//! holding the key it is handed (E2-3). It never hands back a
 //! [`fake::FakeEngine`](wipemark_engine::fake::FakeEngine): an engine
 //! that returns plausible text with no model behind it is exactly the
 //! failure `a_tool_that_cannot_run_refuses_rather_than_reporting_nothing` exists
@@ -75,13 +75,18 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use wipemark_core::Vendor;
-use wipemark_engine::{EngineError, EngineInfo, RewriteEngine};
+use wipemark_engine::{
+    EngineError, EngineInfo, HttpConfig, HttpEngine, HttpProvider, Reasoning, RewriteEngine,
+    Unavailable,
+};
 use wipemark_i18n::{t, Message};
 use wipemark_models::host::{fit, Fit, Host};
 use wipemark_models::manifest::{Format, Manifest, Role};
 use wipemark_models::store::State;
+use wipemark_secret::Secret;
 
 use crate::engine::{
     account_of, refusal, Choice, EngineSettings, KeyState, Provider, ReasoningEffort, Refusal,
@@ -676,11 +681,6 @@ fn vendor_of(origin: &str, provider: Provider) -> Vendor {
     }
 }
 
-/// What an endpoint's refusal says until its transport lands. Read by a
-/// log line and never by a person: a window renders "not in this version
-/// yet" from the catalogue.
-pub const ENDPOINT_NOT_YET: &str = "E2-3 / S2.1 — the Ollama and OpenAI-compatible transports";
-
 /// How the machine's engine is built, beside the duty that names it.
 ///
 /// Gathered by the caller from state it already holds, for the reason a
@@ -721,8 +721,15 @@ pub fn available_mb(host: Option<Host>, gpu: Option<bool>) -> Option<u64> {
 /// engine is built, not loaded: its worker thread starts and loads nothing
 /// until it is warmed up or asked, which is [`crate::engine_host`]'s
 /// decision. A build without `local-llama` refuses with
-/// `Unavailable::NotBuilt`, and an endpoint refuses until its transport
-/// lands.
+/// `Unavailable::NotBuilt`.
+///
+/// An endpoint becomes an `HttpEngine` over the URL this module built,
+/// holding `key` — which it sends only to an OpenAI-compatible endpoint.
+/// Pure like the rest of this module: the key is the caller's to read from
+/// the credential store, off the thread that draws a window, and
+/// [`engine::refusal`](crate::engine::refusal) has already run as part of
+/// [`on_duty`], so a key for a plaintext endpoint on another machine never
+/// reaches here. `key` is ignored for the machine.
 ///
 /// It never falls back to
 /// [`fake::FakeEngine`](wipemark_engine::fake::FakeEngine): a fake hands
@@ -734,10 +741,41 @@ pub fn available_mb(host: Option<Host>, gpu: Option<bool>) -> Option<u64> {
 pub fn engine_for(
     performer: &Performer,
     local: &LocalOptions,
+    key: Option<Secret>,
 ) -> Result<Arc<dyn RewriteEngine>, EngineError> {
     match performer {
         Performer::Machine(machine) => machine_engine(machine, local),
-        Performer::Endpoint(_) => Err(EngineError::NotImplemented(ENDPOINT_NOT_YET)),
+        Performer::Endpoint(remote) => {
+            let provider = match remote.provider {
+                Provider::OpenAiCompatible => HttpProvider::OpenAiCompatible,
+                Provider::Ollama => HttpProvider::Ollama,
+                // `engine::refusal` answers `NoEngine` for it before a
+                // `Remote` exists; a value, not a panic, all the same.
+                Provider::Off => return Err(EngineError::Unavailable(Unavailable::NothingOnDuty)),
+            };
+            Ok(Arc::new(HttpEngine::new(HttpConfig {
+                provider,
+                endpoint: remote.endpoint.clone(),
+                origin: remote.origin.clone(),
+                model: remote.model.clone(),
+                key,
+                reasoning: reasoning_of(remote.reasoning),
+                timeout: Duration::from_secs(u64::from(remote.timeout)),
+                on_this_machine: remote.on_this_machine,
+                vendor: performer.info().vendor,
+            })))
+        }
+    }
+}
+
+/// The reasoning row as the engine spells it — the same five values.
+fn reasoning_of(effort: ReasoningEffort) -> Reasoning {
+    match effort {
+        ReasoningEffort::Off => Reasoning::Off,
+        ReasoningEffort::None => Reasoning::None,
+        ReasoningEffort::Low => Reasoning::Low,
+        ReasoningEffort::Medium => Reasoning::Medium,
+        ReasoningEffort::High => Reasoning::High,
     }
 }
 
@@ -1281,6 +1319,7 @@ mod tests {
         let engine = engine_for(
             duty.performer().expect("assigned"),
             &LocalOptions::default(),
+            None,
         )
         .expect("a build with the local engine hands one out");
 
@@ -1320,6 +1359,7 @@ mod tests {
         let refused = engine_for(
             duty.performer().expect("assigned"),
             &LocalOptions::default(),
+            None,
         )
         .err()
         .expect("this build cannot run a model");
@@ -1332,22 +1372,65 @@ mod tests {
         );
     }
 
-    /// An endpoint still refuses, naming the step in the string a log
-    /// reads — and only there.
+    /// An endpoint becomes an engine that talks to it — not a refusal, not
+    /// a fake — and the engine says whether it runs on this machine.
     #[test]
-    fn an_endpoint_is_not_served_from_here_yet() {
-        let bench = Bench::new().with_engine(Provider::Ollama, "http://127.0.0.1:11434");
+    fn engine_for_builds_an_http_engine_for_an_endpoint() {
+        for (url, here) in [
+            ("http://127.0.0.1:11434", true),
+            ("https://ollama.example.com", false),
+        ] {
+            let bench = Bench::new().with_engine(Provider::Ollama, url);
+            let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
+            let engine = engine_for(
+                duty.performer().expect("assigned"),
+                &LocalOptions::default(),
+                None,
+            )
+            .expect("an endpoint is served from here");
+            let info = engine.info();
+            assert_eq!(info.local, here, "{url}");
+            assert_eq!(info.model_id, "llama3.1:8b");
+            assert_eq!(info.vendor, Vendor::OpenLlm);
+            assert_eq!(info.ctx_len, None, "the server's business");
+        }
+
+        // An OpenAI-compatible endpoint takes its key from the caller.
+        let mut bench =
+            Bench::new().with_engine(Provider::OpenAiCompatible, "https://api.openai.com");
+        bench
+            .keys
+            .insert("https://api.openai.com".to_owned(), KeyState::Stored);
         let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
-        let refused = engine_for(
+        let engine = engine_for(
             duty.performer().expect("assigned"),
             &LocalOptions::default(),
+            Some(wipemark_secret::Secret::from("sk-test")),
         )
-        .err()
-        .expect("no transport in this build");
-        assert!(
-            matches!(refused, EngineError::NotImplemented(named) if named.contains("E2-3")),
-            "got {refused}"
+        .expect("an endpoint is served from here");
+        assert_eq!(engine.info().vendor, Vendor::OpenAi);
+        assert!(!engine.info().local);
+    }
+
+    /// A key for an unencrypted endpoint on another machine is refused by
+    /// `on_duty` — so nothing is ever asked to build an engine that would
+    /// put it on the wire, and the host never reads it from the store.
+    #[test]
+    fn a_key_for_a_plaintext_remote_endpoint_never_reaches_engine_for() {
+        let mut bench = Bench::new()
+            .asking(Serves::EndpointOnly)
+            .with_engine(Provider::OpenAiCompatible, "http://gpu.example.com:8000");
+        bench
+            .keys
+            .insert("http://gpu.example.com:8000".to_owned(), KeyState::Stored);
+        let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
+        assert_eq!(
+            duty,
+            Duty::Vacant(Vacancy::Endpoint(Refusal::KeyInTheClear {
+                origin: "http://gpu.example.com:8000".to_owned(),
+            }))
         );
+        assert!(duty.performer().is_none(), "there is nothing to build");
     }
 
     /// The memory a load may claim is the RAM only where the RAM is the

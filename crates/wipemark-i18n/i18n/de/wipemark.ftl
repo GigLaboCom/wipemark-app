@@ -303,7 +303,7 @@ settings-placement-zone-bottom-right = unten rechts
 settings-engine-title = Umschreib-Engine
 settings-engine-description = Umschreiben schickt das Dokument an ein Modell und bewertet, was zurückkommt. Die Bereinigung braucht dafür nie eine Engine und wird auch nie hinter einer verriegelt.
 
-settings-engine-pending = Diese Einstellungen werden gespeichert, und noch schickt sie niemand irgendwohin: Umschreiben gibt es in dieser Version nicht. Bis dahin bereinigt { -brand-name } nur und sagt das auch in der Statuszeile.
+settings-engine-pending = Diese Einstellungen werden gespeichert, und kein Dokument wird irgendwohin geschickt: Umschreiben gibt es in dieser Version nicht. Die einzige Anfrage dieser Seite ist die Prüfung unten, und sie schickt einen festen Satz. Bis dahin bereinigt { -brand-name } nur und sagt das auch in der Statuszeile.
 
 settings-engine-state-off = Keine Engine. { -brand-name } bereinigt nur, was für sich genommen deterministisch und vollständig ist.
 settings-engine-state-ready-local = Konfiguriert, und das Dokument bliebe auf diesem Rechner: { $endpoint }
@@ -331,7 +331,7 @@ settings-engine-state-second-choice = Antwortet, weil die erste Wahl es nicht ka
 ## Das Modell auf diesem Rechner.
 
 settings-engine-keep-title = Modell geladen halten
-settings-engine-keep-description = „{ settings-engine-keep-on-demand }“ lädt das Modell, wenn es gebraucht wird, und gibt seinen Speicher nach den Minuten unten ohne Arbeit wieder frei. „{ settings-engine-keep-resident }“ lädt es kurz nach dem Start von { -brand-name } und hält es, bis { -brand-name } beendet oder ein anderes Modell gewählt wird. „{ settings-engine-local-unload }“ gibt es in beiden Fällen frei.
+settings-engine-keep-description = Für das Modell auf diesem Rechner; ein Endpunkt hält hier nichts. „{ settings-engine-keep-on-demand }“ lädt das Modell, wenn es gebraucht wird, und gibt seinen Speicher nach den Minuten unten ohne Arbeit wieder frei. „{ settings-engine-keep-resident }“ lädt es kurz nach dem Start von { -brand-name } und hält es, bis { -brand-name } beendet oder ein anderes Modell gewählt wird. „{ settings-engine-local-unload }“ gibt es in beiden Fällen frei.
 settings-engine-keep-on-demand = Bei Bedarf laden
 settings-engine-keep-resident = Geladen halten
 settings-engine-idle-title = Entladen nach
@@ -369,6 +369,17 @@ settings-engine-local-check-cancelled = Die Prüfung wurde abgebrochen.
 settings-engine-local-check-note = Eine Prüfung zeigt, dass das Modell lädt und schreibt. Sie ist keine Umschreibung: In dieser Version schreibt noch nichts ein Dokument um.
 settings-engine-local-no-tray = Auf diesem System gibt es keinen Eintrag in der Menüleiste; das Schließen des Hauptfensters beendet { -brand-name } also und gibt das Modell frei.
 
+settings-engine-remote-title = Der Endpunkt
+settings-engine-remote-asks = Eine Prüfung fragt { $model } unter { $endpoint }.
+settings-engine-remote-refused = Der Endpunkt kann nicht gefragt werden: { $reason }
+settings-engine-remote-check-tooltip = Einen festen Satz an den Endpunkt schicken und zeigen, was er zurückschreibt.
+settings-engine-remote-check-answered = Der Endpunkt antwortete: „{ $text }“
+settings-engine-remote-check-first = Das erste Stück kam nach { $seconds } s.
+settings-engine-remote-check-speed = { $pieces } Stücke, { $rate } pro Sekunde nach dem ersten.
+settings-engine-remote-check-speed-unknown = { $pieces } Stücke — zu wenige, um sie zu messen.
+settings-engine-remote-check-note = Eine Prüfung zeigt, dass der Endpunkt antwortet. Sie ist keine Umschreibung: In dieser Version schreibt noch nichts ein Dokument um.
+settings-engine-remote-check-sent-to = Ihre Eingabe — ein fester Satz, nie ein Dokument — geht an { $origin }, und das ist nicht dieser Rechner.
+
 engine-refusal-not-built = Dieser Build hat keine lokale Engine.
 engine-refusal-no-such-file = Die Modelldatei ist nicht da: { $path }
 engine-refusal-would-not-fit = Das Modell braucht etwa { $need }, und dieser Rechner hat { $have }.
@@ -376,6 +387,15 @@ engine-refusal-no-backend = Es wurde kein Prozessor gefunden, auf dem das Modell
 engine-refusal-load-failed = Das Modell konnte nicht geladen werden.
 engine-refusal-stopped = Die lokale Engine wurde beendet. Das Modell erneut zu wählen startet sie neu.
 engine-refusal-nothing-on-duty = Es ist nichts zuständig, das antworten könnte.
+engine-refusal-redirected = Der Endpunkt antwortete mit { $status } und verwies auf { $origin }. Weiterleitungen folgt { -brand-name } nicht: Korrigieren Sie stattdessen die Adresse.
+engine-refusal-redirected-nowhere = Der Endpunkt antwortete mit { $status }, einer Weiterleitung. Weiterleitungen folgt { -brand-name } nicht: Korrigieren Sie stattdessen die Adresse.
+engine-refusal-key-rejected = Der Endpunkt hat den Schlüssel nicht angenommen ({ $status }).
+engine-refusal-not-found = Der Endpunkt kennt dieses Modell oder diese Adresse nicht. Prüfen Sie den Namen des Modells — bei Ollama auch, ob es mit „pull“ geholt wurde.
+engine-refusal-rate-limited-for = Der Endpunkt begrenzt die Anfragen und bittet, { $seconds } s zu warten.
+engine-refusal-rate-limited = Der Endpunkt begrenzt die Anfragen. Versuchen Sie es später noch einmal.
+engine-refusal-refused = Der Endpunkt hat die Anfrage abgelehnt ({ $status }).
+engine-refusal-key-unreadable = Der Schlüssel ließ sich nicht aus dem Anmeldeinformationsspeicher lesen: { $reason }
+engine-refusal-no-key = Für diesen Endpunkt ist kein Schlüssel hinterlegt.
 
 settings-engine-profile-title = Gespeichertes Profil
 settings-engine-profile-description = Alle Einstellungen dieser Seite außer dem Schlüssel, unter einem Namen abgelegt. Ein Profil auszuwählen übernimmt alles auf einmal, und unter einem schon vergebenen Namen zu speichern ersetzt es. Der Schlüssel bleibt im Anmeldeinformationsspeicher dieses Rechners, abgelegt unter der Adresse, und gilt für jedes Profil, das dorthin zeigt.

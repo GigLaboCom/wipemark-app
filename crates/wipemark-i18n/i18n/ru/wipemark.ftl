@@ -314,7 +314,7 @@ settings-placement-zone-bottom-right = снизу справа
 settings-engine-title = Движок переписывания
 settings-engine-description = Переписывание отправляет документ модели и оценивает то, что вернулось. Очистке движок не нужен никогда и за движком она не запирается.
 
-settings-engine-pending = Эти настройки сохраняются, и пока никто ничего никуда не отправляет: переписывания в этой версии нет. До тех пор { -brand-name } только очищает, и в статусной строке так и написано.
+settings-engine-pending = Эти настройки сохраняются, и ни один документ никуда не отправляется: переписывания в этой версии нет. Единственный запрос с этой страницы — проверка ниже, и она отправляет заранее заданную фразу. До тех пор { -brand-name } только очищает, и в статусной строке так и написано.
 
 settings-engine-state-off = Движка нет. { -brand-name } только очищает — само по себе детерминированно и самодостаточно.
 settings-engine-state-ready-local = Настроено, и документ остался бы на этом компьютере: { $endpoint }
@@ -342,7 +342,7 @@ settings-engine-state-second-choice = Отвечает, потому что пе
 ## Модель на этом компьютере.
 
 settings-engine-keep-title = Держать модель загруженной
-settings-engine-keep-description = «{ settings-engine-keep-on-demand }» загружает модель, когда она нужна, и освобождает её память через указанные ниже минуты без работы. «{ settings-engine-keep-resident }» загружает её вскоре после запуска { -brand-name } и держит, пока { -brand-name } не закроется или не будет выбрана другая модель. «{ settings-engine-local-unload }» освобождает её в любом случае.
+settings-engine-keep-description = Для модели на этом компьютере; у сервера здесь держать нечего. «{ settings-engine-keep-on-demand }» загружает модель, когда она нужна, и освобождает её память через указанные ниже минуты без работы. «{ settings-engine-keep-resident }» загружает её вскоре после запуска { -brand-name } и держит, пока { -brand-name } не закроется или не будет выбрана другая модель. «{ settings-engine-local-unload }» освобождает её в любом случае.
 settings-engine-keep-on-demand = Загружать при необходимости
 settings-engine-keep-resident = Держать загруженной
 settings-engine-idle-title = Выгружать через
@@ -381,6 +381,17 @@ settings-engine-local-check-cancelled = Проверка отменена.
 settings-engine-local-check-note = Проверка показывает, что модель загружается и пишет. Это не переписывание: в этой версии пока ничто не переписывает документ.
 settings-engine-local-no-tray = На этой системе нет значка в строке меню, поэтому закрытие главного окна завершает { -brand-name } и освобождает модель.
 
+settings-engine-remote-title = Сервер
+settings-engine-remote-asks = Проверка обращается к { $model } по адресу { $endpoint }.
+settings-engine-remote-refused = К серверу нельзя обратиться: { $reason }
+settings-engine-remote-check-tooltip = Отправить серверу заранее заданную фразу и показать, что он ответит.
+settings-engine-remote-check-answered = Сервер ответил: «{ $text }»
+settings-engine-remote-check-first = Первый фрагмент пришёл через { $seconds } с.
+settings-engine-remote-check-speed = Фрагментов: { $pieces }, { $rate } в секунду после первого.
+settings-engine-remote-check-speed-unknown = Фрагментов: { $pieces } — слишком мало, чтобы измерить скорость.
+settings-engine-remote-check-note = Проверка показывает, что сервер отвечает. Это не переписывание: в этой версии пока ничто не переписывает документ.
+settings-engine-remote-check-sent-to = Её запрос — заранее заданная фраза, никогда не документ — отправляется на { $origin }, а это не этот компьютер.
+
 engine-refusal-not-built = В этой сборке нет локального движка.
 engine-refusal-no-such-file = Файла модели нет на месте: { $path }
 engine-refusal-would-not-fit = Модели нужно около { $need }, а у этого компьютера { $have }.
@@ -388,6 +399,15 @@ engine-refusal-no-backend = Не найден процессор, на кото�
 engine-refusal-load-failed = Модель не удалось загрузить.
 engine-refusal-stopped = Локальный движок остановился. Повторный выбор модели перезапускает его.
 engine-refusal-nothing-on-duty = Отвечать некому: ничто не назначено.
+engine-refusal-redirected = Сервер ответил { $status } и указал на { $origin }. Перенаправлениям { -brand-name } не следует: исправьте адрес.
+engine-refusal-redirected-nowhere = Сервер ответил { $status } — это перенаправление. Перенаправлениям { -brand-name } не следует: исправьте адрес.
+engine-refusal-key-rejected = Сервер не принял ключ ({ $status }).
+engine-refusal-not-found = У сервера нет такой модели или такого адреса. Проверьте имя модели — для Ollama ещё и то, что она скачана командой pull.
+engine-refusal-rate-limited-for = Сервер ограничивает запросы и просит подождать { $seconds } с.
+engine-refusal-rate-limited = Сервер ограничивает запросы. Попробуйте позже.
+engine-refusal-refused = Сервер отклонил запрос ({ $status }).
+engine-refusal-key-unreadable = Ключ не удалось прочитать из хранилища учётных данных: { $reason }
+engine-refusal-no-key = Для этого сервера ключ не сохранён.
 
 settings-engine-profile-title = Сохранённый профиль
 settings-engine-profile-description = Все настройки этой страницы, кроме ключа, сохранённые под именем. Выбор профиля применяет их разом, а сохранение под уже занятым именем заменяет его. Ключ остаётся в хранилище учётных данных этого компьютера, привязанный к адресу, и общий для всех профилей, которые на него указывают.

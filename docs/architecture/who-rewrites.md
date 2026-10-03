@@ -80,7 +80,7 @@ renders it as its own line:
 Configured, and the document would not leave this machine: Qwen3 4B runs here.
 Answering because the first choice cannot: ollama.example.com is not this
 machine, and sending documents off it has not been allowed.
-These settings are stored, and nothing sends them anywhere yet: …
+These settings are stored, and no document is sent anywhere: …
 ```
 
 Two rules keep that line honest.
@@ -144,9 +144,12 @@ line that asked for it would be a surprise waiting on the next launch.
 ## What crosses the boundary
 
 A `Remote` carries the **account** a key is filed under, never the key.
-The credential store is read when a request is about to be sent, on the
-thread that sends it, by the code that has somewhere to put a failure —
-not on the frame that drew the answer. The key check in `on_duty` is a
+The credential store is read when that endpoint is first asked — the
+first Check or job — by `EngineHost`, on a thread of its own, the code
+that has somewhere to put a failure (`Unavailable::KeyUnreadable`,
+`Unavailable::NoKey`); not at startup, not on the frame that drew the
+answer, and not inside `engine_for`, which stays pure and is handed the
+key as a `Secret`. The key check in `on_duty` is a
 pre-flight: it reports what the store has already said, and an account
 nobody has asked about reads as `KeyState::Unknown`, which is not a
 refusal. `engine::refusal` is called rather than re-implemented, so the
@@ -172,16 +175,21 @@ verdict travels beside the performer instead of withholding it.
 
 ## Calling the logic
 
-`duty::engine_for(&Performer, &LocalOptions)` is where a decision becomes
-a `RewriteEngine`, and it hands one out: the machine performer becomes a
-`LocalEngine` (in a build with `local-llama`) over the verified weights,
-at the catalogue's context window, with the lock row and the memory a
-load may claim (`duty::available_mb`). A build without the local engine
-refuses with `Unavailable::NotBuilt` — a value a window renders as "This
-build has no local engine." — and an endpoint still refuses until its
-transport lands (E2-3). The engine is `Arc`, built and not loaded; *when*
-it holds its model is `EngineHost`'s decision — see
-[local-engine.md](local-engine.md), "Keeping a model". It does **not**
+`duty::engine_for(&Performer, &LocalOptions, Option<Secret>)` is where a
+decision becomes a `RewriteEngine`, and it hands one out: the machine
+performer becomes a `LocalEngine` (in a build with `local-llama`) over the
+verified weights, at the catalogue's context window, with the lock row and
+the memory a load may claim (`duty::available_mb`). A build without the
+local engine refuses with `Unavailable::NotBuilt` — a value a window
+renders as "This build has no local engine." An endpoint becomes an
+`HttpEngine` in every build (E2-3, [remote-engine.md](remote-engine.md)),
+holding the key it was handed — sent only to an OpenAI-compatible
+endpoint. The endpoint sends now, but only the Engine page's **Check**,
+a fixed sentence and never a document: nothing rewrites a document until
+the pipeline (E4). The engine is `Arc`, built and not loaded; *when* the
+machine's engine holds its model is `EngineHost`'s decision — see
+[local-engine.md](local-engine.md), "Keeping a model" — and an endpoint's
+holds nothing. It does **not**
 fall back to `FakeEngine`: a fake hands back plausible text with no model
 behind it, and a caller that received one would file a document as
 rewritten by a rewriter that never ran.

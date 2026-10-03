@@ -419,6 +419,9 @@ tell a decision from an accident.
 | **D54** | The Engine page's **Check** button loads the model (if needed) and generates up to 16 tokens from a fixed prompt, showing load time, tokens per second and the first words — the OV §6.1 "test connection" for a local model. It is the one place a window shows model output before E4, and it says it is a check, not a rewrite. | A loaded model nobody can test is a claim; the check is evidence. |
 | **D55** | The memory shown for a loaded model is the **process's resident memory, measured** after the load (and the GGUF size beside it), not `MemEstimate` — which E2-1 measured at ~35 % under on CPU. VRAM is shown only when the backend reports it; otherwise not at all. Memory-pressure unloading (D51's last clause) is **not built here**: it is platform code (a macOS dispatch source) that this machine cannot compile or check, and it moves to the first step run on a Mac. | CLAUDE.md "`None` means unknown"; "Tests must be able to fail". |
 | **D56** | D52 is staged: E2-2 gives `EngineHost` a `Send + Clone` handle the MCP server can hold; the MCP `rewrite` tool and the CLI's routing to the running application land with the pipeline (E4) and the CLI's `rewrite` (E5). No surface exposes raw model output as a rewrite before then. | A rewrite is Layer A → model → Layer A → guards (OV §4.2); without E4 it would be unguarded output. |
+| **D57** | `wipemark-engine` may depend on `wipemark-secret`; an HTTP engine is built with `Option<Secret>`, and `Secret::expose` is called only where the `Authorization` header is set. | CLAUDE.md "A credential is never a row"; a `String` key in an engine struct is one `{:?}` away from a log. |
+| **D58** | HTTP is the blocking `ureq` 3 client on one thread per request, bridged to the trait with `flume`. Cancel answers the caller at once with `Err(Cancelled)`; the request thread notices at the next chunk or at its read timeout and drops the connection then. Retries only before the first byte of a body (connect failure, 429, 502/503/504), at most two, honouring `Retry-After` up to 10 s; never after. | No second async runtime beside GPUI's (CLAUDE.md, the downloader's comment in the root `Cargo.toml`); OV §4.1 "retries only before the first byte". |
+| **D59** | On the wire: OpenAI-compatible is `POST {base}/v1/chat/completions` with `stream: true` (SSE), `messages` (a `system` message when the request has one), `temperature`, `top_p`, `seed`, `max_tokens`, and `reasoning_effort` unless it is `off`. Ollama is the native `POST {base}/api/chat` with `stream: true` (newline-delimited JSON) and `options: {temperature, top_p, seed, num_predict}`, and never an `Authorization` header. `min_p` is sent to neither (not portable); `ctx_len` stays `None`. | layer-b reference §1 (upstream's shapes) plus the additions spec §4.1/§4.4 need (stream, seed). |
 
 ---
 
@@ -516,7 +519,9 @@ the gate the overview set, and the open edges.
   wires it (`duty::engine_for`, the app) and adds `EngineHost` with the keep-loaded policy (D51),
   the Check (D54) and the handle the CLI/agents will reach the application's loaded model through
   (D52, staged by D56; D53–D56) — status: done — [reports/E2-2-2026-10-03.md](reports/E2-2-2026-10-03.md); E2-3
-  is the HTTP engine — [E2-3-the-endpoint.md](E2-3-the-endpoint.md) (status: dispatched).
+  is the HTTP engine — [E2-3-the-endpoint.md](E2-3-the-endpoint.md): Ollama and OpenAI-compatible
+  over HTTP behind the same `engine_for` and `EngineHost`, the Check for an endpoint, the key as a
+  `Secret` (D57–D59) — status: done — [reports/E2-3-2026-10-03.md](reports/E2-3-2026-10-03.md).
 - **Rule.** Q2 is answered (D45). The rule `engine_for` must keep: a
   decision becomes an engine or a refusal, never plausible text with no
   model behind it.

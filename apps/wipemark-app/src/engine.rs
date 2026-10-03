@@ -2,9 +2,10 @@
 //! the knobs that ride with a request.
 //!
 //! Epic **E6 / S6.3** — the *settings*. The requests themselves are
-//! epic **E2** (`wipemark-engine`), and nothing in this build sends
-//! one; the pane says so out loud rather than implying a rewrite is a
-//! click away. `docs/sdd/layer-b-rewrite-reference.md` is where the
+//! `wipemark-engine`'s `HttpEngine` (E2-3), built from these settings by
+//! `duty::engine_for`; the only one this build sends is the Engine page's
+//! **Check**, a fixed sentence and never a document, and the pane says so
+//! out loud rather than implying a rewrite is a click away. `docs/sdd/layer-b-rewrite-reference.md` is where the
 //! wire format, the prompts and the security rules were read out of
 //! upstream, and §8 of it is the table this module is the other half
 //! of.
@@ -46,9 +47,12 @@
 //!   (`https://user:pass@host`) is refused as a URL, because the one
 //!   place a credential is allowed to be is the credential store.
 //!
-//! Redirects are refused too, but that one belongs to the transport and
-//! lands with E2 — urllib re-sends `Authorization` on a 3xx, and the
-//! shape of that bug is identical in every HTTP client.
+//! Redirects are refused too, and that one belongs to the transport: the
+//! engine never follows a 3xx (`wipemark_engine::http`) — urllib re-sends
+//! `Authorization` on one, and the shape of that bug is identical in every
+//! HTTP client. The engine also refuses a scheme other than `http` and
+//! `https` itself, which [`BaseUrl::parse`] already cannot produce:
+//! defence in depth, not a second rule.
 
 use std::fmt;
 
@@ -267,8 +271,9 @@ impl ReasoningEffort {
     /// reason the enum has five variants for four levels.
     #[allow(
         dead_code,
-        reason = "the request that reads this is epic E2; the distinction it \
-                  encodes is settled here because the *setting* is, and \
+        reason = "the request spells it through `wipemark_engine::Reasoning::wire`, \
+                  which `duty::engine_for` maps this row onto; the distinction is \
+                  settled here too because the *setting* is, and \
                   `off_omits_the_field_and_none_sends_a_value` holds it"
     )]
     pub fn wire(self) -> Option<&'static str> {

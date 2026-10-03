@@ -232,14 +232,15 @@ application's policy, in one place: `apps/wipemark-app/src/engine_host.rs`.
 
 ### The engine handed out
 
-`duty::engine_for(&Performer, &LocalOptions) -> Result<Arc<dyn
-RewriteEngine>, EngineError>` builds a `LocalEngine` for the machine
-performer — the catalogue id, the verified weights, `LoadParams { n_ctx:
-the catalogue's ctx_default, use_mlock: the lock row, .. }`, and
-`available_mb` — and loads nothing. A build without `local-llama` refuses
-with `Unavailable::NotBuilt`; an endpoint still refuses with
-`NotImplemented` until E2-3. It never returns `FakeEngine`. `Arc`, because
-the host and every handle share one engine.
+`duty::engine_for(&Performer, &LocalOptions, Option<Secret>) ->
+Result<Arc<dyn RewriteEngine>, EngineError>` builds a `LocalEngine` for the
+machine performer — the catalogue id, the verified weights, `LoadParams {
+n_ctx: the catalogue's ctx_default, use_mlock: the lock row, .. }`, and
+`available_mb` — and loads nothing; the key is ignored for it. A build
+without `local-llama` refuses with `Unavailable::NotBuilt`; an endpoint
+becomes an `HttpEngine` ([remote-engine.md](remote-engine.md)). It never
+returns `FakeEngine`. `Arc`, because the host and every handle share one
+engine.
 
 `available_mb` is `duty::available_mb(host, gpu)`: `Host::total_ram_mb` on
 unified memory or when the process registered no GPU backend, `None`
