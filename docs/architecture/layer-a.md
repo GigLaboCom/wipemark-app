@@ -187,3 +187,263 @@ is about 202 KB:
 | `CONFUSABLE_REVERSE` | 306 (493 chars) | 9,316 |
 | `NAME` | 917 | 45,057 |
 | total | | 201,853 |
+
+## Classes and context
+
+Two questions, answered in two places. `class_of` (`src/class.rs`) says
+what a code point **is** — which of the eleven classes, if any — from
+its Unicode properties alone. `context::hits` (`src/context.rs`) says
+whether, **here**, it is somebody's spelling or a mark: a VS16 after a
+heart, a ZWJ inside a family, a ZWNJ inside a Persian word, an LRM in a
+Hebrew paragraph are all *kept by context*. The hard half is the second
+one; finding invisible characters is a binary search, not mistaking
+orthography for a watermark is the job.
+
+### One class per code point
+
+`pub fn class_of(c: char) -> Option<UnicodeClass>`, reachable as
+`wipemark_core::class::class_of` (the root re-exports are E1-3's).
+Each class's definition
+is a private predicate, `claims(class, c)`, and `class_of` returns the
+first class in `UnicodeClass::ALL` order that claims the code point.
+Order and definitions are kept apart on purpose:
+`every_code_point_has_at_most_one_class` walks all 1,112,064 scalar
+values and checks that **no two definitions** claim one code point, so
+the order never decides anything a reader would have to know about.
+
+| # | class | definition | members in 18.0.0 | count |
+|---|---|---|---|---|
+| 1 | `ZeroWidth` | {U+200B, U+200C, U+2060, U+FEFF} | 200B–200C, 2060, FEFF | 4 |
+| 2 | `ZeroWidthJoiner` | {U+200D} | 200D | 1 |
+| 3 | `BidiControl` | `Bidi_Control` | 061C, 200E–200F, 202A–202E, 2066–2069 | 12 |
+| 4 | `TagCharacter` | the Tags block, assigned or reserved | E0000–E007F | 128 |
+| 5 | `VariationSelector` | `Variation_Selector` (Mongolian FVS included) | 180B–180D, 180F, FE00–FE0F, E0100–E01EF | 260 |
+| 6 | `SoftHyphen` | {U+00AD} | 00AD | 1 |
+| 7 | `ExoticSpace` | `gc=Zs` minus U+0020 | 00A0, 1680, 2000–200A, 202F, 205F, 3000 | 16 |
+| 8 | `Noncharacter` | `Noncharacter_Code_Point` | FDD0–FDEF, U+nFFFE/U+nFFFF for n = 0…16 | 66 |
+| 9 | `PrivateUse` | `gc=Co` | E000–F8FF, F0000–FFFFD, 100000–10FFFD | 137,468 |
+| 10 | `DefaultIgnorable` | (`Default_Ignorable_Code_Point` minus classes 1–9) ∪ {FFF9–FFFB}, minus {1BCA0–1BCA3, 1D173–1D17A} (D19) | 034F, 115F–1160, 17B4–17B5, 180E, 2061–2065, 206A–206F, 3164, FFA0, FFF0–FFFB, E0080–E00FF, E01F0–E0FFF | 3,759 |
+| 11 | `Homoglyph` | never returned by `class_of` | — | 0 |
+| | | | **finding-capable in all** | **141,715** |
+
+`every_class_has_exactly_the_members_unicode_18_gives_it` holds this
+table as literal ranges, written by hand and not generated from
+`claims`, so a definition and its data cannot agree by accident.
+
+- **The script format controls are in no class.** Of the 170 `gc=Cf`
+  code points in 18.0.0, 41 can never be findings: the prepended
+  concatenation marks U+0600–0605, U+06DD, U+070F, U+0890–0891, U+08E2,
+  U+110BD, U+110CD and the Egyptian quadrat controls U+13430–1343F,
+  which UCD itself keeps out of `Default_Ignorable_Code_Point`; and the
+  Duployan shorthand controls U+1BCA0–1BCA3 and the musical beam, tie,
+  slur and phrase controls U+1D173–1D17A, which UCD 18.0.0 *does* list
+  as default-ignorable and `claims` excludes **by name** (D19). All of
+  them render with or format their own script or notation — the Arabic
+  number sign sits over the digits after it, a quadrat control arranges
+  hieroglyphs, a beam control joins notes — and Layer A looks for the
+  invisible. No context rule is needed for them because they are not
+  findings at all.
+- **U+FFF9–FFFB**, the interlinear annotation characters, are `Cf`,
+  excluded from `Default_Ignorable_Code_Point` by name in
+  `DerivedCoreProperties.txt`, and rendered by nothing: spec A adds them
+  to `DefaultIgnorable` explicitly.
+- **Reserved code points** are not findings (A §2, Q-A3) unless they
+  are default-ignorable (U+2065, U+FFF0–FFF8, U+E0080–E00FF,
+  U+E01F0–E0FFF → `DefaultIgnorable`) or in the Tags block
+  (U+E0000, U+E0002–E001F → `TagCharacter`).
+- **`Homoglyph` never comes out of `class_of`.** A Latin `a` is only a
+  finding inside a Cyrillic word; that needs the word, which is
+  `homoglyph::hits` (E1-4). No letter of Latin, Cyrillic or Greek is
+  finding-capable, so the two hit streams never report one offset.
+- **The BOM is not `class_of`'s business.** `class_of('\u{FEFF}')` is
+  `ZeroWidth` everywhere; that byte 0 is a byte order mark is a fact
+  about a position, applied by `hits`.
+
+### What context keeps
+
+`pub(crate) fn hits(text: &str) -> Vec<Hit>`: one `Hit` per
+finding-capable code point, in source order, `at` a byte offset into
+`text`; `kept_by_context` true means orthography or presentation, with
+confidence `LikelyFalsePositive`; false means the class's ceiling
+(`max_confidence()`), for the scrubber to decide on. It takes no
+`Options`: what context keeps, it keeps whatever the knobs say.
+
+**State.** Two pre-passes, then one left-to-right pass:
+
+- *Pre-pass 1* marks each paragraph right-to-left or not. A paragraph
+  ends at U+000A only (P8). It is RTL when it holds a code point with
+  `Bidi_Class` R or AL **that is a letter or a mark** (D20).
+- *Pre-pass 2* finds every valid flag tag sequence (D39) and returns the
+  byte ranges of its tags and terminator.
+- `prev` is the code point immediately before the current one.
+- **Glue** is U+200D, every variation selector and every tag: the
+  characters that attach to what came before. U+200C and U+20E3 are
+  not glue.
+- `prev_kept`, the anchor, is the last code point that is not glue and
+  survives a clean under every `Options`: a non-finding, a hit kept by
+  context, or an exotic space (D35). A not-kept finding, a soft hyphen
+  and a leading BOM never become it.
+- The anchor's **effective script** is its own, or for a
+  `Script=Inherited` mark the effective script of the anchor before it
+  (P6).
+- `next` is the code point immediately after; it may itself be a
+  finding, and then it disqualifies (D34).
+
+**The rules** (A §4.2, made exact):
+
+| class | code points | kept when |
+|---|---|---|
+| `VariationSelector` | U+FE0E, U+FE0F | `prev` is `Emoji=Yes` and not a finding — ASCII `#`, `*`, `0`–`9` included (keycap bases have text and emoji styles) |
+| `VariationSelector` | U+FE00–FE0D | `prev` is not a finding and (`prev`, selector) is in `StandardizedVariants.txt` |
+| `VariationSelector` | U+E0100–E01EF | `prev` is not a finding and is Han, or the pair is listed |
+| `VariationSelector` | U+180B–180D, U+180F | `prev` is a Mongolian letter |
+| `DefaultIgnorable` | U+180E | `prev_kept` is a Mongolian letter |
+| `ZeroWidthJoiner` | U+200D | `prev_kept` and `next` are both emoji bases (non-ASCII `Emoji` or `Emoji_Modifier`, not a finding), **or** the joining rule |
+| `ZeroWidth` | U+200C only | the joining rule: `prev_kept` is a letter or mark, not a finding, whose effective script is in `JOINING_SCRIPTS`, and `next` is a letter or mark, not a finding, of that same script by its own script |
+| `TagCharacter` | U+E0000–E007F | inside a valid flag sequence: U+1F3F4, 1–30 tags from U+E0030–E0039 / U+E0061–E007A, U+E007F |
+| `DefaultIgnorable` | U+17B4, U+17B5 | `prev_kept` is a Khmer letter |
+| `DefaultIgnorable` | U+115F, U+1160, U+3164, U+FFA0 | `prev_kept` **or `next`** is a Hangul letter that is not itself a filler |
+| `BidiControl` | U+061C, U+200E, U+200F, U+202A–202C, U+2066–2069 | the paragraph is RTL |
+| `BidiControl` | U+202D, U+202E | never (Trojan Source, CVE-2021-42574) |
+| everything else | U+200B, U+2060, an inner U+FEFF, soft hyphens, exotic spaces, noncharacters, private use, other default-ignorables | never by context (a soft hyphen or exotic space may still be kept by `Options` in E1-3; that is not `kept_by_context`) |
+
+A U+FEFF at byte 0 of the text passed in is a byte order mark: no hit.
+
+`JOINING_SCRIPTS` is a list of 44 scripts, not a property: the UCD has
+none for "uses ZWJ/ZWNJ orthographically" — `Joining_Type` knows the
+cursive scripts and not the Indic ones, `Indic_Syllabic_Category` the
+reverse, and their union needs two files this crate does not commit.
+Latin, Cyrillic, Greek and the CJK scripts are absent on purpose: a ZWNJ
+between two Latin letters is the classic carrier.
+
+**Decisions, one line each** (`docs/plan/README.md` §4; E1-2 §4.0):
+
+- **D19** — the Duployan and musical format controls are never findings,
+  though UCD 18.0.0 makes them default-ignorable: they format their own
+  notation.
+- **D20** — RTL evidence is an R/AL *letter or mark*: U+200F (R) and
+  U+061C (AL) are bidi controls, and counted they would let a stray RLM
+  protect itself.
+- **D34** — every character a rule reads (`prev`, `prev_kept`, `next`) is
+  itself not finding-capable; otherwise U+17B4 would justify a ZWNJ, a
+  filler the next filler, and a second clean would differ from the first.
+- **D35** — an exotic space moves `prev_kept`: it survives every clean,
+  as itself or as U+0020, and U+0020 moves it.
+- **D36** — a selector's base is `prev`, the code point immediately
+  before it; with `prev_kept` a run of selectors after one emoji or
+  ideograph would all be kept — a byte channel.
+- **D37** — ASCII is never a ZWJ side or a tag base (no RGI sequence has
+  one, and a ZWJ between two digits would be kept inside every number);
+  VS15/VS16 after `#`, `*`, a digit stay kept.
+- **D38** — a Hangul filler counts `next` too: U+115F stands for a
+  missing *leading* consonant and starts its syllable.
+- **D39** — tags are kept only in a UTS #51 Annex C.1 flag sequence;
+  A's "any `Emoji=Yes` base" kept the ASCII-smuggling shape.
+- **P4** — the Han clause covers IVS only; VS1–VS14 after an ideograph
+  need a `StandardizedVariants.txt` pair (the IVD registers VS17 and up).
+- **P6** — the anchor's script falls back across `Inherited` marks; an
+  `Inherited` `next` does not match (its base would be the joiner).
+- **P8** — a paragraph ends at U+000A only; text using `\r` or U+2029
+  alone is one paragraph, which errs toward keeping marks.
+
+### Why a second pass agrees
+
+Remove every hit that is not kept (an exotic space may stay or become
+U+0020, a soft hyphen may stay) and run `hits` again: the kept hits are
+the same, in order, and nothing else is found but those spaces and
+hyphens. It holds because every base a rule reads is a non-finding
+(D34) that survives and stays adjacent, `prev_kept` only moves on what
+survives under every `Options` (D35), and RTL evidence and a tag
+sequence's parts survive together. `what_is_kept_stays_kept_on_the_output`
+is that argument as a test, over every test input and fixture under all
+four combinations of the two knobs; E1-3's idempotence gates stand on it.
+
+### What is deliberately not protected
+
+- **Floating bidi marks in a left-to-right paragraph**: no RTL letter,
+  no work for an LRM — removed, `Confirmed`.
+- **Pairing of embeddings** in an RTL paragraph is not checked (Q-A2);
+  an unpaired U+202C there is kept.
+- **Legacy Malayalam chillu** (`consonant, U+0D4D, U+200D` at a word end,
+  pre-5.1 encoding) and any word-final `virama, ZWJ` half-form display:
+  `next` is a space, so the ZWJ is removed. A known false positive (Q-A7).
+- **Latin ligature control** (German *Auflage* with U+200C): removed by
+  design; Latin is not a joining script.
+- **U+034F COMBINING GRAPHEME JOINER** is removed wherever it is, though
+  Hebrew and some German typography use it. A known false positive; no
+  rule in A (Q-A7).
+- **The subdivision code inside a flag is not checked against CLDR.**
+  U+1F3F4 + 1–30 digit/lowercase tags + U+E007F is kept whatever it
+  spells (`zzzz` as well as `gbsct`); the crate carries no CLDR data. A
+  flag-shaped sequence can still carry up to 30 such tags; anything else
+  in tags is a finding (D39; the owner may widen it, Q-A8).
+- **Egyptian, Duployan and musical context**: none needed — their format
+  controls are never findings.
+- **Unassigned code points** that are not default-ignorable (Q-A3).
+- **The whole text, not a slice**: "byte 0" and "paragraph" are relative
+  to the string passed in. A caller that chunks a document (E4) must
+  not cut where either would change.
+
+### Where the protections are tested
+
+All in `src/class.rs` and `src/context.rs` unit tests (D24); each was
+painted red by its mutation before it counted (E1-2 report).
+
+| protection | test | mutation that paints it red |
+|---|---|---|
+| one class per code point | `every_code_point_has_at_most_one_class` | drop the subtraction from `claims(DefaultIgnorable)` — 406 code points claimed twice |
+| the 18.0.0 membership | `every_class_has_exactly_the_members_unicode_18_gives_it` | drop U+FFF9–FFFB, or drop D19's exclusion |
+| no carrier joins | `no_carrier_alphabet_is_a_joining_script` | add `Script::Latin` to `JOINING_SCRIPTS` |
+| script format controls | `script_format_controls_are_never_findings` | let `DefaultIgnorable` claim every `Cf`; drop D19 |
+| leading BOM | `a_leading_bom_is_not_a_finding_and_an_inner_one_is` | drop the byte-0 exception |
+| VS15/VS16 | `an_emoji_keeps_its_presentation_selector` | drop the `Emoji` check; read `prev_kept` (D36) |
+| emoji ZWJ | `a_family_stays_a_family` | drop the emoji rule; let glue move `prev_kept` |
+| joining scripts | `persian_keeps_its_non_joiner`, `devanagari_keeps_its_joiner` | remove Arabic / Devanagari from the list |
+| P6 | `a_mark_carries_the_script_of_its_base` | no `Inherited` fallback; let an `Inherited` `next` match |
+| RTL bidi | `a_bidi_mark_is_typography_beside_rtl_and_a_carrier_without_it` | drop the rule; decide RTL for the whole text |
+| D20 | `a_stray_rlm_does_not_protect_itself` | count any R/AL code point as evidence |
+| overrides | `an_override_is_always_removed` | treat U+202D/U+202E like the other controls |
+| D39 | `a_flag_keeps_its_tags_and_a_loose_tag_does_not`, `an_emoji_cannot_smuggle_tags` | no terminator; no base; no 32 limit; any `Emoji` base; any tag |
+| IVS, P4 | `an_ideograph_keeps_its_variation_sequence` | drop the Han clause; extend it to VS1–VS14; `prev_kept` |
+| standardized variants | `a_standardized_variant_is_kept_and_a_random_one_is_not` | drop the lookup |
+| Mongolian | `a_mongolian_letter_keeps_its_selector` | drop the FVS or the U+180E rule; `prev_kept` for the FVS |
+| Khmer | `khmer_keeps_its_inherent_vowel` | drop the rule |
+| Hangul fillers, D38 | `a_partial_syllable_keeps_its_filler` | drop the rule; drop `next`; let a filler be a Hangul letter |
+| D34 | `a_base_is_never_itself_a_finding`, `what_is_kept_stays_kept_on_the_output` | let a finding be the joiner's `next` |
+| D37 | `an_ascii_character_is_never_a_joiner_side_or_a_tag_base` | let ASCII be an emoji base |
+| one hit each, in order | `hits_come_in_source_order_one_per_finding_capable_character` | drop kept hits; skip exotic spaces |
+| context only demotes | `a_kept_hit_is_a_likely_false_positive_and_any_other_carries_its_ceiling` | give kept hits the ceiling |
+| byte offsets | `hit_offsets_are_bytes_not_chars` | report the char index |
+| D35 | `what_is_kept_stays_kept_on_the_output` | an exotic space does not move `prev_kept` |
+| the survival set | `every_keep_fixture_survives_whole` (`fixtures/text/keep-*.txt`) | remove any keep rule |
+
+### `TextStats` and letter shares
+
+`TextStats::of(text)` (`src/stats.rs`) and the crate-internal
+`letter_shares(text)` read the crate's own 18.0.0 tables, never std's
+`char::is_whitespace`, whose Unicode is not the one the report names.
+
+- **whitespace** is `White_Space`: `gc=Zs`, U+0009–000D, U+0085, U+2028,
+  U+2029 (equal to `PropList.txt` in 18.0.0); U+200B is not whitespace.
+  A **token** is a maximal run of non-whitespace.
+- `chars` — code points, a leading BOM included.
+- `words` — tokens with at least one letter or decimal digit; a run of
+  CJK without spaces is one word.
+- a **letter** is `gc=L*`; a mark never is. The Hangul fillers are `Lo`
+  and count as Hangul: statistics describe the text as given.
+- **Latin**, **Cyrillic** by `Script`; **CJK** is Han, Hiragana,
+  Katakana, Hangul and Bopomofo (U+30FC is `Common`, so *other*);
+  **other** is every remaining letter.
+- `latin_ratio`, `cyrillic_ratio`, `cjk_ratio` — **fractions** 0.0–1.0
+  of the letters; `LetterShares` — **percent** 0–100, the unit
+  `ScriptGuard`'s `max_delta_pp` is written in. Both come from the same
+  integer counts, and both are 0.0, never NaN, without letters.
+- `code_blocks` — fence lines (after leading spaces and tabs, starting
+  ` ``` ` or `~~~`) divided by two, rounded down. A budget statistic,
+  not a Markdown parser.
+- `urls` — tokens containing `://`, one per token.
+
+The Unicode facts in this section were read from the committed `ucd/`
+files (18.0.0); after a version bump, run
+`every_class_has_exactly_the_members_unicode_18_gives_it` and read its
+diff before touching anything else.

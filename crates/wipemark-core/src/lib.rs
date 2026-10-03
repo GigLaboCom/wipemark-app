@@ -31,10 +31,12 @@
 #![forbid(unsafe_code)]
 
 pub mod class;
+mod context;
 pub mod guard;
 mod name;
 pub mod report;
 mod script;
+mod stats;
 mod tables;
 pub mod vendor;
 

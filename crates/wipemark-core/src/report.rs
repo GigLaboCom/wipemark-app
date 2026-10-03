@@ -46,14 +46,32 @@ pub mod not_established {
 
 /// Cheap document statistics, used for chunk budgeting, language
 /// detection and the script guard.
+///
+/// Computed by [`TextStats::of`]; definitions there. Whitespace is
+/// `White_Space` of the crate's Unicode version (`gc=Zs`, U+0009–000D,
+/// U+0085, U+2028, U+2029), and a token is a maximal run of anything
+/// else.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TextStats {
+    /// Code points, not bytes — a leading BOM included.
     pub chars: usize,
+    /// Tokens holding at least one letter or decimal digit; a run of CJK
+    /// without spaces is one word.
     pub words: usize,
+    /// Latin letters among all letters (`gc=L*`, marks never count), as
+    /// a fraction 0.0–1.0; 0.0 when there are no letters.
     pub latin_ratio: f32,
+    /// Cyrillic letters among all letters, as a fraction; 0.0 without
+    /// letters.
     pub cyrillic_ratio: f32,
+    /// Han, Hiragana, Katakana, Hangul and Bopomofo letters among all
+    /// letters, as a fraction; 0.0 without letters.
     pub cjk_ratio: f32,
+    /// Fence lines (` ``` ` or `~~~` after leading spaces and tabs)
+    /// divided by two, rounded down — a budget figure, not a Markdown
+    /// parse.
     pub code_blocks: usize,
+    /// Tokens containing `://`, one per token.
     pub urls: usize,
 }
 

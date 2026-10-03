@@ -17,6 +17,13 @@ image/    PNG/JPEG/WebP/TIFF carrying C2PA manifests, XMP
           Phase 2 (E11).
 ```
 
+`text/keep-*.txt` — the survival set (E1-2): one file per context rule
+in `docs/architecture/layer-a.md` › Classes and context. Every
+finding-capable code point in these files is kept by context;
+`wipemark_core::context`'s `every_keep_fixture_survives_whole` asserts
+each file's byte length and hit count. `keep-script-format-controls.txt`
+and `keep-leading-bom.txt` carry no finding at all.
+
 Two rules for anything added here:
 
 1. **Byte-exact.** Never let an editor normalise line endings or strip a
