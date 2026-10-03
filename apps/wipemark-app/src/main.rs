@@ -649,6 +649,14 @@ const COMPARE_FLAG: &str = "--compare=";
 /// writes nothing; the walk-through's own Finish and Skip do.
 const SETUP_FLAG: &str = "--setup";
 
+/// The flag that prints the version and exits before anything else runs.
+///
+/// `--version`. No window, no database, no MCP port: what a script or a
+/// packaging check asks a binary to prove it starts at all — which is
+/// the question a binary that cannot find a shared library fails before
+/// `main` (`tests/standalone.rs`).
+const VERSION_FLAG: &str = "--version";
+
 /// What the command line asked for.
 ///
 /// Everything it does not recognise is **ignored**, and that is not
@@ -667,6 +675,8 @@ struct Launch {
     panel: bool,
     /// Whether the setup walk-through was asked for.
     setup: bool,
+    /// Whether only the version was asked for.
+    version: bool,
     /// The files to queue at startup, in the order they were named.
     import: Vec<PathBuf>,
     /// The files to open Compare windows on, in the order they were
@@ -684,6 +694,10 @@ fn launch_from(arguments: impl IntoIterator<Item = String>) -> Launch {
         }
         if argument == SETUP_FLAG {
             launch.setup = true;
+            continue;
+        }
+        if argument == VERSION_FLAG {
+            launch.version = true;
             continue;
         }
         if let Some(path) = argument.strip_prefix(IMPORT_FLAG) {
@@ -793,6 +807,11 @@ fn main() {
     // After the subscriber, so that a mistyped section is a warning
     // somebody can find rather than one emitted into nothing.
     let launch = launch_from(std::env::args().skip(1));
+    if launch.version {
+        // A format, read by scripts: never localized.
+        println!("wipemark {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
 
     // Opened before the app starts, and after logging, so that the one
     // warning a missing or unopenable database earns lands in the log
@@ -1301,6 +1320,8 @@ mod tests {
     #[test]
     fn the_walk_through_can_be_asked_for_on_the_command_line() {
         assert!(launch(&["--setup"]).setup);
+        assert!(launch(&["--version"]).version);
+        assert!(!launch(&["--setup"]).version);
         assert!(!launch(&[]).setup, "nothing asked for it");
         assert!(
             !launch(&["--setups", "--setup=1"]).setup,

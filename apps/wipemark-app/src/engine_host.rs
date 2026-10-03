@@ -977,11 +977,17 @@ fn unavailable_of(error: EngineError) -> Unavailable {
     }
 }
 
-/// At most [`CHECK_SHOWN`] characters of a check's answer, trimmed.
+/// At most [`CHECK_SHOWN`] characters of a check's answer, on one line.
+///
+/// Every run of whitespace — a model's newlines included — is one space:
+/// the answer is shown inside quotation marks in one sentence, and a
+/// newline there put the closing mark on a line of its own. A cut never
+/// leaves a space before the ellipsis.
 fn shown(text: &str) -> String {
-    let text = text.trim();
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut shown: String = text.chars().take(CHECK_SHOWN).collect();
     if text.chars().count() > CHECK_SHOWN {
+        shown.truncate(shown.trim_end().len());
         shown.push('…');
     }
     shown
@@ -1671,6 +1677,12 @@ mod tests {
     #[test]
     fn a_check_shows_at_most_eighty_characters() {
         assert_eq!(shown("  ready \n"), "ready");
+        assert_eq!(shown("one two\nthree\n\nfour"), "one two three four");
+        let spaced = format!("{} tail", "a".repeat(CHECK_SHOWN - 1));
+        assert!(
+            shown(&spaced).ends_with("a…"),
+            "a space before the ellipsis"
+        );
         let long = "a".repeat(200);
         let cut = shown(&long);
         assert_eq!(cut.chars().count(), CHECK_SHOWN + 1);

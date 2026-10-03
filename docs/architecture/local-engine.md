@@ -151,6 +151,21 @@ a `cargo:warning`), so `GGML_CUDA=ON` on a machine with the CUDA toolkit
 builds `libggml-cuda` beside the CPU libraries. The defaults build the
 CPU variants everywhere and Metal on macOS.
 
+### A binary finds the libraries through its rpath
+
+llama.cpp is linked as shared libraries (`libggml`, `libggml-base`,
+`libllama`) that live in `wipemark-llama-sys`'s `OUT_DIR`. `cargo run` and
+`cargo test` put that directory on the loader path, so nothing run through
+cargo can tell whether a binary finds them by itself — and `wipemark` built
+with `llama-native` did not: it stopped before `main`. `rustc-link-arg`
+reaches only the targets of the package that prints it, so the sys crate
+exports the directory as `links` metadata (`cargo:lib_dir`), the two
+applications name the sys crate directly under `llama-native` to receive it
+as `DEP_WIPEMARK_LLAMA_LIB_DIR`, and their `build.rs` write it into the
+binary's rpath. `apps/wipemark-app/tests/standalone.rs` runs
+`wipemark --version` with cargo's paths removed. A shipped bundle needs an
+`$ORIGIN`-relative rpath and the libraries beside the executable — E10.
+
 ## Threads, and why a cancel waits (D49)
 
 `LocalEngine::new` spawns one `std::thread` named `wipemark-llama` that

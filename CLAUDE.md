@@ -150,6 +150,7 @@ made against something other than the real installation:
 | `--setup` | opens the first-launch walk-through over the main window, whether or not it has been through before. Writes nothing; its own Finish and Skip do. |
 | `--import=<path>` | puts a file in the queue at startup, once per flag — what a drop or the Import button does, so a check of the table does not start by driving a file picker. |
 | `--compare=<path>` | opens the Compare window on a file at startup, once per flag — what a row's Actions menu does, so a check of two panes of text does not start by driving a menu. |
+| `--version` | prints `wipemark <version>` and exits before the database, the MCP port or a window — what `tests/standalone.rs` runs to prove a binary built with `llama-native` finds llama.cpp's libraries without cargo's loader path. |
 
 Seeding a scratch database is `sqlite3 $WIPEMARK_DATA_DIR/wipemark.db`
 over the `settings` table — one row per key, values as JSON.

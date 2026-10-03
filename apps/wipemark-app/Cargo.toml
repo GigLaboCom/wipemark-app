@@ -13,6 +13,11 @@ name = "wipemark"
 path = "src/main.rs"
 
 [dependencies]
+# Named directly, and only under `llama-native`, for one thing: its
+# `links` metadata reaches this package's build script only through a direct
+# dependency, and build.rs puts llama.cpp's library directory on this
+# binary's rpath. Nothing in src/ uses it.
+wipemark-llama-sys = { workspace = true, optional = true }
 gpui.workspace = true
 gpui_platform.workspace = true
 gpui-component.workspace = true
@@ -139,7 +144,7 @@ default = []
 # over a shim that refuses every load (no C++ toolchain); `llama-native`
 # builds llama.cpp and links it in.
 local-llama = ["wipemark-engine/local-llama"]
-llama-native = ["local-llama", "wipemark-engine/llama-native"]
+llama-native = ["local-llama", "wipemark-engine/llama-native", "dep:wipemark-llama-sys"]
 
 # cargo-bundle / cargo-packager metadata (epic E10). The identifier is
 # the same string `wipemark-models::layout::BUNDLE_ID` derives the data

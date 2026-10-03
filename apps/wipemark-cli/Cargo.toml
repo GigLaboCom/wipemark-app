@@ -13,6 +13,11 @@ name = "wipemark-cli"
 path = "src/main.rs"
 
 [dependencies]
+# Named directly, and only under `llama-native`, for one thing: its
+# `links` metadata reaches this package's build script only through a direct
+# dependency, and build.rs puts llama.cpp's library directory on this
+# binary's rpath. Nothing in src/ uses it.
+wipemark-llama-sys = { workspace = true, optional = true }
 wipemark-core.workspace = true
 wipemark-i18n.workspace = true
 wipemark-pipeline.workspace = true
@@ -40,7 +45,7 @@ default = []
 # The local engine, forwarded through the pipeline: `local-llama` over a
 # shim that refuses every load, `llama-native` with llama.cpp built in.
 local-llama = ["wipemark-pipeline/local-llama"]
-llama-native = ["local-llama", "wipemark-pipeline/llama-native"]
+llama-native = ["local-llama", "wipemark-pipeline/llama-native", "dep:wipemark-llama-sys"]
 
 [lints]
 workspace = true

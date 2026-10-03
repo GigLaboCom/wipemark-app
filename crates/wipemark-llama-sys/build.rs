@@ -419,13 +419,19 @@ Libs: -L${libdir} -lggml
         if libdir64.exists() {
             println!("cargo:rustc-link-search=native={}", libdir64.display());
         }
-        // An rpath for this crate's own test binaries. A dependent's test or
-        // binary run through `cargo test`/`cargo run` finds the libraries
-        // because cargo puts link-search dirs under the target directory on
-        // the loader path; a shipped binary is E10's business.
+        // An rpath for this crate's own test binaries. `rustc-link-arg`
+        // reaches only the targets of the package that prints it, so a
+        // dependent's binary gets none from here: run outside cargo, a
+        // `wipemark` built with `llama-native` could not find `libggml` and
+        // did not start. The directory is therefore also handed up as
+        // `links` metadata — `DEP_WIPEMARK_LLAMA_LIB_DIR` in the build script
+        // of a package that depends on this one directly — and the two
+        // applications put it on their own binaries' rpath. A shipped
+        // binary's `$ORIGIN`-relative rpath is E10's business.
         for dir in [&libdir, &libdir64] {
             println!("cargo:rustc-link-arg=-Wl,-rpath,{}", dir.display());
         }
+        println!("cargo:lib_dir={}", libdir.display());
 
         for lib in ["ggml", "ggml-base", "llama"] {
             println!("cargo:rustc-link-lib=dylib={lib}");
