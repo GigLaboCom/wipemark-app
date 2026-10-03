@@ -506,23 +506,38 @@ fn clean_exits_as_inspect_does_on_every_fixture() {
     assert!(read >= 22, "only {read} fixtures were read");
 }
 
-/// What this version does not do still refuses at 2, says so on stderr,
-/// and prints nothing a parser could take for an answer.
+/// After E5-1 the one command that still refuses is `rewrite`: exit 2,
+/// the sentence on stderr, nothing on stdout. Every other command runs —
+/// none of them answers with the refusal.
 #[test]
-fn the_commands_that_are_not_here_yet_still_refuse_at_two() {
+fn only_rewrite_still_refuses() {
     let scratch = Scratch::new("refuse");
     scratch.file("x.md", "a\u{200B}b".as_bytes());
+    std::fs::create_dir(scratch.path("tree")).expect("a folder");
+    let output = scratch.run(&["rewrite", "x.md"]);
+    assert_eq!(code(&output), 2);
+    assert!(
+        stderr(&output).contains("not implemented yet"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(output.stdout.is_empty());
+    assert!(!scratch.path("x.cleaned.md").exists());
+
     for arguments in [
-        &["rewrite", "x.md"][..],
-        &["models", "list"],
-        &["audit", "."],
+        &["models", "list"][..],
+        &["models", "verify", "qwen3-4b-instruct-2507-ud-q4"],
+        &["models", "rm", "qwen3-4b-instruct-2507-ud-q4"],
+        &["audit", "tree"],
     ] {
         let output = scratch.run(arguments);
-        assert_eq!(code(&output), 2, "{arguments:?}");
-        assert!(!output.stderr.is_empty(), "{arguments:?}");
-        assert!(output.stdout.is_empty(), "{arguments:?}");
+        assert!(
+            !stderr(&output).contains("not implemented"),
+            "{arguments:?}: {}",
+            stderr(&output)
+        );
+        assert_ne!(code(&output), 2, "{arguments:?}: {}", stderr(&output));
     }
-    assert!(!scratch.path("x.cleaned.md").exists());
 }
 
 /// The log has the shape of the run and nothing of its content: not the
@@ -550,4 +565,792 @@ fn nothing_reaches_the_log_but_the_shape() {
         files += 1;
     }
     assert!(files > 0, "no log was written");
+}
+
+// ---------------------------------------------------------------------
+// clean --in-place
+// ---------------------------------------------------------------------
+
+/// The names in the scratch folder, sorted — the data directory left out,
+/// because the run writes its log there.
+fn names(scratch: &Scratch) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(&scratch.0)
+        .expect("the scratch folder")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name != "data")
+        .collect();
+    names.sort();
+    names
+}
+
+/// The order is the protection: the original is renamed aside first,
+/// then the cleaned text replaces the file. The set-aside copy is the
+/// input byte for byte, and no `.cleaned` file appears beside them.
+#[test]
+fn in_place_sets_the_original_aside_and_cleans_the_file() {
+    let scratch = Scratch::new("in-place");
+    let input = "Hello\u{200B}world\n".as_bytes();
+    scratch.file("note.md", input);
+
+    let output = scratch.run(&["clean", "note.md", "--in-place"]);
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    assert_eq!(
+        std::fs::read(scratch.path("note.md")).expect("the file"),
+        b"Helloworld\n"
+    );
+    assert_eq!(
+        std::fs::read(scratch.path("note.original.md")).expect("the original"),
+        input,
+        "the original was not set aside byte for byte"
+    );
+    assert_eq!(names(&scratch), ["note.md", "note.original.md"]);
+    let report = stdout(&output);
+    assert!(report.contains("note.original.md"), "{report}");
+
+    // --json: the report and where things went, never the text.
+    scratch.file("other.md", input);
+    let output = scratch.run(&["clean", "other.md", "--in-place", "--json"]);
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    let answer = json(&output);
+    assert!(answer["report"]["unicode_version"].is_string(), "{answer}");
+    assert!(answer.get("text").is_none(), "{answer}");
+    assert!(
+        answer["written"]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("other.md")),
+        "{answer}"
+    );
+    assert!(
+        answer["written"]["original"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("other.original.md")),
+        "{answer}"
+    );
+}
+
+/// ExifTool's rule: the first original is the original. A second run
+/// over a file whose original is already set aside refuses at 2, names
+/// the file in the way, and touches neither.
+#[test]
+fn in_place_never_overwrites_an_existing_original() {
+    let scratch = Scratch::new("in-place-twice");
+    scratch.file("note.md", "a\u{200B}b\n".as_bytes());
+    scratch.file("note.original.md", b"the first original");
+
+    let output = scratch.run(&["clean", "note.md", "--in-place"]);
+    assert_eq!(code(&output), 2, "{}", stderr(&output));
+    assert!(output.stdout.is_empty(), "{}", stdout(&output));
+    assert!(
+        stderr(&output).contains("note.original.md"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(
+        std::fs::read(scratch.path("note.md")).expect("the file"),
+        "a\u{200B}b\n".as_bytes(),
+        "the file was changed"
+    );
+    assert_eq!(
+        std::fs::read(scratch.path("note.original.md")).expect("the original"),
+        b"the first original",
+        "an existing original was overwritten"
+    );
+    assert_eq!(names(&scratch), ["note.md", "note.original.md"]);
+}
+
+/// The per-run flag, never a preference: no copy of the original, and
+/// nothing else left behind either.
+#[test]
+fn in_place_with_no_original_keeps_no_copy() {
+    let scratch = Scratch::new("in-place-no-copy");
+    scratch.file("note.md", "a\u{200B}b\n".as_bytes());
+
+    let output = scratch.run(&["clean", "note.md", "--in-place", "--no-original"]);
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    assert_eq!(
+        std::fs::read(scratch.path("note.md")).expect("the file"),
+        b"ab\n"
+    );
+    assert_eq!(names(&scratch), ["note.md"], "a copy was kept anyway");
+
+    let output = scratch.run(&["clean", "note.md", "--in-place", "--no-original", "--json"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+}
+
+/// Nothing to change is nothing touched: no original set aside, no new
+/// inode, the modification time where it was. A homoglyph kept without
+/// `--aggressive` is the one case with findings and no change — it
+/// still exits 1, and still touches nothing.
+#[test]
+fn in_place_touches_nothing_when_nothing_changed() {
+    let scratch = Scratch::new("in-place-nothing");
+    let then = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+    for (name, bytes, exit) in [
+        ("plain.md", "plain text\n".as_bytes(), 0),
+        ("pay.md", "p\u{0430}y\n".as_bytes(), 1),
+    ] {
+        let path = scratch.file(name, bytes);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .expect("open")
+            .set_modified(then)
+            .expect("an old mtime");
+        #[cfg(unix)]
+        let inode = {
+            use std::os::unix::fs::MetadataExt as _;
+            std::fs::metadata(&path).expect("meta").ino()
+        };
+
+        let output = scratch.run(&["clean", name, "--in-place"]);
+        assert_eq!(code(&output), exit, "{name}: {}", stderr(&output));
+        assert_eq!(std::fs::read(&path).expect("the file"), bytes, "{name}");
+        assert_eq!(
+            std::fs::metadata(&path)
+                .expect("meta")
+                .modified()
+                .expect("mtime"),
+            then,
+            "{name}: the file was written although nothing changed"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            assert_eq!(
+                std::fs::metadata(&path).expect("meta").ino(),
+                inode,
+                "{name}"
+            );
+        }
+        let output = scratch.run(&["clean", name, "--in-place", "--json"]);
+        assert_eq!(json(&output)["written"], Value::Null, "{name}");
+    }
+    assert_eq!(
+        names(&scratch),
+        ["pay.md", "plain.md"],
+        "an original was set aside"
+    );
+}
+
+/// `--in-place` replaces a *file*: not standard input, not beside `-o`,
+/// and `--no-original` means nothing without it. All refused at 2 with
+/// the file untouched.
+#[test]
+fn in_place_refuses_stdin_and_conflicts_with_out() {
+    let scratch = Scratch::new("in-place-usage");
+    let input = "a\u{200B}b\n".as_bytes();
+    scratch.file("note.md", input);
+    for (arguments, stdin) in [
+        (&["clean", "-", "--in-place"][..], Some(input)),
+        (&["clean", "note.md", "--in-place", "-o", "out.md"], None),
+        (&["clean", "note.md", "--no-original"], None),
+    ] {
+        let output = scratch.run_with(arguments, stdin);
+        assert_eq!(code(&output), 2, "{arguments:?}: {}", stderr(&output));
+        assert!(output.stdout.is_empty(), "{arguments:?}");
+        assert!(!output.stderr.is_empty(), "{arguments:?}");
+    }
+    assert_eq!(
+        std::fs::read(scratch.path("note.md")).expect("the file"),
+        input
+    );
+    assert_eq!(names(&scratch), ["note.md"]);
+}
+
+/// The cleaned file keeps the mode bits the original had — the set-aside
+/// original keeps them too, being the same file under another name.
+#[cfg(unix)]
+#[test]
+fn in_place_keeps_the_file_permissions() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let scratch = Scratch::new("in-place-mode");
+    for (name, extra) in [("note.md", None), ("bare.md", Some("--no-original"))] {
+        let path = scratch.file(name, "a\u{200B}b\n".as_bytes());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))
+            .expect("permissions");
+        let mut arguments = vec!["clean", name, "--in-place"];
+        arguments.extend(extra);
+        let output = scratch.run(&arguments);
+        assert_eq!(code(&output), 1, "{name}: {}", stderr(&output));
+        let mode = std::fs::metadata(&path).expect("meta").permissions().mode() & 0o777;
+        assert_eq!(mode, 0o640, "{name}: the cleaned file lost its permissions");
+    }
+    let original = std::fs::metadata(scratch.path("note.original.md")).expect("the original");
+    assert_eq!(original.permissions().mode() & 0o777, 0o640);
+}
+
+/// D11 holds in place as it does beside: a UTF-16 file is replaced by
+/// UTF-16, its byte order mark included, and the original set aside is
+/// the input's bytes.
+#[test]
+fn in_place_keeps_the_files_encoding() {
+    fn utf16le(text: &str) -> Vec<u8> {
+        text.encode_utf16().flat_map(u16::to_le_bytes).collect()
+    }
+    let scratch = Scratch::new("in-place-utf16");
+    let input = utf16le("\u{FEFF}a\u{200B}b\n");
+    scratch.file("wide.txt", &input);
+    let output = scratch.run(&["clean", "wide.txt", "--in-place"]);
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    assert_eq!(
+        std::fs::read(scratch.path("wide.txt")).expect("the file"),
+        utf16le("\u{FEFF}ab\n"),
+        "the file was not written back in its own encoding"
+    );
+    assert_eq!(
+        std::fs::read(scratch.path("wide.original.txt")).expect("the original"),
+        input
+    );
+}
+
+// ---------------------------------------------------------------------
+// audit
+// ---------------------------------------------------------------------
+
+const SHELF_IDS: [&str; 3] = [
+    "vendor-detector-evasion",
+    "human-authorship",
+    "unknown-mark-schemes",
+];
+
+/// A tree under the scratch folder — not the scratch folder itself,
+/// whose `data/logs` the run writes to while it walks.
+fn tree(scratch: &Scratch, files: &[(&str, &[u8])]) -> PathBuf {
+    let root = scratch.path("tree");
+    std::fs::create_dir_all(&root).expect("the tree");
+    for (name, bytes) in files {
+        let path = root.join(name);
+        std::fs::create_dir_all(path.parent().expect("a parent")).expect("folders");
+        std::fs::write(path, bytes).expect("write");
+    }
+    root
+}
+
+/// The file entry for `path` in an `audit --json` answer.
+fn entry<'a>(answer: &'a Value, path: &str) -> &'a Value {
+    answer["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .find(|file| file["path"] == path)
+        .unwrap_or_else(|| panic!("{path} is not listed: {answer}"))
+}
+
+/// A file made unreadable, or `None` when this process reads it anyway
+/// (root does) and the test has nothing to prove.
+#[cfg(unix)]
+fn locked(path: &Path) -> Option<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+    if std::fs::read(path).is_ok() {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+        return None;
+    }
+    Some(())
+}
+
+/// The pre-commit scenario: a clean tree exits 0, the same tree with one
+/// zero-width space anywhere in it exits 1 and names the file.
+#[test]
+fn audit_exits_one_for_findings_and_zero_for_a_clean_tree() {
+    let scratch = Scratch::new("audit");
+    tree(
+        &scratch,
+        &[
+            ("a.md", b"plain\n"),
+            ("sub/b.txt", "\u{e9}t\u{e9}\n".as_bytes()),
+        ],
+    );
+    let output = scratch.run(&["audit", "tree"]);
+    assert_eq!(code(&output), 0, "{}{}", stdout(&output), stderr(&output));
+    assert!(stdout(&output).contains("scanned 2"), "{}", stdout(&output));
+
+    tree(
+        &scratch,
+        &[("sub/c.md", "a\u{200B}b\u{200B}c\n".as_bytes())],
+    );
+    let output = scratch.run(&["audit", "tree"]);
+    assert_eq!(code(&output), 1, "{}{}", stdout(&output), stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains("sub/c.md: 2 findings"), "{text}");
+    assert!(!text.contains("a.md:"), "a clean file was listed: {text}");
+    assert!(
+        text.lines()
+            .any(|line| line.contains("scanned 3") && line.contains("with findings 1")),
+        "{text}"
+    );
+
+    // Not a folder, or not there: the caller's mistake.
+    for arguments in [&["audit", "tree/a.md"][..], &["audit", "nope"]] {
+        let output = scratch.run(arguments);
+        assert_eq!(code(&output), 2, "{arguments:?}: {}", stderr(&output));
+        assert!(output.stdout.is_empty(), "{arguments:?}");
+    }
+}
+
+/// Inconclusive is not clean, and it beats a finding: a hook must not
+/// read a scan with a hole in it as a complete one with marks in it.
+#[cfg(unix)]
+#[test]
+fn audit_exits_three_when_a_file_could_not_be_read_even_with_findings_elsewhere() {
+    let scratch = Scratch::new("audit-locked");
+    let root = tree(
+        &scratch,
+        &[
+            ("marked.md", "a\u{200B}b\n".as_bytes()),
+            ("locked.md", b"x\n"),
+        ],
+    );
+    if locked(&root.join("locked.md")).is_none() {
+        eprintln!("skipped: this process reads a mode-000 file (root)");
+        return;
+    }
+    let output = scratch.run(&["audit", "tree"]);
+    assert_eq!(code(&output), 3, "{}{}", stdout(&output), stderr(&output));
+    let text = stdout(&output);
+    assert!(text.contains("marked.md: 1 finding"), "{text}");
+    assert!(text.contains("locked.md could not be read"), "{text}");
+
+    let answer = json(&scratch.run(&["audit", "tree", "--json"]));
+    assert_eq!(
+        entry(&answer, "locked.md")["status"],
+        "unreadable",
+        "{answer}"
+    );
+    assert_eq!(answer["summary"]["unreadable"], 1, "{answer}");
+}
+
+/// Hidden entries — `.git` above all — and what is not text are skipped,
+/// counted and listed, and never read: a zero-width space inside `.git`
+/// does not make the tree marked.
+#[test]
+fn audit_skips_hidden_entries_and_binary_files_and_counts_them() {
+    let scratch = Scratch::new("audit-skip");
+    let marked = "a\u{200B}b\n".as_bytes();
+    tree(
+        &scratch,
+        &[
+            (".git/COMMIT_EDITMSG", marked),
+            (".hidden.md", marked),
+            (
+                "image.png",
+                b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01",
+            ),
+            ("empty.txt", b""),
+            ("ok.md", b"fine\n"),
+        ],
+    );
+    let output = scratch.run(&["audit", "tree", "--json"]);
+    assert_eq!(code(&output), 0, "{}", stdout(&output));
+    let answer = json(&output);
+    assert_eq!(answer["summary"]["scanned"], 1, "{answer}");
+    assert_eq!(answer["summary"]["skipped"], 4, "{answer}");
+    assert_eq!(answer["summary"]["unreadable"], 0, "{answer}");
+    for path in [".git", ".hidden.md", "image.png", "empty.txt"] {
+        assert_eq!(
+            entry(&answer, path)["status"],
+            "skipped",
+            "{path}: {answer}"
+        );
+        assert!(
+            entry(&answer, path)["reason"].is_string(),
+            "{path}: {answer}"
+        );
+        assert_eq!(entry(&answer, path)["report"], Value::Null, "{path}");
+    }
+    assert_eq!(entry(&answer, "ok.md")["status"], "scanned");
+    let output = scratch.run(&["audit", "tree"]);
+    assert!(stdout(&output).contains("skipped 4"), "{}", stdout(&output));
+}
+
+/// A link to a folder is not followed — a link back up the tree is a
+/// loop, a link out of it is somebody else's tree — while a link to a
+/// file is read like the file.
+#[cfg(unix)]
+#[test]
+fn audit_does_not_follow_a_directory_symlink() {
+    let scratch = Scratch::new("audit-links");
+    let root = tree(&scratch, &[("real/x.md", b"fine\n")]);
+    let outside = scratch.path("outside");
+    std::fs::create_dir(&outside).expect("a folder");
+    std::fs::write(outside.join("marked.md"), "a\u{200B}b".as_bytes()).expect("write");
+    std::fs::write(outside.join("linked.md"), b"also fine\n").expect("write");
+    std::os::unix::fs::symlink(&root, root.join("real/loop")).expect("a loop");
+    std::os::unix::fs::symlink(&outside, root.join("elsewhere")).expect("a link out");
+    std::os::unix::fs::symlink(outside.join("linked.md"), root.join("linked.md"))
+        .expect("a file link");
+
+    let output = scratch.run(&["audit", "tree", "--json"]);
+    assert_eq!(code(&output), 0, "{}{}", stdout(&output), stderr(&output));
+    let answer = json(&output);
+    assert_eq!(entry(&answer, "real/loop")["status"], "skipped", "{answer}");
+    assert_eq!(entry(&answer, "elsewhere")["status"], "skipped", "{answer}");
+    assert_eq!(entry(&answer, "linked.md")["status"], "scanned", "{answer}");
+    assert_eq!(answer["summary"]["scanned"], 2, "{answer}");
+}
+
+/// Every scanned file carries the report `inspect --json` prints, third
+/// shelf included; a skipped one carries none, never an empty report.
+#[test]
+fn audit_json_carries_every_report_with_its_third_shelf() {
+    let scratch = Scratch::new("audit-json");
+    tree(
+        &scratch,
+        &[
+            ("marked.md", "a\u{200B}b\n".as_bytes()),
+            ("plain.md", b"plain\n"),
+            (
+                "image.png",
+                b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01",
+            ),
+        ],
+    );
+    let output = scratch.run(&["audit", "tree", "--json"]);
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    assert!(output.stdout.is_ascii());
+    assert_eq!(
+        stdout(&output).lines().count(),
+        1,
+        "one JSON value, one line"
+    );
+    let answer = json(&output);
+    assert_eq!(answer["version"], 1);
+    assert_eq!(answer["unicode"], "18.0.0");
+    assert_eq!(answer["root"], "tree");
+    let inspected = json(&scratch.run(&["inspect", "tree/marked.md", "--json"]));
+    assert_eq!(
+        entry(&answer, "marked.md")["report"],
+        inspected,
+        "not inspect's report"
+    );
+    for path in ["marked.md", "plain.md"] {
+        let file = entry(&answer, path);
+        assert_eq!(file["status"], "scanned", "{path}");
+        assert_eq!(file["reason"], Value::Null, "{path}");
+        assert_eq!(
+            file["report"]["not_established"],
+            serde_json::json!(SHELF_IDS),
+            "{path}: the third shelf is missing"
+        );
+    }
+    assert_eq!(entry(&answer, "image.png")["report"], Value::Null);
+    assert_eq!(answer["summary"]["with_findings"], 1, "{answer}");
+}
+
+/// SARIF 2.1.0 in the shape code scanning reads, with columns counted in
+/// code points: a zero-width space after two CJK characters on line 2 is
+/// at column 3 — not 7, which is where it is in bytes.
+#[test]
+fn audit_sarif_is_2_1_0_with_code_point_columns() {
+    let scratch = Scratch::new("audit-sarif");
+    tree(
+        &scratch,
+        &[
+            (
+                "docs/cjk.md",
+                "first line\n\u{6F22}\u{5B57}\u{200B}x\n".as_bytes(),
+            ),
+            ("plain.md", b"plain\n"),
+        ],
+    );
+    let output = scratch.run(&["audit", "tree", "--sarif"]);
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    let sarif = json(&output);
+    assert_eq!(sarif["version"], "2.1.0", "{sarif}");
+    assert!(sarif["$schema"]
+        .as_str()
+        .is_some_and(|s| s.contains("sarif")));
+    let runs = sarif["runs"].as_array().expect("runs");
+    assert_eq!(runs.len(), 1);
+    let run = &runs[0];
+    assert_eq!(run["tool"]["driver"]["name"], "wipemark");
+    assert!(run["tool"]["driver"]["version"].is_string());
+    assert!(run["tool"]["driver"].get("informationUri").is_none());
+    assert_eq!(run["columnKind"], "unicodeCodePoints");
+    let rules = run["tool"]["driver"]["rules"].as_array().expect("rules");
+    assert_eq!(rules.len(), 1, "{rules:?}");
+    assert_eq!(rules[0]["id"], "zero-width");
+    assert!(rules[0]["shortDescription"]["text"].is_string());
+    assert_eq!(run["invocations"][0]["executionSuccessful"], true);
+
+    let results = run["results"].as_array().expect("results");
+    assert_eq!(results.len(), 1, "{results:?}");
+    let result = &results[0];
+    assert_eq!(result["ruleId"], "zero-width");
+    assert_eq!(result["level"], "error");
+    assert!(
+        result["message"]["text"]
+            .as_str()
+            .is_some_and(|text| text.contains("U+200B ZERO WIDTH SPACE")),
+        "{result}"
+    );
+    let location = &result["locations"][0]["physicalLocation"];
+    assert_eq!(location["artifactLocation"]["uri"], "docs/cjk.md");
+    assert_eq!(location["artifactLocation"]["uriBaseId"], "SRCROOT");
+    let region = &location["region"];
+    assert_eq!(region["startLine"], 2, "{region}");
+    assert_eq!(region["startColumn"], 3, "{region}");
+    assert_eq!(region["endColumn"], 4, "{region}");
+    assert_eq!(region["charOffset"], 13, "{region}");
+    assert_eq!(region["charLength"], 1, "{region}");
+
+    // --json and --sarif are two answers; asking for both is a mistake.
+    let output = scratch.run(&["audit", "tree", "--sarif", "--json"]);
+    assert_eq!(code(&output), 2, "{}", stderr(&output));
+}
+
+/// A file that could not be read is a notification at level `error`,
+/// and the invocation is not successful — the SARIF spelling of exit 3.
+#[cfg(unix)]
+#[test]
+fn audit_sarif_marks_the_run_unsuccessful_when_a_file_was_unreadable() {
+    let scratch = Scratch::new("audit-sarif-locked");
+    let root = tree(&scratch, &[("locked.md", b"x\n"), ("plain.md", b"plain\n")]);
+    if locked(&root.join("locked.md")).is_none() {
+        eprintln!("skipped: this process reads a mode-000 file (root)");
+        return;
+    }
+    let output = scratch.run(&["audit", "tree", "--sarif"]);
+    assert_eq!(code(&output), 3, "{}", stderr(&output));
+    let sarif = json(&output);
+    let invocation = &sarif["runs"][0]["invocations"][0];
+    assert_eq!(invocation["executionSuccessful"], false, "{invocation}");
+    let notes = invocation["toolExecutionNotifications"]
+        .as_array()
+        .expect("notes");
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0]["level"], "error");
+    assert_eq!(
+        notes[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
+        "locked.md"
+    );
+}
+
+// ---------------------------------------------------------------------
+// models
+// ---------------------------------------------------------------------
+
+const SMALL: &str = "qwen3-4b-instruct-2507-ud-q4";
+const SMALL_FILE: &str = "Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf";
+const LARGE: &str = "gemma-3-12b-it-qat-ud-q4";
+const LARGE_FILE: &str = "gemma-3-12b-it-qat-UD-Q4_K_XL.gguf";
+
+/// The models entry for `id` in a `models list --json` answer.
+fn model<'a>(answer: &'a Value, id: &str) -> &'a Value {
+    answer["models"]
+        .as_array()
+        .expect("models")
+        .iter()
+        .find(|model| model["id"] == id)
+        .unwrap_or_else(|| panic!("{id} is not listed: {answer}"))
+}
+
+/// A settings database in the scratch data directory with these rows —
+/// what the app would have written.
+fn seed(scratch: &Scratch, rows: &[(&str, &str)]) {
+    std::fs::create_dir_all(scratch.data()).expect("the data directory");
+    let store =
+        wipemark_store::Store::open(scratch.data().join("wipemark.db")).expect("a database");
+    for (key, value) in rows {
+        store.settings().set(key, *value).expect("a row");
+    }
+}
+
+/// Every catalogue entry is listed with what is on this machine for it:
+/// nothing, a partial download, or a file that does not match — and a
+/// weight file the catalogue does not know is listed after, unverified.
+#[test]
+fn models_list_names_every_catalogue_entry_and_its_state() {
+    let scratch = Scratch::new("models-list");
+    let output = scratch.run(&["models", "list"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let text = stdout(&output);
+    for id in [SMALL, LARGE] {
+        assert!(text.contains(id), "{id} missing:\n{text}");
+    }
+    assert!(text.contains("not downloaded"), "{text}");
+
+    let models = scratch.data().join("models");
+    std::fs::create_dir_all(models.join(SMALL)).expect("mkdir");
+    std::fs::write(
+        models.join(SMALL).join(format!("{SMALL_FILE}.part")),
+        vec![0u8; 1000],
+    )
+    .expect("a partial download");
+    std::fs::create_dir_all(models.join(LARGE)).expect("mkdir");
+    std::fs::write(models.join(LARGE).join(LARGE_FILE), b"not the weights").expect("a stray file");
+    std::fs::create_dir_all(models.join("lmstudio/vendor")).expect("mkdir");
+    std::fs::write(models.join("lmstudio/vendor/other.gguf"), b"GGUF").expect("another tool's");
+
+    let output = scratch.run(&["models", "list", "--json"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let answer = json(&output);
+    assert_eq!(model(&answer, SMALL)["state"], "partial", "{answer}");
+    assert_eq!(model(&answer, SMALL)["done_bytes"], 1000, "{answer}");
+    assert_eq!(model(&answer, LARGE)["state"], "mismatch", "{answer}");
+    for id in [SMALL, LARGE] {
+        let entry = model(&answer, id);
+        assert!(entry["size_bytes"]
+            .as_u64()
+            .is_some_and(|size| size > 1_000_000_000));
+        assert_eq!(entry["roles"], serde_json::json!(["rewrite"]), "{answer}");
+        assert!(
+            ["fits", "tight", "too-big", "unknown"]
+                .contains(&entry["fit"].as_str().expect("a fit")),
+            "{answer}"
+        );
+        assert_eq!(entry["chosen"], false, "{answer}");
+    }
+    let others = answer["others"].as_array().expect("others");
+    assert_eq!(others.len(), 1, "{others:?}");
+    assert_eq!(others[0]["path"], "lmstudio/vendor/other.gguf");
+    assert_eq!(others[0]["verified"], false);
+
+    let text = stdout(&scratch.run(&["models", "list"]));
+    assert!(text.contains("partly downloaded"), "{text}");
+    assert!(text.contains("does not match the catalogue"), "{text}");
+    assert!(text.contains("lmstudio/vendor/other.gguf"), "{text}");
+    assert!(text.contains("not verified"), "{text}");
+}
+
+/// The models folder and the chosen model are the app's rows, read and
+/// never written: a scratch folder named by `models.dir` is the one
+/// listed, and the chosen model is marked.
+#[test]
+fn models_read_the_folder_and_the_choice_the_app_saved() {
+    let scratch = Scratch::new("models-rows");
+    let elsewhere = scratch.path("weights");
+    std::fs::create_dir_all(elsewhere.join(SMALL)).expect("mkdir");
+    std::fs::write(
+        elsewhere.join(SMALL).join(format!("{SMALL_FILE}.part")),
+        b"xx",
+    )
+    .expect("part");
+    seed(
+        &scratch,
+        &[
+            ("models.dir", elsewhere.to_str().expect("UTF-8")),
+            ("models.rewrite", SMALL),
+        ],
+    );
+    let answer = json(&scratch.run(&["models", "list", "--json"]));
+    assert_eq!(
+        answer["folder"],
+        elsewhere.to_str().expect("UTF-8"),
+        "{answer}"
+    );
+    assert_eq!(model(&answer, SMALL)["state"], "partial", "{answer}");
+    assert_eq!(model(&answer, SMALL)["chosen"], true, "{answer}");
+    assert_eq!(model(&answer, LARGE)["chosen"], false, "{answer}");
+
+    // A relative row is unusable: the default folder, and the row left.
+    seed(&scratch, &[("models.dir", "relative/weights")]);
+    let answer = json(&scratch.run(&["models", "list", "--json"]));
+    assert_eq!(
+        answer["folder"],
+        scratch.data().join("models").to_str().expect("UTF-8"),
+        "{answer}"
+    );
+}
+
+/// An id the catalogue does not have is refused by name, with the ids it
+/// does have — for every subcommand that takes one.
+#[test]
+fn models_with_an_unknown_id_refuse_and_list_the_ids() {
+    let scratch = Scratch::new("models-unknown");
+    for command in ["pull", "verify", "rm"] {
+        let output = scratch.run(&["models", command, "qwen3-8b"]);
+        assert_eq!(code(&output), 2, "{command}: {}", stderr(&output));
+        assert!(output.stdout.is_empty(), "{command}");
+        let text = stderr(&output);
+        assert!(text.contains("qwen3-8b"), "{command}: {text}");
+        for id in [SMALL, LARGE] {
+            assert!(text.contains(id), "{command}: {id} not offered: {text}");
+        }
+    }
+    assert!(
+        !scratch.data().join("models").exists(),
+        "an unknown id created a folder"
+    );
+}
+
+/// Verify is a finding when the file is not the catalogue's: absent, or
+/// present with the wrong bytes. Both exit 1, never 0.
+#[test]
+fn models_verify_of_an_absent_model_is_a_finding() {
+    let scratch = Scratch::new("models-verify");
+    let output = scratch.run(&["models", "verify", SMALL]);
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    assert!(stdout(&output).contains(SMALL), "{}", stdout(&output));
+
+    let folder = scratch.data().join("models").join(SMALL);
+    std::fs::create_dir_all(&folder).expect("mkdir");
+    std::fs::write(folder.join(SMALL_FILE), b"not the weights").expect("write");
+    let output = scratch.run(&["models", "verify", SMALL]);
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("does not match the catalogue"),
+        "{}",
+        stdout(&output)
+    );
+}
+
+/// Removing what is not there is not a failure, and says so; removing
+/// the chosen model says what the application will show, and writes no
+/// row.
+#[test]
+fn models_rm_of_an_absent_model_says_so_and_exits_zero() {
+    let scratch = Scratch::new("models-rm");
+    let output = scratch.run(&["models", "rm", SMALL]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("was not on this machine"),
+        "{}",
+        stdout(&output)
+    );
+
+    let folder = scratch.data().join("models").join(SMALL);
+    std::fs::create_dir_all(&folder).expect("mkdir");
+    std::fs::write(folder.join(format!("{SMALL_FILE}.part")), b"xx").expect("write");
+    seed(&scratch, &[("models.rewrite", SMALL)]);
+    let output = scratch.run(&["models", "rm", SMALL]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert!(!folder.exists(), "the model folder is still there");
+    let text = stdout(&output);
+    assert!(text.contains("was removed"), "{text}");
+    assert!(text.contains("no model chosen"), "{text}");
+    let store = wipemark_store::Store::open_read_only(scratch.data().join("wipemark.db"))
+        .expect("the database")
+        .expect("it exists");
+    let chosen: Option<String> = store.settings().get("models.rewrite").expect("a read");
+    assert_eq!(chosen.as_deref(), Some(SMALL), "the CLI wrote the row");
+}
+
+/// The CLI opens the app's database read-only and never creates one —
+/// not to list models, not to verify or remove one, not to audit.
+#[test]
+fn the_cli_never_creates_a_database() {
+    let scratch = Scratch::new("no-db");
+    tree(&scratch, &[("a.md", b"plain\n")]);
+    for arguments in [
+        &["models", "list"][..],
+        &["models", "list", "--json"],
+        &["models", "verify", SMALL],
+        &["models", "rm", SMALL],
+        &["audit", "tree"],
+    ] {
+        scratch.run(arguments);
+        for name in ["wipemark.db", "wipemark.db-wal", "wipemark.db-shm"] {
+            assert!(
+                !scratch.data().join(name).exists(),
+                "{arguments:?} created {name}"
+            );
+        }
+    }
 }

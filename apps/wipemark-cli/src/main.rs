@@ -9,23 +9,35 @@
 //!
 //! ```text
 //! 0  clean       the input was read in full and nothing in it looks like a
-//!                mark; for clean, the result was written
+//!                mark; for clean, the result was written (or, in place,
+//!                nothing needed writing); for audit, every file under the
+//!                folder was read or skipped and none looks marked; for
+//!                models, the command did what it says
 //! 1  findings    the input was read in full and carries something that looks
 //!                like a mark — for clean as well, after removing it: a
 //!                pre-commit hook wants to know what was there; for clean,
-//!                the result was written
+//!                the result was written; for audit, at least one file does
+//!                and every file was read; for models verify, the model on
+//!                disk is not the catalogue's — or is not there
 //! 2  usage       bad arguments, or a refusal: a path that does not exist, a
-//!                folder, --out naming a folder or the input; and every
-//!                invocation of rewrite, models and audit in this version
+//!                folder, --out naming a folder or the input, --in-place on
+//!                standard input or a link, an original already set aside, a
+//!                replacement that could not be written (the file is as it
+//!                was); an id not in the catalogue, a download that did not
+//!                finish; and every invocation of rewrite in this version
 //! 3  partial     inconclusive: a file that exists and cannot be read, is not
 //!                text, is in an 8-bit encoding this version does not name or
 //!                holds an invalid sequence; a result that could not be
-//!                written; standard output that could not be written
+//!                written; standard output that could not be written; an
+//!                audit in which any file could not be read — even when
+//!                another had findings, because a scan with a hole in it is
+//!                not complete; a model file that could not be read
 //! ```
 //!
 //! Code 3 is the one that earns its keep: *inconclusive is not clean*.
 //! A file that was not read has not been proven unmarked, and a hook
-//! that treats that as success is worse than no hook.
+//! that treats that as success is worse than no hook — which is also why
+//! it beats 1 in `audit`.
 //!
 //! # Language
 //!
@@ -44,11 +56,17 @@
 //!
 //! `inspect` and `clean` run Layer A (`input` reads and decodes through
 //! `wipemark-intake`, `run` is the two flows and their exit codes,
-//! `report` the human report); `rewrite`, `models` and `audit` refuse
-//! with 2 until their epics land. A stub that exits 0 would be a hook
-//! that silently passes.
+//! `report` the human report, `inplace` every write to disk and
+//! `--in-place`); `audit` walks a folder through the same reader
+//! (`audit`); `models` is the catalogue and the downloader of
+//! `wipemark-models` (`models`). `rewrite` refuses with 2 until the
+//! pipeline lands. A stub that exits 0 would be a hook that silently
+//! passes.
 
+mod audit;
+mod inplace;
 mod input;
+mod models;
 mod report;
 mod run;
 
@@ -111,6 +129,10 @@ enum Action {
         path: String,
         #[arg(short, long)]
         out: Option<PathBuf>,
+        #[arg(long, conflicts_with = "out")]
+        in_place: bool,
+        #[arg(long, requires = "in_place")]
+        no_original: bool,
         #[arg(long)]
         nfkc: bool,
         #[arg(long)]
@@ -145,7 +167,7 @@ enum Action {
     Models(ModelsAction),
     Audit {
         dir: PathBuf,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "sarif")]
         json: bool,
         #[arg(long)]
         sarif: bool,
@@ -154,10 +176,19 @@ enum Action {
 
 #[derive(Debug, Subcommand)]
 enum ModelsAction {
-    List,
-    Pull { id: String },
-    Verify { id: String },
-    Rm { id: String },
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    Pull {
+        id: String,
+    },
+    Verify {
+        id: String,
+    },
+    Rm {
+        id: String,
+    },
 }
 
 impl Action {
@@ -171,11 +202,11 @@ impl Action {
     /// every other unlocalized fact goes.
     fn epic(&self) -> &'static str {
         match self {
-            // Never refused since E1-6; the arm keeps the match total.
+            // Never refused since E1-6 and E5-1; the arms keep the match
+            // total.
             Action::Inspect { .. } | Action::Clean { .. } => "E1",
-            Action::Rewrite { .. } => "E2 + E4 + E5",
-            Action::Models(_) => "E3",
-            Action::Audit { .. } => "E5",
+            Action::Models(_) | Action::Audit { .. } => "E5-1",
+            Action::Rewrite { .. } => "E2 + E4 + E5-2",
         }
     }
 
@@ -205,12 +236,18 @@ impl Action {
             Action::Clean {
                 path,
                 out,
+                in_place,
+                no_original,
                 nfkc,
                 aggressive,
                 json,
             } => format!(
                 "clean {path} -> {} (nfkc={nfkc}, aggressive={aggressive}, json={json})",
-                render_out(out.as_deref())
+                match (in_place, no_original) {
+                    (true, false) => "in place, original set aside".to_owned(),
+                    (true, true) => "in place, no original".to_owned(),
+                    _ => render_out(out.as_deref()),
+                }
             ),
             Action::Rewrite {
                 path,
@@ -229,7 +266,7 @@ impl Action {
                 model.as_deref().unwrap_or("<from config>"),
             ),
             Action::Models(models) => match models {
-                ModelsAction::List => "models list".to_owned(),
+                ModelsAction::List { json } => format!("models list (json={json})"),
                 ModelsAction::Pull { id } => format!("models pull {id}"),
                 ModelsAction::Verify { id } => format!("models verify {id}"),
                 ModelsAction::Rm { id } => format!("models rm {id}"),
@@ -257,9 +294,11 @@ fn render_out(out: Option<&std::path::Path>) -> String {
 /// is set per subcommand: `inspect` and `clean` take `-` for stdin and
 /// `rewrite` does not yet, and help that offered it everywhere would be
 /// help that lies.
-const ARGUMENT_HELP: [(&str, Message); 14] = [
+const ARGUMENT_HELP: [(&str, Message); 16] = [
     ("path", Message::CliArgPath),
     ("out", Message::CliArgOut),
+    ("in_place", Message::CliArgInPlace),
+    ("no_original", Message::CliArgNoOriginal),
     ("nfkc", Message::CliArgNfkc),
     ("aggressive", Message::CliArgAggressive),
     ("json", Message::CliArgJson),
@@ -541,28 +580,49 @@ fn main() -> ExitCode {
         }
     }
 
+    let io = &mut run::Io::standard();
     let exit = match &cli.command {
-        Action::Inspect { path, json } => run::inspect(path, *json, &mut run::Io::standard()),
+        Action::Inspect { path, json } => run::inspect(path, *json, io),
         Action::Clean {
             path,
             out,
+            in_place,
+            no_original,
             nfkc,
             aggressive,
             json,
         } => run::clean(
             path,
             out.as_deref(),
+            in_place.then_some(if *no_original {
+                inplace::Keep::Nothing
+            } else {
+                inplace::Keep::Original
+            }),
             *nfkc,
             *aggressive,
             *json,
-            &mut run::Io::standard(),
+            io,
         ),
-        other => refuse(other),
+        Action::Audit { dir, json, sarif } => {
+            let output = match (json, sarif) {
+                (true, _) => audit::Output::Json,
+                (_, true) => audit::Output::Sarif,
+                _ => audit::Output::Human,
+            };
+            audit::run(dir, output, io)
+        }
+        Action::Models(ModelsAction::List { json }) => models::list(*json, io),
+        Action::Models(ModelsAction::Pull { id }) => models::pull(id, io),
+        Action::Models(ModelsAction::Verify { id }) => models::verify(id, io),
+        Action::Models(ModelsAction::Rm { id }) => models::rm(id, io),
+        Action::Rewrite { .. } => refuse(&cli.command),
     };
     exit.into()
 }
 
-/// The commands this version does not run: `rewrite`, `models`, `audit`.
+/// The one command this version does not run: `rewrite`, which needs the
+/// pipeline (E4).
 fn refuse(command: &Action) -> Exit {
     // The catalogue string below is for the person reading the terminal.
     // This line is for the file, in English, unlocalized: nothing a
@@ -835,6 +895,58 @@ mod tests {
         match cli.command {
             Action::Models(ModelsAction::Pull { id }) => assert_eq!(id, "qwen3-8b"),
             other => panic!("parsed as {other:?}"),
+        }
+        let cli = Cli::parse_from(["wipemark-cli", "models", "list", "--json"]);
+        match cli.command {
+            Action::Models(ModelsAction::List { json }) => assert!(json),
+            other => panic!("parsed as {other:?}"),
+        }
+    }
+
+    /// `--in-place` is spelled out every time and never a default, it
+    /// cannot stand beside `-o`, and `--no-original` means nothing alone.
+    #[test]
+    fn in_place_is_explicit_and_exclusive() {
+        let cli = Cli::parse_from(["wipemark-cli", "clean", "note.md"]);
+        match cli.command {
+            Action::Clean {
+                in_place,
+                no_original,
+                ..
+            } => assert!(
+                !in_place && !no_original,
+                "in place must never be a default"
+            ),
+            other => panic!("parsed as {other:?}"),
+        }
+        let cli = Cli::parse_from([
+            "wipemark-cli",
+            "clean",
+            "note.md",
+            "--in-place",
+            "--no-original",
+        ]);
+        assert!(matches!(
+            cli.command,
+            Action::Clean {
+                in_place: true,
+                no_original: true,
+                ..
+            }
+        ));
+        for refused in [
+            &[
+                "wipemark-cli",
+                "clean",
+                "note.md",
+                "--in-place",
+                "-o",
+                "x.md",
+            ][..],
+            &["wipemark-cli", "clean", "note.md", "--no-original"],
+            &["wipemark-cli", "audit", ".", "--json", "--sarif"],
+        ] {
+            assert!(Cli::try_parse_from(refused).is_err(), "{refused:?} parsed");
         }
     }
 }

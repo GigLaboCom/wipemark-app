@@ -614,11 +614,11 @@ cli-command-inspect = Meldet, was in einem Dokument steckt, ohne es zu ändern.
 cli-command-clean = Nur { -layer-a }: deterministisch, nachprüfbar, ohne Modell.
 cli-command-rewrite = { -layer-a }, dann ein Umschreiben durch das Modell, dann wieder { -layer-a }.
 cli-command-models = Heruntergeladene Gewichte verwalten.
-cli-command-models-list = Das Manifest und das Installierte auflisten.
+cli-command-models-list = Jedes Modell im Katalog auflisten, was davon auf diesem Rechner liegt und ob es passt.
 cli-command-models-pull = Ein Modell anhand seiner Id herunterladen, eine Teildatei wird fortgesetzt.
-cli-command-models-verify = Ein installiertes Modell erneut gegen das Manifest hashen.
+cli-command-models-verify = Ein installiertes Modell vollständig neu hashen und mit dem Katalog vergleichen. Exit 1, wenn es nicht passt oder fehlt.
 cli-command-models-rm = Ein installiertes Modell löschen.
-cli-command-audit = Ein Verzeichnis durchlaufen und Funde melden, für CI.
+cli-command-audit = Einen Ordner durchlaufen und jede Textdatei darin mit Funden melden, für Pre-Commit-Hooks und CI. Exit 3, sobald eine Datei nicht gelesen werden konnte — auch wenn andere Funde hatten: Ein Scan mit einer Lücke ist nicht vollständig.
 
 cli-arg-path-or-stdin = Zu lesende Datei, oder `-` für die Standardeingabe.
 cli-arg-path = Zu lesende Datei.
@@ -635,6 +635,8 @@ cli-arg-force = Auch dann fortfahren, wenn die umschreibende Engine von dem Hers
 cli-arg-id = Modell-Id aus dem Manifest.
 cli-arg-dir = Zu durchlaufendes Verzeichnis.
 cli-arg-sarif = SARIF-Ausgabe für Code-Scanning-Dashboards.
+cli-arg-in-place = Die Datei durch ihren bereinigten Text ersetzen. Das Original wird vorher daneben als `<name>.original.<ext>` beiseitegelegt, und ein bereits vorhandenes Original wird nie überschrieben: Der Lauf verweigert dann. Wenn nichts zu ändern ist, wird nichts angefasst.
+cli-arg-no-original = Mit --in-place: keine Kopie des Originals behalten — für Dateien unter Versionsverwaltung, deren Historie die Kopie ist.
 cli-arg-language = Sprache für Meldungen und Hilfe, als BCP-47-Tag wie de oder ru. Hat Vorrang vor WIPEMARK_LANG, der in den Einstellungen gespeicherten Sprache und dem Betriebssystem, in dieser Reihenfolge.
 
 cli-report-stdin = Standardeingabe
@@ -669,9 +671,9 @@ cli-clean-later = { $count ->
        *[other] { $count } weitere Zeichen, die NFKC freigelegt hat, wurden in weiteren Durchgängen entfernt oder ersetzt; sie haben keine Position in der Eingabe, daher kann eine Zeile oben sie noch als behalten aufführen.
     }
 cli-no-such-file = { $path } existiert nicht.
-cli-is-a-folder = { $path } ist ein Ordner. inspect und clean lesen eine Datei oder die Standardeingabe; einen Ordner zu durchlaufen gibt es in dieser Version noch nicht.
+cli-is-a-folder = { $path } ist ein Ordner. inspect und clean lesen eine Datei oder die Standardeingabe; audit durchläuft einen Ordner.
 cli-out-is-a-folder = --out nennt einen Ordner, { $path }. Erwartet wird der Name einer Datei.
-cli-out-is-input = --out nennt die Datei, die gelesen wird, { $path }. Die Eingabe zu überschreiben braucht ein eigenes Flag, und diese Version hat noch keines.
+cli-out-is-input = --out nennt die Datei, die gelesen wird, { $path }. Um die Datei zu ersetzen, gibt es --in-place, das das Original vorher beiseitelegt.
 cli-unreadable = { $path } konnte nicht gelesen werden: { $reason }. Nicht gelesen heißt nicht sauber.
 cli-not-text = { $path }: Der Inhalt ist { $format }, kein Text, also hat die { -layer-a } hier nichts zu lesen. Nicht gelesen heißt nicht sauber.
 cli-not-text-unknown = { $path } ist in keiner Kodierung Text, die diese Version liest. Nicht gelesen heißt nicht sauber.
@@ -679,6 +681,55 @@ cli-unnamed-encoding = { $path } ist Text in einer 8-Bit-Kodierung, die diese Ve
 cli-invalid-encoding = { $path } ist bei Byte { $offset } kein gültiges { $encoding }. Nicht gelesen heißt nicht sauber.
 cli-name-disagrees = { $path }: Der Name verspricht { $named }, der Inhalt ist { $found }; gelesen wurde nach dem Inhalt.
 cli-write-failed = { $path } konnte nicht geschrieben werden: { $reason }. Das Ergebnis wurde nicht gespeichert.
+
+cli-in-place-stdin = --in-place ersetzt eine Datei, und die Standardeingabe ist keine. Eine Datei nennen oder das Ergebnis mit --out schreiben.
+cli-in-place-link = { $path } ist ein symbolischer Link. --in-place ersetzt Dateien, keine Links; auf die Datei anwenden, auf die der Link zeigt.
+cli-in-place-original-exists = { $original } existiert bereits, und ein früher beiseitegelegtes Original wird nie überschrieben. { $path } wurde nicht geändert. { $original } woandershin verschieben oder mit --no-original ausführen.
+cli-in-place-set-aside-failed = { $path } konnte nicht als { $original } beiseitegelegt werden: { $reason }. Nichts wurde geändert.
+cli-in-place-write-failed = Der bereinigte Text konnte nicht nach { $path } geschrieben werden: { $reason }. { $path } wurde nicht geändert.
+cli-in-place-stranded = Der bereinigte Text konnte nicht nach { $path } geschrieben werden ({ $reason }), und das Original konnte nicht zurückgelegt werden ({ $restore }). Das Original liegt jetzt unter { $original }.
+cli-in-place-original = Das Original wurde als { $original } beiseitegelegt.
+cli-in-place-no-original = Keine Kopie des Originals wurde behalten (--no-original).
+cli-in-place-unchanged = { $source }: Es war nichts zu ändern, die Datei wurde also nicht angefasst und kein Original beiseitegelegt.
+
+cli-audit-not-a-folder = { $path } ist kein Ordner. audit durchläuft einen Ordner; inspect und clean lesen eine Datei.
+cli-audit-file = { $path }: { $count ->
+        [one] { $count } Fund
+       *[other] { $count } Funde
+    } ({ $classes })
+cli-audit-summary = { $root }: gescannt { $scanned } · mit Funden { $findings } · übersprungen { $skipped } · nicht lesbar { $unreadable }
+cli-audit-unreadable-title = Nicht lesbar, also nicht als sauber gezeigt:
+
+cli-models-folder = Modellordner: { $path }
+cli-models-entry = { $id } · { $name } · { $roles } · { $size } · { $state } · { $fit }
+cli-models-chosen = zum Umschreiben gewählt
+cli-models-state-present = auf diesem Rechner, entspricht dem Katalog
+cli-models-state-absent = nicht heruntergeladen
+cli-models-state-partial = teilweise heruntergeladen ({ $percent } %), pull setzt fort
+cli-models-state-mismatch = auf diesem Rechner, entspricht aber nicht dem Katalog
+cli-models-fit-fits = passt auf diesen Rechner
+cli-models-fit-tight = passt auf diesen Rechner, mit wenig Reserve
+cli-models-fit-too-big = braucht { $short } MB mehr Speicher, als dieser Rechner hat
+cli-models-fit-unknown = ob es auf diesen Rechner passt, ist unbekannt
+cli-models-size = { $gigabytes } GB
+cli-models-others-title = Außerdem in diesem Ordner, nicht im Katalog — nur aufgelistet, nicht geprüft, und nichts lädt sie:
+cli-models-folder-unreadable = Der Modellordner { $path } konnte nicht gelesen werden: { $reason }.
+cli-models-unknown-id = { $id } steht nicht im Katalog. Seine Ids sind: { $ids }.
+cli-models-pull-present = { $id } liegt bereits auf diesem Rechner und entspricht dem Katalog: { $path }
+cli-models-pull-progress = { $id }: { $done } von { $total } MB ({ $percent } %)
+cli-models-pull-done = { $id } wurde heruntergeladen und entspricht dem Katalog: { $path }
+cli-models-pull-cancelled = { $id }: abgebrochen. Das Heruntergeladene bleibt erhalten; pull erneut ausführen, um fortzusetzen.
+cli-models-pull-mismatch = { $id }: { $file } entspricht nicht dem Katalog (erwartet sha256 { $expected }, erhalten { $actual }), wurde also verworfen, die Teildatei mit ihm. Nichts wurde installiert.
+cli-models-pull-no-room = { $id } braucht { $need } MB auf dem Volume mit { $path }, und { $free } MB sind frei. Nichts wurde heruntergeladen.
+cli-models-pull-failed = { $id } konnte nicht heruntergeladen werden: { $reason }. Das bisher Heruntergeladene bleibt erhalten; pull erneut ausführen, um fortzusetzen.
+cli-models-verify-ok = { $id } entspricht dem Katalog: Jede Datei wurde vollständig gehasht.
+cli-models-verify-absent = { $id } liegt nicht auf diesem Rechner ({ $file } fehlt), entspricht also nicht dem Katalog.
+cli-models-verify-mismatch = { $id }: { $file } entspricht nicht dem Katalog (erwartet sha256 { $expected }, erhalten { $actual }). pull lädt die Datei erneut herunter.
+cli-models-verify-unreadable = { $id }: { $file } konnte nicht gelesen werden: { $reason }. Nicht gelesen ist nicht geprüft.
+cli-models-rm-removed = { $id } wurde aus { $path } entfernt.
+cli-models-rm-absent = { $id } lag nicht auf diesem Rechner; nichts wurde entfernt.
+cli-models-rm-chosen = Es war das zum Umschreiben gewählte Modell: Die Anwendung zeigt kein gewähltes Modell, bis ein anderes ausgewählt wird. Dieser Befehl ändert diese Einstellung nicht.
+cli-models-rm-failed = { $id } konnte nicht aus { $path } entfernt werden: { $reason }.
 
 cli-unknown-language = unbekannte Sprache `{ $requested }`, es wird zurückgefallen. Verfügbar: { $available }
 

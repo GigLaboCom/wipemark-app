@@ -575,6 +575,13 @@ the gate the overview set, and the open edges.
 - **Basis.** OV §7; `docs/sdd/layer-b-rewrite-reference.md` §9 (exit
   codes inherited from upstream).
 - **Gate.** A pre-commit scenario: a file with a ZWSP exits 1.
+- **Series.** [E5-1-cli-without-the-pipeline.md](E5-1-cli-without-the-pipeline.md)
+  — `audit` (human, `--json`, SARIF 2.1.0 with code-point columns; 3
+  beats 1), `models list|pull|verify|rm` (full rehash, resumable pull,
+  Ctrl-C keeps the `.part`), `clean --in-place [--no-original]`; only
+  `rewrite` still refuses — status: done, in the `e5/cli` worktree —
+  [reports/E5-1-2026-10-03.md](reports/E5-1-2026-10-03.md). E5-2 is
+  `rewrite`, after E4.
 
 ### E7 — the workspace UI
 
