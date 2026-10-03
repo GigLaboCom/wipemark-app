@@ -22,9 +22,10 @@
 //!
 //! # The one rule this file exists to protect
 //!
-//! GPUI runs on its own executor. `tokio` — which the downloader, the
-//! HTTP engine and `llama-cpp-2` all need — runs on its own. They cannot
-//! await each other. Every long operation therefore hands back a
+//! GPUI runs on its own executor. `tokio` — which the HTTP engine needs —
+//! runs on its own, and the downloader and the local llama.cpp engine
+//! each run on a thread of their own. None of them can be awaited from
+//! here directly. Every long operation therefore hands back a
 //! `flume::Receiver` that the GPUI side polls from `cx.spawn`, and no
 //! blocking call is ever made on the foreground thread (spec §1.2, §12).
 //! A single `std::fs::read` of a 2 GB model on this thread is a frozen

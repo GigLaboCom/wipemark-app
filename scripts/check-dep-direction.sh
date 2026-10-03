@@ -2,6 +2,7 @@
 # Epic E0 gate: the dependency direction rule.
 #
 #   core ← engine ← pipeline ← app / cli
+#   engine → wipemark-llama → wipemark-llama-sys (the local engine)
 #   models is independent of engine
 #   image depends only on core
 #   store is a leaf: it takes a path and hands back rows
@@ -36,6 +37,8 @@ LIBS = {
     "wipemark-core",
     "wipemark-i18n",
     "wipemark-engine",
+    "wipemark-llama-sys",
+    "wipemark-llama",
     "wipemark-models",
     "wipemark-pipeline",
     "wipemark-image",
@@ -59,7 +62,17 @@ ALLOWED = {
     # `wipemark-engine` that formatted its own error messages would be
     # unusable from a CLI that had chosen a different language.
     "wipemark-i18n": {"wipemark-core"},
-    "wipemark-engine": {"wipemark-core"},
+    # The engine may reach llama.cpp, through the safe layer only and only
+    # under its `local-llama` feature (D46). It never names the -sys crate.
+    "wipemark-engine": {"wipemark-core", "wipemark-llama"},
+    # llama.cpp's build and its bindings; knows nothing of this product.
+    # No wipemark dependency at all, so the crate that runs cmake and
+    # bindgen cannot drag a product decision into a C++ build.
+    "wipemark-llama-sys": set(),
+    # The safe layer; the one crate with an `unsafe` module (`ffi`). It
+    # runs a GGUF and is not about this product — no vendor, no report, no
+    # catalogue — so nothing but its own -sys crate.
+    "wipemark-llama": {"wipemark-llama-sys"},
     "wipemark-models": {"wipemark-core"},
     "wipemark-pipeline": {"wipemark-core", "wipemark-engine"},
     "wipemark-image": {"wipemark-core"},

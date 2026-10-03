@@ -1,0 +1,35 @@
+[package]
+name = "wipemark-llama-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "llama.cpp at a pinned commit: its cmake build and its bindgen bindings, only under `native` (pin in PIN.md)."
+build = "build.rs"
+# Gives dependent build scripts `DEP_WIPEMARK_LLAMA_BACKENDS_DIR` — where
+# the ggml backend libraries of a native build landed.
+links = "wipemark_llama"
+
+[features]
+# DEFAULT = no native compile. The crate is an empty shim: no cmake, no
+# libclang, no fetched vendor tree, so `cargo check --features
+# local-llama` runs on a CI image with none of them (D47).
+default = []
+# The real build: cmake builds one shared ggml and llama.cpp against it
+# from vendor/llama.cpp (fetched by vendor/fetch.sh), then bindgen emits
+# the bindings. Needs cmake, a C++ compiler and libclang.
+native = ["dep:bindgen", "dep:cmake"]
+
+# No runtime dependencies: this is a -sys crate. Every call site is in
+# wipemark-llama's `ffi` module.
+
+[build-dependencies]
+# Optional and gated by `native`, so the default build graph compiles
+# neither of them.
+bindgen = { workspace = true, optional = true }
+cmake = { workspace = true, optional = true }
+
+[lints]
+workspace = true

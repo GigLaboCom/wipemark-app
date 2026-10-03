@@ -103,18 +103,24 @@ steps:
     depends_on: [clippy]
     commands:
       - cargo test --workspace --locked
+      # The local engine's tests over the shim (no C++ toolchain): the
+      # workspace test does not enable `local-llama`, so without this line
+      # its refusals are never run in CI.
+      - cargo test -p wipemark-engine --features local-llama --locked
 
-  # ── 4. Feature wiring. Not a matrix yet — `local-llama` gates no code
-  #       until epic E2 lands `LlamaEngine`, so there is nothing to build
-  #       twice. What this DOES prove is that the feature resolves
-  #       through app → pipeline → engine, which is the part that breaks
-  #       silently: a forwarded feature with a typo in the crate name
-  #       fails only when someone finally enables it.
+  # ── 4. Feature wiring. `local-llama` compiles the local engine over a
+  #       shim — no cmake, no libclang, which this image has neither of
+  #       (D47) — so it proves the Rust surface builds and that the
+  #       feature resolves through app → pipeline → engine, the part that
+  #       breaks silently: a forwarded feature with a typo in the crate
+  #       name fails only when someone finally enables it.
   #
-  #       When E2 lands, this step becomes the real matrix:
-  #         - linux/arm64: --features local-llama (vulkan)
-  #         - .101 runner:  --features local-llama,cuda (sm_120)
-  #         - Mac agent:    --features local-llama,metal (local backend)
+  #       `llama-native` (cmake + bindgen + llama.cpp) has no lane yet
+  #       (E2-1 §7, S2.6). When it does, it is a matrix of its own:
+  #         - a CUDA host:  GGML_CUDA=ON --features llama-native (sm_120)
+  #         - Mac agent:    --features llama-native (Metal is ggml's
+  #                         default there)
+  #       and each lane runs vendor/fetch.sh first.
   - name: features
     image: *rust_image
     environment: *ci_env

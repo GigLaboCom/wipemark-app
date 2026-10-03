@@ -131,8 +131,11 @@ global-hotkey = "0.7"
 
 [features]
 default = []
-# Forwarded to the engine crate: builds llama.cpp and links it in.
+# Forwarded to the engine crate. `local-llama` compiles the local engine
+# over a shim that refuses every load (no C++ toolchain); `llama-native`
+# builds llama.cpp and links it in.
 local-llama = ["wipemark-engine/local-llama"]
+llama-native = ["local-llama", "wipemark-engine/llama-native"]
 
 # cargo-bundle / cargo-packager metadata (epic E10). The identifier is
 # the same string `wipemark-models::layout::BUNDLE_ID` derives the data

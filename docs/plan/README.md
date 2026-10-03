@@ -506,7 +506,7 @@ the gate the overview set, and the open edges.
   CUDA host.
 - **Series.** [E2-1-local-engine.md](E2-1-local-engine.md) — the local
   engine carried over from mnemoria (S2.5, the build half of S2.6;
-  D45–D50) — status: dispatched. E2-2 wires it (`duty::engine_for`, the
+  D45–D50) — status: done — [reports/E2-1-2026-10-03.md](reports/E2-1-2026-10-03.md). E2-2 wires it (`duty::engine_for`, the
   app, the CLI); E2-3 is the HTTP engine.
 - **Rule.** Q2 is answered (D45). The rule `engine_for` must keep: a
   decision becomes an engine or a refusal, never plausible text with no

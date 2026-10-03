@@ -135,7 +135,7 @@ it as is rather than writing a second one (spec §1.2).
 | # | question | blocks |
 |---|---|---|
 | Q1 | product name | **closed 2026-09-21: Wipemark** — confirmed by the owner; nothing renames |
-| Q2 | `llama-cpp-2` vs `mistral.rs` | E2 / S2.5 |
+| Q2 | local engine: which llama.cpp binding | **answered 2026-10-03 by D45:** neither of the two candidates — llama.cpp through the engine copied into `crates/wipemark-llama{,-sys}` at a named commit (`docs/architecture/local-engine.md`) |
 | Q3 | stylometric "AI-likelihood" score as an informational finding — spec recommends **no** | E4 / S4.6 |
 | Q4 | default `pivot_lang` and prompt language | E4 / S4.4 |
 | Q5 | v1 platforms (macOS arm64 + Linux cuda? Windows when?) | E10 |

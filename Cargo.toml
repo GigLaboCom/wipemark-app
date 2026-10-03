@@ -4,6 +4,8 @@ members = [
     "crates/wipemark-core",
     "crates/wipemark-i18n",
     "crates/wipemark-engine",
+    "crates/wipemark-llama-sys",
+    "crates/wipemark-llama",
     "crates/wipemark-models",
     "crates/wipemark-pipeline",
     "crates/wipemark-image",
@@ -81,6 +83,12 @@ rust-embed = { version = "8", features = ["interpolate-folder-path", "include-ex
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 # CancellationToken threads through every engine and pipeline call.
 tokio-util = "0.7"
+# Build-dependencies of wipemark-llama-sys only, and only under its
+# `native` feature: cmake drives the llama.cpp build, bindgen reads its
+# headers. The same pins heretic-mnemoria's engine built with (D45). The
+# default build graph compiles neither.
+bindgen = "0.71"
+cmake = "0.1"
 
 # The model downloader (crates/wipemark-models/src/store.rs). Blocking on
 # purpose: a download runs on its own thread and reports through a
@@ -122,6 +130,8 @@ gpui-component = { path = "vendor/gpui-component/crates/ui" }
 wipemark-core = { path = "crates/wipemark-core" }
 wipemark-i18n = { path = "crates/wipemark-i18n" }
 wipemark-engine = { path = "crates/wipemark-engine" }
+wipemark-llama-sys = { path = "crates/wipemark-llama-sys" }
+wipemark-llama = { path = "crates/wipemark-llama" }
 wipemark-models = { path = "crates/wipemark-models" }
 wipemark-pipeline = { path = "crates/wipemark-pipeline" }
 wipemark-image = { path = "crates/wipemark-image" }

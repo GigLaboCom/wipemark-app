@@ -16,7 +16,10 @@ rewrite if anything could, and the panel that takes a drop and says what
 it was. The windows do not clean yet (E7), and Layer B is E2; both say
 so out loud wherever a user could mistake them for present — see
 `docs/architecture/skeleton.md` and `docs/architecture/layer-a.md`
-before assuming anything works.
+before assuming anything works. Of Layer B, the local engine exists —
+llama.cpp in `wipemark-llama{,-sys}` and `wipemark_engine::LocalEngine`
+behind `local-llama`, tested against a real GGUF — but nothing calls it
+yet (E2-2), so nothing rewrites; see `docs/architecture/local-engine.md`.
 
 ## First command after any clone or submodule update
 
@@ -61,17 +64,37 @@ fresh machine has clippy and rustfmt without a second install).
 
 CI (`.woodpecker/gate.yaml`) runs those same four with `--locked` — a
 `Cargo.lock` that moved under an edit is a red lane and a green
-laptop — and one thing no gate above performs:
+laptop — and what no gate above performs:
 
 ```sh
 cargo check --workspace --no-default-features --locked
 cargo check --workspace --features local-llama --locked
+cargo test  -p wipemark-engine --features local-llama --locked
 ```
 
-`local-llama` gates no code until E2, so nothing is built twice. What
-that proves is that the feature still *resolves* through
-app/cli → pipeline → engine: a forwarded feature with a typo in the
-crate name compiles perfectly until the day someone enables it.
+`local-llama` compiles `LocalEngine` over a shim that refuses every
+load — no cmake, no libclang, which the CI image has neither of — so it
+proves the local engine's Rust surface builds, that the feature still
+*resolves* through app/cli → pipeline → engine (a forwarded feature with
+a typo in the crate name compiles perfectly until the day someone
+enables it), and, with the third line, that the shim's refusals hold.
+`cargo test --workspace` does not enable it.
+
+**None of the gates above compiles llama.cpp.** The `ffi` module and the
+real engine are behind `llama-native` (cmake + bindgen + a C++ compiler
++ the source `vendor/fetch.sh` fetched), which has no CI lane yet. Any
+change under `crates/wipemark-llama*` or `crates/wipemark-engine/src/local.rs`
+runs the three native gates by hand — the third needs the catalogue's
+Qwen3 4B (`docs/architecture/local-engine.md`, "Running the native
+gates"):
+
+```sh
+crates/wipemark-llama-sys/vendor/fetch.sh     # once, and after a pin bump
+cargo clippy -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --all-targets --locked -- -D warnings
+cargo test   -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked
+WIPEMARK_TEST_GGUF=/path/to/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf \
+cargo test   -p wipemark-engine --features llama-native --locked -- --ignored --test-threads=1
+```
 
 ## Working here
 
@@ -128,7 +151,7 @@ over the `settings` table — one row per key, values as JSON.
 
 ## Where things are
 
-Eleven libraries under `crates/`, two applications under `apps/`. The
+Thirteen libraries under `crates/`, two applications under `apps/`. The
 dependency rule below is what keeps them apart, and
 `scripts/check-dep-direction.sh` prints the whole graph in a second —
 it reads the manifests rather than the resolved graph, so it runs
@@ -139,7 +162,9 @@ it sits.
 | crate | what it owns | today |
 |---|---|---|
 | `wipemark-core` | Layer A: the UCD tables, the Unicode taxonomy, the classifier and scrubber, NFKC, homoglyphs, the guards, the report and its JSON | real (the guards have no caller until **E4**) |
-| `wipemark-engine` | the `RewriteEngine` trait, its errors, and `FakeEngine` | the trait; every real engine is **E2** |
+| `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, and `LocalEngine` behind `local-llama` | the trait and `LocalEngine` (nothing calls it until **E2-2**); the HTTP engine is **E2** |
+| `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`) | real under `native`; an empty shim without it |
+| `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends | real under `native`; refuses every load without it |
 | `wipemark-pipeline` | the job state machine, chunking, candidates × rounds, the scorers | types; **E4** |
 | `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader | real |
 | `wipemark-store` | the SQLite file and the `settings` table | real |
@@ -210,8 +235,9 @@ Anything that needed more than a rule to explain is in `docs/`;
   crate — the report has to name the Unicode version that produced a
   finding. `check-dep-direction.sh` fails on any dependency at all.
 * **Dependency direction:** `core ← engine ← pipeline ← app/cli`;
-  `models` never depends on `engine`; `image` depends only on `core`;
-  nothing depends on an app crate.
+  `engine → wipemark-llama → wipemark-llama-sys`, and neither llama crate
+  depends on anything of ours; `models` never depends on `engine`;
+  `image` depends only on `core`; nothing depends on an app crate.
 * **Nothing blocks the GPUI thread.** Long work returns a
   `flume::Receiver<Event>` that the GPUI side polls from `cx.spawn`.
   One `std::fs::read` of a 2 GB model on the foreground thread is a
@@ -1054,6 +1080,26 @@ Anything that needed more than a rule to explain is in `docs/`;
   `the_retention_banner_always_says_nothing_is_written_yet` keeps the
   page saying so. See `docs/architecture/retention.md`.
 
+* **The local engine is ours.** `crates/wipemark-llama-sys`,
+  `crates/wipemark-llama` and `wipemark_engine::LocalEngine` are code
+  *copied* from a closed project's engine at a named commit (D45) — every
+  copied file opens with a header naming the source path, the commit,
+  what was cut and what was changed, and that header is the only place
+  the old project is named. It is edited here and never synced back. It
+  is pinned to **one** llama.cpp commit (`PIN.md`; `build.rs` refuses a
+  fetched tree at any other), and a bump is a deliberate commit that runs
+  the native gates and the live gate. `unsafe` lives in **one** module,
+  `wipemark_llama::ffi` (`deny` crate-wide, `allow` there alone, a
+  `// SAFETY:` on every block); every other crate keeps
+  `forbid(unsafe_code)`. And it is **refused rather than faked** when it
+  cannot run: a build without llama.cpp, a missing file and a model over
+  the memory the caller states are each `EngineError::Unavailable` saying
+  which, before anything is generated — never an empty `Completion`,
+  never `FakeEngine`. One worker thread owns the model; a cancel sets a
+  flag the decode loop reads between steps and then *waits* for the
+  worker if it had taken the job up (one step, ~40 ms on a CPU), so the
+  next request never starts on a model still decoding — and a request
+  still queued is cancelled at once rather than after the one ahead. See `docs/architecture/local-engine.md`.
 * **Layer A is never licence-gated.** Any state, expired or invalid,
   keeps the deterministic scrubber available.
 * **Exit codes are the CLI's interface, and there are four.** `0`

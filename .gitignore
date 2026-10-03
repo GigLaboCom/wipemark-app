@@ -16,6 +16,12 @@
 # ignored.
 Cargo.lock.bak
 
+# ── llama.cpp source ─────────────────────────────────────────────────
+# Fetched at the pinned commit by crates/wipemark-llama-sys/vendor/fetch.sh
+# and consumed only by the `native` build. A build input reproduced from
+# the pin (PIN.md), not source this repository maintains.
+/crates/wipemark-llama-sys/vendor/llama.cpp/
+
 # ── Local spec / design drops (ssd-docs) ─────────────────────────────
 # Watchword-sourced specs and working design documents land here so they
 # sit next to the code without ever being committed. Anything durable

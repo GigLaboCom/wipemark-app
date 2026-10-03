@@ -37,7 +37,10 @@ clap.workspace = true
 
 [features]
 default = []
+# The local engine, forwarded through the pipeline: `local-llama` over a
+# shim that refuses every load, `llama-native` with llama.cpp built in.
 local-llama = ["wipemark-pipeline/local-llama"]
+llama-native = ["local-llama", "wipemark-pipeline/llama-native"]
 
 [lints]
 workspace = true

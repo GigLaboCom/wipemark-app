@@ -7,14 +7,20 @@
 //! to a local GGUF, an OpenAI-compatible endpoint, or
 //! [`fake::FakeEngine`].
 //!
-//! Three implementations are planned (spec §4.1):
+//! Three implementations (spec §4.1):
 //!
-//! * `OpenAiCompatEngine` — first to ship, testable against a fake HTTP
-//!   server. Redirects are refused outright (an `Authorization` header
-//!   must not follow a redirect to an unvalidated host) and a
+//! * `OpenAiCompatEngine` — not written yet (E2-3), testable against a
+//!   fake HTTP server. Redirects are refused outright (an `Authorization`
+//!   header must not follow a redirect to an unvalidated host) and a
 //!   non-loopback `base_url` requires `allow_remote = true`.
-//! * `LlamaEngine` — behind the `local-llama` feature, on a dedicated
-//!   blocking thread, checking `cancel` between decode steps.
+//! * `local::LocalEngine` — behind the `local-llama` feature: a GGUF on
+//!   this machine, owned by one worker thread, `cancel` read between
+//!   decode steps. Its llama.cpp is `wipemark-llama`, code copied into
+//!   this repository from a closed project at a named commit and pinned to
+//!   one llama.cpp commit (D45, `crates/wipemark-llama-sys/PIN.md`,
+//!   `docs/architecture/local-engine.md`). `local-llama` alone compiles it
+//!   over a shim that refuses every load; `llama-native` builds llama.cpp
+//!   into it. Nothing hands it out yet (E2-2).
 //! * [`fake::FakeEngine`] — deterministic, no I/O; the pipeline and UI
 //!   gates run on it, including on machines with no GPU.
 //!
@@ -28,8 +34,12 @@
 #![forbid(unsafe_code)]
 
 pub mod fake;
+#[cfg(feature = "local-llama")]
+pub mod local;
 
 use async_trait::async_trait;
+#[cfg(feature = "local-llama")]
+pub use local::{LocalConfig, LocalEngine};
 use tokio_util::sync::CancellationToken;
 use wipemark_core::Vendor;
 
