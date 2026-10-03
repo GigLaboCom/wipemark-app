@@ -1,0 +1,142 @@
+From a2f9c95bb5dd9dde091893eec150bd53e02501d2 Mon Sep 17 00:00:00 2001
+From: des <denis.yesakov@gmail.com>
+Date: Thu, 30 Apr 2026 23:44:26 +0200
+Subject: [PATCH 3/3] input: gutter cursor style + line hitbox accessors (P3 +
+ P4)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+P3 — Gutter cursor. Whenever the editor's mode shows line numbers,
+TextElement::paint sets gpui::CursorStyle::Arrow over the
+line-number hitbox so the gutter no longer reads as the editor's
+text-insertion area. Gated on InputMode::line_number() so single-line
+inputs and AutoGrow modes are untouched.
+
+P4 — Line hitbox accessors on InputState:
+- pub fn line_number_hitbox(&self) -> Option<&Hitbox> exposes the
+  gutter hitbox captured during the last paint. Stored on InputState
+  alongside last_layout and last_bounds following the same pattern.
+- pub fn visible_line_bounds(&self, row: u32) -> Option<Bounds<Pixels>>
+  walks the cached layout to compute the on-screen bounds of a
+  given buffer row, soft-wrap aware.
+
+Both accessors are provided as primitives for consumer-side click
+routing in future epics. Sub-epic E does not consume them directly;
+they ride along now to avoid a future, mostly-mechanical follow-up
+patch on the editor's hot path.
+
+The line-number hitbox itself is already created unconditionally
+inside layout_fold_icons (regardless of whether folding is on), so no
+gating relaxation is needed — the hitbox is available whenever the
+mode shows line numbers, which is exactly the gate P3 and P4 use.
+
+Patches P3 + P4 of Sub-epic E (line decorations, fork-and-merge-back).
+---
+ crates/ui/src/input/element.rs | 18 ++++++++++++++
+ crates/ui/src/input/state.rs   | 44 ++++++++++++++++++++++++++++++++++
+ 2 files changed, 62 insertions(+)
+
+diff --git a/crates/ui/src/input/element.rs b/crates/ui/src/input/element.rs
+index 19f2eaac..d2cec21f 100644
+--- a/crates/ui/src/input/element.rs
++++ b/crates/ui/src/input/element.rs
+@@ -2124,8 +2124,26 @@ impl Element for TextElement {
+             glyph.paint(window, cx);
+         }
+ 
++        // Sub-epic E P3: when the mode shows line numbers, swap the
++        // mouse cursor to Arrow over the gutter so it doesn't read as
++        // the editor's text-insertion area.
++        let has_line_numbers = self.state.read(cx).mode.line_number();
++        if has_line_numbers {
++            window.set_cursor_style(
++                gpui::CursorStyle::Arrow,
++                &prepaint.fold_icon_layout.line_number_hitbox,
++            );
++        }
++
++        let line_number_hitbox = if has_line_numbers {
++            Some(prepaint.fold_icon_layout.line_number_hitbox.clone())
++        } else {
++            None
++        };
++
+         self.state.update(cx, |state, cx| {
+             state.last_layout = Some(prepaint.last_layout.clone());
++            state.line_number_hitbox = line_number_hitbox;
+             state.last_bounds = Some(bounds);
+             state.last_cursor = Some(state.cursor());
+             state.set_input_bounds(input_bounds, cx);
+diff --git a/crates/ui/src/input/state.rs b/crates/ui/src/input/state.rs
+index 48f61cc6..b32dd24b 100644
+--- a/crates/ui/src/input/state.rs
++++ b/crates/ui/src/input/state.rs
+@@ -316,6 +316,12 @@ pub struct InputState {
+     /// The marked range is the temporary insert text on IME typing.
+     pub(super) ime_marked_range: Option<Selection>,
+     pub(super) last_layout: Option<LastLayout>,
++    /// The hitbox covering the line-number gutter region from the last
++    /// paint (Sub-epic E P4). Available whenever the mode shows line
++    /// numbers; consumed via [`InputState::line_number_hitbox`] so
++    /// downstream click routing can map mouse events back to gutter
++    /// rows without re-reading the layout.
++    pub(super) line_number_hitbox: Option<gpui::Hitbox>,
+     pub(super) last_cursor: Option<usize>,
+     /// The input container bounds
+     pub(super) input_bounds: Bounds<Pixels>,
+@@ -469,6 +475,7 @@ impl InputState {
+             validate: None,
+             mode: InputMode::default(),
+             last_layout: None,
++            line_number_hitbox: None,
+             last_bounds: None,
+             last_selected_range: None,
+             last_cursor: None,
+@@ -683,6 +690,43 @@ impl InputState {
+         self.mode.line_decoration_provider()
+     }
+ 
++    /// Hitbox covering the gutter (line-number column) from the most
++    /// recent paint. Provided as a primitive for consumer-side
++    /// click-routing in future epics. Sub-epic E does not consume this
++    /// directly. Returns `None` until at least one frame has painted
++    /// or when the mode does not show line numbers.
++    #[inline]
++    pub fn line_number_hitbox(&self) -> Option<&gpui::Hitbox> {
++        self.line_number_hitbox.as_ref()
++    }
++
++    /// Bounds, in window coordinates, of buffer line `row` from the
++    /// most recent paint. Useful for placing pop-ups or hitboxes
++    /// against a specific line without re-reading the layout. Returns
++    /// `None` when `row` is outside the visible range, when the layout
++    /// has no entry for the row (folded), or when no paint has run yet.
++    ///
++    /// Provided as a primitive for consumer-side click-routing in
++    /// future epics. Sub-epic E does not consume this directly.
++    pub fn visible_line_bounds(&self, row: u32) -> Option<Bounds<Pixels>> {
++        let layout = self.last_layout.as_ref()?;
++        let row = row as usize;
++
++        let mut offset_y = layout.visible_top;
++        for (line, &buffer_line) in layout.lines.iter().zip(layout.visible_buffer_lines.iter()) {
++            let height = layout.line_height * line.wrapped_lines.len() as f32;
++            if buffer_line == row {
++                let last_bounds = self.last_bounds?;
++                return Some(Bounds::new(
++                    last_bounds.origin + point(px(0.), offset_y),
++                    gpui::size(last_bounds.size.width, height),
++                ));
++            }
++            offset_y += height;
++        }
++        None
++    }
++
+     /// Attach or clear the line decoration provider. Only meaningful
+     /// for [`InputMode::CodeEditor`] modes; calls on other modes are
+     /// silently ignored. Notifies on every call so consumers can flip
+-- 
+2.54.0 (Apple Git-157)
+

@@ -7,6 +7,7 @@ outlive a Watchword entry, narrower than `architecture/`.
 | document | what it is |
 |---|---|
 | [layer-b-rewrite-reference.md](layer-b-rewrite-reference.md) | what `guillaumemeyer/watermarks-remover` sends to an Ollama or OpenAI-compatible endpoint — every prompt verbatim, the wire format, the selection loop — and which parts Wipemark takes |
+| [line-decorations.md](line-decorations.md) | the `LineDecorationProvider` patch our gpui-component fork carries: what it paints in the Compare window (screenshots), the API, who uses it, where the fork lives since it moved to `GigLaboCom`, what upstream has instead, and what any replacement must do |
 | [hooks.md](hooks.md) | every hook in this repository across five unrelated meanings of the word, and the ones that deliberately do not exist |
 
 ## How these differ from the neighbours

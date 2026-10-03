@@ -1,0 +1,610 @@
+From c319baca474375e7bf5c6ad8dbbf52d2a32595ef Mon Sep 17 00:00:00 2001
+From: des <denis.yesakov@gmail.com>
+Date: Thu, 30 Apr 2026 23:39:09 +0200
+Subject: [PATCH] input: add LineDecorationProvider API for per-line
+ decorations (P1)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A new public trait LineDecorationProvider lets a consumer of Input in
+CodeEditor mode attach a per-frame source of full-line tints + gutter
+glyphs alongside the syntax highlighter and diagnostic underlines.
+
+Surface:
+- highlighter::LineDecorationProvider trait with one method,
+  decorations_for(visible_rows, &App) -> Vec<LineDecorationItem>.
+- highlighter::LineDecorationItem { line, glyph, line_tint, tooltip }.
+- highlighter::LineDecorationGlyph with six fixed variants
+  (DiffAdded/Removed/Changed/Conflict/Bookmark/Breakpoint) plus
+  Custom { icon: IconName, color: Hsla } as the open hatch for any
+  future glyph kind.
+- InputMode::CodeEditor gains
+  line_decoration_provider: Option<Arc<dyn LineDecorationProvider>>;
+  defaults to None, no observable change unless attached.
+- InputState gains pub fn set_line_decoration_provider(...) and
+  line_decoration_provider() following the existing setter/getter
+  conventions; setter calls cx.notify() so the next frame picks it up.
+
+Render integration in input::element:
+- A new layout_decoration_glyphs() runs in prepaint, queries the
+  attached provider with the current visible-row range, and prepaints
+  one Icon-based AnyElement per item that carries a glyph. Glyphs are
+  positioned at the left edge of the gutter with a 12 px width — for
+  line-number columns wider than ~3 digits the glyph overlaps the
+  leftmost digit, mirroring the JetBrains convention. A follow-up
+  micro-epic can extend layout to reserve a dedicated decoration
+  strip if that proves insufficient.
+- The paint pass adds a line-tint loop between the active-line tint
+  and indent guides (so a tinted line still shows the active outline
+  on top, and indent guides remain visible over the tint), and walks
+  the prepainted glyph elements after the fold-icon paint.
+
+Tests:
+- input::state::tests::set_line_decoration_provider_round_trips
+  exercises the new setter/getter end-to-end through an InputView,
+  covering the default-None state, attach, and clear paths.
+
+LineDecorationGlyph deliberately derives only Clone because IconName
+upstream derives only Clone; LineDecorationItem follows suit. Equality
+checks should pattern-match on variants.
+
+Patch P1 of Sub-epic E (line decorations, fork-and-merge-back). P2
+(editor_gutter_background theme key), P3 (gutter cursor style), and P4
+(line hitbox accessors) ride on top in subsequent commits.
+---
+ crates/ui/src/highlighter/line_decorations.rs |  78 ++++++++
+ crates/ui/src/highlighter/mod.rs              |   4 +
+ crates/ui/src/input/element.rs                | 179 ++++++++++++++++--
+ crates/ui/src/input/mode.rs                   |  34 ++++
+ crates/ui/src/input/state.rs                  |  71 +++++++
+ 5 files changed, 350 insertions(+), 16 deletions(-)
+ create mode 100644 crates/ui/src/highlighter/line_decorations.rs
+
+diff --git a/crates/ui/src/highlighter/line_decorations.rs b/crates/ui/src/highlighter/line_decorations.rs
+new file mode 100644
+index 00000000..43bce430
+--- /dev/null
++++ b/crates/ui/src/highlighter/line_decorations.rs
+@@ -0,0 +1,78 @@
++//! Per-line decoration provider API.
++//!
++//! Consumers of the [`Input`](crate::input::Input) element in
++//! [`CodeEditor`](crate::input::InputMode::CodeEditor) mode can attach a
++//! [`LineDecorationProvider`] via
++//! [`InputState::set_line_decoration_provider`](crate::input::InputState::set_line_decoration_provider)
++//! to render full-line backgrounds and gutter glyphs alongside the
++//! built-in syntax highlighter and diagnostic underlines.
++//!
++//! Decorations are queried per frame: the renderer asks the provider
++//! which decorations apply to the current visible-row range, and paints
++//! tints + glyphs accordingly. There is no caching or dispatch table —
++//! the provider is responsible for filtering its data to the requested
++//! range cheaply.
++
++use std::ops::Range;
++
++use gpui::{App, Hsla, SharedString};
++
++use crate::IconName;
++
++/// Source of per-line decorations for a [`CodeEditor`](crate::input::InputMode::CodeEditor)
++/// input. Implementations must be cheap to call once per frame: the
++/// renderer queries them with the current visible-row range and uses
++/// the returned items to paint line tints and gutter glyphs.
++pub trait LineDecorationProvider: Send + Sync {
++    /// Return the decorations that fall in `visible_rows`. The renderer
++    /// will discard items whose `line` is outside the range, but
++    /// implementations should pre-filter when possible.
++    fn decorations_for(&self, visible_rows: Range<u32>, cx: &App) -> Vec<LineDecorationItem>;
++}
++
++/// One per-line decoration entry. `line` is zero-based against the
++/// underlying buffer.
++///
++/// `Debug` is intentionally not derived: [`LineDecorationGlyph`]
++/// carries an [`IconName`] which only derives `Clone` upstream. Derive
++/// it manually if needed.
++#[derive(Clone)]
++pub struct LineDecorationItem {
++    /// Buffer line, zero-based.
++    pub line: u32,
++    /// Optional gutter glyph, painted in the gutter region.
++    pub glyph: Option<LineDecorationGlyph>,
++    /// Optional full-line background tint, painted under the line text.
++    pub line_tint: Option<Hsla>,
++    /// Optional tooltip text. Reserved for a future hover integration —
++    /// not painted yet.
++    pub tooltip: Option<SharedString>,
++}
++
++/// Glyph kind painted in the gutter beside a line. The fixed variants
++/// exist for consumers that want canonical shapes the renderer can
++/// pick optimised paints for; [`Self::Custom`] is the open hatch for
++/// everything else.
++#[derive(Clone)]
++pub enum LineDecorationGlyph {
++    /// A line added in the diff (green `+`).
++    DiffAdded,
++    /// A line removed in the diff (red `-`).
++    DiffRemoved,
++    /// A line modified in the diff (yellow `~`).
++    DiffChanged,
++    /// A conflict marker awaiting merge resolution.
++    Conflict,
++    /// A user-placed bookmark.
++    Bookmark,
++    /// A breakpoint (reserved for future debugger integration).
++    Breakpoint,
++    /// Caller-supplied icon and color. Use for any glyph the fixed
++    /// variants don't already cover.
++    Custom {
++        /// Icon to render.
++        icon: IconName,
++        /// Paint color for the icon.
++        color: Hsla,
++    },
++}
+diff --git a/crates/ui/src/highlighter/mod.rs b/crates/ui/src/highlighter/mod.rs
+index 7684c342..fed1805c 100644
+--- a/crates/ui/src/highlighter/mod.rs
++++ b/crates/ui/src/highlighter/mod.rs
+@@ -2,6 +2,10 @@
+ mod diagnostics;
+ pub use diagnostics::*;
+ 
++// Line decoration provider API - works on all platforms (no tree-sitter dependency)
++mod line_decorations;
++pub use line_decorations::*;
++
+ // Native implementation with full tree-sitter support
+ #[cfg(not(target_family = "wasm"))]
+ mod highlighter;
+diff --git a/crates/ui/src/input/element.rs b/crates/ui/src/input/element.rs
+index caf07ae1..df53319e 100644
+--- a/crates/ui/src/input/element.rs
++++ b/crates/ui/src/input/element.rs
+@@ -11,8 +11,9 @@ use ropey::Rope;
+ use smallvec::SmallVec;
+ 
+ use crate::{
+-    ActiveTheme as _, Colorize, IconName, Root, Selectable, Sizable as _,
++    ActiveTheme as _, Colorize, Icon, IconName, Root, Selectable, Sizable as _,
+     button::{Button, ButtonVariants as _},
++    highlighter::{LineDecorationGlyph, LineDecorationItem},
+     input::{RopeExt as _, blink_cursor::CURSOR_WIDTH, display_map::LineLayout},
+ };
+ 
+@@ -24,6 +25,11 @@ pub(super) const LINE_NUMBER_RIGHT_MARGIN: Pixels = px(10.);
+ const FOLD_ICON_WIDTH: Pixels = px(14.);
+ const FOLD_ICON_HITBOX_WIDTH: Pixels = px(18.);
+ const MAX_HIGHLIGHT_LINE_LENGTH: usize = 10_000;
++/// Width reserved for a per-line decoration glyph. Painted at the left
++/// edge of the gutter; with line-number columns wider than ~3 digits
++/// the glyph overlaps the leftmost digit, which mirrors the JetBrains
++/// convention.
++const DECORATION_GLYPH_WIDTH: Pixels = px(12.);
+ 
+ use super::MASK_CHAR;
+ 
+@@ -117,9 +123,7 @@ fn empty_bottom_height(
+     }
+     match override_rows {
+         Some(rows) => rows as f32 * line_height,
+-        None => viewport_height
+-            .half()
+-            .max(BOTTOM_MARGIN_ROWS * line_height),
++        None => viewport_height.half().max(BOTTOM_MARGIN_ROWS * line_height),
+     }
+ }
+ 
+@@ -131,6 +135,41 @@ struct FoldIconLayout {
+     icons: Vec<(usize, bool, gpui::AnyElement)>,
+ }
+ 
++/// Layout information for per-line decorations queried from the active
++/// [`crate::highlighter::LineDecorationProvider`]. Built in prepaint
++/// and consumed by paint.
++#[derive(Default)]
++struct DecorationLayout {
++    /// All items returned by the provider for the current visible row
++    /// range. Used by the line-tint pass.
++    items: Vec<LineDecorationItem>,
++    /// Pre-painted gutter glyph elements paired with the buffer line
++    /// they belong to. Only items whose `glyph` is `Some` appear here.
++    glyphs: Vec<gpui::AnyElement>,
++}
++
++/// Default fixed-variant icon + color mapping for line decoration
++/// glyphs. Sub-epic E hardcodes the colors so the dispatch path lights
++/// up without any theme lookup; tunable presets can land later.
++fn build_decoration_glyph_element(glyph: &LineDecorationGlyph) -> gpui::AnyElement {
++    let (icon_name, color) = match glyph {
++        LineDecorationGlyph::DiffAdded => (IconName::Plus, gpui::hsla(0.33, 0.55, 0.45, 1.0)),
++        LineDecorationGlyph::DiffRemoved => (IconName::Minus, gpui::hsla(0.0, 0.65, 0.5, 1.0)),
++        LineDecorationGlyph::DiffChanged => (IconName::Asterisk, gpui::hsla(0.13, 0.7, 0.5, 1.0)),
++        LineDecorationGlyph::Conflict => {
++            (IconName::TriangleAlert, gpui::hsla(0.08, 0.85, 0.55, 1.0))
++        }
++        LineDecorationGlyph::Bookmark => (IconName::StarFill, gpui::hsla(0.6, 0.6, 0.5, 1.0)),
++        LineDecorationGlyph::Breakpoint => (IconName::CircleX, gpui::hsla(0.0, 0.55, 0.4, 1.0)),
++        LineDecorationGlyph::Custom { icon, color } => (icon.clone(), *color),
++    };
++
++    Icon::new(icon_name)
++        .text_color(color)
++        .with_size(crate::Size::Size(DECORATION_GLYPH_WIDTH))
++        .into_any_element()
++}
++
+ pub(super) struct TextElement {
+     pub(crate) state: Entity<InputState>,
+     placeholder: SharedString,
+@@ -996,6 +1035,82 @@ impl TextElement {
+         icon_layout
+     }
+ 
++    /// Layout per-line decoration glyphs during prepaint.
++    ///
++    /// Queries the active
++    /// [`crate::highlighter::LineDecorationProvider`] (if any) for the
++    /// current visible row range, then prepaints a glyph element for
++    /// each item that carries a [`LineDecorationGlyph`]. Glyphs render
++    /// at the left edge of the gutter — for line-number columns wider
++    /// than ~3 digits the glyph overlaps the leftmost digit, which is
++    /// the JetBrains convention. Returns an empty layout when the mode
++    /// has no provider attached.
++    fn layout_decoration_glyphs(
++        &self,
++        bounds: &Bounds<Pixels>,
++        last_layout: &LastLayout,
++        window: &mut Window,
++        cx: &mut App,
++    ) -> DecorationLayout {
++        let (provider, visible_buffer_lines) = {
++            let state = self.state.read(cx);
++            let provider = state.line_decoration_provider().cloned();
++            let visible_buffer_lines = last_layout.visible_buffer_lines.clone();
++            (provider, visible_buffer_lines)
++        };
++
++        let Some(provider) = provider else {
++            return DecorationLayout::default();
++        };
++
++        if visible_buffer_lines.is_empty() {
++            return DecorationLayout::default();
++        }
++
++        let first = *visible_buffer_lines.first().unwrap() as u32;
++        let last = *visible_buffer_lines.last().unwrap() as u32;
++        let visible_range = first..last.saturating_add(1);
++        let items = provider.decorations_for(visible_range, cx);
++
++        if items.is_empty() {
++            return DecorationLayout::default();
++        }
++
++        let line_height = last_layout.line_height;
++        let mut offset_y = last_layout.visible_top;
++        let mut glyphs: Vec<gpui::AnyElement> = Vec::new();
++
++        for (line, &buffer_line) in last_layout.lines.iter().zip(visible_buffer_lines.iter()) {
++            let buffer_line_u32 = buffer_line as u32;
++            let height = line_height * line.wrapped_lines.len() as f32;
++
++            for item in &items {
++                if item.line == buffer_line_u32 {
++                    if let Some(glyph) = &item.glyph {
++                        let glyph_y = offset_y + (line_height - DECORATION_GLYPH_WIDTH).half();
++                        let glyph_origin = bounds.origin + point(px(0.), glyph_y);
++                        let glyph_bounds = Bounds::new(
++                            glyph_origin,
++                            size(DECORATION_GLYPH_WIDTH, DECORATION_GLYPH_WIDTH),
++                        );
++                        let mut element = build_decoration_glyph_element(glyph);
++                        element.prepaint_as_root(
++                            glyph_bounds.origin,
++                            glyph_bounds.size.into(),
++                            window,
++                            cx,
++                        );
++                        glyphs.push(element);
++                    }
++                }
++            }
++
++            offset_y += height;
++        }
++
++        DecorationLayout { items, glyphs }
++    }
++
+     /// Paint fold icons using prepaint hitboxes.
+     ///
+     /// This handles:
+@@ -1231,6 +1346,8 @@ pub(super) struct PrepaintState {
+     bounds: Bounds<Pixels>,
+     /// Fold icon layout data
+     fold_icon_layout: FoldIconLayout,
++    /// Per-line decoration layout data (Sub-epic E)
++    decoration_layout: DecorationLayout,
+     // Inline completion rendering data
+     /// Shaped ghost lines to paint after cursor row (completion lines 2+)
+     ghost_lines: Vec<ShapedLine>,
+@@ -1685,6 +1802,7 @@ impl Element for TextElement {
+         let indent_guides_path =
+             self.layout_indent_guides(state, &bounds, &last_layout, &text_style, window);
+         let fold_icon_layout = self.layout_fold_icons(&bounds, &last_layout, window, cx);
++        let decoration_layout = self.layout_decoration_glyphs(&bounds, &last_layout, window, cx);
+ 
+         PrepaintState {
+             bounds,
+@@ -1701,6 +1819,7 @@ impl Element for TextElement {
+             document_color_paths,
+             indent_guides_path,
+             fold_icon_layout,
++            decoration_layout,
+             ghost_first_line,
+             ghost_lines,
+             ghost_lines_height,
+@@ -1787,6 +1906,36 @@ impl Element for TextElement {
+             }
+         }
+ 
++        // Paint per-line decoration tints (Sub-epic E). Painted after
++        // the active-line tint so a tinted line still shows the active
++        // outline on top, and before indent guides so guides remain
++        // visible over the tint.
++        if !prepaint.decoration_layout.items.is_empty() {
++            let mut offset_y = px(0.);
++            if let Some(line_numbers) = prepaint.line_numbers.as_ref() {
++                offset_y += invisible_top_padding;
++                for (lines, &buffer_line) in line_numbers
++                    .iter()
++                    .zip(prepaint.last_layout.visible_buffer_lines.iter())
++                {
++                    let height = line_height * lines.len() as f32;
++                    let buffer_line_u32 = buffer_line as u32;
++                    for item in &prepaint.decoration_layout.items {
++                        if item.line == buffer_line_u32 {
++                            if let Some(tint) = item.line_tint {
++                                let p = point(input_bounds.origin.x, origin.y + offset_y);
++                                window.paint_quad(fill(
++                                    Bounds::new(p, size(bounds.size.width, height)),
++                                    tint,
++                                ));
++                            }
++                        }
++                    }
++                    offset_y += height;
++                }
++            }
++        }
++
+         // Paint indent guides
+         if let Some(path) = prepaint.indent_guides_path.take() {
+             window.paint_path(path, cx.theme().border.opacity(0.85));
+@@ -1958,6 +2107,14 @@ impl Element for TextElement {
+             cx,
+         );
+ 
++        // Paint per-line decoration glyphs (Sub-epic E). The glyph
++        // elements were prepainted in `layout_decoration_glyphs` so
++        // each one already carries its bounds; we only need to drive
++        // its paint pass here.
++        for glyph in prepaint.decoration_layout.glyphs.iter_mut() {
++            glyph.paint(window, cx);
++        }
++
+         self.state.update(cx, |state, cx| {
+             state.last_layout = Some(prepaint.last_layout.clone());
+             state.last_bounds = Some(bounds);
+@@ -2320,12 +2477,7 @@ mod tests {
+         for override_lines in [None, Some(0), Some(3), Some(99)] {
+             for visible_lines in [0_usize, 1, 8, 64] {
+                 assert_eq!(
+-                    cursor_surrounding_padding(
+-                        true,
+-                        override_lines,
+-                        visible_lines,
+-                        line_height,
+-                    ),
++                    cursor_surrounding_padding(true, override_lines, visible_lines, line_height,),
+                     line_height,
+                 );
+             }
+@@ -2372,12 +2524,7 @@ mod tests {
+             for visible_lines in [0_usize, 1, 8, 100] {
+                 let viewport_half = (visible_lines as f32 * line_height).half();
+                 assert_eq!(
+-                    cursor_surrounding_padding(
+-                        false,
+-                        Some(lines),
+-                        visible_lines,
+-                        line_height,
+-                    ),
++                    cursor_surrounding_padding(false, Some(lines), visible_lines, line_height,),
+                     raw.min(viewport_half),
+                 );
+             }
+diff --git a/crates/ui/src/input/mode.rs b/crates/ui/src/input/mode.rs
+index 7e0af5cd..5476b867 100644
+--- a/crates/ui/src/input/mode.rs
++++ b/crates/ui/src/input/mode.rs
+@@ -1,4 +1,5 @@
+ use std::rc::Rc;
++use std::sync::Arc;
+ use std::time::Duration;
+ use std::{cell::RefCell, ops::Range};
+ 
+@@ -7,6 +8,7 @@ use ropey::Rope;
+ 
+ use super::display_map::DisplayMap;
+ use crate::highlighter::DiagnosticSet;
++use crate::highlighter::LineDecorationProvider;
+ use crate::highlighter::SyntaxHighlighter;
+ use crate::input::{InputEdit, RopeExt as _, TabSize};
+ 
+@@ -45,6 +47,9 @@ pub(crate) enum InputMode {
+         highlighter: Rc<RefCell<Option<SyntaxHighlighter>>>,
+         diagnostics: DiagnosticSet,
+         parse_task: Rc<RefCell<Option<Task<()>>>>,
++        /// Optional per-line decoration provider, queried each frame
++        /// for line tints + gutter glyphs.
++        line_decoration_provider: Option<Arc<dyn LineDecorationProvider>>,
+     },
+ }
+ 
+@@ -78,6 +83,7 @@ impl InputMode {
+             folding: true,
+             diagnostics: DiagnosticSet::new(&Rope::new()),
+             parse_task: Rc::new(RefCell::new(None)),
++            line_decoration_provider: None,
+         }
+     }
+ 
+@@ -318,6 +324,33 @@ impl InputMode {
+             _ => None,
+         }
+     }
++
++    /// Borrow the line decoration provider, if one is attached. Only
++    /// [`InputMode::CodeEditor`] supports decorations.
++    pub(crate) fn line_decoration_provider(&self) -> Option<&Arc<dyn LineDecorationProvider>> {
++        match self {
++            InputMode::CodeEditor {
++                line_decoration_provider,
++                ..
++            } => line_decoration_provider.as_ref(),
++            _ => None,
++        }
++    }
++
++    /// Set or clear the line decoration provider. No-op for non-code
++    /// editor modes.
++    pub(crate) fn set_line_decoration_provider(
++        &mut self,
++        provider: Option<Arc<dyn LineDecorationProvider>>,
++    ) {
++        if let InputMode::CodeEditor {
++            line_decoration_provider,
++            ..
++        } = self
++        {
++            *line_decoration_provider = provider;
++        }
++    }
+ }
+ 
+ #[cfg(test)]
+@@ -352,6 +385,7 @@ mod tests {
+             highlighter: Default::default(),
+             diagnostics: DiagnosticSet::new(&Rope::new()),
+             parse_task: Default::default(),
++            line_decoration_provider: None,
+         };
+         assert_eq!(mode.is_code_editor(), true);
+         assert_eq!(mode.is_multi_line(), false);
+diff --git a/crates/ui/src/input/state.rs b/crates/ui/src/input/state.rs
+index 50c5ea0a..48f61cc6 100644
+--- a/crates/ui/src/input/state.rs
++++ b/crates/ui/src/input/state.rs
+@@ -23,11 +23,14 @@ use super::{
+     DisplayMap, MASK_CHAR, blink_cursor::BlinkCursor, change::Change, element::TextElement,
+     mask_pattern::MaskPattern, mode::InputMode, number_input,
+ };
++use std::sync::Arc;
++
+ use crate::Size;
+ use crate::actions::{SelectDown, SelectLeft, SelectRight, SelectUp};
+ use crate::highlighter::DiagnosticSet;
+ #[cfg(not(target_family = "wasm"))]
+ use crate::highlighter::LanguageRegistry;
++use crate::highlighter::LineDecorationProvider;
+ use crate::input::blink_cursor::CURSOR_WIDTH;
+ use crate::input::movement::MoveDirection;
+ use crate::input::{
+@@ -672,6 +675,27 @@ impl InputState {
+         self.mode.diagnostics_mut()
+     }
+ 
++    /// Borrow the line decoration provider, if one is attached. Returns
++    /// `None` for non-[`InputMode::CodeEditor`] modes and for code-editor
++    /// modes with no provider configured.
++    #[inline]
++    pub fn line_decoration_provider(&self) -> Option<&Arc<dyn LineDecorationProvider>> {
++        self.mode.line_decoration_provider()
++    }
++
++    /// Attach or clear the line decoration provider. Only meaningful
++    /// for [`InputMode::CodeEditor`] modes; calls on other modes are
++    /// silently ignored. Notifies on every call so consumers can flip
++    /// providers and have the next frame pick up the change.
++    pub fn set_line_decoration_provider(
++        &mut self,
++        provider: Option<Arc<dyn LineDecorationProvider>>,
++        cx: &mut Context<Self>,
++    ) {
++        self.mode.set_line_decoration_provider(provider);
++        cx.notify();
++    }
++
+     /// Set placeholder
+     pub fn set_placeholder(
+         &mut self,
+@@ -2990,4 +3014,51 @@ ORDER BY id
+             });
+         });
+     }
++
++    /// Sub-epic E (line decorations) — round-trip through the
++    /// provider setter/getter and confirm the new field is observable
++    /// only on `CodeEditor` modes.
++    #[gpui::test]
++    fn set_line_decoration_provider_round_trips(cx: &mut TestAppContext) {
++        use crate::highlighter::{LineDecorationItem, LineDecorationProvider};
++        use std::ops::Range;
++
++        struct EmptyProvider;
++        impl LineDecorationProvider for EmptyProvider {
++            fn decorations_for(&self, _: Range<u32>, _: &gpui::App) -> Vec<LineDecorationItem> {
++                vec![]
++            }
++        }
++
++        let input_view = InputView::new(cx);
++        let mut cx = VisualTestContext::from_window(input_view.window_handle.into(), cx);
++        let input = input_view.input;
++
++        // Initially no provider.
++        cx.update(|_, cx| {
++            input.read_with(cx, |state, _| {
++                assert!(state.line_decoration_provider().is_none());
++            });
++        });
++
++        // Set a provider and confirm it round-trips.
++        cx.update(|_, cx| {
++            input.update(cx, |state, cx| {
++                state.set_line_decoration_provider(Some(Arc::new(EmptyProvider)), cx);
++            });
++            input.read_with(cx, |state, _| {
++                assert!(state.line_decoration_provider().is_some());
++            });
++        });
++
++        // Clear with `None` and confirm it's gone.
++        cx.update(|_, cx| {
++            input.update(cx, |state, cx| {
++                state.set_line_decoration_provider(None, cx);
++            });
++            input.read_with(cx, |state, _| {
++                assert!(state.line_decoration_provider().is_none());
++            });
++        });
++    }
+ }
+-- 
+2.54.0 (Apple Git-157)
+
