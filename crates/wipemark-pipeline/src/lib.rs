@@ -24,6 +24,7 @@
 #![forbid(unsafe_code)]
 
 pub mod lang;
+pub mod prepare;
 
 use std::time::Duration;
 
