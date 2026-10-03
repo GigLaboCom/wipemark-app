@@ -1,17 +1,65 @@
 # Layer A — the deterministic scrubber
 
-Layer A is the half of Wipemark that does not guess: it finds and
-removes the invisible and look-alike characters a text can carry —
-zero-width characters, bidi controls, tags, variation selectors out of
-place, exotic spaces, noncharacters, private use, homoglyphs — by the
-properties the Unicode Standard gives every code point. It lives in
-`crates/wipemark-core`, has no dependency of any kind, and is the
-*verifiable* shelf of every report: a finding there is a code point that
-either has a published property or does not, and the report names the
-Unicode version that says so. This document grows one section per E1
-document as they land — Tables (E1-1), Classes and context (E1-2),
-Scrubber, report and NFKC (E1-3), Homoglyphs (E1-4), Guards (E1-5),
-Surfaces (E1-6) — and E1-7 completes it.
+## What Layer A is
+
+Layer A is the half of Wipemark that does not guess. It finds and
+removes the invisible and look-alike characters a text can carry, by
+the properties the Unicode Standard gives every code point, and it says
+exactly what it did: every finding is a code point with a class, a
+confidence and its byte offsets in the text it was handed. That makes it
+the **verifiable** shelf of every report — a code point either has a
+published property or it does not — and the report names the Unicode
+version that says so: **18.0.0**, read by `build.rs` from the headers of
+the committed UCD files and exported as `wipemark_core::UNICODE_VERSION`,
+never typed. It lives in `crates/wipemark-core`, which has no
+dependency of any kind (normal, dev or build), and it is deterministic:
+the same text and the same `Options` give the same bytes and the same
+report on every machine, and `clean(clean(x)) == clean(x)`.
+
+**What it finds** — eleven classes (`UnicodeClass::ALL`): zero-width
+characters (U+200B, U+200C, U+2060, an inner U+FEFF), the zero-width
+joiner, bidi controls, tag characters, variation selectors, the soft
+hyphen, exotic spaces (`Zs` other than U+0020), noncharacters, private
+use, the rest of `Default_Ignorable_Code_Point`, and **homoglyphs** —
+a letter of Latin, Cyrillic or Greek inside a word of another of the
+three, or a whole word drawn in look-alikes of its paragraph's script.
+The first ten are properties of a code point (`class_of`); the eleventh
+needs the word (`homoglyph::hits`).
+
+**What it keeps, and why.** The same code points are somebody's
+orthography or presentation far more often than they are a mark: the
+ZWJ inside an emoji family, the VS16 after a heart, the ZWNJ inside a
+Persian word, the ZWJ of a Devanagari conjunct, an LRM in a Hebrew
+paragraph, the tags of a subdivision flag, an ideographic variation
+sequence, a Mongolian free variation selector, a Khmer inherent vowel, a
+Hangul filler, a byte order mark at byte 0. Context keeps them — at
+`LikelyFalsePositive`, in the report's `kept` list, whatever the knobs
+say — and a Russian word in Russian prose is never a homoglyph. Removing
+those would not clean a document, it would damage it; that is the hard
+half of this layer and most of this document.
+
+**What it never looks at** (spec A §2): C0/C1 controls other than tab,
+line feed and carriage return; U+2028/U+2029; unassigned code points
+that are not default-ignorable — a text from a newer Unicode may carry
+characters 18.0.0 does not know, and removing them is worse than missing
+them (Q-A3); formats — it sees text, not Markdown, HTML or a code block,
+so `nfkc` normalises code too; and stylometry or statistical marks,
+which are Layer B's and are listed on the third shelf, *not
+established*, in every report.
+
+**Who calls it.** Today two applications, both off the GPUI thread:
+`wipemark-cli inspect|clean` and the MCP server's `inspect` and `clean`
+tools (*Surfaces*, below). To come: E4's pipeline, which runs Layer A
+before and after Layer B on every chunk and the five guards over every
+candidate; and E7's windows, where the Compare window's result becomes
+`clean(original)`, the panel shows a findings count, the queue gains a
+Clean action and the Inspector jumps to a position. Until then the
+windows say that they do not clean yet.
+
+The sections follow the code from the bottom up — *Tables* (E1-1),
+*Classes and context* (E1-2), *Scrubber, report and NFKC* (E1-3),
+*Homoglyphs* (E1-4), *Guards* (E1-5), *Surfaces* (E1-6) — and end with
+*The gates*, *The live gate* and *What is left open* (E1-7).
 
 ## Tables
 
@@ -44,7 +92,19 @@ generator cannot lean on a parser crate either.
 
 `.gitattributes` marks the data files `-text -diff`: `-text` because the
 checksum is over the bytes and `build.rs` refuses a carriage return,
-`-diff` because a version bump is megabytes nobody reads. What gets
+`-diff` because a version bump is megabytes nobody reads. The three
+lines (D25 — a pattern with a slash is anchored at the root, and `*`
+does not reach `ucd/emoji/`):
+
+```
+crates/wipemark-core/ucd/**/*.txt   -text -diff
+crates/wipemark-core/ucd/SHA256SUMS -text
+fixtures/text/**                    -text
+```
+
+`git check-attr` prints `text: unset` and `diff: unset` for both data
+paths, `text: unset` for `SHA256SUMS` and for every fixture (checked at
+the closure). What gets
 reviewed is `SHA256SUMS`, which diffs, and the suite —
 `every_ucd_file_matches_its_checksum` is the counterpart of `-diff`: a
 silent edit of one value builds green and fails there.
@@ -100,7 +160,17 @@ classifier's (E1-2), written where the reason is.
 | `confusables_with` | the reverse index | every homoglyph-capable letter with that skeleton in that script, ascending, prototype included, letters **with** a decomposition included (U+FF41 for `a`); choosing one (D21, D42) is E1-4's |
 
 `wipemark_core::name_of` (`src/name.rs`) and `wipemark_core::UNICODE_VERSION`
-are the two public items.
+are this section's two public items.
+
+Five lookups have no caller outside their unit tests —
+`is_join_control`, `is_format`, `is_emoji_presentation`,
+`is_emoji_modifier_base`, `is_emoji_component` — so `tables.rs` carries
+one module-wide `#![cfg_attr(not(test), expect(dead_code, reason = …))]`:
+their statics live in the generated, `include!`d file, where an item
+attribute cannot reach without `build.rs` emitting one, and `expect`
+makes the build fail the day the last of them gains a caller.
+`Script::as_str` is `#[cfg(test)]`: the tests fold `Scripts.txt` by it
+and nothing that ships names a script.
 
 ### What is deliberately not in the tables
 
@@ -202,7 +272,8 @@ orthography for a watermark is the job.
 ### One class per code point
 
 `pub fn class_of(c: char) -> Option<UnicodeClass>`, reachable as
-`wipemark_core::class::class_of` (the root re-exports are E1-3's).
+`wipemark_core::class::class_of`; it is not re-exported at the root,
+where the entry points are `inspect` and `clean`.
 Each class's definition
 is a private predicate, `claims(class, c)`, and `class_of` returns the
 first class in `UnicodeClass::ALL` order that claims the code point.
@@ -581,7 +652,7 @@ at build time), canonical ordering (a stable sort of every run of
 non-starters by `ccc`), canonical composition. Hangul is in none of the
 tables: a syllable is decomposed and composed by the arithmetic of §3.12
 (`S_BASE` U+AC00, `L_BASE` U+1100, `V_BASE` U+1161, `T_BASE` U+11A7; LV,
-then LV + T with T strictly above U+11A7). The **blocked** rule (D115)
+then LV + T with T strictly above U+11A7). The **blocked** rule (UAX #15 D115)
 needs only the last unit pushed after the starter, because the buffer is
 in canonical order: a unit composes with the starter when nothing was
 pushed after it or that unit's class is non-zero and lower than its own;
@@ -1057,7 +1128,7 @@ what Layer A kept (a ZWJ in an emoji family, a U+FEFF at byte 0) because
 it is the user's text. `nothing_the_server_says_carries_an_invisible_character`
 permits a forbidden character only where the same response's
 `report.kept` declares it (or a leading U+FEFF), and counts it. The
-rule is not weakened into "escape everything": a `‍` escape would
+rule is not weakened into "escape everything": a `\u200d` escape would
 hide the character from the test and not from the agent, which decodes
 JSON. The report itself is ASCII by construction (D29) and carries no
 user text.
@@ -1177,3 +1248,151 @@ and `cli-not-implemented`, and their log line still carries the epic.
 The MCP server has no tool for Layer B; the pane's banner says that
 nothing rewrites in this version, in every state of the server
 (`the_mcp_banner_always_says_what_the_tools_do`).
+
+## The gates
+
+Every protection of spec A §8 was painted red by deleting or weakening
+it locally before it counted, and the suite was restored byte for byte
+afterwards; the full tables — 42 mutations in E1-1 (8 against the build
+gates, 34 against tests), 51 in E1-2, 59 in E1-3, 36 in E1-4, 27 in
+E1-5, 44 in E1-6 — are in
+`docs/plan/reports/E1-n-2026-10-03.md`. The A §8 rows, each with the
+test as it landed, the mutation that turned it red and the document
+that applied it:
+
+| protection (A §8) | test | mutation | doc |
+|---|---|---|---|
+| VS16 after an emoji base | `an_emoji_keeps_its_presentation_selector` | FE0E/FE0F kept after any base (M07); read `prev_kept` (M08) | E1-2 |
+| ZWJ inside an emoji sequence | `a_family_stays_a_family` | drop the emoji clause (M09); let glue move `prev_kept` (M10) | E1-2 |
+| ZWNJ/ZWJ in a joining script | `persian_keeps_its_non_joiner`, `devanagari_keeps_its_joiner` | remove Arabic (M11) / Devanagari (M12) from `JOINING_SCRIPTS` | E1-2 |
+| bidi in an RTL paragraph | `a_bidi_mark_is_typography_beside_rtl_and_a_carrier_without_it` | drop the rule (M15); RTL for the whole text (M16) | E1-2 |
+| overrides always | `an_override_is_always_removed` | keep U+202D/U+202E like the others (M18) | E1-2 |
+| flags | `a_flag_keeps_its_tags_and_a_loose_tag_does_not` | accept any terminator (M19); no base (M20); no 32 limit (M21) | E1-2 |
+| IVS and standardized variants | `an_ideograph_keeps_its_variation_sequence`, `a_standardized_variant_is_kept_and_a_random_one_is_not` | drop the Han clause (M24); drop the table lookup (M26) | E1-2 |
+| Mongolian, Khmer, Hangul | `a_mongolian_letter_keeps_its_selector`, `khmer_keeps_its_inherent_vowel`, `a_partial_syllable_keeps_its_filler` | one rule each (M27, M28, M30, M31) | E1-2 |
+| orthographic `Cf` are not findings | `script_format_controls_are_never_findings` | `DefaultIgnorable` claims every `Cf` (M05) | E1-2 |
+| BOM | `a_leading_bom_is_not_a_finding_and_an_inner_one_is` | drop the byte-0 exception (M06) | E1-2 |
+| idempotence | `clean_is_idempotent_on_every_fixture`, `clean_is_idempotent_on_a_generated_corpus`, `nfkc_never_leaves_an_orphaned_selector` | no pass after NFKC (S14); one round only (S15, D26) | E1-3 |
+| NFKC | `nfkc_conforms_to_the_unicode_test_file` | seven composition and ordering errors (N01–N07), each found by the file | E1-3 |
+| version | `every_table_comes_from_one_unicode_version` (with build gate G1), `every_report_names_the_unicode_version` | a 17.0.0 header → `cargo build` red (G1); emit `"17.0.0"`; an empty version in `clean` (F09) | E1-1, E1-3 |
+| one class | `every_code_point_has_at_most_one_class` | drop the `DefaultIgnorable` subtraction (M01) | E1-2 |
+| positions | `positions_are_byte_offsets_into_the_source` | record the char index (S01) | E1-3 |
+| suspicious | `soft_hyphens_alone_are_not_suspicious`, `a_single_zero_width_space_is` | threshold `>= Informational` (S02); `suspicious` from `kept` only (S03, D30 — A's mutation cannot redden the second test, S02b stayed green as predicted) | E1-3 |
+| homoglyphs | `russian_prose_is_not_a_homoglyph_attack`, `fullwidth_in_japanese_is_typography`, `a_cyrillic_letter_in_a_latin_word_is`, `a_latin_letter_in_a_cyrillic_word_is`, `nothing_is_replaced_without_aggressive` | delete M2 (U01: the first two red); prototype out of the candidates (U02); T2 only (U03); seam gated on `aggressive` (I01, I02) | E1-4 |
+| guards | `a_lost_placeholder_is_rejected`, `an_invented_placeholder_is_rejected`, `a_lost_version_number_is_rejected`, `a_translation_is_rejected_as_script_drift`, `a_short_text_has_no_script_share`, `a_lost_identifier_is_rejected`, `a_faithful_rewrite_passes_every_guard` | one per guard (P1, P2, N1, S1, S2, I1; N5 and I6 for the faithful pair) | E1-5 |
+| third shelf | `every_layer_a_answer_carries_the_third_shelf` (MCP and CLI) | strip it from the MCP value (M08), from the core writer (M09), from the CLI's loop (M29) | E1-6 |
+| MCP | `nothing_the_server_says_carries_an_invisible_character`, `a_tool_that_cannot_run_refuses_rather_than_reporting_nothing` | echo a tool name unspelled (M11); remove a declared exception (M12); read a missing `text` as `""` (M01) | E1-6 |
+| CLI | `a_file_with_a_zero_width_space_exits_one`, `an_unreadable_encoding_exits_three_not_zero`, `clean_writes_beside_the_file_and_never_over_it` | exit by the output (M22); decode 8-bit as Latin-1 (M23); drop the same-file check (M24) | E1-6 |
+
+Two protections stayed green under their mutation and were dealt with
+rather than kept: E1-3's `mixed` term of the NFKC count could not be
+made to fail and was removed (D27 as built), and A §8's "compare with
+`Informational`" cannot redden `a_single_zero_width_space_is` (D30).
+Two are held by unit tests only: W4 and D42 (E1-4, U12 and U08) — both
+corpora stay idempotent without them (*What is left open*).
+
+Beyond the tests, the closure checked: the six commands of the
+repository's gates with `--locked`, and `RUSTDOCFLAGS='-D warnings'
+cargo doc -p wipemark-core --no-deps`; `wipemark-core -> (none)` in
+`check-dep-direction.sh`; no module-wide `dead_code` allowance in the
+crate but the documented one in `tables.rs`.
+
+## The live gate
+
+What no test takes (spec A §8), run once at the closure on 2026-10-03,
+on Linux x86_64 against the debug build, in a scratch
+`WIPEMARK_DATA_DIR`:
+
+- **CLI.** A file whose U+200B came through the clipboard (the X11
+  CLIPBOARD selection; `pbcopy`/`pbpaste` on a Mac) —
+  `48 65 6c 6c 6f e2 80 8b 77 6f 72 6c 64 0a`. `inspect` exits 1 with
+  the row `U+200B ZERO WIDTH SPACE · zero-width character · confirmed ·
+  once, at byte 5`, `Checked against Unicode 18.0.0.` and the three
+  shelf lines. `clean` exits 1, writes `note.cleaned.md`
+  (`Helloworld\n`) beside the file and leaves the file's SHA-256 as it
+  was; `inspect` of the result exits 0. Every `jq -e` over `--json` is
+  true (`written`, `positions == [5]`, `removed["zero-width"] == 1`, the
+  three `not_established` ids); stdin to stdout gives `Helloworld\n` with
+  the report on stderr. A missing path exits 2, a KOI8-R file 3, `-o`
+  naming the input 2 (the input untouched), `rewrite` 2. The CLI's log
+  holds `input=<elided …>` and neither the text nor the file name.
+- **MCP.** The application, launched once with the server switched on,
+  answers on `127.0.0.1:5056`: `initialize` (`2025-06-18`, `wipemark`),
+  `notifications/initialized` → 204, `tools/list` → `inspect`, `clean`,
+  both saying "1 MB"; `clean` of `"Hello\u200bworld"` → `isError: false`,
+  text `Helloworld`, `removed["zero-width"] == 1`, `positions == [5]`,
+  the text block parsing to `structuredContent`; `inspect` → suspicious
+  and no `text`; `clean` with `{}` → an `isError` result naming
+  `` `text` ``; a 1.1 MB body → HTTP 413.
+- **Claude Code** (2.1.288), given the pane's own snippet for one
+  non-interactive session, called `mcp__wipemark__clean` once and printed
+  text and a report — `Helloworld`, `removed["zero-width"] == 1`, three
+  shelf ids — not a refusal; the application's log shows the call as
+  `tools/call answered tool="clean" text=<elided chars=11 bytes=13>`,
+  so the U+200B reached the server. Claude Code printed
+  `structuredContent` re-serialised (`"latin_ratio":1` where the server
+  wrote `1.0`): a client may show the object rather than the text block.
+- **The windows** read as they should: the MCP page's banner, the
+  queue's footer, the panel and the Compare banner say that cleaning
+  from the windows is not in this version and runs from the command line
+  and over MCP; the queue row for `note.md` is Text · Markdown · UTF-8.
+  The process was killed and port 5056 was free afterwards.
+
+The transcript is in `docs/plan/reports/E1-7-2026-10-03.md` and in the
+closure (Watchword TEXT `wipemark-core-layer-a-closed-2026-10-03`).
+
+## What is left open
+
+Owner questions of spec A §9 (`docs/plan/README.md` §5):
+
+- **Q-A1** — per-class overrides and a "Clean" Settings page: open, E7/E8.
+  Every surface runs with `Options` from its own flags; no preference
+  rows. `collect_hits`'s `_options` is reserved for it, and
+  `the_json_action_is_the_action_clean_took` is the test that changes.
+- **Q-A2** — pairing of bidi embeddings in an RTL paragraph: open,
+  decided on real files.
+- **Q-A3** — unassigned code points: open, E7 (the Inspector could show
+  them as "unknown to this version").
+- **Q-A4** — the MCP text limit: **answered** by the transport, a 413 at
+  1 MiB before the body is read, never a truncation (D13).
+- **Q-A5** — `arabic_ratio`/`hebrew_ratio`: open, E4.
+- **Q-A6** — character names as an exception to the i18n rule:
+  **taken** as D16 and kept by the owner; on a veto the windows show
+  only `U+XXXX` and the class, and `name_of` stays for `--json` and MCP.
+- **Q-A7** — the known false positives left unprotected (Malayalam
+  chillu, U+034F, German ligature-breaking ZWNJ) and **Q-A8** (tags
+  only in flag sequences, D39): kept by the owner; each is one rule when
+  a real document shows it matters.
+
+Raised by the E1 documents:
+
+- **Homoglyph replacements are look-alikes, not ASCII** (D21, E1-4):
+  Greek β and ϐ inside a Latin word become ß (U+00DF), Cyrillic к
+  becomes ĸ (U+0138 KRA). The rule and the data give that; whether it is
+  acceptable is an owner question. The CLI says "the look-alike letter
+  of its word's own script" and never promises ASCII.
+- **W4 and D42 are held by unit tests alone** (E1-4): both corpora stay
+  idempotent with either removed, because neither alphabet puts a Latin
+  `c`/`C` in a Greek word. D26's premise — replacements are NFKC-stable
+  — therefore rests on `every_twin_is_a_stable_letter_of_the_same_case`
+  and `a_replacement_is_never_a_compatibility_character`; a corpus atom
+  would harden it.
+- **The H1–H5 gate must keep running under `aggressive` alone**: under
+  `aggressive + nfkc`, D26's rounds re-run the pass inside one `clean`
+  and hide a pass that is not idempotent.
+- **For E4** (E1-5): `Event::CandidateRejected` should carry the
+  structured `RejectReason`, not its English `Display`; `RejectReason`
+  is not `#[non_exhaustive]`, so a variant added later breaks an
+  exhaustive `match` outside the crate; run Layer A over a candidate
+  before its guards.
+- **JSON ratios print with full `f32` precision** (`0.94736844`, not
+  `0.95`): the shortest round-trip form, valid JSON, noisy to read.
+- **D19's list could move into `tables.rs`**, so that `name_of` would be
+  exact for the twelve Duployan and musical format controls instead of
+  naming a superset (E1-1).
+- **A count can exceed its positions under `nfkc`** (E1-3, "kept 5,
+  removed 2"): the CLI explains it in its own line (`cli-clean-later`);
+  a window that shows a report (E7) has to as well.
+- **Positions are UTF-8 byte offsets on every surface** — for an MCP
+  client too, which may index strings in UTF-16 units; the tool
+  descriptions say so, and the Inspector (E7) has to convert.

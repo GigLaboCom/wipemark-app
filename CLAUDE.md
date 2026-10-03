@@ -4,15 +4,19 @@ Native Rust + GPUI desktop tool that strips AI provenance marks from the
 user's own content. Layer A is deterministic Unicode scrubbing; Layer B
 is model rewriting.
 
-**Neither layer exists yet.** What is real is everything around them:
-the workspace and its four gates, the GPUI shell and its Settings
-window, preferences as rows in SQLite, the API key in the OS credential
-store, the model catalogue and its verifying downloader, the MCP server
-(whose tools refuse by name), the rule that decides who would
-rewrite if anything could, and the panel that takes a drop and says
-what it was. Layer A is epic E1, Layer B is E2, and both
-say so out loud wherever a user could mistake them for present — see
-`docs/architecture/skeleton.md` before assuming anything works.
+**Layer A exists; Layer B does not yet.** Layer A — the UCD 18.0.0
+tables, the classifier and what it keeps, the scrubber, NFKC,
+homoglyphs and the five guards, in `wipemark-core` — is real, and two
+surfaces call it: `wipemark-cli inspect|clean` and the MCP tools
+`inspect`/`clean`. Real around it: the workspace and its four gates, the
+GPUI shell and its Settings window, preferences as rows in SQLite, the
+API key in the OS credential store, the model catalogue and its
+verifying downloader, the MCP server, the rule that decides who would
+rewrite if anything could, and the panel that takes a drop and says what
+it was. The windows do not clean yet (E7), and Layer B is E2; both say
+so out loud wherever a user could mistake them for present — see
+`docs/architecture/skeleton.md` and `docs/architecture/layer-a.md`
+before assuming anything works.
 
 ## First command after any clone or submodule update
 
@@ -101,7 +105,7 @@ crate name compiles perfectly until the day someone enables it.
 
 ```sh
 cargo run -p wipemark-app                   # the window; the binary is `wipemark`
-cargo run -p wipemark-cli -- --help         # the CLI (E5; most of it refuses by name)
+cargo run -p wipemark-cli -- --help         # the CLI (inspect and clean run; the rest refuses by name)
 cargo test -p wipemark-app duty::           # one module's tests
 cargo test -p wipemark-app -- --nocapture   # with the log lines
 ```
@@ -124,7 +128,7 @@ over the `settings` table — one row per key, values as JSON.
 
 ## Where things are
 
-Ten libraries under `crates/`, two applications under `apps/`. The
+Eleven libraries under `crates/`, two applications under `apps/`. The
 dependency rule below is what keeps them apart, and
 `scripts/check-dep-direction.sh` prints the whole graph in a second —
 it reads the manifests rather than the resolved graph, so it runs
@@ -134,7 +138,7 @@ it sits.
 
 | crate | what it owns | today |
 |---|---|---|
-| `wipemark-core` | Layer A: the Unicode taxonomy, the guards, the report types | types; the classifier and scrubber are **E1** |
+| `wipemark-core` | Layer A: the UCD tables, the Unicode taxonomy, the classifier and scrubber, NFKC, homoglyphs, the guards, the report and its JSON | real (the guards have no caller until **E4**) |
 | `wipemark-engine` | the `RewriteEngine` trait, its errors, and `FakeEngine` | the trait; every real engine is **E2** |
 | `wipemark-pipeline` | the job state machine, chunking, candidates × rounds, the scorers | types; **E4** |
 | `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader | real |
@@ -752,7 +756,7 @@ Anything that needed more than a rule to explain is in `docs/`;
   from a local Ollama is a rule everyone would route around. The Engine
   banner's last line names epic E2 in every state the page can be in —
   `the_engine_banner_always_says_a_rewrite_is_not_here_yet` — for the
-  same reason the MCP tools refuse by name.
+  same reason `wipemark-cli rewrite` refuses by name.
 * **A saved profile is every *endpoint* setting except the key.** The
   endpoint settings are keepable under a name — `engine.profiles.<id>`,
   one row each, so saving one cannot disturb another — and two things
@@ -888,7 +892,8 @@ Anything that needed more than a rule to explain is in `docs/`;
   ("Forget it was shown" deletes `ui.setup.done`, so the *next* launch
   takes the first-launch path `--setup` does not) — and its
   `models/recommend.rs` in policy. Five steps:
-  what the product is (and that neither layer runs yet), what this
+  what the product is (and that Layer A runs from the command line and
+  over MCP but not yet from the windows, and Layer B not at all), what this
   machine has room for, who rewrites, the model or the endpoint, done.
   It is **not a sixth page**: every choice is an Engine or Models row
   and is written through `select_serves`, `download_model` and the
@@ -1099,6 +1104,8 @@ What exists so far:
 | `wipemark-e1-1-ucd-tables-2026-10-03` … `wipemark-e1-7-closure-2026-10-03` | FILE ×7 | the E1 series, `docs/plan/E1-1` … `E1-7`: self-sufficient implementer documents for Layer A (`-e1-2-classifier`, `-e1-3-scrubber-and-nfkc`, `-e1-4-homoglyphs`, `-e1-5-guards`, `-e1-6-mcp-and-cli` between) |
 | `wipemark-line-decorations-2026-10-03` | FILE | `docs/sdd/line-decorations.md`: the fork's `LineDecorationProvider` patch, with `-screenshot-2026-10-03` (annotated PNG) and `-upstream-port-2026-10-03` (the port onto gpui-kit `main`, draft PR longbridge/gpui-kit#3359) |
 | `wipemark-e1-plan-filed-2026-10-03` | TEXT | what was filed on 2026-10-03 and the decisions the step authors forced out of the real Unicode 18.0.0 data |
+| `wipemark-core-layer-a-closed-2026-10-03` | TEXT | the closure of `wipemark-core-layer-a-2026-09-21` (E1): what landed in E1-1…E1-7, the gates and every RED check, the live gate, the deviations, what is left open |
+| `wipemark-layer-a-architecture-2026-10-03` | FILE | a snapshot of `docs/architecture/layer-a.md` at the closure |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents

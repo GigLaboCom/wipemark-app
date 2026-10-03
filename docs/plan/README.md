@@ -123,7 +123,7 @@ guards that reject a bad rewrite are E1 code (A §6).
 | **E1-4** | [E1-4-homoglyphs.md](E1-4-homoglyphs.md) — confusables in both directions, the mixed-word rule, whole-word redraws, the 10 % rule | S1.6 | E1-3 | E1-6 | ~2 days | done — [reports/E1-4-2026-10-03.md](reports/E1-4-2026-10-03.md) |
 | **E1-5** | [E1-5-guards.md](E1-5-guards.md) — the five guards and `default_guards()` | S1.7 | E1-1, E1-2 (`TextStats`/letter shares) | E4 | ~2 days | done — [reports/E1-5-2026-10-03.md](reports/E1-5-2026-10-03.md) |
 | **E1-6** | [E1-6-mcp-and-cli.md](E1-6-mcp-and-cli.md) — MCP `inspect`/`clean` and CLI `inspect`/`clean` wired, the catalogue keys, the third shelf on every answer, exit codes 0/1/3, `with_infix` moved into `wipemark-intake` | S1.8 | E1-3, E1-4 | E5, E7 | ~3 days | done — [reports/E1-6-2026-10-03.md](reports/E1-6-2026-10-03.md) |
-| **E1-7** | [E1-7-closure.md](E1-7-closure.md) — the live gate, `docs/architecture/layer-a.md` completed, CLAUDE.md and the skeleton tables updated, the closure TEXT in Watchword | — | all of the above | E2+ | ~1 day | not started |
+| **E1-7** | [E1-7-closure.md](E1-7-closure.md) — the live gate, `docs/architecture/layer-a.md` completed, CLAUDE.md and the skeleton tables updated, the closure TEXT in Watchword | — | all of the above | E2+ | ~1 day | done — [reports/E1-7-2026-10-03.md](reports/E1-7-2026-10-03.md) |
 
 Statuses an implementer may write: *not started*, *in progress*, *done*
 (with the report's file name), *blocked* (with the reason). Reports go

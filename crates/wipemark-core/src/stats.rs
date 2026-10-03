@@ -50,7 +50,6 @@ impl TextStats {
 /// The letter shares of a text, in **percent** (0–100) — the unit
 /// `ScriptGuard`'s `max_delta_pp` is written in. All four are 0.0 when
 /// there are no letters; otherwise they sum to 100 within float rounding.
-#[cfg_attr(not(test), allow(dead_code, reason = "first caller: E1-5 ScriptGuard"))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct LetterShares {
     /// Code points with `General_Category` L*; never a mark.
@@ -65,7 +64,6 @@ pub(crate) struct LetterShares {
 }
 
 /// [`LetterShares`] of `text`.
-#[cfg_attr(not(test), allow(dead_code, reason = "first caller: E1-5 ScriptGuard"))]
 pub(crate) fn letter_shares(text: &str) -> LetterShares {
     let letters = count_letters(text);
     LetterShares {

@@ -56,10 +56,11 @@ file behind it, and the menu is rebuilt on every frame.
 
 ## What "the result" is today
 
-Nothing is cleaned in this version yet. The result starts as a copy of
-the original, the banner over the panes says so, and it stays until E1
-lands — the same bargain the panel, the queue's footer and the MCP
-tools make. The window is not a mock-up: the comparison is real, and it
+Nothing is cleaned in this window yet. Layer A exists since E1 and runs
+from the command line and over MCP, but the result here starts as a copy
+of the original, the banner over the panes says so, and it stays until
+E7 makes the result `clean(original)` (spec A §7.4) — the same bargain
+the panel and the queue's footer make. The window is not a mock-up: the comparison is real, and it
 is the comparison E1's scrubber and E2's rewrite will be shown through.
 Until then it compares what a person types against what they started
 from, which is what a result pane is for once there is a result.

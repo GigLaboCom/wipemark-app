@@ -37,7 +37,7 @@ keeps the shape and changes what a row is about:
 | `ORDER BY id DESC` | newest first, and the Arrived header flips it | the thing just dropped is the thing being looked for |
 | page size persisted as a setting | page size kept for the session | a persisted preference here is a row with a Settings widget (`every_persisted_preference_has_a_row`), and the size of a table is not yet worth one |
 | Actions: open, copy path, beautify, edit, OCR, delete | Actions: **open with the default app** | the one action that means something before the cleaner exists; it is disabled, not absent, on a row with no file behind it |
-| `assign_keyword` over MCP | a Keyword column and filter, and nothing that assigns one | the tool that will assign one is the MCP tool that refuses by name today; the column is here so the day it lands is a tool change and not a table change |
+| `assign_keyword` over MCP | a Keyword column and filter, and nothing that assigns one | the MCP tool that will assign one does not exist yet; the column is here so the day it lands is a tool change and not a table change |
 
 ## How things get in
 
@@ -110,5 +110,5 @@ Clean anything. The footer says so in the words every pending surface
 uses, and `the_footer_says_cleaning_is_not_here_yet` keeps an epic
 number out of it. Folders and archives are listed and never expanded.
 Nothing removes a row, because nothing has been done to one yet; the
-list empties with the process. When E1 lands, a row is where the work
+list empties with the process. When E7 lands, a row is where the work
 starts and the editors and the inspector (S7.2–S7.6) open from it.

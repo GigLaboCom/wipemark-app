@@ -19,12 +19,18 @@ generator parameters) without ever re-encoding pixels.
 
 ## What this build is
 
-The **E0 skeleton**. The workspace, the pins, the gates and the argument
-surface are real and tested; the features are not. `wipemark-cli` exits
-2 and says which epic implements what you asked for, and the app opens a
-window with three placeholder panes. See
+**Layer A is real; Layer B is not in this version.** Layer A — the
+Unicode 18.0.0 tables, the classifier and the orthography it keeps, the
+scrubber, NFKC, homoglyphs and the five guards — runs from the command
+line (`wipemark-cli inspect` and `wipemark-cli clean`) and, for an
+agent, over MCP (the `inspect` and `clean` tools). The windows take what
+arrives, say what it is and compare a result with its original; they do
+not clean yet, and say so. `rewrite`, `models` and `audit` exit 2 and say
+that they are not in this version yet. See
 [docs/architecture/skeleton.md](docs/architecture/skeleton.md) for what
-exists and what comes next.
+exists and what comes next, and
+[docs/architecture/layer-a.md](docs/architecture/layer-a.md) for Layer A
+itself.
 
 ## The honesty contract
 
@@ -119,13 +125,19 @@ step an agent should be able to run over its own output.
 The server is real. Switch it on and it binds, answers `initialize`,
 introduces itself and lists its tools; it starts with the application
 rather than when you visit the page that describes it, so an agent can
-rely on it being there. **What it cannot do yet is the work.** Layer A
-is epic E1, so `tools/call` refuses by name and says which epic
-implements it — the same answer `wipemark-cli` gives when it exits 2,
-and for the same reason: an agent that got "nothing found" back from a
-scrubber that never ran would file the document as clean. The banner at
-the top of the pane says both things — what is running, and what it will
-not pretend to do.
+rely on it being there. **Both tools run Layer A.** `inspect` answers
+with the report — what would be removed, replaced or kept, each with its
+byte offsets, the Unicode version and the three shelves — as JSON text
+and the same object as `structuredContent`; `clean` answers with
+`{"text", "report"}`, the cleaned text beside the report of what was
+done. A call it cannot run — `text` missing, an argument of the wrong
+type, one the tool does not take — is refused as a *result* with
+`isError: true` that names the argument, never as an empty report: an
+agent that got "nothing found" back from a scrubber that never ran would
+file the document as clean. A request over 1 MiB is refused whole with
+HTTP `413` before it is read, never truncated. Nothing rewrites over MCP:
+Layer B is not in this version, and the banner at the top of the pane
+says both things — what is running, and what it will not pretend to do.
 
 Three rows:
 

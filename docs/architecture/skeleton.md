@@ -9,7 +9,7 @@ own. Source: Watchword FILE
 
 | crate | real | stub |
 |---|---|---|
-| `wipemark-core` | finding taxonomy, default actions, confidence floors, guard trait, report types, the three-shelf honesty contract | classifier, scrubber, UCD tables, guard implementations |
+| `wipemark-core` | finding taxonomy, default actions, confidence floors, guard trait, report types, the three-shelf honesty contract; since E1 (2026-10-03) all of Layer A: the UCD 18.0.0 tables and their `build.rs`, the classifier and its context rules, the scrubber, NFKC, homoglyphs, the five guards, `TextStats`, the report with its JSON and three shelves — see [layer-a.md](layer-a.md) | nothing in Layer A; the guards have no caller until E4; per-class overrides are owner question Q-A1 |
 | `wipemark-i18n` | message catalogues (en-US, de, ru), BCP-47 negotiation and the fallback chain, generated `Message` keys, the catalogue gates | nothing — this one is finished for the surfaces that exist |
 | `wipemark-engine` | `RewriteEngine` trait, request/completion types, error taxonomy, **`FakeEngine`** | `OpenAiCompatEngine`, `LlamaEngine` |
 | `wipemark-models` | manifest schema + validation, the two shipped entries, on-disk layout and containment, the host probe and fit policy, the **resumable verifying downloader** | signature verification of a mirrored manifest (E9), garbage collection |
@@ -19,12 +19,13 @@ own. Source: Watchword FILE
 | `wipemark-log` | the rotating file, the level defaults, the panic hook, `Elided` | nothing — the surfaces that reveal a log directory (E6 / S6.1) |
 | `wipemark-store` | the SQLite file, its migrations, the `settings` key/value table | the history and queue tables (E4 / E6) |
 | `wipemark-secret` | the OS credential store behind one type, the `Secret` wrapper that will not print itself, an in-memory vault for tests | nothing — it is one job and it does it |
-| `wipemark-app` | window, theme, the toolbar and the queue (a table of what was dropped or imported, with previews — see [queue.md](queue.md)), bundle metadata, the typed icon set, the menu-bar item, the Settings window and its General / Engine / MCP sections, and the MCP server itself — it binds, speaks the protocol and lists its tools | the editors and the inspector that open from a row; the work those MCP tools will do, which refuses and names epic E1; and the requests the Engine section configures, which name epic E2 |
-| `wipemark-cli` | argument surface, exit codes, request echo | every command body |
+| `wipemark-app` | window, theme, the toolbar and the queue (a table of what was dropped or imported, with previews — see [queue.md](queue.md)), bundle metadata, the typed icon set, the menu-bar item, the Settings window and its General / Engine / MCP sections, and the MCP server itself — it binds, speaks the protocol, lists its tools, and its `inspect` and `clean` run Layer A | the editors and the inspector that open from a row, and cleaning from any window (E7 — the windows take what arrives, say what it is and compare, and say that they do not clean yet); and the requests the Engine section configures, which say that rewriting is not in this version (E2) |
+| `wipemark-cli` | argument surface, exit codes, request echo; `inspect` and `clean` (E1) | `rewrite`, `models`, `audit` (E2/E3/E5) |
 
-Stubs refuse loudly. `wipemark-cli` exits **2** and names the epic that
-implements what was asked; it does not exit 0. A skeleton that reports
-success is a hook that silently passes.
+Stubs refuse loudly. `wipemark-cli` exits **2** and says what is not in
+this version yet — no epic is named any more (CLAUDE.md "No epic number
+leaves this repository"; the epic stays in the log line); it does not
+exit 0. A skeleton that reports success is a hook that silently passes.
 
 ## The five scopes
 
@@ -117,7 +118,7 @@ from it.
 
 ## Deliberately absent
 
-UCD table generation and the classifier (E1) · the two real engines
+The two real engines
 (E2) · signature verification of a mirrored manifest (E9) · the
 job state machine, chunking, tactics, selection loop and scorers (E4) ·
 every CLI command body (E5) · the tokio ↔ GPUI bridge, settings
@@ -141,8 +142,16 @@ it as is rather than writing a second one (spec §1.2).
 | Q6 | trial policy: N documents/day or 14 days | E9 / S9.2 |
 | Q7 | editor: Merge's own, or `gpui-component` TextArea | E7 / S7.2 |
 | Q8 | "Sign" mode — apply *your own* invisible marker | backlog or v1 |
+| Q-A1 | per-class overrides (`Options.overrides`) and a "Clean" Settings page | E7 / E8 — open |
+| Q-A2 | check the pairing of bidi embeddings in an RTL paragraph | open, decided on real files |
+| Q-A3 | unassigned code points as findings ("unknown to this version") | E7 — open |
+| Q-A4 | the MCP `text` limit | **answered** — the transport's `413` at 1 MiB is the limit, never a truncation (D13) |
+| Q-A5 | `arabic_ratio` / `hebrew_ratio` in `TextStats` | E4 — open |
+| Q-A6 | character names as an exception to the i18n rule | **taken** as D16 and kept by the owner; on a veto the windows show only `U+XXXX` and the class, and `name_of` stays for `--json` and MCP |
 
-None of the open ones block E1, which is the next epic.
+E1 is closed (2026-10-03, `docs/plan/reports/E1-7-2026-10-03.md`). Next
+per `docs/plan/README.md` §2: E2 (engines) beside the rest of E5 (the
+CLI), then E4.
 
 ## Gate evidence
 
@@ -162,6 +171,8 @@ with each other, which is the single most fragile thing in the
 skeleton. A cold build fetches ~330 MB of zed history and leaves ~1.5 GB
 in `target/`.
 
-Not yet proven: the Woodpecker lane (no agent has run it), the Linux
-build (macOS only so far), and anything behind `local-llama` — the
-feature exists and resolves, but gates no code until E2.
+Not yet proven: the Woodpecker lane (no agent has run it), and anything
+behind `local-llama` — the feature exists and resolves, but gates no
+code until E2. The Linux build is proven since E1: the whole gate set
+runs green on Linux x86_64 (clippy since `f07e291`, which took the
+macOS-only code out of the Linux build's dead-code view).

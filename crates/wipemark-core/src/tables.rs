@@ -18,10 +18,24 @@
 //! a bidi control cannot vouch for (D20) — that subtraction is the
 //! classifier's, written where the reason is, not hidden in a table.
 
-// Until E1-2…E1-4 call these, only the tests do. The allow is scoped to
-// non-test builds so that a lookup with no unit test is still a
-// dead-code warning under `cargo clippy --all-targets`. E1-7 removes it.
-#![cfg_attr(not(test), allow(dead_code))]
+// Module-wide, and kept so on purpose (E1-7): five lookups have no
+// caller outside their unit tests — `is_join_control`, `is_format`,
+// `is_emoji_presentation`, `is_emoji_modifier_base`,
+// `is_emoji_component` — and neither have their five statics
+// (`JOIN_CONTROL`, `FORMAT`, `EMOJI_PRESENTATION`, `EMOJI_MODIFIER_BASE`,
+// `EMOJI_COMPONENT`), which live in the generated file `include!`d
+// below, where an item attribute cannot reach without `build.rs`
+// emitting it. `expect`, not `allow`: the day the last of them gains a
+// caller the expectation goes unfulfilled and the build says to delete
+// this line. Scoped to non-test builds so that a lookup with no unit
+// test is still dead code to `cargo clippy --all-targets`.
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "five UCD lookups and their generated statics have only test callers"
+    )
+)]
 
 use std::cmp::Ordering;
 

@@ -901,7 +901,9 @@ ops@example.com.";
     }
 
     /// The rendered reason has to name the thing that was lost — this is
-    /// what the user reads in the report.
+    /// what a log line or a diagnostic shows. A person reads the
+    /// catalogue's rendering of the variant's fields, never this
+    /// `Display` (see `RejectReason`).
     #[test]
     fn reasons_render_specifically() {
         let reason = RejectReason::NumberMissing {

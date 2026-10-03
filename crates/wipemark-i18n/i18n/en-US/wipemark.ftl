@@ -62,7 +62,7 @@ toolbar-help = Help
 toolbar-help-tooltip = What this window does
 toolbar-help-drop = Drop text, an image or files anywhere on this window, press Import to choose them, or Paste what is on the clipboard.
 toolbar-help-preview = Rest the pointer on a preview to see it larger. The Actions menu at the end of a row opens a file with the app the system would.
-toolbar-help-pending = The cleaning itself is not in this version yet: the window takes what arrives and says what it is.
+toolbar-help-pending = Cleaning from this window is not in this version yet: it takes what arrives and says what it is. In this version cleaning runs from the command line (wipemark-cli clean) and, for an agent, over MCP.
 toolbar-help-elsewhere = The quick-scrub panel is in the menu bar; the preferences are behind the gear at the bottom right.
 
 ## The queue — the main window's table.
@@ -89,7 +89,7 @@ queue-count = { $count ->
         [one] { $count } item
        *[other] { $count } items
     }
-queue-pending = The cleaning itself is not in this version yet. What is real today is that this list takes what you drop or import and says what it is.
+queue-pending = Cleaning from this list is not in this version yet. What it does today is take what you drop or import and say what it is; cleaning itself runs from the command line and over MCP.
 queue-preview-pending = Reading…
 queue-preview-cut = The first { $count } characters; the rest is not shown here.
 queue-actions = Actions
@@ -187,7 +187,7 @@ setup-step-model = The model
 setup-step-endpoint = The endpoint
 setup-step-done = Done
 
-setup-welcome-body = { -brand-name } strips AI provenance marks from your own content in two layers: { -layer-a }, which removes the invisible characters and is deterministic, and { -layer-b }, which asks a language model for a paraphrase. Neither runs in this version yet. What these steps settle is what { -layer-b } will need when it does: who would rewrite, and what that takes.
+setup-welcome-body = { -brand-name } strips AI provenance marks from your own content in two layers: { -layer-a }, which removes the invisible characters and is deterministic, and { -layer-b }, which asks a language model for a paraphrase. In this version { -layer-a } runs from the command line and over MCP but not yet from these windows, and { -layer-b } does not run at all. What these steps settle is what { -layer-b } will need when it does: who would rewrite, and what that takes.
 setup-welcome-again = Everything here can be changed later under Settings, and this walk-through can be run again from its General page.
 
 # Step 2. $model is the catalogue entry's display name, $ram what it
@@ -304,7 +304,7 @@ settings-section-retention = Retention
 ## The panel — the window you summon.
 
 panel-title = Quick scrub
-panel-pending = The cleaning itself is not in this version yet. What is real today is that this window takes what you drop and says what it is — and that it opens where you told it to.
+panel-pending = Cleaning from this window is not in this version yet. What is real here today is that it takes what you drop and says what it is — and that it opens where you told it to. Cleaning itself runs from the command line and over MCP.
 panel-dismiss = Escape sends it away.
 
 # The panel has no titlebar, no traffic lights and no menu of its own,
@@ -376,7 +376,7 @@ kind-unknown = Unrecognised
 compare-title = Compare · { $name }
 compare-original = Original
 compare-result = Result
-compare-pending = Nothing is cleaned in this version yet: the result starts as a copy of the original. Edit it, and every line that differs is marked on both sides.
+compare-pending = Cleaning in the Compare window is not in this version yet: the result starts as a copy of the original. Edit it, and every line that differs is marked on both sides.
 compare-reading = Reading…
 compare-same = The result is the original, line for line.
 compare-changed = { $added ->
@@ -779,7 +779,8 @@ settings-models-stopped = Stopped. What was downloaded is kept, and the next att
 ## every language.
 ##
 ## `settings-retention-pending` is the honest half, and it stays until
-## E1 and E4 land: nothing is written yet.
+## a window writes (E4/E7): the command line writes results beside a
+## file, never reads these rows, and no window writes anything yet.
 
 settings-retention-title = What is kept
 settings-retention-description = Where a result goes, what happens to the file it came from, and whether { -brand-name } keeps a copy of what arrived without one.
@@ -798,7 +799,7 @@ settings-retention-keeps-originals = The original of a paste or a drag is kept i
 settings-retention-keeps-results = The result of a paste or a drag is kept in { $folder } { $period }; originals are not.
 settings-retention-keeps-both = The original and the result of a paste or a drag are kept in { $folder } { $period }.
 # The last line, in every state.
-settings-retention-pending = Nothing is written yet: { -layer-a } and { -layer-b } are not in this version. These choices decide what happens to a file, and to what you paste, once they are.
+settings-retention-pending = No window writes anything yet: none of them cleans in this version, and { -layer-b } is not in it. These choices decide what happens to a file, and to what you paste, once they do. The command line never reads them.
 
 settings-retention-destination-title = Where results go
 settings-retention-destination-description = Beside the file writes name.cleaned.ext next to it and leaves the file as it is. The results folder is the one below. In place of the file replaces it — after the original has been set aside as name.original.ext, and never over an original already there.

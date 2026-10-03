@@ -5,7 +5,8 @@
 //! removed and where. Nothing in this crate guesses, and nothing in it
 //! calls a model. That separation is what lets the product's report
 //! split findings into *verifiable* (this crate) and *best-effort*
-//! ([`wipemark_engine`]-driven rewriting).
+//! (rewriting driven by `wipemark-engine`, which this crate never
+//! depends on).
 //!
 //! # Zero dependencies, by rule
 //!

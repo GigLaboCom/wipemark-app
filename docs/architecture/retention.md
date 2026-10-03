@@ -7,7 +7,10 @@ This document is the survey the page was designed from, the rules it
 settled on, and the one question it was written to answer — whether text
 that arrived as Markdown or HTML is kept any differently.
 
-Nothing is written yet. Cleaning is epic E1 and the batch queue is E4;
+No window writes anything yet. Cleaning exists since E1 — from the
+command line, which writes its result beside the file by the same
+`with_infix` rule and never reads these rows, and over MCP, which writes
+nothing — but cleaning from the windows is E7 and the batch queue is E4;
 this page decides what they will do to a person's files when they
 arrive, and its banner says so in every state it can be in.
 

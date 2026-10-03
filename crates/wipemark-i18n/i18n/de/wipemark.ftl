@@ -30,7 +30,7 @@ toolbar-help = Hilfe
 toolbar-help-tooltip = Was dieses Fenster tut
 toolbar-help-drop = Text, ein Bild oder Dateien irgendwo in diesem Fenster ablegen, mit Importieren auswählen – oder aus der Zwischenablage einfügen.
 toolbar-help-preview = Den Zeiger auf einer Vorschau ruhen lassen, um sie größer zu sehen. Das Aktionen-Menü am Ende einer Zeile öffnet eine Datei mit der App, die das System nehmen würde.
-toolbar-help-pending = Die Reinigung selbst gibt es in dieser Version noch nicht: Das Fenster nimmt entgegen, was ankommt, und sagt, was es ist.
+toolbar-help-pending = Bereinigen aus diesem Fenster gibt es in dieser Version noch nicht: Es nimmt entgegen, was ankommt, und sagt, was es ist. In dieser Version läuft die Bereinigung über die Kommandozeile (wipemark-cli clean) und, für einen Agenten, über MCP.
 toolbar-help-elsewhere = Das Schnellreinigungs-Panel sitzt in der Menüleiste; die Einstellungen liegen hinter dem Zahnrad unten rechts.
 
 queue-column-preview = Vorschau
@@ -48,7 +48,7 @@ queue-count = { $count ->
         [one] { $count } Eintrag
        *[other] { $count } Einträge
     }
-queue-pending = Die Reinigung selbst gibt es in dieser Version noch nicht. Was heute schon geht: Diese Liste nimmt entgegen, was abgelegt oder importiert wird, und sagt, was es ist.
+queue-pending = Bereinigen aus dieser Liste gibt es in dieser Version noch nicht. Was sie heute tut: entgegennehmen, was abgelegt oder importiert wird, und sagen, was es ist; die Bereinigung selbst läuft über die Kommandozeile und über MCP.
 queue-preview-pending = Wird gelesen…
 queue-preview-cut = Die ersten { $count } Zeichen; der Rest wird hier nicht gezeigt.
 queue-actions = Aktionen
@@ -106,7 +106,7 @@ setup-step-model = Das Modell
 setup-step-endpoint = Die Adresse
 setup-step-done = Fertig
 
-setup-welcome-body = { -brand-name } entfernt KI-Herkunftsspuren aus Ihren eigenen Inhalten in zwei Schichten: { -layer-a }, die die unsichtbaren Zeichen entfernt und deterministisch ist, und { -layer-b }, das ein Sprachmodell um eine Umformulierung bittet. Keines von beiden läuft in dieser Version schon. Diese Schritte klären, was das Umschreiben brauchen wird, wenn es kommt: wer umschreibt, und was dafür nötig ist.
+setup-welcome-body = { -brand-name } entfernt KI-Herkunftsspuren aus Ihren eigenen Inhalten in zwei Schichten: { -layer-a }, die die unsichtbaren Zeichen entfernt und deterministisch ist, und { -layer-b }, das ein Sprachmodell um eine Umformulierung bittet. In dieser Version läuft die { -layer-a } über die Kommandozeile und über MCP, aber noch nicht aus diesen Fenstern, und { -layer-b } läuft gar nicht. Diese Schritte klären, was das Umschreiben brauchen wird, wenn es kommt: wer umschreibt, und was dafür nötig ist.
 setup-welcome-again = Alles hier lässt sich später in den Einstellungen ändern, und dieser Rundgang lässt sich von deren Seite „Allgemein“ aus wiederholen.
 
 setup-machine-reading = Lese diesen Rechner…
@@ -163,7 +163,7 @@ settings-section-retention = Aufbewahrung
 ## Das Panel — das Fenster, das man ruft.
 
 panel-title = Schnelle Reinigung
-panel-pending = Das Reinigen selbst gibt es in dieser Version noch nicht. Echt ist heute, dass dieses Fenster annimmt, was man darauf ablegt, und sagt, was es ist — und dass es dort aufgeht, wo man es hingelegt hat.
+panel-pending = Bereinigen aus diesem Fenster gibt es in dieser Version noch nicht. Echt ist heute, dass es annimmt, was man darauf ablegt, und sagt, was es ist — und dass es dort aufgeht, wo man es hingelegt hat. Die Bereinigung selbst läuft über die Kommandozeile und über MCP.
 panel-dismiss = Escape schickt es wieder weg.
 
 panel-help = Was hier möglich ist
@@ -209,7 +209,7 @@ kind-unknown = Nicht erkannt
 compare-title = Vergleich · { $name }
 compare-original = Original
 compare-result = Ergebnis
-compare-pending = Das Reinigen selbst gibt es in dieser Version noch nicht: das Ergebnis beginnt als Kopie des Originals. Bearbeiten Sie es, und jede Zeile, die abweicht, wird auf beiden Seiten markiert.
+compare-pending = Bereinigen im Vergleichsfenster gibt es in dieser Version noch nicht: Das Ergebnis beginnt als Kopie des Originals. Bearbeiten Sie es, und jede Zeile, die abweicht, wird auf beiden Seiten markiert.
 compare-reading = Wird gelesen…
 compare-same = Das Ergebnis ist das Original, Zeile für Zeile.
 compare-changed = { $added ->
@@ -440,7 +440,7 @@ settings-retention-keeps-nothing = Was ohne Datei ankommt — Eingefügtes, aus 
 settings-retention-keeps-originals = Das Original von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten; Ergebnisse nicht.
 settings-retention-keeps-results = Das Ergebnis von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten; Originale nicht.
 settings-retention-keeps-both = Original und Ergebnis von Eingefügtem oder Gezogenem bleiben in { $folder } { $period } erhalten.
-settings-retention-pending = Noch wird nichts geschrieben: { -layer-a } und { -layer-b } sind in dieser Version nicht enthalten. Diese Einstellungen legen fest, was mit einer Datei und mit Eingefügtem geschieht, sobald sie da sind.
+settings-retention-pending = Noch schreibt kein Fenster etwas: Keines bereinigt in dieser Version, und { -layer-b } ist nicht enthalten. Diese Einstellungen legen fest, was mit einer Datei und mit Eingefügtem geschieht, sobald sie es tun. Die Kommandozeile liest sie nie.
 
 settings-retention-destination-title = Wohin Ergebnisse gehen
 settings-retention-destination-description = „Neben die Datei“ schreibt name.cleaned.ext daneben und lässt die Datei, wie sie ist. Der Ergebnisordner ist der unten. „Anstelle der Datei“ ersetzt sie — nachdem das Original als name.original.ext beiseitegelegt wurde, und nie über ein bereits vorhandenes Original.

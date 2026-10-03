@@ -85,10 +85,12 @@ impl Script {
     ///
     /// An identifier, like `UnicodeClass::as_str`: a format, never shown
     /// translated.
-    // No non-test caller until E1-4 or E1-6 names a script in a report;
-    // scoped to non-test builds so that it is still dead code to clippy
-    // the day it loses its test. E1-7 removes it.
-    #[cfg_attr(not(test), allow(dead_code))]
+    ///
+    /// Test-only (E1-7): the tests fold `Scripts.txt` into the enum by
+    /// this spelling, and nothing that ships names a script — no plan
+    /// document or later epic gives it a caller. A report that one day
+    /// names a script drops the `cfg` and keeps the spelling.
+    #[cfg(test)]
     pub fn as_str(self) -> &'static str {
         match self {
             Script::Latin => "Latin",
