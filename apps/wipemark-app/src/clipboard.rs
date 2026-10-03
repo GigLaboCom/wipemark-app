@@ -32,6 +32,7 @@
 //! refreshed when the window is activated and after each paste, and
 //! says so in its module rather than pretending to be live.
 
+#[cfg(target_os = "macos")]
 use std::time::Duration;
 
 use gpui::{App, ClipboardEntry, ClipboardItem, Context, Task};

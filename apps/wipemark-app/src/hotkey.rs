@@ -611,8 +611,24 @@ pub enum Registration {
     #[default]
     Unset,
     /// The desktop delivers it.
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(
+            dead_code,
+            reason = "only the macOS registrar asks the desktop; elsewhere every \
+                      answer is `Unset` or `Unavailable` (E10)"
+        )
+    )]
     Registered,
     /// The desktop refused, in its own words.
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(
+            dead_code,
+            reason = "only the macOS registrar asks the desktop; elsewhere every \
+                      answer is `Unset` or `Unavailable` (E10)"
+        )
+    )]
     Refused(String),
     /// This build cannot register one on this platform. E10.
     Unavailable,
@@ -712,6 +728,10 @@ impl Registrar {
         match *self {}
     }
 
+    #[allow(
+        clippy::needless_pass_by_ref_mut,
+        reason = "the signature is the macOS registrar's, which does mutate"
+    )]
     pub fn assign(&mut self, _action: Action, _chord: Option<Hotkey>) -> Registration {
         match *self {}
     }
