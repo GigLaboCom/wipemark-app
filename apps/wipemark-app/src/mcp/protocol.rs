@@ -2215,10 +2215,13 @@ mod tests {
     /// alike — and the text block is ASCII.
     #[test]
     fn every_image_answer_carries_the_third_shelf() {
-        let ids: Vec<Value> = wipemark_core::report::not_established::ALL
+        // A picture's shelf: invisible marks in the pixels first, then
+        // core's three.
+        let ids: Vec<Value> = wipemark_pixels::not_established::shelf()
             .iter()
-            .map(|(id, _)| json!(id))
+            .map(|id| json!(id))
             .collect();
+        assert_eq!(ids[0], json!("invisible-pixel-marks"));
         for name in [
             "c2pa-jumbf.jpg",
             "xmp-provenance.jpg",
@@ -2249,6 +2252,8 @@ mod tests {
                     "{name} {tool}"
                 );
                 assert!(ids.contains(&json!(wipemark_image::PIXEL_DOMAIN)));
+                // The visible pass ran on every answer (E12-5).
+                assert_eq!(report["visible"]["examined"], json!(true), "{name} {tool}");
             }
         }
     }

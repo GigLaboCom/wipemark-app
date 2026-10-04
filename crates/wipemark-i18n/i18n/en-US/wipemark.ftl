@@ -981,7 +981,7 @@ settings-mcp-description = Let an agent run { -layer-a } over its own output, an
 
 # The MCP banner's last line, in every state of the server: what the two
 # tools do, and that nothing rewrites.
-settings-mcp-tools = Five tools run: inspect lists what { -layer-a } would change in a text, clean makes those changes and reports each one with its position, inspect_image and clean_image do the same for the metadata of a PNG, JPEG or WebP — the metadata only, never the pixels — and rewrite has the engine on duty rewrite the text between two passes of { -layer-a } — the document goes wherever the Engine page sends it. A rewrite is best-effort, and its report says what it does not establish.
+settings-mcp-tools = Five tools run: inspect lists what { -layer-a } would change in a text, clean makes those changes and reports each one with its position, inspect_image and clean_image do the same for a PNG, JPEG or WebP — its metadata, and the visible marks this version knows in its pixels, which clean_image removes when it can prove them; marks no eye sees are neither looked for nor removed — and rewrite has the engine on duty rewrite the text between two passes of { -layer-a } — the document goes wherever the Engine page sends it. A rewrite is best-effort, and its report says what it does not establish.
 
 ## What the server is doing right now, in the banner at the top of the
 ## page. Read from the server itself rather than from the switch — the
@@ -1063,6 +1063,7 @@ report-not-established-title = Not established
 report-not-established-vendor-detector-evasion = evasion of a vendor's own detector — not tested, no oracle exists here
 report-not-established-human-authorship = human authorship — not established by any check in this tool
 report-not-established-unknown-mark-schemes = marks in schemes this build does not implement — not searched for
+report-not-established-invisible-pixel-marks = invisible marks in the picture's pixels — not searched for, not removed
 
 ## What a finding is, and how sure — the eleven classes of
 ## `wipemark_core::UnicodeClass` and the four confidences, keyed by their
@@ -1271,6 +1272,10 @@ cli-audit-unreadable-title = Could not be read, so not shown to be clean:
 # One line per image whose metadata carries AI provenance. $container is
 # PNG, JPEG or WebP, never translated; $kinds a list of `image-kind-*`
 # lines such as "C2PA manifest ×1", already spelled.
+cli-audit-image-visible = { $path }: { $count ->
+    [one] a visible mark
+   *[other] { $count } visible marks
+} ({ $profiles })
 cli-audit-image = { $path }: { $container }, { $count ->
         [one] one block
        *[other] { $count } blocks
@@ -1329,7 +1334,41 @@ cli-image-all-metadata = --all-metadata removed camera data as well.
 # Orientation other than "as stored": the report says it as a fact.
 cli-image-orientation-removed = The picture's rotation was in the removed camera data: a viewer that turned it upright will now show it as it is stored, turned or mirrored.
 # Above the third shelf of every image report.
-cli-image-pixels = Only the file's metadata was examined. A mark carried in the pixels themselves is not looked for, so nothing here is about the picture.
+cli-image-pixels = The pixels were examined for the visible marks this version knows. Marks no eye sees are not looked for, and nothing here says the picture carries none.
+## Visible marks in a picture. $profile, $vendor and $product are
+## identifiers from the mark catalogue — never translated, and never the
+## subject of a sentence of their own. Every number is spelled by the CLI.
+cli-image-visible-title = Visible marks
+cli-image-visible-none = No visible mark this version knows was found in the pixels.
+# $placed is cli-image-visible-placed-row or -searched.
+cli-image-visible-row = { $profile } ({ $vendor }, { $product }) · { $width }×{ $height } at { $x },{ $y } · { $placed }
+cli-image-visible-placed-row = at its known place
+cli-image-visible-placed-searched = found by searching
+cli-image-visible-proved = proved: correlation { $ncc }, strength { $gain }, edge ratio { $ratio }
+# $reason is one of the cli-image-refusal-* lines.
+cli-image-visible-refused = seen, not proved: { $reason }
+cli-image-refusal-transparent = the picture is not opaque under the mark
+cli-image-refusal-opaque = the mark is opaque throughout ({ $holes } pixels), and nothing under it can be recovered
+cli-image-refusal-gain = its edges vanish at a strength of { $k }, not at the mark's own
+cli-image-refusal-edges = removing it would leave { $ratio } of its outline
+cli-image-refusal-out-of-range = removing it would push { $share } of the values out of range
+cli-image-visible-restored = { $profile }: { $changed } pixels restored.
+cli-image-visible-exact = The restored pixels are the original values to within one level.
+cli-image-visible-inexact = The picture was stored with loss, so the restoration is as close as the stored values allow, not exact.
+cli-image-visible-holes = { $holes } pixels under an opaque part of the mark could not be recovered and were left as they were.
+cli-image-visible-left = A visible mark was found and is still in the result.
+cli-image-visible-not-restorable = This kind of picture (a CMYK JPEG) is not written back by this version, so the mark was left.
+cli-image-visible-not-examined-animated = An animated picture: its pixels were not examined for visible marks.
+cli-image-visible-not-examined-catalogue = This build's catalogue of visible marks did not load, so the pixels were not examined. Not examined is not clean.
+cli-image-visible-not-examined-decode = The picture's pixels could not be decoded, so they were not examined for visible marks. Not read is not clean.
+cli-image-encoded-jpeg = The picture was re-encoded as JPEG at quality { $quality }.
+cli-image-encoded-webp = The picture was written as lossless WebP.
+cli-image-encoded-webp-from-lossy = The picture was lossy WebP and was written as lossless WebP: the file is larger, and no further loss was added.
+cli-image-encoded-png = The PNG was written again with the restored pixels.
+cli-image-encoded-png-colour = The PNG's colour type changed: the restored colours did not fit the original's.
+cli-image-encoded-png-interlace = The PNG was written without interlacing.
+cli-image-proof-failed = { $path }: the result failed its own check, so nothing was written. This is a fault in this version.
+cli-image-encode-failed = { $path }: the restored picture could not be written back. Nothing was written.
 
 ## Why an image was not read or not cleaned. Exit 2 for what this version
 ## will not do and for flags that do not fit, 3 for a file it could not

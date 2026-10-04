@@ -278,8 +278,12 @@ comes back. **There is no `path` argument**: a server that can be bound
 past loopback with no password must not read or write files by name, and
 whether it ever should is an owner question.
 
-Both surfaces say, in every report, that only the metadata was examined:
-a mark in the pixels is not looked for, and the third shelf names it.
+Since E12-5 both surfaces run a picture through `wipemark-picture`: the
+metadata pass above and the visible marks in its pixels, with one writer
+(`reframe`), and every report says what the pixels were examined for and
+that marks no eye sees are not looked for — the picture's third shelf
+leads with `invisible-pixel-marks` (`docs/architecture/visible-marks.md`,
+"Surfaces").
 
 ## Next
 

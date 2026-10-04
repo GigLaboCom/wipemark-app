@@ -439,6 +439,47 @@ MUTATIONS = [
         "Fidelity::Lossy => psnr(&decoded.raster, restored).is_some(),",
         [(PIC + ["--test", "lossy"], "the_lossy_proof_refuses_a_distant_output")],
     ),
+    # ------------------------------------------------------------ E12-5
+    (
+        "E12-5/M1",
+        "a visible mark left behind never exits 0 (or 1)",
+        "apps/wipemark-cli/src/image.rs",
+        "if metadata == Exit::Partial || report.marks_left() || report.inconclusive() {",
+        "if metadata == Exit::Partial {",
+        [(CLI + ["--bin", "wipemark-cli"], "a_visible_mark_left_behind_never_exits_0")],
+    ),
+    (
+        "E12-5/M2",
+        "inspect exits 1 on a visible mark",
+        "apps/wipemark-cli/src/image.rs",
+        "    } else if report.has_visible_mark() {",
+        "    } else if false {",
+        [(CLI + ["--test", "visible"], "inspect_reports_a_visible_mark_and_exits_one")],
+    ),
+    (
+        "E12-5/M3",
+        "a visible mark in SARIF has no byte region, its rectangle in properties",
+        "apps/wipemark-cli/src/audit.rs",
+        "                        \"rect\": finding.pixels.map(",
+        "                        \"rect_\": finding.pixels.map(",
+        [(CLI + ["--test", "visible"], "audit_puts_a_visible_mark_in_sarif_properties")],
+    ),
+    (
+        "E12-5/M4",
+        "the picture shelf is translated in every language",
+        "crates/wipemark-i18n/i18n/ru/wipemark.ftl",
+        "report-not-established-invisible-pixel-marks = невидимые метки в пикселях картинки — не искались и не снимались\n",
+        "",
+        [(I18N, "the_picture_shelf_is_never_empty_in_any_language")],
+    ),
+    (
+        "E12-5/M5",
+        "no catalogue string names a mark's vendor",
+        "crates/wipemark-i18n/i18n/en-US/wipemark.ftl",
+        "cli-image-visible-title = Visible marks\n",
+        "cli-image-visible-title = Visible marks (Gemini)\n",
+        [(I18N, "no_catalogue_string_names_a_mark_vendor")],
+    ),
 ]
 
 

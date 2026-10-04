@@ -68,7 +68,11 @@ ALLOWED = {
     # or writing to a pipe is the one that turns them into prose. A
     # `wipemark-engine` that formatted its own error messages would be
     # unusable from a CLI that had chosen a different language.
-    "wipemark-i18n": {"wipemark-core"},
+    #
+    # And on pixels, as a DEV dependency for the same gate over a picture
+    # report's shelf, whose first claim (`invisible-pixel-marks`) is
+    # defined there.
+    "wipemark-i18n": {"wipemark-core", "wipemark-pixels"},
     # The engine may reach llama.cpp, through the safe layer only and only
     # under its `local-llama` feature (D46). It never names the -sys crate.
     # And the credential store's `Secret` (D57): an HTTP engine holds its

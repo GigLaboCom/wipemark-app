@@ -275,10 +275,42 @@ never decodes) and `wipemark-pixels` (which never reads a file). Plan:
   the encoding, `marks_left`, and the picture's shelf with
   `invisible-pixel-marks` first.
 
+## Surfaces (E12-5)
+
+The command line and the MCP server carry the visible pass on every
+picture, with **no new flag** (Q-V1, the owner: "marks found are
+removed"); plan: [`docs/plan/E12-5-surfaces.md`](../plan/E12-5-surfaces.md).
+
+* **CLI** (`apps/wipemark-cli/src/image.rs`, `audit.rs`; the table is
+  `docs/architecture/cli.md`, "Images"): `inspect` reports every finding —
+  profile id, vendor and product as identifiers, rectangle, row or search,
+  "proved" with its numbers or "seen, not proved" with its reason — and
+  exits **1** on any; `clean` removes what is proved and exits by the
+  input; a mark **left** (not proved, holes, a CMYK JPEG) writes the result
+  and exits **3**; pixels that should have been examined and were not
+  (`NotExamined::Catalogue`, `::Decode`) are **3**; an animation is said
+  and changes nothing. `audit` counts a visible mark as a finding and an
+  unexamined picture as a hole, and SARIF gives each mark a
+  `visible-<profile>` result with the rectangle in `properties`.
+* **MCP** (`apps/wipemark-app/src/mcp/image.rs`): `inspect_image` answers
+  `PictureInspection::to_json()`; `clean_image` answers `{"data", "report":
+  <PictureReport>}` — the image comes back when a mark is left, and the
+  report says `marks_left`; a restored picture that could not be written
+  back or failed its own check is a refusal with no image. No `path`; the
+  1 MiB body stays and a larger one is a `413` (Q-V5). The pane's banner
+  says the tools look at visible marks and that marks no eye sees are
+  neither looked for nor removed.
+* **JSON**: E11's keys where they were, then `visible`, (`encoding`,
+  `marks_left` after a clean), and the picture's `not_established`.
+* **Words**: every sentence in en/ru/de (`cli-image-visible-*`,
+  `cli-image-refusal-*`, `cli-image-encoded-*`, `cli-audit-image-visible`,
+  `report-not-established-invisible-pixel-marks`); no vendor name inside a
+  catalogue string (`no_catalogue_string_names_a_mark_vendor`); the picture
+  shelf is gated in every language
+  (`the_picture_shelf_is_never_empty_in_any_language`).
+
 ## Not here yet
 
-* **Surfaces**: the CLI and the MCP image tools, the catalogue strings —
-  E12-5.
 * **V2's small placements** — one exact row per Gemini output size, from
   GWT's `v2_small_config_from_dims`, ported into a test that generates the
   rows (`v2_rows_are_gwts_formula`). Not written: the formula could not be

@@ -553,7 +553,7 @@ settings-retention-span-forever = bis zum Löschen von Hand
 
 settings-mcp-title = MCP-Server
 settings-mcp-description = Ein Agent kann { -layer-a } über das Model Context Protocol auf seine eigene Ausgabe anwenden und mit der zuständigen Engine umschreiben.
-settings-mcp-tools = Fünf Werkzeuge arbeiten: inspect zeigt, was die { -layer-a } an einem Text ändern würde, clean nimmt diese Änderungen vor und meldet jede mit ihrer Position, inspect_image und clean_image tun dasselbe mit den Metadaten eines PNG, JPEG oder WebP — nur mit den Metadaten, nie mit den Pixeln —, und rewrite lässt die zuständige Engine den Text zwischen zwei Durchgängen der { -layer-a } umschreiben — das Dokument geht dorthin, wohin die Seite „Engine“ es schickt. Umschreiben geschieht nach bestem Bemühen, und sein Bericht sagt, was es nicht feststellt.
+settings-mcp-tools = Fünf Werkzeuge arbeiten: inspect zeigt, was die { -layer-a } an einem Text ändern würde, clean nimmt diese Änderungen vor und meldet jede mit ihrer Position, inspect_image und clean_image tun dasselbe mit einem PNG, JPEG oder WebP — mit seinen Metadaten und mit den sichtbaren Markierungen in seinen Pixeln, die diese Version kennt und die clean_image entfernt, wenn es sie belegen kann; Markierungen, die kein Auge sieht, werden weder gesucht noch entfernt —, und rewrite lässt die zuständige Engine den Text zwischen zwei Durchgängen der { -layer-a } umschreiben — das Dokument geht dorthin, wohin die Seite „Engine“ es schickt. Umschreiben geschieht nach bestem Bemühen, und sein Bericht sagt, was es nicht feststellt.
 
 settings-mcp-status-off = Läuft nicht.
 settings-mcp-status-starting = Startet…
@@ -599,6 +599,7 @@ report-not-established-title = Nicht belegt
 report-not-established-vendor-detector-evasion = Umgehung des herstellereigenen Detektors — nicht geprüft, ein Orakel dafür gibt es nicht
 report-not-established-human-authorship = menschliche Urheberschaft — von keiner Prüfung dieses Werkzeugs belegt
 report-not-established-unknown-mark-schemes = Markierungen in Verfahren, die dieser Build nicht umsetzt — es wurde nicht danach gesucht
+report-not-established-invisible-pixel-marks = unsichtbare Markierungen in den Pixeln des Bildes — nicht gesucht, nicht entfernt
 
 unicode-class-zero-width = breitenloses Zeichen
 unicode-class-zwj = breitenloser Verbinder
@@ -729,6 +730,10 @@ cli-audit-file = { $path }: { $count ->
     } ({ $classes })
 cli-audit-summary = { $root }: gescannt { $scanned } · mit Funden { $findings } · übersprungen { $skipped } · nicht lesbar { $unreadable }
 cli-audit-unreadable-title = Nicht lesbar, also nicht als sauber gezeigt:
+cli-audit-image-visible = { $path }: { $count ->
+    [one] eine sichtbare Markierung
+   *[other] { $count } sichtbare Markierungen
+} ({ $profiles })
 cli-audit-image = { $path }: { $container }, { $count ->
         [one] ein Block
        *[other] { $count } Blöcke
@@ -756,7 +761,36 @@ cli-image-rendering = Farbinformationen (ein ICC-Profil, Gamma, sRGB) bleiben in
 cli-image-exif-removed = Ein EXIF-Block nannte einen Bildgenerator und wurde deshalb ganz entfernt, samt den Kameradaten darin.
 cli-image-all-metadata = --all-metadata hat auch die Kameradaten entfernt.
 cli-image-orientation-removed = Die Drehung des Bildes stand in den entfernten Kameradaten: Ein Programm, das es aufrecht gezeigt hat, zeigt es jetzt so, wie es gespeichert ist – gedreht oder gespiegelt.
-cli-image-pixels = Geprüft wurden nur die Metadaten der Datei. Eine Markierung in den Pixeln selbst wird nicht gesucht; über das Bild selbst sagt dies also nichts.
+cli-image-pixels = Die Pixel wurden auf die sichtbaren Markierungen geprüft, die diese Version kennt. Markierungen, die kein Auge sieht, werden nicht gesucht, und nichts hier sagt, dass das Bild keine trägt.
+cli-image-visible-title = Sichtbare Markierungen
+cli-image-visible-none = In den Pixeln wurde keine sichtbare Markierung gefunden, die diese Version kennt.
+cli-image-visible-row = { $profile } ({ $vendor }, { $product }) · { $width }×{ $height } bei { $x },{ $y } · { $placed }
+cli-image-visible-placed-row = an ihrer bekannten Stelle
+cli-image-visible-placed-searched = durch Suchen gefunden
+cli-image-visible-proved = belegt: Korrelation { $ncc }, Stärke { $gain }, Kantenanteil { $ratio }
+cli-image-visible-refused = gesehen, nicht belegt: { $reason }
+cli-image-refusal-transparent = das Bild ist unter der Markierung nicht deckend
+cli-image-refusal-opaque = die Markierung ist überall deckend ({ $holes } Pixel), und darunter lässt sich nichts zurückgewinnen
+cli-image-refusal-gain = ihre Kanten verschwinden bei einer Stärke von { $k }, nicht bei ihrer eigenen
+cli-image-refusal-edges = nach dem Entfernen bliebe { $ratio } ihres Umrisses
+cli-image-refusal-out-of-range = das Entfernen würde { $share } der Werte aus dem Wertebereich schieben
+cli-image-visible-restored = { $profile }: { $changed } Pixel wiederhergestellt.
+cli-image-visible-exact = Die wiederhergestellten Pixel sind die ursprünglichen Werte bis auf eine Stufe.
+cli-image-visible-inexact = Das Bild war verlustbehaftet gespeichert; die Wiederherstellung ist so nah, wie die gespeicherten Werte es erlauben, aber nicht exakt.
+cli-image-visible-holes = { $holes } Pixel unter einem deckenden Teil der Markierung ließen sich nicht zurückgewinnen und blieben, wie sie waren.
+cli-image-visible-left = Eine sichtbare Markierung wurde gefunden und ist noch im Ergebnis.
+cli-image-visible-not-restorable = Diese Art Bild (ein CMYK-JPEG) schreibt diese Version nicht zurück, daher blieb die Markierung.
+cli-image-visible-not-examined-animated = Ein animiertes Bild: Seine Pixel wurden nicht auf sichtbare Markierungen geprüft.
+cli-image-visible-not-examined-catalogue = Der Katalog sichtbarer Markierungen dieses Builds wurde nicht geladen, daher wurden die Pixel nicht geprüft. Nicht geprüft ist nicht sauber.
+cli-image-visible-not-examined-decode = Die Pixel des Bildes ließen sich nicht dekodieren, daher wurden sie nicht auf sichtbare Markierungen geprüft. Nicht gelesen ist nicht sauber.
+cli-image-encoded-jpeg = Das Bild wurde als JPEG mit Qualität { $quality } neu kodiert.
+cli-image-encoded-webp = Das Bild wurde als verlustfreies WebP geschrieben.
+cli-image-encoded-webp-from-lossy = Das Bild war verlustbehaftetes WebP und wurde als verlustfreies WebP geschrieben: Die Datei ist größer, und kein weiterer Verlust kam hinzu.
+cli-image-encoded-png = Das PNG wurde mit den wiederhergestellten Pixeln neu geschrieben.
+cli-image-encoded-png-colour = Der Farbtyp des PNG hat sich geändert: Die wiederhergestellten Farben passten nicht in den ursprünglichen.
+cli-image-encoded-png-interlace = Das PNG wurde ohne Zeilensprung geschrieben.
+cli-image-proof-failed = { $path }: Das Ergebnis hat seine eigene Prüfung nicht bestanden, daher wurde nichts geschrieben. Das ist ein Fehler dieser Version.
+cli-image-encode-failed = { $path }: Das wiederhergestellte Bild ließ sich nicht zurückschreiben. Nichts wurde geschrieben.
 
 cli-image-not-yet = { $path }: { $container }-Bilder sind in dieser Version noch nicht dabei. Es wurden keine Metadaten gelesen und nichts geschrieben.
 cli-image-unknown = { $path }: Diese Bytes sind kein Bild, das diese Version öffnet. Nichts wurde geschrieben.

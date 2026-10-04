@@ -378,8 +378,8 @@ fn the_picture_report_json_carries_both_passes_and_the_shelf() {
     let json = report.to_json();
     assert!(json.is_ascii(), "{json}");
     for key in [
-        "{\"container\":\"png\",\"metadata\":{\"container\":\"png\",",
-        "\"visible\":{\"examined\":true,\"restorable\":true,\"report\":{\"found\":[",
+        "{\"container\":\"png\",\"still_has_ai_metadata\":false,",
+        "\"orientation_removed\":null,\"visible\":{\"examined\":true,\"restorable\":true,\"found\":[",
         "\"encoding\":{\"kind\":\"png\",\"colour_changed\":false,\"interlace_dropped\":false}",
         "\"marks_left\":false,",
         "\"not_established\":[\"invisible-pixel-marks\",\"vendor-detector-evasion\",\"human-authorship\",\"unknown-mark-schemes\"]}",

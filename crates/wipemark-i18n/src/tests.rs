@@ -239,6 +239,75 @@ fn the_third_shelf_is_never_empty_in_any_language() {
     }
 }
 
+/// The picture report's shelf, in every language: its first claim —
+/// invisible marks in the pixels, not searched for, not removed — is
+/// `wipemark-pixels`'s, and is the one sentence a reader of a cleaned
+/// picture most needs. Deleting its key from any catalogue, or adding a
+/// claim to the picture shelf with no key, turns this red.
+#[test]
+fn the_picture_shelf_is_never_empty_in_any_language() {
+    let shelf = wipemark_pixels::not_established::shelf();
+    assert_eq!(shelf.first(), Some(&wipemark_pixels::not_established::ID));
+    for id in shelf {
+        let key = format!("report-not-established-{id}");
+        let message = Message::ALL
+            .iter()
+            .find(|message| message.id() == key)
+            .unwrap_or_else(|| {
+                panic!("`{id}` is on the picture shelf but `{key}` is not in the catalogue")
+            });
+        for language in languages() {
+            assert!(
+                only(&language).defines(*message),
+                "{language} has no translation for the picture-shelf item `{id}`"
+            );
+        }
+    }
+}
+
+/// A vendor or a product of a visible mark is an identifier (Q-V9):
+/// interpolated beside a finding, never written into a sentence — a
+/// catalogue string that named one would put a trademark into prose and go
+/// stale the day the profile is renamed. Every `vendor` and `product` of
+/// the compiled-in mark catalogue, in every language, in every message.
+#[test]
+fn no_catalogue_string_names_a_mark_vendor() {
+    let mut names: Vec<String> = Vec::new();
+    for key in ["\"vendor\":", "\"product\":"] {
+        for (at, _) in wipemark_pixels::EMBEDDED.match_indices(key) {
+            let rest = &wipemark_pixels::EMBEDDED[at + key.len()..];
+            let Some(open) = rest.find('"') else { continue };
+            let value = &rest[open + 1..];
+            if let Some(close) = value.find('"') {
+                let name = value[..close].to_lowercase();
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+    }
+    assert!(!names.is_empty(), "the mark catalogue names no vendor");
+    for language in languages() {
+        let localizer = only(&language);
+        for message in Message::ALL {
+            let text = localizer
+                .format_args(message, &arguments(message))
+                .to_lowercase();
+            for name in &names {
+                let named = text
+                    .split(|c: char| !c.is_alphanumeric())
+                    .any(|word| word == name);
+                assert!(
+                    !named,
+                    "{language}: `{}` names {name:?} — a vendor is an identifier, \
+                     interpolated, never part of a sentence",
+                    message.id()
+                );
+            }
+        }
+    }
+}
+
 /// Every confidence `wipemark_core` has, listed by hand — core has no
 /// `Confidence::ALL` — and kept honest by [`confidence_ordinal`]'s
 /// exhaustive `match`: a fifth confidence does not compile there until

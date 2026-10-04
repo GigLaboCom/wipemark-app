@@ -141,8 +141,10 @@ MUTATIONS = [
         "M13",
         "a picture with AI provenance is an audit finding",
         "apps/wipemark-cli/src/audit.rs",
-        "Status::Image(report) => report.has_ai_metadata(),",
-        "Status::Image(_) => false,",
+        # Re-pointed by E12-5: a picture's finding is now its metadata's
+        # or a visible mark's.
+        "report.metadata.has_ai_metadata() || report.has_visible_mark()",
+        "false",
         [(CLI + ["--test", "image"], "audit_lists_pictures_in_every_output")],
     ),
     (
@@ -170,11 +172,10 @@ MUTATIONS = [
         "crates/wipemark-image/src/json.rs",
         "for (i, (id, _)) in not_established::ALL.iter().enumerate() {",
         "for (i, (id, _)) in not_established::ALL.iter().take(0).enumerate() {",
-        [
-            (IMG + ["--lib"], "the_json_form_of_an_image_report_is_exact"),
-            (APP + ["--bin", "wipemark"], "every_image_answer_carries_the_third_shelf"),
-            (CLI + ["--test", "image"], "inspect_json_is_ascii_parses_and_carries_the_third_shelf"),
-        ],
+        # Since E12-5 the surfaces write a picture's shelf from
+        # `wipemark-pixels` (invisible-pixel-marks first), not from this
+        # writer's tail: only the library's own test can see this mutation.
+        [(IMG + ["--lib"], "the_json_form_of_an_image_report_is_exact")],
     ),
     (
         "M17",

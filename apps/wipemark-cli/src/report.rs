@@ -404,6 +404,27 @@ pub(crate) fn shelf(say: Say) -> Vec<String> {
     lines
 }
 
+/// The third shelf of a picture report: invisible marks in the pixels
+/// first — `wipemark-pixels`'s claim, never searched for and never removed
+/// — then core's three.
+pub(crate) fn picture_shelf(say: Say) -> Vec<String> {
+    let mut lines = vec![say(Message::ReportNotEstablishedTitle, &FluentArgs::new())];
+    lines.push(format!(
+        "  - {}",
+        shelf_line(
+            say,
+            wipemark_pixels::not_established::ID,
+            wipemark_pixels::not_established::INVISIBLE_PIXEL_MARKS,
+        )
+    ));
+    lines.extend(
+        not_established::ALL
+            .iter()
+            .map(|(id, canonical)| format!("  - {}", shelf_line(say, id, canonical))),
+    );
+    lines
+}
+
 /// A class's words. Exhaustive, so a twelfth class does not compile here
 /// until it has a key — as it does not pass the i18n gate.
 pub(crate) fn class_label(class: UnicodeClass) -> Message {
@@ -441,6 +462,7 @@ fn shelf_line(say: Say, id: &str, canonical: &str) -> String {
         "vendor-detector-evasion" => Message::ReportNotEstablishedVendorDetectorEvasion,
         "human-authorship" => Message::ReportNotEstablishedHumanAuthorship,
         "unknown-mark-schemes" => Message::ReportNotEstablishedUnknownMarkSchemes,
+        "invisible-pixel-marks" => Message::ReportNotEstablishedInvisiblePixelMarks,
         _ => return format!("{canonical} ({id})"),
     };
     say(message, &FluentArgs::new())

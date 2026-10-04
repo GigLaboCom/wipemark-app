@@ -1,5 +1,7 @@
-//! `inspect_image` and `clean_image`: `wipemark-image` over a picture an
-//! MCP client sent as base64 (E11-2).
+//! `inspect_image` and `clean_image`: a picture an MCP client sent as
+//! base64, through both passes — its metadata (`wipemark-image`, E11-2) and
+//! the visible marks in its pixels (`wipemark-picture`, E12-5) — with one
+//! writer.
 //!
 //! [`super::protocol`] reads a call's arguments and wraps the answer; this
 //! is what runs between the two — the bytes decoded, recognised, inspected
@@ -16,9 +18,12 @@
 //!   open owner question, and not one this module answers.
 //! * **Never an empty report, never an image that still carries what it
 //!   was asked to remove.** A malformed picture, a JPEG whose MPF index a
-//!   removal would leave wrong, and a result that would still carry AI provenance
-//!   are each a refusal — an `isError` result naming why — with no report
-//!   and no image attached.
+//!   removal would leave wrong, a result that would still carry AI
+//!   provenance metadata, and a restored picture that could not be written
+//!   back or failed its own check are each a refusal — an `isError` result
+//!   naming why — with no report and no image attached. A visible mark that
+//!   was seen and could not be proved is not a refusal: the image comes
+//!   back with what could be done, and the report says `marks_left`.
 //! * **Nothing here comes from the catalogue**, for the reason the module
 //!   above gives: the application runs it in `Rendering::Ui`, whose
 //!   isolates are what Layer A removes. The report's own JSON is ASCII and
@@ -29,10 +34,9 @@
 //! about 750 KB.
 
 use base64::Engine as _;
-use wipemark_image::{
-    Defect, ImageContainer, ImageError, MetadataFinding, Scope, StripOptions, Unsupported,
-};
+use wipemark_image::{Defect, ImageContainer, ImageError, MetadataFinding, Scope, Unsupported};
 use wipemark_intake::Format;
+use wipemark_picture::{PictureError, PictureOptions};
 
 /// The standard alphabet with its padding, strictly: whitespace, a URL-safe
 /// letter or a missing `=` is refused rather than guessed at. A client
@@ -73,6 +77,10 @@ pub(super) enum Refusal {
     },
     /// The result would still carry AI provenance.
     StillMarked,
+    /// A restored picture could not be written back.
+    Encode,
+    /// A restored picture failed its own check: a fault of this version.
+    Proof,
 }
 
 impl Refusal {
@@ -116,6 +124,12 @@ impl Refusal {
                 "the result would still carry AI provenance metadata, so no image comes back"
                     .to_owned()
             }
+            Self::Encode => {
+                "the restored picture could not be written back, so no image comes back".to_owned()
+            }
+            Self::Proof => "the result failed its own check, so no image comes back; this is a \
+                            fault in this version"
+                .to_owned(),
         }
     }
 
@@ -128,6 +142,8 @@ impl Refusal {
             Self::Reframe { .. } => "reframe",
             Self::Malformed { .. } => "malformed",
             Self::StillMarked => "still marked",
+            Self::Encode => "encode failed",
+            Self::Proof => "proof failed",
         }
     }
 }
@@ -198,29 +214,49 @@ fn refusal_of(error: ImageError) -> Refusal {
     }
 }
 
-/// `inspect_image`: the report, as `ImageReport::to_json` wrote it.
+/// `inspect_image`: the report, as `PictureInspection::to_json` wrote it —
+/// E11's metadata keys, `visible`, and the picture's shelf.
 pub(super) fn inspect(bytes: &[u8]) -> Result<String, Refusal> {
     recognised(bytes)?;
-    let report = wipemark_image::inspect(bytes).map_err(refusal_of)?;
+    let report =
+        wipemark_picture::inspect(bytes, &PictureOptions::default()).map_err(refusal_of)?;
     tracing::info!(
         tool = "inspect_image",
         bytes = bytes.len(),
-        container = report.container.id(),
-        blocks = report.findings.len(),
-        ai = report.has_ai_metadata(),
-        c2pa = report.has_c2pa(),
+        container = report.metadata.container.id(),
+        blocks = report.metadata.findings.len(),
+        ai = report.metadata.has_ai_metadata(),
+        c2pa = report.metadata.has_c2pa(),
+        visible = report.has_visible_mark(),
+        inconclusive = report.inconclusive(),
         "MCP: tools/call answered"
     );
     Ok(report.to_json())
 }
 
-/// `clean_image`: `{"data": <base64>, "report": <StripReport>}` — or a
-/// refusal when the result would still carry provenance.
+fn picture_refusal(error: PictureError) -> Refusal {
+    match error {
+        PictureError::Image(error) => refusal_of(error),
+        PictureError::Encode { .. } | PictureError::Decode { .. } => Refusal::Encode,
+        PictureError::Proof(proof) => {
+            tracing::warn!(proof = ?proof, "MCP: a picture failed its own check");
+            Refusal::Proof
+        }
+    }
+}
+
+/// `clean_image`: `{"data": <base64>, "report": <PictureReport>}` — or a
+/// refusal when the result would still carry provenance metadata, or a
+/// restored picture could not be written back. A visible mark left is in
+/// the report (`marks_left`), not a refusal.
 pub(super) fn clean(bytes: &[u8], scope: Scope) -> Result<String, Refusal> {
     recognised(bytes)?;
-    let (output, report) =
-        wipemark_image::strip(bytes, &StripOptions { scope }).map_err(refusal_of)?;
-    if report.still_has_ai_metadata || report.still_has_c2pa {
+    let options = PictureOptions {
+        scope,
+        catalogue: None,
+    };
+    let (output, report) = wipemark_picture::clean(bytes, &options).map_err(picture_refusal)?;
+    if report.metadata.still_has_ai_metadata || report.metadata.still_has_c2pa {
         return Err(Refusal::StillMarked);
     }
     tracing::info!(
@@ -228,9 +264,15 @@ pub(super) fn clean(bytes: &[u8], scope: Scope) -> Result<String, Refusal> {
         bytes = bytes.len(),
         container = report.container.id(),
         scope = scope.id(),
-        removed = report.removed.len(),
-        ai = report.removed.iter().any(MetadataFinding::is_ai_provenance),
-        kept = report.kept.len(),
+        removed = report.metadata.removed.len(),
+        ai = report
+            .metadata
+            .removed
+            .iter()
+            .any(MetadataFinding::is_ai_provenance),
+        kept = report.metadata.kept.len(),
+        encoding = report.encoding.id(),
+        marks_left = report.marks_left(),
         "MCP: tools/call answered"
     );
     Ok(format!(
@@ -300,6 +342,8 @@ mod tests {
             Refusal::NotYet(ImageContainer::Heic),
             Refusal::MultiPicture { offset: 2 },
             Refusal::Reframe { offset: 2 },
+            Refusal::Encode,
+            Refusal::Proof,
             Refusal::StillMarked,
         ] {
             let said = refusal.said();

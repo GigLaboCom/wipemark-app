@@ -53,6 +53,9 @@ pub enum NotExamined {
     /// The mark catalogue did not load (a build whose catalogue and
     /// assets disagree).
     Catalogue,
+    /// The picture's codec could not decode its pixels, though its
+    /// container read: not read is not clean.
+    Decode,
 }
 
 impl NotExamined {
@@ -60,6 +63,7 @@ impl NotExamined {
         match self {
             NotExamined::Animated => "animated",
             NotExamined::Catalogue => "catalogue",
+            NotExamined::Decode => "decode",
         }
     }
 }
@@ -113,15 +117,22 @@ impl PictureInspection {
         matches!(&self.visible, Visible::Examined { report, .. } if !report.found.is_empty())
     }
 
-    /// The JSON form: `container`, `metadata` (E11's `ImageReport`),
-    /// `visible`, `not_established`.
+    /// As [`PictureReport::inconclusive`].
+    pub fn inconclusive(&self) -> bool {
+        matches!(
+            self.visible,
+            Visible::NotExamined(NotExamined::Catalogue | NotExamined::Decode)
+        )
+    }
+
+    /// One line of ASCII JSON: E11's `ImageReport` form — `container`,
+    /// `ai_metadata`, `c2pa`, `findings` — then `visible`, then the
+    /// picture's shelf as `not_established`, `invisible-pixel-marks`
+    /// first. A reader of the metadata keys reads them where they were.
     pub fn to_json(&self) -> String {
-        format!(
-            "{{\"container\":\"{}\",\"metadata\":{},\"visible\":{},\"not_established\":{}}}",
-            self.metadata.container.id(),
-            self.metadata.to_json(),
-            visible_json(&self.visible),
-            shelf_json()
+        splice(
+            &self.metadata.to_json(),
+            &format!(",\"visible\":{}", visible_json(&self.visible)),
         )
     }
 }
@@ -154,10 +165,21 @@ impl PictureReport {
         matches!(self.visible, Visible::Examined { .. })
     }
 
-    /// One line of ASCII JSON: `container`, `metadata` (E11's
-    /// `StripReport`), `visible`, `encoding`, `marks_left`,
-    /// `not_established` — `invisible-pixel-marks` first, then core's
-    /// three, whatever happened.
+    /// Whether the visible pass should have run and could not: the result
+    /// is then not known to be free of a mark. An animation is not this —
+    /// the pass does not apply to one.
+    pub fn inconclusive(&self) -> bool {
+        matches!(
+            self.visible,
+            Visible::NotExamined(NotExamined::Catalogue | NotExamined::Decode)
+        )
+    }
+
+    /// One line of ASCII JSON: E11's `StripReport` form — `container`,
+    /// `still_has_ai_metadata`, `still_has_c2pa`, `removed`, `kept`,
+    /// `orientation_removed` — then `visible`, `encoding`, `marks_left`,
+    /// and the picture's shelf as `not_established`,
+    /// `invisible-pixel-marks` first, whatever happened.
     pub fn to_json(&self) -> String {
         let encoding = match self.encoding {
             Encoding::Unchanged => String::from("{\"kind\":\"unchanged\"}"),
@@ -172,23 +194,43 @@ impl PictureReport {
             }
             Encoding::Jpeg { quality } => format!("{{\"kind\":\"jpeg\",\"quality\":{quality}}}"),
         };
-        format!(
-            "{{\"container\":\"{}\",\"metadata\":{},\"visible\":{},\"encoding\":{encoding},\"marks_left\":{},\"not_established\":{}}}",
-            self.container.id(),
-            self.metadata.to_json(),
-            visible_json(&self.visible),
-            self.marks_left(),
-            shelf_json()
+        splice(
+            &self.metadata.to_json(),
+            &format!(
+                ",\"visible\":{},\"encoding\":{encoding},\"marks_left\":{}",
+                visible_json(&self.visible),
+                self.marks_left()
+            ),
         )
     }
 }
 
+/// A report's JSON with its own `not_established` cut off — what is left
+/// still open as an object.
+fn without_shelf(json: &str) -> &str {
+    json.rfind(",\"not_established\":")
+        .map_or_else(|| json.strip_suffix('}').unwrap_or(json), |at| &json[..at])
+}
+
+/// `metadata`'s keys, then `extra`, then the picture's shelf.
+fn splice(metadata: &str, extra: &str) -> String {
+    format!(
+        "{}{extra},\"not_established\":{}}}",
+        without_shelf(metadata),
+        shelf_json()
+    )
+}
+
 fn visible_json(visible: &Visible) -> String {
     match visible {
-        Visible::Examined { report, restorable } => format!(
-            "{{\"examined\":true,\"restorable\":{restorable},\"report\":{}}}",
-            report.to_json()
-        ),
+        Visible::Examined { report, restorable } => {
+            // `{"found":…,"restored":…}` without the pixel report's own
+            // shelf: the picture's is written once, at the end.
+            let json = report.to_json();
+            let inner = without_shelf(&json);
+            let inner = inner.strip_prefix('{').unwrap_or(inner);
+            format!("{{\"examined\":true,\"restorable\":{restorable},{inner}}}")
+        }
         Visible::NotExamined(why) => {
             format!("{{\"examined\":false,\"why\":\"{}\"}}", why.id())
         }
@@ -220,12 +262,21 @@ fn catalogue<'a>(options: &PictureOptions<'a>) -> Option<&'a Catalogue> {
 }
 
 /// Both passes, read-only.
+///
+/// The one error is the container's: pixels that do not decode are a
+/// value ([`NotExamined::Decode`]).
 pub fn inspect(
     bytes: &[u8],
     options: &PictureOptions<'_>,
-) -> Result<PictureInspection, PictureError> {
+) -> Result<PictureInspection, ImageError> {
     let metadata = wipemark_image::inspect(bytes)?;
-    let visible = match (decode(bytes, metadata.container)?, catalogue(options)) {
+    let Ok(decoded) = decode(bytes, metadata.container) else {
+        return Ok(PictureInspection {
+            metadata,
+            visible: Visible::NotExamined(NotExamined::Decode),
+        });
+    };
+    let visible = match (decoded, catalogue(options)) {
         (Err(Skip::Animated), _) => Visible::NotExamined(NotExamined::Animated),
         (_, None) => Visible::NotExamined(NotExamined::Catalogue),
         (Ok(decoded), Some(cat)) => {
@@ -272,9 +323,13 @@ pub fn clean(
             },
         ))
     };
-    let decoded = match decode(bytes, container)? {
-        Err(Skip::Animated) => return unchanged(Visible::NotExamined(NotExamined::Animated)),
-        Ok(d) => d,
+    let decoded = match decode(bytes, container) {
+        Err(PictureError::Decode { .. }) => {
+            return unchanged(Visible::NotExamined(NotExamined::Decode))
+        }
+        Err(other) => return Err(other),
+        Ok(Err(Skip::Animated)) => return unchanged(Visible::NotExamined(NotExamined::Animated)),
+        Ok(Ok(d)) => d,
     };
     let Some(cat) = catalogue(options) else {
         return unchanged(Visible::NotExamined(NotExamined::Catalogue));

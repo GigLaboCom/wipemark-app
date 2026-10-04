@@ -8984,7 +8984,9 @@ dependencies = [
  "wipemark-llama-sys",
  "wipemark-log",
  "wipemark-models",
+ "wipemark-picture",
  "wipemark-pipeline",
+ "wipemark-pixels",
  "wipemark-secret",
  "wipemark-store",
 ]
@@ -9008,7 +9010,9 @@ dependencies = [
  "wipemark-llama-sys",
  "wipemark-log",
  "wipemark-models",
+ "wipemark-picture",
  "wipemark-pipeline",
+ "wipemark-pixels",
  "wipemark-store",
  "zune-jpeg 0.5.15",
 ]
@@ -9046,6 +9050,7 @@ dependencies = [
  "tracing",
  "unic-langid",
  "wipemark-core",
+ "wipemark-pixels",
 ]
 
 [[package]]

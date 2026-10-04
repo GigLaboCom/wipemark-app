@@ -1,17 +1,20 @@
-//! `inspect` and `clean` on a picture: `wipemark-image` over the bytes
-//! `input::read_any` handed over, its report in words, and the exit code.
+//! `inspect` and `clean` on a picture: `wipemark-picture` over the bytes
+//! `input::read_any` handed over — the metadata (`wipemark-image`) and the
+//! visible marks in the pixels (`wipemark-pixels`) with one writer — its
+//! report in words, and the exit code.
 //!
 //! # Exit codes
 //!
 //! The CLI's four, with one meaning across a text and a picture (D131,
-//! D132, D136):
+//! D132, D136, D160 as the owner amended it — no flag: marks found are
+//! removed):
 //!
 //! | | `inspect` | `clean` |
 //! |---|---|---|
-//! | 0 | no block is AI provenance — camera EXIF, colour, a comment are not findings | the input carried no AI provenance; the result was written (or, in place, nothing needed writing) |
-//! | 1 | at least one block is AI provenance | the input carried AI provenance, and the result written carries none |
-//! | 2 | TIFF, HEIC, AVIF ("not in this version yet"); a flag for text | as `inspect`, and a JPEG whose MPF index a removal would move, image bytes for a terminal, `--json` with the image on stdout, and every refusal `clean` has for a text |
-//! | 3 | a file this version could not read (`Malformed`) — not read is not clean | as `inspect`; **and a result that would still carry AI provenance, which is then not written** |
+//! | 0 | no block is AI provenance and no visible mark was seen — camera EXIF, colour, a comment are not findings | the input carried neither; the result was written (or, in place, nothing needed writing) |
+//! | 1 | a block is AI provenance, or a visible mark was seen (proved or not) | the input carried AI provenance or a proved mark, and the result written carries neither |
+//! | 2 | TIFF, HEIC, AVIF ("not in this version yet"); a flag for text | as `inspect`, and a JPEG whose MPF index a removal would leave wrong, an animation that would have to be written back, image bytes for a terminal, `--json` with the image on stdout, and every refusal `clean` has for a text |
+//! | 3 | a file this version could not read (`Malformed`), or pixels that should have been examined and were not — not read is not clean, and 3 beats 1 | as `inspect`; **a result that would still carry AI provenance metadata, which is then not written**; **a visible mark left in the result — not proved, or under opaque pixels — which is written with what could be done**; a restored picture that could not be written back or failed its own check, with nothing written |
 //!
 //! `clean` exits by the **input**, as it does for a text (D28): a hook
 //! wants to know what was there. The one thing it must never do is exit
@@ -40,23 +43,28 @@ use std::io::Write as _;
 use wipemark_i18n::{args, FluentArgs, Message};
 use wipemark_image::{
     Defect, ImageContainer, ImageError, ImageReport, MetadataFinding, MetadataKind, Scope, Signal,
-    StripOptions, StripReport, Unsupported,
+    StripReport, Unsupported,
 };
 use wipemark_intake::inplace;
 use wipemark_log::Elided;
+use wipemark_picture::{
+    Encoding, NotExamined, PictureError, PictureInspection, PictureOptions, PictureReport, Visible,
+};
+use wipemark_pixels::{Finding, Placed, Refusal, Verdict};
 
 use crate::input::{Picture, Source};
 use crate::report::{self, Say, Written};
 use crate::run::{self, Destination, Io};
 use crate::Exit;
 
-/// `inspect` on a picture. Never writes a file.
+/// `inspect` on a picture: its metadata and the visible marks in its
+/// pixels. Never writes a file.
 pub(crate) fn inspect(path: &str, label: &str, picture: &Picture, json: bool, io: &mut Io) -> Exit {
-    let report = match wipemark_image::inspect(&picture.bytes) {
+    let report = match wipemark_picture::inspect(&picture.bytes, &PictureOptions::default()) {
         Ok(report) => report,
         Err(error) => return refuse(io, "inspect", path, label, &error),
     };
-    let exit = inspect_exit(&report);
+    let exit = picture_inspect_exit(&report);
     let out = if json {
         format!("{}\n", report.to_json())
     } else {
@@ -68,11 +76,13 @@ pub(crate) fn inspect(path: &str, label: &str, picture: &Picture, json: bool, io
     tracing::info!(
         command = "inspect",
         input = %Elided::from(path),
-        container = report.container.id(),
+        container = report.metadata.container.id(),
         bytes = picture.bytes.len(),
-        blocks = report.findings.len(),
-        ai = report.has_ai_metadata(),
-        c2pa = report.has_c2pa(),
+        blocks = report.metadata.findings.len(),
+        ai = report.metadata.has_ai_metadata(),
+        c2pa = report.metadata.has_c2pa(),
+        visible = report.has_visible_mark(),
+        examined = !report.inconclusive(),
         exit = exit as u8,
         "done"
     );
@@ -90,16 +100,50 @@ pub(crate) fn inspect_exit(report: &ImageReport) -> Exit {
     }
 }
 
-/// `clean`'s exit, from the report of the strip (D132). Never 0 — and
-/// never 1 — over an output that still carries provenance: that is 3, and
-/// the caller writes nothing.
-pub(crate) fn clean_exit(report: &StripReport) -> Exit {
+/// `inspect`'s exit on a picture: 3 when the pixels should have been
+/// examined and could not be — not read is not clean, and 3 beats 1; 1
+/// when a visible mark was seen, proved or not, or a block is AI
+/// provenance; 0 otherwise.
+pub(crate) fn picture_inspect_exit(report: &PictureInspection) -> Exit {
+    if report.inconclusive() {
+        Exit::Partial
+    } else if report.has_visible_mark() {
+        Exit::Findings
+    } else {
+        inspect_exit(&report.metadata)
+    }
+}
+
+/// The metadata half of `clean`'s exit, from the report of the strip
+/// (D132). Never 0 — and never 1 — over an output that still carries
+/// provenance: that is 3, and the caller writes nothing.
+pub(crate) fn strip_exit(report: &StripReport) -> Exit {
     if report.still_has_ai_metadata || report.still_has_c2pa {
         Exit::Partial
     } else if report.removed.iter().any(MetadataFinding::is_ai_provenance) {
         Exit::Findings
     } else {
         Exit::Clean
+    }
+}
+
+/// `clean`'s exit on a picture. The metadata's first: an output that
+/// still carries provenance is 3 and is not written. Then the pixels: a
+/// visible mark left in the result, or pixels that should have been
+/// examined and were not, is 3 — the result is written with what could be
+/// done, and *inconclusive is not clean*. Otherwise by the input (D28): 1
+/// when it carried provenance or a mark that is now gone, 0 when not.
+pub(crate) fn clean_exit(report: &PictureReport) -> Exit {
+    let metadata = strip_exit(&report.metadata);
+    if metadata == Exit::Partial || report.marks_left() || report.inconclusive() {
+        return Exit::Partial;
+    }
+    let restored =
+        matches!(&report.visible, Visible::Examined { report, .. } if !report.restored.is_empty());
+    if restored {
+        Exit::Findings
+    } else {
+        metadata
     }
 }
 
@@ -146,12 +190,16 @@ pub(crate) fn clean(ask: &Ask, picture: &Picture, io: &mut Io) -> Exit {
         }
     }
 
-    let (bytes, report) = match wipemark_image::strip(&picture.bytes, &StripOptions { scope }) {
-        Ok(stripped) => stripped,
-        Err(error) => return refuse(io, "clean", path, label, &error),
+    let options = PictureOptions {
+        scope,
+        catalogue: None,
+    };
+    let (bytes, report) = match wipemark_picture::clean(&picture.bytes, &options) {
+        Ok(cleaned) => cleaned,
+        Err(error) => return refuse_picture(io, "clean", path, label, &error),
     };
     let exit = clean_exit(&report);
-    if exit == Exit::Partial {
+    if strip_exit(&report.metadata) == Exit::Partial {
         // The output still carries what this command exists to remove. A
         // file named `.cleaned` that is not is worse than no file.
         let line = run::say(Message::CliImageStillMarked, &args!("path" => label));
@@ -258,8 +306,11 @@ pub(crate) fn clean(ask: &Ask, picture: &Picture, io: &mut Io) -> Exit {
         input = %Elided::from(path),
         container = report.container.id(),
         bytes = picture.bytes.len(),
-        removed = report.removed.len(),
-        kept = report.kept.len(),
+        removed = report.metadata.removed.len(),
+        kept = report.metadata.kept.len(),
+        encoding = report.encoding.id(),
+        marks_left = report.marks_left(),
+        examined = report.examined(),
         all_metadata = scope == Scope::AllMetadata,
         to = destination.label(),
         exit = exit as u8,
@@ -290,6 +341,42 @@ pub(crate) fn refuse(
     };
     let _ = writeln!(io.stderr, "wipemark-cli: {line}");
     run::failed(command, path, reason, None, exit)
+}
+
+/// Why a picture was not inspected or not cleaned, past its metadata: the
+/// container's refusals are [`refuse`]'s; a result that could not be
+/// written back, or failed its own check, is 3 — nothing was written, and
+/// what was not done is not clean.
+pub(crate) fn refuse_picture(
+    io: &mut Io,
+    command: &str,
+    path: &str,
+    label: &str,
+    error: &PictureError,
+) -> Exit {
+    let (line, reason) = match error {
+        PictureError::Image(error) => return refuse(io, command, path, label, error),
+        PictureError::Proof(proof) => {
+            tracing::warn!(proof = ?proof, "picture proof failed");
+            (
+                run::say(Message::CliImageProofFailed, &args!("path" => label)),
+                "proof failed",
+            )
+        }
+        PictureError::Encode { .. } => (
+            run::say(Message::CliImageEncodeFailed, &args!("path" => label)),
+            "encode failed",
+        ),
+        PictureError::Decode { .. } => (
+            run::say(
+                Message::CliImageVisibleNotExaminedDecode,
+                &FluentArgs::new(),
+            ),
+            "decode failed",
+        ),
+    };
+    let _ = writeln!(io.stderr, "wipemark-cli: {line}");
+    run::failed(command, path, reason, None, Exit::Partial)
 }
 
 /// The sentence for an [`ImageError`] — the line `inspect` and `clean`
@@ -347,7 +434,8 @@ pub(crate) fn refuse_flag(
 /// `inspect`'s report on a picture: the summary, every block under what
 /// `clean` would remove and what it would keep, the colour note, the
 /// pixels, the third shelf.
-pub(crate) fn inspect_lines(say: Say, source: &str, report: &ImageReport) -> Vec<String> {
+pub(crate) fn inspect_lines(say: Say, source: &str, inspection: &PictureInspection) -> Vec<String> {
+    let report: &ImageReport = &inspection.metadata;
     let mut lines = vec![summary(say, source, report.container, &report.findings)];
     let (removed, kept): (Vec<&MetadataFinding>, Vec<&MetadataFinding>) = report
         .findings
@@ -372,6 +460,7 @@ pub(crate) fn inspect_lines(say: Say, source: &str, report: &ImageReport) -> Vec
     {
         lines.push(say(Message::CliImageRendering, &FluentArgs::new()));
     }
+    lines.extend(visible_lines(say, &inspection.visible, false));
     lines.extend(footer(say));
     lines
 }
@@ -381,10 +470,11 @@ pub(crate) fn inspect_lines(say: Say, source: &str, report: &ImageReport) -> Vec
 pub(crate) fn clean_lines(
     say: Say,
     source: &str,
-    report: &StripReport,
+    picture: &PictureReport,
     scope: Scope,
     written: Written,
 ) -> Vec<String> {
+    let report: &StripReport = &picture.metadata;
     let input: Vec<MetadataFinding> = report.removed.iter().chain(&report.kept).cloned().collect();
     let mut lines = vec![summary(say, source, report.container, &input)];
     for (heading, rows) in [
@@ -426,6 +516,11 @@ pub(crate) fn clean_lines(
     // read, not a warning about what EXIF may hold.
     if report.orientation_removed.is_some() {
         lines.push(say(Message::CliImageOrientationRemoved, &FluentArgs::new()));
+    }
+    lines.extend(visible_lines(say, &picture.visible, true));
+    lines.extend(encoding_lines(say, picture.encoding));
+    if picture.marks_left() {
+        lines.push(say(Message::CliImageVisibleLeft, &FluentArgs::new()));
     }
     lines.extend(report::written_lines(say, source, written));
     lines.extend(footer(say));
@@ -520,12 +615,179 @@ fn block(say: Say, finding: &MetadataFinding) -> Vec<String> {
     lines
 }
 
-/// The pixels, then the third shelf. No Unicode version: nothing here was
-/// read as characters.
+/// What the pixels were examined for, then the picture's third shelf —
+/// invisible marks first. No Unicode version: nothing here was read as
+/// characters.
 fn footer(say: Say) -> Vec<String> {
     let mut lines = vec![say(Message::CliImagePixels, &FluentArgs::new())];
-    lines.extend(report::shelf(say));
+    lines.extend(report::picture_shelf(say));
     lines
+}
+
+/// A number as the report spells it: a fixed number of decimals, never
+/// grouped by the locale.
+fn fixed(value: f32, decimals: usize) -> String {
+    format!("{value:.decimals$}")
+}
+
+/// The visible pass, as it went: every finding, proved or not, with its
+/// numbers; after a `clean`, what was restored.
+fn visible_lines(say: Say, visible: &Visible, cleaned: bool) -> Vec<String> {
+    let mut lines = vec![say(Message::CliImageVisibleTitle, &FluentArgs::new())];
+    let (report, restorable) = match visible {
+        Visible::NotExamined(why) => {
+            let message = match why {
+                NotExamined::Animated => Message::CliImageVisibleNotExaminedAnimated,
+                NotExamined::Catalogue => Message::CliImageVisibleNotExaminedCatalogue,
+                NotExamined::Decode => Message::CliImageVisibleNotExaminedDecode,
+            };
+            lines.push(format!("  {}", say(message, &FluentArgs::new())));
+            return lines;
+        }
+        Visible::Examined { report, restorable } => (report, *restorable),
+    };
+    if report.found.is_empty() {
+        lines.push(format!(
+            "  {}",
+            say(Message::CliImageVisibleNone, &FluentArgs::new())
+        ));
+        return lines;
+    }
+    for finding in &report.found {
+        lines.extend(finding_lines(say, finding));
+    }
+    if !restorable {
+        lines.push(format!(
+            "  {}",
+            say(Message::CliImageVisibleNotRestorable, &FluentArgs::new())
+        ));
+    }
+    if cleaned {
+        for restored in &report.restored {
+            lines.push(format!(
+                "  {}",
+                say(
+                    Message::CliImageVisibleRestored,
+                    &args!(
+                        "profile" => restored.profile.as_str(),
+                        "changed" => restored.changed.to_string(),
+                    ),
+                )
+            ));
+            let note = if restored.exact {
+                Message::CliImageVisibleExact
+            } else {
+                Message::CliImageVisibleInexact
+            };
+            lines.push(format!("    {}", say(note, &FluentArgs::new())));
+            if restored.holes > 0 {
+                lines.push(format!(
+                    "    {}",
+                    say(
+                        Message::CliImageVisibleHoles,
+                        &args!("holes" => restored.holes.to_string()),
+                    )
+                ));
+            }
+        }
+    }
+    lines
+}
+
+/// One finding: where, by which profile — whose names are identifiers,
+/// interpolated and never translated — and the verdict with its numbers.
+fn finding_lines(say: Say, finding: &Finding) -> Vec<String> {
+    let rect = finding.pixels.unwrap_or(wipemark_pixels::PixelRect {
+        x: finding.rect.x.max(0.0) as u32,
+        y: finding.rect.y.max(0.0) as u32,
+        width: finding.rect.size as u32,
+        height: finding.rect.size as u32,
+    });
+    let placed = match finding.placed {
+        Placed::Row(_) => Message::CliImageVisiblePlacedRow,
+        Placed::Searched => Message::CliImageVisiblePlacedSearched,
+    };
+    let row = say(
+        Message::CliImageVisibleRow,
+        &args!(
+            "profile" => finding.profile.as_str(),
+            "vendor" => finding.vendor.as_str(),
+            "product" => finding.product.as_str(),
+            "width" => rect.width.to_string(),
+            "height" => rect.height.to_string(),
+            "x" => rect.x.to_string(),
+            "y" => rect.y.to_string(),
+            "placed" => say(placed, &FluentArgs::new()),
+        ),
+    );
+    let verdict = match &finding.verdict {
+        Verdict::Verified(v) => say(
+            Message::CliImageVisibleProved,
+            &args!(
+                "ncc" => fixed(finding.ncc, 3),
+                "gain" => fixed(v.gain(), 2),
+                "ratio" => fixed(v.edge_ratio(), 3),
+            ),
+        ),
+        Verdict::Refused(refusal) => say(
+            Message::CliImageVisibleRefused,
+            &args!("reason" => refusal_line(say, *refusal)),
+        ),
+    };
+    vec![format!("  {row}"), format!("    {verdict}")]
+}
+
+/// A refusal's reason, with the number that failed.
+fn refusal_line(say: Say, refusal: Refusal) -> String {
+    match refusal {
+        Refusal::Transparent => say(Message::CliImageRefusalTransparent, &FluentArgs::new()),
+        Refusal::Opaque { holes } => say(
+            Message::CliImageRefusalOpaque,
+            &args!("holes" => holes.to_string()),
+        ),
+        Refusal::Gain { k } => say(Message::CliImageRefusalGain, &args!("k" => fixed(k, 2))),
+        Refusal::Edges { ratio } => say(
+            Message::CliImageRefusalEdges,
+            &args!("ratio" => format!("{}%", fixed(ratio * 100.0, 0))),
+        ),
+        Refusal::OutOfRange { share } => say(
+            Message::CliImageRefusalOutOfRange,
+            &args!("share" => format!("{}%", fixed(share * 100.0, 1))),
+        ),
+    }
+}
+
+/// How the picture was written back, when its pixels were.
+fn encoding_lines(say: Say, encoding: Encoding) -> Vec<String> {
+    let none = FluentArgs::new;
+    match encoding {
+        Encoding::Unchanged => Vec::new(),
+        Encoding::Jpeg { quality } => vec![say(
+            Message::CliImageEncodedJpeg,
+            &args!("quality" => quality.to_string()),
+        )],
+        Encoding::WebPLossless { from_lossy } => vec![say(
+            if from_lossy {
+                Message::CliImageEncodedWebpFromLossy
+            } else {
+                Message::CliImageEncodedWebp
+            },
+            &none(),
+        )],
+        Encoding::Png {
+            colour_changed,
+            interlace_dropped,
+        } => {
+            let mut lines = vec![say(Message::CliImageEncodedPng, &none())];
+            if colour_changed {
+                lines.push(say(Message::CliImageEncodedPngColour, &none()));
+            }
+            if interlace_dropped {
+                lines.push(say(Message::CliImageEncodedPngInterlace, &none()));
+            }
+            lines
+        }
+    }
 }
 
 /// A kind's words. Exhaustive, so a ninth kind does not compile here
@@ -579,9 +841,12 @@ mod tests {
     use wipemark_image::{
         Evidence, ImageContainer, MetadataFinding, MetadataKind, Scope, Signal, StripReport,
     };
+    use wipemark_picture::{Encoding, NotExamined, PictureInspection, PictureReport, Visible};
+    use wipemark_pixels::PixelReport;
 
     use super::{
-        clean_exit, clean_lines, defect_label, inspect_lines, kind_label, signal_label, Ask,
+        clean_exit, clean_lines, defect_label, inspect_lines, kind_label, picture_inspect_exit,
+        signal_label, strip_exit, Ask,
     };
     use crate::input::{Picture, Source};
     use crate::report::Written;
@@ -623,6 +888,28 @@ mod tests {
         }
     }
 
+    /// A visible pass that found nothing.
+    fn nothing_seen() -> Visible {
+        Visible::Examined {
+            report: PixelReport {
+                found: Vec::new(),
+                restored: Vec::new(),
+                not_established: wipemark_pixels::not_established::shelf(),
+            },
+            restorable: true,
+        }
+    }
+
+    /// A strip's report as a picture's, nothing seen in the pixels.
+    fn picture(metadata: StripReport) -> PictureReport {
+        PictureReport {
+            container: ImageContainer::Png,
+            metadata,
+            visible: nothing_seen(),
+            encoding: Encoding::Unchanged,
+        }
+    }
+
     fn strip(removed: Vec<MetadataFinding>, kept: Vec<MetadataFinding>) -> StripReport {
         let still = kept.iter().any(MetadataFinding::is_ai_provenance);
         StripReport {
@@ -642,25 +929,25 @@ mod tests {
     #[test]
     fn an_output_that_still_carries_provenance_never_exits_zero() {
         assert_eq!(
-            clean_exit(&strip(vec![c2pa()], vec![exif()])),
+            strip_exit(&strip(vec![c2pa()], vec![exif()])),
             Exit::Findings
         );
-        assert_eq!(clean_exit(&strip(vec![], vec![exif()])), Exit::Clean);
-        assert_eq!(clean_exit(&strip(vec![exif()], vec![])), Exit::Clean);
+        assert_eq!(strip_exit(&strip(vec![], vec![exif()])), Exit::Clean);
+        assert_eq!(strip_exit(&strip(vec![exif()], vec![])), Exit::Clean);
         let mut still = strip(vec![c2pa()], vec![c2pa()]);
-        assert_eq!(clean_exit(&still), Exit::Partial);
+        assert_eq!(strip_exit(&still), Exit::Partial);
         still.still_has_ai_metadata = false;
-        assert_eq!(clean_exit(&still), Exit::Partial, "still_has_c2pa alone");
+        assert_eq!(strip_exit(&still), Exit::Partial, "still_has_c2pa alone");
         still.still_has_ai_metadata = true;
         still.still_has_c2pa = false;
         assert_eq!(
-            clean_exit(&still),
+            strip_exit(&still),
             Exit::Partial,
             "still_has_ai_metadata alone"
         );
         still.removed.clear();
         assert_eq!(
-            clean_exit(&still),
+            strip_exit(&still),
             Exit::Partial,
             "nothing removed, still marked"
         );
@@ -760,12 +1047,16 @@ mod tests {
             let say = |message: Message, args: &FluentArgs| localizer.format_args(message, args);
             let pixels = localizer.format(Message::CliImagePixels);
             let shelf = localizer.format(Message::ReportNotEstablishedUnknownMarkSchemes);
+            let inspection = PictureInspection {
+                metadata: report.clone(),
+                visible: nothing_seen(),
+            };
             for lines in [
-                inspect_lines(&say, "x.png", &report),
+                inspect_lines(&say, "x.png", &inspection),
                 clean_lines(
                     &say,
                     "x.png",
-                    &strip(vec![c2pa()], vec![exif()]),
+                    &picture(strip(vec![c2pa()], vec![exif()])),
                     Scope::AiProvenance,
                     Written::File {
                         path: "x.cleaned.png",
@@ -814,7 +1105,7 @@ mod tests {
         let lines = clean_lines(
             &say,
             "x",
-            &strip(vec![exif()], vec![]),
+            &picture(strip(vec![exif()], vec![])),
             Scope::AllMetadata,
             written,
         );
@@ -822,7 +1113,7 @@ mod tests {
         let lines = clean_lines(
             &say,
             "x",
-            &strip(vec![c2pa()], vec![exif()]),
+            &picture(strip(vec![c2pa()], vec![exif()])),
             Scope::AiProvenance,
             written,
         );
@@ -840,7 +1131,7 @@ mod tests {
         let lines = clean_lines(
             &say,
             "x",
-            &strip(vec![ai_exif], vec![]),
+            &picture(strip(vec![ai_exif], vec![])),
             Scope::AiProvenance,
             written,
         );
@@ -849,7 +1140,7 @@ mod tests {
         let lines = clean_lines(
             &say,
             "x",
-            &strip(vec![c2pa()], vec![exif()]),
+            &picture(strip(vec![c2pa()], vec![exif()])),
             Scope::AiProvenance,
             written,
         );
@@ -868,12 +1159,81 @@ mod tests {
         let rotation = english.format(Message::CliImageOrientationRemoved);
         let written = Written::Stdout { from_file: false };
         for scope in Scope::ALL {
-            let mut report = strip(vec![exif()], vec![]);
+            let mut report = picture(strip(vec![exif()], vec![]));
             let lines = clean_lines(&say, "x", &report, scope, written);
             assert!(!lines.contains(&rotation), "{scope:?}: {lines:#?}");
-            report.orientation_removed = Some(6);
+            report.metadata.orientation_removed = Some(6);
             let lines = clean_lines(&say, "x", &report, scope, written);
             assert!(lines.contains(&rotation), "{scope:?}: {lines:#?}");
         }
+    }
+
+    /// E12-5's gate: a visible mark seen and left in the result never
+    /// exits 0 — nor 1 — whatever the metadata did; and pixels that should
+    /// have been examined and were not are 3 too.
+    #[test]
+    fn a_visible_mark_left_behind_never_exits_0() {
+        let seen = |restorable: bool, found: Vec<wipemark_pixels::Finding>| {
+            let mut report = picture(strip(vec![c2pa()], vec![]));
+            report.visible = Visible::Examined {
+                report: PixelReport {
+                    found,
+                    restored: Vec::new(),
+                    not_established: wipemark_pixels::not_established::shelf(),
+                },
+                restorable,
+            };
+            report
+        };
+        let refused = wipemark_pixels::Finding {
+            profile: "test-mark".into(),
+            vendor: "test".into(),
+            product: "synthetic".into(),
+            rect: wipemark_pixels::SubRect {
+                x: 10.0,
+                y: 10.0,
+                size: 48.0,
+            },
+            pixels: None,
+            placed: wipemark_pixels::Placed::Searched,
+            ncc: 0.9,
+            pass: 1,
+            scores: None,
+            verdict: wipemark_pixels::Verdict::Refused(wipemark_pixels::Refusal::Gain { k: 0.72 }),
+            also_tried: Vec::new(),
+        };
+        // A mark seen and not proved is left: 3, though the metadata went.
+        assert_eq!(
+            clean_exit(&seen(true, vec![refused.clone()])),
+            Exit::Partial
+        );
+        // A mark in a picture this version does not write back: left, 3.
+        assert_eq!(clean_exit(&seen(false, vec![refused])), Exit::Partial);
+        // Nothing seen: by the input, as before.
+        assert_eq!(clean_exit(&seen(true, Vec::new())), Exit::Findings);
+        assert_eq!(clean_exit(&seen(false, Vec::new())), Exit::Findings);
+        assert_eq!(clean_exit(&picture(strip(vec![], vec![]))), Exit::Clean);
+        for why in [NotExamined::Catalogue, NotExamined::Decode] {
+            let mut report = picture(strip(vec![], vec![]));
+            report.visible = Visible::NotExamined(why);
+            assert_eq!(clean_exit(&report), Exit::Partial, "{why:?}");
+            let inspection = PictureInspection {
+                metadata: wipemark_image::ImageReport {
+                    container: ImageContainer::Png,
+                    findings: vec![c2pa()],
+                    not_established: Vec::new(),
+                },
+                visible: Visible::NotExamined(why),
+            };
+            assert_eq!(
+                picture_inspect_exit(&inspection),
+                Exit::Partial,
+                "3 beats 1: {why:?}"
+            );
+        }
+        // An animation is not inconclusive: the pass does not apply.
+        let mut animated = picture(strip(vec![], vec![]));
+        animated.visible = Visible::NotExamined(NotExamined::Animated);
+        assert_eq!(clean_exit(&animated), Exit::Clean);
     }
 }

@@ -37,6 +37,10 @@ wipemark-intake.workspace = true
 # metadata blocks, found and removed, every pixel byte left as it was; the
 # report is the library's own JSON.
 wipemark-image.workspace = true
+# And the visible marks in its pixels: `wipemark-picture` runs both passes
+# with one writer, `wipemark-pixels` is the report it hands back.
+wipemark-picture.workspace = true
+wipemark-pixels.workspace = true
 # The image an MCP client sends and the one `clean_image` returns travel
 # as base64 inside JSON. Already in the lock (0.22.1) through gpui's
 # `usvg`, so this pins no new build — the task's rule was to write the

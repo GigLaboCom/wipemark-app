@@ -46,6 +46,10 @@ wipemark-intake.workspace = true
 # blocks, found and removed, with every pixel byte left as it was. The
 # reports' JSON is the library's own writer, as Layer A's is core's.
 wipemark-image.workspace = true
+# And the visible marks in its pixels: `wipemark-picture` runs both passes
+# with one writer, `wipemark-pixels` is the report it hands back.
+wipemark-picture.workspace = true
+wipemark-pixels.workspace = true
 # Only to escape the one string — the cleaned text, the path written — a
 # `--json` answer carries beside core's report, and for the tests to read
 # that answer back.

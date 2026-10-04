@@ -152,7 +152,7 @@ fn inspect_exits_one_on_each_ai_signal_and_zero_on_a_camera() {
 }
 
 /// `--json` is one line of ASCII that parses, carries the verdict the exit
-/// code was read from, and the third shelf with the pixel domain on it.
+/// code was read from, the visible pass, and the picture's third shelf.
 #[test]
 fn inspect_json_is_ascii_parses_and_carries_the_third_shelf() {
     let scratch = Scratch::new("inspect-json");
@@ -169,7 +169,12 @@ fn inspect_json_is_ascii_parses_and_carries_the_third_shelf() {
             .filter_map(Value::as_str)
             .collect();
         assert!(shelf.contains(&"unknown-mark-schemes"), "{name}: {shelf:?}");
-        assert_eq!(shelf.len(), 3, "{name}");
+        // A picture's shelf: invisible marks in the pixels first, then
+        // core's three (E12-5).
+        assert_eq!(shelf.first(), Some(&"invisible-pixel-marks"), "{name}");
+        assert_eq!(shelf.len(), 4, "{name}");
+        // And the visible pass, examined: the shipped catalogue loads.
+        assert_eq!(report["visible"]["examined"], Value::Bool(true), "{name}");
     }
 }
 
