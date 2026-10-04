@@ -106,7 +106,15 @@ pub(crate) fn clean_lines(
             lines.push(say(Message::CliCleanLater, &args!("count" => later)));
         }
     }
+    lines.extend(written_lines(say, source, written));
+    lines.extend(footer(say, report.unicode_version));
+    lines
+}
+
+/// Where a result went, as `clean` and `rewrite` both say it.
+fn written_lines(say: Say, source: &str, written: Written) -> Vec<String> {
     let untouched = || say(Message::CliCleanUntouched, &args!("source" => source));
+    let mut lines = Vec::new();
     match written {
         Written::Stdout { from_file } => {
             if from_file {
@@ -133,7 +141,96 @@ pub(crate) fn clean_lines(
             ));
         }
     }
-    lines.extend(footer(say, report.unicode_version));
+    lines
+}
+
+/// `rewrite`'s report, read off the job's JSON — the one form both roads
+/// hand back, the running application's and this command's own, so the
+/// two cannot report differently.
+///
+/// The lines: what Layer A found in the input (never "clean"); how many
+/// paragraphs were rewritten and how many kept their cleaned original —
+/// the reason for exit 3; how many candidates the model wrote; that Layer
+/// B is best-effort; the seed that repeats the run; where the result went;
+/// who rewrote it; the Unicode version; and the third shelf, as the report
+/// itself lists it.
+pub(crate) fn rewrite_lines(
+    say: Say,
+    source: &str,
+    report: &serde_json::Value,
+    written: Written,
+    served: Message,
+) -> Vec<String> {
+    let number = |value: &serde_json::Value| value.as_u64().unwrap_or(0);
+    let before = &report["verifiable"]["before"];
+    let rows = |key: &str| -> u64 {
+        before[key]
+            .as_array()
+            .map_or(0, |rows| rows.iter().map(|row| number(&row["count"])).sum())
+    };
+    let found = rows("findings") + rows("kept");
+    let summary = if found == 0 {
+        say(Message::CliReportNone, &args!("source" => source))
+    } else if before["suspicious"].as_bool().unwrap_or(false) {
+        say(
+            Message::CliReportSuspicious,
+            &args!("source" => source, "count" => found),
+        )
+    } else {
+        say(
+            Message::CliReportNoted,
+            &args!("source" => source, "count" => found),
+        )
+    };
+    let mut lines = vec![summary];
+
+    let totals = &report["best_effort"]["totals"];
+    let (chunks, rewritten, kept) = (
+        number(&totals["chunks"]),
+        number(&totals["rewritten"]),
+        number(&totals["kept_source"]),
+    );
+    lines.push(say(
+        Message::CliRewriteSummary,
+        &args!("chunks" => chunks, "rewritten" => rewritten),
+    ));
+    if kept > 0 {
+        lines.push(say(Message::CliRewriteKept, &args!("kept" => kept)));
+    }
+    let attempts = number(&totals["attempts"]);
+    if attempts > 0 {
+        lines.push(say(
+            Message::CliRewriteAttempts,
+            &args!("attempts" => attempts, "rejected" => number(&totals["rejected"])),
+        ));
+    }
+    lines.push(say(Message::CliRewriteBestEffort, &FluentArgs::new()));
+    if let Some(seed) = report["best_effort"]["base_seed"].as_u64() {
+        // As text: a seed regrouped by a locale is not one to type back.
+        lines.push(say(
+            Message::CliRewriteSeed,
+            &args!("seed" => seed.to_string()),
+        ));
+    }
+    lines.extend(written_lines(say, source, written));
+    lines.push(say(served, &FluentArgs::new()));
+
+    lines.push(say(
+        Message::CliReportUnicode,
+        &args!("version" => before["unicode_version"].as_str().unwrap_or_default()),
+    ));
+    lines.push(say(Message::ReportNotEstablishedTitle, &FluentArgs::new()));
+    let shelf: Vec<&str> = report["not_established"]
+        .as_array()
+        .map(|ids| ids.iter().filter_map(serde_json::Value::as_str).collect())
+        .unwrap_or_default();
+    for id in shelf {
+        let canonical = not_established::ALL
+            .iter()
+            .find(|(known, _)| *known == id)
+            .map_or(id, |(_, canonical)| *canonical);
+        lines.push(format!("  - {}", shelf_line(say, id, canonical)));
+    }
     lines
 }
 

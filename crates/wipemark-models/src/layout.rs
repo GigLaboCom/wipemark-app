@@ -21,6 +21,8 @@
 //!                                 it, and of their results — only when the
 //!                                 Retention page asks, and only for as long
 //!                                 as it says (E4)
+//!   mcp.json                      the running application's MCP port, while
+//!                                 it listens on loopback (D52)
 //!   logs/<stem>_<ts>.log          rotating diagnostics, never document text
 //! ```
 //!
@@ -160,6 +162,13 @@ impl Layout {
     /// anything will names this folder so it can be found.
     pub fn kept_dir(&self) -> PathBuf {
         self.root.join("kept")
+    }
+
+    /// `<root>/mcp.json` — the running application's MCP server: its
+    /// process id, its port and the loopback address to dial, present
+    /// while it listens. See [`crate::beacon`].
+    pub fn beacon_path(&self) -> PathBuf {
+        self.root.join(crate::beacon::FILE)
     }
 
     /// `<root>/logs` — the rotating diagnostic log written by

@@ -36,6 +36,22 @@
 //! The text limit is the transport's: a body over a megabyte is answered
 //! `413` before it is read (D13), never truncated.
 //!
+//! # `rewrite`
+//!
+//! `tools/call rewrite { text, tactic, intensity, candidates, rounds,
+//! format, aggressive, nfkc, seed, dry_run }` runs Layer A, the pipeline on
+//! the application's engine and Layer A again ([`super::rewrite`]), and
+//! answers `{"text": <rewritten>, "report": <JobReport>}` the way `clean`
+//! answers — the report is `JobReport::to_json`, ASCII, with its three
+//! shelves. It refuses by name, as an `isError` result, everything the
+//! other two refuse and three things more: a value outside a list (a
+//! tactic, an intensity, a format — said back spelled), a tactic this
+//! surface does not run, and every way a job can fail to happen — no
+//! engine on duty, an engine that cannot answer, a job that failed, a
+//! client that went away, the ceiling. Never with the input handed back as
+//! though it were a rewrite: an agent that got its own text back with no
+//! error would file it as rewritten.
+//!
 //! # What is said back
 //!
 //! Three answers quote something the client sent — an unknown method, an
@@ -65,6 +81,11 @@
 //! gate.
 
 use serde_json::{json, Map, Value};
+use wipemark_pipeline::asked::{self, Asked, NotOffered};
+use wipemark_pipeline::prompt::row::Laid;
+use wipemark_pipeline::prompt::{Intensity, Tactic};
+
+use super::rewrite::{self, Done, Rewriter, Stop, Unrun};
 
 /// The revision of the MCP specification this server implements.
 ///
@@ -88,29 +109,53 @@ const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_PARAMS: i64 = -32602;
 const INTERNAL_ERROR: i64 = -32603;
 
+/// What the server reaches beyond Layer A: the road to the engine on
+/// duty, for `rewrite`. Empty, `rewrite` refuses — the arrangement of a
+/// test that is not about the engine.
+#[derive(Clone, Default)]
+pub struct Services {
+    pub rewriter: Option<Rewriter>,
+}
+
 /// The work this server will offer, one variant per tool.
 ///
-/// Both are Layer A: deterministic, verifiable, and exactly the step an
-/// agent should be able to run over text it just produced. Neither
-/// takes a path — an agent cleaning its own output has the text in
-/// hand, and a tool that read files would have to answer the path
-/// containment question (spec §4.4) before it could answer anything
-/// else.
+/// The first two are Layer A: deterministic, verifiable, and exactly the
+/// step an agent should be able to run over text it just produced. The
+/// third rewrites with the model the application has on duty, between two
+/// passes of Layer A. None takes a path — an agent cleaning its own output
+/// has the text in hand, and a tool that read files would have to answer
+/// the path containment question (spec §4.4) before it could answer
+/// anything else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tool {
     Inspect,
     Clean,
+    Rewrite,
 }
+
+/// The tactics `rewrite` runs, as a sentence and a schema list them — kept
+/// beside [`asked::OFFERED`] by `the_rewrite_lists_what_it_runs`.
+const TACTICS: &str = "paraphrase, humanize, back_translate";
+
+/// The intensities, likewise.
+const INTENSITIES: &str = "light, moderate, strong";
+
+/// The formats, likewise.
+const FORMATS: &str = "plain, markdown, html";
+
+/// What a count must be.
+const A_COUNT: &str = "a whole number from 1 to 8";
 
 impl Tool {
     /// Every tool, in the order `tools/list` reports them.
-    pub const ALL: [Tool; 2] = [Self::Inspect, Self::Clean];
+    pub const ALL: [Tool; 3] = [Self::Inspect, Self::Clean, Self::Rewrite];
 
     /// The name a client calls it by. A format.
     pub fn name(self) -> &'static str {
         match self {
             Self::Inspect => "inspect",
             Self::Clean => "clean",
+            Self::Rewrite => "rewrite",
         }
     }
 
@@ -140,6 +185,21 @@ impl Tool {
                  Characters that carry real orthography are kept and listed as kept; homoglyphs \
                  are replaced only with aggressive. Every report also lists what it does not \
                  establish. Takes up to about 1 MB of text."
+            }
+            Self::Rewrite => {
+                "Rewrite a piece of text with the language model this application has on duty - \
+                 the one its Engine settings choose: a model on this machine, or an endpoint, in \
+                 which case the text is sent there. Between two passes of the deterministic \
+                 Unicode scrubber: invisible characters are removed first, the model rewrites \
+                 paragraph by paragraph, every candidate is checked against guards \
+                 (placeholders, numbers, length, script, identifiers) and a candidate that fails \
+                 is never used, and the result is scrubbed again. Returns the text and a report \
+                 of every attempt; a paragraph no candidate passed keeps its scrubbed original, \
+                 and the report says so. Rewriting is best-effort, and the report lists what it \
+                 does not establish. Positions in its scrubber reports are byte offsets into the \
+                 UTF-8 text. The call waits until the job ends, at most 60 minutes; closing the \
+                 connection cancels it. With dry_run, returns only the estimated cost and loads \
+                 nothing. Takes up to about 1 MB of text."
             }
         }
     }
@@ -175,10 +235,105 @@ impl Tool {
                          reported either way; higher false-positive rate, hence opt-in. Default \
                          false."
                     }
+                    Self::Rewrite => {
+                        "Also replace homoglyphs in the scrubber's passes before and after the \
+                         model, as clean does with aggressive. Default false."
+                    }
                 },
             }),
         );
-        if self == Self::Clean {
+        if self == Self::Rewrite {
+            properties.insert(
+                "tactic".to_owned(),
+                json!({
+                    "type": "string",
+                    "enum": asked::OFFERED.map(Tactic::as_str),
+                    "default": "paraphrase",
+                    "description": "How the model is asked: paraphrase (different words, the \
+                                    default), humanize (reads as if a person wrote it), or \
+                                    back_translate (into another language and back, two calls \
+                                    a paragraph).",
+                }),
+            );
+            properties.insert(
+                "intensity".to_owned(),
+                json!({
+                    "type": "string",
+                    "enum": Intensity::ALL.map(Intensity::as_str),
+                    "default": "moderate",
+                    "description": "How far a paraphrase or humanize may move from the wording. \
+                                    Default moderate.",
+                }),
+            );
+            for (name, description) in [
+                (
+                    "candidates",
+                    "Candidates the model writes for each paragraph in a round, 1 to 8. Without \
+                     it, the application decides: 1 for a model on this machine's processor \
+                     alone, 2 for one on a graphics card or an endpoint.",
+                ),
+                (
+                    "rounds",
+                    "Rounds for each paragraph at most, 1 to 8; a round runs only when no \
+                     candidate of the one before passed. Without it, up to 2.",
+                ),
+            ] {
+                properties.insert(
+                    name.to_owned(),
+                    json!({
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": asked::MOST,
+                        "description": description,
+                    }),
+                );
+            }
+            properties.insert(
+                "format".to_owned(),
+                json!({
+                    "type": "string",
+                    "enum": asked::FORMATS.map(asked::format_id),
+                    "default": "plain",
+                    "description": "What the text is. In markdown and html only the prose is \
+                                    rewritten; code, headings, tables and markup come back byte \
+                                    for byte. Default plain.",
+                }),
+            );
+            properties.insert(
+                "seed".to_owned(),
+                json!({
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "The base seed. Without it every call gets a new one, so \
+                                    asking again gives a different rewrite; the report's \
+                                    base_seed given back repeats a run on a model on this \
+                                    machine.",
+                }),
+            );
+            properties.insert(
+                "templates".to_owned(),
+                json!({
+                    "type": "object",
+                    "additionalProperties": { "type": ["string", "object"] },
+                    "description": "Prompt templates for this call only, over the ones the \
+                                    application saved: each key a template row such as \
+                                    prompts.en.paraphrase.1.user, each value the template's text. \
+                                    A template that breaks a rule is refused by its key and the \
+                                    rule's id, and nothing runs.",
+                }),
+            );
+            properties.insert(
+                "dry_run".to_owned(),
+                json!({
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Return only what the job would cost - calls, tokens and, \
+                                    when the model has been checked, seconds - and run nothing. \
+                                    Default false.",
+                }),
+            );
+        }
+        if self != Self::Inspect {
             properties.insert(
                 "nfkc".to_owned(),
                 json!({
@@ -206,6 +361,19 @@ impl Tool {
         match self {
             Self::Inspect => &["text", "aggressive"],
             Self::Clean => &["text", "aggressive", "nfkc"],
+            Self::Rewrite => &[
+                "text",
+                "tactic",
+                "intensity",
+                "candidates",
+                "rounds",
+                "format",
+                "aggressive",
+                "nfkc",
+                "seed",
+                "templates",
+                "dry_run",
+            ],
         }
     }
 
@@ -216,6 +384,12 @@ impl Tool {
             Self::Clean => {
                 "`text` (a string, required), `aggressive` (true or false), `nfkc` (true or \
                  false)"
+            }
+            Self::Rewrite => {
+                "`text` (a string, required), `tactic` (paraphrase, humanize or back_translate), \
+                 `intensity` (light, moderate or strong), `candidates` and `rounds` (1 to 8), \
+                 `format` (plain, markdown or html), `aggressive`, `nfkc` and `dry_run` (true or \
+                 false), `seed` (a whole number), `templates` (an object of template rows)"
             }
         }
     }
@@ -241,6 +415,16 @@ impl Tool {
     /// megabyte, and nothing here is near the GPUI thread.
     fn run(self, call: &Call) -> Answer {
         let (json, findings, kept) = match self {
+            // `call` reads and runs a rewrite apart; nothing reaches here
+            // with one. Said at the protocol level rather than panicking on
+            // a connection's thread, should that ever change.
+            Self::Rewrite => {
+                tracing::error!("MCP: a rewrite reached the scrubber's road");
+                return Answer::Error {
+                    code: INTERNAL_ERROR,
+                    message: "rewrite is not a scrubber call".to_owned(),
+                };
+            }
             Self::Inspect => {
                 let report = wipemark_core::inspect(&call.text, &call.options);
                 (report.to_json(), report.findings.len(), report.kept.len())
@@ -267,6 +451,25 @@ impl Tool {
             "MCP: tools/call answered"
         );
         answered(json)
+    }
+
+    /// A rewrite that was read and did not happen: a result carrying
+    /// `isError`, the reason, and no text — an agent handed its own text
+    /// back with no error would file it as rewritten.
+    fn unrun(self, unrun: &Unrun) -> Value {
+        tracing::info!(tool = self.name(), unrun = ?unrun, "MCP: tools/call did not run");
+        json!({
+            "content": [{
+                "type": "text",
+                "text": format!(
+                    "`{name}` did not run: {said}. Nothing was rewritten, and no text comes \
+                     back - a rewrite that did not happen is not reported as one.",
+                    name = self.name(),
+                    said = unrun_said(unrun),
+                ),
+            }],
+            "isError": true,
+        })
     }
 
     /// The refusal, in the shape MCP reserves for a tool that was called
@@ -318,6 +521,15 @@ enum Problem {
     },
     /// An argument the tool does not take, already [`spelled`].
     NotTaken(String),
+    /// A string outside the values an argument takes. `said` is the
+    /// client's value, already [`spelled`]; `wants` lists the values.
+    NotOneOf {
+        name: &'static str,
+        said: String,
+        wants: &'static str,
+    },
+    /// A tactic this surface does not run, and why (H8).
+    NotOffered { tactic: Tactic, why: NotOffered },
 }
 
 impl Problem {
@@ -327,21 +539,246 @@ impl Problem {
             Self::Missing(name) => format!("the argument `{name}` is missing"),
             Self::WrongType { name, wants } => format!("the argument `{name}` must be {wants}"),
             Self::NotTaken(name) => format!("it takes no argument `{name}`"),
+            Self::NotOneOf { name, said, wants } => {
+                format!("the argument `{name}` is `{said}`, which is not one of {wants}")
+            }
+            Self::NotOffered { tactic, why } => {
+                format!("the tactic `{}` is not run here: {why}", tactic.as_str())
+            }
         }
     }
 
-    /// The log's word for it: static, because the argument names are
-    /// the client's and a log line is not where they go.
+    /// The log's word for it: static, because the values are the
+    /// client's and a log line is not where they go.
     fn kind(&self) -> &'static str {
         match self {
-            Self::Missing(_) => "missing text",
-            Self::WrongType { name: "text", .. } => "wrong type: text",
-            Self::WrongType {
-                name: "aggressive", ..
-            } => "wrong type: aggressive",
-            Self::WrongType { .. } => "wrong type: nfkc",
+            Self::Missing(_) => "missing",
+            Self::WrongType { .. } => "wrong type",
             Self::NotTaken(_) => "not taken",
+            Self::NotOneOf { .. } => "not one of",
+            Self::NotOffered { .. } => "not offered",
         }
+    }
+}
+
+/// The sentence for a rewrite that did not happen. English, because
+/// nothing the server says comes from the catalogue; anything in it that
+/// came from outside this program — an engine's or a server's words, a
+/// path — is [`spelled`].
+fn unrun_said(unrun: &Unrun) -> String {
+    match unrun {
+        Unrun::Nobody => "this server has no way to an engine".to_owned(),
+        Unrun::Unavailable(why) => {
+            format!("no engine could answer: {}", spelled(&why.to_string()))
+        }
+        Unrun::Engine(error) => format!(
+            "the engine on duty could not be taken: {}",
+            spelled(&error.to_string())
+        ),
+        Unrun::NotOffered(why) => format!("the tactic is not run here: {why}"),
+        Unrun::Templates(Laid::UnknownRow { key }) => format!(
+            "`templates` names `{}`, which is not a template row this build has",
+            spelled(key)
+        ),
+        Unrun::Templates(Laid::Unreadable { key }) => format!(
+            "`templates` gives `{}` a value that is neither a template's text nor a saved row",
+            spelled(key)
+        ),
+        Unrun::Templates(Laid::Breaks { key, rule }) => {
+            format!("the template `{}` breaks the rule `{rule}`", spelled(key))
+        }
+        Unrun::Refused(why) => format!("the job did not start: {}", spelled(&why.to_string())),
+        Unrun::Failed(error) => format!("the job failed: {}", spelled(&error.to_string())),
+        Unrun::Stopped(Some(Stop::HungUp)) => {
+            "the client closed the connection, and the job was cancelled".to_owned()
+        }
+        Unrun::Stopped(Some(Stop::Ceiling)) => format!(
+            "the job ran past {} minutes and was cancelled",
+            rewrite::CEILING.as_secs() / 60
+        ),
+        Unrun::Stopped(None) => "the job was cancelled".to_owned(),
+        Unrun::Lost => "the job stopped without an answer".to_owned(),
+    }
+}
+
+/// Read a `rewrite` call's arguments.
+///
+/// The same bargain as [`read_call`]: every problem collected, each named,
+/// none coerced — a count of `"2"` is a string and is refused, because
+/// running a different job from the one asked for and reporting it as that
+/// one is the failure every refusal here exists to prevent.
+fn read_rewrite(arguments: &Map<String, Value>) -> Result<rewrite::Call, Vec<Problem>> {
+    let mut problems = Vec::new();
+
+    let text = match arguments.get("text") {
+        None => {
+            problems.push(Problem::Missing("text"));
+            None
+        }
+        Some(Value::String(text)) => Some(text.clone()),
+        Some(_) => {
+            problems.push(Problem::WrongType {
+                name: "text",
+                wants: "a string",
+            });
+            None
+        }
+    };
+
+    // One of a list, by its id: `parse` names the value or there is none.
+    fn one_of<T>(
+        arguments: &Map<String, Value>,
+        problems: &mut Vec<Problem>,
+        name: &'static str,
+        wants: &'static str,
+        parse: impl Fn(&str) -> Option<T>,
+    ) -> Option<T> {
+        match arguments.get(name)? {
+            Value::String(said) => {
+                let parsed = parse(said);
+                if parsed.is_none() {
+                    problems.push(Problem::NotOneOf {
+                        name,
+                        said: spelled(said),
+                        wants,
+                    });
+                }
+                parsed
+            }
+            _ => {
+                problems.push(Problem::WrongType {
+                    name,
+                    wants: "a string",
+                });
+                None
+            }
+        }
+    }
+
+    let tactic =
+        one_of(arguments, &mut problems, "tactic", TACTICS, Tactic::parse).and_then(|tactic| {
+            match asked::offered(tactic) {
+                Ok(tactic) => Some(tactic),
+                Err(why) => {
+                    problems.push(Problem::NotOffered { tactic, why });
+                    None
+                }
+            }
+        });
+    let intensity = one_of(
+        arguments,
+        &mut problems,
+        "intensity",
+        INTENSITIES,
+        Intensity::parse,
+    );
+    let format = one_of(
+        arguments,
+        &mut problems,
+        "format",
+        FORMATS,
+        asked::format_of,
+    );
+
+    let mut count = |name: &'static str| match arguments.get(name) {
+        None => None,
+        Some(value) => match value.as_u64().filter(|n| asked::count_ok(*n)) {
+            Some(n) => u8::try_from(n).ok(),
+            None => {
+                problems.push(Problem::WrongType {
+                    name,
+                    wants: A_COUNT,
+                });
+                None
+            }
+        },
+    };
+    let candidates = count("candidates");
+    let rounds = count("rounds");
+
+    let seed = match arguments.get("seed") {
+        None => None,
+        Some(value) => {
+            let seed = value.as_u64();
+            if seed.is_none() {
+                problems.push(Problem::WrongType {
+                    name: "seed",
+                    wants: "a whole number, 0 or more",
+                });
+            }
+            seed
+        }
+    };
+
+    let mut flag = |name: &'static str| match arguments.get(name) {
+        None => false,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => {
+            problems.push(Problem::WrongType {
+                name,
+                wants: "true or false",
+            });
+            false
+        }
+    };
+    let aggressive = flag("aggressive");
+    let nfkc = flag("nfkc");
+    let dry_run = flag("dry_run");
+
+    let templates = match arguments.get("templates") {
+        None => Map::new(),
+        Some(Value::Object(templates)) => templates.clone(),
+        Some(_) => {
+            problems.push(Problem::WrongType {
+                name: "templates",
+                wants: "an object of template rows",
+            });
+            Map::new()
+        }
+    };
+
+    let mut extra: Vec<&String> = arguments
+        .keys()
+        .filter(|key| !Tool::Rewrite.arguments().contains(&key.as_str()))
+        .collect();
+    extra.sort();
+    problems.extend(extra.into_iter().map(|key| Problem::NotTaken(spelled(key))));
+
+    match text {
+        Some(text) if problems.is_empty() => Ok(rewrite::Call {
+            text,
+            asked: Asked {
+                tactic: tactic.unwrap_or(Tactic::Paraphrase),
+                intensity: intensity.unwrap_or_default(),
+                candidates,
+                rounds,
+                format: format.unwrap_or(wipemark_pipeline::prepare::TextFormat::Plain),
+                aggressive,
+                nfkc,
+                seed,
+            },
+            templates,
+            dry_run,
+        }),
+        _ => Err(problems),
+    }
+}
+
+/// Run a rewrite that was read, and answer — the text and its report, the
+/// price, or why nothing was rewritten.
+fn rewrite_answer(call: rewrite::Call, services: &Services, gone: &dyn Fn() -> bool) -> Answer {
+    let Some(rewriter) = &services.rewriter else {
+        return Answer::Result(Tool::Rewrite.unrun(&Unrun::Nobody));
+    };
+    match rewriter.run(call, gone) {
+        // The report goes in verbatim, as `clean`'s does, so the text
+        // block is the bytes `JobReport::to_json` wrote.
+        Ok(Done::Rewritten { text, report }) => {
+            let text = serde_json::to_string(&text).unwrap_or_default();
+            answered(format!(r#"{{"text":{text},"report":{report}}}"#))
+        }
+        Ok(Done::Priced(price)) => answered(price.to_string()),
+        Err(unrun) => Answer::Result(Tool::Rewrite.unrun(&unrun)),
     }
 }
 
@@ -452,12 +889,22 @@ fn spelled(client: &str) -> String {
     out
 }
 
+/// [`respond_with`] for a server with nothing beyond Layer A and a client
+/// that never hangs up — what every test that is not about `rewrite`
+/// asks.
+#[cfg(test)]
+pub fn respond(body: &str) -> Option<String> {
+    respond_with(body, &Services::default(), &|| false)
+}
+
 /// Answer one request body.
 ///
 /// `None` is the honest answer to a notification: JSON-RPC says a
 /// message with no `id` gets no reply, and the transport above turns
-/// that into `204 No Content`.
-pub fn respond(body: &str) -> Option<String> {
+/// that into `204 No Content`. `services` is what `rewrite` runs on, and
+/// `gone` says whether the client has hung up — a rewrite waits for its
+/// job, and a client that went away cancels it.
+pub fn respond_with(body: &str, services: &Services, gone: &dyn Fn() -> bool) -> Option<String> {
     let request: Value = match serde_json::from_str(body) {
         Ok(request) => request,
         Err(error) => {
@@ -492,7 +939,7 @@ pub fn respond(body: &str) -> Option<String> {
     };
     let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
 
-    let answer = dispatch(method, &params)?;
+    let answer = dispatch(method, &params, services, gone)?;
     // A method that produced an answer for a message carrying no id is
     // a notification that was handled: the work is done, and the reply
     // is not owed. Both halves have to be checked — `notifications/*`
@@ -503,7 +950,12 @@ pub fn respond(body: &str) -> Option<String> {
 }
 
 /// The result or error for one method, without the envelope.
-fn dispatch(method: &str, params: &Value) -> Option<Answer> {
+fn dispatch(
+    method: &str,
+    params: &Value,
+    services: &Services,
+    gone: &dyn Fn() -> bool,
+) -> Option<Answer> {
     match method {
         "initialize" => Some(Answer::Result(json!({
             "protocolVersion": PROTOCOL_VERSION,
@@ -526,7 +978,7 @@ fn dispatch(method: &str, params: &Value) -> Option<Answer> {
             "tools": Tool::ALL.map(Tool::listing).to_vec(),
         }))),
 
-        "tools/call" => Some(call(params)),
+        "tools/call" => Some(call(params, services, gone)),
 
         other => Some(Answer::Error {
             code: METHOD_NOT_FOUND,
@@ -536,7 +988,7 @@ fn dispatch(method: &str, params: &Value) -> Option<Answer> {
 }
 
 /// `tools/call`: name → tool → arguments → read → run or refuse.
-fn call(params: &Value) -> Answer {
+fn call(params: &Value, services: &Services, gone: &dyn Fn() -> bool) -> Answer {
     let Some(name) = params.get("name").and_then(Value::as_str) else {
         return Answer::Error {
             code: INVALID_PARAMS,
@@ -570,11 +1022,17 @@ fn call(params: &Value) -> Answer {
             };
         }
     };
-    match read_call(tool, arguments) {
-        Ok(call) => tool.run(&call),
-        // Reported as a result so the model reads the refusal, not as a
-        // transport error the client swallows on its way past.
-        Err(problems) => Answer::Result(tool.refuse(&problems)),
+    // Refusals are reported as results so the model reads them, not as
+    // transport errors the client swallows on its way past.
+    match tool {
+        Tool::Rewrite => match read_rewrite(arguments) {
+            Ok(call) => rewrite_answer(call, services, gone),
+            Err(problems) => Answer::Result(tool.refuse(&problems)),
+        },
+        Tool::Inspect | Tool::Clean => match read_call(tool, arguments) {
+            Ok(call) => tool.run(&call),
+            Err(problems) => Answer::Result(tool.refuse(&problems)),
+        },
     }
 }
 
@@ -613,6 +1071,8 @@ fn render(response: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
+    use wipemark_engine::fake::FakeEngine;
+
     use super::*;
 
     /// Parse a response back, for a test that wants to look inside it.
@@ -975,7 +1435,7 @@ mod tests {
     #[test]
     fn a_tool_this_build_does_not_have_is_refused_at_the_protocol_level() {
         let response = answer(
-            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"rewrite","arguments":{}}}"#,
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"translate","arguments":{}}}"#,
         );
         assert_eq!(response["error"]["code"], json!(INVALID_PARAMS));
         let message = response["error"]["message"].as_str().unwrap_or_default();
@@ -1116,7 +1576,7 @@ mod tests {
             r#"{"jsonrpc":"2.0","id":2,"method":"ping"}"#.to_owned(),
             r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#.to_owned(),
             r#"{"jsonrpc":"2.0","id":4,"method":"nonsense"}"#.to_owned(),
-            r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"rewrite"}}"#
+            r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"translate"}}"#
                 .to_owned(),
             r#"{"jsonrpc":"2.0","id":6,"method":"tools/call"}"#.to_owned(),
             "{".to_owned(),
@@ -1158,6 +1618,36 @@ mod tests {
             }
         }
 
+        // And `rewrite`, run and refused: over a marked text, with a model
+        // that slips a zero-width space and an isolate into its answer, and
+        // with values that carry invisible characters said back.
+        let sly = FakeEngine::answering(|req, _| format!("{}\u{200B}\u{2068}", swapped(req)));
+        let (services, _) = serving(sly);
+        let mut rewrites = vec![format!(
+            r#"{{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{{"name":"rewrite","arguments":{{"text":{marked}}}}}}}"#
+        )];
+        for arguments in [
+            r#"{"text":"a","tactic":"para\u200Bphrase"}"#,
+            r#"{"text":"a","format":"\u2066html"}"#,
+            r#"{"text":"a","intensity":"stro\u202Eng"}"#,
+            r#"{"text":"a","te\u200Bxt":"b"}"#,
+            r#"{"text":"a","dry_run":true}"#,
+        ] {
+            rewrites.push(format!(
+                r#"{{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{{"name":"rewrite","arguments":{arguments}}}}}"#
+            ));
+        }
+        for request in rewrites {
+            let body = respond_with(&request, &services, &|| false).expect("an answer");
+            for character in body.chars() {
+                assert!(
+                    !forbidden(character),
+                    "the answer to {request} carries U+{:04X}",
+                    character as u32
+                );
+            }
+        }
+
         // The declared exceptions, counted.
         let family =
             r#""\uD83D\uDC69\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66 a\u200Bb""#;
@@ -1182,5 +1672,273 @@ mod tests {
         .expect("an answer");
         let carried: Vec<char> = body.chars().filter(|c| forbidden(*c)).collect();
         assert_eq!(carried, vec!['\u{feff}'; 2], "the leading mark, twice");
+    }
+
+    /// An English paragraph `lang::detect` reads as English.
+    const PARAGRAPH: &str = "The build takes about twelve minutes on an ordinary laptop, and the \
+                             second run is much faster because all of the dependencies are \
+                             already compiled and kept in the target directory.";
+
+    /// The text a request asks to rewrite, with its first two words
+    /// swapped: an answer every guard accepts and the no-op guard does not
+    /// call a copy.
+    fn swapped(req: &wipemark_engine::ChatRequest) -> String {
+        const BEGIN: &str = "[[[BEGIN TEXT]]]\n";
+        const END: &str = "\n[[[END TEXT]]]";
+        let start = req.prompt.find(BEGIN).map_or(0, |at| at + BEGIN.len());
+        let stop = req.prompt[start..]
+            .find(END)
+            .map_or(req.prompt.len(), |at| at + start);
+        let mut words: Vec<&str> = req.prompt[start..stop].split(' ').collect();
+        if words.len() > 1 {
+            words.swap(0, 1);
+        }
+        words.join(" ")
+    }
+
+    /// Services over `engine`, priced as an endpoint at twenty tokens a
+    /// second, and what the handle would tell a host.
+    fn serving(engine: FakeEngine) -> (Services, flume::Receiver<crate::engine_host::Event>) {
+        let (handle, inbox) = crate::engine_host::EngineHandle::serving(
+            std::sync::Arc::new(engine),
+            crate::engine_host::Pace {
+                executor: Some(wipemark_pipeline::cost::Executor::Endpoint),
+                tokens_per_second: Some(20.0),
+            },
+        );
+        (
+            Services {
+                rewriter: Some(Rewriter::new(handle, None)),
+            },
+            inbox,
+        )
+    }
+
+    /// `tools/call rewrite` with these arguments, answered over `services`.
+    fn rewritten(services: &Services, arguments: &str, gone: &dyn Fn() -> bool) -> Value {
+        let body = respond_with(
+            &format!(
+                r#"{{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{{"name":"rewrite","arguments":{arguments}}}}}"#
+            ),
+            services,
+            gone,
+        )
+        .expect("a request with an id is owed an answer");
+        serde_json::from_str(&body).expect("the server rendered something that is not JSON")
+    }
+
+    /// The headline: a paragraph rewritten on the engine on duty, answered
+    /// as `{text, report}` in both places — the report the job's own JSON,
+    /// ASCII, with its third shelf, its seed and every attempt.
+    #[test]
+    fn a_rewrite_answers_the_text_and_its_report() {
+        let (services, inbox) = serving(FakeEngine::answering(|req, _| swapped(req)));
+        let arguments = format!(r#"{{"text":{},"seed":7}}"#, json!(PARAGRAPH));
+        let response = rewritten(&services, &arguments, &|| false);
+        let result = &response["result"];
+        assert_eq!(result["isError"], json!(false), "{response}");
+
+        let structured = &result["structuredContent"];
+        let block: Value =
+            serde_json::from_str(result["content"][0]["text"].as_str().expect("a text block"))
+                .expect("the text block is JSON");
+        assert_eq!(&block, structured);
+        let keys: Vec<&String> = structured.as_object().expect("an object").keys().collect();
+        assert_eq!(keys.len(), 2, "{keys:?}");
+
+        let text = structured["text"].as_str().expect("the text");
+        assert_ne!(text, PARAGRAPH, "the text came back as it went");
+        assert!(text.starts_with("build The takes"), "{text}");
+
+        let report = &structured["report"];
+        assert_eq!(report["version"], json!(1));
+        assert_eq!(report["best_effort"]["base_seed"], json!(7));
+        assert_eq!(report["best_effort"]["ladder"], json!(["paraphrase"]));
+        assert_eq!(
+            report["best_effort"]["candidates"],
+            json!(2),
+            "an endpoint's D61"
+        );
+        assert_eq!(report["best_effort"]["totals"]["rewritten"], json!(1));
+        let shelf = report["not_established"]
+            .as_array()
+            .expect("the third shelf");
+        assert!(!shelf.is_empty());
+        assert!(shelf.contains(&json!("unknown-mark-schemes")), "{shelf:?}");
+        for key in ["before", "after"] {
+            assert!(report["verifiable"][key]["findings"].is_array(), "{key}");
+        }
+
+        // One job, announced once and let go of once — the second when the
+        // job's thread lets go of the engine, a moment after it answered.
+        let wait = std::time::Duration::from_secs(5);
+        assert_eq!(
+            inbox.recv_timeout(wait),
+            Ok(crate::engine_host::Event::JobStarted)
+        );
+        assert_eq!(
+            inbox.recv_timeout(wait),
+            Ok(crate::engine_host::Event::JobEnded)
+        );
+        assert!(inbox.is_empty(), "one job, one start and one end");
+    }
+
+    /// Every way a rewrite cannot run is a refusal a model reads, naming
+    /// what is wrong — and never the input handed back as a rewrite.
+    #[test]
+    fn a_rewrite_that_cannot_run_refuses_by_name() {
+        let input = "Words nobody may have back as a rewrite.";
+        let call = format!(r#"{{"text":{}}}"#, json!(input));
+
+        let unrun = |services: &Services, said: &str| {
+            let response = rewritten(services, &call, &|| false);
+            let text = refusal_text(&response);
+            assert!(text.contains("`rewrite` did not run"), "{text}");
+            assert!(text.contains(said), "{said:?} missing from {text}");
+            assert!(!text.contains(input), "the input came back: {text}");
+        };
+        // No road to an engine, and a road with nobody at the end of it.
+        unrun(&Services::default(), "no way to an engine");
+        let (nobody, _) = crate::engine_host::EngineHandle::new();
+        unrun(
+            &Services {
+                rewriter: Some(Rewriter::new(nobody, None)),
+            },
+            "nothing is on duty",
+        );
+
+        let (services, inbox) = serving(FakeEngine::answering(|req, _| swapped(req)));
+        for (arguments, named) in [
+            (
+                r#"{"text":"a","tactic":"summarize"}"#,
+                "`tactic` is `summarize`",
+            ),
+            (
+                r#"{"text":"a","tactic":"structural"}"#,
+                "`structural` is not run here",
+            ),
+            (r#"{"text":"a","tactic":"code"}"#, "`code` is not run here"),
+            (r#"{"text":"a","tactic":5}"#, "`tactic` must be a string"),
+            (
+                r#"{"text":"a","intensity":"extreme"}"#,
+                "`intensity` is `extreme`",
+            ),
+            (r#"{"text":"a","format":"code"}"#, "`format` is `code`"),
+            (r#"{"text":"a","candidates":0}"#, "`candidates` must be"),
+            (r#"{"text":"a","candidates":9}"#, "`candidates` must be"),
+            (r#"{"text":"a","rounds":"2"}"#, "`rounds` must be"),
+            (r#"{"text":"a","rounds":1.5}"#, "`rounds` must be"),
+            (r#"{"text":"a","seed":-1}"#, "`seed` must be"),
+            (r#"{"text":"a","dry_run":"yes"}"#, "`dry_run` must be"),
+            (
+                r#"{"text":"a","temperature":0.2}"#,
+                "no argument `temperature`",
+            ),
+            (r#"{"tactic":"humanize"}"#, "`text` is missing"),
+            (r#"{"text":"a","templates":[]}"#, "`templates` must be"),
+            (
+                r#"{"text":"a","templates":{"prompts.fr.paraphrase.1.user":"x"}}"#,
+                "`prompts.fr.paraphrase.1.user`, which is not a template row",
+            ),
+            (
+                r#"{"text":"a","templates":{"prompts.en.paraphrase.1.user":"Again. {PROTECTED}"}}"#,
+                "breaks the rule `missing-variable`",
+            ),
+        ] {
+            let text = refusal_text(&rewritten(&services, arguments, &|| false));
+            assert!(text.contains(named), "{arguments}: {text}");
+        }
+        assert!(inbox.is_empty(), "a refused call started a job");
+    }
+
+    /// A call waits for its job — and a client that hangs up, or a ceiling
+    /// that passes, cancels it rather than leaving a model writing for
+    /// nobody.
+    #[test]
+    fn a_client_that_hangs_up_cancels_its_rewrite() {
+        let slow = || {
+            FakeEngine::answering(|req, _| swapped(req))
+                .with_token_delay(std::time::Duration::from_millis(30))
+        };
+        let call = format!(r#"{{"text":{}}}"#, json!(PARAGRAPH));
+
+        let (services, _) = serving(slow());
+        let text = refusal_text(&rewritten(&services, &call, &|| true));
+        assert!(text.contains("closed the connection"), "{text}");
+
+        let (handle, _) = crate::engine_host::EngineHandle::serving(
+            std::sync::Arc::new(slow()),
+            crate::engine_host::Pace::default(),
+        );
+        let impatient = Services {
+            rewriter: Some(Rewriter::new(handle, None).with_ceiling(std::time::Duration::ZERO)),
+        };
+        let text = refusal_text(&rewritten(&impatient, &call, &|| false));
+        assert!(text.contains("minutes and was cancelled"), "{text}");
+    }
+
+    /// The price before a run (D61): calls, tokens and — with a measured
+    /// rate — seconds, for the effort the run would take; and nothing
+    /// asked of the model, nothing loaded, no job begun.
+    #[test]
+    fn a_dry_run_prices_and_loads_nothing() {
+        let engine = FakeEngine::answering(|req, _| swapped(req));
+        let (services, inbox) = serving(engine.clone());
+        let arguments = format!(r#"{{"text":{},"dry_run":true}}"#, json!(PARAGRAPH));
+        let response = rewritten(&services, &arguments, &|| false);
+        let result = &response["result"];
+        assert_eq!(result["isError"], json!(false), "{response}");
+        let price = &result["structuredContent"];
+        assert!(
+            price.get("text").is_none(),
+            "a price is not a rewrite: {price}"
+        );
+        assert!(
+            price.get("report").is_none(),
+            "a price is not a report: {price}"
+        );
+        assert_eq!(price["executor"], json!("endpoint"));
+        assert_eq!(price["candidates"], json!(2));
+        assert_eq!(price["cost"]["chunks"], json!(1));
+        assert_eq!(
+            price["cost"]["calls"]["worst"],
+            json!(4),
+            "2 candidates x 2 rounds"
+        );
+        assert_eq!(price["cost"]["calls"]["expected"], json!(2));
+        assert!(
+            price["cost"]["seconds"]["worst"].as_f64().unwrap_or(0.0) > 0.0,
+            "{price}"
+        );
+
+        assert!(engine.asked().is_empty(), "the model was asked");
+        assert!(
+            inbox.is_empty(),
+            "a price began a job: {:?}",
+            inbox.drain().collect::<Vec<_>>()
+        );
+    }
+
+    /// The lists a refusal and the schema give are the lists the pipeline
+    /// runs.
+    #[test]
+    fn the_rewrite_lists_what_it_runs() {
+        assert_eq!(TACTICS, asked::OFFERED.map(Tactic::as_str).join(", "));
+        assert_eq!(
+            INTENSITIES,
+            Intensity::ALL.map(Intensity::as_str).join(", ")
+        );
+        assert_eq!(FORMATS, asked::FORMATS.map(asked::format_id).join(", "));
+        let schema = Tool::Rewrite.schema();
+        for name in Tool::Rewrite.arguments() {
+            assert!(
+                schema["properties"].get(*name).is_some(),
+                "{name} has no schema"
+            );
+            assert!(
+                Tool::Rewrite.argument_list().contains(name),
+                "{name} is not listed"
+            );
+        }
     }
 }

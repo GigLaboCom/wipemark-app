@@ -198,7 +198,7 @@ setup-step-model = The model
 setup-step-endpoint = The endpoint
 setup-step-done = Done
 
-setup-welcome-body = { -brand-name } strips AI provenance marks from your own content in two layers: { -layer-a }, which removes the invisible characters and is deterministic, and { -layer-b }, which asks a language model for a paraphrase. In this version { -layer-a } runs from the command line and over MCP but not yet from these windows, and { -layer-b } does not run at all. What these steps settle is what { -layer-b } will need when it does: who would rewrite, and what that takes.
+setup-welcome-body = { -brand-name } strips AI provenance marks from your own content in two layers: { -layer-a }, which removes the invisible characters and is deterministic, and { -layer-b }, which asks a language model for a paraphrase. In this version both run from the command line and for an agent over MCP, and neither runs from these windows yet. What these steps settle is what { -layer-b } needs: who rewrites, and what that takes.
 setup-welcome-again = Everything here can be changed later under Settings, and this walk-through can be run again from its General page.
 
 # Step 2. $model is the catalogue entry's display name, $ram what it
@@ -493,12 +493,11 @@ settings-placement-zone-bottom-right = bottom right
 ## address already uses, because the list of endpoints somebody has is
 ## not one this product can close.
 ##
-## Nothing here sends a request. The engine is configured in this
-## build and called in epic E2, and `settings-engine-pending` is where
-## that is said out loud rather than left for the user to discover by
-## clicking something that does nothing — the same bargain the MCP
-## banner's last line (`settings-mcp-tools-layer-a`) and
-## `cli-not-implemented` make.
+## These windows send no document. What the page configures is used by
+## the MCP server's `rewrite` tool and by `wipemark-cli rewrite` (E4-6a),
+## and `settings-engine-pending` is where both halves are said out loud —
+## that the windows do not rewrite yet, and that an agent and the command
+## line do, with whatever this page puts on duty.
 ##
 ## The key is the one setting that is not a row in the database. It
 ## goes to the operating system's own credential store, and the
@@ -508,9 +507,10 @@ settings-placement-zone-bottom-right = bottom right
 settings-engine-title = Rewriting engine
 settings-engine-description = Rewriting sends the document to a model and scores what comes back. Cleaning never needs one, and is never locked behind one.
 
-# The honest half, and it stays until a rewrite exists (E4): the Check
-# sends a fixed sentence, never a document.
-settings-engine-pending = These settings are stored, and no document is sent anywhere: rewriting is not in this version. The one request this page makes is the Check below, and it sends a fixed sentence. Until rewriting arrives, { -brand-name } cleans and does nothing else, and says so in the status bar.
+# The honest half, and it stays until the windows rewrite (E7): the Check
+# sends a fixed sentence, never a document; an agent and the command line
+# do send documents, to whatever this page puts on duty.
+settings-engine-pending = These windows rewrite nothing yet. An agent can, through the MCP server's rewrite tool, and so can wipemark-cli rewrite while this application runs — and then the document goes to whatever this page puts on duty, here or to the endpoint. The one request this page itself makes is the Check below, and it sends a fixed sentence.
 
 ## The banner at the top of the page: what this configuration would do,
 ## or the first thing standing in the way of it doing anything. One at
@@ -616,7 +616,7 @@ settings-engine-local-check-speed = { $tokens } tokens, { $rate } per second aft
 settings-engine-local-check-speed-unknown = { $tokens } tokens — too few to time.
 settings-engine-local-check-failed = The check did not run: { $reason }
 settings-engine-local-check-cancelled = The check was cancelled.
-settings-engine-local-check-note = A check proves the model loads and writes. It is not a rewrite: nothing rewrites a document in this version yet.
+settings-engine-local-check-note = A check proves the model loads and writes. It is not a rewrite: these windows rewrite nothing yet, and an agent over MCP or the command line does it with this model.
 settings-engine-local-no-tray = There is no menu-bar item on this system, so closing the main window quits { -brand-name } and frees the model.
 
 ## The endpoint on duty, in the same place: where a check goes, and what it
@@ -636,7 +636,7 @@ settings-engine-remote-check-first = The first piece arrived after { $seconds } 
 # with one decimal.
 settings-engine-remote-check-speed = { $pieces } pieces, { $rate } per second after the first.
 settings-engine-remote-check-speed-unknown = { $pieces } pieces — too few to time.
-settings-engine-remote-check-note = A check proves the endpoint answers. It is not a rewrite: nothing rewrites a document in this version yet.
+settings-engine-remote-check-note = A check proves the endpoint answers. It is not a rewrite: these windows rewrite nothing yet, and an agent over MCP or the command line sends its documents here.
 # Shown only when the endpoint is not this machine. $origin is scheme, host
 # and port.
 settings-engine-remote-check-sent-to = Its prompt — a fixed sentence, never a document — is sent to { $origin }, which is not this machine.
@@ -673,6 +673,13 @@ engine-refusal-refused = The endpoint refused the request ({ $status }).
 # $reason is the credential store's own wording.
 engine-refusal-key-unreadable = The key could not be read from the credential store: { $reason }
 engine-refusal-no-key = No key is stored for this endpoint.
+# A key stored before Save refused such keys, or by something other than
+# the Engine page, that no request could carry (D79). Refused before a
+# socket opens; the sentence names the fault, never a character of the key.
+engine-refusal-key-unsendable-empty = The key stored for this endpoint is empty, and nothing was sent. Save the key again on the Engine page.
+engine-refusal-key-unsendable-not-ascii = The key stored for this endpoint has a character that is not plain ASCII, which a request cannot carry, and nothing was sent. Save the key again on the Engine page.
+engine-refusal-key-unsendable-control = The key stored for this endpoint has a control character in it, which a request cannot carry, and nothing was sent. Save the key again on the Engine page.
+engine-refusal-key-unsendable-space = The key stored for this endpoint has a space inside it, which a request cannot carry, and nothing was sent. Save the key again on the Engine page.
 
 ## The rows, and the first of them is the one that sets all the others.
 ##
@@ -807,7 +814,7 @@ settings-models-title = Local models
 settings-models-description = Open weights downloaded to this machine, verified against the checksum in { -brand-name }'s catalogue. Nothing is downloaded until you ask for it.
 
 # The honest half, and it stays until E2 and E3 both land.
-settings-models-pending = A downloaded model can be loaded and checked on the Engine page, and nothing rewrites with it in this version yet. Cleaning needs none of it.
+settings-models-pending = A downloaded model can be loaded and checked on the Engine page; these windows rewrite nothing with it yet, while an agent over MCP and wipemark-cli rewrite can. Cleaning needs none of it.
 
 ## The folder. One row, because the question it answers is "which
 ## disk", and it is read recursively because a folder another tool
@@ -963,18 +970,18 @@ settings-retention-span-forever = until removed by hand
 ## Layer A is deterministic and verifiable, which is exactly the sort
 ## of step an agent should be able to run over its own output.
 ##
-## The server is real and so are its two tools: `inspect` and `clean`
-## run Layer A and answer with its report. What is not here is Layer B,
-## the rewrite, and `settings-mcp-tools-layer-a` is where that is said
-## out loud, in every state of the server — the same bargain
-## `cli-not-implemented` makes for the commands that do not run yet.
+## The server is real and so are its three tools: `inspect` and `clean`
+## run Layer A and answer with its report, and `rewrite` runs the
+## pipeline on the engine on duty (E4-6a). `settings-mcp-tools` says what
+## the three do in every state of the server, and that a rewrite sends
+## the document wherever the Engine page does.
 
 settings-mcp-title = MCP server
-settings-mcp-description = Let an agent run { -layer-a } over its own output, through the Model Context Protocol.
+settings-mcp-description = Let an agent run { -layer-a } over its own output, and rewrite with the engine on duty, through the Model Context Protocol.
 
 # The MCP banner's last line, in every state of the server: what the two
 # tools do, and that nothing rewrites.
-settings-mcp-tools-layer-a = Both tools run: inspect lists what { -layer-a } would change in a text, and clean makes those changes and reports each one with its position. Nothing is rewritten: { -layer-b } is not in this version yet.
+settings-mcp-tools = Three tools run: inspect lists what { -layer-a } would change in a text, clean makes those changes and reports each one with its position, and rewrite has the engine on duty rewrite the text between two passes of { -layer-a } — the document goes wherever the Engine page sends it. A rewrite is best-effort, and its report says what it does not establish.
 
 ## What the server is doing right now, in the banner at the top of the
 ## page. Read from the server itself rather than from the switch — the
@@ -1139,11 +1146,13 @@ cli-arg-out = Output file, or `-` for standard output. Defaults to `<name>.clean
 cli-arg-nfkc = Apply NFKC normalisation (off by default — it rewrites more than provenance marks).
 cli-arg-aggressive = Also replace a letter borrowed from another script inside a word (a homoglyph). Such letters are reported either way; higher false-positive rate, hence opt-in.
 cli-arg-json = Machine-readable JSON instead of prose.
-cli-arg-engine = Rewriting engine: `local` or `remote`.
-cli-arg-model = Manifest model id.
-cli-arg-tactic = Tactic ladder entry: paraphrase, humanize, back_translate, structural, code.
+cli-arg-tactic = How the model is asked: paraphrase (the default), humanize or back_translate. structural is offered only in the application, behind a confirmation; code is not in this version.
 cli-arg-candidates = Candidates generated per chunk. Without it, whoever rewrites decides: 1 for a model on this machine's processor alone, 2 for one on a graphics card or an endpoint.
 cli-arg-rounds = Rewrite rounds per chunk, at most. Without it, up to 2, and the second only when no candidate of the first passed.
+cli-arg-intensity = How far a paraphrase or humanize may move from the wording: light, moderate (the default) or strong.
+cli-arg-format = What the text is: plain, markdown or html. Without it, what the file turns out to be; plain for anything else. In markdown and html only the prose is rewritten.
+cli-arg-prompts = A JSON file of template rows, laid over the ones the application saved — each a row's key and either its saved value or the template's text. A template that breaks a rule stops the run before anything is sent.
+cli-arg-seed = The base seed. Without it every run gets a new one, so running again gives a different rewrite; the seed a report names, given back, repeats a run on a model on this machine.
 cli-arg-id = Manifest model id.
 cli-arg-dir = Directory to walk.
 cli-arg-sarif = SARIF output, for code scanning dashboards.
@@ -1297,11 +1306,45 @@ cli-models-rm-failed = { $id } could not be removed from { $path }: { $reason }.
 # $requested is what the user typed, $available a comma-separated list.
 cli-unknown-language = unknown language `{ $requested }`, falling back. Available: { $available }
 
-# The skeleton's refusal. $summary echoes the parsed command so a hook
-# author can see their flags arrived intact, $command names what was
-# asked for and $epic the epic that implements it.
-cli-not-implemented =
-    parsed `{ $summary }`, but `{ $command }` is not implemented yet.
-    In this version the argument surface and the exit codes are final
-    and the behaviour is not. Exiting 2 rather than 0 — a hook that
-    passes because nothing ran is worse than no hook.
+
+## `rewrite`: what it says when it runs, and why when it does not. Every
+## refusal exits 2 and writes nothing. $reason is an engine's, a server's
+## or the operating system's own words, never translated.
+
+cli-rewrite-tactic-structural = The tactic structural rewrites a document from an outline of it, and is offered only in the application, behind a confirmation. Nothing was rewritten.
+cli-rewrite-tactic-code = The tactic code is not in this version. Nothing was rewritten.
+cli-rewrite-needs-app-endpoint = Rewriting is set to use an endpoint, and the command line reaches one only through the running { -brand-name } application. Start it and run this again — or, on its Engine page, let a model on this machine rewrite. Nothing was rewritten.
+cli-rewrite-needs-app-fallback = The model chosen for rewriting is not on this machine, and the endpoint set to answer instead is reached only through the running { -brand-name } application. Download the model, or start the application and run this again. Nothing was rewritten.
+cli-rewrite-no-model = No model on this machine is chosen for rewriting. Download one with wipemark-cli models pull and choose it on the application's Models page, or start the application with an endpoint on duty. Nothing was rewritten.
+cli-rewrite-model-not-here = The model chosen for rewriting, { $id }, is not on this machine whole; wipemark-cli models pull { $id } fetches it. Nothing was rewritten.
+cli-rewrite-unavailable = Nothing was rewritten: { $reason }
+cli-rewrite-failed = Nothing was rewritten: the job failed ({ $reason }).
+cli-rewrite-cancelled = Cancelled. Nothing was written.
+cli-rewrite-lost = The application stopped answering before the rewrite came back. Nothing was written; it may still be finishing the job.
+cli-rewrite-app-refused = The running application did not rewrite: { $reason }
+cli-rewrite-served-app = Rewritten by the running { -brand-name } application, on the engine it has on duty.
+cli-rewrite-served-here = Rewritten by this command, on the model chosen for rewriting.
+cli-rewrite-price = { $calls ->
+        [one] This asks the model for one answer at most, and about { $tokens } tokens of it.
+       *[other] This asks the model for { $calls } answers at most — { $expected } if every paragraph passes at once — and about { $tokens } tokens of them.
+    }
+cli-rewrite-progress = paragraph { $chunk } of { $chunks } · candidate { $candidate } of { $candidates } · round { $round } of { $rounds }
+cli-rewrite-summary = { $chunks ->
+        [0] There was no prose in it to rewrite; code, headings and markup are kept as they are.
+        [one] { $rewritten } of one paragraph was rewritten.
+       *[other] { $rewritten } of { $chunks } paragraphs were rewritten.
+    }
+cli-rewrite-kept = { $kept ->
+        [one] One paragraph keeps its cleaned original: no candidate for it passed the checks. Not every part was rewritten, so the exit code is 3.
+       *[other] { $kept } paragraphs keep their cleaned originals: no candidate for them passed the checks. Not every part was rewritten, so the exit code is 3.
+    }
+cli-rewrite-attempts = { $attempts ->
+        [one] The model wrote one candidate; { $rejected } of it rejected.
+       *[other] The model wrote { $attempts } candidates; { $rejected } of them rejected.
+    }
+cli-rewrite-best-effort = Rewriting is best-effort: it changes the wording, and what it does not establish is listed below.
+cli-rewrite-seed = Base seed { $seed }; --seed { $seed } repeats this run on a model on this machine.
+cli-prompts-unreadable = The templates file { $path } could not be read: { $reason }. Nothing was rewritten.
+cli-prompts-not-rows = The templates file { $path } is not a JSON object of template rows ({ $reason }). Nothing was rewritten.
+cli-prompts-unknown-row = The templates file { $path } names { $key }, which is not a template row this version has. Nothing was rewritten.
+cli-prompts-invalid = The template { $key } in { $path } breaks the rule { $rule }. Nothing was rewritten.

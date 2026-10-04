@@ -39,13 +39,20 @@
 //! # The handle
 //!
 //! [`EngineHandle`] is `Send + Sync + Clone`: the MCP server holds one from
-//! startup, and the CLI's route to the running application will (D52). A
-//! job through it goes through the same busy count and the same
-//! [`Event::JobStarted`]/[`Event::JobEnded`] a window's job would, so one
-//! loaded model serves every surface and nothing loads a second copy.
-//! Nothing calls it yet: the MCP `rewrite` tool lands with the pipeline,
-//! because a model's raw output handed to anybody as a rewrite is the
-//! failure this product exists to avoid (D56).
+//! startup, and its `rewrite` tool — which `wipemark-cli rewrite` reaches
+//! when the application is running (D52) — starts every job through it. A
+//! job takes a [`JobEngine`] from [`EngineHandle::for_job`]: the engine on
+//! duty, wrapped so that the job is counted busy and announced as
+//! [`Event::JobStarted`] for its **whole** length, not per call, and
+//! [`Event::JobEnded`] when the job lets go of it. Between two candidates
+//! of one job nothing is unloaded and nothing is swapped (rule 10); one
+//! loaded model serves every surface and nothing loads a second copy. The
+//! job around it is `wipemark_pipeline`'s — Layer A, the guards, the
+//! report — so no surface ever hands out a model's raw output (D56).
+//!
+//! Beside the slot the handle carries the [`Pace`]: the executor of the
+//! engine on duty and the rate the last Check measured for it — what a
+//! surface needs to price a job before it runs (D61), from any thread.
 //!
 //! # An endpoint
 //!
@@ -71,12 +78,14 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use gpui::{App, AppContext as _, Context, Entity, Global, Subscription, Task};
+use wipemark_engine::http::KeyFault;
 use wipemark_engine::{
-    CancellationToken, ChatRequest, Completion, EngineError, RewriteEngine, SamplingParams,
-    TokenSink, Unavailable,
+    async_trait, CancellationToken, ChatRequest, Completion, EngineError, EngineInfo,
+    RewriteEngine, SamplingParams, TokenSink, Unavailable,
 };
 use wipemark_i18n::{args, t_args, Message};
 use wipemark_models::manifest::Role;
+use wipemark_pipeline::cost::Executor;
 use wipemark_secret::Vault;
 
 use crate::duty::{self, LocalOptions, Performer, Remote};
@@ -412,6 +421,35 @@ struct Shared {
     /// Jobs and checks running now, through any handle or the page.
     busy: AtomicUsize,
     events: flume::Sender<Event>,
+    /// What a price needs to know about the engine in the slot.
+    pace: Mutex<Pace>,
+}
+
+/// What a surface needs to price a job before it runs (D61), read from any
+/// thread.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Pace {
+    /// Who rewrites, as far as the effort and the price go. `None` while
+    /// nothing is on duty.
+    pub executor: Option<Executor>,
+    /// Tokens a second, as the last Check measured them on the engine now
+    /// in the slot. `None` before a Check, after another model or
+    /// endpoint arrives, and when the Check had nothing to time — never a
+    /// guess, and never another engine's figure.
+    pub tokens_per_second: Option<f32>,
+}
+
+/// The executor of a performer (D61): the machine with a non-CPU backend
+/// registered offloads every layer (`LoadParams::n_gpu_layers` is `-1`),
+/// so it is `LocalGpu`; the machine otherwise — **including not yet
+/// known** — is `LocalCpu`, because fewer calls is the cheaper mistake;
+/// an endpoint is an `Endpoint`, wherever it is.
+pub fn executor_of(performer: &Performer, gpu: Option<bool>) -> Executor {
+    match performer {
+        Performer::Machine(_) if gpu == Some(true) => Executor::LocalGpu,
+        Performer::Machine(_) => Executor::LocalCpu,
+        Performer::Endpoint(_) => Executor::Endpoint,
+    }
 }
 
 /// A way to the engine on duty from any thread — `Send + Sync + Clone`.
@@ -432,18 +470,22 @@ impl std::fmt::Debug for EngineHandle {
     }
 }
 
-/// Counts a job while it lives — also when the future running it is
-/// dropped half way.
-struct Busy<'a>(&'a Shared);
+/// A job's hold on the engine: counted busy and announced from the moment
+/// it is taken until it is dropped — also when the job's thread ends half
+/// way, because a drop is the one thing that always happens.
+struct Held(Arc<Shared>);
 
-impl<'a> Busy<'a> {
-    fn enter(shared: &'a Shared) -> Self {
+impl Held {
+    /// Count first, then announce: the host deciding on `JobStarted` must
+    /// already see the job as running.
+    fn enter(shared: Arc<Shared>) -> Self {
         shared.busy.fetch_add(1, Ordering::SeqCst);
-        Busy(shared)
+        let _ = shared.events.send(Event::JobStarted);
+        Held(shared)
     }
 }
 
-impl Drop for Busy<'_> {
+impl Drop for Held {
     fn drop(&mut self) {
         self.0.busy.fetch_sub(1, Ordering::SeqCst);
         let _ = self.0.events.send(Event::JobEnded);
@@ -461,6 +503,7 @@ impl EngineHandle {
                     slot: Mutex::new(Slot::Nothing),
                     busy: AtomicUsize::new(0),
                     events,
+                    pace: Mutex::new(Pace::default()),
                 }),
             },
             inbox,
@@ -486,6 +529,26 @@ impl EngineHandle {
             .slot
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = slot;
+    }
+
+    /// The executor of the engine on duty and the rate last measured on
+    /// it.
+    pub fn pace(&self) -> Pace {
+        *self
+            .shared
+            .pace
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn set_pace(&self, change: impl FnOnce(&mut Pace)) {
+        change(
+            &mut self
+                .shared
+                .pace
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
     }
 
     /// The engine on duty, or why there is none.
@@ -525,32 +588,34 @@ impl EngineHandle {
         matches!(self.slot(), Slot::Engine(_) | Slot::Keyed { .. })
     }
 
-    /// Run one job on the engine on duty, through the host's policy.
+    /// What is on duty, without building it, reading a key or loading
+    /// anything — for a price asked before a run, which must not load a
+    /// model to answer.
+    pub fn described(&self) -> Result<EngineInfo, Unavailable> {
+        match self.slot() {
+            Slot::Engine(engine) => Ok(engine.info()),
+            Slot::Keyed { remote, .. } => Ok(Performer::Endpoint(remote).info()),
+            Slot::Refused(why) => Err(why),
+            Slot::Nothing => Err(Unavailable::NothingOnDuty),
+        }
+    }
+
+    /// The engine on duty, held for one job.
     ///
     /// Fails with [`Unavailable::NothingOnDuty`] when nothing is on duty,
-    /// and with the build's refusal when the machine is on duty and cannot
-    /// run. Nothing calls this yet (D56): the MCP `rewrite` tool and the
-    /// CLI's route land with the pipeline, which puts Layer A and the
-    /// guards around it.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "D56: held by the MCP server from startup; called once the pipeline (E4) exists"
-        )
-    )]
-    pub async fn complete(
-        &self,
-        req: ChatRequest,
-        sink: TokenSink,
-        cancel: CancellationToken,
-    ) -> Result<Completion, EngineError> {
+    /// with the build's refusal when the machine is on duty and cannot
+    /// run, and with the credential store's answer for an endpoint whose
+    /// key cannot be had — and a job refused here is not a job: nothing is
+    /// counted. Otherwise the job is counted busy and announced until the
+    /// [`JobEngine`] is dropped, which is when the job's thread ends.
+    pub async fn for_job(&self) -> Result<JobEngine, EngineError> {
         let engine = self.engine().await?;
-        let busy = Busy::enter(&self.shared);
-        let _ = self.shared.events.send(Event::JobStarted);
-        let result = engine.complete(req, sink, cancel).await;
-        drop(busy);
-        result
+        let info = engine.info();
+        Ok(JobEngine {
+            engine,
+            info,
+            _held: Held::enter(Arc::clone(&self.shared)),
+        })
     }
 
     /// Whether two handles reach the same host.
@@ -558,6 +623,67 @@ impl EngineHandle {
     pub fn reaches_the_same_host_as(&self, other: &EngineHandle) -> bool {
         Arc::ptr_eq(&self.shared, &other.shared)
     }
+
+    /// A handle with `engine` on duty and no host behind it, and what it
+    /// would tell a host — for a test of a surface that only needs
+    /// something to ask.
+    #[cfg(test)]
+    pub fn serving(
+        engine: Arc<dyn RewriteEngine>,
+        pace: Pace,
+    ) -> (EngineHandle, flume::Receiver<Event>) {
+        let (handle, inbox) = EngineHandle::new();
+        handle.set(Slot::Engine(engine));
+        handle.set_pace(|now| *now = pace);
+        (handle, inbox)
+    }
+}
+
+/// The engine on duty, held by one job (E4-6a, H1).
+///
+/// What `wipemark_pipeline::start` is handed: a [`RewriteEngine`] whose
+/// `info` was taken once, when the job took it, whose `complete` and
+/// `warmup` are the engine's, and whose `unload` does nothing — when a
+/// model leaves memory is the host's decision (D51), and a job that could
+/// unload it would be a second policy. Holding one keeps the job counted
+/// busy, so the host defers an **Unload now**, an idle timer and another
+/// model until it is dropped.
+pub struct JobEngine {
+    engine: Arc<dyn RewriteEngine>,
+    info: EngineInfo,
+    _held: Held,
+}
+
+impl std::fmt::Debug for JobEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JobEngine")
+            .field("model", &self.info.model_id)
+            .field("local", &self.info.local)
+            .finish_non_exhaustive()
+    }
+}
+
+#[async_trait]
+impl RewriteEngine for JobEngine {
+    fn info(&self) -> EngineInfo {
+        self.info.clone()
+    }
+
+    async fn complete(
+        &self,
+        req: ChatRequest,
+        sink: TokenSink,
+        cancel: CancellationToken,
+    ) -> Result<Completion, EngineError> {
+        self.engine.complete(req, sink, cancel).await
+    }
+
+    async fn warmup(&self) -> Result<(), EngineError> {
+        self.engine.warmup().await
+    }
+
+    /// Nothing: the host unloads, by its policy, after the job lets go.
+    async fn unload(&self) {}
 }
 
 /// An endpoint's engine, with its key read from the credential store on a
@@ -839,7 +965,24 @@ impl EngineHost {
             if !self.deferred.contains(&Event::DutyChanged) {
                 self.on(Event::DutyChanged, cx);
             }
+        } else {
+            // The same engine, and perhaps a fact about the machine it runs
+            // on that was not known when it was built: the backends land
+            // after the scan, and with them whether a GPU takes the layers.
+            self.publish_executor();
         }
+    }
+
+    /// Say which executor the engine in the slot is, from the reading it
+    /// was built for — leaving the measured rate alone.
+    fn publish_executor(&self) {
+        let executor = self.reading.as_ref().and_then(|reading| {
+            reading
+                .performer
+                .as_ref()
+                .map(|performer| executor_of(performer, reading.options.gpu))
+        });
+        self.handle.set_pace(|pace| pace.executor = executor);
     }
 
     /// One event through the policy.
@@ -930,6 +1073,10 @@ impl EngineHost {
             }
         };
         self.handle.set(slot);
+        // Another engine: a rate measured on the last one says nothing
+        // about this one.
+        self.handle.set_pace(|pace| pace.tokens_per_second = None);
+        self.publish_executor();
         self.built_for = wanted;
         self.model = model;
         self.loaded = Loaded::No;
@@ -1082,12 +1229,33 @@ impl EngineHost {
                     }
                     _ => {}
                 }
-                host.check = Check::Done(outcome);
+                host.check_done(outcome);
                 host.on(Event::JobEnded, cx);
             })
             .ok();
         })
         .detach();
+    }
+
+    /// A check ended: what it found, and — when it timed anything — the
+    /// rate a job's price is measured by (D61, H4), this engine's until
+    /// another takes the slot. A check that had nothing to time leaves the
+    /// last figure alone.
+    fn check_done(&mut self, outcome: CheckOutcome) {
+        if let CheckOutcome::Answered {
+            per_second: Some(rate),
+            ..
+        }
+        | CheckOutcome::EndpointAnswered {
+            per_second: Some(rate),
+            ..
+        } = &outcome
+        {
+            let rate = *rate;
+            self.handle
+                .set_pace(|pace| pace.tokens_per_second = Some(rate));
+        }
+        self.check = Check::Done(outcome);
     }
 
     /// Stop a running check.
@@ -1282,6 +1450,12 @@ fn refusal_message(why: &Unavailable) -> Message {
         Unavailable::Refused { .. } => Message::EngineRefusalRefused,
         Unavailable::KeyUnreadable { .. } => Message::EngineRefusalKeyUnreadable,
         Unavailable::NoKey => Message::EngineRefusalNoKey,
+        Unavailable::KeyUnsendable(fault) => match fault {
+            KeyFault::Empty => Message::EngineRefusalKeyUnsendableEmpty,
+            KeyFault::NotAscii => Message::EngineRefusalKeyUnsendableNotAscii,
+            KeyFault::Control => Message::EngineRefusalKeyUnsendableControl,
+            KeyFault::Space => Message::EngineRefusalKeyUnsendableSpace,
+        },
     }
 }
 
@@ -1540,12 +1714,11 @@ mod tests {
         }
     }
 
-    /// A test double: answers at once, and records what the handle had
-    /// said about it by the time it was asked.
+    /// A test double: answers at once, and records how many jobs the
+    /// handle counted each time it was asked.
     struct Probe {
         handle: EngineHandle,
-        inbox: flume::Receiver<Event>,
-        seen: Mutex<Option<(usize, Vec<Event>)>>,
+        seen: Mutex<Vec<usize>>,
     }
 
     #[async_trait]
@@ -1565,8 +1738,7 @@ mod tests {
             _sink: TokenSink,
             _cancel: CancellationToken,
         ) -> Result<Completion, EngineError> {
-            *self.seen.lock().expect("lock") =
-                Some((self.handle.busy(), self.inbox.drain().collect()));
+            self.seen.lock().expect("lock").push(self.handle.busy());
             Ok(Completion {
                 text: "ready".to_owned(),
                 tokens_out: 1,
@@ -1581,13 +1753,16 @@ mod tests {
         async fn unload(&self) {}
     }
 
+    /// A job through the handle is one job however many calls it makes:
+    /// counted and announced once when it takes the engine, still counted
+    /// between its calls, and let go of once when it drops it. A refused
+    /// one is not a job at all.
     #[test]
     fn the_handle_runs_jobs_through_the_same_policy() {
         let (handle, inbox) = EngineHandle::new();
 
         // Nothing on duty: a refusal, and nothing counted.
-        let (sink, _) = flume::unbounded();
-        let refused = block_on(handle.complete(check_request(), sink, CancellationToken::new()));
+        let refused = block_on(handle.for_job());
         assert!(
             matches!(
                 refused,
@@ -1596,25 +1771,44 @@ mod tests {
             "{refused:?}"
         );
         assert!(inbox.is_empty(), "a refused job is not a job");
+        assert_eq!(handle.busy(), 0);
 
         let probe = Arc::new(Probe {
             handle: handle.clone(),
-            inbox: inbox.clone(),
-            seen: Mutex::new(None),
+            seen: Mutex::new(Vec::new()),
         });
         handle.set(Slot::Engine(probe.clone()));
-        let (sink, _) = flume::unbounded();
-        let answer = block_on(handle.complete(check_request(), sink, CancellationToken::new()))
-            .expect("the probe answers");
-        assert_eq!(answer.text, "ready");
-
-        let (busy, before) = probe.seen.lock().expect("lock").clone().expect("asked");
-        assert_eq!(busy, 1, "the job was not counted while it ran");
+        let job = block_on(handle.for_job()).expect("the probe is on duty");
+        assert_eq!(
+            job.info().model_id,
+            "probe",
+            "the job's info is the engine's"
+        );
+        let before: Vec<Event> = inbox.drain().collect();
         assert_eq!(
             before,
             vec![Event::JobStarted],
             "the host was not told first"
         );
+        for _ in 0..2 {
+            let (sink, _) = flume::unbounded();
+            let answer = block_on(job.complete(check_request(), sink, CancellationToken::new()))
+                .expect("the probe answers");
+            assert_eq!(answer.text, "ready");
+        }
+        assert_eq!(
+            *probe.seen.lock().expect("lock"),
+            vec![1, 1],
+            "the job was not counted on every call"
+        );
+        assert!(
+            inbox.is_empty(),
+            "a call is not a job: {:?}",
+            inbox.drain().collect::<Vec<_>>()
+        );
+        assert_eq!(handle.busy(), 1, "nothing is counted between two calls");
+
+        drop(job);
         let after: Vec<Event> = inbox.drain().collect();
         assert_eq!(after, vec![Event::JobEnded], "the host was not told after");
         assert_eq!(handle.busy(), 0);
@@ -1671,6 +1865,10 @@ mod tests {
                 reason: "the keychain is locked".to_owned(),
             },
             Unavailable::NoKey,
+            Unavailable::KeyUnsendable(KeyFault::Empty),
+            Unavailable::KeyUnsendable(KeyFault::NotAscii),
+            Unavailable::KeyUnsendable(KeyFault::Control),
+            Unavailable::KeyUnsendable(KeyFault::Space),
         ];
         for why in &all {
             match why {
@@ -1687,7 +1885,8 @@ mod tests {
                 | Unavailable::RateLimited { .. }
                 | Unavailable::Refused { .. }
                 | Unavailable::KeyUnreadable { .. }
-                | Unavailable::NoKey => {}
+                | Unavailable::NoKey
+                | Unavailable::KeyUnsendable(_) => {}
             }
         }
         all
@@ -2074,6 +2273,124 @@ mod tests {
         host.read_with(cx, |host, _| {
             assert!(matches!(host.check(), Check::Idle), "{:?}", host.check());
         });
+    }
+
+    /// The rule this module exists for, through a real host: **Unload
+    /// now** pressed between two calls of one job waits for the job, not
+    /// for the call. Counting per call — the handle before E4-6a — would
+    /// unload the model under the job's next candidate.
+    #[gpui::test]
+    fn a_job_holds_the_model_between_its_calls(cx: &mut gpui::TestAppContext) {
+        let model = Arc::new(Model::default());
+        let host = host_over(model.clone(), Keeping::OnDemand, cx);
+        let handle = host.read_with(cx, |host, _| host.handle.clone());
+
+        let job = block_on(handle.for_job()).expect("the double is on duty");
+        cx.run_until_parked();
+        host.read_with(cx, |host, _| {
+            assert!(
+                matches!(host.loaded(), Loaded::Yes { .. }),
+                "{:?}",
+                host.loaded()
+            );
+        });
+
+        let (sink, _) = flume::unbounded();
+        block_on(job.complete(check_request(), sink, CancellationToken::new()))
+            .expect("the first candidate");
+        host.update(cx, |host, cx| host.unload_now(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            model.unloads.load(Ordering::SeqCst),
+            0,
+            "unloaded between two calls of a running job"
+        );
+
+        let (sink, _) = flume::unbounded();
+        block_on(job.complete(check_request(), sink, CancellationToken::new()))
+            .expect("the second candidate, on the same model");
+        assert_eq!(model.unloads.load(Ordering::SeqCst), 0);
+
+        drop(job);
+        cx.run_until_parked();
+        assert_eq!(
+            model.unloads.load(Ordering::SeqCst),
+            1,
+            "the press was dropped rather than deferred"
+        );
+        host.read_with(cx, |host, _| assert_eq!(host.loaded(), &Loaded::No));
+    }
+
+    /// The price's two facts follow the engine in the slot: the executor
+    /// from who is on duty and whether a GPU takes the layers, the rate
+    /// from the last Check of **this** engine — and another duty forgets
+    /// both.
+    #[gpui::test]
+    fn the_pace_follows_the_duty_and_the_check(cx: &mut gpui::TestAppContext) {
+        let model = Arc::new(Model::default());
+        let host = host_over(model, Keeping::OnDemand, cx);
+        let handle = host.read_with(cx, |host, _| host.handle.clone());
+        assert_eq!(
+            handle.pace(),
+            Pace {
+                executor: Some(Executor::LocalCpu),
+                tokens_per_second: None,
+            },
+            "a machine whose backends are not known yet is priced as a CPU"
+        );
+
+        host.update(cx, |host, _| {
+            host.check_done(CheckOutcome::Answered {
+                load_ms: Some(900),
+                tokens: 16,
+                per_second: Some(12.5),
+                text: "one two".to_owned(),
+            });
+        });
+        assert_eq!(handle.pace().tokens_per_second, Some(12.5));
+        // A check with nothing to time keeps the last figure.
+        host.update(cx, |host, _| host.check_done(CheckOutcome::Cancelled));
+        assert_eq!(handle.pace().tokens_per_second, Some(12.5));
+
+        // The backends land: a GPU takes the layers, the same engine stays.
+        host.update(cx, |host, cx| {
+            let mut reading = host.reading.clone().expect("a reading");
+            reading.options.gpu = Some(true);
+            host.preferences_moved(reading, cx);
+        });
+        assert_eq!(handle.pace().executor, Some(Executor::LocalGpu));
+        assert_eq!(handle.pace().tokens_per_second, Some(12.5));
+
+        // Nobody on duty: nothing to price, and no rate from before.
+        host.update(cx, |host, cx| {
+            let mut reading = host.reading.clone().expect("a reading");
+            reading.performer = None;
+            host.preferences_moved(reading, cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(handle.pace(), Pace::default());
+    }
+
+    #[test]
+    fn an_endpoint_is_priced_as_one_wherever_it_is() {
+        let remote = Remote {
+            profile: None,
+            provider: crate::engine::Provider::Ollama,
+            endpoint: "http://127.0.0.1:11434/api/chat".to_owned(),
+            origin: "http://127.0.0.1:11434".to_owned(),
+            model: "qwen3".to_owned(),
+            temperature: 0.9,
+            reasoning: crate::engine::ReasoningEffort::None,
+            timeout: 120,
+            account: None,
+            on_this_machine: true,
+        };
+        for gpu in [None, Some(false), Some(true)] {
+            assert_eq!(
+                executor_of(&Performer::Endpoint(remote.clone()), gpu),
+                Executor::Endpoint
+            );
+        }
     }
 
     #[test]

@@ -12,7 +12,10 @@
 //! * [`server`] is the listener, the port scan and the supervisor that
 //!   owns them.
 //! * [`protocol`] is what it answers — JSON-RPC 2.0 and the MCP
-//!   methods, as pure functions over values.
+//!   methods, as functions over values.
+//! * [`rewrite`] is the one tool that needs more than the text: the
+//!   application's engine, the pipeline around it, and a call that waits
+//!   for its job (E4-6a).
 //! * This file is the vocabulary the settings window and the store
 //!   share: an address, a port, and the snippet a client is configured
 //!   with.
@@ -22,15 +25,27 @@
 //! The server is real: it binds, it speaks the protocol, it introduces
 //! itself, and it lists its tools — and the tools run. `inspect` and
 //! `clean` hand the text to `wipemark-core`'s Layer A and answer with
-//! its report, the third shelf included (see [`protocol`]). What they
+//! its report, the third shelf included (see [`protocol`]). `rewrite`
+//! runs the pipeline on the engine the Engine page puts on duty — the
+//! application's own, already loaded or loaded by its policy, which is
+//! also what `wipemark-cli rewrite` reaches while the application runs
+//! (D52) — and answers with the text and the job's report. What they
 //! refuse is only what they cannot run: a call with no `text`, a flag
-//! that is not a boolean, an argument the tool does not take — by name,
-//! as a result carrying `isError`, never as an empty report. That is the
-//! bargain `wipemark-cli` makes when it exits 2 or 3 rather than 0, and
-//! for the same reason: a tool that answered "nothing found" about a
-//! text it never read would be a scrubber reporting a clean document.
-//! Nothing rewrites — Layer B is not in this version — and the pane's
-//! banner says so in every state of the server.
+//! that is not a boolean, an argument the tool does not take, a job that
+//! could not happen — by name, as a result carrying `isError`, never as
+//! an empty report. That is the bargain `wipemark-cli` makes when it
+//! exits 2 or 3 rather than 0, and for the same reason: a tool that
+//! answered "nothing found" about a text it never read would be a
+//! scrubber reporting a clean document. The pane's banner says what the
+//! three tools do in every state of the server.
+//!
+//! # Found by other processes
+//!
+//! While the server listens on loopback (or on a wildcard, which loopback
+//! reaches) it leaves `wipemark_models::Beacon` under the data directory —
+//! its pid, its port and the loopback address — and takes it away when it
+//! stops. That is how the CLI finds the running application without a
+//! row naming a port the server may have stepped past (D52, H12).
 //!
 //! # Everything a client reads is a format
 //!
@@ -53,6 +68,7 @@
 //! [`Rendering::Ui`]: wipemark_i18n::Rendering::Ui
 
 pub mod protocol;
+pub mod rewrite;
 pub mod server;
 
 use std::fmt;

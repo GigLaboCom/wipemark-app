@@ -6,9 +6,13 @@ trait the local model is behind, built by the same `duty::engine_for` and
 held by the same `EngineHost`. Epic **E2-3** (spec S2.2–S2.4, decisions
 D57–D59 in [`docs/plan/README.md`](../plan/README.md) §4).
 
-Nothing rewrites a document yet: that is the pipeline (E4), which puts
-Layer A and the guards around a model (D56). The one request this build
-sends is the Engine page's **Check** — a fixed sentence.
+The windows rewrite nothing yet; the MCP tool `rewrite` and
+`wipemark-cli rewrite` (E4-6a) do, through the pipeline, which puts Layer A
+and the guards around a model (D56) — and with an endpoint on duty they
+send it the document. The one request the windows send is the Engine
+page's **Check** — a fixed sentence. A stored key no request could carry
+is refused before a socket opens as `Unavailable::KeyUnsendable` (D79),
+which fails the job rather than rejecting one candidate after another.
 
 ```
 crates/wipemark-engine/src/http/mod.rs      HttpConfig, HttpEngine, the thread and the cancel

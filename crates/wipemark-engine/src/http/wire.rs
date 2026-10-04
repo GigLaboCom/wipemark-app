@@ -190,9 +190,7 @@ pub(crate) fn exchange(
         .key
         .map(authorization)
         .transpose()
-        .map_err(|fault| {
-            EngineError::Transport(format!("the stored key {fault}; nothing was sent"))
-        })?;
+        .map_err(|fault| EngineError::Unavailable(Unavailable::KeyUnsendable(fault)))?;
     let mut attempt = 0;
     let response = loop {
         if stop.now() {

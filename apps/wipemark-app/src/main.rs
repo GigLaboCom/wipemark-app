@@ -863,6 +863,11 @@ fn main() {
     // with no file to sit beside goes, and where kept copies go. Asked
     // of the platform here, once, for the reason the models folder is.
     let homes = retention::Homes::discover(layout.as_ref().ok());
+    // Where the MCP server leaves its beacon while it listens, so that
+    // `wipemark-cli rewrite` finds this application's loaded model rather
+    // than loading a second copy (D52). None without a data directory: the
+    // CLI then loads its own.
+    let beacon = layout.as_ref().ok().map(Layout::beacon_path);
 
     // Before the window, because the window's title is one of the
     // strings. `Rendering::Ui` and not the default: everything below
@@ -938,6 +943,7 @@ fn main() {
                             homes.clone(),
                             launch.profile.clone(),
                             engine_handle.clone(),
+                            beacon.clone(),
                             cx,
                         )
                     });

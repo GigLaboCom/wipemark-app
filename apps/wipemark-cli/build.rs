@@ -5,10 +5,11 @@
 //! shared libraries under its own `OUT_DIR`. `cargo run` and `cargo test`
 //! find them because cargo puts that directory on the loader path; a binary
 //! run by itself does not, and the application stopped before `main` that
-//! way ("libggml.so.0: cannot open shared object file"). This binary calls
-//! no engine code yet, so the linker leaves llama.cpp out of it and it
-//! starts either way; the rpath is here for the day `rewrite` lands, so that
-//! a pre-commit hook is not the first thing to find out. The sys crate hands
+//! way ("libggml.so.0: cannot open shared object file"). Since E5-2 this
+//! binary calls the engine — `rewrite` with no application running loads the
+//! local model itself — so a `llama-native` build links llama.cpp and needs
+//! the rpath to start at all; a pre-commit hook must not be the first thing
+//! to find that out. The sys crate hands
 //! the directory up as `links` metadata, which reaches this script because
 //! the manifest names the crate directly under `llama-native`; absent in
 //! every other build, and then this prints nothing. A shipped binary's

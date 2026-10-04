@@ -68,6 +68,9 @@ pub(crate) struct Read {
     /// — `Evidence::Disagreed`. The file is still read by its bytes; this
     /// is what the note on stderr says.
     pub note: Option<(Format, Format)>,
+    /// What intake says the text is — Markdown, HTML, plain text — when it
+    /// says anything. `rewrite` prepares a document by it.
+    pub format: Option<Format>,
 }
 
 /// Why a text was not read.
@@ -161,6 +164,7 @@ fn empty() -> Read {
         text: String::new(),
         encoding: Encoding::Utf8,
         note: None,
+        format: None,
     }
 }
 
@@ -187,6 +191,7 @@ fn finish(intake: &wipemark_intake::Intake, bytes: Vec<u8>) -> Result<Read, Unre
         text,
         encoding,
         note: intake.contradicted().zip(intake.format),
+        format: intake.format,
     })
 }
 

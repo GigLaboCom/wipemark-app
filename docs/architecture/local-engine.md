@@ -349,13 +349,14 @@ unknown is not a number.
 * **Memory-pressure unloading** (D51's last clause): a macOS dispatch
   source, platform code this Linux machine cannot compile or check. It
   moves to the first step run on a Mac (D55).
-* **The MCP/CLI route** (D52, D56): `EngineHandle` (`Send + Sync + Clone`)
-  runs a job through the same busy count and events, and the MCP server
-  holds one from startup — but no tool calls it. The MCP `rewrite` tool
-  lands with the pipeline (E4), the CLI's routing to the running
-  application with its `rewrite` (E5): a model's raw output handed to
-  anybody as a cleaned document is the failure this product exists to
-  avoid.
+* **The MCP/CLI route** (D52, D56) — landed with E4-6a: the MCP
+  `rewrite` tool takes a `JobEngine` from `EngineHandle::for_job` and runs
+  the pipeline on it, the job counted busy for its whole length; and
+  `wipemark-cli rewrite` reaches that tool through the server's beacon
+  (`<data dir>/mcp.json`) while the application runs. No surface hands
+  out a model's raw output: the job around it is the pipeline's. The
+  handle also carries the `Pace` — the executor of the engine on duty and
+  the rate its last Check measured — which prices a job before it runs.
 
 ## What was left behind, and why
 

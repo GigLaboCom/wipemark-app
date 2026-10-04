@@ -67,9 +67,10 @@ impl Io<'static> {
     }
 }
 
-/// Where `clean`'s result goes. Decided before anything is read.
+/// Where `clean`'s — or `rewrite`'s — result goes. Decided before
+/// anything is read.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Destination {
+pub(crate) enum Destination {
     /// `name.cleaned.ext` beside the input — the Retention page's default,
     /// spelled by the same `with_infix`.
     Beside(PathBuf),
@@ -84,7 +85,7 @@ enum Destination {
 
 impl Destination {
     /// The log's word for it.
-    fn label(&self) -> &'static str {
+    pub(crate) fn label(&self) -> &'static str {
         match self {
             Self::Beside(_) => "beside",
             Self::Out(_) => "out",
@@ -96,7 +97,7 @@ impl Destination {
 
     /// A file written beside or to `-o` — not the in-place file, which
     /// goes through [`inplace::replace`].
-    fn file(&self) -> Option<&Path> {
+    pub(crate) fn file(&self) -> Option<&Path> {
         match self {
             Self::Beside(path) | Self::Out(path) => Some(path),
             Self::Stdout | Self::InPlace(..) => None,
@@ -169,52 +170,9 @@ pub(crate) fn clean(
 
     // Where the result goes, before a byte is read: a destination that
     // would be refused should not cost a read of the input first.
-    let destination = match (&source, out, in_place) {
-        (Source::Stdin, _, Some(_)) => {
-            let line = t(Message::CliInPlaceStdin);
-            return refused(io, "clean", path, &line, "in place from stdin", Exit::Usage);
-        }
-        (Source::File(input), _, Some(keep)) => {
-            // A link would be renamed aside as a link and replaced by a
-            // file, leaving the file it pointed at as it was — a run that
-            // reports success over a document it did not change.
-            if std::fs::symlink_metadata(input).is_ok_and(|meta| meta.file_type().is_symlink()) {
-                let line = t_args(Message::CliInPlaceLink, &args!("path" => label.as_str()));
-                return refused(io, "clean", path, &line, "in place on a link", Exit::Usage);
-            }
-            Destination::InPlace(input.clone(), keep)
-        }
-        (_, out, None) => match (&source, out) {
-            (_, Some(out)) if out == Path::new("-") => Destination::Stdout,
-            (_, Some(out)) => {
-                if out.is_dir() {
-                    let line = t_args(
-                        Message::CliOutIsAFolder,
-                        &args!("path" => out.display().to_string()),
-                    );
-                    return refused(io, "clean", path, &line, "out is a folder", Exit::Usage);
-                }
-                if let Source::File(input) = &source {
-                    if input::same_file(input, out) {
-                        let line = t_args(
-                            Message::CliOutIsInput,
-                            &args!("path" => out.display().to_string()),
-                        );
-                        return refused(io, "clean", path, &line, "out is input", Exit::Usage);
-                    }
-                }
-                Destination::Out(out.to_owned())
-            }
-            (Source::Stdin, None) => Destination::Stdout,
-            (Source::File(input), None) => match input.file_name() {
-                Some(name) => Destination::Beside(
-                    input.with_file_name(with_infix(&name.to_string_lossy(), RESULT_INFIX)),
-                ),
-                // No last component — `..`, `/`. Nothing of that shape is a
-                // file, and the read below says what it is instead.
-                None => Destination::Stdout,
-            },
-        },
+    let destination = match destination("clean", &source, path, &label, out, in_place, io) {
+        Ok(destination) => destination,
+        Err(exit) => return exit,
     };
 
     let read = match input::read(&source, &mut io.stdin) {
@@ -252,7 +210,7 @@ pub(crate) fn clean(
             let bytes = input::encode(&cleaned.text, read.encoding);
             match inplace::replace(file, &bytes, *keep) {
                 Ok(done) => replaced = Some(done),
-                Err(failure) => return refuse_replacement(io, path, file, &failure),
+                Err(failure) => return refuse_replacement(io, "clean", path, file, &failure),
             }
         }
     }
@@ -376,9 +334,97 @@ pub(crate) fn clean(
     exit
 }
 
+/// Where `command`'s result goes, or the refusal — said on stderr — and
+/// its exit code. Decided before a byte is read.
+pub(crate) fn destination(
+    command: &str,
+    source: &Source,
+    path: &str,
+    label: &str,
+    out: Option<&Path>,
+    in_place: Option<Keep>,
+    io: &mut Io,
+) -> Result<Destination, Exit> {
+    Ok(match (source, out, in_place) {
+        (Source::Stdin, _, Some(_)) => {
+            let line = t(Message::CliInPlaceStdin);
+            return Err(refused(
+                io,
+                command,
+                path,
+                &line,
+                "in place from stdin",
+                Exit::Usage,
+            ));
+        }
+        (Source::File(input), _, Some(keep)) => {
+            // A link would be renamed aside as a link and replaced by a
+            // file, leaving the file it pointed at as it was — a run that
+            // reports success over a document it did not change.
+            if std::fs::symlink_metadata(input).is_ok_and(|meta| meta.file_type().is_symlink()) {
+                let line = t_args(Message::CliInPlaceLink, &args!("path" => label));
+                return Err(refused(
+                    io,
+                    command,
+                    path,
+                    &line,
+                    "in place on a link",
+                    Exit::Usage,
+                ));
+            }
+            Destination::InPlace(input.clone(), keep)
+        }
+        (_, out, None) => match (source, out) {
+            (_, Some(out)) if out == Path::new("-") => Destination::Stdout,
+            (_, Some(out)) => {
+                if out.is_dir() {
+                    let line = t_args(
+                        Message::CliOutIsAFolder,
+                        &args!("path" => out.display().to_string()),
+                    );
+                    return Err(refused(
+                        io,
+                        command,
+                        path,
+                        &line,
+                        "out is a folder",
+                        Exit::Usage,
+                    ));
+                }
+                if let Source::File(input) = source {
+                    if input::same_file(input, out) {
+                        let line = t_args(
+                            Message::CliOutIsInput,
+                            &args!("path" => out.display().to_string()),
+                        );
+                        return Err(refused(
+                            io,
+                            command,
+                            path,
+                            &line,
+                            "out is input",
+                            Exit::Usage,
+                        ));
+                    }
+                }
+                Destination::Out(out.to_owned())
+            }
+            (Source::Stdin, None) => Destination::Stdout,
+            (Source::File(input), None) => match input.file_name() {
+                Some(name) => Destination::Beside(
+                    input.with_file_name(with_infix(&name.to_string_lossy(), RESULT_INFIX)),
+                ),
+                // No last component — `..`, `/`. Nothing of that shape is a
+                // file, and the read below says what it is instead.
+                None => Destination::Stdout,
+            },
+        },
+    })
+}
+
 /// What a report calls the input: the path exactly as typed, or the
 /// catalogue's words for standard input.
-fn label_of(source: &Source, path: &str) -> String {
+pub(crate) fn label_of(source: &Source, path: &str) -> String {
     match source {
         Source::Stdin => t(Message::CliReportStdin),
         Source::File(_) => path.to_owned(),
@@ -406,7 +452,7 @@ pub(crate) fn emit(stream: &mut Box<dyn Write + '_>, bytes: &[u8]) -> io::Result
 }
 
 /// The note a file whose name lies gets: read by its contents, and said.
-fn say_note(read: &input::Read, label: &str, io: &mut Io) {
+pub(crate) fn say_note(read: &input::Read, label: &str, io: &mut Io) {
     if let Some((named, found)) = read.note {
         let line = t_args(
             Message::CliNameDisagrees,
@@ -456,7 +502,13 @@ pub(crate) fn unread_line(say: Say, label: &str, unread: &Unread) -> String {
 /// Why a text was not read, on stderr, and the exit code that goes with
 /// it: 2 for a path that is not there or is a folder, 3 — "not read is
 /// not clean" — for everything else.
-fn refuse_unread(command: &str, path: &str, label: &str, unread: &Unread, io: &mut Io) -> Exit {
+pub(crate) fn refuse_unread(
+    command: &str,
+    path: &str,
+    label: &str,
+    unread: &Unread,
+    io: &mut Io,
+) -> Exit {
     let (exit, kind) = match unread {
         Unread::Missing | Unread::Folder => (Exit::Usage, None),
         Unread::Unreadable(error) => (Exit::Partial, Some(error.kind())),
@@ -480,7 +532,13 @@ fn refuse_unread(command: &str, path: &str, label: &str, unread: &Unread, io: &m
 /// An in-place replacement that did not happen, on stderr. Exit 2 every
 /// time: the file is as it was — or, when even putting it back failed,
 /// the line says where the original is now.
-fn refuse_replacement(io: &mut Io, path: &str, file: &Path, failure: &Failure) -> Exit {
+pub(crate) fn refuse_replacement(
+    io: &mut Io,
+    command: &str,
+    path: &str,
+    file: &Path,
+    failure: &Failure,
+) -> Exit {
     let shown = file.display().to_string();
     let (line, reason, kind) = match failure {
         Failure::OriginalExists(original) => (
@@ -535,18 +593,25 @@ fn refuse_replacement(io: &mut Io, path: &str, file: &Path, failure: &Failure) -
         ),
     };
     let _ = writeln!(io.stderr, "wipemark-cli: {line}");
-    failed("clean", path, reason, kind, Exit::Usage)
+    failed(command, path, reason, kind, Exit::Usage)
 }
 
 /// A refusal about the arguments: the line on stderr, the log, the code.
-fn refused(io: &mut Io, command: &str, path: &str, line: &str, reason: &str, exit: Exit) -> Exit {
+pub(crate) fn refused(
+    io: &mut Io,
+    command: &str,
+    path: &str,
+    line: &str,
+    reason: &str,
+    exit: Exit,
+) -> Exit {
     let _ = writeln!(io.stderr, "wipemark-cli: {line}");
     failed(command, path, reason, None, exit)
 }
 
 /// The log line for a run that did not finish. An `io::ErrorKind`, never
 /// the operating system's message, which can carry a path.
-fn failed(
+pub(crate) fn failed(
     command: &str,
     path: &str,
     reason: &str,

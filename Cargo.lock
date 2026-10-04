@@ -8996,6 +8996,7 @@ dependencies = [
  "serde_json",
  "tracing",
  "wipemark-core",
+ "wipemark-engine",
  "wipemark-i18n",
  "wipemark-intake",
  "wipemark-llama-sys",

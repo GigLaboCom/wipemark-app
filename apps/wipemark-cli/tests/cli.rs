@@ -506,20 +506,21 @@ fn clean_exits_as_inspect_does_on_every_fixture() {
     assert!(read >= 22, "only {read} fixtures were read");
 }
 
-/// After E5-1 the one command that still refuses is `rewrite`: exit 2,
-/// the sentence on stderr, nothing on stdout. Every other command runs —
-/// none of them answers with the refusal.
+/// `rewrite` runs now: with no application and no model chosen it refuses
+/// by name — what is missing, never "not implemented" — exits 2 and writes
+/// nothing. And no other command answers with a refusal either.
 #[test]
-fn only_rewrite_still_refuses() {
+fn rewrite_no_longer_refuses() {
     let scratch = Scratch::new("refuse");
     scratch.file("x.md", "a\u{200B}b".as_bytes());
     std::fs::create_dir(scratch.path("tree")).expect("a folder");
     let output = scratch.run(&["rewrite", "x.md"]);
-    assert_eq!(code(&output), 2);
+    assert_eq!(code(&output), 2, "{}", stderr(&output));
+    let said = stderr(&output);
+    assert!(!said.contains("not implemented"), "{said}");
     assert!(
-        stderr(&output).contains("not implemented yet"),
-        "{}",
-        stderr(&output)
+        said.contains("No model on this machine is chosen"),
+        "{said}"
     );
     assert!(output.stdout.is_empty());
     assert!(!scratch.path("x.cleaned.md").exists());
@@ -537,6 +538,362 @@ fn only_rewrite_still_refuses() {
             stderr(&output)
         );
         assert_ne!(code(&output), 2, "{arguments:?}: {}", stderr(&output));
+    }
+}
+
+/// A stand-in for the running application's MCP server: answers
+/// `initialize` as wipemark and `tools/call rewrite` with `answer`, and
+/// counts every connection it takes.
+struct FakeApp {
+    port: u16,
+    connections: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
+}
+
+impl FakeApp {
+    fn start(answer: Value) -> Self {
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::sync::atomic::Ordering;
+
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a port");
+        let port = listener.local_addr().expect("an address").port();
+        let connections = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (counted, heard) = (connections.clone(), calls.clone());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { continue };
+                counted.fetch_add(1, Ordering::SeqCst);
+                let mut writer = stream.try_clone().expect("a writer");
+                let mut reader = BufReader::new(stream);
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                        break;
+                    }
+                    let line = line.trim_end();
+                    if line.is_empty() {
+                        break;
+                    }
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = value.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut body = vec![0; length];
+                if reader.read_exact(&mut body).is_err() {
+                    continue;
+                }
+                let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                let reply = match request["method"].as_str() {
+                    Some("initialize") => serde_json::json!({
+                        "jsonrpc": "2.0", "id": request["id"],
+                        "result": {"protocolVersion": "2025-06-18", "serverInfo": {"name": "wipemark", "version": "test"}},
+                    }),
+                    _ => {
+                        heard.lock().expect("calls").push(request.clone());
+                        serde_json::json!({"jsonrpc": "2.0", "id": request["id"], "result": answer})
+                    }
+                };
+                let reply = reply.to_string();
+                let _ = writer.write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                        reply.len()
+                    )
+                    .as_bytes(),
+                );
+            }
+        });
+        Self {
+            port,
+            connections,
+            calls,
+        }
+    }
+
+    fn connections(&self) -> usize {
+        self.connections.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn calls(&self) -> Vec<Value> {
+        self.calls.lock().expect("calls").clone()
+    }
+}
+
+/// A beacon in the scratch data directory — what the application leaves
+/// while its server listens.
+fn beacon(scratch: &Scratch, pid: u32, address: &str, port: u16) {
+    std::fs::create_dir_all(scratch.data()).expect("the data directory");
+    std::fs::write(
+        scratch.data().join("mcp.json"),
+        serde_json::json!({"pid": pid, "port": port, "address": address}).to_string(),
+    )
+    .expect("a beacon");
+}
+
+/// The application's answer to a rewrite: `text`, and a report whose
+/// totals and Layer A pass say what an exit code is read from.
+fn rewritten(text: &str, kept: u64, suspicious: bool) -> Value {
+    let report = serde_json::json!({
+        "version": 1,
+        "verifiable": {
+            "before": {
+                "unicode_version": "18.0.0",
+                "suspicious": suspicious,
+                "findings": if suspicious {
+                    serde_json::json!([{"codepoint": "U+200B", "count": 1}])
+                } else {
+                    serde_json::json!([])
+                },
+                "kept": [],
+            },
+            "after": {},
+        },
+        "best_effort": {
+            "base_seed": 4242,
+            "totals": {"chunks": 2, "rewritten": 2 - kept, "kept_source": kept, "attempts": 4, "rejected": kept * 2},
+        },
+        "not_established": ["vendor-detector-evasion", "human-authorship", "unknown-mark-schemes"],
+    });
+    serde_json::json!({
+        "content": [{"type": "text", "text": serde_json::json!({"text": text, "report": report}).to_string()}],
+        "structuredContent": {"text": text, "report": report},
+        "isError": false,
+    })
+}
+
+/// With the application running, the document goes to it: its server is
+/// asked, the result it sends is what is written, and both stderr and
+/// `--json` say who rewrote it — with no model on this machine at all.
+#[test]
+fn rewrite_uses_the_running_application() {
+    let scratch = Scratch::new("app");
+    scratch.file("note.md", b"First paragraph.\n\nSecond one.\n");
+    let app = FakeApp::start(rewritten("Paragraph one.\n\nThe second.\n", 0, false));
+    beacon(&scratch, std::process::id(), "127.0.0.1", app.port);
+
+    let output = scratch.run(&["rewrite", "note.md", "--tactic", "humanize", "--seed", "7"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(
+        std::fs::read_to_string(scratch.path("note.cleaned.md")).expect("the result"),
+        "Paragraph one.\n\nThe second.\n"
+    );
+    assert_eq!(
+        std::fs::read(scratch.path("note.md")).expect("the input"),
+        b"First paragraph.\n\nSecond one.\n",
+        "the input was touched"
+    );
+    let said = stdout(&output) + &stderr(&output);
+    assert!(said.contains("Rewritten by the running"), "{said}");
+    assert!(said.contains("4242"), "the seed is not said: {said}");
+
+    let calls = app.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    let arguments = &calls[0]["params"]["arguments"];
+    assert_eq!(calls[0]["params"]["name"], "rewrite");
+    assert_eq!(arguments["text"], "First paragraph.\n\nSecond one.\n");
+    assert_eq!(arguments["tactic"], "humanize");
+    assert_eq!(arguments["format"], "markdown", "the file is Markdown");
+    assert_eq!(arguments["seed"], 7);
+    assert!(
+        arguments.get("candidates").is_none(),
+        "absent is the application's to decide"
+    );
+}
+
+/// `--json` is the report, where the result went and who rewrote it.
+#[test]
+fn rewrite_json_is_the_report_and_where_it_went() {
+    let scratch = Scratch::new("app-json");
+    scratch.file("note.txt", b"Words.\n");
+    let app = FakeApp::start(rewritten("Other words.\n", 0, true));
+    beacon(&scratch, std::process::id(), "127.0.0.1", app.port);
+
+    let output = scratch.run(&["rewrite", "note.txt", "--json"]);
+    assert_eq!(
+        code(&output),
+        1,
+        "Layer A findings in the input: {}",
+        stderr(&output)
+    );
+    let answer = json(&output);
+    assert_eq!(answer["served_by"], "application");
+    assert!(answer["written"]
+        .as_str()
+        .is_some_and(|path| path.ends_with("note.cleaned.txt")));
+    let shelf = answer["report"]["not_established"]
+        .as_array()
+        .expect("the third shelf");
+    assert_eq!(shelf.len(), 3);
+    assert!(stdout(&output).is_ascii(), "the --json line is ASCII");
+
+    // And to standard output: the text beside the report.
+    let output = scratch.run(&["rewrite", "note.txt", "-o", "-", "--json"]);
+    assert_eq!(json(&output)["text"], "Other words.\n");
+}
+
+/// Not every part rewritten is inconclusive: exit 3, even when the input
+/// had findings too — 3 beats 1, as in `audit`.
+#[test]
+fn a_chunk_that_kept_its_source_exits_three() {
+    let scratch = Scratch::new("app-kept");
+    scratch.file("note.txt", b"One.\n\nTwo.\n");
+    let app = FakeApp::start(rewritten("Uno.\n\nTwo.\n", 1, true));
+    beacon(&scratch, std::process::id(), "127.0.0.1", app.port);
+
+    let output = scratch.run(&["rewrite", "note.txt"]);
+    assert_eq!(code(&output), 3, "{}", stderr(&output));
+    assert!(
+        stdout(&output).contains("keeps its cleaned original"),
+        "{}",
+        stdout(&output)
+    );
+    // The result is written all the same: the kept paragraph is the cleaned one.
+    assert!(scratch.path("note.cleaned.txt").exists());
+}
+
+/// `--in-place` sets the original aside first, as `clean` does.
+#[test]
+fn rewrite_in_place_sets_the_original_aside() {
+    let scratch = Scratch::new("app-in-place");
+    scratch.file("note.txt", b"Words.\n");
+    let app = FakeApp::start(rewritten("Other words.\n", 0, false));
+    beacon(&scratch, std::process::id(), "127.0.0.1", app.port);
+
+    let output = scratch.run(&["rewrite", "note.txt", "--in-place"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(
+        std::fs::read(scratch.path("note.txt")).expect("the file"),
+        b"Other words.\n"
+    );
+    assert_eq!(
+        std::fs::read(scratch.path("note.original.txt")).expect("the original"),
+        b"Words.\n"
+    );
+}
+
+/// A beacon whose process is gone is never dialled: the command loads its
+/// own engine instead — here, none is chosen, so it refuses.
+#[test]
+fn a_stale_beacon_is_never_dialled() {
+    let scratch = Scratch::new("stale");
+    scratch.file("note.txt", b"Words.\n");
+    let app = FakeApp::start(rewritten("Other words.\n", 0, false));
+    beacon(&scratch, u32::MAX - 7, "127.0.0.1", app.port);
+
+    let output = scratch.run(&["rewrite", "note.txt"]);
+    assert_eq!(code(&output), 2, "{}", stderr(&output));
+    assert_eq!(app.connections(), 0, "a dead process's port was dialled");
+    assert!(!scratch.path("note.cleaned.txt").exists());
+}
+
+/// A beacon that names anything but loopback is never dialled — not even
+/// the wildcard, which reaches this machine's own port.
+#[test]
+fn a_beacon_off_this_machine_is_never_dialled() {
+    let scratch = Scratch::new("elsewhere");
+    scratch.file("note.txt", b"Words.\n");
+    let app = FakeApp::start(rewritten("Other words.\n", 0, false));
+    for address in ["0.0.0.0", "192.0.2.1"] {
+        beacon(&scratch, std::process::id(), address, app.port);
+        let output = scratch.run(&["rewrite", "note.txt"]);
+        assert_eq!(code(&output), 2, "{address}: {}", stderr(&output));
+    }
+    assert_eq!(app.connections(), 0, "a beacon off loopback was dialled");
+}
+
+/// With no application, an endpoint is never answered by this command —
+/// it refuses and names the application; a chosen model not downloaded is
+/// named as missing.
+#[test]
+fn an_endpoint_duty_without_the_application_refuses() {
+    for (rows, said) in [
+        (
+            &[("engine.serves", "endpoint")][..],
+            "only through the running",
+        ),
+        (
+            &[
+                ("engine.serves", "endpoint-first"),
+                ("engine.provider", "ollama"),
+            ],
+            "only through the running",
+        ),
+        (
+            &[("models.rewrite", "qwen3-4b-instruct-2507-ud-q4")],
+            "is not on this machine whole",
+        ),
+    ] {
+        let scratch = Scratch::new("duty");
+        scratch.file("note.txt", b"Words.\n");
+        seed(&scratch, rows);
+        let output = scratch.run(&["rewrite", "note.txt"]);
+        assert_eq!(code(&output), 2, "{rows:?}: {}", stderr(&output));
+        assert!(
+            stderr(&output).contains(said),
+            "{rows:?}: {}",
+            stderr(&output)
+        );
+        assert!(!scratch.path("note.cleaned.txt").exists());
+    }
+}
+
+/// D75: a template that breaks a rule stops the run before anything is
+/// read or sent, naming the row — and its set — and the rule.
+#[test]
+fn an_invalid_prompts_file_exits_two_naming_the_rule() {
+    let scratch = Scratch::new("prompts");
+    scratch.file("note.txt", b"Words.\n");
+    scratch.file(
+        "templates.json",
+        br#"{"prompts.en.paraphrase.1.user": "Again, in other words. {PROTECTED}"}"#,
+    );
+    let app = FakeApp::start(rewritten("Other words.\n", 0, false));
+    beacon(&scratch, std::process::id(), "127.0.0.1", app.port);
+
+    let output = scratch.run(&["rewrite", "note.txt", "--prompts", "templates.json"]);
+    assert_eq!(code(&output), 2, "{}", stderr(&output));
+    let said = stderr(&output);
+    assert!(said.contains("prompts.en.paraphrase.1.user"), "{said}");
+    assert!(said.contains("missing-variable"), "{said}");
+    assert!(app.calls().is_empty(), "a refused template was sent");
+
+    scratch.file("templates.json", b"[1, 2]");
+    let output = scratch.run(&["rewrite", "note.txt", "--prompts", "templates.json"]);
+    assert_eq!(code(&output), 2, "{}", stderr(&output));
+
+    // A good one goes to the application with the call.
+    scratch.file(
+        "templates.json",
+        br#"{"prompts.en.paraphrase.1.user": "Again, in other words. {PROTECTED}\n{TEXT}"}"#,
+    );
+    let output = scratch.run(&["rewrite", "note.txt", "--prompts", "templates.json"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let calls = app.calls();
+    assert_eq!(
+        calls[0]["params"]["arguments"]["templates"]["prompts.en.paraphrase.1.user"],
+        "Again, in other words. {PROTECTED}\n{TEXT}"
+    );
+}
+
+/// The two tactics this command does not run are refused with a sentence
+/// that says why, before anything is read.
+#[test]
+fn a_window_only_tactic_is_refused_by_name() {
+    let scratch = Scratch::new("tactic");
+    scratch.file("note.txt", b"Words.\n");
+    for (tactic, said) in [
+        ("structural", "only in the application"),
+        ("code", "not in this version"),
+    ] {
+        let output = scratch.run(&["rewrite", "note.txt", "--tactic", tactic]);
+        assert_eq!(code(&output), 2, "{tactic}: {}", stderr(&output));
+        assert!(
+            stderr(&output).contains(said),
+            "{tactic}: {}",
+            stderr(&output)
+        );
     }
 }
 

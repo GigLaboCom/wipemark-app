@@ -198,6 +198,65 @@ impl JobHandle {
     }
 }
 
+/// How a job ended, read off its events by [`wait`].
+#[derive(Debug)]
+pub enum Ending {
+    /// [`Event::Finished`]: the document and the report.
+    Finished {
+        elapsed: Duration,
+        outcome: Box<Outcome>,
+    },
+    /// [`Event::Cancelled`]: no document.
+    Cancelled,
+    /// [`Event::Failed`].
+    Failed(PipelineError),
+    /// The job's thread went away without a terminal event — it panicked.
+    /// Not a result, and not a cancellation anybody asked for.
+    Lost,
+}
+
+/// Read a job's events until its terminal one, on the caller's thread.
+///
+/// For a surface with no window to keep drawing — the MCP connection's
+/// thread, the CLI — which waits for the answer anyway. `heard` sees every
+/// event as it arrives, and `None` every `every` with none: the moment to
+/// look at a clock or at a client that may have hung up, and to call
+/// [`JobHandle::cancel`] — after which the job still ends with exactly one
+/// terminal event, which this returns.
+pub fn wait(
+    events: &flume::Receiver<Event>,
+    every: Duration,
+    mut heard: impl FnMut(Option<&Event>),
+) -> Ending {
+    loop {
+        match events.recv_timeout(every) {
+            Ok(event) => {
+                heard(Some(&event));
+                match event {
+                    Event::Finished {
+                        elapsed, outcome, ..
+                    } => return Ending::Finished { elapsed, outcome },
+                    Event::Cancelled { .. } => return Ending::Cancelled,
+                    Event::Failed { error, .. } => return Ending::Failed(error),
+                    _ => {}
+                }
+            }
+            Err(flume::RecvTimeoutError::Timeout) => heard(None),
+            Err(flume::RecvTimeoutError::Disconnected) => return Ending::Lost,
+        }
+    }
+}
+
+/// Poll `future` to completion on this thread — for a surface that has to
+/// await an engine's future (an endpoint's key, read on a thread of its
+/// own) before it can start a job, and has no runtime: the MCP connection
+/// thread, the CLI. The same twenty lines of `std::task` a job drives its
+/// engine with. Never on the GPUI thread.
+pub fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    let (_, nothing) = flume::unbounded::<String>();
+    drive::block_on(future, &nothing, |_| {})
+}
+
 /// The seed of one attempt: every attempt of a job gets its own, and the
 /// report carries it.
 ///

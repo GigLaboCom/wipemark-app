@@ -4,9 +4,9 @@ What happens between "the user pressed Rewrite" and "here is the
 document", in `crates/wipemark-pipeline`. Epic **E4**, built as a series
 (README §7 E4, decision D76): preparing the text (E4-1), the prompts
 (E4-2), the loop that joins them (E4-3), the queue (E4-4), the bench
-(E4-5), the surfaces (E4-6). Since E4-3 a job rewrites a document; nothing
-in a window or the CLI starts one until E4-6. This page grows a section per
-step.
+(E4-5), the surfaces (E4-6). Since E4-3 a job rewrites a document; since
+E4-6a the MCP tool `rewrite` and `wipemark-cli rewrite` start one (the
+windows are E4-6b and E7). This page grows a section per step.
 
 ## Preparing the text
 
@@ -341,11 +341,28 @@ thread sends them all). A dropped receiver cancels the job.
 ### The application's engine
 
 `start` takes `Arc<dyn RewriteEngine>`. The application's `EngineHandle`
-is not one: it has `complete` but no `info`, and an endpoint's engine is
-built on first use. E4-6 wraps it in an adapter that implements the
-trait — `info` from the engine on duty when the job starts, `complete`
-through the handle (busy count, keep policy), `warmup` through the host's
-load.
+is not one — an endpoint's engine is built on first use — so E4-6a gives
+it `for_job()`, which hands back a `JobEngine`: the engine on duty, with
+`info` taken once when the job takes it, `complete` and `warmup` the
+engine's, `unload` nothing (the host's policy decides), and the job
+counted busy and announced to the host for its **whole** length — so the
+keep policy defers an unload or a swap between two candidates of one job,
+not only during a call (`a_job_holds_the_model_between_its_calls`).
+
+### The surfaces without a window (E4-6a)
+
+`wipemark_pipeline::asked` is what the MCP tool and the CLI share: the
+arguments (`Asked`), what is offered without a window (`paraphrase`,
+`humanize`, `back_translate` — `structural` needs a confirmation, `code` is
+not built), the counts (1–8, absent = D61's by executor), and the base
+seed — fresh per job unless named, 32 bits (D83). `prompt::row` reads the
+saved template rows (`overrides_from`, the row rule) and lays a caller's
+own over them strictly (`lay_over`: an unknown row, a value that is no
+template and an error-severity problem each refuse, by key and rule id);
+`PIVOT_KEY` is `rewrite.pivot`. `wait` reads a job's events to its end on
+the caller's thread with a tick for looking at a clock or a client, and
+`block_on` drives one future there. `Cost::to_value` is the price as
+JSON, `seconds` `null` without a measured rate.
 
 ## The queue
 

@@ -21,16 +21,23 @@ wipemark-llama-sys = { workspace = true, optional = true }
 wipemark-core.workspace = true
 wipemark-i18n.workspace = true
 wipemark-pipeline.workspace = true
+# `rewrite` with no application running: the local engine (`LocalEngine`,
+# under `local-llama`) and the refusals it can answer with. Never
+# `FakeEngine` outside the tests — plausible text with no model behind it
+# is a document filed as rewritten by a rewriter that never ran.
+wipemark-engine.workspace = true
 wipemark-models.workspace = true
 tracing.workspace = true
 # Same log file shape as the app, in the same directory, under a
 # different stem. A hook that fails in CI leaves the same evidence a
 # window would. See docs/architecture/logging.md.
 wipemark-log.workspace = true
-# A read-only open of `wipemark.db`, for three rows: the `ui.language` the
-# app saved (`configured_language`), and `models.dir` and `models.rewrite`
-# for `models` (`models::Place`). Never created, never written; the
-# writer, and the rest of the settings model, are the app's.
+# A read-only open of `wipemark.db`: the `ui.language` the app saved
+# (`configured_language`); `models.dir` and `models.rewrite` for `models`
+# and `rewrite` (`models::Place`); and for `rewrite`, `engine.serves` and
+# `engine.provider` (who would answer), the `prompts.*` template rows and
+# `rewrite.pivot`. Never created, never written; the writer, and the rest
+# of the settings model, are the app's.
 wipemark-store.workspace = true
 # The CLI reads a file the way a drop is read, and names its result the
 # way the app does (`wipemark_intake::name::with_infix`).
@@ -40,15 +47,17 @@ wipemark-intake.workspace = true
 # that answer back.
 serde_json.workspace = true
 clap.workspace = true
-# `models pull`: Ctrl-C cancels the download and keeps the `.part`. See the
-# workspace manifest for why this is a crate and not std.
+# `models pull`: Ctrl-C cancels the download and keeps the `.part`; and
+# `rewrite`: Ctrl-C cancels the job (or hangs up on the application, which
+# cancels it there). See the workspace manifest for why this is a crate and
+# not std.
 ctrlc.workspace = true
 
 [features]
 default = []
 # The local engine, forwarded through the pipeline: `local-llama` over a
 # shim that refuses every load, `llama-native` with llama.cpp built in.
-local-llama = ["wipemark-pipeline/local-llama"]
+local-llama = ["wipemark-pipeline/local-llama", "wipemark-engine/local-llama"]
 llama-native = ["local-llama", "wipemark-pipeline/llama-native", "dep:wipemark-llama-sys"]
 
 [lints]

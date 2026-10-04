@@ -33,10 +33,16 @@
 //! taken up again — [`start_resumable`], [`Decided`] and the options as a
 //! row — which the batch queue drives: `wipemark-queue`, a crate of its
 //! own, because a queue also needs the store and the user's files and this
-//! crate may reach neither. The surfaces that start a job are E4-6.
+//! crate may reach neither. E4-6a added the first surfaces that start a
+//! job — the MCP tool `rewrite` and `wipemark-cli rewrite` — and what
+//! they share: [`asked`] (the arguments, what is offered without a
+//! window, the base seed), [`wait`] and [`block_on`] for a caller with no
+//! window to keep drawing, and the rows of [`prompt::row`] read into
+//! overrides. The windows are E4-6b.
 
 #![forbid(unsafe_code)]
 
+pub mod asked;
 pub mod cost;
 pub mod job;
 pub mod lang;
@@ -48,8 +54,8 @@ pub mod select;
 use std::time::Duration;
 
 pub use job::{
-    seed_for, start, start_resumable, Decided, Document, JobHandle, Options, OptionsError, Outcome,
-    RecordError, Refused,
+    block_on, seed_for, start, start_resumable, wait, Decided, Document, Ending, JobHandle,
+    Options, OptionsError, Outcome, RecordError, Refused,
 };
 pub use report::{Carried, ChunkCounts, EngineFailure, JobReport, Rejection};
 

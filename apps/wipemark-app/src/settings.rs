@@ -992,6 +992,7 @@ impl Preferences {
         homes: Homes,
         pinned: Option<String>,
         engine_handle: EngineHandle,
+        beacon: Option<PathBuf>,
         cx: &Context<Self>,
     ) -> Self {
         let config::Stored {
@@ -1015,10 +1016,18 @@ impl Preferences {
             comparison,
         } = stored;
         let (events, heard) = flume::unbounded();
-        // The server holds a way to the engine from the start (D56): no
-        // tool calls it until the pipeline puts Layer A and the guards
-        // around a model, but the road is built and tested now.
-        let supervisor = Supervisor::spawn(events, engine_handle);
+        // The server holds a way to the engine from the start (D56): its
+        // `rewrite` tool runs the pipeline on the engine on duty, reads the
+        // template rows off this store, and leaves a beacon under the data
+        // directory while it listens, so the CLI finds it (D52).
+        let supervisor = Supervisor::spawn(
+            events,
+            server::Tools {
+                engine: engine_handle,
+                store: Some(store.clone()),
+                beacon,
+            },
+        );
 
         cx.spawn(async move |preferences, cx| {
             while let Ok(event) = heard.recv_async().await {
@@ -7054,7 +7063,7 @@ fn mcp_banner(status: &Status) -> (IconName, Tone, Vec<String>) {
             )],
         ),
     };
-    lines.push(t(Message::SettingsMcpToolsLayerA));
+    lines.push(t(Message::SettingsMcpTools));
     (glyph, tone, lines)
 }
 
@@ -7773,14 +7782,16 @@ mod tests {
     }
 
     /// The bargain the MCP pane makes, kept on this page too: the last
-    /// line of the banner says that Layer B is not here yet, in every
-    /// state the page can be in.
+    /// line of the banner says that these windows do not rewrite yet — and
+    /// that an agent over MCP and the command line do, with what this page
+    /// puts on duty — in every state the page can be in.
     ///
     /// The failure it exists for is the one that ships: somebody adds a
     /// state, writes a cheerful first line for it, and a user reads
     /// "Configured, and the document would stay on this machine" as a
-    /// promise that clicking Rewrite will do something. Nothing sends a
-    /// request in this build, and every state has to say so.
+    /// promise that clicking Rewrite will do something — or never learns
+    /// that an agent's rewrite sends the document where this page says.
+    /// Every state has to say both.
     #[test]
     fn the_engine_banner_always_says_a_rewrite_is_not_here_yet() {
         for (settings, key) in every_engine_state() {
@@ -7788,16 +7799,16 @@ mod tests {
             assert_eq!(
                 lines.len(),
                 2,
-                "{settings:?} with {key:?} is not two lines: what it would do, and that \
-                 nothing does it yet"
+                "{settings:?} with {key:?} is not two lines: what it would do, and who \
+                 does it yet"
             );
             assert!(
                 reads_as(
                     lines.last().expect("at least one line"),
                     Message::SettingsEnginePending
                 ),
-                "{settings:?} with {key:?} does not say that nothing sends a document \
-                 anywhere yet: {:?}",
+                "{settings:?} with {key:?} does not say who sends a document where: \
+                 {:?}",
                 lines[1]
             );
             for line in &lines {
@@ -7807,9 +7818,11 @@ mod tests {
     }
 
     /// The MCP pane's bargain: whatever the socket is doing, the last
-    /// line says what the tools do — they clean, and nothing rewrites.
-    /// A state added with a cheerful first line and no second one would
-    /// let a user read "Running" as "the tools rewrite".
+    /// line says what the tools do — two clean, and the third rewrites
+    /// with the engine on duty, sending the document where the Engine page
+    /// does. A state added with a cheerful first line and no second one
+    /// would let a user read "Running" without learning where an agent's
+    /// rewrite goes.
     #[test]
     fn the_mcp_banner_always_says_what_the_tools_do() {
         let here = |port| Endpoint {
@@ -7847,7 +7860,7 @@ mod tests {
             assert!(
                 reads_as(
                     lines.last().expect("at least one line"),
-                    Message::SettingsMcpToolsLayerA
+                    Message::SettingsMcpTools
                 ),
                 "{status:?} does not end by saying what the tools do: {lines:?}"
             );

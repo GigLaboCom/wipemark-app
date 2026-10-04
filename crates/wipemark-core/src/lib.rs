@@ -55,9 +55,7 @@ pub use guard::{
     PlaceholderGuard, RejectReason, ScriptGuard,
 };
 pub use name::name_of;
-pub use report::{
-    CleanReport, FinalReport, InspectReport, NormKind, RewriteSummary, RiskLabel, TextStats,
-};
+pub use report::{CleanReport, InspectReport, NormKind, TextStats};
 pub use tables::UNICODE_VERSION;
 pub use vendor::Vendor;
 

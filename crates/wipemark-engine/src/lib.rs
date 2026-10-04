@@ -230,6 +230,13 @@ pub enum Unavailable {
     /// endpoint.
     #[error("no key is stored for this endpoint")]
     NoKey,
+    /// The key stored for this endpoint is one no request could carry —
+    /// not printable ASCII, empty, or with a space inside (D79). Refused
+    /// before a socket opens; the fault is named and the key never is.
+    /// Save refuses such a key today, so this is a key stored before it
+    /// did, or by something other than the Engine page.
+    #[error("the stored key {0}; nothing was sent")]
+    KeyUnsendable(http::KeyFault),
 }
 
 /// The one thing every rewriting backend has to do.

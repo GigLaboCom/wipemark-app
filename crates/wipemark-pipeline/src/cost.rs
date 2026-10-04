@@ -24,6 +24,17 @@ pub enum Executor {
     Endpoint,
 }
 
+impl Executor {
+    /// The id a report or an answer names it by. A format.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Executor::LocalCpu => "local-cpu",
+            Executor::LocalGpu => "local-gpu",
+            Executor::Endpoint => "endpoint",
+        }
+    }
+}
+
 /// Candidates per round and rounds per chunk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Effort {
@@ -73,9 +84,29 @@ pub struct Cost {
     pub seconds: Option<Bound<f64>>,
 }
 
+impl Cost {
+    /// The price as JSON — what a surface without a window hands a caller
+    /// before a run. Field names are formats; `seconds` is `null` when no
+    /// rate was measured, never a guess, and a tenth of a second is the
+    /// precision anybody acts on.
+    pub fn to_value(&self) -> serde_json::Value {
+        let tenths = |seconds: f64| (seconds * 10.0).round() / 10.0;
+        serde_json::json!({
+            "chunks": self.chunks,
+            "calls": {"worst": self.calls.worst, "expected": self.calls.expected},
+            "tokens_in": {"worst": self.tokens_in.worst, "expected": self.tokens_in.expected},
+            "tokens_out": {"worst": self.tokens_out.worst, "expected": self.tokens_out.expected},
+            "seconds": self.seconds.map(|seconds| serde_json::json!({
+                "worst": tenths(seconds.worst),
+                "expected": tenths(seconds.expected),
+            })),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Effort, Executor};
+    use super::{Bound, Cost, Effort, Executor};
 
     #[test]
     fn the_executor_decides_candidates_and_rounds() {
@@ -86,5 +117,39 @@ mod tests {
         assert_eq!(effort(Executor::LocalCpu), (1, 2));
         assert_eq!(effort(Executor::LocalGpu), (2, 2));
         assert_eq!(effort(Executor::Endpoint), (2, 2));
+    }
+
+    #[test]
+    fn a_price_without_a_rate_has_no_seconds() {
+        let cost = Cost {
+            chunks: 2,
+            calls: Bound {
+                worst: 8,
+                expected: 4,
+            },
+            tokens_in: Bound {
+                worst: 900,
+                expected: 450,
+            },
+            tokens_out: Bound {
+                worst: 400,
+                expected: 200,
+            },
+            seconds: None,
+        };
+        let value = cost.to_value();
+        assert_eq!(value["calls"]["worst"], 8);
+        assert_eq!(value["tokens_out"]["expected"], 200);
+        assert!(value["seconds"].is_null(), "{value}");
+
+        let timed = Cost {
+            seconds: Some(Bound {
+                worst: 40.04,
+                expected: 20.02,
+            }),
+            ..cost
+        };
+        assert_eq!(timed.to_value()["seconds"]["worst"], 40.0);
+        assert_eq!(Executor::LocalGpu.as_str(), "local-gpu");
     }
 }

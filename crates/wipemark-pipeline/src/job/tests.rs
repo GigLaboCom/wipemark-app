@@ -16,7 +16,7 @@ use wipemark_engine::{
     RewriteEngine, TokenSink, Unavailable,
 };
 
-use super::{plan, seed_for, start, Document, Options, Outcome, Refused};
+use super::{plan, seed_for, start, wait, Document, Ending, Options, Outcome, Refused};
 use crate::cost::{Effort, Executor};
 use crate::lang::Lang;
 use crate::prepare::{Budget, RestoreError, TextFormat};
@@ -991,7 +991,7 @@ fn every_report_carries_a_non_empty_third_shelf() {
         let events = run(&engine, document(text, format), options(1, 1));
         let report = &outcome(&events).report;
         assert!(!report.not_established.is_empty());
-        for claim in wipemark_core::FinalReport::baseline_not_established() {
+        for claim in wipemark_core::report::not_established::baseline() {
             assert!(report.not_established.contains(&claim));
         }
         let json: serde_json::Value =
@@ -1036,4 +1036,52 @@ fn the_report_json_is_ascii_and_names_every_shelf() {
     assert_eq!(value["best_effort"]["language"], "ru");
     assert_eq!(value["best_effort"]["totals"]["attempts"], 1);
     assert!(value["verifiable"]["before"]["not_established"].is_array());
+}
+
+/// A caller with no window waits on the caller's thread: every event is
+/// heard in order, the quiet moments are offered as `None`, and the
+/// terminal event is what comes back — here a cancellation asked for from
+/// inside the wait, which still ends the job with exactly one terminal
+/// event.
+#[test]
+fn a_caller_with_no_window_waits_for_the_end_and_may_cancel_on_the_way() {
+    let engine = FakeEngine::answering(|req, _| swap(&text_of(req)));
+    let (_, receiver) = start(
+        JobId(71),
+        document(EN, TextFormat::Plain),
+        options(1, 1),
+        Arc::new(engine),
+    )
+    .expect("starts");
+    let mut heard = 0;
+    match wait(&receiver, Duration::from_millis(10), |event| {
+        if event.is_some() {
+            heard += 1;
+        }
+    }) {
+        Ending::Finished { outcome, .. } => {
+            assert_eq!(outcome.report.totals().rewritten, 1);
+        }
+        other => panic!("the job did not finish: {other:?}"),
+    }
+    assert!(heard >= 2, "the events were not heard: {heard}");
+
+    let slow = FakeEngine::answering(|req, _| swap(&text_of(req)))
+        .with_token_delay(Duration::from_millis(50));
+    let (handle, receiver) = start(
+        JobId(72),
+        document(EN, TextFormat::Plain),
+        options(1, 1),
+        Arc::new(slow),
+    )
+    .expect("starts");
+    let mut quiet = 0;
+    let ending = wait(&receiver, Duration::from_millis(5), |event| {
+        if event.is_none() {
+            quiet += 1;
+            handle.cancel();
+        }
+    });
+    assert!(matches!(ending, Ending::Cancelled), "{ending:?}");
+    assert!(quiet >= 1);
 }

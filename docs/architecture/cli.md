@@ -2,14 +2,16 @@
 
 The scriptable half of the product: the same crates as the window, no
 window, and an exit code a pre-commit hook, a CI step or an agent can act
-on. Everything the CLI does before the pipeline exists is here; the one
-command that still refuses is `rewrite` (it needs E4).
+on. Every command runs; `rewrite` (E5-2) runs the pipeline on the running
+application's engine when there is one, and on the local model otherwise
+— see "`rewrite`" below.
 
 `apps/wipemark-cli/src/`: `main.rs` is the argument surface and the exit
 codes; `input.rs` reads and decodes a path or stdin through
 `wipemark-intake`; `run.rs` is `inspect` and `clean`; `report.rs` the
 human report; `audit.rs` the walk and its three renderings; `models.rs` the catalogue
-and the downloader. Every write to disk — `-o`, beside the input, and
+and the downloader; `rewrite.rs` the rewrite flow and the command's own
+engine; `app.rs` the road to the running application. Every write to disk — `-o`, beside the input, and
 `--in-place` — is `wipemark_intake::inplace` (moved there from the CLI's
 own `inplace.rs` in tails-1, behaviour unchanged, so the windows can share
 it in E7). Layer A itself is `docs/architecture/layer-a.md`.
@@ -35,7 +37,8 @@ it in E7). Layer A itself is `docs/architecture/layer-a.md`.
 | `models pull <id>` | 0 (present, or downloaded and verified) · 2 (unknown id, no room, mismatch, cancelled, any failure) | where the weights are | progress, refusal |
 | `models verify <id>` | 0 (every byte hashed and matching) · **1** (absent or not matching) · 2 (unknown id) · 3 (could not be read) | the verdict | refusal |
 | `models rm <id>` | 0 (removed, or nothing to remove) · 2 (unknown id, could not remove) | what was removed, and what the application will show | refusal |
-| `rewrite` | 2, always, in this version | — | "not implemented yet" |
+| `rewrite <path\|->` | 0 (every paragraph rewritten, no Layer A findings in the input) · 1 (every paragraph rewritten, findings in the input — cleaned, D31) · 2 (no engine that may answer, a tactic not run here, a template that breaks a rule, a job that failed, was cancelled or lost its connection; nothing written) · **3 when any paragraph kept its cleaned original, findings or not** — and when the result could not be written | the report (the text with `-o -` or stdin) | price and progress on a terminal, who rewrote it, refusal |
+| `rewrite --json` | as above | `{"report","written"\|"text","served_by"}` | who rewrote it, refusal |
 
 Standard output carries one product; the human report moves to stderr
 only when stdout carries the text (`run.rs`'s table). `--json` answers are
@@ -244,14 +247,59 @@ carries the command, counts, sizes, the exit code and an `io::ErrorKind`
 — never a document's text, and never a path either: the input and the
 audit root are `Elided` (`nothing_reaches_the_log_but_the_shape`).
 
+## `rewrite`
+
+E5-2, with the MCP tool it reaches (E4-6a; the plan document
+`docs/plan/E4-6a-headless-rewrite.md`, decisions H1–H20).
+
+```
+wipemark-cli rewrite <path|-> [-o <out>|-o -|--in-place [--no-original]]
+    [--tactic paraphrase|humanize|back_translate] [--intensity light|moderate|strong]
+    [--candidates N] [--rounds N] [--format plain|markdown|html]
+    [--aggressive] [--nfkc] [--prompts <file.json>] [--seed N] [--json]
+```
+
+**Two roads, never both.** When the application runs, its MCP server
+leaves a beacon, `<data dir>/mcp.json` (`wipemark_models::Beacon`: pid,
+port, a loopback address), and the command sends the document to its
+`rewrite` tool — the one loaded model serves every surface (D52). The
+beacon is trusted only when its address is loopback, its process runs and
+the server there answers `initialize` as `wipemark`; otherwise the
+command loads its own engine. Once the call is sent its answer stands:
+a connection lost after that exits 2, and nothing is run again here.
+Ctrl-C hangs up, and the application cancels the job.
+
+**Its own engine is the local model only.** With no application, the
+rows decide (read-only): `engine.serves` = `endpoint`, or an endpoint
+that would answer first (`endpoint-first` with a provider set) or instead
+(`machine-first` with the model missing), refuses and names the
+application — the endpoint's road (`duty`, profiles, the default-deny of
+`engine::refusal`, the key) lives in the application crate. Otherwise the
+model `models.rewrite` names, verified whole, is loaded by `LocalEngine`
+— in a build with `local-llama`; without it the refusal is "this build
+has no local engine". Never `FakeEngine`.
+
+**Arguments.** `--tactic` takes every tactic's id and refuses
+`structural` (a window's, behind a confirmation) and `code` (not built)
+by name. `--candidates`/`--rounds` have **no default** — absent is "whoever
+rewrites decides" (D61: 1 × up to 2 on a CPU, 2 × up to 2 on a GPU or an
+endpoint) — and are 1 to 8. `--format` overrides what intake says
+(Markdown and HTML by it, plain otherwise). `--seed` names the base seed;
+without it every run gets a fresh one (D83), and the report says which.
+`--prompts` is a JSON object of template rows (`prompts.<lang>.<tactic>.<step>.<role>`
+to a template's text or D74's object), laid over the rows the application
+saved; a template that breaks a rule exits 2 naming the row and the rule,
+before anything is read or sent — and goes to the application with the
+call when it is the application that rewrites.
+
+**Output** is `clean`'s: beside the input as `name.cleaned.ext`, `-o`,
+stdout, or `--in-place` through `wipemark_intake::inplace`. The human
+report says what Layer A found in the input, how many paragraphs were
+rewritten and how many kept their cleaned original, that Layer B is
+best-effort, the seed, where the result went, who rewrote it and the third
+shelf. Price and progress go to stderr on a terminal only.
+
 ## Not here
 
-* `rewrite` — the pipeline (E4), then E5-2; and the CLI's route to a
-  running application's loaded model (D52). Its flags already say D61:
-  `--candidates` and `--rounds` have **no default** — absent is "whoever
-  rewrites decides" (1 × up to 2 for a model on this machine's CPU alone,
-  2 × up to 2 on a GPU or an endpoint), a given count is kept as given,
-  and `0` is refused by clap (`rewrite_counts_are_left_to_whoever_rewrites`).
-  The help says so in every language; the echo prints `by-executor`.
 * Reading `.gitignore` in `audit`.
 * Writing any Retention row, or a history.

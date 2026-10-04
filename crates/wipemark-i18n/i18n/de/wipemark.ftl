@@ -110,7 +110,7 @@ setup-step-model = Das Modell
 setup-step-endpoint = Die Adresse
 setup-step-done = Fertig
 
-setup-welcome-body = { -brand-name } entfernt KI-Herkunftsspuren aus Ihren eigenen Inhalten in zwei Schichten: { -layer-a }, die die unsichtbaren Zeichen entfernt und deterministisch ist, und { -layer-b }, das ein Sprachmodell um eine Umformulierung bittet. In dieser Version läuft die { -layer-a } über die Kommandozeile und über MCP, aber noch nicht aus diesen Fenstern, und { -layer-b } läuft gar nicht. Diese Schritte klären, was das Umschreiben brauchen wird, wenn es kommt: wer umschreibt, und was dafür nötig ist.
+setup-welcome-body = { -brand-name } entfernt KI-Herkunftsspuren aus Ihren eigenen Inhalten in zwei Schichten: { -layer-a }, die die unsichtbaren Zeichen entfernt und deterministisch ist, und { -layer-b }, das ein Sprachmodell um eine Umformulierung bittet. In dieser Version laufen beide über die Kommandozeile und für einen Agenten über MCP, aber noch nicht aus diesen Fenstern. Diese Schritte klären, was das Umschreiben braucht: wer umschreibt, und was dafür nötig ist.
 setup-welcome-again = Alles hier lässt sich später in den Einstellungen ändern, und dieser Rundgang lässt sich von deren Seite „Allgemein“ aus wiederholen.
 
 setup-machine-reading = Lese diesen Rechner…
@@ -303,7 +303,7 @@ settings-placement-zone-bottom-right = unten rechts
 settings-engine-title = Umschreib-Engine
 settings-engine-description = Umschreiben schickt das Dokument an ein Modell und bewertet, was zurückkommt. Die Bereinigung braucht dafür nie eine Engine und wird auch nie hinter einer verriegelt.
 
-settings-engine-pending = Diese Einstellungen werden gespeichert, und kein Dokument wird irgendwohin geschickt: Umschreiben gibt es in dieser Version nicht. Die einzige Anfrage dieser Seite ist die Prüfung unten, und sie schickt einen festen Satz. Bis dahin bereinigt { -brand-name } nur und sagt das auch in der Statuszeile.
+settings-engine-pending = Diese Fenster schreiben noch nichts um. Ein Agent kann es, über das Werkzeug rewrite des MCP-Servers, und wipemark-cli rewrite ebenso, solange diese Anwendung läuft — dann geht das Dokument dorthin, wen diese Seite zuständig macht: hierher oder an den Endpunkt. Die einzige Anfrage dieser Seite selbst ist die Prüfung unten, und sie schickt einen festen Satz.
 
 settings-engine-state-off = Keine Engine. { -brand-name } bereinigt nur, was für sich genommen deterministisch und vollständig ist.
 settings-engine-state-ready-local = Konfiguriert, und das Dokument bliebe auf diesem Rechner: { $endpoint }
@@ -366,7 +366,7 @@ settings-engine-local-check-speed = { $tokens } Tokens, { $rate } pro Sekunde na
 settings-engine-local-check-speed-unknown = { $tokens } Tokens — zu wenige, um sie zu messen.
 settings-engine-local-check-failed = Die Prüfung lief nicht: { $reason }
 settings-engine-local-check-cancelled = Die Prüfung wurde abgebrochen.
-settings-engine-local-check-note = Eine Prüfung zeigt, dass das Modell lädt und schreibt. Sie ist keine Umschreibung: In dieser Version schreibt noch nichts ein Dokument um.
+settings-engine-local-check-note = Eine Prüfung zeigt, dass das Modell lädt und schreibt. Sie ist keine Umschreibung: Diese Fenster schreiben noch nichts um, ein Agent über MCP und die Kommandozeile schreiben mit diesem Modell um.
 settings-engine-local-no-tray = Auf diesem System gibt es keinen Eintrag in der Menüleiste; das Schließen des Hauptfensters beendet { -brand-name } also und gibt das Modell frei.
 
 settings-engine-remote-title = Der Endpunkt
@@ -377,7 +377,7 @@ settings-engine-remote-check-answered = Der Endpunkt antwortete: „{ $text }“
 settings-engine-remote-check-first = Das erste Stück kam nach { $seconds } s.
 settings-engine-remote-check-speed = { $pieces } Stücke, { $rate } pro Sekunde nach dem ersten.
 settings-engine-remote-check-speed-unknown = { $pieces } Stücke — zu wenige, um sie zu messen.
-settings-engine-remote-check-note = Eine Prüfung zeigt, dass der Endpunkt antwortet. Sie ist keine Umschreibung: In dieser Version schreibt noch nichts ein Dokument um.
+settings-engine-remote-check-note = Eine Prüfung zeigt, dass der Endpunkt antwortet. Sie ist keine Umschreibung: Diese Fenster schreiben noch nichts um, ein Agent über MCP und die Kommandozeile schicken ihre Dokumente hierher.
 settings-engine-remote-check-sent-to = Ihre Eingabe — ein fester Satz, nie ein Dokument — geht an { $origin }, und das ist nicht dieser Rechner.
 
 engine-refusal-not-built = Dieser Build hat keine lokale Engine.
@@ -396,6 +396,10 @@ engine-refusal-rate-limited = Der Endpunkt begrenzt die Anfragen. Versuchen Sie 
 engine-refusal-refused = Der Endpunkt hat die Anfrage abgelehnt ({ $status }).
 engine-refusal-key-unreadable = Der Schlüssel ließ sich nicht aus dem Anmeldeinformationsspeicher lesen: { $reason }
 engine-refusal-no-key = Für diesen Endpunkt ist kein Schlüssel hinterlegt.
+engine-refusal-key-unsendable-empty = Der für diesen Endpunkt hinterlegte Schlüssel ist leer, und es wurde nichts gesendet. Bitte den Schlüssel auf der Seite „Engine“ erneut speichern.
+engine-refusal-key-unsendable-not-ascii = Der für diesen Endpunkt hinterlegte Schlüssel enthält ein Zeichen, das kein reines ASCII ist und das eine Anfrage nicht tragen kann; es wurde nichts gesendet. Bitte den Schlüssel auf der Seite „Engine“ erneut speichern.
+engine-refusal-key-unsendable-control = Der für diesen Endpunkt hinterlegte Schlüssel enthält ein Steuerzeichen, das eine Anfrage nicht tragen kann; es wurde nichts gesendet. Bitte den Schlüssel auf der Seite „Engine“ erneut speichern.
+engine-refusal-key-unsendable-space = Der für diesen Endpunkt hinterlegte Schlüssel enthält ein Leerzeichen, das eine Anfrage nicht tragen kann; es wurde nichts gesendet. Bitte den Schlüssel auf der Seite „Engine“ erneut speichern.
 
 settings-engine-profile-title = Gespeichertes Profil
 settings-engine-profile-description = Alle Einstellungen dieser Seite außer dem Schlüssel, unter einem Namen abgelegt. Ein Profil auszuwählen übernimmt alles auf einmal, und unter einem schon vergebenen Namen zu speichern ersetzt es. Der Schlüssel bleibt im Anmeldeinformationsspeicher dieses Rechners, abgelegt unter der Adresse, und gilt für jedes Profil, das dorthin zeigt.
@@ -466,7 +470,7 @@ settings-engine-timeout-description = Sekunden, die auf eine Antwort gewartet wi
 settings-section-models = Modelle
 settings-models-title = Lokale Modelle
 settings-models-description = Offene Gewichte, die auf dieses Gerät geladen und gegen die Prüfsumme im Katalog von { -brand-name } geprüft werden. Nichts wird geladen, bevor Sie es verlangen.
-settings-models-pending = Ein heruntergeladenes Modell kann auf der Seite „Engine“ geladen und geprüft werden, und in dieser Version schreibt noch nichts damit um. Die Bereinigung braucht davon nichts.
+settings-models-pending = Ein heruntergeladenes Modell kann auf der Seite „Engine“ geladen und geprüft werden; diese Fenster schreiben damit noch nichts um, ein Agent über MCP und wipemark-cli rewrite schon. Die Bereinigung braucht davon nichts.
 settings-models-folder-title = Modellordner
 settings-models-folder-description = Wohin Downloads gelegt werden und wo { -brand-name } nach Modelldateien sucht — in diesem Ordner und in jedem Ordner darunter. Ein geleertes Feld stellt den Standard wieder her.
 settings-models-folder-choose = Auswählen…
@@ -548,8 +552,8 @@ settings-retention-span-quarter = drei Monate lang
 settings-retention-span-forever = bis zum Löschen von Hand
 
 settings-mcp-title = MCP-Server
-settings-mcp-description = Ein Agent kann { -layer-a } über das Model Context Protocol auf seine eigene Ausgabe anwenden.
-settings-mcp-tools-layer-a = Beide Werkzeuge arbeiten: inspect zeigt, was die { -layer-a } an einem Text ändern würde, und clean nimmt diese Änderungen vor und meldet jede mit ihrer Position. Umgeschrieben wird nichts: { -layer-b } gibt es in dieser Version noch nicht.
+settings-mcp-description = Ein Agent kann { -layer-a } über das Model Context Protocol auf seine eigene Ausgabe anwenden und mit der zuständigen Engine umschreiben.
+settings-mcp-tools = Drei Werkzeuge arbeiten: inspect zeigt, was die { -layer-a } an einem Text ändern würde, clean nimmt diese Änderungen vor und meldet jede mit ihrer Position, und rewrite lässt die zuständige Engine den Text zwischen zwei Durchgängen der { -layer-a } umschreiben — das Dokument geht dorthin, wohin die Seite „Engine“ es schickt. Umschreiben geschieht nach bestem Bemühen, und sein Bericht sagt, was es nicht feststellt.
 
 settings-mcp-status-off = Läuft nicht.
 settings-mcp-status-starting = Startet…
@@ -650,11 +654,13 @@ cli-arg-out = Ausgabedatei, oder `-` für die Standardausgabe. Standard ist `<na
 cli-arg-nfkc = NFKC-Normalisierung anwenden (standardmäßig aus — sie ändert mehr als nur Herkunftsmarkierungen).
 cli-arg-aggressive = Auch einen Buchstaben aus einer anderen Schrift innerhalb eines Wortes ersetzen (ein Homoglyph). Gemeldet werden solche Buchstaben in jedem Fall; höhere Falsch-positiv-Rate, deshalb nur auf Wunsch.
 cli-arg-json = Maschinenlesbares JSON statt Fließtext.
-cli-arg-engine = Engine zum Umschreiben: `local` oder `remote`.
-cli-arg-model = Modell-Id aus dem Manifest.
-cli-arg-tactic = Eintrag der Taktik-Leiter: paraphrase, humanize, back_translate, structural, code.
+cli-arg-tactic = Wie das Modell gefragt wird: paraphrase (Standard), humanize oder back_translate. structural gibt es nur in der Anwendung, nach einer Bestätigung; code gibt es in dieser Version nicht.
 cli-arg-candidates = Kandidaten je Abschnitt. Ohne Angabe entscheidet, wer umschreibt: 1 für ein Modell allein auf dem Prozessor dieses Rechners, 2 für eines auf einer Grafikkarte oder einen Endpunkt.
 cli-arg-rounds = Höchstzahl der Durchgänge je Abschnitt. Ohne Angabe bis zu 2, und der zweite nur, wenn kein Kandidat des ersten bestanden hat.
+cli-arg-intensity = Wie weit paraphrase und humanize sich vom Wortlaut entfernen dürfen: light, moderate (Standard) oder strong.
+cli-arg-format = Was der Text ist: plain, markdown oder html. Ohne Angabe das, was die Datei ist; für alles andere plain. In markdown und html wird nur der Fließtext umgeschrieben.
+cli-arg-prompts = Eine JSON-Datei mit Vorlagenzeilen über denen, die die Anwendung gespeichert hat — der Schlüssel einer Zeile und entweder ihr gespeicherter Wert oder der Text der Vorlage. Eine Vorlage, die eine Regel bricht, hält den Lauf an, bevor etwas gesendet wird.
+cli-arg-seed = Der Basis-Seed. Ohne Angabe bekommt jeder Lauf einen neuen, und ein erneuter Lauf schreibt anders um; der Seed aus einem Bericht, zurückgegeben, wiederholt einen Lauf auf einem Modell dieses Rechners.
 cli-arg-id = Modell-Id aus dem Manifest.
 cli-arg-dir = Zu durchlaufendes Verzeichnis.
 cli-arg-sarif = SARIF-Ausgabe für Code-Scanning-Dashboards.
@@ -756,8 +762,40 @@ cli-models-rm-failed = { $id } konnte nicht aus { $path } entfernt werden: { $re
 
 cli-unknown-language = unbekannte Sprache `{ $requested }`, es wird zurückgefallen. Verfügbar: { $available }
 
-cli-not-implemented =
-    `{ $summary }` wurde gelesen, aber `{ $command }` ist noch nicht implementiert.
-    In dieser Version stehen die Argumente und die Exit-Codes fest, das
-    Verhalten nicht. Beendet wird mit 2 statt 0 — ein Hook, der
-    durchgeht, weil nichts lief, ist schlimmer als kein Hook.
+cli-rewrite-tactic-structural = Die Taktik structural schreibt ein Dokument aus einer Gliederung neu und ist nur in der Anwendung zu haben, nach einer Bestätigung. Nichts wurde umgeschrieben.
+cli-rewrite-tactic-code = Die Taktik code gibt es in dieser Version nicht. Nichts wurde umgeschrieben.
+cli-rewrite-needs-app-endpoint = Das Umschreiben ist auf einen Endpunkt eingestellt, und die Kommandozeile erreicht einen nur über die laufende Anwendung { -brand-name }. Starten Sie sie und führen Sie dies erneut aus — oder lassen Sie auf ihrer Seite „Engine“ ein Modell auf diesem Rechner umschreiben. Nichts wurde umgeschrieben.
+cli-rewrite-needs-app-fallback = Das zum Umschreiben gewählte Modell ist nicht auf diesem Rechner, und der Endpunkt, der stattdessen antworten soll, ist nur über die laufende Anwendung { -brand-name } erreichbar. Laden Sie das Modell herunter, oder starten Sie die Anwendung und führen Sie dies erneut aus. Nichts wurde umgeschrieben.
+cli-rewrite-no-model = Es ist kein Modell auf diesem Rechner zum Umschreiben gewählt. Laden Sie eines mit wipemark-cli models pull und wählen Sie es auf der Seite „Modelle“ der Anwendung — oder starten Sie die Anwendung mit einem zuständigen Endpunkt. Nichts wurde umgeschrieben.
+cli-rewrite-model-not-here = Das zum Umschreiben gewählte Modell, { $id }, ist nicht vollständig auf diesem Rechner; wipemark-cli models pull { $id } holt es. Nichts wurde umgeschrieben.
+cli-rewrite-unavailable = Nichts wurde umgeschrieben: { $reason }
+cli-rewrite-failed = Nichts wurde umgeschrieben: Der Auftrag ist fehlgeschlagen ({ $reason }).
+cli-rewrite-cancelled = Abgebrochen. Nichts wurde geschrieben.
+cli-rewrite-lost = Die Anwendung hat aufgehört zu antworten, bevor die Umschreibung zurückkam. Nichts wurde geschrieben; vielleicht beendet sie den Auftrag noch.
+cli-rewrite-app-refused = Die laufende Anwendung hat nicht umgeschrieben: { $reason }
+cli-rewrite-served-app = Umgeschrieben von der laufenden Anwendung { -brand-name }, mit ihrer zuständigen Engine.
+cli-rewrite-served-here = Umgeschrieben von diesem Befehl, mit dem zum Umschreiben gewählten Modell.
+cli-rewrite-price = { $calls ->
+        [one] Das Modell wird höchstens einmal gefragt, für etwa { $tokens } Token.
+       *[other] Das Modell wird höchstens { $calls }-mal gefragt — { $expected }-mal, wenn jeder Absatz sofort besteht — für etwa { $tokens } Token.
+    }
+cli-rewrite-progress = Absatz { $chunk } von { $chunks } · Kandidat { $candidate } von { $candidates } · Durchgang { $round } von { $rounds }
+cli-rewrite-summary = { $chunks ->
+        [0] Es enthielt keinen Fließtext zum Umschreiben; Code, Überschriften und Auszeichnung bleiben, wie sie sind.
+        [one] { $rewritten } von einem Absatz wurde umgeschrieben.
+       *[other] { $rewritten } von { $chunks } Absätzen wurden umgeschrieben.
+    }
+cli-rewrite-kept = { $kept ->
+        [one] Ein Absatz behält sein bereinigtes Original: Kein Kandidat dafür hat die Prüfungen bestanden. Nicht alles wurde umgeschrieben, deshalb ist der Exit-Code 3.
+       *[other] { $kept } Absätze behalten ihr bereinigtes Original: Kein Kandidat dafür hat die Prüfungen bestanden. Nicht alles wurde umgeschrieben, deshalb ist der Exit-Code 3.
+    }
+cli-rewrite-attempts = { $attempts ->
+        [one] Das Modell schrieb einen Kandidaten; abgelehnt: { $rejected }.
+       *[other] Das Modell schrieb { $attempts } Kandidaten; abgelehnt: { $rejected }.
+    }
+cli-rewrite-best-effort = Umschreiben geschieht nach bestem Bemühen: Es ändert den Wortlaut, und was es nicht feststellt, steht unten.
+cli-rewrite-seed = Basis-Seed { $seed }; --seed { $seed } wiederholt diesen Lauf auf einem Modell dieses Rechners.
+cli-prompts-unreadable = Die Vorlagendatei { $path } konnte nicht gelesen werden: { $reason }. Nichts wurde umgeschrieben.
+cli-prompts-not-rows = Die Vorlagendatei { $path } ist kein JSON-Objekt aus Vorlagenzeilen ({ $reason }). Nichts wurde umgeschrieben.
+cli-prompts-unknown-row = Die Vorlagendatei { $path } nennt { $key }, und diese Vorlagenzeile gibt es in dieser Version nicht. Nichts wurde umgeschrieben.
+cli-prompts-invalid = Die Vorlage { $key } in { $path } bricht die Regel { $rule }. Nichts wurde umgeschrieben.

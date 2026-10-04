@@ -24,15 +24,24 @@
 //!                standard input or a link, an original already set aside, a
 //!                replacement that could not be written (the file is as it
 //!                was); an id not in the catalogue, a download that did not
-//!                finish; and every invocation of rewrite in this version
+//!                finish; for rewrite, no engine that may answer, a tactic not
+//!                run here, a template that breaks a rule, a job that failed,
+//!                was cancelled or lost its connection — nothing written
 //! 3  partial     inconclusive: a file that exists and cannot be read, is not
 //!                text, is in an 8-bit encoding this version does not name or
 //!                holds an invalid sequence; a result that could not be
 //!                written; standard output that could not be written; an
 //!                audit in which any file could not be read — even when
 //!                another had findings, because a scan with a hole in it is
-//!                not complete; a model file that could not be read
+//!                not complete; a model file that could not be read; a
+//!                rewrite in which any paragraph kept its cleaned original —
+//!                even when the input had findings, for the reason audit's
+//!                3 beats 1: not every part was rewritten
 //! ```
+//!
+//! For `rewrite`, 0 and 1 read as for `clean`: 1 when the input had
+//! findings, which were cleaned (D31), and 0 when it had none — and in
+//! both, every paragraph was rewritten.
 //!
 //! Code 3 is the one that earns its keep: *inconclusive is not clean*.
 //! A file that was not read has not been proven unmarked, and a hook
@@ -60,14 +69,17 @@
 //! included, is `wipemark_intake::inplace`, which the windows will share);
 //! `audit` walks a folder through the same reader
 //! (`audit`); `models` is the catalogue and the downloader of
-//! `wipemark-models` (`models`). `rewrite` refuses with 2 until the
-//! pipeline lands. A stub that exits 0 would be a hook that silently
-//! passes.
+//! `wipemark-models` (`models`); `rewrite` runs the pipeline (`rewrite`) —
+//! on the running application's engine through its MCP server when the
+//! application is there (`app`, D52), on the local model it chose when it
+//! is not — and never on `FakeEngine`.
 
+mod app;
 mod audit;
 mod input;
 mod models;
 mod report;
+mod rewrite;
 mod run;
 
 use std::path::PathBuf;
@@ -144,20 +156,35 @@ enum Action {
         path: String,
         #[arg(short, long)]
         out: Option<PathBuf>,
-        #[arg(long, default_value = "local")]
-        engine: String,
-        #[arg(long)]
-        model: Option<String>,
-        #[arg(long, default_value = "paraphrase")]
+        #[arg(long, conflicts_with = "out")]
+        in_place: bool,
+        #[arg(long, requires = "in_place")]
+        no_original: bool,
+        // Every tactic's id, so `structural` and `code` are refused with a
+        // sentence of ours rather than clap's "invalid value". Comments, not
+        // doc comments: a doc comment is clap's help, and the help is the
+        // catalogue's.
+        #[arg(long, default_value = "paraphrase", value_parser = TACTICS)]
         tactic: String,
+        #[arg(long, value_parser = ["light", "moderate", "strong"])]
+        intensity: Option<String>,
         // Absent is "decided by who rewrites" (D61): 1 on a local model on
         // the CPU alone, 2 on a GPU-backed one or an endpoint; rounds up to
-        // 2 either way. Never 0. Comments, not doc comments: a doc comment
-        // is clap's help, and the help is the catalogue's.
-        #[arg(long, value_parser = clap::value_parser!(u8).range(1..))]
+        // 2 either way. 1 to 8 when given.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=8))]
         candidates: Option<u8>,
-        #[arg(long, value_parser = clap::value_parser!(u8).range(1..))]
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=8))]
         rounds: Option<u8>,
+        #[arg(long, value_parser = ["plain", "markdown", "html"])]
+        format: Option<String>,
+        #[arg(long)]
+        aggressive: bool,
+        #[arg(long)]
+        nfkc: bool,
+        #[arg(long)]
+        prompts: Option<PathBuf>,
+        #[arg(long)]
+        seed: Option<u64>,
         #[arg(long)]
         json: bool,
     },
@@ -189,105 +216,17 @@ enum ModelsAction {
     },
 }
 
-impl Action {
-    /// Epic that implements this command.
-    ///
-    /// For the **log line** and nothing else. It used to be in the
-    /// refusal the user reads, and a build number from our own backlog
-    /// is not something anybody outside this repository can act on —
-    /// what they can act on is "not implemented yet", which the message
-    /// says. Whoever is debugging still gets it, in the file, where
-    /// every other unlocalized fact goes.
-    fn epic(&self) -> &'static str {
-        match self {
-            // Never refused since E1-6 and E5-1; the arms keep the match
-            // total.
-            Action::Inspect { .. } | Action::Clean { .. } => "E1",
-            Action::Models(_) | Action::Audit { .. } => "E5-1",
-            Action::Rewrite { .. } => "E2 + E4 + E5-2",
-        }
-    }
-
-    fn name(&self) -> &'static str {
-        match self {
-            Action::Inspect { .. } => "inspect",
-            Action::Clean { .. } => "clean",
-            Action::Rewrite { .. } => "rewrite",
-            Action::Models(_) => "models",
-            Action::Audit { .. } => "audit",
-        }
-    }
-
-    /// Echo back what was parsed, in one line.
-    ///
-    /// Not decoration: it is what makes the skeleton's refusal useful —
-    /// a caller wiring this into a hook can see that their flags arrived
-    /// the way they meant them — and it keeps every field of the
-    /// argument surface actually read, so an option that no code path
-    /// consumes shows up as a warning rather than as a silently ignored
-    /// flag.
-    fn summary(&self) -> String {
-        match self {
-            Action::Inspect { path, json } => {
-                format!("inspect {path} (json={json})")
-            }
-            Action::Clean {
-                path,
-                out,
-                in_place,
-                no_original,
-                nfkc,
-                aggressive,
-                json,
-            } => format!(
-                "clean {path} -> {} (nfkc={nfkc}, aggressive={aggressive}, json={json})",
-                match (in_place, no_original) {
-                    (true, false) => "in place, original set aside".to_owned(),
-                    (true, true) => "in place, no original".to_owned(),
-                    _ => render_out(out.as_deref()),
-                }
-            ),
-            Action::Rewrite {
-                path,
-                out,
-                engine,
-                model,
-                tactic,
-                candidates,
-                rounds,
-                json,
-            } => format!(
-                "rewrite {path} -> {} (engine={engine}, model={}, tactic={tactic}, \
-                 candidates={}, rounds={}, json={json})",
-                render_out(out.as_deref()),
-                model.as_deref().unwrap_or("<from config>"),
-                by_executor(*candidates),
-                by_executor(*rounds),
-            ),
-            Action::Models(models) => match models {
-                ModelsAction::List { json } => format!("models list (json={json})"),
-                ModelsAction::Pull { id } => format!("models pull {id}"),
-                ModelsAction::Verify { id } => format!("models verify {id}"),
-                ModelsAction::Rm { id } => format!("models rm {id}"),
-            },
-            Action::Audit { dir, json, sarif } => {
-                format!("audit {} (json={json}, sarif={sarif})", dir.display())
-            }
-        }
-    }
-}
-
-/// A count the user gave, or the word for "whoever rewrites decides" (D61).
-fn by_executor(count: Option<u8>) -> String {
-    count.map_or_else(|| "by-executor".to_owned(), |count| count.to_string())
-}
-
-fn render_out(out: Option<&std::path::Path>) -> String {
-    match out {
-        Some(path) => path.display().to_string(),
-        None => "<name>.cleaned.<ext>".to_owned(),
-    }
-}
+/// The tactics' ids, as `--tactic` takes them — every one of
+/// `wipemark_pipeline::prompt::Tactic::ALL`, so that the two this command
+/// does not run are refused with a sentence that says why
+/// (`the_tactic_flag_takes_every_tactic`).
+const TACTICS: [&str; 5] = [
+    "paraphrase",
+    "humanize",
+    "back_translate",
+    "structural",
+    "code",
+];
 
 /// Argument help, by clap id.
 ///
@@ -295,10 +234,10 @@ fn render_out(out: Option<&std::path::Path>) -> String {
 /// take `--json` — and an argument that means the same thing reads the
 /// same way, so the table is flat and [`localized`] applies whichever
 /// entries a given subcommand actually has. `path` is the exception and
-/// is set per subcommand: `inspect` and `clean` take `-` for stdin and
-/// `rewrite` does not yet, and help that offered it everywhere would be
-/// help that lies.
-const ARGUMENT_HELP: [(&str, Message); 15] = [
+/// is set per subcommand: `inspect`, `clean` and `rewrite` take `-` for
+/// stdin and `audit` takes a folder, and help that offered it everywhere
+/// would be help that lies.
+const ARGUMENT_HELP: [(&str, Message); 17] = [
     ("path", Message::CliArgPath),
     ("out", Message::CliArgOut),
     ("in_place", Message::CliArgInPlace),
@@ -306,11 +245,13 @@ const ARGUMENT_HELP: [(&str, Message); 15] = [
     ("nfkc", Message::CliArgNfkc),
     ("aggressive", Message::CliArgAggressive),
     ("json", Message::CliArgJson),
-    ("engine", Message::CliArgEngine),
-    ("model", Message::CliArgModel),
     ("tactic", Message::CliArgTactic),
+    ("intensity", Message::CliArgIntensity),
     ("candidates", Message::CliArgCandidates),
     ("rounds", Message::CliArgRounds),
+    ("format", Message::CliArgFormat),
+    ("prompts", Message::CliArgPrompts),
+    ("seed", Message::CliArgSeed),
     ("id", Message::CliArgId),
     ("dir", Message::CliArgDir),
     ("sarif", Message::CliArgSarif),
@@ -441,6 +382,7 @@ fn command() -> Command {
         })
         .mut_subcommand("rewrite", |rewrite| {
             localized(rewrite, Message::CliCommandRewrite)
+                .mut_arg("path", |path| path.help(t(Message::CliArgPathOrStdin)))
         })
         .mut_subcommand("audit", |audit| localized(audit, Message::CliCommandAudit))
         .mut_subcommand("models", |models| {
@@ -619,35 +561,45 @@ fn main() -> ExitCode {
         Action::Models(ModelsAction::Pull { id }) => models::pull(id, io),
         Action::Models(ModelsAction::Verify { id }) => models::verify(id, io),
         Action::Models(ModelsAction::Rm { id }) => models::rm(id, io),
-        Action::Rewrite { .. } => refuse(&cli.command),
+        Action::Rewrite {
+            path,
+            out,
+            in_place,
+            no_original,
+            tactic,
+            intensity,
+            candidates,
+            rounds,
+            format,
+            aggressive,
+            nfkc,
+            prompts,
+            seed,
+            json,
+        } => rewrite::rewrite(
+            &rewrite::Flags {
+                path,
+                out: out.as_deref(),
+                in_place: in_place.then_some(if *no_original {
+                    wipemark_intake::inplace::Keep::Nothing
+                } else {
+                    wipemark_intake::inplace::Keep::Original
+                }),
+                tactic,
+                intensity: intensity.as_deref(),
+                candidates: *candidates,
+                rounds: *rounds,
+                format: format.as_deref(),
+                aggressive: *aggressive,
+                nfkc: *nfkc,
+                prompts: prompts.as_deref(),
+                seed: *seed,
+                json: *json,
+            },
+            io,
+        ),
     };
     exit.into()
-}
-
-/// The one command this version does not run: `rewrite`, which needs the
-/// pipeline (E4).
-fn refuse(command: &Action) -> Exit {
-    // The catalogue string below is for the person reading the terminal.
-    // This line is for the file, in English, unlocalized: nothing a
-    // machine reads is translated, and a log is read by whoever is
-    // debugging, not by whoever ran it.
-    tracing::info!(
-        command = command.name(),
-        epic = command.epic(),
-        "not implemented"
-    );
-
-    eprintln!(
-        "wipemark-cli: {}",
-        t_args(
-            Message::CliNotImplemented,
-            &args!(
-                "summary" => command.summary(),
-                "command" => command.name(),
-            ),
-        )
-    );
-    Exit::Usage
 }
 
 #[cfg(test)]
@@ -889,30 +841,63 @@ mod tests {
             );
         }
 
-        // And the echo says who decides rather than inventing a number.
-        let cli = Cli::parse_from(["wipemark-cli", "rewrite", "note.md", "--rounds", "1"]);
-        let summary = cli.command.summary();
-        assert!(summary.contains("candidates=by-executor"), "{summary}");
-        assert!(summary.contains("rounds=1"), "{summary}");
+        // Eight is the most; a typo of 80 is refused, not run.
+        for many in [["--candidates", "9"], ["--rounds", "80"]] {
+            assert_eq!(
+                counts(&many),
+                Err(clap::error::ErrorKind::ValueValidation),
+                "{many:?}"
+            );
+        }
+        assert_eq!(counts(&["--candidates", "8"]), Ok((Some(8), None)));
     }
 
-    /// The summary is what a hook author sees when their flags did not
-    /// arrive the way they meant them.
+    /// `--tactic` takes every tactic the pipeline has, so the two this
+    /// command does not run are refused with a sentence of ours — and
+    /// nothing else is a tactic.
     #[test]
-    fn summary_echoes_every_flag() {
-        let cli = Cli::parse_from([
-            "wipemark-cli",
-            "clean",
-            "note.md",
-            "--nfkc",
-            "--out",
-            "clean.md",
-        ]);
-        let summary = cli.command.summary();
-        assert!(summary.contains("note.md"), "{summary}");
-        assert!(summary.contains("clean.md"), "{summary}");
-        assert!(summary.contains("nfkc=true"), "{summary}");
-        assert!(summary.contains("aggressive=false"), "{summary}");
+    fn the_tactic_flag_takes_every_tactic() {
+        let ids: Vec<&str> = wipemark_pipeline::prompt::Tactic::ALL
+            .iter()
+            .map(|tactic| tactic.as_str())
+            .collect();
+        assert_eq!(super::TACTICS.to_vec(), ids);
+        assert!(
+            Cli::try_parse_from(["wipemark-cli", "rewrite", "x.md", "--tactic", "summarize"])
+                .is_err()
+        );
+        assert!(
+            Cli::try_parse_from(["wipemark-cli", "rewrite", "x.md", "--engine", "local"]).is_err(),
+            "who rewrites is the application's decision, not a flag"
+        );
+    }
+
+    /// `rewrite` writes as `clean` does: `--in-place` spelled out, never
+    /// beside `-o`, `--no-original` meaning nothing alone.
+    #[test]
+    fn rewrite_in_place_is_explicit_and_exclusive() {
+        for refused in [
+            &[
+                "wipemark-cli",
+                "rewrite",
+                "x.md",
+                "--in-place",
+                "-o",
+                "y.md",
+            ][..],
+            &["wipemark-cli", "rewrite", "x.md", "--no-original"],
+        ] {
+            assert!(Cli::try_parse_from(refused).is_err(), "{refused:?} parsed");
+        }
+        let cli = Cli::parse_from(["wipemark-cli", "rewrite", "-", "--json"]);
+        assert!(matches!(
+            cli.command,
+            Action::Rewrite {
+                in_place: false,
+                json: true,
+                ..
+            }
+        ));
     }
 
     #[test]

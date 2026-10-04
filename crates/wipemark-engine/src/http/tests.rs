@@ -238,9 +238,13 @@ async fn a_key_that_cannot_be_a_header_is_never_sent() {
     let server = FakeServer::start(vec![Reply::sse(&[delta("hi"), done()])]);
     let (result, streamed) = ask(&openai(&server, Some(unsendable))).await;
     match result {
-        Err(EngineError::Transport(detail)) => {
-            assert!(detail.contains("not ASCII"), "{detail}");
-            assert!(!detail.contains("кириллица"), "the key is in the error");
+        // A refusal, not a transport error (D79): the job fails rather
+        // than rejecting one candidate after another for the same key.
+        Err(EngineError::Unavailable(Unavailable::KeyUnsendable(fault))) => {
+            assert_eq!(fault, super::KeyFault::NotAscii);
+            let said = EngineError::Unavailable(Unavailable::KeyUnsendable(fault)).to_string();
+            assert!(said.contains("not ASCII"), "{said}");
+            assert!(!said.contains("кириллица"), "the key is in the error");
         }
         other => panic!("expected a refusal before sending, got {other:?}"),
     }

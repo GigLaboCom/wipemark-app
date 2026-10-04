@@ -49,19 +49,20 @@ const MODEL_REWRITE_KEY: &str = "models.rewrite";
 /// A terminal's progress line is redrawn no more often than this.
 const REDRAW_EVERY: Duration = Duration::from_millis(500);
 
-/// Where the weights are, and what the application chose.
-struct Place {
-    folder: PathBuf,
+/// Where the weights are, and what the application chose. `rewrite` reads
+/// it too, to find the model it would load itself.
+pub(crate) struct Place {
+    pub(crate) folder: PathBuf,
     /// The model chosen for `rewrite`, when the row names one the
     /// catalogue has.
-    chosen: Option<String>,
+    pub(crate) chosen: Option<String>,
 }
 
 impl Place {
     /// Read the two rows. A database that is not there is not created, and
     /// one that will not open is the default — the application is the
     /// surface that reports it.
-    fn read(layout: &Layout, catalogue: &Manifest) -> Self {
+    pub(crate) fn read(layout: &Layout, catalogue: &Manifest) -> Self {
         let store = wipemark_store::Store::open_read_only(layout.db_path())
             .ok()
             .flatten();

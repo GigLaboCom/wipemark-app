@@ -3,10 +3,11 @@
 //! Spec §0.1 rule 3: every result is filed on exactly three shelves.
 //!
 //! * **verifiable** — [`CleanReport`]: counted, positioned, reproducible.
-//! * **best-effort** — [`RewriteSummary`]: a model rewrote the text and
-//!   these are the scores we can actually compute.
-//! * **not established** — [`FinalReport::not_established`]: claims we
-//!   deliberately refuse to make.
+//! * **best-effort** — what a model did. Not here: a rewrite's report is
+//!   `wipemark_pipeline::JobReport`, which needs serde and so cannot live
+//!   in this crate (D85).
+//! * **not established** — [`not_established`]: claims we deliberately
+//!   refuse to make.
 //!
 //! The third shelf is a fixed list of strings rather than free text so
 //! that no future code path can quietly shrink it. Nothing in the UI or
@@ -42,6 +43,13 @@ pub mod not_established {
         ("human-authorship", HUMAN_AUTHORSHIP),
         ("unknown-mark-schemes", UNKNOWN_MARK_SCHEMES),
     ];
+
+    /// The two claims that are never established, whatever a job did.
+    /// A caller adds [`UNKNOWN_MARK_SCHEMES`] when no mark scheme was
+    /// searched for at all — a rewrite's report always does.
+    pub fn baseline() -> Vec<&'static str> {
+        vec![VENDOR_DETECTOR_EVASION, HUMAN_AUTHORSHIP]
+    }
 }
 
 /// Cheap document statistics, used for chunk budgeting, language
@@ -179,74 +187,23 @@ pub struct CleanReport {
     pub unicode_version: &'static str,
 }
 
-/// Layer B output: which attempt was chosen and on what evidence.
-#[derive(Debug, Clone, PartialEq)]
-pub struct RewriteSummary {
-    /// Tactic of the chosen attempt (`paraphrase`, `humanize`, …).
-    pub tactic: String,
-    /// Total attempts made, including rejected ones — the honest
-    /// denominator.
-    pub attempts: u32,
-    pub chosen_round: u8,
-    pub chosen_candidate: u8,
-    /// 1 − bigram Jaccard against the source chunk.
-    pub divergence: f32,
-    /// Which scorer decided: `keyed_gumbel` or `divergence`.
-    pub scorer: &'static str,
-    pub engine_model_id: String,
-    pub engine_local: bool,
-    /// False when no candidate passed the detector and the best one was
-    /// returned anyway. The report must say so.
-    pub passed: bool,
-}
-
-/// How much of the original signal probably survives.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RiskLabel {
-    /// Short or predictable text — little room for a statistical mark.
-    Lower,
-    /// Long, high-entropy text — more room, and rewriting is best-effort.
-    Higher,
-}
-
-/// What the user is shown when a job finishes.
-#[derive(Debug, Clone, PartialEq)]
-pub struct FinalReport {
-    pub verifiable: CleanReport,
-    pub best_effort: Option<RewriteSummary>,
-    pub not_established: Vec<&'static str>,
-    pub residual_risk: RiskLabel,
-}
-
-impl FinalReport {
-    /// The two claims that are never established, whatever the job did.
-    /// Callers add [`not_established::UNKNOWN_MARK_SCHEMES`] when a
-    /// document format was only partially parsed.
-    pub fn baseline_not_established() -> Vec<&'static str> {
-        vec![
-            not_established::VENDOR_DETECTOR_EVASION,
-            not_established::HUMAN_AUTHORSHIP,
-        ]
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{not_established, FinalReport, NormKind};
+    use super::{not_established, NormKind};
 
     /// Guarding the honesty contract, not the vec: a build that ships
     /// with an empty third shelf is a build that implies a claim we
     /// refuse to make.
     #[test]
     fn baseline_shelf_is_never_empty() {
-        let shelf = FinalReport::baseline_not_established();
+        let shelf = not_established::baseline();
         assert!(shelf.contains(&not_established::VENDOR_DETECTOR_EVASION));
         assert!(shelf.contains(&not_established::HUMAN_AUTHORSHIP));
     }
 
     #[test]
     fn no_claim_promises_undetectability() {
-        for claim in FinalReport::baseline_not_established() {
+        for claim in not_established::baseline() {
             let lowered = claim.to_lowercase();
             assert!(!lowered.contains("undetectable"), "{claim}");
         }

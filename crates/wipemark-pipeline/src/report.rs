@@ -20,7 +20,7 @@ use std::time::Duration;
 use serde::{Serialize, Serializer};
 use serde_json::{json, Map, Value};
 use wipemark_core::report::not_established;
-use wipemark_core::{CleanReport, FinalReport, RejectReason};
+use wipemark_core::{CleanReport, RejectReason};
 use wipemark_engine::{EngineError, EngineInfo, FinishReason};
 
 use crate::cost::Effort;
@@ -333,7 +333,7 @@ impl JobReport {
     /// the job did — and, because no mark scheme is searched for at all
     /// (D72), the unknown schemes too.
     pub fn shelf() -> Vec<&'static str> {
-        let mut shelf = FinalReport::baseline_not_established();
+        let mut shelf = not_established::baseline();
         shelf.push(not_established::UNKNOWN_MARK_SCHEMES);
         shelf
     }

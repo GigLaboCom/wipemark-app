@@ -7,7 +7,7 @@
 //! route would be a large dependency for a small surface. What is here
 //! instead is a thread, a `TcpListener`, and enough HTTP/1.1 to answer
 //! the streamable-HTTP transport: read a request, hand the body to
-//! [`protocol::respond`](super::protocol::respond), write the answer,
+//! [`protocol::respond_with`](super::protocol::respond_with), write the answer,
 //! close the connection.
 //!
 //! # Threads, and the one rule this file exists under
@@ -43,12 +43,18 @@
 
 use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use super::{protocol, Endpoint, PATH};
+use wipemark_models::Beacon;
+
+use super::protocol::{self, Services};
+use super::rewrite::Rewriter;
+use super::{Endpoint, PATH};
+use crate::config::SettingsStore;
 use crate::engine_host::EngineHandle;
 
 /// How many ports the scan tries before giving up.
@@ -157,8 +163,15 @@ impl Running {
     }
 }
 
-/// Bind, and start turning.
+/// [`start_with`] a server that offers Layer A alone — what every test
+/// that is about the socket rather than the tools starts.
+#[cfg(test)]
 fn start(wanted: Endpoint) -> Result<(Running, Event), String> {
+    start_with(wanted, Services::default())
+}
+
+/// Bind, and start turning.
+fn start_with(wanted: Endpoint, services: Services) -> Result<(Running, Event), String> {
     let listener = bind(wanted)?;
     let port = listener
         .local_addr()
@@ -172,7 +185,7 @@ fn start(wanted: Endpoint) -> Result<(Running, Event), String> {
         .name("wipemark-mcp".to_owned())
         .spawn({
             let stop = Arc::clone(&stop);
-            move || accept(&listener, &stop)
+            move || accept(&listener, &stop, &services)
         })
         .map_err(|error| error.to_string())?;
 
@@ -191,7 +204,7 @@ fn start(wanted: Endpoint) -> Result<(Running, Event), String> {
 
 /// The accept loop. Returns when `stop` says so, and the listener is
 /// dropped — and the port released — on the way out.
-fn accept(listener: &TcpListener, stop: &AtomicBool) {
+fn accept(listener: &TcpListener, stop: &AtomicBool, services: &Services) {
     while !stop.load(Ordering::Relaxed) {
         match listener.accept() {
             Ok((stream, peer)) => {
@@ -203,9 +216,10 @@ fn accept(listener: &TcpListener, stop: &AtomicBool) {
                 // one agent asking one question at a time, and the
                 // alternative — answering inline — lets a client that
                 // stops talking hold the whole server for `PATIENCE`.
+                let services = services.clone();
                 if let Err(error) = thread::Builder::new()
                     .name("wipemark-mcp-connection".to_owned())
-                    .spawn(move || answer(stream, peer))
+                    .spawn(move || answer(stream, peer, &services))
                 {
                     tracing::warn!(%error, "MCP: could not take a connection");
                 }
@@ -322,25 +336,51 @@ fn origin_is_local(origin: &str) -> bool {
         .is_ok_and(|address| address.is_loopback())
 }
 
+/// Whether the client on `stream` has closed its end — looked at without
+/// waiting: a read deadline of a millisecond, and a peek.
+///
+/// For a call that waits for a job (`rewrite`): the body has been read by
+/// then, so nothing is lost by moving the read deadline, and a closed
+/// connection reads as zero bytes at once. A client that sent more than
+/// its body is still there, and is treated so.
+fn hung_up(stream: &TcpStream) -> bool {
+    if stream
+        .set_read_timeout(Some(Duration::from_millis(1)))
+        .is_err()
+    {
+        return false;
+    }
+    let mut byte = [0u8; 1];
+    match stream.peek(&mut byte) {
+        Ok(0) => true,
+        Ok(_) => false,
+        Err(error) => !matches!(
+            error.kind(),
+            ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted
+        ),
+    }
+}
+
 /// Answer one connection, then close it.
-fn answer(stream: TcpStream, peer: SocketAddr) {
+fn answer(stream: TcpStream, peer: SocketAddr, services: &Services) {
     let deadline = Some(PATIENCE);
     if stream.set_read_timeout(deadline).is_err() || stream.set_write_timeout(deadline).is_err() {
         tracing::warn!(%peer, "MCP: could not put a deadline on a connection");
         return;
     }
 
-    let mut writer = match stream.try_clone() {
-        Ok(writer) => writer,
-        Err(error) => {
+    let (mut writer, probe) = match (stream.try_clone(), stream.try_clone()) {
+        (Ok(writer), Ok(probe)) => (writer, probe),
+        (Err(error), _) | (_, Err(error)) => {
             tracing::warn!(%peer, %error, "MCP: could not answer a connection");
             return;
         }
     };
+    let gone = move || hung_up(&probe);
     let mut reader = BufReader::new(stream);
 
     let reply = match read_head(&mut reader.by_ref().take(LARGEST_HEAD)) {
-        Some(head) => route(head, &mut reader),
+        Some(head) => route(head, &mut reader, services, &gone),
         // Not a request. A port scanner, a browser that opened the
         // address by hand, or a connection that closed before it said
         // anything.
@@ -354,7 +394,12 @@ fn answer(stream: TcpStream, peer: SocketAddr) {
 }
 
 /// Which of this server's four answers a request gets.
-fn route(head: Head, body: &mut impl Read) -> Vec<u8> {
+fn route(
+    head: Head,
+    body: &mut impl Read,
+    services: &Services,
+    gone: &dyn Fn() -> bool,
+) -> Vec<u8> {
     let origin = head.origin.as_deref();
     let allowed = origin.filter(|origin| origin_is_local(origin));
 
@@ -388,7 +433,7 @@ fn route(head: Head, body: &mut impl Read) -> Vec<u8> {
             let Ok(text) = String::from_utf8(buffer) else {
                 return reply("400 Bad Request", None, &[], allowed);
             };
-            match protocol::respond(&text) {
+            match protocol::respond_with(&text, services, gone) {
                 Some(response) => reply(
                     "200 OK",
                     Some("application/json"),
@@ -448,6 +493,30 @@ enum Command {
     Stop,
 }
 
+/// What the server reaches beyond its socket, handed over when it is
+/// spawned.
+pub struct Tools {
+    /// The way to the engine on duty — the same host the windows use
+    /// (D56): `rewrite` reaches the one loaded model through it rather
+    /// than load a second copy.
+    pub engine: EngineHandle,
+    /// The application's store, for the template and pivot rows a rewrite
+    /// reads.
+    pub store: Option<SettingsStore>,
+    /// Where to leave the beacon while listening (`Layout::beacon_path`);
+    /// `None` leaves none — a process with no data directory.
+    pub beacon: Option<PathBuf>,
+}
+
+impl Tools {
+    /// What every connection is answered with.
+    fn services(&self) -> Services {
+        Services {
+            rewriter: Some(Rewriter::new(self.engine.clone(), self.store.clone())),
+        }
+    }
+}
+
 /// The one thing that owns a running server.
 ///
 /// Held by `Preferences`, which is app-lifetime — the server starts
@@ -456,27 +525,22 @@ enum Command {
 /// be a server no agent could rely on.
 ///
 /// Dropping this disconnects the command channel, which is how the
-/// supervisor thread learns to stop the listener and exit.
-///
-/// It also holds the way to the engine on duty, from startup (D56): the
-/// server will reach the one loaded model through it rather than load a
-/// second copy. No tool calls it in this version — a rewrite needs the
-/// pipeline, Layer A before and after a model and the guards around it,
-/// and a model's raw output handed to an agent as a cleaned document is
-/// the failure this product exists to avoid.
+/// supervisor thread learns to stop the listener, take its beacon away
+/// and exit.
 pub struct Supervisor {
     commands: flume::Sender<Command>,
-    engine: EngineHandle,
 }
 
 impl Supervisor {
     /// Start the supervisor thread. It has nothing to serve until it is
     /// asked.
-    pub fn spawn(events: flume::Sender<Event>, engine: EngineHandle) -> Self {
+    pub fn spawn(events: flume::Sender<Event>, tools: Tools) -> Self {
         let (commands, requests) = flume::unbounded();
+        let services = tools.services();
+        let beacon = tools.beacon;
         if let Err(error) = thread::Builder::new()
             .name("wipemark-mcp-supervisor".to_owned())
-            .spawn(move || supervise(&requests, &events))
+            .spawn(move || supervise(&requests, &events, &services, beacon.as_deref()))
         {
             // A machine that cannot spawn a thread is not going to run
             // a GPUI application either, but the window still opens and
@@ -485,19 +549,7 @@ impl Supervisor {
             // the same shape as a server that never starts.
             tracing::error!(%error, "MCP: the supervisor could not start");
         }
-        Self { commands, engine }
-    }
-
-    /// The way to the engine on duty — the same host the windows use.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "D56: no MCP tool rewrites until the pipeline (E4) exists"
-        )
-    )]
-    pub fn engine(&self) -> &EngineHandle {
-        &self.engine
+        Self { commands }
     }
 
     /// Serve on this endpoint, replacing whatever is running.
@@ -517,9 +569,45 @@ impl Supervisor {
     }
 }
 
+/// Leave the beacon for a server that is listening — or, bound where this
+/// machine's loopback does not reach, take ours away (H12, H13).
+fn leave_beacon(beacon: Option<&Path>, listening: &Event) {
+    let (Some(path), Event::Listening { endpoint, .. }) = (beacon, listening) else {
+        return;
+    };
+    match Beacon::for_server(endpoint.bind.ip(), endpoint.port) {
+        Some(found) => match found.write(path) {
+            Ok(()) => tracing::info!(port = endpoint.port, "MCP: beacon left for the CLI"),
+            Err(error) => {
+                tracing::warn!(%error, "MCP: the beacon could not be written; the CLI will not find this server");
+            }
+        },
+        None => {
+            take_beacon(beacon);
+            tracing::info!(
+                "MCP: bound off loopback; no beacon, and the CLI will load its own engine"
+            );
+        }
+    }
+}
+
+/// Take this process's beacon away, if it left one.
+fn take_beacon(beacon: Option<&Path>) {
+    if let Some(path) = beacon {
+        if Beacon::remove_if_ours(path, std::process::id()) {
+            tracing::info!("MCP: beacon taken away");
+        }
+    }
+}
+
 /// The supervisor thread: one server at a time, and every change of
 /// mind applied in order.
-fn supervise(commands: &flume::Receiver<Command>, events: &flume::Sender<Event>) {
+fn supervise(
+    commands: &flume::Receiver<Command>,
+    events: &flume::Sender<Event>,
+    services: &Services,
+    beacon: Option<&Path>,
+) {
     let mut running: Option<Running> = None;
 
     while let Ok(mut command) = commands.recv() {
@@ -543,15 +631,18 @@ fn supervise(commands: &flume::Receiver<Command>, events: &flume::Sender<Event>)
 
         match command {
             Command::Stop => {
+                take_beacon(beacon);
                 tracing::info!("MCP: stopped");
                 let _ = events.send(Event::Stopped);
             }
-            Command::Serve(endpoint) => match start(endpoint) {
+            Command::Serve(endpoint) => match start_with(endpoint, services.clone()) {
                 Ok((server, listening)) => {
                     running = Some(server);
+                    leave_beacon(beacon, &listening);
                     let _ = events.send(listening);
                 }
                 Err(error) => {
+                    take_beacon(beacon);
                     tracing::warn!(%error, "MCP: could not start");
                     let _ = events.send(Event::Failed(error));
                 }
@@ -563,6 +654,7 @@ fn supervise(commands: &flume::Receiver<Command>, events: &flume::Sender<Event>)
     if let Some(server) = running.take() {
         server.stop();
     }
+    take_beacon(beacon);
 }
 
 #[cfg(test)]
@@ -928,7 +1020,7 @@ mod tests {
     fn serving_twice_over_lands_on_the_same_port_both_times() {
         let port = a_port_with_a_free_neighbour();
         let (events, heard) = flume::unbounded();
-        let supervisor = Supervisor::spawn(events, EngineHandle::new().0);
+        let supervisor = Supervisor::spawn(events, tools(EngineHandle::new().0, None));
         let endpoint = Endpoint {
             bind: BindAddress::LOOPBACK,
             port,
@@ -958,17 +1050,96 @@ mod tests {
         );
     }
 
-    /// The server holds the handle it was given from the moment it is
-    /// spawned — the same host, not a second engine (D56).
+    /// What a supervisor is spawned with, for a test.
+    fn tools(engine: EngineHandle, beacon: Option<PathBuf>) -> Tools {
+        Tools {
+            engine,
+            store: None,
+            beacon,
+        }
+    }
+
+    /// Every connection reaches the handle the server was given — the same
+    /// host, not a second engine (D56).
     #[test]
     fn the_server_holds_the_engine_it_was_given() {
         let (handle, _inbox) = EngineHandle::new();
-        let (events, _heard) = flume::unbounded();
-        let supervisor = Supervisor::spawn(events, handle.clone());
-        assert!(supervisor.engine().reaches_the_same_host_as(&handle));
-        assert!(!supervisor
+        let services = tools(handle.clone(), None).services();
+        let rewriter = services.rewriter.expect("a road to the engine");
+        assert!(rewriter.engine().reaches_the_same_host_as(&handle));
+        assert!(!rewriter
             .engine()
             .reaches_the_same_host_as(&EngineHandle::new().0));
+    }
+
+    /// The beacon names the port the server actually landed on — a port
+    /// along when the one asked for was taken — and goes when the server
+    /// stops: a stale beacon is the CLI's to survive, not one to leave.
+    #[test]
+    fn the_beacon_names_where_the_server_landed_and_goes_with_it() {
+        let scratch = std::env::temp_dir().join(format!(
+            "wipemark-mcp-beacon-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&scratch);
+        let path = scratch.join(wipemark_models::beacon::FILE);
+
+        let port = a_port_with_a_free_neighbour();
+        let taken = TcpListener::bind(("127.0.0.1", port)).expect("hold the port");
+        let (events, heard) = flume::unbounded();
+        let supervisor =
+            Supervisor::spawn(events, tools(EngineHandle::new().0, Some(path.clone())));
+        supervisor.serve(Endpoint {
+            bind: BindAddress::LOOPBACK,
+            port,
+        });
+        let listening = heard
+            .recv_timeout(Duration::from_secs(5))
+            .expect("an event");
+        assert!(
+            matches!(listening, Event::Listening { .. }),
+            "{listening:?}"
+        );
+        let beacon = Beacon::read(&path).expect("a beacon while listening");
+        assert_eq!(beacon.port, port + 1, "the beacon names the port asked for");
+        assert_eq!(beacon.pid, std::process::id());
+        assert!(beacon.address.is_loopback());
+
+        supervisor.stop();
+        assert_eq!(
+            heard
+                .recv_timeout(Duration::from_secs(5))
+                .expect("an event"),
+            Event::Stopped
+        );
+        assert_eq!(Beacon::read(&path), None, "the beacon outlived the server");
+        drop(taken);
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// A client that closed its end is seen as gone at once; one still
+    /// connected is not, and looking does not wait.
+    #[test]
+    fn a_client_that_closed_its_end_is_seen_as_gone() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("a port");
+        let port = listener.local_addr().expect("an address").port();
+        let client = TcpStream::connect(("127.0.0.1", port)).expect("connected");
+        let (served, _) = listener.accept().expect("accepted");
+
+        let asked = std::time::Instant::now();
+        assert!(!hung_up(&served), "a connected client read as gone");
+        assert!(asked.elapsed() < Duration::from_secs(1), "looking waited");
+
+        drop(client);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !hung_up(&served) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "a closed client still reads as there"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 
     /// The request line and the headers, without a socket. Case is the
