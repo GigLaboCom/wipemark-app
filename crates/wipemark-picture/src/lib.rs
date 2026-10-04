@@ -292,6 +292,7 @@ pub fn inspect(
                 report: PixelReport {
                     found: exam.findings,
                     restored: Vec::new(),
+                    dismissed: exam.dismissed,
                     not_established: wipemark_pixels::not_established::shelf(),
                 },
                 restorable: restorable(&decoded.source),
@@ -344,6 +345,7 @@ pub fn clean(
             report: PixelReport {
                 found: exam.findings,
                 restored: Vec::new(),
+                dismissed: exam.dismissed,
                 not_established: wipemark_pixels::not_established::shelf(),
             },
             restorable: false,

@@ -45,11 +45,13 @@ pub use catalogue::{
     ProfileId, Search, Status, Thresholds, When, EMBEDDED, SCHEMA,
 };
 pub use geometry::{PixelRect, SubRect};
-pub use propose::Placed;
+pub use propose::{Placed, REFINE_MARGIN, ROW_FLOOR};
 pub use raster::{Layout, Raster, RasterError};
 pub use restore::{composite, restore, RestoreError, Restored};
 use serde::Serialize;
-pub use verify::{Refusal, Scores, Verified, NOISE_FLOOR};
+pub use verify::{
+    Refusal, Scores, Verified, LOSSY_LEVELS, NOISE_FLOOR, NO_BLEND_GAIN, NO_BLEND_RATIO,
+};
 
 /// The claim this crate adds to the third shelf (D156). The English is
 /// the canon, like core's; the translations land with the first surface
@@ -108,9 +110,10 @@ pub struct Tried {
     pub refusal: Option<Refusal>,
 }
 
-/// A mark seen in the picture: verified, or refused with its reason.
-/// A refused finding is still a finding — "a mark like this was seen and
-/// not removed" is what the user of a re-generated picture needs.
+/// A mark seen in the picture: verified, or a blend refused with its
+/// reason. A refused finding is still a finding — "a mark like this was
+/// seen and not removed" is what the user of a re-generated picture
+/// needs. A proposal that is no blend at all is not a finding (D226).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Finding {
     pub profile: ProfileId,
@@ -145,6 +148,10 @@ impl Finding {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Examination {
     pub findings: Vec<Finding>,
+    /// Proposals the second proof found to be no blend at all (D226):
+    /// not findings, and never reported — counted only so a gate can show
+    /// that its negatives were looked at, not missed.
+    pub dismissed: usize,
 }
 
 /// Propose, verify and choose, for every profile the options name.
@@ -161,6 +168,7 @@ fn examine_pass(
 ) -> Examination {
     let scene = propose::Scene::new(raster);
     let mut all = Vec::new();
+    let mut dismissed = 0;
     for profile in catalogue.profiles() {
         if options
             .profiles
@@ -169,31 +177,69 @@ fn examine_pass(
         {
             continue;
         }
-        for proposal in propose::propose(&scene, profile) {
-            let (scores, verdict) = verify::verify(raster, profile, &proposal);
-            let pixels =
-                geometry::template(profile.map(proposal.map), proposal.rect).map(|(_, at)| at);
-            all.push(Finding {
-                profile: profile.id.clone(),
-                vendor: profile.vendor.clone(),
-                product: profile.product.clone(),
-                rect: proposal.rect,
-                pixels,
-                placed: proposal.placed,
-                ncc: proposal.ncc,
-                pass,
-                scores,
-                verdict: match verdict {
-                    Ok(v) => Verdict::Verified(v),
-                    Err(r) => Verdict::Refused(r),
-                },
-                also_tried: Vec::new(),
-            });
+        let mut look = |p: &propose::Proposal| {
+            let f = finding(raster, profile, p, options.source, pass);
+            dismissed += usize::from(f.is_none());
+            f
+        };
+        let mut mine: Vec<Finding> = propose::rows(&scene, profile)
+            .iter()
+            .filter_map(&mut look)
+            .collect();
+        // The search, when no row's mark was proved: a row refused may be a
+        // mark a pixel off its row, and a row that saw no blend says
+        // nothing about the rest of the corner.
+        if mine.iter().all(|f| f.verified().is_none()) {
+            if let Some(f) = propose::search(&scene, profile).and_then(|p| look(&p)) {
+                let same_place = |g: &Finding| match (g.pixels, f.pixels) {
+                    (Some(a), Some(b)) => a.iou(b) > 0.3,
+                    _ => false,
+                };
+                if f.verified().is_some() {
+                    mine.retain(|g| !same_place(g));
+                    mine.push(f);
+                } else if !mine.iter().any(same_place) {
+                    mine.push(f);
+                }
+            }
         }
+        all.extend(mine);
     }
     Examination {
         findings: choose(all),
+        dismissed,
     }
+}
+
+/// One proposal, verified: a finding, or nothing when it is no blend
+/// (D226).
+fn finding(
+    raster: &Raster,
+    profile: &Profile,
+    proposal: &propose::Proposal,
+    source: Fidelity,
+    pass: u8,
+) -> Option<Finding> {
+    let (scores, outcome) = verify::verify(raster, profile, proposal, source);
+    let verdict = match outcome {
+        verify::Outcome::Verified(v) => Verdict::Verified(v),
+        verify::Outcome::Refused(r) => Verdict::Refused(r),
+        verify::Outcome::NoBlend => return None,
+    };
+    let pixels = geometry::template(profile.map(proposal.map), proposal.rect).map(|(_, at)| at);
+    Some(Finding {
+        profile: profile.id.clone(),
+        vendor: profile.vendor.clone(),
+        product: profile.product.clone(),
+        rect: proposal.rect,
+        pixels,
+        placed: proposal.placed,
+        ncc: proposal.ncc,
+        pass,
+        scores,
+        verdict,
+        also_tried: Vec::new(),
+    })
 }
 
 /// Overlapping findings (IoU above 0.3) compete: verified beats refused;
@@ -242,13 +288,16 @@ fn choose(mut all: Vec<Finding>) -> Vec<Finding> {
 pub struct PixelReport {
     pub found: Vec<Finding>,
     pub restored: Vec<Restored>,
+    /// As [`Examination::dismissed`], both passes: never in the JSON.
+    pub dismissed: usize,
     /// [`not_established::ID`] first, then core's three — never empty.
     pub not_established: Vec<&'static str>,
 }
 
 impl PixelReport {
-    /// Whether a mark was seen and is still there: refused, or restored
-    /// around holes.
+    /// Whether a mark was seen and is still there: a blend refused, or
+    /// restored around holes. A proposal that was no blend is not here to
+    /// count (D226).
     pub fn marks_left(&self) -> bool {
         self.found.iter().any(|f| f.verified().is_none())
             || self.restored.iter().any(|r| r.holes > 0)
@@ -324,7 +373,13 @@ impl<'a> FindingJson<'a> {
 }
 
 /// Examine, restore every verified mark, look once more over the
-/// restored raster (D165), restore what that verifies, and report.
+/// restored raster (D165) — only when something was restored, and only a
+/// blend counts there (D226) — restore what that verifies, and report.
+///
+/// A mark the second pass proves where the first saw one and refused (two
+/// marks apart, the second hidden by the profile's own row being taken
+/// first) supersedes that refusal: it is listed under the proof, not left
+/// standing as a mark.
 pub fn clean(raster: &mut Raster, catalogue: &Catalogue, options: &ExamineOptions) -> PixelReport {
     let first = examine_pass(raster, catalogue, options, 1);
     let mut restored = Vec::new();
@@ -336,21 +391,37 @@ pub fn clean(raster: &mut Raster, catalogue: &Catalogue, options: &ExamineOption
         }
     }
     let mut found = first.findings;
+    let mut dismissed = first.dismissed;
     if !restored.is_empty() {
         let second = examine_pass(raster, catalogue, options, 2);
-        for f in second.findings {
-            // A refusal of the first pass, seen again where it was.
-            let seen = found.iter().any(|g| {
-                g.profile == f.profile
-                    && g.verified().is_none()
-                    && matches!((g.pixels, f.pixels), (Some(a), Some(b)) if a.iou(b) > 0.9)
-            });
-            if seen {
-                continue;
-            }
-            if let Some(v) = f.verified() {
-                if let Ok(r) = restore(raster, v, options) {
-                    restored.push(r);
+        dismissed += second.dismissed;
+        for mut f in second.findings {
+            let overlaps = |g: &Finding, by: f32| matches!((g.pixels, f.pixels), (Some(a), Some(b)) if a.iou(b) > by);
+            if f.verified().is_none() {
+                // A refusal of the first pass, seen again where it was.
+                if found
+                    .iter()
+                    .any(|g| g.profile == f.profile && g.verified().is_none() && overlaps(g, 0.9))
+                {
+                    continue;
+                }
+            } else {
+                let (beaten, kept): (Vec<Finding>, Vec<Finding>) = found
+                    .into_iter()
+                    .partition(|g| g.verified().is_none() && overlaps(g, 0.3));
+                found = kept;
+                f.also_tried.extend(beaten.into_iter().map(|g| Tried {
+                    profile: g.profile,
+                    verified: false,
+                    refusal: match g.verdict {
+                        Verdict::Refused(r) => Some(r),
+                        Verdict::Verified(_) => None,
+                    },
+                }));
+                if let Some(v) = f.verified() {
+                    if let Ok(r) = restore(raster, v, options) {
+                        restored.push(r);
+                    }
                 }
             }
             found.push(f);
@@ -359,6 +430,7 @@ pub fn clean(raster: &mut Raster, catalogue: &Catalogue, options: &ExamineOption
     PixelReport {
         found,
         restored,
+        dismissed,
         not_established: not_established::shelf(),
     }
 }

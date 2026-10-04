@@ -12,7 +12,15 @@
 //! * `E(1)/E(0)` is at most `edge_ratio`;
 //! * the share of samples the `k = 1` inverse puts more than a level out
 //!   of range is at most `out_of_range` — an inverse that has to leave the
-//!   range to cancel an edge is explaining something that is not a blend.
+//!   range to cancel an edge is explaining something that is not a blend
+//!   (on a lossy file, a codec's allowance is added before the inverse
+//!   amplifies it, [`LOSSY_LEVELS`]).
+//!
+//! Before any of those, a proposal whose edges vanish only at under half
+//! the mark's opacity, that no gain takes a fifth of the contour away
+//! from, or whose contour grows when it is inverted at the mark's own
+//! opacity, is **no blend** and not a finding at all ([`NO_BLEND_GAIN`],
+//! [`NO_BLEND_RATIO`], D226).
 //!
 //! Only this module constructs a [`Verified`], and only a `Verified` can
 //! be restored: the type system keeps "write only what was proved".
@@ -23,6 +31,7 @@ use crate::catalogue::Profile;
 use crate::geometry::{template, PixelRect, SubRect};
 use crate::propose::Proposal;
 use crate::raster::{Raster, LUMA};
+use crate::Fidelity;
 
 /// Below this, a map sample is noise and not part of the mark.
 pub const NOISE_FLOOR: f32 = 0.002;
@@ -143,19 +152,174 @@ impl Verified {
     }
 }
 
-/// The second proof over one proposal: the numbers, and the verdict.
-/// `None` for the numbers when a refusal came before any was measured.
+/// What a proposal turned out to be (D226). Three outcomes, not two:
+///
+/// * **proved** — both proofs passed; restorable;
+/// * **a blend that is not proved** — some gain takes the edge away
+///   (`k* ≥` [`NO_BLEND_GAIN`] and `E(k*)/E(0) ≤` [`NO_BLEND_RATIO`]), but
+///   another gain than the mark's, not far enough, or by leaving the
+///   range: a mark like this was seen and is not removed, and that is a
+///   finding;
+/// * **no blend** — the edges vanish only at a gain under half the mark's;
+///   or no gain takes even a fifth of the contour away; or inverting at
+///   the mark's own opacity adds contour (`E(1) > E(0)`), which this mark
+///   blended at two thirds of its opacity or more never does — at
+///   `α ≈ 0.5`, `E(1)/E(0) ≈ |1 − g| / (g·(1 − α))`. Whatever the
+///   correlation saw, it is not this mark blended over a picture. That is
+///   not a finding — never reported and never an exit code.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Outcome {
+    Verified(Verified),
+    Refused(Refusal),
+    NoBlend,
+}
+
+/// Under this `k*` the contour vanishes at less than half the mark's
+/// opacity: no blend of it (D226). In the false-positive gate as the
+/// series left it, all 679 proposals on textures and opaque look-alikes
+/// had `k*` under 0.35, and all 191 on blurred sparkles over 0.55.
+pub const NO_BLEND_GAIN: f32 = 0.5;
+
+/// Over this `E(k*)/E(0)` the best inverse, at whatever gain, takes less
+/// than a fifth of the contour away: no blend of it (D226). A true mark
+/// measured at most 0.58 (on the densest glyph sheet), and the mark at
+/// another opacity far less at its own `k*`; opaque look-alikes and blends
+/// of other shapes run from 0.8 to past 1.
+pub const NO_BLEND_RATIO: f32 = 0.8;
+
+/// A lossy codec's error allowance, in 8-bit levels, before the inverse
+/// amplifies it by `1/(1 − α)` (D228): quality 85–95 JPEG and lossy WebP
+/// move a sample by up to about this much on a mark's soft edges.
+pub const LOSSY_LEVELS: f64 = 4.0;
+
+/// The template's rectangle and a one-pixel ring, read once: the map
+/// there, the picture there, and the contour weights.
+struct Grid {
+    gw: usize,
+    alpha: Vec<f32>,
+    pixels: Vec<[f64; 3]>,
+    edges: Vec<(usize, f32)>,
+    logo: [f64; 3],
+    max: f64,
+    opaque: f64,
+}
+
+impl Grid {
+    fn new(raster: &Raster, values: &[f32], at: PixelRect, opaque: f32, logo: [f64; 3]) -> Self {
+        let samples = raster.samples();
+        let gx0 = at.x.saturating_sub(1);
+        let gy0 = at.y.saturating_sub(1);
+        let gx1 = (at.x + at.width + 1).min(raster.width());
+        let gy1 = (at.y + at.height + 1).min(raster.height());
+        let (gw, gh) = ((gx1 - gx0) as usize, (gy1 - gy0) as usize);
+        let mut alpha = vec![0f32; gw * gh];
+        let mut pixels = vec![[0f64; 3]; gw * gh];
+        for gy in 0..gh {
+            for gx in 0..gw {
+                let (x, y) = (gx0 + gx as u32, gy0 + gy as u32);
+                if x >= at.x && y >= at.y && x < at.x + at.width && y < at.y + at.height {
+                    alpha[gy * gw + gx] = values[((y - at.y) * at.width + (x - at.x)) as usize];
+                }
+                let i = raster.at(x, y);
+                pixels[gy * gw + gx] = [
+                    f64::from(samples[i]),
+                    f64::from(samples[i + 1]),
+                    f64::from(samples[i + 2]),
+                ];
+            }
+        }
+        // The contour, weighted by |∇α| — but not beside a hole: there the
+        // inverse is not defined, and the edge between a hole and what was
+        // restored around it says nothing about the blend.
+        let hole = |p: usize| alpha[p] >= opaque;
+        let mut edges: Vec<(usize, f32)> = Vec::new();
+        for gy in 1..gh.saturating_sub(1) {
+            for gx in 1..gw.saturating_sub(1) {
+                let p = gy * gw + gx;
+                if hole(p) || hole(p - 1) || hole(p + 1) || hole(p - gw) || hole(p + gw) {
+                    continue;
+                }
+                let dx = (alpha[p + 1] - alpha[p - 1]) * 0.5;
+                let dy = (alpha[p + gw] - alpha[p - gw]) * 0.5;
+                let g = dx.hypot(dy);
+                if g > EDGE {
+                    edges.push((p, g));
+                }
+            }
+        }
+        Grid {
+            gw,
+            alpha,
+            pixels,
+            edges,
+            logo,
+            max: f64::from(raster.layout().max()),
+            opaque: f64::from(opaque),
+        }
+    }
+
+    /// `E` of the inverse at gain `k`: the luma gradient along the
+    /// contour, weighted by |∇α|. `luma` is scratch of the grid's size.
+    fn energy(&self, k: f64, luma: &mut [f64]) -> f64 {
+        for (p, l) in luma.iter_mut().enumerate() {
+            let o = inverse(
+                self.pixels[p],
+                f64::from(self.alpha[p]) * k,
+                self.logo,
+                self.opaque,
+            );
+            *l =
+                (f64::from(LUMA[0]) * o[0] + f64::from(LUMA[1]) * o[1] + f64::from(LUMA[2]) * o[2])
+                    / self.max;
+        }
+        let gw = self.gw;
+        self.edges
+            .iter()
+            .map(|&(p, g)| {
+                let dx = (luma[p + 1] - luma[p - 1]) * 0.5;
+                let dy = (luma[p + gw] - luma[p - gw]) * 0.5;
+                dx.hypot(dy) * f64::from(g)
+            })
+            .sum()
+    }
+}
+
+/// `E(1)/E(0)` for `map` at `rect`: how much of the contour the inverse
+/// at the mark's own opacity takes away. `None` where the template does
+/// not fit or has no contour. What the search's refinement minimises
+/// (D227).
+pub(crate) fn contour_ratio(
+    raster: &Raster,
+    profile: &Profile,
+    map: &crate::alpha::AlphaMap,
+    rect: SubRect,
+) -> Option<f64> {
+    let (shape, at) = template(map, rect)?;
+    if !at.inside(raster.width(), raster.height()) {
+        return None;
+    }
+    let max = f64::from(raster.layout().max());
+    let logo = profile.logo.map(|c| f64::from(c) * max / 255.0);
+    let grid = Grid::new(raster, &shape.values, at, profile.opaque_above, logo);
+    let mut luma = vec![0f64; grid.pixels.len()];
+    let e0 = grid.energy(0.0, &mut luma);
+    (e0 > 1e-12).then(|| grid.energy(1.0, &mut luma) / e0)
+}
+
+/// The second proof over one proposal: the numbers, and the outcome.
+/// `None` for the numbers when the outcome came before any was measured.
 pub(crate) fn verify(
     raster: &Raster,
     profile: &Profile,
     proposal: &Proposal,
-) -> (Option<Scores>, Result<Verified, Refusal>) {
+    source: Fidelity,
+) -> (Option<Scores>, Outcome) {
     let map = profile.map(proposal.map);
     let Some((shape, at)) = template(map, proposal.rect) else {
-        return (None, Err(Refusal::Edges { ratio: 1.0 }));
+        return (None, Outcome::NoBlend);
     };
     if !at.inside(raster.width(), raster.height()) {
-        return (None, Err(Refusal::Edges { ratio: 1.0 }));
+        return (None, Outcome::NoBlend);
     }
     let layout = raster.layout();
     let max = f64::from(layout.max());
@@ -178,97 +342,53 @@ pub(crate) fn verify(
             if layout.has_alpha() {
                 let i = raster.at(at.x + tx, at.y + ty);
                 if samples[i + 3] < layout.max() {
-                    return (None, Err(Refusal::Transparent));
+                    return (None, Outcome::Refused(Refusal::Transparent));
                 }
             }
         }
     }
     if support == 0 || holes == support {
-        return (None, Err(Refusal::Opaque { holes }));
-    }
-
-    // The grid: the rectangle and a one-pixel ring, inside the picture.
-    let gx0 = at.x.saturating_sub(1);
-    let gy0 = at.y.saturating_sub(1);
-    let gx1 = (at.x + at.width + 1).min(raster.width());
-    let gy1 = (at.y + at.height + 1).min(raster.height());
-    let (gw, gh) = ((gx1 - gx0) as usize, (gy1 - gy0) as usize);
-    let mut alpha = vec![0f32; gw * gh];
-    let mut pixels = vec![[0f64; 3]; gw * gh];
-    for gy in 0..gh {
-        for gx in 0..gw {
-            let (x, y) = (gx0 + gx as u32, gy0 + gy as u32);
-            if x >= at.x && y >= at.y && x < at.x + at.width && y < at.y + at.height {
-                alpha[gy * gw + gx] = shape.values[((y - at.y) * at.width + (x - at.x)) as usize];
-            }
-            let i = raster.at(x, y);
-            pixels[gy * gw + gx] = [
-                f64::from(samples[i]),
-                f64::from(samples[i + 1]),
-                f64::from(samples[i + 2]),
-            ];
-        }
-    }
-    // The contour, weighted by |∇α| — but not beside a hole: there the
-    // inverse is not defined, and the edge between a hole and what was
-    // restored around it says nothing about the blend.
-    let hole = |p: usize| alpha[p] >= opaque;
-    let mut edges: Vec<(usize, f32)> = Vec::new();
-    for gy in 1..gh.saturating_sub(1) {
-        for gx in 1..gw.saturating_sub(1) {
-            let p = gy * gw + gx;
-            if hole(p) || hole(p - 1) || hole(p + 1) || hole(p - gw) || hole(p + gw) {
-                continue;
-            }
-            let dx = (alpha[p + 1] - alpha[p - 1]) * 0.5;
-            let dy = (alpha[p + gw] - alpha[p - gw]) * 0.5;
-            let g = dx.hypot(dy);
-            if g > EDGE {
-                edges.push((p, g));
-            }
-        }
+        return (None, Outcome::Refused(Refusal::Opaque { holes }));
     }
 
     let logo = profile.logo.map(|c| f64::from(c) * max / 255.0);
+    let grid = Grid::new(raster, &shape.values, at, opaque, logo);
     let mut energy = [0f64; STEPS + 1];
-    let mut luma = vec![0f64; gw * gh];
+    let mut luma = vec![0f64; grid.pixels.len()];
     for (i, e) in energy.iter_mut().enumerate() {
-        let k = i as f64 / ONE as f64;
-        for (p, l) in luma.iter_mut().enumerate() {
-            let o = inverse(pixels[p], f64::from(alpha[p]) * k, logo, f64::from(opaque));
-            *l =
-                (f64::from(LUMA[0]) * o[0] + f64::from(LUMA[1]) * o[1] + f64::from(LUMA[2]) * o[2])
-                    / max;
-        }
-        *e = edges
-            .iter()
-            .map(|&(p, g)| {
-                let dx = (luma[p + 1] - luma[p - 1]) * 0.5;
-                let dy = (luma[p + gw] - luma[p - gw]) * 0.5;
-                dx.hypot(dy) * f64::from(g)
-            })
-            .sum();
+        *e = grid.energy(i as f64 / ONE as f64, &mut luma);
     }
     let star = (0..=STEPS)
         .min_by(|&a, &b| energy[a].total_cmp(&energy[b]))
         .unwrap_or(0);
     let gain = star as f32 / ONE as f32;
-    let edge_ratio = if energy[0] > 1e-12 {
-        (energy[ONE] / energy[0]) as f32
+    // No edge at all where the mark has one: there is no mark here.
+    let (edge_ratio, best_ratio) = if energy[0] > 1e-12 {
+        (
+            (energy[ONE] / energy[0]) as f32,
+            (energy[star] / energy[0]) as f32,
+        )
     } else {
-        // No edge at all where the mark has one: there is no mark here.
-        1.0
+        (1.0, 1.0)
     };
 
-    // Out of range at k = 1, over the restorable support.
+    // Out of range at k = 1, over the restorable support. A level of
+    // rounding on a lossless file; on a lossy one the codec's allowance
+    // too, amplified by the inverse as the rounding is not (D228).
+    let quantum = match source {
+        Fidelity::Lossless => 0.0,
+        Fidelity::Lossy => LOSSY_LEVELS * max / 255.0,
+    };
     let (mut out, mut total) = (0u32, 0u32);
-    for (p, &a) in alpha.iter().enumerate() {
+    for (p, &a) in grid.alpha.iter().enumerate() {
         if a < NOISE_FLOOR || a >= opaque {
             continue;
         }
-        for v in inverse(pixels[p], f64::from(a), logo, f64::from(opaque)) {
+        let a = f64::from(a);
+        let slack = 1.0 + quantum / (1.0 - a);
+        for v in inverse(grid.pixels[p], a, logo, f64::from(opaque)) {
             total += 1;
-            if v < -1.0 || v > max + 1.0 {
+            if v < -slack || v > max + slack {
                 out += 1;
             }
         }
@@ -286,19 +406,21 @@ pub(crate) fn verify(
         holes,
     };
     let t = profile.thresholds;
-    let verdict = if (gain - 1.0).abs() > t.gain {
-        Err(Refusal::Gain { k: gain })
+    let outcome = if gain < NO_BLEND_GAIN || best_ratio > NO_BLEND_RATIO || edge_ratio > 1.0 {
+        Outcome::NoBlend
+    } else if (gain - 1.0).abs() > t.gain {
+        Outcome::Refused(Refusal::Gain { k: gain })
     } else if edge_ratio > t.edge_ratio {
-        Err(Refusal::Edges { ratio: edge_ratio })
+        Outcome::Refused(Refusal::Edges { ratio: edge_ratio })
     } else if out_of_range > t.out_of_range {
-        Err(Refusal::OutOfRange {
+        Outcome::Refused(Refusal::OutOfRange {
             share: out_of_range,
         })
     } else {
         let exact_place = matches!(proposal.placed, crate::Placed::Row(_))
             && !proposal.resample
             && shape.canonical;
-        Ok(Verified {
+        Outcome::Verified(Verified {
             profile: profile.id.clone(),
             rect: proposal.rect,
             at,
@@ -313,7 +435,7 @@ pub(crate) fn verify(
             height: raster.height(),
         })
     };
-    (Some(scores), verdict)
+    (Some(scores), outcome)
 }
 
 /// `O = (I − a·L)/(1 − a)` per channel, unclamped; the input itself where

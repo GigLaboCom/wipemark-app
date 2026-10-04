@@ -1,7 +1,7 @@
-//! The second proof: it tells one opacity from another, refuses a
-//! look-alike that NCC loves, measures the inverse unclamped, and finds a
-//! second mark in the second pass — or reports it when it is no longer a
-//! blend.
+//! The second proof: it tells one opacity from another, dismisses a
+//! look-alike that NCC loves, measures the inverse unclamped, finds a
+//! second mark apart in the second pass, and refuses marks that overlap —
+//! or reports one when it is no longer the blend.
 
 mod support;
 
@@ -51,11 +51,12 @@ fn verification_tells_v1_from_v2() {
     assert!(exam.findings.iter().all(|f| f.profile != "test-sparkle-v2"));
 }
 
-/// An opaque white sparkle where the map is above a quarter: NCC
-/// proposes it (it is the right shape), and the edge test refuses it — it
-/// is not a blend.
+/// An opaque white sparkle where the map is above a quarter: the right
+/// shape, so NCC proposes it — and the second proof finds no blend (the
+/// edges vanish at `k*` near 0 and inverting adds contour). It is not a
+/// finding at all (D226): not reported, not restored, no exit code.
 #[test]
-fn an_opaque_lookalike_is_proposed_and_refused() {
+fn an_opaque_lookalike_is_not_a_finding() {
     let catalogue = catalogue_of(&[synthetic_v1()]);
     for kind in [Kind::Gradient, Kind::Fractal, Kind::Flat, Kind::ValueNoise] {
         let mut raster = picture(kind, W, H, 31, Layout::Rgb8);
@@ -68,17 +69,13 @@ fn an_opaque_lookalike_is_proposed_and_refused() {
         );
         let before = raster.clone();
         let report = clean(&mut raster, &catalogue, &options());
+        assert!(report.found.is_empty(), "{kind:?}: {:#?}", report.found);
         assert!(
-            !report.found.is_empty(),
-            "{kind:?}: the look-alike was not proposed"
-        );
-        assert!(report.found[0].ncc >= 0.70);
-        assert!(
-            report.found.iter().all(|f| f.verified().is_none()),
-            "{kind:?}: {:#?}",
-            report.found
+            report.dismissed > 0,
+            "{kind:?}: the look-alike was not even proposed"
         );
         assert!(report.restored.is_empty());
+        assert!(!report.marks_left());
         assert_eq!(raster, before);
     }
 }
@@ -144,11 +141,87 @@ fn the_verifier_measures_the_unclamped_inverse() {
     assert!(max_error(&marked, &original) <= 1);
 }
 
-/// Two marks, 48 and 44 pixels, nine pixels apart: the first pass
-/// restores the one at its row, the second finds the other by search,
-/// proves it and restores it (D165).
+/// Two marks apart: the small one at its row, an older one of the same
+/// profile, resampled to 40 pixels, in the far corner of the search box.
+/// The first pass proves the row and so never searches; the second, over
+/// the restored raster, finds the other by search, proves it and restores
+/// it (D165, D230) — and the first pass's sight of it, refused under the
+/// other profile, is listed under the proof rather than left as a mark.
+#[test]
+fn a_second_mark_apart_is_found_in_the_second_pass() {
+    let catalogue = synthetic_catalogue();
+    let v1 = synthetic_v1();
+    for kind in [Kind::Flat, Kind::Gradient, Kind::Fractal] {
+        let original = picture(kind, W, H, 61, Layout::Rgb8);
+        let mut marked = original.clone();
+        let older = resampled(&v1.large, 40.0, 0.0, 0.0).unwrap();
+        composite(
+            &mut marked,
+            &older,
+            PixelRect {
+                x: 70,
+                y: 60,
+                width: 40,
+                height: 40,
+            },
+            [255.0; 3],
+        );
+        composite(&mut marked, &v1.small, small_row(W, H, 48), [255.0; 3]);
+        let report = clean(&mut marked, &catalogue, &options());
+        assert_eq!(report.restored.len(), 2, "{kind:?}: {:#?}", report.found);
+        let second: Vec<_> = report.found.iter().filter(|f| f.pass == 2).collect();
+        assert!(
+            second
+                .iter()
+                .any(|f| f.verified().is_some() && f.placed == Placed::Searched),
+            "{kind:?}: {second:#?}"
+        );
+        assert!(!report.marks_left(), "{kind:?}: {:#?}", report.found);
+        // The row's is exact; the searched one is the same resampled map at
+        // a whole-pixel place, so it comes back as closely.
+        assert!(max_error(&marked, &original) <= 1, "{kind:?}");
+    }
+}
+
+/// Two marks, 48 and 44 pixels, nine pixels apart: the first pass proves
+/// and restores the one at its row; the second finds the other by search,
+/// proves it and restores it (D165, D230). Blends of one logo colour
+/// commute — `1 − (1−α₁)(1−α₂)` either way round — so the row's mark is
+/// an exact blend whichever was stamped last, and the order does not
+/// matter.
 #[test]
 fn a_second_overlapping_mark_is_found_in_the_second_pass() {
+    for older_on_top in [false, true] {
+        let (report, error) = two_overlapping(older_on_top);
+        assert_eq!(report.restored.len(), 2, "{:#?}", report.found);
+        let first = report
+            .found
+            .iter()
+            .find(|f| f.pass == 1 && f.verified().is_some());
+        assert_eq!(
+            first.map(|f| f.placed),
+            Some(Placed::Row(1)),
+            "{:#?}",
+            report.found
+        );
+        let second: Vec<_> = report.found.iter().filter(|f| f.pass == 2).collect();
+        assert!(
+            second
+                .iter()
+                .any(|f| f.verified().is_some() && f.placed == Placed::Searched),
+            "{second:#?}"
+        );
+        assert!(!report.marks_left());
+        // Two inversions where they overlap: the first's rounding, then the
+        // second's, the first's amplified by 1/(1 − α) on the way.
+        assert!(error <= 3, "on top {older_on_top}: off by {error}");
+    }
+}
+
+/// The 48 at its row and a 44 nine pixels up and left, on a flat picture;
+/// the 44 stamped last when `older_on_top`. The report, and the largest
+/// error against the unmarked picture afterwards.
+fn two_overlapping(older_on_top: bool) -> (wipemark_pixels::PixelReport, u16) {
     let catalogue = synthetic_catalogue();
     let v1 = synthetic_v1();
     let original = picture(Kind::Flat, W, H, 61, Layout::Rgb8);
@@ -161,19 +234,15 @@ fn a_second_overlapping_mark_is_found_in_the_second_pass() {
         width: 44,
         height: 44,
     };
-    composite(&mut marked, &older, older_at, [255.0; 3]);
-    composite(&mut marked, &v1.small, row, [255.0; 3]);
+    if older_on_top {
+        composite(&mut marked, &v1.small, row, [255.0; 3]);
+        composite(&mut marked, &older, older_at, [255.0; 3]);
+    } else {
+        composite(&mut marked, &older, older_at, [255.0; 3]);
+        composite(&mut marked, &v1.small, row, [255.0; 3]);
+    }
     let report = clean(&mut marked, &catalogue, &options());
-    assert_eq!(report.restored.len(), 2, "{:#?}", report.found);
-    let second: Vec<_> = report.found.iter().filter(|f| f.pass == 2).collect();
-    assert!(
-        second
-            .iter()
-            .any(|f| f.verified().is_some() && f.placed == Placed::Searched),
-        "{second:#?}"
-    );
-    // Two exact inversions in a row: a level each at most.
-    assert!(max_error(&marked, &original) <= 2);
+    (report, max_error(&marked, &original))
 }
 
 /// The older mark baked into regenerated content — resampled and

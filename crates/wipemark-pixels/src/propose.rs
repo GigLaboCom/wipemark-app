@@ -1,12 +1,23 @@
 //! The first proof: where a profile's mark could be. Exact placement rows
-//! first, refined to the sub-pixel; the bounded search only when no row
-//! reaches the profile's `min_ncc` (D153). A proposal below `min_ncc` is
-//! not a finding and is dropped silently.
+//! first, each at **its own rectangle** — never moved, so a row's mark is
+//! restored where the row says it is, and looked at on half the NCC the
+//! search needs ([`ROW_FLOOR`], D227); the bounded search when no
+//! row's mark was proved (D153). A proposal below `min_ncc` is not a
+//! finding and is dropped silently.
+//!
+//! The search finds a whole-pixel place and size by NCC, then refines it
+//! to the sub-pixel by the **second proof's own measure**, `E(1)/E(0)`:
+//! a quarter-pixel grid, then an eighth around the best, and the move is
+//! taken only when it lowers the ratio by [`REFINE_MARGIN`] of itself.
+//! NCC is not asked to choose between sub-pixel places — a correlation a
+//! hair higher is not a better restoration.
 
+use crate::alpha::AlphaMap;
 use crate::catalogue::{Anchor, Profile};
 use crate::geometry::{shape, template, PixelRect, SubRect};
 use crate::ncc::{ncc, Centred, Integral};
 use crate::raster::Raster;
+use crate::verify::contour_ratio;
 
 /// How a proposal was placed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,7 +68,7 @@ impl<'a> Scene<'a> {
 
     /// The NCC of `map` at the sub-pixel rectangle, `None` when it does
     /// not lie inside the picture.
-    fn score(&self, map: &crate::alpha::AlphaMap, rect: SubRect) -> Option<f32> {
+    fn score(&self, map: &AlphaMap, rect: SubRect) -> Option<f32> {
         let (shape, at) = template(map, rect)?;
         if !at.inside(self.width(), self.height()) {
             return None;
@@ -72,19 +83,28 @@ impl<'a> Scene<'a> {
     }
 }
 
-/// A move must beat the place it leaves by this much: a tie keeps the
-/// row's own rectangle, which is the one that can be exact.
-const BETTER: f32 = 1e-4;
+/// A refinement is taken only when it lowers the search's `E(1)/E(0)` by
+/// at least this share of the ratio it leaves (D227): a tenth, so a
+/// rounding-level wobble never moves a mark.
+pub const REFINE_MARGIN: f64 = 0.10;
 
-/// Every proposal for one profile.
-pub(crate) fn propose(scene: &Scene<'_>, profile: &Profile) -> Vec<Proposal> {
+/// A row is a place the vendor's own rule names, so it is *looked at* on
+/// less correlation than the search asks for — the search's own coarse
+/// floor, half of `min_ncc` (D227): a high-contrast texture under a mark
+/// dilutes NCC at the very place the mark is. It is never *restored* on
+/// less: the second proof is the same, and a row that shows no blend is
+/// no finding (D226).
+pub const ROW_FLOOR: f32 = 0.5;
+
+/// Every row's proposal for one profile, each at the row's own rectangle.
+pub(crate) fn rows(scene: &Scene<'_>, profile: &Profile) -> Vec<Proposal> {
     let mut found = Vec::new();
     for (i, row) in profile.placements.iter().enumerate() {
         if !row.when.matches(scene.width(), scene.height()) {
             continue;
         }
         let map = profile.map(row.alpha);
-        let base = match row.anchor {
+        let rect = match row.anchor {
             Anchor::Corner { corner, margin } => {
                 let Some((x, y)) = corner.origin(
                     scene.width(),
@@ -112,8 +132,8 @@ pub(crate) fn propose(scene: &Scene<'_>, profile: &Profile) -> Vec<Proposal> {
                 }
             }
         };
-        if let Some((rect, score)) = refine(scene, map, base) {
-            if score >= profile.min_ncc {
+        if let Some(score) = scene.score(map, rect) {
+            if score >= profile.min_ncc * ROW_FLOOR {
                 found.push(Proposal {
                     map: row.alpha,
                     rect,
@@ -124,74 +144,48 @@ pub(crate) fn propose(scene: &Scene<'_>, profile: &Profile) -> Vec<Proposal> {
             }
         }
     }
-    if found.is_empty() {
-        found.extend(search(scene, profile));
-    }
     found
 }
 
-/// The best rectangle near `base`: whole-pixel moves of up to 3, then
-/// quarter-pixel moves of up to 0.75 and size changes of up to 0.5 in
-/// quarters. `base` itself wins a tie.
-fn refine(
-    scene: &Scene<'_>,
-    map: &crate::alpha::AlphaMap,
-    base: SubRect,
-) -> Option<(SubRect, f32)> {
-    let mut best: Option<(SubRect, f32)> = scene.score(map, base).map(|s| (base, s));
-    // Whole pixels: one shape, slid.
-    let (shape0, at0) = template(map, base)?;
-    let centred = Centred::of(&shape0);
-    for dy in -3i64..=3 {
-        for dx in -3i64..=3 {
-            if dx == 0 && dy == 0 {
-                continue;
-            }
-            let (x, y) = (i64::from(at0.x) + dx, i64::from(at0.y) + dy);
-            if x < 0 || y < 0 {
-                continue;
-            }
-            let at = PixelRect {
-                x: x as u32,
-                y: y as u32,
-                ..at0
-            };
-            if !at.inside(scene.width(), scene.height()) {
-                continue;
-            }
-            let score = ncc(&scene.luma, &scene.integral, &centred, at.x, at.y);
-            if best.is_none_or(|(_, b)| score > b + BETTER) {
-                let rect = SubRect {
-                    x: base.x + dx as f32,
-                    y: base.y + dy as f32,
-                    size: base.size,
-                };
-                best = Some((rect, score));
-            }
-        }
-    }
-    let (centre, _) = best?;
-    // Quarter pixels and quarter sizes around the best whole place.
-    for ds in [-0.5f32, -0.25, 0.0, 0.25, 0.5] {
-        for oy in -3i32..=3 {
-            for ox in -3i32..=3 {
-                if ds == 0.0 && ox == 0 && oy == 0 {
-                    continue;
-                }
-                let rect = SubRect {
-                    x: centre.x + ox as f32 * 0.25,
-                    y: centre.y + oy as f32 * 0.25,
-                    size: centre.size + ds,
-                };
-                if let Some(score) = scene.score(map, rect) {
-                    if best.is_none_or(|(_, b)| score > b + BETTER) {
-                        best = Some((rect, score));
+/// The search's sub-pixel refinement of `base` by the contour ratio: a
+/// quarter-pixel grid of origins (±0.75) and sizes (±0.5), then an eighth
+/// around the best. `base` is kept unless the best lowers the ratio by
+/// [`REFINE_MARGIN`] of `base`'s.
+fn refine(scene: &Scene<'_>, profile: &Profile, map: &AlphaMap, base: SubRect) -> SubRect {
+    let ratio = |r: SubRect| contour_ratio(scene.raster, profile, map, r);
+    let Some(start) = ratio(base) else {
+        return base;
+    };
+    let mut best = (base, start);
+    let sweep = |centre: SubRect, step: f32, reach: i32, best: &mut (SubRect, f64)| {
+        for ds in -2i32..=2 {
+            for oy in -reach..=reach {
+                for ox in -reach..=reach {
+                    let rect = SubRect {
+                        x: centre.x + ox as f32 * step,
+                        y: centre.y + oy as f32 * step,
+                        size: centre.size + ds as f32 * step,
+                    };
+                    if rect == centre {
+                        continue;
+                    }
+                    if let Some(r) = ratio(rect) {
+                        if r < best.1 {
+                            *best = (rect, r);
+                        }
                     }
                 }
             }
         }
+    };
+    sweep(base, 0.25, 3, &mut best);
+    let quarter = best.0;
+    sweep(quarter, 0.125, 1, &mut best);
+    if best.1 <= start * (1.0 - REFINE_MARGIN) {
+        best.0
+    } else {
+        base
     }
-    best
 }
 
 /// One coarse candidate of the search.
@@ -204,9 +198,10 @@ struct Candidate {
 }
 
 /// The bounded search: coarse over the profile's corner box, the five
-/// best distinct candidates, a fine pass around each, then the sub-pixel
-/// refinement. The best is proposed when it reaches `min_ncc`.
-fn search(scene: &Scene<'_>, profile: &Profile) -> Option<Proposal> {
+/// best distinct candidates, a fine whole-pixel pass around each; the
+/// best is proposed when it reaches `min_ncc`, with the profile's own map
+/// of that size when it has one, after the sub-pixel refinement.
+pub(crate) fn search(scene: &Scene<'_>, profile: &Profile) -> Option<Proposal> {
     let s = profile.search.as_ref()?;
     let map = profile.map(s.alpha);
     let region = s.corner.region(scene.width(), scene.height(), s.within);
@@ -294,10 +289,22 @@ fn search(scene: &Scene<'_>, profile: &Profile) -> Option<Proposal> {
             }
         }
     }
-    let (rect, _) = best?;
-    let (rect, score) = refine(scene, map, rect)?;
-    (score >= profile.min_ncc).then_some(Proposal {
-        map: s.alpha,
+    let (rect, score) = best?;
+    if score < profile.min_ncc {
+        return None;
+    }
+    // A size one of the profile's maps is drawn at is that map's, not the
+    // search map resampled to it — what the vendor stamped at that size.
+    let index = profile
+        .maps
+        .iter()
+        .position(|(_, m)| m.width() as f32 == rect.size)
+        .unwrap_or(s.alpha);
+    let map = profile.map(index);
+    let rect = refine(scene, profile, map, rect);
+    let score = scene.score(map, rect).unwrap_or(score);
+    Some(Proposal {
+        map: index,
         rect,
         placed: Placed::Searched,
         ncc: score,

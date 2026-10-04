@@ -121,9 +121,25 @@ pub struct Synthetic {
 pub fn synthetic_v1() -> Synthetic {
     Synthetic {
         id: "test-sparkle-v1",
-        small: sparkle(48, 0.5),
-        large: sparkle(96, 0.5),
+        small: quantised(&sparkle(48, 0.5)),
+        large: quantised(&sparkle(96, 0.5)),
     }
+}
+
+/// `map` as the catalogue holds it: written at depth 8. A mark is drawn
+/// with the map that is shipped for it — compositing the float map and
+/// restoring with its 8-bit copy would be a different mark, a level off
+/// on a dark corner.
+pub fn quantised(map: &AlphaMap) -> AlphaMap {
+    AlphaMap::new(
+        map.width(),
+        map.height(),
+        map.values()
+            .iter()
+            .map(|v| (v * 255.0).round() / 255.0)
+            .collect(),
+    )
+    .unwrap()
 }
 
 /// The same shape at 0.72 of the opacity, its own profile: told apart
@@ -132,8 +148,8 @@ pub fn synthetic_v2() -> Synthetic {
     let v1 = synthetic_v1();
     Synthetic {
         id: "test-sparkle-v2",
-        small: scaled(&v1.small, 0.72),
-        large: scaled(&v1.large, 0.72),
+        small: quantised(&scaled(&v1.small, 0.72)),
+        large: quantised(&scaled(&v1.large, 0.72)),
     }
 }
 
@@ -392,26 +408,98 @@ pub fn picture(kind: Kind, w: u32, h: u32, seed: u64, layout: Layout) -> Raster 
     Raster::new(w, h, layout, samples).unwrap()
 }
 
-/// A dozen pictures of every kind but the near-black and near-white, for
-/// the exactness suite.
+/// The seed `backgrounds` gives the `seed`-th picture of `kind`.
+pub fn background_seed(kind: Kind, seed: u64) -> u64 {
+    let i = KINDS.iter().position(|k| *k == kind).unwrap();
+    1000 + i as u64 * 17 + seed
+}
+
+/// Thirteen pictures — two of every kind but the near-white, less the
+/// densest glyph sheet — for the exactness suite.
 pub fn backgrounds(w: u32, h: u32, layout: Layout) -> Vec<(String, Raster)> {
     let mut out = Vec::new();
     // Near-white noise is left out on purpose: a white mark over white
     // noise has no contour to prove, and refusing it is right
-    // (`a_white_mark_on_white_noise_is_not_proved`).
-    for (i, kind) in KINDS
-        .iter()
-        .enumerate()
-        .filter(|(_, k)| **k != Kind::Bright)
-    {
+    // (`a_white_mark_on_white_noise_is_not_proved`). So is the first glyph
+    // sheet: its strokes put more edge on the mark's contour than the mark
+    // has (NCC 0.40, E(1)/E(0) 0.48), and the mark is seen and left
+    // (`a_mark_drowned_in_strokes_is_seen_and_left`).
+    for kind in KINDS.iter().filter(|k| **k != Kind::Bright) {
         for seed in 0..2u64 {
+            if (*kind, seed) == DROWNED {
+                continue;
+            }
             out.push((
                 format!("{kind:?}-{seed}"),
-                picture(*kind, w, h, 1000 + i as u64 * 17 + seed, layout),
+                picture(*kind, w, h, background_seed(*kind, seed), layout),
             ));
         }
     }
     out
+}
+
+/// The background the exactness suite leaves to the refusal suite.
+pub const DROWNED: (Kind, u64) = (Kind::Glyphs, 0);
+
+/// A night-sky wallpaper: a dark blue-to-teal gradient, three to five
+/// soft curtains of green and violet light swaying down the picture, and
+/// a sprinkle of stars — smooth bright ridges and points in every corner,
+/// the kind of picture a sparkle correlates with and that carries no mark
+/// (the verifier's `Northan_lights` wallpaper, NCC 0.705).
+pub fn aurora(w: u32, h: u32, seed: u64, layout: Layout) -> Raster {
+    let mut rng = Rng::new(seed);
+    let (wf, hf) = (w as f32, h as f32);
+    let curtains: Vec<[f32; 7]> = (0..3 + rng.below(3))
+        .map(|_| {
+            [
+                rng.range(0.0, wf),                    // centre
+                rng.range(0.05, 0.25) * wf,            // sway
+                rng.range(1.0, 4.0) / hf,              // sway frequency
+                rng.range(0.0, std::f32::consts::TAU), // phase
+                rng.range(0.02, 0.08) * wf,            // half width
+                rng.range(0.35, 0.8),                  // brightness
+                rng.unit(),                            // green (0) to violet (1)
+            ]
+        })
+        .collect();
+    let stars: Vec<(u32, u32, f32)> = (0..(w * h / 900).max(8))
+        .map(|_| (rng.below(w), rng.below(h), rng.range(0.4, 1.0)))
+        .collect();
+    let max = f32::from(layout.max());
+    let c = layout.channels();
+    let mut samples = Vec::with_capacity((w * h) as usize * c);
+    for y in 0..h {
+        for x in 0..w {
+            let (xf, yf) = (x as f32, y as f32);
+            let t = yf / hf;
+            let mut rgb = [0.02 + 0.03 * t, 0.04 + 0.10 * t, 0.12 + 0.10 * (1.0 - t)];
+            for k in &curtains {
+                let centre = k[0] + k[1] * (k[2] * yf * std::f32::consts::TAU + k[3]).sin();
+                let d = (xf - centre) / k[4];
+                let fade = (1.0 - (t - 0.45).abs() * 1.4).max(0.0);
+                let glow = k[5] * (-d * d).exp() * fade;
+                rgb[0] += glow * 0.6 * k[6];
+                rgb[1] += glow * (1.0 - 0.6 * k[6]);
+                rgb[2] += glow * 0.8 * k[6];
+            }
+            for &(sx, sy, b) in &stars {
+                let d2 = (xf - sx as f32).powi(2) + (yf - sy as f32).powi(2);
+                if d2 < 4.0 {
+                    let g = b * (-d2).exp();
+                    for v in &mut rgb {
+                        *v += g;
+                    }
+                }
+            }
+            for v in rgb {
+                samples.push((v.clamp(0.0, 1.0) * max).round() as u16);
+            }
+            if c == 4 {
+                samples.push(layout.max());
+            }
+        }
+    }
+    Raster::new(w, h, layout, samples).unwrap()
 }
 
 /// The largest difference between two rasters' colour samples.

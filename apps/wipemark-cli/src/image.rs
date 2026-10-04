@@ -894,6 +894,7 @@ mod tests {
             report: PixelReport {
                 found: Vec::new(),
                 restored: Vec::new(),
+                dismissed: 0,
                 not_established: wipemark_pixels::not_established::shelf(),
             },
             restorable: true,
@@ -1179,6 +1180,7 @@ mod tests {
                 report: PixelReport {
                     found,
                     restored: Vec::new(),
+                    dismissed: 0,
                     not_established: wipemark_pixels::not_established::shelf(),
                 },
                 restorable,

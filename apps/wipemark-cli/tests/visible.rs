@@ -14,7 +14,7 @@ mod pixels_support;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
-use pixels_support::{composite_at, picture, stamp_opaque, Kind};
+use pixels_support::{aurora, composite_at, picture, scaled, Kind};
 use serde_json::Value;
 use wipemark_pixels::{AlphaMap, Catalogue, Layout, PixelRect, Raster};
 
@@ -164,14 +164,16 @@ fn clean_removes_a_proved_mark_with_no_flag() {
     );
 }
 
-/// A look-alike — the sparkle drawn opaque — is seen and not proved: the
-/// result is written with what could be done, said, and the exit is 3.
+/// The mark at 0.8 of its opacity is a blend the second proof will not
+/// accept (its edges vanish at that gain, not at 1): it is seen and not
+/// proved, the result is written with what could be done, said, and the
+/// exit is 3.
 #[test]
 fn a_mark_that_cannot_be_proved_is_left_and_exits_three() {
     let scratch = Scratch::new("left");
     let (map, at) = gemini_small();
     let mut raster = picture(Kind::Gradient, W, H, 9, Layout::Rgb8);
-    stamp_opaque(&mut raster, &map, at, 0.2, 255.0);
+    composite_at(&mut raster, &scaled(&map, 0.8), at);
     scratch.file("art.png", &png_of(&raster));
     let output = scratch.run(&["clean", "art.png"]);
     let said = stdout(&output);
@@ -182,6 +184,48 @@ fn a_mark_that_cannot_be_proved_is_left_and_exits_three() {
         scratch.0.join("art.cleaned.png").exists(),
         "the result was not written"
     );
+}
+
+/// A night-sky wallpaper — soft bright curtains and stars in the corner a
+/// sparkle is looked for in, what a non-AI desktop picture is — carries no
+/// mark: `inspect` and `clean` exit 0 and say nothing about one (D226).
+#[test]
+fn a_night_sky_wallpaper_is_clean() {
+    let scratch = Scratch::new("aurora");
+    for seed in 0..6 {
+        let name = format!("sky{seed}.png");
+        scratch.file(&name, &png_of(&aurora(W * 2, H * 2, seed, Layout::Rgb8)));
+        let output = scratch.run(&["inspect", &name]);
+        assert_eq!(code(&output), 0, "{name}: {}", stdout(&output));
+        let report = json(&scratch.run(&["inspect", &name, "--json"]));
+        assert_eq!(
+            report["visible"]["found"],
+            Value::Array(Vec::new()),
+            "{name}"
+        );
+        let output = scratch.run(&["clean", &name]);
+        assert_eq!(code(&output), 0, "{name}: {}", stdout(&output));
+    }
+}
+
+/// A restored picture's second look finds nothing: `clean` exits 1 for
+/// the mark the input carried — not 3 — no finding of the second pass is
+/// reported, and the result inspects at 0.
+#[test]
+fn a_restored_picture_leaves_nothing_for_the_second_pass() {
+    let scratch = Scratch::new("second");
+    scratch.file("art.png", &marked_png());
+    let answer = json(&scratch.run(&["clean", "art.png", "--json"]));
+    let found = answer["report"]["visible"]["found"]
+        .as_array()
+        .expect("found");
+    assert_eq!(found.len(), 1, "{answer}");
+    assert_eq!(found[0]["pass"], 1);
+    assert_eq!(answer["report"]["marks_left"], Value::Bool(false));
+    let output = scratch.run(&["clean", "art.png", "-o", "again.png"]);
+    assert_eq!(code(&output), 1, "{}", stdout(&output));
+    let again = scratch.run(&["inspect", "again.png"]);
+    assert_eq!(code(&again), 0, "{}", stdout(&again));
 }
 
 /// `audit`: a picture with a visible mark is a finding, and SARIF carries

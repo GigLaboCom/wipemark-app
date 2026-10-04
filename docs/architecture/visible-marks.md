@@ -76,16 +76,24 @@ aspect, thresholds in range, duplicates — and each failure is a
    the image side's mean and variance come from integral images (`f64`),
    and a window whose variance is below 10⁻¹⁰ per pixel is flat and scores
    0 rather than dividing rounding by rounding.
-   * **Rows first**, every row whose `when` matches the size: the row's
-     rectangle, then whole-pixel moves of ±3, then quarter-pixel moves of
-     ±0.75 and size changes of ±0.5 in quarters. A move must beat the
-     place it leaves by 10⁻⁴, so a tie keeps the row's own rectangle — the
-     one that can be exact.
-   * **The search**, only when no row reached `min_ncc`: sizes from the
-     profile's range in steps of 4 over its corner box at a stride of
-     `max(2, size/16)`, the five best candidates that do not overlap
-     (IoU ≤ 0.3), a fine pass of ±4 in size and ±stride in position, then
-     the same sub-pixel refinement.
+   * **Rows first**, every row whose `when` matches the size, each at **its
+     own rectangle** and nowhere else (D227): a row's mark is restored
+     where the row says it is, and is the one placement that can be exact.
+     A row is *looked at* on half of `min_ncc` (`ROW_FLOOR`) — a
+     high-contrast texture under a mark dilutes NCC at the very place the
+     mark is — and *restored* on nothing less than a proof.
+   * **The search**, when no row's mark was **proved** — a row refused may
+     be a mark a pixel off its row: sizes from the profile's range in steps
+     of 4 over its corner box at a stride of `max(2, size/16)`, the five
+     best candidates that do not overlap (IoU ≤ 0.3), a fine whole-pixel
+     pass of ±4 in size and ±stride in position, kept when it reaches
+     `min_ncc`. Then a **sub-pixel refinement by the second proof's own
+     measure** (D227): `E(1)/E(0)` over a quarter-pixel grid (origins
+     ±0.75, sizes ±0.5), then an eighth around the best, and the move is
+     taken only when it lowers the ratio by a tenth of itself
+     (`REFINE_MARGIN`). NCC never chooses between sub-pixel places — the
+     series' NCC refinement moved exact rows to `y 160.25, size 47.75` for
+     a 10⁻⁴ gain and left them a level or two off.
    * **A map at a sub-pixel place and size** is the area-weighted mean of
      the map samples each pixel's footprint covers — an exact integral of
      the map read as constant per sample (the plan proposed a 4×4
@@ -98,14 +106,25 @@ aspect, thresholds in range, duplicates — and each failure is a
    above 10⁻⁴ and no hole beside it:
    `E(img) = Σ |∇luma(img)| · |∇α|`. Sweep `k = 0, 0.02, …, 1.6` (`k = i/50`,
    so `k = 1` is exact), invert **unclamped** with `k·α`, measure `E`.
-   Accept when `|k* − 1| ≤ gain`, `E(1)/E(0) ≤ edge_ratio`, and the share
-   of samples the `k = 1` inverse puts more than one level out of range is
-   at most `out_of_range`; otherwise `Refusal::Gain { k }`,
-   `Edges { ratio }` or `OutOfRange { share }`, the first that failed, with
-   every number in `Scores`. Before any of that: `Transparent` when the
-   picture's alpha is below its maximum anywhere under the mark, and
-   `Opaque { holes }` when every pixel of the mark is a hole. A picture
-   with no edge at all where the map has one scores a ratio of 1.
+   **Three outcomes** (D226):
+   * **no blend** — `k* < 0.5` (`NO_BLEND_GAIN`), or no gain takes a fifth
+     of the contour away (`E(k*)/E(0) > 0.8`, `NO_BLEND_RATIO`), or
+     inverting at the mark's own opacity adds contour (`E(1) > E(0)`,
+     which this mark at two thirds of its opacity or more never does).
+     Not a finding: never reported, never an exit code. A template that
+     does not fit, and a picture with no edge where the map has one, are
+     no blend too.
+   * **proved** — `|k* − 1| ≤ gain`, `E(1)/E(0) ≤ edge_ratio`, and the
+     share of samples the `k = 1` inverse puts out of range is at most
+     `out_of_range`. Out of range is past one level on a lossless source;
+     on a lossy one, past `1 + 4/(1 − α)` levels (`LOSSY_LEVELS`, D228) —
+     the codec's error is amplified by the inverse as rounding is not.
+   * **a blend, not proved** — otherwise: `Refusal::Gain { k }`,
+     `Edges { ratio }` or `OutOfRange { share }`, the first that failed,
+     with every number in `Scores`; and, before any of that, `Transparent`
+     when the picture's alpha is below its maximum anywhere under the mark
+     and `Opaque { holes }` when every pixel of the mark is a hole. A
+     finding: seen, not removed.
    **`Verified`** has private fields, is built in `verify.rs` alone, and is
    the only thing `restore` takes (a `compile_fail` doctest).
 3. **Choose.** Findings whose rectangles overlap (IoU > 0.3) compete:
@@ -121,15 +140,25 @@ aspect, thresholds in range, duplicates — and each failure is a
    lossless source, a row's own canonical map (no resample, integer
    origin), no hole and no clamp. A `Verified` from a raster of another
    size is `RestoreError::Elsewhere`.
-5. **Again, once** (D165). After a restoration, `clean` examines the
-   restored raster a second time; what verifies is restored, a refusal of
-   the first pass seen again at the same place is not listed twice, and
-   every finding carries its `pass`.
+5. **Again, once** (D165, D230). Only after a restoration, `clean`
+   examines the restored raster a second time; what verifies is restored,
+   a refusal of the first pass seen again at the same place is not listed
+   twice, a first-pass refusal under a second-pass proof is listed under
+   it (`also_tried`) rather than left as a mark, and every finding carries
+   its `pass`. Two marks apart — the second hidden because the profile's
+   row was proved first and the search never ran — come off in two passes;
+   so do two that **overlap**: blends of one logo colour commute
+   (`1 − (1−α₁)(1−α₂)` either way round), so either is an exact blend
+   whatever was stamped last (`a_second_overlapping_mark_is_found_in_the_second_pass`,
+   both orders; within three levels where they overlap — two roundings,
+   the first amplified by the second inverse). A mark *baked* into the
+   content — resampled and softened, no longer a blend — is refused.
 
 ## The report
 
-`PixelReport { found, restored, not_established }` and `to_json()` — one
-line of ASCII JSON, field names a format:
+`PixelReport { found, restored, dismissed, not_established }` and
+`to_json()` — one line of ASCII JSON, field names a format (`dismissed`,
+the proposals that were no blend, is a count for gates and is not in it):
 
 ```json
 {"found":[{"profile":"…","vendor":"…","product":"…","pass":1,
@@ -149,40 +178,57 @@ surface that renders a picture report (E12-5). Nothing here says
 "undetectable", "clean" or "AI-free" about a picture.
 
 `PixelReport::marks_left()` is true when a mark was seen and is still
-there — refused, or restored around holes — which is what a surface's
-exit code reads.
+there — a blend refused, or restored around holes — which is what a
+surface's exit code reads. A proposal that was no blend is not there to
+count (D226).
 
 ## Thresholds
 
-The shipped profiles carry the plan's starting values, from the spike's
-measurements (SDD §1.6): `min_ncc` **0.70**, `gain` **0.06**, `edge_ratio`
-**0.30**, `out_of_range` **0.01**, `opaque_above` **0.95**. They were not
-re-measured when this was written — the container could compile but not
-run — and `tests/measure.rs` prints the distributions (NCC, `k*`, ratio,
-out-of-range for true marks, marks with ±3 noise, opaque look-alikes, the
-0.72× variant and unmarked pictures) and the timings on a 2752×1536 raster
-for whoever runs it:
+The shipped profiles carry `min_ncc` **0.70** (a row: half of it),
+`gain` **0.06**, `edge_ratio` **0.30**, `out_of_range` **0.01**,
+`opaque_above` **0.95**; the classification adds `NO_BLEND_GAIN` **0.5**
+and `NO_BLEND_RATIO` **0.8** (D226) and the lossy allowance `LOSSY_LEVELS`
+**4** (D228). Measured on the synthetic pair and the shipped maps
+(2026-10-04, `--nocapture`):
+
+| | |
+|---|---|
+| true marks, 13 backgrounds, synthetic and Gemini | `k*` 0.98–1.00, `E(1)/E(0)` 0.004–0.27, out of range 0 |
+| the densest glyph sheet | `k*` 1.00, `E(1)/E(0)` 0.48 (synthetic), 0.58 (Gemini): refused by its edges, `a_mark_drowned_in_strokes_is_seen_and_left` |
+| textures and opaque look-alikes (series' gate) | 679 proposals, every `k*` under 0.35 |
+| blurred sparkles | 191 proposals, every `k*` over 0.55 |
+| the mark at 0.72 | `k*` 0.72, `E(1)/E(0)` 0.79 — a blend; refused by its gain |
+
+`tests/measure.rs` prints the distributions and the timings on a
+2752×1536 raster:
 
 ```sh
 cargo test -p wipemark-pixels --release --test measure -- --ignored --nocapture
 ```
 
-Record what it prints in the step's report and here.
-
 ## Tests
 
-* `tests/exact.rs` — composites on procedural pictures come back within a
-  level, exact; alpha never written; a transparent region refused; holes
-  never divided; a resampled row and a lossy source never exact; an
-  unmarked picture never changed.
-* `tests/verify.rs` — V1 told from V2; an opaque look-alike proposed and
-  refused; the 0.72× variant refused with its gain; the inverse measured
-  unclamped; a second mark found in the second pass, a baked-in one
-  reported and not restored; refusals are values; the shelf; the JSON.
-* `tests/false_positives.rs` — 2000 procedural negatives (textures,
-  glyphs, flat, dark, bright, white corners, opaque and blurred sparkles,
-  diamonds) × both synthetic profiles: nothing restored; the maxima are
-  printed.
+* `tests/exact.rs` — composites on thirteen procedural pictures come
+  back within a level, exact, at the row's own place; the densest glyph
+  sheet's mark seen and left; alpha never written; a transparent region
+  refused; holes never divided; a resampled row and a lossy source never
+  exact; an unmarked picture never changed. The synthetic maps are the
+  8-bit maps the catalogue holds (`quantised`): a mark is drawn with the
+  map that is shipped for it.
+* `tests/verify.rs` — V1 told from V2; an opaque look-alike not a finding;
+  the 0.72× variant refused with its gain; the inverse measured unclamped;
+  a second mark apart and a second mark overlapping, in either order,
+  found in the second pass; a baked-in one reported and not restored;
+  refusals are values; the shelf; the JSON.
+* `tests/false_positives.rs` — three families, each as a lossless and a
+  lossy source: 2000 **negatives** (textures, glyphs, flat, dark, bright,
+  white corners, opaque sparkles and diamonds) neither restored nor
+  reported — 3272 proposals, every one no blend; 120 **night-sky
+  wallpapers** under both catalogues, neither restored nor reported; 1000
+  **look-alike blends** (blurred sparkles, half-transparent diamonds, the
+  mark at 0.8 or 1.2 of its opacity) never restored — 1438 of 2000
+  reported as seen, 994 of the 1000 at another gain refused by it, which
+  is what turns red when the gain tolerance is widened tenfold.
 * `tests/assets.rs` — the shipped catalogue reads, every map is its PNG,
   every pin its file, a shipped mark comes back within a level; a tampered
   asset and a refused schema, on a synthetic profile.

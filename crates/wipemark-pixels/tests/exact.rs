@@ -65,6 +65,72 @@ fn a_composited_mark_comes_back_within_one_level() {
     assert!(max_error(&marked, &original) <= 1);
 }
 
+/// A mark a pixel off its row: the row's own rectangle does not prove it
+/// (D227 never moves a row), so the search runs — it runs whenever no
+/// row's mark was proved, not only when no row was proposed — finds the
+/// mark where it is, proves and restores it; searched, so never exact.
+#[test]
+fn a_mark_a_pixel_off_its_row_is_found_by_the_search() {
+    let catalogue = synthetic_catalogue();
+    let row = small_row(W, H, 48);
+    for kind in [Kind::Gradient, Kind::Fractal, Kind::Flat] {
+        let original = picture(kind, W, H, 5, Layout::Rgb8);
+        let mut marked = original.clone();
+        let off = PixelRect {
+            x: row.x + 1,
+            y: row.y - 1,
+            ..row
+        };
+        composite(&mut marked, &synthetic_v1().small, off, [255.0; 3]);
+        let report = clean(&mut marked, &catalogue, &lossless());
+        assert_eq!(report.restored.len(), 1, "{kind:?}: {:#?}", report.found);
+        let f = report
+            .found
+            .iter()
+            .find(|f| f.verified().is_some())
+            .expect("proved");
+        assert_eq!(f.placed, Placed::Searched, "{kind:?}");
+        assert_eq!(f.pixels, Some(off), "{kind:?}");
+        assert!(!report.restored[0].exact);
+        assert!(!report.marks_left(), "{kind:?}: {:#?}", report.found);
+        assert!(max_error(&marked, &original) <= 1, "{kind:?}");
+    }
+}
+
+/// The densest glyph sheet under the small mark: the blend is perfect
+/// (`k*` = 1) but the strokes put more edge on the contour than the mark
+/// does, so `E(1)/E(0)` stays over the threshold. Precision first: the
+/// mark is seen, refused by its edges, left — never guessed at — and the
+/// report says a mark is left.
+#[test]
+fn a_mark_drowned_in_strokes_is_seen_and_left() {
+    let catalogue = synthetic_catalogue();
+    let (kind, seed) = DROWNED;
+    let original = picture(kind, W, H, background_seed(kind, seed), Layout::Rgb8);
+    let mut marked = original.clone();
+    composite(
+        &mut marked,
+        &synthetic_v1().small,
+        small_row(W, H, 48),
+        [255.0; 3],
+    );
+    let before = marked.clone();
+    let report = clean(&mut marked, &catalogue, &lossless());
+    assert!(report.restored.is_empty(), "{:#?}", report.found);
+    assert_eq!(marked, before);
+    let f = report.found.first().expect("the mark was not seen");
+    assert_eq!(f.profile, "test-sparkle-v1");
+    assert_eq!(f.placed, Placed::Row(1));
+    assert!(
+        matches!(f.verdict, Verdict::Refused(Refusal::Edges { .. })),
+        "{:?}",
+        f.verdict
+    );
+    let k = f.scores.expect("measured").gain;
+    assert!((k - 1.0).abs() <= 0.02, "k* = {k}");
+    assert!(report.marks_left());
+}
+
 /// D157: the picture's alpha is never written, whatever the restoration
 /// does to the colour.
 #[test]
