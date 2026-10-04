@@ -13,8 +13,27 @@ description = "Phase 2 — container-level metadata stripping for PNG/JPEG/WebP/
 # the job pipeline. Enforced by scripts/check-dep-direction.sh.
 
 [dependencies]
+# The report's third shelf: its ids are core's, so an image report and a
+# text report refuse the same claims in the same words.
 wipemark-core.workspace = true
 thiserror.workspace = true
+# Inflate, for the one place a container hides text behind zlib: PNG
+# `zTXt` and compressed `iTXt`. A generator's `parameters` in a zTXt is
+# still a generator's parameters, and a chunk that could not be read is
+# not one that was found clean. Pure Rust, no `unsafe` of its own, and
+# already in the tree through gpui's `png` — this pins no new build.
+# Only `inflate` is called, and only with a limit (`text::INFLATE_LIMIT`).
+miniz_oxide = "0.8"
+
+[dev-dependencies]
+# The gate (OV §11): the decoded raster's sha256 is identical before and
+# after a strip. Decoders only, and only here — the crate itself never
+# decodes a pixel, which is the point of it. All four are already in
+# the tree through gpui's image stack.
+png = "0.18"
+zune-jpeg = "0.5"
+image-webp = "0.2"
+sha2.workspace = true
 
 [lints]
 workspace = true
