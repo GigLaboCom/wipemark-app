@@ -3,9 +3,10 @@
 `crates/wipemark-image`: what an image file says about where it came
 from, and the same file without it. Built in E11-1
 (`docs/plan/E11-1-image-metadata.md`, report
-`docs/plan/reports/E11-1-2026-10-04.md`). **No surface calls it yet** —
-not the CLI, not MCP, not a window, not the queue; those come in a later
-step, and until then this is a library with tests.
+`docs/plan/reports/E11-1-2026-10-04.md`). Two surfaces call it (E11-2,
+`docs/plan/E11-2-images-on-the-surfaces.md`): `wipemark-cli inspect|clean|audit`
+and the MCP tools `inspect_image` and `clean_image` — see "Surfaces" below.
+No window does yet: not the queue, not the panel (E7).
 
 ## The promise, and how it is kept
 
@@ -164,9 +165,72 @@ each asserts in `fixtures/image/README.md`. Everything else is built by
 6×3 lossless WebP, a hand-written 8×8 baseline JPEG, and the real JPEG
 with its APP segments taken out — so injected cases are code, not blobs.
 
+## JSON
+
+`ImageReport::to_json` and `StripReport::to_json` (`src/json.rs`) — one
+writer for every surface, `std` alone, as core's is for a text (D9). One
+line, keys in a fixed order, ASCII; the third shelf written from core's
+constant as the last key, so no surface can drop it; and every string
+that came out of the file — `chunk`, `key`, an evidence's `field` — spelled
+by `spell`: printable ASCII as itself, anything else `U+XXXX`. A PNG
+keyword is Latin-1 and can carry a soft hyphen or a C1 control; a report
+handed to a model must not carry the marks it reports.
+
+```json
+{"container":"png","ai_metadata":true,"c2pa":false,
+ "findings":[{"kind":"generator-parameters","chunk":"tEXt","key":"parameters",
+   "offset":33,"length":40,"ai":true,"c2pa":false,
+   "evidence":[{"signal":"generator-key","generator":"stable-diffusion-webui",
+     "source_type":null,"field":"parameters","matched":"parameters"}]}],
+ "not_established":["vendor-detector-evasion","human-authorship","unknown-mark-schemes"]}
+```
+
+`StripReport`: `container`, `still_has_ai_metadata`, `still_has_c2pa`,
+`removed` (input offsets), `kept` (output offsets), `not_established`. The
+ids — `ImageContainer::id`, `MetadataKind::id`, `Signal::id`,
+`Defect::id`, `Scope::id`, `Generator::id`, `SourceType::code` — are
+formats, never translated; a surface keys its words off them
+(`image-kind-<id>`, `image-signal-<id>`, `image-defect-<id>`).
+
+## Surfaces
+
+**The command line** (`apps/wipemark-cli/src/image.rs`; the whole table is
+`docs/architecture/cli.md`, "Images"). A file is a picture when intake
+places it as one **by its bytes**. `inspect` exits 1 when any block is AI
+provenance and 0 otherwise — camera EXIF is not a finding. `clean` writes
+`name.cleaned.ext` beside the input (or `-o`, stdout when it is not a
+terminal, `--in-place` through `wipemark_intake::inplace`) and exits by the
+input — 1 when it carried AI provenance — except that an output for which
+`still_has_*` is true is **not written** and exits 3. `--all-metadata` is
+`Scope::AllMetadata`; its help and the report both say it takes EXIF
+orientation, and that colour is kept. TIFF/HEIC/AVIF exit 2 "not in this
+version yet"; a malformed picture exits 3 with its defect. `audit` inspects
+the pictures in a folder: a finding is AI provenance, a malformed picture
+is a hole (3 beats 1), a TIFF is skipped (`image-not-yet`), and SARIF puts
+a block at `region.byteOffset`/`byteLength`.
+
+**MCP** (`apps/wipemark-app/src/mcp/image.rs`). `inspect_image { data }`
+answers `ImageReport::to_json()`; `clean_image { data, scope }` answers
+`{"data": <base64>, "report": <StripReport>}` — both as `content[0].text`
+and `structuredContent`, ASCII to the byte. `data` is base64, standard
+alphabet, padded, strictly (`base64` 0.22, already in the lock); `scope`
+is `ai-provenance` (default) or `all-metadata`. The transport's 1 MiB is
+the limit — about 750 KB of picture — and a larger body is a `413`, never
+a truncation. Every way a call cannot run is an `isError` result naming
+why: not base64, not a picture this server reads (naming what intake found),
+TIFF/HEIC/AVIF, a malformed picture, an MPF index a removal would move,
+and a result that would still carry AI provenance — for which no image
+comes back. **There is no `path` argument**: a server that can be bound
+past loopback with no password must not read or write files by name, and
+whether it ever should is an owner question.
+
+Both surfaces say, in every report, that only the metadata was examined:
+a mark in the pixels is not looked for, and the third shelf names it.
+
 ## Next
 
-E11-2: TIFF (IFDs — a strip there *is* an IFD rewrite, unlike here),
-then HEIC/AVIF (ISOBMFF `meta`/`uuid`, `iloc` offsets that move when a
-box goes). The surfaces: `wipemark-cli inspect|clean` on an image, the
-MCP tools, the queue and the panel.
+TIFF (IFDs — a strip there *is* an IFD rewrite, unlike here), then
+HEIC/AVIF (ISOBMFF `meta`/`uuid`, `iloc` offsets that move when a box
+goes) — both in the backlog, built only on demand (owner: "AI generates
+JPEG and PNG"). The windows: the queue and the panel showing a picture's
+report (E7).

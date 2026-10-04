@@ -981,7 +981,7 @@ settings-mcp-description = Let an agent run { -layer-a } over its own output, an
 
 # The MCP banner's last line, in every state of the server: what the two
 # tools do, and that nothing rewrites.
-settings-mcp-tools = Three tools run: inspect lists what { -layer-a } would change in a text, clean makes those changes and reports each one with its position, and rewrite has the engine on duty rewrite the text between two passes of { -layer-a } — the document goes wherever the Engine page sends it. A rewrite is best-effort, and its report says what it does not establish.
+settings-mcp-tools = Five tools run: inspect lists what { -layer-a } would change in a text, clean makes those changes and reports each one with its position, inspect_image and clean_image do the same for the metadata of a PNG, JPEG or WebP — the metadata only, never the pixels — and rewrite has the engine on duty rewrite the text between two passes of { -layer-a } — the document goes wherever the Engine page sends it. A rewrite is best-effort, and its report says what it does not establish.
 
 ## What the server is doing right now, in the banner at the top of the
 ## page. Read from the server itself rather than from the switch — the
@@ -1130,15 +1130,15 @@ cli-help-print-help = Print help
 cli-help-print-version = Print version
 cli-command-help = Print this message, or the help of the given subcommand.
 
-cli-command-inspect = Report what is in a document without changing it.
-cli-command-clean = { -layer-a } only: deterministic, verifiable, no model involved.
+cli-command-inspect = Report what is in a document, or in the metadata of a PNG, JPEG or WebP image, without changing it.
+cli-command-clean = { -layer-a } only: deterministic, verifiable, no model involved. A PNG, JPEG or WebP image loses its AI provenance metadata, and not one byte of its pixels changes.
 cli-command-rewrite = { -layer-a }, then a model rewrite, then { -layer-a } again.
 cli-command-models = Manage downloaded weights.
 cli-command-models-list = List every model in the catalogue, what is on this machine for it, and whether it fits.
 cli-command-models-pull = Download a model by id, resuming if a partial file exists.
 cli-command-models-verify = Re-hash an installed model in full against the catalogue. Exit 1 when it does not match or is not there.
 cli-command-models-rm = Delete an installed model.
-cli-command-audit = Walk a folder and report every text file in it that carries findings, for pre-commit hooks and CI. Exit 3 when any file could not be read — even if others had findings: a scan with a hole in it is not complete.
+cli-command-audit = Walk a folder and report every text file in it that carries findings, and every PNG, JPEG or WebP whose metadata carries AI provenance, for pre-commit hooks and CI. Exit 3 when any file could not be read — even if others had findings: a scan with a hole in it is not complete.
 
 cli-arg-path-or-stdin = File to read, or `-` for stdin.
 cli-arg-path = File to read.
@@ -1156,7 +1156,8 @@ cli-arg-seed = The base seed. Without it every run gets a new one, so running ag
 cli-arg-id = Manifest model id.
 cli-arg-dir = Directory to walk.
 cli-arg-sarif = SARIF output, for code scanning dashboards.
-cli-arg-in-place = Replace the file with its cleaned text. The original is first set aside beside it as `<name>.original.<ext>`, and an original already there is never overwritten: the run refuses instead. Nothing is touched when nothing needs changing.
+cli-arg-in-place = Replace the file with its cleaned text or image. The original is first set aside beside it as `<name>.original.<ext>`, and an original already there is never overwritten: the run refuses instead. Nothing is touched when nothing needs changing.
+cli-arg-all-metadata = For an image: remove every metadata block, not only AI provenance — camera data too (EXIF, with the orientation a picture may rely on to show upright), XMP, IPTC, comments. Colour profiles are kept either way: removing one changes how the picture looks. Not for text.
 cli-arg-no-original = With --in-place: keep no copy of the original — for files under version control, where the history is the copy.
 cli-arg-language = Language for messages and help, as a BCP-47 tag such as de or ru. Overrides WIPEMARK_LANG, the language saved in the app's settings and the operating system, in that order.
 
@@ -1267,6 +1268,115 @@ cli-audit-file = { $path }: { $count ->
     } ({ $classes })
 cli-audit-summary = { $root }: scanned { $scanned } · with findings { $findings } · skipped { $skipped } · could not be read { $unreadable }
 cli-audit-unreadable-title = Could not be read, so not shown to be clean:
+# One line per image whose metadata carries AI provenance. $container is
+# PNG, JPEG or WebP, never translated; $kinds a list of `image-kind-*`
+# lines such as "C2PA manifest ×1", already spelled.
+cli-audit-image = { $path }: { $container }, { $count ->
+        [one] one block
+       *[other] { $count } blocks
+    } of AI provenance ({ $kinds })
+
+## Images — `inspect`, `clean` and `audit` on a PNG, JPEG or WebP.
+##
+## A picture's report lists metadata blocks, not characters. What is a
+## word here is the kind of a block, the signal that made it AI
+## provenance and the defect that stopped a read; what is a format is
+## printed as itself — a chunk or segment name, a key read out of the
+## file (spelled U+XXXX past printable ASCII), a generator's id, an IPTC
+## code, a byte offset. $container is PNG, JPEG, WebP, TIFF, HEIC or
+## AVIF, never translated. Every report says that only the metadata was
+## examined: a mark in the pixels is not looked for, and nothing here may
+## read as though it were.
+
+# The first line of an image's report, as `cli-report-*` is for a text.
+# Never "clean": the pixels are on the last lines.
+cli-image-none = { $source }: { $container }, no metadata blocks.
+cli-image-noted = { $source }: { $container }, { $count ->
+        [one] one metadata block, and it is not AI provenance.
+       *[other] { $count } metadata blocks, and none of them is AI provenance.
+    }
+cli-image-ai = { $source }: { $container }, { $count ->
+        [one] one metadata block
+       *[other] { $count } metadata blocks
+    }, { $ai ->
+        [one] one of them AI provenance.
+       *[other] { $ai } of them AI provenance.
+    }
+# One block. $where is the chunk or segment and the key inside it
+# ("tEXt parameters", "APP1 Exif"), never translated; $kind an
+# `image-kind-*` line; $offset and $size are spelled numbers, and $length
+# is the same size as a number, for the plural only.
+cli-image-row = { $where } · { $kind } · at byte { $offset } · { $length ->
+        [one] { $size } byte
+       *[other] { $size } bytes
+    }
+# Under a row, once per signal that made the block AI provenance. $signal
+# is an `image-signal-*` line; $field where in the block it was found and
+# $matched the signature that matched — a key, an IPTC code, a product
+# name — never the value, which is the user's own. $generator is an id
+# such as comfyui, never translated.
+cli-image-evidence = { $signal }, in { $field }: { $matched }
+cli-image-evidence-generator = { $signal } ({ $generator }), in { $field }: { $matched }
+# Whenever colour information is in the file: it is listed, and no option
+# removes it.
+cli-image-rendering = Colour information (an ICC profile, gamma, sRGB) is kept whatever is asked: removing it would change how the picture looks.
+# After clean --all-metadata removed an EXIF block.
+# After clean removed an EXIF block, under the default scope, because
+# it named a generator.
+cli-image-exif-removed = An EXIF block named an image generator, so it was removed whole, orientation included: a picture that relied on its EXIF orientation may now show turned on its side.
+cli-image-all-metadata = --all-metadata removed camera data as well, orientation included: a picture that relied on its EXIF orientation may now show turned on its side.
+# Above the third shelf of every image report.
+cli-image-pixels = Only the file's metadata was examined. A mark carried in the pixels themselves is not looked for, so nothing here is about the picture.
+
+## Why an image was not read or not cleaned. Exit 2 for what this version
+## will not do and for flags that do not fit, 3 for a file it could not
+## read — "not read is not clean". $flag is a flag as typed.
+
+cli-image-not-yet = { $path }: { $container } images are not in this version yet. Nothing was read for metadata, and nothing was written.
+cli-image-unknown = { $path }: the bytes are not an image this version opens. Nothing was written.
+cli-image-multi-picture = { $path } holds further pictures after the first (MPF), and removing metadata after their index would move them; this version does not rewrite that index. Nothing was written.
+# $defect is an `image-defect-*` line; $offset a spelled byte offset.
+cli-image-malformed = { $path } is not a { $container } file this version can read: { $defect }, at byte { $offset }. Not read is not clean.
+cli-image-text-flag = { $path } is an image ({ $container }), and { $flag } is for text. Nothing was written.
+cli-image-all-metadata-text = { $path } is not an image, and --all-metadata is for images. Nothing was written.
+cli-image-to-terminal = The cleaned image would be written to a terminal. Write it to a file with -o, or redirect standard output.
+cli-image-json-stdout = --json puts its answer on standard output, and so would the image; write the image to a file with -o.
+cli-image-still-marked = { $path }: the result would still carry AI provenance metadata, so it was not written. Not every mark could be removed.
+
+## What a metadata block is. Format names (EXIF, XMP, IPTC, C2PA) are
+## proper nouns and stay as they are in every language.
+
+image-kind-c2pa = C2PA manifest
+image-kind-exif = EXIF
+image-kind-xmp = XMP
+image-kind-iptc = IPTC
+image-kind-generator-parameters = generator parameters
+image-kind-other-text = text
+image-kind-rendering = colour information
+image-kind-other = other metadata
+
+## Why a block is AI provenance. Read as the subject of
+## `cli-image-evidence`, and as a SARIF rule's description.
+
+image-signal-c2pa-manifest = a C2PA manifest
+image-signal-c2pa-reference = a reference to a C2PA manifest
+image-signal-digital-source-type = an IPTC digital source type naming a model or an algorithm
+image-signal-generator-key = a text key an image generator writes
+image-signal-generator-text = an image generator's signature
+
+## Why a file could not be read, as the middle of `cli-image-malformed`.
+
+image-defect-truncated = it ends in the middle of a block
+image-defect-bad-signature = its signature is not where it must be
+image-defect-header-not-first = its header is not the first block
+image-defect-no-end = it has no end marker
+image-defect-bad-length = a block has a length no block can have
+image-defect-bad-chunk-type = a chunk's name is not four letters
+image-defect-bad-marker = a byte stands where a marker must be
+image-defect-riff-size = its RIFF header claims more bytes than the file holds
+image-defect-bad-text = a text chunk is not laid out as one
+image-defect-inflate = a compressed text does not decompress
+image-defect-inflate-limit = a compressed text decompresses past the limit this version reads
 
 ## `models`. $id is a catalogue id and $name the model's name, both
 ## never translated; $path a folder or a file; sizes and percentages

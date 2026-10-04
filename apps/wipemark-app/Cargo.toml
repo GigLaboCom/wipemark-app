@@ -33,6 +33,15 @@ wipemark-store.workspace = true
 # main window, the CLI and the MCP server all ask the same question, and
 # this is the one place it is answered.
 wipemark-intake.workspace = true
+# The MCP tools `inspect_image` and `clean_image`: a PNG, JPEG or WebP's
+# metadata blocks, found and removed, every pixel byte left as it was; the
+# report is the library's own JSON.
+wipemark-image.workspace = true
+# The image an MCP client sends and the one `clean_image` returns travel
+# as base64 inside JSON. Already in the lock (0.22.1) through gpui's
+# `usvg`, so this pins no new build — the task's rule was to write the
+# sixty lines only if nothing in the lock had them.
+base64 = "0.22"
 # The API key, and only the API key. Every other preference is a row in
 # wipemark.db; a credential goes to the operating system's own store.
 # See src/engine.rs and docs/architecture/engine-settings.md.

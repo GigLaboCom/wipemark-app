@@ -25,12 +25,15 @@
 //! # Status
 //!
 //! PNG, JPEG and WebP (E11-1). TIFF, HEIC and AVIF are recognised and
-//! refused by name ([`ImageError::NotYet`]) until E11-2. Nothing in the
-//! product calls this crate yet: the surfaces are a later step.
+//! refused by name ([`ImageError::NotYet`]). Two surfaces call it (E11-2):
+//! `wipemark-cli inspect|clean|audit` and the MCP tools `inspect_image`
+//! and `clean_image`, both through [`ImageReport::to_json`] and
+//! [`StripReport::to_json`] (`json.rs`). No window does yet.
 
 #![forbid(unsafe_code)]
 
 mod jpeg;
+mod json;
 mod png;
 pub mod signatures;
 mod text;
@@ -38,6 +41,7 @@ mod webp;
 
 use std::ops::Range;
 
+pub use json::spell;
 pub use signatures::{Generator, SourceType};
 pub use text::INFLATE_LIMIT;
 use wipemark_core::report::not_established;
@@ -59,6 +63,40 @@ pub enum ImageContainer {
 }
 
 impl ImageContainer {
+    pub const ALL: [ImageContainer; 6] = [
+        ImageContainer::Png,
+        ImageContainer::Jpeg,
+        ImageContainer::WebP,
+        ImageContainer::Tiff,
+        ImageContainer::Heic,
+        ImageContainer::Avif,
+    ];
+
+    /// The id `to_json` writes. A format, never translated.
+    pub fn id(self) -> &'static str {
+        match self {
+            ImageContainer::Png => "png",
+            ImageContainer::Jpeg => "jpeg",
+            ImageContainer::WebP => "webp",
+            ImageContainer::Tiff => "tiff",
+            ImageContainer::Heic => "heic",
+            ImageContainer::Avif => "avif",
+        }
+    }
+
+    /// The format's own name, as a person reads it — a proper noun, the
+    /// spelling `wipemark_intake::Format::name` uses, never translated.
+    pub fn name(self) -> &'static str {
+        match self {
+            ImageContainer::Png => "PNG",
+            ImageContainer::Jpeg => "JPEG",
+            ImageContainer::WebP => "WebP",
+            ImageContainer::Tiff => "TIFF",
+            ImageContainer::Heic => "HEIC",
+            ImageContainer::Avif => "AVIF",
+        }
+    }
+
     /// Which container the bytes open as — the signature its parser
     /// needs anyway, nothing more. Recognising what a dropped thing *is*
     /// belongs to `wipemark-intake`; this crate is handed an image and
@@ -115,6 +153,32 @@ pub enum MetadataKind {
 }
 
 impl MetadataKind {
+    pub const ALL: [MetadataKind; 8] = [
+        MetadataKind::C2pa,
+        MetadataKind::Exif,
+        MetadataKind::Xmp,
+        MetadataKind::Iptc,
+        MetadataKind::GeneratorParameters,
+        MetadataKind::OtherText,
+        MetadataKind::Rendering,
+        MetadataKind::Other,
+    ];
+
+    /// The id `to_json` writes, and the key a surface's catalogue is
+    /// looked up by (`image-kind-<id>`). A format.
+    pub fn id(self) -> &'static str {
+        match self {
+            MetadataKind::C2pa => "c2pa",
+            MetadataKind::Exif => "exif",
+            MetadataKind::Xmp => "xmp",
+            MetadataKind::Iptc => "iptc",
+            MetadataKind::GeneratorParameters => "generator-parameters",
+            MetadataKind::OtherText => "other-text",
+            MetadataKind::Rendering => "rendering",
+            MetadataKind::Other => "other",
+        }
+    }
+
     /// Whether this kind is what the product is actually here to remove,
     /// as opposed to camera data the user may want to keep. A block of
     /// another kind is AI provenance when its *evidence* says so — see
@@ -141,6 +205,18 @@ pub enum Signal {
 }
 
 impl Signal {
+    /// The id `to_json` writes — the signal alone; the generator and the
+    /// source type it carries are their own keys. A format.
+    pub fn id(self) -> &'static str {
+        match self {
+            Signal::C2paManifest => "c2pa-manifest",
+            Signal::C2paReference => "c2pa-reference",
+            Signal::DigitalSourceType(_) => "digital-source-type",
+            Signal::GeneratorKey(_) => "generator-key",
+            Signal::GeneratorText(_) => "generator-text",
+        }
+    }
+
     pub fn is_c2pa(self) -> bool {
         matches!(self, Signal::C2paManifest | Signal::C2paReference)
     }
@@ -232,6 +308,18 @@ pub enum Scope {
     AllMetadata,
 }
 
+impl Scope {
+    pub const ALL: [Scope; 2] = [Scope::AiProvenance, Scope::AllMetadata];
+
+    /// The id a surface takes it by — the MCP `scope` argument. A format.
+    pub fn id(self) -> &'static str {
+        match self {
+            Scope::AiProvenance => "ai-provenance",
+            Scope::AllMetadata => "all-metadata",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct StripOptions {
     pub scope: Scope,
@@ -280,6 +368,41 @@ pub enum Defect {
     Inflate,
     /// A compressed text that inflates past [`INFLATE_LIMIT`].
     InflateLimit,
+}
+
+impl Defect {
+    /// Every id [`Defect::id`] can return, in declaration order.
+    pub const IDS: [&'static str; 11] = [
+        "truncated",
+        "bad-signature",
+        "header-not-first",
+        "no-end",
+        "bad-length",
+        "bad-chunk-type",
+        "bad-marker",
+        "riff-size",
+        "bad-text",
+        "inflate",
+        "inflate-limit",
+    ];
+
+    /// The id a surface words it by (`image-defect-<id>`), and the one an
+    /// MCP refusal and a log line carry. A format.
+    pub fn id(self) -> &'static str {
+        match self {
+            Defect::Truncated => Self::IDS[0],
+            Defect::BadSignature => Self::IDS[1],
+            Defect::HeaderNotFirst => Self::IDS[2],
+            Defect::NoEnd => Self::IDS[3],
+            Defect::BadLength => Self::IDS[4],
+            Defect::BadChunkType => Self::IDS[5],
+            Defect::BadMarker(_) => Self::IDS[6],
+            Defect::RiffSize { .. } => Self::IDS[7],
+            Defect::BadText => Self::IDS[8],
+            Defect::Inflate => Self::IDS[9],
+            Defect::InflateLimit => Self::IDS[10],
+        }
+    }
 }
 
 /// What this build will not do to a well-formed file.
