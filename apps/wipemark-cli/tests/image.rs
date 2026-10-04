@@ -139,9 +139,11 @@ fn inspect_exits_one_on_each_ai_signal_and_zero_on_a_camera() {
         let output = scratch.run(&["inspect", &name]);
         let expected = if case.ai { 1 } else { 0 };
         assert_eq!(code(&output), expected, "{name}: {}", stderr(&output));
+        // The sentence about the pixels is the visible pass's now (E12-5):
+        // they were examined for the marks this version knows.
         let report = stdout(&output);
         assert!(
-            report.contains("Only the file's metadata was examined"),
+            report.contains("The pixels were examined for the visible marks"),
             "{name}: the pixels are not mentioned:\n{report}"
         );
         if !case.ai {
@@ -298,8 +300,10 @@ fn kinds_in(scratch: &Scratch, name: &str) -> Vec<String> {
         .collect()
 }
 
-/// The default scope keeps a camera's EXIF; `--all-metadata` removes it,
-/// says it took the orientation with it, and keeps the colour profile.
+/// The default scope keeps a camera's EXIF; `--all-metadata` removes it
+/// and keeps the colour profile. The rotation sentence is said only when
+/// the EXIF that went carried a rotation (E11-3): not for the fixture
+/// camera, which has none, and for a camera picture turned on its side.
 #[test]
 fn all_metadata_removes_exif_and_keeps_colour() {
     let scratch = Scratch::new("all-metadata");
@@ -308,6 +312,7 @@ fn all_metadata_removes_exif_and_keeps_colour() {
         .find(|case| case.name == "jpeg-camera")
         .expect("the case");
     scratch.file("camera.jpg", &camera.bytes);
+    let rotation = "The picture's rotation was in the removed camera data";
 
     let output = scratch.run(&["clean", "camera.jpg", "-o", "kept.jpg"]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));
@@ -315,11 +320,7 @@ fn all_metadata_removes_exif_and_keeps_colour() {
 
     let output = scratch.run(&["clean", "camera.jpg", "-o", "bare.jpg", "--all-metadata"]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));
-    assert!(
-        stdout(&output).contains("orientation"),
-        "{}",
-        stdout(&output)
-    );
+    assert!(!stdout(&output).contains(rotation), "{}", stdout(&output));
     let left = kinds_in(&scratch, "bare.jpg");
     assert!(!left.contains(&"exif".to_owned()), "{left:?}");
     assert_eq!(
@@ -327,6 +328,26 @@ fn all_metadata_removes_exif_and_keeps_colour() {
         vec!["rendering".to_owned()],
         "colour stays, nothing else"
     );
+
+    // Turned on its side (Orientation 6): the rotation goes with the EXIF,
+    // and the report says so, in words and in `--json`.
+    let turned = support::jpeg_with(
+        &support::tiny_jpeg(),
+        &[support::app1_exif(&support::exif_oriented(false, 6, b""))],
+    );
+    scratch.file("turned.jpg", &turned);
+    let output = scratch.run(&["clean", "turned.jpg", "-o", "t.jpg", "--all-metadata"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert!(stdout(&output).contains(rotation), "{}", stdout(&output));
+    let answer = json(&scratch.run(&[
+        "clean",
+        "turned.jpg",
+        "-o",
+        "t2.jpg",
+        "--all-metadata",
+        "--json",
+    ]));
+    assert_eq!(answer["report"]["orientation_removed"], 6, "{answer}");
 }
 
 /// D134: a flag for text on a picture, and `--all-metadata` on a text,
