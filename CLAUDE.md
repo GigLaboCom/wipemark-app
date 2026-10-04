@@ -42,6 +42,9 @@ tested on `FakeEngine` and against Qwen3 4B. The MCP tool `rewrite` and
 `docs/architecture/pipeline.md`, "The loop". The batch queue exists too —
 `wipemark-queue`: one document at a time, pause, cancel, resumable per
 chunk, surviving `kill -9` — and nothing pushes to it yet (E4-6/E7).
+Images exist as a library: `wipemark-image` reads and strips provenance
+metadata from PNG, JPEG and WebP without touching a pixel, and nothing
+calls it yet; see `docs/architecture/images.md`.
 
 ## First command after any clone or submodule update
 
@@ -197,7 +200,7 @@ it sits.
 | `wipemark-secret` | the OS credential store, and `Secret` | real |
 | `wipemark-log` | the rotating file, the panic hook, `Elided` | real |
 | `wipemark-i18n` | the Fluent catalogues and the `Message` enum `build.rs` generates from them | real |
-| `wipemark-image` | container metadata, with pixels never re-encoded | types; **E11**, phase 2 |
+| `wipemark-image` | PNG, JPEG and WebP metadata: blocks that tile the file, the AI signals as data, `inspect`/`strip` with the raster unchanged | real for PNG/JPEG/WebP (E11-1); TIFF, HEIC/AVIF refused by name (backlog); no surface calls it yet (**E11-2**) |
 | `wipemark-intake` | what was handed over — text, bytes or a path — and what it turns out to be; and `inplace`, the one module that writes: a result beside a file or over it, the original set aside first | real |
 | `wipemark-license` | activation, grace, and what a lapse never locks | types; **E9** |
 
@@ -1258,6 +1261,20 @@ Anything that needed more than a rule to explain is in `docs/`;
   `clean_response` never cuts a preface (D67) — a sentence removed by a
   pattern is a content edit. There is no non-origin rule (D62): the
   model the user chose rewrites. See `docs/architecture/prompts.md`.
+* **An image is cut into blocks that tile it, and colour is never
+  metadata.** `crates/wipemark-image`: every byte of a PNG, JPEG or WebP
+  belongs to exactly one block, and `strip` concatenates the kept ones
+  byte for byte — the only bytes it ever computes are a WebP's RIFF size
+  and two `VP8X` bits, and only when a chunk went. Colour (`Rendering`:
+  ICC, gamma, sRGB…) is removed by no scope, because its loss changes
+  how the picture looks while no raster check can see it. `still_has_*`
+  and `kept` come from a second `inspect` of the output, never from
+  bookkeeping; evidence names the signature, never the value (a prompt
+  is the user's text); a JPEG with MPF refuses a removal after its
+  header rather than rewrite its offsets. The gate is the decoded raster
+  and the image-data bytes, compared by walkers that share no code with
+  the parsers (`pixels_never_change`, `image_data_is_byte_identical`).
+  See `docs/architecture/images.md`.
 * **Layer A is never licence-gated.** Any state, expired or invalid,
   keeps the deterministic scrubber available.
 * **The CLI finds the application by its beacon, and only on loopback.**
@@ -1334,6 +1351,8 @@ What exists so far:
 | `wipemark-task-e4-6a-headless-rewrite-2026-10-04` | FILE | a task for an agent on another machine (code only): E4-6a + E5-2, rewriting without a window. Landed as `0c132f6` (D93) |
 | `wipemark-e4-6a-report-2026-10-04` | FILE | that agent's report (written without a compiler; verified on the host, D93) |
 | `wipemark-task-e11-1-image-metadata-2026-10-04` | FILE | a task for an agent on another machine (code only): E11-1, provenance metadata in PNG, JPEG and WebP, pixels never re-encoded |
+| `wipemark-e11-1-report-2026-10-04` | FILE | that agent's report (built without GPUI; verified on the host — all gates, mutations re-run, D97–D110) |
+| `wipemark-task-e11-2-image-surfaces-2026-10-04` | FILE | a task for an agent on another machine (code only): E11-2, images on the CLI (`inspect`/`clean`/`audit`) and over MCP (`inspect_image`/`clean_image`) |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
