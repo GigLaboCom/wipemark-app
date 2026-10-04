@@ -18,10 +18,16 @@
 #             (docs/architecture/local-engine.md, "Running the native
 #             gates"). What this lane proves is that the native build
 #             compiles on a clean machine.
-#   macos   — that the workspace compiles (all targets) on the platform
-#             the GUI targets first, and that the native engine compiles
-#             with Metal (ggml's default on Apple). A check, not a test:
-#             the suite runs on Linux.
+#   macos   — the platform the GUI targets first, linted and tested:
+#             clippy -D warnings over the workspace (the first lint the
+#             `cfg(target_os = "macos")` code gets — Linux never compiles
+#             it), the workspace tests, the `local-llama` tests over the
+#             shim, and llama.cpp at the pin built with Metal (ggml's
+#             default on Apple) with clippy and the model-free tests over
+#             it. The tray, the global shortcut, the pasteboard drop target,
+#             the clipboard peek, the display watch and the AppKit window
+#             move run nowhere else. No model on a hosted runner: the
+#             `--ignored` live gate still runs by hand.
 name: gate
 
 on:
@@ -177,9 +183,9 @@ jobs:
         run: cargo test -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked
 
   macos:
-    name: macos (workspace check, llama-native with Metal)
+    name: macos (clippy, tests, llama-native with Metal)
     runs-on: macos-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
         with:
@@ -197,6 +203,15 @@ jobs:
           rustup show active-toolchain
           brew list cmake > /dev/null 2>&1 || brew install cmake
 
+      # What the runner is: a hosted Apple Silicon VM. Whether it exposes
+      # a Metal device is printed here and again by the native runtime
+      # test below, which names every ggml device it registered.
+      - name: Machine
+        run: |
+          sw_vers
+          sysctl -n machdep.cpu.brand_string hw.memsize
+          system_profiler SPDisplaysDataType || true
+
       - name: Fetch llama.cpp at the pin
         run: crates/wipemark-llama-sys/vendor/fetch.sh
 
@@ -205,8 +220,39 @@ jobs:
           shared-key: macos
           cache-on-failure: true
 
-      - name: check llama-native (Metal)
-        run: cargo check -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked
+      # The steps after this one run even when an earlier one failed
+      # (`!cancelled()`), so one run reports every red line on this
+      # platform rather than the first; the job is still red.
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-      - name: check workspace
-        run: cargo check --workspace --all-targets --locked
+      - name: test
+        if: ${{ !cancelled() }}
+        run: cargo test --workspace --locked --no-fail-fast
+
+      - name: test wipemark-engine --features local-llama
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-engine --features local-llama --locked --no-fail-fast
+
+      - name: test wipemark-app --features local-llama
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-app --features local-llama --locked --no-fail-fast
+
+      - name: clippy (llama-native, Metal)
+        if: ${{ !cancelled() }}
+        run: cargo clippy -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --all-targets --locked -- -D warnings
+
+      - name: test (llama-native, Metal, model-free)
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked --no-fail-fast
+
+      # The devices ggml registered on this runner, printed: whether the
+      # Metal backend found a GPU here is a fact about the runner, and
+      # the test above passes on CPU alone.
+      - name: ggml devices
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-llama --features native --locked --test native the_runtime_reports_at_least_the_cpu_backend -- --nocapture
+
+      - name: Disk left
+        if: always()
+        run: df -h /
