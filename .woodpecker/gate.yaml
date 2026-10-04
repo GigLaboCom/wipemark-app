@@ -1,3 +1,10 @@
+# NOTE: the lane that reports on pushes and pull requests today is the
+# GitHub Actions workflow `.github/workflows/gate.yml` — the same gates,
+# plus a native llama.cpp + Vulkan lane and a macOS lane (clippy, the
+# tests, llama.cpp with Metal). This file is
+# the self-hosted Woodpecker lane and is kept for that fleet; it has not
+# reported a status on any commit yet.
+#
 # wipemark — FMT / CLIPPY / TEST gate.
 #
 # The one lane that must be green before anything merges. Runs the

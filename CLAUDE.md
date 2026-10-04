@@ -87,7 +87,9 @@ The other three run on the pinned stable toolchain in
 `rust-toolchain.toml` (1.94.1, with its own `components` list, so a
 fresh machine has clippy and rustfmt without a second install).
 
-CI (`.woodpecker/gate.yaml`) runs those same four with `--locked` — a
+CI is `.github/workflows/gate.yml` (GitHub Actions, on every push and
+pull request; `.woodpecker/gate.yaml` is the self-hosted lane and has not
+reported yet). It runs those same four with `--locked` — a
 `Cargo.lock` that moved under an edit is a red lane and a green
 laptop — and what no gate above performs:
 
@@ -108,15 +110,29 @@ and that `duty::engine_for` hands out a `LocalEngine` rather than a fake.
 `cargo test --workspace` does not enable it.
 
 **None of the gates above compiles llama.cpp.** The `ffi` module and the
-real engine are behind `llama-native` (cmake + bindgen + a C++ compiler
-+ the source `vendor/fetch.sh` fetched), which has no CI lane yet. Any
+real engine are behind `llama-native`, which by default **links the
+prebuilt release** of the pinned commit from `GigLaboCom/llama-cpp-prebuilt`
+(sha256-pinned in `crates/wipemark-llama-sys/src/pin.rs`, checked before
+unpacking, `PROVENANCE.txt` checked on every root, no fallback; cached under
+`target/<profile>/llama-cpp-prebuilt/`). `WIPEMARK_LLAMA_PREBUILT=<dir>`
+links an unpacked archive; `WIPEMARK_LLAMA_SOURCE=1` builds from source
+(cmake + bindgen + `vendor/fetch.sh`), which `.github/workflows/llama-source.yml`
+drives on changes to the llama crates, weekly and by hand. The workflow's
+`native` job runs the first two native gates below on Ubuntu; its `macos`
+job runs clippy `-D warnings` over the workspace (the only lint
+`cfg(target_os = "macos")` code gets), the workspace and `local-llama`
+tests, and the first two native gates with Metal on an Apple M1 VM, which
+registers a Metal device (`MTL0`). The tray install, the display callback,
+the AppKit window move, the Dock icon and the panel float are linted there
+but run by no test — they need a main thread with an `NSApplication`. The
+third native gate, the live one, has no hosted lane (no model), so any
 change under `crates/wipemark-llama*` or `crates/wipemark-engine/src/local.rs`
-runs the three native gates by hand — the third needs the catalogue's
+still runs the three native gates by hand — the third needs the catalogue's
 Qwen3 4B (`docs/architecture/local-engine.md`, "Running the native
 gates"):
 
 ```sh
-crates/wipemark-llama-sys/vendor/fetch.sh     # once, and after a pin bump
+crates/wipemark-llama-sys/vendor/fetch.sh     # only for a source build (WIPEMARK_LLAMA_SOURCE=1)
 cargo clippy -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --all-targets --locked -- -D warnings
 cargo test   -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked
 WIPEMARK_TEST_GGUF=/path/to/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf \
@@ -195,7 +211,7 @@ it sits.
 |---|---|---|
 | `wipemark-core` | Layer A: the UCD tables, the Unicode taxonomy, the classifier and scrubber, NFKC, homoglyphs, the guards, the report and its JSON | real (the guards have no caller until **E4**) |
 | `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP) | both engines real, handed out by `duty::engine_for` and asked by the Check; the pipeline that rewrites with them is **E4** |
-| `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`) | real under `native`; an empty shim without it |
+| `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`, `src/pin.rs`) | real under `native` — the prebuilt release by default, cmake with `WIPEMARK_LLAMA_SOURCE=1`; an empty shim without it |
 | `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends | real under `native`; refuses every load without it |
 | `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation, prompts and the loop real (E4-1…E4-3), the resumable job the queue drives (E4-4), the prompt bench (`examples/bench`, `bench/`, E4-5 — `docs/architecture/prompt-bench.md`) and its recommendations built (E4-7); the windows' surfaces are **E4-6b** |
 | `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
@@ -1166,7 +1182,7 @@ Anything that needed more than a rule to explain is in `docs/`;
   the old project is named. It is edited here and never synced back. It
   is pinned to **one** llama.cpp commit (`PIN.md`; `build.rs` refuses a
   fetched tree at any other), and a bump is a deliberate commit that runs
-  the native gates and the live gate. The pin is `b10731` (D180). Gemma 4 and
+  the native gates and the live gate. The pin is `b10731` (D180), linked as the prebuilt release of that commit (D226); a bump runs the gates from source first, then cuts a release in `llama-cpp-prebuilt` and pins its sha256s in `src/pin.rs`. Gemma 4 and
   Qwen3.8 run locally: their chat templates are rendered by
   `wipemark_llama::chat`, thinking off, because `llama_chat_apply_template`
   does not know Gemma 4 and renders Qwen3.8 with thinking on (D181, D182). `unsafe` lives in **one** module,
@@ -1368,6 +1384,8 @@ What exists so far:
 | `wipemark-task-e11-2-image-surfaces-2026-10-04` | FILE | a task for an agent on another machine (code only): E11-2, images on the CLI (`inspect`/`clean`/`audit`) and over MCP (`inspect_image`/`clean_image`) |
 | `wipemark-task-images-series-2026-10-04` | FILE | one series for one agent on another machine: E11-3 (E11-1's test gaps), E12-1…E12-5 (visible marks: `wipemark-pixels`, calibration, `wipemark-picture`, JPEG/WebP re-encode, the surfaces) on top of E11-2 — verified once, after the final step |
 | `wipemark-findings-2026-10-04` | FILE | the day's findings after the status report: E4-7's numbers, E11-1's host verification, the visible-mark study (vendors, NCC is not enough, two proofs), the llama.cpp bump, Vulkan vs CUDA measured (D187), no GitHub CI before 2026-10-04 |
+| `wipemark-images-series-report-2026-10-04` | FILE | the images series' own report (written without running its tests) |
+| `wipemark-task-images-followups-2026-10-04` | FILE | the host verification's findings on the images series as requirements R0–R11 (15 red tests, a refused proposal reported as a mark, text promising untouched pixels, sub-pixel drift, ghost outlines on JPEG, D-number collision); base branch `images/series-v2` |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything

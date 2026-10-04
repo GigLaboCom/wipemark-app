@@ -92,6 +92,13 @@ tokio-util = "0.7"
 # default build graph compiles neither.
 bindgen = "0.71"
 cmake = "0.1"
+# Also wipemark-llama-sys's, also only under `native` (E2-5): the prebuilt
+# llama.cpp archive is unpacked in its build script — after `sha2` below
+# has checked it against the pin. Pure Rust, so a prebuilt build needs no
+# C toolchain for them; `flate2` is already in the tree, `tar` brings only
+# `filetime` (`xattr` is off: the archive carries none).
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
 
 # The model downloader (crates/wipemark-models/src/store.rs). Blocking on
 # purpose: a download runs on its own thread and reports through a
