@@ -16,9 +16,12 @@ text/     one file per Unicode class from spec §3.1, plus the
           Every file's claim is in
           `crates/wipemark-core/tests/fixtures.rs`, and
           `every_fixture_is_asserted` fails for a file that has none.
-image/    PNG/JPEG/WebP/TIFF carrying C2PA manifests, XMP
-          DigitalSourceType, Stable Diffusion `parameters` blocks.
-          Phase 2 (E11).
+image/    real PNG/JPEG/WebP files from the C2PA project's public
+          fixtures (E11-1): a C2PA manifest in JPEG APP11, XMP
+          provenance references, a camera WebP. Origin, licence and
+          each file's claim are in `image/README.md`; everything
+          injected (SD `parameters`, ComfyUI, XMP DigitalSourceType…)
+          is built in `crates/wipemark-image/tests/support/`.
 ```
 
 `text/keep-*.txt` — the survival set (E1-2): one file per context rule

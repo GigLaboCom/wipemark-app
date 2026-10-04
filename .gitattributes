@@ -8,3 +8,9 @@ crates/wipemark-core/ucd/SHA256SUMS -text
 # Fixtures are byte-exact: a normalised line ending is a changed fixture
 # (fixtures/README.md, rule 1). E1-3 adds the files.
 fixtures/text/**                    -text
+
+# Image fixtures (E11-1): byte-exact containers whose CRCs, RIFF sizes
+# and marker lengths are the point. Never normalised, never diffed.
+fixtures/image/*.jpg                binary
+fixtures/image/*.png                binary
+fixtures/image/*.webp               binary
