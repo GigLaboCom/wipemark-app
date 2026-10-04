@@ -18,7 +18,7 @@ so out loud wherever a user could mistake them for present — see
 `docs/architecture/skeleton.md` and `docs/architecture/layer-a.md`
 before assuming anything works. Of Layer B, the local engine exists —
 llama.cpp in `wipemark-llama{,-sys}` and `wipemark_engine::LocalEngine`
-behind `local-llama`, tested against a real GGUF — and the application
+behind `local-llama`, tested against a real GGUF (Qwen3 4B, Gemma 4 12B, Qwen3.8 27B) — and the application
 hands it out: the windows can **load** the chosen model, keep it or let it
 go by the owner's policy (`EngineHost`), and **check** that it writes —
 but nothing rewrites a document yet (that is the pipeline, E4); see
@@ -122,6 +122,10 @@ cargo test   -p wipemark-llama -p wipemark-engine --features wipemark-engine/lla
 WIPEMARK_TEST_GGUF=/path/to/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf \
 cargo test   -p wipemark-engine --features llama-native --locked -- --ignored --test-threads=1
 ```
+
+`WIPEMARK_TEST_GGUF_GEMMA4` / `WIPEMARK_TEST_GGUF_QWEN38` (and
+`WIPEMARK_TEST_GPU_LAYERS_QWEN38`) add the two models' live tests, which
+skip when unset (D186).
 
 ## Working here
 
@@ -1162,9 +1166,10 @@ Anything that needed more than a rule to explain is in `docs/`;
   the old project is named. It is edited here and never synced back. It
   is pinned to **one** llama.cpp commit (`PIN.md`; `build.rs` refuses a
   fetched tree at any other), and a bump is a deliberate commit that runs
-  the native gates and the live gate. At this pin Gemma 4 does not run locally (its
-  chat template is unknown to `llama_chat_apply_template`) and Qwen3.8
-  needs llama.cpp b10731 or newer — both run only as an endpoint (D96). `unsafe` lives in **one** module,
+  the native gates and the live gate. The pin is `b10731` (D180). Gemma 4 and
+  Qwen3.8 run locally: their chat templates are rendered by
+  `wipemark_llama::chat`, thinking off, because `llama_chat_apply_template`
+  does not know Gemma 4 and renders Qwen3.8 with thinking on (D181, D182). `unsafe` lives in **one** module,
   `wipemark_llama::ffi` (`deny` crate-wide, `allow` there alone, a
   `// SAFETY:` on every block); every other crate keeps
   `forbid(unsafe_code)`. And it is **refused rather than faked** when it
@@ -1175,7 +1180,9 @@ Anything that needed more than a rule to explain is in `docs/`;
   flag the decode loop reads between steps and then *waits* for the
   worker if it had taken the job up (one step, ~40 ms on a CPU), so the
   next request never starts on a model still decoding — and a request
-  still queued is cancelled at once rather than after the one ahead. See `docs/architecture/local-engine.md`.
+  still queued is cancelled at once rather than after the one ahead.
+  Dropping the engine waits for the worker to free the model — a free
+  racing `exit` was the SIGSEGV every Vulkan process ended with (D184). See `docs/architecture/local-engine.md`.
 * **A model is loaded by policy, in one place.**
   `apps/wipemark-app/src/engine_host.rs`. `LocalEngine` never unloads on
   its own; `EngineHost` decides, and the decision is `decide` — a pure
