@@ -97,23 +97,21 @@ jobs:
           GGML_VULKAN: "ON"
         run: cargo clippy -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --all-targets --locked -- -D warnings
 
-      - name: test (source, model-free)
-        env:
-          WIPEMARK_LLAMA_SOURCE: "1"
-          GGML_VULKAN: "ON"
-        run: cargo test -p wipemark-llama-sys -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked
-
-      # Run by name, and the run checked for it: the test exists only when
-      # the build script found the archive's bindings, and a test that was
-      # not compiled in passes by being absent.
-      - name: the two bindings, compared
+      # The comparison runs inside this step — one more selection of
+      # packages would be one more cmake build of llama.cpp — and is
+      # checked for by name: the test exists only when the build script
+      # found the archive's bindings, and a test that was not compiled in
+      # passes by being absent.
+      - name: test (source, model-free; the two bindings compared)
         env:
           WIPEMARK_LLAMA_SOURCE: "1"
           GGML_VULKAN: "ON"
         run: |
-          cargo test -p wipemark-llama-sys --features native --locked -- \
-            the_archive_bindings_are_the_ones_bindgen_generates --nocapture 2>&1 | tee compare.log
-          grep -q "the_archive_bindings_are_the_ones_bindgen_generates ... ok" compare.log
+          set -o pipefail
+          cargo test -p wipemark-llama-sys -p wipemark-llama -p wipemark-engine \
+            --features wipemark-engine/llama-native --locked -- --nocapture 2>&1 | tee test.log
+          grep -q "the_archive_bindings_are_the_ones_bindgen_generates ... ok" test.log
+          grep "^bindings: " test.log
 
       - name: ggml devices (source)
         env:

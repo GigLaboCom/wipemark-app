@@ -17,9 +17,10 @@
 #             variants + Vulkan, the backends a Linux release ships), then
 #             clippy and the model-free tests of wipemark-llama and
 #             wipemark-engine under `llama-native`, and the ggml devices the
-#             archive's backends registered (Vulkan through Mesa's software
-#             driver). No cmake, no clang, no glslc: only the Vulkan loader
-#             the archive's README asks for. No GPU and no model on a hosted
+#             archive's backends registered — the CPU: ggml-vulkan loads,
+#             finds only Mesa's software driver, and offers no device for a
+#             CPU-type one. No cmake, no clang, no glslc: only the Vulkan
+#             loader the archive's README asks for. No GPU and no model on a hosted
 #             runner: the `--ignored` live gate is not run here and still
 #             runs by hand (docs/architecture/local-engine.md, "Running the
 #             native gates"). The source build has its own workflow,
@@ -184,8 +185,10 @@ jobs:
       - name: test (llama-native, model-free)
         run: cargo test -p wipemark-llama-sys -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked
 
-      # The devices ggml registered from the archive's backends/, printed:
-      # the CPU variant this runner picked and Vulkan over lavapipe.
+      # The devices ggml registered from the archive's backends/, printed.
+      # The CPU only, on a runner with no GPU: ggml-vulkan skips a CPU-type
+      # Vulkan device (Mesa's lavapipe, installed above so the backend's
+      # instance code runs); a GPU machine lists `Vulkan0` (the live gate).
       - name: ggml devices
         run: cargo test -p wipemark-llama --features native --locked --test native the_runtime_reports_at_least_the_cpu_backend -- --nocapture
 
