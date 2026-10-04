@@ -97,6 +97,8 @@ pub struct Verified {
     /// A canonical map at a row's own place: the one placement that can
     /// be exact.
     exact_place: bool,
+    /// The map was fitted from real outputs (D245): never exact.
+    fitted: bool,
     /// The raster's dimensions, so a restore onto another raster is
     /// refused.
     width: u32,
@@ -147,6 +149,9 @@ impl Verified {
         self.exact_place
     }
 
+    pub(crate) fn fitted(&self) -> bool {
+        self.fitted
+    }
 
     pub(crate) fn fits(&self, raster: &Raster) -> bool {
         raster.width() == self.width && raster.height() == self.height
@@ -449,6 +454,7 @@ pub(crate) fn verify(
             edge_ratio,
             holes,
             exact_place,
+            fitted: profile.fitted.get(proposal.map).copied().unwrap_or(false),
             width: raster.width(),
             height: raster.height(),
             contour: energy[0],
@@ -657,6 +663,7 @@ mod tests {
             edge_ratio: 0.0,
             holes: 0,
             exact_place: true,
+            fitted: false,
             width: 1,
             height: 1,
             contour: 0.0,

@@ -13,7 +13,7 @@
       "alpha": [
         { "id": "gemini-v1-48", "asset": "gemini-v1-48.wma", "sha256": "b32ca0dc3d0f4357d18bc6ab20da18ca38351791c4fd9d34375796962f74a563", "size": [48, 48] },
         { "id": "gemini-v1-96", "asset": "gemini-v1-96.wma", "sha256": "3fa762cb5d3eb50063ebc9a39a4415c8e46b5bc1b8a18165bdb6921883c30712", "size": [96, 96] },
-        { "id": "gemini-v1-96-measured", "asset": "gemini-v1-96-measured.wma", "sha256": "07b4bec41466b967f3c47776bcdac31a06d1ffaad64bf9dec56d2b68a51dda84", "size": [96, 96] }
+        { "id": "gemini-v1-96-measured", "asset": "gemini-v1-96-measured.wma", "sha256": "07b4bec41466b967f3c47776bcdac31a06d1ffaad64bf9dec56d2b68a51dda84", "size": [96, 96], "fitted": true }
       ],
       "placements": [
         { "when": { "min_width": 1025, "min_height": 1025 }, "corner": "bottom-right", "margin": [64, 64], "alpha": "gemini-v1-96-measured" },

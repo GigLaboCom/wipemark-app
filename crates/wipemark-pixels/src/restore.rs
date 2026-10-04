@@ -46,8 +46,15 @@ pub struct Restored {
     /// restoration is kept — it took most of the mark away — and an
     /// outline of it is said to be left.
     pub outline_left: bool,
-    /// Lossless source, a row's own canonical map, no hole, no clamp, no
-    /// outline: the original values to within one level.
+    /// The source was stored with loss: the restoration is as close as the
+    /// stored values allow.
+    pub lossy: bool,
+    /// The map was fitted from real outputs, not the vendor's own α
+    /// (D245): the restoration is held to the picture around it
+    /// (`step`), never claimed exact.
+    pub fitted: bool,
+    /// Lossless source, a row's own canonical map that is not fitted, no
+    /// hole, no clamp, no outline: the original values to within one level.
     pub exact: bool,
 }
 
@@ -119,8 +126,11 @@ pub fn restore(
         outline: outline.share,
         step: outline.step,
         outline_left: outline.left(),
+        lossy: options.source == Fidelity::Lossy,
+        fitted: verified.fitted(),
         exact: options.source == Fidelity::Lossless
             && verified.exact_place()
+            && !verified.fitted()
             && holes == 0
             && clamped == 0
             && !outline.left(),

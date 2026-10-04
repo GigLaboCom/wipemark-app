@@ -72,10 +72,11 @@ fn jpeg_of(raster: &Raster, quality: u8) -> Vec<u8> {
 }
 
 /// The vendor's own mark, at its row: proved there, restored with no
-/// outline, and nothing proves on the result. Not *exact*: GWT's maps are
-/// 8-bit captures of the vendor's α, and over a real output the inverse
-/// leaves the range by more than half a level on a handful of samples,
-/// which are clamped and counted — under one in a hundred here.
+/// outline — its faint band within the picture's own noise of the pixels
+/// around it — and nothing proves on the result. Not *exact*: the map is
+/// fitted from real outputs (D245); where the inverse leaves the range by
+/// more than half a level, the samples are clamped and counted — under
+/// three in a hundred.
 #[test]
 fn a_real_mark_is_proved_at_its_row_and_restored() {
     for name in MARKED {
@@ -104,6 +105,10 @@ fn a_real_mark_is_proved_at_its_row_and_restored() {
         let r = &report.restored[0];
         assert!(!r.outline_left, "{name}: {r:?}");
         assert!(r.step.abs() <= NOISE_LEVELS, "{name}: {r:?}");
+        // The map is fitted from real outputs: held to the picture around
+        // it, never claimed exact (D245) — the logo's spread across
+        // pictures alone is over a level.
+        assert!(r.fitted && !r.exact, "{name}: {r:?}");
         assert!(r.clamped * 100 < r.changed * 3, "{name}: {r:?}");
         assert!(r.outline <= OUTLINE_BOUND, "{name}: {r:?}");
         assert!(!cleaned.marks_left(), "{name}");

@@ -151,9 +151,32 @@ fn clean_removes_a_proved_mark_with_no_flag() {
     let answer = json(&scratch.run(&["clean", "art.png", "-o", "j.png", "--json"]));
     assert_eq!(answer["report"]["marks_left"], Value::Bool(false));
     assert_eq!(answer["report"]["encoding"]["kind"], "png");
-    // A real output: restored without an outline.
+    // A real output: restored without an outline, with the map measured
+    // from real outputs — so not claimed exact (D245), and the human report
+    // says why, and how close, rather than blaming a loss a PNG never had.
     let restored = &answer["report"]["visible"]["restored"][0];
     assert_eq!(restored["outline_left"], Value::Bool(false));
+    assert_eq!(restored["fitted"], Value::Bool(true));
+    assert_eq!(restored["exact"], Value::Bool(false));
+    assert!(said.contains("measured from real outputs"), "{said}");
+    assert!(said.contains("levels of the picture around it"), "{said}");
+    assert!(!said.contains("stored with loss"), "{said}");
+    assert!(!said.contains("to within one level"), "{said}");
+}
+
+/// The vendor's mark over a saturated green, a lossless PNG: the inverse
+/// leaves the range under it, the samples are clamped back to 0 — and
+/// that is what the report says, not that the picture was stored with a
+/// loss it never had (D245).
+#[test]
+fn a_clamped_restoration_says_it_clamped_not_that_it_was_lossy() {
+    let scratch = Scratch::new("clamped");
+    scratch.file("art.png", &real("anchor-green-1025.png"));
+    let output = scratch.run(&["clean", "art.png"]);
+    let said = stdout(&output);
+    assert_eq!(code(&output), 1, "{said}");
+    assert!(said.contains("were clamped"), "{said}");
+    assert!(!said.contains("stored with loss"), "{said}");
 }
 
 /// `crying` is a re-saved copy over a flattened background: its mark is

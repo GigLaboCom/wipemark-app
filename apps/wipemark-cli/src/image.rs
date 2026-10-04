@@ -674,12 +674,45 @@ fn visible_lines(say: Say, visible: &Visible, cleaned: bool) -> Vec<String> {
                     ),
                 )
             ));
-            let note = if restored.exact {
-                Message::CliImageVisibleExact
+            // Exact, or why not — each reason that holds, by name: a lossless
+            // PNG that only clamped was not "stored with loss" (D245).
+            let mut notes = Vec::new();
+            if restored.exact {
+                notes.push(say(Message::CliImageVisibleExact, &FluentArgs::new()));
             } else {
-                Message::CliImageVisibleInexact
-            };
-            lines.push(format!("    {}", say(note, &FluentArgs::new())));
+                if restored.lossy {
+                    notes.push(say(Message::CliImageVisibleInexact, &FluentArgs::new()));
+                }
+                if restored.clamped > 0 {
+                    notes.push(say(
+                        Message::CliImageVisibleClamped,
+                        &args!("clamped" => restored.clamped.to_string()),
+                    ));
+                }
+                if restored.fitted {
+                    notes.push(say(Message::CliImageVisibleFitted, &FluentArgs::new()));
+                }
+                let said = restored.lossy
+                    || restored.clamped > 0
+                    || restored.fitted
+                    || restored.holes > 0
+                    || restored.outline_left;
+                if !said {
+                    notes.push(say(Message::CliImageVisibleResampled, &FluentArgs::new()));
+                }
+                // Not exact, so what it is: the mark's faint band against
+                // the picture around it (D244). An outline left says its
+                // own number below.
+                if !restored.outline_left {
+                    notes.push(say(
+                        Message::CliImageVisibleResidual,
+                        &args!("levels" => fixed(restored.step.abs(), 1)),
+                    ));
+                }
+            }
+            for note in notes {
+                lines.push(format!("    {note}"));
+            }
             if restored.holes > 0 {
                 lines.push(format!(
                     "    {}",

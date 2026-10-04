@@ -234,6 +234,11 @@ pub struct Profile {
     pub opaque_above: f32,
     /// The opacity maps, by id.
     pub maps: Vec<(String, AlphaMap)>,
+    /// Per map, in the order of `maps`: fitted from real outputs rather
+    /// than the vendor's own α (D245). A restoration with a fitted map is
+    /// never claimed exact — the fit is an average over pictures, and the
+    /// logo's spread across them alone is over a level.
+    pub fitted: Vec<bool>,
     pub placements: Vec<Placement>,
     pub search: Option<Search>,
     /// The first proof's floor: NCC at or above it proposes.
@@ -358,6 +363,9 @@ struct AlphaJson {
     asset: String,
     sha256: String,
     size: [u32; 2],
+    /// Fitted from real outputs, not the vendor's own α (D245).
+    #[serde(default)]
+    fitted: bool,
 }
 
 #[derive(Deserialize)]
@@ -576,6 +584,7 @@ fn profile<'a>(
         logo: row.blend.logo,
         opaque_above: row.opaque_above,
         maps,
+        fitted: row.alpha.iter().map(|a| a.fitted).collect(),
         placements,
         search,
         min_ncc: row.detect.min_ncc,
