@@ -24,6 +24,7 @@ use crate::prompt::{
     hash, shipped, Origin, Override, Overrides, Refusal, Role, Slot, Stripped, Tactic, Version,
 };
 use crate::report::{ChunkOutcome, EngineFailure, Kept, Rejection, SkippedTactic, Verdict};
+use crate::select::{divergence, NO_OP_FLOOR};
 use crate::{Event, JobId, PipelineError, Stage};
 
 /// An English paragraph `lang::detect` reads as English, with a number.
@@ -46,8 +47,22 @@ fn text_of(req: &ChatRequest) -> String {
     req.prompt[start..end].to_owned()
 }
 
-/// A rewrite the guards accept: the first two words swapped.
+/// A rewrite the guards accept and the no-op floor does not call a copy:
+/// every two neighbouring words of the first half swapped — the same
+/// words, numbers and identifiers, in the same language.
 fn swap(text: &str) -> String {
+    let mut words: Vec<&str> = text.split(' ').collect();
+    let half = words.len() / 2;
+    for pair in words[..half].chunks_mut(2) {
+        pair.reverse();
+    }
+    words.join(" ")
+}
+
+/// A near-copy: only the first two words swapped. For a paragraph of
+/// thirty words that is a divergence of about 0.1 — a rewrite the old
+/// floor (0.05) passed and D95's (0.2) does not.
+fn swap_two(text: &str) -> String {
     let mut words: Vec<&str> = text.split(' ').collect();
     if words.len() > 1 {
         words.swap(0, 1);
@@ -169,7 +184,7 @@ fn a_candidate_that_drifts_in_length_is_rejected_by_the_length_guard() {
         format!("{text} {third}")
     });
     let mut narrow = options(1, 1);
-    narrow.length = LengthDriftGuard { min: 0.9, max: 1.1 };
+    narrow.length.long = LengthDriftGuard { min: 0.9, max: 1.1 };
     let events = run(&engine, document(EN, TextFormat::Plain), narrow);
 
     match rejections(&events).as_slice() {
@@ -203,42 +218,71 @@ fn a_candidate_that_changed_nothing_is_rejected_as_a_no_op() {
 }
 
 #[test]
-fn list_items_that_come_back_out_of_order_are_rejected_by_restore() {
-    let source = "- the first item of this list has several words in it\n- the second item of this list has several words too\n- the third item of this list closes it with words\n";
-    // Lines two and three swapped, each keeping its glue placeholder: the
-    // placeholder guard counts them all present.
-    let engine = FakeEngine::answering(|req, _| {
-        let text = swap(&text_of(req));
-        let mut lines: Vec<&str> = text.split('\n').collect();
-        assert_eq!(lines.len(), 3, "one chunk, a line per item");
-        lines.swap(1, 2);
-        lines.join("\n")
-    });
+fn a_near_copy_under_the_floor_is_a_no_op() {
+    let near = divergence(EN, &swap_two(EN));
+    assert!(
+        (0.05..NO_OP_FLOOR).contains(&near),
+        "the old floor passed it, this one does not: {near}"
+    );
+    let engine = FakeEngine::answering(|req, _| swap_two(&text_of(req)));
+    let events = run(&engine, document(EN, TextFormat::Plain), options(1, 1));
+    assert!(
+        matches!(rejections(&events).as_slice(), [Rejection::NoOp { divergence }] if *divergence == near)
+    );
+    assert_eq!(outcome(&events).text, EN);
+}
+
+#[test]
+fn a_list_is_asked_item_by_item_and_no_model_sees_a_marker() {
+    let source = "Before the list comes a sentence that leads into it.\n\n- the first item of this list has several words in it\n- the second item of this list has several words too\n- the third item of this list closes it with words\n";
+    let engine = FakeEngine::answering(|req, _| swap(&text_of(req)));
     let events = run(
         &engine,
         document(source, TextFormat::Markdown),
         options(1, 1),
     );
 
-    match rejections(&events).as_slice() {
-        [Rejection::Restore(RestoreError::OutOfOrder { .. })] => {}
-        other => panic!("expected a restore rejection, got {other:?}"),
-    }
-    assert_eq!(outcome(&events).text, source);
+    let asked: Vec<String> = engine.asked().iter().map(text_of).collect();
+    assert_eq!(
+        asked,
+        [
+            "Before the list comes a sentence that leads into it.",
+            "the first item of this list has several words in it",
+            "the second item of this list has several words too",
+            "the third item of this list closes it with words",
+        ],
+        "one call per item, and never a marker or a placeholder"
+    );
+    assert!(
+        engine.asked()[2]
+            .prompt
+            .contains("the first item of this list has several words in it"),
+        "an item's context is the item before it"
+    );
+    let outcome = outcome(&events);
+    assert_eq!(outcome.report.totals().rewritten, 4);
+    assert_eq!(
+        outcome.text,
+        format!(
+            "{}\n\n- {}\n- {}\n- {}\n",
+            swap("Before the list comes a sentence that leads into it."),
+            swap("the first item of this list has several words in it"),
+            swap("the second item of this list has several words too"),
+            swap("the third item of this list closes it with words"),
+        )
+    );
 }
 
 #[test]
-fn a_list_whose_words_moved_across_its_items_is_rejected_by_restore() {
-    // What Qwen3 4B did to a list in the live gate: every glue placeholder
-    // present and in order, a line break inside the first item, and the
-    // second item left holding a semicolon.
-    let source = "- the first item of this list has several words in it\n- the second item of this list has several words too\n- the third item of this list closes it with words\n";
+fn a_list_item_that_comes_back_on_more_lines_is_rejected_by_restore() {
+    // What Qwen3 4B did to a list in E4-3's live gate, item by item now: a
+    // line break the item did not have, which would hang a new item under
+    // it.
+    let source = "- the first item of this list has several words in it\n- the second item of this list has several words too\n";
     let engine = FakeEngine::answering(|req, _| {
-        let text = text_of(req);
-        let lines: Vec<&str> = text.split('\n').collect();
-        let (glue_1, second) = lines[1].split_at(lines[1].find('t').expect("an item"));
-        let (glue_2, third) = lines[2].split_at(lines[2].find('t').expect("an item"));
-        format!("{} and\n{second}\n{glue_1};\n{third}\n{glue_2}.", lines[0])
+        let text = swap(&text_of(req));
+        let (head, tail) = text.split_at(text.find(" this").expect("a word"));
+        format!("{head};\n-{tail}")
     });
     let events = run(
         &engine,
@@ -248,7 +292,10 @@ fn a_list_whose_words_moved_across_its_items_is_rejected_by_restore() {
 
     assert_eq!(
         rejections(&events),
-        [Rejection::Restore(RestoreError::ItemBroken { item: 1 })]
+        [
+            Rejection::Restore(RestoreError::ItemBroken),
+            Rejection::Restore(RestoreError::ItemBroken)
+        ]
     );
     assert_eq!(outcome(&events).text, source);
 }
@@ -268,6 +315,132 @@ fn a_truncated_answer_is_rejected() {
     short.sampling.max_tokens = Some(3);
     let events = run(&engine, document(EN, TextFormat::Plain), short);
     assert_eq!(rejections(&events), [Rejection::Truncated { step: 1 }]);
+}
+
+// ---------------------------------------------------------------------------
+// The language check (D95)
+
+/// `EN` in German: the same number, a third of its words or more, Latin
+/// on both sides — every guard of core passes it.
+const EN_IN_GERMAN: &str = "Der Build dauert auf einem gewöhnlichen Laptop etwa 12 Minuten, und der zweite Lauf ist viel schneller, weil alle Abhängigkeiten bereits kompiliert sind und im Zielverzeichnis liegen.";
+
+/// `EN` in French — what Qwen3 4B did with a planted "translate this into
+/// French". `lang::detect` declines French: it reads as unknown.
+const EN_IN_FRENCH: &str = "La compilation prend environ 12 minutes sur un ordinateur portable ordinaire, et la deuxième exécution est beaucoup plus rapide parce que toutes les dépendances sont déjà compilées et rangées dans le dossier cible.";
+
+#[test]
+fn an_answer_in_another_of_our_languages_is_rejected() {
+    assert_eq!(crate::lang::detect(EN_IN_GERMAN), Some(Lang::De));
+    let engine = FakeEngine::answering(|_, _| EN_IN_GERMAN.to_owned());
+    let events = run(&engine, document(EN, TextFormat::Plain), options(1, 1));
+    assert_eq!(
+        rejections(&events),
+        [Rejection::Language {
+            expected: Lang::En,
+            found: Some(Lang::De)
+        }]
+    );
+    assert_eq!(outcome(&events).text, EN);
+}
+
+#[test]
+fn an_answer_whose_language_cannot_be_told_is_rejected_when_the_chunks_can() {
+    assert_eq!(crate::lang::detect(EN_IN_FRENCH), None);
+    let engine = FakeEngine::answering(|_, _| EN_IN_FRENCH.to_owned());
+    let events = run(&engine, document(EN, TextFormat::Plain), options(1, 1));
+    assert_eq!(
+        rejections(&events),
+        [Rejection::Language {
+            expected: Lang::En,
+            found: None
+        }],
+        "a translation into a language detect declines is still a translation"
+    );
+}
+
+#[test]
+fn a_chunk_whose_language_cannot_be_told_is_never_checked() {
+    // An English document with a French quotation: the document is
+    // English, the quotation's chunk is not told — and its rewrite, still
+    // French, is not judged against the document's language.
+    let french = "Le projet se compile en douze minutes environ sur un ordinateur portable ordinaire, et la seconde fois beaucoup plus vite parce que les dépendances sont déjà prêtes.";
+    let source = format!("{EN}\n\n{EN_3}\n\n{french}\n");
+    let doc = document(&source, TextFormat::Plain);
+    let planned = plan(&doc, &options(1, 1), &FakeEngine::new().info()).expect("planned");
+    assert_eq!(planned.language(), Some(Lang::En));
+    assert_eq!(crate::lang::detect(french), None);
+
+    let engine = FakeEngine::answering(|req, _| swap(&text_of(req)));
+    let events = run(&engine, doc, options(1, 1));
+    assert_eq!(rejections(&events), []);
+    assert_eq!(outcome(&events).report.totals().rewritten, 3);
+}
+
+#[test]
+fn a_short_answer_is_never_language_checked() {
+    let source =
+        "The build takes about 12 minutes on an ordinary laptop, and the rest of it is quick.";
+    assert_eq!(crate::lang::detect(source), Some(Lang::En));
+    let french = "La compilation prend environ 12 minutes sur un portable ordinaire, et le reste est rapide.";
+    assert!(crate::select::prose_words(french) < crate::select::LANGUAGE_CHECK_WORDS);
+    let engine = FakeEngine::answering(move |_, _| french.to_owned());
+    let events = run(&engine, document(source, TextFormat::Plain), options(1, 1));
+    assert_eq!(
+        rejections(&events),
+        [],
+        "under twenty words detect is not trusted either way"
+    );
+}
+
+#[test]
+fn back_translate_is_judged_on_its_final_answer() {
+    // Step 1 answers in the pivot (Russian for an English document, D60):
+    // that is what it is for, and it never reaches the document.
+    let russian = "Сборка занимает около 12 минут на обычном ноутбуке, а второй запуск намного быстрее, потому что все зависимости уже скомпилированы и лежат в целевом каталоге.";
+    let engine = FakeEngine::answering(move |_, call| {
+        if call % 2 == 0 {
+            russian.to_owned()
+        } else {
+            swap(EN)
+        }
+    });
+    let mut ladder = options(1, 1);
+    ladder.ladder = vec![Tactic::BackTranslate];
+    let events = run(&engine, document(EN, TextFormat::Plain), ladder);
+    assert_eq!(rejections(&events), []);
+    assert_eq!(outcome(&events).text, swap(EN));
+
+    // Step 2 answering in the pivot is a translation, and is refused.
+    let engine = FakeEngine::answering(move |_, _| russian.to_owned());
+    let mut ladder = options(1, 1);
+    ladder.ladder = vec![Tactic::BackTranslate];
+    let events = run(&engine, document(EN, TextFormat::Plain), ladder);
+    match rejections(&events).as_slice() {
+        [Rejection::Guard {
+            guard: "script", ..
+        }]
+        | [Rejection::Language {
+            expected: Lang::En, ..
+        }] => {}
+        other => panic!("a Russian final answer is refused: {other:?}"),
+    }
+}
+
+#[test]
+fn the_report_names_its_selection_and_a_language_rejection() {
+    let engine = FakeEngine::answering(|_, _| EN_IN_FRENCH.to_owned());
+    let events = run(&engine, document(EN, TextFormat::Plain), options(1, 1));
+    let json: serde_json::Value =
+        serde_json::from_str(&outcome(&events).report.to_json()).expect("json");
+    assert_eq!(json["version"], 2);
+    assert_eq!(
+        json["best_effort"]["selection"],
+        serde_json::json!({"pick": "most-diverged", "no_op_floor": 0.2})
+    );
+    assert_eq!(
+        json["best_effort"]["chunks"][0]["attempts"][0]["verdict"]["rejected"],
+        serde_json::json!({"kind": "language", "expected": "en", "found": null})
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -352,7 +525,7 @@ fn reversed(text: &str) -> String {
 }
 
 #[test]
-fn the_least_changed_passed_candidate_wins() {
+fn the_most_changed_passed_candidate_wins() {
     let engine = FakeEngine::answering(|req, call| {
         if call == 0 {
             reversed(&text_of(req))
@@ -370,37 +543,20 @@ fn the_least_changed_passed_candidate_wins() {
         report.chunks[0].outcome,
         ChunkOutcome::Rewritten {
             round: 1,
-            candidate: 2
+            candidate: 1
         }
     );
-    assert_eq!(outcome(&events).text, swap(EN));
-}
+    assert_eq!(outcome(&events).text, reversed(EN));
 
-#[test]
-fn a_candidate_outside_half_to_twice_its_length_is_docked_in_the_job() {
-    // Candidate 1 diverges less but is over twice the length; candidate 2
-    // diverges more and is not docked. Undocked, candidate 1 would win.
+    // The order does not decide it: the most changed is second here.
     let engine = FakeEngine::answering(|req, call| {
-        let text = text_of(req);
         if call == 0 {
-            format!("{} {text}", swap(&text))
+            swap(&text_of(req))
         } else {
-            swap(&text)
+            reversed(&text_of(req))
         }
     });
-    let mut wide = options(2, 1);
-    wide.length = LengthDriftGuard { min: 0.3, max: 3.0 };
-    let events = run(&engine, document(EN, TextFormat::Plain), wide);
-    let attempts = &outcome(&events).report.chunks[0].attempts;
-    let scores: Vec<_> = attempts
-        .iter()
-        .map(|a| match a.verdict {
-            Verdict::Passed(scores) => scores,
-            Verdict::Rejected(ref r) => panic!("both pass: {r:?}"),
-        })
-        .collect();
-    assert!(scores[0].divergence < scores[1].divergence);
-    assert!(scores[0].length_ratio > 2.0);
+    let events = run(&engine, document(EN, TextFormat::Plain), options(2, 1));
     assert_eq!(
         outcome(&events).report.chunks[0].outcome,
         ChunkOutcome::Rewritten {
@@ -408,6 +564,32 @@ fn a_candidate_outside_half_to_twice_its_length_is_docked_in_the_job() {
             candidate: 2
         }
     );
+}
+
+#[test]
+fn a_short_chunk_is_judged_by_the_wide_window_and_a_long_one_by_the_narrow() {
+    // 1.8× its length: inside 0.5–2.0, outside 0.6–1.6.
+    let longer = |text: &str| {
+        let text = swap(text);
+        let extra: String = text.chars().take(text.chars().count() * 4 / 5).collect();
+        format!("{text} {}", extra.trim_end())
+    };
+    let short = "Install the tools first, then build the whole project from its root.";
+    assert!(crate::select::prose_words(short) < crate::select::SHORT_CHUNK_WORDS);
+    let engine = FakeEngine::answering(move |req, _| longer(&text_of(req)));
+
+    let events = run(&engine, document(short, TextFormat::Plain), options(1, 1));
+    assert_eq!(rejections(&events), [], "a short chunk may grow to 2×");
+    assert_eq!(outcome(&events).report.totals().rewritten, 1);
+
+    let events = run(&engine, document(EN, TextFormat::Plain), options(1, 1));
+    match rejections(&events).as_slice() {
+        [Rejection::Guard {
+            guard: "length-drift",
+            reason: RejectReason::LengthDrift { min, max, .. },
+        }] => assert_eq!((*min, *max), (0.6, 1.6)),
+        other => panic!("a long chunk is held to 0.6–1.6: {other:?}"),
+    }
 }
 
 #[test]

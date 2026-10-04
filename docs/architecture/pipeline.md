@@ -92,18 +92,20 @@ that tries another format changes both.
 
 ### Chunks (D70, narrowed by the owner)
 
-**One paragraph is one chunk**; short ones are not merged. **One list is
-one chunk**: its items are joined by **glue** — the bytes between two
-items (newline, marker, indentation, `>`, a task box, a blank line), one
-placeholder each — so a reordered or re-wrapped list comes back with its
-markers exactly. The model sees each glue placeholder at the start of a
-line of its own; the newline before it is presentation only, because
-restore drops whitespace that touches glue. A kept block inside a list (a
-code block in an item) ends the chunk there.
+**One paragraph is one chunk**; short ones are not merged. **One list
+item is one chunk** too (E4-7, D95): its marker, its indentation, a task
+box and the blank line before it are the bytes *between* two chunks, so
+they are copied from the source and no model ever sees one. Until E4-7 a
+list was one chunk whose items were joined by "glue" placeholders at the
+start of each line; those were the placeholders models dropped (taking
+them for list markers), and the re-split items behind `ItemBroken` — the
+bench found lists most of the paragraphs that came back unchanged. A
+paragraph inside an item (a loose item's second paragraph, a quote in an
+item) is a chunk of its own like any other.
 
 The budget is `min(ctx_len × 0.4, 600)` estimated tokens, 600 when the
-context length is unknown. Only what is over it is split: a list between
-items; a paragraph at sentence ends (`.!?…` and closers before
+context length is unknown. Only what is over it is split: a paragraph (or
+an item) at sentence ends (`.!?…` and closers before
 whitespace; `。！？` with or without it, because CJK prose has none); a
 sentence between words; a word over the budget is a chunk of its own. No
 cut lies inside a protected span, and the whitespace at a cut — in
@@ -119,22 +121,18 @@ that for whatever the model wrote, in this order:
 1. `\r\n` as `\n`; leading and trailing whitespace dropped.
 2. Every canonical placeholder checked — a number the chunk does not have
    (`Unknown`), one that did not come back (`Missing`), one twice
-   (`Duplicated`), list glue out of its order (`OutOfOrder`, since glue
-   carries `2.`). Restore never guesses which span a damaged placeholder
+   (`Duplicated`). Restore never guesses which span a damaged placeholder
    meant; the loop's `PlaceholderGuard` will normally have rejected the
-   candidate first. In a chunk with list glue, an item that came back
-   with more line breaks than it went in with (`ItemBroken`, E4-3 — see
-   "One attempt" below).
-3. Whitespace touching glue dropped (the glue holds the source's own).
-4. Every newline written as the chunk's line ending plus the container's
+   candidate first. A chunk that is a **list item** may not come back with
+   more line breaks than it went in with (`ItemBroken`, E4-3, per item
+   since E4-7 — see "One attempt" below).
+3. Every newline written as the chunk's line ending plus the container's
    **continuation prefix** — derived from the piece's first line: `>` and
    blanks kept, a list marker or task box turned into spaces (`"> "`,
    `"  "`, `"    "` for `10. `), trailing blanks trimmed on an empty
    line. So a model that re-wrapped a quoted paragraph into four lines
    still gives back a quote, and an item's second line stays in the item.
-   Within a list chunk the prefix after glue `⟦k⟧` is the prefix of the
-   item that glue introduces.
-5. Every `⟦k⟧` replaced by `protected[k-1]`.
+4. Every `⟦k⟧` replaced by `protected[k-1]`.
 
 An unchanged candidate restores to the source exactly whenever the
 source's continuation lines carry the canonical prefix (tested); a lazy
@@ -145,7 +143,9 @@ is the same document to every Markdown reader.
 
 The last two sentences of the previous chunk's **source** — never of its
 rewrite, so chunks stay independent and the loop can run them in any
-order — with protected spans written back, glue read as a sentence break.
+order — with protected spans written back. For a list item that is the
+item before it (or, for the first, the paragraph that leads into the
+list).
 An original that holds a marker or a placeholder bracket is written back
 as `…`: the context sits between the prompt's markers, outside what
 `PlaceholderGuard` checks. Capped at a quarter of the budget (the last
@@ -212,9 +212,9 @@ plan document `docs/plan/E4-3-the-loop.md`).
 ```
 crates/wipemark-pipeline/src/job/mod.rs      Options, Document, start, JobHandle, Refused, the job's thread
 crates/wipemark-pipeline/src/job/plan.rs     plan → Planned: Layer A first, the budget, the usable ladder, template fallbacks, cost()
-crates/wipemark-pipeline/src/job/attempt.rs  one attempt: render → complete → clean_response → Layer A → guards → restore → no-op
+crates/wipemark-pipeline/src/job/attempt.rs  one attempt: render → complete → clean_response → Layer A → verdict (guards → language → restore → no-op)
 crates/wipemark-pipeline/src/job/drive.rs    the few lines of std::task that drive an engine's future and forward its tokens
-crates/wipemark-pipeline/src/select.rs       divergence, the no-op floor, the length penalty, the scorer seam, the winner
+crates/wipemark-pipeline/src/select.rs       divergence, the no-op floor, the length windows, RULES, the scorer seam, the winner
 crates/wipemark-pipeline/src/cost.rs         Executor, Effort (D61), Cost
 crates/wipemark-pipeline/src/report.rs       Rejection, EngineFailure, JobReport and its records, the ASCII JSON form
 crates/wipemark-pipeline/tests/live.rs       the live gate on Qwen3 4B (llama-native, #[ignore])
@@ -255,26 +255,57 @@ render(step, chunk text | step 1's cleaned answer, the chunk's context, intensit
 → into_request(seed, max_tokens) → engine.complete (tokens → Event::Token as they arrive)
 → clean_response                         (D67: think blocks, markers, one fence or quote pair; never a preface)
 → Layer A over the final answer          (what the model slipped in, removed and counted per attempt)
-→ the five guards (chunk.text, answer)   (first reject wins; the length window is the options')
-→ chunk.restore(answer)                  (any RestoreError is a rejection — OutOfOrder and ItemBroken are what a guard cannot see)
-→ divergence < 0.05 → no-op              (D71)
+→ job::verdict:
+    the five guards (chunk.text, answer) (first reject wins; the length window is the chunk's — below)
+  → the language check                  (D95: 20+ words, not in the chunk's language → Rejection::Language)
+  → chunk.restore(answer)               (any RestoreError is a rejection — ItemBroken is what a guard cannot see)
+  → divergence < 0.2 → no-op            (D95; 0.05 until E4-7)
 → passed: divergence, length ratio, score
 ```
 
-`ItemBroken` came out of the first live run: Qwen3 4B gave a three-item
+`job::verdict` is public: the prompt bench judges its answers with it,
+so the bench's verdicts are the loop's by construction (and `bench
+verify` checks it on a live model).
+
+**The length window depends on the chunk** (D95): a chunk of 20 words or
+more (runs of letters and digits outside the placeholders) is held to
+0.6–1.6 of its length, a shorter one to 0.5–2.0 — a lead-in line that
+grows from four words to seven has not lost its meaning, a paragraph that
+grows by two thirds has, two times in three by the bench's judge.
+`Options::length` holds both windows; stored options (version 2) carry
+both, and a version 1 row's one window is read as both.
+
+**The language check** (D95). When the chunk's language can be told
+(`lang::detect` over its text, placeholders removed) and the answer has
+20 words or more, an answer detected as **another language or as none**
+is rejected — `Rejection::Language { expected, found }`. *None* counts:
+French, Spanish or Ukrainian read as unknown by design, and the bench's
+planted "translate this into French" answers that passed every guard (32
+of them) were all of that kind; `ScriptGuard` cannot see French for
+English. A chunk whose language cannot be told is never checked, and
+neither is an answer under 20 words. Only the **final** answer is
+checked, against the chunk's language: that is what every tactic's last
+step must produce — `back_translate`'s step 1 answers in the pivot on
+purpose and never reaches the document. A paragraph in another language
+than its document is therefore refused when `back_translate` returns it
+in the document's language: that is a translation. Cost on the bench:
+0.3–0.4 % of the other passed answers.
+
+`ItemBroken` came out of E4-3's first live run: Qwen3 4B gave a three-item
 list back with every glue placeholder present and in order, but with item
-2's words on a new line inside item 1 and item 2 reduced to `;`. In a
-chunk with list glue, `restore` now refuses an item that comes back with
-more line breaks than it went in with (edges trimmed, so the newline before
-a glue placeholder — the glue's own — may be kept, dropped or doubled). A
-paragraph is not checked: re-wrapped, it is still one paragraph. Words
-moved across an item boundary *without* a new line break are not seen.
+2's words on a new line inside item 1 and item 2 reduced to `;`. Since
+E4-7 an item is its own chunk and nothing can move across items; what
+stays refused is an item that comes back with more line breaks than it
+went in with (edges trimmed) — a new line is laid under the marker's
+indentation, so a `- ` the model put at its start becomes a nested list
+and a blank line makes the whole list loose. A paragraph outside a list is
+not checked: re-wrapped, it is still one paragraph.
 
 Layer A runs **before** the guards so that a U+200B the model put into an
 identifier costs the candidate nothing: it is removed, counted, and the
 identifier is whole again. Every rejection is a value
 (`Rejection::{Engine, Truncated, Empty, Guard { guard, reason },
-Restore, NoOp, MarkerInAnswer}`) carried by `Event::CandidateRejected`
+Language { expected, found }, Restore, NoOp, MarkerInAnswer}`) carried by `Event::CandidateRejected`
 and the report; the surface words it. A candidate that was rejected is
 never used — rejected attempts carry no text.
 
@@ -288,14 +319,25 @@ window; without a ceiling a runaway answer costs minutes on a CPU.
 
 ### Choosing
 
-`min-divergence` (D71): the passed candidate with the lowest score wins,
-score = bigram-Jaccard divergence from the chunk (words are placeholders
-or runs of letters and digits, lower-cased), plus 0.15 when the length
-ratio is outside 0.5–2×. With the default length guard (0.6–1.6) the
-penalty cannot fire; it is live for a wider window, which is what the
-options' `length` field is for (the bench, E4-5). A tie goes to the
-earlier attempt. `Scorer::Divergence` is the only scorer; the keyed one
-of D72 would be another arm of the same enum.
+**The most diverged wins** (D95, moving D71's `min-divergence`): of the
+candidates that passed, the one with the highest score — the
+bigram-Jaccard divergence from the chunk (words are placeholders or runs
+of letters and digits, lower-cased) — is the one the user gets. Every
+candidate that passed kept every fact, number, name, protected span and
+the chunk's language, so the furthest from the original carries the least
+of its wording over: on the bench, 5–10 points fewer of the original's
+word pairs at the same time and with no more meaning judged lost. Its
+cost is fluency, sometimes — the most-changed rewrite is now and then the
+most rearranged. A tie goes to the earlier attempt. There is no length
+penalty any more (D71's 0.15 outside 0.5–2× could never fire behind the
+guard). `Scorer::Divergence` is the only scorer; the keyed one of D72
+would be another arm of the same enum.
+
+`select::RULES` is every rule a verdict and a winner depend on besides
+the options — the selection, the floor, the 20-word boundary of the
+length windows and of the language check — and the report says which
+selection and floor it ran under (`best_effort.selection`, report
+version 2).
 
 ### Seeds
 
@@ -408,8 +450,10 @@ carried attempt stays JSON; `ChunkReport::carried`, `totals()` counts it).
 A record is used only when **all** of these hold, and is otherwise
 discarded — never repaired:
 
-- its fingerprint is the job's: sha256 over a version tag, the document's
-  text and format, the options' `Debug` (every field and override), the
+- its fingerprint is the job's: sha256 over a version tag
+  (`wipemark-resume/2` since E4-7), `select::RULES` (so a build that moves
+  the selection, the floor or a threshold forgets every record without
+  anyone remembering to bump the tag), the document's text and format, the options' `Debug` (every field and override), the
   engine's identity, the chunk budget and the usable rungs with their
   templates. So a source edited between a crash and the restart, other
   options, another model or a new build's template invalidates every

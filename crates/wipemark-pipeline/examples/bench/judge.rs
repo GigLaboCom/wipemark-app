@@ -68,13 +68,15 @@ pub fn ask(engine: &dyn RewriteEngine, source: &str, answer: &str) -> (String, f
 }
 
 /// The attempts worth judging: an answer that passed every guard but the
-/// length guard, and restored.
+/// length guard, restored, and was not refused by the language check (a
+/// translation can be faithful and is still not a rewrite).
 pub fn judgeable(record: &Value) -> bool {
     let Some(guards) = record["guards"].as_object() else {
         return false;
     };
     record["answer"].is_string()
         && record["restore"].is_null()
+        && record["verdict"] != "language"
         && guards
             .iter()
             .all(|(name, v)| name == "length-drift" || v.is_null())

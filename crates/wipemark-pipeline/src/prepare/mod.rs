@@ -20,9 +20,9 @@
 //!   the prompt's own markers become numbered placeholders
 //!   ([`placeholder`]), and [`Chunk::restore`] puts the originals back by
 //!   exact text — or refuses, naming the placeholder, rather than guess.
-//! * **One paragraph is one chunk** (the owner, 2026-10-03), and a list is
-//!   one chunk; only a piece over the [`Budget`] is split, at sentence
-//!   ends.
+//! * **One paragraph is one chunk** (the owner, 2026-10-03), and so is
+//!   one list item (D95) — its marker stays in the source's bytes between
+//!   chunks; only a piece over the [`Budget`] is split, at sentence ends.
 
 mod chunk;
 mod html;
@@ -139,7 +139,7 @@ pub struct Chunk {
     /// What the model sees: the source of `range` with every protected
     /// span as `⟦n⟧`, line endings as `\n`, and — in Markdown — the
     /// container prefix (`> `, an item's indentation) of every
-    /// continuation line taken off.
+    /// continuation line taken off. Never a list marker.
     pub text: String,
     /// `protected[k]` is the original text of `⟦k+1⟧`.
     pub protected: Vec<String>,
@@ -157,21 +157,12 @@ pub struct Chunk {
 struct Layout {
     /// The line ending of the chunk's source.
     newline: Newline,
-    /// `glue[k]`: whether `⟦k+1⟧` is the glue between two list items
-    /// rather than a protected span inside one.
-    glue: Vec<bool>,
-    /// The continuation prefix in force from the start of the candidate
-    /// (`segments[0]`) and after each glue placeholder.
-    segments: Vec<Segment>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Segment {
-    /// The glue placeholder this segment starts after; `None` for the
-    /// first.
-    after: Option<usize>,
-    /// What every new line in this segment starts with.
+    /// What every new line of the candidate starts with: the container's
+    /// continuation prefix (`> `, an item's indentation).
     prefix: String,
+    /// The chunk is (part of) a Markdown list item: it may not come back
+    /// with more line breaks than it went in with.
+    item: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,17 +193,13 @@ pub enum RestoreError {
     /// `⟦index⟧` came back `count` times.
     #[error("placeholder {index} came back {count} times")]
     Duplicated { index: usize, count: usize },
-    /// The glue between two list items came back out of its order: the
-    /// marker it carries (`2.`) would number the wrong item.
-    #[error("list glue {index} came back out of order")]
-    OutOfOrder { index: usize },
-    /// Item `item` (1-based) of a list came back with more line breaks
-    /// than it went in with: the model moved text across the items'
-    /// boundaries (E4-3's live gate — an item became `;` and its words
-    /// moved into the item before), which every placeholder still in its
-    /// place and in its order does not show.
-    #[error("list item {item} came back broken across lines")]
-    ItemBroken { item: usize },
+    /// A list item came back with more line breaks than it went in with
+    /// (E4-3's live gate, D87; per item since D95). A new line inside an
+    /// item is laid back under the marker's indentation: a `- ` the model
+    /// started it with would become a nested list, and a blank line would
+    /// make the whole list loose.
+    #[error("a list item came back broken across lines")]
+    ItemBroken,
 }
 
 /// Why a document cannot be assembled.
@@ -234,13 +221,13 @@ pub fn prepare(text: &str, format: TextFormat, budget: Budget) -> Prepared {
     } else {
         0
     };
-    let units = match format {
-        TextFormat::Plain => plain::units(text, start),
-        TextFormat::Markdown => markdown::units(text, start),
-        TextFormat::Html => html::units(text, start),
+    let pieces = match format {
+        TextFormat::Plain => plain::pieces(text, start),
+        TextFormat::Markdown => markdown::pieces(text, start),
+        TextFormat::Html => html::pieces(text, start),
         TextFormat::Code => Vec::new(),
     };
-    let chunks = chunk::chunks(text, &units, budget);
+    let chunks = chunk::chunks(text, &pieces, budget);
     let prose = chunks
         .iter()
         .map(|chunk| without_placeholders(&chunk.text))
@@ -255,7 +242,7 @@ pub fn prepare(text: &str, format: TextFormat, budget: Budget) -> Prepared {
 
 /// `text` with every placeholder replaced by a space: what is left is
 /// what the model is asked to rewrite.
-fn without_placeholders(text: &str) -> String {
+pub(crate) fn without_placeholders(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut at = 0;
     for (range, _) in placeholders_in(text) {
@@ -332,52 +319,30 @@ impl Chunk {
     /// In order: `\r\n` read as `\n`; the candidate's leading and trailing
     /// whitespace dropped (the chunk's text has none, and the bytes around
     /// a chunk are the source's); every placeholder checked — unknown,
-    /// missing, duplicated, or list glue out of order is a
-    /// [`RestoreError`] naming it; in a list, an item with more line
-    /// breaks than it had is one too; whitespace touching list glue dropped
-    /// (the glue holds the source's own); every newline written as the
-    /// source's line ending followed by the container's continuation
-    /// prefix; every `⟦k⟧` replaced by `protected[k-1]` exactly.
+    /// missing or duplicated is a [`RestoreError`] naming it; a list item
+    /// with more line breaks than it had is one too; every newline written
+    /// as the source's line ending followed by the container's
+    /// continuation prefix; every `⟦k⟧` replaced by `protected[k-1]`
+    /// exactly.
     pub fn restore(&self, candidate: &str) -> Result<String, RestoreError> {
         let candidate = candidate.replace("\r\n", "\n");
         let candidate = candidate.trim();
         let found = placeholders_in(candidate);
         self.check(&found)?;
-        self.check_items(candidate, &found)?;
+        self.check_item(candidate)?;
 
         let mut out = String::with_capacity(candidate.len() + 64);
-        let mut prefix = self.layout.segments[0].prefix.as_str();
         let mut at = 0;
-        let mut after_glue = false;
         for (range, n) in &found {
-            let glue = self.layout.glue[n - 1];
-            let mut text = &candidate[at..range.start];
-            if after_glue {
-                text = text.trim_start();
-            }
-            if glue {
-                text = text.trim_end();
-            }
-            self.lay(text, prefix, &mut out);
+            self.lay(&candidate[at..range.start], &mut out);
             out.push_str(&self.protected[n - 1]);
-            if glue {
-                if let Some(segment) = self.layout.segments.iter().find(|s| s.after == Some(*n)) {
-                    prefix = segment.prefix.as_str();
-                }
-            }
-            after_glue = glue;
             at = range.end;
         }
-        let mut text = &candidate[at..];
-        if after_glue {
-            text = text.trim_start();
-        }
-        self.lay(text, prefix, &mut out);
+        self.lay(&candidate[at..], &mut out);
         Ok(out)
     }
 
-    /// Every placeholder of this chunk exactly once, nothing else, the
-    /// glue in its order.
+    /// Every placeholder of this chunk exactly once, nothing else.
     fn check(&self, found: &[(Range<usize>, usize)]) -> Result<(), RestoreError> {
         let n = self.protected.len();
         let mut counts = vec![0usize; n + 1];
@@ -401,62 +366,24 @@ impl Chunk {
                 count: counts[index],
             });
         }
-        let mut last = 0;
-        for &(_, k) in found {
-            if self.layout.glue[k - 1] {
-                if k < last {
-                    return Err(RestoreError::OutOfOrder { index: k });
-                }
-                last = k;
-            }
-        }
         Ok(())
     }
 
-    /// In a list chunk, no item comes back with more line breaks than it
-    /// went in with (its edges trimmed: the newline before a glue
-    /// placeholder is the glue's, and a model may keep, drop or double it).
-    /// A chunk without glue is not a list and is not checked — a paragraph
-    /// a model re-wraps is still one paragraph.
-    fn check_items(
-        &self,
-        candidate: &str,
-        found: &[(Range<usize>, usize)],
-    ) -> Result<(), RestoreError> {
-        if !self.layout.glue.contains(&true) {
-            return Ok(());
+    /// A list item's candidate (trimmed) has no more line breaks than the
+    /// item's text. Anything else is not checked — a paragraph a model
+    /// re-wraps, or splits, is still prose in the same container.
+    fn check_item(&self, candidate: &str) -> Result<(), RestoreError> {
+        if self.layout.item && candidate.matches('\n').count() > self.text.matches('\n').count() {
+            return Err(RestoreError::ItemBroken);
         }
-        let ours = self.item_breaks(&self.text, &placeholders_in(&self.text));
-        let theirs = self.item_breaks(candidate, found);
-        match ours
-            .iter()
-            .zip(&theirs)
-            .position(|(ours, theirs)| theirs > ours)
-        {
-            Some(i) => Err(RestoreError::ItemBroken { item: i + 1 }),
-            None => Ok(()),
-        }
-    }
-
-    /// The line breaks inside each item of `text`: the pieces between its
-    /// glue placeholders, edges trimmed.
-    fn item_breaks(&self, text: &str, found: &[(Range<usize>, usize)]) -> Vec<usize> {
-        let mut breaks = Vec::new();
-        let mut at = 0;
-        for (range, n) in found {
-            if self.layout.glue.get(n - 1).copied().unwrap_or(false) {
-                breaks.push(text[at..range.start].trim().matches('\n').count());
-                at = range.end;
-            }
-        }
-        breaks.push(text[at..].trim().matches('\n').count());
-        breaks
+        Ok(())
     }
 
     /// `text` with every newline written as the source's line ending and
     /// the continuation prefix — trimmed of its trailing blanks on a line
     /// that is otherwise empty.
-    fn lay(&self, text: &str, prefix: &str, out: &mut String) {
+    fn lay(&self, text: &str, out: &mut String) {
+        let prefix = self.layout.prefix.as_str();
         let mut lines = text.split('\n');
         if let Some(first) = lines.next() {
             out.push_str(first);

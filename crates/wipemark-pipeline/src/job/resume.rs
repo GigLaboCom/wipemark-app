@@ -23,6 +23,7 @@ use crate::report::{
     ascii_json, attempts_value, format_id, outcome_of, outcome_value, ChunkCounts, ChunkOutcome,
     ChunkReport,
 };
+use crate::select;
 
 /// The version of a record's JSON. A format: a record of another version
 /// is not read.
@@ -175,13 +176,27 @@ impl Decided {
 }
 
 /// The job's fingerprint: sha256, lower-case hex, over everything a
-/// chunk's decision was made from — a version tag, the document and its
-/// format, the options (every field, every override: their `Debug`, which
-/// is deterministic — the overrides are a `BTreeMap`), the engine's
-/// identity, the chunk budget and the usable rungs with their templates.
-/// A new build that changes a shipped template changes the rungs, and so
-/// the fingerprint.
+/// chunk's decision was made from — a version tag, the rules the verdict
+/// and the winner follow ([`select::RULES`]: the selection, the no-op
+/// floor, the short-chunk boundary, the language check's threshold), the
+/// document and its format, the options (every field, every override:
+/// their `Debug`, which is deterministic — the overrides are a
+/// `BTreeMap`), the engine's identity, the chunk budget and the usable
+/// rungs with their templates. A new build that changes a shipped
+/// template changes the rungs, and one that changes a rule changes
+/// `RULES` — either way the fingerprint, and every record is forgotten.
 pub(crate) fn fingerprint(
+    document: &Document,
+    options: &Options,
+    info: &EngineInfo,
+    planned: &Planned,
+) -> String {
+    fingerprint_under(&select::RULES, document, options, info, planned)
+}
+
+/// [`fingerprint`] under `rules` — the seam a test moves a rule through.
+pub(super) fn fingerprint_under(
+    rules: &select::Rules,
     document: &Document,
     options: &Options,
     info: &EngineInfo,
@@ -192,7 +207,9 @@ pub(crate) fn fingerprint(
         hasher.update((bytes.len() as u64).to_le_bytes());
         hasher.update(bytes);
     };
-    part(b"wipemark-resume/1");
+    // 2: E4-7 (D95) — a list item per chunk, the most diverged winner.
+    part(b"wipemark-resume/2");
+    part(format!("{rules:?}").as_bytes());
     part(env!("CARGO_PKG_VERSION").as_bytes());
     part(format_id(document.format).as_bytes());
     part(document.text.as_bytes());

@@ -111,7 +111,8 @@ fn rewrite(name: &str, text: &str, format: TextFormat, must_keep: &[&str]) {
                 started.elapsed().as_secs_f32(),
                 rejection_value(rejection)
             ),
-            Event::Token { .. } => {}
+            // `start` hands out neither: they are `start_resumable`'s (E4-4).
+            Event::Token { .. } | Event::ChunkDecided { .. } | Event::Resumed { .. } => {}
             Event::Finished { .. } | Event::Cancelled { .. } | Event::Failed { .. } => {
                 last = Some(event);
                 break;

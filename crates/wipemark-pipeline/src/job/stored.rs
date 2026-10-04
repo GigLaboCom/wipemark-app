@@ -17,9 +17,12 @@ use super::Options;
 use crate::cost::Effort;
 use crate::lang::Lang;
 use crate::prompt::{row, Intensity, Override, Overrides, Tactic};
+use crate::select::LengthWindows;
 
-/// The version of the stored form. A format.
-pub const OPTIONS_VERSION: u32 = 1;
+/// The version of the stored form. A format. 2 (D95): two length windows,
+/// `length` for a chunk of twenty words or more and `length_short` below;
+/// a version 1 row is still read, its one window for every chunk.
+pub const OPTIONS_VERSION: u32 = 2;
 
 /// Why stored options could not be read. `field` names the first one that
 /// is missing or not what this build writes.
@@ -64,7 +67,8 @@ impl Options {
             },
             "pivot": self.pivot.map(Lang::as_str),
             "overrides": overrides,
-            "length": { "min": self.length.min, "max": self.length.max },
+            "length": { "min": self.length.long.min, "max": self.length.long.max },
+            "length_short": { "min": self.length.short.min, "max": self.length.short.max },
         })
         .to_string()
     }
@@ -78,7 +82,7 @@ impl Options {
             .get("options")
             .and_then(Value::as_u64)
             .ok_or_else(|| field("options"))?;
-        if version != u64::from(OPTIONS_VERSION) {
+        if version != 1 && version != u64::from(OPTIONS_VERSION) {
             return Err(OptionsError::Version { found: version });
         }
         let at = |path: &[&str]| -> Result<&Value, OptionsError> {
@@ -184,9 +188,22 @@ impl Options {
             },
             pivot,
             overrides,
-            length: LengthDriftGuard {
-                min: float(&["length", "min"])?,
-                max: float(&["length", "max"])?,
+            length: {
+                let long = LengthDriftGuard {
+                    min: float(&["length", "min"])?,
+                    max: float(&["length", "max"])?,
+                };
+                // Version 1 had one window, for every chunk: what the row
+                // said stays what it runs with — never the new default.
+                let short = if version == 1 {
+                    long
+                } else {
+                    LengthDriftGuard {
+                        min: float(&["length_short", "min"])?,
+                        max: float(&["length_short", "max"])?,
+                    }
+                };
+                LengthWindows { long, short }
             },
         })
     }
@@ -206,6 +223,7 @@ mod tests {
     use crate::prompt::{
         hash, shipped, Intensity, Origin, Override, Overrides, Role, Slot, Tactic,
     };
+    use crate::select::LengthWindows;
 
     fn unusual() -> Options {
         let slot = Slot::new(Lang::Ru, Tactic::Paraphrase, 1, Role::User).expect("a slot");
@@ -235,8 +253,10 @@ mod tests {
         options.sampling.max_tokens = Some(512);
         options.pivot = Some(Lang::De);
         options.overrides = overrides;
-        options.length.min = 0.4;
-        options.length.max = 2.5;
+        options.length.long.min = 0.4;
+        options.length.long.max = 2.5;
+        options.length.short.min = 0.3;
+        options.length.short.max = 3.5;
         options
     }
 
@@ -249,6 +269,24 @@ mod tests {
             // The fingerprint reads `Debug`: equal values, equal text.
             assert_eq!(format!("{back:?}"), format!("{options:?}"));
         }
+    }
+
+    #[test]
+    fn stored_options_of_version_one_run_with_their_one_window_for_every_chunk() {
+        let mut value: serde_json::Value =
+            serde_json::from_str(&unusual().to_json()).expect("json");
+        value["options"] = serde_json::json!(1);
+        value
+            .as_object_mut()
+            .expect("object")
+            .remove("length_short");
+        let back = Options::from_json(&value.to_string()).expect("version 1 reads");
+        assert_eq!((back.length.long.min, back.length.long.max), (0.4, 2.5));
+        assert_eq!(
+            back.length.short, back.length.long,
+            "one window, for every chunk — not the new default"
+        );
+        assert_ne!(back.length.short, LengthWindows::default().short);
     }
 
     #[test]
@@ -269,10 +307,22 @@ mod tests {
                 field: "rounds".to_owned()
             })
         );
-        value["options"] = serde_json::json!(2);
+        value["options"] = serde_json::json!(3);
         assert_eq!(
             Options::from_json(&value.to_string()),
-            Err(OptionsError::Version { found: 2 })
+            Err(OptionsError::Version { found: 3 })
+        );
+        let mut no_short: serde_json::Value = serde_json::from_str(&stored).expect("json");
+        no_short
+            .as_object_mut()
+            .expect("object")
+            .remove("length_short");
+        assert_eq!(
+            Options::from_json(&no_short.to_string()),
+            Err(OptionsError::Field {
+                field: "length_short.min".to_owned()
+            }),
+            "a version 2 row without its short window is not the default"
         );
         assert!(matches!(
             Options::from_json("{"),

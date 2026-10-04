@@ -142,7 +142,15 @@ translation contract (en, ru, de): Gemma 3 12B wrote "two kilometres" for
 "2 km" and "5 тысяч" for "5000 рублей" often enough that `NumbersGuard`
 rejected 4.1 % of its candidates; with the sentence, 1.6 %, and the
 number-heavy paragraphs passed 27 times in 36 instead of 11. Qwen3 4B
-neither gained nor lost. See `docs/architecture/prompt-bench.md`.
+neither gained nor lost. See `docs/architecture/prompt-bench.md`. The
+guard does not forgive a changed separator ("1800" for "1,800" is a loss,
+E4-7): what a separator means depends on the language — "1,800" is 1.8 in
+German — and the contract asks for the same separators.
+
+A list reaches a model one item at a time since E4-7 — the item's text
+without its marker, the item before it as the context — so "keep the list
+markers" in the contracts now guards what a model might *add*, and a line
+break it adds inside an item is refused (`ItemBroken`).
 
 `every_language_has_a_complete_shipped_set` is the gate D64 asks for: a
 `Lang` without every template of the set, or with one the validator would

@@ -10,7 +10,7 @@
 
 use std::ops::Range;
 
-use super::chunk::{Piece, Unit};
+use super::chunk::Piece;
 use super::protect::{self, Lexical};
 
 /// Elements whose content is never prose: kept whole, start tag to end
@@ -187,11 +187,12 @@ impl Open {
     }
 }
 
-/// The units of `src`, from byte `start` (past a BOM): one piece each.
-pub(super) fn units(src: &str, start: usize) -> Vec<Unit> {
-    let mut units = Vec::new();
+/// The pieces of `src`, from byte `start` (past a BOM): each a chunk of
+/// its own unless it is over the budget.
+pub(super) fn pieces(src: &str, start: usize) -> Vec<Piece> {
+    let mut pieces = Vec::new();
     let mut open = Open::default();
-    let finish = |open: &mut Open, units: &mut Vec<Unit>| {
+    let finish = |open: &mut Open, pieces: &mut Vec<Piece>| {
         let taken = std::mem::take(open);
         if let Some(range) = taken.range {
             let spans = protect::spans(
@@ -203,13 +204,12 @@ pub(super) fn units(src: &str, start: usize) -> Vec<Unit> {
                     backticks: false,
                 },
             );
-            units.push(Unit {
-                pieces: vec![Piece {
-                    range,
-                    spans,
-                    prefix: String::new(),
-                    markdown: false,
-                }],
+            pieces.push(Piece {
+                range,
+                spans,
+                prefix: String::new(),
+                markdown: false,
+                item: false,
             });
         }
     };
@@ -219,9 +219,9 @@ pub(super) fn units(src: &str, start: usize) -> Vec<Unit> {
             if let Some((token, end)) = tag_at(src, at) {
                 match token {
                     Token::Comment => open.spans.push(at..end),
-                    Token::Declaration | Token::Unclosed => finish(&mut open, &mut units),
+                    Token::Declaration | Token::Unclosed => finish(&mut open, &mut pieces),
                     Token::Start(name) if KEPT_WHOLE.contains(&name.as_str()) => {
-                        finish(&mut open, &mut units);
+                        finish(&mut open, &mut pieces);
                         at = element_end(src, end, &name);
                         continue;
                     }
@@ -234,7 +234,7 @@ pub(super) fn units(src: &str, start: usize) -> Vec<Unit> {
                         continue;
                     }
                     Token::Start(name) | Token::End(name) if BLOCK.contains(&name.as_str()) => {
-                        finish(&mut open, &mut units);
+                        finish(&mut open, &mut pieces);
                     }
                     Token::Start(_) | Token::End(_) => open.spans.push(at..end),
                 }
@@ -249,6 +249,6 @@ pub(super) fn units(src: &str, start: usize) -> Vec<Unit> {
         }
         at = next;
     }
-    finish(&mut open, &mut units);
-    units
+    finish(&mut open, &mut pieces);
+    pieces
 }

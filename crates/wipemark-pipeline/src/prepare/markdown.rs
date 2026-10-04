@@ -4,15 +4,16 @@
 //! item or a footnote — or the inline run directly inside a tight list
 //! item. Headings, front matter, code blocks, tables, HTML blocks, rules
 //! and link reference definitions are never pieces, which is all it takes
-//! to keep them: what is not in a chunk is copied from the source. The
-//! pieces under one outermost list are one unit until a kept block
-//! interrupts it.
+//! to keep them: what is not in a chunk is copied from the source. A list
+//! item's paragraph is a piece like any other — its own chunk (D95) — and
+//! its marker, between two pieces, is the source's bytes: no model ever
+//! sees one.
 
 use std::ops::Range;
 
 use pulldown_cmark::{Event, LinkType, Options, Parser, Tag, TagEnd};
 
-use super::chunk::{continuation_prefix, Piece, Unit};
+use super::chunk::{continuation_prefix, Piece};
 use super::protect::{self, Lexical};
 
 /// The extensions this product reads: GitHub's tables, task lists,
@@ -28,15 +29,13 @@ fn options() -> Options {
         | Options::ENABLE_GFM
 }
 
-/// The units of `src`, from byte `start` (past a BOM).
-pub(super) fn units(src: &str, start: usize) -> Vec<Unit> {
+/// The pieces of `src`, from byte `start` (past a BOM).
+pub(super) fn pieces(src: &str, start: usize) -> Vec<Piece> {
     let mut walker = Walker {
         src,
         floor: start,
         kept: 0,
         lists: 0,
-        list: 0,
-        run: 0,
         blocks: Vec::new(),
         open: None,
         found: Vec::new(),
@@ -45,19 +44,7 @@ pub(super) fn units(src: &str, start: usize) -> Vec<Unit> {
         walker.event(event, range.start + start..range.end + start);
     }
     walker.close();
-
-    let mut units: Vec<Unit> = Vec::new();
-    let mut last_key = None;
-    for (key, piece) in walker.found {
-        match (key, units.last_mut()) {
-            (Some(key), Some(unit)) if last_key == Some(key) => unit.pieces.push(piece),
-            _ => units.push(Unit {
-                pieces: vec![piece],
-            }),
-        }
-        last_key = key;
-    }
-    units
+    walker.found
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,15 +78,12 @@ struct Walker<'s> {
     floor: usize,
     /// Depth inside kept blocks.
     kept: usize,
-    /// Depth inside lists.
+    /// Depth inside lists: a piece found at a depth above zero is a list
+    /// item's.
     lists: usize,
-    /// Which outermost list, and which run of it between kept blocks.
-    list: usize,
-    run: usize,
     blocks: Vec<Frame>,
     open: Option<Open>,
-    /// Pieces with the list run they belong to.
-    found: Vec<(Option<(usize, usize)>, Piece)>,
+    found: Vec<Piece>,
 }
 
 impl Walker<'_> {
@@ -120,10 +104,7 @@ impl Walker<'_> {
             | Event::DisplayMath(_) => {
                 self.inline(range, true);
             }
-            Event::Rule => {
-                self.close();
-                self.interrupt_list();
-            }
+            Event::Rule => self.close(),
             // The task box stays in the glue before the item's text.
             Event::TaskListMarker(_) => {}
         }
@@ -145,16 +126,11 @@ impl Walker<'_> {
             | Tag::MetadataBlock(_) => {
                 self.close();
                 self.kept += 1;
-                self.interrupt_list();
                 self.blocks.push(Frame::Kept);
             }
             Tag::List(_) => {
                 self.close();
                 self.lists += 1;
-                if self.lists == 1 {
-                    self.list += 1;
-                    self.run = 0;
-                }
                 self.blocks.push(Frame::List);
             }
             Tag::Item => {
@@ -214,14 +190,6 @@ impl Walker<'_> {
                     }
                 }
             }
-        }
-    }
-
-    /// A kept block inside a list ends the list's current chunk: the
-    /// pieces after it are another unit (D70).
-    fn interrupt_list(&mut self) {
-        if self.lists > 0 {
-            self.run += 1;
         }
     }
 
@@ -305,15 +273,12 @@ impl Walker<'_> {
                 backticks: false,
             },
         );
-        let key = (self.lists > 0).then_some((self.list, self.run));
-        self.found.push((
-            key,
-            Piece {
-                prefix: continuation_prefix(self.src, range.start, self.floor),
-                range,
-                spans,
-                markdown: true,
-            },
-        ));
+        self.found.push(Piece {
+            prefix: continuation_prefix(self.src, range.start, self.floor),
+            range,
+            spans,
+            markdown: true,
+            item: self.lists > 0,
+        });
     }
 }

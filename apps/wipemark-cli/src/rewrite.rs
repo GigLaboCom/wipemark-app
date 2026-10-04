@@ -1083,14 +1083,13 @@ mod tests {
 
     use super::*;
 
-    /// An English paragraph the guards accept with its first two words
-    /// swapped.
+    /// An English paragraph the guards accept rewritten by [`swapped`].
     const PARAGRAPH: &str = "The build takes about twelve minutes on an ordinary laptop, and the \
                              second run is much faster because all of the dependencies are \
                              already compiled and kept in the target directory.";
 
-    /// The text a request asks to rewrite, with its first two words
-    /// swapped.
+    /// The text a request asks to rewrite, every two neighbouring words of
+    /// its first half swapped: far enough from it for the no-op floor.
     fn swapped(req: &wipemark_engine::ChatRequest) -> String {
         const BEGIN: &str = "[[[BEGIN TEXT]]]\n";
         const END: &str = "\n[[[END TEXT]]]";
@@ -1099,8 +1098,9 @@ mod tests {
             .find(END)
             .map_or(req.prompt.len(), |at| at + start);
         let mut words: Vec<&str> = req.prompt[start..stop].split(' ').collect();
-        if words.len() > 1 {
-            words.swap(0, 1);
+        let half = words.len() / 2;
+        for pair in words[..half].chunks_mut(2) {
+            pair.reverse();
         }
         words.join(" ")
     }
@@ -1166,7 +1166,7 @@ mod tests {
             rewrite_with(&flags(false), io, &roads)
         });
         assert_eq!(exit, Exit::Clean, "{stderr}");
-        assert!(stdout.starts_with("build The takes"), "{stdout}");
+        assert!(stdout.starts_with("build The about takes"), "{stdout}");
         // In whatever language this process speaks: the lines themselves.
         assert!(
             stderr.contains(&t(Message::CliRewriteServedHere)),

@@ -169,6 +169,11 @@ impl Guard for PlaceholderGuard {
 /// ("-5" and "5" are the same token), units, and a "%" separated by a
 /// space ("50 %" holds the token "50", so a rewrite to "50%" passes and
 /// one from "50%" to "50 %" is rejected).
+///
+/// A placeholder `⟦n⟧` is not a number on either side. Two spellings of
+/// one value are two numbers: "1800" for "1,800" is a loss, because a
+/// separator's meaning depends on a language this guard cannot know
+/// ("1,800" is 1.8 in German), and equating them would let 1.8 become 1800.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NumbersGuard;
 
@@ -364,22 +369,28 @@ const CLOSE: char = '\u{27E7}';
 /// placeholder 3 — it is lost text. Brackets around anything else are
 /// text (`⟦⟦1⟧⟧` holds one placeholder).
 fn placeholders(text: &str) -> Vec<usize> {
-    let mut found = Vec::new();
     // A placeholder's body is digits and a CLOSE, so no OPEN lies inside
     // one: continuing after the U+27E7 and continuing after the U+27E6
     // visit the same OPENs.
-    for (at, _) in text.match_indices(OPEN) {
-        let rest = &text[at + OPEN.len_utf8()..];
-        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-        let run = &rest[..digits];
-        let canonical = run == "0" || !run.starts_with('0');
-        if digits > 0 && canonical && rest[digits..].starts_with(CLOSE) {
-            if let Ok(index) = run.parse::<usize>() {
-                found.push(index);
-            }
-        }
+    text.match_indices(OPEN)
+        .filter_map(|(at, _)| placeholder_at(&text[at..]))
+        .map(|(index, _)| index)
+        .collect()
+}
+
+/// The placeholder `text` starts with — its index and its length in
+/// bytes — or `None` when `text` does not start with a canonical one.
+fn placeholder_at(text: &str) -> Option<(usize, usize)> {
+    let rest = text.strip_prefix(OPEN)?;
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    let run = &rest[..digits];
+    let canonical = run == "0" || !run.starts_with('0');
+    if digits > 0 && canonical && rest[digits..].starts_with(CLOSE) {
+        let index = run.parse::<usize>().ok()?;
+        Some((index, OPEN.len_utf8() + digits + CLOSE.len_utf8()))
+    } else {
+        None
     }
-    found
 }
 
 /// The five separators a number may hold between its digits (A §6).
@@ -392,10 +403,22 @@ const SEPARATORS: [char; 5] = ['.', ',', ':', '/', '-'];
 /// them, and takes a `%` that touches its last digit. Maximal munch;
 /// trailing separators are not part of it (`It was 3.` holds `3`), and
 /// neither is a sign (`-5` holds `5`).
+///
+/// A placeholder is not a number (D95): the digits of `⟦3⟧` name a
+/// protected span, so a lost placeholder is the placeholder guard's
+/// finding alone, and a `⟦3⟧` in a candidate cannot stand in for a "3"
+/// the source had in its prose. What is a placeholder is
+/// [`placeholders`]' definition, so the two guards read one text alike.
 fn numbers(text: &str) -> Vec<&str> {
     let mut found = Vec::new();
     let mut at = 0;
     while let Some(c) = text[at..].chars().next() {
+        if c == OPEN {
+            if let Some((_, len)) = placeholder_at(&text[at..]) {
+                at += len;
+                continue;
+            }
+        }
         if !tables::is_decimal_digit(c) {
             at += c.len_utf8();
             continue;
@@ -566,7 +589,8 @@ ops@example.com.";
         assert_eq!(placeholders(FAITHFUL), [0, 1]);
         assert_eq!(
             numbers(SOURCE),
-            ["1.94.1", "2026-10-03", "10:30", "0", "15%", "1"]
+            ["1.94.1", "2026-10-03", "10:30", "15%"],
+            "a placeholder's digits are not a number"
         );
         assert_eq!(
             identifiers(SOURCE),
@@ -664,6 +688,42 @@ ops@example.com.";
         ];
         for (text, want) in table {
             assert_eq!(numbers(text), *want, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_placeholders_digits_are_not_a_number() {
+        // A lost placeholder is the placeholder guard's finding alone.
+        let lost = FAITHFUL.replace("After \u{27E6}1\u{27E7}", "Afterwards");
+        assert_eq!(NumbersGuard.check(SOURCE, &lost), GuardOutcome::Pass);
+        // A placeholder cannot stand in for a number the prose had.
+        assert_eq!(
+            NumbersGuard.check("Step 3 runs first.", "Step \u{27E6}3\u{27E7} runs first."),
+            reject(RejectReason::NumberMissing { value: "3".into() })
+        );
+        // Digits beside a placeholder are still a number, and a bracket
+        // around anything that is not a placeholder is text.
+        assert_eq!(numbers("\u{27E6}2\u{27E7}7"), ["7"]);
+        assert_eq!(numbers("\u{27E6}03\u{27E7}"), ["03"]);
+        assert_eq!(numbers("\u{27E6}\u{27E6}1\u{27E7}\u{27E7}2"), ["2"]);
+    }
+
+    #[test]
+    fn a_number_with_its_separators_changed_is_lost() {
+        // D95: a separator's meaning depends on the language ("1,800" is
+        // 1.8 in German), which this guard cannot know — so it never
+        // equates two spellings of a number.
+        for (source, candidate, lost) in [
+            ("It cost 1,800 euros.", "It cost 1800 euros.", "1,800"),
+            ("It cost 1800 euros.", "It cost 1,800 euros.", "1800"),
+            ("It weighs 1.800 kg.", "It weighs 1800 kg.", "1.800"),
+            ("Es kostet 12000 Euro.", "Es kostet 12 000 Euro.", "12000"),
+        ] {
+            assert_eq!(
+                NumbersGuard.check(source, candidate),
+                reject(RejectReason::NumberMissing { value: lost.into() }),
+                "{source:?} → {candidate:?}"
+            );
         }
     }
 

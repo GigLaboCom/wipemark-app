@@ -1,12 +1,16 @@
-//! From pieces of prose to chunks: packing a list, splitting what is over
-//! the budget, the text a model sees, and the previous chunk's context.
+//! From pieces of prose to chunks: splitting what is over the budget, the
+//! text a model sees, and the previous chunk's context.
+//!
+//! One piece is one chunk — a paragraph, or one list item's paragraph
+//! (D95: a list is no longer one chunk with its markers as placeholders
+//! between the items) — unless it is over the budget, when it is cut at
+//! sentence ends.
 
 use std::ops::Range;
 
 use super::tokens::cost_milli;
 use super::{
     estimate_tokens, placeholder, placeholders_in, sentence, Budget, Chunk, Layout, Newline,
-    Segment,
 };
 
 /// A byte range of the source holding prose, as a format parser found it.
@@ -22,13 +26,9 @@ pub(super) struct Piece {
     /// Markdown: continuation lines carry a container prefix the model is
     /// not shown.
     pub markdown: bool,
-}
-
-/// One paragraph (a single piece), or the items of one list (several,
-/// joined by glue).
-#[derive(Debug, Clone)]
-pub(super) struct Unit {
-    pub pieces: Vec<Piece>,
+    /// Inside a Markdown list: a line break the model adds would be laid
+    /// under the marker's indentation and change the list (D95, D87).
+    pub item: bool,
 }
 
 /// The continuation prefix of a piece starting at `at`: its first line up
@@ -48,57 +48,26 @@ pub(super) fn continuation_prefix(src: &str, at: usize, floor: usize) -> String 
         .collect()
 }
 
-/// What a glue placeholder costs a chunk: the brackets and two digits.
-fn glue_cost() -> u64 {
-    cost_milli(&placeholder(10))
-}
-
-/// The chunks of `units`, in order, each at most `budget` unless a single
+/// The chunks of `pieces`, in order, each at most `budget` unless a single
 /// word is longer, with their contexts.
-pub(super) fn chunks(src: &str, units: &[Unit], budget: Budget) -> Vec<Chunk> {
+pub(super) fn chunks(src: &str, pieces: &[Piece], budget: Budget) -> Vec<Chunk> {
     let budget_milli = u64::from(budget.max_tokens) * 1000;
     let document_newline = match src.find('\n') {
         Some(at) if src[..at].ends_with('\r') => Newline::CrLf,
         _ => Newline::Lf,
     };
     let mut out: Vec<Chunk> = Vec::new();
-    let mut push = |slices: Vec<(usize, Range<usize>)>, unit: &Unit| {
-        if let Some(chunk) = make_chunk(src, unit, &slices, document_newline) {
-            out.push(chunk);
-        }
-    };
-    for unit in units {
-        let costs: Vec<u64> = unit
-            .pieces
-            .iter()
-            .map(|piece| cost_of(src, piece.range.clone(), piece))
-            .collect();
-        let mut group: Vec<(usize, Range<usize>)> = Vec::new();
-        let mut group_cost = 0;
-        for (i, piece) in unit.pieces.iter().enumerate() {
-            if costs[i] > budget_milli {
-                if !group.is_empty() {
-                    push(std::mem::take(&mut group), unit);
-                }
-                for range in split(src, piece, budget_milli) {
-                    push(vec![(i, range)], unit);
-                }
-                group_cost = 0;
-                continue;
-            }
-            let glue = if group.is_empty() { 0 } else { glue_cost() };
-            if !group.is_empty() && group_cost + glue + costs[i] > budget_milli {
-                push(std::mem::take(&mut group), unit);
-                group_cost = 0;
-            } else {
-                group_cost += glue;
-            }
-            group.push((i, piece.range.clone()));
-            group_cost += costs[i];
-        }
-        if !group.is_empty() {
-            push(group, unit);
-        }
+    for piece in pieces {
+        let ranges = if cost_of(src, piece.range.clone(), piece) > budget_milli {
+            split(src, piece, budget_milli)
+        } else {
+            vec![piece.range.clone()]
+        };
+        out.extend(
+            ranges
+                .into_iter()
+                .filter_map(|range| make_chunk(src, piece, range, document_newline)),
+        );
     }
     let context_cap = (budget.max_tokens / 4).max(1);
     for i in 0..out.len() {
@@ -188,7 +157,6 @@ fn pack(
 struct Text {
     text: String,
     protected: Vec<String>,
-    glue: Vec<bool>,
     /// Whether any letter is outside the placeholders.
     letters: bool,
 }
@@ -204,7 +172,7 @@ impl Text {
             .take_while(|span| span.end <= range.end)
         {
             self.copy(&src[at..span.start], markdown, &mut line_start);
-            self.placeholder(&src[span.clone()], false);
+            self.placeholder(&src[span.clone()]);
             line_start = false;
             at = span.end;
         }
@@ -231,48 +199,25 @@ impl Text {
         }
     }
 
-    fn placeholder(&mut self, original: &str, glue: bool) {
+    fn placeholder(&mut self, original: &str) {
         self.protected.push(original.to_owned());
-        self.glue.push(glue);
         self.text.push_str(&placeholder(self.protected.len()));
     }
 }
 
-/// The chunk made of `slices` — `(piece index, range)` — of `unit`, the
-/// source between two slices as glue; `None` when nothing in it is a
+/// The chunk made of `range` of `piece`; `None` when nothing in it is a
 /// letter outside its placeholders.
 fn make_chunk(
     src: &str,
-    unit: &Unit,
-    slices: &[(usize, Range<usize>)],
+    piece: &Piece,
+    range: Range<usize>,
     document_newline: Newline,
 ) -> Option<Chunk> {
     let mut text = Text::default();
-    let mut segments = Vec::with_capacity(slices.len());
-    for (j, (i, range)) in slices.iter().enumerate() {
-        let piece = &unit.pieces[*i];
-        if j == 0 {
-            segments.push(Segment {
-                after: None,
-                prefix: piece.prefix.clone(),
-            });
-        } else {
-            // The glue holds the newline; the one shown before it only
-            // puts each item on a line of its own for the model, and
-            // restore drops whitespace that touches glue.
-            text.text.push('\n');
-            text.placeholder(&src[slices[j - 1].1.end..range.start], true);
-            segments.push(Segment {
-                after: Some(text.protected.len()),
-                prefix: piece.prefix.clone(),
-            });
-        }
-        text.emit(src, range.clone(), &piece.spans, piece.markdown);
-    }
+    text.emit(src, range.clone(), &piece.spans, piece.markdown);
     if !text.letters {
         return None;
     }
-    let range = slices[0].1.start..slices[slices.len() - 1].1.end;
     let source = &src[range.clone()];
     let newline = if source.contains("\r\n") {
         Newline::CrLf
@@ -290,8 +235,8 @@ fn make_chunk(
         context: None,
         layout: Layout {
             newline,
-            glue: text.glue,
-            segments,
+            prefix: piece.prefix.clone(),
+            item: piece.item,
         },
     })
 }
@@ -307,51 +252,30 @@ fn unsafe_in_context(original: &str) -> bool {
 }
 
 /// `{PREV_CONTEXT}` for the chunk after `previous`: the last two
-/// sentences of its source — glue read as a sentence break — with the
-/// protected spans written back, at most `cap` estimated tokens.
+/// sentences of its source, with the protected spans written back, at
+/// most `cap` estimated tokens. After a list item it is that item.
 fn context_of(previous: &Chunk, cap: u32) -> Option<String> {
     let text = &previous.text;
-    let found = placeholders_in(text);
-    // The stretches between glue placeholders, each split into sentences.
-    let mut sentences: Vec<(usize, Range<usize>)> = Vec::new();
-    let mut segment_start = 0;
-    let mut segment = 0;
-    let mut spans: Vec<Range<usize>> = Vec::new();
-    for (range, n) in found.iter().cloned().chain([(text.len()..text.len(), 0)]) {
-        let glue = n > 0 && previous.layout.glue[n - 1];
-        if n == 0 || glue {
-            let raw = &text[segment_start..range.start];
-            let from = segment_start + (raw.len() - raw.trim_start().len());
-            let stretch = from..segment_start + raw.trim_end().len();
-            if stretch.start < stretch.end {
-                for sentence in sentence::sentences(text, stretch, &spans, false) {
-                    sentences.push((segment, sentence));
-                }
-            }
-            spans.clear();
-            segment += 1;
-            segment_start = range.end;
-        } else {
-            spans.push(range);
-        }
-    }
+    let spans: Vec<Range<usize>> = placeholders_in(text)
+        .into_iter()
+        .map(|(range, _)| range)
+        .collect();
+    let sentences = sentence::sentences(text, 0..text.len(), &spans, false);
     let last_two = &sentences[sentences.len().saturating_sub(2)..];
     let joined = match last_two {
         [] => return None,
-        [(_, only)] => text[only.clone()].to_owned(),
-        [(a_segment, a), (b_segment, b)] => {
-            let between = if a_segment == b_segment {
-                &text[a.end..b.start]
-            } else {
-                "\n"
-            };
-            format!("{}{between}{}", &text[a.clone()], &text[b.clone()])
-        }
+        [only] => text[only.clone()].to_owned(),
+        [a, b] => format!(
+            "{}{}{}",
+            &text[a.clone()],
+            &text[a.end..b.start],
+            &text[b.clone()]
+        ),
         _ => unreachable!("at most two"),
     };
     let mut context = write_back(previous, &joined);
     if estimate_tokens(&context) > cap {
-        if let Some((_, last)) = last_two.last() {
+        if let Some(last) = last_two.last() {
             context = write_back(previous, &text[last.clone()]);
         }
     }

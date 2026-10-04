@@ -326,9 +326,9 @@ fn a_rewritten_list_item_keeps_its_indentation_on_every_line() {
         ["item\ncontinued", "ten\nwrapped", "quoted item\nwrapped"]
     );
     let assembled = prepared
-        .assemble(&[Some("a\nb\nc"), Some("x\ny"), Some("p\nq")])
+        .assemble(&[Some("a\nb"), Some("x\ny"), Some("p\nq")])
         .unwrap();
-    assert_eq!(assembled, "- a\n  b\n  c\n\n10. x\n    y\n\n> - p\n>   q\n");
+    assert_eq!(assembled, "- a\n  b\n\n10. x\n    y\n\n> - p\n>   q\n");
 }
 
 #[test]
@@ -427,62 +427,99 @@ fn each_paragraph_is_its_own_chunk_however_short() {
 }
 
 #[test]
-fn a_list_is_one_chunk_and_its_glue_comes_back_exactly() {
+fn each_list_item_is_its_own_chunk_and_its_marker_is_never_shown() {
     let document =
-        "Intro.\n\n- First item\n- Second item\n  - nested item\n- [ ] task item\n\nAfter.\n";
+        "Intro.\n\n- First item\n- Second item\n  - nested item\n- [ ] task item\n\n1. One\n2. Two\n\nAfter.\n";
     let prepared = prep(document, TextFormat::Markdown);
-    let g = |n| placeholder(n);
     assert_eq!(
         texts(&prepared),
         [
-            "Intro.".to_owned(),
-            format!(
-                "First item\n{}Second item\n{}nested item\n{}task item",
-                g(1),
-                g(2),
-                g(3)
-            ),
-            "After.".to_owned(),
+            "Intro.",
+            "First item",
+            "Second item",
+            "nested item",
+            "task item",
+            "One",
+            "Two",
+            "After."
         ]
     );
-    assert_eq!(
-        prepared.chunks()[1].protected,
-        ["\n- ", "\n  - ", "\n- [ ] "]
-    );
-    let candidate = format!("Item one\n{} Item two  {}\nNested{}Task", g(1), g(2), g(3));
-    let assembled = prepared.assemble(&[None, Some(&candidate), None]).unwrap();
+    for chunk in prepared.chunks() {
+        assert!(chunk.protected.is_empty(), "no glue: {chunk:?}");
+    }
+    let assembled = prepared
+        .assemble(&[
+            None,
+            Some("Item one"),
+            Some("Item two"),
+            Some("Nested"),
+            Some("Task"),
+            Some("Uno"),
+            Some("Dos"),
+            None,
+        ])
+        .unwrap();
     assert_eq!(
         assembled,
-        "Intro.\n\n- Item one\n- Item two\n  - Nested\n- [ ] Task\n\nAfter.\n"
+        "Intro.\n\n- Item one\n- Item two\n  - Nested\n- [ ] Task\n\n1. Uno\n2. Dos\n\nAfter.\n"
     );
 }
 
 #[test]
-fn a_kept_block_inside_a_list_ends_its_chunk() {
+fn a_kept_block_inside_a_list_is_never_in_a_chunk() {
     let document = "- one\n- two\n\n  ```\n  code\n  ```\n- three\n";
     let prepared = prep(document, TextFormat::Markdown);
-    assert_eq!(texts(&prepared).len(), 2);
-    assert_eq!(texts(&prepared)[1], "three");
+    assert_eq!(texts(&prepared), ["one", "two", "three"]);
+    assert_eq!(nothing_rewritten(&prepared), document);
 }
 
 #[test]
-fn a_list_over_the_budget_splits_between_items() {
+fn a_list_is_asked_item_by_item_whatever_the_budget() {
     let document = "- alpha beta gamma\n- delta epsilon zeta\n- eta theta iota\n";
-    let one_item = estimate_tokens("alpha beta gamma");
-    let prepared = prepare(
-        document,
+    let one_item = Budget {
+        max_tokens: estimate_tokens("alpha beta gamma") + 1,
+    };
+    for budget in [Budget::DEFAULT, one_item] {
+        let prepared = prepare(document, TextFormat::Markdown, budget);
+        assert_eq!(
+            texts(&prepared),
+            ["alpha beta gamma", "delta epsilon zeta", "eta theta iota"],
+            "{budget:?}"
+        );
+        assert_eq!(nothing_rewritten(&prepared), document);
+    }
+}
+
+#[test]
+fn a_list_item_that_comes_back_on_more_lines_is_refused_and_a_paragraph_is_not() {
+    let prepared = prep(
+        "A paragraph.\n\n- one item\n- two\n  wrapped\n",
         TextFormat::Markdown,
-        Budget {
-            max_tokens: one_item + 1,
-        },
     );
+    let [paragraph, one, two] = prepared.chunks() else {
+        panic!("three chunks: {:?}", texts(&prepared));
+    };
+    assert_eq!(two.text, "two\nwrapped");
+    assert_eq!(one.restore("uno"), Ok("uno".to_owned()));
     assert_eq!(
-        texts(&prepared),
-        ["alpha beta gamma", "delta epsilon zeta", "eta theta iota"]
+        one.restore("uno\n- dos"),
+        Err(RestoreError::ItemBroken),
+        "a new line in an item would nest a list under it"
     );
-    assert_eq!(nothing_rewritten(&prepared), document);
-    let whole = prep(document, TextFormat::Markdown);
-    assert_eq!(whole.chunks().len(), 1);
+    assert_eq!(one.restore("uno\n\nmore"), Err(RestoreError::ItemBroken));
+    assert_eq!(
+        one.restore("\nuno\n"),
+        Ok("uno".to_owned()),
+        "the edges are trimmed first"
+    );
+    assert_eq!(two.restore("dos\nwrapped"), Ok("dos\n  wrapped".to_owned()));
+    assert_eq!(two.restore("dos wrapped"), Ok("dos wrapped".to_owned()));
+    assert_eq!(two.restore("a\nb\nc"), Err(RestoreError::ItemBroken));
+    assert_eq!(
+        paragraph.restore("A\n\nparagraph."),
+        Ok("A\n\nparagraph.".to_owned()),
+        "a paragraph a model splits is still prose in the same container"
+    );
 }
 
 #[test]
@@ -667,11 +704,8 @@ fn placeholders_are_restored_exactly_and_numbered_per_chunk_from_one() {
 }
 
 #[test]
-fn a_missing_duplicated_unknown_or_reordered_placeholder_is_refused_by_name() {
-    let prepared = prep(
-        "Use `a` and `b` here.\n\n- one\n- two\n- three\n",
-        TextFormat::Markdown,
-    );
+fn a_missing_duplicated_or_unknown_placeholder_is_refused_by_name() {
+    let prepared = prep("Use `a` and `b` here.\n\nNext.\n", TextFormat::Markdown);
     let chunk = &prepared.chunks()[0];
     let g = |n| placeholder(n);
     assert_eq!(
@@ -689,22 +723,6 @@ fn a_missing_duplicated_unknown_or_reordered_placeholder_is_refused_by_name() {
     assert_eq!(
         chunk.restore(&format!("Use {} and {} and {}.", g(1), g(2), g(0))),
         Err(RestoreError::Unknown { index: 0 })
-    );
-    let list = &prepared.chunks()[1];
-    assert_eq!(
-        list.restore(&format!("one{}three{}two", g(2), g(1))),
-        Err(RestoreError::OutOfOrder { index: 1 })
-    );
-    assert!(list.restore(&format!("uno{}dos{}tres", g(1), g(2))).is_ok());
-    assert!(
-        list.restore(&format!("uno\n{}dos\n\n{}tres", g(1), g(2)))
-            .is_ok(),
-        "the newline before glue is the glue's: kept, dropped or doubled"
-    );
-    assert_eq!(
-        list.restore(&format!("uno and\ndos{};\ntres{}.", g(1), g(2))),
-        Err(RestoreError::ItemBroken { item: 1 }),
-        "words moved across an item's boundary"
     );
     assert_eq!(
         prepared.assemble(&[Some("Use nothing.")]),
@@ -726,7 +744,8 @@ fn a_missing_duplicated_unknown_or_reordered_placeholder_is_refused_by_name() {
 // Context (D70).
 
 #[test]
-fn the_context_is_the_last_two_sentences_of_the_previous_source() {
+fn the_context_is_the_last_two_sentences_of_the_previous_source_and_an_items_is_the_item_before_it()
+{
     let document =
         "One. Two! Three?\n\nFour `x`. Five.\n\n- item without a stop\n- last item\n\nAfter.\n";
     let prepared = prep(document, TextFormat::Markdown);
@@ -741,7 +760,8 @@ fn the_context_is_the_last_two_sentences_of_the_previous_source() {
             None,
             Some("Two! Three?"),
             Some("Four `x`. Five."),
-            Some("item without a stop\nlast item"),
+            Some("item without a stop"),
+            Some("last item"),
         ]
     );
 }

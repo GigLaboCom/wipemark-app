@@ -1681,9 +1681,9 @@ mod tests {
                              second run is much faster because all of the dependencies are \
                              already compiled and kept in the target directory.";
 
-    /// The text a request asks to rewrite, with its first two words
-    /// swapped: an answer every guard accepts and the no-op guard does not
-    /// call a copy.
+    /// The text a request asks to rewrite, every two neighbouring words of
+    /// its first half swapped: an answer every guard accepts and the no-op
+    /// floor (0.2) does not call a copy.
     fn swapped(req: &wipemark_engine::ChatRequest) -> String {
         const BEGIN: &str = "[[[BEGIN TEXT]]]\n";
         const END: &str = "\n[[[END TEXT]]]";
@@ -1692,8 +1692,9 @@ mod tests {
             .find(END)
             .map_or(req.prompt.len(), |at| at + start);
         let mut words: Vec<&str> = req.prompt[start..stop].split(' ').collect();
-        if words.len() > 1 {
-            words.swap(0, 1);
+        let half = words.len() / 2;
+        for pair in words[..half].chunks_mut(2) {
+            pair.reverse();
         }
         words.join(" ")
     }
@@ -1750,10 +1751,10 @@ mod tests {
 
         let text = structured["text"].as_str().expect("the text");
         assert_ne!(text, PARAGRAPH, "the text came back as it went");
-        assert!(text.starts_with("build The takes"), "{text}");
+        assert!(text.starts_with("build The about takes"), "{text}");
 
         let report = &structured["report"];
-        assert_eq!(report["version"], json!(1));
+        assert_eq!(report["version"], json!(2));
         assert_eq!(report["best_effort"]["base_seed"], json!(7));
         assert_eq!(report["best_effort"]["ladder"], json!(["paraphrase"]));
         assert_eq!(

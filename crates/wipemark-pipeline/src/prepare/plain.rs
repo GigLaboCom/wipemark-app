@@ -1,13 +1,13 @@
 //! Plain text's prose: paragraphs between blank lines (D69).
 
-use super::chunk::{Piece, Unit};
+use super::chunk::Piece;
 use super::protect::{self, Lexical};
 
-/// The units of `src`, from byte `start` (past a BOM): one paragraph
+/// The pieces of `src`, from byte `start` (past a BOM): one paragraph
 /// each — the lines between two blank ones (a line of whitespace only is
 /// blank), trimmed.
-pub(super) fn units(src: &str, start: usize) -> Vec<Unit> {
-    let mut units = Vec::new();
+pub(super) fn pieces(src: &str, start: usize) -> Vec<Piece> {
+    let mut pieces = Vec::new();
     let mut paragraph: Option<(usize, usize)> = None;
     let mut finish = |paragraph: &mut Option<(usize, usize)>| {
         if let Some((from, to)) = paragraph.take() {
@@ -21,13 +21,12 @@ pub(super) fn units(src: &str, start: usize) -> Vec<Unit> {
                     backticks: true,
                 },
             );
-            units.push(Unit {
-                pieces: vec![Piece {
-                    range,
-                    spans,
-                    prefix: String::new(),
-                    markdown: false,
-                }],
+            pieces.push(Piece {
+                range,
+                spans,
+                prefix: String::new(),
+                markdown: false,
+                item: false,
             });
         }
     };
@@ -47,5 +46,5 @@ pub(super) fn units(src: &str, start: usize) -> Vec<Unit> {
         line_start += line.len();
     }
     finish(&mut paragraph);
-    units
+    pieces
 }

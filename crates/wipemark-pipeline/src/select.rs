@@ -1,41 +1,120 @@
-//! Choosing among the candidates that passed (D71, D72; layer-b reference
-//! §5).
+//! Choosing among the candidates that passed (D71 as moved by the bench,
+//! D95; D72; layer-b reference §5).
 //!
-//! **`min-divergence`**: of the candidates that passed every guard, the
-//! one that changed the source the **least** wins — the user wants their
-//! document back, not a different document. A candidate that changed
-//! almost nothing (divergence under [`NO_OP_FLOOR`]) did not pass at all:
-//! a rewrite that is the source is not a removal attempt, and a report that
-//! filed it as one would be lying by omission. A candidate whose length
-//! left [`LENGTH_WINDOW`] of its source is docked [`LENGTH_PENALTY`] — a
-//! cheap guard against a model that summarised instead of rewriting.
+//! **The most diverged wins.** Of the candidates that passed every check,
+//! the one that changed the source the **most** is the one the user gets:
+//! every candidate that passed kept every fact, number, name, protected
+//! span and the paragraph's language, so among them the furthest from the
+//! original is the one that carries the least of its wording over — the
+//! point of a rewrite (E4-5: −5 to −10 points of the original's word pairs
+//! left, at the same time and with no more meaning judged lost than the
+//! least-changed choice). A candidate that changed almost nothing
+//! (divergence under [`NO_OP_FLOOR`]) did not pass at all: a rewrite that
+//! is the source is not a removal attempt, and a report that filed it as
+//! one would be lying by omission.
+//!
+//! There is no length penalty any more: the length guard is the length
+//! rule, with a wider window for a short chunk ([`LengthWindows`]).
 //!
 //! One scorer exists, [`Scorer::Divergence`]. The enum is the seam for a
 //! keyed one (D72: the keyed-Gumbel replay is not built — no vendor
 //! publishes a key, and the only key there could be is the owner's own
-//! "Sign" mode): a `KeyedGumbel` arm would score a passed candidate by its
-//! p-value in [`score`], and nothing else in the loop would change.
+//! "Sign" mode): a `KeyedGumbel` arm would score a passed candidate in
+//! [`score`], and nothing else in the loop would change.
+//!
+//! [`RULES`] is every number of this module and of the language check as
+//! one value: the queue's fingerprint hashes it, so a job decided under
+//! one set of rules is never resumed under another.
 
 use std::collections::HashSet;
-use std::ops::RangeInclusive;
+
+use wipemark_core::LengthDriftGuard;
 
 /// Below this bigram-Jaccard divergence a candidate is a no-op and fails
-/// (D71; the reference's `noop_lex_floor`). The bench (E4-5) confirms or
-/// moves it.
-pub const NO_OP_FLOOR: f32 = 0.05;
+/// (D95: 0.2 — at 0.05 a near-copy with 97 % of its word pairs left
+/// passed as rewritten, and 0.2 cost no paragraph its rewrite at
+/// "moderate" on a GPU).
+pub const NO_OP_FLOOR: f32 = 0.2;
 
-/// The length ratio (candidate / source, in code points) a candidate may
-/// have without being docked (D71).
-pub const LENGTH_WINDOW: RangeInclusive<f32> = 0.5..=2.0;
+/// A chunk with fewer words than this is judged by the short length
+/// window ([`LengthWindows::short`]); this many or more by the long one.
+pub const SHORT_CHUNK_WORDS: usize = 20;
 
-/// What a candidate outside [`LENGTH_WINDOW`] is docked (D71). Added to
-/// its score, because the winner is the *lowest* score.
-pub const LENGTH_PENALTY: f32 = 0.15;
+/// An answer with fewer words than this is not language-checked: too
+/// short for `lang::detect` to be trusted either way.
+pub const LANGUAGE_CHECK_WORDS: usize = 20;
+
+/// How the winner is picked among the candidates that passed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Selection {
+    /// The highest score; a tie goes to the earlier attempt (D95).
+    MostDiverged,
+}
+
+impl Selection {
+    /// The id the report carries. A format.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Selection::MostDiverged => "most-diverged",
+        }
+    }
+}
+
+/// Every rule a chunk's verdict and winner depend on besides the options:
+/// what the queue's fingerprint hashes, so that changing any of them —
+/// in a later build — forgets the records decided under the old ones.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rules {
+    pub selection: Selection,
+    pub no_op_floor: f32,
+    pub short_chunk_words: usize,
+    pub language_check_words: usize,
+}
+
+/// The rules this build judges by.
+pub const RULES: Rules = Rules {
+    selection: Selection::MostDiverged,
+    no_op_floor: NO_OP_FLOOR,
+    short_chunk_words: SHORT_CHUNK_WORDS,
+    language_check_words: LANGUAGE_CHECK_WORDS,
+};
+
+/// The length guard's two windows (D95): a chunk of
+/// [`SHORT_CHUNK_WORDS`] words or more is held to `long`, a shorter one
+/// to `short` — a lead-in line that grows from four words to seven has not
+/// lost its meaning; a paragraph that grows by two thirds has, two times
+/// in three (E4-5's judge).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LengthWindows {
+    pub long: LengthDriftGuard,
+    pub short: LengthDriftGuard,
+}
+
+impl Default for LengthWindows {
+    /// 0.6–1.6 (A §6) for a long chunk, 0.5–2.0 for a short one.
+    fn default() -> Self {
+        LengthWindows {
+            long: LengthDriftGuard::default(),
+            short: LengthDriftGuard { min: 0.5, max: 2.0 },
+        }
+    }
+}
+
+impl LengthWindows {
+    /// The window for a chunk whose text (as the model saw it) is `text`.
+    pub fn for_chunk(&self, text: &str) -> LengthDriftGuard {
+        if prose_words(text) < SHORT_CHUNK_WORDS {
+            self.short
+        } else {
+            self.long
+        }
+    }
+}
 
 /// Which instrument decides among passed candidates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Scorer {
-    /// 1 − bigram Jaccard against the chunk; the least diverged wins.
+    /// 1 − bigram Jaccard against the chunk; the most diverged wins.
     Divergence,
     // A keyed scorer (`KeyedGumbel`, D72) goes here when a key exists to
     // score with. Not built: a scorer with no key has no input.
@@ -58,8 +137,8 @@ pub struct Scores {
     /// Code points of the candidate / of the chunk's text — the length
     /// guard's measure.
     pub length_ratio: f32,
-    /// What [`winner`] minimises: the divergence, plus [`LENGTH_PENALTY`]
-    /// when the ratio is outside [`LENGTH_WINDOW`].
+    /// What [`winner`] maximises: the divergence, for the one scorer
+    /// there is.
     pub score: f32,
 }
 
@@ -69,30 +148,39 @@ pub fn score(scorer: Scorer, source: &str, candidate: &str) -> Scores {
     match scorer {
         Scorer::Divergence => {
             let divergence = divergence(source, candidate);
-            let length_ratio = length_ratio(source, candidate);
-            let docked = !LENGTH_WINDOW.contains(&length_ratio);
             Scores {
                 divergence,
-                length_ratio,
-                score: divergence + if docked { LENGTH_PENALTY } else { 0.0 },
+                length_ratio: length_ratio(source, candidate),
+                score: divergence,
             }
         }
     }
 }
 
 /// The index of the winner among `scored` — `None` for a candidate that
-/// did not pass — or `None` when nothing passed. The lowest score wins; a
-/// tie goes to the earlier attempt, so a run is decided the same way twice.
+/// did not pass — or `None` when nothing passed. The highest score wins
+/// ([`Selection::MostDiverged`]); a tie goes to the earlier attempt, so a
+/// run is decided the same way twice.
 pub fn winner(scored: &[Option<Scores>]) -> Option<usize> {
     let mut best: Option<(usize, f32)> = None;
     for (i, scores) in scored.iter().enumerate() {
         if let Some(scores) = scores {
-            if best.is_none_or(|(_, low)| scores.score < low) {
+            if best.is_none_or(|(_, high)| scores.score > high) {
                 best = Some((i, scores.score));
             }
         }
     }
     best.map(|(i, _)| i)
+}
+
+/// How many words `text` has outside its placeholders: maximal runs of
+/// letters and digits — [`divergence`]'s words, without `⟦n⟧`. What the
+/// length windows and the language check count.
+pub fn prose_words(text: &str) -> usize {
+    words(text)
+        .iter()
+        .filter(|word| !word.starts_with('\u{27E6}'))
+        .count()
 }
 
 /// `chars(candidate) / chars(source)`; an empty source is 1 against an
@@ -169,7 +257,10 @@ fn words(text: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{divergence, score, winner, Scorer, Scores, LENGTH_PENALTY, NO_OP_FLOOR};
+    use super::{
+        divergence, prose_words, score, winner, LengthWindows, Scorer, Scores, NO_OP_FLOOR,
+        SHORT_CHUNK_WORDS,
+    };
 
     #[test]
     fn divergence_of_a_text_from_itself_is_zero_and_from_a_stranger_is_one() {
@@ -217,23 +308,16 @@ mod tests {
     }
 
     #[test]
-    fn a_candidate_outside_half_to_twice_its_length_is_docked() {
+    fn the_score_is_the_divergence_and_nothing_docks_it() {
         let source = "alpha beta gamma delta epsilon zeta eta theta iota kappa";
         let short = "alpha beta gamma delta"; // 0.38× of the source
         let scores = score(Scorer::Divergence, source, short);
         assert!(scores.length_ratio < 0.5);
-        assert_eq!(scores.score, scores.divergence + LENGTH_PENALTY);
-
-        let inside = "beta alpha gamma delta epsilon zeta eta theta iota kappa";
-        let scores = score(Scorer::Divergence, source, inside);
-        assert_eq!(
-            scores.score, scores.divergence,
-            "inside the window: no penalty"
-        );
+        assert_eq!(scores.score, scores.divergence, "no length penalty");
     }
 
     #[test]
-    fn the_lowest_score_wins_and_a_tie_goes_to_the_earlier_attempt() {
+    fn the_highest_score_wins_and_a_tie_goes_to_the_earlier_attempt() {
         let s = |score: f32| {
             Some(Scores {
                 divergence: score,
@@ -243,7 +327,22 @@ mod tests {
         };
         assert_eq!(winner(&[]), None);
         assert_eq!(winner(&[None, None]), None);
-        assert_eq!(winner(&[s(0.4), None, s(0.2), s(0.3)]), Some(2));
-        assert_eq!(winner(&[None, s(0.2), s(0.2)]), Some(1));
+        assert_eq!(winner(&[s(0.4), None, s(0.9), s(0.3)]), Some(2));
+        assert_eq!(winner(&[None, s(0.6), s(0.6)]), Some(1));
+    }
+
+    #[test]
+    fn a_chunk_of_twenty_words_is_long_and_placeholders_are_not_words() {
+        let words = |n: usize| vec!["word"; n].join(" ");
+        let windows = LengthWindows::default();
+        assert_eq!(prose_words(&words(SHORT_CHUNK_WORDS)), 20);
+        assert_eq!(windows.for_chunk(&words(20)), windows.long);
+        assert_eq!(windows.for_chunk(&words(19)), windows.short);
+        let with_placeholders = format!("{} ⟦1⟧ ⟦2⟧", words(19));
+        assert_eq!(prose_words(&with_placeholders), 19);
+        assert_eq!(windows.for_chunk(&with_placeholders), windows.short);
+        assert_eq!((windows.long.min, windows.long.max), (0.6, 1.6));
+        assert_eq!((windows.short.min, windows.short.max), (0.5, 2.0));
+        assert_eq!(NO_OP_FLOOR, 0.2);
     }
 }

@@ -38,17 +38,19 @@ pub fn text_of(req: &ChatRequest) -> String {
     req.prompt[start..end].to_owned()
 }
 
-/// A rewrite the guards accept: the first two words swapped.
+/// A rewrite the guards accept and the no-op floor does not call a copy:
+/// every two neighbouring words of the first half swapped.
 pub fn swap(text: &str) -> String {
     let mut words: Vec<&str> = text.split(' ').collect();
-    if words.len() > 1 {
-        words.swap(0, 1);
+    let half = words.len() / 2;
+    for pair in words[..half].chunks_mut(2) {
+        pair.reverse();
     }
     words.join(" ")
 }
 
-/// Answers every chunk by swapping its first two words — on the first
-/// ask, so a chunk is one call. `delay` per streamed word.
+/// Answers every chunk by [`swap`] — on the first ask, so a chunk is one
+/// call. `delay` per streamed word.
 pub fn engine(delay: Option<Duration>) -> FakeEngine {
     let engine = FakeEngine::answering(|req, _| swap(&text_of(req)));
     match delay {

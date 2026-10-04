@@ -32,15 +32,25 @@ pub struct Policy {
     pub max: bool,
 }
 
-pub const POLICIES: [Policy; 7] = [
+/// The loop's policy until E4-7 (D71).
+pub const E4_3: Policy = POLICIES[0];
+/// The loop's policy since E4-7 (D95): the most diverged, floor 0.2.
+pub const E4_7: Policy = POLICIES[2];
+
+pub const POLICIES: [Policy; 8] = [
     Policy {
-        name: "min (today)",
+        name: "min ≥ 0.05 (E4-3)",
         floor: 0.05,
         max: false,
     },
     Policy {
-        name: "max",
+        name: "max ≥ 0.05",
         floor: 0.05,
+        max: true,
+    },
+    Policy {
+        name: "max ≥ 0.2 (E4-7)",
+        floor: 0.2,
         max: true,
     },
     Policy {
@@ -191,8 +201,19 @@ type Group<'a> = BTreeMap<u64, &'a Value>;
 
 struct Pick<'a> {
     winner: Option<&'a Value>,
+    /// The chunk's text, as the model saw it.
+    source: &'a str,
     calls: usize,
     secs: f64,
+}
+
+/// A text's words outside its placeholders, and its word pairs.
+fn sizes(text: &str) -> (f64, f64) {
+    let n = crate::measure::words(text)
+        .iter()
+        .filter(|w| !w.starts_with('\u{27E6}'))
+        .count();
+    (n as f64, n.saturating_sub(1) as f64)
 }
 
 fn simulate<'a>(group: &Group<'a>, policy: Policy, gpu: bool) -> Option<Pick<'a>> {
@@ -205,6 +226,7 @@ fn simulate<'a>(group: &Group<'a>, policy: Policy, gpu: bool) -> Option<Pick<'a>
     if rounds.iter().flatten().any(|k| !group.contains_key(k)) {
         return None;
     }
+    let source = group.values().next().map_or("", |r| s(r, "chunk_text"));
     let mut calls = 0;
     let mut secs = 0.0;
     for round in rounds {
@@ -229,6 +251,7 @@ fn simulate<'a>(group: &Group<'a>, policy: Policy, gpu: bool) -> Option<Pick<'a>
             };
             return Some(Pick {
                 winner,
+                source,
                 calls,
                 secs,
             });
@@ -236,6 +259,7 @@ fn simulate<'a>(group: &Group<'a>, policy: Policy, gpu: bool) -> Option<Pick<'a>
     }
     Some(Pick {
         winner: None,
+        source,
         calls,
         secs,
     })
@@ -262,6 +286,34 @@ fn policy_row(
     let wc: Vec<f64> = winners.iter().filter_map(|w| f(w, "word_change")).collect();
     // A chunk kept as it was carries every pair over.
     let carried: Vec<f64> = picks.iter().map(|p| p.winner.map_or(1.0, kept)).collect();
+    // The same, by the document's size rather than by chunk — what a
+    // detector reading the whole document sees, and the only comparison
+    // that survives a change of chunking (E4-7: a list item per chunk).
+    let (mut pairs, mut pairs_kept, mut words, mut words_rewritten) = (0.0, 0.0, 0.0, 0.0);
+    for p in &picks {
+        let (w, _) = sizes(p.source);
+        words += w;
+        match p.winner {
+            Some(winner) => {
+                words_rewritten += w;
+                let (_, n) = sizes(s(winner, "answer"));
+                pairs += n;
+                pairs_kept += kept(winner) * n;
+            }
+            None => {
+                let (_, n) = sizes(p.source);
+                pairs += n;
+                pairs_kept += n;
+            }
+        }
+    }
+    let by_words = |part: f64, whole: f64| {
+        if whole == 0.0 {
+            Value::Null
+        } else {
+            json!((part / whole * 1000.0).round() / 1000.0)
+        }
+    };
     json!({
         "policy": policy.name,
         "executor": if gpu { "gpu-2x2" } else { "cpu-1x2" },
@@ -271,6 +323,8 @@ fn policy_row(
         "word_change": dist(&wc),
         "kept_bigrams_all_chunks": dist(&carried),
         "kept_bigrams_mean_all_chunks": if carried.is_empty() { Value::Null } else { json!((carried.iter().sum::<f64>() / carried.len() as f64 * 1000.0).round() / 1000.0) },
+        "kept_bigrams_by_words": by_words(pairs_kept, pairs),
+        "rewritten_by_words": by_words(words_rewritten, words),
         "judged": judged.len(),
         "changed": ratio(changed, judged.len()),
         "calls_per_chunk": if n == 0 { Value::Null } else { json!((picks.iter().map(|p| p.calls).sum::<usize>() as f64 / n as f64 * 100.0).round() / 100.0) },
@@ -597,8 +651,11 @@ pub fn main(args: &Args) {
                 "CPU 1 × 2 (D61)"
             }
         );
-        let _ = writeln!(md, "| model | tactic | intensity | policy | chunks | rewritten | divergence med (p10–p90) | word change med (p10–p90) | pairs carried over, mean (all chunks) | judged CHANGED | calls / chunk | s / chunk |");
-        let _ = writeln!(md, "|---|---|---|---|---|---|---|---|---|---|---|---|");
+        let _ = writeln!(md, "| model | tactic | intensity | policy | chunks | rewritten | rewritten, by words | divergence med (p10–p90) | word change med (p10–p90) | pairs carried over, mean (all chunks) | pairs carried over, by words | judged CHANGED | calls / chunk | s / chunk |");
+        let _ = writeln!(
+            md,
+            "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+        );
         for (m, model) in models.iter().enumerate() {
             for (tactic, intensity) in [
                 ("paraphrase", "light"),
@@ -620,13 +677,15 @@ pub fn main(args: &Args) {
                     }
                     let _ = writeln!(
                         md,
-                        "| {model} | {tactic} | {intensity} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+                        "| {model} | {tactic} | {intensity} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
                         policy.name,
                         row["chunks"],
                         fmt_ratio(&row["rewritten"]),
+                        fmt_ratio(&row["rewritten_by_words"]),
                         dist_md(&row["divergence"]),
                         dist_md(&row["word_change"]),
                         fmt_ratio(&row["kept_bigrams_mean_all_chunks"]),
+                        fmt_ratio(&row["kept_bigrams_by_words"]),
                         if row["judged"] == 0 { "–".to_owned() } else { format!("{} of {}", fmt_ratio(&row["changed"]), row["judged"]) },
                         row["calls_per_chunk"],
                         row["secs_per_chunk"],
@@ -638,7 +697,7 @@ pub fn main(args: &Args) {
                     pol.push(row);
                     // Per language, for the summary and the per-language
                     // table: the GPU's, for the policies the report weighs.
-                    let weighed = ["min (today)", "max", "min ≥ 0.6"];
+                    let weighed = [E4_3.name, E4_7.name, "min ≥ 0.6"];
                     if !gpu || !weighed.contains(&policy.name) {
                         continue;
                     }
@@ -665,64 +724,66 @@ pub fn main(args: &Args) {
     // rewrite carries over is the chunks it did not rewrite at all.
     let _ = writeln!(
         md,
-        "\n### Paragraphs kept as they were — GPU 2 × 2, `paraphrase` moderate, today's policy\n"
+        "\n### Paragraphs kept as they were — GPU 2 × 2, `paraphrase` moderate, the loop's policy (E4-3 before, E4-7 after)\n"
     );
     let _ = writeln!(
         md,
-        "| model | chunks | kept as they were | by kind | why their attempts failed |"
+        "| model | policy | chunks | kept as they were | by kind | why their attempts failed |"
     );
-    let _ = writeln!(md, "|---|---|---|---|---|");
+    let _ = writeln!(md, "|---|---|---|---|---|---|");
     let mut kept_out = Vec::new();
     for (m, model) in models.iter().enumerate() {
-        let these: Vec<&Group> = groups
-            .iter()
-            .filter(|((gm, t, i, _, _, _), _)| *gm == m && t == "paraphrase" && i == "moderate")
-            .map(|(_, g)| g)
-            .collect();
-        let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
-        let mut why: BTreeMap<String, usize> = BTreeMap::new();
-        let mut n = 0;
-        let mut kept_n = 0;
-        for g in &these {
-            let Some(pick) = simulate(g, POLICIES[0], true) else {
-                continue;
-            };
-            n += 1;
-            if pick.winner.is_some() {
-                continue;
-            }
-            kept_n += 1;
-            let first = g.values().next().expect("a candidate");
-            *kinds.entry(s(first, "kind").to_owned()).or_default() += 1;
-            for r in g.values() {
-                let reason = match s(r, "verdict") {
-                    "guard" => r["rejection"]["guard"].as_str().unwrap_or("?").to_owned(),
-                    "restore" => format!(
-                        "restore {}",
-                        r["rejection"]["reason"].as_str().unwrap_or("?")
-                    ),
-                    other => other.to_owned(),
+        for policy in [E4_3, E4_7] {
+            let these: Vec<&Group> = groups
+                .iter()
+                .filter(|((gm, t, i, _, _, _), _)| *gm == m && t == "paraphrase" && i == "moderate")
+                .map(|(_, g)| g)
+                .collect();
+            let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
+            let mut why: BTreeMap<String, usize> = BTreeMap::new();
+            let mut n = 0;
+            let mut kept_n = 0;
+            for g in &these {
+                let Some(pick) = simulate(g, policy, true) else {
+                    continue;
                 };
-                *why.entry(reason).or_default() += 1;
+                n += 1;
+                if pick.winner.is_some() {
+                    continue;
+                }
+                kept_n += 1;
+                let first = g.values().next().expect("a candidate");
+                *kinds.entry(s(first, "kind").to_owned()).or_default() += 1;
+                for r in g.values() {
+                    let reason = match s(r, "verdict") {
+                        "guard" => r["rejection"]["guard"].as_str().unwrap_or("?").to_owned(),
+                        "restore" => format!(
+                            "restore {}",
+                            r["rejection"]["reason"].as_str().unwrap_or("?")
+                        ),
+                        other => other.to_owned(),
+                    };
+                    *why.entry(reason).or_default() += 1;
+                }
             }
+            let join = |map: &BTreeMap<String, usize>| {
+                let mut v: Vec<_> = map.iter().collect();
+                v.sort_by(|a, b| b.1.cmp(a.1));
+                v.iter()
+                    .map(|(k, n)| format!("{k} {n}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            let _ = writeln!(
+                md,
+                "| {model} | {} | {n} | {kept_n} ({}) | {} | {} |",
+                policy.name,
+                pct(kept_n, n),
+                join(&kinds),
+                join(&why)
+            );
+            kept_out.push(json!({"model": model, "policy": policy.name, "chunks": n, "kept": kept_n, "kinds": kinds, "why": why}));
         }
-        let join = |map: &BTreeMap<String, usize>| {
-            let mut v: Vec<_> = map.iter().collect();
-            v.sort_by(|a, b| b.1.cmp(a.1));
-            v.iter()
-                .map(|(k, n)| format!("{k} {n}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        let _ = writeln!(
-            md,
-            "| {model} | {n} | {kept_n} ({}) | {} | {} |",
-            pct(kept_n, n),
-            join(&kinds),
-            join(&why)
-        );
-        kept_out
-            .push(json!({"model": model, "chunks": n, "kept": kept_n, "kinds": kinds, "why": why}));
     }
     summary.insert("kept_as_they_were".into(), Value::Array(kept_out));
 
@@ -763,9 +824,10 @@ pub fn main(args: &Args) {
     }
     summary.insert("policies".into(), Value::Array(pol));
 
-    // A language check the loop does not make: the answer's language
-    // against the chunk's, when the chunk's can be told.
-    let _ = writeln!(md, "\n### A language check the loop does not make (candidates that passed, chunk language detected)\n");
+    // The language check: the answer's language against the chunk's, when
+    // the chunk's can be told. The loop makes it since E4-7 (answers of 20
+    // words or more); over earlier records, what it would have refused.
+    let _ = writeln!(md, "\n### The language check (candidates that passed, chunk language detected; the loop refuses 20+ words since E4-7)\n");
     let _ = writeln!(md, "| model | passed, chunk language known | answer in another language | answer language unknown | of those two, planted-instruction items |");
     let _ = writeln!(md, "|---|---|---|---|---|");
     let mut lc = Vec::new();
@@ -986,7 +1048,7 @@ fn fmt_ratio(v: &Value) -> String {
 }
 
 /// Before/after, per language and model: the source, and the winners of
-/// today's policy, of `min ≥ 0.6` and of `max` — GPU, `paraphrase`.
+/// E4-3's policy, of `min ≥ 0.6` and of E4-7's — GPU, `paraphrase`.
 fn examples(
     records: &[Value],
     groups: &BTreeMap<(usize, String, String, String, String, u64), Group>,
@@ -1011,7 +1073,7 @@ fn examples(
                 if !(item.contains("-mx-") || item.contains("-pd-")) {
                     continue;
                 }
-                let picks: Vec<(&str, Option<&Value>)> = [POLICIES[0], POLICIES[5], POLICIES[1]]
+                let picks: Vec<(&str, Option<&Value>)> = [E4_3, POLICIES[6], E4_7]
                     .iter()
                     .map(|p| (p.name, simulate(group, *p, true).and_then(|x| x.winner)))
                     .collect();

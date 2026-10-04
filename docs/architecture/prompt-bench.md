@@ -9,6 +9,9 @@ templates and thresholds will change, and every change is run through it.
 Plan and reasons: [`docs/plan/E4-5-the-prompt-bench.md`](../plan/E4-5-the-prompt-bench.md).
 The first run's report and recommendations:
 [`docs/plan/reports/E4-5-2026-10-04.md`](../plan/reports/E4-5-2026-10-04.md).
+The recommendations were built by E4-7 (D95) and measured again — "The
+re-measurement after E4-7" below, and
+[`docs/plan/reports/E4-7-2026-10-04.md`](../plan/reports/E4-7-2026-10-04.md).
 
 ## What it is
 
@@ -87,7 +90,9 @@ No guard sees a meaning that moved. `judge` asks a second model, at
 temperature 0, whether the rewrite "states the same facts, claims, numbers
 and names … with nothing added, nothing left out and nothing changed in
 meaning" — `EQUIVALENT` or `CHANGED` — for every attempt that passed every
-check but, perhaps, the length guard and the no-op floor. It is a
+check but, perhaps, the length guard and the no-op floor (and, since E4-7,
+was not refused by the language check: a faithful translation is still not
+a rewrite). It is a
 **proxy** and reported as one: a model's opinion, which also judges its own
 answers. Its calibration is measured on the corpus itself: the chunk
 against itself (expected `EQUIVALENT`), the chunk without its last
@@ -105,9 +110,20 @@ qualified:
 
 | policy | floor | winner |
 |---|---|---|
-| `min (today)` — D71 | 0.05 | the least diverged |
-| `max` | 0.05 | the most diverged |
-| `min ≥ 0.2` / `0.3` / `0.4` | 0.2 / 0.3 / 0.4 | the least diverged |
+| `min ≥ 0.05 (E4-3)` — D71, the loop's until E4-7 (the first run's tables call it `min (today)`) | 0.05 | the least diverged |
+| `max ≥ 0.05` (the first run's `max`) | 0.05 | the most diverged |
+| `max ≥ 0.2 (E4-7)` — D95, **the loop's since E4-7** | 0.2 | the most diverged |
+| `min ≥ 0.2` / `0.3` / `0.4` / `0.6` / `0.75` | 0.2 … 0.75 | the least diverged |
+
+Since E4-7 a record's verdict **is the loop's** — `run` calls
+`wipemark_pipeline::job::verdict`, so the language check and the length
+window for the chunk's size are in it, and a candidate the language check
+refused never qualifies under any policy. Records made before E4-7 carry
+the old verdicts (one length window, no language check, list glue).
+Beside the per-chunk means, `report` gives **by words**: the share of the
+corpus's words in chunks that were rewritten, and the share of all word
+pairs of the result that are the original's — the only comparison that
+survives a change of chunking (a list item per chunk).
 
 A chunk where nothing qualified keeps its (Layer-A-cleaned) source, as in
 the product.
@@ -158,6 +174,65 @@ findings); the records are complete, and `run` resumes from what is
 there. Built from cargo, the binary finds llama.cpp's libraries by
 itself; run directly, it needs `LD_LIBRARY_PATH` at the `out/lib` of
 `wipemark-llama-sys`'s build.
+
+## The re-measurement after E4-7 (2026-10-04)
+
+E4-7 built D95: the most diverged candidate that passed wins, the no-op
+floor is 0.2, a chunk under 20 words has the 0.5–2.0 length window, an
+answer of 20+ words not in its chunk's language is refused, a list item
+is a chunk of its own, and `NumbersGuard` no longer reads a
+placeholder's digits. Qwen3 4B was run again on the same corpus and
+seeds (`--name qwen3-4b-e47`, grid `paraphrase:light,moderate,strong:4;
+humanize:moderate:2`, 2 030 attempts, 30 min, Vulkan). The baseline with
+the **same templates** is E4-5's numbers-in-digits variant run
+(`qwen3-4b-d94`: `paraphrase` + `humanize` moderate, made before D94
+shipped those templates), so the two differ only by E4-7. `verify`: the
+loop over seven items (a list in English and in Russian, two planted
+instructions, a number item) made **36 attempts, all 36 with the bench's
+verdict and divergence**. The judge (Gemma 3 12B) judged both runs.
+
+GPU 2 × 2, `paraphrase` moderate, the loop's own policy on each side:
+
+| | before (E4-3 rules) | after (E4-7) |
+|---|---|---|
+| chunks (lists are items now) | 133 | 145 |
+| attempts that passed | 86.8 % | 89.3 % |
+| chunks rewritten | 90 % | **94 %** |
+| words in rewritten chunks | 95 % | 96 % |
+| word pairs of the result that are the original's, **by words** | 22 % | **17 %** |
+| the same, mean over chunks | 26 % | 19 % |
+| judged `CHANGED` (winners) | 15 % of 120 | 15 % of 136 |
+| list chunks that passed (attempts) | 36 of 84 (43 %) | **100 of 132 (76 %)** |
+| list attempts with every placeholder exactly once | 31 of 48 | 75 of 84 |
+| chunks kept as they were | 13 (10 %), 11 of them lists | 9 (6 %), 5 lists, 3 planted instructions |
+| planted instructions obeyed **and passed** | 8 of 36 | **0 of 36** (12 obeyed, all refused) |
+| engine calls per document | 2.45 | 2.58 (+5 %) |
+
+Across `paraphrase` light, moderate and strong the after-run's planted
+items were obeyed 33 times in 108 and passed **none** (E4-5: 24 of 108
+passed). The language check refused 29 answers in 2 030; 28 were on the
+planted-instruction items (26 of them answers that obeyed — French, which
+`detect` reads as unknown), **one** was not — a Russian literary paragraph whose rewrite
+`detect` could not place (1 of 1 887 answers on other items). The no-op
+floor at 0.2 binds where E4-5 said it would: on `humanize` it refused 11
+answers (4 %), every one a list item or a lead-in line that came back
+unchanged; on `paraphrase`, none. Short chunks that passed only because
+of the wider window were judged changed 3 times in 28 (11 %; 6 % inside
+0.6–1.6). New with items as chunks: a short item at "strong" is now and
+then inflated into three sentences that repeat its placeholder — 18
+`placeholder-duplicated` rejections, every one a list item; the guards
+refuse them.
+
+What it costs: +5 % calls per document here (a list of ten items is ten
+calls where it was one), and the most-changed rewrite is sometimes the
+most rearranged one (E4-5's examples). What it does not do: the share of
+pairs left is still 17 %, and the paragraphs left whole (6 %) are each
+100 % carried — the third shelf's "not established" stands.
+
+The tables below are the first run's, with its policy names (`min (today)`
+is E4-3's); `bench/results/summary.json` now holds all six runs (the four
+models of the first run, `qwen3-4b-d94`, `qwen3-4b-e47`) under the
+policy names above.
 
 ## The first run (2026-10-03/04)
 

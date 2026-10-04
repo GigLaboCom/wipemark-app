@@ -2,11 +2,13 @@
 //! attempt each, made as the loop makes it — and one JSON line per attempt.
 //!
 //! [`attempt`] is `job/attempt.rs` step for step (render → complete →
-//! `clean_response`, per step → Layer A → the guards → restore → the no-op
-//! floor), with two differences that are the point of a bench: every guard
-//! is also run **on its own**, so a candidate failing two is counted in
-//! both rates, and the texts are kept. `verify` proves the verdicts agree
-//! with the loop's on the same seeds.
+//! `clean_response`, per step → Layer A), and its verdict is the loop's
+//! own — `wipemark_pipeline::job::verdict`: the guards with the chunk's
+//! length window, the language check, restore, the no-op floor (E4-7). Two
+//! things are the bench's: every guard and restore are also run **on their
+//! own**, so a candidate failing two is counted in both rates, and the
+//! texts are kept. `verify` proves the verdicts agree with the loop's on
+//! the same seeds.
 
 use std::collections::HashSet;
 use std::io::{BufRead, Write};
@@ -14,10 +16,10 @@ use std::path::Path;
 use std::time::Instant;
 
 use serde_json::{json, Value};
-use wipemark_core::{default_guards, Guard, GuardOutcome};
+use wipemark_core::GuardOutcome;
 use wipemark_engine::{EngineError, FinishReason, RewriteEngine};
 use wipemark_pipeline::cost::{Effort, Executor};
-use wipemark_pipeline::job::{plan, Rung};
+use wipemark_pipeline::job::{plan, verdict, Rung};
 use wipemark_pipeline::lang::Lang;
 use wipemark_pipeline::prepare::{estimate_tokens, Chunk, TextFormat};
 use wipemark_pipeline::prompt::{
@@ -25,7 +27,7 @@ use wipemark_pipeline::prompt::{
     RenderError, Role, Severity, Slot, Stripped, Tactic, ValidationContext,
 };
 use wipemark_pipeline::report::{rejection_value, EngineFailure, Rejection};
-use wipemark_pipeline::select::{self, Scorer, NO_OP_FLOOR};
+use wipemark_pipeline::select::{self, Scorer};
 use wipemark_pipeline::{seed_for, Document, Options};
 
 use crate::args::Args;
@@ -88,22 +90,6 @@ pub fn options(tactic: Tactic, intensity: Intensity) -> Options {
     options.intensity = intensity;
     options.structural_confirmed = tactic == Tactic::Structural;
     options
-}
-
-/// The guards the loop builds from these options (`Options::guards` is
-/// private): core's five in their order, the length guard with the
-/// options' window.
-pub fn guards(options: &Options) -> Vec<Box<dyn Guard>> {
-    default_guards()
-        .into_iter()
-        .map(|guard| -> Box<dyn Guard> {
-            if guard.name() == options.length.name() {
-                Box::new(options.length)
-            } else {
-                guard
-            }
-        })
-        .collect()
 }
 
 /// A template variant to try without rebuilding: every
@@ -194,14 +180,13 @@ fn finish(f: FinishReason) -> &'static str {
 pub fn attempt(
     engine: &dyn RewriteEngine,
     options: &Options,
-    guards: &[Box<dyn Guard>],
     chunk: &Chunk,
     rung: &Rung,
     seed: u64,
 ) -> Value {
     let mut steps = Vec::new();
     let mut text = chunk.text.clone();
-    let mut verdict: Option<Rejection> = None;
+    let mut verdict_of: Option<Rejection> = None;
     for step in &rung.plan.steps {
         let input = Input {
             text: &text,
@@ -211,7 +196,7 @@ pub fn attempt(
         let rendered = match render(step, &input) {
             Ok(rendered) => rendered,
             Err(RenderError::MarkerInText { marker }) => {
-                verdict = Some(Rejection::MarkerInAnswer {
+                verdict_of = Some(Rejection::MarkerInAnswer {
                     step: step.step,
                     marker,
                 });
@@ -235,7 +220,7 @@ pub fn attempt(
                 match EngineFailure::of(error) {
                     Ok(failure) => {
                         steps.push(json!({"step": step.step, "secs": secs, "error": format!("{failure:?}")}));
-                        verdict = Some(Rejection::Engine {
+                        verdict_of = Some(Rejection::Engine {
                             step: step.step,
                             failure,
                         });
@@ -261,13 +246,13 @@ pub fn attempt(
         match completion.finish {
             FinishReason::Stop => {}
             FinishReason::Length => {
-                verdict = Some(Rejection::Truncated { step: step.step });
+                verdict_of = Some(Rejection::Truncated { step: step.step });
                 break;
             }
             FinishReason::Cancelled => panic!("nothing cancels a bench call"),
         }
         if cleaned.text.trim().is_empty() {
-            verdict = Some(Rejection::Empty { step: step.step });
+            verdict_of = Some(Rejection::Empty { step: step.step });
             break;
         }
         text = cleaned.text;
@@ -278,45 +263,31 @@ pub fn attempt(
         "placeholders": chunk.protected.len(),
         "steps": steps,
     });
-    if verdict.is_none() {
+    if verdict_of.is_none() {
         let layer_a = wipemark_core::clean(&text, &options.layer_a);
         let answer = layer_a.text;
         let removed: u32 = layer_a.report.removed.iter().map(|(_, n)| n).sum();
+        // Every guard and restore on their own, for the rates; the
+        // verdict is the loop's.
         let mut each = serde_json::Map::new();
-        for guard in guards {
-            let outcome = guard.check(&chunk.text, &answer);
-            let value = match outcome {
+        for guard in options.guards_for(chunk) {
+            let value = match guard.check(&chunk.text, &answer) {
                 GuardOutcome::Pass => Value::Null,
-                GuardOutcome::Reject(reason) => {
-                    let rejection = Rejection::Guard {
-                        guard: guard.name(),
-                        reason,
-                    };
-                    let value = rejection_value(&rejection);
-                    if verdict.is_none() {
-                        verdict = Some(rejection);
-                    }
-                    value
-                }
+                GuardOutcome::Reject(reason) => rejection_value(&Rejection::Guard {
+                    guard: guard.name(),
+                    reason,
+                }),
             };
             each.insert(guard.name().to_owned(), value);
         }
-        let restore = chunk.restore(&answer);
-        let restore_value = match &restore {
+        let restore_value = match chunk.restore(&answer) {
             Ok(_) => Value::Null,
-            Err(error) => rejection_value(&Rejection::Restore(error.clone())),
+            Err(error) => rejection_value(&Rejection::Restore(error)),
         };
-        if verdict.is_none() {
-            if let Err(error) = restore {
-                verdict = Some(Rejection::Restore(error));
-            }
+        if let Err(rejection) = verdict(options, chunk, &answer) {
+            verdict_of = Some(rejection);
         }
         let scores = select::score(Scorer::Divergence, &chunk.text, &answer);
-        if verdict.is_none() && scores.divergence < NO_OP_FLOOR {
-            verdict = Some(Rejection::NoOp {
-                divergence: scores.divergence,
-            });
-        }
         let kept = (1..=chunk.protected.len())
             .filter(|n| answer.matches(&format!("\u{27E6}{n}\u{27E7}")).count() == 1)
             .count();
@@ -334,8 +305,8 @@ pub fn attempt(
         extra["preface"] = json!(measure::preface(&chunk.text, &answer));
         extra["trailer"] = json!(measure::trailer(&chunk.text, &answer));
     }
-    record["verdict"] = json!(verdict.as_ref().map_or("passed", Rejection::kind));
-    record["rejection"] = verdict.as_ref().map_or(Value::Null, rejection_value);
+    record["verdict"] = json!(verdict_of.as_ref().map_or("passed", Rejection::kind));
+    record["rejection"] = verdict_of.as_ref().map_or(Value::Null, rejection_value);
     record
 }
 
@@ -469,12 +440,11 @@ pub fn main(args: &Args) {
     let run_started = Instant::now();
     let mut tokens = 0u64;
     for (n, (item, cell, options, rung, chunk, k, key)) in work.into_iter().enumerate() {
-        let guards = guards(&options);
         let round = (k - 1) / SEEDS.candidates + 1;
         let candidate = (k - 1) % SEEDS.candidates + 1;
         let seed = seed_for(options.base_seed, SEEDS, chunk.index, round, candidate);
         let started = Instant::now();
-        let mut record = attempt(engine.as_ref(), &options, &guards, &chunk, &rung, seed);
+        let mut record = attempt(engine.as_ref(), &options, &chunk, &rung, seed);
         let secs = started.elapsed().as_secs_f64();
         let out_tokens: u64 = record["steps"]
             .as_array()

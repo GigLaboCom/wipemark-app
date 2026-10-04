@@ -27,7 +27,8 @@
 //! an answer (E4-2); and the loop that drives them (E4-3) — [`job`] (the
 //! job on its thread: Layer A, candidates × rounds, the guards, the
 //! no-op guard, restore, assembly, Layer A again), [`select`]
-//! (`min-divergence` and the scorer seam), [`cost`] (D61's effort by
+//! (the most diverged wins since E4-7, the floor, the length windows,
+//! the scorer seam), [`cost`] (D61's effort by
 //! executor and the price before a run) and [`report`] (every attempt,
 //! the three shelves, the JSON form). E4-4 added the job that can be
 //! taken up again — [`start_resumable`], [`Decided`] and the options as a
@@ -38,7 +39,10 @@
 //! they share: [`asked`] (the arguments, what is offered without a
 //! window, the base seed), [`wait`] and [`block_on`] for a caller with no
 //! window to keep drawing, and the rows of [`prompt::row`] read into
-//! overrides. The windows are E4-6b.
+//! overrides. E4-7 built the prompt bench's recommendations (D95): the
+//! most-changed candidate wins with a no-op floor of 0.2, a short chunk
+//! has a wider length window, an answer not in its chunk's language is
+//! refused, and a list item is a chunk of its own. The windows are E4-6b.
 
 #![forbid(unsafe_code)]
 

@@ -5,12 +5,14 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use wipemark_engine::fake::FakeEngine;
-use wipemark_engine::ChatRequest;
+use wipemark_engine::{ChatRequest, RewriteEngine};
 
-use super::{start, start_resumable, Decided, Document, Options, Outcome};
+use super::resume::{fingerprint, fingerprint_under};
+use super::{plan, start, start_resumable, Decided, Document, Options, Outcome};
 use crate::cost::{Effort, Executor};
 use crate::prepare::TextFormat;
 use crate::report::ChunkOutcome;
+use crate::select::{Rules, RULES};
 use crate::{Event, JobId};
 
 const EN: &str = "The build takes about 12 minutes on an ordinary laptop, and the second run is much faster because all of the dependencies are already compiled and kept in the target directory.";
@@ -27,11 +29,13 @@ fn text_of(req: &ChatRequest) -> String {
     req.prompt[start..end].to_owned()
 }
 
-/// A rewrite the guards accept: the first two words swapped.
+/// A rewrite the guards accept and the no-op floor does not call a copy:
+/// every two neighbouring words of the first half swapped.
 fn swap(text: &str) -> String {
     let mut words: Vec<&str> = text.split(' ').collect();
-    if words.len() > 1 {
-        words.swap(0, 1);
+    let half = words.len() / 2;
+    for pair in words[..half].chunks_mut(2) {
+        pair.reverse();
     }
     words.join(" ")
 }
@@ -268,6 +272,39 @@ fn changed_options_discard_every_record() {
     let events = resumable(&fresh, document(&source()), other, records[..2].to_vec());
     assert_eq!(resumed(&events), Some((0, 2)));
     assert_eq!(fresh.asked().len(), 5);
+}
+
+#[test]
+fn the_fingerprint_moves_with_the_rules() {
+    let document = document(&source());
+    let options = options();
+    let info = engine().info();
+    let planned = plan(&document, &options, &info).expect("planned");
+    let today = fingerprint(&document, &options, &info, &planned);
+    assert_eq!(
+        today,
+        fingerprint_under(&RULES, &document, &options, &info, &planned)
+    );
+    for moved in [
+        Rules {
+            no_op_floor: 0.05,
+            ..RULES
+        },
+        Rules {
+            short_chunk_words: RULES.short_chunk_words + 1,
+            ..RULES
+        },
+        Rules {
+            language_check_words: 0,
+            ..RULES
+        },
+    ] {
+        assert_ne!(
+            fingerprint_under(&moved, &document, &options, &info, &planned),
+            today,
+            "a record decided under {moved:?} must not be resumed under {RULES:?}"
+        );
+    }
 }
 
 #[test]

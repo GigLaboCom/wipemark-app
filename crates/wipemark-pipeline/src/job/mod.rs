@@ -3,9 +3,9 @@
 //!
 //! ```text
 //! Layer A → prepare → per chunk:
-//!     round 1: candidates × (render → complete → clean_response → Layer A → guards → restore → no-op)
+//!     round 1: candidates × (render → complete → clean_response → Layer A → guards → language → restore → no-op)
 //!     round 2, one rung up the ladder — only if no candidate of round 1 passed (D61)
-//!     winner: the least diverged that passed (D71) — or the chunk keeps its source
+//!     winner: the most diverged that passed (D95) — or the chunk keeps its source
 //! → assemble → Layer A over the whole result
 //! ```
 //!
@@ -34,18 +34,19 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+pub use attempt::verdict;
 pub use plan::{plan, Planned, Rung};
 pub use resume::{Decided, RecordError};
 pub use stored::{OptionsError, OPTIONS_VERSION};
-use wipemark_core::{default_guards, Guard, LengthDriftGuard};
+use wipemark_core::{default_guards, Guard};
 use wipemark_engine::{CancellationToken, EngineError, RewriteEngine, SamplingParams};
 
 use crate::cost::{Effort, Executor};
 use crate::lang::Lang;
-use crate::prepare::TextFormat;
+use crate::prepare::{Chunk, TextFormat};
 use crate::prompt::{Intensity, Overrides, Tactic};
 use crate::report::{Carried, ChunkOutcome, ChunkReport, EngineFailure, JobReport, Kept, Verdict};
-use crate::select::{self, Scorer};
+use crate::select::{self, LengthWindows, Scorer};
 use crate::{Event, JobId, PipelineError, Stage};
 
 /// What is to be rewritten.
@@ -77,9 +78,9 @@ pub struct Options {
     pub pivot: Option<Lang>,
     /// The template rows that parsed (D74).
     pub overrides: Overrides,
-    /// The length guard's window, in place of the default 0.6–1.6 — the
-    /// one guard threshold the bench (E4-5) may move.
-    pub length: LengthDriftGuard,
+    /// The length guard's two windows (D95): 0.6–1.6 for a chunk of
+    /// twenty words or more, 0.5–2.0 below by default.
+    pub length: LengthWindows,
 }
 
 impl Options {
@@ -96,7 +97,7 @@ impl Options {
             sampling: SamplingParams::default(),
             pivot: None,
             overrides: Overrides::new(),
-            length: LengthDriftGuard::default(),
+            length: LengthWindows::default(),
         }
     }
 
@@ -125,14 +126,16 @@ impl Options {
         Ok(())
     }
 
-    /// The guards every candidate faces: the five of `wipemark-core` in
-    /// their order, the length guard with this window.
-    fn guards(&self) -> Vec<Box<dyn Guard>> {
+    /// The guards every candidate of `chunk` faces: the five of
+    /// `wipemark-core` in their order, the length guard with the window
+    /// for the chunk's size ([`LengthWindows::for_chunk`]).
+    pub fn guards_for(&self, chunk: &Chunk) -> Vec<Box<dyn Guard>> {
+        let length = self.length.for_chunk(&chunk.text);
         default_guards()
             .into_iter()
             .map(|guard| -> Box<dyn Guard> {
-                if guard.name() == LengthDriftGuard::default().name() {
-                    Box::new(self.length)
+                if guard.name() == length.name() {
+                    Box::new(length)
                 } else {
                     guard
                 }
@@ -493,11 +496,9 @@ fn run(
         }
     }
 
-    let guards = options.guards();
     let ask = attempt::Ask {
         engine,
         options,
-        guards: &guards,
         cancel: &emit.cancel,
     };
     let count = u32::try_from(chunks.len()).unwrap_or(u32::MAX);
@@ -560,6 +561,7 @@ fn run(
             continue;
         }
 
+        let judge = attempt::Judge::of(options, chunk);
         let mut attempts = Vec::new();
         let mut passed: Vec<Option<String>> = Vec::new();
         for round in 1..=options.effort.rounds {
@@ -591,7 +593,16 @@ fn run(
                         text,
                     })
                 };
-                match attempt::run(&ask, chunk, rung, round, candidate, seed, &mut on_token) {
+                match attempt::run(
+                    &ask,
+                    &judge,
+                    chunk,
+                    rung,
+                    round,
+                    candidate,
+                    seed,
+                    &mut on_token,
+                ) {
                     attempt::Ended::Done { attempt, candidate } => {
                         if let Verdict::Rejected(rejection) = &attempt.verdict {
                             tracing::info!(

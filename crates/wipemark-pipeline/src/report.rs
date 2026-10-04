@@ -27,11 +27,14 @@ use crate::cost::Effort;
 use crate::lang::Lang;
 use crate::prepare::{RestoreError, TextFormat};
 use crate::prompt::{row, Intensity, Marker, Problem, Refusal, Slot, Stripped, Tactic, Version};
-use crate::select::{Scorer, Scores};
+use crate::select::{Scorer, Scores, RULES};
 
 /// The version of the JSON form. A format: bumped when a field changes
-/// meaning or goes away, not when one is added.
-pub const REPORT_VERSION: u32 = 1;
+/// meaning or goes away, not when one is added. 2 (D95): `passed.score`
+/// is what the winner *maximises*, a restore's `item-broken` carries no
+/// `item` and `out-of-order` is gone; `language` rejections and the
+/// `selection` block are new.
+pub const REPORT_VERSION: u32 = 2;
 
 /// Why one candidate was thrown away. A candidate rejected for any of
 /// these is never used — not as a fallback, not as "the best of the bad".
@@ -56,8 +59,15 @@ pub enum Rejection {
         guard: &'static str,
         reason: RejectReason,
     },
+    /// The answer has [`crate::select::LANGUAGE_CHECK_WORDS`] words or
+    /// more and is not in the chunk's language: `found` is what
+    /// `lang::detect` read it as — another of ours, or `None` for a
+    /// language it declines (French reads as `None`). Only made when the
+    /// chunk's own language, `expected`, could be told (D95).
+    Language { expected: Lang, found: Option<Lang> },
     /// The answer passed the guards but cannot be put back into the
-    /// document — list glue out of order is the case a guard cannot see.
+    /// document — a list item re-split across lines is the case a guard
+    /// cannot see.
     Restore(RestoreError),
     /// The answer is the chunk in all but punctuation: divergence under
     /// [`crate::select::NO_OP_FLOOR`].
@@ -77,6 +87,7 @@ impl Rejection {
             Rejection::Truncated { .. } => "truncated",
             Rejection::Empty { .. } => "empty",
             Rejection::Guard { .. } => "guard",
+            Rejection::Language { .. } => "language",
             Rejection::Restore(_) => "restore",
             Rejection::NoOp { .. } => "no-op",
             Rejection::MarkerInAnswer { .. } => "marker-in-answer",
@@ -392,6 +403,10 @@ impl JobReport {
                 "base_seed": self.base_seed,
                 "seed_rule": "base_seed + (chunk * rounds + round - 1) * candidates + candidate - 1",
                 "scorer": self.scorer.as_str(),
+                "selection": {
+                    "pick": RULES.selection.as_str(),
+                    "no_op_floor": float(RULES.no_op_floor),
+                },
                 "chunks": self.chunks.iter().map(chunk_value).collect::<Vec<_>>(),
                 "totals": {
                     "chunks": totals.chunks,
@@ -626,6 +641,10 @@ pub fn rejection_value(rejection: &Rejection) -> Value {
             out.insert("guard".into(), json!(guard));
             reason_fields(reason, &mut out);
         }
+        Rejection::Language { expected, found } => {
+            out.insert("expected".into(), json!(expected.as_str()));
+            out.insert("found".into(), json!(found.map(Lang::as_str)));
+        }
         Rejection::Restore(error) => {
             let (reason, index) = match error {
                 RestoreError::Unknown { index } => ("unknown", index),
@@ -634,10 +653,8 @@ pub fn rejection_value(rejection: &Rejection) -> Value {
                     out.insert("count".into(), json!(count));
                     ("duplicated", index)
                 }
-                RestoreError::OutOfOrder { index } => ("out-of-order", index),
-                RestoreError::ItemBroken { item } => {
+                RestoreError::ItemBroken => {
                     out.insert("reason".into(), json!("item-broken"));
-                    out.insert("item".into(), json!(item));
                     return Value::Object(out);
                 }
             };
