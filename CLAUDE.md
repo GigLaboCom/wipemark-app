@@ -1367,6 +1367,7 @@ What exists so far:
 | `wipemark-e11-1-report-2026-10-04` | FILE | that agent's report (built without GPUI; verified on the host — all gates, mutations re-run, D97–D110) |
 | `wipemark-task-e11-2-image-surfaces-2026-10-04` | FILE | a task for an agent on another machine (code only): E11-2, images on the CLI (`inspect`/`clean`/`audit`) and over MCP (`inspect_image`/`clean_image`) |
 | `wipemark-task-images-series-2026-10-04` | FILE | one series for one agent on another machine: E11-3 (E11-1's test gaps), E12-1…E12-5 (visible marks: `wipemark-pixels`, calibration, `wipemark-picture`, JPEG/WebP re-encode, the surfaces) on top of E11-2 — verified once, after the final step |
+| `wipemark-findings-2026-10-04` | FILE | the day's findings after the status report: E4-7's numbers, E11-1's host verification, the visible-mark study (vendors, NCC is not enough, two proofs), the llama.cpp bump, Vulkan vs CUDA measured (D187), no GitHub CI before 2026-10-04 |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
