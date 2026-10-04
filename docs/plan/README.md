@@ -471,6 +471,20 @@ tell a decision from an accident.
 | **D94** | **The prompt bench and its two template changes** (E4-5, adopted): `crates/wipemark-pipeline/examples/bench` (requires `local-llama`), a corpus of 121 items en/ru/de, results in `bench/results/summary.json`, method in `docs/architecture/prompt-bench.md`; the bench reproduces `start`'s verdicts exactly (54/54 attempts). Shipped: every rewrite and translation contract says to write numbers in digits exactly as in the text (Gemma 3 number rejections 4.1 %→1.6 %); `structural` step 1 outputs only the bullet points, step 2 only the finished text (Gemma 4 passes 17→106 of 133). | Four models measured: Qwen3 4B and Gemma 3 12B on our engine (Vulkan), Gemma 4 12B and Qwen3.8 27B as loopback endpoints (llama.cpp b10731). |
 | **D95** | **The bench's recommendations — proposed, not built** (E4-5; the first is the owner's "how strongly" question): (1) pick the **most**-changed candidate that passed, raise the no-op floor 0.05→0.2, drop the dead 0.15 length penalty, keep the length guard 0.6–1.6 for chunks of 20+ words and widen it to 0.5–2.0 below; (2) a language check in the loop — reject an answer of 20+ words whose language differs from the chunk's (catches all 32 instruction-obeying answers that passed, costs 0.3–0.4 % of the rest); (3) a list item as a chunk of its own (revises D70/D78/D87 — list-line placeholders are where `⟦n⟧` is lost); (4) `NumbersGuard` reads a placeholder's digits as a number (a lost placeholder reported twice), and whether "1800" for "1,800" is a loss. Keep D61's 1×2 / 2×2 and "moderate". | Pairs of the original's words left in the result, paraphrase/moderate/GPU: 25–33 % today → 20–23 % with (1), no more meaning drift by the judge; KGW arithmetic: one page can drop under the threshold, no setting makes a 5–20-page document safe. |
 | **D96** | **Found by the bench, for E2/E8** (open): Gemma 4 does not run on our local engine at this pin — `llama_chat_apply_template` does not know its template, every request refused before a token; 5 of 6 Vulkan processes crashed with SIGSEGV **at exit**, after their output (the app's quit path shares the code — check on a Vulkan build); Qwen3.8 returned an empty answer 5 times in 1 394. | `docs/plan/reports/E4-5-2026-10-04.md`. |
+| **D97** | **An image is blocks that tile it**: every byte in exactly one block; `strip` keeps the unselected blocks and concatenates them byte for byte (E11-1 I1). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
+| **D98** | **What is structure**: PNG's critical chunks (any unknown one included), `tRNS`, APNG; JPEG's non-APP markers, APP0, APP14 `Adobe`, APP2 `MPF`; WebP's image chunks — never listed, never removed (I2). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
+| **D99** | **`Rendering` and `Other`** join `MetadataKind`; colour (ICC, gamma, sRGB…) is listed and removed by no scope (I3). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
+| **D100** | **One `Scope`** — `AiProvenance` (default) or `AllMetadata` — instead of two booleans with a meaningless fourth state (I4). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
+| **D101** | **AI by kind or by evidence**; evidence names the signal and the signature, never the value (I5). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
+| **D102** | **Signatures are data** with a reason per entry; broad words (`OpenAI`, `ChatGPT`) are believed only inside a C2PA manifest; UTF-8 and UTF-16LE/BE (I6). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
+| **D103** | **Digital Source Type only as the whole IPTC URI**; XMP `dcterms:provenance` is a C2PA signal (I7). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
+| **D104** | **JPEG**: the XMP packet leaves whole (main + extended); APP11 C2PA grouped by box instance; a removal after an MPF header refused; a trailer is metadata unless MPF says it is a picture (I8). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
+| **D105** | **WebP**: the RIFF size and the VP8X EXIF/XMP bits change only when a chunk went, and a bit is only ever cleared (I9). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
+| **D106** | **PNG CRCs neither verified nor recomputed**; compressed text inflated under 16 MiB or the file is malformed; ImageMagick raw profiles decoded before the search (I10). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
+| **D107** | **Errors are values** (`Defect`, `Unsupported`, `NotYet`), never strings (I11). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
+| **D108** | **`still_has_*` and `kept` come from a second `inspect`**; nothing selected → the output is the input (I12). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
+| **D109** | **Every image report carries core's three `not_established` ids**; `unknown-mark-schemes` stands for the pixel domain (I13). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
+| **D110** | **Fixtures in `fixtures/image/`**, four real files from `contentauth/c2pa-rs` (MIT/Apache-2.0), the rest built at test time (I14). Host verification added EXPAND to the PNG pixel gate so a lost `tRNS` turns it red (`f446bd4`); open test gaps: an unknown critical chunk, a multi-segment APP11, orientation lost with an EXIF that names a generator. | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
 
 ---
 
@@ -735,6 +749,15 @@ the gate the overview set, and the open edges.
   then HEIC/AVIF), C2PA/XMP/IPTC AI flags, pixels never re-encoded
   (sha256 of the decoded raster identical before and after). Depends on
   `wipemark-core` only.
+  - E11-1 — PNG, JPEG, WebP: `inspect`/`strip`, the AI signals as data,
+    pixels never re-encoded (D97–D110) — status: done, delegated and
+    verified on the host — [reports/E11-1-2026-10-04.md](reports/E11-1-2026-10-04.md),
+    [`docs/architecture/images.md`](../architecture/images.md).
+  - E11-2 — the surfaces: `wipemark-cli inspect|clean|audit` on an image,
+    MCP `inspect_image`/`clean_image` (base64, no paths) — delegated
+    (Watchword `wipemark-task-e11-2-image-surfaces-2026-10-04`).
+  - TIFF and HEIC/AVIF — **backlog, on demand** (owner, 2026-10-04: AI
+    generators write PNG, JPEG and WebP); refused by name until then.
 - **E12.** Its own spec; heavy models; honest about the picture changing.
 
 ---
