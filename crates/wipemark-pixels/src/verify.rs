@@ -26,7 +26,7 @@
 use serde::Serialize;
 
 use crate::catalogue::Profile;
-use crate::geometry::{template_with, Kernel, PixelRect, SubRect};
+use crate::geometry::{template_and_noise, template_with, Kernel, PixelRect, SubRect};
 use crate::propose::Proposal;
 use crate::raster::{Raster, LUMA};
 
@@ -99,6 +99,8 @@ pub struct Verified {
     exact_place: bool,
     /// The map was fitted from real outputs (D245): never exact.
     fitted: bool,
+    /// The capture noise the template dropped, per pixel (D241, D246).
+    noise: Vec<f32>,
     /// The raster's dimensions, so a restore onto another raster is
     /// refused.
     width: u32,
@@ -151,6 +153,10 @@ impl Verified {
 
     pub(crate) fn fitted(&self) -> bool {
         self.fitted
+    }
+
+    pub(crate) fn noise(&self) -> &[f32] {
+        &self.noise
     }
 
     pub(crate) fn fits(&self, raster: &Raster) -> bool {
@@ -325,7 +331,7 @@ pub(crate) fn verify(
     proposal: &Proposal,
 ) -> (Option<Scores>, Outcome) {
     let map = profile.map(proposal.map);
-    let Some((shape, at)) = template_with(map, proposal.rect, proposal.kernel) else {
+    let Some((shape, at, noise)) = template_and_noise(map, proposal.rect, proposal.kernel) else {
         return (None, Outcome::NoBlend);
     };
     if !at.inside(raster.width(), raster.height()) {
@@ -455,6 +461,7 @@ pub(crate) fn verify(
             holes,
             exact_place,
             fitted: profile.fitted.get(proposal.map).copied().unwrap_or(false),
+            noise,
             width: raster.width(),
             height: raster.height(),
             contour: energy[0],
@@ -664,6 +671,7 @@ mod tests {
             holes: 0,
             exact_place: true,
             fitted: false,
+            noise: vec![0.0],
             width: 1,
             height: 1,
             contour: 0.0,

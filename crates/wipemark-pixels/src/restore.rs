@@ -46,6 +46,10 @@ pub struct Restored {
     /// restoration is kept — it took most of the mark away — and an
     /// outline of it is said to be left.
     pub outline_left: bool,
+    /// The map's capture noise — dropped from every template (D241) — was
+    /// found drawn in this picture after all, and taken off with the rest
+    /// (D246).
+    pub noise: bool,
     /// The source was stored with loss: the restoration is as close as the
     /// stored values allow.
     pub lossy: bool,
@@ -116,6 +120,31 @@ pub fn restore(
             changed += u32::from(moved);
         }
     }
+    let noise = drawn_noise(raster, verified);
+    if noise {
+        for (p, &a) in verified.noise().iter().enumerate() {
+            if a < NOISE_FLOOR {
+                continue;
+            }
+            let (tx, ty) = (p as u32 % at.width, p as u32 / at.width);
+            let i = raster.at(at.x + tx, at.y + ty);
+            let samples = raster.samples_mut();
+            let stored = [
+                f64::from(samples[i]),
+                f64::from(samples[i + 1]),
+                f64::from(samples[i + 2]),
+            ];
+            let mut moved = false;
+            for (c, o) in unblend(stored, f64::from(a), logo).into_iter().enumerate() {
+                let v = o.round().clamp(0.0, max) as u16;
+                if v != samples[i + c] {
+                    samples[i + c] = v;
+                    moved = true;
+                }
+            }
+            changed += u32::from(moved);
+        }
+    }
     let outline = crate::verify::outline(raster, verified);
     Ok(Restored {
         profile: verified.profile().to_owned(),
@@ -126,6 +155,7 @@ pub fn restore(
         outline: outline.share,
         step: outline.step,
         outline_left: outline.left(),
+        noise,
         lossy: options.source == Fidelity::Lossy,
         fitted: verified.fitted(),
         exact: options.source == Fidelity::Lossless
@@ -135,6 +165,74 @@ pub fn restore(
             && clamped == 0
             && !outline.left(),
     })
+}
+
+/// Whether the picture carries the capture noise its template dropped
+/// (D246). The noise is a faint square of pixel-to-pixel speckle, 1–6/255
+/// of the logo over the picture: drawn, it lifts each pixel under it by
+/// `a·(L − O)`; not drawn, by nothing. So the speckle is looked for in the
+/// picture's own fine detail: per noise pixel, its luma less the mean of
+/// its 3 × 3 neighbourhood, against the lift a drawn noise would make
+/// there less the same mean of lifts — and the slope of one on the other,
+/// by least squares, is about 1 when the noise is drawn and about 0 when
+/// it is not; believed over a half. A texture's own detail does not follow
+/// the capture's speckle, so it is not mistaken for it, where a mean
+/// against the picture around the square was. Measured: under GWT's own
+/// V1 maps, 0.03 to 0.10 on all 22 real outputs (the vendor draws none,
+/// D241); on composites drawn with the noise, about 1. For V2 there is no
+/// real output to say, and this keeps a V2 mark drawn either way from
+/// leaving a square.
+///
+/// Never for a fitted map (D245): what its denoising drops is the fit's
+/// own noise, not a capture's — on the outputs it was fitted from it
+/// follows their grain (slopes of 1.3–1.8), on two held out it sits at the
+/// threshold (0.58, 0.62). Not evidence of anything; left out.
+fn drawn_noise(raster: &Raster, verified: &Verified) -> bool {
+    if verified.fitted() {
+        return false;
+    }
+    let at = verified.pixels();
+    let logo = verified.logo();
+    let samples = raster.samples();
+    let noise = verified.noise();
+    let (w, h) = (i64::from(at.width), i64::from(at.height));
+    let luma = |x: i64, y: i64| {
+        let i = raster.at(at.x + x as u32, at.y + y as u32);
+        (0..3)
+            .map(|c| f64::from(crate::raster::LUMA[c]) * f64::from(samples[i + c]))
+            .sum::<f64>()
+    };
+    let lift = |x: i64, y: i64| {
+        let a = f64::from(noise[(y * w + x) as usize]);
+        if a < f64::from(NOISE_FLOOR) {
+            return 0.0;
+        }
+        let i = raster.at(at.x + x as u32, at.y + y as u32);
+        (0..3)
+            .map(|c| {
+                f64::from(crate::raster::LUMA[c]) * a * (logo[c] - f64::from(samples[i + c]))
+                    / (1.0 - a)
+            })
+            .sum::<f64>()
+    };
+    let (mut de, mut ee) = (0f64, 0f64);
+    for y in 1..h - 1 {
+        for x in 1..w - 1 {
+            if noise[(y * w + x) as usize] < NOISE_FLOOR {
+                continue;
+            }
+            let (mut l, mut e) = (0f64, 0f64);
+            for (dx, dy) in (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (dx, dy))) {
+                l += luma(x + dx, y + dy);
+                e += lift(x + dx, y + dy);
+            }
+            let d = luma(x, y) - l / 9.0;
+            let e = lift(x, y) - e / 9.0;
+            de += d * e;
+            ee += e * e;
+        }
+    }
+    ee > 0.0 && de / ee > 0.5
 }
 
 /// The reverse blend over stored values, `O = (I − α·L)/(1 − α)` per

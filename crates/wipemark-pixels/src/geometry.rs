@@ -378,6 +378,18 @@ pub(crate) fn template_with(
     rect: SubRect,
     kernel: Kernel,
 ) -> Option<(Shape, PixelRect)> {
+    template_and_noise(map, rect, kernel).map(|(shape, at, _)| (shape, at))
+}
+
+/// [`template_with`], and what it took out: per pixel of the template,
+/// the capture noise dropped there (0 wherever nothing was) — what a
+/// restoration looks for in the picture before it believes the vendor
+/// drew it after all (D246).
+pub(crate) fn template_and_noise(
+    map: &AlphaMap,
+    rect: SubRect,
+    kernel: Kernel,
+) -> Option<(Shape, PixelRect, Vec<f32>)> {
     let mut shape = shape_with(
         map,
         rect.size,
@@ -385,9 +397,11 @@ pub(crate) fn template_with(
         rect.y - rect.y.floor(),
         kernel,
     )?;
-    shape.values = denoised(shape.width, shape.height, std::mem::take(&mut shape.values));
+    let raw = std::mem::take(&mut shape.values);
+    shape.values = denoised(shape.width, shape.height, raw.clone());
+    let noise = raw.iter().zip(&shape.values).map(|(r, d)| r - d).collect();
     let at = placed(rect, &shape)?;
-    Some((shape, at))
+    Some((shape, at, noise))
 }
 
 #[cfg(test)]

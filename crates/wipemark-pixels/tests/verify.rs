@@ -7,7 +7,7 @@ mod support;
 
 use support::*;
 use wipemark_pixels::{
-    clean, composite, examine, resampled, Catalogue, CatalogueError, ExamineOptions, Layout,
+    clean, composite, drawn, examine, resampled, Catalogue, CatalogueError, ExamineOptions, Layout,
     PixelRect, Placed, Raster, Refusal, Verdict,
 };
 
@@ -372,5 +372,50 @@ fn the_report_json_is_ascii_and_stable() {
         "\"not_established\":[\"invisible-pixel-marks\",\"vendor-detector-evasion\",\"human-authorship\",\"unknown-mark-schemes\"]}",
     ] {
         assert!(json.contains(key), "{key} not in {json}");
+    }
+}
+
+/// The third proof (D240): a blend proved by its gain and its edges is
+/// still refused when the stored values lie outside what a blend with this
+/// map and logo could produce over any picture — here, the mark over a
+/// green whose red is 0, then the red under the mark's square lowered by
+/// `by` levels after it was stamped: a corner painted over the mark. The
+/// gain and the edges cannot see it (red is a fifth of luma); the range
+/// can. Within [`BLEND_LEVELS`] (an 8-bit capture of the vendor's α, a
+/// codec's error) it is still the blend; past it, it is not.
+#[test]
+fn a_mark_painted_over_out_of_range_is_refused_and_the_allowance_is_eight_levels() {
+    let shipped = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
+    let v1 = shipped.profile("gemini-sparkle-v1").unwrap();
+    let (_, small) = v1.maps.iter().find(|(id, _)| id == "gemini-v1-48").unwrap();
+    let (w, h) = (640, 480);
+    let at = small_row(w, h, 48);
+    for (by, proved) in [(0u16, true), (7, true), (9, false), (12, false)] {
+        let pixels: Vec<u8> = (0..w * h).flat_map(|_| [0u8, 120, 60]).collect();
+        let mut raster = Raster::from_u8(w, h, Layout::Rgb8, &pixels).unwrap();
+        composite(&mut raster, &drawn(small), at, v1.logo);
+        let mut samples = raster.samples().to_vec();
+        for y in at.y..at.y + at.height {
+            for x in at.x..at.x + at.width {
+                let i = ((y * w + x) * 3) as usize;
+                samples[i] = samples[i].saturating_sub(by);
+            }
+        }
+        let raster = Raster::new(w, h, Layout::Rgb8, samples).unwrap();
+        let exam = examine(&raster, shipped, &options());
+        assert_eq!(exam.findings.len(), 1, "{by}: {:#?}", exam.findings);
+        let f = &exam.findings[0];
+        let scores = f.scores.unwrap();
+        assert!((scores.gain - 1.0).abs() <= 0.06, "{by}: {scores:?}");
+        assert!(scores.edge_ratio <= 0.3, "{by}: {scores:?}");
+        if proved {
+            assert!(f.verified().is_some(), "{by}: {:?}", f.verdict);
+        } else {
+            assert!(
+                matches!(f.verdict, Verdict::Refused(Refusal::OutOfRange { .. })),
+                "{by}: {:?}",
+                f.verdict
+            );
+        }
     }
 }

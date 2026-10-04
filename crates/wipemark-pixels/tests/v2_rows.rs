@@ -181,3 +181,79 @@ fn a_v2_mark_at_its_small_row_is_restored_by_the_row() {
         assert!(max_error(&marked, &original) <= 1, "{w}x{h}");
     }
 }
+
+/// V2's maps are GWT's captures, and D241 drops their capture noise —
+/// 554 of 1 256 samples of the 36, 4 998 of 9 115 of the 96, all 1–4/255 —
+/// with no real V2 output to say whether the vendor draws it. So both: a
+/// V2 mark composited as the vendor would draw it with the noise (the raw
+/// map) and without it (`drawn`), over every background the row proves it
+/// on. Dropped and never looked for, the raw case left a square about a
+/// level light (+0.9, at most 2); the restoration looks for the noise's
+/// speckle in the picture's own fine detail and takes it off only where
+/// it is there (D246) — so neither leaves a square.
+#[test]
+fn a_v2_mark_leaves_no_square_whether_its_capture_noise_is_drawn_or_not() {
+    let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
+    let v2 = catalogue.profile("gemini-sparkle-v2").unwrap();
+    let map = |id: &str| v2.maps.iter().find(|(m, _)| m == id).unwrap().1.clone();
+    let mut cases = 0;
+    for (w, h, id) in [
+        (1024u32, 1024u32, "gemini-v2-36"),
+        (2816, 1536, "gemini-v2-96"),
+    ] {
+        let raw = map(id);
+        let quiet = drawn(&raw);
+        let (margin, logo) = if id == "gemini-v2-36" {
+            gwt_v2_small(w, h)
+        } else {
+            (192, 96)
+        };
+        let at = PixelRect {
+            x: w - margin - logo,
+            y: h - margin - logo,
+            width: logo,
+            height: logo,
+        };
+        for kind in [
+            Kind::Gradient,
+            Kind::ValueNoise,
+            Kind::Fractal,
+            Kind::Flat,
+            Kind::Dark,
+        ] {
+            for with_noise in [false, true] {
+                let name = format!("{id} {kind:?} noise drawn: {with_noise}");
+                let original = picture(kind, w, h, 13, Layout::Rgb8);
+                let mut marked = original.clone();
+                let stamp = if with_noise { &raw } else { &quiet };
+                composite(&mut marked, stamp, at, [255.0; 3]);
+                let report = clean(&mut marked, catalogue, &ExamineOptions::default());
+                assert_eq!(report.restored.len(), 1, "{name}: {:#?}", report.found);
+                assert_eq!(report.restored[0].noise, with_noise, "{name}");
+                // The square: where the capture has noise and the template
+                // nothing.
+                let (mut sum, mut n, mut worst) = (0f64, 0f64, 0u16);
+                for y in 0..logo {
+                    for x in 0..logo {
+                        let (x, y) = (i64::from(x), i64::from(y));
+                        if raw.get(x, y) == 0.0 || quiet.get(x, y) > 0.0 {
+                            continue;
+                        }
+                        let i = (((at.y + y as u32) * w + at.x + x as u32) * 3) as usize;
+                        for k in 0..3 {
+                            let (a, b) = (marked.samples()[i + k], original.samples()[i + k]);
+                            sum += f64::from(a) - f64::from(b);
+                            worst = worst.max(a.abs_diff(b));
+                            n += 1.0;
+                        }
+                    }
+                }
+                let mean = sum / n;
+                assert!(mean.abs() <= 0.1, "{name}: the square moved by {mean:+.2}");
+                assert!(worst <= 1, "{name}: a sample moved by {worst}");
+                cases += 1;
+            }
+        }
+    }
+    assert_eq!(cases, 20);
+}

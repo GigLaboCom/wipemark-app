@@ -109,6 +109,9 @@ fn a_real_mark_is_proved_at_its_row_and_restored() {
         // it, never claimed exact (D245) — the logo's spread across
         // pictures alone is over a level.
         assert!(r.fitted && !r.exact, "{name}: {r:?}");
+        // Its denoising drops the fit's own noise, which is no evidence of
+        // a drawn capture (D246).
+        assert!(!r.noise, "{name}: {r:?}");
         assert!(r.clamped * 100 < r.changed * 3, "{name}: {r:?}");
         assert!(r.outline <= OUTLINE_BOUND, "{name}: {r:?}");
         assert!(!cleaned.marks_left(), "{name}");
@@ -470,7 +473,13 @@ fn gwts_own_map_leaves_the_square_around_a_real_mark_alone() {
     for name in ["torch-1025.png", "victory-1025.png"] {
         let bytes = fixture(name);
         let before = raster_of(&bytes);
-        let (out, _) = clean(&bytes, &options).unwrap();
+        let (out, cleaned) = clean(&bytes, &options).unwrap();
+        // The vendor draws none of it: its speckle is not in the picture
+        // (a slope of 0.03–0.10 on all 22 real outputs, D246).
+        let Visible::Examined { report, .. } = &cleaned.visible else {
+            panic!("{name}")
+        };
+        assert!(!report.restored[0].noise, "{name}: {:?}", report.restored);
         let after = raster_of(&out);
         let c = before.layout().channels();
         let (mut moved, mut n) = (0f64, 0f64);
