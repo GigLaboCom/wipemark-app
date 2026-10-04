@@ -39,6 +39,14 @@
 // while keeping it banned everywhere else.
 #![deny(unsafe_code)]
 
+#[cfg_attr(
+    not(feature = "native"),
+    allow(
+        dead_code,
+        reason = "read by `Model::chat_prompt` in a native build; tested in every build"
+    )
+)]
+mod chat;
 mod generate;
 mod model;
 mod runtime;
@@ -102,6 +110,6 @@ mod tests {
 
     #[test]
     fn the_pin_is_reexported() {
-        assert_eq!(pin::GGML_VERSION, "0.15.1");
+        assert_eq!(pin::GGML_VERSION, "0.22.0");
     }
 }

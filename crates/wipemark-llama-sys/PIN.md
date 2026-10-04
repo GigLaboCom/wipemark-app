@@ -16,50 +16,85 @@ other commit.
 
 | leg | identity |
 |-----|----------|
-| **llama.cpp** | commit `d8a24ccee207a1ff24c513fe1c7d3222b3ccd837` ("fit : wrap llama_device_memory_data (#24522)", 2026-06-13) — a master commit, **not** a `b<N>` release tag |
-| **ggml** | `3af5f5760e19a96427f5f7a93b79cbdf3d4b265b` = **0.15.1** — the ggml-org/ggml commit llama.cpp at `d8a24cc` vendors |
+| **llama.cpp** | commit `0eadefebd3f8f92a86d634a0e5b8fffc9dc792c0` ("qwen4exp: support recurrent state rollback (#28123)", 2026-09-01) = release tag **`b10731`** |
+| **ggml** | `36da57138425487184aa1da2eee2cde155909c6f` = **0.22.0** — the ggml-org/ggml commit llama.cpp at `b10731` vendors |
 
 Canonical pin string (`wipemark_llama_sys::pin::PIN`):
-`ggml-0.15.1+llama-d8a24cc`
+`ggml-0.22.0+llama-0eadefe`
 
-### Why this commit and not a release tag
+### Why this tag (E2-4)
 
-The previous pin, tag `b9556`, vendors ggml 0.14.0, and Gemma 4 12B
-emitted garbage there. The fix is ggml-side: `fb83cc9` "CUDA: Fix
-ssm_scan_f32 data-races" (barriers added, the racy shared-memory launch
-dropped) — Gemma 4 12B is `LLM_ARCH_GEMMA4` with recurrent layers, which
-is the `ssm_scan` path. `d8a24cc` carries the 0.15.1 ggml with that fix
-and no `b<N>` tag carrying it existed when the pin was set. The models in
-wipemark's catalogue today (Gemma 3 12B, Qwen3 4B) are plain transformers
-and do not take that path; the pin is kept because it is the one measured
-on real hardware (below), not because the catalogue needs the fix.
+The bump exists so that two models run on our own engine that before ran
+only as an endpoint (D96): **Gemma 4** 12B and **Qwen3.8** 27B (`qwen35`,
+hybrid attention with Gated DeltaNet recurrent layers).
+
+* `b10731` is the build that served both of them, over HTTP, for the
+  whole of E4-5's prompt bench on this machine — 2 517 requests to Gemma 4
+  12B and 1 394 to Qwen3.8 27B through `ghcr.io/ggml-org/llama.cpp:server-cuda`
+  (`--version`: "build 10731, commit 0eadefebd"). No other llama.cpp build
+  has that much evidence behind it here, and the owner's rule for Qwen3.8
+  is "b10731 or newer".
+* It is a release tag, which the previous pin was not.
+* It descends from `d8a24cc`, so it carries everything that pin was chosen
+  for — the CUDA `ssm_scan` data-race fix `fb83cc9` included.
+* A newer tag was considered and not taken: `b11386` (2026-10-04) is 655
+  commits further with no measurement behind it; nothing between the two
+  that this product needs was found in the log (the Vulkan symbol-visibility
+  fix `08b1d2aea` repairs a regression `f172be756` introduced, both after
+  `b10731`).
+
+What the bump did **not** fix, and what was fixed beside it instead:
+
+* **Gemma 4's chat template** is unknown to `llama_chat_apply_template` at
+  this tag and on master alike (`src/llama-chat.cpp` has no `<|turn>`
+  family). `wipemark_llama::chat` renders it — and ChatML with a thinking
+  switch, which llama.cpp renders with thinking *on* — checked against
+  llama.cpp's own Jinja engine at this tag (E2-4 I2).
+* **The SIGSEGV at exit on Vulkan** was ours, not ggml's: a dropped
+  `LocalEngine` freed its model on its worker while the process was
+  already in `exit`. It reproduced at both pins; `LocalEngine`'s drop now
+  waits for the free (E2-4 I5).
 
 ### Evidence
 
-1. `scripts/sync-ggml.last` at `d8a24cc` = `3af5f576…`, the ggml-org/ggml
+1. `scripts/sync-ggml.last` at `0eadefe` = `36da5713…`, the ggml-org/ggml
    commit it synced from.
-2. `ggml/CMakeLists.txt` at `d8a24cc` sets `GGML_VERSION_MAJOR 0`,
-   `_MINOR 15`, `_PATCH 1`.
-3. `ggml/src/ggml-cuda/ssm-scan.cu` at `d8a24cc` carries `fb83cc9`; it is
-   absent at `b9556`.
-4. Measured on real hardware at this pin before it was carried over
-   (Watchword, ttl 0): `heretic-ml-w11-impl-result` (the bump itself),
-   `heretic-ml-gpu-validation-result` (CUDA, RTX 5070 Ti),
-   `heretic-ml-mac-w11-validation-result` (Metal, M3 Pro),
-   `heretic-ml-llm-vram-calib` (footprints). Here it is gated by the
-   native suite and the live gate of `docs/plan/E2-1-local-engine.md`.
+2. `ggml/CMakeLists.txt` at `0eadefe` sets `GGML_VERSION_MAJOR 0`,
+   `_MINOR 22`, `_PATCH 0`; `ggml.pc.in` at `36da5713` in ggml-org/ggml is
+   byte-for-byte the template `build.rs` restores (`GGML_PC_IN`).
+3. `git merge-base --is-ancestor d8a24cc 0eadefe` holds: everything the
+   previous pin carried is here, `fb83cc9` included.
+4. Measured at this pin on this machine (Ryzen 5 2600X, RTX 5070 Ti, Vulkan,
+   2026-10-04; `docs/plan/reports/E2-4-2026-10-04.md`): Qwen3 4B — the
+   whole native suite and the live gate; Gemma 4 12B — a rewrite in English
+   and in Russian at 57 tokens/s, fully offloaded; Qwen3.8 27B UD-IQ3_S —
+   the same rewrites at 10.9 tokens/s with 62 of 65 layers offloaded; Gemma
+   4 E4B and E2B load and generate (they are the models the override below
+   existed for).
 
-### One compile-time override on top of the pin
+### The compile-time override, removed
 
-The shared ggml is compiled with `-DGGML_SCHED_MAX_SPLIT_INPUTS=128`,
-raised from ggml's `#ifndef`-guarded default of 30. Gemma 4 E4B feeds one
-graph input per layer (`block_count = 42`), so its graph trips
-`GGML_ASSERT(n_graph_inputs < GGML_SCHED_MAX_SPLIT_INPUTS)` at
-sched-reserve — a hard abort, even at full GPU offload. 128 clears it with
-room to spare at a negligible metadata cost. It is a ceiling-raise, not a
-pin change: the value at the pin is upstream's, and the pin string does
-not move. It lives in `build.rs` (`build_shared_ggml`), with a `const`
-assert that fails the build if it is lowered under 64.
+The previous pin compiled the shared ggml with
+`-DGGML_SCHED_MAX_SPLIT_INPUTS=128`, because Gemma 4 E4B feeds one graph
+input per layer (`block_count = 42`) and ggml asserted
+`n_graph_inputs < GGML_SCHED_MAX_SPLIT_INPUTS` (30) at sched-reserve — a
+hard abort. At this pin the graph inputs are grown on demand (`dbadb68ee`
+"ggml: use dynamic allocation for split graph inputs (#22789)",
+2026-08-03): the assert is gone and the constant is only an initial
+capacity. The override went with it; E4B and E2B load and generate without
+it (E2-4's report).
+
+### API changes absorbed (`wipemark_llama::ffi`)
+
+| at `d8a24cc` | at `b10731` |
+|---|---|
+| `llama_model_params.use_mmap`, `.use_mlock` | `.load_mode` (`LLAMA_LOAD_MODE_MMAP`, `_MMAP_MLOCK`); `AUTO`, the default, is never left to choose |
+| `llama_sampler_init_penalties(last_n, …)` | `llama_sampler_init_penalties(n_vocab, last_n, …)` |
+| — | `llama_vocab_get_suppress_tokens` (`tokenizer.ggml.suppress_tokens`, two tokens on Gemma 4): biased to minus infinity in every chain, as `common/sampling.cpp` does |
+
+The load's progress callback is now ours (`keep_loading`): a set flag
+abandons a load between tensors, which is what bounds the wait of a
+`LocalEngine` dropped during a load.
 
 ## Bump procedure
 
@@ -73,14 +108,19 @@ deliberate event, done in one commit:
 3. Update, together:
    - `vendor/fetch.sh` (`LLAMA_COMMIT`),
    - `build.rs` (`native::LLAMA_COMMIT`),
-   - `src/lib.rs` (`pin::LLAMA_COMMIT`, `LLAMA_SHORT`, `GGML_COMMIT`,
-     `GGML_VERSION`, `PIN`),
+   - `src/lib.rs` (`pin::LLAMA_COMMIT`, `LLAMA_TAG`, `LLAMA_SHORT`,
+     `GGML_COMMIT`, `GGML_VERSION`, `PIN`),
    - this file: the table, the evidence, the history row.
+
+   `every_copy_of_the_pin_agrees` fails while one of them is behind.
 4. Re-run `vendor/fetch.sh`, then the three native gates and the live gate
    (`docs/architecture/local-engine.md`, "Running the native gates").
 5. Check that the API `wipemark-llama`'s `ffi` module calls is unchanged in
    `include/llama.h` at **L** — when the header and the code disagree, the
-   header wins.
+   header wins. `git diff <old> <L> -- include/llama.h` is the list.
+6. Check that `src/llama-chat.cpp` at **L** has not learnt a family
+   `wipemark_llama::chat` renders itself; when it has, decide which one
+   renders it, and say so here.
 
 ## Pin history
 
@@ -88,3 +128,4 @@ deliberate event, done in one commit:
 |------|-----|--------|
 | 2026-06-13 | `ggml-0.15.1+llama-d8a24cc` (in the project this was carried over from, with a whisper.cpp leg) | the Gemma 4 12B `ssm_scan` fix (ggml 0.14.0 → 0.15.1) |
 | 2026-10-03 | `ggml-0.15.1+llama-d8a24cc` | carried over unchanged into wipemark (D45, D48); the whisper.cpp leg dropped |
+| 2026-10-04 | `ggml-0.22.0+llama-0eadefe` (`b10731`) | E2-4: Gemma 4 and Qwen3.8 on the local engine (D96); the split-inputs override dropped |

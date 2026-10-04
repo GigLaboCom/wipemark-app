@@ -144,7 +144,8 @@ $B run --endpoint http://127.0.0.1:18092 --name qwen38-27b --out runs/qwen38-27b
 # A thinner corpus: --every 3 keeps every third prose/machine item and every special case;
 # --langs en,ru and --items en-md,ru-inj narrow it; --grid "paraphrase:moderate:4" narrows the cells.
 
-# A model our pinned engine cannot run (Gemma 4's chat template, Qwen3.8's architecture): a llama-server
+# Since E2-4 (llama.cpp b10731) Gemma 4 and Qwen3.8 run on our engine too (--local); E4-5 ran them
+# as endpoints, and a model the engine cannot run still can: a llama-server
 # on loopback, one at a time, the file mounted read-only.
 docker run -d --name wm-bench --gpus all -p 127.0.0.1:18092:8080 -v /path/to/dir:/models:ro \
   ghcr.io/ggml-org/llama.cpp:server-cuda -m /models/<file>.gguf --host 0.0.0.0 --port 8080 \
@@ -168,10 +169,10 @@ The default grid is `paraphrase:light,moderate,strong:4;humanize:moderate,strong
 skipped for a chunk whose language is not detected, as the product skips
 it): 50 minutes for Qwen3 4B and 100 for Gemma 3 12B on the RTX 5070 Ti
 through Vulkan, about 70 for Gemma 4 12B through llama-server; the judge
-needs about 30 minutes for 8 500 judgements. A process that used the
-Vulkan backend may end with SIGSEGV after its last line (see the
-findings); the records are complete, and `run` resumes from what is
-there. Built from cargo, the binary finds llama.cpp's libraries by
+needs about 30 minutes for 8 500 judgements. Before E2-4 a process that
+used the Vulkan backend ended with SIGSEGV after its last line (the
+records were complete); that was the engine's drop racing `exit`, and it
+is fixed (`docs/architecture/local-engine.md`, "Threads"). Built from cargo, the binary finds llama.cpp's libraries by
 itself; run directly, it needs `LD_LIBRARY_PATH` at the `out/lib` of
 `wipemark-llama-sys`'s build.
 
@@ -261,13 +262,17 @@ Three things the run found outside the question it was asked:
   does not know Gemma 4's template: every request is refused as
   `Protocol("llama.cpp does not recognise the model's chat template")`
   before a token is generated. It ran here as an endpoint instead.
+  *Since E2-4:* the template is rendered by `wipemark_llama::chat`, and
+  Gemma 4 runs on the local engine at `b10731`.
 - **A process that loaded a model through the Vulkan backend usually
   crashed with SIGSEGV at exit**, after its last line of output: five of
   the six `run`/`judge` processes whose exit status was recorded (the
   records were complete every time). Not diagnosed: a
   teardown order between ggml-vulkan's static state and the engine's
   worker is the likely place. The application quits through the same
-  code.
+  code. *Diagnosed and fixed by E2-4:* a dropped `LocalEngine` freed its
+  model on its worker while the process was already in `exit`; the drop
+  now waits for the free.
 - **Qwen3.8 answered nothing at all** five times (`humanize` over German
   public-domain prose: an empty completion, `Protocol("the answer was
   empty")`), with thinking off. No `<think>` block reached any record of

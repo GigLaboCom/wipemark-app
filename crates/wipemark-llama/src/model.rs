@@ -39,8 +39,8 @@ pub struct LoadParams {
     ///
     /// The weights stay memory-mapped either way; this locks the mapped
     /// pages (and any host buffer the weights are copied into) once they
-    /// are read. A lock the system refuses is **not** a failed load: at
-    /// this pin llama.cpp's `llama_mlock::raw_lock` logs `warning: failed
+    /// are read (`LLAMA_LOAD_MODE_MMAP_MLOCK`). A lock the system refuses
+    /// is **not** a failed load: at this pin llama.cpp's `llama_mlock::raw_lock` logs `warning: failed
     /// to mlock …-byte buffer` — with a hint to raise `RLIMIT_MEMLOCK` on
     /// Linux — and carries on with the pages unlocked, and a platform with
     /// no `mlock` logs `mlock not supported on this system` and does the
@@ -69,10 +69,23 @@ impl Default for LoadParams {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ModelParams {
     pub(crate) n_gpu_layers: i32,
-    pub(crate) use_mlock: bool,
-    /// Always on: a GGUF is mapped, not read into memory (D55's
-    /// measurement of resident memory counts the pages that were touched).
-    pub(crate) use_mmap: bool,
+    pub(crate) load_mode: LoadMode,
+}
+
+/// How the weights are read: llama.cpp's `llama_load_mode`, the two
+/// values a [`LoadParams`] can ask for.
+///
+/// A GGUF is always mapped, never read into memory (D55's measurement of
+/// resident memory counts the pages that were touched), and never left to
+/// llama.cpp's `AUTO` — which maps today, and is a default that may move.
+/// Since b10731 the lock is part of the mode rather than a flag beside
+/// `use_mmap` (`llama_model_params.load_mode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoadMode {
+    /// `LLAMA_LOAD_MODE_MMAP`.
+    Mmap,
+    /// `LLAMA_LOAD_MODE_MMAP_MLOCK`: mapped, and the mapped pages locked.
+    MmapMlock,
 }
 
 /// What a load asks of `llama_model_params`.
@@ -86,8 +99,11 @@ pub(crate) struct ModelParams {
 pub(crate) fn model_params_of(params: &LoadParams) -> ModelParams {
     ModelParams {
         n_gpu_layers: params.n_gpu_layers,
-        use_mlock: params.use_mlock,
-        use_mmap: true,
+        load_mode: if params.use_mlock {
+            LoadMode::MmapMlock
+        } else {
+            LoadMode::Mmap
+        },
     }
 }
 
@@ -240,6 +256,22 @@ impl Model {
     /// nobody has. Refuses a missing file without touching llama.cpp, and a
     /// runtime with no backend before asking it to load anything.
     pub fn load(path: &Path, params: LoadParams) -> Result<Model, LlamaError> {
+        Self::load_unless(path, params, &AtomicBool::new(false))
+    }
+
+    /// [`Model::load`], abandoned when `stop` is set while the weights are
+    /// being read: llama.cpp reads the flag between tensors and gives up,
+    /// and this refuses with [`LlamaError::Load`]. Setting it after the
+    /// load has finished changes nothing.
+    ///
+    /// For an owner that has to be able to let go of a load it started —
+    /// `LocalEngine`'s worker, whose engine is dropped on the way out of
+    /// the process and must not wait out a 12 GB read first.
+    pub fn load_unless(
+        path: &Path,
+        params: LoadParams,
+        stop: &AtomicBool,
+    ) -> Result<Model, LlamaError> {
         if !path.is_file() {
             return Err(LlamaError::NoSuchFile(path.to_path_buf()));
         }
@@ -250,7 +282,7 @@ impl Model {
             });
         }
         let started = std::time::Instant::now();
-        let session = crate::ffi::Session::load(path, &params)?;
+        let session = crate::ffi::Session::load(path, &params, stop)?;
         tracing::info!(
             n_ctx = session.n_ctx(),
             n_gpu_layers = params.n_gpu_layers,
@@ -273,10 +305,19 @@ impl Model {
 
     /// Render one system message (when given) and one user message with the
     /// chat template the GGUF carries, ending with the assistant's opener so
-    /// generation continues as the assistant. A model whose template
-    /// llama.cpp does not recognise is refused rather than formatted with a
-    /// guess: a wrong template still produces fluent text.
+    /// generation continues as the assistant — with thinking off, where the
+    /// template has a switch for it. Gemma 4 and ChatML-with-a-switch are
+    /// rendered by this crate (`chat`), everything else by
+    /// `llama_chat_apply_template`. A model whose template neither
+    /// recognises is refused rather than formatted with a guess: a wrong
+    /// template still produces fluent text.
     pub fn chat_prompt(&self, system: Option<&str>, user: &str) -> Result<String, LlamaError> {
+        let template = self.session.chat_template().ok_or_else(|| {
+            LlamaError::Inference("the model carries no chat template".to_owned())
+        })?;
+        if let Some(family) = crate::chat::family_of(&template) {
+            return Ok(crate::chat::render(family, system, user));
+        }
         let mut messages = Vec::with_capacity(2);
         if let Some(system) = system {
             messages.push(("system", system));
@@ -328,7 +369,7 @@ impl Model {
         // A clean context for every call: nothing of the previous one —
         // finished or cancelled — is visible to this one.
         self.session.clear();
-        let sampler = crate::ffi::Sampler::build(sampling)?;
+        let sampler = self.session.sampler(sampling)?;
 
         let mut out = Generated {
             text: String::new(),
@@ -395,7 +436,16 @@ impl Model {
     /// Refuses: a missing file by name, then — because this build has no
     /// llama.cpp — with [`LlamaError::NotBuilt`].
     pub fn load(path: &Path, params: LoadParams) -> Result<Model, LlamaError> {
-        let _ = params;
+        Self::load_unless(path, params, &AtomicBool::new(false))
+    }
+
+    /// Refuses as [`Model::load`] does; `stop` is never read.
+    pub fn load_unless(
+        path: &Path,
+        params: LoadParams,
+        stop: &AtomicBool,
+    ) -> Result<Model, LlamaError> {
+        let _ = (params, stop);
         if !path.is_file() {
             return Err(LlamaError::NoSuchFile(path.to_path_buf()));
         }
@@ -501,19 +551,26 @@ mod tests {
 
     #[test]
     fn a_lock_request_reaches_llama() {
-        use super::{model_params_of, LoadParams};
+        use super::{model_params_of, LoadMode, LoadParams};
 
         let locked = model_params_of(&LoadParams {
             use_mlock: true,
             n_gpu_layers: 0,
             ..LoadParams::default()
         });
-        assert!(locked.use_mlock, "the lock was asked for and not passed on");
+        assert_eq!(
+            locked.load_mode,
+            LoadMode::MmapMlock,
+            "the lock was asked for and not passed on, or the weights are not mapped"
+        );
         assert_eq!(locked.n_gpu_layers, 0);
-        assert!(locked.use_mmap, "the weights are mapped, locked or not");
 
         let unlocked = model_params_of(&LoadParams::default());
-        assert!(!unlocked.use_mlock, "a default load locks nothing");
+        assert_eq!(
+            unlocked.load_mode,
+            LoadMode::Mmap,
+            "a default load locks nothing and maps the weights"
+        );
         assert_eq!(unlocked.n_gpu_layers, -1);
     }
 

@@ -55,7 +55,7 @@ mod native {
     /// The pinned llama.cpp commit — identical to `src/lib.rs::pin`,
     /// `vendor/fetch.sh` and `PIN.md`. `verify_pin` checks the fetched
     /// tree's HEAD against it before cmake runs.
-    const LLAMA_COMMIT: &str = "d8a24ccee207a1ff24c513fe1c7d3222b3ccd837";
+    const LLAMA_COMMIT: &str = "0eadefebd3f8f92a86d634a0e5b8fffc9dc792c0";
 
     /// `GGML_*` variables that are not passed through: they decide the
     /// shape of the build this crate links against (one shared ggml, its
@@ -206,8 +206,8 @@ mod native {
     }
 
     /// The standalone-only pkg-config template the llama.cpp ggml subtree
-    /// omits. Verbatim from ggml-org/ggml at the pinned commit (3af5f576,
-    /// 0.15.1); see `ensure_ggml_pc_in`.
+    /// omits. Verbatim from ggml-org/ggml at the pinned commit (36da5713,
+    /// 0.22.0 — unchanged since 3af5f576, 0.15.1); see `ensure_ggml_pc_in`.
     const GGML_PC_IN: &str = "\
 prefix=@CMAKE_INSTALL_PREFIX@
 exec_prefix=${prefix}
@@ -244,22 +244,6 @@ Libs: -L${libdir} -lggml
         }
     }
 
-    /// The `GGML_SCHED_MAX_SPLIT_INPUTS` ceiling the shared ggml is compiled
-    /// with, overriding ggml's `#ifndef`-guarded default of 30 (see
-    /// `build_shared_ggml` for why).
-    const GGML_SCHED_MAX_SPLIT_INPUTS: u32 = 128;
-
-    /// Gemma 4 E4B has `block_count = 42` and feeds one graph input per
-    /// layer, so its graph has more than 42 inputs and the scheduler asserts
-    /// `n_graph_inputs < ceiling`. The ceiling must clear those 42 plus the
-    /// base and vision inputs, or that model hard-aborts at sched-reserve.
-    /// Fail the build if it is ever lowered under that requirement.
-    const _: () = assert!(
-        GGML_SCHED_MAX_SPLIT_INPUTS >= 64,
-        "GGML_SCHED_MAX_SPLIT_INPUTS must stay >= 64 to clear gemma-4 E4B's \
-         42 per-layer graph inputs plus base + vision inputs"
-    );
-
     /// Stage 1 — configure, build and install the shared ggml. Returns the
     /// install prefix `find_package(ggml)` resolves from in stage 2.
     fn build_shared_ggml(vendor: &Path, backends_dir: &Path) -> PathBuf {
@@ -281,31 +265,6 @@ Libs: -L${libdir} -lggml
             // The backend libraries are installed here and loaded from here
             // at run time (wipemark-llama's `Runtime::init`).
             .define("GGML_BACKEND_DIR", path_arg(backends_dir));
-        // A ceiling-raise, not a bug fix. Gemma 4 feeds ONE graph input per
-        // transformer layer (the per-layer embeddings,
-        // `embedding_length_per_layer_input`). The E4B variant has
-        // block_count = 42, so its compute graph has more than 42 graph
-        // inputs — over ggml's default `GGML_SCHED_MAX_SPLIT_INPUTS = 30`
-        // (ggml/src/ggml-backend.cpp). At sched-reserve ggml then trips
-        // `GGML_ASSERT(n_graph_inputs < GGML_SCHED_MAX_SPLIT_INPUTS)` — a hard
-        // C++ abort, uncatchable from Rust, even at full GPU offload (the
-        // input count is a property of the graph, not of a CPU/GPU split).
-        //
-        // The value at the pin (30) is identical to upstream master; upstream
-        // guards the constant with `#ifndef` precisely so it can be raised at
-        // compile time, which is what this does. Only the ONE shared ggml
-        // compiles ggml-backend.cpp, so overriding it in stage 1 is enough.
-        // It lives here and not in a source patch because the vendored tree
-        // is gitignored, fetched-verbatim state that the next fetch wipes.
-        //
-        // Cost: a few more input-pointer slots per split in the scheduler's
-        // reserved metadata; no effect on numerical output.
-        cfg.cflag(format!(
-            "-DGGML_SCHED_MAX_SPLIT_INPUTS={GGML_SCHED_MAX_SPLIT_INPUTS}"
-        ))
-        .cxxflag(format!(
-            "-DGGML_SCHED_MAX_SPLIT_INPUTS={GGML_SCHED_MAX_SPLIT_INPUTS}"
-        ));
         forward_cmake_env(&mut cfg);
         forward_ggml_env(&mut cfg);
         // `cmake::Config::build()` runs configure + build + install into

@@ -27,7 +27,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Keep in lockstep with ../PIN.md, ../build.rs (`LLAMA_COMMIT`) and
 # ../src/lib.rs (`pin`).
 LLAMA_REPO="https://github.com/ggml-org/llama.cpp"
-LLAMA_COMMIT="d8a24ccee207a1ff24c513fe1c7d3222b3ccd837"   # master commit carrying ggml 0.15.1; not a b<N> tag (see PIN.md)
+LLAMA_COMMIT="0eadefebd3f8f92a86d634a0e5b8fffc9dc792c0"   # release tag b10731, carrying ggml 0.22.0 (see PIN.md)
 
 source_repo="$LLAMA_REPO"
 if [ -n "${WIPEMARK_LLAMA_SRC:-}" ]; then

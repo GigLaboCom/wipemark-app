@@ -51,7 +51,8 @@ pub fn complete(
 }
 
 /// The engine `args` names: `--local <gguf>` (llama.cpp in this process,
-/// every layer offloaded to whatever GPU backend registered) or
+/// every layer offloaded to whatever GPU backend registered, or
+/// `--gpu-layers <n>` of them — Qwen3.8 27B is 12 GB) or
 /// `--endpoint <base URL>` (an OpenAI-compatible server).
 pub fn from_args(args: &Args) -> (String, Arc<dyn RewriteEngine>) {
     let name = args.value("--name").unwrap_or_else(|| {
@@ -61,11 +62,15 @@ pub fn from_args(args: &Args) -> (String, Arc<dyn RewriteEngine>) {
         let ctx: u32 = args
             .value("--ctx")
             .map_or(8192, |v| v.parse().expect("--ctx is a number"));
+        let n_gpu_layers: i32 = args
+            .value("--gpu-layers")
+            .map_or(-1, |v| v.parse().expect("--gpu-layers is a number"));
         let engine = LocalEngine::new(LocalConfig {
             model_id: name.clone(),
             weights: PathBuf::from(path),
             load: LoadParams {
                 n_ctx: ctx,
+                n_gpu_layers,
                 ..LoadParams::default()
             },
             available_mb: None,

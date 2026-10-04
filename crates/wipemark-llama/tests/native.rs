@@ -209,3 +209,25 @@ fn the_live_gate_figures() {
     );
     assert_eq!(out.tokens_out, 200, "{:?}", out.finish);
 }
+
+/// E2-4: a load whose stop flag is set is abandoned and refused, rather
+/// than read to the end — what bounds the wait of a `LocalEngine` dropped
+/// during a load. The flag is set before the call, so the first tensor is
+/// as far as llama.cpp gets.
+#[test]
+#[ignore = "needs WIPEMARK_TEST_GGUF"]
+fn a_load_whose_stop_is_set_is_abandoned() {
+    let started = Instant::now();
+    let refused = Model::load_unless(&gguf(), LoadParams::default(), &AtomicBool::new(true));
+    match refused {
+        Err(LlamaError::Load(detail)) => {
+            assert!(detail.contains("stopped"), "{detail}");
+        }
+        Err(other) => panic!("a stopped load must be refused as a load, got {other:?}"),
+        Ok(_) => panic!("a load whose stop was set ran to the end"),
+    }
+    eprintln!(
+        "LIVE stopped load: refused after {} ms",
+        started.elapsed().as_millis()
+    );
+}

@@ -871,8 +871,9 @@ impl EngineHost {
         cx: &Context<Self>,
     ) -> Self {
         let quit = cx.on_app_quit(|host: &mut Self, _| {
-            // The engine goes with the slot; its worker exits with the
-            // last reference, after the job in hand.
+            // The engine goes with the slot. The last reference's drop
+            // stops the worker and waits for it to free the model, so the
+            // process never reaches `exit` under a free (D96, E2-4).
             host.handle.set(Slot::Nothing);
             host.idle = None;
             async {}

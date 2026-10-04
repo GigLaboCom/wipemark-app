@@ -20,6 +20,15 @@
 //! application's policy (its `EngineHost`), executed through
 //! [`RewriteEngine::warmup`] and [`RewriteEngine::unload`].
 //!
+//! Dropping the engine **waits** for its worker: the model is freed before
+//! the drop returns (E2-4, D96). A drop that returned at once let the
+//! process reach `exit` while the worker was still freeing the model, and
+//! on a Vulkan build ggml's backend was torn down under the free — a
+//! SIGSEGV after all the work was done, every time a process ended with a
+//! model loaded. The wait is bounded: the worker is told to stop, a decode
+//! stops at the next piece and a load at the next tensor, and queued jobs
+//! are answered without being run.
+//!
 //! Nothing here logs a prompt or a completion — only their lengths.
 
 use std::ops::ControlFlow;
@@ -80,14 +89,22 @@ enum Job {
 #[derive(Debug)]
 pub struct LocalEngine {
     info: EngineInfo,
-    jobs: flume::Sender<Job>,
+    /// `None` only inside `Drop`, which closes the channel by taking it.
+    jobs: Option<flume::Sender<Job>>,
+    /// Set by `Drop`: the worker stops what it is doing and runs nothing
+    /// more.
+    stop: Arc<AtomicBool>,
+    /// Joined by `Drop`, so the model is freed before the engine is gone.
+    worker: Option<std::thread::JoinHandle<()>>,
 }
 
 impl LocalEngine {
     /// Spawn the worker. Loads nothing: the first [`RewriteEngine::warmup`]
     /// or [`RewriteEngine::complete`] does.
     ///
-    /// Dropping the engine stops the worker after the job in hand.
+    /// Dropping the engine stops the worker and waits for it (see the
+    /// module docs): at most one decode step, or the tensor being read, and
+    /// the free of the model.
     pub fn new(config: LocalConfig) -> LocalEngine {
         let info = EngineInfo {
             vendor: Vendor::OpenLlm,
@@ -96,19 +113,63 @@ impl LocalEngine {
             ctx_len: Some(config.load.n_ctx),
         };
         let (jobs, inbox) = flume::unbounded::<Job>();
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&stop);
         let spawned = std::thread::Builder::new()
             .name("wipemark-llama".to_owned())
-            .spawn(move || Worker::new(config).run(&inbox));
-        if let Err(e) = spawned {
-            // The receiver went with the closure, so every job is refused as
-            // "the worker has stopped" — a refusal, not a panic.
-            tracing::error!(error = %e, "the local engine's worker thread could not start");
+            .spawn(move || Worker::new(config, worker_stop).run(&inbox));
+        let worker = match spawned {
+            Ok(worker) => Some(worker),
+            Err(e) => {
+                // The receiver went with the closure, so every job is
+                // refused as "the worker has stopped" — a refusal, not a
+                // panic.
+                tracing::error!(error = %e, "the local engine's worker thread could not start");
+                None
+            }
+        };
+        LocalEngine {
+            info,
+            jobs: Some(jobs),
+            stop,
+            worker,
         }
-        LocalEngine { info, jobs }
     }
 
     fn send(&self, job: Job) -> Result<(), EngineError> {
-        self.jobs.send(job).map_err(|_| stopped())
+        match &self.jobs {
+            Some(jobs) => jobs.send(job).map_err(|_| stopped()),
+            None => Err(stopped()),
+        }
+    }
+}
+
+impl Drop for LocalEngine {
+    /// Stop the worker and wait for it, so that whatever it holds — a model,
+    /// a context on a GPU — is freed before this returns, and never while
+    /// the process is already on its way out.
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        // Closing the channel ends the worker's loop once what is queued
+        // has been answered.
+        self.jobs = None;
+        let Some(worker) = self.worker.take() else {
+            return;
+        };
+        // The worker never holds its own engine; if it ever did, joining
+        // it from itself would never return.
+        if worker.thread().id() == std::thread::current().id() {
+            return;
+        }
+        let started = std::time::Instant::now();
+        if worker.join().is_err() {
+            tracing::error!("the local engine's worker panicked");
+        }
+        tracing::debug!(
+            model = %self.info.model_id,
+            elapsed_ms = started.elapsed().as_millis(),
+            "local engine stopped"
+        );
     }
 }
 
@@ -202,19 +263,43 @@ impl RewriteEngine for LocalEngine {
 struct Worker {
     config: LocalConfig,
     model: Option<Model>,
+    /// The engine's: set when it is dropped.
+    stop: Arc<AtomicBool>,
 }
 
 impl Worker {
-    fn new(config: LocalConfig) -> Self {
+    fn new(config: LocalConfig, stop: Arc<AtomicBool>) -> Self {
         Self {
             config,
             model: None,
+            stop,
         }
     }
 
-    /// Run jobs until every sender is gone.
+    fn stopping(&self) -> bool {
+        self.stop.load(Ordering::SeqCst)
+    }
+
+    /// Run jobs until every sender is gone. Once the engine is being
+    /// dropped, what is still queued is answered without being run.
+    /// The model goes with `self`, on this thread, before `run` returns.
     fn run(mut self, inbox: &flume::Receiver<Job>) {
         while let Ok(job) = inbox.recv() {
+            if self.stopping() {
+                match job {
+                    Job::Warmup { reply } => {
+                        let _ = reply.send(Err(stopped()));
+                    }
+                    Job::Complete { reply, .. } => {
+                        let _ = reply.send(Err(stopped()));
+                    }
+                    Job::Unload { reply } => {
+                        self.model = None;
+                        let _ = reply.send(());
+                    }
+                }
+                continue;
+            }
             match job {
                 Job::Warmup { reply } => {
                     let _ = reply.send(self.loaded().map(|_| ()));
@@ -242,7 +327,7 @@ impl Worker {
     /// The model, loading it first if it is not — after the refusals.
     fn loaded(&mut self) -> Result<&mut Model, EngineError> {
         if self.model.is_none() {
-            self.model = Some(load(&self.config)?);
+            self.model = Some(load(&self.config, &self.stop)?);
         }
         self.model.as_mut().ok_or_else(stopped)
     }
@@ -258,6 +343,7 @@ impl Worker {
         if cancel.load(Ordering::SeqCst) {
             return Err(EngineError::Cancelled);
         }
+        let stop = Arc::clone(&self.stop);
         let model = self.loaded()?;
         let prompt = model
             .chat_prompt(req.system.as_deref(), &req.prompt)
@@ -266,7 +352,11 @@ impl Worker {
         let started = std::time::Instant::now();
         let generated = model
             .generate(&prompt, &sampling, cancel, &mut |piece| {
-                // A consumer that went away is a reason to stop.
+                // A consumer that went away is a reason to stop, and so is
+                // an engine being dropped.
+                if stop.load(Ordering::SeqCst) {
+                    return ControlFlow::Break(());
+                }
                 match sink.send(piece.to_owned()) {
                     Ok(()) => ControlFlow::Continue(()),
                     Err(_) => ControlFlow::Break(()),
@@ -295,8 +385,8 @@ impl Worker {
 }
 
 /// The refusals, in order, then the load: the file, the memory (when the
-/// caller knows it), the build.
-fn load(config: &LocalConfig) -> Result<Model, EngineError> {
+/// caller knows it), the build. `stop` abandons a load under way.
+fn load(config: &LocalConfig, stop: &AtomicBool) -> Result<Model, EngineError> {
     if !config.weights.is_file() {
         return Err(engine_error(LlamaError::NoSuchFile(config.weights.clone())));
     }
@@ -312,7 +402,7 @@ fn load(config: &LocalConfig) -> Result<Model, EngineError> {
             return Err(engine_error(refused));
         }
     }
-    Model::load(&config.weights, config.load.clone()).map_err(engine_error)
+    Model::load_unless(&config.weights, config.load.clone(), stop).map_err(engine_error)
 }
 
 /// A request's sampling, as the local engine runs it.

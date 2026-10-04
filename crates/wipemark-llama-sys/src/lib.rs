@@ -48,20 +48,22 @@ pub const BACKENDS_DIR: Option<&str> = None;
 /// `vendor/fetch.sh`; the tests below keep the pieces consistent with one
 /// another.
 pub mod pin {
-    /// llama.cpp commit — a master commit, not a `b<N>` release tag; see
-    /// `PIN.md` for why.
-    pub const LLAMA_COMMIT: &str = "d8a24ccee207a1ff24c513fe1c7d3222b3ccd837";
+    /// llama.cpp commit — release tag [`LLAMA_TAG`]; see `PIN.md` for why
+    /// this one.
+    pub const LLAMA_COMMIT: &str = "0eadefebd3f8f92a86d634a0e5b8fffc9dc792c0";
+    /// The release tag that names [`LLAMA_COMMIT`] upstream.
+    pub const LLAMA_TAG: &str = "b10731";
     /// The first seven characters of [`LLAMA_COMMIT`].
-    pub const LLAMA_SHORT: &str = "d8a24cc";
+    pub const LLAMA_SHORT: &str = "0eadefe";
     /// The ggml-org/ggml commit llama.cpp at [`LLAMA_COMMIT`] vendors
     /// (`scripts/sync-ggml.last`).
-    pub const GGML_COMMIT: &str = "3af5f5760e19a96427f5f7a93b79cbdf3d4b265b";
+    pub const GGML_COMMIT: &str = "36da57138425487184aa1da2eee2cde155909c6f";
     /// ggml's semantic version at [`GGML_COMMIT`]
     /// (`ggml/CMakeLists.txt`, `GGML_VERSION_*`).
-    pub const GGML_VERSION: &str = "0.15.1";
+    pub const GGML_VERSION: &str = "0.22.0";
 
     /// The canonical pin string: what a log line or a bug report quotes.
-    pub const PIN: &str = "ggml-0.15.1+llama-d8a24cc";
+    pub const PIN: &str = "ggml-0.22.0+llama-0eadefe";
 }
 
 // Generated FFI bindings: emitted by build.rs (bindgen) into
@@ -98,6 +100,42 @@ mod tests {
             pin::PIN,
             format!("ggml-{}+llama-{}", pin::GGML_VERSION, pin::LLAMA_SHORT),
             "PIN is not built from GGML_VERSION and LLAMA_SHORT"
+        );
+    }
+
+    /// The pin is written in four places besides this module; a bump that
+    /// misses one builds a tree the rest of the documents do not describe,
+    /// or fetches one `build.rs` refuses.
+    #[test]
+    fn every_copy_of_the_pin_agrees() {
+        let fetch = include_str!("../vendor/fetch.sh");
+        assert!(
+            fetch.contains(&format!("LLAMA_COMMIT=\"{}\"", pin::LLAMA_COMMIT)),
+            "vendor/fetch.sh fetches another commit than {}",
+            pin::LLAMA_COMMIT
+        );
+        let build = include_str!("../build.rs");
+        assert!(
+            build.contains(&format!(
+                "const LLAMA_COMMIT: &str = \"{}\";",
+                pin::LLAMA_COMMIT
+            )),
+            "build.rs verifies another commit than {}",
+            pin::LLAMA_COMMIT
+        );
+        let doc = include_str!("../PIN.md");
+        for needle in [
+            pin::LLAMA_COMMIT,
+            pin::GGML_COMMIT,
+            pin::PIN,
+            pin::LLAMA_TAG,
+        ] {
+            assert!(doc.contains(needle), "PIN.md does not name {needle}");
+        }
+        assert!(
+            pin::LLAMA_TAG.starts_with('b') && pin::LLAMA_TAG[1..].parse::<u32>().is_ok(),
+            "{} is not a llama.cpp release tag",
+            pin::LLAMA_TAG
         );
     }
 

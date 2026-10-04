@@ -28,6 +28,7 @@ usage: bench <mode> [--flag value]...
   run     --local <gguf> | --endpoint <base URL> [--reasoning none|off]
           --name <model id> --out <records.jsonl>
           [--grid <spec>] [--langs en,ru] [--items en-pd-01,...] [--every n] [--ctx 8192]
+          [--gpu-layers n]
   judge   --local <gguf> | --endpoint <URL>  --name <judge id>
           --in <records.jsonl,...> --out <judgements.jsonl>
   verify  --local <gguf> | --endpoint <URL>  --name <model id>

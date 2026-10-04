@@ -67,7 +67,7 @@ What changed on the way in, beyond the cuts:
 | `min_p` in the sampler chain | `SamplingParams` has it |
 | a sampled token is accepted once | `llama_sampler_sample` already accepts it at this pin (`include/llama.h`); mnemoria accepted it a second time, so its repetition penalty counted every token twice |
 | the context is dropped before the weights | mnemoria's handle declared the model first and freed it before the context made from it |
-| no fallback chat template | mnemoria fell back to a built-in "gemma" template; a wrong template does not fail, it produces fluent text for the wrong turn structure. A template llama.cpp does not recognise is a refusal |
+| no fallback chat template | mnemoria fell back to a built-in "gemma" template; a wrong template does not fail, it produces fluent text for the wrong turn structure. A template neither `wipemark_llama::chat` nor llama.cpp recognises is a refusal (see "Chat templates") |
 | the prompt is decoded in `n_batch` batches, the flag read between them | mnemoria decoded the whole prompt as one batch, and `llama_context::decode` asserts `n_tokens <= n_batch` — a prompt past 2 048 tokens at `n_ctx` 8192 aborted the process; and a long prompt could not be cancelled |
 | llama.cpp's log goes to `tracing` (`llama_log_set`) | otherwise it prints to stderr, and the CLI's stderr is a hook's contract. Errors at warn, everything else at debug. (The plan said mnemoria did this; it did not, so this is new code.) |
 | the C++ is built `Release` whatever cargo's profile | the `cmake` crate maps a dev profile to `CMAKE_BUILD_TYPE=Debug`: 1.4 tokens/s instead of 10.4 on the live-gate machine. `CMAKE_BUILD_TYPE` in the environment still wins |
@@ -75,16 +75,18 @@ What changed on the way in, beyond the cuts:
 | backends loaded per directory, first directory wins, never from the working directory | see "Where the backends come from" |
 | the KV estimate reads the model's own shape from its GGUF header | mnemoria assumed one Gemma-sized shape for every model |
 
-## The pin (D48)
+## The pin (D48, moved by E2-4)
 
-llama.cpp `d8a24ccee207a1ff24c513fe1c7d3222b3ccd837`, which vendors ggml
-`3af5f576…` = **0.15.1**; the pin string is `ggml-0.15.1+llama-d8a24cc`
-(`wipemark_llama_sys::pin::PIN`). It is mnemoria's pin without the
-whisper.cpp leg, so it no longer waits on whisper's ggml syncs. Why this
-commit and not a `b<N>` tag, the evidence, the one compile-time override
-(`GGML_SCHED_MAX_SPLIT_INPUTS=128`) and the bump procedure are in
-`crates/wipemark-llama-sys/PIN.md`. The measurements behind it are in
-Watchword (ttl 0): `heretic-ml-r0-recon-result` (why not
+llama.cpp release tag **`b10731`** — `0eadefebd3f8f92a86d634a0e5b8fffc9dc792c0`,
+which vendors ggml `36da5713…` = **0.22.0**; the pin string is
+`ggml-0.22.0+llama-0eadefe` (`wipemark_llama_sys::pin::PIN`). It is the
+build Gemma 4 12B and Qwen3.8 27B were measured on as endpoints for the
+whole of E4-5's bench, and it descends from the previous pin `d8a24cc`
+(mnemoria's, carried over by D48), so it keeps the CUDA `ssm_scan` fix that
+pin was chosen for. Why this tag, the evidence, the API changes absorbed,
+the override that was dropped and the bump procedure are in
+`crates/wipemark-llama-sys/PIN.md`. The measurements behind the earlier
+pin are in Watchword (ttl 0): `heretic-ml-r0-recon-result` (why not
 `llama-cpp-sys-2`: one ggml, backends loaded at run time),
 `heretic-ml-w2-impl-result` (the two quirks of the native build),
 `heretic-ml-w11-impl-result` (the bump to `d8a24cc`),
@@ -98,7 +100,53 @@ The source is not committed and is not a submodule:
 (shallow) into the gitignored `vendor/llama.cpp/`, from GitHub or — with
 `WIPEMARK_LLAMA_SRC` naming a local checkout that has the commit — from
 there. `build.rs` (`verify_pin`) refuses a tree that is absent or at any
-other commit.
+other commit, and `every_copy_of_the_pin_agrees` fails while `fetch.sh`,
+`build.rs` or `PIN.md` names another pin than `src/lib.rs`.
+
+## Chat templates (E2-4)
+
+`Model::chat_prompt` renders one optional system message and one user
+message with the template the GGUF carries, ending with the model's
+opener. Two roads, and a refusal:
+
+1. **`wipemark_llama::chat`** — pure Rust, tested in every build — renders
+   the two families llama.cpp's built-in list lacks, recognised by the
+   markers their rendering writes:
+   * **Gemma 4** (`<|turn>` … `<turn|>`), which `llama_chat_apply_template`
+     does not know at all — at the pin and on master. The 12B's template
+     closes an empty thought channel after `<|turn>model\n`; the E4B's and
+     E2B's do not, and the rendering follows the template it was handed.
+   * **ChatML with a thinking switch** (Qwen3.8, Qwen3's hybrid models),
+     which llama.cpp recognises as plain ChatML and renders with the bare
+     assistant opener — the template's thinking **on**. Rendered here with
+     the empty `<think>\n\n</think>\n\n` block the template writes for
+     `enable_thinking = false`.
+2. **`llama_chat_apply_template`** for everything else — Qwen3 4B Instruct
+   (plain ChatML, no switch), Gemma 3 (`gemma`).
+3. A template neither recognises is refused (`LlamaError::Inference`, a
+   `Protocol` error at the engine), never formatted with a guess.
+
+**Thinking is always off** on the local engine (D182): a rewrite is not a
+reasoning task, and E4-5 measured Qwen3.8 with `reasoning_effort: "none"`,
+which llama-server renders exactly as the switch's off. Each family's
+expected strings in `chat`'s tests were produced by llama.cpp's own Jinja
+engine at the pin from the real GGUFs (`llama-server --jinja`,
+`POST /apply-template`), messages trimmed as the templates trim them, no
+BOS (the tokenizer adds it). Why not Jinja itself: llama.cpp's Jinja lives
+in `common/`, a C++ API this crate would need a C++ shim of its own to
+reach; a Rust Jinja engine is a dependency, needs Python's string methods,
+and writes a second BOS — for a product that sends one conversation shape.
+
+Thinking off is a prompt, not a guarantee: Qwen3.8 now and then reasons
+out loud anyway, as plain text after the closed block ("[Thinking
+Process]: …", 1 of 16 German `humanize` attempts in E2-4) — the loop
+rejects such an answer (it runs to the token limit), and llama-server's
+reasoning parser is the likely reason E4-5 saw the same prompts come back
+empty.
+
+A model's `tokenizer.ggml.suppress_tokens` (two on Gemma 4) are biased to
+minus infinity at the head of every sampler chain, as llama.cpp's
+`common/sampling.cpp` does.
 
 ## Two features, and which gate builds which (D47)
 
@@ -173,8 +221,23 @@ owns the `Option<Model>`; nothing is loaded until the first `warmup` or
 `complete`. Each call sends the worker a job over a `flume` channel and
 awaits the answer with `recv_async`, so the engine can be awaited from
 GPUI's executor or from tokio alike, and nothing is spawned on either.
-Jobs run one at a time in arrival order. Dropping the engine stops the
-worker after the job in hand.
+Jobs run one at a time in arrival order.
+
+**Dropping the engine waits for the model to be freed** (E2-4, D184).
+`Drop` sets an engine-wide stop flag, closes the channel and joins the
+worker: a decode stops at its next piece, a load at its next tensor
+(`Model::load_unless`, through llama.cpp's load-progress callback), queued
+jobs are answered `Stopped` without running, and the model is freed on the
+worker before the join returns. Before, the drop returned at once and the
+worker freed the model while the process was already in `exit`; on Vulkan
+that was a SIGSEGV in `ggml_backend_vk_free` after all the work was done,
+in every process that ended with a model loaded — the bench's, the tests',
+and the application's quit path, which drops the engine in `on_app_quit`.
+An engine that is never dropped and sits idle does not crash at exit; the
+free racing the teardown does. `a_process_that_used_a_model_exits_cleanly`
+runs a child that uses a model and drops it, three times, and fails on a
+signal — on a GPU build; a CPU-only build has no driver to tear down and
+cannot fail it.
 
 Cancellation is not best-effort. Each `complete` job carries an
 `Arc<AtomicBool>`; `complete` awaits the answer through
@@ -274,7 +337,9 @@ Engine page, or the menu bar's **Unload model**) still unloads it, and the
 next launch loads it again; nothing else — no timer, and not memory
 pressure — overrides it.
 
-`engine.local.mlock` (off) passes `use_mlock` to llama.cpp; mmap stays on.
+`engine.local.mlock` (off) asks llama.cpp for `LLAMA_LOAD_MODE_MMAP_MLOCK`
+instead of `LLAMA_LOAD_MODE_MMAP`; the weights are mapped either way, and
+the mode is always stated, never left to llama.cpp's `AUTO`.
 At this pin a lock the system refuses is a warning in llama.cpp's log
 (`failed to mlock …`, routed to `tracing` at warn) and the load carries on
 unlocked.
@@ -403,6 +468,28 @@ The `#[ignore]`d tests panic with these download instructions when
 passed. `--test-threads=1` keeps two multi-gigabyte loads from running at
 once.
 
+Two more models are gated by variables of their own, and their tests
+**skip** (a `SKIPPED:` line on stderr) when the variable is unset, because
+neither is in the catalogue and the command above must stay what it is
+(D186):
+
+```sh
+WIPEMARK_TEST_GGUF_GEMMA4=/path/to/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf \
+WIPEMARK_TEST_GGUF_QWEN38=/path/to/Qwen3.8-27B-UD-IQ3_S.gguf \
+WIPEMARK_TEST_GPU_LAYERS_QWEN38=62 \
+cargo test -p wipemark-engine --features llama-native --locked -- --ignored --test-threads=1
+```
+
+Each rewrites an English and a Russian text at temperature 0 and fails on
+a refusal, a template marker in the answer (`<think>`, `<|turn>`, …), a
+lost number, an answer not in the text's script, a copy, or a run to the
+token limit. `WIPEMARK_TEST_GPU_LAYERS_GEMMA4` / `_QWEN38` set
+`n_gpu_layers` (all, by default): Qwen3.8 27B UD-IQ3_S is 12 GB.
+
+A GPU backend is built by naming it in the environment of every native
+command: `GGML_VULKAN=ON` (glslc and the Vulkan headers installed) is what
+this machine uses; the variable is forwarded to ggml's configure.
+
 The first native build takes about two minutes on a 12-thread desktop
 (cmake builds fourteen x86 CPU variants); later builds reuse the cmake
 tree in `OUT_DIR`. The everyday rustfmt gate globs `crates/**/*.rs`,
@@ -424,3 +511,19 @@ Tried once and not a gate: the same machine with `GGML_VULKAN=ON`
 (`glslc` and the Vulkan headers installed) registered `Vulkan0` (the RTX
 5070 Ti) beside `CPU`, loaded in 1.2 s, generated at 145.5 tokens/s and
 cancelled 4 ms after the fire.
+
+## Live figures at `b10731` (2026-10-04, the same machine, Vulkan, `n_ctx` 4096)
+
+A two-sentence rewrite, greedy, through `LocalEngine`; the second request
+of each model (the first carries the shaders' first use).
+
+| model | offload | load | rewrite (en / ru) |
+|---|---|---|---|
+| Gemma 4 12B it QAT UD-Q4_K_XL (6.7 GB) | all 48 layers | 3.6–4.1 s | 57 tokens/s |
+| Qwen3.8 27B UD-IQ3_S (12 GB) | 62 of 65 layers, 15.1 GB of the card in use with `mn-embed-server` beside it | 4.6–21 s (page cache) | 10.9 tokens/s |
+| the same | 56 of 65 | | 5.2–6.4 tokens/s |
+| the same | 44 of 65 | | 1.4–3.3 tokens/s |
+| Gemma 4 E4B / E2B (the split-inputs models) | all | 1.8–2.2 s | 87 / 114 tokens/s (they answer the Russian text in English — the test fails them for it) |
+
+The full report, with the sentences, is
+`docs/plan/reports/E2-4-2026-10-04.md`.

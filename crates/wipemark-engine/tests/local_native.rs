@@ -308,3 +308,238 @@ async fn the_runtime_reports_at_least_the_cpu_backend() {
         runtime.backends()
     );
 }
+
+/// The child half of [`a_process_that_used_a_model_exits_cleanly`]: does
+/// nothing unless that test started it.
+#[tokio::test]
+#[ignore = "started by a_process_that_used_a_model_exits_cleanly"]
+async fn exit_child() {
+    if std::env::var_os("WIPEMARK_EXIT_CHILD").is_none() {
+        return;
+    }
+    let engine = engine(2048);
+    let out = run(&engine, request(CREATIVE, 0.0, 0, 8)).await;
+    assert!(out.tokens_out > 0);
+    // The engine is dropped here, holding its model, and the process ends
+    // straight after — the way every command and the bench end.
+}
+
+/// D96: a process that used a model must end as cleanly as one that did
+/// not. Before E2-4, dropping a `LocalEngine` returned at once and its
+/// worker freed the model *while* `exit` tore ggml's backends down; on
+/// Vulkan that was a SIGSEGV after all the work, in every run (5 of 5 on
+/// the RTX 5070 Ti). The child is this test binary, run again on
+/// `exit_child`. On a CPU-only build there is no driver to tear down and
+/// this cannot fail — it is a gate on a GPU build.
+#[test]
+#[ignore = "needs WIPEMARK_TEST_GGUF"]
+fn a_process_that_used_a_model_exits_cleanly() {
+    let _ = gguf();
+    let exe = std::env::current_exe().expect("the test binary");
+    for round in 1..=3 {
+        let status = std::process::Command::new(&exe)
+            .args(["--ignored", "--exact", "exit_child", "--test-threads=1"])
+            .env("WIPEMARK_EXIT_CHILD", "1")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("the child starts");
+        assert!(
+            status.success(),
+            "round {round}: a process that used a model ended with {status}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// E2-4: the two models the bump is for, each behind a variable of its own.
+//
+// Neither is in the catalogue, so neither has a download line, and the
+// gate command above — run with `WIPEMARK_TEST_GGUF` alone — must stay what
+// it was. So these two **skip** when their variable is unset, saying so on
+// stderr, instead of panicking (E2-4 I7). Set, they are gates like the rest:
+//
+//   WIPEMARK_TEST_GGUF_GEMMA4=/path/to/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
+//   WIPEMARK_TEST_GGUF_QWEN38=/path/to/Qwen3.8-27B-UD-IQ3_S.gguf
+//   WIPEMARK_TEST_GPU_LAYERS_QWEN38=40     # optional; default: all layers
+// ---------------------------------------------------------------------------
+
+/// A model named by `var`, or `None` (and a line on stderr) when unset.
+fn optional_gguf(var: &str) -> Option<PathBuf> {
+    match std::env::var_os(var) {
+        Some(path) => Some(PathBuf::from(path)),
+        None => {
+            eprintln!("SKIPPED: {var} is not set");
+            None
+        }
+    }
+}
+
+/// Layers to offload: `var` when set, every layer otherwise.
+fn gpu_layers(var: &str) -> i32 {
+    std::env::var(var)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(-1)
+}
+
+/// What a rewrite must not carry: a chat template's own markers. One of
+/// them in an answer means the turn structure was wrong — the prompt was
+/// rendered for another template, or a thinking block was opened and never
+/// closed.
+const MARKERS: [&str; 9] = [
+    "<|turn>",
+    "<turn|>",
+    "<|channel>",
+    "<channel|>",
+    "<|im_start|>",
+    "<|im_end|>",
+    "<think>",
+    "</think>",
+    "<start_of_turn>",
+];
+
+/// The share of letters in `text` that `script` accepts.
+fn script_share(text: &str, script: fn(char) -> bool) -> f64 {
+    let letters: Vec<char> = text.chars().filter(|c| c.is_alphabetic()).collect();
+    if letters.is_empty() {
+        return 0.0;
+    }
+    letters.iter().filter(|c| script(**c)).count() as f64 / letters.len() as f64
+}
+
+fn cyrillic(c: char) -> bool {
+    ('\u{0400}'..='\u{04FF}').contains(&c)
+}
+
+fn latin(c: char) -> bool {
+    c.is_ascii_alphabetic()
+}
+
+const REWRITE_SYSTEM: &str = "You rewrite text. Say the same thing in different words, in the \
+     same language as the text, keeping every number. Output only the rewritten text.";
+
+const EN_TEXT: &str = "The release notes are published every Tuesday morning. Version 2.4.1 \
+     fixed 37 bugs reported since March, and the full installer is about 180 MB.";
+
+const RU_TEXT: &str = "Первая сборка проекта занимает около 12 минут на обычном ноутбуке, а \
+     повторная — меньше минуты, потому что зависимости уже скомпилированы.";
+
+/// Rewrite one text with `engine`, greedy, and check the answer is a
+/// rewrite in the text's own script that kept `number` — what token salad,
+/// a wrong turn structure or an unclosed thinking block all fail.
+async fn rewrites(
+    engine: &LocalEngine,
+    label: &str,
+    text: &str,
+    number: &str,
+    script: fn(char) -> bool,
+) {
+    let (sink, streamed) = flume::unbounded();
+    let started = Instant::now();
+    let out = engine
+        .complete(
+            ChatRequest {
+                system: Some(REWRITE_SYSTEM.to_owned()),
+                prompt: text.to_owned(),
+                params: SamplingParams {
+                    temperature: 0.0,
+                    seed: Some(1),
+                    max_tokens: Some(200),
+                    ..SamplingParams::default()
+                },
+            },
+            sink,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{label}: the completion was refused: {e:?}"));
+    let elapsed = started.elapsed();
+    eprintln!(
+        "LIVE {label}: {} tokens ({:?}) in {} ms, {:.1} tokens/s: {:?}",
+        out.tokens_out,
+        out.finish,
+        elapsed.as_millis(),
+        f64::from(out.tokens_out) / elapsed.as_secs_f64(),
+        out.text
+    );
+    let concatenated: String = streamed.drain().collect();
+    assert_eq!(
+        concatenated, out.text,
+        "{label}: the sink and the text disagree"
+    );
+    assert_eq!(
+        out.finish,
+        FinishReason::Stop,
+        "{label}: a two-sentence rewrite ran to the token limit"
+    );
+    let answer = out.text.trim();
+    assert!(!answer.is_empty(), "{label}: an empty answer");
+    for marker in MARKERS {
+        assert!(
+            !answer.contains(marker),
+            "{label}: the answer carries the template marker {marker}"
+        );
+    }
+    assert!(
+        answer.contains(number),
+        "{label}: the number {number} was lost: {answer:?}"
+    );
+    let share = script_share(answer, script);
+    assert!(
+        share > 0.8,
+        "{label}: only {:.0} % of the letters are in the text's script: {answer:?}",
+        share * 100.0
+    );
+    assert_ne!(answer, text.trim(), "{label}: the text came back unchanged");
+}
+
+/// Load the model named by `var` and rewrite an English and a Russian text.
+async fn a_named_model_rewrites(var: &str, layers_var: &str, model_id: &str) {
+    let Some(weights) = optional_gguf(var) else {
+        return;
+    };
+    let engine = LocalEngine::new(LocalConfig {
+        model_id: model_id.to_owned(),
+        weights,
+        load: LoadParams {
+            n_ctx: 4096,
+            n_gpu_layers: gpu_layers(layers_var),
+            ..LoadParams::default()
+        },
+        available_mb: None,
+    });
+    let started = Instant::now();
+    engine.warmup().await.expect("the model loads");
+    eprintln!(
+        "LIVE {model_id}: loaded in {} ms on {:?}",
+        started.elapsed().as_millis(),
+        Runtime::get().map(|r| r.backends().to_vec())
+    );
+    rewrites(&engine, &format!("{model_id} en"), EN_TEXT, "37", latin).await;
+    rewrites(&engine, &format!("{model_id} ru"), RU_TEXT, "12", cyrillic).await;
+    // Given back before the next test loads another model.
+    engine.unload().await;
+}
+
+#[tokio::test]
+#[ignore = "needs WIPEMARK_TEST_GGUF_GEMMA4"]
+async fn gemma_4_rewrites_in_english_and_russian() {
+    a_named_model_rewrites(
+        "WIPEMARK_TEST_GGUF_GEMMA4",
+        "WIPEMARK_TEST_GPU_LAYERS_GEMMA4",
+        "gemma-4-12b-it-qat-ud-q4",
+    )
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "needs WIPEMARK_TEST_GGUF_QWEN38"]
+async fn qwen_3_8_rewrites_in_english_and_russian() {
+    a_named_model_rewrites(
+        "WIPEMARK_TEST_GGUF_QWEN38",
+        "WIPEMARK_TEST_GPU_LAYERS_QWEN38",
+        "qwen3.8-27b-ud-iq3s",
+    )
+    .await;
+}

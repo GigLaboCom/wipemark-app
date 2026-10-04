@@ -9,7 +9,11 @@
 //! (`llama_sampler_sample` accepts it at this pin); there is no fallback
 //! chat template; llama.cpp's log goes to `tracing`; backends are loaded
 //! per directory with the first directory winning, never from the working
-//! directory; the GGUF header is read for the KV-cache estimate.
+//! directory; the GGUF header is read for the KV-cache estimate. E2-4
+//! (llama.cpp b10731): the load mode replaces `use_mmap`/`use_mlock`, the
+//! repetition penalty is told the vocabulary's size, the model's own
+//! suppressed tokens are biased out, and the template is handed up for
+//! `chat` to recognise.
 //!
 //! The ONE `unsafe` module: the call boundary over `wipemark-llama-sys`.
 //! Each handle is RAII (frees its native resource on drop), each call
@@ -20,12 +24,13 @@
 
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
 
 use wipemark_llama_sys as sys;
 
 use crate::generate::Sampling;
-use crate::model::{KvQuant, KvShape, LoadParams};
+use crate::model::{KvQuant, KvShape, LoadMode, LoadParams};
 use crate::runtime::{classify, BackendInfo};
 use crate::LlamaError;
 
@@ -354,25 +359,39 @@ pub(crate) struct Session {
 unsafe impl Send for Session {}
 
 impl Session {
-    /// Load the weights at `path` and create one context over them.
-    pub(crate) fn load(path: &Path, params: &LoadParams) -> Result<Session, LlamaError> {
+    /// Load the weights at `path` and create one context over them. `stop`
+    /// is read as the weights are read, and set aborts the load.
+    pub(crate) fn load(
+        path: &Path,
+        params: &LoadParams,
+        stop: &AtomicBool,
+    ) -> Result<Session, LlamaError> {
         install_log();
         let c_path = path_cstring(path)?;
         // SAFETY: `llama_backend_init` is idempotent; the params are a
-        // stack copy; the path outlives the call. The model pointer is
-        // null-checked before anything else uses it.
+        // stack copy; the path outlives the call. `stop` is borrowed for the
+        // length of this function and llama.cpp reads it only from inside
+        // `llama_model_load_from_file`, on this thread, through
+        // `keep_loading`. The model pointer is null-checked before anything
+        // else uses it.
         let weights = unsafe {
             sys::llama_backend_init();
             let mut mparams = sys::llama_model_default_params();
             let wanted = crate::model::model_params_of(params);
             mparams.n_gpu_layers = wanted.n_gpu_layers;
-            mparams.use_mlock = wanted.use_mlock;
-            mparams.use_mmap = wanted.use_mmap;
+            mparams.load_mode = match wanted.load_mode {
+                LoadMode::Mmap => sys::llama_load_mode_LLAMA_LOAD_MODE_MMAP,
+                LoadMode::MmapMlock => sys::llama_load_mode_LLAMA_LOAD_MODE_MMAP_MLOCK,
+            };
+            mparams.progress_callback = Some(keep_loading);
+            mparams.progress_callback_user_data = std::ptr::from_ref(stop).cast_mut().cast();
             let model = sys::llama_model_load_from_file(c_path.as_ptr(), mparams);
             if model.is_null() {
-                return Err(LlamaError::Load(
-                    "llama_model_load_from_file returned null; llama.cpp's log says why".to_owned(),
-                ));
+                return Err(LlamaError::Load(if stop.load(Ordering::SeqCst) {
+                    "the load was stopped before it finished".to_owned()
+                } else {
+                    "llama_model_load_from_file returned null; llama.cpp's log says why".to_owned()
+                }));
             }
             Weights {
                 model,
@@ -429,6 +448,39 @@ impl Session {
             return Err(LlamaError::Inference(format!("llama_decode returned {rc}")));
         }
         Ok(())
+    }
+
+    /// A sampler chain for one call: `s`, plus what the model itself asks
+    /// of every sampler — its vocabulary's size for the repetition penalty,
+    /// and its suppressed tokens (`tokenizer.ggml.suppress_tokens`, Gemma
+    /// 4's two) biased to minus infinity, as llama.cpp's own `common`
+    /// sampler does.
+    pub(crate) fn sampler(&self, s: &Sampling) -> Result<Sampler, LlamaError> {
+        // SAFETY: vocabulary valid for `self`'s lifetime.
+        let n_vocab = unsafe { sys::llama_vocab_n_tokens(self.weights.vocab) };
+        let mut n_suppress = 0_i32;
+        // SAFETY: vocabulary valid; `n_suppress` is a live out-parameter.
+        // The array, when non-null, belongs to the vocabulary and holds
+        // `n_suppress` tokens; it is copied before anything else is called.
+        let suppress = unsafe {
+            let p = sys::llama_vocab_get_suppress_tokens(self.weights.vocab, &raw mut n_suppress);
+            match usize::try_from(n_suppress) {
+                Ok(n) if n > 0 && !p.is_null() => std::slice::from_raw_parts(p, n).to_vec(),
+                _ => Vec::new(),
+            }
+        };
+        Sampler::build(s, n_vocab, &suppress)
+    }
+
+    /// The chat template the GGUF carries (`tokenizer.chat_template`), or
+    /// `None` when it carries none.
+    pub(crate) fn chat_template(&self) -> Option<String> {
+        // SAFETY: model valid; a null name selects the default template.
+        // The returned string, when non-null, is owned by the model and
+        // copied at once.
+        let template =
+            unsafe { sys::llama_model_chat_template(self.weights.model, std::ptr::null()) };
+        (!template.is_null()).then(|| cstr_to_string(template))
     }
 
     /// Sample the next token from the last decode's logits. The chain
@@ -572,6 +624,21 @@ impl Session {
     }
 }
 
+/// llama.cpp's load-progress callback: keep loading unless the flag handed
+/// to [`Session::load`] is set. Replaces llama.cpp's own default, which
+/// only prints dots.
+extern "C" fn keep_loading(_progress: f32, stop: *mut c_void) -> bool {
+    if stop.is_null() {
+        return true;
+    }
+    // SAFETY: the only pointer ever handed to llama.cpp with this function
+    // is `Session::load`'s `stop`, a live `&AtomicBool` for the whole of the
+    // load call that invokes this. An `AtomicBool` is read through a shared
+    // reference from any thread.
+    let stop = unsafe { &*stop.cast_const().cast::<AtomicBool>() };
+    !stop.load(Ordering::SeqCst)
+}
+
 /// One `llama_chat_apply_template` call into `buf`, with the assistant's
 /// opener appended. `template` must be a live NUL-terminated string.
 fn apply_template(
@@ -661,13 +728,22 @@ fn ggml_type(kv: KvQuant) -> sys::ggml_type {
 pub(crate) struct Sampler(*mut sys::llama_sampler);
 
 impl Sampler {
-    /// The chain for one call: a light repetition penalty, then greedy when
-    /// `temperature <= 0`, else top-k, top-p, min-p, temperature and a draw
-    /// seeded with this call's seed.
-    pub(crate) fn build(s: &Sampling) -> Result<Sampler, LlamaError> {
+    /// The chain for one call: the model's suppressed tokens out, a light
+    /// repetition penalty, then greedy when `temperature <= 0`, else top-k,
+    /// top-p, min-p, temperature and a draw seeded with this call's seed.
+    fn build(s: &Sampling, n_vocab: i32, suppress: &[i32]) -> Result<Sampler, LlamaError> {
+        let biases: Vec<sys::llama_logit_bias> = suppress
+            .iter()
+            .map(|&token| sys::llama_logit_bias {
+                token,
+                bias: f32::NEG_INFINITY,
+            })
+            .collect();
         // SAFETY: the chain and every sampler come from llama.cpp's init
         // functions; the chain takes ownership of each sampler added to it
-        // and frees them with itself in `Drop`.
+        // and frees them with itself in `Drop`. The logit-bias sampler is
+        // handed `biases` with its length and copies it; `biases` outlives
+        // the call.
         unsafe {
             let chain = sys::llama_sampler_chain_init(sys::llama_sampler_chain_default_params());
             if chain.is_null() {
@@ -676,6 +752,16 @@ impl Sampler {
                 ));
             }
             let sampler = Sampler(chain);
+            if !biases.is_empty() {
+                sys::llama_sampler_chain_add(
+                    chain,
+                    sys::llama_sampler_init_logit_bias(
+                        n_vocab,
+                        int_len(biases.len())?,
+                        biases.as_ptr(),
+                    ),
+                );
+            }
             // A light repetition penalty first, on the raw logits, in every
             // mode: at low temperature an instruction model can otherwise
             // fall into a token loop on a short prompt. last_n = 64,
@@ -684,7 +770,7 @@ impl Sampler {
             // has to keep.
             sys::llama_sampler_chain_add(
                 chain,
-                sys::llama_sampler_init_penalties(64, 1.1, 0.0, 0.0),
+                sys::llama_sampler_init_penalties(n_vocab, 64, 1.1, 0.0, 0.0),
             );
             if s.temperature <= 0.0 {
                 sys::llama_sampler_chain_add(chain, sys::llama_sampler_init_greedy());

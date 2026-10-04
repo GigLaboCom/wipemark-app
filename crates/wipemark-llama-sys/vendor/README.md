@@ -10,7 +10,7 @@ The **pinned** llama.cpp source tree, consumed only when building with
 ```
 vendor/
   fetch.sh      # clones llama.cpp at the pinned commit (run this first)
-  llama.cpp/    # @ d8a24cce… — gitignored, fetched on demand
+  llama.cpp/    # @ 0eadefeb… (b10731) — gitignored, fetched on demand
 ```
 
 ## Why a fetch step, and not committed source or a submodule
