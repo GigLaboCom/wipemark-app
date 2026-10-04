@@ -113,10 +113,14 @@ and that `duty::engine_for` hands out a `LocalEngine` rather than a fake.
 real engine are behind `llama-native` (cmake + bindgen + a C++ compiler
 + the source `vendor/fetch.sh` fetched). The workflow's `native` job builds
 llama.cpp at the pin with `GGML_VULKAN=ON` and runs the first two native
-gates below (clippy and the model-free tests); its `macos` job checks the
-whole workspace and `llama-native` with Metal on Apple Silicon — compile
-only, the first lane to build the GUI on macOS. The third, the live gate,
-has no hosted lane (no model, no GPU), so any change under
+gates below (clippy and the model-free tests); its `macos` job runs clippy
+`-D warnings` over the workspace (the only lint `cfg(target_os = "macos")`
+code gets), the workspace and `local-llama` tests, and the first two native
+gates with Metal on an Apple M1 VM, which registers a Metal device (`MTL0`).
+The tray install, the display callback, the AppKit window move, the Dock
+icon and the panel float are linted there but run by no test — they need a
+main thread with an `NSApplication`. The third native gate, the live one,
+has no hosted lane (no model), so any change under
 `crates/wipemark-llama*` or `crates/wipemark-engine/src/local.rs` still
 runs the three native gates by hand — the third needs the catalogue's
 Qwen3 4B (`docs/architecture/local-engine.md`, "Running the native
