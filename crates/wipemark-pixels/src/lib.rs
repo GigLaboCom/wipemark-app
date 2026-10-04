@@ -49,9 +49,7 @@ pub use propose::{Placed, REFINE_MARGIN, ROW_FLOOR};
 pub use raster::{Layout, Raster, RasterError};
 pub use restore::{composite, restore, RestoreError, Restored};
 use serde::Serialize;
-pub use verify::{
-    Refusal, Scores, Verified, LOSSY_LEVELS, NOISE_FLOOR, NO_BLEND_GAIN, NO_BLEND_RATIO,
-};
+pub use verify::{Refusal, Scores, Verified, LOSSY_LEVELS, NOISE_FLOOR, NO_BLEND_RATIO};
 
 /// The claim this crate adds to the third shelf (D156). The English is
 /// the canon, like core's; the translations land with the first surface

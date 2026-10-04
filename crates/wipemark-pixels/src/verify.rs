@@ -16,11 +16,10 @@
 //!   (on a lossy file, a codec's allowance is added before the inverse
 //!   amplifies it, [`LOSSY_LEVELS`]).
 //!
-//! Before any of those, a proposal whose edges vanish only at under half
-//! the mark's opacity, that no gain takes a fifth of the contour away
-//! from, or whose contour grows when it is inverted at the mark's own
-//! opacity, is **no blend** and not a finding at all ([`NO_BLEND_GAIN`],
-//! [`NO_BLEND_RATIO`], D226).
+//! Before any of those, a proposal that no gain takes a fifth of the
+//! contour away from, or whose contour grows when it is inverted at the
+//! mark's own opacity, is **no blend** and not a finding at all
+//! ([`NO_BLEND_RATIO`], D226).
 //!
 //! Only this module constructs a [`Verified`], and only a `Verified` can
 //! be restored: the type system keeps "write only what was proved".
@@ -156,15 +155,18 @@ impl Verified {
 ///
 /// * **proved** — both proofs passed; restorable;
 /// * **a blend that is not proved** — some gain takes the edge away
-///   (`k* ≥` [`NO_BLEND_GAIN`] and `E(k*)/E(0) ≤` [`NO_BLEND_RATIO`]), but
-///   another gain than the mark's, not far enough, or by leaving the
-///   range: a mark like this was seen and is not removed, and that is a
-///   finding;
-/// * **no blend** — the edges vanish only at a gain under half the mark's;
-///   or no gain takes even a fifth of the contour away; or inverting at
-///   the mark's own opacity adds contour (`E(1) > E(0)`), which this mark
-///   blended at two thirds of its opacity or more never does — at
-///   `α ≈ 0.5`, `E(1)/E(0) ≈ |1 − g| / (g·(1 − α))`. Whatever the
+///   (`E(k*)/E(0) ≤` [`NO_BLEND_RATIO`]) and the mark's own does not add
+///   to it, but another gain than the mark's, not far enough, or by
+///   leaving the range: a mark like this was seen and is not removed, and
+///   that is a finding;
+/// * **no blend** — no gain takes even a fifth of the contour away, or
+///   inverting at the mark's own opacity adds contour (`E(1) > E(0)`).
+///   Blended at a gain `g`, the mark leaves `E(1)/E(0) ≈ |1 − g| /
+///   (g·(1 − α))`, which is over 1 exactly when `g < 1/(2 − α)` — under
+///   two thirds at `α ≈ 0.5`, and never at a half or more for any `α`: so
+///   "the edges vanish only under half the mark's opacity" (`k* ≈ 0`, the
+///   textures and opaque look-alikes) needs no rule of its own, and a
+///   mutation that removed one left every gate green. Whatever the
 ///   correlation saw, it is not this mark blended over a picture. That is
 ///   not a finding — never reported and never an exit code.
 #[derive(Debug, Clone, PartialEq)]
@@ -173,12 +175,6 @@ pub(crate) enum Outcome {
     Refused(Refusal),
     NoBlend,
 }
-
-/// Under this `k*` the contour vanishes at less than half the mark's
-/// opacity: no blend of it (D226). In the false-positive gate as the
-/// series left it, all 679 proposals on textures and opaque look-alikes
-/// had `k*` under 0.35, and all 191 on blurred sparkles over 0.55.
-pub const NO_BLEND_GAIN: f32 = 0.5;
 
 /// Over this `E(k*)/E(0)` the best inverse, at whatever gain, takes less
 /// than a fifth of the contour away: no blend of it (D226). A true mark
@@ -284,11 +280,14 @@ impl Grid {
     }
 }
 
-/// `E(1)/E(0)` for `map` at `rect`: how much of the contour the inverse
-/// at the mark's own opacity takes away. `None` where the template does
-/// not fit or has no contour. What the search's refinement minimises
-/// (D227).
-pub(crate) fn contour_ratio(
+/// What the inverse at the mark's own opacity leaves on the contour, per
+/// unit of contour: `E(1)/Σ|∇α|`, the mean luma step left along the edge.
+/// The search's refinement minimises it (D227): at the mark's true place
+/// and size only the picture's own texture is left, anywhere else an
+/// outline is too. (`E(1)/E(0)` is not compared across places: `E(0)`
+/// moves with the shape as much as the residual does.) `None` where the
+/// template does not fit or has no contour.
+pub(crate) fn residual(
     raster: &Raster,
     profile: &Profile,
     map: &crate::alpha::AlphaMap,
@@ -301,9 +300,9 @@ pub(crate) fn contour_ratio(
     let max = f64::from(raster.layout().max());
     let logo = profile.logo.map(|c| f64::from(c) * max / 255.0);
     let grid = Grid::new(raster, &shape.values, at, profile.opaque_above, logo);
+    let weight: f64 = grid.edges.iter().map(|&(_, g)| f64::from(g)).sum();
     let mut luma = vec![0f64; grid.pixels.len()];
-    let e0 = grid.energy(0.0, &mut luma);
-    (e0 > 1e-12).then(|| grid.energy(1.0, &mut luma) / e0)
+    (weight > 0.0).then(|| grid.energy(1.0, &mut luma) / weight)
 }
 
 /// The second proof over one proposal: the numbers, and the outcome.
@@ -406,7 +405,7 @@ pub(crate) fn verify(
         holes,
     };
     let t = profile.thresholds;
-    let outcome = if gain < NO_BLEND_GAIN || best_ratio > NO_BLEND_RATIO || edge_ratio > 1.0 {
+    let outcome = if best_ratio > NO_BLEND_RATIO || edge_ratio > 1.0 {
         Outcome::NoBlend
     } else if (gain - 1.0).abs() > t.gain {
         Outcome::Refused(Refusal::Gain { k: gain })

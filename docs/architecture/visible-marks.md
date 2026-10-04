@@ -87,13 +87,19 @@ aspect, thresholds in range, duplicates — and each failure is a
      of 4 over its corner box at a stride of `max(2, size/16)`, the five
      best candidates that do not overlap (IoU ≤ 0.3), a fine whole-pixel
      pass of ±4 in size and ±stride in position, kept when it reaches
-     `min_ncc`. Then a **sub-pixel refinement by the second proof's own
-     measure** (D227): `E(1)/E(0)` over a quarter-pixel grid (origins
-     ±0.75, sizes ±0.5), then an eighth around the best, and the move is
-     taken only when it lowers the ratio by a tenth of itself
-     (`REFINE_MARGIN`). NCC never chooses between sub-pixel places — the
-     series' NCC refinement moved exact rows to `y 160.25, size 47.75` for
-     a 10⁻⁴ gain and left them a level or two off.
+     `min_ncc`. Then a **refinement by what the second proof leaves**
+     (D227): the contour's residual after the inverse at the mark's own
+     opacity, per unit of contour (`E(1)/Σ|∇α|`), over one quarter-pixel
+     grid a pixel either way in origin and size, then an eighth around the
+     best, each candidate drawn with the profile's own map when one is
+     that size and the search map resampled otherwise; the move is taken
+     only when it lowers the residual by a tenth (`REFINE_MARGIN`). NCC
+     never chooses between sub-pixel places — the series' NCC refinement
+     moved exact rows to `y 160.25, size 47.75` for a 10⁻⁴ gain and left
+     them a level or two off. `E(1)/E(0)` is not the measure either:
+     `E(0)` moves with the shape as much as the residual does. A mark half
+     a pixel off its row comes back within a level
+     (`a_mark_half_a_pixel_off_its_row_is_proved_by_the_search`).
    * **A map at a sub-pixel place and size** is the area-weighted mean of
      the map samples each pixel's footprint covers — an exact integral of
      the map read as constant per sample (the plan proposed a 4×4
@@ -107,10 +113,12 @@ aspect, thresholds in range, duplicates — and each failure is a
    `E(img) = Σ |∇luma(img)| · |∇α|`. Sweep `k = 0, 0.02, …, 1.6` (`k = i/50`,
    so `k = 1` is exact), invert **unclamped** with `k·α`, measure `E`.
    **Three outcomes** (D226):
-   * **no blend** — `k* < 0.5` (`NO_BLEND_GAIN`), or no gain takes a fifth
-     of the contour away (`E(k*)/E(0) > 0.8`, `NO_BLEND_RATIO`), or
-     inverting at the mark's own opacity adds contour (`E(1) > E(0)`,
-     which this mark at two thirds of its opacity or more never does).
+   * **no blend** — no gain takes a fifth of the contour away
+     (`E(k*)/E(0) > 0.8`, `NO_BLEND_RATIO`), or inverting at the mark's
+     own opacity adds contour (`E(1) > E(0)`). Blended at gain `g`, the
+     mark leaves `E(1)/E(0) ≈ |1 − g|/(g·(1 − α))`, over 1 exactly when
+     `g < 1/(2 − α)` — never at half its opacity or more — so a `k*` near
+     0 (textures, opaque look-alikes) needs no rule of its own.
      Not a finding: never reported, never an exit code. A template that
      does not fit, and a picture with no edge where the map has one, are
      no blend too.
@@ -186,8 +194,8 @@ count (D226).
 
 The shipped profiles carry `min_ncc` **0.70** (a row: half of it),
 `gain` **0.06**, `edge_ratio` **0.30**, `out_of_range` **0.01**,
-`opaque_above` **0.95**; the classification adds `NO_BLEND_GAIN` **0.5**
-and `NO_BLEND_RATIO` **0.8** (D226) and the lossy allowance `LOSSY_LEVELS`
+`opaque_above` **0.95**; the classification adds `NO_BLEND_RATIO` **0.8**
+(D226) and the lossy allowance `LOSSY_LEVELS`
 **4** (D228). Measured on the synthetic pair and the shipped maps
 (2026-10-04, `--nocapture`):
 

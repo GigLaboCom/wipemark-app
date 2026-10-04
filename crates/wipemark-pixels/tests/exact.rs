@@ -97,6 +97,58 @@ fn a_mark_a_pixel_off_its_row_is_found_by_the_search() {
     }
 }
 
+/// A mark half a pixel off its row — what a picture resampled after it was
+/// marked looks like. The row's own rectangle sees a blend it cannot prove
+/// (its edges are left half-cancelled) and refuses it; because the row
+/// *refused* rather than proposing nothing, the search still runs, refines
+/// to the sub-pixel by the residual the second proof leaves, with the map
+/// of the size it lands on, and proves and restores the mark where it is —
+/// within a level.
+#[test]
+fn a_mark_half_a_pixel_off_its_row_is_proved_by_the_search() {
+    let catalogue = synthetic_catalogue();
+    let row = small_row(W, H, 48);
+    let v1 = synthetic_v1();
+    for kind in [Kind::Gradient, Kind::Flat, Kind::ValueNoise] {
+        for (fx, fy) in [(0.5f32, 0.0f32), (0.25, 0.25)] {
+            let original = picture(kind, W, H, 5, Layout::Rgb8);
+            let mut marked = original.clone();
+            let mark = quantised(&resampled(&v1.small, 48.0, fx, fy).unwrap());
+            let at = PixelRect {
+                width: mark.width(),
+                height: mark.height(),
+                ..row
+            };
+            composite(&mut marked, &mark, at, [255.0; 3]);
+            let report = clean(&mut marked, &catalogue, &lossless());
+            let name = format!("{kind:?} +({fx}, {fy})");
+            assert_eq!(report.restored.len(), 1, "{name}: {:#?}", report.found);
+            let f = report
+                .found
+                .iter()
+                .find(|f| f.verified().is_some())
+                .expect("proved");
+            assert_eq!(f.placed, Placed::Searched, "{name}");
+            assert!(
+                (f.rect.x - (row.x as f32 + fx)).abs() <= 0.125,
+                "{name}: {:?}",
+                f.rect
+            );
+            assert!(
+                (f.rect.y - (row.y as f32 + fy)).abs() <= 0.125,
+                "{name}: {:?}",
+                f.rect
+            );
+            assert!((f.rect.size - 48.0).abs() <= 0.125, "{name}: {:?}", f.rect);
+            assert!(!report.marks_left(), "{name}");
+            // Found where it is, with the map it was drawn with: the
+            // restoration is as close as a row's.
+            let error = max_error(&marked, &original);
+            assert!(error <= 1, "{name}: off by {error} at {:?}", f.rect);
+        }
+    }
+}
+
 /// The densest glyph sheet under the small mark: the blend is perfect
 /// (`k*` = 1) but the strokes put more edge on the contour than the mark
 /// does, so `E(1)/E(0)` stays over the threshold. Precision first: the

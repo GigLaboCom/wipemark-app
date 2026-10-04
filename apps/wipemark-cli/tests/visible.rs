@@ -16,7 +16,7 @@ use std::process::{Command, Output, Stdio};
 
 use pixels_support::{aurora, composite_at, picture, scaled, Kind};
 use serde_json::Value;
-use wipemark_pixels::{AlphaMap, Catalogue, Layout, PixelRect, Raster};
+use wipemark_pixels::{examine, AlphaMap, Catalogue, ExamineOptions, Layout, PixelRect, Raster};
 
 const W: u32 = 320;
 const H: u32 = 240;
@@ -189,12 +189,21 @@ fn a_mark_that_cannot_be_proved_is_left_and_exits_three() {
 /// A night-sky wallpaper — soft bright curtains and stars in the corner a
 /// sparkle is looked for in, what a non-AI desktop picture is — carries no
 /// mark: `inspect` and `clean` exit 0 and say nothing about one (D226).
+/// Only skies the correlation does propose a sparkle on are used, or the
+/// test would pass without the second proof ever being asked.
 #[test]
 fn a_night_sky_wallpaper_is_clean() {
     let scratch = Scratch::new("aurora");
-    for seed in 0..6 {
+    let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
+    let skies: Vec<(u64, Raster)> = (0..200)
+        .map(|seed| (seed, aurora(W * 2, H * 2, seed, Layout::Rgb8)))
+        .filter(|(_, sky)| examine(sky, catalogue, &ExamineOptions::default()).dismissed > 0)
+        .take(4)
+        .collect();
+    assert_eq!(skies.len(), 4, "too few skies were proposed on");
+    for (seed, sky) in skies {
         let name = format!("sky{seed}.png");
-        scratch.file(&name, &png_of(&aurora(W * 2, H * 2, seed, Layout::Rgb8)));
+        scratch.file(&name, &png_of(&sky));
         let output = scratch.run(&["inspect", &name]);
         assert_eq!(code(&output), 0, "{name}: {}", stdout(&output));
         let report = json(&scratch.run(&["inspect", &name, "--json"]));

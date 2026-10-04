@@ -6,9 +6,10 @@
 //! finding and is dropped silently.
 //!
 //! The search finds a whole-pixel place and size by NCC, then refines it
-//! to the sub-pixel by the **second proof's own measure**, `E(1)/E(0)`:
-//! a quarter-pixel grid, then an eighth around the best, and the move is
-//! taken only when it lowers the ratio by [`REFINE_MARGIN`] of itself.
+//! by **what the second proof leaves**, the contour's residual after the
+//! inverse: a quarter-pixel grid a pixel either way in origin and size,
+//! then an eighth around the best, and the move is taken only when it
+//! lowers the residual by [`REFINE_MARGIN`] of itself.
 //! NCC is not asked to choose between sub-pixel places — a correlation a
 //! hair higher is not a better restoration.
 
@@ -17,7 +18,7 @@ use crate::catalogue::{Anchor, Profile};
 use crate::geometry::{shape, template, PixelRect, SubRect};
 use crate::ncc::{ncc, Centred, Integral};
 use crate::raster::Raster;
-use crate::verify::contour_ratio;
+use crate::verify::residual;
 
 /// How a proposal was placed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,8 +84,8 @@ impl<'a> Scene<'a> {
     }
 }
 
-/// A refinement is taken only when it lowers the search's `E(1)/E(0)` by
-/// at least this share of the ratio it leaves (D227): a tenth, so a
+/// A refinement is taken only when it lowers the residual the second proof
+/// leaves by at least this share of it (D227): a tenth, so a
 /// rounding-level wobble never moves a mark.
 pub const REFINE_MARGIN: f64 = 0.10;
 
@@ -147,18 +148,34 @@ pub(crate) fn rows(scene: &Scene<'_>, profile: &Profile) -> Vec<Proposal> {
     found
 }
 
-/// The search's sub-pixel refinement of `base` by the contour ratio: a
-/// quarter-pixel grid of origins (±0.75) and sizes (±0.5), then an eighth
-/// around the best. `base` is kept unless the best lowers the ratio by
-/// [`REFINE_MARGIN`] of `base`'s.
-fn refine(scene: &Scene<'_>, profile: &Profile, map: &AlphaMap, base: SubRect) -> SubRect {
-    let ratio = |r: SubRect| contour_ratio(scene.raster, profile, map, r);
-    let Some(start) = ratio(base) else {
-        return base;
+/// The map a mark of width `size` is drawn with: the profile's own map
+/// of that width when it has one — what the vendor stamps at that size —
+/// and the search map, resampled, at any other.
+fn map_for(profile: &Profile, size: f32, search: usize) -> usize {
+    profile
+        .maps
+        .iter()
+        .position(|(_, m)| m.width() as f32 == size)
+        .unwrap_or(search)
+}
+
+/// The search's refinement of `base` by the residual the second proof
+/// leaves: one quarter-pixel grid of origins and sizes a pixel either way
+/// (NCC's whole-pixel best can be a neighbour of the mark's), then an
+/// eighth around the best; each candidate with [`map_for`] its size. `base` is kept unless the best
+/// lowers the residual by [`REFINE_MARGIN`] of `base`'s. The place and
+/// the map's index.
+fn refine(scene: &Scene<'_>, profile: &Profile, search: usize, base: SubRect) -> (SubRect, usize) {
+    let left = |r: SubRect| {
+        let index = map_for(profile, r.size, search);
+        residual(scene.raster, profile, profile.map(index), r)
+    };
+    let Some(start) = left(base) else {
+        return (base, map_for(profile, base.size, search));
     };
     let mut best = (base, start);
     let sweep = |centre: SubRect, step: f32, reach: i32, best: &mut (SubRect, f64)| {
-        for ds in -2i32..=2 {
+        for ds in -reach..=reach {
             for oy in -reach..=reach {
                 for ox in -reach..=reach {
                     let rect = SubRect {
@@ -169,7 +186,7 @@ fn refine(scene: &Scene<'_>, profile: &Profile, map: &AlphaMap, base: SubRect) -
                     if rect == centre {
                         continue;
                     }
-                    if let Some(r) = ratio(rect) {
+                    if let Some(r) = left(rect) {
                         if r < best.1 {
                             *best = (rect, r);
                         }
@@ -178,14 +195,17 @@ fn refine(scene: &Scene<'_>, profile: &Profile, map: &AlphaMap, base: SubRect) -
             }
         }
     };
-    sweep(base, 0.25, 3, &mut best);
+    // One grid, not a greedy walk: a whole-pixel step that also moved the
+    // size could never come back to the size the mark is drawn at.
+    sweep(base, 0.25, 4, &mut best);
     let quarter = best.0;
     sweep(quarter, 0.125, 1, &mut best);
-    if best.1 <= start * (1.0 - REFINE_MARGIN) {
+    let rect = if best.1 <= start * (1.0 - REFINE_MARGIN) {
         best.0
     } else {
         base
-    }
+    };
+    (rect, map_for(profile, rect.size, search))
 }
 
 /// One coarse candidate of the search.
@@ -293,16 +313,8 @@ pub(crate) fn search(scene: &Scene<'_>, profile: &Profile) -> Option<Proposal> {
     if score < profile.min_ncc {
         return None;
     }
-    // A size one of the profile's maps is drawn at is that map's, not the
-    // search map resampled to it — what the vendor stamped at that size.
-    let index = profile
-        .maps
-        .iter()
-        .position(|(_, m)| m.width() as f32 == rect.size)
-        .unwrap_or(s.alpha);
-    let map = profile.map(index);
-    let rect = refine(scene, profile, map, rect);
-    let score = scene.score(map, rect).unwrap_or(score);
+    let (rect, index) = refine(scene, profile, s.alpha, rect);
+    let score = scene.score(profile.map(index), rect).unwrap_or(score);
     Some(Proposal {
         map: index,
         rect,
