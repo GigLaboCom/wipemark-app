@@ -493,8 +493,8 @@ pub const BAND: [f32; 2] = [3.0 / 255.0, 0.2];
 /// Over this many 8-bit luma levels between the faint band and the
 /// picture around the mark, and over that picture's own spread, an
 /// outline is left (D244) — whatever share of the mark's contour that is.
-/// Measured on 22 first-generation Gemini outputs restored at their row:
-/// −0.17 to +0.30. Left by GWT's capture map in the search: −1.84 to
+/// Measured on 21 first-generation Gemini outputs over their flat greens,
+/// restored at their row: −0.17 to +0.30. Left by GWT's capture map in the search: −1.84 to
 /// −1.93; on the re-saved `11_crying`, over a background of no spread at
 /// all: −3.67.
 pub const STEP_LEVELS: f32 = 1.0;

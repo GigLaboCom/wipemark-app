@@ -283,8 +283,10 @@ traces; the proof here is stricter and the map and the logo are measured.
   levels: an outline is left when that step is over `STEP_LEVELS` **1.0**
   *and* over the surroundings' own spread (a texture hides a step; the
   aurora skies carry 6–7 levels of it and are not outlines), or when
-  the share is over its bound. On 22 first-generation outputs the step
-  is −0.17 to +0.30; `crying` −3.67 and JPEG 90 +2.2 to +2.8 are said,
+  the share is over its bound. On the 21 first-generation outputs over
+  their flat greens the step is −0.17 to +0.30 (`anchor-alternative`'s
+  corner is textured, spread 21: +13.2, not said); `crying` −3.67 and
+  JPEG 90 +2.2 to +2.8 are said,
   JPEG 95 (+0.16) is not. On the synthetic shrunk-and-compressed cases,
   checked against the picture shrunk without the mark, the one said is
   +2.25 off the truth and every one not said within 1.26

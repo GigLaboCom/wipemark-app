@@ -44,8 +44,8 @@ const MARKED: [&str; 2] = ["torch-1025.png", "victory-1025.png"];
 
 /// How far, in 8-bit luma levels, the faint band of a first-generation
 /// mark may lie from the picture around it once restored: that picture's
-/// own noise (−0.17 to +0.30 over 22 outputs; the host verifier's
-/// independent measure, −0.55 to +0.60).
+/// own noise (−0.17 to +0.30 over 21 outputs on their flat greens; the
+/// host verifier's independent measure, −0.55 to +0.60).
 const NOISE_LEVELS: f32 = 0.6;
 
 fn raster_of(bytes: &[u8]) -> Raster {
