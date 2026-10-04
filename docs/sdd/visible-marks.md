@@ -233,8 +233,12 @@ with 8-bit rounding, then restored it.
 | samples clipped at 255 by compositing | 0 |
 | error by `α` bucket (V1 large) | max 1 in every bucket 0.0–0.6; mean grows with `α` (0.02 → 0.47), as `0.5/(1−α)` predicts |
 
-**The detector cannot tell V1 from V2.** On a real V1 mark (`hero-man.png`,
-1984×544, 48 px at margin 32):
+**The detector cannot tell V1 from V2.** On a V1 mark in `hero-man.png`
+(1984×544, 48 px at margin 32) — a Gemini output, but a generation of a
+generation (an earlier output fed back), not a first-generation output;
+the owner's first-generation outputs are `fixtures/image/gemini/` and
+the measurements of `docs/architecture/visible-marks.md`, "What real
+Gemini outputs taught":
 
 | | V1 | V2 |
 |---|---|---|
@@ -276,8 +280,9 @@ therefore measure the **unclamped** inverse and count out-of-range
 values. Even as measured, the gain test refused that photograph in every
 row. The decision fails *safe*: refused, never damaged.
 
-On the real Gemini files, with the canonical 48 map at the canonical
-position:
+On those two Gemini files — both generations of generations, not
+first-generation outputs (see above) — with the canonical 48 map at the
+canonical position:
 
 | file | `k*` | `E(1)/E₀` | out of range |
 |---|---|---|---|

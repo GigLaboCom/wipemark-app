@@ -459,7 +459,20 @@ fn human(say: Say, root: &str, entries: &[Entry], summary: &Summary) -> String {
         lines.push(say(Message::CliAuditUnreadableTitle, &FluentArgs::new()));
         lines.extend(unreadable);
     }
-    lines.extend(report::footer(say, wipemark_core::UNICODE_VERSION));
+    // The third shelf the walk carries, as the JSON and SARIF say it: the
+    // picture claim first when any picture was scanned.
+    if entries
+        .iter()
+        .any(|entry| matches!(entry.status, Status::Image(_)))
+    {
+        lines.push(say(
+            Message::CliReportUnicode,
+            &args!("version" => wipemark_core::UNICODE_VERSION),
+        ));
+        lines.extend(report::picture_shelf(say));
+    } else {
+        lines.extend(report::footer(say, wipemark_core::UNICODE_VERSION));
+    }
     run::joined(lines)
 }
 

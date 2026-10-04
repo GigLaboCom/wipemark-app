@@ -46,13 +46,15 @@ stamped, at a twentieth of the bytes; the WebP is as it was.
 
 | file | bytes | sha256 | from | what is asserted |
 |---|---:|---|---|---|
-| `crying-1025.png` | 558 672 | `ef0da91aa48a491e5a9017cf774e71506867f125ebfd9d832f8d22a5103a5bab` | `11_crying.png` (a re-saved copy: no C2PA, a flattened background) | the mark is proved at its row and restored; also as JPEG 90/95 and shrunk with its picture; over MCP and the CLI |
-| `torch-1025.png` | 934 572 | `a81716a84e0117d5c895e09c0addef0740cdbce497a4972308d3756c0adc20e3` | `05_torch_and_cross.png` | the same; held out of the map's fit: no ghost, no outline, no square |
+| `crying-1025.png` | 558 672 | `ef0da91aa48a491e5a9017cf774e71506867f125ebfd9d832f8d22a5103a5bab` | `11_crying.png` (a re-saved copy: no C2PA, a flattened background) | the mark is proved at its row and restored, and the outline it leaves on the flat background is said: the mark counts as left, `clean` exits 3 (D244) |
+| `torch-1025.png` | 934 572 | `a81716a84e0117d5c895e09c0addef0740cdbce497a4972308d3756c0adc20e3` | `05_torch_and_cross.png` | proved at its row and restored, nothing left; also off its row (the search), as JPEG 90/95 and shrunk with its picture; over MCP and the CLI; held out of the map's fit: no ghost, no outline, no square |
 | `anchor-green-1025.png` | 1 053 895 | `48ffc44b91899766a738a07ec26e2ff053d69b05a4ccc5ea7e9093ca15b7b1f8` | `alt-anch/anchor-alternative.png` (C2PA intact) | the mark over a saturated green, the original at 0 in red and blue: proved and restored, the clamped channels counted (D240) |
-| `victory-1025.png` | 1 068 039 | `f79a575baa38d91aa53026d9420ee68026e3418786b0ad348d8f87135ffeb2a9` | `19_victory.png` | held out of the map's fit: no ghost, no outline, no square |
+| `victory-1025.png` | 1 068 039 | `f79a575baa38d91aa53026d9420ee68026e3418786b0ad348d8f87135ffeb2a9` | `19_victory.png` | as `torch`, but for MCP and the CLI |
 | `crying-transparent-1025.png` | 623 170 | `6cbc54505c68415faf21eef20fbc8dcd30ab00709c44d96eb4093eb788e64f14` | `transparent/11_crying.png` | the mark in the colour channels under alpha 0: seen, refused as `Transparent`, left, exit 3 |
-| `cut-out-confetti-256.webp` | 18 422 | `88b1aeaf710201fc9374c653ca689b41bfc33600eb8fd1dd11450f2718e8fe39` | `transparent_thumbs_256/19_victory.webp` | a cut-out sticker, its corner transparent, confetti in it: no finding, `inspect` exits 0 |
+| `cut-out-confetti-256.webp` | 18 422 | `88b1aeaf710201fc9374c653ca689b41bfc33600eb8fd1dd11450f2718e8fe39` | `transparent_thumbs_256/19_victory.webp`, byte for byte — the same sha256; no mark, so not in the archive below | a cut-out sticker, its corner transparent, confetti in it: no finding, `inspect` exits 0 |
 
 The whole set — the 21 originals with the mark, the two alternatives
 and the transparent copies — is in Watchword as
-`wipemark-gemini-stickers-2026-10-04` (a stored ZIP).
+`wipemark-gemini-stickers-2026-10-04` (a stored ZIP). The confetti
+thumbnail carries no mark and is not in it: the fixture *is* the file,
+and its sha256 above is the source's, read on 2026-10-04.

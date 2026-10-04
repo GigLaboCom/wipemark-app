@@ -523,6 +523,12 @@ fn audit_lists_pictures_in_every_output() {
         "a camera's picture is not a finding:\n{said}"
     );
     assert!(said.contains("scanned 3"), "{said}");
+    // The third shelf of a walk with pictures in it: the pixel claim too,
+    // as in the JSON — never empty, in every rendering.
+    assert!(
+        said.contains("invisible marks in the picture's pixels"),
+        "{said}"
+    );
 
     let listing = json(&scratch.run(&["audit", "tree", "--json"]));
     let files = listing["files"].as_array().expect("files");

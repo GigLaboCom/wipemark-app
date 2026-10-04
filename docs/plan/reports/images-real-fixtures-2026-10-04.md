@@ -1,5 +1,13 @@
 # Images — real Gemini marks in the tests (2026-10-04)
 
+> **Corrected later** (`images-measured-gemini-2026-10-04.md`):
+> `anchor-alternative` is not "an edited corner" — it carries Google's
+> C2PA intact, a first-generation output over a saturated green. It was
+> refused by the out-of-range rule of the time; since D240 it is proved
+> and restored, `clean` exits 1, and its fixture is `anchor-green-1025.png`.
+> `crying` is a re-saved copy, and since D244 its restoration says an
+> outline (exit 3).
+
 After `images-followups-2026-10-04.md`. The owner asked for three things
 on 2026-10-04: the stickers in `heretic-videos/images/stickers/` that
 carry Gemini's mark as a stored (uncompressed) archive in Watchword; the

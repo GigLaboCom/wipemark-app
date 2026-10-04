@@ -138,6 +138,10 @@ every block gone, reports `orientation_removed` 6.
 
 ### R5 — lossy thresholds (D237)
 
+> **Superseded by D240** (`images-measured-gemini-2026-10-04.md`): the
+> separate lossy allowance is gone; out of range is counted in stored
+> levels, past `BLEND_LEVELS` = 8, for every source.
+
 On a lossy source a sample is out of range past `1 + 4/(1 − α)` levels,
 not one (`LOSSY_LEVELS = 4`): quality 85–95 moves a sample by up to about
 four levels on a mark's soft edges, and the inverse amplifies that by
@@ -418,7 +422,7 @@ included.
 |---|---|---|
 | **D235** | R1 | Three outcomes: proved, a blend not proved (a finding), no blend (`E(k*)/E(0) > 0.8` or `E(1) > E(0)`; not a finding, never reported, never an exit code); the second pass only after a restoration; a pass-2 proof supersedes a pass-1 refusal of the same place |
 | **D236** | R3 | A row is proposed at its own rectangle only, looked at on half of `min_ncc`; the search runs when no row's mark is proved, uses the profile's own map at its size, and refines by the residual the inverse leaves, a quarter then an eighth of a pixel, moving only for a tenth of it |
-| **D237** | R5 | On a lossy source a sample is out of range past `1 + 4/(1 − α)` levels |
+| **D237** | R5 | On a lossy source a sample is out of range past `1 + 4/(1 − α)` levels — *superseded by D240* |
 | **D238** | R6 | For a mark under 40 % of the search map the shrinking filter is looked for (area, bilinear, Catmull-Rom, Lanczos 3); after a restoration, an outline over 0.20 of the mark's contour energy beyond the texture is said, counts as a mark left (exit 3) and is never exact |
 | **D239** | R7 | The second pass is kept: overlapping marks of one logo colour come off in two passes whatever the order; a mark baked into the content is refused |
 

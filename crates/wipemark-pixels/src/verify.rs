@@ -362,7 +362,13 @@ pub(crate) fn verify(
             }
         }
     }
-    if support == 0 || holes == support {
+    // A template with nothing over the noise floor has no mark in it to
+    // be a blend of: not a finding. One that is all holes is a mark that
+    // can only be reconstructed.
+    if support == 0 {
+        return (None, Outcome::NoBlend);
+    }
+    if holes == support {
         return (None, Outcome::Refused(Refusal::Opaque { holes }));
     }
 
@@ -676,6 +682,33 @@ mod tests {
             height: 1,
             contour: 0.0,
         }
+    }
+
+    /// A template with no sample over the noise floor — a map that is all
+    /// noise at that place — is no blend: not a finding, never an
+    /// `Opaque` refusal with nothing behind it.
+    #[test]
+    fn a_template_with_no_support_is_no_blend() {
+        let shipped = crate::Catalogue::shipped().unwrap();
+        let mut profile = shipped.profile("gemini-sparkle-v1").unwrap().clone();
+        profile.maps[0].1 = crate::AlphaMap::new(48, 48, vec![0.001; 48 * 48]).unwrap();
+        let raster = Raster::from_u8(640, 480, Layout::Rgb8, &vec![100; 640 * 480 * 3]).unwrap();
+        let proposal = Proposal {
+            map: 0,
+            rect: SubRect {
+                x: 560.0,
+                y: 400.0,
+                size: 48.0,
+            },
+            placed: crate::Placed::Row(1),
+            ncc: 0.9,
+            resample: false,
+            kernel: Kernel::Area,
+        };
+        assert_eq!(
+            verify(&raster, &profile, &proposal),
+            (None, Outcome::NoBlend)
+        );
     }
 
     /// The inverse is rounded to the nearest level, as GWT's is — not
