@@ -1334,6 +1334,7 @@ What exists so far:
 | `wipemark-task-e4-6a-headless-rewrite-2026-10-04` | FILE | a task for an agent on another machine (code only): E4-6a + E5-2, rewriting without a window. Landed as `0c132f6` (D93) |
 | `wipemark-e4-6a-report-2026-10-04` | FILE | that agent's report (written without a compiler; verified on the host, D93) |
 | `wipemark-task-e11-1-image-metadata-2026-10-04` | FILE | a task for an agent on another machine (code only): E11-1, provenance metadata in PNG, JPEG and WebP, pixels never re-encoded |
+| `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
