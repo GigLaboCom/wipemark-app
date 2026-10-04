@@ -4,9 +4,12 @@
 //! said, and exits 3 with the result written; `audit` puts the rectangle
 //! in SARIF `properties`.
 //!
-//! The marks are the shipped Gemini sparkle, composited onto generated
-//! pictures with the pixels suite's generators (borrowed by `#[path]`).
-//! The shipped maps must be in the tree (`crates/wipemark-pixels/marks/README.md`).
+//! The marks are **real**: the owner's own Gemini stickers
+//! (`fixtures/image/gemini/`, the bottom-right 1025 × 1025 of each, so the
+//! vendor's mark is at its large row); a sticker whose corner was edited
+//! after it was stamped is the mark that cannot be proved. The pixels
+//! suite's generators (borrowed by `#[path]`) make only what has no mark:
+//! wallpapers, an animation, a damaged scan.
 
 #[path = "../../../crates/wipemark-pixels/tests/support/mod.rs"]
 mod pixels_support;
@@ -14,9 +17,9 @@ mod pixels_support;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
-use pixels_support::{aurora, composite_at, picture, scaled, Kind};
+use pixels_support::{aurora, picture, Kind};
 use serde_json::Value;
-use wipemark_pixels::{examine, AlphaMap, Catalogue, ExamineOptions, Layout, PixelRect, Raster};
+use wipemark_pixels::{examine, Catalogue, ExamineOptions, Layout, Raster};
 
 const W: u32 = 320;
 const H: u32 = 240;
@@ -89,29 +92,17 @@ fn png_of(raster: &Raster) -> Vec<u8> {
     out
 }
 
-/// Gemini's small sparkle and where its row puts it in a `W × H` picture.
-fn gemini_small() -> (AlphaMap, PixelRect) {
-    let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
-    let profile = catalogue.profile("gemini-sparkle-v1").expect("the profile");
-    let (_, map) = profile
-        .maps
-        .iter()
-        .find(|(id, _)| id == "gemini-v1-48")
-        .expect("the 48 map");
-    let at = PixelRect {
-        x: W - 32 - 48,
-        y: H - 32 - 48,
-        width: 48,
-        height: 48,
-    };
-    (map.clone(), at)
+/// A real Gemini output, from `fixtures/image/gemini/`.
+fn real(name: &str) -> Vec<u8> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/image/gemini")
+        .join(name);
+    std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
+/// The vendor's mark at its large row (margin 64, the 96 map).
 fn marked_png() -> Vec<u8> {
-    let (map, at) = gemini_small();
-    let mut raster = picture(Kind::Fractal, W, H, 7, Layout::Rgb8);
-    composite_at(&mut raster, &map, at);
-    png_of(&raster)
+    real("crying-1025.png")
 }
 
 #[test]
@@ -158,23 +149,21 @@ fn clean_removes_a_proved_mark_with_no_flag() {
     let answer = json(&scratch.run(&["clean", "art.png", "-o", "j.png", "--json"]));
     assert_eq!(answer["report"]["marks_left"], Value::Bool(false));
     assert_eq!(answer["report"]["encoding"]["kind"], "png");
-    assert_eq!(
-        answer["report"]["visible"]["restored"][0]["exact"],
-        Value::Bool(true)
-    );
+    // A real output: restored without an outline, and — GWT's maps being
+    // 8-bit captures of the vendor's α — not claimed exact.
+    let restored = &answer["report"]["visible"]["restored"][0];
+    assert_eq!(restored["outline_left"], Value::Bool(false));
+    assert_eq!(restored["exact"], Value::Bool(false));
 }
 
-/// The mark at 0.8 of its opacity is a blend the second proof will not
-/// accept (its edges vanish at that gain, not at 1): it is seen and not
-/// proved, the result is written with what could be done, said, and the
-/// exit is 3.
+/// A real sticker whose corner was edited after Gemini stamped it: the
+/// sparkle is there, but taking it away would leave the range — not the
+/// vendor's blend any more. Seen, not proved: the result is written with
+/// what could be done, the report says so, and the exit is 3.
 #[test]
 fn a_mark_that_cannot_be_proved_is_left_and_exits_three() {
     let scratch = Scratch::new("left");
-    let (map, at) = gemini_small();
-    let mut raster = picture(Kind::Gradient, W, H, 9, Layout::Rgb8);
-    composite_at(&mut raster, &scaled(&map, 0.8), at);
-    scratch.file("art.png", &png_of(&raster));
+    scratch.file("art.png", &real("anchor-edited-1025.png"));
     let output = scratch.run(&["clean", "art.png"]);
     let said = stdout(&output);
     assert_eq!(code(&output), 3, "{said}");
@@ -184,6 +173,16 @@ fn a_mark_that_cannot_be_proved_is_left_and_exits_three() {
         scratch.0.join("art.cleaned.png").exists(),
         "the result was not written"
     );
+}
+
+/// A sticker cut out of its background, confetti in its transparent
+/// corner: no mark, and none reported — `inspect` exits 0.
+#[test]
+fn a_cut_out_sticker_is_clean() {
+    let scratch = Scratch::new("cut-out");
+    scratch.file("sticker.webp", &real("cut-out-confetti-256.webp"));
+    let output = scratch.run(&["inspect", "sticker.webp"]);
+    assert_eq!(code(&output), 0, "{}", stdout(&output));
 }
 
 /// A night-sky wallpaper — soft bright curtains and stars in the corner a
@@ -333,7 +332,7 @@ fn audit_puts_a_visible_mark_in_sarif_properties() {
         .iter()
         .find(|r| r["ruleId"] == "visible-gemini-sparkle-v1")
         .unwrap_or_else(|| panic!("no visible result: {sarif}"));
-    assert_eq!(result["properties"]["rect"]["width"], 48);
+    assert_eq!(result["properties"]["rect"]["width"], 96);
     assert!(result["locations"][0]["physicalLocation"]
         .get("region")
         .is_none());

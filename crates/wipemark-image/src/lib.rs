@@ -780,8 +780,17 @@ mod tests {
     fn blocks_tile_the_file() {
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/image");
         let mut seen = 0;
+        // The real files, and the owner's Gemini pictures in `gemini/`.
+        let mut paths: Vec<std::path::PathBuf> = Vec::new();
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
+            if path.is_dir() {
+                paths.extend(std::fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
+            } else {
+                paths.push(path);
+            }
+        }
+        for path in paths {
             if path.extension().is_some_and(|e| e == "md") {
                 continue;
             }
@@ -790,7 +799,7 @@ mod tests {
             assert!(tiles(bytes.len(), &parsed.blocks), "{}", path.display());
             seen += 1;
         }
-        assert!(seen >= 4);
+        assert!(seen >= 8);
         let cabx = png_with_cabx();
         assert!(tiles(cabx.len(), &parse(&cabx).unwrap().blocks));
         // And the check itself can fail.

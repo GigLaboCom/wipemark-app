@@ -332,6 +332,7 @@ pub(crate) fn verify(
     // Support, holes, and the picture's own alpha under the mark.
     let mut support = 0u32;
     let mut holes = 0u32;
+    let mut transparent = false;
     for ty in 0..at.height {
         for tx in 0..at.width {
             let a = shape.values[(ty * at.width + tx) as usize];
@@ -344,9 +345,7 @@ pub(crate) fn verify(
             }
             if layout.has_alpha() {
                 let i = raster.at(at.x + tx, at.y + ty);
-                if samples[i + 3] < layout.max() {
-                    return (None, Outcome::Refused(Refusal::Transparent));
-                }
+                transparent |= samples[i + 3] < layout.max();
             }
         }
     }
@@ -411,6 +410,12 @@ pub(crate) fn verify(
     let t = profile.thresholds;
     let outcome = if best_ratio > NO_BLEND_RATIO || edge_ratio > 1.0 {
         Outcome::NoBlend
+    } else if transparent {
+        // A blend under pixels the picture's own alpha does not make
+        // opaque: what it meant there is unknown (D157). Asked only after
+        // the blend itself — a cut-out sticker's confetti under its
+        // transparent corner is no blend, and is no finding (D235).
+        Outcome::Refused(Refusal::Transparent)
     } else if (gain - 1.0).abs() > t.gain {
         Outcome::Refused(Refusal::Gain { k: gain })
     } else if edge_ratio > t.edge_ratio {

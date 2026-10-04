@@ -351,6 +351,33 @@ mod tests {
         assert_eq!(decode(&encode(&every)), Some(every));
     }
 
+    /// A real Gemini output (`fixtures/image/gemini/crying-1025.png`, the
+    /// vendor's mark at its large row) through `clean_image` as a client
+    /// sends it: the image comes back with the mark removed — proved,
+    /// restored, no outline, `marks_left` false — and inspecting what came
+    /// back finds nothing.
+    #[test]
+    fn a_real_gemini_mark_comes_off_over_mcp() {
+        let bytes = fixture("gemini/crying-1025.png");
+        let answer: serde_json::Value =
+            serde_json::from_str(&clean(&bytes, Scope::AiProvenance).unwrap()).unwrap();
+        let report = &answer["report"];
+        assert_eq!(report["marks_left"], serde_json::json!(false), "{report}");
+        assert_eq!(
+            report["visible"]["found"][0]["profile"],
+            "gemini-sparkle-v1"
+        );
+        assert_eq!(report["visible"]["found"][0]["verdict"], "verified");
+        assert_eq!(
+            report["visible"]["restored"][0]["outline_left"],
+            serde_json::json!(false)
+        );
+        let out = decode(answer["data"].as_str().unwrap()).unwrap();
+        assert_ne!(out, bytes);
+        let again: serde_json::Value = serde_json::from_str(&inspect(&out).unwrap()).unwrap();
+        assert_eq!(again["visible"]["found"], serde_json::json!([]), "{again}");
+    }
+
     fn fixture(name: &str) -> Vec<u8> {
         let path = format!("{}/../../fixtures/image/{name}", env!("CARGO_MANIFEST_DIR"));
         std::fs::read(&path).unwrap_or_else(|error| panic!("{path}: {error}"))

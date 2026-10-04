@@ -341,6 +341,34 @@ MUTATIONS = [
         "\"margin\": [72, 72], \"alpha\": \"gemini-v2-36\"",
         [(PIX + ["--test", "v2_rows"], "v2_rows_are_gwts_formula")],
     ),
+    # ---------------------------- real marks (the owner's stickers, 2026-10-04)
+    (
+        "REAL/M1",
+        "a transparent corner is asked about only once the proposal is a blend",
+        "crates/wipemark-pixels/src/verify.rs",
+        "                transparent |= samples[i + 3] < layout.max();",
+        "                if samples[i + 3] < layout.max() {\n                    return (None, Outcome::Refused(Refusal::Transparent));\n                }",
+        [
+            (PIC + ["--test", "real"], "a_cut_out_sticker_is_not_a_finding"),
+            (VISIBLE, "a_cut_out_sticker_is_clean"),
+        ],
+    ),
+    (
+        "REAL/M2",
+        "the vendor's own mark is proved at its row (the large row's margin)",
+        "manifests/marks.v1.json",
+        "\"margin\": [64, 64], \"alpha\": \"gemini-v1-96\"",
+        "\"margin\": [63, 63], \"alpha\": \"gemini-v1-96\"",
+        [(PIC + ["--test", "real"], "a_real_mark_is_proved_at_its_row_and_restored")],
+    ),
+    (
+        "REAL/M3",
+        "a shrunk real mark is matched to its filter",
+        "crates/wipemark-pixels/src/propose.rs",
+        "pub const SHRUNK: f32 = 0.4;",
+        "pub const SHRUNK: f32 = 0.0;",
+        [(PIC + ["--test", "real"], "a_real_mark_shrunk_with_its_picture_is_restored_within_the_outline_bound")],
+    ),
 ]
 
 

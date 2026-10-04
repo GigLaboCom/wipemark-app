@@ -31,3 +31,26 @@ files are byte-exact (`.gitattributes` marks them binary), and every
 file here has a claim — `crates/wipemark-image/tests/signals.rs`,
 `the_real_files_say_what_they_carry`, and every test that walks
 `support::REAL`.
+
+## `gemini/` — real visible marks
+
+Four of the owner's own Gemini outputs (stickers made on 2026-04-24,
+`heretic-videos/images/stickers/`), for `crates/wipemark-picture`
+(`tests/real.rs`), the CLI (`tests/visible.rs`) and the MCP server.
+The owner asked for them on 2026-10-04 in place of composites, which
+supersedes Q-V8's "no vendor file is committed" for these four. Each
+2048 × 2048 picture is cut to its bottom-right **1025 × 1025** and
+saved as an RGB PNG — the vendor's 96-pixel V1 mark is then exactly at
+the large row (margin 64), so a row is tested on the pixels the vendor
+stamped, at a twentieth of the bytes; the WebP is as it was.
+
+| file | bytes | sha256 | from | what is asserted |
+|---|---:|---|---|---|
+| `crying-1025.png` | 558 672 | `ef0da91aa48a491e5a9017cf774e71506867f125ebfd9d832f8d22a5103a5bab` | `11_crying.png` | the mark is proved at its row and restored, no outline; also as JPEG 90/95 and shrunk with its picture by Lanczos or bilinear; over MCP |
+| `torch-1025.png` | 934 572 | `a81716a84e0117d5c895e09c0addef0740cdbce497a4972308d3756c0adc20e3` | `05_torch_and_cross.png` | the same, on another picture |
+| `anchor-edited-1025.png` | 1 053 895 | `48ffc44b91899766a738a07ec26e2ff053d69b05a4ccc5ea7e9093ca15b7b1f8` | `alt-anch/anchor-alternative.png` | the corner was edited after the mark: seen (`k*` 1.00), refused out of range, left, exit 3 |
+| `cut-out-confetti-256.webp` | 18 422 | `88b1aeaf710201fc9374c653ca689b41bfc33600eb8fd1dd11450f2718e8fe39` | `transparent_thumbs_256/19_victory.webp` | a cut-out sticker, its corner transparent, confetti in it: no finding, `inspect` exits 0 |
+
+The whole set — the 21 originals with the mark, the two alternatives
+and the transparent copies — is in Watchword as
+`wipemark-gemini-stickers-2026-10-04` (a stored ZIP).

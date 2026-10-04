@@ -152,10 +152,12 @@ them.
      the codec's error is amplified by the inverse as rounding is not.
    * **a blend, not proved** — otherwise: `Refusal::Gain { k }`,
      `Edges { ratio }` or `OutOfRange { share }`, the first that failed,
-     with every number in `Scores`; and, before any of that, `Transparent`
-     when the picture's alpha is below its maximum anywhere under the mark
-     and `Opaque { holes }` when every pixel of the mark is a hole. A
-     finding: seen, not removed.
+     with every number in `Scores`; before those, `Transparent` when the
+     picture's alpha is below its maximum anywhere under the mark — asked
+     only once the proposal is a blend, so a cut-out sticker's confetti
+     under its transparent corner is no blend and no finding; and, before
+     anything is measured, `Opaque { holes }` when every pixel of the mark
+     is a hole. A finding: seen, not removed.
    **`Verified`** has private fields, is built in `verify.rs` alone, and is
    the only thing `restore` takes (a `compile_fail` doctest).
 3. **Choose.** Findings whose rectangles overlap (IoU > 0.3) compete:
@@ -276,8 +278,17 @@ cargo test -p wipemark-pixels --release --test measure -- --ignored --nocapture
 * `tests/assets.rs` — the shipped catalogue reads, every map is its PNG,
   every pin its file, a shipped mark comes back within a level; a tampered
   asset and a refused schema, on a synthetic profile.
-* Unit tests in every module. No photograph and no vendor file is
-  committed (Q-V8); the synthetic sparkle is an astroid drawn from its
+* **Real marks** (`fixtures/image/gemini/`, the owner's own Gemini
+  stickers cut to their 1025 corner — asked for 2026-10-04, superseding
+  Q-V8 for these four): `wipemark-picture`'s `tests/real.rs` proves the
+  vendor's mark at its row and restores it (not exact: GWT's maps are
+  8-bit captures, and a few samples of a real output clamp), as JPEG at
+  90/95, and shrunk with its picture to 373 pixels by Lanczos or bilinear
+  (proved in 6 of 8, the filter recognised, outline 0.07–0.11); an edited
+  corner is seen and left; a cut-out sticker's confetti under its
+  transparent corner is no finding. The CLI's `tests/visible.rs` and the
+  MCP server run on them too.
+* Unit tests in every module. The synthetic sparkle is an astroid drawn from its
   equation.
 
 ## Calibration (E12-2)
