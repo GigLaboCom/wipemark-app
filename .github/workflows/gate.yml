@@ -10,24 +10,30 @@
 #             clippy -D warnings, the workspace tests, the dependency
 #             direction) and the CI-only feature lines (`--no-default-
 #             features`, `local-llama` over the shim).
-#   native  — llama.cpp at the pin, built with the Vulkan backend (the
-#             backend a Linux release ships), then clippy and the
-#             model-free tests of wipemark-llama and wipemark-engine under
-#             `llama-native`. No GPU and no model on a hosted runner: the
-#             `--ignored` live gate is not run here and still runs by hand
-#             (docs/architecture/local-engine.md, "Running the native
-#             gates"). What this lane proves is that the native build
-#             compiles on a clean machine.
+#   native  — llama.cpp at the pin, **prebuilt** (E2-5): the release
+#             archive of GigLaboCom/llama-cpp-prebuilt for this target,
+#             downloaded and checked against the sha256 in
+#             crates/wipemark-llama-sys/src/pin.rs by the build script (CPU
+#             variants + Vulkan, the backends a Linux release ships), then
+#             clippy and the model-free tests of wipemark-llama and
+#             wipemark-engine under `llama-native`, and the ggml devices the
+#             archive's backends registered (Vulkan through Mesa's software
+#             driver). No cmake, no clang, no glslc: only the Vulkan loader
+#             the archive's README asks for. No GPU and no model on a hosted
+#             runner: the `--ignored` live gate is not run here and still
+#             runs by hand (docs/architecture/local-engine.md, "Running the
+#             native gates"). The source build has its own workflow,
+#             llama-source.yml.
 #   macos   — the platform the GUI targets first, linted and tested:
 #             clippy -D warnings over the workspace (the first lint the
 #             `cfg(target_os = "macos")` code gets — Linux never compiles
 #             it), the workspace tests, the `local-llama` tests over the
-#             shim, and llama.cpp at the pin built with Metal (ggml's
-#             default on Apple) with clippy and the model-free tests over
-#             it. The tray, the global shortcut, the pasteboard drop target,
-#             the clipboard peek, the display watch and the AppKit window
-#             move run nowhere else. No model on a hosted runner: the
-#             `--ignored` live gate still runs by hand.
+#             shim, and llama.cpp at the pin, prebuilt with Metal, with
+#             clippy and the model-free tests over it. The tray, the global
+#             shortcut, the pasteboard drop target, the clipboard peek, the
+#             display watch and the AppKit window move run nowhere else. No
+#             model on a hosted runner: the `--ignored` live gate still runs
+#             by hand.
 name: gate
 
 on:
@@ -138,11 +144,9 @@ jobs:
         run: df -h /
 
   native:
-    name: native (llama.cpp + Vulkan, model-free)
+    name: native (llama.cpp prebuilt + Vulkan, model-free)
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    env:
-      GGML_VULKAN: "ON"
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -161,15 +165,13 @@ jobs:
           rustup toolchain install
           rustup show active-toolchain
 
-      - name: Build tools and the Vulkan SDK
+      # What the archive needs at run time (its README): libgomp and
+      # libstdc++ are on the image; the Vulkan loader and a driver (Mesa's
+      # lavapipe, on a runner with no GPU) are not.
+      - name: Vulkan runtime
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config cmake clang libclang-dev \
-            libvulkan-dev glslc spirv-headers libvulkan1 mesa-vulkan-drivers
-
-      - name: Fetch llama.cpp at the pin
-        run: crates/wipemark-llama-sys/vendor/fetch.sh
+          sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -180,10 +182,15 @@ jobs:
         run: cargo clippy -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --all-targets --locked -- -D warnings
 
       - name: test (llama-native, model-free)
-        run: cargo test -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked
+        run: cargo test -p wipemark-llama-sys -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked
+
+      # The devices ggml registered from the archive's backends/, printed:
+      # the CPU variant this runner picked and Vulkan over lavapipe.
+      - name: ggml devices
+        run: cargo test -p wipemark-llama --features native --locked --test native the_runtime_reports_at_least_the_cpu_backend -- --nocapture
 
   macos:
-    name: macos (clippy, tests, llama-native with Metal)
+    name: macos (clippy, tests, llama-native prebuilt with Metal)
     runs-on: macos-latest
     timeout-minutes: 240
     steps:
@@ -201,7 +208,6 @@ jobs:
         run: |
           rustup toolchain install
           rustup show active-toolchain
-          brew list cmake > /dev/null 2>&1 || brew install cmake
 
       # What the runner is: a hosted Apple Silicon VM. Whether it exposes
       # a Metal device is printed here and again by the native runtime
@@ -211,9 +217,6 @@ jobs:
           sw_vers
           sysctl -n machdep.cpu.brand_string hw.memsize
           system_profiler SPDisplaysDataType || true
-
-      - name: Fetch llama.cpp at the pin
-        run: crates/wipemark-llama-sys/vendor/fetch.sh
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -244,11 +247,18 @@ jobs:
 
       - name: test (llama-native, Metal, model-free)
         if: ${{ !cancelled() }}
-        run: cargo test -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked --no-fail-fast
+        run: cargo test -p wipemark-llama-sys -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked --no-fail-fast
+
+      # The archive's dylibs are `@rpath/…` install names: a `wipemark`
+      # built with them starts only through the LC_RPATH its build.rs
+      # writes. Run with DYLD_* removed, as a user's double click runs it.
+      - name: standalone (llama-native, prebuilt dylibs)
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-app --features llama-native --locked --test standalone --no-fail-fast
 
       # The devices ggml registered on this runner, printed: whether the
       # Metal backend found a GPU here is a fact about the runner, and
-      # the test above passes on CPU alone.
+      # the native tests pass on CPU alone.
       - name: ggml devices
         if: ${{ !cancelled() }}
         run: cargo test -p wipemark-llama --features native --locked --test native the_runtime_reports_at_least_the_cpu_backend -- --nocapture

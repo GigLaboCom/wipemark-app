@@ -4,8 +4,11 @@ Carried over from heretic-mnemoria
 `mnemoria-server/ee/ml/crates/ml-engine-ggml-sys/vendor/README.md` at
 `a160f8c` (the project is closed; this copy is ours now). Cut: whisper.cpp.
 
-The **pinned** llama.cpp source tree, consumed only when building with
-`--features native`:
+The **pinned** llama.cpp source tree, consumed only by a **source** build
+— `--features native` with `WIPEMARK_LLAMA_SOURCE=1`, or on a target
+`GigLaboCom/llama-cpp-prebuilt` does not publish. The default native build
+links the prebuilt release and never reads this directory (`../PIN.md`,
+E2-5):
 
 ```
 vendor/
@@ -30,7 +33,7 @@ crates/wipemark-llama-sys/vendor/fetch.sh            # from GitHub
 WIPEMARK_LLAMA_SRC=/path/to/a/llama.cpp/checkout \
   crates/wipemark-llama-sys/vendor/fetch.sh          # from a local clone that has the commit
 
-cargo build -p wipemark-llama-sys --features native
+WIPEMARK_LLAMA_SOURCE=1 cargo build -p wipemark-llama-sys --features native
 ```
 
 `fetch.sh` is idempotent: it checks the existing checkout's HEAD and

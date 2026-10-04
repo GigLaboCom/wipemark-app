@@ -1,0 +1,185 @@
+# wipemark — llama.cpp built from source (E2-5).
+#
+# The gate links the prebuilt llama.cpp (gate.yml: `native`, `macos`). The
+# source build stays a supported road — for a pin bump, before its
+# prebuilt release exists; for a target nobody publishes; for debugging
+# ggml — and a road nobody drives rots. This workflow drives it:
+#
+#   linux    — `WIPEMARK_LLAMA_SOURCE=1`, cmake + bindgen over the fetched
+#              tree with the Vulkan backend, clippy and the model-free
+#              tests; and, with the release archive put in the cache first,
+#              `the_archive_bindings_are_the_ones_bindgen_generates`, which
+#              is where the two roads are held to one API.
+#   windows  — the prebuilt archive (the DLLs copied beside the test
+#              executables, a test binary run with an empty PATH), then the
+#              source build with MSVC (CPU only: the runner has no Vulkan
+#              SDK), and the C/C++ flags cmake was handed read back — the
+#              `cmake` crate's Visual Studio branch replaced CMake's
+#              `/O2 /Ob2 /DNDEBUG` and `/EHsc` until build.rs defined them.
+#
+# When: a change under the two llama crates or to this file (a push or a
+# pull request), once a week against a moving runner image, and by hand.
+# Not on every push: a source build is two cmake builds of llama.cpp per
+# job, and nothing outside those paths can break it.
+name: llama-source
+
+on:
+  push:
+    paths:
+      - "crates/wipemark-llama-sys/**"
+      - "crates/wipemark-llama/**"
+      - ".github/workflows/llama-source.yml"
+  pull_request:
+    paths:
+      - "crates/wipemark-llama-sys/**"
+      - "crates/wipemark-llama/**"
+      - ".github/workflows/llama-source.yml"
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: llama-source-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  linux:
+    name: linux (llama.cpp from source + Vulkan; bindings against the archive's)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Pin the gpui-component submodule
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+          scripts/pin-gpui-component.sh
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+
+      # ggml-vulkan's CMake asks for SPIRV-Headers and glslc.
+      - name: Build tools and the Vulkan SDK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config cmake clang libclang-dev \
+            libvulkan-dev glslc spirv-headers libvulkan1 mesa-vulkan-drivers
+
+      - name: Fetch llama.cpp at the pin
+        run: crates/wipemark-llama-sys/vendor/fetch.sh
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: llama-source
+          cache-on-failure: true
+
+      # A prebuilt build first: it puts the release archive in the cache,
+      # where the source build below finds its bindings.rs to compare.
+      - name: The prebuilt archive into the cache
+        run: cargo build -p wipemark-llama-sys --features native --locked
+
+      - name: clippy (source)
+        env:
+          WIPEMARK_LLAMA_SOURCE: "1"
+          GGML_VULKAN: "ON"
+        run: cargo clippy -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --all-targets --locked -- -D warnings
+
+      - name: test (source, model-free)
+        env:
+          WIPEMARK_LLAMA_SOURCE: "1"
+          GGML_VULKAN: "ON"
+        run: cargo test -p wipemark-llama-sys -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked
+
+      # Run by name, and the run checked for it: the test exists only when
+      # the build script found the archive's bindings, and a test that was
+      # not compiled in passes by being absent.
+      - name: the two bindings, compared
+        env:
+          WIPEMARK_LLAMA_SOURCE: "1"
+          GGML_VULKAN: "ON"
+        run: |
+          cargo test -p wipemark-llama-sys --features native --locked -- \
+            the_archive_bindings_are_the_ones_bindgen_generates --nocapture 2>&1 | tee compare.log
+          grep -q "the_archive_bindings_are_the_ones_bindgen_generates ... ok" compare.log
+
+      - name: ggml devices (source)
+        env:
+          WIPEMARK_LLAMA_SOURCE: "1"
+          GGML_VULKAN: "ON"
+        run: cargo test -p wipemark-llama --features native --locked --test native the_runtime_reports_at_least_the_cpu_backend -- --nocapture
+
+  windows:
+    name: windows (prebuilt, then from source with MSVC)
+    runs-on: windows-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Pin the gpui-component submodule
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+          scripts/pin-gpui-component.sh
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+          cmake --version
+          curl --version | head -1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: llama-source-windows
+          cache-on-failure: true
+
+      - name: clippy (prebuilt)
+        run: cargo clippy -p wipemark-llama --features native --all-targets --locked -- -D warnings
+
+      - name: test (prebuilt, model-free)
+        run: cargo test -p wipemark-llama-sys -p wipemark-llama --features wipemark-llama/native --locked -- --nocapture
+
+      # Windows has no rpath: build.rs copies the three DLLs beside cargo's
+      # executables. A test binary run with an empty PATH proves it (cargo
+      # test puts the cache on PATH, so the step above cannot).
+      - name: a test binary starts without cargo's PATH
+        run: |
+          ls target/debug/deps/llama.dll target/debug/deps/ggml.dll target/debug/deps/ggml-base.dll
+          exe=$(ls -t target/debug/deps/native-*.exe | head -1)
+          PATH= "$exe" the_runtime_reports_at_least_the_cpu_backend --nocapture
+
+      - name: Fetch llama.cpp at the pin
+        run: crates/wipemark-llama-sys/vendor/fetch.sh
+
+      - name: test (source, MSVC, CPU, model-free)
+        env:
+          WIPEMARK_LLAMA_SOURCE: "1"
+          LIBCLANG_PATH: C:\Program Files\LLVM\bin
+        run: cargo test -p wipemark-llama-sys -p wipemark-llama --features wipemark-llama/native --locked -- --nocapture
+
+      # Both cmake configures (ggml, then llama) as the `cmake` crate ran
+      # them — it prints each to the build script's stderr: each must carry
+      # CMake's Release flags and `/EHsc`, never the crate's
+      # `-nologo -MD -Brepro` alone in their place.
+      - name: the MSVC Release flags, read back
+        run: |
+          err=$(grep -l '^running: .*cmake' target/debug/build/wipemark-llama-sys-*/stderr | head -1)
+          scripts/check-msvc-flags.sh "$err"

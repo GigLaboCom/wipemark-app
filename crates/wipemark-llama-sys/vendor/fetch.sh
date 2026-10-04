@@ -7,6 +7,10 @@
 # whisper.cpp leg and the "one ggml" subtree cross-check that existed
 # only to keep two trees on one ggml. Added: `WIPEMARK_LLAMA_SRC`.
 #
+# Only a SOURCE build reads it (`WIPEMARK_LLAMA_SOURCE=1`, or a target
+# with no prebuilt release); by default `build.rs` links the prebuilt
+# llama.cpp and never looks here (PIN.md, E2-5).
+#
 # The tree is a BUILD INPUT reproduced verbatim from the pin, not source
 # this repository maintains, so it is gitignored and fetched on demand.
 # The pin is the single source of truth (../PIN.md); `build.rs`
@@ -24,8 +28,8 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Keep in lockstep with ../PIN.md, ../build.rs (`LLAMA_COMMIT`) and
-# ../src/lib.rs (`pin`).
+# Keep in lockstep with ../src/pin.rs (`LLAMA_COMMIT`, which build.rs
+# compiles too) and ../PIN.md.
 LLAMA_REPO="https://github.com/ggml-org/llama.cpp"
 LLAMA_COMMIT="0eadefebd3f8f92a86d634a0e5b8fffc9dc792c0"   # release tag b10731, carrying ggml 0.22.0 (see PIN.md)
 
