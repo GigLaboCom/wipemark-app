@@ -36,7 +36,7 @@ shipped en/ru/de templates, the assembler that owns the markers, the
 validation of an edited template and the clean-up of an answer, in
 `wipemark_pipeline::prompt` (`docs/architecture/prompts.md`). And the
 loop: `wipemark_pipeline::start` runs a job — Layer A, candidates ×
-rounds, the guards and the no-op guard, `min-divergence`, Layer A again —
+rounds, the guards, the language check and the no-op floor, the most-diverged winner, Layer A again —
 tested on `FakeEngine` and against Qwen3 4B. The MCP tool `rewrite` and
 `wipemark-cli rewrite` start one (E4-6a); the windows do not (E4-6b/E7); see
 `docs/architecture/pipeline.md`, "The loop". The batch queue exists too —
@@ -193,7 +193,7 @@ it sits.
 | `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP) | both engines real, handed out by `duty::engine_for` and asked by the Check; the pipeline that rewrites with them is **E4** |
 | `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`) | real under `native`; an empty shim without it |
 | `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends | real under `native`; refuses every load without it |
-| `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation, prompts and the loop real (E4-1…E4-3), the resumable job the queue drives (E4-4), the prompt bench (`examples/bench`, `bench/`, E4-5 — `docs/architecture/prompt-bench.md`); the windows' surfaces are **E4-6b** |
+| `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation, prompts and the loop real (E4-1…E4-3), the resumable job the queue drives (E4-4), the prompt bench (`examples/bench`, `bench/`, E4-5 — `docs/architecture/prompt-bench.md`) and its recommendations built (E4-7); the windows' surfaces are **E4-6b** |
 | `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
 | `wipemark-store` | the SQLite file, the `settings` table and the queue's tables (schema 2) | real |
 | `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination | real; no surface pushes to it (**E4-6**) |
@@ -1201,17 +1201,17 @@ Anything that needed more than a rule to explain is in `docs/`;
   call to the last, so no unload lands between two candidates (E4-6a). See `docs/architecture/local-engine.md`, "Keeping a
   model".
 * **A document goes back byte for byte.** `wipemark_pipeline::prepare`
-  turns a document into chunks — one paragraph each, or one list with the
-  bytes between its items as glue placeholders, never merged — and every
+  turns a document into chunks — one paragraph or one list item each,
+  never merged, and never a list marker — and every
   byte outside a chunk is reassembled from the source itself:
   `assemble(&[None; n]) == source` for every format, a property over
   thousands of generated documents and every Markdown file here. What is
   not prose (headings, front matter, code, tables, HTML blocks) is never
   shown to a model. Protected spans become `⟦n⟧` numbered per chunk from
   1; `placeholder()` is the one place the format lives; `restore` never
-  guesses — a missing, invented, duplicated or reordered placeholder is a
+  guesses — a missing, invented or duplicated placeholder is a
   `RestoreError` — and so is a list item that comes back with more line
-  breaks than it went in with (`ItemBroken`) — which the loop treats as
+  breaks than it went in with (`ItemBroken`, D114) — which the loop treats as
   a rejection. `lang::detect`
   answers `None` rather than guess, and its neighbours' stop-word lists
   exist only to make French or Ukrainian read as unknown. See
@@ -1224,7 +1224,12 @@ Anything that needed more than a rule to explain is in `docs/`;
   answer before the guards** (a model that slips U+200B into an
   identifier must not lose the candidate to `IdentifierGuard`), and over
   the assembled result. Round 2 runs only when no candidate of round 1
-  passed (D61); the winner is the least diverged that passed (D71); with
+  passed (D61); the winner is the most diverged that passed, and a candidate under 0.2
+  is a no-op (D111); a chunk of fewer than 20 words has the 0.5–2.0
+  length window, a longer one 0.6–1.6 (D112); an answer of 20+ words not
+  in its chunk's language — another, or one `detect` declines — is
+  refused (`Rejection::Language`, D113); `job::verdict` is the one
+  verdict, and the bench calls it too (D117); with
   no pass the chunk keeps its cleaned source and the report says so.
   Every rejection is a structured value (`Rejection`, exhaustive — D85),
   seeds are unique per job and recorded (D83), and the report's third
@@ -1235,7 +1240,8 @@ Anything that needed more than a rule to explain is in `docs/`;
   `kill -9` costs at most the chunk in flight; the next open turns
   `running` into `queued` and hands the rows to `start_resumable`, which
   uses a record only under the same fingerprint — document, format,
-  options, engine, budget, templates — and asks the rest. A result goes
+  options, engine, budget, templates and the selection rules
+  (`select::RULES`, D116) — and asks the rest. A result goes
   where the item said when it was pushed (its row, beside, a chosen path,
   or in place by a per-run flag), in two phases so a crash between them is
   finished rather than lost. A database that will not open is left alone
