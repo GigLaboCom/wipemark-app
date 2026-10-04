@@ -52,6 +52,24 @@
 //! though it were a rewrite: an agent that got its own text back with no
 //! error would file it as rewritten.
 //!
+//! # `inspect_image` and `clean_image`
+//!
+//! `tools/call inspect_image { data }` and `clean_image { data, scope }`
+//! take a PNG, JPEG or WebP as base64 — the standard alphabet, padded,
+//! nothing looser — and run `wipemark-image` over it ([`super::image`]):
+//! `ImageReport::to_json`, or `{"data": <base64>, "report":
+//! <StripReport>}`, in the same two places the scrubber's reports go. Every
+//! report carries the third shelf with the pixel domain on it: only the
+//! metadata is examined. `scope` is `ai-provenance` (the default) or
+//! `all-metadata`, which takes camera data, EXIF orientation included;
+//! colour profiles are kept by both. They refuse, as an `isError` result
+//! naming why, everything the scrubber's tools refuse and five things
+//! more: `data` that is not base64, bytes that are not a picture this
+//! server reads, a TIFF, HEIC or AVIF ("not in this version yet"), a
+//! picture that could not be read, a JPEG whose MPF index a removal would
+//! move — and a result that would still carry AI provenance, for which no
+//! image comes back. No path argument: see [`super::image`].
+//!
 //! # What is said back
 //!
 //! Three answers quote something the client sent — an unknown method, an
@@ -131,6 +149,8 @@ pub enum Tool {
     Inspect,
     Clean,
     Rewrite,
+    InspectImage,
+    CleanImage,
 }
 
 /// The tactics `rewrite` runs, as a sentence and a schema list them — kept
@@ -148,7 +168,13 @@ const A_COUNT: &str = "a whole number from 1 to 8";
 
 impl Tool {
     /// Every tool, in the order `tools/list` reports them.
-    pub const ALL: [Tool; 3] = [Self::Inspect, Self::Clean, Self::Rewrite];
+    pub const ALL: [Tool; 5] = [
+        Self::Inspect,
+        Self::Clean,
+        Self::Rewrite,
+        Self::InspectImage,
+        Self::CleanImage,
+    ];
 
     /// The name a client calls it by. A format.
     pub fn name(self) -> &'static str {
@@ -156,6 +182,22 @@ impl Tool {
             Self::Inspect => "inspect",
             Self::Clean => "clean",
             Self::Rewrite => "rewrite",
+            Self::InspectImage => "inspect_image",
+            Self::CleanImage => "clean_image",
+        }
+    }
+
+    /// Whether the tool takes a picture rather than a text.
+    fn is_image(self) -> bool {
+        matches!(self, Self::InspectImage | Self::CleanImage)
+    }
+
+    /// The one argument the tool cannot run without.
+    fn required(self) -> &'static str {
+        if self.is_image() {
+            "data"
+        } else {
+            "text"
         }
     }
 
@@ -201,6 +243,12 @@ impl Tool {
                  connection cancels it. With dry_run, returns only the estimated cost and loads \
                  nothing. Takes up to about 1 MB of text."
             }
+            Self::InspectImage => {
+                "Report the metadata blocks of a PNG, JPEG or WebP image without changing                  anything: EXIF, XMP, IPTC, C2PA manifests, PNG text chunks, colour profiles and                  the rest, each with its kind, its chunk or segment, and its byte offset and                  length in the file. A block that is AI provenance says which signal matched and                  which signature: a C2PA manifest or a reference to one, an IPTC digital source                  type naming a model or an algorithm, a text key or a signature an image                  generator writes - never the value, so a prompt is not quoted back. Camera data                  is listed and is not AI provenance. Only the metadata is examined, never the                  pixels, and every report lists what it does not establish. TIFF, HEIC and AVIF                  are refused by name. Pass the image as base64 in data; a request takes up to                  about 1 MB, so an image up to about 750 KB."
+            }
+            Self::CleanImage => {
+                "Remove AI provenance metadata from a PNG, JPEG or WebP image and return the                  image as base64 in data, with a report of what was removed (byte offsets into                  the image you sent) and what the result still carries (byte offsets into the                  image returned), read off a second inspection of the result. Every other byte                  is kept as it was: the pixels are never decoded or re-encoded. With scope                  all-metadata, camera data goes too, EXIF orientation included; colour profiles                  are kept whatever the scope. When the result would still carry AI provenance,                  no image comes back. Only the metadata is examined, never the pixels, and every                  report lists what it does not establish. Takes up to about 1 MB of request, so                  an image up to about 750 KB as base64."
+            }
         }
     }
 
@@ -209,6 +257,9 @@ impl Tool {
     /// `additionalProperties: false` because it is true: an argument the
     /// tool does not take is refused by name rather than ignored.
     pub fn schema(self) -> Value {
+        if self.is_image() {
+            return self.image_schema();
+        }
         let mut properties = Map::new();
         properties.insert(
             "text".to_owned(),
@@ -239,6 +290,9 @@ impl Tool {
                         "Also replace homoglyphs in the scrubber's passes before and after the \
                          model, as clean does with aggressive. Default false."
                     }
+                    // `image_schema` answered for these before anything
+                    // here was built.
+                    Self::InspectImage | Self::CleanImage => "",
                 },
             }),
         );
@@ -351,7 +405,37 @@ impl Tool {
         json!({
             "type": "object",
             "properties": Value::Object(properties),
-            "required": ["text"],
+            "required": [self.required()],
+            "additionalProperties": false,
+        })
+    }
+
+    /// The picture tools' schema: `data`, and for `clean_image` the scope.
+    fn image_schema(self) -> Value {
+        let mut properties = Map::new();
+        properties.insert(
+            "data".to_owned(),
+            json!({
+                "type": "string",
+                "contentEncoding": "base64",
+                "description": "The image itself - a PNG, JPEG or WebP file's bytes - as base64:                                 the standard alphabet, padded, with no line breaks. Not a path.                                 The request takes up to about 1 MB; a larger one is refused                                 whole, never truncated.",
+            }),
+        );
+        if self == Self::CleanImage {
+            properties.insert(
+                "scope".to_owned(),
+                json!({
+                    "type": "string",
+                    "enum": wipemark_image::Scope::ALL.map(wipemark_image::Scope::id),
+                    "default": "ai-provenance",
+                    "description": "What is removed: ai-provenance (the default) removes only the                                     blocks that are AI provenance; all-metadata removes every                                     block but colour - camera data too, EXIF orientation                                     included, so a picture that relied on it may show turned.                                     Colour profiles are kept by both.",
+                }),
+            );
+        }
+        json!({
+            "type": "object",
+            "properties": Value::Object(properties),
+            "required": [self.required()],
             "additionalProperties": false,
         })
     }
@@ -359,6 +443,8 @@ impl Tool {
     /// The arguments this tool takes, in the order a refusal lists them.
     fn arguments(self) -> &'static [&'static str] {
         match self {
+            Self::InspectImage => &["data"],
+            Self::CleanImage => &["data", "scope"],
             Self::Inspect => &["text", "aggressive"],
             Self::Clean => &["text", "aggressive", "nfkc"],
             Self::Rewrite => &[
@@ -380,6 +466,10 @@ impl Tool {
     /// The same list, spelled for a sentence.
     fn argument_list(self) -> &'static str {
         match self {
+            Self::InspectImage => "`data` (an image as base64, required)",
+            Self::CleanImage => {
+                "`data` (an image as base64, required), `scope` (ai-provenance or all-metadata)"
+            }
             Self::Inspect => "`text` (a string, required), `aggressive` (true or false)",
             Self::Clean => {
                 "`text` (a string, required), `aggressive` (true or false), `nfkc` (true or \
@@ -418,11 +508,14 @@ impl Tool {
             // `call` reads and runs a rewrite apart; nothing reaches here
             // with one. Said at the protocol level rather than panicking on
             // a connection's thread, should that ever change.
-            Self::Rewrite => {
-                tracing::error!("MCP: a rewrite reached the scrubber's road");
+            Self::Rewrite | Self::InspectImage | Self::CleanImage => {
+                tracing::error!(
+                    tool = self.name(),
+                    "MCP: a tool reached the scrubber's road"
+                );
                 return Answer::Error {
                     code: INTERNAL_ERROR,
-                    message: "rewrite is not a scrubber call".to_owned(),
+                    message: format!("{} is not a scrubber call", self.name()),
                 };
             }
             Self::Inspect => {
@@ -489,14 +582,122 @@ impl Tool {
                 "type": "text",
                 "text": format!(
                     "`{name}` did not run: {said}. Its arguments are {list}. Refusing rather \
-                     than answering — a report about text that was never read would say that \
+                     than answering — a report about {what} that was never read would say that \
                      nothing was found.",
                     name = self.name(),
                     list = self.argument_list(),
+                    what = if self.is_image() { "an image" } else { "text" },
                 ),
             }],
             "isError": true,
         })
+    }
+}
+
+/// A picture tool's call, read and checked: the bytes `data` decoded to.
+struct ImageCall {
+    bytes: Vec<u8>,
+    scope: wipemark_image::Scope,
+}
+
+/// A picture that was read and could not be inspected or cleaned: a result
+/// carrying `isError`, the reason, and neither a report nor an image.
+fn image_refused(tool: Tool, refusal: &super::image::Refusal) -> Value {
+    tracing::info!(
+        tool = tool.name(),
+        refusal = refusal.kind(),
+        "MCP: tools/call did not run"
+    );
+    json!({
+        "content": [{
+            "type": "text",
+            "text": format!(
+                "`{name}` did not run: {said}. No report comes back, and no image - a report \
+                 about a picture that was never read would say that nothing was found.",
+                name = tool.name(),
+                said = refusal.said(),
+            ),
+        }],
+        "isError": true,
+    })
+}
+
+/// Read a picture tool's arguments: `data` as base64, `scope` from its two
+/// values. Every problem collected and named, none coerced, as
+/// [`read_call`] does.
+fn read_image(tool: Tool, arguments: &Map<String, Value>) -> Result<ImageCall, Vec<Problem>> {
+    let mut problems = Vec::new();
+
+    let bytes = match arguments.get("data") {
+        None => {
+            problems.push(Problem::Missing("data"));
+            None
+        }
+        Some(Value::String(data)) => match super::image::decode(data) {
+            Some(bytes) => Some(bytes),
+            None => {
+                problems.push(Problem::WrongType {
+                    name: "data",
+                    wants: "an image as base64: the standard alphabet, padded, with no line \
+                            breaks",
+                });
+                None
+            }
+        },
+        Some(_) => {
+            problems.push(Problem::WrongType {
+                name: "data",
+                wants: "a string",
+            });
+            None
+        }
+    };
+
+    let scope = match arguments.get("scope").filter(|_| tool == Tool::CleanImage) {
+        None => wipemark_image::Scope::AiProvenance,
+        Some(Value::String(said)) => wipemark_image::Scope::ALL
+            .into_iter()
+            .find(|scope| scope.id() == said)
+            .unwrap_or_else(|| {
+                problems.push(Problem::NotOneOf {
+                    name: "scope",
+                    said: spelled(said),
+                    wants: "ai-provenance, all-metadata",
+                });
+                wipemark_image::Scope::AiProvenance
+            }),
+        Some(_) => {
+            problems.push(Problem::WrongType {
+                name: "scope",
+                wants: "a string",
+            });
+            wipemark_image::Scope::AiProvenance
+        }
+    };
+
+    let mut extra: Vec<&String> = arguments
+        .keys()
+        .filter(|key| !tool.arguments().contains(&key.as_str()))
+        .collect();
+    extra.sort();
+    problems.extend(extra.into_iter().map(|key| Problem::NotTaken(spelled(key))));
+
+    match bytes {
+        Some(bytes) if problems.is_empty() => Ok(ImageCall { bytes, scope }),
+        _ => Err(problems),
+    }
+}
+
+/// Run a picture tool over a call that was read, and answer.
+fn image_answer(tool: Tool, call: &ImageCall) -> Answer {
+    let ran = if tool == Tool::CleanImage {
+        super::image::clean(&call.bytes, call.scope)
+    } else {
+        super::image::inspect(&call.bytes)
+    };
+    match ran {
+        Ok(json) => answered(json),
+        Err(refusal) => Answer::Result(image_refused(tool, &refusal)),
     }
 }
 
@@ -1033,6 +1234,10 @@ fn call(params: &Value, services: &Services, gone: &dyn Fn() -> bool) -> Answer 
             Ok(call) => tool.run(&call),
             Err(problems) => Answer::Result(tool.refuse(&problems)),
         },
+        Tool::InspectImage | Tool::CleanImage => match read_image(tool, arguments) {
+            Ok(call) => image_answer(tool, &call),
+            Err(problems) => Answer::Result(tool.refuse(&problems)),
+        },
     }
 }
 
@@ -1158,8 +1363,9 @@ mod tests {
                     text.contains(tool.name()),
                     "the refusal does not name the tool"
                 );
+                let required = format!("`{}`", tool.required());
                 assert!(
-                    text.contains("`text`"),
+                    text.contains(&required),
                     "the refusal does not name the missing argument: {text}"
                 );
             }
@@ -1354,7 +1560,9 @@ mod tests {
                         );
                     }
                 }
-                Tool::Rewrite => unreachable!("report_calls holds Layer A calls only"),
+                Tool::Rewrite | Tool::InspectImage | Tool::CleanImage => {
+                    unreachable!("report_calls holds Layer A calls only")
+                }
             }
         }
     }
@@ -1372,7 +1580,9 @@ mod tests {
             let shelf = match tool {
                 Tool::Inspect => &structured["not_established"],
                 Tool::Clean => &structured["report"]["not_established"],
-                Tool::Rewrite => unreachable!("report_calls holds Layer A calls only"),
+                Tool::Rewrite | Tool::InspectImage | Tool::CleanImage => {
+                    unreachable!("report_calls holds Layer A calls only")
+                }
             };
             assert_eq!(shelf, &Value::Array(ids.clone()), "{tool:?} {arguments}");
         }
@@ -1467,8 +1677,9 @@ mod tests {
                 "{tool:?} is listed with nothing a model could choose it by"
             );
             assert_eq!(listed["inputSchema"]["type"], json!("object"));
-            assert_eq!(listed["inputSchema"]["required"], json!(["text"]));
-            assert!(listed["inputSchema"]["properties"]["text"].is_object());
+            assert_eq!(listed["inputSchema"]["required"], json!([tool.required()]));
+            assert!(listed["inputSchema"]["properties"][tool.required()].is_object());
+            assert_eq!(listed["inputSchema"]["additionalProperties"], json!(false));
         }
     }
 
@@ -1608,6 +1819,22 @@ mod tests {
                     r#"{{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{{"name":"clean","arguments":{{"text":{marked},"aggressive":{aggressive},"nfkc":{nfkc}}}}}}}"#
                 ));
             }
+        }
+        // And the picture tools, run and refused: over a PNG whose keyword
+        // carries a zero-width space and an isolate as Latin-1 cannot — so
+        // a soft hyphen and a C1 control — and with a client's invisible
+        // characters in a value and a name.
+        let sly = super::super::image::encode(&png_with_text(b"Co\xADmm\x9Bent", b"x"));
+        for (tool, extra) in [
+            ("inspect_image", ""),
+            ("clean_image", ""),
+            ("clean_image", r#","scope":"all-metadata""#),
+            ("clean_image", r#","scope":"all\u200B""#),
+            ("inspect_image", r#","da\u2068ta":1"#),
+        ] {
+            requests.push(format!(
+                r#"{{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{{"name":"{tool}","arguments":{{"data":"{sly}"{extra}}}}}}}"#
+            ));
         }
         for request in requests {
             let body = respond(&request).expect("an answer");
@@ -1942,6 +2169,268 @@ mod tests {
                 Tool::Rewrite.argument_list().contains(name),
                 "{name} is not listed"
             );
+        }
+    }
+
+    // ─── inspect_image and clean_image ─────────────────────────────────
+
+    fn fixture(name: &str) -> Vec<u8> {
+        let path = format!("{}/../../fixtures/image/{name}", env!("CARGO_MANIFEST_DIR"));
+        std::fs::read(&path).unwrap_or_else(|error| panic!("{path}: {error}"))
+    }
+
+    /// A PNG of one grey pixel's header and one `tEXt` chunk, CRCs zero
+    /// (the library does not read them): the smallest picture a keyword
+    /// can be smuggled into.
+    fn png_with_text(key: &[u8], value: &[u8]) -> Vec<u8> {
+        let mut text = key.to_vec();
+        text.push(0);
+        text.extend_from_slice(value);
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        for (kind, data) in [
+            (&b"IHDR"[..], &[0, 0, 0, 1, 0, 0, 0, 1, 8, 0, 0, 0, 0][..]),
+            (b"tEXt", &text),
+            (b"IEND", b""),
+        ] {
+            png.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            png.extend_from_slice(kind);
+            png.extend_from_slice(data);
+            png.extend_from_slice(&[0; 4]);
+        }
+        png
+    }
+
+    fn image_call(tool: &str, bytes: &[u8], extra: &str) -> Value {
+        called(
+            tool,
+            &format!(
+                r#"{{"data":"{}"{extra}}}"#,
+                super::super::image::encode(bytes)
+            ),
+        )
+    }
+
+    /// Every picture tool answers with a report carrying the third shelf,
+    /// the pixel domain on it, in the text block and the structured content
+    /// alike — and the text block is ASCII.
+    #[test]
+    fn every_image_answer_carries_the_third_shelf() {
+        let ids: Vec<Value> = wipemark_core::report::not_established::ALL
+            .iter()
+            .map(|(id, _)| json!(id))
+            .collect();
+        for name in [
+            "c2pa-jumbf.jpg",
+            "xmp-provenance.jpg",
+            "xmp-provenance-url.png",
+            "exif-xmp.webp",
+        ] {
+            let bytes = fixture(name);
+            for (tool, extra) in [
+                ("inspect_image", ""),
+                ("clean_image", ""),
+                ("clean_image", r#","scope":"all-metadata""#),
+            ] {
+                let response = image_call(tool, &bytes, extra);
+                let result = &response["result"];
+                assert_eq!(result["isError"], json!(false), "{name} {tool}: {response}");
+                let text = result["content"][0]["text"].as_str().expect("a text block");
+                assert!(text.is_ascii(), "{name} {tool}");
+                let parsed: Value = serde_json::from_str(text).expect("JSON");
+                assert_eq!(&parsed, &result["structuredContent"], "{name} {tool}");
+                let report = if tool == "clean_image" {
+                    &parsed["report"]
+                } else {
+                    &parsed
+                };
+                assert_eq!(
+                    report["not_established"],
+                    Value::Array(ids.clone()),
+                    "{name} {tool}"
+                );
+                assert!(ids.contains(&json!(wipemark_image::PIXEL_DOMAIN)));
+            }
+        }
+    }
+
+    /// What goes in comes back byte for byte when there is nothing to
+    /// remove; and what comes back from a marked picture inspects clean of
+    /// provenance.
+    #[test]
+    fn the_base64_round_trip_is_byte_identical() {
+        let plain = fixture("exif-xmp.webp");
+        let response = image_call("clean_image", &plain, "");
+        let data = response["result"]["structuredContent"]["data"]
+            .as_str()
+            .expect("an image");
+        assert_eq!(
+            super::super::image::decode(data),
+            Some(plain),
+            "the bytes moved"
+        );
+
+        let marked = fixture("c2pa-jumbf.jpg");
+        let response = image_call("clean_image", &marked, "");
+        let data = response["result"]["structuredContent"]["data"]
+            .as_str()
+            .expect("an image");
+        let cleaned = super::super::image::decode(data).expect("base64");
+        assert!(cleaned.len() < marked.len());
+        let again = image_call("inspect_image", &cleaned, "");
+        assert_eq!(
+            again["result"]["structuredContent"]["ai_metadata"],
+            json!(false),
+            "{again}"
+        );
+        assert_eq!(
+            response["result"]["structuredContent"]["report"]["still_has_c2pa"],
+            json!(false)
+        );
+    }
+
+    /// Every way a picture tool can fail to run is an `isError` result
+    /// naming why, with no report and no image.
+    #[test]
+    fn every_image_refusal_is_an_error_result_naming_why() {
+        let jpeg = fixture("c2pa-jumbf.jpg");
+        let mut mpf = vec![0xFF, 0xD8, 0xFF, 0xE2, 0x00, 0x0E];
+        mpf.extend_from_slice(b"MPF\x00MM\x00*\x00\x00\x00\x08");
+        mpf.extend_from_slice(&jpeg[2..]);
+        let encoded = |bytes: &[u8]| super::super::image::encode(bytes);
+        for (tool, arguments, says) in [
+            ("inspect_image", json!({}), "`data` is missing".to_owned()),
+            (
+                "inspect_image",
+                json!({ "data": 5 }),
+                "must be a string".to_owned(),
+            ),
+            (
+                "inspect_image",
+                json!({ "data": "@@@" }),
+                "base64".to_owned(),
+            ),
+            (
+                "clean_image",
+                json!({ "data": "Zm9v\n" }),
+                "base64".to_owned(),
+            ),
+            (
+                "inspect_image",
+                json!({ "data": encoded(b"hello, world\n") }),
+                "not an image this server reads".to_owned(),
+            ),
+            (
+                "inspect_image",
+                json!({ "data": encoded(b"II*\x00\x08\x00\x00\x00\x00\x00\x00\x00") }),
+                "TIFF images are not in this version yet".to_owned(),
+            ),
+            (
+                "clean_image",
+                json!({ "data": encoded(&jpeg[..jpeg.len() / 2]) }),
+                "the JPEG could not be read".to_owned(),
+            ),
+            (
+                "clean_image",
+                json!({ "data": encoded(&mpf) }),
+                "(MPF)".to_owned(),
+            ),
+            (
+                "clean_image",
+                json!({ "data": encoded(&jpeg), "scope": "everything" }),
+                "`scope` is `everything`".to_owned(),
+            ),
+            (
+                "inspect_image",
+                json!({ "data": encoded(&jpeg), "scope": "all-metadata" }),
+                "takes no argument `scope`".to_owned(),
+            ),
+            (
+                "clean_image",
+                json!({ "data": encoded(&jpeg), "path": "/etc/passwd" }),
+                "takes no argument `path`".to_owned(),
+            ),
+        ] {
+            let response = called(tool, &arguments.to_string());
+            let text = refusal_text(&response);
+            assert!(text.contains(&says), "{tool} {arguments}: {text}");
+            assert!(text.contains(tool), "{text}");
+            assert!(
+                !text.contains("E11"),
+                "an epic number left the repository: {text}"
+            );
+        }
+    }
+
+    /// A keyword is the file's Latin-1, and a soft hyphen, a no-break space
+    /// or a C1 control in it is said back spelled: every answer of a picture
+    /// tool is ASCII from the first byte to the last — refusals included,
+    /// with a client's own invisible characters in its arguments.
+    #[test]
+    fn no_image_answer_carries_a_character_it_read_out_of_the_file() {
+        let sly = png_with_text(b"Co\xADmm\xA0ent\x9B", b"a holiday");
+        let mut bodies = Vec::new();
+        for (tool, extra) in [
+            ("inspect_image", ""),
+            ("clean_image", ""),
+            ("clean_image", r#","scope":"all-metadata""#),
+            ("clean_image", r#","scope":"all\u200B""#),
+            ("inspect_image", r#","da\u2068ta":1"#),
+        ] {
+            let request = format!(
+                r#"{{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{{"name":"{tool}","arguments":{{"data":"{}"{extra}}}}}}}"#,
+                super::super::image::encode(&sly)
+            );
+            bodies.push(respond(&request).expect("an answer"));
+        }
+        bodies.push(
+            respond(
+                r#"{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"inspect_image","arguments":{"data":"\u200BZm9v"}}}"#,
+            )
+            .expect("an answer"),
+        );
+        // The answers themselves are ASCII to the byte; a refusal of an
+        // argument is the scrubber tools' sentence, whose one non-ASCII
+        // character is its own dash.
+        for body in &bodies[..3] {
+            assert!(body.is_ascii(), "{body}");
+        }
+        for body in &bodies[3..] {
+            assert!(
+                body.chars().all(|c| c.is_ascii() || c == '\u{2014}'),
+                "{body}"
+            );
+        }
+        let inspected: Value = serde_json::from_str(&bodies[0]).expect("JSON");
+        assert_eq!(
+            inspected["result"]["structuredContent"]["findings"][0]["key"],
+            json!("CoU+00ADmmU+00A0entU+009B"),
+            "{inspected}"
+        );
+    }
+
+    /// `tools/list` gives each picture tool a JSON schema: `data` required,
+    /// `scope` from its two values on `clean_image` alone, nothing else
+    /// accepted.
+    #[test]
+    fn each_image_tool_has_a_schema() {
+        let inspect = Tool::InspectImage.schema();
+        assert_eq!(inspect["required"], json!(["data"]));
+        assert_eq!(
+            inspect["properties"]["data"]["contentEncoding"],
+            json!("base64")
+        );
+        assert!(inspect["properties"].get("scope").is_none());
+        assert!(inspect["properties"].get("text").is_none());
+        let clean = Tool::CleanImage.schema();
+        assert_eq!(
+            clean["properties"]["scope"]["enum"],
+            json!(["ai-provenance", "all-metadata"])
+        );
+        for tool in [Tool::InspectImage, Tool::CleanImage] {
+            assert_eq!(tool.schema()["additionalProperties"], json!(false));
+            let description = tool.description();
+            assert!(description.contains("never the pixels"), "{tool:?}");
+            assert!(!description.contains("path"), "{tool:?}: {description}");
         }
     }
 }

@@ -1079,6 +1079,13 @@ action — are E7's.
 
 ### MCP
 
+Two more tools sit beside these since E11-2 — `inspect_image` and
+`clean_image`, which take a picture as base64 in `data` and run
+`wipemark-image` over its metadata, never Layer A. Their arguments,
+answers and refusals are `docs/architecture/images.md`, "Surfaces"; the
+rules below (problems collected, a refusal is a result, never a report)
+are theirs too, with `data` where these have `text`.
+
 `tools/call` reads `params.arguments`:
 
 | what arrives | answer |

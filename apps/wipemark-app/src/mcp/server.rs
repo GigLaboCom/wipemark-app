@@ -1249,6 +1249,55 @@ mod tests {
         server.stop();
     }
 
+    /// A picture is held to the same megabyte: an `inspect_image` whose
+    /// base64 takes the body past the limit is answered `413` before a
+    /// byte of it is read — never a report about the part that fitted.
+    #[test]
+    fn an_image_over_the_limit_is_refused_whole() {
+        let port = a_port_with_a_free_neighbour();
+        let (server, _) = start(Endpoint {
+            bind: BindAddress::LOOPBACK,
+            port,
+        })
+        .expect("a free port");
+
+        // A real picture with a comment large enough to take its base64
+        // past a megabyte: three bytes in, four out.
+        let fixture = format!(
+            "{}/../../fixtures/image/c2pa-jumbf.jpg",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let jpeg = std::fs::read(&fixture).expect("the fixture");
+        let mut picture = jpeg[..2].to_vec();
+        for _ in 0..13 {
+            picture.extend_from_slice(&[0xFF, 0xFE, 0xFF, 0xFF]);
+            picture.extend_from_slice(&[b'x'; 0xFFFD]);
+        }
+        picture.extend_from_slice(&jpeg[2..]);
+        let body = format!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"inspect_image","arguments":{{"data":"{}"}}}}}}"#,
+            super::super::image::encode(&picture)
+        );
+        assert!(body.len() > LARGEST_BODY, "{} bytes", body.len());
+
+        // The head alone, as `a_body_over_the_limit_is_refused_whole` sends
+        // it: a server that waited for the body would answer only when
+        // `PATIENCE` ran out.
+        let asked = std::time::Instant::now();
+        let answer = ask(
+            port,
+            &format!(
+                "POST {PATH} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n\
+                 Content-Length: {}\r\n\r\n",
+                body.len()
+            ),
+        );
+        assert!(answer.starts_with("HTTP/1.1 413"), "{answer}");
+        assert!(asked.elapsed() < PATIENCE);
+
+        server.stop();
+    }
+
     /// Every answer carries its own length and closes the connection,
     /// because there is no keep-alive state machine here to carry the
     /// next request.

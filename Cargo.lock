@@ -8955,6 +8955,7 @@ name = "wipemark-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "flume",
  "global-hotkey",
@@ -8977,6 +8978,7 @@ dependencies = [
  "wipemark-core",
  "wipemark-engine",
  "wipemark-i18n",
+ "wipemark-image",
  "wipemark-intake",
  "wipemark-license",
  "wipemark-llama-sys",
@@ -8993,17 +8995,22 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "ctrlc",
+ "image-webp",
+ "png 0.18.1",
  "serde_json",
+ "sha2 0.10.9",
  "tracing",
  "wipemark-core",
  "wipemark-engine",
  "wipemark-i18n",
+ "wipemark-image",
  "wipemark-intake",
  "wipemark-llama-sys",
  "wipemark-log",
  "wipemark-models",
  "wipemark-pipeline",
  "wipemark-store",
+ "zune-jpeg 0.5.15",
 ]
 
 [[package]]

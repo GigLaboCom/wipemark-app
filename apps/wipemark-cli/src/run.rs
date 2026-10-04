@@ -1,5 +1,6 @@
 //! `inspect` and `clean`: the two flows, where each output goes, and the
-//! exit code.
+//! exit code. A picture takes its own road from here — `image.rs`, with
+//! its own table — once `input::read_any` has said that is what it is.
 //!
 //! # Where each output goes
 //!
@@ -44,9 +45,9 @@ use wipemark_intake::inplace::{self, Failure, Keep};
 use wipemark_intake::name::{with_infix, RESULT_INFIX};
 use wipemark_log::Elided;
 
-use crate::input::{self, Source, Unread};
+use crate::input::{self, Content, Source, Unread};
 use crate::report::{Say, Written};
-use crate::{report, Exit};
+use crate::{image, report, Exit};
 
 /// The three standard streams, as values a test can replace.
 pub(crate) struct Io<'a> {
@@ -109,11 +110,15 @@ impl Destination {
 pub(crate) fn inspect(path: &str, json: bool, io: &mut Io) -> Exit {
     let source = Source::of(path);
     let label = label_of(&source, path);
-    let read = match input::read(&source, &mut io.stdin) {
-        Ok(read) => read,
+    let content = match input::read_any(&source, &mut io.stdin) {
+        Ok(content) => content,
         Err(unread) => return refuse_unread("inspect", path, &label, &unread, io),
     };
-    say_note(&read, &label, io);
+    say_named(content.note(), &label, io);
+    let read = match content {
+        Content::Text(read) => read,
+        Content::Image(picture) => return image::inspect(path, &label, &picture, json, io),
+    };
 
     let options = Options::default();
     let report = wipemark_core::inspect(&read.text, &options);
@@ -154,17 +159,36 @@ pub(crate) fn inspect(path: &str, json: bool, io: &mut Io) -> Exit {
     exit
 }
 
+/// What `clean` was asked, flag by flag.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Clean<'a> {
+    pub path: &'a str,
+    pub out: Option<&'a Path>,
+    /// `None` without `--in-place`.
+    pub in_place: Option<Keep>,
+    pub nfkc: bool,
+    pub aggressive: bool,
+    /// `--all-metadata`: for a picture only.
+    pub all_metadata: bool,
+    pub json: bool,
+    /// Whether standard output is a terminal — where a picture's bytes are
+    /// never written. A field rather than a probe so a test can say so.
+    pub stdout_is_terminal: bool,
+}
+
 /// `clean <path|-> [-o <out>|-o -|--in-place [--no-original]] [--nfkc]
-/// [--aggressive] [--json]`. `in_place` is `None` without `--in-place`.
-pub(crate) fn clean(
-    path: &str,
-    out: Option<&Path>,
-    in_place: Option<Keep>,
-    nfkc: bool,
-    aggressive: bool,
-    json: bool,
-    io: &mut Io,
-) -> Exit {
+/// [--aggressive] [--all-metadata] [--json]`.
+pub(crate) fn clean(flags: &Clean, io: &mut Io) -> Exit {
+    let Clean {
+        path,
+        out,
+        in_place,
+        nfkc,
+        aggressive,
+        all_metadata,
+        json,
+        stdout_is_terminal,
+    } = *flags;
     let source = Source::of(path);
     let label = label_of(&source, path);
 
@@ -175,8 +199,8 @@ pub(crate) fn clean(
         Err(exit) => return exit,
     };
 
-    let read = match input::read(&source, &mut io.stdin) {
-        Ok(read) => read,
+    let content = match input::read_any(&source, &mut io.stdin) {
+        Ok(content) => content,
         Err(unread) => return refuse_unread("clean", path, &label, &unread, io),
     };
     if destination == Destination::Stdout && out.is_none() && matches!(source, Source::File(_)) {
@@ -186,7 +210,38 @@ pub(crate) fn clean(
         let line = t_args(Message::CliIsAFolder, &args!("path" => path));
         return refused(io, "clean", path, &line, "folder", Exit::Usage);
     }
-    say_note(&read, &label, io);
+    say_named(content.note(), &label, io);
+    // A flag that does not fit what the bytes turned out to be is a usage
+    // error, before anything is cleaned or written (D134).
+    let read = match content {
+        Content::Image(picture) => {
+            let text_flag = [(aggressive, "--aggressive"), (nfkc, "--nfkc")]
+                .into_iter()
+                .find_map(|(given, flag)| given.then_some(flag));
+            if let Some(flag) = text_flag {
+                return image::refuse_flag(io, path, &label, Some(picture.format.name()), flag);
+            }
+            let scope = if all_metadata {
+                wipemark_image::Scope::AllMetadata
+            } else {
+                wipemark_image::Scope::AiProvenance
+            };
+            let ask = image::Ask {
+                path,
+                label: &label,
+                source: &source,
+                destination: &destination,
+                scope,
+                json,
+                stdout_is_terminal,
+            };
+            return image::clean(&ask, &picture, io);
+        }
+        Content::Text(_) if all_metadata => {
+            return image::refuse_flag(io, path, &label, None, "--all-metadata");
+        }
+        Content::Text(read) => read,
+    };
 
     let options = Options {
         aggressive,
@@ -453,7 +508,16 @@ pub(crate) fn emit(stream: &mut Box<dyn Write + '_>, bytes: &[u8]) -> io::Result
 
 /// The note a file whose name lies gets: read by its contents, and said.
 pub(crate) fn say_note(read: &input::Read, label: &str, io: &mut Io) {
-    if let Some((named, found)) = read.note {
+    say_named(read.note, label, io);
+}
+
+/// [`say_note`] for anything [`input::read_any`] read, a picture included.
+pub(crate) fn say_named(
+    note: Option<(wipemark_intake::Format, wipemark_intake::Format)>,
+    label: &str,
+    io: &mut Io,
+) {
+    if let Some((named, found)) = note {
         let line = t_args(
             Message::CliNameDisagrees,
             &args!(
@@ -633,8 +697,22 @@ pub(crate) fn failed(
 mod tests {
     use std::io::Cursor;
 
-    use super::{clean, inspect, Io};
+    use super::{clean, inspect, Clean, Io};
     use crate::Exit;
+
+    /// `clean` over standard input with no flags but these.
+    fn plain(json: bool) -> Clean<'static> {
+        Clean {
+            path: "-",
+            out: None,
+            in_place: None,
+            nfkc: false,
+            aggressive: false,
+            all_metadata: false,
+            json,
+            stdout_is_terminal: false,
+        }
+    }
 
     /// Run a flow over in-memory streams and hand back what it wrote.
     fn run(stdin: &[u8], flow: impl FnOnce(&mut Io) -> Exit) -> (Exit, Vec<u8>, Vec<u8>) {
@@ -655,12 +733,24 @@ mod tests {
     /// it on stderr rather than mixed into the product.
     #[test]
     fn standard_input_is_cleaned_onto_standard_output() {
-        let (exit, stdout, stderr) = run("a\u{200B}b".as_bytes(), |io| {
-            clean("-", None, None, false, false, false, io)
-        });
+        let (exit, stdout, stderr) = run("a\u{200B}b".as_bytes(), |io| clean(&plain(false), io));
         assert_eq!(exit, Exit::Findings);
         assert_eq!(stdout, b"ab");
         assert!(!stderr.is_empty(), "the report went nowhere");
+    }
+
+    /// D134: `--all-metadata` is for a picture, and a text refuses it as
+    /// a usage error with nothing on standard output.
+    #[test]
+    fn all_metadata_on_a_text_is_a_usage_error() {
+        let flags = Clean {
+            all_metadata: true,
+            ..plain(false)
+        };
+        let (exit, stdout, stderr) = run(b"a\xe2\x80\x8bb", |io| clean(&flags, io));
+        assert_eq!(exit, Exit::Usage);
+        assert!(stdout.is_empty());
+        assert!(!stderr.is_empty());
     }
 
     /// `inspect --json` is the report and nothing else, and an empty

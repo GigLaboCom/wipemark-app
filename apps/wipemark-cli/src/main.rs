@@ -65,8 +65,10 @@
 //!
 //! `inspect` and `clean` run Layer A (`input` reads and decodes through
 //! `wipemark-intake`, `run` is the two flows and their exit codes,
-//! `report` the human report; every write to disk, `--in-place`
-//! included, is `wipemark_intake::inplace`, which the windows will share);
+//! `report` the human report) — or, when the bytes are a PNG, JPEG or
+//! WebP, `wipemark-image` (`image`, E11-2: the metadata, never a pixel).
+//! Every write to disk, `--in-place` included, is
+//! `wipemark_intake::inplace`, which the windows will share;
 //! `audit` walks a folder through the same reader
 //! (`audit`); `models` is the catalogue and the downloader of
 //! `wipemark-models` (`models`); `rewrite` runs the pipeline (`rewrite`) —
@@ -76,6 +78,7 @@
 
 mod app;
 mod audit;
+mod image;
 mod input;
 mod models;
 mod report;
@@ -149,6 +152,11 @@ enum Action {
         nfkc: bool,
         #[arg(long)]
         aggressive: bool,
+        // For a picture: every metadata block but colour, not only AI
+        // provenance. A text refuses it, and a picture refuses the two
+        // above — decided once the bytes are read (D134).
+        #[arg(long)]
+        all_metadata: bool,
         #[arg(long)]
         json: bool,
     },
@@ -237,13 +245,14 @@ const TACTICS: [&str; 5] = [
 /// is set per subcommand: `inspect`, `clean` and `rewrite` take `-` for
 /// stdin and `audit` takes a folder, and help that offered it everywhere
 /// would be help that lies.
-const ARGUMENT_HELP: [(&str, Message); 17] = [
+const ARGUMENT_HELP: [(&str, Message); 18] = [
     ("path", Message::CliArgPath),
     ("out", Message::CliArgOut),
     ("in_place", Message::CliArgInPlace),
     ("no_original", Message::CliArgNoOriginal),
     ("nfkc", Message::CliArgNfkc),
     ("aggressive", Message::CliArgAggressive),
+    ("all_metadata", Message::CliArgAllMetadata),
     ("json", Message::CliArgJson),
     ("tactic", Message::CliArgTactic),
     ("intensity", Message::CliArgIntensity),
@@ -535,18 +544,23 @@ fn main() -> ExitCode {
             no_original,
             nfkc,
             aggressive,
+            all_metadata,
             json,
         } => run::clean(
-            path,
-            out.as_deref(),
-            in_place.then_some(if *no_original {
-                wipemark_intake::inplace::Keep::Nothing
-            } else {
-                wipemark_intake::inplace::Keep::Original
-            }),
-            *nfkc,
-            *aggressive,
-            *json,
+            &run::Clean {
+                path,
+                out: out.as_deref(),
+                in_place: in_place.then_some(if *no_original {
+                    wipemark_intake::inplace::Keep::Nothing
+                } else {
+                    wipemark_intake::inplace::Keep::Original
+                }),
+                nfkc: *nfkc,
+                aggressive: *aggressive,
+                all_metadata: *all_metadata,
+                json: *json,
+                stdout_is_terminal: std::io::IsTerminal::is_terminal(&std::io::stdout()),
+            },
             io,
         ),
         Action::Audit { dir, json, sarif } => {

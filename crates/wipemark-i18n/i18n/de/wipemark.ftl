@@ -553,7 +553,7 @@ settings-retention-span-forever = bis zum Löschen von Hand
 
 settings-mcp-title = MCP-Server
 settings-mcp-description = Ein Agent kann { -layer-a } über das Model Context Protocol auf seine eigene Ausgabe anwenden und mit der zuständigen Engine umschreiben.
-settings-mcp-tools = Drei Werkzeuge arbeiten: inspect zeigt, was die { -layer-a } an einem Text ändern würde, clean nimmt diese Änderungen vor und meldet jede mit ihrer Position, und rewrite lässt die zuständige Engine den Text zwischen zwei Durchgängen der { -layer-a } umschreiben — das Dokument geht dorthin, wohin die Seite „Engine“ es schickt. Umschreiben geschieht nach bestem Bemühen, und sein Bericht sagt, was es nicht feststellt.
+settings-mcp-tools = Fünf Werkzeuge arbeiten: inspect zeigt, was die { -layer-a } an einem Text ändern würde, clean nimmt diese Änderungen vor und meldet jede mit ihrer Position, inspect_image und clean_image tun dasselbe mit den Metadaten eines PNG, JPEG oder WebP — nur mit den Metadaten, nie mit den Pixeln —, und rewrite lässt die zuständige Engine den Text zwischen zwei Durchgängen der { -layer-a } umschreiben — das Dokument geht dorthin, wohin die Seite „Engine“ es schickt. Umschreiben geschieht nach bestem Bemühen, und sein Bericht sagt, was es nicht feststellt.
 
 settings-mcp-status-off = Läuft nicht.
 settings-mcp-status-starting = Startet…
@@ -638,15 +638,15 @@ cli-help-print-help = Hilfe anzeigen
 cli-help-print-version = Version anzeigen
 cli-command-help = Diese Meldung anzeigen, oder die Hilfe zum angegebenen Befehl.
 
-cli-command-inspect = Meldet, was in einem Dokument steckt, ohne es zu ändern.
-cli-command-clean = Nur { -layer-a }: deterministisch, nachprüfbar, ohne Modell.
+cli-command-inspect = Meldet, was in einem Dokument oder in den Metadaten eines PNG-, JPEG- oder WebP-Bildes steckt, ohne es zu ändern.
+cli-command-clean = Nur { -layer-a }: deterministisch, nachprüfbar, ohne Modell. Ein PNG-, JPEG- oder WebP-Bild verliert seine Metadaten mit KI-Herkunft, und kein Byte seiner Pixel ändert sich.
 cli-command-rewrite = { -layer-a }, dann ein Umschreiben durch das Modell, dann wieder { -layer-a }.
 cli-command-models = Heruntergeladene Gewichte verwalten.
 cli-command-models-list = Jedes Modell im Katalog auflisten, was davon auf diesem Rechner liegt und ob es passt.
 cli-command-models-pull = Ein Modell anhand seiner Id herunterladen, eine Teildatei wird fortgesetzt.
 cli-command-models-verify = Ein installiertes Modell vollständig neu hashen und mit dem Katalog vergleichen. Exit 1, wenn es nicht passt oder fehlt.
 cli-command-models-rm = Ein installiertes Modell löschen.
-cli-command-audit = Einen Ordner durchlaufen und jede Textdatei darin mit Funden melden, für Pre-Commit-Hooks und CI. Exit 3, sobald eine Datei nicht gelesen werden konnte — auch wenn andere Funde hatten: Ein Scan mit einer Lücke ist nicht vollständig.
+cli-command-audit = Einen Ordner durchlaufen und jede Textdatei darin mit Funden melden, und jedes PNG, JPEG oder WebP, dessen Metadaten KI-Herkunft tragen, für Pre-Commit-Hooks und CI. Exit 3, sobald eine Datei nicht gelesen werden konnte — auch wenn andere Funde hatten: Ein Scan mit einer Lücke ist nicht vollständig.
 
 cli-arg-path-or-stdin = Zu lesende Datei, oder `-` für die Standardeingabe.
 cli-arg-path = Zu lesende Datei.
@@ -664,7 +664,8 @@ cli-arg-seed = Der Basis-Seed. Ohne Angabe bekommt jeder Lauf einen neuen, und e
 cli-arg-id = Modell-Id aus dem Manifest.
 cli-arg-dir = Zu durchlaufendes Verzeichnis.
 cli-arg-sarif = SARIF-Ausgabe für Code-Scanning-Dashboards.
-cli-arg-in-place = Die Datei durch ihren bereinigten Text ersetzen. Das Original wird vorher daneben als `<name>.original.<ext>` beiseitegelegt, und ein bereits vorhandenes Original wird nie überschrieben: Der Lauf verweigert dann. Wenn nichts zu ändern ist, wird nichts angefasst.
+cli-arg-in-place = Die Datei durch ihren bereinigten Text oder ihr bereinigtes Bild ersetzen. Das Original wird vorher daneben als `<name>.original.<ext>` beiseitegelegt, und ein bereits vorhandenes Original wird nie überschrieben: Der Lauf verweigert dann. Wenn nichts zu ändern ist, wird nichts angefasst.
+cli-arg-all-metadata = Für ein Bild: jeden Metadatenblock entfernen, nicht nur die KI-Herkunft — auch Kameradaten (EXIF, mit der Ausrichtung, auf die sich ein Bild verlassen kann, um aufrecht zu erscheinen), XMP, IPTC, Kommentare. Farbprofile bleiben in jedem Fall erhalten: Ohne eines sieht das Bild anders aus. Nicht für Text.
 cli-arg-no-original = Mit --in-place: keine Kopie des Originals behalten — für Dateien unter Versionsverwaltung, deren Historie die Kopie ist.
 cli-arg-language = Sprache für Meldungen und Hilfe, als BCP-47-Tag wie de oder ru. Hat Vorrang vor WIPEMARK_LANG, der in den Einstellungen gespeicherten Sprache und dem Betriebssystem, in dieser Reihenfolge.
 
@@ -728,6 +729,70 @@ cli-audit-file = { $path }: { $count ->
     } ({ $classes })
 cli-audit-summary = { $root }: gescannt { $scanned } · mit Funden { $findings } · übersprungen { $skipped } · nicht lesbar { $unreadable }
 cli-audit-unreadable-title = Nicht lesbar, also nicht als sauber gezeigt:
+cli-audit-image = { $path }: { $container }, { $count ->
+        [one] ein Block
+       *[other] { $count } Blöcke
+    } mit KI-Herkunft ({ $kinds })
+
+cli-image-none = { $source }: { $container }, keine Metadatenblöcke.
+cli-image-noted = { $source }: { $container }, { $count ->
+        [one] ein Metadatenblock, und er weist nicht auf KI-Herkunft hin.
+       *[other] { $count } Metadatenblöcke, und keiner davon weist auf KI-Herkunft hin.
+    }
+cli-image-ai = { $source }: { $container }, { $count ->
+        [one] ein Metadatenblock
+       *[other] { $count } Metadatenblöcke
+    }, { $ai ->
+        [one] einer davon mit KI-Herkunft.
+       *[other] { $ai } davon mit KI-Herkunft.
+    }
+cli-image-row = { $where } · { $kind } · ab Byte { $offset } · { $length ->
+        [one] { $size } Byte
+       *[other] { $size } Bytes
+    }
+cli-image-evidence = { $signal }, in { $field }: { $matched }
+cli-image-evidence-generator = { $signal } ({ $generator }), in { $field }: { $matched }
+cli-image-rendering = Farbinformationen (ein ICC-Profil, Gamma, sRGB) bleiben in jedem Fall erhalten: Ohne sie sähe das Bild anders aus.
+cli-image-exif-removed = Ein EXIF-Block nannte einen Bildgenerator und wurde deshalb ganz entfernt, die Ausrichtung eingeschlossen: Ein Bild, das sich auf seine EXIF-Ausrichtung verlassen hat, kann jetzt gedreht erscheinen.
+cli-image-all-metadata = --all-metadata hat auch die Kameradaten entfernt, die Ausrichtung eingeschlossen: Ein Bild, das sich auf seine EXIF-Ausrichtung verlassen hat, kann jetzt gedreht erscheinen.
+cli-image-pixels = Geprüft wurden nur die Metadaten der Datei. Eine Markierung in den Pixeln selbst wird nicht gesucht; über das Bild selbst sagt dies also nichts.
+
+cli-image-not-yet = { $path }: { $container }-Bilder sind in dieser Version noch nicht dabei. Es wurden keine Metadaten gelesen und nichts geschrieben.
+cli-image-unknown = { $path }: Diese Bytes sind kein Bild, das diese Version öffnet. Nichts wurde geschrieben.
+cli-image-multi-picture = { $path } enthält nach dem ersten Bild weitere (MPF), und Metadaten hinter deren Index zu entfernen würde sie verschieben; diese Version schreibt diesen Index nicht um. Nichts wurde geschrieben.
+cli-image-malformed = { $path } ist keine { $container }-Datei, die diese Version lesen kann: { $defect }, bei Byte { $offset }. Nicht gelesen heißt nicht sauber.
+cli-image-text-flag = { $path } ist ein Bild ({ $container }), und { $flag } ist für Text. Nichts wurde geschrieben.
+cli-image-all-metadata-text = { $path } ist kein Bild, und --all-metadata ist für Bilder. Nichts wurde geschrieben.
+cli-image-to-terminal = Das bereinigte Bild ginge an ein Terminal. Mit -o in eine Datei schreiben oder die Standardausgabe umleiten.
+cli-image-json-stdout = --json schreibt seine Antwort auf die Standardausgabe, und das Bild ginge ebenfalls dorthin; das Bild mit -o in eine Datei schreiben.
+cli-image-still-marked = { $path }: Das Ergebnis trüge noch Metadaten mit KI-Herkunft, deshalb wurde es nicht geschrieben. Nicht jede Markierung ließ sich entfernen.
+
+image-kind-c2pa = C2PA-Manifest
+image-kind-exif = EXIF
+image-kind-xmp = XMP
+image-kind-iptc = IPTC
+image-kind-generator-parameters = Generatorparameter
+image-kind-other-text = Text
+image-kind-rendering = Farbinformationen
+image-kind-other = sonstige Metadaten
+
+image-signal-c2pa-manifest = ein C2PA-Manifest
+image-signal-c2pa-reference = ein Verweis auf ein C2PA-Manifest
+image-signal-digital-source-type = ein IPTC-Digital-Source-Type, der ein Modell oder einen Algorithmus nennt
+image-signal-generator-key = ein Textschlüssel, den ein Bildgenerator schreibt
+image-signal-generator-text = die Signatur eines Bildgenerators
+
+image-defect-truncated = sie endet mitten in einem Block
+image-defect-bad-signature = ihre Signatur steht nicht an ihrem Platz
+image-defect-header-not-first = ihr Kopf ist nicht der erste Block
+image-defect-no-end = ihr fehlt die Endmarke
+image-defect-bad-length = ein Block hat eine Länge, die kein Block haben kann
+image-defect-bad-chunk-type = der Name eines Chunks besteht nicht aus vier Buchstaben
+image-defect-bad-marker = wo eine Marke stehen muss, steht ein anderes Byte
+image-defect-riff-size = ihr RIFF-Kopf gibt mehr Bytes an, als die Datei hat
+image-defect-bad-text = ein Text-Chunk ist nicht wie einer aufgebaut
+image-defect-inflate = ein komprimierter Text lässt sich nicht entpacken
+image-defect-inflate-limit = ein komprimierter Text wird beim Entpacken größer als die Grenze, die diese Version liest
 
 cli-models-folder = Modellordner: { $path }
 cli-models-entry = { $id } · { $name } · { $roles } · { $size } · { $state } · { $fit }
