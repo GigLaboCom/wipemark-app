@@ -169,16 +169,16 @@ MUTATIONS = [
         "E12-1/M7",
         "the inverse uses the profile's logo",
         "crates/wipemark-pixels/src/restore.rs",
-        "let o = (f64::from(samples[i + c]) - a * logo[c]) / (1.0 - a);",
-        "let o = (f64::from(samples[i + c]) - a * (logo[c] - 1.0)) / (1.0 - a);",
+        "        (stored[0] - a * logo[0]) / (1.0 - a),\n        (stored[1] - a * logo[1]) / (1.0 - a),\n        (stored[2] - a * logo[2]) / (1.0 - a),",
+        "        (stored[0] - a * (logo[0] - 1.0)) / (1.0 - a),\n        (stored[1] - a * (logo[1] - 1.0)) / (1.0 - a),\n        (stored[2] - a * (logo[2] - 1.0)) / (1.0 - a),",
         [(PIX + ["--test", "exact"], "a_composited_mark_comes_back_within_one_level")],
     ),
     (
         "E12-1/M8",
         "the alpha channel is never written",
         "crates/wipemark-pixels/src/restore.rs",
-        "            for c in 0..3 {\n                let o = ",
-        "            for c in 0..4 {\n                let o = ",
+        "            changed += u32::from(moved);",
+        "            samples[i + 3] = 0;\n            changed += u32::from(moved);",
         [(PIX + ["--test", "exact"], "the_alpha_channel_is_never_written")],
     ),
     (
@@ -201,22 +201,24 @@ MUTATIONS = [
         "E12-1/M11",
         "losers are listed under the winner, not as findings",
         "crates/wipemark-pixels/src/lib.rs",
-        "(Some(a), Some(b)) => a.iou(b) > 0.3,",
-        "(Some(a), Some(b)) => a.iou(b) > 1.1,",
+        "        let overlaps = kept.iter_mut().find(|k| match (k.pixels, f.pixels) {\n            (Some(a), Some(b)) => a.iou(b) > 0.3,",
+        "        let overlaps = kept.iter_mut().find(|k| match (k.pixels, f.pixels) {\n            (Some(a), Some(b)) => a.iou(b) > 1.1,",
         [(PIX + ["--test", "verify"], "verification_tells_v1_from_v2")],
     ),
     (
         "E12-1/M12",
         "two proofs: accept on NCC alone",
         "crates/wipemark-pixels/src/verify.rs",
-        "    let verdict = if (gain - 1.0).abs() > t.gain {\n        Err(Refusal::Gain { k: gain })\n"
-        "    } else if edge_ratio > t.edge_ratio {\n        Err(Refusal::Edges { ratio: edge_ratio })\n"
+        "    let outcome = if best_ratio > NO_BLEND_RATIO || edge_ratio > 1.0 {\n        Outcome::NoBlend\n"
+        "    } else if (gain - 1.0).abs() > t.gain {\n        Outcome::Refused(Refusal::Gain { k: gain })\n"
+        "    } else if edge_ratio > t.edge_ratio {\n        Outcome::Refused(Refusal::Edges { ratio: edge_ratio })\n"
         "    } else if out_of_range > t.out_of_range {",
-        "    let verdict = if false {\n        Err(Refusal::Gain { k: gain })\n"
-        "    } else if false {\n        Err(Refusal::Edges { ratio: edge_ratio })\n"
+        "    let outcome = if false {\n        Outcome::NoBlend\n"
+        "    } else if false {\n        Outcome::Refused(Refusal::Gain { k: gain })\n"
+        "    } else if false {\n        Outcome::Refused(Refusal::Edges { ratio: edge_ratio })\n"
         "    } else if false {",
         [
-            (PIX + ["--test", "verify"], "an_opaque_lookalike_is_proposed_and_refused"),
+            (PIX + ["--test", "verify"], "an_opaque_lookalike_is_not_a_finding"),
             (PIX + ["--test", "false_positives"], "no_procedural_negative_is_ever_restored"),
         ],
     ),
@@ -224,16 +226,16 @@ MUTATIONS = [
         "E12-1/M13",
         "the gain test",
         "crates/wipemark-pixels/src/verify.rs",
-        "    let verdict = if (gain - 1.0).abs() > t.gain {",
-        "    let verdict = if false {",
+        "    } else if (gain - 1.0).abs() > t.gain {\n        Outcome::Refused(Refusal::Gain { k: gain })",
+        "    } else if false {\n        Outcome::Refused(Refusal::Gain { k: gain })",
         [(PIX + ["--test", "verify"], "a_mark_at_the_wrong_opacity_is_refused_and_its_gain_reported")],
     ),
     (
         "E12-1/M14",
         "the verifier measures the unclamped inverse",
         "crates/wipemark-pixels/src/verify.rs",
-        "        (i[0] - a * logo[0]) / (1.0 - a),\n        (i[1] - a * logo[1]) / (1.0 - a),\n        (i[2] - a * logo[2]) / (1.0 - a),",
-        "        ((i[0] - a * logo[0]) / (1.0 - a)).max(0.0),\n        ((i[1] - a * logo[1]) / (1.0 - a)).max(0.0),\n        ((i[2] - a * logo[2]) / (1.0 - a)).max(0.0),",
+        "    crate::restore::unblend(i, a, logo)\n}",
+        "    crate::restore::unblend(i, a, logo).map(|v| v.max(0.0))\n}",
         [(PIX + ["--test", "verify"], "the_verifier_measures_the_unclamped_inverse")],
     ),
     (
