@@ -18,9 +18,10 @@
 #             (docs/architecture/local-engine.md, "Running the native
 #             gates"). What this lane proves is that the native build
 #             compiles on a clean machine.
-#   macos   — whether the workspace compiles at all on the platform the
-#             GUI targets first, and the native engine with Metal (ggml's
-#             default on Apple). Informational until it is green.
+#   macos   — that the workspace compiles (all targets) on the platform
+#             the GUI targets first, and that the native engine compiles
+#             with Metal (ggml's default on Apple). A check, not a test:
+#             the suite runs on Linux.
 name: gate
 
 on:
@@ -179,9 +180,6 @@ jobs:
     name: macos (workspace check, llama-native with Metal)
     runs-on: macos-latest
     timeout-minutes: 180
-    # Informational until it has been green once: the GUI targets macOS
-    # first, but no lane has ever compiled it there.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
