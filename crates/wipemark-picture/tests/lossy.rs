@@ -188,6 +188,40 @@ fn a_marked_jpeg_is_restored_and_re_encoded() {
     }
 }
 
+/// A camera's rotated JPEG with a mark: cleaned with every metadata block
+/// gone, the EXIF that carried the rotation goes too — and the report says
+/// which rotation was lost, as `strip` does, though the file was written
+/// by `reframe` around a re-encoded picture.
+#[test]
+fn a_restoration_with_all_metadata_reports_the_lost_rotation() {
+    let catalogue = synthetic_catalogue();
+    let mut original = picture(Kind::Gradient, W, H, 3, Layout::Rgb8);
+    composite_at(&mut original, &synthetic_v1().small, small_row(W, H, 48));
+    // A big-endian TIFF whose IFD0 holds Orientation (0x0112) = 6.
+    let mut exif = b"Exif\0\0MM\0*\0\0\0\x08\0\x01".to_vec();
+    exif.extend_from_slice(&[0x01, 0x12, 0x00, 0x03, 0, 0, 0, 1, 0x00, 0x06, 0, 0]);
+    exif.extend_from_slice(&[0, 0, 0, 0]);
+    let bytes = jpeg_with(&jpeg_of(&original, false), &[segment(0xE1, &exif)]);
+    let all = PictureOptions {
+        scope: wipemark_image::Scope::AllMetadata,
+        catalogue: Some(&catalogue),
+    };
+    let (out, report) = clean(&bytes, &all).unwrap();
+    assert_eq!(
+        report.encoding,
+        Encoding::Jpeg {
+            quality: JPEG_QUALITY
+        },
+        "{:?}",
+        report.visible
+    );
+    assert_eq!(report.metadata.orientation_removed, Some(6));
+    assert!(report.to_json().contains("\"orientation_removed\":6"));
+    assert!(!segments_of(&out)
+        .iter()
+        .any(|s| s.starts_with(&[0xFF, 0xE1])));
+}
+
 #[test]
 fn a_grey_jpeg_stays_grey() {
     let catalogue = synthetic_catalogue();

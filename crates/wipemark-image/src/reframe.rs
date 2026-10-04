@@ -55,6 +55,13 @@ pub fn reframe(
                 .is_some_and(|f| removes(options.scope, f))
         })
         .collect();
+    // A rotation goes with the EXIF block that carried it, as in `strip`.
+    let orientation = orig
+        .blocks
+        .iter()
+        .zip(&drop)
+        .filter(|(_, d)| **d)
+        .find_map(|(b, _)| b.orientation);
     let mut removed: Vec<MetadataFinding> = orig
         .blocks
         .iter()
@@ -79,7 +86,9 @@ pub fn reframe(
         }
     };
     removed.sort_by_key(|f| f.offset);
-    finish(orig.container, removed, out)
+    let (out, mut report) = finish(orig.container, removed, out)?;
+    report.orientation_removed = orientation;
+    Ok((out, report))
 }
 
 fn refused(container: ImageContainer, offset: usize) -> ImageError {
