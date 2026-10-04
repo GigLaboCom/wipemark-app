@@ -26,6 +26,12 @@ fn at() -> PixelRect {
 /// A generated "flat" picture: `level` with a vignette that darkens the
 /// corners by 8 % and ±`noise` levels per sample.
 fn flat(level: f32, seed: u64, noise: u32) -> Raster {
+    tilted(level, 0.0, seed, noise)
+}
+
+/// [`flat`] with a light falling off across the frame: `tilt` levels from
+/// the top-left corner to the bottom-right, centred on `level`.
+fn tilted(level: f32, tilt: f32, seed: u64, noise: u32) -> Raster {
     let mut rng = Rng::new(seed);
     let (cx, cy) = (W as f32 / 2.0, H as f32 / 2.0);
     let r_max = (cx * cx + cy * cy).sqrt();
@@ -33,7 +39,8 @@ fn flat(level: f32, seed: u64, noise: u32) -> Raster {
     for y in 0..H {
         for x in 0..W {
             let r = ((x as f32 - cx).powi(2) + (y as f32 - cy).powi(2)).sqrt() / r_max;
-            let v = level * (1.0 - 0.08 * r * r);
+            let slope = (x + y) as f32 / (W + H) as f32 - 0.5;
+            let v = level * (1.0 - 0.08 * r * r) + tilt * slope;
             for _ in 0..3 {
                 let n = rng.below(2 * noise + 1) as f32 - noise as f32;
                 samples.push((v + n).round().clamp(0.0, 255.0) as u16);
@@ -100,6 +107,11 @@ fn jpeg(raster: &Raster) -> Raster {
 
 /// Five on black, five on white, three on grey.
 fn captures(model: BlendModel, lossy: bool) -> Vec<Capture> {
+    captures_tilted(model, lossy, 0.0)
+}
+
+/// [`captures`] lit unevenly, `tilt` levels across each.
+fn captures_tilted(model: BlendModel, lossy: bool, tilt: f32) -> Vec<Capture> {
     let mut out = Vec::new();
     for (background, level, count) in [
         (Background::Black, 8.0, 5u64),
@@ -107,7 +119,7 @@ fn captures(model: BlendModel, lossy: bool) -> Vec<Capture> {
         (Background::Grey, 128.0, 3),
     ] {
         for k in 0..count {
-            let mut raster = flat(level, 100 * level as u64 + k, 1);
+            let mut raster = tilted(level, tilt, 100 * level as u64 + k, 1);
             stamp(&mut raster, model);
             if lossy {
                 raster = jpeg(&raster);
@@ -178,6 +190,26 @@ fn a_synthetic_vendor_is_recovered_from_lossless_captures() {
     assert!(logo_error(&c) <= 1.0, "logo {:?}", c.logo);
     assert_eq!((c.counts.black, c.counts.white, c.counts.grey), (5, 5, 3));
     assert!(c.grey_error.is_some());
+}
+
+/// Captures lit unevenly — twenty-four levels across each, what a screen
+/// photographed off-axis gives — are still calibrated to within a level:
+/// the background under the mark is the ring's quadratic fit, which a
+/// tilt does not fool. A constant (the ring's mean) leaves the far side of
+/// the mark several levels off (the series' E12-2/M2).
+#[test]
+fn calibration_follows_a_tilted_background_under_the_mark() {
+    let c = calibrate(
+        &captures_tilted(BlendModel::Encoded, false, 24.0),
+        &CalibrateOptions::default(),
+    )
+    .unwrap();
+    let (p99, max) = alpha_error(&c);
+    assert!(
+        p99 <= 1.0 && max <= 2.0,
+        "alpha off by {p99} (p99), {max} (max) levels"
+    );
+    assert!(logo_error(&c) <= 1.0, "logo {:?}", c.logo);
 }
 
 #[test]

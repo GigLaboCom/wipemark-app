@@ -487,6 +487,16 @@ mod tests {
 
     use super::*;
 
+    /// A CMYK JPEG is examined and never written back: its colour profile,
+    /// which `reframe` keeps, describes inks the re-encoded file would not
+    /// have (the verifier's V13). Grey and YCbCr are restored.
+    #[test]
+    fn a_cmyk_jpeg_is_not_restored() {
+        assert!(!restorable(&Source::Jpeg { components: 4 }));
+        assert!(restorable(&Source::Jpeg { components: 3 }));
+        assert!(restorable(&Source::Jpeg { components: 1 }));
+    }
+
     #[test]
     fn the_proof_refuses_a_sample_that_moved_outside() {
         let input = Raster::from_u8(4, 1, Layout::Rgb8, &[0; 12]).unwrap();

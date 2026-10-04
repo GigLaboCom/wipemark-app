@@ -194,4 +194,25 @@ mod tests {
         };
         assert_eq!(ncc(&luma, &integral, &Centred::of(&shape), 2, 2), 0.0);
     }
+
+    /// Flat to within rounding is flat: a window whose luma ripples by
+    /// 10⁻⁷ in the very shape of the template would correlate perfectly if
+    /// its variance were divided by; under the 10⁻¹⁰ floor it scores 0.
+    #[test]
+    fn a_window_flat_to_rounding_correlates_with_nothing() {
+        let values = vec![0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 0.0];
+        let mut luma = vec![0.5f32; 64];
+        for (i, v) in values.iter().enumerate() {
+            let (x, y) = (2 + i % 3, 2 + i / 3);
+            luma[y * 8 + x] += v * 1e-7 * 4.0;
+        }
+        let integral = Integral::new(&luma, 8, 8);
+        let shape = Shape {
+            width: 3,
+            height: 3,
+            values,
+            canonical: false,
+        };
+        assert_eq!(ncc(&luma, &integral, &Centred::of(&shape), 2, 2), 0.0);
+    }
 }

@@ -6,8 +6,8 @@ mod support;
 
 use support::*;
 use wipemark_pixels::{
-    clean, composite, resampled, ExamineOptions, Fidelity, Layout, PixelRect, Placed, Refusal,
-    Verdict,
+    clean, composite, examine, resampled, restore, ExamineOptions, Fidelity, Layout, PixelRect,
+    Placed, Refusal, RestoreError, Verdict,
 };
 
 const W: u32 = 320;
@@ -181,6 +181,39 @@ fn a_mark_drowned_in_strokes_is_seen_and_left() {
     let k = f.scores.expect("measured").gain;
     assert!((k - 1.0).abs() <= 0.02, "k* = {k}");
     assert!(report.marks_left());
+}
+
+/// A proof belongs to the raster it was made on: a `Verified` put to a
+/// raster of another size is `RestoreError::Elsewhere`, and nothing moves
+/// (the verifier's V12).
+#[test]
+fn a_proof_is_not_restored_onto_a_raster_of_another_size() {
+    let catalogue = synthetic_catalogue();
+    let mut marked = picture(Kind::Gradient, W, H, 11, Layout::Rgb8);
+    composite(
+        &mut marked,
+        &synthetic_v1().small,
+        small_row(W, H, 48),
+        [255.0; 3],
+    );
+    let exam = examine(&marked, &catalogue, &lossless());
+    let verified = exam
+        .findings
+        .iter()
+        .find_map(|f| f.verified())
+        .expect("proved");
+    for (w, h) in [(W + 1, H), (W, H + 1)] {
+        let mut other = picture(Kind::Gradient, w, h, 11, Layout::Rgb8);
+        let before = other.clone();
+        assert_eq!(
+            restore(&mut other, verified, &lossless()),
+            Err(RestoreError::Elsewhere),
+            "{w}x{h}"
+        );
+        assert_eq!(other, before);
+    }
+    // The raster it was made on takes it.
+    assert!(restore(&mut marked, verified, &lossless()).is_ok());
 }
 
 /// D157: the picture's alpha is never written, whatever the restoration

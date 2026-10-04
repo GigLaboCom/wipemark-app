@@ -256,12 +256,25 @@ pub(super) fn clean(bytes: &[u8], scope: Scope) -> Result<String, Refusal> {
         catalogue: None,
     };
     let (output, report) = wipemark_picture::clean(bytes, &options).map_err(picture_refusal)?;
+    answer(bytes.len(), &output, &report, scope)
+}
+
+/// What `clean` answers with a cleaned picture in hand: the refusal when
+/// it would still carry provenance metadata — `wipemark_picture` writes
+/// such a result and leaves the verdict to the surface, as the CLI's
+/// `strip_exit` does — and otherwise the image and its report.
+fn answer(
+    asked: usize,
+    output: &[u8],
+    report: &wipemark_picture::PictureReport,
+    scope: Scope,
+) -> Result<String, Refusal> {
     if report.metadata.still_has_ai_metadata || report.metadata.still_has_c2pa {
         return Err(Refusal::StillMarked);
     }
     tracing::info!(
         tool = "clean_image",
-        bytes = bytes.len(),
+        bytes = asked,
         container = report.container.id(),
         scope = scope.id(),
         removed = report.metadata.removed.len(),
@@ -277,7 +290,7 @@ pub(super) fn clean(bytes: &[u8], scope: Scope) -> Result<String, Refusal> {
     );
     Ok(format!(
         r#"{{"data":"{}","report":{}}}"#,
-        encode(&output),
+        encode(output),
         report.to_json()
     ))
 }
@@ -286,7 +299,34 @@ pub(super) fn clean(bytes: &[u8], scope: Scope) -> Result<String, Refusal> {
 mod tests {
     use wipemark_image::{ImageContainer, Scope};
 
-    use super::{clean, decode, encode, inspect, Refusal};
+    use super::{answer, clean, decode, encode, inspect, Refusal};
+
+    /// No real input reaches it — every default strip leaves nothing AI
+    /// behind — so the refusal is put to a cleaned picture's own report,
+    /// marked as one that would still carry provenance: no image comes
+    /// back, for either signal (the verifier's V11).
+    #[test]
+    fn a_result_that_still_carries_provenance_is_refused() {
+        let bytes = fixture("c2pa-jumbf.jpg");
+        let options = wipemark_picture::PictureOptions {
+            scope: Scope::AiProvenance,
+            catalogue: None,
+        };
+        let (output, report) = wipemark_picture::clean(&bytes, &options).unwrap();
+        assert!(answer(bytes.len(), &output, &report, Scope::AiProvenance).is_ok());
+        let mut ai = report.clone();
+        ai.metadata.still_has_ai_metadata = true;
+        assert_eq!(
+            answer(bytes.len(), &output, &ai, Scope::AiProvenance),
+            Err(Refusal::StillMarked)
+        );
+        let mut c2pa = report;
+        c2pa.metadata.still_has_c2pa = true;
+        assert_eq!(
+            answer(bytes.len(), &output, &c2pa, Scope::AiProvenance),
+            Err(Refusal::StillMarked)
+        );
+    }
 
     /// RFC 4648 §10, both ways, and the strictness: whitespace, a missing
     /// pad and the URL-safe alphabet are refused rather than guessed at.

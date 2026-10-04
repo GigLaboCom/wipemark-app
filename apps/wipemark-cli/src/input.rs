@@ -307,7 +307,7 @@ pub(crate) use wipemark_intake::text::{decode, encode};
 
 #[cfg(test)]
 mod tests {
-    use wipemark_intake::Format;
+    use wipemark_intake::{Format, HEAD};
 
     use super::{decode, encode, picture_of, read, read_any, Content, Encoding, Source};
 
@@ -348,6 +348,62 @@ mod tests {
             read(&Source::Stdin, &mut stdin),
             Err(super::Unread::NotText { .. })
         ));
+    }
+
+    /// `rewrite`'s reader refuses a picture on its head, before the rest
+    /// is read — a picture is not text whatever follows, and the rest can
+    /// be gigabytes on a network volume. A named pipe whose writer sends a
+    /// PNG's first kilobytes and then holds the pipe open is answered at
+    /// once; a reader that went on to read the whole picture would wait for
+    /// the writer (the series' E11-2/M4: `read` with `pictures` true still
+    /// refuses the picture, but only after reading all of it).
+    #[cfg(unix)]
+    #[test]
+    fn rewrite_refuses_a_picture_on_its_head() {
+        use std::io::Write;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = std::env::temp_dir().join(format!("wipemark-fifo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let fifo = dir.join("picture.png");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs");
+        assert!(made.success());
+
+        let (release, hold) = mpsc::channel::<()>();
+        let writer = {
+            let fifo = fifo.clone();
+            std::thread::spawn(move || {
+                let mut pipe = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&fifo)
+                    .expect("the pipe");
+                let mut head = PNG_HEAD.to_vec();
+                head.resize(2 * HEAD, 0);
+                let _ = pipe.write_all(&head);
+                // Hold the pipe open until the test is done with it.
+                let _ = hold.recv_timeout(Duration::from_secs(60));
+            })
+        };
+        let (answer, answered) = mpsc::channel();
+        let reader = {
+            let fifo = fifo.clone();
+            std::thread::spawn(move || {
+                let mut stdin: &[u8] = &[];
+                let result = read(&Source::File(fifo), &mut stdin);
+                let _ = answer.send(matches!(result, Err(super::Unread::NotText { .. })));
+            })
+        };
+        let refused = answered.recv_timeout(Duration::from_secs(20));
+        let _ = release.send(());
+        let _ = writer.join();
+        let _ = reader.join();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(refused, Ok(true), "the picture was not refused on its head");
     }
 
     const ENCODINGS: [Encoding; 5] = [

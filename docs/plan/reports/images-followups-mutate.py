@@ -169,6 +169,92 @@ MUTATIONS = [
             (VERIFY, "a_second_mark_apart_is_found_in_the_second_pass"),
         ],
     ),
+    # ---------------------------------- R2: no text promises the pixels never change
+    (
+        "R2/M1",
+        "no catalogue string carries a run of spaces",
+        "crates/wipemark-i18n/i18n/ru/wipemark.ftl",
+        "cli-command-inspect = Показывает, что",
+        "cli-command-inspect = Показывает,  что",
+        [(I18N, "no_catalogue_string_carries_a_run_of_spaces")],
+    ),
+    (
+        "R2/M2",
+        "no tool description carries a run of spaces (the line's `\\` dropped)",
+        "apps/wipemark-app/src/mcp/protocol.rs",
+        "                \"Report what is in a PNG, JPEG or WebP image without changing anything. Its \\\n",
+        "                \"Report what is in a PNG, JPEG or WebP image without changing anything. Its \n",
+        [(APP, "no_tool_description_carries_a_run_of_spaces")],
+    ),
+    (
+        "R2/M3",
+        "the image tools say what is true of the pixels",
+        "apps/wipemark-app/src/mcp/protocol.rs",
+        "                 metadata, no image comes back. Invisible marks in the pixels remain, and every \\\n",
+        "                 metadata, no image comes back. Only the metadata, never the pixels; and every \\\n",
+        [(APP, "each_image_tool_has_a_schema")],
+    ),
+    # ------------------------------------------- R4: reframe reports a lost rotation
+    (
+        "R4/M1",
+        "reframe reports the rotation the removed EXIF carried",
+        "crates/wipemark-image/src/reframe.rs",
+        "    report.orientation_removed = orientation;\n    Ok((out, report))",
+        "    let _ = orientation;\n    Ok((out, report))",
+        [
+            (IMG + ["--test", "reframe"], "framing_a_file_in_itself_is_stripping_it"),
+            (PIC + ["--test", "lossy"], "a_restoration_with_all_metadata_reports_the_lost_rotation"),
+        ],
+    ),
+    # ------------------------------------------ R9: protections no test guarded
+    (
+        "R9/V11",
+        "MCP refuses a result that still carries provenance",
+        "apps/wipemark-app/src/mcp/image.rs",
+        "    if report.metadata.still_has_ai_metadata || report.metadata.still_has_c2pa {\n        return Err(Refusal::StillMarked);\n    }",
+        "    let _ = Refusal::StillMarked;",
+        [(APP, "a_result_that_still_carries_provenance_is_refused")],
+    ),
+    (
+        "R9/V12",
+        "restore refuses a raster of another size",
+        "crates/wipemark-pixels/src/restore.rs",
+        "    if !verified.fits(raster) {",
+        "    if false && !verified.fits(raster) {",
+        [(EXACT, "a_proof_is_not_restored_onto_a_raster_of_another_size")],
+    ),
+    (
+        "R9/V13",
+        "a CMYK JPEG is not restored",
+        "crates/wipemark-picture/src/lib.rs",
+        "        Source::Jpeg { components } => matches!(components, 1 | 3),",
+        "        Source::Jpeg { components } => matches!(components, 1 | 3 | 4),",
+        [(PIC + ["--lib"], "a_cmyk_jpeg_is_not_restored")],
+    ),
+    (
+        "R9/E12-1-M5",
+        "a window flat to rounding correlates with nothing",
+        "crates/wipemark-pixels/src/ncc.rs",
+        "if var / n < 1e-10 || t.norm / n < 1e-10 {",
+        "if var <= 0.0 || t.norm <= 0.0 {",
+        [(PIX + ["--lib"], "a_window_flat_to_rounding_correlates_with_nothing")],
+    ),
+    (
+        "R9/E12-2-M2",
+        "the background under the mark is the ring's quadratic",
+        "crates/wipemark-pixels/src/calibrate.rs",
+        "let b = [1.0, u, v, u * u, u * v, v * v];",
+        "let b = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0];",
+        [(PIX + ["--test", "calibrate"], "calibration_follows_a_tilted_background_under_the_mark")],
+    ),
+    (
+        "R9/E11-2-M4",
+        "rewrite's reader refuses a picture on its head",
+        "apps/wipemark-cli/src/input.rs",
+        "    match read_source(source, stdin, false)? {",
+        "    match read_source(source, stdin, true)? {",
+        [(CLI + ["--bin", "wipemark-cli"], "rewrite_refuses_a_picture_on_its_head")],
+    ),
 ]
 
 
