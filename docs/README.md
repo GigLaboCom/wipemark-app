@@ -26,6 +26,7 @@
 | [architecture/logging.md](architecture/logging.md) | the rotating log, the panic hook, and what must never reach a log line |
 | [architecture/hotkeys.md](architecture/hotkeys.md) | system-wide shortcuts: the recorder, why it intercepts keystrokes before the bindings, the row format, and the registration |
 | [sdd/layer-b-rewrite-reference.md](sdd/layer-b-rewrite-reference.md) | the upstream Layer B rewrite reference — every prompt verbatim, the Ollama / OpenAI-compatible wire format, and what we take from it |
+| [sdd/visible-marks.md](sdd/visible-marks.md) | visible marks on AI pictures — the study (GeminiWatermarkTool, every vendor, invisible marks) and the E12 architecture; the plan is [plan/E12-visible-marks.md](plan/E12-visible-marks.md) |
 | [sdd/hooks.md](sdd/hooks.md) | every hook in this repository across five meanings of the word, and the ones that deliberately do not exist |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | submodule setup, the pin script, the gates |
 | [../manifests/README.md](../manifests/README.md) | model manifest shape and why it ships empty |
