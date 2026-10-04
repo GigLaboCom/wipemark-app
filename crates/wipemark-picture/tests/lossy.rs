@@ -222,6 +222,71 @@ fn a_restoration_with_all_metadata_reports_the_lost_rotation() {
         .any(|s| s.starts_with(&[0xFF, 0xE1])));
 }
 
+/// A JPEG whose scan has a bit flipped past the mark — which the decoder
+/// recovers from without a word, and the scan walk does not: decoded leniently it is a picture whose
+/// mark would be proved and restored, and re-encoded with whatever the
+/// recovery made of the rest. It is not restored: the metadata is cleaned
+/// as by `strip`, the pixels are not examined, and that is inconclusive.
+#[test]
+fn a_corrupted_scan_is_not_restored() {
+    let catalogue = synthetic_catalogue();
+    let mut marked = picture(Kind::Gradient, W, H, 4, Layout::Rgb8);
+    composite_at(&mut marked, &synthetic_v1().small, small_row(W, H, 48));
+    let mut xmp_payload = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+    xmp_payload.extend_from_slice(XMP_AI.as_bytes());
+    let bytes = jpeg_with(&jpeg_of(&marked, false), &[segment(0xE1, &xmp_payload)]);
+    // Where the scan starts, after the start-of-scan segment.
+    let mut pos = 2;
+    let scan = loop {
+        let len = u16::from_be_bytes([bytes[pos + 2], bytes[pos + 3]]) as usize;
+        if bytes[pos + 1] == 0xDA {
+            break pos + 2 + len;
+        }
+        pos += 2 + len;
+    };
+    let end = bytes.len() - 2;
+    // One bit flipped in a byte past the mark's rows, the container still
+    // reading the file (a flip into a marker is `Malformed`, refused before
+    // the pixels: another road) and the decoder still decoding it.
+    let flipped = (scan + (end - scan) * 9 / 10..end)
+        .filter(|&at| bytes[at] != 0xFF && bytes[at - 1] != 0xFF && bytes[at] ^ 0x10 != 0xFF)
+        .map(|at| {
+            let mut b = bytes.clone();
+            b[at] ^= 0x10;
+            b
+        })
+        .find(|b| {
+            wipemark_image::inspect(b).is_ok()
+                && zune_jpeg::JpegDecoder::new(std::io::Cursor::new(b))
+                    .decode()
+                    .is_ok()
+        })
+        .expect("a flip the container and the decoder both pass");
+    assert_eq!(
+        wipemark_picture::walk_jpeg_scan(&flipped),
+        wipemark_picture::Scan::Damaged
+    );
+    // Decoded as the decoder would, the mark is there to be restored —
+    // what the walk keeps from being written.
+    let lenient = zune_jpeg::JpegDecoder::new(std::io::Cursor::new(&flipped))
+        .decode()
+        .expect("decodes leniently");
+    let raster = Raster::from_u8(W, H, Layout::Rgb8, &lenient).unwrap();
+    let mut restored = raster.clone();
+    let would = wipemark_pixels::clean(&mut restored, &catalogue, &ExamineOptions::default());
+    assert!(!would.restored.is_empty(), "{:#?}", would.found);
+    let (out, report) = clean(&flipped, &options(&catalogue)).unwrap();
+    assert_eq!(report.encoding, Encoding::Unchanged);
+    assert!(report.inconclusive());
+    assert_eq!(
+        out,
+        wipemark_image::strip(&flipped, &StripOptions::default())
+            .unwrap()
+            .0
+    );
+    assert!(!report.metadata.still_has_ai_metadata);
+}
+
 #[test]
 fn a_grey_jpeg_stays_grey() {
     let catalogue = synthetic_catalogue();

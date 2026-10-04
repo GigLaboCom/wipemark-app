@@ -27,7 +27,7 @@
 use serde::Serialize;
 
 use crate::catalogue::Profile;
-use crate::geometry::{template, PixelRect, SubRect};
+use crate::geometry::{template_with, Kernel, PixelRect, SubRect};
 use crate::propose::Proposal;
 use crate::raster::{Raster, LUMA};
 use crate::Fidelity;
@@ -103,6 +103,9 @@ pub struct Verified {
     /// refused.
     width: u32,
     height: u32,
+    /// `E(0)`: the contour energy the mark had before it was restored —
+    /// what [`outline`] measures what is left against.
+    contour: f64,
 }
 
 impl Verified {
@@ -292,8 +295,9 @@ pub(crate) fn residual(
     profile: &Profile,
     map: &crate::alpha::AlphaMap,
     rect: SubRect,
+    kernel: Kernel,
 ) -> Option<f64> {
-    let (shape, at) = template(map, rect)?;
+    let (shape, at) = template_with(map, rect, kernel)?;
     if !at.inside(raster.width(), raster.height()) {
         return None;
     }
@@ -314,7 +318,7 @@ pub(crate) fn verify(
     source: Fidelity,
 ) -> (Option<Scores>, Outcome) {
     let map = profile.map(proposal.map);
-    let Some((shape, at)) = template(map, proposal.rect) else {
+    let Some((shape, at)) = template_with(map, proposal.rect, proposal.kernel) else {
         return (None, Outcome::NoBlend);
     };
     if !at.inside(raster.width(), raster.height()) {
@@ -432,20 +436,88 @@ pub(crate) fn verify(
             exact_place,
             width: raster.width(),
             height: raster.height(),
+            contour: energy[0],
         })
     };
     (Some(scores), outcome)
 }
 
-/// `O = (I − a·L)/(1 − a)` per channel, unclamped; the input itself where
-/// `a` is at or above the opaque threshold, which is never divided.
+/// Over this, an outline is left (D229): a fifth of the mark's own
+/// contour energy still on the contour after it was restored, beyond what
+/// the picture's texture around it accounts for. See [`outline`].
+/// Measured on a 96-pixel mark shrunk with its picture to 35 pixels by
+/// Lanczos, bilinear or Catmull-Rom and saved as JPEG: 0.03–0.09 at
+/// quality 95, 0.15–0.19 at 85 (the codec's ringing on the mark's edges,
+/// doubled by the inverse); the outlines the host verifier saw measured
+/// 0.23–0.25 before restoration.
+pub const OUTLINE_BOUND: f32 = 0.20;
+
+/// What a restoration left along the mark's contour (D229): the contour's
+/// energy on the restored raster, less what the texture around the mark
+/// would put there — the mean luma gradient over a band two to eight
+/// pixels outside the rectangle, times the contour's weight — as a share
+/// of the energy the mark had before. 0 for a restoration that left the
+/// contour as busy as its surroundings; a dark or light ring left by a
+/// map at the wrong size, place or filter is a share of what was there.
+pub(crate) fn outline(raster: &Raster, verified: &Verified) -> f32 {
+    if verified.contour <= 1e-12 {
+        return 0.0;
+    }
+    let grid = Grid::new(
+        raster,
+        &verified.values,
+        verified.at,
+        verified.opaque_above,
+        verified.logo,
+    );
+    let weight: f64 = grid.edges.iter().map(|&(_, g)| f64::from(g)).sum();
+    let mut luma = vec![0f64; grid.pixels.len()];
+    let after = grid.energy(0.0, &mut luma);
+    let texture = texture_around(raster, verified.at);
+    ((after - weight * texture).max(0.0) / verified.contour) as f32
+}
+
+/// The mean luma gradient (central differences, luma in [0, 1]) over the
+/// pixels two to eight outside `at`, inside the picture.
+fn texture_around(raster: &Raster, at: PixelRect) -> f64 {
+    let (w, h) = (i64::from(raster.width()), i64::from(raster.height()));
+    let max = f64::from(raster.layout().max());
+    let samples = raster.samples();
+    let luma = |x: i64, y: i64| {
+        let i = raster.at(x as u32, y as u32);
+        (f64::from(LUMA[0]) * f64::from(samples[i])
+            + f64::from(LUMA[1]) * f64::from(samples[i + 1])
+            + f64::from(LUMA[2]) * f64::from(samples[i + 2]))
+            / max
+    };
+    let (x0, y0) = (i64::from(at.x), i64::from(at.y));
+    let (x1, y1) = (x0 + i64::from(at.width), y0 + i64::from(at.height));
+    let (mut sum, mut n) = (0f64, 0f64);
+    for y in (y0 - 8).max(1)..(y1 + 8).min(h - 1) {
+        for x in (x0 - 8).max(1)..(x1 + 8).min(w - 1) {
+            let outside = (x0 - x).max(x - (x1 - 1)).max(y0 - y).max(y - (y1 - 1));
+            if !(2..=8).contains(&outside) {
+                continue;
+            }
+            let dx = (luma(x + 1, y) - luma(x - 1, y)) * 0.5;
+            let dy = (luma(x, y + 1) - luma(x, y - 1)) * 0.5;
+            sum += dx.hypot(dy);
+            n += 1.0;
+        }
+    }
+    if n > 0.0 {
+        sum / n
+    } else {
+        0.0
+    }
+}
+
+/// [`crate::restore::unblend`] — GWT's reverse blend, written once —
+/// unclamped; the input itself where `a` is at or above the opaque
+/// threshold, which is never divided.
 fn inverse(i: [f64; 3], a: f64, logo: [f64; 3], opaque: f64) -> [f64; 3] {
     if a <= 0.0 || a >= opaque {
         return i;
     }
-    [
-        (i[0] - a * logo[0]) / (1.0 - a),
-        (i[1] - a * logo[1]) / (1.0 - a),
-        (i[2] - a * logo[2]) / (1.0 - a),
-    ]
+    crate::restore::unblend(i, a, logo)
 }

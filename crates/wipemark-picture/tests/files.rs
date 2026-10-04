@@ -360,6 +360,10 @@ fn an_animated_png_is_not_examined_and_says_so() {
     }
     let (out, report) = clean(&bytes, &options(&catalogue)).unwrap();
     assert_eq!(report.visible, Visible::NotExamined(NotExamined::Animated));
+    // Not examined is not clean: a surface reads it as inconclusive.
+    assert!(report.inconclusive());
+    let inspection = wipemark_picture::inspect(&bytes, &options(&catalogue)).unwrap();
+    assert!(inspection.inconclusive());
     assert_eq!(
         out,
         wipemark_image::strip(&bytes, &StripOptions::default())

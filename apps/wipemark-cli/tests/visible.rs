@@ -237,6 +237,80 @@ fn a_restored_picture_leaves_nothing_for_the_second_pass() {
     assert_eq!(code(&again), 0, "{}", stdout(&again));
 }
 
+/// An animated PNG's frames are not examined: `inspect` and `clean` exit
+/// 3 — not examined is not clean — and `clean` still writes the result
+/// with its metadata cleaned, and says why the pixels were not looked at.
+#[test]
+fn an_animation_is_not_examined_and_exits_three() {
+    let scratch = Scratch::new("animated");
+    let mut bytes = Vec::new();
+    {
+        let mut enc = png::Encoder::new(&mut bytes, 8, 8);
+        enc.set_color(png::ColorType::Rgb);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.set_animated(1, 0).unwrap();
+        let mut w = enc.write_header().unwrap();
+        w.write_image_data(&[90u8; 8 * 8 * 3]).unwrap();
+        w.finish().unwrap();
+    }
+    scratch.file("moving.png", &bytes);
+    let output = scratch.run(&["inspect", "moving.png"]);
+    assert_eq!(code(&output), 3, "{}", stdout(&output));
+    assert!(
+        stdout(&output).contains("its frames were not examined"),
+        "{}",
+        stdout(&output)
+    );
+    let output = scratch.run(&["clean", "moving.png"]);
+    assert_eq!(code(&output), 3, "{}", stdout(&output));
+    assert!(scratch.0.join("moving.cleaned.png").exists());
+    let answer = json(&scratch.run(&["clean", "moving.png", "-o", "m.png", "--json"]));
+    assert_eq!(answer["report"]["visible"]["why"], "animated", "{answer}");
+}
+
+/// A JPEG whose scan is damaged — a code near its start flipped — is not
+/// decoded: the decoder would fill in what it cannot read and say nothing.
+/// `clean` cleans the metadata, writes the result, says the pixels could
+/// not be decoded, and exits 3 (`inspect` too): not read is not clean.
+#[test]
+fn a_damaged_jpeg_scan_is_not_examined_and_exits_three() {
+    let scratch = Scratch::new("damaged");
+    let raster = picture(Kind::Gradient, W, H, 3, Layout::Rgb8);
+    let bytes: Vec<u8> = raster.samples().iter().map(|&s| s as u8).collect();
+    let mut jpeg = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 95)
+        .encode(&bytes, W, H, image::ExtendedColorType::Rgb8)
+        .unwrap();
+    let mut pos = 2;
+    let scan = loop {
+        let len = usize::from(u16::from_be_bytes([jpeg[pos + 2], jpeg[pos + 3]]));
+        if jpeg[pos + 1] == 0xDA {
+            break pos + 2 + len;
+        }
+        pos += 2 + len;
+    };
+    // The first flip near the start of the scan the walk reports — a code
+    // that no longer reads as the one written (a flip in a coefficient's
+    // own bits changes a value and is indistinguishable from the picture).
+    let damaged = (scan..scan + 64)
+        .filter(|&at| jpeg[at] != 0xFF && jpeg[at - 1] != 0xFF && jpeg[at] ^ 0x80 != 0xFF)
+        .map(|at| {
+            let mut b = jpeg.clone();
+            b[at] ^= 0x80;
+            b
+        })
+        .find(|b| wipemark_picture::walk_jpeg_scan(b) == wipemark_picture::Scan::Damaged)
+        .expect("a flip the walk reports");
+    scratch.file("damaged.jpg", &damaged);
+    let output = scratch.run(&["inspect", "damaged.jpg"]);
+    assert_eq!(code(&output), 3, "{}", stdout(&output));
+    let output = scratch.run(&["clean", "damaged.jpg"]);
+    let said = stdout(&output);
+    assert_eq!(code(&output), 3, "{said}");
+    assert!(said.contains("could not be decoded"), "{said}");
+    assert!(scratch.0.join("damaged.cleaned.jpg").exists());
+}
+
 /// `audit`: a picture with a visible mark is a finding, and SARIF carries
 /// its rectangle in `properties`, not as a byte region.
 #[test]

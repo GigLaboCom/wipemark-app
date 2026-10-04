@@ -14,7 +14,7 @@
 //! | 0 | no block is AI provenance and no visible mark was seen — camera EXIF, colour, a comment are not findings | the input carried neither; the result was written (or, in place, nothing needed writing) |
 //! | 1 | a block is AI provenance, or a visible mark was seen (proved or not) | the input carried AI provenance or a proved mark, and the result written carries neither |
 //! | 2 | TIFF, HEIC, AVIF ("not in this version yet"); a flag for text | as `inspect`, and a JPEG whose MPF index a removal would leave wrong, an animation that would have to be written back, image bytes for a terminal, `--json` with the image on stdout, and every refusal `clean` has for a text |
-//! | 3 | a file this version could not read (`Malformed`), or pixels that should have been examined and were not — not read is not clean, and 3 beats 1 | as `inspect`; **a result that would still carry AI provenance metadata, which is then not written**; **a visible mark left in the result — not proved, or under opaque pixels — which is written with what could be done**; a restored picture that could not be written back or failed its own check, with nothing written |
+//! | 3 | a file this version could not read (`Malformed`), or pixels that were not examined — a catalogue that did not load, pixels that do not decode, an animation's frames — not read is not clean, and 3 beats 1 | as `inspect`; **a result that would still carry AI provenance metadata, which is then not written**; **a visible mark left in the result — not proved, under opaque pixels, or restored with its outline left — which is written with what could be done**; a restored picture that could not be written back or failed its own check, with nothing written |
 //!
 //! `clean` exits by the **input**, as it does for a text (D28): a hook
 //! wants to know what was there. The one thing it must never do is exit
@@ -689,6 +689,15 @@ fn visible_lines(say: Say, visible: &Visible, cleaned: bool) -> Vec<String> {
                     )
                 ));
             }
+            if restored.outline_left {
+                lines.push(format!(
+                    "    {}",
+                    say(
+                        Message::CliImageVisibleOutline,
+                        &args!("share" => format!("{:.0}", restored.outline * 100.0)),
+                    )
+                ));
+            }
         }
     }
     lines
@@ -1198,6 +1207,7 @@ mod tests {
             },
             pixels: None,
             placed: wipemark_pixels::Placed::Searched,
+            kernel: wipemark_pixels::Kernel::Area,
             ncc: 0.9,
             pass: 1,
             scores: None,
@@ -1215,7 +1225,13 @@ mod tests {
         assert_eq!(clean_exit(&seen(true, Vec::new())), Exit::Findings);
         assert_eq!(clean_exit(&seen(false, Vec::new())), Exit::Findings);
         assert_eq!(clean_exit(&picture(strip(vec![], vec![]))), Exit::Clean);
-        for why in [NotExamined::Catalogue, NotExamined::Decode] {
+        // Not examined — for any reason, an animation's frames included
+        // (D221 amended) — is 3, and 3 beats 1.
+        for why in [
+            NotExamined::Catalogue,
+            NotExamined::Decode,
+            NotExamined::Animated,
+        ] {
             let mut report = picture(strip(vec![], vec![]));
             report.visible = Visible::NotExamined(why);
             assert_eq!(clean_exit(&report), Exit::Partial, "{why:?}");
@@ -1233,9 +1249,5 @@ mod tests {
                 "3 beats 1: {why:?}"
             );
         }
-        // An animation is not inconclusive: the pass does not apply.
-        let mut animated = picture(strip(vec![], vec![]));
-        animated.visible = Visible::NotExamined(NotExamined::Animated);
-        assert_eq!(clean_exit(&animated), Exit::Clean);
     }
 }

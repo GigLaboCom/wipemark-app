@@ -8997,6 +8997,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "ctrlc",
+ "image",
  "image-webp",
  "png 0.18.1",
  "serde_json",

@@ -58,6 +58,74 @@ impl PixelRect {
     }
 }
 
+/// How a map is brought to a size it was not drawn at — the filter a
+/// picture was scaled with, applied to the mark that was in it (D229).
+/// A vendor that stamps a 96-pixel mark on a large picture and hands out a
+/// smaller one has scaled the mark with whatever filter scaled the picture;
+/// restoring it with another leaves the difference along the contour as
+/// an outline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum Kernel {
+    /// The exact area integral (OpenCV's `INTER_AREA` when shrinking).
+    #[default]
+    Area,
+    /// Bilinear, widened by the scale when shrinking (a triangle filter).
+    Triangle,
+    /// Catmull-Rom cubic, likewise.
+    Cubic,
+    /// Lanczos with three lobes, likewise.
+    Lanczos3,
+}
+
+impl Kernel {
+    /// Every kernel, the area integral first.
+    pub const ALL: [Kernel; 4] = [
+        Kernel::Area,
+        Kernel::Triangle,
+        Kernel::Cubic,
+        Kernel::Lanczos3,
+    ];
+
+    /// The kernel's reach, in pixels of the scale it is applied at.
+    fn support(self) -> f32 {
+        match self {
+            Kernel::Area => 0.5,
+            Kernel::Triangle => 1.0,
+            Kernel::Cubic => 2.0,
+            Kernel::Lanczos3 => 3.0,
+        }
+    }
+
+    fn weight(self, t: f32) -> f32 {
+        let t = t.abs();
+        match self {
+            Kernel::Area => f32::from(u8::from(t < 0.5)),
+            Kernel::Triangle => (1.0 - t).max(0.0),
+            Kernel::Cubic => {
+                // Catmull-Rom (B = 0, C = 1/2).
+                if t < 1.0 {
+                    1.5 * t * t * t - 2.5 * t * t + 1.0
+                } else if t < 2.0 {
+                    -0.5 * t * t * t + 2.5 * t * t - 4.0 * t + 2.0
+                } else {
+                    0.0
+                }
+            }
+            Kernel::Lanczos3 => {
+                if t < 1e-6 {
+                    1.0
+                } else if t < 3.0 {
+                    let x = std::f32::consts::PI * t;
+                    3.0 * x.sin() * (x / 3.0).sin() / (x * x)
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
+}
+
 /// A map resampled for one size and sub-pixel phase, independent of
 /// where it is put: `values` is `width × height`, row-major, and its
 /// top-left pixel is the one holding `(floor(x), floor(y))`.
@@ -76,8 +144,21 @@ pub(crate) fn height_for(map: &AlphaMap, size: f32) -> f32 {
 }
 
 /// The map at width `size`, its origin `(fx, fy)` past a whole pixel
-/// (each in [0, 1)). `None` for a size below one pixel.
+/// (each in [0, 1)), by the area integral. `None` for a size below one
+/// pixel.
 pub(crate) fn shape(map: &AlphaMap, size: f32, fx: f32, fy: f32) -> Option<Shape> {
+    shape_with(map, size, fx, fy, Kernel::Area)
+}
+
+/// [`shape`] by `kernel`. At the map's own size and an integer origin
+/// every kernel gives the map itself.
+pub(crate) fn shape_with(
+    map: &AlphaMap,
+    size: f32,
+    fx: f32,
+    fy: f32,
+    kernel: Kernel,
+) -> Option<Shape> {
     if size.is_nan() || size < 1.0 || !(0.0..1.0).contains(&fx) || !(0.0..1.0).contains(&fy) {
         return None;
     }
@@ -94,12 +175,92 @@ pub(crate) fn shape(map: &AlphaMap, size: f32, fx: f32, fy: f32) -> Option<Shape
             canonical,
         });
     }
+    let values = match kernel {
+        Kernel::Area => resample(map, size, fx, fy, width_px, height_px),
+        _ => filtered(map, size, fx, fy, width_px, height_px, kernel),
+    };
     Some(Shape {
         width: width_px,
         height: height_px,
-        values: resample(map, size, fx, fy, width_px, height_px),
+        values,
         canonical: false,
     })
+}
+
+/// One axis of a filtered resample: for each of `out` pixels, the map
+/// samples it reads and their weights, normalised over the whole kernel —
+/// a sample past the map's edge is a zero, not dropped, because the mark
+/// fades to nothing there.
+fn taps(len: usize, scale: f32, phase: f32, out: u32, kernel: Kernel) -> Vec<Vec<(usize, f32)>> {
+    // Map units per image pixel, and the kernel widened when shrinking.
+    let step = 1.0 / scale;
+    let widen = step.max(1.0);
+    let reach = kernel.support() * widen;
+    (0..out)
+        .map(|p| {
+            let centre = (p as f32 + 0.5 - phase) * step;
+            let (lo, hi) = (
+                (centre - reach).floor() as i64,
+                (centre + reach).ceil() as i64,
+            );
+            let mut taps = Vec::new();
+            let mut total = 0.0;
+            for k in lo..=hi {
+                let w = kernel.weight((k as f32 + 0.5 - centre) / widen);
+                if w == 0.0 {
+                    continue;
+                }
+                total += w;
+                if k >= 0 && (k as usize) < len {
+                    taps.push((k as usize, w));
+                }
+            }
+            if total != 0.0 {
+                for t in &mut taps {
+                    t.1 /= total;
+                }
+            }
+            taps
+        })
+        .collect()
+}
+
+/// The filtered path of [`shape_with`]: separable, clamped to [0, 1].
+fn filtered(
+    map: &AlphaMap,
+    size: f32,
+    fx: f32,
+    fy: f32,
+    width_px: u32,
+    height_px: u32,
+    kernel: Kernel,
+) -> Vec<f32> {
+    let (mw, mh) = (map.width() as usize, map.height() as usize);
+    let scale_x = size / mw as f32;
+    let scale_y = height_for(map, size) / mh as f32;
+    let xs = taps(mw, scale_x, fx, width_px, kernel);
+    let ys = taps(mh, scale_y, fy, height_px, kernel);
+    // Rows first: every map row at the output's columns.
+    let mut rows = vec![0f32; mh * width_px as usize];
+    for y in 0..mh {
+        for (px, tx) in xs.iter().enumerate() {
+            rows[y * width_px as usize + px] = tx
+                .iter()
+                .map(|&(k, w)| w * map.get(k as i64, y as i64))
+                .sum();
+        }
+    }
+    let mut values = Vec::with_capacity(width_px as usize * height_px as usize);
+    for ty in &ys {
+        for px in 0..width_px as usize {
+            let v: f32 = ty
+                .iter()
+                .map(|&(k, w)| w * rows[k * width_px as usize + px])
+                .sum();
+            values.push(v.clamp(0.0, 1.0));
+        }
+    }
+    values
 }
 
 /// The general path of [`shape`]: every pixel of a `width_px ×
@@ -168,11 +329,21 @@ pub(crate) fn placed(rect: SubRect, shape: &Shape) -> Option<PixelRect> {
 
 /// The shape for a sub-pixel rectangle, and where it lands.
 pub(crate) fn template(map: &AlphaMap, rect: SubRect) -> Option<(Shape, PixelRect)> {
-    let shape = shape(
+    template_with(map, rect, Kernel::Area)
+}
+
+/// [`template`] by `kernel`.
+pub(crate) fn template_with(
+    map: &AlphaMap,
+    rect: SubRect,
+    kernel: Kernel,
+) -> Option<(Shape, PixelRect)> {
+    let shape = shape_with(
         map,
         rect.size,
         rect.x - rect.x.floor(),
         rect.y - rect.y.floor(),
+        kernel,
     )?;
     let at = placed(rect, &shape)?;
     Some((shape, at))
@@ -216,6 +387,30 @@ mod tests {
         }
         assert!(shape(&map, 0.5, 0.0, 0.0).is_none());
         assert!(shape(&map, 8.0, 1.0, 0.0).is_none());
+    }
+
+    #[test]
+    fn every_kernel_keeps_the_map_at_its_own_size_and_its_mass_when_shrinking() {
+        let map = ramp(8, 8);
+        let total: f32 = map.values().iter().sum();
+        for kernel in Kernel::ALL {
+            let native = shape_with(&map, 8.0, 0.0, 0.0, kernel).unwrap();
+            assert_eq!(native.values, map.values(), "{kernel:?}");
+            let small = shape_with(&map, 3.0, 0.25, 0.5, kernel).unwrap();
+            let mass: f32 = small.values.iter().sum::<f32>() * (8.0 / 3.0) * (8.0 / 3.0);
+            assert!(
+                (mass - total).abs() < total * 0.15,
+                "{kernel:?}: {mass} {total}"
+            );
+        }
+        // Not one filter under another name.
+        let a = shape_with(&map, 3.0, 0.25, 0.5, Kernel::Area).unwrap();
+        for kernel in [Kernel::Triangle, Kernel::Cubic, Kernel::Lanczos3] {
+            assert_ne!(
+                a.values,
+                shape_with(&map, 3.0, 0.25, 0.5, kernel).unwrap().values
+            );
+        }
     }
 
     #[test]

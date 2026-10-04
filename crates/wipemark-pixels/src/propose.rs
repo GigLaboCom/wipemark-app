@@ -8,14 +8,15 @@
 //! The search finds a whole-pixel place and size by NCC, then refines it
 //! by **what the second proof leaves**, the contour's residual after the
 //! inverse: a quarter-pixel grid a pixel either way in origin and size,
-//! then an eighth around the best, and the move is taken only when it
-//! lowers the residual by [`REFINE_MARGIN`] of itself.
+//! then the filter the map was scaled with, then an eighth around the
+//! best, and the move is taken only when it lowers the residual by
+//! [`REFINE_MARGIN`] of itself.
 //! NCC is not asked to choose between sub-pixel places — a correlation a
 //! hair higher is not a better restoration.
 
 use crate::alpha::AlphaMap;
 use crate::catalogue::{Anchor, Profile};
-use crate::geometry::{shape, template, PixelRect, SubRect};
+use crate::geometry::{shape, template, Kernel, PixelRect, SubRect};
 use crate::ncc::{ncc, Centred, Integral};
 use crate::raster::Raster;
 use crate::verify::residual;
@@ -39,6 +40,8 @@ pub(crate) struct Proposal {
     pub ncc: f32,
     /// The row resamples its map; never exact.
     pub resample: bool,
+    /// The filter the map is brought to `rect` with (D229).
+    pub kernel: Kernel,
 }
 
 /// A raster, read once for everything the proposals need.
@@ -97,6 +100,16 @@ pub const REFINE_MARGIN: f64 = 0.10;
 /// no finding (D226).
 pub const ROW_FLOOR: f32 = 0.5;
 
+/// Under this share of the search map's own size a mark is taken to have
+/// been shrunk with its picture, and the filter it was shrunk with is
+/// looked for (D229): a canonical 2752–2848-pixel output handed out at
+/// 1024-class is 0.36–0.37 of it. Above it only the area integral is used
+/// — GWT's own rows for the half-scale outputs are `INTER_AREA` — because
+/// a smoother filter is also what a mark *blurred* into regenerated
+/// content looks like, and that must stay refused
+/// (`a_resampled_second_mark_is_refused_not_restored`).
+pub const SHRUNK: f32 = 0.4;
+
 /// Every row's proposal for one profile, each at the row's own rectangle.
 pub(crate) fn rows(scene: &Scene<'_>, profile: &Profile) -> Vec<Proposal> {
     let mut found = Vec::new();
@@ -141,6 +154,7 @@ pub(crate) fn rows(scene: &Scene<'_>, profile: &Profile) -> Vec<Proposal> {
                     placed: Placed::Row(i),
                     ncc: score,
                     resample: row.resample,
+                    kernel: Kernel::Area,
                 });
             }
         }
@@ -161,20 +175,32 @@ fn map_for(profile: &Profile, size: f32, search: usize) -> usize {
 
 /// The search's refinement of `base` by the residual the second proof
 /// leaves: one quarter-pixel grid of origins and sizes a pixel either way
-/// (NCC's whole-pixel best can be a neighbour of the mark's), then an
-/// eighth around the best; each candidate with [`map_for`] its size. `base` is kept unless the best
-/// lowers the residual by [`REFINE_MARGIN`] of `base`'s. The place and
-/// the map's index.
-fn refine(scene: &Scene<'_>, profile: &Profile, search: usize, base: SubRect) -> (SubRect, usize) {
-    let left = |r: SubRect| {
+/// (NCC's whole-pixel best can be a neighbour of the mark's), by the area
+/// integral; then, at the best and for a mark shrunk under [`SHRUNK`] of
+/// the map, every [`Kernel`] the map could have been scaled with (D229);
+/// then an eighth-pixel grid with the best kernel.
+/// Each candidate is drawn with [`map_for`] its size. `base` is kept
+/// unless the best lowers the residual by [`REFINE_MARGIN`] of `base`'s.
+/// The place, the map's index and the kernel.
+fn refine(
+    scene: &Scene<'_>,
+    profile: &Profile,
+    search: usize,
+    base: SubRect,
+) -> (SubRect, usize, Kernel) {
+    let left = |r: SubRect, kernel: Kernel| {
         let index = map_for(profile, r.size, search);
-        residual(scene.raster, profile, profile.map(index), r)
+        residual(scene.raster, profile, profile.map(index), r, kernel)
     };
-    let Some(start) = left(base) else {
-        return (base, map_for(profile, base.size, search));
+    let Some(start) = left(base, Kernel::Area) else {
+        return (base, map_for(profile, base.size, search), Kernel::Area);
     };
-    let mut best = (base, start);
-    let sweep = |centre: SubRect, step: f32, reach: i32, best: &mut (SubRect, f64)| {
+    let mut best = (base, Kernel::Area, start);
+    let sweep = |centre: SubRect,
+                 step: f32,
+                 reach: i32,
+                 kernel: Kernel,
+                 best: &mut (SubRect, Kernel, f64)| {
         for ds in -reach..=reach {
             for oy in -reach..=reach {
                 for ox in -reach..=reach {
@@ -183,12 +209,9 @@ fn refine(scene: &Scene<'_>, profile: &Profile, search: usize, base: SubRect) ->
                         y: centre.y + oy as f32 * step,
                         size: centre.size + ds as f32 * step,
                     };
-                    if rect == centre {
-                        continue;
-                    }
-                    if let Some(r) = left(rect) {
-                        if r < best.1 {
-                            *best = (rect, r);
+                    if let Some(r) = left(rect, kernel) {
+                        if r < best.2 {
+                            *best = (rect, kernel, r);
                         }
                     }
                 }
@@ -197,15 +220,21 @@ fn refine(scene: &Scene<'_>, profile: &Profile, search: usize, base: SubRect) ->
     };
     // One grid, not a greedy walk: a whole-pixel step that also moved the
     // size could never come back to the size the mark is drawn at.
-    sweep(base, 0.25, 4, &mut best);
+    sweep(base, 0.25, 4, Kernel::Area, &mut best);
     let quarter = best.0;
-    sweep(quarter, 0.125, 1, &mut best);
-    let rect = if best.1 <= start * (1.0 - REFINE_MARGIN) {
-        best.0
+    if quarter.size < SHRUNK * profile.map(search).width() as f32 {
+        for kernel in Kernel::ALL {
+            sweep(quarter, 0.25, 0, kernel, &mut best);
+        }
+    }
+    let (at, kernel) = (best.0, best.1);
+    sweep(at, 0.125, 1, kernel, &mut best);
+    let (rect, kernel) = if best.2 <= start * (1.0 - REFINE_MARGIN) {
+        (best.0, best.1)
     } else {
-        base
+        (base, Kernel::Area)
     };
-    (rect, map_for(profile, rect.size, search))
+    (rect, map_for(profile, rect.size, search), kernel)
 }
 
 /// One coarse candidate of the search.
@@ -313,7 +342,7 @@ pub(crate) fn search(scene: &Scene<'_>, profile: &Profile) -> Option<Proposal> {
     if score < profile.min_ncc {
         return None;
     }
-    let (rect, index) = refine(scene, profile, s.alpha, rect);
+    let (rect, index, kernel) = refine(scene, profile, s.alpha, rect);
     let score = scene.score(profile.map(index), rect).unwrap_or(score);
     Some(Proposal {
         map: index,
@@ -321,5 +350,6 @@ pub(crate) fn search(scene: &Scene<'_>, profile: &Profile) -> Option<Proposal> {
         placed: Placed::Searched,
         ncc: score,
         resample: true,
+        kernel,
     })
 }

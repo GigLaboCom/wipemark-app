@@ -151,8 +151,16 @@ fn webp_decode(bytes: &[u8]) -> Result<Result<Decoded, Skip>, PictureError> {
     }))
 }
 
+/// A scan the walk finds damaged ([`crate::scan::walk`]) is not decoded
+/// at all: the decoder would recover from it without saying so, and a
+/// restoration over what it filled in, re-encoded, would hand back a
+/// picture the file never held. Refused here, the metadata is still
+/// cleaned and the pixels are said not to have been examined.
 fn jpeg_decode(bytes: &[u8]) -> Result<Decoded, PictureError> {
     let bad = || refused(ImageContainer::Jpeg);
+    if crate::scan::walk(bytes) == crate::scan::Scan::Damaged {
+        return Err(bad());
+    }
     let options = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGB);
     let mut decoder = zune_jpeg::JpegDecoder::new_with_options(Cursor::new(bytes), options);
     let pixels = decoder.decode().map_err(|_| bad())?;

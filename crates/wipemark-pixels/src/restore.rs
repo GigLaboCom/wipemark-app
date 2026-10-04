@@ -8,8 +8,9 @@
 // `opaque_above` is a hole, left untouched and counted (D155); the logo
 // is a colour per profile, not one scalar; rounding is half away from
 // zero; a clamp beyond rounding is counted, and either makes the
-// restoration inexact; the alpha channel is never written (D157). No
-// code was copied.
+// restoration inexact; the alpha channel is never written (D157). The
+// equation is written once, in `unblend`, which the second proof's gain
+// sweep calls too. No code was copied.
 
 //! Restoring what was verified, and compositing for tests.
 
@@ -22,7 +23,7 @@ use crate::verify::{Verified, NOISE_FLOOR};
 use crate::{ExamineOptions, Fidelity};
 
 /// What one restoration did.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Restored {
     pub profile: String,
     pub rect: PixelRect,
@@ -33,8 +34,14 @@ pub struct Restored {
     /// Samples whose inverse was outside the range by more than half a
     /// level, and were clamped.
     pub clamped: u32,
-    /// Lossless source, a row's own canonical map, no hole, no clamp: the
-    /// original values to within one level.
+    /// The share of the mark's contour left after it was restored, beyond
+    /// the texture around it (D229, [`crate::verify::OUTLINE_BOUND`]).
+    pub outline: f32,
+    /// `outline` is over the bound: the restoration is kept — it took most
+    /// of the mark away — and an outline of it is said to be left.
+    pub outline_left: bool,
+    /// Lossless source, a row's own canonical map, no hole, no clamp, no
+    /// outline: the original values to within one level.
     pub exact: bool,
 }
 
@@ -76,9 +83,14 @@ pub fn restore(
             let a = f64::from(a);
             let i = raster.at(at.x + tx, at.y + ty);
             let samples = raster.samples_mut();
+            let stored = [
+                f64::from(samples[i]),
+                f64::from(samples[i + 1]),
+                f64::from(samples[i + 2]),
+            ];
+            let original = unblend(stored, a, logo);
             let mut moved = false;
-            for c in 0..3 {
-                let o = (f64::from(samples[i + c]) - a * logo[c]) / (1.0 - a);
+            for (c, o) in original.into_iter().enumerate() {
                 if o < -0.5 || o > max + 0.5 {
                     clamped += 1;
                 }
@@ -91,17 +103,34 @@ pub fn restore(
             changed += u32::from(moved);
         }
     }
+    let outline = crate::verify::outline(raster, verified);
+    let outline_left = outline > crate::verify::OUTLINE_BOUND;
     Ok(Restored {
         profile: verified.profile().to_owned(),
         rect: at,
         changed,
         holes,
         clamped,
+        outline,
+        outline_left,
         exact: options.source == Fidelity::Lossless
             && verified.exact_place()
             && holes == 0
-            && clamped == 0,
+            && clamped == 0
+            && !outline_left,
     })
+}
+
+/// The reverse blend over stored values, `O = (I − α·L)/(1 − α)` per
+/// colour channel, unrounded and unclamped — GWT's equation, the one place
+/// it is written: [`restore`] rounds and clamps it, and the second proof
+/// (`verify.rs`) sweeps it with `k·α`.
+pub(crate) fn unblend(stored: [f64; 3], a: f64, logo: [f64; 3]) -> [f64; 3] {
+    [
+        (stored[0] - a * logo[0]) / (1.0 - a),
+        (stored[1] - a * logo[1]) / (1.0 - a),
+        (stored[2] - a * logo[2]) / (1.0 - a),
+    ]
 }
 
 /// Stamp `map` at its own size onto `raster` at `at`'s origin, with the

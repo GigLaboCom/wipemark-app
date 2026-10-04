@@ -18,9 +18,11 @@
 //!    [`PictureError::Proof`] and there is no output.
 //!
 //! What was not examined is said, never implied: an animated picture, a
-//! catalogue that did not load ([`NotExamined`]). JPEG and lossy WebP
-//! are examined and their marks reported; restoring them is the next step
-//! of the series, and until then a found mark is a mark left.
+//! catalogue that did not load, pixels that do not decode
+//! ([`NotExamined`]) — and a surface reads every one of them as
+//! inconclusive. JPEG and lossy WebP are examined and restored like the
+//! rest, and written back re-encoded ([`encode_like`]); a CMYK JPEG is
+//! examined and never written back.
 //!
 //! Words for a person are an application's; this crate hands up values
 //! and one JSON form. See `docs/architecture/visible-marks.md`, "Picture
@@ -30,9 +32,11 @@
 
 mod decode;
 mod encode;
+mod scan;
 
 pub use decode::{decode, Decoded, PngInfo, Skip, Source};
 pub use encode::{encode_like, Encoding, JPEG_QUALITY};
+pub use scan::{walk as walk_jpeg_scan, Scan};
 use wipemark_image::{ImageContainer, ImageError, ImageReport, Scope, StripOptions, StripReport};
 use wipemark_pixels::{Catalogue, ExamineOptions, Fidelity, PixelRect, PixelReport, Raster};
 
@@ -119,10 +123,7 @@ impl PictureInspection {
 
     /// As [`PictureReport::inconclusive`].
     pub fn inconclusive(&self) -> bool {
-        matches!(
-            self.visible,
-            Visible::NotExamined(NotExamined::Catalogue | NotExamined::Decode)
-        )
+        matches!(self.visible, Visible::NotExamined(_))
     }
 
     /// One line of ASCII JSON: E11's `ImageReport` form — `container`,
@@ -165,14 +166,12 @@ impl PictureReport {
         matches!(self.visible, Visible::Examined { .. })
     }
 
-    /// Whether the visible pass should have run and could not: the result
-    /// is then not known to be free of a mark. An animation is not this —
-    /// the pass does not apply to one.
+    /// Whether the pixels were not examined — a catalogue that did not
+    /// load, pixels that do not decode, or the frames of an animation: the
+    /// result is then not known to be free of a mark, and inconclusive is
+    /// not clean (D221 amended).
     pub fn inconclusive(&self) -> bool {
-        matches!(
-            self.visible,
-            Visible::NotExamined(NotExamined::Catalogue | NotExamined::Decode)
-        )
+        matches!(self.visible, Visible::NotExamined(_))
     }
 
     /// One line of ASCII JSON: E11's `StripReport` form — `container`,

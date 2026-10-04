@@ -72,6 +72,9 @@ png = "0.18"
 zune-jpeg = "0.5"
 image-webp = "0.2"
 sha2.workspace = true
+# `tests/visible.rs` writes a JPEG to damage its scan; the encoder
+# `wipemark-picture` already writes with — an edge, no package.
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [features]
 default = []

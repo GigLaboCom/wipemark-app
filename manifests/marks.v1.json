@@ -37,7 +37,27 @@
         { "id": "gemini-v2-96", "asset": "gemini-v2-96.wma", "sha256": "0df84d4b3002e98abb35e3ed974f69bc0968ca2985a87b3b14d2ab66de8ada41", "size": [96, 96] }
       ],
       "placements": [
-        { "when": { "min_width": 1025, "min_height": 1025 }, "corner": "bottom-right", "margin": [192, 192], "alpha": "gemini-v2-96" }
+        { "when": { "min_width": 1025, "min_height": 1025 }, "corner": "bottom-right", "margin": [192, 192], "alpha": "gemini-v2-96" },
+        { "when": { "width": 1024, "height": 1024 }, "corner": "bottom-right", "margin": [71, 71], "alpha": "gemini-v2-36" },
+        { "when": { "width": 848, "height": 1264 }, "rect": [716, 1132, 44, 44], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1264, "height": 848 }, "rect": [1132, 716, 44, 44], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 896, "height": 1200 }, "rect": [770, 1074, 42, 42], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1200, "height": 896 }, "rect": [1074, 770, 42, 42], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 928, "height": 1152 }, "corner": "bottom-right", "margin": [80, 80], "alpha": "gemini-v2-36" },
+        { "when": { "width": 1152, "height": 928 }, "corner": "bottom-right", "margin": [80, 80], "alpha": "gemini-v2-36" },
+        { "when": { "width": 768, "height": 1376 }, "rect": [624, 1232, 48, 48], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1376, "height": 768 }, "rect": [1232, 624, 48, 48], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1584, "height": 672 }, "rect": [1424, 512, 53, 53], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 832, "height": 1248 }, "rect": [701, 1117, 44, 44], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1248, "height": 832 }, "rect": [1117, 701, 44, 44], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 864, "height": 1184 }, "rect": [740, 1060, 41, 41], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1184, "height": 864 }, "rect": [1060, 740, 41, 41], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 896, "height": 1152 }, "corner": "bottom-right", "margin": [80, 80], "alpha": "gemini-v2-36" },
+        { "when": { "width": 1152, "height": 896 }, "corner": "bottom-right", "margin": [80, 80], "alpha": "gemini-v2-36" },
+        { "when": { "width": 768, "height": 1344 }, "rect": [627, 1203, 47, 47], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1344, "height": 768 }, "rect": [1203, 627, 47, 47], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1536, "height": 672 }, "rect": [1380, 516, 52, 52], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1024, "height": 559 }, "corner": "bottom-right", "margin": [70, 70], "alpha": "gemini-v2-36" }
       ],
       "search": { "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "gemini-v2-96" },
       "detect": { "min_ncc": 0.70 },

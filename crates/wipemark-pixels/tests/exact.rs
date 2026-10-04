@@ -6,8 +6,8 @@ mod support;
 
 use support::*;
 use wipemark_pixels::{
-    clean, composite, examine, resampled, restore, ExamineOptions, Fidelity, Layout, PixelRect,
-    Placed, Refusal, RestoreError, Verdict,
+    clean, composite, examine, resampled, restore, AlphaMap, ExamineOptions, Fidelity, Layout,
+    PixelRect, Placed, Refusal, RestoreError, Verdict, OUTLINE_BOUND,
 };
 
 const W: u32 = 320;
@@ -214,6 +214,45 @@ fn a_proof_is_not_restored_onto_a_raster_of_another_size() {
     }
     // The raster it was made on takes it.
     assert!(restore(&mut marked, verified, &lossless()).is_ok());
+}
+
+/// A mark drawn with a map a little wider than the one held — a halo
+/// outside its edge, what a vendor's own anti-aliasing or a filter adds:
+/// the gain still lands on 1, the second proof accepts it, and the
+/// restoration takes most of the mark away — but leaves a ring along its
+/// edge. The outline check measures it over the bound (D229), says an
+/// outline is left, and the mark counts as still in the result.
+#[test]
+fn an_outline_left_by_another_map_is_said() {
+    let catalogue = synthetic_catalogue();
+    let small = synthetic_v1().small;
+    let wide = blurred(&small, 2);
+    let halo = AlphaMap::new(
+        48,
+        48,
+        small
+            .values()
+            .iter()
+            .zip(wide.values())
+            .map(|(a, b)| a + 1.5 * (b - a).max(0.0))
+            .collect(),
+    )
+    .unwrap();
+    for kind in [Kind::Flat, Kind::Gradient] {
+        let mut marked = picture(kind, W, H, 5, Layout::Rgb8);
+        composite(
+            &mut marked,
+            &quantised(&halo),
+            small_row(W, H, 48),
+            [255.0; 3],
+        );
+        let report = clean(&mut marked, &catalogue, &lossless());
+        assert_eq!(report.restored.len(), 1, "{kind:?}: {:#?}", report.found);
+        let r = &report.restored[0];
+        assert!(r.outline > OUTLINE_BOUND, "{kind:?}: {}", r.outline);
+        assert!(r.outline_left && !r.exact, "{kind:?}: {r:?}");
+        assert!(report.marks_left(), "{kind:?}");
+    }
 }
 
 /// D157: the picture's alpha is never written, whatever the restoration

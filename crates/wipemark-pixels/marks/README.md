@@ -26,11 +26,11 @@ each PNG with the `png` crate and proves the equality, sample for sample.
 | `bg_b_36.png` | `a3e7d5ca932e6acf9ff826a4db47d597458480e72089da81a40bd4b52668cd31` | `gemini-v2-36.wma` sha256: `6f35dfec8fd71c641098f5c5d4844951fc1aeb023662fc47b6f820d66fedd50c` | `gemini-sparkle-v2`, 36×36 |
 | `bg_b_96.png` | `3911f3b68b3083096326cee24f09868ec87f8d39d248e97057cd14ee838c5552` | `gemini-v2-96.wma` sha256: `0df84d4b3002e98abb35e3ed974f69bc0968ca2985a87b3b14d2ab66de8ada41` | `gemini-sparkle-v2`, 96×96 |
 
-**Not yet in the tree.** The container that wrote this crate could not
-clone GWT, so the files above are produced on a machine that can, by
-`gwt/extract.py` — which checks every PNG's sha256 against this table,
-writes the PNGs and the maps, and fills in the `pending` pins here and in
-the manifest:
+**In the tree since `f174b58`**, extracted on the host from a checkout of
+GWT at `7c6a99f` by `gwt/extract.py` — which checks every PNG's sha256
+against this table, writes the PNGs and the maps, and fills in the pins
+here and in the manifest. To do it again (a new GWT commit is a new row
+of this table and a deliberate commit):
 
 ```sh
 git clone https://github.com/allenk/GeminiWatermarkTool "$S/gwt-full"
@@ -39,6 +39,8 @@ python3 crates/wipemark-pixels/marks/gwt/extract.py "$S/gwt-full"
 git add crates/wipemark-pixels/marks manifests/marks.v1.json
 ```
 
-Until then `Catalogue::shipped()` is an `Err` naming the first map whose
-pin is not a sha256, and the four tests of `tests/assets.rs` that read the
-shipped catalogue are red.
+**V2's small rows** in the manifest are GWT's `v2_small_config_from_dims`
+applied to every output size Google documents at 1K, and 1024×559;
+`tests/v2_rows.rs` ports the formula and holds the rows to it. A logo of
+40 pixels or less is `gemini-v2-36` at a corner; a larger one is
+`gemini-v2-96` resampled to a `rect`.

@@ -44,12 +44,14 @@ pub use catalogue::{
     shipped_assets, Anchor, AssetProblem, Catalogue, CatalogueError, Corner, Placement, Profile,
     ProfileId, Search, Status, Thresholds, When, EMBEDDED, SCHEMA,
 };
-pub use geometry::{PixelRect, SubRect};
-pub use propose::{Placed, REFINE_MARGIN, ROW_FLOOR};
+pub use geometry::{Kernel, PixelRect, SubRect};
+pub use propose::{Placed, REFINE_MARGIN, ROW_FLOOR, SHRUNK};
 pub use raster::{Layout, Raster, RasterError};
 pub use restore::{composite, restore, RestoreError, Restored};
 use serde::Serialize;
-pub use verify::{Refusal, Scores, Verified, LOSSY_LEVELS, NOISE_FLOOR, NO_BLEND_RATIO};
+pub use verify::{
+    Refusal, Scores, Verified, LOSSY_LEVELS, NOISE_FLOOR, NO_BLEND_RATIO, OUTLINE_BOUND,
+};
 
 /// The claim this crate adds to the third shelf (D156). The English is
 /// the canon, like core's; the translations land with the first surface
@@ -121,6 +123,9 @@ pub struct Finding {
     pub rect: SubRect,
     pub pixels: Option<PixelRect>,
     pub placed: Placed,
+    /// The filter the map was brought to `rect` with: `Area` for a row and
+    /// a map at its own size (D229).
+    pub kernel: Kernel,
     pub ncc: f32,
     /// 1, or 2 for the pass over the restored raster (D165).
     pub pass: u8,
@@ -224,7 +229,8 @@ fn finding(
         verify::Outcome::Refused(r) => Verdict::Refused(r),
         verify::Outcome::NoBlend => return None,
     };
-    let pixels = geometry::template(profile.map(proposal.map), proposal.rect).map(|(_, at)| at);
+    let pixels = geometry::template_with(profile.map(proposal.map), proposal.rect, proposal.kernel)
+        .map(|(_, at)| at);
     Some(Finding {
         profile: profile.id.clone(),
         vendor: profile.vendor.clone(),
@@ -232,6 +238,7 @@ fn finding(
         rect: proposal.rect,
         pixels,
         placed: proposal.placed,
+        kernel: proposal.kernel,
         ncc: proposal.ncc,
         pass,
         scores,
@@ -293,12 +300,12 @@ pub struct PixelReport {
 }
 
 impl PixelReport {
-    /// Whether a mark was seen and is still there: a blend refused, or
-    /// restored around holes. A proposal that was no blend is not here to
+    /// Whether a mark was seen and is still there: a blend refused,
+    /// restored around holes, or restored with its outline left (D229). A proposal that was no blend is not here to
     /// count (D226).
     pub fn marks_left(&self) -> bool {
         self.found.iter().any(|f| f.verified().is_none())
-            || self.restored.iter().any(|r| r.holes > 0)
+            || self.restored.iter().any(|r| r.holes > 0 || r.outline_left)
     }
 
     /// One line of ASCII JSON. Field names are a format.
@@ -330,6 +337,7 @@ struct FindingJson<'a> {
     pixels: Option<PixelRect>,
     placed: &'static str,
     row: Option<usize>,
+    kernel: Kernel,
     ncc: f32,
     verdict: &'static str,
     refusal: Option<Refusal>,
@@ -354,6 +362,7 @@ impl<'a> FindingJson<'a> {
                 Placed::Row(i) => Some(i),
                 Placed::Searched => None,
             },
+            kernel: f.kernel,
             ncc: f.ncc,
             verdict: if f.verified().is_some() {
                 "verified"

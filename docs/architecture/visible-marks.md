@@ -60,10 +60,22 @@ aspect, thresholds in range, duplicates — and each failure is a
 `CatalogueError` naming the profile and, for an asset, the map and the
 `AssetProblem`.
 
-> **State of the tree:** the four GWT maps are produced by
-> `marks/gwt/extract.py` on a machine that can clone the reference; until
-> then the manifest's pins read `pending: …` and `shipped()` is an `Err`.
-> See `marks/README.md`.
+The four GWT maps were extracted by `marks/gwt/extract.py` from a checkout
+at `7c6a99f` (`f174b58`); the PNGs' sha256 match the plan's pins. See
+`marks/README.md`.
+
+**V2's small rows** (R11): one exact row per Gemini output size Google
+documents at 1K (3.1 Flash Image and 3.1 Pro Image, 2.5 Flash Image;
+`ai.google.dev/gemini-api/docs/image-generation`, read 2026-10-04) and the
+web preview's 1024×559 — twenty rows, generated from GWT's
+`v2_small_config_from_dims`, which `tests/v2_rows.rs` ports (with GWT's
+provenance header) and holds the committed rows to
+(`v2_rows_are_gwts_formula`). A logo of 40 or less is the 36-pixel map at
+a corner, exact; a larger one is the 96 resampled to a `rect`
+(`resample`), never exact. The 512-pixel tier and the 1:4 and 1:8 shapes
+have no row: the formula was drawn from 1024-class and half-scale outputs,
+and extrapolated it puts a 207-pixel logo on 768×6144 — the search covers
+them.
 
 ## Propose → verify → choose → restore
 
@@ -93,7 +105,18 @@ aspect, thresholds in range, duplicates — and each failure is a
      grid a pixel either way in origin and size, then an eighth around the
      best, each candidate drawn with the profile's own map when one is
      that size and the search map resampled otherwise; the move is taken
-     only when it lowers the residual by a tenth (`REFINE_MARGIN`). NCC
+     only when it lowers the residual by a tenth (`REFINE_MARGIN`).
+     At the best place, for a mark shrunk under 40 % of the search map
+     (`SHRUNK`), every **kernel** the map could have been shrunk with is
+     tried (`Kernel`: the area integral, bilinear, Catmull-Rom, Lanczos 3
+     — D229): a vendor that stamps a 96-pixel mark on a 2752–2848-pixel
+     picture and hands it out at 1024-class (0.36–0.37) has shrunk the mark
+     with whatever shrank the picture, and restoring it with another filter
+     leaves the difference as an outline. Above 40 % only the area integral
+     — GWT's own half-scale rows are `INTER_AREA` — because a smoother
+     filter is also what a mark *blurred* into regenerated content looks
+     like: tried at every size, it proved a baked-in mark and a look-alike
+     at 0.8 of the opacity. The finding names its `kernel`. NCC
      never chooses between sub-pixel places — the series' NCC refinement
      moved exact rows to `y 160.25, size 47.75` for a 10⁻⁴ gain and left
      them a level or two off. `E(1)/E(0)` is not the measure either:
@@ -142,12 +165,25 @@ aspect, thresholds in range, duplicates — and each failure is a
    beats V2 on a V1 picture.
 4. **Restore** (`restore.rs`, which carries GWT's provenance header).
    Per pixel with `α ≥ 0.002`, per colour channel,
-   `O = (I − α·L)/(1 − α)`, rounded half away from zero, clamped; a clamp
-   beyond half a level is counted. `α ≥ opaque_above` is a **hole** (D155):
-   untouched and counted. Alpha is never written. `exact` holds only for a
+   `O = (I − α·L)/(1 − α)` — written once, `restore::unblend`, which the
+   second proof's gain sweep calls too — rounded half away from zero,
+   clamped; a clamp beyond half a level is counted. `α ≥ opaque_above` is
+   a **hole** (D155): untouched and counted. Alpha is never written. A
+   `Verified` from a raster of another size is `RestoreError::Elsewhere`.
+   Then the **third check** (D229): what is left of the mark's contour on
+   the restored raster, beyond what the texture around it — the mean luma
+   gradient two to eight pixels outside the rectangle — accounts for, as
+   a share of the contour energy the mark had (`Restored::outline`). Over
+   `OUTLINE_BOUND` 0.20 the restoration is kept — it took most of the mark
+   away — and `outline_left` says an outline of it is still there: the
+   mark counts as left (`marks_left`, exit 3, the CLI says so). Measured on
+   a 96-pixel mark shrunk with its picture to 35 pixels by Lanczos,
+   bilinear or Catmull-Rom and saved as JPEG: 0.03–0.09 at quality 95,
+   0.12–0.19 at 85–90 (`a_shrunk_and_compressed_mark_is_restored_within_the_outline_bound`);
+   a mark drawn with a map a little wider than the one held leaves 0.26
+   (`an_outline_left_by_another_map_is_said`). `exact` holds only for a
    lossless source, a row's own canonical map (no resample, integer
-   origin), no hole and no clamp. A `Verified` from a raster of another
-   size is `RestoreError::Elsewhere`.
+   origin), no hole, no clamp and no outline left.
 5. **Again, once** (D165, D230). Only after a restoration, `clean`
    examines the restored raster a second time; what verifies is restored,
    a refusal of the first pass seen again at the same place is not listed
@@ -309,7 +345,19 @@ never decodes) and `wipemark-pixels` (which never reads a file). Plan:
   rectangles moved, nothing verifies on it — or `PictureError::Proof` and
   no output.
 * What was not examined is a value: `Visible::NotExamined(Animated |
-  Catalogue)`.
+  Catalogue | Decode)`, and every one of them is `inconclusive()` — an
+  animation's frames included (D221 amended: inconclusive is not clean).
+* **A damaged JPEG scan is not decoded** (`scan.rs`): zune-jpeg fills in
+  what it cannot read and says nothing, strict mode included, and a
+  restoration over what it filled, re-encoded, would hand back a picture
+  the file never held. So a baseline or extended Huffman JPEG's scan is
+  walked first, code by code, without decoding a pixel: every code must
+  decode, every block of the frame must be read before the data runs out,
+  restart markers must come where the interval says, and the scan must
+  end there, padded with 1-bits. Damage is `NotExamined::Decode`: the
+  metadata is still cleaned, exit 3. A bit flipped in a coefficient's own
+  magnitude bits — about half a scan's bits — changes one value and no
+  walk can see it; a progressive or arithmetic-coded JPEG is not walked.
 * **JPEG and lossy WebP (E12-4)** — the owner's answer to Q-V2/Q-V3
   (2026-10-04: "marks found are removed; re-encoding and the like do not
   matter"): decoded, restored, **re-encoded** — a JPEG with `image`'s
@@ -340,10 +388,9 @@ removed"); plan: [`docs/plan/E12-5-surfaces.md`](../plan/E12-5-surfaces.md).
   profile id, vendor and product as identifiers, rectangle, row or search,
   "proved" with its numbers or "seen, not proved" with its reason — and
   exits **1** on any; `clean` removes what is proved and exits by the
-  input; a mark **left** (not proved, holes, a CMYK JPEG) writes the result
-  and exits **3**; pixels that should have been examined and were not
-  (`NotExamined::Catalogue`, `::Decode`) are **3**; an animation is said
-  and changes nothing. `audit` counts a visible mark as a finding and an
+  input; a mark **left** (not proved, holes, an outline left, a CMYK JPEG)
+  writes the result and exits **3**; pixels that were not examined
+  (`NotExamined::Catalogue`, `::Decode`, `::Animated`) are **3**. `audit` counts a visible mark as a finding and an
   unexamined picture as a hole, and SARIF gives each mark a
   `visible-<profile>` result with the rectangle in `properties`.
 * **MCP** (`apps/wipemark-app/src/mcp/image.rs`): `inspect_image` answers
@@ -365,10 +412,7 @@ removed"); plan: [`docs/plan/E12-5-surfaces.md`](../plan/E12-5-surfaces.md).
 
 ## Not here yet
 
-* **V2's small placements** — one exact row per Gemini output size, from
-  GWT's `v2_small_config_from_dims`, ported into a test that generates the
-  rows (`v2_rows_are_gwts_formula`). Not written: the formula could not be
-  read from this container. Until it is, a V2 picture under 1025×1025 is
-  found by the search, which is never exact.
+* **V2 rows for the 512-pixel tier and the 1:4 and 1:8 shapes** — GWT's
+  formula does not reach them; a capture of each would.
 * **Other vendors** (E12-6), **reconstruction** (E12-7), **the windows**
   (E12-8); restoring a `logo_map` or a linear-light mark.
