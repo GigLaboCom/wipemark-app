@@ -37,8 +37,14 @@ pub struct Restored {
     /// The share of the mark's contour left after it was restored, beyond
     /// the texture around it (D238, [`crate::verify::OUTLINE_BOUND`]).
     pub outline: f32,
-    /// `outline` is over the bound: the restoration is kept — it took most
-    /// of the mark away — and an outline of it is said to be left.
+    /// The mark's faint band against the picture around it after it was
+    /// restored, in 8-bit luma levels, signed (D244,
+    /// [`crate::verify::STEP_LEVELS`]).
+    pub step: f32,
+    /// An outline is left — `outline` over its bound, or `step` over
+    /// [`crate::verify::STEP_LEVELS`] and the picture's own spread: the
+    /// restoration is kept — it took most of the mark away — and an
+    /// outline of it is said to be left.
     pub outline_left: bool,
     /// Lossless source, a row's own canonical map, no hole, no clamp, no
     /// outline: the original values to within one level.
@@ -104,20 +110,20 @@ pub fn restore(
         }
     }
     let outline = crate::verify::outline(raster, verified);
-    let outline_left = outline > crate::verify::OUTLINE_BOUND;
     Ok(Restored {
         profile: verified.profile().to_owned(),
         rect: at,
         changed,
         holes,
         clamped,
-        outline,
-        outline_left,
+        outline: outline.share,
+        step: outline.step,
+        outline_left: outline.left(),
         exact: options.source == Fidelity::Lossless
             && verified.exact_place()
             && holes == 0
             && clamped == 0
-            && !outline_left,
+            && !outline.left(),
     })
 }
 

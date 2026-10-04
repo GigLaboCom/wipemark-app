@@ -100,9 +100,11 @@ fn real(name: &str) -> Vec<u8> {
     std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
-/// The vendor's mark at its large row (margin 64, the 96 map).
+/// The vendor's mark at its large row (margin 64, the 96 map), on a
+/// first-generation output — not `crying`, a re-saved copy whose restored
+/// mark leaves an outline (`an_outline_left_is_said_and_exits_three`).
 fn marked_png() -> Vec<u8> {
-    real("crying-1025.png")
+    real("torch-1025.png")
 }
 
 #[test]
@@ -149,11 +151,29 @@ fn clean_removes_a_proved_mark_with_no_flag() {
     let answer = json(&scratch.run(&["clean", "art.png", "-o", "j.png", "--json"]));
     assert_eq!(answer["report"]["marks_left"], Value::Bool(false));
     assert_eq!(answer["report"]["encoding"]["kind"], "png");
-    // A real output: restored without an outline, and — GWT's maps being
-    // 8-bit captures of the vendor's α — not claimed exact.
+    // A real output: restored without an outline.
     let restored = &answer["report"]["visible"]["restored"][0];
     assert_eq!(restored["outline_left"], Value::Bool(false));
-    assert_eq!(restored["exact"], Value::Bool(false));
+}
+
+/// `crying` is a re-saved copy over a flattened background: its mark is
+/// proved and restored, and leaves an outline 3–4 levels dark on a
+/// background with no spread — said, the mark counted as left, exit 3
+/// (D244), the result written with what could be done.
+#[test]
+fn an_outline_left_is_said_and_exits_three() {
+    let scratch = Scratch::new("outline");
+    scratch.file("art.png", &real("crying-1025.png"));
+    let output = scratch.run(&["clean", "art.png"]);
+    let said = stdout(&output);
+    assert_eq!(code(&output), 3, "{said}");
+    assert!(said.contains("pixels restored"), "{said}");
+    assert!(said.contains("An outline of the mark is left"), "{said}");
+    let answer = json(&scratch.run(&["clean", "art.png", "-o", "j.png", "--json"]));
+    assert_eq!(answer["report"]["marks_left"], Value::Bool(true));
+    let restored = &answer["report"]["visible"]["restored"][0];
+    assert_eq!(restored["outline_left"], Value::Bool(true));
+    assert!(restored["step"].as_f64().unwrap() < -1.0, "{restored}");
 }
 
 /// A real sticker cut out of its background: Gemini's mark is still in

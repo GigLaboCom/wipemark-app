@@ -147,6 +147,7 @@ impl Verified {
         self.exact_place
     }
 
+
     pub(crate) fn fits(&self, raster: &Raster) -> bool {
         raster.width() == self.width && raster.height() == self.height
     }
@@ -466,29 +467,121 @@ pub(crate) fn verify(
 /// 0.23–0.25 before restoration.
 pub const OUTLINE_BOUND: f32 = 0.20;
 
-/// What a restoration left along the mark's contour (D238): the contour's
-/// energy on the restored raster, less what the texture around the mark
-/// would put there — the mean luma gradient over a band two to eight
-/// pixels outside the rectangle, times the contour's weight — as a share
-/// of the energy the mark had before. 0 for a restoration that left the
-/// contour as busy as its surroundings; a dark or light ring left by a
-/// map at the wrong size, place or filter is a share of what was there.
-pub(crate) fn outline(raster: &Raster, verified: &Verified) -> f32 {
-    if verified.contour <= 1e-12 {
-        return 0.0;
+/// The mark's faint band: where a map that is a level or two off the
+/// vendor's α leaves its outline (D243, D244).
+pub const BAND: [f32; 2] = [3.0 / 255.0, 0.2];
+
+/// Over this many 8-bit luma levels between the faint band and the
+/// picture around the mark, and over that picture's own spread, an
+/// outline is left (D244) — whatever share of the mark's contour that is.
+/// Measured on 22 first-generation Gemini outputs restored at their row:
+/// −0.17 to +0.30. Left by GWT's capture map in the search: −1.84 to
+/// −1.93; on the re-saved `11_crying`, over a background of no spread at
+/// all: −3.67.
+pub const STEP_LEVELS: f32 = 1.0;
+
+/// What a restoration left along the mark's contour, two ways (D238,
+/// D244).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Outline {
+    /// The contour's energy on the restored raster, less what the texture
+    /// around the mark would put there, as a share of the energy the mark
+    /// had before (D238). Relative: on a flat picture a ring of twenty
+    /// levels is a small share of a mark of a hundred.
+    pub share: f32,
+    /// The faint band's mean luma less the mean of the pixels around the
+    /// mark, in 8-bit levels: what an eye compares on a flat picture.
+    pub step: f32,
+    /// The standard deviation of those pixels around the mark, in 8-bit
+    /// levels: how much a step can hide in.
+    pub spread: f32,
+}
+
+impl Outline {
+    /// A share over [`OUTLINE_BOUND`], or a step over both
+    /// [`STEP_LEVELS`] and the picture's own spread.
+    pub fn left(&self) -> bool {
+        self.share > OUTLINE_BOUND || self.step.abs() > STEP_LEVELS.max(self.spread)
     }
-    let grid = Grid::new(
-        raster,
-        &verified.values,
-        verified.at,
-        verified.opaque_above,
-        verified.logo,
-    );
-    let weight: f64 = grid.edges.iter().map(|&(_, g)| f64::from(g)).sum();
-    let mut luma = vec![0f64; grid.pixels.len()];
-    let after = grid.energy(0.0, &mut luma);
-    let texture = texture_around(raster, verified.at);
-    ((after - weight * texture).max(0.0) / verified.contour) as f32
+}
+
+/// What a restoration left along the mark's contour (D238, D244). The
+/// share: the contour's energy on the restored raster, less what the
+/// texture around the mark would put there — the mean luma gradient over
+/// a band two to eight pixels outside the rectangle, times the contour's
+/// weight — as a share of the energy the mark had before. 0 for a
+/// restoration that left the contour as busy as its surroundings; a dark
+/// or light ring left by a map at the wrong size, place or filter is a
+/// share of what was there. The step: see [`Outline::step`].
+pub(crate) fn outline(raster: &Raster, verified: &Verified) -> Outline {
+    let (step, spread) = step(raster, verified);
+    let share = if verified.contour <= 1e-12 {
+        0.0
+    } else {
+        let grid = Grid::new(
+            raster,
+            &verified.values,
+            verified.at,
+            verified.opaque_above,
+            verified.logo,
+        );
+        let weight: f64 = grid.edges.iter().map(|&(_, g)| f64::from(g)).sum();
+        let mut luma = vec![0f64; grid.pixels.len()];
+        let after = grid.energy(0.0, &mut luma);
+        let texture = texture_around(raster, verified.at);
+        ((after - weight * texture).max(0.0) / verified.contour) as f32
+    };
+    Outline {
+        share,
+        step,
+        spread,
+    }
+}
+
+/// The faint band's step and the spread around it, in 8-bit luma levels:
+/// the band is the template's pixels with `α` in [`BAND`]; around it is
+/// every pixel of the rectangle under the noise floor and of a ring four
+/// pixels out, inside the picture. `(0, 0)` with either empty.
+fn step(raster: &Raster, verified: &Verified) -> (f32, f32) {
+    let (w, h) = (i64::from(raster.width()), i64::from(raster.height()));
+    let max = f64::from(raster.layout().max());
+    let samples = raster.samples();
+    let luma = |x: i64, y: i64| {
+        let i = raster.at(x as u32, y as u32);
+        (f64::from(LUMA[0]) * f64::from(samples[i])
+            + f64::from(LUMA[1]) * f64::from(samples[i + 1])
+            + f64::from(LUMA[2]) * f64::from(samples[i + 2]))
+            * 255.0
+            / max
+    };
+    let at = verified.at;
+    let (x0, y0) = (i64::from(at.x), i64::from(at.y));
+    let (x1, y1) = (x0 + i64::from(at.width), y0 + i64::from(at.height));
+    let (mut band, mut nb) = (0f64, 0f64);
+    let mut around = Vec::new();
+    for y in (y0 - 4).max(0)..(y1 + 4).min(h) {
+        for x in (x0 - 4).max(0)..(x1 + 4).min(w) {
+            let inside = x >= x0 && y >= y0 && x < x1 && y < y1;
+            let a = if inside {
+                verified.values[((y - y0) * i64::from(at.width) + (x - x0)) as usize]
+            } else {
+                0.0
+            };
+            if a < NOISE_FLOOR {
+                around.push(luma(x, y));
+            } else if (BAND[0]..=BAND[1]).contains(&a) {
+                band += luma(x, y);
+                nb += 1.0;
+            }
+        }
+    }
+    if nb == 0.0 || around.is_empty() {
+        return (0.0, 0.0);
+    }
+    let n = around.len() as f64;
+    let mean = around.iter().sum::<f64>() / n;
+    let spread = (around.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
+    ((band / nb - mean) as f32, spread as f32)
 }
 
 /// The mean luma gradient (central differences, luma in [0, 1]) over the

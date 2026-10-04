@@ -162,14 +162,23 @@ pub(crate) fn rows(scene: &Scene<'_>, profile: &Profile) -> Vec<Proposal> {
     found
 }
 
-/// The map a mark of width `size` is drawn with: the profile's own map
-/// of that width when it has one — what the vendor stamps at that size —
-/// and the search map, resampled, at any other.
+/// The map a mark of width `size` is drawn with: the search map at its
+/// own width, then the map a row names at that width — what the vendor
+/// stamps at that size, by the manifest's word — and the search map,
+/// resampled, at any other. Never the first map of a width in the list:
+/// a catalogue keeps GWT's capture beside the map measured from real
+/// outputs, and the capture leaves an outline the measured map does not
+/// (D243, D244).
 fn map_for(profile: &Profile, size: f32, search: usize) -> usize {
+    let width = |i: usize| profile.map(i).width() as f32;
+    if width(search) == size {
+        return search;
+    }
     profile
-        .maps
+        .placements
         .iter()
-        .position(|(_, m)| m.width() as f32 == size)
+        .map(|p| p.alpha)
+        .find(|&i| width(i) == size)
         .unwrap_or(search)
 }
 

@@ -694,7 +694,10 @@ fn visible_lines(say: Say, visible: &Visible, cleaned: bool) -> Vec<String> {
                     "    {}",
                     say(
                         Message::CliImageVisibleOutline,
-                        &args!("share" => format!("{:.0}", restored.outline * 100.0)),
+                        &args!(
+                            "levels" => fixed(restored.step.abs(), 1),
+                            "share" => format!("{:.0}", restored.outline * 100.0),
+                        ),
                     )
                 ));
             }

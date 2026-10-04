@@ -1,7 +1,9 @@
 //! D238: a mark shrunk with its picture and saved with loss — what the
 //! host verifier's real files were — is found, fitted to the eighth of a
 //! pixel, matched to the filter that shrank it, restored, and leaves no
-//! outline past the bound.
+//! outline past the bound — or, where its faint band is off the picture
+//! by more than a level on a background with nothing to hide it in, says
+//! so (D244).
 //!
 //! The case: a canonical Gemini V2 output 2816 pixels wide carries the
 //! 96-pixel mark 192 pixels in from its corner; it is handed out at
@@ -16,7 +18,8 @@ mod support;
 use image::imageops::FilterType;
 use support::*;
 use wipemark_pixels::{
-    clean, composite, Catalogue, ExamineOptions, Fidelity, Layout, PixelRect, Raster, OUTLINE_BOUND,
+    clean, composite, resampled, Catalogue, ExamineOptions, Fidelity, Layout, PixelRect, Raster,
+    BAND, OUTLINE_BOUND, STEP_LEVELS,
 };
 
 const LARGE: (u32, u32) = (704, 384);
@@ -86,6 +89,7 @@ fn a_shrunk_and_compressed_mark_is_restored_within_the_outline_bound() {
         source: Fidelity::Lossy,
         profiles: None,
     };
+    let mut said = 0;
     for (scene, filter, quality) in CASES {
         let name = format!("{scene:?} {filter:?} q{quality}");
         let original = large(scene);
@@ -108,12 +112,8 @@ fn a_shrunk_and_compressed_mark_is_restored_within_the_outline_bound() {
         let report = clean(&mut raster, shipped, &lossy);
         assert_eq!(report.restored.len(), 1, "{name}: {:#?}", report.found);
         let r = &report.restored[0];
-        assert!(
-            r.outline <= OUTLINE_BOUND && !r.outline_left,
-            "{name}: outline {}",
-            r.outline
-        );
-        assert!(!report.marks_left(), "{name}");
+        assert!(r.outline <= OUTLINE_BOUND, "{name}: outline {}", r.outline);
+        assert_eq!(report.marks_left(), r.outline_left, "{name}");
         // Inside the mark's rectangle, as close to the picture shrunk
         // without the mark as the codec's own error lets it be.
         let (mut sum, mut n) = (0f64, 0f64);
@@ -138,5 +138,49 @@ fn a_shrunk_and_compressed_mark_is_restored_within_the_outline_bound() {
             f.profile, f.rect, f.kernel, r.outline
         );
         assert!(mean <= 3.0, "{name}: mean error {mean:.2} in the rectangle");
+
+        // The faint band against the picture shrunk without the mark: an
+        // outline said is one that is there, and one not said is within a
+        // level and a half of the truth (D244). Flat by bilinear at 90 is
+        // the one said: the band +2.25 over the truth on a background with
+        // nothing to hide it in; the textured ones reach +1.26 and are not.
+        let band = resampled(mark, f.rect.size, f.rect.x.fract(), f.rect.y.fract()).unwrap();
+        let luma = |s: &[u16], i: usize| {
+            0.2126 * f64::from(s[i]) + 0.7152 * f64::from(s[i + 1]) + 0.0722 * f64::from(s[i + 2])
+        };
+        let (mut off, mut nb) = (0f64, 0f64);
+        for y in 0..band.height() {
+            for x in 0..band.width() {
+                let a = band.get(i64::from(x), i64::from(y));
+                if !(BAND[0]..=BAND[1]).contains(&a) {
+                    continue;
+                }
+                let (px, py) = (f.rect.x as u32 + x, f.rect.y as u32 + y);
+                let i = ((py * SMALL.0 + px) as usize) * c;
+                off += luma(raster.samples(), i) - luma(truth.samples(), i);
+                nb += 1.0;
+            }
+        }
+        let off = (off / nb) as f32;
+        println!(
+            "{name}: the band {off:+.2} over the truth, step {:+.2}",
+            r.step
+        );
+        if r.outline_left {
+            assert!(
+                off.abs() > STEP_LEVELS,
+                "{name}: said, {off:+.2} over the truth"
+            );
+            said += 1;
+        } else {
+            assert!(
+                off.abs() <= 1.5,
+                "{name}: not said, {off:+.2} over the truth"
+            );
+        }
     }
+    assert_eq!(
+        said, 1,
+        "the flat bilinear case at 90 is the one outline left"
+    );
 }

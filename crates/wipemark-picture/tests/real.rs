@@ -11,7 +11,7 @@ use image::imageops::FilterType;
 use wipemark_picture::{clean, decode, inspect, Encoding, PictureOptions, Visible};
 use wipemark_pixels::{
     Catalogue, ExamineOptions, Fidelity, Layout, PixelRect, Placed, Raster, Refusal, Verdict,
-    OUTLINE_BOUND,
+    OUTLINE_BOUND, STEP_LEVELS,
 };
 
 fn fixture(name: &str) -> Vec<u8> {
@@ -36,7 +36,17 @@ const ROW: PixelRect = PixelRect {
     height: 96,
 };
 
-const MARKED: [&str; 3] = ["crying-1025.png", "torch-1025.png", "victory-1025.png"];
+/// First-generation outputs, as the vendor handed them out (C2PA intact)
+/// and both left out of the measured map's fit. `crying` is not one: a
+/// re-saved copy over a flattened background, the case where an outline
+/// is said (`a_flattened_copy_is_restored_with_its_outline_said`).
+const MARKED: [&str; 2] = ["torch-1025.png", "victory-1025.png"];
+
+/// How far, in 8-bit luma levels, the faint band of a first-generation
+/// mark may lie from the picture around it once restored: that picture's
+/// own noise (−0.17 to +0.30 over 22 outputs; the host verifier's
+/// independent measure, −0.55 to +0.60).
+const NOISE_LEVELS: f32 = 0.6;
 
 fn raster_of(bytes: &[u8]) -> Raster {
     let container = wipemark_image::inspect(bytes).unwrap().container;
@@ -93,6 +103,7 @@ fn a_real_mark_is_proved_at_its_row_and_restored() {
         assert_eq!(report.restored.len(), 1, "{name}");
         let r = &report.restored[0];
         assert!(!r.outline_left, "{name}: {r:?}");
+        assert!(r.step.abs() <= NOISE_LEVELS, "{name}: {r:?}");
         assert!(r.clamped * 100 < r.changed * 3, "{name}: {r:?}");
         assert!(r.outline <= OUTLINE_BOUND, "{name}: {r:?}");
         assert!(!cleaned.marks_left(), "{name}");
@@ -101,6 +112,65 @@ fn a_real_mark_is_proved_at_its_row_and_restored() {
             panic!("{name}")
         };
         assert!(report.found.is_empty(), "{name}: {:#?}", report.found);
+    }
+}
+
+/// `11_crying` is a re-saved copy: no C2PA, and its background
+/// flattened to one colour, (9, 150, 56) — 97 % of the mark's faint band
+/// lies over exactly that. The vendor's mark is proved at its row and
+/// restored, and leaves a dotted dark outline along its soft edge, 3–4
+/// levels under a background with no spread at all: plainly visible. As a
+/// share of the mark's own contour that is 0.04, far under the relative
+/// bound — so the band is held to the picture in absolute levels too
+/// (D244), and the outline is said: the mark counts as left.
+#[test]
+fn a_flattened_copy_is_restored_with_its_outline_said() {
+    let (_, cleaned) = clean(&fixture("crying-1025.png"), &shipped()).unwrap();
+    let Visible::Examined { report, .. } = &cleaned.visible else {
+        panic!("{:?}", cleaned.visible)
+    };
+    assert_eq!(report.restored.len(), 1, "{:#?}", report.found);
+    assert_eq!(report.found[0].placed, Placed::Row(0));
+    let r = &report.restored[0];
+    assert!(r.outline <= OUTLINE_BOUND, "the share alone sees it: {r:?}");
+    assert!(r.step < -STEP_LEVELS, "{r:?}");
+    assert!(r.outline_left && !r.exact, "{r:?}");
+    assert!(cleaned.marks_left());
+}
+
+/// The same pictures with three pixels cut off the right and the bottom:
+/// the mark is off its row, and the search finds it. The search draws a
+/// 96-pixel mark with the map the row names at that width — the one
+/// measured from real outputs (D243) — not the first map of that width in
+/// the catalogue, GWT's capture, which left 4 027 pixels changed and an
+/// outline 1.9 levels dark (D244). So the search restores what the row
+/// does, pixel for pixel of the support, and leaves no outline.
+#[test]
+fn a_real_mark_off_its_row_is_searched_with_the_measured_map() {
+    let catalogue = Catalogue::shipped().unwrap();
+    let options = ExamineOptions::default();
+    for name in MARKED {
+        let full = raster_of(&fixture(name));
+        let mut at_row = full.clone();
+        let row = wipemark_pixels::clean(&mut at_row, catalogue, &options);
+        assert_eq!(row.restored.len(), 1, "{name}");
+
+        let c = full.layout().channels();
+        let size = full.width() - 3;
+        let samples: Vec<u16> = (0..size)
+            .flat_map(|y| {
+                let i = (y * full.width()) as usize * c;
+                full.samples()[i..i + size as usize * c].to_vec()
+            })
+            .collect();
+        let mut cropped = Raster::new(size, size, full.layout(), samples).unwrap();
+        let report = wipemark_pixels::clean(&mut cropped, catalogue, &options);
+        assert_eq!(report.restored.len(), 1, "{name}: {:#?}", report.found);
+        assert_eq!(report.found[0].placed, Placed::Searched, "{name}");
+        let r = &report.restored[0];
+        assert_eq!(r.changed, row.restored[0].changed, "{name}: {r:?}");
+        assert!(r.step.abs() <= NOISE_LEVELS, "{name}: {r:?}");
+        assert!(!r.outline_left && !report.marks_left(), "{name}: {r:?}");
     }
 }
 
@@ -228,10 +298,14 @@ fn the_sparkle_leaves_no_ghost() {
     }
 }
 
-/// The same pictures saved as JPEG at 90 and 95: proved, restored,
-/// re-encoded, no outline past the bound.
+/// The same pictures saved as JPEG: proved, restored, re-encoded. At 95
+/// the codec's error in the mark's faint band averages out — nothing is
+/// left. At 90 it does not: the inverse amplifies it by `1/(1 − α)`, and
+/// the band comes back 2–3 levels lighter than the picture around it, the
+/// same order as `crying`'s outline — said, the mark counted as left
+/// (D244), within the relative bound all the same.
 #[test]
-fn a_real_mark_saved_as_jpeg_is_restored_within_the_outline_bound() {
+fn a_real_mark_saved_as_jpeg_is_restored_and_an_outline_said_where_left() {
     for name in MARKED {
         let raster = raster_of(&fixture(name));
         for quality in [90u8, 95] {
@@ -242,9 +316,15 @@ fn a_real_mark_saved_as_jpeg_is_restored_within_the_outline_bound() {
             };
             assert_eq!(report.restored.len(), 1, "{label}: {:#?}", report.found);
             let r = &report.restored[0];
-            println!("{label}: outline {:.3}", r.outline);
+            println!("{label}: {r:?}");
             assert!(r.outline <= OUTLINE_BOUND, "{label}: {r:?}");
-            assert!(!cleaned.marks_left(), "{label}");
+            if quality == 95 {
+                assert!(r.step.abs() <= NOISE_LEVELS, "{label}: {r:?}");
+                assert!(!cleaned.marks_left(), "{label}");
+            } else {
+                assert!(r.step > STEP_LEVELS && r.outline_left, "{label}: {r:?}");
+                assert!(cleaned.marks_left(), "{label}");
+            }
             assert_eq!(cleaned.encoding, Encoding::Jpeg { quality: 95 });
         }
     }
@@ -303,7 +383,7 @@ fn a_real_mark_shrunk_with_its_picture_is_restored_within_the_outline_bound() {
                 if let Some(f) = f {
                     proved += 1;
                     let restored = &report.restored[0];
-                    println!("{label}: {:?} outline {:.3}", f.kernel, restored.outline);
+                    println!("{label}: {:?} {restored:?}", f.kernel);
                     assert!(restored.outline <= OUTLINE_BOUND, "{label}: {restored:?}");
                 }
             }
