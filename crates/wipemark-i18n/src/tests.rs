@@ -308,6 +308,28 @@ fn no_catalogue_string_names_a_mark_vendor() {
     }
 }
 
+/// A sentence is one run of words: two spaces inside a line are a line
+/// joined with its source's indentation carried in — what the MCP image
+/// tools' descriptions read like for a whole series. A line's own leading
+/// indentation (a report's nested lines) is layout, and allowed.
+#[test]
+fn no_catalogue_string_carries_a_run_of_spaces() {
+    for language in languages() {
+        let localizer = only(&language);
+        for message in Message::ALL {
+            let text = localizer.format_args(message, &arguments(message));
+            for line in text.lines() {
+                let body = line.trim_start_matches(' ');
+                assert!(
+                    !body.contains("  "),
+                    "{language}: `{}` carries a run of spaces: {line:?}",
+                    message.id()
+                );
+            }
+        }
+    }
+}
+
 /// Every confidence `wipemark_core` has, listed by hand — core has no
 /// `Confidence::ALL` — and kept honest by [`confidence_ordinal`]'s
 /// exhaustive `match`: a fifth confidence does not compile there until

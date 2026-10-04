@@ -29,8 +29,9 @@
 //! itself, and it lists its tools — and the tools run. `inspect` and
 //! `clean` hand the text to `wipemark-core`'s Layer A and answer with
 //! its report, the third shelf included (see [`protocol`]);
-//! `inspect_image` and `clean_image` do the same for the metadata of a
-//! PNG, JPEG or WebP sent as base64 — the metadata only, never the pixels
+//! `inspect_image` and `clean_image` do the same for a PNG, JPEG or WebP
+//! sent as base64 — its metadata, and a visible mark a profile describes
+//! in its pixels, removed only when it is proved; invisible marks remain
 //! ([`image`]). `rewrite`
 //! runs the pipeline on the engine the Engine page puts on duty — the
 //! application's own, already loaded or loaded by its policy, which is

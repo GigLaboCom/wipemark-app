@@ -1131,15 +1131,15 @@ cli-help-print-help = Print help
 cli-help-print-version = Print version
 cli-command-help = Print this message, or the help of the given subcommand.
 
-cli-command-inspect = Report what is in a document, or in the metadata of a PNG, JPEG or WebP image, without changing it.
-cli-command-clean = { -layer-a } only: deterministic, verifiable, no model involved. A PNG, JPEG or WebP image loses its AI provenance metadata, and not one byte of its pixels changes.
+cli-command-inspect = Report what is in a document, or in a PNG, JPEG or WebP image — its metadata, and any visible mark a known profile describes in its pixels — without changing it. Invisible marks in the pixels are not searched for.
+cli-command-clean = { -layer-a } only: deterministic, verifiable, no model involved. A PNG, JPEG or WebP image loses its AI provenance metadata; when that is all it carries, its image data is kept byte for byte. A visible mark that is proved is removed, and the picture is then written again — a JPEG at quality 95, a lossy WebP as lossless. Invisible marks in the pixels remain.
 cli-command-rewrite = { -layer-a }, then a model rewrite, then { -layer-a } again.
 cli-command-models = Manage downloaded weights.
 cli-command-models-list = List every model in the catalogue, what is on this machine for it, and whether it fits.
 cli-command-models-pull = Download a model by id, resuming if a partial file exists.
 cli-command-models-verify = Re-hash an installed model in full against the catalogue. Exit 1 when it does not match or is not there.
 cli-command-models-rm = Delete an installed model.
-cli-command-audit = Walk a folder and report every text file in it that carries findings, and every PNG, JPEG or WebP whose metadata carries AI provenance, for pre-commit hooks and CI. Exit 3 when any file could not be read — even if others had findings: a scan with a hole in it is not complete.
+cli-command-audit = Walk a folder and report every text file in it that carries findings, and every PNG, JPEG or WebP whose metadata carries AI provenance or whose pixels carry a visible mark, for pre-commit hooks and CI. Invisible marks in the pixels are not searched for. Exit 3 when any file could not be read — even if others had findings: a scan with a hole in it is not complete.
 
 cli-arg-path-or-stdin = File to read, or `-` for stdin.
 cli-arg-path = File to read.

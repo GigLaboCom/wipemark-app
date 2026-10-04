@@ -244,10 +244,34 @@ impl Tool {
                  nothing. Takes up to about 1 MB of text."
             }
             Self::InspectImage => {
-                "Report the metadata blocks of a PNG, JPEG or WebP image without changing                  anything: EXIF, XMP, IPTC, C2PA manifests, PNG text chunks, colour profiles and                  the rest, each with its kind, its chunk or segment, and its byte offset and                  length in the file. A block that is AI provenance says which signal matched and                  which signature: a C2PA manifest or a reference to one, an IPTC digital source                  type naming a model or an algorithm, a text key or a signature an image                  generator writes - never the value, so a prompt is not quoted back. Camera data                  is listed and is not AI provenance. Only the metadata is examined, never the                  pixels, and every report lists what it does not establish. TIFF, HEIC and AVIF                  are refused by name. Pass the image as base64 in data; a request takes up to                  about 1 MB, so an image up to about 750 KB."
+                "Report what is in a PNG, JPEG or WebP image without changing anything. Its \
+                 metadata blocks: EXIF, XMP, IPTC, C2PA manifests, PNG text chunks, colour \
+                 profiles and the rest, each with its kind, its chunk or segment, and its byte \
+                 offset and length in the file. A block that is AI provenance says which signal \
+                 matched and which signature: a C2PA manifest or a reference to one, an IPTC \
+                 digital source type naming a model or an algorithm, a text key or a signature \
+                 an image generator writes - never the value, so a prompt is not quoted back. \
+                 Camera data is listed and is not AI provenance. Its pixels: a visible mark a \
+                 known profile describes, where it is, and whether it was proved or only seen. \
+                 Invisible marks in the pixels are not searched for, and every report lists what \
+                 it does not establish. TIFF, HEIC and AVIF are refused by name. Pass the image \
+                 as base64 in data; a request takes up to about 1 MB, so an image up to about \
+                 750 KB."
             }
             Self::CleanImage => {
-                "Remove AI provenance metadata from a PNG, JPEG or WebP image and return the                  image as base64 in data, with a report of what was removed (byte offsets into                  the image you sent) and what the result still carries (byte offsets into the                  image returned), read off a second inspection of the result. Every other byte                  is kept as it was: the pixels are never decoded or re-encoded. With scope                  all-metadata, camera data goes too, EXIF orientation included; colour profiles                  are kept whatever the scope. When the result would still carry AI provenance,                  no image comes back. Only the metadata is examined, never the pixels, and every                  report lists what it does not establish. Takes up to about 1 MB of request, so                  an image up to about 750 KB as base64."
+                "Remove AI provenance metadata, and any visible mark that is proved, from a PNG, \
+                 JPEG or WebP image and return the image as base64 in data, with a report of what \
+                 was removed (byte offsets into the image you sent) and what the result still \
+                 carries, read off a second inspection of the result. When only metadata goes, \
+                 every other byte is kept as it was and the pixels are untouched. When a visible \
+                 mark is removed, its pixels are restored and the picture is written again: PNG \
+                 and WebP losslessly, JPEG at quality 95; the report says how, and a mark that \
+                 was seen and not proved stays and is reported (marks_left). With scope \
+                 all-metadata, camera data goes too, EXIF orientation included; colour profiles \
+                 are kept whatever the scope. When the result would still carry AI provenance \
+                 metadata, no image comes back. Invisible marks in the pixels remain, and every \
+                 report lists what it does not establish. Takes up to about 1 MB of request, so \
+                 an image up to about 750 KB as base64."
             }
         }
     }
@@ -2434,8 +2458,31 @@ mod tests {
         for tool in [Tool::InspectImage, Tool::CleanImage] {
             assert_eq!(tool.schema()["additionalProperties"], json!(false));
             let description = tool.description();
-            assert!(description.contains("never the pixels"), "{tool:?}");
+            // What is true of the pixels, never more: a proved visible mark
+            // is removed and the picture written again; invisible marks are
+            // not searched for, and remain.
+            assert!(
+                description.contains("Invisible marks in the pixels"),
+                "{tool:?}: {description}"
+            );
+            assert!(!description.contains("never the pixels"), "{tool:?}");
+            assert!(!description.contains("never decoded"), "{tool:?}");
             assert!(!description.contains("path"), "{tool:?}: {description}");
+        }
+        assert!(Tool::CleanImage.description().contains("written again"));
+    }
+
+    /// A description is one paragraph a client shows as it is: a line
+    /// joined without its `\` carried the source's indentation into it
+    /// as a run of spaces — eighteen at a time, since E11-2.
+    #[test]
+    fn no_tool_description_carries_a_run_of_spaces() {
+        for tool in Tool::ALL {
+            let description = tool.description();
+            assert!(
+                !description.contains("  ") && !description.contains('\n'),
+                "{tool:?}: {description:?}"
+            );
         }
     }
 }

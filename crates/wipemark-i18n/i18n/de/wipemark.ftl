@@ -639,15 +639,15 @@ cli-help-print-help = Hilfe anzeigen
 cli-help-print-version = Version anzeigen
 cli-command-help = Diese Meldung anzeigen, oder die Hilfe zum angegebenen Befehl.
 
-cli-command-inspect = Meldet, was in einem Dokument oder in den Metadaten eines PNG-, JPEG- oder WebP-Bildes steckt, ohne es zu ändern.
-cli-command-clean = Nur { -layer-a }: deterministisch, nachprüfbar, ohne Modell. Ein PNG-, JPEG- oder WebP-Bild verliert seine Metadaten mit KI-Herkunft, und kein Byte seiner Pixel ändert sich.
+cli-command-inspect = Meldet, was in einem Dokument oder in einem PNG-, JPEG- oder WebP-Bild steckt — in seinen Metadaten, und ein sichtbares Zeichen in seinen Pixeln, das ein bekanntes Profil beschreibt —, ohne es zu ändern. Nach unsichtbaren Zeichen in den Pixeln wird nicht gesucht.
+cli-command-clean = Nur { -layer-a }: deterministisch, nachprüfbar, ohne Modell. Ein PNG-, JPEG- oder WebP-Bild verliert seine Metadaten mit KI-Herkunft; ist das alles, bleiben seine Bilddaten Byte für Byte erhalten. Ein nachgewiesenes sichtbares Zeichen wird entfernt, und das Bild wird dann neu geschrieben — ein JPEG mit Qualität 95, ein verlustbehaftetes WebP verlustfrei. Unsichtbare Zeichen in den Pixeln bleiben.
 cli-command-rewrite = { -layer-a }, dann ein Umschreiben durch das Modell, dann wieder { -layer-a }.
 cli-command-models = Heruntergeladene Gewichte verwalten.
 cli-command-models-list = Jedes Modell im Katalog auflisten, was davon auf diesem Rechner liegt und ob es passt.
 cli-command-models-pull = Ein Modell anhand seiner Id herunterladen, eine Teildatei wird fortgesetzt.
 cli-command-models-verify = Ein installiertes Modell vollständig neu hashen und mit dem Katalog vergleichen. Exit 1, wenn es nicht passt oder fehlt.
 cli-command-models-rm = Ein installiertes Modell löschen.
-cli-command-audit = Einen Ordner durchlaufen und jede Textdatei darin mit Funden melden, und jedes PNG, JPEG oder WebP, dessen Metadaten KI-Herkunft tragen, für Pre-Commit-Hooks und CI. Exit 3, sobald eine Datei nicht gelesen werden konnte — auch wenn andere Funde hatten: Ein Scan mit einer Lücke ist nicht vollständig.
+cli-command-audit = Einen Ordner durchlaufen und jede Textdatei darin mit Funden melden, und jedes PNG, JPEG oder WebP, dessen Metadaten KI-Herkunft tragen oder dessen Pixel ein sichtbares Zeichen tragen, für Pre-Commit-Hooks und CI. Nach unsichtbaren Zeichen in den Pixeln wird nicht gesucht. Exit 3, sobald eine Datei nicht gelesen werden konnte — auch wenn andere Funde hatten: Ein Scan mit einer Lücke ist nicht vollständig.
 
 cli-arg-path-or-stdin = Zu lesende Datei, oder `-` für die Standardeingabe.
 cli-arg-path = Zu lesende Datei.
