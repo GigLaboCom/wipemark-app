@@ -113,7 +113,7 @@ pub struct Tried {
 /// A mark seen in the picture: verified, or a blend refused with its
 /// reason. A refused finding is still a finding — "a mark like this was
 /// seen and not removed" is what the user of a re-generated picture
-/// needs. A proposal that is no blend at all is not a finding (D226).
+/// needs. A proposal that is no blend at all is not a finding (D235).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Finding {
     pub profile: ProfileId,
@@ -124,7 +124,7 @@ pub struct Finding {
     pub pixels: Option<PixelRect>,
     pub placed: Placed,
     /// The filter the map was brought to `rect` with: `Area` for a row and
-    /// a map at its own size (D229).
+    /// a map at its own size (D238).
     pub kernel: Kernel,
     pub ncc: f32,
     /// 1, or 2 for the pass over the restored raster (D165).
@@ -151,7 +151,7 @@ impl Finding {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Examination {
     pub findings: Vec<Finding>,
-    /// Proposals the second proof found to be no blend at all (D226):
+    /// Proposals the second proof found to be no blend at all (D235):
     /// not findings, and never reported — counted only so a gate can show
     /// that its negatives were looked at, not missed.
     pub dismissed: usize,
@@ -215,7 +215,7 @@ fn examine_pass(
 }
 
 /// One proposal, verified: a finding, or nothing when it is no blend
-/// (D226).
+/// (D235).
 fn finding(
     raster: &Raster,
     profile: &Profile,
@@ -301,8 +301,8 @@ pub struct PixelReport {
 
 impl PixelReport {
     /// Whether a mark was seen and is still there: a blend refused,
-    /// restored around holes, or restored with its outline left (D229). A proposal that was no blend is not here to
-    /// count (D226).
+    /// restored around holes, or restored with its outline left (D238). A proposal that was no blend is not here to
+    /// count (D235).
     pub fn marks_left(&self) -> bool {
         self.found.iter().any(|f| f.verified().is_none())
             || self.restored.iter().any(|r| r.holes > 0 || r.outline_left)
@@ -381,7 +381,7 @@ impl<'a> FindingJson<'a> {
 
 /// Examine, restore every verified mark, look once more over the
 /// restored raster (D165) — only when something was restored, and only a
-/// blend counts there (D226) — restore what that verifies, and report.
+/// blend counts there (D235) — restore what that verifies, and report.
 ///
 /// A mark the second pass proves where the first saw one and refused (two
 /// marks apart, the second hidden by the profile's own row being taken

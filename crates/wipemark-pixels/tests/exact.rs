@@ -66,7 +66,7 @@ fn a_composited_mark_comes_back_within_one_level() {
 }
 
 /// A mark a pixel off its row: the row's own rectangle does not prove it
-/// (D227 never moves a row), so the search runs — it runs whenever no
+/// (D236 never moves a row), so the search runs — it runs whenever no
 /// row's mark was proved, not only when no row was proposed — finds the
 /// mark where it is, proves and restores it; searched, so never exact.
 #[test]
@@ -220,7 +220,7 @@ fn a_proof_is_not_restored_onto_a_raster_of_another_size() {
 /// outside its edge, what a vendor's own anti-aliasing or a filter adds:
 /// the gain still lands on 1, the second proof accepts it, and the
 /// restoration takes most of the mark away — but leaves a ring along its
-/// edge. The outline check measures it over the bound (D229), says an
+/// edge. The outline check measures it over the bound (D238), says an
 /// outline is left, and the mark counts as still in the result.
 #[test]
 fn an_outline_left_by_another_map_is_said() {

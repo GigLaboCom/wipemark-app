@@ -59,7 +59,7 @@ impl PixelRect {
 }
 
 /// How a map is brought to a size it was not drawn at — the filter a
-/// picture was scaled with, applied to the mark that was in it (D229).
+/// picture was scaled with, applied to the mark that was in it (D238).
 /// A vendor that stamps a 96-pixel mark on a large picture and hands out a
 /// smaller one has scaled the mark with whatever filter scaled the picture;
 /// restoring it with another leaves the difference along the contour as

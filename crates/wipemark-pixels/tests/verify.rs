@@ -54,7 +54,7 @@ fn verification_tells_v1_from_v2() {
 /// An opaque white sparkle where the map is above a quarter: the right
 /// shape, so NCC proposes it — and the second proof finds no blend (the
 /// edges vanish at `k*` near 0 and inverting adds contour). It is not a
-/// finding at all (D226): not reported, not restored, no exit code.
+/// finding at all (D235): not reported, not restored, no exit code.
 #[test]
 fn an_opaque_lookalike_is_not_a_finding() {
     let catalogue = catalogue_of(&[synthetic_v1()]);
@@ -145,7 +145,7 @@ fn the_verifier_measures_the_unclamped_inverse() {
 /// profile, resampled to 40 pixels, in the far corner of the search box.
 /// The first pass proves the row and so never searches; the second, over
 /// the restored raster, finds the other by search, proves it and restores
-/// it (D165, D230) — and the first pass's sight of it, refused under the
+/// it (D165, D239) — and the first pass's sight of it, refused under the
 /// other profile, is listed under the proof rather than left as a mark.
 #[test]
 fn a_second_mark_apart_is_found_in_the_second_pass() {
@@ -185,7 +185,7 @@ fn a_second_mark_apart_is_found_in_the_second_pass() {
 
 /// Two marks, 48 and 44 pixels, nine pixels apart: the first pass proves
 /// and restores the one at its row; the second finds the other by search,
-/// proves it and restores it (D165, D230). Blends of one logo colour
+/// proves it and restores it (D165, D239). Blends of one logo colour
 /// commute — `1 − (1−α₁)(1−α₂)` either way round — so the row's mark is
 /// an exact blend whichever was stamped last, and the order does not
 /// matter.

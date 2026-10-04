@@ -188,7 +188,7 @@ fn a_mark_that_cannot_be_proved_is_left_and_exits_three() {
 
 /// A night-sky wallpaper — soft bright curtains and stars in the corner a
 /// sparkle is looked for in, what a non-AI desktop picture is — carries no
-/// mark: `inspect` and `clean` exit 0 and say nothing about one (D226).
+/// mark: `inspect` and `clean` exit 0 and say nothing about one (D235).
 /// Only skies the correlation does propose a sparkle on are used, or the
 /// test would pass without the second proof ever being asked.
 #[test]

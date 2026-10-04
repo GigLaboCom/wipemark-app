@@ -3,9 +3,9 @@
 //! * **Negatives** — two thousand procedural pictures with no blend in
 //!   them: textures, glyphs, flat and bright corners, noise, white
 //!   corners, and opaque look-alikes (sparkles and diamonds drawn hard).
-//!   Not one may be restored, **and not one may be reported** (D226): no
+//!   Not one may be restored, **and not one may be reported** (D235): no
 //!   blend is not a finding. Each is examined as a lossless and as a lossy
-//!   source, whose out-of-range allowance is wider (D228).
+//!   source, whose out-of-range allowance is wider (D237).
 //! * **Wallpapers** — procedural night skies (`aurora`): soft bright
 //!   ridges and stars, what a sparkle correlates with. Neither restored nor
 //!   reported.

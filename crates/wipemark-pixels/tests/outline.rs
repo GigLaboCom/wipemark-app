@@ -1,4 +1,4 @@
-//! D229: a mark shrunk with its picture and saved with loss — what the
+//! D238: a mark shrunk with its picture and saved with loss — what the
 //! host verifier's real files were — is found, fitted to the eighth of a
 //! pixel, matched to the filter that shrank it, restored, and leaves no
 //! outline past the bound.

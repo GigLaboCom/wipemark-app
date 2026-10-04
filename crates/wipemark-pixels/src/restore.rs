@@ -35,7 +35,7 @@ pub struct Restored {
     /// level, and were clamped.
     pub clamped: u32,
     /// The share of the mark's contour left after it was restored, beyond
-    /// the texture around it (D229, [`crate::verify::OUTLINE_BOUND`]).
+    /// the texture around it (D238, [`crate::verify::OUTLINE_BOUND`]).
     pub outline: f32,
     /// `outline` is over the bound: the restoration is kept — it took most
     /// of the mark away — and an outline of it is said to be left.

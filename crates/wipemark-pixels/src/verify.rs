@@ -19,7 +19,7 @@
 //! Before any of those, a proposal that no gain takes a fifth of the
 //! contour away from, or whose contour grows when it is inverted at the
 //! mark's own opacity, is **no blend** and not a finding at all
-//! ([`NO_BLEND_RATIO`], D226).
+//! ([`NO_BLEND_RATIO`], D235).
 //!
 //! Only this module constructs a [`Verified`], and only a `Verified` can
 //! be restored: the type system keeps "write only what was proved".
@@ -154,7 +154,7 @@ impl Verified {
     }
 }
 
-/// What a proposal turned out to be (D226). Three outcomes, not two:
+/// What a proposal turned out to be (D235). Three outcomes, not two:
 ///
 /// * **proved** — both proofs passed; restorable;
 /// * **a blend that is not proved** — some gain takes the edge away
@@ -180,14 +180,14 @@ pub(crate) enum Outcome {
 }
 
 /// Over this `E(k*)/E(0)` the best inverse, at whatever gain, takes less
-/// than a fifth of the contour away: no blend of it (D226). A true mark
+/// than a fifth of the contour away: no blend of it (D235). A true mark
 /// measured at most 0.58 (on the densest glyph sheet), and the mark at
 /// another opacity far less at its own `k*`; opaque look-alikes and blends
 /// of other shapes run from 0.8 to past 1.
 pub const NO_BLEND_RATIO: f32 = 0.8;
 
 /// A lossy codec's error allowance, in 8-bit levels, before the inverse
-/// amplifies it by `1/(1 − α)` (D228): quality 85–95 JPEG and lossy WebP
+/// amplifies it by `1/(1 − α)` (D237): quality 85–95 JPEG and lossy WebP
 /// move a sample by up to about this much on a mark's soft edges.
 pub const LOSSY_LEVELS: f64 = 4.0;
 
@@ -285,7 +285,7 @@ impl Grid {
 
 /// What the inverse at the mark's own opacity leaves on the contour, per
 /// unit of contour: `E(1)/Σ|∇α|`, the mean luma step left along the edge.
-/// The search's refinement minimises it (D227): at the mark's true place
+/// The search's refinement minimises it (D236): at the mark's true place
 /// and size only the picture's own texture is left, anywhere else an
 /// outline is too. (`E(1)/E(0)` is not compared across places: `E(0)`
 /// moves with the shape as much as the residual does.) `None` where the
@@ -377,7 +377,7 @@ pub(crate) fn verify(
 
     // Out of range at k = 1, over the restorable support. A level of
     // rounding on a lossless file; on a lossy one the codec's allowance
-    // too, amplified by the inverse as the rounding is not (D228).
+    // too, amplified by the inverse as the rounding is not (D237).
     let quantum = match source {
         Fidelity::Lossless => 0.0,
         Fidelity::Lossy => LOSSY_LEVELS * max / 255.0,
@@ -442,7 +442,7 @@ pub(crate) fn verify(
     (Some(scores), outcome)
 }
 
-/// Over this, an outline is left (D229): a fifth of the mark's own
+/// Over this, an outline is left (D238): a fifth of the mark's own
 /// contour energy still on the contour after it was restored, beyond what
 /// the picture's texture around it accounts for. See [`outline`].
 /// Measured on a 96-pixel mark shrunk with its picture to 35 pixels by
@@ -452,7 +452,7 @@ pub(crate) fn verify(
 /// 0.23–0.25 before restoration.
 pub const OUTLINE_BOUND: f32 = 0.20;
 
-/// What a restoration left along the mark's contour (D229): the contour's
+/// What a restoration left along the mark's contour (D238): the contour's
 /// energy on the restored raster, less what the texture around the mark
 /// would put there — the mean luma gradient over a band two to eight
 /// pixels outside the rectangle, times the contour's weight — as a share

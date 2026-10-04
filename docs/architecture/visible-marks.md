@@ -89,7 +89,7 @@ them.
    and a window whose variance is below 10⁻¹⁰ per pixel is flat and scores
    0 rather than dividing rounding by rounding.
    * **Rows first**, every row whose `when` matches the size, each at **its
-     own rectangle** and nowhere else (D227): a row's mark is restored
+     own rectangle** and nowhere else (D236): a row's mark is restored
      where the row says it is, and is the one placement that can be exact.
      A row is *looked at* on half of `min_ncc` (`ROW_FLOOR`) — a
      high-contrast texture under a mark dilutes NCC at the very place the
@@ -100,7 +100,7 @@ them.
      best candidates that do not overlap (IoU ≤ 0.3), a fine whole-pixel
      pass of ±4 in size and ±stride in position, kept when it reaches
      `min_ncc`. Then a **refinement by what the second proof leaves**
-     (D227): the contour's residual after the inverse at the mark's own
+     (D236): the contour's residual after the inverse at the mark's own
      opacity, per unit of contour (`E(1)/Σ|∇α|`), over one quarter-pixel
      grid a pixel either way in origin and size, then an eighth around the
      best, each candidate drawn with the profile's own map when one is
@@ -109,7 +109,7 @@ them.
      At the best place, for a mark shrunk under 40 % of the search map
      (`SHRUNK`), every **kernel** the map could have been shrunk with is
      tried (`Kernel`: the area integral, bilinear, Catmull-Rom, Lanczos 3
-     — D229): a vendor that stamps a 96-pixel mark on a 2752–2848-pixel
+     — D238): a vendor that stamps a 96-pixel mark on a 2752–2848-pixel
      picture and hands it out at 1024-class (0.36–0.37) has shrunk the mark
      with whatever shrank the picture, and restoring it with another filter
      leaves the difference as an outline. Above 40 % only the area integral
@@ -135,7 +135,7 @@ them.
    above 10⁻⁴ and no hole beside it:
    `E(img) = Σ |∇luma(img)| · |∇α|`. Sweep `k = 0, 0.02, …, 1.6` (`k = i/50`,
    so `k = 1` is exact), invert **unclamped** with `k·α`, measure `E`.
-   **Three outcomes** (D226):
+   **Three outcomes** (D235):
    * **no blend** — no gain takes a fifth of the contour away
      (`E(k*)/E(0) > 0.8`, `NO_BLEND_RATIO`), or inverting at the mark's
      own opacity adds contour (`E(1) > E(0)`). Blended at gain `g`, the
@@ -148,7 +148,7 @@ them.
    * **proved** — `|k* − 1| ≤ gain`, `E(1)/E(0) ≤ edge_ratio`, and the
      share of samples the `k = 1` inverse puts out of range is at most
      `out_of_range`. Out of range is past one level on a lossless source;
-     on a lossy one, past `1 + 4/(1 − α)` levels (`LOSSY_LEVELS`, D228) —
+     on a lossy one, past `1 + 4/(1 − α)` levels (`LOSSY_LEVELS`, D237) —
      the codec's error is amplified by the inverse as rounding is not.
    * **a blend, not proved** — otherwise: `Refusal::Gain { k }`,
      `Edges { ratio }` or `OutOfRange { share }`, the first that failed,
@@ -170,7 +170,7 @@ them.
    clamped; a clamp beyond half a level is counted. `α ≥ opaque_above` is
    a **hole** (D155): untouched and counted. Alpha is never written. A
    `Verified` from a raster of another size is `RestoreError::Elsewhere`.
-   Then the **third check** (D229): what is left of the mark's contour on
+   Then the **third check** (D238): what is left of the mark's contour on
    the restored raster, beyond what the texture around it — the mean luma
    gradient two to eight pixels outside the rectangle — accounts for, as
    a share of the contour energy the mark had (`Restored::outline`). Over
@@ -184,7 +184,7 @@ them.
    (`an_outline_left_by_another_map_is_said`). `exact` holds only for a
    lossless source, a row's own canonical map (no resample, integer
    origin), no hole, no clamp and no outline left.
-5. **Again, once** (D165, D230). Only after a restoration, `clean`
+5. **Again, once** (D165, D239). Only after a restoration, `clean`
    examines the restored raster a second time; what verifies is restored,
    a refusal of the first pass seen again at the same place is not listed
    twice, a first-pass refusal under a second-pass proof is listed under
@@ -224,15 +224,15 @@ surface that renders a picture report (E12-5). Nothing here says
 `PixelReport::marks_left()` is true when a mark was seen and is still
 there — a blend refused, or restored around holes — which is what a
 surface's exit code reads. A proposal that was no blend is not there to
-count (D226).
+count (D235).
 
 ## Thresholds
 
 The shipped profiles carry `min_ncc` **0.70** (a row: half of it),
 `gain` **0.06**, `edge_ratio` **0.30**, `out_of_range` **0.01**,
 `opaque_above` **0.95**; the classification adds `NO_BLEND_RATIO` **0.8**
-(D226) and the lossy allowance `LOSSY_LEVELS`
-**4** (D228). Measured on the synthetic pair and the shipped maps
+(D235) and the lossy allowance `LOSSY_LEVELS`
+**4** (D237). Measured on the synthetic pair and the shipped maps
 (2026-10-04, `--nocapture`):
 
 | | |

@@ -1,7 +1,7 @@
 //! The first proof: where a profile's mark could be. Exact placement rows
 //! first, each at **its own rectangle** — never moved, so a row's mark is
 //! restored where the row says it is, and looked at on half the NCC the
-//! search needs ([`ROW_FLOOR`], D227); the bounded search when no
+//! search needs ([`ROW_FLOOR`], D236); the bounded search when no
 //! row's mark was proved (D153). A proposal below `min_ncc` is not a
 //! finding and is dropped silently.
 //!
@@ -40,7 +40,7 @@ pub(crate) struct Proposal {
     pub ncc: f32,
     /// The row resamples its map; never exact.
     pub resample: bool,
-    /// The filter the map is brought to `rect` with (D229).
+    /// The filter the map is brought to `rect` with (D238).
     pub kernel: Kernel,
 }
 
@@ -88,21 +88,21 @@ impl<'a> Scene<'a> {
 }
 
 /// A refinement is taken only when it lowers the residual the second proof
-/// leaves by at least this share of it (D227): a tenth, so a
+/// leaves by at least this share of it (D236): a tenth, so a
 /// rounding-level wobble never moves a mark.
 pub const REFINE_MARGIN: f64 = 0.10;
 
 /// A row is a place the vendor's own rule names, so it is *looked at* on
 /// less correlation than the search asks for — the search's own coarse
-/// floor, half of `min_ncc` (D227): a high-contrast texture under a mark
+/// floor, half of `min_ncc` (D236): a high-contrast texture under a mark
 /// dilutes NCC at the very place the mark is. It is never *restored* on
 /// less: the second proof is the same, and a row that shows no blend is
-/// no finding (D226).
+/// no finding (D235).
 pub const ROW_FLOOR: f32 = 0.5;
 
 /// Under this share of the search map's own size a mark is taken to have
 /// been shrunk with its picture, and the filter it was shrunk with is
-/// looked for (D229): a canonical 2752–2848-pixel output handed out at
+/// looked for (D238): a canonical 2752–2848-pixel output handed out at
 /// 1024-class is 0.36–0.37 of it. Above it only the area integral is used
 /// — GWT's own rows for the half-scale outputs are `INTER_AREA` — because
 /// a smoother filter is also what a mark *blurred* into regenerated
@@ -177,7 +177,7 @@ fn map_for(profile: &Profile, size: f32, search: usize) -> usize {
 /// leaves: one quarter-pixel grid of origins and sizes a pixel either way
 /// (NCC's whole-pixel best can be a neighbour of the mark's), by the area
 /// integral; then, at the best and for a mark shrunk under [`SHRUNK`] of
-/// the map, every [`Kernel`] the map could have been scaled with (D229);
+/// the map, every [`Kernel`] the map could have been scaled with (D238);
 /// then an eighth-pixel grid with the best kernel.
 /// Each candidate is drawn with [`map_for`] its size. `base` is kept
 /// unless the best lowers the residual by [`REFINE_MARGIN`] of `base`'s.
