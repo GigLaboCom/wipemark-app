@@ -9136,6 +9136,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "wipemark-pixels"
+version = "0.1.0"
+dependencies = [
+ "png 0.18.1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.20",
+ "wipemark-core",
+]
+
+[[package]]
 name = "wipemark-queue"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,35 @@
+[package]
+name = "wipemark-pixels"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Visible marks as data: profiles, propose, verify, restore — over a decoded raster, with no codec."
+
+# Depends on wipemark-core and nothing else in the workspace, and on no
+# image codec: the maths of a visible mark is tested at array speed, and
+# a surface that only wants to look at a raster it already holds must
+# not pay for three decoders. Files are `wipemark-picture`'s.
+# Enforced by scripts/check-dep-direction.sh.
+
+[dependencies]
+# The third shelf: core's three claims ride beside this crate's own.
+wipemark-core.workspace = true
+# The catalogue (`manifests/marks.v1.json`) and the report's JSON.
+serde.workspace = true
+serde_json.workspace = true
+# Every opacity map is pinned by sha256 in the catalogue and re-hashed on
+# load: a map that changed under a profile is a refusal, never a quiet
+# misfit.
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# Only to prove the asset conversion: every `.wma` sample is max(R, G, B)
+# of the PNG it came from. Never at run time.
+png = "0.18"
+
+[lints]
+workspace = true

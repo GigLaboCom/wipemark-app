@@ -7,6 +7,7 @@
 #   engine → wipemark-secret (an HTTP engine's key, D57)
 #   models is independent of engine
 #   image depends only on core
+#   pixels depends only on core, and image and pixels never on each other
 #   store is a leaf: it takes a path and hands back rows
 #   i18n is a leaf: apps localize, libraries stay locale-neutral
 #   nothing depends on an app crate
@@ -45,6 +46,7 @@ LIBS = {
     "wipemark-pipeline",
     "wipemark-queue",
     "wipemark-image",
+    "wipemark-pixels",
     "wipemark-intake",
     "wipemark-license",
     "wipemark-store",
@@ -98,6 +100,14 @@ ALLOWED = {
         "wipemark-log",
     },
     "wipemark-image": {"wipemark-core"},
+    # Visible marks as data: profiles, propose, verify, restore — over a
+    # raster someone else decoded. Core alone, and no image codec at all:
+    # the maths is tested at array speed on generated pictures, and a
+    # surface that only wants to look at a raster it already holds (a
+    # window's preview) must not pay for three decoders. Files are a
+    # crate above it; `wipemark-image`, which never decodes a pixel, is
+    # not a neighbour of this one in either direction.
+    "wipemark-pixels": {"wipemark-core"},
     # What was handed to the application, and what it turns out to be.
     # A leaf, and a strict one: no workspace dependency and no external
     # one either. It is reached from the panel's drop zone, from the
