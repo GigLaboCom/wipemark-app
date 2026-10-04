@@ -329,58 +329,58 @@ failed its own check is a refusal; the body stays 1 MiB (Q-V5)."
 **`CLAUDE.md`, the Watchword table**: `wipemark-images-series-report-2026-10-04`
 (this report).
 
-**`docs/plan/README.md` §4** — the series' I-numbers from **D170**:
+**`docs/plan/README.md` §4** — the series' I-numbers from **D188**:
 
 | D | I | in one line |
 |---|---|---|
-| D170 | E11-3 I1 | the MP Index's first-picture size is rewritten, never stale; unreadable → refused |
-| D171 | E11-3 I2 | `StripReport::orientation_removed` |
-| D172 | E11-3 I3 | the CLI says the rotation as a fact |
-| D173 | E11-3 I4 | Apple's `CgBI` (before `IHDR`) stays refused |
-| D174 | E11-3 I5 | only the first MPF header counts |
-| D175 | E12-1 I6 | a map at a sub-pixel place is an exact area integral |
-| D176 | E12-1 I7 | `restore` returns a `Result` |
-| D177 | E12-1 I8 | `Opaque` only when every pixel is a hole |
-| D178 | E12-1 I9 | contour pixels beside a hole are not measured |
-| D179 | E12-1 I10 | a flat window scores 0 |
-| D180 | E12-1 I11 | the search runs only when no row reaches `min_ncc` |
-| D181 | E12-1 I12 | the choice among overlapping findings, and `also_tried` |
-| D182 | E12-1 I13 | `logo_map` refused in this version |
-| D183 | E12-1 I14 | all four layouts |
-| D184 | E12-1 I15 | V2's small rows owed; the search covers them meanwhile |
-| D185 | E12-2 I16 | calibration maths in `pixels`, the tool its example |
-| D186 | E12-2 I17 | locating against a box mean |
-| D187 | E12-2 I18 | grey kept out of the fit to test the model |
-| D188 | E12-2 I19 | opacity under half a level is zero |
-| D189 | E12-2 I20 | the JPEG gate's logo tolerance is 2 levels |
-| D190 | E12-3 I21 | `reframe` filtered by `strip`'s own `removes` |
-| D191 | E12-3 I22 | a colour change takes `bKGD`/`sBIT`/`hIST` |
-| D192 | E12-3 I23 | JPEG metadata among coding segments moves ahead; MPF refused |
-| D193 | E12-3 I24 | the three-part proof |
-| D194 | E12-3 I25 | interlace not written, said |
-| D195 | E12-3 I26 | JPEG/lossy WebP examined before they were restorable (superseded by D197) |
-| D196 | E12-3 I27 | `PictureOptions.catalogue`; a catalogue that does not load is "not examined" |
-| D197 | E12-4 I28 | JPEG out at 4:4:4, quality 95 |
-| D198 | E12-4 I29 | a grey JPEG stays grey |
-| D199 | E12-4 I30 | a CMYK JPEG is not restored |
-| D200 | E12-4 I31 | the lossy proof's 34 dB floor |
-| D201 | E12-5 I32 | no flag (Q-V1) |
-| D202 | E12-5 I33 | a mark left writes the result and exits 3 |
-| D203 | E12-5 I34 | not examined is 3 when the pass should have run |
-| D204 | E12-5 I35 | JSON stays E11's at the top level |
-| D205 | E12-5 I36 | MCP returns the image when a mark is left |
-| D206 | E12-5 I37 | SARIF `visible-<profile>` |
-| D207 | E12-5 I38 | `pixels` a dev-dependency of `i18n` |
+| D188 | E11-3 I1 | the MP Index's first-picture size is rewritten, never stale; unreadable → refused |
+| D189 | E11-3 I2 | `StripReport::orientation_removed` |
+| D190 | E11-3 I3 | the CLI says the rotation as a fact |
+| D191 | E11-3 I4 | Apple's `CgBI` (before `IHDR`) stays refused |
+| D192 | E11-3 I5 | only the first MPF header counts |
+| D193 | E12-1 I6 | a map at a sub-pixel place is an exact area integral |
+| D194 | E12-1 I7 | `restore` returns a `Result` |
+| D195 | E12-1 I8 | `Opaque` only when every pixel is a hole |
+| D196 | E12-1 I9 | contour pixels beside a hole are not measured |
+| D197 | E12-1 I10 | a flat window scores 0 |
+| D198 | E12-1 I11 | the search runs only when no row reaches `min_ncc` |
+| D199 | E12-1 I12 | the choice among overlapping findings, and `also_tried` |
+| D200 | E12-1 I13 | `logo_map` refused in this version |
+| D201 | E12-1 I14 | all four layouts |
+| D202 | E12-1 I15 | V2's small rows owed; the search covers them meanwhile |
+| D203 | E12-2 I16 | calibration maths in `pixels`, the tool its example |
+| D204 | E12-2 I17 | locating against a box mean |
+| D205 | E12-2 I18 | grey kept out of the fit to test the model |
+| D206 | E12-2 I19 | opacity under half a level is zero |
+| D207 | E12-2 I20 | the JPEG gate's logo tolerance is 2 levels |
+| D208 | E12-3 I21 | `reframe` filtered by `strip`'s own `removes` |
+| D209 | E12-3 I22 | a colour change takes `bKGD`/`sBIT`/`hIST` |
+| D210 | E12-3 I23 | JPEG metadata among coding segments moves ahead; MPF refused |
+| D211 | E12-3 I24 | the three-part proof |
+| D212 | E12-3 I25 | interlace not written, said |
+| D213 | E12-3 I26 | JPEG/lossy WebP examined before they were restorable (superseded by D215) |
+| D214 | E12-3 I27 | `PictureOptions.catalogue`; a catalogue that does not load is "not examined" |
+| D215 | E12-4 I28 | JPEG out at 4:4:4, quality 95 |
+| D216 | E12-4 I29 | a grey JPEG stays grey |
+| D217 | E12-4 I30 | a CMYK JPEG is not restored |
+| D218 | E12-4 I31 | the lossy proof's 34 dB floor |
+| D219 | E12-5 I32 | no flag (Q-V1) |
+| D220 | E12-5 I33 | a mark left writes the result and exits 3 |
+| D221 | E12-5 I34 | not examined is 3 when the pass should have run |
+| D222 | E12-5 I35 | JSON stays E11's at the top level |
+| D223 | E12-5 I36 | MCP returns the image when a mark is left |
+| D224 | E12-5 I37 | SARIF `visible-<profile>` |
+| D225 | E12-5 I38 | `pixels` a dev-dependency of `i18n` |
 
 **The plan's D150–D167**: D150 (two crates) confirmed — `wipemark-pixels`
-also holds the calibration maths (D185); D151 confirmed; D152 confirmed;
-D153 confirmed, its supersampling amended by D175; D154 confirmed (values
+also holds the calibration maths (D203); D151 confirmed; D152 confirmed;
+D153 confirmed, its supersampling amended by D193; D154 confirmed (values
 unmeasured); D155 confirmed; D156 confirmed — the translations landed with
 E12-5; D157 confirmed; **D158 amended** (owner, 2026-10-04: a JPEG is
 re-encoded at quality 95, no coefficient codec, no block patch; a lossy
 WebP is written lossless); D159 confirmed; **D160 amended** (no
 `--keep-visible`: marks found are removed); D161 confirmed (no path, 1 MiB);
-D162 confirmed (the tool is `pixels`' example — D185); D163 confirmed in
+D162 confirmed (the tool is `pixels`' example — D203); D163 confirmed in
 form, the assets owed to the host; D164 confirmed, numbers owed; D165
 confirmed; D166, D167 unchanged.
 

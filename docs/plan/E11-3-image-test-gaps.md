@@ -40,7 +40,7 @@ in `docs/plan/reports/E11-3-mutate.py` for the host.
   "may now show turned on its side" after *every* removed EXIF block,
   whether it carried an orientation or not.
 
-## Decisions (I-numbers; proposed from D170 by the series report)
+## Decisions (I-numbers; proposed from D188 by the series report)
 
 * **I1 — the MP Index is rewritten, not refused.** When blocks before the
   `MPF` header go, the primary's Individual Image Size becomes the old
