@@ -1354,6 +1354,7 @@ mod tests {
                         );
                     }
                 }
+                Tool::Rewrite => unreachable!("report_calls holds Layer A calls only"),
             }
         }
     }
@@ -1371,6 +1372,7 @@ mod tests {
             let shelf = match tool {
                 Tool::Inspect => &structured["not_established"],
                 Tool::Clean => &structured["report"]["not_established"],
+                Tool::Rewrite => unreachable!("report_calls holds Layer A calls only"),
             };
             assert_eq!(shelf, &Value::Array(ids.clone()), "{tool:?} {arguments}");
         }
