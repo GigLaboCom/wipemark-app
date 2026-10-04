@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "profiles": [
+    {
+      "id": "gemini-sparkle-v1",
+      "vendor": "google",
+      "product": "gemini",
+      "mark": "sparkle",
+      "observed": { "from": null, "until": "2026-05" },
+      "status": "stable",
+      "blend": { "model": "encoded", "logo": [255, 255, 255], "logo_map": null },
+      "opaque_above": 0.95,
+      "alpha": [
+        { "id": "gemini-v1-48", "asset": "gemini-v1-48.wma", "sha256": "pending: run crates/wipemark-pixels/marks/gwt/extract.py", "size": [48, 48] },
+        { "id": "gemini-v1-96", "asset": "gemini-v1-96.wma", "sha256": "pending: run crates/wipemark-pixels/marks/gwt/extract.py", "size": [96, 96] }
+      ],
+      "placements": [
+        { "when": { "min_width": 1025, "min_height": 1025 }, "corner": "bottom-right", "margin": [64, 64], "alpha": "gemini-v1-96" },
+        { "when": {}, "corner": "bottom-right", "margin": [32, 32], "alpha": "gemini-v1-48" }
+      ],
+      "search": { "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "gemini-v1-96" },
+      "detect": { "min_ncc": 0.70 },
+      "verify": { "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 },
+      "source": { "from": "allenk/GeminiWatermarkTool", "commit": "7c6a99f", "licence": "MIT", "copyright": "Copyright (c) 2024 AllenK (Kwyshell)" }
+    },
+    {
+      "id": "gemini-sparkle-v2",
+      "vendor": "google",
+      "product": "gemini",
+      "mark": "sparkle",
+      "observed": { "from": "2026-05", "until": null },
+      "status": "stable",
+      "blend": { "model": "encoded", "logo": [255, 255, 255], "logo_map": null },
+      "opaque_above": 0.95,
+      "alpha": [
+        { "id": "gemini-v2-36", "asset": "gemini-v2-36.wma", "sha256": "pending: run crates/wipemark-pixels/marks/gwt/extract.py", "size": [36, 36] },
+        { "id": "gemini-v2-96", "asset": "gemini-v2-96.wma", "sha256": "pending: run crates/wipemark-pixels/marks/gwt/extract.py", "size": [96, 96] }
+      ],
+      "placements": [
+        { "when": { "min_width": 1025, "min_height": 1025 }, "corner": "bottom-right", "margin": [192, 192], "alpha": "gemini-v2-96" }
+      ],
+      "search": { "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "gemini-v2-96" },
+      "detect": { "min_ncc": 0.70 },
+      "verify": { "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 },
+      "source": { "from": "allenk/GeminiWatermarkTool", "commit": "7c6a99f", "licence": "MIT", "copyright": "Copyright (c) 2024 AllenK (Kwyshell)" }
+    }
+  ]
+}

@@ -10,6 +10,8 @@ members = [
     "crates/wipemark-pipeline",
     "crates/wipemark-queue",
     "crates/wipemark-image",
+    "crates/wipemark-pixels",
+    "crates/wipemark-picture",
     "crates/wipemark-intake",
     "crates/wipemark-license",
     "crates/wipemark-log",
@@ -143,6 +145,8 @@ wipemark-models = { path = "crates/wipemark-models" }
 wipemark-pipeline = { path = "crates/wipemark-pipeline" }
 wipemark-queue = { path = "crates/wipemark-queue" }
 wipemark-image = { path = "crates/wipemark-image" }
+wipemark-pixels = { path = "crates/wipemark-pixels" }
+wipemark-picture = { path = "crates/wipemark-picture" }
 wipemark-intake = { path = "crates/wipemark-intake" }
 wipemark-license = { path = "crates/wipemark-license" }
 wipemark-log = { path = "crates/wipemark-log" }
@@ -187,6 +191,10 @@ private_intra_doc_links = "allow"
 gpui = { opt-level = 3 }
 gpui_platform = { opt-level = 3 }
 gpui_macros = { opt-level = 3 }
+# The NCC and verification loops of a visible-mark search are orders of
+# magnitude slower unoptimised, and the false-positive suite runs two
+# thousand of them: optimised in every profile, like the framework above.
+wipemark-pixels = { opt-level = 3 }
 
 [profile.release]
 lto = "thin"

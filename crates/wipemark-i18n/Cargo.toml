@@ -33,6 +33,10 @@ fluent-syntax.workspace = true
 # there must turn this suite red rather than silently print English.
 # Direction is preserved — core is the leaf everything may depend on.
 wipemark-core.workspace = true
+# The same gate for a picture report: its shelf leads with
+# `invisible-pixel-marks`, which `wipemark-pixels` defines, and a picture
+# report in German must not say it in English. Dev only, like core.
+wipemark-pixels.workspace = true
 
 [lints]
 workspace = true

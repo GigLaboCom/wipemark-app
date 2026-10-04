@@ -19,25 +19,33 @@
 //! never listed, never removed — or *metadata*, which is a
 //! [`MetadataFinding`]. [`strip`] keeps the blocks it was not asked to
 //! drop and concatenates them; the only bytes it ever computes are a
-//! WebP's RIFF size and two bits of its `VP8X` flags, and only when a
-//! chunk was removed. See `docs/architecture/images.md`.
+//! WebP's RIFF size and two bits of its `VP8X` flags, and a JPEG's MP
+//! Index size of the first picture, and only when a block before it was
+//! removed. See `docs/architecture/images.md`.
 //!
 //! # Status
 //!
 //! PNG, JPEG and WebP (E11-1). TIFF, HEIC and AVIF are recognised and
-//! refused by name ([`ImageError::NotYet`]) until E11-2. Nothing in the
-//! product calls this crate yet: the surfaces are a later step.
+//! refused by name ([`ImageError::NotYet`]). Two surfaces call it (E11-2):
+//! `wipemark-cli inspect|clean|audit` and the MCP tools `inspect_image`
+//! and `clean_image`, both through [`ImageReport::to_json`] and
+//! [`StripReport::to_json`] (`json.rs`). No window does yet.
 
 #![forbid(unsafe_code)]
 
+mod exif;
 mod jpeg;
+mod json;
 mod png;
+mod reframe;
 pub mod signatures;
 mod text;
 mod webp;
 
 use std::ops::Range;
 
+pub use json::spell;
+pub use reframe::reframe;
 pub use signatures::{Generator, SourceType};
 pub use text::INFLATE_LIMIT;
 use wipemark_core::report::not_established;
@@ -59,6 +67,40 @@ pub enum ImageContainer {
 }
 
 impl ImageContainer {
+    pub const ALL: [ImageContainer; 6] = [
+        ImageContainer::Png,
+        ImageContainer::Jpeg,
+        ImageContainer::WebP,
+        ImageContainer::Tiff,
+        ImageContainer::Heic,
+        ImageContainer::Avif,
+    ];
+
+    /// The id `to_json` writes. A format, never translated.
+    pub fn id(self) -> &'static str {
+        match self {
+            ImageContainer::Png => "png",
+            ImageContainer::Jpeg => "jpeg",
+            ImageContainer::WebP => "webp",
+            ImageContainer::Tiff => "tiff",
+            ImageContainer::Heic => "heic",
+            ImageContainer::Avif => "avif",
+        }
+    }
+
+    /// The format's own name, as a person reads it — a proper noun, the
+    /// spelling `wipemark_intake::Format::name` uses, never translated.
+    pub fn name(self) -> &'static str {
+        match self {
+            ImageContainer::Png => "PNG",
+            ImageContainer::Jpeg => "JPEG",
+            ImageContainer::WebP => "WebP",
+            ImageContainer::Tiff => "TIFF",
+            ImageContainer::Heic => "HEIC",
+            ImageContainer::Avif => "AVIF",
+        }
+    }
+
     /// Which container the bytes open as — the signature its parser
     /// needs anyway, nothing more. Recognising what a dropped thing *is*
     /// belongs to `wipemark-intake`; this crate is handed an image and
@@ -115,6 +157,32 @@ pub enum MetadataKind {
 }
 
 impl MetadataKind {
+    pub const ALL: [MetadataKind; 8] = [
+        MetadataKind::C2pa,
+        MetadataKind::Exif,
+        MetadataKind::Xmp,
+        MetadataKind::Iptc,
+        MetadataKind::GeneratorParameters,
+        MetadataKind::OtherText,
+        MetadataKind::Rendering,
+        MetadataKind::Other,
+    ];
+
+    /// The id `to_json` writes, and the key a surface's catalogue is
+    /// looked up by (`image-kind-<id>`). A format.
+    pub fn id(self) -> &'static str {
+        match self {
+            MetadataKind::C2pa => "c2pa",
+            MetadataKind::Exif => "exif",
+            MetadataKind::Xmp => "xmp",
+            MetadataKind::Iptc => "iptc",
+            MetadataKind::GeneratorParameters => "generator-parameters",
+            MetadataKind::OtherText => "other-text",
+            MetadataKind::Rendering => "rendering",
+            MetadataKind::Other => "other",
+        }
+    }
+
     /// Whether this kind is what the product is actually here to remove,
     /// as opposed to camera data the user may want to keep. A block of
     /// another kind is AI provenance when its *evidence* says so — see
@@ -141,6 +209,18 @@ pub enum Signal {
 }
 
 impl Signal {
+    /// The id `to_json` writes — the signal alone; the generator and the
+    /// source type it carries are their own keys. A format.
+    pub fn id(self) -> &'static str {
+        match self {
+            Signal::C2paManifest => "c2pa-manifest",
+            Signal::C2paReference => "c2pa-reference",
+            Signal::DigitalSourceType(_) => "digital-source-type",
+            Signal::GeneratorKey(_) => "generator-key",
+            Signal::GeneratorText(_) => "generator-text",
+        }
+    }
+
     pub fn is_c2pa(self) -> bool {
         matches!(self, Signal::C2paManifest | Signal::C2paReference)
     }
@@ -232,6 +312,18 @@ pub enum Scope {
     AllMetadata,
 }
 
+impl Scope {
+    pub const ALL: [Scope; 2] = [Scope::AiProvenance, Scope::AllMetadata];
+
+    /// The id a surface takes it by — the MCP `scope` argument. A format.
+    pub fn id(self) -> &'static str {
+        match self {
+            Scope::AiProvenance => "ai-provenance",
+            Scope::AllMetadata => "all-metadata",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct StripOptions {
     pub scope: Scope,
@@ -250,6 +342,11 @@ pub struct StripReport {
     /// Re-checked on the *output*, not inferred from what was removed.
     pub still_has_c2pa: bool,
     pub still_has_ai_metadata: bool,
+    /// The EXIF Orientation (2–8) a removed block carried: the rotation
+    /// or mirroring a viewer applied to show the picture upright, gone
+    /// with the block — EXIF leaves whole. `None` when no removed block
+    /// carried one other than 1. The first such block's, in file order.
+    pub orientation_removed: Option<u16>,
     /// As [`ImageReport::not_established`].
     pub not_established: Vec<&'static str>,
 }
@@ -282,12 +379,53 @@ pub enum Defect {
     InflateLimit,
 }
 
+impl Defect {
+    /// Every id [`Defect::id`] can return, in declaration order.
+    pub const IDS: [&'static str; 11] = [
+        "truncated",
+        "bad-signature",
+        "header-not-first",
+        "no-end",
+        "bad-length",
+        "bad-chunk-type",
+        "bad-marker",
+        "riff-size",
+        "bad-text",
+        "inflate",
+        "inflate-limit",
+    ];
+
+    /// The id a surface words it by (`image-defect-<id>`), and the one an
+    /// MCP refusal and a log line carry. A format.
+    pub fn id(self) -> &'static str {
+        match self {
+            Defect::Truncated => Self::IDS[0],
+            Defect::BadSignature => Self::IDS[1],
+            Defect::HeaderNotFirst => Self::IDS[2],
+            Defect::NoEnd => Self::IDS[3],
+            Defect::BadLength => Self::IDS[4],
+            Defect::BadChunkType => Self::IDS[5],
+            Defect::BadMarker(_) => Self::IDS[6],
+            Defect::RiffSize { .. } => Self::IDS[7],
+            Defect::BadText => Self::IDS[8],
+            Defect::Inflate => Self::IDS[9],
+            Defect::InflateLimit => Self::IDS[10],
+        }
+    }
+}
+
 /// What this build will not do to a well-formed file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unsupported {
-    /// Removing a JPEG segment after an `MPF` header would move the
-    /// pictures its offsets point at.
+    /// A removal would leave a JPEG's MPF index wrong: a segment after
+    /// the `MPF` header would move the pictures its offsets point at, or
+    /// the index's size of the first picture — the one field this crate
+    /// rewrites there — cannot be read, or is smaller than what went.
     MultiPicture,
+    /// A picture whose pixels changed cannot be framed in the original:
+    /// the original is animated or carries a critical chunk this build
+    /// does not know, or the new image is another container.
+    Reframe,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -315,6 +453,8 @@ pub enum ImageError {
 pub(crate) struct Block {
     pub range: Range<usize>,
     pub finding: Option<MetadataFinding>,
+    /// An EXIF block's Orientation, when it turns the picture (2–8).
+    pub orientation: Option<u16>,
 }
 
 impl Block {
@@ -322,7 +462,15 @@ impl Block {
         Block {
             range,
             finding: None,
+            orientation: None,
         }
+    }
+
+    /// The block, with the Orientation read out of `exif` — a TIFF
+    /// stream with or without its `Exif\0\0`.
+    pub fn oriented(mut self, exif: &[u8]) -> Self {
+        self.orientation = exif::orientation(exif);
+        self
     }
 
     pub fn meta(
@@ -343,6 +491,7 @@ impl Block {
         Block {
             range,
             finding: Some(finding),
+            orientation: None,
         }
     }
 }
@@ -354,6 +503,8 @@ pub(crate) enum Extra {
     Jpeg {
         /// The block holding an `MPF` header, if any.
         mpf: Option<usize>,
+        /// Where its index keeps the first picture's size.
+        index: MpIndex,
     },
     WebP {
         /// The block holding `VP8X`, if any.
@@ -361,6 +512,21 @@ pub(crate) enum Extra {
         /// Where the RIFF ends; a block from here on is a trailer.
         riff_end: usize,
     },
+}
+
+/// Where an MPF header's index keeps the size of the first picture —
+/// SOI to EOI, which every removal before the header shrinks (CIPA
+/// DC-007, the MP Entry's Individual Image Size).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MpIndex {
+    /// No MPF header, or one whose index has no MP Entry: nothing to go
+    /// stale.
+    None,
+    /// The four bytes at `at` (in the file), big-endian or not.
+    Size { at: usize, big: bool },
+    /// An index this build cannot read: a removal before it is refused
+    /// rather than leaving a field it could not check.
+    Unreadable,
 }
 
 #[derive(Debug, Clone)]
@@ -451,13 +617,21 @@ pub fn strip(bytes: &[u8], options: &StripOptions) -> Result<(Vec<u8>, StripRepo
         .filter(|(_, d)| **d)
         .filter_map(|(b, _)| b.finding.clone())
         .collect();
+    let orientation = parsed
+        .blocks
+        .iter()
+        .zip(&drop)
+        .filter(|(_, d)| **d)
+        .find_map(|(b, _)| b.orientation);
 
     let output = if removed.is_empty() {
         bytes.to_vec()
     } else {
         rebuild(bytes, &parsed, &drop)?
     };
-    finish(parsed.container, removed, output)
+    let (output, mut report) = finish(parsed.container, removed, output)?;
+    report.orientation_removed = orientation;
+    Ok((output, report))
 }
 
 /// The report of a strip, read off its output. Never from bookkeeping:
@@ -475,6 +649,7 @@ fn finish(
         still_has_ai_metadata: after.has_ai_metadata(),
         removed,
         kept: after.findings,
+        orientation_removed: None,
         not_established: after.not_established,
     };
     Ok((output, report))
@@ -483,17 +658,43 @@ fn finish(
 fn rebuild(bytes: &[u8], parsed: &Parsed, drop: &[bool]) -> Result<Vec<u8>, ImageError> {
     match parsed.extra {
         Extra::Png => Ok(concat(bytes, &parsed.blocks, drop)),
-        Extra::Jpeg { mpf } => {
+        Extra::Jpeg { mpf, index } => {
+            let mut out = concat(bytes, &parsed.blocks, drop);
             if let Some(m) = mpf {
+                let refuse = |i: usize| ImageError::Unsupported {
+                    container: ImageContainer::Jpeg,
+                    offset: parsed.blocks[i].range.start as u64,
+                    what: Unsupported::MultiPicture,
+                };
                 if let Some(i) = (m + 1..drop.len()).find(|&i| drop[i]) {
-                    return Err(ImageError::Unsupported {
-                        container: ImageContainer::Jpeg,
-                        offset: parsed.blocks[i].range.start as u64,
-                        what: Unsupported::MultiPicture,
-                    });
+                    return Err(refuse(i));
+                }
+                // Everything removed lies before the header: the pictures
+                // after EOI and the offsets to them move together, and
+                // only the first picture's size changes.
+                let gone: usize = parsed.blocks[..m]
+                    .iter()
+                    .zip(drop)
+                    .filter(|(_, d)| **d)
+                    .map(|(b, _)| b.range.len())
+                    .sum();
+                match index {
+                    MpIndex::None => {}
+                    MpIndex::Unreadable => return Err(refuse(m)),
+                    MpIndex::Size { at, big } => {
+                        let size = jpeg::read_u32(bytes, at, big)
+                            .and_then(|size| size.checked_sub(u32::try_from(gone).ok()?))
+                            .ok_or_else(|| refuse(m))?;
+                        let field = if big {
+                            size.to_be_bytes()
+                        } else {
+                            size.to_le_bytes()
+                        };
+                        out[at - gone..at - gone + 4].copy_from_slice(&field);
+                    }
                 }
             }
-            Ok(concat(bytes, &parsed.blocks, drop))
+            Ok(out)
         }
         Extra::WebP { vp8x, riff_end } => Ok(webp::rebuild(bytes, parsed, drop, vp8x, riff_end)),
     }

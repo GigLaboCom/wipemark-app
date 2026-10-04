@@ -1,5 +1,7 @@
 //! `audit <dir> [--json | --sarif]`: every text file under a folder, read
-//! the way `inspect` reads one, for a pre-commit hook or a CI step.
+//! the way `inspect` reads one, for a pre-commit hook or a CI step — and
+//! every PNG, JPEG and WebP, whose metadata `wipemark-image` inspects the
+//! way `inspect` does one picture (D139).
 //!
 //! # What is walked
 //!
@@ -20,17 +22,21 @@
 //!
 //! # Three outcomes per file, and the exit code
 //!
-//! * **scanned** — text, decoded, `wipemark_core::inspect` ran;
+//! * **scanned** — text, decoded, `wipemark_core::inspect` ran; or a
+//!   picture, `wipemark_image::inspect` ran over its metadata;
 //! * **skipped** — not text, empty, hidden, a link to a folder, not a
-//!   regular file: counted, listed in `--json`, never an error;
+//!   regular file, a TIFF, HEIC or AVIF (not in this version yet):
+//!   counted, listed in `--json`, never an error;
 //! * **unreadable** — permission denied, an I/O error, an eight-bit
 //!   encoding this version does not name, an invalid sequence in a file
-//!   intake called text, a folder that could not be listed.
+//!   intake called text, a picture this version could not read, a folder
+//!   that could not be listed.
 //!
 //! Exit **3** if anything was unreadable — even when another file had
 //! findings, because a hook must not read a scan with a hole in it as a
 //! complete one ("inconclusive is not clean", and it beats 1); else **1**
-//! if any report is suspicious (exactly `inspect`'s rule); else **0**.
+//! if any report is suspicious or any picture carries AI provenance
+//! (exactly `inspect`'s rules); else **0**.
 //! A `<dir>` that is not there or is not a folder is **2**.
 //!
 //! # Three renderings of one walk
@@ -41,7 +47,8 @@
 //! `--json` carries every file with `inspect --json`'s report spliced in
 //! byte for byte, third shelf included. `--sarif` is SARIF 2.1.0 for code
 //! scanning, with columns in code points — see [`locate`] and
-//! [`sarif`]. Its text is English whatever the user's language: SARIF is a
+//! [`sarif`] — and, for a picture, a byte region: a metadata block has an
+//! offset and a length and no line. Its text is English whatever the user's language: SARIF is a
 //! format, read by dashboards, and a rule description that changed with
 //! the locale of the CI runner would be a rule nobody could match.
 //!
@@ -54,12 +61,15 @@ use std::path::Path;
 use wipemark_core::report::not_established;
 use wipemark_core::{Confidence, InspectReport, Options, UnicodeClass, UnicodeFinding};
 use wipemark_i18n::{args, FluentArgs, LanguageIdentifier, Localizer, Message, Rendering};
+use wipemark_image::{ImageError, ImageReport, MetadataFinding, MetadataKind, Signal};
 use wipemark_log::Elided;
+use wipemark_picture::{NotExamined, PictureInspection, PictureOptions, Visible};
+use wipemark_pixels::Finding;
 
-use crate::input::{self, Source, Unread};
+use crate::input::{self, Content, Source, Unread};
 use crate::report::{self, Say};
 use crate::run::{self, Io};
-use crate::Exit;
+use crate::{image, Exit};
 
 /// Which of the three renderings. `--json` and `--sarif` conflict in clap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +87,8 @@ enum Skip {
     NotAFile,
     NotText,
     Empty,
+    /// A TIFF, HEIC or AVIF: a picture this version does not open yet.
+    ImageNotYet,
 }
 
 impl Skip {
@@ -87,6 +99,7 @@ impl Skip {
             Skip::NotAFile => "not-a-file",
             Skip::NotText => "not-text",
             Skip::Empty => "empty",
+            Skip::ImageNotYet => "image-not-yet",
         }
     }
 }
@@ -98,8 +111,34 @@ enum Status {
         /// Where each finding is, for SARIF — computed only when asked.
         spots: Vec<Spot>,
     },
+    /// A picture whose metadata was read, and its pixels examined for
+    /// visible marks — or not, and why.
+    Image(PictureInspection),
     Skipped(Skip),
     Unreadable(Unread),
+    /// A picture this version could not read.
+    ImageUnreadable(ImageError),
+}
+
+impl Status {
+    fn scanned(&self) -> bool {
+        matches!(self, Status::Scanned { .. } | Status::Image(_))
+    }
+
+    fn with_findings(&self) -> bool {
+        match self {
+            Status::Scanned { report, .. } => report.suspicious,
+            Status::Image(report) => report.metadata.has_ai_metadata() || report.has_visible_mark(),
+            _ => false,
+        }
+    }
+
+    fn unreadable(&self) -> bool {
+        // A picture whose pixels should have been examined and were not is
+        // a hole in the scan too: 3 beats 1.
+        matches!(self, Status::Unreadable(_) | Status::ImageUnreadable(_))
+            || matches!(self, Status::Image(report) if report.inconclusive())
+    }
 }
 
 struct Entry {
@@ -131,13 +170,11 @@ pub(crate) fn run(dir: &Path, output: Output, io: &mut Io) -> Exit {
 
     let scanned = entries
         .iter()
-        .filter(|entry| matches!(entry.status, Status::Scanned { .. }))
+        .filter(|entry| entry.status.scanned())
         .count();
     let with_findings = entries
         .iter()
-        .filter(
-            |entry| matches!(&entry.status, Status::Scanned { report, .. } if report.suspicious),
-        )
+        .filter(|entry| entry.status.with_findings())
         .count();
     let skipped = entries
         .iter()
@@ -145,7 +182,7 @@ pub(crate) fn run(dir: &Path, output: Output, io: &mut Io) -> Exit {
         .count();
     let unreadable = entries
         .iter()
-        .filter(|entry| matches!(entry.status, Status::Unreadable(_)))
+        .filter(|entry| entry.status.unreadable())
         .count();
     let summary = Summary {
         scanned,
@@ -281,9 +318,22 @@ fn skipped(path: String, skip: Skip) -> Entry {
 
 /// One file, through the path `inspect` takes.
 fn scan(full: &Path, path: String, locate_findings: bool) -> Entry {
-    let status = match input::read(&Source::File(full.to_owned()), &mut std::io::empty()) {
-        Ok(read) if read.text.is_empty() => Status::Skipped(Skip::Empty),
-        Ok(read) => {
+    let status = match input::read_any(&Source::File(full.to_owned()), &mut std::io::empty()) {
+        Ok(Content::Image(picture)) => {
+            match wipemark_picture::inspect(&picture.bytes, &PictureOptions::default()) {
+                Ok(report) => Status::Image(report),
+                // Recognised, and not one this version opens: nothing was
+                // looked for, and the listing says which.
+                Err(ImageError::NotYet(_) | ImageError::UnknownContainer) => {
+                    Status::Skipped(Skip::ImageNotYet)
+                }
+                // A picture that could not be read is a hole in the scan, as
+                // an unreadable text is: 3 beats 1.
+                Err(error) => Status::ImageUnreadable(error),
+            }
+        }
+        Ok(Content::Text(read)) if read.text.is_empty() => Status::Skipped(Skip::Empty),
+        Ok(Content::Text(read)) => {
             let report = wipemark_core::inspect(&read.text, &Options::default());
             let spots = if locate_findings {
                 let offsets: Vec<usize> = reported(&report)
@@ -326,6 +376,28 @@ struct Summary {
 fn human(say: Say, root: &str, entries: &[Entry], summary: &Summary) -> String {
     let mut lines = Vec::new();
     for entry in entries {
+        if let Status::Image(report) = &entry.status {
+            if let Some(line) = image_line(say, &entry.path, &report.metadata) {
+                lines.push(line);
+            }
+            let found = visible_findings(&entry.status);
+            if !found.is_empty() {
+                let profiles = found
+                    .iter()
+                    .map(|f| f.profile.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                lines.push(say(
+                    Message::CliAuditImageVisible,
+                    &args!(
+                        "path" => entry.path.as_str(),
+                        "count" => found.len(),
+                        "profiles" => profiles,
+                    ),
+                ));
+            }
+            continue;
+        }
         let Status::Scanned { report, .. } = &entry.status else {
             continue;
         };
@@ -372,6 +444,14 @@ fn human(say: Say, root: &str, entries: &[Entry], summary: &Summary) -> String {
             Status::Unreadable(unread) => {
                 Some(format!("  {}", run::unread_line(say, &entry.path, unread)))
             }
+            Status::ImageUnreadable(error) => {
+                Some(format!("  {}", image::error_line(say, &entry.path, error)))
+            }
+            Status::Image(report) if report.inconclusive() => Some(format!(
+                "  {}: {}",
+                entry.path,
+                not_examined_line(say, &report.visible)
+            )),
             _ => None,
         })
         .collect();
@@ -381,6 +461,54 @@ fn human(say: Say, root: &str, entries: &[Entry], summary: &Summary) -> String {
     }
     lines.extend(report::footer(say, wipemark_core::UNICODE_VERSION));
     run::joined(lines)
+}
+
+/// Why a picture's pixels were not examined, in words.
+fn not_examined_line(say: Say, visible: &Visible) -> String {
+    let message = match visible {
+        Visible::NotExamined(NotExamined::Catalogue) => {
+            Message::CliImageVisibleNotExaminedCatalogue
+        }
+        Visible::NotExamined(NotExamined::Animated) => Message::CliImageVisibleNotExaminedAnimated,
+        _ => Message::CliImageVisibleNotExaminedDecode,
+    };
+    say(message, &FluentArgs::new())
+}
+
+/// The line a picture with AI provenance gets: how many blocks, and of
+/// which kinds. `None` for a picture with none.
+fn image_line(say: Say, path: &str, report: &ImageReport) -> Option<String> {
+    let mut counted: Vec<(MetadataKind, u64)> = Vec::new();
+    for finding in report.findings.iter().filter(|f| f.is_ai_provenance()) {
+        match counted.iter_mut().find(|(kind, _)| *kind == finding.kind) {
+            Some((_, count)) => *count += 1,
+            None => counted.push((finding.kind, 1)),
+        }
+    }
+    if counted.is_empty() {
+        return None;
+    }
+    counted.sort_by_key(|(kind, _)| MetadataKind::ALL.iter().position(|k| k == kind));
+    let total: u64 = counted.iter().map(|(_, count)| count).sum();
+    let kinds = counted
+        .iter()
+        .map(|(kind, count)| {
+            format!(
+                "{} ×{count}",
+                say(image::kind_label(*kind), &FluentArgs::new())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(say(
+        Message::CliAuditImage,
+        &args!(
+            "path" => path,
+            "container" => report.container.name(),
+            "count" => total,
+            "kinds" => kinds,
+        ),
+    ))
 }
 
 /// The id `--json` gives an unreadable file's reason. A format.
@@ -411,6 +539,12 @@ fn json(root: &str, entries: &[Entry], summary: &Summary) -> String {
         }
         let (status, reason, report) = match &entry.status {
             Status::Scanned { report, .. } => ("scanned", "null".to_owned(), report.to_json()),
+            // The picture's own report, spliced as `inspect --json` prints
+            // it — `container` where a text's has `unicode_version`.
+            Status::Image(report) => ("scanned", "null".to_owned(), report.to_json()),
+            Status::ImageUnreadable(_) => {
+                ("unreadable", string("malformed-image"), "null".to_owned())
+            }
             Status::Skipped(skip) => ("skipped", string(skip.id()), "null".to_owned()),
             Status::Unreadable(unread) => {
                 ("unreadable", string(unread_id(unread)), "null".to_owned())
@@ -572,7 +706,7 @@ fn sarif(entries: &[Entry]) -> serde_json::Value {
         }
     }
     classes.sort_by_key(|class| UnicodeClass::ALL.iter().position(|c| c == class));
-    let rules: Vec<serde_json::Value> = classes
+    let mut rules: Vec<serde_json::Value> = classes
         .iter()
         .map(|class| {
             serde_json::json!({
@@ -581,6 +715,46 @@ fn sarif(entries: &[Entry]) -> serde_json::Value {
             })
         })
         .collect();
+
+    // A picture's rules follow the text's: one per signal that occurs.
+    let mut signals: Vec<ImageRule> = Vec::new();
+    for entry in entries {
+        if let Status::Image(report) = &entry.status {
+            for (_, rule) in image_results(&report.metadata) {
+                if !signals.contains(&rule) {
+                    signals.push(rule);
+                }
+            }
+        }
+    }
+    signals.sort_by_key(|rule| rule.order());
+    rules.extend(signals.iter().map(|rule| {
+        serde_json::json!({
+            "id": rule.id(),
+            "shortDescription": { "text": say(rule.label(), &FluentArgs::new()) },
+        })
+    }));
+    // And one per visible-mark profile seen: `visible-<profile>`, the
+    // profile id an identifier beside the catalogue's words.
+    let mut profiles: Vec<&str> = Vec::new();
+    for entry in entries {
+        for finding in visible_findings(&entry.status) {
+            if !profiles.contains(&finding.profile.as_str()) {
+                profiles.push(&finding.profile);
+            }
+        }
+    }
+    profiles.sort_unstable();
+    let title = say(Message::CliImageVisibleTitle, &FluentArgs::new());
+    rules.extend(profiles.iter().map(|profile| {
+        serde_json::json!({
+            "id": format!("visible-{profile}"),
+            "shortDescription": { "text": format!("{title}: {profile}") },
+        })
+    }));
+    let any_picture = entries
+        .iter()
+        .any(|entry| matches!(entry.status, Status::Image(_)));
 
     let mut results = Vec::new();
     let mut notifications = Vec::new();
@@ -624,9 +798,78 @@ fn sarif(entries: &[Entry]) -> serde_json::Value {
                     }
                 }
             }
+            Status::Image(picture) => {
+                let report = &picture.metadata;
+                for (finding, rule) in image_results(report) {
+                    let index = classes.len()
+                        + signals.iter().position(|known| *known == rule).unwrap_or(0);
+                    let mut location = artifact(&entry.path);
+                    // SARIF 2.1.0 §3.30.13–14: a binary artifact's region
+                    // is a byte offset and a length; there is no line.
+                    location["physicalLocation"]["region"] = serde_json::json!({
+                        "byteOffset": finding.offset,
+                        "byteLength": finding.len,
+                    });
+                    let text = format!(
+                        "{}: {}, {}",
+                        image::where_of(finding),
+                        say(image::kind_label(finding.kind), &FluentArgs::new()),
+                        say(rule.label(), &FluentArgs::new()),
+                    );
+                    results.push(serde_json::json!({
+                        "ruleId": rule.id(),
+                        "ruleIndex": index,
+                        // Verifiable: the block is there, and the signature
+                        // in it matched.
+                        "level": "error",
+                        "message": { "text": text },
+                        "locations": [location],
+                    }));
+                }
+                for finding in visible_findings(&entry.status) {
+                    let index = classes.len()
+                        + signals.len()
+                        + profiles
+                            .iter()
+                            .position(|p| *p == finding.profile)
+                            .unwrap_or(0);
+                    let verified = finding.verified().is_some();
+                    // A byte region means nothing for a mark in the
+                    // pixels: the rectangle goes in `properties`.
+                    results.push(serde_json::json!({
+                        "ruleId": format!("visible-{}", finding.profile),
+                        "ruleIndex": index,
+                        "level": if verified { "error" } else { "warning" },
+                        "message": { "text": format!(
+                            "{} ({}, {})",
+                            finding.profile, finding.vendor, finding.product
+                        ) },
+                        "locations": [artifact(&entry.path)],
+                        "properties": {
+                            "rect": finding.pixels.map(|r| serde_json::json!({
+                                "x": r.x, "y": r.y, "width": r.width, "height": r.height,
+                            })),
+                            "verdict": if verified { "verified" } else { "refused" },
+                            "ncc": finding.ncc,
+                        },
+                    }));
+                }
+                if picture.inconclusive() {
+                    notifications.push(serde_json::json!({
+                        "level": "error",
+                        "message": { "text": not_examined_line(&say, &picture.visible) },
+                        "locations": [artifact(&entry.path)],
+                    }));
+                }
+            }
             Status::Unreadable(unread) => notifications.push(serde_json::json!({
                 "level": "error",
                 "message": { "text": run::unread_line(&say, &entry.path, unread) },
+                "locations": [artifact(&entry.path)],
+            })),
+            Status::ImageUnreadable(error) => notifications.push(serde_json::json!({
+                "level": "error",
+                "message": { "text": image::error_line(&say, &entry.path, error) },
                 "locations": [artifact(&entry.path)],
             })),
             Status::Skipped(_) => {}
@@ -652,10 +895,93 @@ fn sarif(entries: &[Entry]) -> serde_json::Value {
             "results": results,
             "properties": {
                 "unicode": wipemark_core::UNICODE_VERSION,
-                "not_established": not_established::ALL.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+                "not_established": shelf(any_picture),
             },
         }]
     })
+}
+
+/// The third shelf the run carries: core's three, and the picture claim
+/// first when any picture was scanned.
+fn shelf(pictures: bool) -> Vec<&'static str> {
+    if pictures {
+        wipemark_pixels::not_established::shelf()
+    } else {
+        not_established::ALL.iter().map(|(id, _)| *id).collect()
+    }
+}
+
+/// The visible-mark findings of an entry; none for anything else.
+fn visible_findings(status: &Status) -> &[Finding] {
+    match status {
+        Status::Image(PictureInspection {
+            visible: Visible::Examined { report, .. },
+            ..
+        }) => &report.found,
+        _ => &[],
+    }
+}
+
+/// A SARIF rule for a picture: the signal that made a block provenance —
+/// one rule per signal, whatever generator or source type it names — or,
+/// for a block that is provenance by its kind with no signal recorded
+/// (none is, today), the kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ImageRule {
+    /// `Signal::id` or `MetadataKind::id`.
+    of: &'static str,
+    label: Message,
+}
+
+impl ImageRule {
+    fn signal(signal: Signal) -> Self {
+        Self {
+            of: signal.id(),
+            label: image::signal_label(signal),
+        }
+    }
+
+    fn kind(kind: MetadataKind) -> Self {
+        Self {
+            of: kind.id(),
+            label: image::kind_label(kind),
+        }
+    }
+
+    /// `image-` and the library's id: a format, and distinct from every
+    /// `UnicodeClass` id a text's rule carries.
+    fn id(self) -> String {
+        format!("image-{}", self.of)
+    }
+
+    fn label(self) -> Message {
+        self.label
+    }
+
+    /// A rule's place in the list: by id, so two runs list one order.
+    fn order(&self) -> &'static str {
+        self.of
+    }
+}
+
+/// Every result a picture gives SARIF: one per signal of every block that
+/// is AI provenance — the blocks that make `inspect` exit 1.
+fn image_results(report: &ImageReport) -> Vec<(&MetadataFinding, ImageRule)> {
+    let mut out = Vec::new();
+    for finding in report.findings.iter().filter(|f| f.is_ai_provenance()) {
+        let mut rules: Vec<ImageRule> = Vec::new();
+        for evidence in &finding.evidence {
+            let rule = ImageRule::signal(evidence.signal);
+            if !rules.contains(&rule) {
+                rules.push(rule);
+            }
+        }
+        if rules.is_empty() {
+            rules.push(ImageRule::kind(finding.kind));
+        }
+        out.extend(rules.into_iter().map(|rule| (finding, rule)));
+    }
+    out
 }
 
 #[cfg(test)]

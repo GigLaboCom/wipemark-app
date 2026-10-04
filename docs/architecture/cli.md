@@ -8,7 +8,8 @@ application's engine when there is one, and on the local model otherwise
 
 `apps/wipemark-cli/src/`: `main.rs` is the argument surface and the exit
 codes; `input.rs` reads and decodes a path or stdin through
-`wipemark-intake`; `run.rs` is `inspect` and `clean`; `report.rs` the
+`wipemark-intake`; `run.rs` is `inspect` and `clean`; `image.rs` the same
+two on a picture (E11-2, "Images" below); `report.rs` the
 human report; `audit.rs` the walk and its three renderings; `models.rs` the catalogue
 and the downloader; `rewrite.rs` the rewrite flow and the command's own
 engine; `app.rs` the road to the running application. Every write to disk — `-o`, beside the input, and
@@ -31,6 +32,11 @@ it in E7). Layer A itself is `docs/architecture/layer-a.md`.
 | `clean --json` | as above | `{"report","written"}` or `{"report","text"}` | note, refusal |
 | `clean --in-place [--no-original]` | 0 · 1 · 2 (stdin, a link, `-o`, an original already set aside, a replacement that could not be written) · 3 (unreadable input) | the report | note, refusal |
 | `clean --in-place --json` | as above | `{"report","written":{"path","original"\|null}\|null}` | note, refusal |
+| `inspect <picture>` | 0 (no block is AI provenance, no visible mark seen) · 1 (a block is, or a visible mark was seen) · 2 (TIFF, HEIC, AVIF: not in this version yet) · 3 (a picture this version could not read, or pixels that should have been examined and were not; 3 beats 1) | the report | a note when the name lies; the refusal |
+| `inspect <picture> --json` | as above | `PictureInspection::to_json()` | as above |
+| `clean <picture>` (beside, `-o file`, `--in-place`) | 0 (the input carried neither provenance nor a mark) · 1 (it did, and the result carries neither) · 2 (as `inspect`; a flag for text; an MPF index a removal would leave wrong; an animation to write back; every refusal of `clean` on a text) · **3 (could not be read; the result would still carry AI provenance metadata — nothing written; a visible mark left in the result — written with what could be done; pixels not examined; a restored picture that failed its own check — nothing written)** | the report | note, refusal |
+| `clean <picture> -o -`, `clean -` | as above, and 2 when stdout is a terminal or with `--json` | the image's bytes | the report, note, refusal |
+| `clean <picture> --json` | as above | `{"report":<PictureReport>,"written"}` | note, refusal |
 | `audit <dir>` | 0 · 1 · 2 (not there, not a folder, `--json` with `--sarif`) · **3 when any file could not be read, findings or not** | files with findings, the summary, the unreadable files, the third shelf | refusal |
 | `audit --json` / `--sarif` | as above | one JSON value / one SARIF 2.1.0 log | refusal |
 | `models list [--json]` | 0 · 3 (the folder exists and cannot be read) | the catalogue and the folder | the folder's error |
@@ -90,10 +96,102 @@ is not refused and cannot be: the replacement is a new inode, so the
 other name keeps the old bytes, which is the same rule `-o` has always
 kept ("never into an existing file").
 
+## Images — `inspect`, `clean` and `audit` on a picture
+
+E11-2; the plan is `docs/plan/E11-2-images-on-the-surfaces.md`, decisions
+I1–I13 (proposed D130–D142). The library is `wipemark-image`
+(`docs/architecture/images.md`).
+
+**What is a picture.** A file — or standard input — whose head
+`wipemark-intake` places as PNG, JPEG, WebP, TIFF, HEIC or AVIF **by its
+bytes** (`input::read_any`, `picture_of`). A `holiday.txt` that is a PNG is
+a picture, and the note on stderr says the name lied; a `photo.png` whose
+bytes nothing places is not, and is refused as not text, as before. GIF,
+BMP and SVG are not handed over (SVG is text and goes to Layer A).
+`rewrite` reads through `input::read` and still refuses a picture.
+
+**`inspect`** lists every metadata block — its chunk or segment and the key
+inside it (`tEXt parameters`, `APP1 Exif`), its kind, its byte offset and
+length — under "Would be removed" (AI provenance) and "Would be kept"
+(everything else), and under each AI block the signals that made it so: a
+C2PA manifest or a reference to one, an IPTC digital source type, a
+generator's key or signature, with the field and the signature that
+matched — **never the value**. A key read out of the file is spelled
+`U+XXXX` past printable ASCII, there and in the JSON
+(`wipemark_image::spell`). Then a line when there is colour information
+(kept whatever is asked); then **Visible marks** (E12-5): every mark a
+profile of the shipped catalogue proposed, with its profile id, vendor and
+product — identifiers, never inside a sentence of their own (Q-V9) — its
+rectangle, whether its row placed it or the search found it, and its
+verdict with the numbers: "proved" with correlation, strength and edge
+ratio, or "seen, not proved" with the reason and the number that failed;
+or that none was found, or why the pixels were not examined (an animation;
+a catalogue that did not load; pixels that do not decode). Then the line
+that says what the pixels were examined for and that marks no eye sees are
+not looked for, and the picture's third shelf — `invisible-pixel-marks`
+first. No Unicode line: nothing in a picture was read as characters. Exit
+**1** when a block is AI provenance or a visible mark was seen, **3** when
+the pixels should have been examined and were not (3 beats 1), **0**
+otherwise — camera EXIF is not a finding (D131).
+
+**`clean`** strips with `Scope::AiProvenance`, or `Scope::AllMetadata`
+under **`--all-metadata`** — every block but colour, camera data and EXIF
+orientation included; the report says when a removed EXIF block carried the picture's rotation (`orientation_removed`, either scope). Colour
+profiles are kept by both. The output goes where a text's does — beside
+the input as `name.cleaned.ext`, `-o`, standard output, or `--in-place
+[--no-original]` through `wipemark_intake::inplace` (nothing removed is
+nothing touched: no set-aside, no write). The exit is the **input's**, as a
+text's is: 1 when it carried AI provenance, 0 when not. `still_has_c2pa`
+and `still_has_ai_metadata`, read off a second inspection of the output,
+are one thing that can make it otherwise: either one true is exit **3**,
+and the result is **not written** — a `.cleaned` file that still carries
+provenance metadata is worse than none (D132). **A visible mark is
+removed with no flag** (Q-V1, the owner's answer: "marks found are
+removed") when it is proved — the picture is written back through
+`wipemark_picture::clean` (PNG at its own colour type where it can be,
+WebP lossless, JPEG re-encoded at quality 95) and the report says how;
+the input carried a mark, so the exit is **1**. A mark seen and **not
+proved**, or restored around opaque pixels, or in a picture this version
+does not write back (a CMYK JPEG), is **left**: the result is written with
+what could be done, the report says what is left, and the exit is **3**
+— inconclusive is not clean. Pixels that should have been examined and
+were not are 3 the same way.
+
+**Refusals.**
+
+| what | exit | said |
+|---|---|---|
+| TIFF, HEIC, AVIF | 2 | "`<path>`: TIFF images are not in this version yet." |
+| bytes intake placed as a picture that the library does not open | 2 | "not an image this version opens" |
+| a JPEG whose MPF index a removal would leave wrong | 2 | the MPF sentence; nothing written |
+| `--aggressive` or `--nfkc` on a picture; `--all-metadata` on a text | 2 | which flag, and for what |
+| a picture for a terminal on stdout; `--json` with the picture on stdout | 2 | write it with `-o` |
+| a picture this version could not read (`Malformed`) | **3** | the defect (`image-defect-*`) and its byte offset; "not read is not clean" |
+| a result that would still carry AI provenance | **3** | nothing written |
+| an animated or unknown-critical picture whose pixels changed | 2 | the reframe sentence; nothing written |
+| a restored picture that could not be written back, or failed its own check | **3** | nothing written |
+| a visible mark left in the result | **3** | the result is written; "is still in the result" |
+
+**`--json`.** `inspect`: `PictureInspection::to_json()` — E11's
+`ImageReport` keys where they were,
+`{"container","ai_metadata","c2pa","findings":[{"kind","chunk","key","offset","length","ai","c2pa","evidence":[…]}],`
+then `"visible"` — `{"examined":true,"restorable","found":[{"profile","vendor","product","pass","rect","pixels","placed","row","ncc","verdict","refusal","scores","also_tried"}],"restored":[]}`
+or `{"examined":false,"why":"animated"|"catalogue"|"decode"}` — and the
+picture's `"not_established"`, `invisible-pixel-marks` first; one line of
+ASCII. `clean`: `{"report":<PictureReport>,"written":…}` with E11's
+`StripReport` keys
+(`"container","still_has_ai_metadata","still_has_c2pa","removed","kept","orientation_removed"`),
+then `"visible"` (with `restored`: `{"profile","rect","changed","holes","clamped","exact"}`),
+`"encoding"` (`{"kind":"unchanged"|"png"|"webp-lossless"|"jpeg",…}`),
+`"marks_left"`, `"not_established"`. The writers are the libraries'
+(`wipemark-image`'s `json.rs`, `wipemark-pixels`'s report,
+`wipemark-picture`'s splice).
+
 ## `audit <dir> [--json | --sarif]`
 
 For a pre-commit hook or a CI step: every text file under a folder, read
-exactly as `inspect` reads one (`input::read`).
+exactly as `inspect` reads one (`input::read_any`) — and every PNG, JPEG
+and WebP, whose metadata is inspected as `inspect` inspects one picture.
 
 **What is walked.** `std::fs::read_dir`, recursively, sorted by name, no
 depth limit. A hidden entry — a name starting with `.`, `.git` above all —
@@ -112,15 +210,17 @@ asks.
 
 | status | what | `reason` (a format) |
 |---|---|---|
-| `scanned` | text, decoded, `wipemark_core::inspect` ran | `null` |
-| `skipped` | never an error | `hidden`, `link-to-folder`, `not-a-file`, `not-text`, `empty` |
-| `unreadable` | a hole in the scan | `unreadable` (I/O, permission), `unnamed-encoding` (8-bit), `invalid` (a bad sequence in a file intake called text), `missing` (gone mid-walk); a folder that could not be listed is listed as `dir/` |
+| `scanned` | text, decoded, `wipemark_core::inspect` ran; or a picture, `wipemark_image::inspect` ran | `null` |
+| `skipped` | never an error | `hidden`, `link-to-folder`, `not-a-file`, `not-text`, `empty`, `image-not-yet` (TIFF, HEIC, AVIF) |
+| `unreadable` | a hole in the scan | `unreadable` (I/O, permission), `unnamed-encoding` (8-bit), `invalid` (a bad sequence in a file intake called text), `malformed-image` (a picture this version could not read), `missing` (gone mid-walk); a folder that could not be listed is listed as `dir/` |
 
 **Exit.** `3` if anything was unreadable — **even when another file had
 findings**: a hook must not read a scan with a hole in it as a complete
-one, and inconclusive beats a finding. Else `1` if any report is
-suspicious (`inspect`'s rule exactly — soft hyphens alone do not make a
-tree marked). Else `0`. A `<dir>` that is not there or is not a folder is
+one, and inconclusive beats a finding — a picture that could not be read,
+or whose pixels should have been examined and were not, is such a hole.
+Else `1` if any report is suspicious or any picture carries AI provenance
+or a visible mark (`inspect`'s rule exactly — soft hyphens alone do not
+make a tree marked). Else `0`. A `<dir>` that is not there or is not a folder is
 `2`.
 
 **Human output (stdout).** One line per file whose report is suspicious —
@@ -141,7 +241,10 @@ sentence from the catalogue. Never a file's text.
 ```
 
 `report` is `InspectReport::to_json()` spliced in as it is — the very
-bytes `inspect --json` prints, third shelf included
+bytes `inspect --json` prints, third shelf included; for a picture it is
+`ImageReport::to_json()`, which has `container` where a text's has
+`unicode_version`, and the human report's line for it is
+`art/a.png: PNG, 2 blocks of AI provenance (generator parameters ×2)`
 (`audit_json_carries_every_report_with_its_third_shelf` compares them).
 Paths are relative to `<dir>` and `/`-separated; `root` is `<dir>` as
 typed.
@@ -171,8 +274,22 @@ typed.
 * Unreadable files are `invocations[0].toolExecutionNotifications` at
   level `error`, each with its location, and
   `invocations[0].executionSuccessful` is `false` when there is one.
-* `run.properties` carries the Unicode version and the third shelf's ids,
-  so the SARIF log is not the one report without them.
+* **A picture** gives one `result` per signal of every block that is AI
+  provenance, with `ruleId` `image-<signal>` (`image-c2pa-manifest`,
+  `image-digital-source-type`, `image-generator-key`, …) — one rule per
+  signal whatever generator it names, listed after the text's rules —
+  `level: error` (the block is there and its signature matched), and a
+  `region` of `byteOffset` and `byteLength`: a metadata block has no line.
+  A **visible mark** (E12-5) is one `result` with `ruleId`
+  `visible-<profile>` — one rule per profile seen, listed after the
+  signals' — `level: error` when proved and `warning` when seen and not
+  proved, no `region` (a byte range means nothing for a mark in the
+  pixels), and `properties: {"rect":{x,y,width,height},"verdict","ncc"}`.
+  A picture that could not be read is a notification like an unreadable
+  text, and so is one whose pixels should have been examined and were not.
+* `run.properties` carries the Unicode version and the third shelf's ids
+  — with `invisible-pixel-marks` first when any picture was scanned — so
+  the SARIF log is not the one report without them.
 * **English, whatever the user's language.** SARIF is a format read by
   dashboards; the rule and message text are the `en-US` catalogue
   rendered with `PlainText`. A rule description that changed with the

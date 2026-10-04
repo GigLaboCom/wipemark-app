@@ -107,13 +107,19 @@ fn classify(ty: &[u8; 4], data: &[u8], range: std::ops::Range<usize>) -> Result<
         b"eXIf" => {
             let mut evidence = Vec::new();
             signatures::scan(Place::Exif, "EXIF", data, &mut evidence);
-            Ok(Block::meta(range, MetadataKind::Exif, name, None, evidence))
+            Ok(Block::meta(range, MetadataKind::Exif, name, None, evidence).oriented(data))
         }
         b"tEXt" | b"zTXt" | b"iTXt" => {
             let start = range.start;
             let (key, value) = text(ty, data).map_err(|d| malformed(PNG, start, d))?;
             let (kind, evidence) = text_kind(&key, &value);
-            Ok(Block::meta(range, kind, name, Some(key), evidence))
+            let block = Block::meta(range, kind, name, Some(key), evidence);
+            Ok(if kind == MetadataKind::Exif {
+                // ImageMagick's raw `exif` profile: hex, read decoded.
+                block.oriented(&raw_profile(&value).unwrap_or(value))
+            } else {
+                block
+            })
         }
         _ => {
             let mut evidence = Vec::new();
