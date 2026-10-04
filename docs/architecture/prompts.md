@@ -116,7 +116,7 @@ rewrite contract, as an example of the shape:
 ```
 You rewrite text for its own author. You change the wording, never the meaning.
 These rules always apply:
-- Keep every fact, number, date, quantity, name and technical identifier exactly as written.
+- Keep every fact, number, date, quantity, name and technical identifier exactly as written. Write every number in digits exactly as it appears in the text, with the same separators; never spell a number out in words.
 - Do not add claims and do not remove any.
 - Write in the language of the text. Do not translate it.
 - Keep the paragraphs, the blank lines between them, list markers and headings as they are.
@@ -135,6 +135,14 @@ contract. The `humanize` cliché lists are per language and are drafts —
 E4-5's bench replaces them with lists measured on a corpus. Upstream's "do
 not add em dashes, bold text or emojis" is in the English `humanize` only:
 a dash is grammar in Russian and „…“ are ordinary German quotes.
+
+The second sentence of the numbers rule — digits, the same separators,
+never in words — was added by E4-5's bench in every rewrite and
+translation contract (en, ru, de): Gemma 3 12B wrote "two kilometres" for
+"2 km" and "5 тысяч" for "5000 рублей" often enough that `NumbersGuard`
+rejected 4.1 % of its candidates; with the sentence, 1.6 %, and the
+number-heavy paragraphs passed 27 times in 36 instead of 11. Qwen3 4B
+neither gained nor lost. See `docs/architecture/prompt-bench.md`.
 
 `every_language_has_a_complete_shipped_set` is the gate D64 asks for: a
 `Lang` without every template of the set, or with one the validator would

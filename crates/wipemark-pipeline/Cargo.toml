@@ -39,5 +39,14 @@ tracing.workspace = true
 # nothing else in the workspace parses Markdown.
 pulldown-cmark = { version = "0.13", default-features = false }
 
+# The prompt bench (E4-5, `docs/architecture/prompt-bench.md`): a
+# development tool over the local engine or an endpoint. `local-llama` is
+# what it needs to compile (over the shim it refuses at load);
+# `llama-native` is what it needs to run a GGUF.
+[[example]]
+name = "bench"
+path = "examples/bench/main.rs"
+required-features = ["local-llama"]
+
 [lints]
 workspace = true

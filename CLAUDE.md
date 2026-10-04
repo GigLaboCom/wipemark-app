@@ -190,7 +190,7 @@ it sits.
 | `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP) | both engines real, handed out by `duty::engine_for` and asked by the Check; the pipeline that rewrites with them is **E4** |
 | `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`) | real under `native`; an empty shim without it |
 | `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends | real under `native`; refuses every load without it |
-| `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation, prompts and the loop real (E4-1…E4-3), and the resumable job the queue drives (E4-4); the surfaces are **E4-6** |
+| `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation, prompts and the loop real (E4-1…E4-3), the resumable job the queue drives (E4-4), the prompt bench (`examples/bench`, `bench/`, E4-5 — `docs/architecture/prompt-bench.md`); the windows' surfaces are **E4-6b** |
 | `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
 | `wipemark-store` | the SQLite file, the `settings` table and the queue's tables (schema 2) | real |
 | `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination | real; no surface pushes to it (**E4-6**) |
@@ -1159,7 +1159,9 @@ Anything that needed more than a rule to explain is in `docs/`;
   the old project is named. It is edited here and never synced back. It
   is pinned to **one** llama.cpp commit (`PIN.md`; `build.rs` refuses a
   fetched tree at any other), and a bump is a deliberate commit that runs
-  the native gates and the live gate. `unsafe` lives in **one** module,
+  the native gates and the live gate. At this pin Gemma 4 does not run locally (its
+  chat template is unknown to `llama_chat_apply_template`) and Qwen3.8
+  needs llama.cpp b10731 or newer — both run only as an endpoint (D96). `unsafe` lives in **one** module,
   `wipemark_llama::ffi` (`deny` crate-wide, `allow` there alone, a
   `// SAFETY:` on every block); every other crate keeps
   `forbid(unsafe_code)`. And it is **refused rather than faked** when it
