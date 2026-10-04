@@ -49,6 +49,7 @@ impl StripReport {
     /// As [`ImageReport::to_json`], with what the output still carries
     /// first: `container`, `still_has_ai_metadata`, `still_has_c2pa`,
     /// `removed` (offsets in the input), `kept` (offsets in the output),
+    /// `orientation_removed` (the EXIF value, 2–8, or `null`),
     /// `not_established`.
     pub fn to_json(&self) -> String {
         let mut out = String::with_capacity(256);
@@ -62,6 +63,13 @@ impl StripReport {
         findings(&mut out, "removed", &self.removed);
         out.push(',');
         findings(&mut out, "kept", &self.kept);
+        out.push_str(",\"orientation_removed\":");
+        match self.orientation_removed {
+            Some(value) => {
+                let _ = write!(out, "{value}");
+            }
+            None => out.push_str("null"),
+        }
         tail(&mut out);
         out
     }
@@ -247,6 +255,7 @@ mod tests {
             kept: Vec::new(),
             still_has_c2pa: false,
             still_has_ai_metadata: false,
+            orientation_removed: None,
             not_established: Vec::new(),
         };
         let json = empty.to_json();
@@ -256,6 +265,41 @@ mod tests {
         assert!(json.starts_with(
             "{\"container\":\"jpeg\",\"still_has_ai_metadata\":false,\"still_has_c2pa\":false,"
         ));
+    }
+
+    /// The exact form of a strip, with the rotation that went with an
+    /// EXIF block — and `null` when none did, so the key is always there.
+    #[test]
+    fn the_json_form_of_a_strip_report_is_exact() {
+        let mut report = StripReport {
+            container: ImageContainer::Jpeg,
+            removed: vec![MetadataFinding {
+                kind: MetadataKind::Exif,
+                chunk: "APP1".into(),
+                key: Some("Exif".into()),
+                offset: 2,
+                len: 60,
+                evidence: Vec::new(),
+            }],
+            kept: Vec::new(),
+            still_has_c2pa: false,
+            still_has_ai_metadata: false,
+            orientation_removed: Some(6),
+            not_established: Vec::new(),
+        };
+        assert_eq!(
+            report.to_json(),
+            "{\"container\":\"jpeg\",\"still_has_ai_metadata\":false,\
+             \"still_has_c2pa\":false,\"removed\":[{\"kind\":\"exif\",\"chunk\":\"APP1\",\
+             \"key\":\"Exif\",\"offset\":2,\"length\":60,\"ai\":false,\"c2pa\":false,\
+             \"evidence\":[]}],\"kept\":[],\"orientation_removed\":6,\
+             \"not_established\":[\"vendor-detector-evasion\",\"human-authorship\",\
+             \"unknown-mark-schemes\"]}"
+        );
+        report.orientation_removed = None;
+        assert!(report
+            .to_json()
+            .contains("\"kept\":[],\"orientation_removed\":null,\"not_established\""));
     }
 
     /// A keyword is Latin-1 and is the file's, not ours: a soft hyphen and

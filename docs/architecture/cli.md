@@ -34,7 +34,7 @@ it in E7). Layer A itself is `docs/architecture/layer-a.md`.
 | `clean --in-place --json` | as above | `{"report","written":{"path","original"\|null}\|null}` | note, refusal |
 | `inspect <picture>` | 0 (no block is AI provenance) · 1 (at least one is) · 2 (TIFF, HEIC, AVIF: not in this version yet) · 3 (a picture this version could not read) | the report | a note when the name lies; the refusal |
 | `inspect <picture> --json` | as above | `ImageReport::to_json()` | as above |
-| `clean <picture>` (beside, `-o file`, `--in-place`) | 0 (the input carried no AI provenance) · 1 (it did, and the result carries none) · 2 (as `inspect`; a flag for text; an MPF index a removal would move; every refusal of `clean` on a text) · **3 (could not be read; or the result would still carry AI provenance — then nothing is written)** | the report | note, refusal |
+| `clean <picture>` (beside, `-o file`, `--in-place`) | 0 (the input carried no AI provenance) · 1 (it did, and the result carries none) · 2 (as `inspect`; a flag for text; an MPF index a removal would leave wrong; every refusal of `clean` on a text) · **3 (could not be read; or the result would still carry AI provenance — then nothing is written)** | the report | note, refusal |
 | `clean <picture> -o -`, `clean -` | as above, and 2 when stdout is a terminal or with `--json` | the image's bytes | the report, note, refusal |
 | `clean <picture> --json` | as above | `{"report":<StripReport>,"written"}` | note, refusal |
 | `audit <dir>` | 0 · 1 · 2 (not there, not a folder, `--json` with `--sarif`) · **3 when any file could not be read, findings or not** | files with findings, the summary, the unreadable files, the third shelf | refusal |
@@ -127,7 +127,7 @@ finding (D131).
 
 **`clean`** strips with `Scope::AiProvenance`, or `Scope::AllMetadata`
 under **`--all-metadata`** — every block but colour, camera data and EXIF
-orientation included; the report says so when an EXIF block went. Colour
+orientation included; the report says when a removed EXIF block carried the picture's rotation (`orientation_removed`, either scope). Colour
 profiles are kept by both. The output goes where a text's does — beside
 the input as `name.cleaned.ext`, `-o`, standard output, or `--in-place
 [--no-original]` through `wipemark_intake::inplace` (nothing removed is
@@ -144,7 +144,7 @@ carries provenance is worse than none (D132).
 |---|---|---|
 | TIFF, HEIC, AVIF | 2 | "`<path>`: TIFF images are not in this version yet." |
 | bytes intake placed as a picture that the library does not open | 2 | "not an image this version opens" |
-| a JPEG whose MPF index a removal would move | 2 | the MPF sentence; nothing written |
+| a JPEG whose MPF index a removal would leave wrong | 2 | the MPF sentence; nothing written |
 | `--aggressive` or `--nfkc` on a picture; `--all-metadata` on a text | 2 | which flag, and for what |
 | a picture for a terminal on stdout; `--json` with the picture on stdout | 2 | write it with `-o` |
 | a picture this version could not read (`Malformed`) | **3** | the defect (`image-defect-*`) and its byte offset; "not read is not clean" |

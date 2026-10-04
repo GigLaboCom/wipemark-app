@@ -402,8 +402,8 @@ pub(crate) fn clean_lines(
     {
         lines.push(say(Message::CliImageRendering, &FluentArgs::new()));
     }
-    // EXIF leaves whole, orientation with it: under `--all-metadata`
-    // always, and under the default scope when the block named a generator.
+    // EXIF leaves whole: under `--all-metadata` always, and under the
+    // default scope when the block named a generator.
     if report
         .removed
         .iter()
@@ -417,6 +417,11 @@ pub(crate) fn clean_lines(
             },
             &FluentArgs::new(),
         ));
+    }
+    // And when one of them carried a rotation, that is a fact the library
+    // read, not a warning about what EXIF may hold.
+    if report.orientation_removed.is_some() {
+        lines.push(say(Message::CliImageOrientationRemoved, &FluentArgs::new()));
     }
     lines.extend(report::written_lines(say, source, written));
     lines.extend(footer(say));
@@ -622,6 +627,7 @@ mod tests {
             kept,
             still_has_c2pa: still,
             still_has_ai_metadata: still,
+            orientation_removed: None,
             not_established: Vec::new(),
         }
     }
@@ -844,5 +850,26 @@ mod tests {
             written,
         );
         assert!(!lines.contains(&generated), "{lines:#?}");
+    }
+
+    /// The rotation is said when the library says a removed block carried
+    /// one, in either scope, and never because an EXIF block went.
+    #[test]
+    fn the_rotation_is_said_only_when_it_was_removed() {
+        let english = localizers()
+            .into_iter()
+            .find(|localizer| localizer.language() == "en-US")
+            .expect("the fallback");
+        let say = |message: Message, args: &FluentArgs| english.format_args(message, args);
+        let rotation = english.format(Message::CliImageOrientationRemoved);
+        let written = Written::Stdout { from_file: false };
+        for scope in Scope::ALL {
+            let mut report = strip(vec![exif()], vec![]);
+            let lines = clean_lines(&say, "x", &report, scope, written);
+            assert!(!lines.contains(&rotation), "{scope:?}: {lines:#?}");
+            report.orientation_removed = Some(6);
+            let lines = clean_lines(&say, "x", &report, scope, written);
+            assert!(lines.contains(&rotation), "{scope:?}: {lines:#?}");
+        }
     }
 }

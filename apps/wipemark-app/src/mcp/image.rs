@@ -16,7 +16,7 @@
 //!   open owner question, and not one this module answers.
 //! * **Never an empty report, never an image that still carries what it
 //!   was asked to remove.** A malformed picture, a JPEG whose MPF index a
-//!   removal would move, and a result that would still carry AI provenance
+//!   removal would leave wrong, and a result that would still carry AI provenance
 //!   are each a refusal — an `isError` result naming why — with no report
 //!   and no image attached.
 //! * **Nothing here comes from the catalogue**, for the reason the module
@@ -58,8 +58,9 @@ pub(super) enum Refusal {
     NotAnImage(Option<Format>),
     /// A TIFF, HEIC or AVIF.
     NotYet(ImageContainer),
-    /// Removing a JPEG segment after its MPF index would move the pictures
-    /// the index points at.
+    /// A removal would leave a JPEG's MPF index wrong: a segment after it
+    /// would move the pictures it points at, or it could not be read to
+    /// correct the first picture's size.
     MultiPicture { offset: u64 },
     /// A file the library could not read.
     Malformed {
@@ -90,9 +91,9 @@ impl Refusal {
                 container.name()
             ),
             Self::MultiPicture { offset } => format!(
-                "the JPEG holds further pictures after the first (MPF), and removing the \
-                 metadata at byte {offset} would move them; this version does not rewrite that \
-                 index"
+                "the JPEG holds further pictures after the first (MPF), and removing metadata \
+                 would leave their index wrong at byte {offset}: a block after the index would \
+                 move them, or the index could not be read to be corrected"
             ),
             Self::Malformed {
                 container,

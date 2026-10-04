@@ -1320,11 +1320,14 @@ cli-image-evidence-generator = { $signal } ({ $generator }), in { $field }: { $m
 # Whenever colour information is in the file: it is listed, and no option
 # removes it.
 cli-image-rendering = Colour information (an ICC profile, gamma, sRGB) is kept whatever is asked: removing it would change how the picture looks.
-# After clean --all-metadata removed an EXIF block.
 # After clean removed an EXIF block, under the default scope, because
 # it named a generator.
-cli-image-exif-removed = An EXIF block named an image generator, so it was removed whole, orientation included: a picture that relied on its EXIF orientation may now show turned on its side.
-cli-image-all-metadata = --all-metadata removed camera data as well, orientation included: a picture that relied on its EXIF orientation may now show turned on its side.
+cli-image-exif-removed = An EXIF block named an image generator, so it was removed whole, with the camera data in it.
+# After clean --all-metadata removed an EXIF block.
+cli-image-all-metadata = --all-metadata removed camera data as well.
+# After clean, in either scope, when a removed EXIF block carried an
+# Orientation other than "as stored": the report says it as a fact.
+cli-image-orientation-removed = The picture's rotation was in the removed camera data: a viewer that turned it upright will now show it as it is stored, turned or mirrored.
 # Above the third shelf of every image report.
 cli-image-pixels = Only the file's metadata was examined. A mark carried in the pixels themselves is not looked for, so nothing here is about the picture.
 
@@ -1334,7 +1337,7 @@ cli-image-pixels = Only the file's metadata was examined. A mark carried in the 
 
 cli-image-not-yet = { $path }: { $container } images are not in this version yet. Nothing was read for metadata, and nothing was written.
 cli-image-unknown = { $path }: the bytes are not an image this version opens. Nothing was written.
-cli-image-multi-picture = { $path } holds further pictures after the first (MPF), and removing metadata after their index would move them; this version does not rewrite that index. Nothing was written.
+cli-image-multi-picture = { $path } holds further pictures after the first (MPF), and this removal would leave their index wrong: metadata after the index would move them, or the index could not be read to be corrected. Nothing was written.
 # $defect is an `image-defect-*` line; $offset a spelled byte offset.
 cli-image-malformed = { $path } is not a { $container } file this version can read: { $defect }, at byte { $offset }. Not read is not clean.
 cli-image-text-flag = { $path } is an image ({ $container }), and { $flag } is for text. Nothing was written.

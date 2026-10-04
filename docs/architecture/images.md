@@ -29,9 +29,12 @@ builds on every parse and by `blocks_tile_the_file`). A block is
 `MetadataFinding`. `strip` keeps the blocks it was not asked to drop and
 concatenates them byte for byte (`concat`). The only bytes this crate
 ever computes are a WebP's RIFF size and two bits of its `VP8X` flags,
-and only when a chunk was removed; `every_removed_block_is_exactly_the_bytes_that_went`
+and only when a chunk was removed, and a JPEG's MP Index size of the
+first picture, and only when a block before its `MPF` header was removed
+(E11-3, below); `every_removed_block_is_exactly_the_bytes_that_went`
 checks that the output is the input with the reported ranges cut out and
-nothing else changed but those five bytes.
+nothing else changed but those five bytes, and
+`the_mp_index_follows_a_removal_before_it` the same for the four.
 
 When nothing is selected the output **is** the input: no rebuild at all.
 
@@ -54,13 +57,25 @@ Why these lines:
   means "every chunk that is neither structure nor rendering".
 * **An unknown critical PNG chunk is structure**: by the PNG
   specification, a decoder that does not know it must refuse the file,
-  so it cannot be decoration.
+  so it cannot be decoration (`an_unknown_critical_chunk_is_structure`
+  feeds `CgBI` and `ABCD` after `IHDR`). Apple's real `CgBI` comes
+  *before* `IHDR`, and such a file is refused as `HeaderNotFirst` — it is
+  not a PNG a standard decoder reads either.
 * **MPF** (CIPA DC-007, a JPEG with secondary pictures after EOI) holds
   offsets relative to its own header. Removing a segment *before* that
   header moves everything together and is allowed; removing one *after*
   it would move the pictures and is refused
   (`ImageError::Unsupported { what: MultiPicture }`) — rewriting MPF
-  offsets would be a second container writer, and E11-1 has one.
+  offsets would be a second container writer, and E11-1 has one. One
+  field does change with a removal before the header: the MP Index's
+  **Individual Image Size** of the first picture, which counts SOI to EOI.
+  It is rewritten (E11-3) to the old value minus the bytes removed, in
+  the index's own byte order; an index whose field cannot be read — its
+  IFD or its entry outside the segment, a byte order neither `II` nor
+  `MM` — or whose size is smaller than what went refuses the removal as
+  `MultiPicture` too, rather than leaving a field nobody checked. An
+  index with no MP Entry has nothing to go stale. Only the **first**
+  `MPF` header counts: the index lives in the first picture's.
 
 ## What makes a block AI provenance
 
@@ -84,7 +99,9 @@ saying why it is believed. Matching is case-sensitive and over UTF-8,
 UTF-16LE and UTF-16BE — so an EXIF `UserComment` that
 stable-diffusion-webui wrote as `UNICODE` is read without parsing an IFD.
 That is deliberate: EXIF and IPTC are searched as bytes, not parsed. A
-signature anywhere in the block counts.
+signature anywhere in the block counts. The one EXIF field read as a
+field is IFD0's **Orientation** (`exif.rs`, bounded, never a panic), and
+only so a strip can say the rotation went with a block — see "Scopes".
 
 **To add a signature**: one entry in `KEYWORDS` or `TEXT`, with its
 evidence; a case in `tests/support::injected` that carries it; a line in
@@ -117,6 +134,13 @@ twice, and the fourth combination meant nothing):
   unrelated `Comment` stay.
 * `Scope::AllMetadata` removes every finding but `Rendering`. It takes
   EXIF whole, orientation with it.
+
+Under either scope an EXIF block leaves whole — the default takes one
+when it names a generator. When a removed EXIF block carried an
+Orientation other than 1 (2 to 8: turned or mirrored), the strip says
+so: `StripReport::orientation_removed` is that value, from the first such
+block in file order. It is a fact about what went, not a promise about
+what a viewer does; nothing is edited *inside* a block to keep it.
 
 `still_has_c2pa`, `still_has_ai_metadata` and `kept` come from a
 **second `inspect` of the output** (`finish`), never from what was
@@ -186,7 +210,8 @@ handed to a model must not carry the marks it reports.
 ```
 
 `StripReport`: `container`, `still_has_ai_metadata`, `still_has_c2pa`,
-`removed` (input offsets), `kept` (output offsets), `not_established`. The
+`removed` (input offsets), `kept` (output offsets), `orientation_removed`
+(the EXIF value 2–8, or `null`), `not_established`. The
 ids — `ImageContainer::id`, `MetadataKind::id`, `Signal::id`,
 `Defect::id`, `Scope::id`, `Generator::id`, `SourceType::code` — are
 formats, never translated; a surface keys its words off them
@@ -202,8 +227,10 @@ provenance and 0 otherwise — camera EXIF is not a finding. `clean` writes
 terminal, `--in-place` through `wipemark_intake::inplace`) and exits by the
 input — 1 when it carried AI provenance — except that an output for which
 `still_has_*` is true is **not written** and exits 3. `--all-metadata` is
-`Scope::AllMetadata`; its help and the report both say it takes EXIF
-orientation, and that colour is kept. TIFF/HEIC/AVIF exit 2 "not in this
+`Scope::AllMetadata`; its help says it takes EXIF orientation, and that
+colour is kept; the report says "the picture's rotation was in the
+removed camera data" when `orientation_removed` is set, in either scope,
+and never because an EXIF block merely went. TIFF/HEIC/AVIF exit 2 "not in this
 version yet"; a malformed picture exits 3 with its defect. `audit` inspects
 the pictures in a folder: a finding is AI provenance, a malformed picture
 is a hole (3 beats 1), a TIFF is skipped (`image-not-yet`), and SARIF puts
@@ -218,7 +245,7 @@ is `ai-provenance` (default) or `all-metadata`. The transport's 1 MiB is
 the limit — about 750 KB of picture — and a larger body is a `413`, never
 a truncation. Every way a call cannot run is an `isError` result naming
 why: not base64, not a picture this server reads (naming what intake found),
-TIFF/HEIC/AVIF, a malformed picture, an MPF index a removal would move,
+TIFF/HEIC/AVIF, a malformed picture, an MPF index a removal would leave wrong,
 and a result that would still carry AI provenance — for which no image
 comes back. **There is no `path` argument**: a server that can be bound
 past loopback with no password must not read or write files by name, and

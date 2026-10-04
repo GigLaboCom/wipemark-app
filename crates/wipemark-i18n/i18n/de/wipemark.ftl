@@ -753,13 +753,14 @@ cli-image-row = { $where } · { $kind } · ab Byte { $offset } · { $length ->
 cli-image-evidence = { $signal }, in { $field }: { $matched }
 cli-image-evidence-generator = { $signal } ({ $generator }), in { $field }: { $matched }
 cli-image-rendering = Farbinformationen (ein ICC-Profil, Gamma, sRGB) bleiben in jedem Fall erhalten: Ohne sie sähe das Bild anders aus.
-cli-image-exif-removed = Ein EXIF-Block nannte einen Bildgenerator und wurde deshalb ganz entfernt, die Ausrichtung eingeschlossen: Ein Bild, das sich auf seine EXIF-Ausrichtung verlassen hat, kann jetzt gedreht erscheinen.
-cli-image-all-metadata = --all-metadata hat auch die Kameradaten entfernt, die Ausrichtung eingeschlossen: Ein Bild, das sich auf seine EXIF-Ausrichtung verlassen hat, kann jetzt gedreht erscheinen.
+cli-image-exif-removed = Ein EXIF-Block nannte einen Bildgenerator und wurde deshalb ganz entfernt, samt den Kameradaten darin.
+cli-image-all-metadata = --all-metadata hat auch die Kameradaten entfernt.
+cli-image-orientation-removed = Die Drehung des Bildes stand in den entfernten Kameradaten: Ein Programm, das es aufrecht gezeigt hat, zeigt es jetzt so, wie es gespeichert ist – gedreht oder gespiegelt.
 cli-image-pixels = Geprüft wurden nur die Metadaten der Datei. Eine Markierung in den Pixeln selbst wird nicht gesucht; über das Bild selbst sagt dies also nichts.
 
 cli-image-not-yet = { $path }: { $container }-Bilder sind in dieser Version noch nicht dabei. Es wurden keine Metadaten gelesen und nichts geschrieben.
 cli-image-unknown = { $path }: Diese Bytes sind kein Bild, das diese Version öffnet. Nichts wurde geschrieben.
-cli-image-multi-picture = { $path } enthält nach dem ersten Bild weitere (MPF), und Metadaten hinter deren Index zu entfernen würde sie verschieben; diese Version schreibt diesen Index nicht um. Nichts wurde geschrieben.
+cli-image-multi-picture = { $path } enthält nach dem ersten Bild weitere (MPF), und dieses Entfernen würde deren Index falsch machen: Metadaten hinter dem Index würden sie verschieben, oder der Index ließ sich nicht lesen, um ihn zu berichtigen. Nichts wurde geschrieben.
 cli-image-malformed = { $path } ist keine { $container }-Datei, die diese Version lesen kann: { $defect }, bei Byte { $offset }. Nicht gelesen heißt nicht sauber.
 cli-image-text-flag = { $path } ist ein Bild ({ $container }), und { $flag } ist für Text. Nichts wurde geschrieben.
 cli-image-all-metadata-text = { $path } ist kein Bild, und --all-metadata ist für Bilder. Nichts wurde geschrieben.
