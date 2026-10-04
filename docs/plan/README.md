@@ -467,6 +467,7 @@ tell a decision from an accident.
 | **D90** | **An item's options are stored with it**; an unreadable row fails the item, never falls back to defaults (E4-4). | A rewrite run with options nobody chose is a different job under the same name. |
 | **D91** | **Where a result goes is chosen at push** and executed as stored — the item's row, a new file beside the source or at a chosen path (never the source), or in place only by a per-run flag — in two phases, so a crash between writing and recording is finished at the next open. The queue reads no Retention rows; turning them into a destination, and `kept/`, is E4-6/E7. | Retention rule 2; a destination recomputed on resume could differ from the one the user saw. |
 | **D92** | **What the queue keeps** (E4-4): a pasted text stays in its row until the item is removed; every connection sets `PRAGMA secure_delete = ON` (the WAL may hold a copy until its next checkpoint); pause is a row, not a preference. | The product must not quietly archive what it removes provenance from (CLAUDE.md retention bullet). |
+| **D93** | **E4-6a — rewriting without a window** (delegated, written without a compiler; verified on the host 2026-10-04: two build errors fixed, 1124 tests green, nine of its mutations re-run, all red). Its H1–H20 are adopted as written in `docs/plan/E4-6a-headless-rewrite.md`; the ones a reader needs here: `EngineHandle::for_job` → `JobEngine` holds a job busy for its whole length (closes D56); the MCP `rewrite` blocks until done, a hang-up or 60 min cancels, `dry_run` prices without loading, `templates` lay a caller's templates over the rows strictly; the CLI finds the application by a loopback-only beacon (`<data dir>/mcp.json`, closes D52); the CLI's own engine is the **local model only** — an endpoint without the application refuses (H16); a seed is fresh per job unless named (D83); `rewrite` exits 3 when a chunk kept its source; `Unavailable::KeyUnsendable` (closes D79); core's `RewriteSummary`/`RiskLabel`/`FinalReport` removed, the baseline is `not_established::baseline()` (closes D85); a rewrite's result is `name.cleaned.ext`. | The task in Watchword `wipemark-task-e4-6a-headless-rewrite-2026-10-04`; report `docs/plan/reports/E4-6a-2026-10-04.md` (also Watchword `wipemark-e4-6a-report-2026-10-04`). |
 
 ---
 
@@ -651,9 +652,14 @@ the gate the overview set, and the open edges.
   - E4-5 — the prompt bench: en/ru/de corpus, Qwen3 4B and Gemma 3 12B,
     guard pass rates, placeholder survival, language retention, no-op rate,
     injection obedience; picks the templates and thresholds.
-  - E4-6 — the surfaces: the MCP `rewrite` tool and D52's route for the
-    CLI, the Settings page for templates and "Check template", the
-    pivot row. E5-2 (`rewrite` in the CLI) follows.
+  - [E4-6a-headless-rewrite.md](E4-6a-headless-rewrite.md) — the
+    surfaces without a window: the `EngineHandle` adapter, the price,
+    the MCP `rewrite` tool, D52's beacon, and `wipemark-cli rewrite`
+    (E5-2 with it) (D93) — status: done —
+    [reports/E4-6a-2026-10-04.md](reports/E4-6a-2026-10-04.md).
+  - E4-6b — the windows' half: the Settings page for templates and
+    "Check template", the pivot row's widget, the Compare and queue
+    integration (with E7). Not started.
 
 ### E5 — the rest of the CLI
 
@@ -673,8 +679,8 @@ the gate the overview set, and the open edges.
   beats 1), `models list|pull|verify|rm` (full rehash, resumable pull,
   Ctrl-C keeps the `.part`), `clean --in-place [--no-original]`; only
   `rewrite` still refuses — status: done, in the `e5/cli` worktree —
-  [reports/E5-1-2026-10-03.md](reports/E5-1-2026-10-03.md). E5-2 is
-  `rewrite`, after E4.
+  [reports/E5-1-2026-10-03.md](reports/E5-1-2026-10-03.md). E5-2,
+  `rewrite`, landed with E4-6a (D93).
 
 ### E7 — the workspace UI
 

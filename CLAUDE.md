@@ -37,8 +37,8 @@ validation of an edited template and the clean-up of an answer, in
 `wipemark_pipeline::prompt` (`docs/architecture/prompts.md`). And the
 loop: `wipemark_pipeline::start` runs a job — Layer A, candidates ×
 rounds, the guards and the no-op guard, `min-divergence`, Layer A again —
-tested on `FakeEngine` and against Qwen3 4B; but nothing in a window,
-the MCP server or the CLI starts one yet (E4-6); see
+tested on `FakeEngine` and against Qwen3 4B. The MCP tool `rewrite` and
+`wipemark-cli rewrite` start one (E4-6a); the windows do not (E4-6b/E7); see
 `docs/architecture/pipeline.md`, "The loop". The batch queue exists too —
 `wipemark-queue`: one document at a time, pause, cancel, resumable per
 chunk, surviving `kill -9` — and nothing pushes to it yet (E4-6/E7).
@@ -152,7 +152,7 @@ cargo test   -p wipemark-engine --features llama-native --locked -- --ignored --
 
 ```sh
 cargo run -p wipemark-app                   # the window; the binary is `wipemark`
-cargo run -p wipemark-cli -- --help         # the CLI (everything runs but rewrite, which refuses by name)
+cargo run -p wipemark-cli -- --help         # the CLI (every command runs)
 cargo test -p wipemark-app duty::           # one module's tests
 cargo test -p wipemark-app -- --nocapture   # with the log lines
 ```
@@ -191,7 +191,7 @@ it sits.
 | `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`) | real under `native`; an empty shim without it |
 | `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends | real under `native`; refuses every load without it |
 | `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation, prompts and the loop real (E4-1…E4-3), and the resumable job the queue drives (E4-4); the surfaces are **E4-6** |
-| `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader | real |
+| `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
 | `wipemark-store` | the SQLite file, the `settings` table and the queue's tables (schema 2) | real |
 | `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination | real; no surface pushes to it (**E4-6**) |
 | `wipemark-secret` | the OS credential store, and `Secret` | real |
@@ -214,7 +214,7 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `settings.rs` | the Settings window: sections, rows, and the `Preferences` entity every page reads |
 | `config.rs` | every preference as a row in `wipemark.db` |
 | `duty.rs` | who rewrites — an endpoint or this machine — and in what order; `engine_for`, where that becomes an engine |
-| `engine_host.rs` | when the model on this machine is in memory: the keep policy (`decide`), the `EngineHost` that executes it, the Check (for the machine or an endpoint), an endpoint's key read when it is first asked, and the `EngineHandle` other threads reach it through |
+| `engine_host.rs` | when the model on this machine is in memory: the keep policy (`decide`), the `EngineHost` that executes it, the Check (for the machine or an endpoint), an endpoint's key read when it is first asked, the `EngineHandle` other threads reach it through, `for_job`'s `JobEngine` that holds a job busy for its whole length, and the `Pace` a price is measured by |
 | `engine.rs` | the Layer B endpoint vocabulary and its refusals |
 | `profile.rs` | endpoint settings saved under a name |
 | `models.rs` | the Models page's vocabulary, the recommendation, the adoption |
@@ -244,7 +244,7 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `icon.rs` | `IconName` — the only glyph names that resolve — and the `Icon` element |
 | `assets.rs` | `WipemarkAssets`, the single `AssetSource` GPUI resolves every `svg()` against |
 | `dock_icon.rs` | the Dock icon for a `cargo run` that is not an `.app` |
-| `mcp/` | the JSON-RPC server, its protocol and its tools |
+| `mcp/` | the JSON-RPC server, its protocol and its tools — `rewrite.rs` the one tool that runs the pipeline — and the beacon it writes |
 
 `apps/wipemark-cli/src/main.rs` is the other application: the argument
 surface, the language flag read out of `argv` before clap parses (so
@@ -257,8 +257,9 @@ to disk (the original set aside first, never over one already there),
 `audit.rs` the walk of a folder
 and its human, `--json` and SARIF 2.1.0 renderings, and `models.rs`
 `models list|pull|verify|rm` over `wipemark-models`, reading the app's
-`models.dir` and `models.rewrite` rows read-only. Only `rewrite` still
-refuses. The table of every command's exit codes and streams is
+`models.dir` and `models.rewrite` rows read-only; `rewrite.rs` the
+rewrite flow and the command's own local engine, `app.rs` the road to the
+running application. No command refuses any more. The table of every command's exit codes and streams is
 `docs/architecture/cli.md`.
 
 Anything that needed more than a rule to explain is in `docs/`;
@@ -742,8 +743,16 @@ Anything that needed more than a rule to explain is in `docs/`;
   limit is the transport's 1 MiB `413` (`a_body_over_the_limit_is_refused_whole`),
   never a truncation. A string the client sent is said back spelled
   (`U+XXXX`), except the `id` and the kept characters of a cleaned text.
-  The banner at the top of the pane says what the tools do, and that
-  nothing rewrites.
+  `rewrite` (E4-6a) runs the pipeline on the application's engine and
+  answers `{text, report}` (`JobReport::to_json`, the third shelf always
+  in it); a call blocks until its job ends, and a hang-up or 60 minutes
+  cancels it; `dry_run` prices and loads nothing; `templates` lays a
+  caller's templates over the rows, validated strictly; `structural` and
+  `code` are refused (they need a confirmation in a window). The banner
+  at the top of the pane (`settings-mcp-tools`) says what the three tools
+  do and where a rewrite sends the document. **A server bound past
+  loopback serves `rewrite` with no password too** — the pane's warning
+  covers it.
 * **Nothing the MCP server says comes from the catalogue.** The
   application initializes `wipemark-i18n` with `Rendering::Ui`, which
   keeps Fluent's U+2068/U+2069 isolates around interpolated values —
@@ -833,10 +842,10 @@ Anything that needed more than a rule to explain is in `docs/`;
   also refuses a redirect and a scheme other than `http`/`https` itself
   (`wipemark_engine::http`, before a socket opens or a 3xx is followed) —
   defence in depth under `engine::refusal`, not a second rule. The Engine
-  banner's last line says, in every state the page can be in, that no
-  document is sent anywhere and the Check is the one request the page
-  makes — `the_engine_banner_always_says_a_rewrite_is_not_here_yet` — for
-  the same reason `wipemark-cli rewrite` refuses by name.
+  banner's last line says, in every state the page can be in, that the
+  windows send no document and the Check is the one request the page
+  makes, while an agent's or the CLI's rewrite goes to whatever the page
+  puts on duty (`the_engine_banner_always_says_a_rewrite_is_not_here_yet`).
 * **A saved profile is every *endpoint* setting except the key.** The
   endpoint settings are keepable under a name — `engine.profiles.<id>`,
   one row each, so saving one cannot disturb another — and two things
@@ -1182,8 +1191,9 @@ Anything that needed more than a rule to explain is in `docs/`;
   before E4, and it says it is a check, not a rewrite (D54). Every other
   surface reaches the model through `EngineHandle` (`Send + Sync +
   Clone`), whose jobs go through the same busy count and events; the MCP
-  server holds one from startup and no tool calls it until the pipeline
-  exists (D56). See `docs/architecture/local-engine.md`, "Keeping a
+  server holds one from startup, and its `rewrite` tool takes a
+  `JobEngine` (`for_job`) that keeps the job counted busy from the first
+  call to the last, so no unload lands between two candidates (E4-6a). See `docs/architecture/local-engine.md`, "Keeping a
   model".
 * **A document goes back byte for byte.** `wipemark_pipeline::prepare`
   turns a document into chunks — one paragraph each, or one list with the
@@ -1248,6 +1258,20 @@ Anything that needed more than a rule to explain is in `docs/`;
   model the user chose rewrites. See `docs/architecture/prompts.md`.
 * **Layer A is never licence-gated.** Any state, expired or invalid,
   keeps the deterministic scrubber available.
+* **The CLI finds the application by its beacon, and only on loopback.**
+  The MCP supervisor writes `<data dir>/mcp.json` (`{pid, port,
+  address}`) atomically when it is listening — loopback or a wildcard
+  bind only, and the address it names is always loopback — and removes
+  it on stop, on a failed start and on exit, only when the pid is its
+  own. `wipemark-cli rewrite` dials it only when the address is loopback
+  and the pid is alive, says on stderr and in `--json`
+  (`"served_by": "application"`) that the application did the rewrite,
+  and otherwise loads the local model itself. The CLI's own engine is
+  **the local model only**: with an endpoint on duty and no application
+  running it refuses, naming the application, because `engine::refusal`
+  lives in the app crate and a second copy of the default-deny rule is
+  the one copy that drifts (E4-6a H16). `wipemark_models::beacon`,
+  `apps/wipemark-cli/src/app.rs`.
 * **Exit codes are the CLI's interface, and there are four.** `0`
   clean, `1` findings, `2` usage or a refusal, `3` partial. The third
   one earns its keep: *inconclusive is not clean* — a scan that could
@@ -1255,7 +1279,8 @@ Anything that needed more than a rule to explain is in `docs/`;
   hook that reads that as success is worse than no hook. So `audit`
   exits 3 when any file could not be read **even if another had
   findings**: 3 beats 1, because a hook must not read a scan with a
-  hole in it as a complete one. Stubs refuse loudly at **2** and say
+  hole in it as a complete one — and `rewrite` exits 3 when any paragraph
+  kept its cleaned original, 3 beating 1 the same way. Stubs refuse loudly at **2** and say
   what did not run; never exit 0 for work that did not happen. A model
   that `models verify` finds absent or not matching exits **1**: a
   finding, like a mark.
@@ -1304,6 +1329,9 @@ What exists so far:
 | `wipemark-layer-a-architecture-2026-10-03` | FILE | a snapshot of `docs/architecture/layer-a.md` at the closure |
 | `wipemark-open-questions-2026-10-03` | FILE | the register of every open question, filed under the step that has to answer it (owner [В] or engineering [И]). Open a step's section before writing its document; a question answered moves to `docs/plan/README.md` §4 or §5 |
 | `wipemark-e4-prompts-open-questions-2026-10-03` | FILE | E4's prompt questions in detail (Q4, Q-B1…Q-B22), draft en/ru/de templates, how an edited template is validated and how one written in one language is adapted to another, and the prompt-bench plan |
+| `wipemark-task-e4-6a-headless-rewrite-2026-10-04` | FILE | a task for an agent on another machine (code only): E4-6a + E5-2, rewriting without a window. Landed as `0c132f6` (D93) |
+| `wipemark-e4-6a-report-2026-10-04` | FILE | that agent's report (written without a compiler; verified on the host, D93) |
+| `wipemark-task-e11-1-image-metadata-2026-10-04` | FILE | a task for an agent on another machine (code only): E11-1, provenance metadata in PNG, JPEG and WebP, pixels never re-encoded |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
