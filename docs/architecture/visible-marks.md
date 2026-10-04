@@ -270,6 +270,53 @@ GWT itself restores with the capture, its noise and a white logo, gated
 only by its detector's confidence — so on these files it leaves all three
 traces; the proof here is stricter and the map and the logo are measured.
 
+## What the second host verification taught (D244–D246)
+
+* **An outline is held to the picture in levels too** (D244). The
+  outline share (D238) is relative to the mark's own contour, so on a
+  flat background a ring of several levels was a small share: the
+  re-saved `11_crying` came back with a dotted dark outline, −3.67
+  levels against a background of no spread, reported clean at 0.040.
+  `verify::outline` now also measures the faint band (`BAND`, α
+  3/255–0.2) against the pixels around the mark — under the noise floor
+  inside the rectangle and a ring four pixels out — in 8-bit luma
+  levels: an outline is left when that step is over `STEP_LEVELS` **1.0**
+  *and* over the surroundings' own spread (a texture hides a step; the
+  aurora skies carry 6–7 levels of it and are not outlines), or when
+  the share is over its bound. On 22 first-generation outputs the step
+  is −0.17 to +0.30; `crying` −3.67 and JPEG 90 +2.2 to +2.8 are said,
+  JPEG 95 (+0.16) is not. On the synthetic shrunk-and-compressed cases,
+  checked against the picture shrunk without the mark, the one said is
+  +2.25 off the truth and every one not said within 1.26
+  (`tests/outline.rs`). A lopsided ring whose band averages out is the
+  share's to say (`a_lopsided_outline_is_said_by_its_share`).
+  `Restored.step` carries the number, and the CLI says it.
+* **The search draws with the map a row names** (D244). `map_for`
+  took the first map of a width in the list — GWT's capture, listed
+  before the measured map — so a mark off its row came back with 4 027
+  pixels changed and the band −1.9 levels. It takes the search map at
+  its own width, then the map a row names at that width; never the
+  order of the list (`a_real_mark_off_its_row_is_searched_with_the_measured_map`).
+* **A fitted map is never exact** (D245). An `alpha` entry may say
+  `"fitted": true` — fitted from real outputs rather than the vendor's
+  α; `gemini-v1-96-measured` is. `exact` needs a map that is not
+  fitted (the logo's spread across pictures alone is over a level), and
+  `Restored` carries `fitted` and `lossy`. The CLI names each reason a
+  restoration is not exact — loss, clamped samples, a fitted map, a
+  resampled one — and how close it is, never "stored with loss" for a
+  lossless PNG that only clamped.
+* **The capture's noise is looked for, not assumed away** (D246). D241
+  drops it from every template; V1's real outputs show the vendor draws
+  none, V2 has no real output to say. `restore::drawn_noise` looks for
+  the dropped noise's speckle in the picture's fine detail — each noise
+  pixel against its 3 × 3 mean, regressed on the lift a drawn noise
+  would make there less its 3 × 3 mean — and takes it off only when the
+  slope is over a half. Under GWT's V1 maps the slope is 0.03–0.10 on all
+  22 real outputs; on composites drawn with the noise, about 1. A V2
+  mark drawn either way leaves no square (`v2_rows.rs`). Never for a
+  fitted map: what its denoising drops is the fit's own noise (slopes of
+  1.3–1.8 on the outputs it was fitted from), not evidence.
+
 ## Thresholds
 
 The shipped profiles carry `min_ncc` **0.70** (a row: half of it),
@@ -277,7 +324,10 @@ The shipped profiles carry `min_ncc` **0.70** (a row: half of it),
 `opaque_above` **0.95**; the classification adds `NO_BLEND_RATIO` **0.8**
 (D235) and the out-of-range allowance `BLEND_LEVELS` **8** stored levels
 (D240); a template drops the capture's noise under `CAPTURE_NOISE`
-**7/255** (D241). Measured on the synthetic pair and the shipped maps
+**7/255** (D241), and a restoration takes it back off where its speckle
+is in the picture (D246); an outline is left past `OUTLINE_BOUND`
+**0.20** of the contour or `STEP_LEVELS` **1.0** level on the faint band
+and the picture's own spread (D238, D244). Measured on the synthetic pair and the shipped maps
 (2026-10-04, `--nocapture`):
 
 | | |

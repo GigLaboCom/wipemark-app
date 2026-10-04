@@ -7,7 +7,7 @@ mod support;
 use support::*;
 use wipemark_pixels::{
     clean, composite, examine, resampled, restore, AlphaMap, ExamineOptions, Fidelity, Layout,
-    PixelRect, Placed, Refusal, RestoreError, Verdict, OUTLINE_BOUND,
+    PixelRect, Placed, Refusal, RestoreError, Verdict, OUTLINE_BOUND, STEP_LEVELS,
 };
 
 const W: u32 = 320;
@@ -429,4 +429,47 @@ fn a_white_mark_on_white_noise_is_not_proved() {
     } else {
         assert!(max_error(&marked, &original) <= 1);
     }
+}
+
+/// The same, lopsided: a halo outside the edge on the mark's left half and
+/// the edge eaten into on its right — a ring light on one side and dark on
+/// the other. Its faint band averages out against the picture around it
+/// (a step under half a level), so the absolute measure (D244) cannot see
+/// it; the contour's share can (over a quarter), and the outline is said.
+#[test]
+fn a_lopsided_outline_is_said_by_its_share() {
+    let catalogue = synthetic_catalogue();
+    let small = synthetic_v1().small;
+    let wide = blurred(&small, 2);
+    let lopsided = AlphaMap::new(
+        48,
+        48,
+        small
+            .values()
+            .iter()
+            .zip(wide.values())
+            .enumerate()
+            .map(|(i, (a, b))| {
+                if i % 48 < 24 {
+                    a + 1.1 * (b - a).max(0.0)
+                } else {
+                    (a - 1.1 * (b - a).max(0.0)).max(0.0)
+                }
+            })
+            .collect(),
+    )
+    .unwrap();
+    let mut marked = picture(Kind::Gradient, W, H, 5, Layout::Rgb8);
+    composite(
+        &mut marked,
+        &quantised(&lopsided),
+        small_row(W, H, 48),
+        [255.0; 3],
+    );
+    let report = clean(&mut marked, &catalogue, &lossless());
+    assert_eq!(report.restored.len(), 1, "{:#?}", report.found);
+    let r = &report.restored[0];
+    assert!(r.step.abs() < STEP_LEVELS, "{r:?}");
+    assert!(r.outline > OUTLINE_BOUND, "{r:?}");
+    assert!(r.outline_left && report.marks_left(), "{r:?}");
 }

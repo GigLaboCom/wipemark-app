@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """The images follow-ups' mutation table (R1 ... R11 of Watchword FILE
-`wipemark-task-images-followups-2026-10-04`), as a script the verifier runs.
+`wipemark-task-images-followups-2026-10-04`, and S1 ... S6 of the second
+round, `wipemark-task-images-followups-2-2026-10-04`), as a script the
+verifier runs.
 
 Each mutation is applied alone to the sources, the named tests run, and the
 file is restored from memory whatever happens. A mutation PASSES this script
@@ -125,8 +127,8 @@ MUTATIONS = [
         "R3/M4",
         "the search draws a size with the profile's own map of that size",
         "crates/wipemark-pixels/src/propose.rs",
-        "        .position(|(_, m)| m.width() as f32 == size)",
-        "        .position(|(_, m)| m.width() == 0)",
+        "        .find(|&i| width(i) == size)",
+        "        .find(|&i| width(i) == 0.0)",
         [
             (EXACT, "a_mark_a_pixel_off_its_row_is_found_by_the_search"),
             (EXACT, "a_mark_half_a_pixel_off_its_row_is_proved_by_the_search"),
@@ -257,11 +259,11 @@ MUTATIONS = [
     ),
     (
         "R6/M2",
-        "an outline over the bound is said",
-        "crates/wipemark-pixels/src/restore.rs",
-        "    let outline_left = outline > crate::verify::OUTLINE_BOUND;",
-        "    let outline_left = false && outline > crate::verify::OUTLINE_BOUND;",
-        [(EXACT, "an_outline_left_by_another_map_is_said")],
+        "an outline over the bound is said (the share, where the step averages out)",
+        "crates/wipemark-pixels/src/verify.rs",
+        "        self.share > OUTLINE_BOUND || self.step.abs() > STEP_LEVELS.max(self.spread)",
+        "        self.step.abs() > STEP_LEVELS.max(self.spread)",
+        [(EXACT, "a_lopsided_outline_is_said_by_its_share")],
     ),
     (
         "R6/M3",
@@ -383,6 +385,119 @@ MUTATIONS = [
         "\"margin\": [64, 64], \"alpha\": \"gemini-v1-96-measured\"",
         "\"margin\": [64, 64], \"alpha\": \"gemini-v1-96\"",
         [(PIC + ["--test", "real"], "the_sparkle_leaves_no_ghost")],
+    ),
+    # ------------- the second round (wipemark-task-images-followups-2-2026-10-04)
+    (
+        "S1/M1",
+        "an outline is also held to the picture in absolute levels (D244)",
+        "crates/wipemark-pixels/src/verify.rs",
+        "        self.share > OUTLINE_BOUND || self.step.abs() > STEP_LEVELS.max(self.spread)",
+        "        self.share > OUTLINE_BOUND",
+        [
+            (PIC + ["--test", "real"], "a_flattened_copy_is_restored_with_its_outline_said"),
+            (PIX + ["--test", "outline"], "a_shrunk_and_compressed_mark_is_restored"),
+            (VISIBLE, "an_outline_left_is_said_and_exits_three"),
+        ],
+    ),
+    (
+        "S1/M2",
+        "a step hides in the picture's own spread (D244)",
+        "crates/wipemark-pixels/src/verify.rs",
+        "        self.share > OUTLINE_BOUND || self.step.abs() > STEP_LEVELS.max(self.spread)",
+        "        self.share > OUTLINE_BOUND || self.step.abs() > STEP_LEVELS",
+        [
+            (PIX + ["--test", "outline"], "a_shrunk_and_compressed_mark_is_restored"),
+            (PIC + ["--test", "real"], "a_real_mark_on_a_saturated_green_is_restored"),
+        ],
+    ),
+    (
+        "S2/M1",
+        "the search draws a mark with the map a row names, not the list's first",
+        "crates/wipemark-pixels/src/propose.rs",
+        "    if width(search) == size {\n        return search;\n    }\n    profile\n        .placements\n        .iter()\n        .map(|p| p.alpha)\n        .find(|&i| width(i) == size)\n        .unwrap_or(search)",
+        "    let _ = width;\n    profile\n        .maps\n        .iter()\n        .position(|(_, m)| m.width() as f32 == size)\n        .unwrap_or(search)",
+        [(PIC + ["--test", "real"], "a_real_mark_off_its_row_is_searched_with_the_measured_map")],
+    ),
+    (
+        "S3/M1",
+        "the out-of-range proof refuses (off)",
+        "crates/wipemark-pixels/src/verify.rs",
+        "    } else if out_of_range > t.out_of_range {",
+        "    } else if out_of_range > 1.0 {",
+        [(VERIFY, "a_mark_painted_over_out_of_range_is_refused")],
+    ),
+    (
+        "S3/M2",
+        "the out-of-range allowance is eight levels (64)",
+        "crates/wipemark-pixels/src/verify.rs",
+        "pub const BLEND_LEVELS: f64 = 8.0;",
+        "pub const BLEND_LEVELS: f64 = 64.0;",
+        [(VERIFY, "a_mark_painted_over_out_of_range_is_refused")],
+    ),
+    (
+        "S5/M1",
+        "a fitted map is never claimed exact (D245)",
+        "crates/wipemark-pixels/src/restore.rs",
+        "            && !verified.fitted()\n",
+        "",
+        [
+            (PIC + ["--test", "real"], "a_real_mark_is_proved_at_its_row_and_restored"),
+            (VISIBLE, "clean_removes_a_proved_mark_with_no_flag"),
+        ],
+    ),
+    (
+        "S5/M2",
+        "an inexact lossless restoration is not said to be lossy",
+        "apps/wipemark-cli/src/image.rs",
+        "                if restored.lossy {",
+        "                if !restored.exact {",
+        [
+            (VISIBLE, "a_clamped_restoration_says_it_clamped_not_that_it_was_lossy"),
+            (VISIBLE, "clean_removes_a_proved_mark_with_no_flag"),
+        ],
+    ),
+    (
+        "S6/M1",
+        "a capture's noise found drawn is taken off (never)",
+        "crates/wipemark-pixels/src/restore.rs",
+        "    ee > 0.0 && de / ee > 0.5",
+        "    ee < 0.0 && de / ee > 0.5",
+        [(PIX + ["--test", "v2_rows"], "a_v2_mark_leaves_no_square_whether_its_capture_noise_is_drawn_or_not")],
+    ),
+    (
+        "S6/M2",
+        "a capture's noise not drawn is left (always taken)",
+        "crates/wipemark-pixels/src/restore.rs",
+        "    ee > 0.0 && de / ee > 0.5",
+        "    ee > 0.0 || de / ee > 0.5",
+        [
+            (PIX + ["--test", "v2_rows"], "a_v2_mark_leaves_no_square_whether_its_capture_noise_is_drawn_or_not"),
+            (PIC + ["--test", "real"], "gwts_own_map_leaves_the_square_around_a_real_mark_alone"),
+        ],
+    ),
+    (
+        "S6/M3",
+        "a fitted map's dropped values are no evidence of drawn noise",
+        "crates/wipemark-pixels/src/restore.rs",
+        "    if verified.fitted() {\n        return false;\n    }\n",
+        "",
+        [(PIC + ["--test", "real"], "a_real_mark_is_proved_at_its_row_and_restored")],
+    ),
+    (
+        "LOW/M1",
+        "a template with no support is no blend, not an Opaque refusal",
+        "crates/wipemark-pixels/src/verify.rs",
+        "    if support == 0 {\n        return (None, Outcome::NoBlend);\n    }\n",
+        "",
+        [(PIX + ["--lib"], "a_template_with_no_support_is_no_blend")],
+    ),
+    (
+        "LOW/M2",
+        "the audit's human footer carries the pixel claim",
+        "apps/wipemark-cli/src/audit.rs",
+        "    if entries\n        .iter()\n        .any(|entry| matches!(entry.status, Status::Image(_)))\n    {",
+        "    if false {",
+        [(CLI + ["--test", "image"], "audit_lists_pictures_in_every_output")],
     ),
 ]
 

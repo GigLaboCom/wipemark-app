@@ -56,4 +56,7 @@ with V1's measured logo (252.1, 253.5, 252.8), by
 `cargo run -p wipemark-picture --example measure_map -- gemini-sparkle-v1 96 64 …`.
 GWT's `gemini-v1-96` is the capture it improves on and stays in the
 catalogue for comparison; the large row and the search use the measured
-one (D243). It is data measured here, not taken from GWT.
+one (D243). It is data measured here, not taken from GWT. Its catalogue
+entry says `"fitted": true` (D245): a restoration with it is held to the
+picture around the mark and never claimed exact, and what its denoising
+drops is the fit's own noise, never looked for in a picture (D246).
