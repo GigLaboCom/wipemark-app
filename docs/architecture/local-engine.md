@@ -446,6 +446,12 @@ unknown is not a number.
 
 ## Running the native gates on a new machine
 
+On GitHub Actions (`.github/workflows/gate.yml`) the `native` job runs the
+first two commands below on Ubuntu with `GGML_VULKAN=ON` (apt: `cmake clang
+libclang-dev libvulkan-dev glslc spirv-headers` — ggml-vulkan's CMake asks
+for `SPIRV-Headers`), and the `macos` job compiles `llama-native` with
+Metal. The live gate (a model, a GPU) is run by hand.
+
 ```sh
 # 1. A toolchain: cmake ≥ 3.14, a C++17 compiler, libclang (for bindgen).
 #    Ubuntu: apt install cmake clang libclang-dev. macOS: Xcode + brew cmake.

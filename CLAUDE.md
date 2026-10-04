@@ -87,7 +87,9 @@ The other three run on the pinned stable toolchain in
 `rust-toolchain.toml` (1.94.1, with its own `components` list, so a
 fresh machine has clippy and rustfmt without a second install).
 
-CI (`.woodpecker/gate.yaml`) runs those same four with `--locked` — a
+CI is `.github/workflows/gate.yml` (GitHub Actions, on every push and
+pull request; `.woodpecker/gate.yaml` is the self-hosted lane and has not
+reported yet). It runs those same four with `--locked` — a
 `Cargo.lock` that moved under an edit is a red lane and a green
 laptop — and what no gate above performs:
 
@@ -109,8 +111,13 @@ and that `duty::engine_for` hands out a `LocalEngine` rather than a fake.
 
 **None of the gates above compiles llama.cpp.** The `ffi` module and the
 real engine are behind `llama-native` (cmake + bindgen + a C++ compiler
-+ the source `vendor/fetch.sh` fetched), which has no CI lane yet. Any
-change under `crates/wipemark-llama*` or `crates/wipemark-engine/src/local.rs`
++ the source `vendor/fetch.sh` fetched). The workflow's `native` job builds
+llama.cpp at the pin with `GGML_VULKAN=ON` and runs the first two native
+gates below (clippy and the model-free tests); its `macos` job checks the
+whole workspace and `llama-native` with Metal on Apple Silicon — compile
+only, the first lane to build the GUI on macOS. The third, the live gate,
+has no hosted lane (no model, no GPU), so any change under
+`crates/wipemark-llama*` or `crates/wipemark-engine/src/local.rs` still
 runs the three native gates by hand — the third needs the catalogue's
 Qwen3 4B (`docs/architecture/local-engine.md`, "Running the native
 gates"):
