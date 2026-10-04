@@ -21,10 +21,10 @@ each PNG with the `png` crate and proves the equality, sample for sample.
 
 | PNG | its sha256 (as in GWT's array) | map | profile |
 |---|---|---|---|
-| `bg_48.png` | `4afc99afe0ef108d67acc45bf4dc5da867ddb793bebc89c9243bb121ce7f0f57` | `gemini-v1-48.wma` sha256: pending | `gemini-sparkle-v1`, 48×48 |
-| `bg_96.png` | `3e26f2233a12a5829acac174d8df1f3db40e07fef04ecdd0e035732154077911` | `gemini-v1-96.wma` sha256: pending | `gemini-sparkle-v1`, 96×96 |
-| `bg_b_36.png` | `a3e7d5ca932e6acf9ff826a4db47d597458480e72089da81a40bd4b52668cd31` | `gemini-v2-36.wma` sha256: pending | `gemini-sparkle-v2`, 36×36 |
-| `bg_b_96.png` | `3911f3b68b3083096326cee24f09868ec87f8d39d248e97057cd14ee838c5552` | `gemini-v2-96.wma` sha256: pending | `gemini-sparkle-v2`, 96×96 |
+| `bg_48.png` | `4afc99afe0ef108d67acc45bf4dc5da867ddb793bebc89c9243bb121ce7f0f57` | `gemini-v1-48.wma` sha256: `b32ca0dc3d0f4357d18bc6ab20da18ca38351791c4fd9d34375796962f74a563` | `gemini-sparkle-v1`, 48×48 |
+| `bg_96.png` | `3e26f2233a12a5829acac174d8df1f3db40e07fef04ecdd0e035732154077911` | `gemini-v1-96.wma` sha256: `3fa762cb5d3eb50063ebc9a39a4415c8e46b5bc1b8a18165bdb6921883c30712` | `gemini-sparkle-v1`, 96×96 |
+| `bg_b_36.png` | `a3e7d5ca932e6acf9ff826a4db47d597458480e72089da81a40bd4b52668cd31` | `gemini-v2-36.wma` sha256: `6f35dfec8fd71c641098f5c5d4844951fc1aeb023662fc47b6f820d66fedd50c` | `gemini-sparkle-v2`, 36×36 |
+| `bg_b_96.png` | `3911f3b68b3083096326cee24f09868ec87f8d39d248e97057cd14ee838c5552` | `gemini-v2-96.wma` sha256: `0df84d4b3002e98abb35e3ed974f69bc0968ca2985a87b3b14d2ab66de8ada41` | `gemini-sparkle-v2`, 96×96 |
 
 **Not yet in the tree.** The container that wrote this crate could not
 clone GWT, so the files above are produced on a machine that can, by

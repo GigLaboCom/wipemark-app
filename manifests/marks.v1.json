@@ -11,8 +11,8 @@
       "blend": { "model": "encoded", "logo": [255, 255, 255], "logo_map": null },
       "opaque_above": 0.95,
       "alpha": [
-        { "id": "gemini-v1-48", "asset": "gemini-v1-48.wma", "sha256": "pending: run crates/wipemark-pixels/marks/gwt/extract.py", "size": [48, 48] },
-        { "id": "gemini-v1-96", "asset": "gemini-v1-96.wma", "sha256": "pending: run crates/wipemark-pixels/marks/gwt/extract.py", "size": [96, 96] }
+        { "id": "gemini-v1-48", "asset": "gemini-v1-48.wma", "sha256": "b32ca0dc3d0f4357d18bc6ab20da18ca38351791c4fd9d34375796962f74a563", "size": [48, 48] },
+        { "id": "gemini-v1-96", "asset": "gemini-v1-96.wma", "sha256": "3fa762cb5d3eb50063ebc9a39a4415c8e46b5bc1b8a18165bdb6921883c30712", "size": [96, 96] }
       ],
       "placements": [
         { "when": { "min_width": 1025, "min_height": 1025 }, "corner": "bottom-right", "margin": [64, 64], "alpha": "gemini-v1-96" },
@@ -33,8 +33,8 @@
       "blend": { "model": "encoded", "logo": [255, 255, 255], "logo_map": null },
       "opaque_above": 0.95,
       "alpha": [
-        { "id": "gemini-v2-36", "asset": "gemini-v2-36.wma", "sha256": "pending: run crates/wipemark-pixels/marks/gwt/extract.py", "size": [36, 36] },
-        { "id": "gemini-v2-96", "asset": "gemini-v2-96.wma", "sha256": "pending: run crates/wipemark-pixels/marks/gwt/extract.py", "size": [96, 96] }
+        { "id": "gemini-v2-36", "asset": "gemini-v2-36.wma", "sha256": "6f35dfec8fd71c641098f5c5d4844951fc1aeb023662fc47b6f820d66fedd50c", "size": [36, 36] },
+        { "id": "gemini-v2-96", "asset": "gemini-v2-96.wma", "sha256": "0df84d4b3002e98abb35e3ed974f69bc0968ca2985a87b3b14d2ab66de8ada41", "size": [96, 96] }
       ],
       "placements": [
         { "when": { "min_width": 1025, "min_height": 1025 }, "corner": "bottom-right", "margin": [192, 192], "alpha": "gemini-v2-96" }
