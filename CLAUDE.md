@@ -1386,6 +1386,13 @@ What exists so far:
 | `wipemark-findings-2026-10-04` | FILE | the day's findings after the status report: E4-7's numbers, E11-1's host verification, the visible-mark study (vendors, NCC is not enough, two proofs), the llama.cpp bump, Vulkan vs CUDA measured (D187), no GitHub CI before 2026-10-04 |
 | `wipemark-images-series-report-2026-10-04` | FILE | the images series' own report (written without running its tests) |
 | `wipemark-task-images-followups-2026-10-04` | FILE | the host verification's findings on the images series as requirements R0–R11 (15 red tests, a refused proposal reported as a mark, text promising untouched pixels, sub-pixel drift, ghost outlines on JPEG, D-number collision); base branch `images/series-v2` |
+| `wipemark-images-followups-report-2026-10-04` | FILE | that agent's report on R0–R11 (D235–D239); the host verification found it close, not mergeable |
+| `wipemark-gemini-stickers-2026-10-04` | FILE | the owner's first-generation Gemini outputs (42 stickers, 2048², V1 mark) as a stored ZIP — the real test set; the `youtube-heretic` pictures used before are generations of generations and are not |
+| `wipemark-images-real-fixtures-report-2026-10-04` | FILE | the composites in the tests replaced by crops of those stickers (`fixtures/image/gemini/`) |
+| `wipemark-images-measured-gemini-report-2026-10-04` | FILE | what GWT's maps get wrong on real outputs, and the measured V1 map and logo (D240–D243) |
+| `wipemark-task-images-followups-2-2026-10-04` | FILE | the second host verification's findings as S1–S6 (an outline on a flat picture, the search's map, the out-of-range proof unguarded, the fixture, "exact", V2's noise) |
+| `wipemark-images-followups-2-report-2026-10-04` | FILE | its report (D244–D246) |
+| `wipemark-task-images-followups-3-2026-10-05` | FILE | the third verification's findings as T1–T2 + low: the outline is blind to colour (a 4:2:0 JPEG's fringe reported clean), the residual sentence states a mean as a bound |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
