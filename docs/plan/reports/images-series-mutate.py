@@ -163,7 +163,9 @@ MUTATIONS = [
         "crates/wipemark-pixels/src/restore.rs",
         "let v = o.round().clamp(0.0, max) as u16;",
         "let v = o.trunc().clamp(0.0, max) as u16;",
-        [(PIX + ["--test", "exact"], "a_composited_mark_comes_back_within_one_level")],
+        # "Within a level" holds truncated too; the rounding itself is the
+        # follow-ups' direct test (R10).
+        [(PIX + ["--lib"], "the_inverse_rounds_to_the_nearest_level")],
     ),
     (
         "E12-1/M7",
@@ -276,7 +278,9 @@ MUTATIONS = [
         "crates/wipemark-pixels/tests/support/mod.rs",
         '"verify": {{ "gain": 0.06, "edge_ratio": 0.30,',
         '"verify": {{ "gain": 0.6, "edge_ratio": 1.0,',
-        [(PIX + ["--test", "false_positives"], "no_procedural_negative_is_ever_restored")],
+        # Since D235 the negatives are no blend whatever the thresholds;
+        # the thresholds bite on the look-alike blends (R10).
+        [(PIX + ["--test", "false_positives"], "no_lookalike_blend_is_ever_restored")],
     ),
     (
         "E12-1/M20",

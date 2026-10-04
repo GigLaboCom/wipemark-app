@@ -521,3 +521,50 @@ fn inverse(i: [f64; 3], a: f64, logo: [f64; 3], opaque: f64) -> [f64; 3] {
     }
     crate::restore::unblend(i, a, logo)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::raster::Layout;
+    use crate::{restore, ExamineOptions};
+
+    /// A one-pixel proof over a stored value, the logo white, `α` given.
+    fn one(alpha: f32) -> Verified {
+        Verified {
+            profile: String::from("test"),
+            rect: SubRect {
+                x: 0.0,
+                y: 0.0,
+                size: 1.0,
+            },
+            at: PixelRect {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
+            values: vec![alpha],
+            logo: [255.0; 3],
+            opaque_above: 0.95,
+            gain: 1.0,
+            edge_ratio: 0.0,
+            holes: 0,
+            exact_place: true,
+            width: 1,
+            height: 1,
+            contour: 0.0,
+        }
+    }
+
+    /// The inverse is rounded to the nearest level, as GWT's is — not
+    /// truncated: `(189 − 0.3·255)/0.7` is 160.71 and comes back 161;
+    /// `(188 − 0.3·255)/0.7` is 159.29 and comes back 159.
+    #[test]
+    fn the_inverse_rounds_to_the_nearest_level() {
+        for (stored, original) in [(189u8, 161u16), (188, 159)] {
+            let mut raster = Raster::from_u8(1, 1, Layout::Rgb8, &[stored; 3]).unwrap();
+            restore(&mut raster, &one(0.3), &ExamineOptions::default()).unwrap();
+            assert_eq!(raster.samples(), &[original; 3], "{stored}");
+        }
+    }
+}
