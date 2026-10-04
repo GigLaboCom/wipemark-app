@@ -190,6 +190,46 @@ Record what it prints in the step's report and here.
   committed (Q-V8); the synthetic sparkle is an astroid drawn from its
   equation.
 
+## Calibration (E12-2)
+
+`calibrate.rs` and `examples/calibrate.rs` — how a vendor's mark becomes
+a profile; a developer tool (D162), so no catalogue string and no row.
+Plan: [`docs/plan/E12-2-calibration.md`](../plan/E12-2-calibration.md).
+
+* `calibrate(&[Capture], &CalibrateOptions) -> Result<Calibration, CalibrationError>`
+  for one output size: **locate** the support (each flat capture against
+  a large box mean of itself, a pair against its clean twin; the bounding
+  box of the mean deviation above `max(threshold, 0.2·peak)`, widened);
+  fit the **background** under it as a quadratic per channel over a ring
+  (a pair's twin is its own background); **regress** `I = a·B + c` per
+  pixel and channel (`α = 1 − a`, `α·L = c`, `R²`); `L = Σc/Σα` where
+  `α > 0.1`, its spread reported; `α` again by least squares with `L`
+  fixed; the same in **linear light**; the **grey** captures, kept out of
+  the fit whenever two other backgrounds remain, choose the model, and
+  over 2 levels for both is `NotABlend`; **holes** at `opaque_above`, over
+  5 % of the support `needs_reconstruction`. One background is
+  `OneBackground` — black alone confounds `α` and `L` (SDD §1.2).
+* `Calibration::wma()` writes depth 16; `Draft::to_json()` the row
+  (`status: provisional`, one exact `rect` per size, the logo the mean of
+  the sizes'); a linear-light mark is refused (`LinearLight`), as the
+  catalogue would refuse it.
+* `replay(catalogue, calibration, captures, …)` runs the profile over every
+  capture: NCC, `k*`, ratio, verdict, and on flat captures and pairs the
+  largest difference between the restored picture and the background.
+* The tool: `cargo run --release -p wipemark-pixels --example calibrate --
+  <captures dir> --out <dir>`, reading `captures.toml`
+  (`examples/captures.example.toml`) and PNG (8 or 16 bit), JPEG or WebP;
+  writing `<id>-<w>x<h>.wma`, `<id>.row.json`, `<id>.report.md` (the fit,
+  the replay, and a false-positive pass over `WIPEMARK_FP_CORPUS` when it
+  is set). Its decoders and `toml` are dev-dependencies: the library has
+  no codec.
+* The gate (`tests/calibrate.rs`): a synthetic vendor — a soft map, the
+  tinted logo `(242, 246, 255)`, five black, five white and three grey
+  captures with a vignette and ±1 noise — is recovered losslessly to
+  1/255 (99th percentile; 2/255 at most) with `L` within a level, and
+  through `image`'s JPEG encoder at quality 95 to 3/255 with `L` within
+  two; a linear-light vendor is told by its grey captures.
+
 ## Not here yet
 
 * **Files**: decoding PNG/WebP/JPEG to a raster, encoding it back,
@@ -201,5 +241,5 @@ Record what it prints in the step's report and here.
   rows (`v2_rows_are_gwts_formula`). Not written: the formula could not be
   read from this container. Until it is, a V2 picture under 1025×1025 is
   found by the search, which is never exact.
-* **Calibration** (E12-2), **other vendors** (E12-6), **reconstruction**
-  (E12-7), **the windows** (E12-8).
+* **Other vendors** (E12-6), **reconstruction** (E12-7), **the windows**
+  (E12-8); restoring a `logo_map` or a linear-light mark.

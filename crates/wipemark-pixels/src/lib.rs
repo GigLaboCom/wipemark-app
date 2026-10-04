@@ -26,6 +26,7 @@
 #![forbid(unsafe_code)]
 
 mod alpha;
+mod calibrate;
 mod catalogue;
 mod geometry;
 mod ncc;
@@ -35,6 +36,10 @@ mod restore;
 mod verify;
 
 pub use alpha::{AlphaMap, WmaError, MAGIC};
+pub use calibrate::{
+    calibrate, replay, Background, BlendModel, CalibrateOptions, Calibration, CalibrationError,
+    Capture, Counts, Draft, Replay,
+};
 pub use catalogue::{
     shipped_assets, Anchor, AssetProblem, Catalogue, CatalogueError, Corner, Placement, Profile,
     ProfileId, Search, Status, Thresholds, When, EMBEDDED, SCHEMA,

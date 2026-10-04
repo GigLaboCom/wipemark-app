@@ -292,6 +292,47 @@ MUTATIONS = [
         "    #[serde(rename = \"tried\")]\n    also_tried: &'a [Tried],",
         [(PIX + ["--test", "verify"], "the_report_json_is_ascii_and_stable")],
     ),
+    # ------------------------------------------------------------ E12-2
+    (
+        "E12-2/M1",
+        "two backgrounds: not a black-only fit",
+        "crates/wipemark-pixels/src/calibrate.rs",
+        "let usable = |c: &&Capture| c.background != Background::Content || c.clean.is_some();",
+        "let usable = |c: &&Capture| c.background == Background::Black;",
+        [(PIX + ["--test", "calibrate"], "a_synthetic_vendor_is_recovered_from_lossless_captures")],
+    ),
+    (
+        "E12-2/M2",
+        "the background under the mark follows the vignette (the ring's quadratic)",
+        "crates/wipemark-pixels/src/calibrate.rs",
+        "let b = [1.0, u, v, u * u, u * v, v * v];",
+        "let b = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0];",
+        [(PIX + ["--test", "calibrate"], "a_synthetic_vendor_is_recovered_from_lossless_captures")],
+    ),
+    (
+        "E12-2/M3",
+        "the grey captures choose the blend model",
+        "crates/wipemark-pixels/src/calibrate.rs",
+        "Some([e, l]) if l < e => BlendModel::LinearLight,",
+        "Some([e, l]) if l < e && e < 0.0 => BlendModel::LinearLight,",
+        [(PIX + ["--test", "calibrate"], "the_grey_captures_choose_the_blend_model")],
+    ),
+    (
+        "E12-2/M4",
+        "one background is refused",
+        "crates/wipemark-pixels/src/calibrate.rs",
+        "kinds + set.iter().filter(|c| c.clean.is_some()).count().min(2) as u32",
+        "kinds + 1 + set.iter().filter(|c| c.clean.is_some()).count().min(2) as u32",
+        [(PIX + ["--test", "calibrate"], "one_background_cannot_separate_alpha_from_the_logo")],
+    ),
+    (
+        "E12-2/M5",
+        "an opaque mark is said to need reconstruction",
+        "crates/wipemark-pixels/src/calibrate.rs",
+        "needs_reconstruction: u64::from(holes) * 20 > u64::from(support),",
+        "needs_reconstruction: false,",
+        [(PIX + ["--test", "calibrate"], "an_opaque_mark_needs_reconstruction")],
+    ),
 ]
 
 
