@@ -32,9 +32,9 @@ mod decode;
 mod encode;
 
 pub use decode::{decode, Decoded, PngInfo, Skip, Source};
-pub use encode::{encode_like, Encoding};
+pub use encode::{encode_like, Encoding, JPEG_QUALITY};
 use wipemark_image::{ImageContainer, ImageError, ImageReport, Scope, StripOptions, StripReport};
-use wipemark_pixels::{Catalogue, ExamineOptions, PixelRect, PixelReport, Raster};
+use wipemark_pixels::{Catalogue, ExamineOptions, Fidelity, PixelRect, PixelReport, Raster};
 
 /// What [`clean`] does with a picture.
 #[derive(Debug, Clone, Copy, Default)]
@@ -207,8 +207,11 @@ fn shelf_json() -> String {
 fn restorable(source: &Source) -> bool {
     match source {
         Source::Png(_) => true,
-        Source::WebP { lossy, .. } => !lossy,
-        Source::Jpeg => false,
+        // Lossy in, lossless out (Q-V3).
+        Source::WebP { .. } => true,
+        // Re-encoded (Q-V2); not CMYK, whose colour profile — which
+        // `reframe` keeps — describes inks the new file would not have.
+        Source::Jpeg { components } => matches!(components, 1 | 3),
     }
 }
 
@@ -341,7 +344,13 @@ pub fn prove(
     let Ok(decoded) = decode(out, container)? else {
         return Err(PictureError::Proof(Proof::Samples));
     };
-    if decoded.raster != *restored {
+    // Lossless out: the very samples. Lossy out: within the encoder's
+    // tolerance of them.
+    let faithful = match decoded.fidelity {
+        Fidelity::Lossless => decoded.raster == *restored,
+        Fidelity::Lossy => psnr(&decoded.raster, restored).is_some_and(|p| p >= PSNR_FLOOR),
+    };
+    if !faithful {
         return Err(PictureError::Proof(Proof::Samples));
     }
     outside_unchanged(input, restored, rects)?;
@@ -350,6 +359,34 @@ pub fn prove(
         return Err(PictureError::Proof(Proof::StillVerifies));
     }
     Ok(())
+}
+
+/// The lowest PSNR, in dB, a re-encoded picture may have against the
+/// raster it was encoded from — far below what quality 95 gives, far above
+/// what a wrong picture gives.
+pub const PSNR_FLOOR: f64 = 34.0;
+
+/// Peak signal-to-noise ratio of `a` against `b` over the colour samples,
+/// in dB; infinite when they are equal; `None` when they are not the same
+/// shape.
+pub fn psnr(a: &Raster, b: &Raster) -> Option<f64> {
+    if a.layout() != b.layout() || a.width() != b.width() || a.height() != b.height() {
+        return None;
+    }
+    let c = a.layout().channels();
+    let max = f64::from(a.layout().max());
+    let (mut sum, mut n) = (0f64, 0f64);
+    for (p, q) in a.samples().chunks_exact(c).zip(b.samples().chunks_exact(c)) {
+        for k in 0..3 {
+            let d = f64::from(p[k]) - f64::from(q[k]);
+            sum += d * d;
+            n += 1.0;
+        }
+    }
+    if sum == 0.0 {
+        return Some(f64::INFINITY);
+    }
+    Some(10.0 * (max * max / (sum / n)).log10())
 }
 
 /// Every sample outside `rects` is the same in both rasters.

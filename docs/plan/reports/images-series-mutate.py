@@ -378,8 +378,8 @@ MUTATIONS = [
         "E12-3/M6",
         "the proof: the output decodes to the restored picture",
         "crates/wipemark-picture/src/lib.rs",
-        "    if decoded.raster != *restored {",
-        "    if false {",
+        "Fidelity::Lossless => decoded.raster == *restored,",
+        "Fidelity::Lossless => true,",
         [(PIC + ["--test", "files"], "the_proof_refuses_what_must_never_be_written")],
     ),
     (
@@ -405,6 +405,39 @@ MUTATIONS = [
         "let indices: Option<Vec<u8>> = (0..n).map(|p| index.get(&rgba_at(p)).copied()).collect();",
         "let indices: Option<Vec<u8>> = None;",
         [(PIC + ["--test", "files"], "a_palette_png_stays_a_palette_when_it_can")],
+    ),
+    # ------------------------------------------------------------ E12-4
+    (
+        "E12-4/M1",
+        "a JPEG is restored and re-encoded",
+        "crates/wipemark-picture/src/lib.rs",
+        "Source::Jpeg { components } => matches!(components, 1 | 3),",
+        "Source::Jpeg { components } => matches!(components, 0),",
+        [(PIC + ["--test", "lossy"], "a_marked_jpeg_is_restored_and_re_encoded")],
+    ),
+    (
+        "E12-4/M2",
+        "a grey JPEG stays grey",
+        "crates/wipemark-picture/src/encode.rs",
+        "    let grey = components == 1\n",
+        "    let grey = components == 9\n",
+        [(PIC + ["--test", "lossy"], "a_grey_jpeg_stays_grey")],
+    ),
+    (
+        "E12-4/M3",
+        "a lossy WebP is said to have been lossy",
+        "crates/wipemark-picture/src/encode.rs",
+        "Encoding::WebPLossless { from_lossy: *lossy }",
+        "Encoding::WebPLossless { from_lossy: !*lossy }",
+        [(PIC + ["--test", "lossy"], "a_lossy_webp_is_written_lossless")],
+    ),
+    (
+        "E12-4/M4",
+        "the lossy proof's floor",
+        "crates/wipemark-picture/src/lib.rs",
+        "Fidelity::Lossy => psnr(&decoded.raster, restored).is_some_and(|p| p >= PSNR_FLOOR),",
+        "Fidelity::Lossy => psnr(&decoded.raster, restored).is_some(),",
+        [(PIC + ["--test", "lossy"], "the_lossy_proof_refuses_a_distant_output")],
     ),
 ]
 

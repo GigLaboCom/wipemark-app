@@ -60,10 +60,55 @@ pub fn encode_like(source: &Source, raster: &Raster) -> Result<(Vec<u8>, Encodin
         Source::WebP { lossy, .. } => {
             webp_encode(raster).map(|b| (b, Encoding::WebPLossless { from_lossy: *lossy }))
         }
-        Source::Jpeg => Err(PictureError::Encode {
-            container: ImageContainer::Jpeg,
+        Source::Jpeg { components } => jpeg_encode(*components, raster).map(|b| {
+            (
+                b,
+                Encoding::Jpeg {
+                    quality: JPEG_QUALITY,
+                },
+            )
         }),
     }
+}
+
+/// The quality a restored JPEG is written at (Q-V2: "a full re-encode is
+/// fine", at high quality). `image`'s encoder writes 4:4:4 whatever the
+/// input's subsampling was — it offers no choice, and 4:4:4 loses less
+/// than any subsampling the input could have had.
+pub const JPEG_QUALITY: u8 = 95;
+
+/// A grey JPEG stays grey; anything else is written as YCbCr from RGB. A
+/// CMYK picture never reaches here (`restorable`).
+fn jpeg_encode(components: u8, raster: &Raster) -> Result<Vec<u8>, PictureError> {
+    let bad = |_| PictureError::Encode {
+        container: ImageContainer::Jpeg,
+    };
+    if raster.layout() != Layout::Rgb8 {
+        return Err(PictureError::Encode {
+            container: ImageContainer::Jpeg,
+        });
+    }
+    let samples = raster.samples();
+    let grey = components == 1
+        && samples
+            .chunks_exact(3)
+            .all(|p| p[0] == p[1] && p[1] == p[2]);
+    let (bytes, colour): (Vec<u8>, image::ExtendedColorType) = if grey {
+        (
+            samples.chunks_exact(3).map(|p| p[0] as u8).collect(),
+            image::ExtendedColorType::L8,
+        )
+    } else {
+        (
+            samples.iter().map(|&s| s as u8).collect(),
+            image::ExtendedColorType::Rgb8,
+        )
+    };
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY)
+        .encode(&bytes, raster.width(), raster.height(), colour)
+        .map_err(bad)?;
+    Ok(out)
 }
 
 fn depth_bits(depth: png::BitDepth) -> u8 {

@@ -1,8 +1,8 @@
 //! A picture file through both passes: a marked PNG and a marked lossless
 //! WebP come back restored, losslessly, with every other sample, every
 //! byte of colour and every kept block unchanged; a picture with no mark
-//! is `strip`'s output to the byte; a JPEG is examined and its mark
-//! reported, not yet restored; an animation is said not to be examined.
+//! is `strip`'s output to the byte; an animation is said not to be
+//! examined. JPEG and lossy WebP are `tests/lossy.rs`.
 
 #[path = "../../wipemark-pixels/tests/support/mod.rs"]
 mod pixels_support;
@@ -86,20 +86,6 @@ fn webp_of(raster: &Raster) -> Vec<u8> {
             raster.width(),
             raster.height(),
             image_webp::ColorType::Rgb8,
-        )
-        .unwrap();
-    out
-}
-
-fn jpeg_of(raster: &Raster) -> Vec<u8> {
-    let bytes: Vec<u8> = raster.samples().iter().map(|&s| s as u8).collect();
-    let mut out = Vec::new();
-    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 95)
-        .encode(
-            &bytes,
-            raster.width(),
-            raster.height(),
-            image::ExtendedColorType::Rgb8,
         )
         .unwrap();
     out
@@ -356,32 +342,6 @@ fn a_grey_png_stays_grey_when_it_can() {
             ..
         }
     ));
-}
-
-/// A JPEG is examined and its mark reported; restoring it is the next
-/// step, so the mark is left and the output is the metadata pass's.
-#[test]
-fn a_jpeg_is_examined_and_not_yet_restored() {
-    let catalogue = synthetic_catalogue();
-    let (_, marked) = marked(Kind::Gradient, 31);
-    let bytes = jpeg_of(&marked);
-    let (out, report) = clean(&bytes, &options(&catalogue)).unwrap();
-    assert_eq!(
-        out,
-        wipemark_image::strip(&bytes, &StripOptions::default())
-            .unwrap()
-            .0
-    );
-    match &report.visible {
-        Visible::Examined { report, restorable } => {
-            assert!(!restorable);
-            assert!(!report.found.is_empty(), "the mark was not seen");
-            assert!(report.restored.is_empty());
-        }
-        Visible::NotExamined(why) => panic!("{why:?}"),
-    }
-    assert!(report.marks_left());
-    assert_eq!(report.encoding, Encoding::Unchanged);
 }
 
 /// An animated PNG's pixels are not examined, and the report says so.

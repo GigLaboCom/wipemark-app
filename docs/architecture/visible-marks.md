@@ -255,9 +255,21 @@ never decodes) and `wipemark-pixels` (which never reads a file). Plan:
   rectangles moved, nothing verifies on it — or `PictureError::Proof` and
   no output.
 * What was not examined is a value: `Visible::NotExamined(Animated |
-  Catalogue)`. A JPEG and a lossy WebP are examined and **not yet
-  restored** (`restorable: false`): every finding is then a mark left
-  (`PictureReport::marks_left`).
+  Catalogue)`.
+* **JPEG and lossy WebP (E12-4)** — the owner's answer to Q-V2/Q-V3
+  (2026-10-04: "marks found are removed; re-encoding and the like do not
+  matter"): decoded, restored, **re-encoded** — a JPEG with `image`'s
+  `JpegEncoder` at `JPEG_QUALITY` 95 (4:4:4: the encoder has no other
+  subsampling), a grey JPEG as grey; a lossy WebP as **lossless** `VP8L`
+  (`from_lossy`). The metadata the scope keeps comes back through
+  `reframe`. A lossy output cannot decode to the very samples, so its
+  proof is a PSNR against the restored raster of at least `PSNR_FLOOR`
+  34 dB, beside the other two checks. A CMYK JPEG is examined and **not
+  restored** (`restorable: false`, every finding a mark left): its colour
+  profile, which `reframe` keeps, speaks of inks the new file would not
+  have. No coefficient codec and no block patch: the owner's answer made
+  them unnecessary (D158 amended). Plan:
+  [`docs/plan/E12-4-jpeg-and-lossy-webp.md`](../plan/E12-4-jpeg-and-lossy-webp.md).
 * `PictureReport::to_json()` / `PictureInspection::to_json()` — the
   metadata JSON of E11, the pixel report of E12-1 (or why it did not run),
   the encoding, `marks_left`, and the picture's shelf with
@@ -265,7 +277,6 @@ never decodes) and `wipemark-pixels` (which never reads a file). Plan:
 
 ## Not here yet
 
-* **JPEG and lossy WebP restoration** — E12-4.
 * **Surfaces**: the CLI and the MCP image tools, the catalogue strings —
   E12-5.
 * **V2's small placements** — one exact row per Gemini output size, from

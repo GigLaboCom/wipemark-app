@@ -25,13 +25,14 @@ thiserror.workspace = true
 png = "0.18"
 image-webp = "0.2"
 zune-jpeg = "0.5"
+# JPEG out (Q-V2: decode, restore, re-encode at high quality): `image`'s own
+# encoder, pure Rust, its `jpeg` feature alone.
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [dev-dependencies]
 # The pixels suite's generators are borrowed by `#[path]`, and they pin
 # their synthetic maps by sha256.
 sha2.workspace = true
-# A real JPEG encoder, to make the JPEG fixtures.
-image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [lints]
 workspace = true

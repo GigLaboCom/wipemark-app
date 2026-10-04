@@ -26,8 +26,14 @@ pub struct PngInfo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
     Png(PngInfo),
-    WebP { lossy: bool, alpha: bool },
-    Jpeg,
+    WebP {
+        lossy: bool,
+        alpha: bool,
+    },
+    /// A JPEG of 1 (grey), 3 (YCbCr) or 4 (CMYK/YCCK) components.
+    Jpeg {
+        components: u8,
+    },
 }
 
 /// A decoded picture.
@@ -161,6 +167,8 @@ fn jpeg_decode(bytes: &[u8]) -> Result<Decoded, PictureError> {
     Ok(Decoded {
         raster,
         fidelity: Fidelity::Lossy,
-        source: Source::Jpeg,
+        source: Source::Jpeg {
+            components: info.components,
+        },
     })
 }
