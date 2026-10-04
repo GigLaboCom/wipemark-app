@@ -1,0 +1,37 @@
+[package]
+name = "wipemark-picture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "A picture file through the pixels pass: decode, restore a verified mark, encode, reframe — one writer."
+
+# The one crate that decodes and encodes a picture. Below it: the
+# container cutter that never decodes (`wipemark-image`) and the maths that
+# never sees a file (`wipemark-pixels`); keeping the codecs here is what
+# lets both of those stay what they promise. Enforced by
+# scripts/check-dep-direction.sh.
+
+[dependencies]
+wipemark-image.workspace = true
+wipemark-pixels.workspace = true
+thiserror.workspace = true
+# The decoders and encoders, all already in the lock through gpui's image
+# stack, all pure Rust. PNG both ways; WebP both ways, lossless out
+# (`image-webp` has no lossy encoder — which is the owner's answer to Q-V3
+# anyway); JPEG in through `zune-jpeg`.
+png = "0.18"
+image-webp = "0.2"
+zune-jpeg = "0.5"
+
+[dev-dependencies]
+# The pixels suite's generators are borrowed by `#[path]`, and they pin
+# their synthetic maps by sha256.
+sha2.workspace = true
+# A real JPEG encoder, to make the JPEG fixtures.
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
+[lints]
+workspace = true

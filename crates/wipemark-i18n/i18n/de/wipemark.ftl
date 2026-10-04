@@ -761,6 +761,7 @@ cli-image-pixels = Geprüft wurden nur die Metadaten der Datei. Eine Markierung 
 cli-image-not-yet = { $path }: { $container }-Bilder sind in dieser Version noch nicht dabei. Es wurden keine Metadaten gelesen und nichts geschrieben.
 cli-image-unknown = { $path }: Diese Bytes sind kein Bild, das diese Version öffnet. Nichts wurde geschrieben.
 cli-image-multi-picture = { $path } enthält nach dem ersten Bild weitere (MPF), und dieses Entfernen würde deren Index falsch machen: Metadaten hinter dem Index würden sie verschieben, oder der Index ließ sich nicht lesen, um ihn zu berichtigen. Nichts wurde geschrieben.
+cli-image-reframe = { $path }: Die Pixel des Bildes haben sich geändert, und diese Version kann sie nicht in diese Datei zurückschreiben: Sie ist animiert oder enthält einen Teil, den diese Version nicht kennt. Nichts wurde geschrieben.
 cli-image-malformed = { $path } ist keine { $container }-Datei, die diese Version lesen kann: { $defect }, bei Byte { $offset }. Nicht gelesen heißt nicht sauber.
 cli-image-text-flag = { $path } ist ein Bild ({ $container }), und { $flag } ist für Text. Nichts wurde geschrieben.
 cli-image-all-metadata-text = { $path } ist kein Bild, und --all-metadata ist für Bilder. Nichts wurde geschrieben.

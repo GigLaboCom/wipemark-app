@@ -37,6 +37,7 @@ mod exif;
 mod jpeg;
 mod json;
 mod png;
+mod reframe;
 pub mod signatures;
 mod text;
 mod webp;
@@ -44,6 +45,7 @@ mod webp;
 use std::ops::Range;
 
 pub use json::spell;
+pub use reframe::reframe;
 pub use signatures::{Generator, SourceType};
 pub use text::INFLATE_LIMIT;
 use wipemark_core::report::not_established;
@@ -420,6 +422,10 @@ pub enum Unsupported {
     /// the index's size of the first picture — the one field this crate
     /// rewrites there — cannot be read, or is smaller than what went.
     MultiPicture,
+    /// A picture whose pixels changed cannot be framed in the original:
+    /// the original is animated or carries a critical chunk this build
+    /// does not know, or the new image is another container.
+    Reframe,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

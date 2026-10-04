@@ -62,6 +62,9 @@ pub(super) enum Refusal {
     /// would move the pictures it points at, or it could not be read to
     /// correct the first picture's size.
     MultiPicture { offset: u64 },
+    /// Changed pixels that cannot be put back in this file: it is
+    /// animated, or carries a critical part this version does not know.
+    Reframe { offset: u64 },
     /// A file the library could not read.
     Malformed {
         container: ImageContainer,
@@ -95,6 +98,10 @@ impl Refusal {
                  would leave their index wrong at byte {offset}: a block after the index would \
                  move them, or the index could not be read to be corrected"
             ),
+            Self::Reframe { offset } => format!(
+                "the picture's pixels changed and this version cannot write them back into this \
+                 file: it is animated or carries a part at byte {offset} this version does not know"
+            ),
             Self::Malformed {
                 container,
                 offset,
@@ -118,6 +125,7 @@ impl Refusal {
             Self::NotAnImage(_) => "not an image",
             Self::NotYet(_) => "not yet",
             Self::MultiPicture { .. } => "multi-picture",
+            Self::Reframe { .. } => "reframe",
             Self::Malformed { .. } => "malformed",
             Self::StillMarked => "still marked",
         }
@@ -173,6 +181,11 @@ fn refusal_of(error: ImageError) -> Refusal {
             what: Unsupported::MultiPicture,
             ..
         } => Refusal::MultiPicture { offset },
+        ImageError::Unsupported {
+            offset,
+            what: Unsupported::Reframe,
+            ..
+        } => Refusal::Reframe { offset },
         ImageError::Malformed {
             container,
             offset,
@@ -286,6 +299,7 @@ mod tests {
             Refusal::NotAnImage(None),
             Refusal::NotYet(ImageContainer::Heic),
             Refusal::MultiPicture { offset: 2 },
+            Refusal::Reframe { offset: 2 },
             Refusal::StillMarked,
         ] {
             let said = refusal.said();

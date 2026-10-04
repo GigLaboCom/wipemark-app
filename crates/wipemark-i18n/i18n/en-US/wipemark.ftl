@@ -1338,6 +1338,7 @@ cli-image-pixels = Only the file's metadata was examined. A mark carried in the 
 cli-image-not-yet = { $path }: { $container } images are not in this version yet. Nothing was read for metadata, and nothing was written.
 cli-image-unknown = { $path }: the bytes are not an image this version opens. Nothing was written.
 cli-image-multi-picture = { $path } holds further pictures after the first (MPF), and this removal would leave their index wrong: metadata after the index would move them, or the index could not be read to be corrected. Nothing was written.
+cli-image-reframe = { $path }: the picture's pixels changed, and this version cannot write them back into this file: it is animated, or carries a part this version does not know. Nothing was written.
 # $defect is an `image-defect-*` line; $offset a spelled byte offset.
 cli-image-malformed = { $path } is not a { $container } file this version can read: { $defect }, at byte { $offset }. Not read is not clean.
 cli-image-text-flag = { $path } is an image ({ $container }), and { $flag } is for text. Nothing was written.

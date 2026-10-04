@@ -305,6 +305,10 @@ pub(crate) fn error_line(say: Say, label: &str, error: &ImageError) -> String {
             what: Unsupported::MultiPicture,
             ..
         } => say(Message::CliImageMultiPicture, &args!("path" => label)),
+        ImageError::Unsupported {
+            what: Unsupported::Reframe,
+            ..
+        } => say(Message::CliImageReframe, &args!("path" => label)),
         ImageError::Malformed {
             container,
             offset,

@@ -8,6 +8,7 @@
 #   models is independent of engine
 #   image depends only on core
 #   pixels depends only on core, and image and pixels never on each other
+#   picture → core, image, pixels: the one crate that decodes a picture
 #   store is a leaf: it takes a path and hands back rows
 #   i18n is a leaf: apps localize, libraries stay locale-neutral
 #   nothing depends on an app crate
@@ -47,6 +48,7 @@ LIBS = {
     "wipemark-queue",
     "wipemark-image",
     "wipemark-pixels",
+    "wipemark-picture",
     "wipemark-intake",
     "wipemark-license",
     "wipemark-store",
@@ -108,6 +110,11 @@ ALLOWED = {
     # crate above it; `wipemark-image`, which never decodes a pixel, is
     # not a neighbour of this one in either direction.
     "wipemark-pixels": {"wipemark-core"},
+    # A picture file through the pixels pass: decode, restore, encode,
+    # reframe. The only crate with codecs, and the only one that sees both
+    # the container (`image`) and the maths (`pixels`) — so each of those
+    # keeps its promise: one never decodes, the other never reads a file.
+    "wipemark-picture": {"wipemark-core", "wipemark-image", "wipemark-pixels"},
     # What was handed to the application, and what it turns out to be.
     # A leaf, and a strict one: no workspace dependency and no external
     # one either. It is reached from the panel's drop zone, from the

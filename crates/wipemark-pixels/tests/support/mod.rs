@@ -224,6 +224,12 @@ pub fn synthetic_catalogue() -> Catalogue {
     catalogue_of(&[synthetic_v1(), synthetic_v2()])
 }
 
+/// Stamp `map` at its own size at `at` with the white logo the synthetic
+/// profiles declare.
+pub fn composite_at(raster: &mut Raster, map: &AlphaMap, at: PixelRect) {
+    wipemark_pixels::composite(raster, map, at, [255.0; 3]);
+}
+
 /// Where the small row puts a `size` mark in a `w × h` picture.
 pub fn small_row(w: u32, h: u32, size: u32) -> PixelRect {
     PixelRect {

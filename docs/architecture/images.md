@@ -217,6 +217,33 @@ ids — `ImageContainer::id`, `MetadataKind::id`, `Signal::id`,
 formats, never translated; a surface keys its words off them
 (`image-kind-<id>`, `image-signal-<id>`, `image-defect-<id>`).
 
+## `reframe` — the one writer for changed pixels (E12-3)
+
+`reframe(original, new_image, &StripOptions)` (`src/reframe.rs`): the new
+file's **structure** inside the original's **rendering and metadata** —
+the latter filtered by the scope exactly as `strip` filters it, in the
+original's order, byte for byte. It is what `wipemark-picture` writes a
+restored picture with (D159), and it still decodes nothing. The gate:
+framing a file in itself is stripping it — `reframe(x, x) == strip(x)`,
+bytes and report, for every fixture under both scopes.
+
+* **PNG**: `IHDR`, `PLTE`, `tRNS`, the `IDAT`s and `IEND` come from the
+  new file, where the original had them (a `PLTE`/`tRNS` the original
+  lacked goes before the image data). A colour-type or bit-depth change
+  takes `bKGD`, `sBIT` and `hIST` with it — their bytes are in the old
+  type's terms — and lists them as removed: the one place a `Rendering`
+  block leaves, and only because it would be wrong.
+* **WebP**: the image chunks (`VP8`/`VP8L`/`ALPH`) come from the new file;
+  `VP8X` stays, its EXIF/XMP bits cleared as `strip` clears them and its
+  alpha bit set when the new image has alpha; the RIFF size counts what is
+  there.
+* **JPEG**: the coding segments (APP0 JFIF, APP14 Adobe, tables, frame,
+  scans, EOI) come from the new file; metadata that stood among the
+  original's coding segments moves ahead of them.
+* Refused as `Unsupported::Reframe`: animation (`acTL`/`fcTL`/`fdAT`,
+  `ANIM`/`ANMF`), an unknown critical chunk, a new file of another
+  container. An MPF JPEG stays `MultiPicture`. The surfaces word both.
+
 ## Surfaces
 
 **The command line** (`apps/wipemark-cli/src/image.rs`; the whole table is

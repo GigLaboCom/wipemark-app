@@ -230,10 +230,42 @@ Plan: [`docs/plan/E12-2-calibration.md`](../plan/E12-2-calibration.md).
   through `image`'s JPEG encoder at quality 95 to 3/255 with `L` within
   two; a linear-light vendor is told by its grey captures.
 
+## Picture files (E12-3)
+
+`crates/wipemark-picture` — the one crate that decodes and encodes a
+picture (`png`, `image-webp`, `zune-jpeg`), above `wipemark-image` (which
+never decodes) and `wipemark-pixels` (which never reads a file). Plan:
+[`docs/plan/E12-3-picture-files.md`](../plan/E12-3-picture-files.md).
+
+* `decode(bytes, container)` — the stored raster: a palette and grey
+  expanded to RGB(A) for the maths, 16 bits kept, alpha kept, no colour
+  management, no rotation; what the file was (`Source`) remembered. An
+  animated PNG or WebP is `Skip::Animated`.
+* `encode_like(source, raster)` — PNG at the original's colour type and
+  depth when the new values allow (a palette when every colour is in it,
+  grey when every pixel is grey, sub-byte grey when every value has a
+  code), otherwise RGB(A), said (`colour_changed`); interlace is not
+  written, said (`interlace_dropped`). WebP: lossless `VP8L`.
+* `inspect(bytes, options)` — both passes, read-only.
+* `clean(bytes, options)` — metadata inspected on the original; the visible
+  pass over the decoded raster; **nothing restored → `strip`'s output to
+  the byte**; otherwise encode, `reframe` (C2PA leaves: both scopes take
+  it, and its hard binding is to pixels that are gone), and **prove**:
+  the output decodes to the restored raster, nothing outside the restored
+  rectangles moved, nothing verifies on it — or `PictureError::Proof` and
+  no output.
+* What was not examined is a value: `Visible::NotExamined(Animated |
+  Catalogue)`. A JPEG and a lossy WebP are examined and **not yet
+  restored** (`restorable: false`): every finding is then a mark left
+  (`PictureReport::marks_left`).
+* `PictureReport::to_json()` / `PictureInspection::to_json()` — the
+  metadata JSON of E11, the pixel report of E12-1 (or why it did not run),
+  the encoding, `marks_left`, and the picture's shelf with
+  `invisible-pixel-marks` first.
+
 ## Not here yet
 
-* **Files**: decoding PNG/WebP/JPEG to a raster, encoding it back,
-  `reframe` — E12-3, E12-4.
+* **JPEG and lossy WebP restoration** — E12-4.
 * **Surfaces**: the CLI and the MCP image tools, the catalogue strings —
   E12-5.
 * **V2's small placements** — one exact row per Gemini output size, from

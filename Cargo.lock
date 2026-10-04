@@ -9119,6 +9119,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "wipemark-picture"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "image-webp",
+ "png 0.18.1",
+ "sha2 0.10.9",
+ "thiserror 2.0.20",
+ "wipemark-image",
+ "wipemark-pixels",
+ "zune-jpeg 0.5.15",
+]
+
+[[package]]
 name = "wipemark-pipeline"
 version = "0.1.0"
 dependencies = [
