@@ -332,19 +332,60 @@ pub(crate) fn template(map: &AlphaMap, rect: SubRect) -> Option<(Shape, PixelRec
     template_with(map, rect, Kernel::Area)
 }
 
-/// [`template`] by `kernel`.
+/// Under this, a map sample with no part of the mark near it is the
+/// capture's noise, not the vendor's α (D241). GWT's maps are 8-bit
+/// captures of the logo over black: the 96-pixel V1 map carries 1–6/255
+/// over five and a half thousand samples of its square, then a gap, then
+/// the sparkle's edge (8–19) and body (20 and up). Subtracting that noise
+/// darkens the whole square by about a level — on a real Gemini output,
+/// where the vendor drew nothing there, it leaves a visible square.
+pub const CAPTURE_NOISE: f32 = 7.0 / 255.0;
+/// What counts as the mark's body when deciding whether a faint sample is
+/// its edge or the capture's noise.
+const BODY: f32 = 20.0 / 255.0;
+/// How near the body a faint sample must be to be its edge.
+const NEAR: i64 = 2;
+
+/// `values` (`width × height`) with every sample under [`CAPTURE_NOISE`]
+/// that has no body sample within [`NEAR`] pixels set to zero.
+pub(crate) fn denoised(width: u32, height: u32, values: Vec<f32>) -> Vec<f32> {
+    let (w, h) = (i64::from(width), i64::from(height));
+    let at = |x: i64, y: i64| values[(y * w + x) as usize];
+    let near_body = |x: i64, y: i64| {
+        (-NEAR..=NEAR).any(|dy| {
+            (-NEAR..=NEAR).any(|dx| {
+                let (nx, ny) = (x + dx, y + dy);
+                nx >= 0 && ny >= 0 && nx < w && ny < h && at(nx, ny) >= BODY
+            })
+        })
+    };
+    let mut out = values.clone();
+    for y in 0..h {
+        for x in 0..w {
+            let v = at(x, y);
+            if v > 0.0 && v < CAPTURE_NOISE && !near_body(x, y) {
+                out[(y * w + x) as usize] = 0.0;
+            }
+        }
+    }
+    out
+}
+
+/// [`template`] by `kernel`. The shape's capture noise is taken out
+/// ([`CAPTURE_NOISE`]): a template is what the vendor drew.
 pub(crate) fn template_with(
     map: &AlphaMap,
     rect: SubRect,
     kernel: Kernel,
 ) -> Option<(Shape, PixelRect)> {
-    let shape = shape_with(
+    let mut shape = shape_with(
         map,
         rect.size,
         rect.x - rect.x.floor(),
         rect.y - rect.y.floor(),
         kernel,
     )?;
+    shape.values = denoised(shape.width, shape.height, std::mem::take(&mut shape.values));
     let at = placed(rect, &shape)?;
     Some((shape, at))
 }

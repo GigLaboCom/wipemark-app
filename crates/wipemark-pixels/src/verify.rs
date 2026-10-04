@@ -10,11 +10,10 @@
 //! * `k* = argmin E` is within `gain` of 1 (a mark at another opacity, an
 //!   opaque look-alike and an unmarked texture all land elsewhere);
 //! * `E(1)/E(0)` is at most `edge_ratio`;
-//! * the share of samples the `k = 1` inverse puts more than a level out
-//!   of range is at most `out_of_range` — an inverse that has to leave the
-//!   range to cancel an edge is explaining something that is not a blend
-//!   (on a lossy file, a codec's allowance is added before the inverse
-//!   amplifies it, [`LOSSY_LEVELS`]).
+//! * the share of stored values that lie outside what a blend with this
+//!   map and logo could produce, by more than [`BLEND_LEVELS`], is at most
+//!   `out_of_range` — an inverse that has to leave the range to cancel an
+//!   edge is explaining something that is not a blend.
 //!
 //! Before any of those, a proposal that no gain takes a fifth of the
 //! contour away from, or whose contour grows when it is inverted at the
@@ -30,7 +29,6 @@ use crate::catalogue::Profile;
 use crate::geometry::{template_with, Kernel, PixelRect, SubRect};
 use crate::propose::Proposal;
 use crate::raster::{Raster, LUMA};
-use crate::Fidelity;
 
 /// Below this, a map sample is noise and not part of the mark.
 pub const NOISE_FLOOR: f32 = 0.002;
@@ -186,10 +184,14 @@ pub(crate) enum Outcome {
 /// of other shapes run from 0.8 to past 1.
 pub const NO_BLEND_RATIO: f32 = 0.8;
 
-/// A lossy codec's error allowance, in 8-bit levels, before the inverse
-/// amplifies it by `1/(1 − α)` (D237): quality 85–95 JPEG and lossy WebP
-/// move a sample by up to about this much on a mark's soft edges.
-pub const LOSSY_LEVELS: f64 = 4.0;
+/// How far, in stored 8-bit levels, a stored value may lie outside what
+/// a blend with the profile's map and logo could produce, and still be
+/// that blend (D240). GWT's maps are 8-bit captures of the vendor's α:
+/// over a real Gemini output on a saturated green — the original at 0 in
+/// two channels — stored values sit up to 6 levels under `α·L`, while an
+/// opaque look-alike or a dark picture under the map's soft edge misses
+/// by tens. It covers a quality 85–95 codec's error too.
+pub const BLEND_LEVELS: f64 = 8.0;
 
 /// The template's rectangle and a one-pixel ring, read once: the map
 /// there, the picture there, and the contour weights.
@@ -315,7 +317,6 @@ pub(crate) fn verify(
     raster: &Raster,
     profile: &Profile,
     proposal: &Proposal,
-    source: Fidelity,
 ) -> (Option<Scores>, Outcome) {
     let map = profile.map(proposal.map);
     let Some((shape, at)) = template_with(map, proposal.rect, proposal.kernel) else {
@@ -374,23 +375,31 @@ pub(crate) fn verify(
         (1.0, 1.0)
     };
 
-    // Out of range at k = 1, over the restorable support. A level of
-    // rounding on a lossless file; on a lossy one the codec's allowance
-    // too, amplified by the inverse as the rounding is not (D237).
-    let quantum = match source {
-        Fidelity::Lossless => 0.0,
-        Fidelity::Lossy => LOSSY_LEVELS * max / 255.0,
-    };
+    // Out of range at k = 1, over the restorable support, measured where
+    // the evidence is — in stored levels: how far a stored value lies
+    // outside what a blend with this map and logo could have produced
+    // over any original, `[α·L, α·L + (1 − α)·max]` (D240). The inverse's
+    // own excess is that gap amplified by `1/(1 − α)`. A blend allows
+    // `BLEND_LEVELS` — the vendor's α against an 8-bit capture of it, and
+    // a quality 85–95 codec's error with it: the separate lossy allowance
+    // of D237 is folded in, no test could tell it apart any more.
+    let allowance = BLEND_LEVELS * max / 255.0;
     let (mut out, mut total) = (0u32, 0u32);
     for (p, &a) in grid.alpha.iter().enumerate() {
         if a < NOISE_FLOOR || a >= opaque {
             continue;
         }
         let a = f64::from(a);
-        let slack = 1.0 + quantum / (1.0 - a);
         for v in inverse(grid.pixels[p], a, logo, f64::from(opaque)) {
             total += 1;
-            if v < -slack || v > max + slack {
+            let gap = if v < 0.0 {
+                -v * (1.0 - a)
+            } else if v > max {
+                (v - max) * (1.0 - a)
+            } else {
+                0.0
+            };
+            if gap > allowance {
                 out += 1;
             }
         }

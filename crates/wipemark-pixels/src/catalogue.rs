@@ -346,7 +346,8 @@ struct ObservedJson {
 #[serde(deny_unknown_fields)]
 struct BlendJson {
     model: String,
-    logo: [u16; 3],
+    /// In 8-bit levels; a measured colour may be fractional (D242).
+    logo: [f32; 3],
     logo_map: Option<String>,
 }
 
@@ -454,8 +455,8 @@ fn profile<'a>(
     if row.blend.logo_map.is_some() {
         return Err(bad("a logo colour map is not in this version"));
     }
-    if row.blend.logo.iter().any(|&c| c > 255) {
-        return Err(bad("a logo channel is above 255"));
+    if row.blend.logo.iter().any(|&c| !(0.0..=255.0).contains(&c)) {
+        return Err(bad("a logo channel is outside 0–255"));
     }
     if !(row.opaque_above > 0.0 && row.opaque_above <= 1.0) {
         return Err(bad("opaque_above is not in (0, 1]"));
@@ -572,7 +573,7 @@ fn profile<'a>(
         product: row.product,
         mark: row.mark,
         status,
-        logo: row.blend.logo.map(f32::from),
+        logo: row.blend.logo,
         opaque_above: row.opaque_above,
         maps,
         placements,

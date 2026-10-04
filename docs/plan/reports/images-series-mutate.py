@@ -212,16 +212,27 @@ MUTATIONS = [
         "two proofs: accept on NCC alone",
         "crates/wipemark-pixels/src/verify.rs",
         "    let outcome = if best_ratio > NO_BLEND_RATIO || edge_ratio > 1.0 {\n        Outcome::NoBlend\n"
+        "    } else if transparent {",
+        "    let outcome = if false {\n        Outcome::NoBlend\n"
+        "    } else if false && transparent {",
+        [
+            (PIX + ["--test", "verify"], "an_opaque_lookalike_is_not_a_finding"),
+            (PIX + ["--test", "false_positives"], "no_procedural_negative_is_ever_restored"),
+        ],
+    ),
+    (
+        "E12-1/M12b",
+        "two proofs: no gain, edge or range test",
+        "crates/wipemark-pixels/src/verify.rs",
         "    } else if (gain - 1.0).abs() > t.gain {\n        Outcome::Refused(Refusal::Gain { k: gain })\n"
         "    } else if edge_ratio > t.edge_ratio {\n        Outcome::Refused(Refusal::Edges { ratio: edge_ratio })\n"
         "    } else if out_of_range > t.out_of_range {",
-        "    let outcome = if false {\n        Outcome::NoBlend\n"
         "    } else if false {\n        Outcome::Refused(Refusal::Gain { k: gain })\n"
         "    } else if false {\n        Outcome::Refused(Refusal::Edges { ratio: edge_ratio })\n"
         "    } else if false {",
         [
-            (PIX + ["--test", "verify"], "an_opaque_lookalike_is_not_a_finding"),
-            (PIX + ["--test", "false_positives"], "no_procedural_negative_is_ever_restored"),
+            (PIX + ["--test", "verify"], "a_mark_at_the_wrong_opacity_is_refused_and_its_gain_reported"),
+            (PIX + ["--test", "false_positives"], "no_lookalike_blend_is_ever_restored"),
         ],
     ),
     (

@@ -36,7 +36,7 @@ const ROW: PixelRect = PixelRect {
     height: 96,
 };
 
-const MARKED: [&str; 2] = ["crying-1025.png", "torch-1025.png"];
+const MARKED: [&str; 3] = ["crying-1025.png", "torch-1025.png", "victory-1025.png"];
 
 fn raster_of(bytes: &[u8]) -> Raster {
     let container = wipemark_image::inspect(bytes).unwrap().container;
@@ -101,6 +101,130 @@ fn a_real_mark_is_proved_at_its_row_and_restored() {
             panic!("{name}")
         };
         assert!(report.found.is_empty(), "{name}: {:#?}", report.found);
+    }
+}
+
+/// Around the sparkle the vendor drew nothing: GWT's map carries 1–6/255
+/// of capture noise over its whole square, and subtracting it left a
+/// square a level darker than the picture around it — visible on a flat
+/// background. Taken out (D241), the square is the picture's own: on
+/// average within a tenth of a level of what it was, where the map is
+/// only noise.
+#[test]
+fn the_square_around_a_real_mark_is_left_as_it_was() {
+    let catalogue = Catalogue::shipped().unwrap();
+    let map = &catalogue
+        .profile("gemini-sparkle-v1")
+        .unwrap()
+        .maps
+        .iter()
+        .find(|(id, _)| id == "gemini-v1-96")
+        .unwrap()
+        .1;
+    for name in MARKED {
+        let bytes = fixture(name);
+        let before = raster_of(&bytes);
+        let (out, _) = clean(&bytes, &shipped()).unwrap();
+        let after = raster_of(&out);
+        let c = before.layout().channels();
+        let (mut moved, mut n) = (0f64, 0f64);
+        for y in 0..96u32 {
+            for x in 0..96u32 {
+                let a = map.get(i64::from(x), i64::from(y)) * 255.0;
+                // The capture's noise, far from the sparkle.
+                if !(0.5..6.5).contains(&a) {
+                    continue;
+                }
+                let near = (-3i64..=3).any(|dy| {
+                    (-3i64..=3)
+                        .any(|dx| map.get(i64::from(x) + dx, i64::from(y) + dy) * 255.0 >= 7.0)
+                });
+                if near {
+                    continue;
+                }
+                let i = (((ROW.y + y) * before.width() + ROW.x + x) as usize) * c;
+                for k in 0..3 {
+                    moved += f64::from(after.samples()[i + k]) - f64::from(before.samples()[i + k]);
+                    n += 1.0;
+                }
+            }
+        }
+        assert!(n > 10_000.0, "{name}: {n}");
+        let mean = moved / n;
+        assert!(
+            mean.abs() <= 0.1,
+            "{name}: the square moved by {mean:.2} on average"
+        );
+    }
+}
+
+/// Inside the sparkle, too: GWT restores with a white logo, and on real
+/// outputs the vendor's is not — measured over 22 of the owner's
+/// pictures, (252.1, 253.5, 252.8), spread under 0.6 of a level (D242).
+/// Restored with white, the sparkle came back as a darker ghost, 1–3
+/// levels under the picture around it; with the measured colour, the
+/// body is the picture's own to within a level per channel. And the soft
+/// edge: GWT's 8-bit capture made it too strong (1–2.4 levels of outline
+/// left); the large row's map is measured from 19 real outputs (D243),
+/// and these two pictures are not among them. On the vendor's own files —
+/// `crying` is a re-saved copy (no C2PA, a flattened background) whose
+/// blue fits 254.8, the one outlier of the 22.
+#[test]
+fn the_sparkle_leaves_no_ghost() {
+    let catalogue = Catalogue::shipped().unwrap();
+    let map = &catalogue
+        .profile("gemini-sparkle-v1")
+        .unwrap()
+        .maps
+        .iter()
+        .find(|(id, _)| id == "gemini-v1-96")
+        .unwrap()
+        .1;
+    for name in ["torch-1025.png", "victory-1025.png"] {
+        let (out, _) = clean(&fixture(name), &shipped()).unwrap();
+        let after = raster_of(&out);
+        let c = after.layout().channels();
+        let at = |x: u32, y: u32, k: usize| {
+            f64::from(after.samples()[((y * after.width() + x) as usize) * c + k])
+        };
+        let (mut ring, mut nr) = ([0f64; 3], 0f64);
+        for y in ROW.y - 28..ROW.y + 122 {
+            for x in ROW.x - 28..ROW.x + 122 {
+                let inside =
+                    (ROW.x - 8..ROW.x + 104).contains(&x) && (ROW.y - 8..ROW.y + 104).contains(&y);
+                if inside {
+                    continue;
+                }
+                for (k, r) in ring.iter_mut().enumerate() {
+                    *r += at(x, y, k);
+                }
+                nr += 1.0;
+            }
+        }
+        // The body, and the soft edge the 8-bit capture made too strong
+        // (D243): each within a level of the picture around it.
+        for (part, lo, hi) in [("body", 0.45f32, 1.0f32), ("edge", 0.03, 0.45)] {
+            let (mut sum, mut n) = ([0f64; 3], 0f64);
+            for y in 0..96u32 {
+                for x in 0..96u32 {
+                    let a = map.get(i64::from(x), i64::from(y));
+                    if a < lo || a >= hi {
+                        continue;
+                    }
+                    for (k, b) in sum.iter_mut().enumerate() {
+                        *b += at(ROW.x + x, ROW.y + y, k);
+                    }
+                    n += 1.0;
+                }
+            }
+            for k in 0..3 {
+                let ghost = sum[k] / n - ring[k] / nr;
+                assert!(
+                    ghost.abs() <= 1.0,
+                    "{name}: the {part}, channel {k}, off by {ghost:.2}"
+                );
+            }
+        }
     }
 }
 
@@ -189,13 +313,135 @@ fn a_real_mark_shrunk_with_its_picture_is_restored_within_the_outline_bound() {
     assert!(proved * 2 >= total, "proved {proved} of {total}");
 }
 
-/// A real sticker whose corner was edited after the vendor stamped it:
-/// the sparkle is there (k* 1.00) but the inverse must leave the range to
-/// take it away — not the vendor's blend any more. Seen, not proved, left,
-/// and the picture written back as it was.
+/// The vendor's mark over a saturated green — the original at 0 in red
+/// and blue under it. A blend with GWT's 8-bit map leaves those channels
+/// up to 6 stored levels under what it could produce over 0 (the
+/// vendor's α against its capture); the out-of-range measure counts that
+/// gap in stored levels, with room for it (D240), so the mark is proved
+/// and restored, the channels clamped back to 0 and counted — not exact —
+/// and no outline left. Under the old one-level rule it was refused.
 #[test]
-fn an_edited_real_mark_is_seen_and_left() {
-    let bytes = fixture("anchor-edited-1025.png");
+fn a_real_mark_on_a_saturated_green_is_restored() {
+    let bytes = fixture("anchor-green-1025.png");
+    let (out, cleaned) = clean(&bytes, &shipped()).unwrap();
+    let Visible::Examined { report, .. } = &cleaned.visible else {
+        panic!("{:?}", cleaned.visible)
+    };
+    assert_eq!(report.restored.len(), 1, "{:#?}", report.found);
+    let f = &report.found[0];
+    assert_eq!(f.placed, Placed::Row(0));
+    assert!(f.scores.unwrap().out_of_range < 0.01, "{:?}", f.scores);
+    let r = &report.restored[0];
+    assert!(r.clamped > 0 && !r.exact, "{r:?}");
+    assert!(!r.outline_left && r.outline <= OUTLINE_BOUND, "{r:?}");
+    assert!(!cleaned.marks_left());
+    let again = inspect(&out, &shipped()).unwrap();
+    let Visible::Examined { report, .. } = &again.visible else {
+        panic!()
+    };
+    assert!(report.found.is_empty(), "{:#?}", report.found);
+}
+
+/// The shipped catalogue with V1's large row and search on GWT's own 96
+/// map and its white logo — what every map not yet measured is.
+fn gwt_catalogue() -> Catalogue {
+    let json = wipemark_pixels::EMBEDDED
+        .replace(
+            "\"margin\": [64, 64], \"alpha\": \"gemini-v1-96-measured\"",
+            "\"margin\": [64, 64], \"alpha\": \"gemini-v1-96\"",
+        )
+        .replace(
+            "\"logo\": [252.1, 253.5, 252.8]",
+            "\"logo\": [255, 255, 255]",
+        );
+    assert_ne!(json, wipemark_pixels::EMBEDDED, "the manifest moved");
+    Catalogue::parse(&json, &|name: &str| {
+        wipemark_pixels::shipped_assets()
+            .find(|(n, _)| *n == name)
+            .map(|(_, b)| b)
+    })
+    .unwrap()
+}
+
+/// Under GWT's own 96 map — 1–6/255 of capture noise over its whole
+/// square — the square around a real mark is still left as it was: the
+/// noise far from the sparkle is not subtracted (D241). Subtracted, it
+/// darkened the square by about a level, visible on a flat background.
+#[test]
+fn gwts_own_map_leaves_the_square_around_a_real_mark_alone() {
+    let gwt = gwt_catalogue();
+    let map = &gwt
+        .profile("gemini-sparkle-v1")
+        .unwrap()
+        .maps
+        .iter()
+        .find(|(id, _)| id == "gemini-v1-96")
+        .unwrap()
+        .1;
+    let options = PictureOptions {
+        scope: wipemark_image::Scope::AiProvenance,
+        catalogue: Some(&gwt),
+    };
+    for name in ["torch-1025.png", "victory-1025.png"] {
+        let bytes = fixture(name);
+        let before = raster_of(&bytes);
+        let (out, _) = clean(&bytes, &options).unwrap();
+        let after = raster_of(&out);
+        let c = before.layout().channels();
+        let (mut moved, mut n) = (0f64, 0f64);
+        for y in 0..96u32 {
+            for x in 0..96u32 {
+                let a = map.get(i64::from(x), i64::from(y)) * 255.0;
+                if !(0.5..6.5).contains(&a) {
+                    continue;
+                }
+                let near = (-3i64..=3).any(|dy| {
+                    (-3i64..=3)
+                        .any(|dx| map.get(i64::from(x) + dx, i64::from(y) + dy) * 255.0 >= 7.0)
+                });
+                if near {
+                    continue;
+                }
+                let i = (((ROW.y + y) * before.width() + ROW.x + x) as usize) * c;
+                for k in 0..3 {
+                    moved += f64::from(after.samples()[i + k]) - f64::from(before.samples()[i + k]);
+                    n += 1.0;
+                }
+            }
+        }
+        let mean = moved / n;
+        assert!(mean.abs() <= 0.1, "{name}: the square moved by {mean:.2}");
+    }
+}
+
+/// The same picture under GWT's own 96 map and white logo — what every
+/// map not yet measured is (V1's 48, both of V2's): on the saturated
+/// green they leave stored values up to 6 levels under what a blend could
+/// produce over 0, and the out-of-range measure, counted in stored levels
+/// with room for an 8-bit capture (D240), still proves the mark. The rule
+/// it replaced — a level, amplified by `1/(1 − α)` — refused it (21 % out).
+#[test]
+fn gwts_own_map_still_proves_the_mark_on_a_saturated_green() {
+    let gwt = gwt_catalogue();
+    let options = PictureOptions {
+        scope: wipemark_image::Scope::AiProvenance,
+        catalogue: Some(&gwt),
+    };
+    let (_, cleaned) = clean(&fixture("anchor-green-1025.png"), &options).unwrap();
+    let Visible::Examined { report, .. } = &cleaned.visible else {
+        panic!("{:?}", cleaned.visible)
+    };
+    assert_eq!(report.restored.len(), 1, "{:#?}", report.found);
+    assert!(!cleaned.marks_left());
+}
+
+/// The same sticker with its background cut out: the vendor's mark is
+/// still in the colour channels, under alpha 0. It is a blend, so it is
+/// seen — and refused as `Transparent` (D157): what the blend meant under
+/// pixels nobody sees is unknown. Left, said, the picture as it was.
+#[test]
+fn a_real_mark_under_a_transparent_corner_is_seen_and_left() {
+    let bytes = fixture("crying-transparent-1025.png");
     let (_, cleaned) = clean(&bytes, &shipped()).unwrap();
     let Visible::Examined { report, .. } = &cleaned.visible else {
         panic!("{:?}", cleaned.visible)
@@ -203,11 +449,7 @@ fn an_edited_real_mark_is_seen_and_left() {
     assert!(report.restored.is_empty(), "{:#?}", report.found);
     let f = report.found.first().expect("the sparkle was not seen");
     assert_eq!(f.profile, "gemini-sparkle-v1");
-    assert!(
-        matches!(f.verdict, Verdict::Refused(Refusal::OutOfRange { .. })),
-        "{:?}",
-        f.verdict
-    );
+    assert_eq!(f.verdict, Verdict::Refused(Refusal::Transparent));
     assert!(cleaned.marks_left());
     assert_eq!(cleaned.encoding, Encoding::Unchanged);
 }

@@ -44,3 +44,16 @@ applied to every output size Google documents at 1K, and 1024×559;
 `tests/v2_rows.rs` ports the formula and holds the rows to it. A logo of
 40 pixels or less is `gemini-v2-36` at a corner; a larger one is
 `gemini-v2-96` resampled to a `rect`.
+
+## `measured/` — maps fitted from real outputs
+
+**`gemini-v1-96-measured.wma`** (16-bit, 96 × 96, sha256
+`07b4bec41466b967f3c47776bcdac31a06d1ffaad64bf9dec56d2b68a51dda84`): the
+V1 sparkle's α per pixel, fitted by least squares over 19 of the owner's
+own Gemini outputs (2026-04-24, `heretic-videos/images/stickers/`: the
+numbered originals but `05`, `11` and `19`, and `good-alt/…(1).png`),
+with V1's measured logo (252.1, 253.5, 252.8), by
+`cargo run -p wipemark-picture --example measure_map -- gemini-sparkle-v1 96 64 …`.
+GWT's `gemini-v1-96` is the capture it improves on and stays in the
+catalogue for comparison; the large row and the search use the measured
+one (D243). It is data measured here, not taken from GWT.

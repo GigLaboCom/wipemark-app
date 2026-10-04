@@ -44,13 +44,13 @@ pub use catalogue::{
     shipped_assets, Anchor, AssetProblem, Catalogue, CatalogueError, Corner, Placement, Profile,
     ProfileId, Search, Status, Thresholds, When, EMBEDDED, SCHEMA,
 };
-pub use geometry::{Kernel, PixelRect, SubRect};
+pub use geometry::{Kernel, PixelRect, SubRect, CAPTURE_NOISE};
 pub use propose::{Placed, REFINE_MARGIN, ROW_FLOOR, SHRUNK};
 pub use raster::{Layout, Raster, RasterError};
 pub use restore::{composite, restore, RestoreError, Restored};
 use serde::Serialize;
 pub use verify::{
-    Refusal, Scores, Verified, LOSSY_LEVELS, NOISE_FLOOR, NO_BLEND_RATIO, OUTLINE_BOUND,
+    Refusal, Scores, Verified, BLEND_LEVELS, NOISE_FLOOR, NO_BLEND_RATIO, OUTLINE_BOUND,
 };
 
 /// The claim this crate adds to the third shelf (D156). The English is
@@ -181,7 +181,7 @@ fn examine_pass(
             continue;
         }
         let mut look = |p: &propose::Proposal| {
-            let f = finding(raster, profile, p, options.source, pass);
+            let f = finding(raster, profile, p, pass);
             dismissed += usize::from(f.is_none());
             f
         };
@@ -220,10 +220,9 @@ fn finding(
     raster: &Raster,
     profile: &Profile,
     proposal: &propose::Proposal,
-    source: Fidelity,
     pass: u8,
 ) -> Option<Finding> {
-    let (scores, outcome) = verify::verify(raster, profile, proposal, source);
+    let (scores, outcome) = verify::verify(raster, profile, proposal);
     let verdict = match outcome {
         verify::Outcome::Verified(v) => Verdict::Verified(v),
         verify::Outcome::Refused(r) => Verdict::Refused(r),
@@ -454,6 +453,15 @@ pub fn resampled(map: &AlphaMap, size: f32, fx: f32, fy: f32) -> Option<AlphaMap
         s.values.into_iter().map(|v| v.clamp(0.0, 1.0)).collect(),
     )
     .ok()
+}
+
+/// `map` as the vendor draws it: its capture noise taken out
+/// ([`CAPTURE_NOISE`], D241) — what tests and the calibration tool
+/// composite when they stand in for a vendor.
+#[doc(hidden)]
+pub fn drawn(map: &AlphaMap) -> AlphaMap {
+    let values = geometry::denoised(map.width(), map.height(), map.values().to_vec());
+    AlphaMap::new(map.width(), map.height(), values).unwrap_or_else(|_| map.clone())
 }
 
 #[cfg(test)]

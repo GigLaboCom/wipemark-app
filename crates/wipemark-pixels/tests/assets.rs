@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use support::*;
 use wipemark_pixels::{
-    clean, composite, shipped_assets, AlphaMap, AssetProblem, Catalogue, CatalogueError,
+    clean, composite, drawn, shipped_assets, AlphaMap, AssetProblem, Catalogue, CatalogueError,
     ExamineOptions, Layout, PixelRect, EMBEDDED,
 };
 
@@ -56,7 +56,14 @@ fn the_shipped_catalogue_reads() {
             (p.vendor.as_str(), p.product.as_str()),
             ("google", "gemini")
         );
-        assert_eq!(p.logo, [255.0; 3]);
+        // V1's logo is the colour measured on 22 real outputs (D242);
+        // V2's has no real output to measure yet, and is GWT's white.
+        let logo = if p.id == "gemini-sparkle-v1" {
+            [252.1, 253.5, 252.8]
+        } else {
+            [255.0; 3]
+        };
+        assert_eq!(p.logo, logo, "{}", p.id);
         assert!(p.maps.iter().all(|(_, m)| m.peak() < 0.6), "{}", p.id);
     }
 }
@@ -121,7 +128,8 @@ fn every_asset_matches_its_catalogue_hash() {
             seen += 1;
         }
     }
-    assert_eq!(seen, 4);
+    // GWT's four, and V1's 96 measured from real outputs (D243).
+    assert_eq!(seen, 5);
 }
 
 /// A shipped map composited onto generated pictures comes back off to
@@ -140,11 +148,17 @@ fn a_shipped_mark_comes_back_within_one_level() {
     };
     for (name, original) in backgrounds(w, h, Layout::Rgb8) {
         let mut marked = original.clone();
-        composite(&mut marked, small, at, [255.0; 3]);
+        // As the vendor draws it: the capture's noise is not the mark
+        // (D241), the logo the colour measured on real outputs (D242).
+        composite(&mut marked, &drawn(small), at, v1.logo);
         let report = clean(&mut marked, catalogue, &ExamineOptions::default());
         assert_eq!(report.restored.len(), 1, "{name}: {:#?}", report.found);
         assert_eq!(report.restored[0].profile, "gemini-sparkle-v1", "{name}");
-        assert!(report.restored[0].exact, "{name}");
+        // Within a level everywhere; "exact" exactly when nothing was
+        // clamped — over a dark corner a fractional logo's rounding puts a
+        // few samples half a level under zero.
+        let r = &report.restored[0];
+        assert_eq!(r.exact, r.clamped == 0, "{name}: {r:?}");
         assert!(max_error(&marked, &original) <= 1, "{name}");
     }
 }

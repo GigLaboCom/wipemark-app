@@ -6,8 +6,8 @@
 //!
 //! The marks are **real**: the owner's own Gemini stickers
 //! (`fixtures/image/gemini/`, the bottom-right 1025 × 1025 of each, so the
-//! vendor's mark is at its large row); a sticker whose corner was edited
-//! after it was stamped is the mark that cannot be proved. The pixels
+//! vendor's mark is at its large row); the same sticker cut out of its
+//! background, the mark under alpha 0, is the mark that cannot be proved. The pixels
 //! suite's generators (borrowed by `#[path]`) make only what has no mark:
 //! wallpapers, an animation, a damaged scan.
 
@@ -156,14 +156,14 @@ fn clean_removes_a_proved_mark_with_no_flag() {
     assert_eq!(restored["exact"], Value::Bool(false));
 }
 
-/// A real sticker whose corner was edited after Gemini stamped it: the
-/// sparkle is there, but taking it away would leave the range — not the
-/// vendor's blend any more. Seen, not proved: the result is written with
+/// A real sticker cut out of its background: Gemini's mark is still in
+/// its colour channels, under alpha 0. Seen, not proved — what the blend
+/// meant under pixels nobody sees is unknown: the result is written with
 /// what could be done, the report says so, and the exit is 3.
 #[test]
 fn a_mark_that_cannot_be_proved_is_left_and_exits_three() {
     let scratch = Scratch::new("left");
-    scratch.file("art.png", &real("anchor-edited-1025.png"));
+    scratch.file("art.png", &real("crying-transparent-1025.png"));
     let output = scratch.run(&["clean", "art.png"]);
     let said = stdout(&output);
     assert_eq!(code(&output), 3, "{said}");

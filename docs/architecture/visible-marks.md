@@ -146,10 +146,15 @@ them.
      does not fit, and a picture with no edge where the map has one, are
      no blend too.
    * **proved** — `|k* − 1| ≤ gain`, `E(1)/E(0) ≤ edge_ratio`, and the
-     share of samples the `k = 1` inverse puts out of range is at most
-     `out_of_range`. Out of range is past one level on a lossless source;
-     on a lossy one, past `1 + 4/(1 − α)` levels (`LOSSY_LEVELS`, D237) —
-     the codec's error is amplified by the inverse as rounding is not.
+     share of samples out of range is at most `out_of_range`. Out of range
+     is measured in **stored levels** (D240): how far a stored value lies
+     outside what a blend with this map and logo could produce over any
+     original, `[α·L, α·L + (1 − α)·max]`, past `BLEND_LEVELS` **8**. Over
+     a real Gemini output on a saturated green — the original at 0 in two
+     channels — stored values sit up to 6 levels under `α·L` (the vendor's
+     α against GWT's 8-bit capture); a non-blend misses by tens. The
+     earlier rule (one level, amplified by `1/(1 − α)`) refused that real
+     output; the lossy allowance of D237 is folded into the eight.
    * **a blend, not proved** — otherwise: `Refusal::Gain { k }`,
      `Edges { ratio }` or `OutOfRange { share }`, the first that failed,
      with every number in `Scores`; before those, `Transparent` when the
@@ -228,13 +233,51 @@ there — a blend refused, or restored around holes — which is what a
 surface's exit code reads. A proposal that was no blend is not there to
 count (D235).
 
+## What real Gemini outputs taught (D240–D243)
+
+Twenty-two of the owner's own Gemini V1 outputs (2048 × 2048, the mark
+at the large row; `fixtures/image/gemini/`, the full set in Watchword
+`wipemark-gemini-stickers-2026-10-04`) against GWT's maps and white logo:
+
+* **The capture's noise is not the mark** (D241). GWT's 96 map carries
+  1–6/255 over 5 605 samples of its square, then a gap, then the edge
+  (8–19) and the body (20+). Subtracted, it left the square a level darker
+  than the picture around it — visible on a flat background; on the real
+  originals that square matches its surroundings to 0.1 of a level. A
+  template drops every sample under `CAPTURE_NOISE` with no body sample
+  (≥ 20/255) within two pixels (`geometry::template_with`).
+* **The logo is not white** (D242). Fitted per picture against the
+  surroundings, over 22 outputs: **(252.1, 253.5, 252.8)**, spread
+  0.24–0.57 of a level. Restored with 255 the sparkle came back as a darker
+  ghost, 1–3 levels. `gemini-sparkle-v1`'s logo is the measured colour (the
+  manifest takes fractional levels); V2 keeps 255 — no V2 output to
+  measure yet.
+* **The soft edge is weaker than the capture's** (D243). With the logo
+  right, an outline of 1–2.4 levels stayed along the edge (α 0.03–0.45).
+  The large row's and the search's map is `gemini-v1-96-measured`: α per
+  pixel fitted by least squares over 19 outputs (`I − O = α·(L − O)`,
+  every channel with `L − O ≥ 40`, 57 samples a pixel;
+  `crates/wipemark-picture/examples/measure_map.rs`), depth 16, pinned.
+  On two outputs left out of the fit, the edge, the body and the noise
+  band are all within a level of the picture around them
+  (`the_sparkle_leaves_no_ghost`). The 48 map (V1 under 1025) is still
+  GWT's — no real V1 output that small to measure.
+* **Out of range in stored levels** (D240), above.
+* **Transparency after the blend** — a cut-out sticker's confetti under
+  its transparent corner is no finding (`verify.rs`).
+
+GWT itself restores with the capture, its noise and a white logo, gated
+only by its detector's confidence — so on these files it leaves all three
+traces; the proof here is stricter and the map and the logo are measured.
+
 ## Thresholds
 
 The shipped profiles carry `min_ncc` **0.70** (a row: half of it),
 `gain` **0.06**, `edge_ratio` **0.30**, `out_of_range` **0.01**,
 `opaque_above` **0.95**; the classification adds `NO_BLEND_RATIO` **0.8**
-(D235) and the lossy allowance `LOSSY_LEVELS`
-**4** (D237). Measured on the synthetic pair and the shipped maps
+(D235) and the out-of-range allowance `BLEND_LEVELS` **8** stored levels
+(D240); a template drops the capture's noise under `CAPTURE_NOISE`
+**7/255** (D241). Measured on the synthetic pair and the shipped maps
 (2026-10-04, `--nocapture`):
 
 | | |

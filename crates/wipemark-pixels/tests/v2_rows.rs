@@ -28,8 +28,8 @@ mod support;
 
 use support::*;
 use wipemark_pixels::{
-    clean, composite, resampled, Anchor, Catalogue, Corner, ExamineOptions, Layout, PixelRect,
-    Placed,
+    clean, composite, drawn, resampled, Anchor, Catalogue, Corner, ExamineOptions, Layout,
+    PixelRect, Placed,
 };
 
 /// Every documented size a row is written for.
@@ -149,11 +149,12 @@ fn a_v2_mark_at_its_small_row_is_restored_by_the_row() {
     let map = |id: &str| v2.maps.iter().find(|(m, _)| m == id).unwrap().1.clone();
     for (w, h) in [(1024u32, 1024u32), (1376, 768)] {
         let (margin, logo) = gwt_v2_small(w, h);
-        let mark = if logo == 36 {
+        // As the vendor draws it: the capture's noise is not the mark (D241).
+        let mark = drawn(&if logo == 36 {
             map("gemini-v2-36")
         } else {
             resampled(&map("gemini-v2-96"), logo as f32, 0.0, 0.0).unwrap()
-        };
+        });
         let original = picture(Kind::Gradient, w, h, 13, Layout::Rgb8);
         let mut marked = original.clone();
         let at = PixelRect {
