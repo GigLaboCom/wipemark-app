@@ -517,6 +517,7 @@ tell a decision from an accident.
 | **D184** | Dropping a `LocalEngine` stops its worker and waits for the model's free (a decode stops at the next piece, a load at the next tensor, queued jobs are refused) | the SIGSEGV at exit (D96) was the free racing `exit` |
 | **D185** | `GGML_SCHED_MAX_SPLIT_INPUTS=128` is removed | the assert it raised is gone upstream (`dbadb68ee`); E4B/E2B run without it |
 | **D186** | The Gemma 4 and Qwen3.8 live tests read `WIPEMARK_TEST_GGUF_GEMMA4` / `_QWEN38` (and `WIPEMARK_TEST_GPU_LAYERS_*`) and skip when unset | not catalogue models; the gate command with `WIPEMARK_TEST_GGUF` alone stays as it was |
+| **D187** | **The shipped GPU backends are Vulkan (Linux, Windows) and Metal (macOS); CUDA is not built** (owner, 2026-10-04). Candidates are decoded one at a time; two sequences in one batch are not built. | Qwen3.8 27B, whole card: Vulkan 42.9 tokens/s decode (`llama-bench`), CUDA 52 (llama-server), CUDA two at once ~86 together; `LocalEngine` matches llama.cpp on Vulkan. `docs/architecture/local-engine.md`, "Qwen3.8 27B with the whole card". |
 
 ---
 

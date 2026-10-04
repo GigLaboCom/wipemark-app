@@ -199,6 +199,16 @@ a `cargo:warning`), so `GGML_CUDA=ON` on a machine with the CUDA toolkit
 builds `libggml-cuda` beside the CPU libraries. The defaults build the
 CPU variants everywhere and Metal on macOS.
 
+**The backends the product ships are Vulkan and Metal, not CUDA** (D187,
+owner, 2026-10-04). Vulkan covers NVIDIA, AMD and Intel cards on Linux and
+Windows with one library and no vendor toolkit; Metal is ggml's default on
+Apple and is what a Mac uses. CUDA is faster on NVIDIA — measured below,
+about a fifth at decode — and is not built: it needs the CUDA toolkit on
+the build machine and a per-architecture binary, for a gain the owner
+judged not worth it. A `GGML_VULKAN=ON` build is what the Linux and
+Windows packages (E10) carry; a build without it is CPU only. Metal has
+not been built here yet — that is the first Mac step's.
+
 ### A binary finds the libraries through its rpath
 
 llama.cpp is linked as shared libraries (`libggml`, `libggml-base`,
@@ -527,3 +537,22 @@ of each model (the first carries the shaders' first use).
 
 The full report, with the sentences, is
 `docs/plan/reports/E2-4-2026-10-04.md`.
+
+### Qwen3.8 27B with the whole card (2026-10-04, `mn-embed-server` stopped)
+
+| | decode | prompt |
+|---|---|---|
+| llama.cpp `llama-bench` at the pin, **Vulkan** | 42.9 tokens/s | 925 tokens/s |
+| `LocalEngine`, Vulkan, all 65 layers (test's figure, prompt included) | 32–33 tokens/s; about 38–40 at decode alone | |
+| llama-server, **CUDA** (`ghcr.io/ggml-org/llama.cpp:server-cuda`, `b10731`), one request | 52 tokens/s | |
+| the same, two requests at once (`-np 2`) | ~43 each, ~86 together | |
+
+The engine costs nothing measurable over llama.cpp on the same backend
+(a release build of the Rust side decodes at the debug build's rate: the
+time is in ggml). The gap to "two at 30 each" is the backend (Vulkan vs
+CUDA, D187) and **parallel sequences**: llama-server decodes two requests
+in one batch, `LocalEngine` one at a time. Decoding a chunk's two
+candidates as two sequences of one batch would nearly double a chunk's
+throughput on a GPU; it is **not built** (owner, 2026-10-04: documented and
+left as it is).
+
