@@ -449,8 +449,10 @@ unknown is not a number.
 On GitHub Actions (`.github/workflows/gate.yml`) the `native` job runs the
 first two commands below on Ubuntu with `GGML_VULKAN=ON` (apt: `cmake clang
 libclang-dev libvulkan-dev glslc spirv-headers` — ggml-vulkan's CMake asks
-for `SPIRV-Headers`), and the `macos` job compiles `llama-native` with
-Metal. The live gate (a model, a GPU) is run by hand.
+for `SPIRV-Headers`), and the `macos` job runs the same two on Apple
+Silicon with Metal — the hosted runner (an M1 VM) registers a Metal device,
+`MTL0`, beside the CPU and BLAS ones, and the job prints them. The live gate
+(a model) is run by hand.
 
 ```sh
 # 1. A toolchain: cmake ≥ 3.14, a C++17 compiler, libclang (for bindgen).
