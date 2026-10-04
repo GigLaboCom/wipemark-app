@@ -133,8 +133,10 @@ the profile directory because that is the only place cargo puts on a
 test's loader path; outside `OUT_DIR` so `cargo clean -p
 wipemark-llama-sys`, a feature change or a `build.rs` edit does not fetch
 again; keyed by the sha256 so a re-published archive is a new directory,
-never an overwrite. `cargo clean` removes it. Concurrent builds race only
-to a `rename`, which one wins and the other discards.
+never an overwrite; `archive.sha256` beside the root holds the full sha256
+and is compared with the pin on every use. `cargo clean` removes it.
+Concurrent builds race only to a `rename`, which one wins and the other
+discards.
 
 An override outside the profile directory is reached through a symbolic
 link `<profile dir>/llama-cpp-prebuilt/local` (Unix), so cargo's loader
@@ -215,7 +217,8 @@ report.
 |---|---|---|
 | `every_copy_of_the_pin_agrees` (extended) | `PIN.md` names the prebuilt tag and the four sha256, `fetch.sh` the commit | a sha256 changed in `PIN.md` only |
 | `the_prebuilt_pin_is_four_targets_of_full_sha256` | 64 lower-case hex, four distinct targets, the tag is the pin's | — |
-| build: sha256 mismatch | refused before unpacking, expected and got named | one digit of a sha256 in `pin.rs` |
+| build: sha256 mismatch | refused before unpacking, expected and got named | the first digit of a sha256 in `pin.rs` (a download) |
+| build: cache stamp | a cached root is used only for the pinned sha256 | the last digit (a cache hit) |
 | build: provenance commit | a root built from another commit is refused | `PROVENANCE.txt` edited in an override |
 | build: override missing | a clear error naming the variable | `WIPEMARK_LLAMA_PREBUILT=/nonexistent` |
 | build: both variables | refused | both set |

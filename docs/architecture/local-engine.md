@@ -158,7 +158,11 @@ crate: a directory beside `target/debug` is dropped), so `cargo test` of
 `wipemark-llama` finds `libllama` the way it found it in `OUT_DIR` before.
 Outside `OUT_DIR`, so `cargo clean -p wipemark-llama-sys`, a feature change
 or an edit of `build.rs` does not download again. Keyed by the sha256, so a
-re-published archive is a new directory and never an overwrite. A download
+re-published archive is a new directory and never an overwrite; beside the
+root, `archive.sha256` records the archive's full sha256 and is compared with
+the pin on every build that uses the cache, because the directory name
+carries only twelve digits of it (a pin edited in its last digit is refused,
+not linked against the old archive). A download
 lands in a `.part`, is unpacked into a temporary directory and moved into
 place in one `rename`: a cache directory exists only for an archive that
 passed, and two builds racing to fill it end with one discarding its copy.
