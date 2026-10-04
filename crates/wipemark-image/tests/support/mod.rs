@@ -500,7 +500,12 @@ pub fn image_data(b: &[u8]) -> Vec<u8> {
 pub fn raster(b: &[u8]) -> [u8; 32] {
     let pixels = match b[0] {
         0x89 => {
-            let mut r = png::Decoder::new(Cursor::new(b)).read_info().unwrap();
+            // EXPAND: a palette is hashed as the colours it paints and
+            // `tRNS` as the alpha it adds — hashed as indices, losing
+            // the transparency would leave the raster "identical".
+            let mut d = png::Decoder::new(Cursor::new(b));
+            d.set_transformations(png::Transformations::EXPAND);
+            let mut r = d.read_info().unwrap();
             let mut buf = vec![0; r.output_buffer_size().unwrap()];
             let info = r.next_frame(&mut buf).unwrap();
             buf.truncate(info.buffer_size());
