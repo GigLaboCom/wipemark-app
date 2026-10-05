@@ -392,11 +392,32 @@ traces; the proof here is stricter and the map and the logo are measured.
   `(Y, Cb, Cr)` from the mean of its eight neighbours — and the same
   around the mark; a texture is left when the first is over
   `TEXTURE_LEVELS` **5.5** and over `TEXTURE_RATIO` **2.0** times the
-  second. On the 2048 files, `11_crying` aside: 1.59–2.05 as handed out
+  second. Both sets are what the code takes, as it is, and neither is
+  the obvious one. *The pixels it changed* are those of the template
+  with `α` in [0.002, 0.95) — 3 868 on V1's large row, against the
+  3 439–3 441 a restoration reports as changed (the fifth host
+  verification's count): the faint ones under half a level
+  are counted though the inverse rounds them back to themselves. *Around*
+  is every pixel of the square under `α` 0.002 and of a ring four pixels
+  out — and the square's own, at the mark's corners, are the ones the
+  codec's checker reaches: on the 4:4:4 95 stickers it reads 2.8–3.4,
+  where a ring 8–36 pixels out reads 1.0–1.3. So the ratio is taken
+  against a rougher surrounding than the picture's own, and says less,
+  not more; that is the cautious direction and the behaviour is left
+  so. On the 2048 files, `11_crying` aside: 1.59–2.05 as handed out
   (around them 1.18–1.88); at JPEG 4:4:4 95, 8.59–9.22 against
   3.05–3.36; at 4:2:0 95, 10.25–10.90. The bound sits where an eye stops finding it, on a
-  scale of the same pictures at 4:4:4: 6.2–6.3 at 97 is faint at ×3,
-  5.0–5.2 at 98 is barely found at ×6, 3.5 at 99 is nothing. It is
+  scale of the same pictures at 4:4:4: 6.12–6.51 at 97 is plain at ×6
+  and traceable at ×3, 4.88–5.22 at 98 (all 22, cut to 1040) is barely
+  found at ×6 and practically nothing at ×3, 3.5 at 99 is nothing. The
+  margin is therefore **5 %** over the roughest at 98 (`10_this_is_fine`,
+  5.22, `fine-1040-q98-444.jpg`: not said, and said at a bound of 5.0)
+  and 11 % under the smoothest at 97 — not the ±10 % the fourth round's
+  report gave both sides. `TEXTURE_RATIO` decides no sticker at 97 or 98
+  (2.39–2.69 and 2.09–2.62, both over it); its one real job is
+  `anchor`'s grainy corner at 4:4:4 95, 11.4 against 10.2 (1.12): over
+  the level twice over and not said, the grain the picture's own
+  (`a_grain_the_picture_has_is_not_said_under_a_real_mark`). It is
   measured before the re-encode; the written file keeps it (9.1–10.0
   against 3.8–4.1 at 4:4:4 95, by the same measure). `Restored.texture`,
   `Restored.texture_around` and `Restored.texture_left` carry it; the mark

@@ -11,7 +11,7 @@ use image::imageops::FilterType;
 use wipemark_picture::{clean, decode, inspect, Encoding, PictureOptions, Visible};
 use wipemark_pixels::{
     Catalogue, ExamineOptions, Fidelity, Layout, PixelRect, Placed, Raster, Refusal, Verdict,
-    CHROMA_LEVELS, OUTLINE_BOUND, STEP_LEVELS,
+    CHROMA_LEVELS, OUTLINE_BOUND, STEP_LEVELS, TEXTURE_LEVELS, TEXTURE_RATIO,
 };
 
 fn fixture(name: &str) -> Vec<u8> {
@@ -431,6 +431,59 @@ fn a_subsampled_jpeg_is_refused_or_said_by_where_its_blocks_fall() {
             "never restored with nothing said: {name}"
         );
     }
+}
+
+/// `TEXTURE_LEVELS` held from below by a picture (D250): `10_this_is_fine`
+/// saved at JPEG 4:4:4 98 is the roughest of the 22 at that quality —
+/// 5.22 against 1.99 around it, a checker barely found at ×6 — and is
+/// restored with nothing said and nothing left. The bound is 5 % over it,
+/// not more: at 5.0 it would be said.
+#[test]
+fn a_texture_an_eye_barely_finds_is_not_said() {
+    let name = "fine-1040-q98-444.jpg";
+    let (_, cleaned) = clean(&fixture(name), &shipped()).unwrap();
+    let Visible::Examined { report, .. } = &cleaned.visible else {
+        panic!("{name}: {:?}", cleaned.visible)
+    };
+    let [r] = report.restored.as_slice() else {
+        panic!("{name}: {report:#?}")
+    };
+    assert!(r.lossy && !r.exact, "{name}: {r:?}");
+    assert!(
+        r.texture > 5.1 && r.texture < TEXTURE_LEVELS,
+        "{name}: {r:?}"
+    );
+    assert!(
+        r.texture > TEXTURE_RATIO * r.texture_around,
+        "the ratio does not decide it: {name}: {r:?}"
+    );
+    assert!(!r.texture_left && !r.outline_left, "{name}: {r:?}");
+    assert!(!cleaned.marks_left(), "{name}: {report:#?}");
+}
+
+/// `TEXTURE_RATIO`'s one real job (D250): `anchor`'s corner is a grainy
+/// green — its own roughness about 10 levels — and saved at JPEG 4:4:4 95
+/// the restored mark is as rough as the picture around it, about 11 to
+/// 10: over `TEXTURE_LEVELS` twice over, and not said, because the grain
+/// is the picture's.
+#[test]
+fn a_grain_the_picture_has_is_not_said_under_a_real_mark() {
+    let raster = raster_of(&fixture("anchor-green-1025.png"));
+    let (_, cleaned) = clean(&jpeg_of(&raster, 95), &shipped()).unwrap();
+    let Visible::Examined { report, .. } = &cleaned.visible else {
+        panic!("{:?}", cleaned.visible)
+    };
+    let [r] = report.restored.as_slice() else {
+        panic!("{report:#?}")
+    };
+    println!("anchor q95 4:4:4: {r:?}");
+    assert!(r.lossy, "{r:?}");
+    assert!(
+        r.texture > 1.5 * TEXTURE_LEVELS,
+        "the level does not decide it: {r:?}"
+    );
+    assert!(r.texture < 1.3 * r.texture_around, "{r:?}");
+    assert!(!r.texture_left, "{r:?}");
 }
 
 /// The vendor's mark shrunk with its picture — the 1025 corner taken to

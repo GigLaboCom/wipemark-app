@@ -1528,6 +1528,31 @@ fn seed(scratch: &Scratch, rows: &[(&str, &str)]) {
     }
 }
 
+/// A model's size is said in the language's decimals — "7,4 GB" in German,
+/// "7,4 ГБ" in Russian — and with a point in English; the JSON keeps its
+/// bytes.
+#[test]
+fn models_sizes_are_spelled_in_the_languages_decimals() {
+    let scratch = Scratch::new("models-decimals");
+    for (language, size) in [("en-US", "7.4 GB"), ("de", "7,4 GB"), ("ru", "7,4 ГБ")] {
+        let output = Command::new(env!("CARGO_BIN_EXE_wipemark-cli"))
+            .args(["models", "list"])
+            .current_dir(&scratch.0)
+            .env("WIPEMARK_DATA_DIR", scratch.data())
+            .env("WIPEMARK_LANG", language)
+            .env_remove("WIPEMARK_LOG")
+            .env_remove("RUST_LOG")
+            .stdin(Stdio::null())
+            .output()
+            .expect("the binary runs");
+        assert_eq!(code(&output), 0, "{language}: {}", stderr(&output));
+        let text = stdout(&output);
+        assert!(text.contains(size), "{language}: {text}");
+        let other = if size.contains(',') { "7.4" } else { "7,4" };
+        assert!(!text.contains(other), "{language}: {text}");
+    }
+}
+
 /// Every catalogue entry is listed with what is on this machine for it:
 /// nothing, a partial download, or a file that does not match — and a
 /// weight file the catalogue does not know is listed after, unverified.
