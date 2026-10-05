@@ -1599,6 +1599,7 @@ What exists so far:
 | `wipemark-gpui-pin-architecture-2026-10-052` | FILE | a snapshot of `docs/architecture/gpui-pin.md`: GPUI at `81b16f4` from the fork `GigLaboCom/zed` (`9d80553`) with two X11 fixes — a stale first frame (upstream #62081) and a double borrow on the portal's appearance event (ours) — how upstream moved to `gpui-pre` snapshots, and what a bump means, with references |
 | `wipemark-task-gpui-bump-2026-10-052` | FILE | a task for an agent in a container: GPUI onto the newest `gpui-pre` snapshot, our gpui-component patch rebased (or dropped once gpui-kit#3359 lands), the API fixed, patch B re-carried through `[patch.crates-io]`, the host's checklist after; decisions D291–D300. The keys without the trailing `2` are the first uploads, before the fork's commits were filled in |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
+| `wipemark-status-2026-10-05` | FILE | where the project stood at the end of 2026-10-05: images rounds 3–5, E7 merged, the X11 first frame fixed through `GigLaboCom/zed`, and the plan of pull requests and branches (`docs/plan/README.md` §2.1) — PR #1 and what comes next, in order |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
