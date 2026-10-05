@@ -222,7 +222,7 @@ session bus out of reach; `scripts/verify/e7/live-disk.sh` still defaults
 to `DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent` (`APP_DBUS`). Where GPUI comes from, what we carry on it
 and what a bump means, with every upstream reference, is
 `docs/architecture/gpui-pin.md`; the bump itself is the task
-`wipemark-task-gpui-bump-2026-10-05`.
+`wipemark-task-gpui-bump-2026-10-052`.
 
 Five things steer a run, and every one of them exists so a check can be
 made against something other than the real installation:
@@ -1596,8 +1596,8 @@ What exists so far:
 | `wipemark-task-e7-windows-clean-2026-10-05` | FILE | a task for an agent in a container: E7-1…E7-6, the windows clean text and pictures — the cleaner `clean.rs`, the queue's Clean / Clean all / `--clean=`, Compare's real result, the report with its three shelves, the panel, every "not yet" sentence; decisions from D260; checked live on the host after |
 | `wipemark-e7-windows-clean-report-2026-10-05` | FILE | its report: E7-1…E7-6 done, D260–D280, 41 of 41 mutations red, four owner questions, Compare's lenient decode left open; the host verification found it mergeable (merged `7621c9f`) — parity with the CLI over 13 inputs, 38 of 38 disk checks, 8 of the verifier's 18 mutations green |
 | `wipemark-task-e7-followups-1-2026-10-05` | FILE | the host verification's findings as W1–W15: an i18n gate on epic numbers, the picture scope, the log rule, C2PA alone and `PICTURE_LIMIT` guarded; Compare through the queue's strict road; one clean at a time per application and a no-clobber rename; gpui tests for the paste, Replace and the panel; parity tests that run the CLI's own code; the report's shelf and Markdown; decisions from D281 |
-| `wipemark-gpui-pin-architecture-2026-10-05` | FILE | a snapshot of `docs/architecture/gpui-pin.md`: GPUI at `81b16f4` from the fork `GigLaboCom/zed` (`9d80553`) with two X11 fixes — a stale first frame (upstream #62081) and a double borrow on the portal's appearance event (ours) — how upstream moved to `gpui-pre` snapshots, and what a bump means, with references |
-| `wipemark-task-gpui-bump-2026-10-05` | FILE | a task for an agent in a container: GPUI onto the newest `gpui-pre` snapshot, our gpui-component patch rebased (or dropped once gpui-kit#3359 lands), the API fixed, patch B re-carried through `[patch.crates-io]`, the host's checklist after; decisions D291–D300 |
+| `wipemark-gpui-pin-architecture-2026-10-052` | FILE | a snapshot of `docs/architecture/gpui-pin.md`: GPUI at `81b16f4` from the fork `GigLaboCom/zed` (`9d80553`) with two X11 fixes — a stale first frame (upstream #62081) and a double borrow on the portal's appearance event (ours) — how upstream moved to `gpui-pre` snapshots, and what a bump means, with references |
+| `wipemark-task-gpui-bump-2026-10-052` | FILE | a task for an agent in a container: GPUI onto the newest `gpui-pre` snapshot, our gpui-component patch rebased (or dropped once gpui-kit#3359 lands), the API fixed, patch B re-carried through `[patch.crates-io]`, the host's checklist after; decisions D291–D300. The keys without the trailing `2` are the first uploads, before the fork's commits were filled in |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
