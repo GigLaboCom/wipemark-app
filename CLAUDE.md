@@ -225,7 +225,7 @@ it sits.
 | `wipemark-log` | the rotating file, the panic hook, `Elided` | real |
 | `wipemark-i18n` | the Fluent catalogues and the `Message` enum `build.rs` generates from them | real |
 | `wipemark-image` | PNG, JPEG and WebP metadata: blocks that tile the file, the AI signals as data, `inspect`/`strip` with the raster unchanged; and `reframe`, the one writer for a picture whose pixels changed (`reframe(x, x) == strip(x)`) | real for PNG/JPEG/WebP (E11-1, E11-3; `reframe` E12-3); TIFF, HEIC/AVIF refused by name (backlog); the CLI and the MCP server call it (E11-2), `wipemark-picture` too; no window yet (**E7**) |
-| `wipemark-pixels` | visible marks as data: the raster, the `.wma` opacity map, the compiled-in catalogue `manifests/marks.v1.json` with every asset pinned by sha256; propose (rows at their own place, then a search refined to the sub-pixel and to the filter that shrank the mark) → verify (edge energy over the unclamped inverse: proved, a blend not proved, or no blend) → restore, the outline check, holes, the second pass; calibration (`examples/calibrate.rs`); the report whose shelf leads with `invisible-pixel-marks`. No codec | real (E12-1, E12-2, three rounds of host verification); Gemini V1/V2 from GWT's maps (`marks/gwt/`), V1's large-row map and logo measured from real outputs (`gemini-v1-96-measured`), V2's small rows from GWT's formula; other vendors **E12-6** |
+| `wipemark-pixels` | visible marks as data: the raster, the `.wma` opacity map, the compiled-in catalogue `manifests/marks.v1.json` with every asset pinned by sha256; propose (rows at their own place, then a search refined to the sub-pixel and to the filter that shrank the mark) → verify (edge energy over the unclamped inverse: proved, a blend not proved, or no blend) → restore, the outline and texture checks, holes, the second pass; calibration (`examples/calibrate.rs`); the report whose shelf leads with `invisible-pixel-marks`. No codec | real (E12-1, E12-2, four rounds of host verification); Gemini V1/V2 from GWT's maps (`marks/gwt/`), V1's large-row map and logo measured from real outputs (`gemini-v1-96-measured`), V2's small rows from GWT's formula; other vendors **E12-6** |
 | `wipemark-picture` | a picture file through both passes: decode to the stored raster, the visible pass, encode like the original, `wipemark_image::reframe`, the proof before a byte is handed back — one writer | real for PNG, WebP (lossless out) and JPEG (re-encoded at quality 95; CMYK examined, never written back) (E12-3, E12-4); the CLI and the MCP tools call it (E12-5); no window yet (**E12-8**) |
 | `wipemark-intake` | what was handed over — text, bytes or a path — and what it turns out to be; and `inplace`, the one module that writes: a result beside a file or over it, the original set aside first | real |
 | `wipemark-license` | activation, grace, and what a lapse never locks | types; **E9** |
@@ -1344,7 +1344,9 @@ Anything that needed more than a rule to explain is in `docs/`;
   three ways — its share of the mark's contour energy (D238), the faint
   band's step in luma levels against the surroundings and their own
   spread (D244), and the same in colour difference `‖(ΔCb, ΔCr)‖`
-  (D247) — and an outline left is a mark left. V1's large-row map and
+  (D247) — and, on a lossy source only, the roughness of the pixels it
+  changed against the surroundings' (D250, D251); an outline or a
+  texture left is a mark left. V1's large-row map and
   logo are measured from real outputs (D242, D243), and a fitted map is
   never claimed exact (D245); how close a restoration came is said as a
   mean, the farthest channel's, never as a bound (D248), and "searched"
@@ -1391,7 +1393,7 @@ Anything that needed more than a rule to explain is in `docs/`;
   when its pixels should have been examined and were not (a catalogue
   that did not load, a damaged JPEG scan, an animation's frames), 3
   beating 1; `clean` exits by the input, and a mark left — not proved,
-  under opaque pixels, or restored with its outline left — or pixels not
+  under opaque pixels, or restored with its outline or a texture left — or pixels not
   examined is **3 with the result written**, while provenance metadata
   left is **3 with nothing written**; TIFF, HEIC and AVIF are 2 by name,
   a picture that could not be read 3 (`docs/architecture/cli.md`,
@@ -1459,6 +1461,7 @@ What exists so far:
 | `wipemark-task-images-followups-3-2026-10-05` | FILE | the third verification's findings as T1–T2 + low: the outline is blind to colour (a 4:2:0 JPEG's fringe reported clean), the residual sentence states a mean as a bound |
 | `wipemark-images-followups-3-report-2026-10-05` | FILE | the third round's report: T1, the outline held in colour (D247); T2, the residual said as a mean (D248); L1–L3, "searched" and "resampled" said only when they happened (D249), decimals and plurals. The host verification found it mergeable; its JPEG tables were measured on the 1025 crops, not the 2048 originals |
 | `wipemark-task-images-followups-4-2026-10-05` | FILE | the fourth host verification's findings, after the merge: the JPEG tables re-measured on the 2048 originals (refusal at 4:2:0 depends on block alignment), a textured ghost on a 4:4:4 JPEG said, the outline figure and Cb half pinned; decisions D250–D259 |
+| `wipemark-images-followups-4-report-2026-10-05` | FILE | its report (D250–D253): the JPEG figures re-measured on the 2048 originals, a texture left on a lossy source said and counted as a mark left; the host verification found it mergeable (merged `92121ce`) |
 | `wipemark-task-e7-windows-clean-2026-10-05` | FILE | a task for an agent in a container: E7-1…E7-6, the windows clean text and pictures — the cleaner `clean.rs`, the queue's Clean / Clean all / `--clean=`, Compare's real result, the report with its three shelves, the panel, every "not yet" sentence; decisions from D260; checked live on the host after |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 

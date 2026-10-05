@@ -595,6 +595,10 @@ tell a decision from an accident.
 | **D247** | **The faint band is also held to the picture in BT.601 colour difference, `‖(ΔCb, ΔCr)‖`**: an outline is left past `CHROMA_LEVELS` = 4.0 and the colour's own spread around the mark, beside D244's luma step and D238's share. Not the largest channel: a 4:4:4 JPEG's blue is up 3–4 levels where nobody sees anything. `Restored` carries the step per channel, in luma and in colour. | Third host round T1: a 4:2:0 JPEG's fringe (colour 7.6–8.9) was reported clean by luma alone; 4:4:4 at 95 measures 2.05–2.51; `docs/plan/reports/images-followups-3-2026-10-05.md`. Known limitation there: under 95 a 4:2:0 JPEG is often refused out of range (exit 3). |
 | **D248** | **How close a restoration is, is said as a mean** — the farthest channel's mean step — never as a bound, in every language; figures in the CLI's sentences carry the language's decimal separator (`wipemark_i18n::decimal`). | Third host round T2, L3; `docs/plan/reports/images-followups-3-2026-10-05.md`. |
 | **D249** | **A search proposes no resample**: whether a map was drawn as captured is the shape's to say. `Restored` carries `resampled` and `searched`, and the CLI says each only when it holds. | Third host round L1: every searched mark was told its map "was resampled"; `docs/plan/reports/images-followups-3-2026-10-05.md`. |
+| **D250** | **A texture left is said**: a restoration's roughness — the 95th percentile, over the pixels it changed, of each one's distance in `(Y, Cb, Cr)` from its eight neighbours' mean — against the same around the mark; over `TEXTURE_LEVELS` 5.5 and `TEXTURE_RATIO` 2.0 times the surroundings, `Restored.texture_left`, said as a percentile, and the mark counts as left (exit 3). | Fourth host round U2: a 4:4:4 JPEG at 95 left an 8×8 checker plain at ×2 that no mean saw; the bound is where an eye stops finding it (q97 said, q98 not); `docs/plan/reports/images-followups-4-2026-10-05.md`. |
+| **D251** | **Only a lossy source is held to D250.** `texture` is measured on every source, `texture_left` only on a lossy one (JPEG; WebP by `is_lossy`). A JPEG re-saved as PNG is not looked at for texture. | A lossless source stored no error past rounding; what is rough under its mark is the picture's own (a glyph sheet: 20.2 against 0.06). |
+| **D252** | **A 4:2:0 refusal by the 16-pixel grid is intended**: the out-of-range bound stays 1 %, both sides are said; figures are the 2048 originals' or labelled as crops, and a 1040 crop stands for the 2048 file. | The share lands at 1.0–1.7 % at q90 by where the blocks fall; at 2048, q95 refuses none and q90 10 of 21. |
+| **D253** | **`CHROMA_LEVELS` is held from above by a picture** (`thinking`, 7.40, the lowest of the 21 at 4:2:0 95), not by a multiple of itself. | Third host verification L-c: the constant-tied assertion went red at 7.5 while the fixtures were still said. |
 
 ---
 
@@ -906,7 +910,10 @@ the gate the overview set, and the open edges.
   - **E12-1…E12-5 — status: done** (one series for one agent, then three
     rounds of host verification; merged into `feat/e0-e6-shell` as
     `b54984f` on 2026-10-05 — 1371 passed, 0 failed, 6 ignored; 63 of 63
-    follow-up mutations red; CI green). E12-1 `wipemark-pixels` (D193–D202) —
+    follow-up mutations red; CI green. A fourth round — the 2048 figures, a
+    texture left said, D250–D253,
+    [reports/images-followups-4-2026-10-05.md](reports/images-followups-4-2026-10-05.md)
+    — merged as `92121ce`: 1375/0/6, 76 of 76 red). E12-1 `wipemark-pixels` (D193–D202) —
     [reports/E12-1-2026-10-04.md](reports/E12-1-2026-10-04.md); E12-2
     calibration (D203–D207) — [E12-2-calibration.md](E12-2-calibration.md),
     [reports/E12-2-2026-10-04.md](reports/E12-2-2026-10-04.md); E12-3
