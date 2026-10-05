@@ -42,11 +42,12 @@ supersedes Q-V8's "no vendor file is committed" for these. Each
 2048 × 2048 picture is cut to its bottom-right **1025 × 1025** and
 saved as an RGB PNG — the vendor's 96-pixel V1 mark is then exactly at
 the large row (margin 64), so a row is tested on the pixels the vendor
-stamped, at a twentieth of the bytes; the WebP is as it was. Six JPEGs
-were made here on 2026-10-05 by Pillow 12.3.0, not handed out by the
-vendor: three from the committed PNGs, colour subsampled 4:2:0 as most
-JPEGs are; one from `torch-1025.png` at 4:4:4; and two from the 2048
-originals cut to their bottom-right **1040 × 1040** — the cut starts at
+stamped, at a twentieth of the bytes; the confetti WebP is as it was.
+Seven JPEGs and a WebP were made here on 2026-10-05 by Pillow 12.3.0,
+not handed out by the vendor: three JPEGs from the committed PNGs, colour
+subsampled 4:2:0 as most JPEGs are; one from `torch-1025.png` at 4:4:4;
+and three JPEGs and the lossy WebP from the 2048 originals cut to their
+bottom-right **1040 × 1040** — the cut starts at
 1008, 63 × 16, so the codec's 16-pixel blocks fall on the mark exactly
 as in the 2048 file, and every figure measured on one is the other's
 (D252). In a 1025 crop the mark sits at 865, a pixel off that grid.
@@ -63,6 +64,8 @@ as in the 2048 file, and every figure measured on one is the other's
 | `thinking-1040-q95-420.jpg` | 183 957 | `2bfa389774885d105db9669669a968f378865b66e224a1742889abd241584204` | `09_thinking.png`, the same way | the lowest colour step of the 21 at 4:2:0 95, `chroma` 7.40: said by its colour alone, which holds `CHROMA_LEVELS` from above (D253) |
 | `torch-1025-q95-444.jpg` | 182 354 | `f7bd31ce30f752b39026d6b041165df907ab660ef246e0f7b526e7ed0f480e5f` | `torch-1025.png`, saved at 95, `subsampling=0` (4:4:4) | restored with no outline — luma +0.2, colour 2.3 — and an 8 × 8 checker along the contour, roughness 9.0 against 3.3 around it: the texture said, left, exit 3 (D250) |
 | `victory-1025-q98-420.jpg` | 292 005 | `e54180d481e71ef2a86abfc5a1ee54d620b4259318fe6b5f93f06d9ab985630e` | `victory-1025.png`, the same way at quality 98 | as `torch` at 95: the fringe said (`chroma` 8.4) |
+| `fine-1040-q98-444.jpg` | 392 670 | `4e3f72bb53b548471675d5200405c31c8916ff609c15dc90b8e280e68f67395b` | `10_this_is_fine.png` cut to 1040, saved at 98, `subsampling=0` (4:4:4) | the highest roughness of the 22 at 4:4:4 98, 5.22 against 1.99 around it — barely found at ×6 — restored and **not** said: it holds `TEXTURE_LEVELS` from below, a bound of 5.0 says it (D250) |
+| `scroll-1040-q90.webp` | 54 928 | `3404fd6e596e98b8837a4946c52197b564d4ddc142bcd16103784ebb63f9da29` | `04_tearing_scroll.png` cut to 1040, saved lossy (`lossless=False`) at quality 90, `method=6`, by Pillow's libwebp 1.6.0 | a lossy WebP is held as lossy (D251): restored, "stored with loss" said, its texture said (10.1 against 1.9) and its colour fringe (6.4); left, exit 3 — written back as lossless WebP |
 | `crying-transparent-1025.png` | 623 170 | `6cbc54505c68415faf21eef20fbc8dcd30ab00709c44d96eb4093eb788e64f14` | `transparent/11_crying.png` | the mark in the colour channels under alpha 0: seen, refused as `Transparent`, left, exit 3 |
 | `cut-out-confetti-256.webp` | 18 422 | `88b1aeaf710201fc9374c653ca689b41bfc33600eb8fd1dd11450f2718e8fe39` | `transparent_thumbs_256/19_victory.webp`, byte for byte — the same sha256; no mark, so not in the archive below | a cut-out sticker, its corner transparent, confetti in it: no finding, `inspect` exits 0 |
 

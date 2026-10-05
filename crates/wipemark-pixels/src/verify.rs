@@ -999,15 +999,18 @@ mod tests {
 
     /// A grain the picture has around the mark as well is the picture's:
     /// under the mark it must be [`TEXTURE_RATIO`] times as rough to be
-    /// said (D250) — 12 levels against 7 around is not, against 5 is.
+    /// said (D250) — 13 levels against 7 around (1.86 times) is not, 15
+    /// against 7 (2.14 times) is: the ratio pinned to within 7 % each way,
+    /// both over [`TEXTURE_LEVELS`] so the ratio alone decides.
     #[test]
     fn a_texture_the_picture_has_around_the_mark_is_not_said() {
-        let grainy = grained(12, 7);
-        assert!((grainy.texture - 12.0).abs() < 1e-3, "{grainy:?}");
+        let grainy = grained(13, 7);
+        assert!((grainy.texture - 13.0).abs() < 1e-3, "{grainy:?}");
         assert!((grainy.texture_around - 7.0).abs() < 1e-3, "{grainy:?}");
         assert!(!grainy.textured(), "{grainy:?}");
-        let rougher = grained(12, 5);
-        assert!((rougher.texture_around - 5.0).abs() < 1e-3, "{rougher:?}");
+        let rougher = grained(15, 7);
+        assert!((rougher.texture - 15.0).abs() < 1e-3, "{rougher:?}");
+        assert!((rougher.texture_around - 7.0).abs() < 1e-3, "{rougher:?}");
         assert!(rougher.textured(), "{rougher:?}");
     }
 

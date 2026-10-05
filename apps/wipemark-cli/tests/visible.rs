@@ -263,6 +263,21 @@ fn a_texture_left_on_a_jpeg_is_said_and_exits_three() {
         restored["texture_around"].as_f64().unwrap(),
     );
     assert!(texture > 2.0 * around && texture > 8.0, "{restored}");
+    // The figures in the sentence are the restoration's roughness — about
+    // 9 — and then the surroundings', about 3.3: not the other way round.
+    let line = said
+        .lines()
+        .find(|line| line.contains("A texture is left"))
+        .unwrap();
+    let figure = |after: &str| -> f64 {
+        line.split(after)
+            .nth(1)
+            .and_then(|rest| rest.split(' ').next())
+            .and_then(|n| n.parse().ok())
+            .unwrap_or_else(|| panic!("no figure after {after:?}: {line}"))
+    };
+    assert!(figure("lie ") > 8.0, "{line}");
+    assert!(figure("against ") < 4.0, "{line}");
     for (language, grain) in [("ru", "зернистость"), ("de", "Körnung")] {
         let output = scratch.run_in(language, &["clean", "art.jpg", "-o", "out.jpg"]);
         let said = stdout(&output);
@@ -279,6 +294,36 @@ fn a_texture_left_on_a_jpeg_is_said_and_exits_three() {
         };
         assert!(decimal(',') && !decimal('.'), "{language}: {line}");
     }
+}
+
+/// A sticker saved as lossy WebP — the WebP most pictures are — is a lossy
+/// source like a JPEG: restored, said to be stored with loss, and its
+/// texture said, which only a lossy source is looked at for (D251); its
+/// colour fringe is said too (VP8 keeps colour at half the resolution),
+/// the mark counts as left, and the result is a lossless WebP.
+#[test]
+fn a_lossy_webp_is_held_as_lossy() {
+    let scratch = Scratch::new("lossy-webp");
+    scratch.file("art.webp", &real("scroll-1040-q90.webp"));
+    let output = scratch.run(&["clean", "art.webp"]);
+    let said = stdout(&output);
+    assert_eq!(code(&output), 3, "{said}");
+    assert!(said.contains("pixels restored"), "{said}");
+    assert!(said.contains("stored with loss"), "{said}");
+    assert!(
+        said.contains("A texture is left along the mark's edge"),
+        "{said}"
+    );
+    let answer = json(&scratch.run(&["clean", "art.webp", "-o", "j.webp", "--json"]));
+    let restored = &answer["report"]["visible"]["restored"][0];
+    assert_eq!(restored["lossy"], Value::Bool(true), "{restored}");
+    assert_eq!(restored["exact"], Value::Bool(false), "{restored}");
+    assert_eq!(restored["texture_left"], Value::Bool(true), "{restored}");
+    assert_eq!(answer["report"]["marks_left"], Value::Bool(true));
+    assert_eq!(
+        answer["report"]["encoding"],
+        serde_json::json!({"kind": "webp-lossless", "from_lossy": true})
+    );
 }
 
 /// In Russian and German the figure is a mean — "в среднем", "im Mittel"
