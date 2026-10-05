@@ -16,7 +16,7 @@ exists (E7-2).
 
 | step | done | commit | tests | mutations red |
 |---|---|---|---|---|
-| E7-1 the cleaner, with no window | yes | `E7-1: the cleaner, with no window` | 26 in `clean::tests` | 12 of 12 (M1–M12) |
+| E7-1 the cleaner, with no window | yes | `81af4a4` | 26 in `clean::tests` | 12 of 12 (M1–M12) |
 | E7-2 the queue cleans | no | — | — | — |
 | E7-3 Compare shows the real result | no | — | — | — |
 | E7-4 the report, three shelves | no | — | — | — |
@@ -85,8 +85,8 @@ libxcb1-dev libfreetype-dev`; the image had none of them). The native
 llama gates do not apply: nothing under `crates/wipemark-llama*` or
 `crates/wipemark-engine/src/local.rs` changed.
 
-GitHub Actions: see the push below — the run URL is added when it can be
-read from here.
+GitHub Actions, `gate` on the push of `81af4a4`: **success** in 26 min —
+https://github.com/GigLaboCom/wipemark-app/actions/runs/37323279470
 
 ## Decisions
 
