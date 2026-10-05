@@ -99,7 +99,12 @@ fn classify(ty: &[u8; 4], data: &[u8], range: std::ops::Range<usize>) -> Block {
             MetadataKind::Other
         }
     };
-    Block::meta(range, kind, name, None, evidence)
+    let block = Block::meta(range, kind, name, None, evidence);
+    if kind == MetadataKind::Exif {
+        block.oriented(data)
+    } else {
+        block
+    }
 }
 
 /// The kept chunks under a RIFF header whose size counts them, with the

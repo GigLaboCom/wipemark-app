@@ -14,3 +14,6 @@ fixtures/text/**                    -text
 fixtures/image/*.jpg                binary
 fixtures/image/*.png                binary
 fixtures/image/*.webp               binary
+fixtures/image/gemini/*.jpg         binary
+fixtures/image/gemini/*.png         binary
+fixtures/image/gemini/*.webp        binary

@@ -1295,6 +1295,10 @@ fn audit_skips_hidden_entries_and_binary_files_and_counts_them() {
         &[
             (".git/COMMIT_EDITMSG", marked),
             (".hidden.md", marked),
+            ("blob.bin", b"\x00\x01\x02\x03\xff\xfe binary"),
+            // Since images are audited (E11-2) a PNG is read, not skipped,
+            // and one cut off after its signature is a file that could not
+            // be read — a hole in the scan, so the exit is 3.
             (
                 "image.png",
                 b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01",
@@ -1304,12 +1308,12 @@ fn audit_skips_hidden_entries_and_binary_files_and_counts_them() {
         ],
     );
     let output = scratch.run(&["audit", "tree", "--json"]);
-    assert_eq!(code(&output), 0, "{}", stdout(&output));
+    assert_eq!(code(&output), 3, "{}", stdout(&output));
     let answer = json(&output);
     assert_eq!(answer["summary"]["scanned"], 1, "{answer}");
     assert_eq!(answer["summary"]["skipped"], 4, "{answer}");
-    assert_eq!(answer["summary"]["unreadable"], 0, "{answer}");
-    for path in [".git", ".hidden.md", "image.png", "empty.txt"] {
+    assert_eq!(answer["summary"]["unreadable"], 1, "{answer}");
+    for path in [".git", ".hidden.md", "blob.bin", "empty.txt"] {
         assert_eq!(
             entry(&answer, path)["status"],
             "skipped",
@@ -1321,6 +1325,8 @@ fn audit_skips_hidden_entries_and_binary_files_and_counts_them() {
         );
         assert_eq!(entry(&answer, path)["report"], Value::Null, "{path}");
     }
+    assert_eq!(entry(&answer, "image.png")["status"], "unreadable");
+    assert_eq!(entry(&answer, "image.png")["report"], Value::Null);
     assert_eq!(entry(&answer, "ok.md")["status"], "scanned");
     let output = scratch.run(&["audit", "tree"]);
     assert!(stdout(&output).contains("skipped 4"), "{}", stdout(&output));
@@ -1368,8 +1374,10 @@ fn audit_json_carries_every_report_with_its_third_shelf() {
             ),
         ],
     );
+    // The truncated PNG is unreadable since images are audited (E11-2):
+    // 3 beats the marked file's 1.
     let output = scratch.run(&["audit", "tree", "--json"]);
-    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    assert_eq!(code(&output), 3, "{}", stderr(&output));
     assert!(output.stdout.is_ascii());
     assert_eq!(
         stdout(&output).lines().count(),
@@ -1396,6 +1404,7 @@ fn audit_json_carries_every_report_with_its_third_shelf() {
             "{path}: the third shelf is missing"
         );
     }
+    assert_eq!(entry(&answer, "image.png")["status"], "unreadable");
     assert_eq!(entry(&answer, "image.png")["report"], Value::Null);
     assert_eq!(answer["summary"]["with_findings"], 1, "{answer}");
 }

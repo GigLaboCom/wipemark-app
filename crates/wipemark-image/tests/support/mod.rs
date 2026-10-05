@@ -299,6 +299,139 @@ pub fn app2_mpf() -> Vec<u8> {
     segment(0xE2, &p)
 }
 
+/// A TIFF whose IFD0 holds one entry, Orientation (`0x0112`, `SHORT`)
+/// set to `orientation`, in either byte order, with `tail` after it — a
+/// place for a `UserComment` that names a generator.
+pub fn exif_oriented(big: bool, orientation: u16, tail: &[u8]) -> Vec<u8> {
+    let u16b = |v: u16| {
+        if big {
+            v.to_be_bytes()
+        } else {
+            v.to_le_bytes()
+        }
+    };
+    let u32b = |v: u32| {
+        if big {
+            v.to_be_bytes()
+        } else {
+            v.to_le_bytes()
+        }
+    };
+    let mut t = if big {
+        b"MM\0*".to_vec()
+    } else {
+        b"II*\0".to_vec()
+    };
+    t.extend_from_slice(&u32b(8));
+    t.extend_from_slice(&u16b(1));
+    t.extend_from_slice(&u16b(0x0112));
+    t.extend_from_slice(&u16b(3));
+    t.extend_from_slice(&u32b(1));
+    t.extend_from_slice(&u16b(orientation));
+    t.extend_from_slice(&[0, 0]);
+    t.extend_from_slice(&u32b(0));
+    t.extend_from_slice(tail);
+    t
+}
+
+/// Where [`app2_mpf_index`] puts its fields, from the start of its TIFF
+/// stream: the first picture's size, the second's size and its offset.
+pub const MPF_PRIMARY_SIZE: usize = 8 + 2 + 3 * 12 + 4 + 4;
+pub const MPF_SECONDARY_SIZE: usize = MPF_PRIMARY_SIZE + 16;
+pub const MPF_SECONDARY_OFFSET: usize = MPF_SECONDARY_SIZE + 4;
+
+/// An MPF header with a real MP Index (CIPA DC-007 §5.2.3): version,
+/// number of images, and two MP Entries — the first picture of
+/// `primary` bytes at offset 0, the second of `secondary` bytes at
+/// `offset` from this header's TIFF stream.
+pub fn app2_mpf_index(big: bool, primary: u32, secondary: u32, offset: u32) -> Vec<u8> {
+    let u16b = |v: u16| {
+        if big {
+            v.to_be_bytes()
+        } else {
+            v.to_le_bytes()
+        }
+    };
+    let u32b = |v: u32| {
+        if big {
+            v.to_be_bytes()
+        } else {
+            v.to_le_bytes()
+        }
+    };
+    let mut t = if big {
+        b"MM\0*".to_vec()
+    } else {
+        b"II*\0".to_vec()
+    };
+    t.extend_from_slice(&u32b(8));
+    t.extend_from_slice(&u16b(3));
+    // MPFVersion, UNDEFINED ×4, "0100".
+    t.extend_from_slice(&u16b(0xB000));
+    t.extend_from_slice(&u16b(7));
+    t.extend_from_slice(&u32b(4));
+    t.extend_from_slice(b"0100");
+    // NumberOfImages, LONG ×1.
+    t.extend_from_slice(&u16b(0xB001));
+    t.extend_from_slice(&u16b(4));
+    t.extend_from_slice(&u32b(1));
+    t.extend_from_slice(&u32b(2));
+    // MPEntry, UNDEFINED ×32, after the next-IFD offset.
+    t.extend_from_slice(&u16b(0xB002));
+    t.extend_from_slice(&u16b(7));
+    t.extend_from_slice(&u32b(32));
+    t.extend_from_slice(&u32b(8 + 2 + 3 * 12 + 4));
+    t.extend_from_slice(&u32b(0));
+    // The first picture: representative, baseline.
+    t.extend_from_slice(&u32b(0x2003_0000));
+    t.extend_from_slice(&u32b(primary));
+    t.extend_from_slice(&u32b(0));
+    t.extend_from_slice(&[0; 4]);
+    // The second.
+    t.extend_from_slice(&u32b(0x0001_0000));
+    t.extend_from_slice(&u32b(secondary));
+    t.extend_from_slice(&u32b(offset));
+    t.extend_from_slice(&[0; 4]);
+    assert_eq!(t.len(), MPF_SECONDARY_OFFSET + 8);
+    let mut p = b"MPF\0".to_vec();
+    p.extend_from_slice(&t);
+    segment(0xE2, &p)
+}
+
+/// A JPEG XT APP11 segment: `JP`, the box instance, the packet sequence
+/// number, then `box_bytes` — which, for a continuation, start with the
+/// box's own `LBox`/`TBox` again (ISO/IEC 19566-5 Annex B).
+pub fn app11_segment(instance: [u8; 2], sequence: u32, box_bytes: &[u8]) -> Vec<u8> {
+    let mut p = b"JP".to_vec();
+    p.extend_from_slice(&instance);
+    p.extend_from_slice(&sequence.to_be_bytes());
+    p.extend_from_slice(box_bytes);
+    segment(0xEB, &p)
+}
+
+/// A JUMBF box split across two APP11 segments of one instance: the
+/// first carries the description box and its label, the second only the
+/// shared header and filler. Labelled `c2pa` or not.
+pub fn app11_split(instance: [u8; 2], labelled: bool) -> [Vec<u8>; 2] {
+    let mut whole = tiny_jumbf();
+    if !labelled {
+        // The UUID's first four bytes and the label: no `c2pa` anywhere.
+        while let Some(at) = whole.windows(4).position(|w| w == b"c2pa") {
+            whole[at..at + 4].copy_from_slice(b"xxxx");
+        }
+    }
+    whole.extend_from_slice(&[b'x'; 200]);
+    let length = whole.len() as u32;
+    whole[..4].copy_from_slice(&length.to_be_bytes());
+    let split = 60;
+    let mut second = whole[..8].to_vec();
+    second.extend_from_slice(&whole[split..]);
+    [
+        app11_segment(instance, 1, &whole[..split]),
+        app11_segment(instance, 2, &second),
+    ]
+}
+
 /// `(marker, payload)` of every marker segment before the first scan.
 pub fn jpeg_segments(b: &[u8]) -> Vec<(u8, Vec<u8>)> {
     let mut out = Vec::new();

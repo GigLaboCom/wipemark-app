@@ -7,6 +7,8 @@
 #   engine → wipemark-secret (an HTTP engine's key, D57)
 #   models is independent of engine
 #   image depends only on core
+#   pixels depends only on core, and image and pixels never on each other
+#   picture → core, image, pixels: the one crate that decodes a picture
 #   store is a leaf: it takes a path and hands back rows
 #   i18n is a leaf: apps localize, libraries stay locale-neutral
 #   nothing depends on an app crate
@@ -45,6 +47,8 @@ LIBS = {
     "wipemark-pipeline",
     "wipemark-queue",
     "wipemark-image",
+    "wipemark-pixels",
+    "wipemark-picture",
     "wipemark-intake",
     "wipemark-license",
     "wipemark-store",
@@ -64,7 +68,11 @@ ALLOWED = {
     # or writing to a pipe is the one that turns them into prose. A
     # `wipemark-engine` that formatted its own error messages would be
     # unusable from a CLI that had chosen a different language.
-    "wipemark-i18n": {"wipemark-core"},
+    #
+    # And on pixels, as a DEV dependency for the same gate over a picture
+    # report's shelf, whose first claim (`invisible-pixel-marks`) is
+    # defined there.
+    "wipemark-i18n": {"wipemark-core", "wipemark-pixels"},
     # The engine may reach llama.cpp, through the safe layer only and only
     # under its `local-llama` feature (D46). It never names the -sys crate.
     # And the credential store's `Secret` (D57): an HTTP engine holds its
@@ -98,6 +106,19 @@ ALLOWED = {
         "wipemark-log",
     },
     "wipemark-image": {"wipemark-core"},
+    # Visible marks as data: profiles, propose, verify, restore — over a
+    # raster someone else decoded. Core alone, and no image codec at all:
+    # the maths is tested at array speed on generated pictures, and a
+    # surface that only wants to look at a raster it already holds (a
+    # window's preview) must not pay for three decoders. Files are a
+    # crate above it; `wipemark-image`, which never decodes a pixel, is
+    # not a neighbour of this one in either direction.
+    "wipemark-pixels": {"wipemark-core"},
+    # A picture file through the pixels pass: decode, restore, encode,
+    # reframe. The only crate with codecs, and the only one that sees both
+    # the container (`image`) and the maths (`pixels`) — so each of those
+    # keeps its promise: one never decodes, the other never reads a file.
+    "wipemark-picture": {"wipemark-core", "wipemark-image", "wipemark-pixels"},
     # What was handed to the application, and what it turns out to be.
     # A leaf, and a strict one: no workspace dependency and no external
     # one either. It is reached from the panel's drop zone, from the

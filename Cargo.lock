@@ -8965,6 +8965,7 @@ name = "wipemark-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "flume",
  "global-hotkey",
@@ -8987,12 +8988,15 @@ dependencies = [
  "wipemark-core",
  "wipemark-engine",
  "wipemark-i18n",
+ "wipemark-image",
  "wipemark-intake",
  "wipemark-license",
  "wipemark-llama-sys",
  "wipemark-log",
  "wipemark-models",
+ "wipemark-picture",
  "wipemark-pipeline",
+ "wipemark-pixels",
  "wipemark-secret",
  "wipemark-store",
 ]
@@ -9003,17 +9007,25 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "ctrlc",
+ "image",
+ "image-webp",
+ "png 0.18.1",
  "serde_json",
+ "sha2 0.10.9",
  "tracing",
  "wipemark-core",
  "wipemark-engine",
  "wipemark-i18n",
+ "wipemark-image",
  "wipemark-intake",
  "wipemark-llama-sys",
  "wipemark-log",
  "wipemark-models",
+ "wipemark-picture",
  "wipemark-pipeline",
+ "wipemark-pixels",
  "wipemark-store",
+ "zune-jpeg 0.5.15",
 ]
 
 [[package]]
@@ -9049,6 +9061,7 @@ dependencies = [
  "tracing",
  "unic-langid",
  "wipemark-core",
+ "wipemark-pixels",
 ]
 
 [[package]]
@@ -9125,6 +9138,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "wipemark-picture"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "image-webp",
+ "png 0.18.1",
+ "sha2 0.10.9",
+ "thiserror 2.0.20",
+ "wipemark-image",
+ "wipemark-pixels",
+ "zune-jpeg 0.5.15",
+]
+
+[[package]]
 name = "wipemark-pipeline"
 version = "0.1.0"
 dependencies = [
@@ -9139,6 +9166,22 @@ dependencies = [
  "tracing",
  "wipemark-core",
  "wipemark-engine",
+]
+
+[[package]]
+name = "wipemark-pixels"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "image-webp",
+ "png 0.18.1",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.20",
+ "toml 0.8.23",
+ "wipemark-core",
+ "zune-jpeg 0.5.15",
 ]
 
 [[package]]

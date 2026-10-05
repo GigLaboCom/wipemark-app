@@ -6,8 +6,8 @@
 use crate::signatures::{self, Place};
 use crate::text::{contains, find};
 use crate::{
-    malformed, Block, Defect, Evidence, Extra, ImageContainer, ImageError, MetadataKind, Parsed,
-    Signal,
+    malformed, Block, Defect, Evidence, Extra, ImageContainer, ImageError, MetadataKind, MpIndex,
+    Parsed, Signal,
 };
 
 const JPEG: ImageContainer = ImageContainer::Jpeg;
@@ -20,6 +20,11 @@ const XMP_EXTENSION: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
 const XMP_EXTENSION_HEADER: usize = XMP_EXTENSION.len() + 32 + 4 + 4;
 const ICC: &[u8] = b"ICC_PROFILE\0";
 const MPF: &[u8] = b"MPF\0";
+/// The MP Entry tag of an MP Index IFD (CIPA DC-007 §5.2.3.3): 16 bytes
+/// per picture — attribute, size, offset, two dependent entries.
+const MP_ENTRY: u16 = 0xB002;
+/// TIFF type `UNDEFINED`.
+const UNDEFINED: u16 = 7;
 const PHOTOSHOP: &[u8] = b"Photoshop 3.0\0";
 const ADOBE: &[u8] = b"Adobe";
 
@@ -47,6 +52,7 @@ pub(crate) fn parse(b: &[u8]) -> Result<Parsed, ImageError> {
     }
     let mut pending = vec![Pending::Done(Block::structure(0..2))];
     let mut mpf = None;
+    let mut index = MpIndex::None;
     let mut pos = 2;
     loop {
         if pos >= n {
@@ -94,8 +100,9 @@ pub(crate) fn parse(b: &[u8]) -> Result<Parsed, ImageError> {
             continue;
         }
         let payload = &b[pos + 2..end];
-        if m == 0xE2 && payload.starts_with(MPF) {
+        if m == 0xE2 && payload.starts_with(MPF) && mpf.is_none() {
             mpf = Some(pending.len());
+            index = mp_index(b, pos + 2 + MPF.len(), end);
         }
         pending.push(classify(m, payload, start..end, pos + 2));
         pos = end;
@@ -118,7 +125,66 @@ pub(crate) fn parse(b: &[u8]) -> Result<Parsed, ImageError> {
     Ok(Parsed {
         container: JPEG,
         blocks: settle(b, pending),
-        extra: Extra::Jpeg { mpf },
+        extra: Extra::Jpeg { mpf, index },
+    })
+}
+
+/// Where the MP Index of the MPF header whose TIFF stream runs from
+/// `tiff` to `end` keeps the first picture's size. Read strictly: every
+/// offset inside the segment, or the index is [`MpIndex::Unreadable`].
+fn mp_index(b: &[u8], tiff: usize, end: usize) -> MpIndex {
+    let read = || -> Option<MpIndex> {
+        let big = match b.get(tiff..tiff + 4)? {
+            b"MM\0*" => true,
+            b"II*\0" => false,
+            _ => return None,
+        };
+        let at = |offset: u32| -> Option<usize> {
+            let at = tiff.checked_add(usize::try_from(offset).ok()?)?;
+            (at <= end).then_some(at)
+        };
+        let u16_at = |at: usize| -> Option<u16> {
+            let bytes = b.get(at..at.checked_add(2)?.min(end))?;
+            let bytes: [u8; 2] = bytes.try_into().ok()?;
+            Some(if big {
+                u16::from_be_bytes(bytes)
+            } else {
+                u16::from_le_bytes(bytes)
+            })
+        };
+        let ifd = at(read_u32(b, tiff + 4, big).filter(|_| tiff + 8 <= end)?)?;
+        let count = usize::from(u16_at(ifd)?);
+        for i in 0..count {
+            let entry = ifd + 2 + i * 12;
+            if entry + 12 > end {
+                return None;
+            }
+            if u16_at(entry)? != MP_ENTRY {
+                continue;
+            }
+            let entries = read_u32(b, entry + 4, big)?;
+            if u16_at(entry + 2)? != UNDEFINED || entries < 16 {
+                return None;
+            }
+            let first = at(read_u32(b, entry + 8, big)?)?;
+            let size = first.checked_add(4)?;
+            if size + 4 > end {
+                return None;
+            }
+            return Some(MpIndex::Size { at: size, big });
+        }
+        Some(MpIndex::None)
+    };
+    read().unwrap_or(MpIndex::Unreadable)
+}
+
+/// A 32-bit field at `at`, in the byte order it was written in.
+pub(crate) fn read_u32(b: &[u8], at: usize, big: bool) -> Option<u32> {
+    let bytes: [u8; 4] = b.get(at..at.checked_add(4)?)?.try_into().ok()?;
+    Some(if big {
+        u32::from_be_bytes(bytes)
+    } else {
+        u32::from_le_bytes(bytes)
     })
 }
 
@@ -159,6 +225,7 @@ fn classify(m: u8, payload: &[u8], range: std::ops::Range<usize>, body_at: usize
                 Some("Exif".into()),
                 evidence,
             )
+            .oriented(payload)
         }
         0xE1 if payload.starts_with(XMP) => {
             let block = Block::meta(range, MetadataKind::Xmp, app, Some("XMP".into()), evidence);

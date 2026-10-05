@@ -239,6 +239,97 @@ fn the_third_shelf_is_never_empty_in_any_language() {
     }
 }
 
+/// The picture report's shelf, in every language: its first claim —
+/// invisible marks in the pixels, not searched for, not removed — is
+/// `wipemark-pixels`'s, and is the one sentence a reader of a cleaned
+/// picture most needs. Deleting its key from any catalogue, or adding a
+/// claim to the picture shelf with no key, turns this red.
+#[test]
+fn the_picture_shelf_is_never_empty_in_any_language() {
+    let shelf = wipemark_pixels::not_established::shelf();
+    assert_eq!(shelf.first(), Some(&wipemark_pixels::not_established::ID));
+    for id in shelf {
+        let key = format!("report-not-established-{id}");
+        let message = Message::ALL
+            .iter()
+            .find(|message| message.id() == key)
+            .unwrap_or_else(|| {
+                panic!("`{id}` is on the picture shelf but `{key}` is not in the catalogue")
+            });
+        for language in languages() {
+            assert!(
+                only(&language).defines(*message),
+                "{language} has no translation for the picture-shelf item `{id}`"
+            );
+        }
+    }
+}
+
+/// A vendor or a product of a visible mark is an identifier (Q-V9):
+/// interpolated beside a finding, never written into a sentence — a
+/// catalogue string that named one would put a trademark into prose and go
+/// stale the day the profile is renamed. Every `vendor` and `product` of
+/// the compiled-in mark catalogue, in every language, in every message.
+#[test]
+fn no_catalogue_string_names_a_mark_vendor() {
+    let mut names: Vec<String> = Vec::new();
+    for key in ["\"vendor\":", "\"product\":"] {
+        for (at, _) in wipemark_pixels::EMBEDDED.match_indices(key) {
+            let rest = &wipemark_pixels::EMBEDDED[at + key.len()..];
+            let Some(open) = rest.find('"') else { continue };
+            let value = &rest[open + 1..];
+            if let Some(close) = value.find('"') {
+                let name = value[..close].to_lowercase();
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+    }
+    assert!(!names.is_empty(), "the mark catalogue names no vendor");
+    for language in languages() {
+        let localizer = only(&language);
+        for message in Message::ALL {
+            let text = localizer
+                .format_args(message, &arguments(message))
+                .to_lowercase();
+            for name in &names {
+                let named = text
+                    .split(|c: char| !c.is_alphanumeric())
+                    .any(|word| word == name);
+                assert!(
+                    !named,
+                    "{language}: `{}` names {name:?} — a vendor is an identifier, \
+                     interpolated, never part of a sentence",
+                    message.id()
+                );
+            }
+        }
+    }
+}
+
+/// A sentence is one run of words: two spaces inside a line are a line
+/// joined with its source's indentation carried in — what the MCP image
+/// tools' descriptions read like for a whole series. A line's own leading
+/// indentation (a report's nested lines) is layout, and allowed.
+#[test]
+fn no_catalogue_string_carries_a_run_of_spaces() {
+    for language in languages() {
+        let localizer = only(&language);
+        for message in Message::ALL {
+            let text = localizer.format_args(message, &arguments(message));
+            for line in text.lines() {
+                let body = line.trim_start_matches(' ');
+                assert!(
+                    !body.contains("  "),
+                    "{language}: `{}` carries a run of spaces: {line:?}",
+                    message.id()
+                );
+            }
+        }
+    }
+}
+
 /// Every confidence `wipemark_core` has, listed by hand — core has no
 /// `Confidence::ALL` — and kept honest by [`confidence_ordinal`]'s
 /// exhaustive `match`: a fifth confidence does not compile there until
@@ -842,4 +933,55 @@ fn a_request_is_honoured_by_its_own_language_whatever_the_region() {
         LanguagePreference::System.is_honoured_by(&english),
         "following the desktop is honoured by whatever it resolved to"
     );
+}
+
+/// A figure in a sentence is written with the language's own decimal
+/// separator, and never grouped.
+#[test]
+fn a_decimal_is_written_the_way_its_language_writes_it() {
+    for (language, expected) in [("en-US", "13.2"), ("de", "13,2"), ("ru", "13,2")] {
+        let localizer = only(&language.parse().unwrap());
+        assert_eq!(localizer.decimal(13.2, 1), expected, "{language}");
+        assert_eq!(localizer.decimal(13_200.0, 0), "13200", "{language}");
+    }
+}
+
+/// A count of clamped samples agrees with its noun in every language:
+/// Russian's one, few and many, German's and English's one and other.
+#[test]
+fn a_clamped_count_agrees_with_its_noun() {
+    for (language, cases) in [
+        (
+            "en-US",
+            &[
+                (1u32, "1 sample fell"),
+                (3, "3 samples fell"),
+                (37, "37 samples fell"),
+            ][..],
+        ),
+        (
+            "de",
+            &[
+                (1, "fiel 1 Wert"),
+                (3, "fielen 3 Werte"),
+                (37, "fielen 37 Werte"),
+            ],
+        ),
+        (
+            "ru",
+            &[
+                (1, "1 значение вышло"),
+                (3, "3 значения вышли"),
+                (37, "37 значений вышли"),
+                (21, "21 значение вышло"),
+            ],
+        ),
+    ] {
+        let localizer = only(&language.parse().unwrap());
+        for &(count, phrase) in cases {
+            let said =
+                localizer.format_args(Message::CliImageVisibleClamped, &args!("clamped" => count));
+            assert!(said.contains(phrase), "{language} {count}: {said}");
+        }
+    }
 }

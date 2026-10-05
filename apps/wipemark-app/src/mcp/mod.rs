@@ -13,6 +13,9 @@
 //!   owns them.
 //! * [`protocol`] is what it answers — JSON-RPC 2.0 and the MCP
 //!   methods, as functions over values.
+//! * [`image`] is what `inspect_image` and `clean_image` run: a picture
+//!   sent as base64, its metadata found and removed by `wipemark-image`,
+//!   every pixel byte left as it was (E11-2).
 //! * [`rewrite`] is the one tool that needs more than the text: the
 //!   application's engine, the pipeline around it, and a call that waits
 //!   for its job (E4-6a).
@@ -25,7 +28,11 @@
 //! The server is real: it binds, it speaks the protocol, it introduces
 //! itself, and it lists its tools — and the tools run. `inspect` and
 //! `clean` hand the text to `wipemark-core`'s Layer A and answer with
-//! its report, the third shelf included (see [`protocol`]). `rewrite`
+//! its report, the third shelf included (see [`protocol`]);
+//! `inspect_image` and `clean_image` do the same for a PNG, JPEG or WebP
+//! sent as base64 — its metadata, and a visible mark a profile describes
+//! in its pixels, removed only when it is proved; invisible marks remain
+//! ([`image`]). `rewrite`
 //! runs the pipeline on the engine the Engine page puts on duty — the
 //! application's own, already loaded or loaded by its policy, which is
 //! also what `wipemark-cli rewrite` reaches while the application runs
@@ -37,7 +44,7 @@
 //! exits 2 or 3 rather than 0, and for the same reason: a tool that
 //! answered "nothing found" about a text it never read would be a
 //! scrubber reporting a clean document. The pane's banner says what the
-//! three tools do in every state of the server.
+//! five tools do in every state of the server.
 //!
 //! # Found by other processes
 //!
@@ -67,6 +74,7 @@
 //!
 //! [`Rendering::Ui`]: wipemark_i18n::Rendering::Ui
 
+pub mod image;
 pub mod protocol;
 pub mod rewrite;
 pub mod server;

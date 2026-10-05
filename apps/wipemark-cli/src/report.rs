@@ -111,8 +111,9 @@ pub(crate) fn clean_lines(
     lines
 }
 
-/// Where a result went, as `clean` and `rewrite` both say it.
-fn written_lines(say: Say, source: &str, written: Written) -> Vec<String> {
+/// Where a result went, as `clean` — on a text or a picture — and
+/// `rewrite` all say it.
+pub(crate) fn written_lines(say: Say, source: &str, written: Written) -> Vec<String> {
     let untouched = || say(Message::CliCleanUntouched, &args!("source" => source));
     let mut lines = Vec::new();
     match written {
@@ -384,10 +385,38 @@ fn row(say: Say, row: &UnicodeFinding) -> String {
 /// entry of `not_established::ALL`, in its order. `audit` ends with it
 /// too, once for the whole walk.
 pub(crate) fn footer(say: Say, version: &str) -> Vec<String> {
-    let mut lines = vec![
-        say(Message::CliReportUnicode, &args!("version" => version)),
-        say(Message::ReportNotEstablishedTitle, &FluentArgs::new()),
-    ];
+    let mut lines = vec![say(Message::CliReportUnicode, &args!("version" => version))];
+    lines.extend(shelf(say));
+    lines
+}
+
+/// The third shelf alone — its title and one line per entry of
+/// `not_established::ALL`, in its order. A picture's report ends with it
+/// and no Unicode version, since nothing in a picture was read as
+/// characters.
+pub(crate) fn shelf(say: Say) -> Vec<String> {
+    let mut lines = vec![say(Message::ReportNotEstablishedTitle, &FluentArgs::new())];
+    lines.extend(
+        not_established::ALL
+            .iter()
+            .map(|(id, canonical)| format!("  - {}", shelf_line(say, id, canonical))),
+    );
+    lines
+}
+
+/// The third shelf of a picture report: invisible marks in the pixels
+/// first — `wipemark-pixels`'s claim, never searched for and never removed
+/// — then core's three.
+pub(crate) fn picture_shelf(say: Say) -> Vec<String> {
+    let mut lines = vec![say(Message::ReportNotEstablishedTitle, &FluentArgs::new())];
+    lines.push(format!(
+        "  - {}",
+        shelf_line(
+            say,
+            wipemark_pixels::not_established::ID,
+            wipemark_pixels::not_established::INVISIBLE_PIXEL_MARKS,
+        )
+    ));
     lines.extend(
         not_established::ALL
             .iter()
@@ -433,6 +462,7 @@ fn shelf_line(say: Say, id: &str, canonical: &str) -> String {
         "vendor-detector-evasion" => Message::ReportNotEstablishedVendorDetectorEvasion,
         "human-authorship" => Message::ReportNotEstablishedHumanAuthorship,
         "unknown-mark-schemes" => Message::ReportNotEstablishedUnknownMarkSchemes,
+        "invisible-pixel-marks" => Message::ReportNotEstablishedInvisiblePixelMarks,
         _ => return format!("{canonical} ({id})"),
     };
     say(message, &FluentArgs::new())

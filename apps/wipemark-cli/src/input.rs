@@ -1,6 +1,18 @@
 //! What `inspect` and `clean` read: a path or standard input, recognised
 //! the way a drop on the window is, and decoded into the one form Layer A
-//! takes — a `&str`.
+//! takes — a `&str` — or, when the bytes are a picture, handed over whole
+//! as one ([`read_any`], [`Content::Image`]).
+//!
+//! # A picture is decided by its bytes
+//!
+//! A file whose head `wipemark-intake` places as PNG, JPEG, WebP, TIFF,
+//! HEIC or AVIF **by its contents** — `Evidence::Content`, `Agreed`, or
+//! `Disagreed` with the bytes winning — is read to the end as bytes and
+//! goes to `wipemark-image` (D130). A name alone never makes one: a
+//! `photo.png` whose bytes no signature places is still refused as not
+//! text, because a parser handed it would refuse it anyway, and a lie in
+//! the name is what the note on stderr is for. `rewrite` keeps [`read`],
+//! which knows nothing of pictures and refuses one as not text.
 //!
 //! # The head first
 //!
@@ -73,6 +85,59 @@ pub(crate) struct Read {
     pub format: Option<Format>,
 }
 
+/// A picture, read to the end: the bytes are the product, and nothing is
+/// decoded.
+#[derive(Debug)]
+pub(crate) struct Picture {
+    pub bytes: Vec<u8>,
+    /// What intake placed it as, by its bytes.
+    pub format: Format,
+    /// As [`Read::note`].
+    pub note: Option<(Format, Format)>,
+}
+
+/// What [`read_any`] found.
+#[derive(Debug)]
+pub(crate) enum Content {
+    Text(Read),
+    Image(Picture),
+}
+
+impl Content {
+    /// `(what the name said, what the bytes are)` when the two disagreed.
+    pub(crate) fn note(&self) -> Option<(Format, Format)> {
+        match self {
+            Self::Text(read) => read.note,
+            Self::Image(picture) => picture.note,
+        }
+    }
+}
+
+/// The image formats `wipemark-image` is handed — the three it reads and
+/// the three it refuses by name. GIF, BMP and SVG are not among them: the
+/// first two carry no metadata block this version looks for and stay
+/// "not text", the third is text and goes to Layer A as it always has.
+const PICTURES: [Format; 6] = [
+    Format::Png,
+    Format::Jpeg,
+    Format::WebP,
+    Format::Tiff,
+    Format::Heic,
+    Format::Avif,
+];
+
+/// The picture format intake placed by the **bytes**, or `None` — a name
+/// alone does not make a picture (D130).
+pub(crate) fn picture_of(intake: &wipemark_intake::Intake) -> Option<Format> {
+    let by_content = !matches!(
+        intake.evidence,
+        wipemark_intake::Evidence::Name | wipemark_intake::Evidence::Nothing
+    );
+    intake
+        .format
+        .filter(|format| by_content && PICTURES.contains(format))
+}
+
 /// Why a text was not read.
 #[derive(Debug)]
 pub(crate) enum Unread {
@@ -111,22 +176,58 @@ impl Unread {
 
 /// Read and decode a source. Blocking, and it may be slow: a file can
 /// live on a network volume. The CLI has no window to freeze.
+///
+/// Text only: a picture is refused as not text, as it always was —
+/// `rewrite` reads through here.
 pub(crate) fn read(source: &Source, stdin: &mut dyn io::Read) -> Result<Read, Unread> {
+    match read_source(source, stdin, false)? {
+        Content::Text(read) => Ok(read),
+        // Unreachable with `pictures` false; refused as what it is rather
+        // than panicking, should that ever change.
+        Content::Image(picture) => Err(Unread::NotText {
+            found: Some(picture.format),
+            named: picture.note.map(|(named, _)| named),
+        }),
+    }
+}
+
+/// [`read`], or the bytes of a picture when intake places them as one —
+/// what `inspect`, `clean` and `audit` read through.
+pub(crate) fn read_any(source: &Source, stdin: &mut dyn io::Read) -> Result<Content, Unread> {
+    read_source(source, stdin, true)
+}
+
+fn read_source(
+    source: &Source,
+    stdin: &mut dyn io::Read,
+    pictures: bool,
+) -> Result<Content, Unread> {
     match source {
         Source::Stdin => {
             let mut bytes = Vec::new();
             stdin.read_to_end(&mut bytes).map_err(Unread::Unreadable)?;
             if bytes.is_empty() {
-                return Ok(empty());
+                return Ok(Content::Text(empty()));
             }
             let intake = wipemark_intake::identify(&bytes[..bytes.len().min(HEAD)], None);
-            finish(&intake, bytes)
+            if let Some(format) = picture_of(&intake).filter(|_| pictures) {
+                return Ok(Content::Image(picture(&intake, format, bytes)));
+            }
+            finish(&intake, bytes).map(Content::Text)
         }
-        Source::File(path) => read_file(path),
+        Source::File(path) => read_file(path, pictures),
     }
 }
 
-fn read_file(path: &Path) -> Result<Read, Unread> {
+fn picture(intake: &wipemark_intake::Intake, format: Format, bytes: Vec<u8>) -> Picture {
+    Picture {
+        bytes,
+        format,
+        note: intake.contradicted().map(|named| (named, format)),
+    }
+}
+
+fn read_file(path: &Path, pictures: bool) -> Result<Content, Unread> {
     let metadata = match std::fs::metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Err(Unread::Missing),
@@ -146,17 +247,21 @@ fn read_file(path: &Path) -> Result<Read, Unread> {
     // `wipemark_intake::of_path` keeps — but only when it really is empty
     // rather than unreadable.
     if bytes.is_empty() && metadata.len() == 0 {
-        return Ok(empty());
+        return Ok(Content::Text(empty()));
     }
 
     let name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned());
     let intake = wipemark_intake::identify(&bytes, name.as_deref());
+    if let Some(format) = picture_of(&intake).filter(|_| pictures) {
+        file.read_to_end(&mut bytes).map_err(Unread::Unreadable)?;
+        return Ok(Content::Image(picture(&intake, format, bytes)));
+    }
     // Refused on the head, before the rest is read.
     encoding_of(&intake)?;
     file.read_to_end(&mut bytes).map_err(Unread::Unreadable)?;
-    finish(&intake, bytes)
+    finish(&intake, bytes).map(Content::Text)
 }
 
 fn empty() -> Read {
@@ -202,7 +307,104 @@ pub(crate) use wipemark_intake::text::{decode, encode};
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, encode, Encoding};
+    use wipemark_intake::{Format, HEAD};
+
+    use super::{decode, encode, picture_of, read, read_any, Content, Encoding, Source};
+
+    const PNG_HEAD: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR";
+
+    /// The bytes decide: a PNG named `.txt` is a picture (and the name is
+    /// noted), a `.png` whose bytes are text is text, and a name with
+    /// nothing behind it is not a picture.
+    #[test]
+    fn a_picture_is_decided_by_its_bytes() {
+        let named_txt = wipemark_intake::identify(PNG_HEAD, Some("holiday.txt"));
+        assert_eq!(picture_of(&named_txt), Some(Format::Png));
+        let unnamed = wipemark_intake::identify(PNG_HEAD, None);
+        assert_eq!(picture_of(&unnamed), Some(Format::Png));
+        let text_named_png = wipemark_intake::identify(b"just words", Some("photo.png"));
+        assert_eq!(picture_of(&text_named_png), None);
+        let name_only = wipemark_intake::identify(b"\x00\x01\x02\x03", Some("photo.png"));
+        assert_eq!(name_only.format, Some(Format::Png), "the fixture moved");
+        assert_eq!(picture_of(&name_only), None, "a name alone made a picture");
+        let gif = wipemark_intake::identify(b"GIF89a\x01\x00", None);
+        assert_eq!(picture_of(&gif), None, "GIF is not one this version opens");
+    }
+
+    /// `read_any` hands a picture over whole; `read`, which `rewrite`
+    /// uses, still refuses it as not text.
+    #[test]
+    fn only_read_any_hands_over_a_picture() {
+        let mut stdin: &[u8] = PNG_HEAD;
+        match read_any(&Source::Stdin, &mut stdin) {
+            Ok(Content::Image(picture)) => {
+                assert_eq!(picture.bytes, PNG_HEAD);
+                assert_eq!(picture.format, Format::Png);
+            }
+            other => panic!("{other:?}"),
+        }
+        let mut stdin: &[u8] = PNG_HEAD;
+        assert!(matches!(
+            read(&Source::Stdin, &mut stdin),
+            Err(super::Unread::NotText { .. })
+        ));
+    }
+
+    /// `rewrite`'s reader refuses a picture on its head, before the rest
+    /// is read — a picture is not text whatever follows, and the rest can
+    /// be gigabytes on a network volume. A named pipe whose writer sends a
+    /// PNG's first kilobytes and then holds the pipe open is answered at
+    /// once; a reader that went on to read the whole picture would wait for
+    /// the writer (the series' E11-2/M4: `read` with `pictures` true still
+    /// refuses the picture, but only after reading all of it).
+    #[cfg(unix)]
+    #[test]
+    fn rewrite_refuses_a_picture_on_its_head() {
+        use std::io::Write;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = std::env::temp_dir().join(format!("wipemark-fifo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let fifo = dir.join("picture.png");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs");
+        assert!(made.success());
+
+        let (release, hold) = mpsc::channel::<()>();
+        let writer = {
+            let fifo = fifo.clone();
+            std::thread::spawn(move || {
+                let mut pipe = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&fifo)
+                    .expect("the pipe");
+                let mut head = PNG_HEAD.to_vec();
+                head.resize(2 * HEAD, 0);
+                let _ = pipe.write_all(&head);
+                // Hold the pipe open until the test is done with it.
+                let _ = hold.recv_timeout(Duration::from_secs(60));
+            })
+        };
+        let (answer, answered) = mpsc::channel();
+        let reader = {
+            let fifo = fifo.clone();
+            std::thread::spawn(move || {
+                let mut stdin: &[u8] = &[];
+                let result = read(&Source::File(fifo), &mut stdin);
+                let _ = answer.send(matches!(result, Err(super::Unread::NotText { .. })));
+            })
+        };
+        let refused = answered.recv_timeout(Duration::from_secs(20));
+        let _ = release.send(());
+        let _ = writer.join();
+        let _ = reader.join();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(refused, Ok(true), "the picture was not refused on its head");
+    }
 
     const ENCODINGS: [Encoding; 5] = [
         Encoding::Utf8,
