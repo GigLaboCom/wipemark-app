@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The images follow-ups' mutation table (R1 ... R11 of Watchword FILE
 `wipemark-task-images-followups-2026-10-04`, and S1 ... S6 of the second
-round, `wipemark-task-images-followups-2-2026-10-04`), as a script the
+round, `wipemark-task-images-followups-2-2026-10-04`, and T1 ... L3 of the
+third, `wipemark-task-images-followups-3-2026-10-05`), as a script the
 verifier runs.
 
 Each mutation is applied alone to the sources, the named tests run, and the
@@ -261,8 +262,8 @@ MUTATIONS = [
         "R6/M2",
         "an outline over the bound is said (the share, where the step averages out)",
         "crates/wipemark-pixels/src/verify.rs",
-        "        self.share > OUTLINE_BOUND || self.step.abs() > STEP_LEVELS.max(self.spread)",
-        "        self.step.abs() > STEP_LEVELS.max(self.spread)",
+        "        self.share > OUTLINE_BOUND\n            || self.step",
+        "        false\n            || self.step",
         [(EXACT, "a_lopsided_outline_is_said_by_its_share")],
     ),
     (
@@ -391,8 +392,8 @@ MUTATIONS = [
         "S1/M1",
         "an outline is also held to the picture in absolute levels (D244)",
         "crates/wipemark-pixels/src/verify.rs",
-        "        self.share > OUTLINE_BOUND || self.step.abs() > STEP_LEVELS.max(self.spread)",
-        "        self.share > OUTLINE_BOUND",
+        "            || self.step.abs() > STEP_LEVELS.max(self.spread)\n",
+        "",
         [
             (PIC + ["--test", "real"], "a_flattened_copy_is_restored_with_its_outline_said"),
             (PIX + ["--test", "outline"], "a_shrunk_and_compressed_mark_is_restored"),
@@ -403,8 +404,8 @@ MUTATIONS = [
         "S1/M2",
         "a step hides in the picture's own spread (D244)",
         "crates/wipemark-pixels/src/verify.rs",
-        "        self.share > OUTLINE_BOUND || self.step.abs() > STEP_LEVELS.max(self.spread)",
-        "        self.share > OUTLINE_BOUND || self.step.abs() > STEP_LEVELS",
+        "            || self.step.abs() > STEP_LEVELS.max(self.spread)\n",
+        "            || self.step.abs() > STEP_LEVELS\n",
         [
             (PIX + ["--test", "outline"], "a_shrunk_and_compressed_mark_is_restored"),
             (PIC + ["--test", "real"], "a_real_mark_on_a_saturated_green_is_restored"),
@@ -499,6 +500,135 @@ MUTATIONS = [
         "    if false {",
         [(CLI + ["--test", "image"], "audit_lists_pictures_in_every_output")],
     ),
+    # ------------------------------------- T1: the outline is held in colour (D247)
+    (
+        "T1/M1",
+        "an outline is held to the picture in colour difference too (D247)",
+        "crates/wipemark-pixels/src/verify.rs",
+        "            || self.chroma > CHROMA_LEVELS.max(self.chroma_spread)\n",
+        "",
+        [
+            (PIC + ["--test", "real"], "a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said"),
+            (VISIBLE, "a_fringe_left_in_colour_is_said_and_exits_three"),
+            (PIX + ["--lib"], "a_fringe_in_colour_is_said_over_its_bound_and_not_under_it"),
+        ],
+    ),
+    (
+        "T1/M2",
+        "CHROMA_LEVELS from below: JPEG 4:4:4 at 95 is not an outline",
+        "crates/wipemark-pixels/src/verify.rs",
+        "pub const CHROMA_LEVELS: f32 = 4.0;",
+        "pub const CHROMA_LEVELS: f32 = 2.0;",
+        [
+            (PIC + ["--test", "real"], "a_real_mark_saved_as_jpeg_is_restored_and_an_outline_said_where_left"),
+            (PIX + ["--lib"], "a_fringe_in_colour_is_said_over_its_bound_and_not_under_it"),
+        ],
+    ),
+    (
+        "T1/M3",
+        "CHROMA_LEVELS from above: the 4:2:0 fringe is said",
+        "crates/wipemark-pixels/src/verify.rs",
+        "pub const CHROMA_LEVELS: f32 = 4.0;",
+        "pub const CHROMA_LEVELS: f32 = 9.0;",
+        [
+            (PIC + ["--test", "real"], "a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said"),
+            (PIX + ["--lib"], "a_fringe_in_colour_is_said_over_its_bound_and_not_under_it"),
+        ],
+    ),
+    (
+        "T1/M4",
+        "a colour step hides in the colour's own spread",
+        "crates/wipemark-pixels/src/verify.rs",
+        "self.chroma > CHROMA_LEVELS.max(self.chroma_spread)",
+        "self.chroma > CHROMA_LEVELS",
+        [(PIC + ["--test", "real"], "a_real_mark_on_a_saturated_green_is_restored")],
+    ),
+    (
+        "T1/M5",
+        "the colour difference is Cr as well as Cb",
+        "crates/wipemark-pixels/src/verify.rs",
+        "    outline.chroma = step[4].hypot(step[5]) as f32;",
+        "    outline.chroma = step[4].abs() as f32;",
+        [
+            (PIC + ["--test", "real"], "a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said"),
+            (PIX + ["--lib"], "a_fringe_in_colour_is_said_over_its_bound_and_not_under_it"),
+        ],
+    ),
+    # ------------------------------------------- T2: the figure is a mean (D248)
+    (
+        "T2/M1",
+        "the residual is said as a mean, not a bound (en)",
+        "crates/wipemark-i18n/i18n/en-US/wipemark.ftl",
+        "the restored mark lies on average { $levels } levels from the picture around it, in the colour channel farthest from it.",
+        "the restored mark lies within { $levels } levels of the picture around it.",
+        [
+            (VISIBLE, "clean_removes_a_proved_mark_with_no_flag"),
+            (CLI + ["--bin", "wipemark-cli"], "a_restoration_says_each_reason_it_is_not_exact_and_its_mean"),
+        ],
+    ),
+    (
+        "T2/M2",
+        "the residual is said as a mean, not a bound (ru)",
+        "crates/wipemark-i18n/i18n/ru/wipemark.ftl",
+        "восстановленная метка в среднем отличается от картинки вокруг на { $levels } уровня",
+        "восстановленная метка отличается от картинки вокруг не больше чем на { $levels } уровня",
+        [(VISIBLE, "the_figure_is_a_mean_in_every_language_with_its_own_decimals")],
+    ),
+    (
+        "T2/M3",
+        "the residual is the farthest channel's, not luma's",
+        "apps/wipemark-cli/src/image.rs",
+        "                        &args!(\"levels\" => fixed(farthest(restored), 1)),",
+        "                        &args!(\"levels\" => fixed(restored.step.abs(), 1)),",
+        [(CLI + ["--bin", "wipemark-cli"], "a_restoration_says_each_reason_it_is_not_exact_and_its_mean")],
+    ),
+    # ------------------------------- L1: a resample is said only when it happened
+    (
+        "L1/M1",
+        "a search proposes no resample; the shape says (D249)",
+        "crates/wipemark-pixels/src/propose.rs",
+        "        resample: false,\n        kernel,\n    })",
+        "        resample: true,\n        kernel,\n    })",
+        [(EXACT, "a_mark_a_pixel_off_its_row_is_found_by_the_search")],
+    ),
+    (
+        "L1/M2",
+        "the CLI says a resample only when one happened (D249)",
+        "apps/wipemark-cli/src/image.rs",
+        "                if restored.resampled {",
+        "                if restored.resampled || restored.searched {",
+        [(CLI + ["--bin", "wipemark-cli"], "a_restoration_says_each_reason_it_is_not_exact_and_its_mean")],
+    ),
+    # --------------------------------------------- L2: STEP_LEVELS from below
+    (
+        "L2/M1",
+        "STEP_LEVELS from below: a sub-level step on a flat picture is nothing",
+        "crates/wipemark-pixels/src/verify.rs",
+        "pub const STEP_LEVELS: f32 = 1.0;",
+        "pub const STEP_LEVELS: f32 = 0.5;",
+        [(PIX + ["--lib"], "a_sub_level_step_on_a_flat_picture_is_not_an_outline")],
+    ),
+    # ------------------------------------ L3: the language's decimals and plurals
+    (
+        "L3/M1",
+        "a figure is written with the language's decimal comma",
+        "crates/wipemark-i18n/src/lib.rs",
+        "            point.replace('.', \",\")",
+        "            point",
+        [
+            (I18N, "a_decimal_is_written_the_way_its_language_writes_it"),
+            (VISIBLE, "the_figure_is_a_mean_in_every_language_with_its_own_decimals"),
+        ],
+    ),
+    (
+        "L3/M2",
+        "a clamped count agrees with its noun (ru)",
+        "crates/wipemark-i18n/i18n/ru/wipemark.ftl",
+        "        [one] При обращении смешивания { $clamped } значение вышло за пределы диапазона и было обрезано, поэтому восстановление не точное.\n",
+        "        [one] При обращении смешивания { $clamped } значений вышли за пределы диапазона и были обрезаны, поэтому восстановление не точное.\n",
+        [(I18N, "a_clamped_count_agrees_with_its_noun")],
+    ),
+
 ]
 
 

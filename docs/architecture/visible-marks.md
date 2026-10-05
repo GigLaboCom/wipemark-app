@@ -366,8 +366,8 @@ traces; the proof here is stricter and the map and the logo are measured.
   name, and nothing is said by elimination.
 * **Known limitation: most subsampled JPEGs are not restored.** Under
   95, a 4:2:0 JPEG's colour error in the band is more than the
-  out-of-range allowance (`BLEND_LEVELS`, 8 stored levels) admits: 18 of
-  23 first-generation outputs at 4:2:0 90 are refused out of range,
+  out-of-range allowance (`BLEND_LEVELS`, 8 stored levels) admits: 17 of
+  the 23 outputs at 4:2:0 90 are refused out of range,
   `victory` already at 95. That is honest — the mark is said to be left
   and `clean` exits 3 — but it means the commonest JPEG is the one this
   release restores least. Restoring the colour at the chroma's own
