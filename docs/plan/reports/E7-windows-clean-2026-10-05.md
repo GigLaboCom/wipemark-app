@@ -8,7 +8,12 @@ the series and was merged at `e70d2e6` (it brought `CLAUDE.md` and
 `docs/plan/README.md` only). `origin/images/series-v3` then moved again
 (`2cc421d`, the fifth images round — tests, docs and fixtures) without
 `feat/e0-e6-shell` containing it, and was merged at `dcd9d98`; once more
-at `47c4370` for its round's report (a document only).
+at `47c4370` for its round's report (a document only). Then
+`feat/e0-e6-shell` came to contain it again and was merged at `afce046`
+(`CLAUDE.md` and `scripts/compare-gwt.py`); its new rule — every script
+stays in the repository and opens with what it is for, who asked, how to run
+it, what it needs and what its output means — is why
+`e7-windows-clean-mutate.py` now opens that way.
 
 **Status: E7-1 … E7-6 are done.** This is the series' final report (§7 of
 the task), uploaded to Watchword as `wipemark-e7-windows-clean-report-2026-10-05`.

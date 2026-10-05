@@ -1,22 +1,44 @@
 #!/usr/bin/env python3
-"""The windows clean's mutation table (E7-1 ... E7-6 of Watchword FILE
-`wipemark-task-e7-windows-clean-2026-10-05`, planned in
-`docs/plan/E7-windows-clean.md`), as a script the verifier runs.
+"""The windows clean's mutation table: does each E7 protection bite?
 
-Each mutation is applied alone to the sources, the named tests run, and the
-file is restored from memory whatever happens. A mutation PASSES this script
-when its tests go **red** — the protection is real — and FAILS it when they
-stay green. Run from the repository root, after the gates are green:
+What it is for
+--------------
+The task Watchword FILE `wipemark-task-e7-windows-clean-2026-10-05` (the
+coordinator, 2026-10-05; plan `docs/plan/E7-windows-clean.md`) asks, in its
+§4, for one mutation per protection of E7-1 ... E7-6, run and tabled in the
+report — `CLAUDE.md`'s "Delete the protection and watch it go red". This is
+that table as a script, so the verifier on the host reruns it rather than
+trusting the report.
+
+What it does
+------------
+For each entry of `MUTATIONS` — (id, protection, file, old text, new text,
+tests): check that the old text is in the file exactly once, write the file
+with it replaced, run the named tests with `cargo test --locked`, and put the
+file back from memory whatever happened (an exception, Ctrl-C). One mutation
+at a time; nothing else in the tree is touched.
+
+Usage
+-----
+Run from the repository root, after the gates are green:
 
     python3 docs/plan/reports/e7-windows-clean-mutate.py              # every mutation
     python3 docs/plan/reports/e7-windows-clean-mutate.py E7-1         # one step
     python3 docs/plan/reports/e7-windows-clean-mutate.py E7-1/M3      # one mutation
-    python3 docs/plan/reports/e7-windows-clean-mutate.py --check      # every text is there once
+    python3 docs/plan/reports/e7-windows-clean-mutate.py --check      # every old text is there once
     python3 docs/plan/reports/e7-windows-clean-mutate.py --compile    # each applied and compiled
 
-The tree must be clean afterwards: `git status --short` shows nothing the
-script wrote. Each step adds its own rows; the results are in the step's
-report, `docs/plan/reports/E7-windows-clean-<date>.md`.
+Needs Python 3 and the repository's own toolchain (cargo, the GPUI system
+libraries the app's tests link against); no Python package.
+
+What the output means
+---------------------
+One line per mutation and then a Markdown table. **red** is the expected
+answer: the protection is real. **GREEN** means the tests passed with the
+protection gone — the test guards nothing and the run exits non-zero.
+A mutation the compiler stops is not a test that bit: it counts as not red,
+with its command marked `<- DID NOT COMPILE`. Afterwards `git status --short` must show nothing the script
+wrote. The results are in `docs/plan/reports/E7-windows-clean-<date>.md`.
 """
 
 import subprocess
