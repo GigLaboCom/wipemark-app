@@ -517,10 +517,34 @@ pub const STEP_LEVELS: f32 = 1.0;
 /// keeps BT.601 luma and puts its error into colour; subsampled 4:2:0,
 /// the sparkle's white bleeds into the band, and the fringe the inverse
 /// leaves — red and blue up, green down, plain at ×4 — is a step of
-/// −0.5 to +0.3 in luma. Measured on the 21 first-generation outputs:
-/// 0.11–0.46 as the vendor handed them out, 2.05–2.51 saved as JPEG 4:4:4
-/// at 95 (nothing an eye finds), 7.6–8.9 at 4:2:0 95 and 98.
+/// −0.5 to +0.3 in luma. Measured on the vendor's 2048 × 2048 files,
+/// `11_crying` aside (a re-saved copy, said by its luma), saved by Pillow
+/// 12.3.0: 0.11–0.46 as handed out; 2.41–2.88 at JPEG 4:4:4 95 (nothing
+/// an eye finds in the mean); 7.40–8.37 at 4:2:0 95 and 7.54–8.26 at 98.
+/// The bound is 1.39 times the highest under it, and the lowest over it
+/// 1.85 times the bound.
 pub const CHROMA_LEVELS: f32 = 4.0;
+
+/// Over this many 8-bit levels of roughness on the pixels a restoration
+/// changed, and over [`TEXTURE_RATIO`] times the roughness of the picture
+/// around the mark, a texture is left (D250). Roughness is the 95th
+/// percentile of each pixel's distance in `(Y, Cb, Cr)` from the mean of
+/// its eight neighbours: a JPEG's error amplified by the inverse's
+/// `1/(1 − α)` comes back as an 8 × 8 checker along the mark's contour
+/// that no mean of the band sees. Measured on the vendor's 2048 × 2048
+/// files, `11_crying` aside: 1.59–2.05 as handed out, against 1.18–1.88
+/// around the mark; saved as JPEG 4:4:4 by Pillow 12.3.0, 8.59–9.22 at
+/// 95 (plain at ×2, faint at 1× on the flat green), and on two of them
+/// 6.15–6.32 at 97 (faint at ×3), 4.95–5.15 at 98 (barely found at ×6),
+/// 3.53–3.55 at 99 (nothing). Only a lossy source is held to it (D251).
+pub const TEXTURE_LEVELS: f32 = 5.5;
+
+/// How much rougher than the picture around it a restoration must be for
+/// its texture to be left (D250): a picture with a grain of its own keeps
+/// it under the mark. Measured as above: 1.06–1.44 as handed out (and
+/// 16 for `11_crying` — 2.05 over a background with no grain at all, under
+/// [`TEXTURE_LEVELS`]), 2.63–2.95 at JPEG 4:4:4 95, about 2.5 at 97.
+pub const TEXTURE_RATIO: f32 = 2.0;
 
 /// What a restoration left along the mark's contour, three ways (D238,
 /// D244, D247).
@@ -544,6 +568,13 @@ pub(crate) struct Outline {
     pub chroma: f32,
     /// The spread of that colour around the mark, `√(σ²Cb + σ²Cr)`.
     pub chroma_spread: f32,
+    /// The roughness of the pixels the restoration changed — `α` at the
+    /// noise floor and under the opaque threshold — in 8-bit levels: the
+    /// 95th percentile of each one's distance in `(Y, Cb, Cr)` from the
+    /// mean of its eight neighbours (D250).
+    pub texture: f32,
+    /// The same over the pixels around the mark.
+    pub texture_around: f32,
 }
 
 impl Outline {
@@ -554,6 +585,12 @@ impl Outline {
         self.share > OUTLINE_BOUND
             || self.step.abs() > STEP_LEVELS.max(self.spread)
             || self.chroma > CHROMA_LEVELS.max(self.chroma_spread)
+    }
+
+    /// A roughness over both [`TEXTURE_LEVELS`] and [`TEXTURE_RATIO`]
+    /// times the roughness around the mark (D250).
+    pub fn textured(&self) -> bool {
+        self.texture > TEXTURE_LEVELS.max(TEXTURE_RATIO * self.texture_around)
     }
 }
 
@@ -591,7 +628,9 @@ pub(crate) fn outline(raster: &Raster, verified: &Verified) -> Outline {
 /// levels: the band is the template's pixels with `α` in [`BAND`]; around
 /// it is every pixel of the rectangle under the noise floor and of a ring
 /// four pixels out, inside the picture. Zeros with either empty; the
-/// share is left to the caller.
+/// share is left to the caller. The roughness of the pixels under the
+/// mark below the opaque threshold, and of those around it, beside them
+/// (D250).
 fn steps(raster: &Raster, verified: &Verified) -> Outline {
     let (w, h) = (i64::from(raster.width()), i64::from(raster.height()));
     let scale = 255.0 / f64::from(raster.layout().max());
@@ -613,8 +652,41 @@ fn steps(raster: &Raster, verified: &Verified) -> Outline {
     let at = verified.at;
     let (x0, y0) = (i64::from(at.x), i64::from(at.y));
     let (x1, y1) = (x0 + i64::from(at.width), y0 + i64::from(at.height));
+    // Every pixel the ring and its neighbours reach, read once.
+    let (bx0, by0) = ((x0 - 5).max(0), (y0 - 5).max(0));
+    let (bx1, by1) = ((x1 + 5).min(w), (y1 + 5).min(h));
+    let bw = bx1 - bx0;
+    let mut read = Vec::with_capacity((bw * (by1 - by0)) as usize);
+    for y in by0..by1 {
+        for x in bx0..bx1 {
+            read.push(six(x, y));
+        }
+    }
+    let px = |x: i64, y: i64| &read[((y - by0) * bw + (x - bx0)) as usize];
+    // A pixel's distance in (Y, Cb, Cr) from the mean of its neighbours
+    // inside the picture.
+    let rough = |x: i64, y: i64| {
+        let (mut mean, mut n) = ([0f64; 3], 0f64);
+        for ny in (y - 1).max(by0)..(y + 2).min(by1) {
+            for nx in (x - 1).max(bx0)..(x + 2).min(bx1) {
+                if (nx, ny) != (x, y) {
+                    for (m, v) in mean.iter_mut().zip(&px(nx, ny)[3..]) {
+                        *m += v;
+                    }
+                    n += 1.0;
+                }
+            }
+        }
+        let p = &px(x, y)[3..];
+        (0..3)
+            .map(|c| (p[c] - mean[c] / n).powi(2))
+            .sum::<f64>()
+            .sqrt()
+    };
+    let opaque = f64::from(verified.opaque_above);
     let (mut band, mut nb) = ([0f64; 6], 0f64);
     let mut around = Vec::new();
+    let (mut rough_mark, mut rough_around) = (Vec::new(), Vec::new());
     for y in (y0 - 4).max(0)..(y1 + 4).min(h) {
         for x in (x0 - 4).max(0)..(x1 + 4).min(w) {
             let inside = x >= x0 && y >= y0 && x < x1 && y < y1;
@@ -624,9 +696,15 @@ fn steps(raster: &Raster, verified: &Verified) -> Outline {
                 0.0
             };
             if a < NOISE_FLOOR {
-                around.push(six(x, y));
-            } else if (BAND[0]..=BAND[1]).contains(&a) {
-                for (b, v) in band.iter_mut().zip(six(x, y)) {
+                around.push(*px(x, y));
+                rough_around.push(rough(x, y));
+                continue;
+            }
+            if f64::from(a) < opaque {
+                rough_mark.push(rough(x, y));
+            }
+            if (BAND[0]..=BAND[1]).contains(&a) {
+                for (b, v) in band.iter_mut().zip(px(x, y)) {
                     *b += v;
                 }
                 nb += 1.0;
@@ -640,6 +718,8 @@ fn steps(raster: &Raster, verified: &Verified) -> Outline {
         spread: 0.0,
         chroma: 0.0,
         chroma_spread: 0.0,
+        texture: percentile(&mut rough_mark, 0.95) as f32,
+        texture_around: percentile(&mut rough_around, 0.95) as f32,
     };
     if nb == 0.0 || around.is_empty() {
         return outline;
@@ -657,6 +737,16 @@ fn steps(raster: &Raster, verified: &Verified) -> Outline {
     outline.chroma = step[4].hypot(step[5]) as f32;
     outline.chroma_spread = (var[4] + var[5]).sqrt() as f32;
     outline
+}
+
+/// The value `p` of the way up `values`, sorted in place, by nearest rank;
+/// 0 for none.
+fn percentile(values: &mut [f64], p: f64) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    values.sort_by(f64::total_cmp);
+    values[((values.len() - 1) as f64 * p).round() as usize]
 }
 
 /// The mean luma gradient (central differences, luma in [0, 1]) over the
@@ -828,7 +918,8 @@ mod tests {
     /// A fringe in colour with the luma kept — red up, green down, as a
     /// subsampled JPEG leaves it — is held to [`CHROMA_LEVELS`] (D247):
     /// 2.8 levels of colour difference is not said, 5.2 is, and luma
-    /// alone sees neither.
+    /// alone sees neither; a fringe in blue and yellow, mostly `Cb`, is
+    /// said as one in red and green is.
     #[test]
     fn a_fringe_in_colour_is_said_over_its_bound_and_not_under_it() {
         let under = flat_band(|_| [4, -2, 0]);
@@ -844,6 +935,80 @@ mod tests {
         );
         assert_eq!(over.steps, [7.0, -4.0, 0.0]);
         assert!(over.left(), "{over:?}");
+        // Blue up, red and green down: almost all `Cb` — 5.0 of it against
+        // 0.8 of `Cr` — and said as well; colour is both halves.
+        let blue = flat_band(|_| [-2, -2, 8]);
+        assert!(
+            blue.step.abs() < 1.0 && (blue.chroma - 5.07).abs() < 0.01,
+            "{blue:?}"
+        );
+        assert!(blue.left(), "{blue:?}");
+    }
+
+    /// A perfectly flat green 32 × 32 picture, a 16-pixel mark at (8, 8)
+    /// with `α` 0.5 throughout, and every fourth pixel each way lifted —
+    /// grey, by `mark` levels under the mark and by `around` in the four
+    /// pixels around it: one pixel in sixteen on both, so the 95th
+    /// percentile of the roughness is the lift itself. What is left there,
+    /// measured.
+    fn grained(mark: i32, around: i32) -> Outline {
+        const GREEN: [i32; 3] = [9, 150, 56];
+        let mut samples = Vec::with_capacity(32 * 32 * 3);
+        for y in 0..32u32 {
+            for x in 0..32u32 {
+                let inside = (8..24).contains(&x) && (8..24).contains(&y);
+                let lift = match (x % 4 == 0 && y % 4 == 0, inside) {
+                    (false, _) => 0,
+                    (true, true) => mark,
+                    (true, false) => around,
+                };
+                samples.extend(GREEN.map(|v| (v + lift) as u8));
+            }
+        }
+        let verified = Verified {
+            at: PixelRect {
+                x: 8,
+                y: 8,
+                width: 16,
+                height: 16,
+            },
+            values: vec![0.5; 16 * 16],
+            noise: vec![0.0; 16 * 16],
+            width: 32,
+            height: 32,
+            ..one(0.5)
+        };
+        let raster = Raster::from_u8(32, 32, Layout::Rgb8, &samples).unwrap();
+        outline(&raster, &verified)
+    }
+
+    /// A grain under the mark on a picture with none is held to
+    /// [`TEXTURE_LEVELS`] (D250): 5 levels is not said, 6 is — and no step
+    /// sees either.
+    #[test]
+    fn a_texture_is_said_over_its_bound_and_not_under_it() {
+        let under = grained(5, 0);
+        assert!((under.texture - 5.0).abs() < 1e-3, "{under:?}");
+        // Around it, only the pixels beside a lifted one: an eighth of it.
+        assert!((under.texture_around - 5.0 / 8.0).abs() < 1e-3, "{under:?}");
+        assert!(!under.textured() && !under.left(), "{under:?}");
+        let over = grained(6, 0);
+        assert!((over.texture - 6.0).abs() < 1e-3, "{over:?}");
+        assert!(over.textured() && !over.left(), "{over:?}");
+    }
+
+    /// A grain the picture has around the mark as well is the picture's:
+    /// under the mark it must be [`TEXTURE_RATIO`] times as rough to be
+    /// said (D250) — 12 levels against 7 around is not, against 5 is.
+    #[test]
+    fn a_texture_the_picture_has_around_the_mark_is_not_said() {
+        let grainy = grained(12, 7);
+        assert!((grainy.texture - 12.0).abs() < 1e-3, "{grainy:?}");
+        assert!((grainy.texture_around - 7.0).abs() < 1e-3, "{grainy:?}");
+        assert!(!grainy.textured(), "{grainy:?}");
+        let rougher = grained(12, 5);
+        assert!((rougher.texture_around - 5.0).abs() < 1e-3, "{rougher:?}");
+        assert!(rougher.textured(), "{rougher:?}");
     }
 
     /// The inverse is rounded to the nearest level, as GWT's is — not

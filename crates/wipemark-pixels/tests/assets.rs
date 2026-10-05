@@ -160,6 +160,10 @@ fn a_shipped_mark_comes_back_within_one_level() {
         let r = &report.restored[0];
         assert_eq!(r.exact, r.clamped == 0, "{name}: {r:?}");
         assert!(max_error(&marked, &original) <= 1, "{name}");
+        // A lossless source is not held to a texture (D251): on a glyph
+        // sheet whose strokes run under the mark and miss the ring around
+        // it, the picture's own roughness is 20 levels against none.
+        assert!(!r.texture_left && !report.marks_left(), "{name}: {r:?}");
     }
 }
 

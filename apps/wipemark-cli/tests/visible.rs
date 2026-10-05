@@ -221,6 +221,64 @@ fn a_fringe_left_in_colour_is_said_and_exits_three() {
     assert_eq!(restored["outline_left"], Value::Bool(true));
     assert!(restored["step"].as_f64().unwrap().abs() < 1.0, "{restored}");
     assert!(restored["chroma"].as_f64().unwrap() > 4.0, "{restored}");
+    // The figure in the sentence is the farthest channel's — red, +11 —
+    // not the luma's, which is under a level and would call it clean.
+    let line = said
+        .lines()
+        .find(|line| line.contains("An outline of the mark is left"))
+        .unwrap();
+    let figure: f64 = line
+        .split("on average ")
+        .nth(1)
+        .and_then(|rest| rest.split(' ').next())
+        .and_then(|n| n.parse().ok())
+        .unwrap_or_else(|| panic!("no figure: {line}"));
+    assert!(figure > 8.0, "{line}");
+}
+
+/// The same picture saved as JPEG 4:4:4 at 95: no outline — its band is
+/// within the bounds on average — but the codec's error, amplified by the
+/// inverse, is an 8 × 8 checker along the mark's contour, three times as
+/// rough as the picture around it. Said, as a percentile beside the same
+/// around it, never a bound, in each language's decimals; the mark counts
+/// as left and the exit is 3 (D250).
+#[test]
+fn a_texture_left_on_a_jpeg_is_said_and_exits_three() {
+    let scratch = Scratch::new("texture");
+    scratch.file("art.jpg", &real("torch-1025-q95-444.jpg"));
+    let output = scratch.run(&["clean", "art.jpg"]);
+    let said = stdout(&output);
+    assert_eq!(code(&output), 3, "{said}");
+    assert!(
+        said.contains("A texture is left along the mark's edge"),
+        "{said}"
+    );
+    assert!(!said.contains("An outline of the mark is left"), "{said}");
+    let answer = json(&scratch.run(&["clean", "art.jpg", "-o", "j.jpg", "--json"]));
+    let restored = &answer["report"]["visible"]["restored"][0];
+    assert_eq!(restored["texture_left"], Value::Bool(true), "{restored}");
+    assert_eq!(restored["outline_left"], Value::Bool(false), "{restored}");
+    let (texture, around) = (
+        restored["texture"].as_f64().unwrap(),
+        restored["texture_around"].as_f64().unwrap(),
+    );
+    assert!(texture > 2.0 * around && texture > 8.0, "{restored}");
+    for (language, grain) in [("ru", "зернистость"), ("de", "Körnung")] {
+        let output = scratch.run_in(language, &["clean", "art.jpg", "-o", "out.jpg"]);
+        let said = stdout(&output);
+        assert_eq!(code(&output), 3, "{language}: {said}");
+        let line = said
+            .lines()
+            .find(|line| line.contains(grain))
+            .unwrap_or_else(|| panic!("{language}: {said}"));
+        let digits: Vec<char> = line.chars().collect();
+        let decimal = |mark: char| {
+            digits
+                .windows(3)
+                .any(|w| w[0].is_ascii_digit() && w[1] == mark && w[2].is_ascii_digit())
+        };
+        assert!(decimal(',') && !decimal('.'), "{language}: {line}");
+    }
 }
 
 /// In Russian and German the figure is a mean — "в среднем", "im Mittel"

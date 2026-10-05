@@ -51,7 +51,7 @@ pub use restore::{composite, restore, RestoreError, Restored};
 use serde::Serialize;
 pub use verify::{
     Refusal, Scores, Verified, BAND, BLEND_LEVELS, CHROMA_LEVELS, NOISE_FLOOR, NO_BLEND_RATIO,
-    OUTLINE_BOUND, STEP_LEVELS,
+    OUTLINE_BOUND, STEP_LEVELS, TEXTURE_LEVELS, TEXTURE_RATIO,
 };
 
 /// The claim this crate adds to the third shelf (D156). The English is
@@ -301,11 +301,15 @@ pub struct PixelReport {
 
 impl PixelReport {
     /// Whether a mark was seen and is still there: a blend refused,
-    /// restored around holes, or restored with its outline left (D238). A proposal that was no blend is not here to
+    /// restored around holes, or restored with its outline (D238) or a
+    /// texture (D250) left. A proposal that was no blend is not here to
     /// count (D235).
     pub fn marks_left(&self) -> bool {
         self.found.iter().any(|f| f.verified().is_none())
-            || self.restored.iter().any(|r| r.holes > 0 || r.outline_left)
+            || self
+                .restored
+                .iter()
+                .any(|r| r.holes > 0 || r.outline_left || r.texture_left)
     }
 
     /// One line of ASCII JSON. Field names are a format.

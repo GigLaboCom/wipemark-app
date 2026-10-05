@@ -1357,6 +1357,7 @@ cli-image-visible-exact = The restored pixels are the original values to within 
 cli-image-visible-inexact = The picture was stored with loss, so the restoration is as close as the stored values allow, not exact.
 cli-image-visible-holes = { $holes } pixels under an opaque part of the mark could not be recovered and were left as they were.
 cli-image-visible-outline = An outline of the mark is left along its edge — on average { $levels } levels from the picture around it, in the colour channel farthest from it, { $share } % of its contour — more than this version accepts, so the mark counts as still in the result.
+cli-image-visible-texture = A texture is left along the mark's edge — at the 95th percentile its pixels lie { $levels } levels from their neighbours, against { $around } in the picture around it — more than this version accepts, so the mark counts as still in the result.
 cli-image-visible-clamped = { $clamped ->
         [one] { $clamped } sample fell outside the range when the blend was inverted and was clamped, so the restoration is not exact.
        *[other] { $clamped } samples fell outside the range when the blend was inverted and were clamped, so the restoration is not exact.

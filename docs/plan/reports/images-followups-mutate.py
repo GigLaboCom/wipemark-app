@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """The images follow-ups' mutation table (R1 ... R11 of Watchword FILE
 `wipemark-task-images-followups-2026-10-04`, and S1 ... S6 of the second
-round, `wipemark-task-images-followups-2-2026-10-04`, and T1 ... L3 of the
-third, `wipemark-task-images-followups-3-2026-10-05`), as a script the
-verifier runs.
+round, `wipemark-task-images-followups-2-2026-10-04`, T1 ... L3 of the
+third, `wipemark-task-images-followups-3-2026-10-05`, and U1, U2 and L1 ...
+L3 of the fourth, `wipemark-task-images-followups-4-2026-10-05` — whose
+L1 ... L3 are `4L1` ... `4L3` here, the third's keeping their names), as a
+script the verifier runs.
 
 Each mutation is applied alone to the sources, the named tests run, and the
 file is restored from memory whatever happens. A mutation PASSES this script
@@ -270,8 +272,8 @@ MUTATIONS = [
         "R6/M3",
         "an outline left is a mark left",
         "crates/wipemark-pixels/src/lib.rs",
-        "            || self.restored.iter().any(|r| r.holes > 0 || r.outline_left)",
-        "            || self.restored.iter().any(|r| r.holes > 0)",
+        "                .any(|r| r.holes > 0 || r.outline_left || r.texture_left)",
+        "                .any(|r| r.holes > 0 || r.texture_left)",
         [(EXACT, "an_outline_left_by_another_map_is_said")],
     ),
     (
@@ -511,6 +513,7 @@ MUTATIONS = [
             (PIC + ["--test", "real"], "a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said"),
             (VISIBLE, "a_fringe_left_in_colour_is_said_and_exits_three"),
             (PIX + ["--lib"], "a_fringe_in_colour_is_said_over_its_bound_and_not_under_it"),
+            (PIC + ["--test", "real"], "a_subsampled_jpeg_is_refused_or_said_by_where_its_blocks_fall"),
         ],
     ),
     (
@@ -520,7 +523,7 @@ MUTATIONS = [
         "pub const CHROMA_LEVELS: f32 = 4.0;",
         "pub const CHROMA_LEVELS: f32 = 2.0;",
         [
-            (PIC + ["--test", "real"], "a_real_mark_saved_as_jpeg_is_restored_and_an_outline_said_where_left"),
+            (PIC + ["--test", "real"], "a_real_mark_saved_as_jpeg_leaves_a_texture_that_is_said"),
             (PIX + ["--lib"], "a_fringe_in_colour_is_said_over_its_bound_and_not_under_it"),
         ],
     ),
@@ -627,6 +630,128 @@ MUTATIONS = [
         "        [one] При обращении смешивания { $clamped } значение вышло за пределы диапазона и было обрезано, поэтому восстановление не точное.\n",
         "        [one] При обращении смешивания { $clamped } значений вышли за пределы диапазона и были обрезаны, поэтому восстановление не точное.\n",
         [(I18N, "a_clamped_count_agrees_with_its_noun")],
+    ),
+    # ------------------------------ U1: refused or said by where the blocks fall
+    (
+        "U1/M1",
+        "a 4:2:0 mark off the codec's grid is refused out of range (D252)",
+        "manifests/marks.v1.json",
+        '      "search": { "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "gemini-v1-96-measured" },\n      "detect": { "min_ncc": 0.70 },\n      "verify": { "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 },',
+        '      "search": { "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "gemini-v1-96-measured" },\n      "detect": { "min_ncc": 0.70 },\n      "verify": { "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.012 },',
+        [(PIC + ["--test", "real"], "a_subsampled_jpeg_is_refused_or_said_by_where_its_blocks_fall")],
+    ),
+    # --------------------------------------- U2: a texture left is said (D250)
+    (
+        "U2/M1",
+        "a texture left is measured and said (D250)",
+        "crates/wipemark-pixels/src/restore.rs",
+        "        texture_left: options.source == Fidelity::Lossy && outline.textured(),",
+        "        texture_left: false,",
+        [
+            (PIC + ["--test", "real"], "a_real_mark_saved_as_jpeg_leaves_a_texture_that_is_said"),
+            (PIC + ["--test", "lossy"], "a_marked_jpeg_is_restored_and_re_encoded"),
+            (VISIBLE, "a_texture_left_on_a_jpeg_is_said_and_exits_three"),
+        ],
+    ),
+    (
+        "U2/M2",
+        "a texture left counts as a mark left: exit 3 (D250)",
+        "crates/wipemark-pixels/src/lib.rs",
+        "                .any(|r| r.holes > 0 || r.outline_left || r.texture_left)",
+        "                .any(|r| r.holes > 0 || r.outline_left)",
+        [
+            (PIC + ["--test", "real"], "a_real_mark_saved_as_jpeg_leaves_a_texture_that_is_said"),
+            (VISIBLE, "a_texture_left_on_a_jpeg_is_said_and_exits_three"),
+        ],
+    ),
+    (
+        "U2/M3",
+        "TEXTURE_LEVELS from below: a grain of 5 levels is nothing",
+        "crates/wipemark-pixels/src/verify.rs",
+        "pub const TEXTURE_LEVELS: f32 = 5.5;",
+        "pub const TEXTURE_LEVELS: f32 = 4.5;",
+        [(PIX + ["--lib"], "a_texture_is_said_over_its_bound_and_not_under_it")],
+    ),
+    (
+        "U2/M4",
+        "TEXTURE_LEVELS from above: a grain of 6 levels is said",
+        "crates/wipemark-pixels/src/verify.rs",
+        "pub const TEXTURE_LEVELS: f32 = 5.5;",
+        "pub const TEXTURE_LEVELS: f32 = 6.5;",
+        [(PIX + ["--lib"], "a_texture_is_said_over_its_bound_and_not_under_it")],
+    ),
+    (
+        "U2/M5",
+        "TEXTURE_RATIO from below: the picture's own grain is not said",
+        "crates/wipemark-pixels/src/verify.rs",
+        "pub const TEXTURE_RATIO: f32 = 2.0;",
+        "pub const TEXTURE_RATIO: f32 = 1.5;",
+        [(PIX + ["--lib"], "a_texture_the_picture_has_around_the_mark_is_not_said")],
+    ),
+    (
+        "U2/M6",
+        "TEXTURE_RATIO from above: twice as rough is said",
+        "crates/wipemark-pixels/src/verify.rs",
+        "pub const TEXTURE_RATIO: f32 = 2.0;",
+        "pub const TEXTURE_RATIO: f32 = 2.5;",
+        [(PIX + ["--lib"], "a_texture_the_picture_has_around_the_mark_is_not_said")],
+    ),
+    (
+        "U2/M7",
+        "the roughness is the 95th percentile, not the median",
+        "crates/wipemark-pixels/src/verify.rs",
+        "        texture: percentile(&mut rough_mark, 0.95) as f32,",
+        "        texture: percentile(&mut rough_mark, 0.5) as f32,",
+        [
+            (PIC + ["--test", "real"], "a_real_mark_saved_as_jpeg_leaves_a_texture_that_is_said"),
+            (PIX + ["--lib"], "a_texture_is_said_over_its_bound_and_not_under_it"),
+        ],
+    ),
+    (
+        "U2/M8",
+        "only a lossy source is looked at for texture (D251)",
+        "crates/wipemark-pixels/src/restore.rs",
+        "        texture_left: options.source == Fidelity::Lossy && outline.textured(),",
+        "        texture_left: outline.textured(),",
+        [
+            (ASSETS, "a_shipped_mark_comes_back_within_one_level"),
+            (VERIFY, "a_second_overlapping_mark_is_found_in_the_second_pass"),
+        ],
+    ),
+    (
+        "U2/M9",
+        "the CLI says the texture left",
+        "apps/wipemark-cli/src/image.rs",
+        "            if restored.texture_left {",
+        "            if false {",
+        [(VISIBLE, "a_texture_left_on_a_jpeg_is_said_and_exits_three")],
+    ),
+    # ----------------------------- 4L1: the outline's figure is the farthest channel's
+    (
+        "4L1/M1",
+        "the outline's figure is the farthest channel's, not luma's",
+        "apps/wipemark-cli/src/image.rs",
+        '                            "levels" => fixed(farthest(restored), 1),\n                            "share"',
+        '                            "levels" => fixed(restored.step.abs(), 1),\n                            "share"',
+        [(VISIBLE, "a_fringe_left_in_colour_is_said_and_exits_three")],
+    ),
+    # ------------------------------------ 4L2: the colour difference is Cb as well
+    (
+        "4L2/M1",
+        "the colour difference is Cb as well as Cr",
+        "crates/wipemark-pixels/src/verify.rs",
+        "    outline.chroma = step[4].hypot(step[5]) as f32;",
+        "    outline.chroma = step[5].abs() as f32;",
+        [(PIX + ["--lib"], "a_fringe_in_colour_is_said_over_its_bound_and_not_under_it")],
+    ),
+    # ------------------------- 4L3: CHROMA_LEVELS held from above by a picture (D253)
+    (
+        "4L3/M1",
+        "CHROMA_LEVELS from above: the lowest 4:2:0 fringe of the 21, 7.40, is said",
+        "crates/wipemark-pixels/src/verify.rs",
+        "pub const CHROMA_LEVELS: f32 = 4.0;",
+        "pub const CHROMA_LEVELS: f32 = 7.5;",
+        [(PIC + ["--test", "real"], "a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said")],
     ),
 
 ]
