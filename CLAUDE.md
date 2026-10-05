@@ -225,7 +225,7 @@ it sits.
 | `wipemark-log` | the rotating file, the panic hook, `Elided` | real |
 | `wipemark-i18n` | the Fluent catalogues and the `Message` enum `build.rs` generates from them | real |
 | `wipemark-image` | PNG, JPEG and WebP metadata: blocks that tile the file, the AI signals as data, `inspect`/`strip` with the raster unchanged; and `reframe`, the one writer for a picture whose pixels changed (`reframe(x, x) == strip(x)`) | real for PNG/JPEG/WebP (E11-1, E11-3; `reframe` E12-3); TIFF, HEIC/AVIF refused by name (backlog); the CLI and the MCP server call it (E11-2), `wipemark-picture` too; no window yet (**E7**) |
-| `wipemark-pixels` | visible marks as data: the raster, the `.wma` opacity map, the compiled-in catalogue `manifests/marks.v1.json` with every asset pinned by sha256; propose (rows at their own place, then a search refined to the sub-pixel and to the filter that shrank the mark) → verify (edge energy over the unclamped inverse: proved, a blend not proved, or no blend) → restore, the outline and texture checks, holes, the second pass; calibration (`examples/calibrate.rs`); the report whose shelf leads with `invisible-pixel-marks`. No codec | real (E12-1, E12-2, four rounds of host verification); Gemini V1/V2 from GWT's maps (`marks/gwt/`), V1's large-row map and logo measured from real outputs (`gemini-v1-96-measured`), V2's small rows from GWT's formula; other vendors **E12-6** |
+| `wipemark-pixels` | visible marks as data: the raster, the `.wma` opacity map, the compiled-in catalogue `manifests/marks.v1.json` with every asset pinned by sha256; propose (rows at their own place, then a search refined to the sub-pixel and to the filter that shrank the mark) → verify (edge energy over the unclamped inverse: proved, a blend not proved, or no blend) → restore, the outline and texture checks, holes, the second pass; calibration (`examples/calibrate.rs`); the report whose shelf leads with `invisible-pixel-marks`. No codec | real (E12-1, E12-2, five rounds of host verification); Gemini V1/V2 from GWT's maps (`marks/gwt/`), V1's large-row map and logo measured from real outputs (`gemini-v1-96-measured`), V2's small rows from GWT's formula; other vendors **E12-6** |
 | `wipemark-picture` | a picture file through both passes: decode to the stored raster, the visible pass, encode like the original, `wipemark_image::reframe`, the proof before a byte is handed back — one writer | real for PNG, WebP (lossless out) and JPEG (re-encoded at quality 95; CMYK examined, never written back) (E12-3, E12-4); the CLI and the MCP tools call it (E12-5); no window yet (**E12-8**) |
 | `wipemark-intake` | what was handed over — text, bytes or a path — and what it turns out to be; and `inplace`, the one module that writes: a result beside a file or over it, the original set aside first | real |
 | `wipemark-license` | activation, grace, and what a lapse never locks | types; **E9** |
@@ -1398,6 +1398,18 @@ Anything that needed more than a rule to explain is in `docs/`;
   left is **3 with nothing written**; TIFF, HEIC and AVIF are 2 by name,
   a picture that could not be read 3 (`docs/architecture/cli.md`,
   "Images").
+* **Every script stays in the repository, and says what it is for.**
+  A script written to check, measure, verify or answer a question — by
+  anyone, a host verifier and a one-off comparison included — is
+  committed, never left in a scratch directory: a figure in a report that
+  no script in the tree can reproduce is a figure nobody can check. Tools
+  go under `scripts/`; a round's mutations and measurements beside its
+  report in `docs/plan/reports/`; host verifiers' scripts under
+  `scripts/verify/<series>/`. Each one opens with a header: what it is
+  for and who asked (with the date), what it does step by step, how to
+  run it, what it needs (`numpy`, `Pillow` in a venv is fine — nothing
+  here depends on them), and what its output means. `scripts/compare-gwt.py`
+  is the shape (the owner, 2026-10-05).
 * **Tests must be able to fail.** RED first, and for the protections
   that matter (emoji ZWJ / VS16 preservation, path containment, the
   prompts' marker ownership and placeholder rule) delete the protection locally and confirm the suite
@@ -1463,6 +1475,7 @@ What exists so far:
 | `wipemark-task-images-followups-4-2026-10-05` | FILE | the fourth host verification's findings, after the merge: the JPEG tables re-measured on the 2048 originals (refusal at 4:2:0 depends on block alignment), a textured ghost on a 4:4:4 JPEG said, the outline figure and Cb half pinned; decisions D250–D259 |
 | `wipemark-images-followups-4-report-2026-10-05` | FILE | its report (D250–D253): the JPEG figures re-measured on the 2048 originals, a texture left on a lossy source said and counted as a mark left; the host verification found it mergeable (merged `92121ce`) |
 | `wipemark-task-images-followups-5-2026-10-05` | FILE | the fourth verification's low findings as V1–V5: tests for the texture sentence's figure, a lossy WebP held as lossy, q98 not said; stale exit table and JSON keys in the docs |
+| `wipemark-images-followups-5-report-2026-10-05` | FILE | its report: V1–V5 done, tests and docs only, no decision; the host verification found it mergeable (merged with the series' fifth round) |
 | `wipemark-task-e7-windows-clean-2026-10-05` | FILE | a task for an agent in a container: E7-1…E7-6, the windows clean text and pictures — the cleaner `clean.rs`, the queue's Clean / Clean all / `--clean=`, Compare's real result, the report with its three shelves, the panel, every "not yet" sentence; decisions from D260; checked live on the host after |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 
