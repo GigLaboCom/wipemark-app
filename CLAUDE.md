@@ -193,15 +193,22 @@ cargo test -p wipemark-app duty::           # one module's tests
 cargo test -p wipemark-app -- --nocapture   # with the log lines
 ```
 
-**On the Ubuntu X11 host the window panics at its first frame** — any
-build, pre-E7 included — when the desktop portal reports the appearance:
-GPUI at the pinned rev borrows a `RefCell` that is already mutably
-borrowed (`gpui_linux`, `x11/window.rs:1556`). Under investigation. Until
-it is fixed, start it with the session bus out of reach,
-`DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent cargo run -p wipemark-app`;
-the theme then does not follow the system, and the portal-backed Open
-and Show in folder may do nothing. `scripts/verify/e7/live-disk.sh` does
-the same.
+**On X11, GPUI at the pinned rev (`81b16f4`) has two bugs we have not
+fixed yet** (`scripts/verify/startup-frame/`, 2026-10-05). The first is why
+a new window often shows a stale piece of the screen until the mouse
+moves: its `MapNotify` stays in x11rb's queue, which calloop does not
+watch, so the refresh loop never starts and nothing is presented. That is
+upstream zed #62081 (`f4178619ac`), not in our pin, and not a driver
+problem. The second is a panic, `RefCell already mutably borrowed`
+(`gpui_linux`, `x11/window.rs:1556`): the desktop portal's appearance
+event draws while the X11 client is borrowed. It needs gpui's
+`test-support`, which a `cargo test` links into `target/debug/wipemark`;
+a `cargo build -p wipemark-app` after it should give a binary without it
+(inferred, not yet checked). Until a fix is carried, a live check starts
+the app with the session bus out of reach,
+`DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent`, which also stops the
+theme following the system and may stop the portal-backed Open and Show
+in folder; `scripts/verify/e7/live-disk.sh` does that.
 
 Five things steer a run, and every one of them exists so a check can be
 made against something other than the real installation:
