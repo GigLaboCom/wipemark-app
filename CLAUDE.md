@@ -1398,6 +1398,18 @@ Anything that needed more than a rule to explain is in `docs/`;
   left is **3 with nothing written**; TIFF, HEIC and AVIF are 2 by name,
   a picture that could not be read 3 (`docs/architecture/cli.md`,
   "Images").
+* **Every script stays in the repository, and says what it is for.**
+  A script written to check, measure, verify or answer a question — by
+  anyone, a host verifier and a one-off comparison included — is
+  committed, never left in a scratch directory: a figure in a report that
+  no script in the tree can reproduce is a figure nobody can check. Tools
+  go under `scripts/`; a round's mutations and measurements beside its
+  report in `docs/plan/reports/`; host verifiers' scripts under
+  `scripts/verify/<series>/`. Each one opens with a header: what it is
+  for and who asked (with the date), what it does step by step, how to
+  run it, what it needs (`numpy`, `Pillow` in a venv is fine — nothing
+  here depends on them), and what its output means. `scripts/compare-gwt.py`
+  is the shape (the owner, 2026-10-05).
 * **Tests must be able to fail.** RED first, and for the protections
   that matter (emoji ZWJ / VS16 preservation, path containment, the
   prompts' marker ownership and placeholder rule) delete the protection locally and confirm the suite
