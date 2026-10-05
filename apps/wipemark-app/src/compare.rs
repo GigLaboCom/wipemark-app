@@ -8,7 +8,8 @@
 //! result for a line the original never had. It is opened from a row of
 //! the queue's Actions menu and from `--compare=<path>`, one window per
 //! thing, and it belongs to nothing: closing it writes nothing, and
-//! nothing else in the application reads what is in it.
+//! nothing else in the application reads what is in it. The result it
+//! opens with is the cleaned text; see "What the result is today".
 //!
 //! # Three things, kept apart
 //!
@@ -21,13 +22,17 @@
 //!
 //! # What "the result" is today
 //!
-//! Nothing is cleaned in this version yet, so the result starts as a
-//! copy of the original and the banner says so — the same bargain the
-//! panel, the queue's footer and the MCP tools make. The window is not
-//! a mock-up for it: the comparison is real, and it is the comparison
-//! E1's scrubber and E2's rewrite will be shown through. Until then it
-//! compares what a person types against what they started from, which
-//! is what a result pane is for once there is a result.
+//! The result is what Layer A makes of the original —
+//! `wipemark_core::clean` at its default options, computed on the
+//! background executor in the same task that reads the text, and never
+//! on the thread that draws the window. Layer A is deterministic, so it
+//! is the very text the queue's Clean writes for the same document
+//! (`the_result_is_what_the_queue_writes`). Back to the cleaned text
+//! puts that result back, not the original. The window is a reader and
+//! not a writer: editing the result saves nothing and closing the
+//! window writes nothing, and the banner says both. Layer B's rewrite
+//! is not shown here yet; when it is, it is shown through this same
+//! comparison.
 //!
 //! # Finer than a line, through the library's own road
 //!
@@ -102,6 +107,7 @@ use gpui_component::{
     h_flex, v_flex, ActiveTheme, Disableable as _, Root, Sizable as _, StyledExt as _, Theme,
 };
 use lsp_types::{Color, ColorInformation};
+use wipemark_core::Options;
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_intake::{Handed, Intake, Kind};
 
@@ -230,11 +236,17 @@ impl Refusal {
     }
 }
 
-/// The text, once it has been read, and what to call it.
+/// The text, once it has been read, what Layer A makes of it, and what
+/// to call it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Loaded {
     pub name: String,
+    /// The original, as it was decoded.
     pub text: String,
+    /// The result the window opens with and Reset returns to:
+    /// `wipemark_core::clean(text, &Options::default()).text`, the text
+    /// the queue's Clean writes for the same document.
+    pub cleaned: String,
 }
 
 impl Subject {
@@ -244,12 +256,12 @@ impl Subject {
         intake.kind == Kind::Text || intake.is_textual()
     }
 
-    /// Turn what arrived into text.
+    /// Turn what arrived into text, and clean it.
     ///
-    /// **Blocking**: it examines a path that was not examined yet and
-    /// reads a whole file. Call it off the foreground thread. The
-    /// decoding is the preview's, so a file the queue shows in one
-    /// encoding is not compared in another.
+    /// **Blocking**: it examines a path that was not examined yet,
+    /// reads a whole file and runs Layer A over all of it. Call it off
+    /// the foreground thread. The decoding is the preview's, so a file
+    /// the queue shows in one encoding is not compared in another.
     pub fn read(self) -> Result<Loaded, Refusal> {
         let intake = self
             .intake
@@ -290,7 +302,14 @@ impl Subject {
             // nowhere.
             (Handed::Path(_), None) => return Err(Refusal::Unreadable),
         };
-        Ok(Loaded { name, text })
+        // Layer A at its defaults, as the queue's Clean and the CLI run
+        // it: deterministic, so this is the text they write.
+        let cleaned = wipemark_core::clean(&text, &Options::default()).text;
+        Ok(Loaded {
+            name,
+            text,
+            cleaned,
+        })
     }
 }
 
@@ -597,6 +616,13 @@ struct CompareView {
     /// The original as it was read, and what every comparison is
     /// against. Shared with the background task that compares.
     original_text: Arc<str>,
+    /// What Layer A made of the original, cleaned with the read on the
+    /// background executor: what the result opens with and what Reset
+    /// puts back, so neither cleans on the thread that draws.
+    cleaned_text: Arc<str>,
+    /// Whether the result has been edited away from `cleaned_text`, as
+    /// of the latest comparison — what Reset is offered on.
+    edited: bool,
     /// The left pane: the same editor as the right, disabled — which
     /// still selects, copies and searches, and no longer edits.
     original: Entity<InputState>,
@@ -659,6 +685,8 @@ impl CompareView {
             subject: Some(subject),
             name: String::new(),
             original_text: Arc::from(""),
+            cleaned_text: Arc::from(""),
+            edited: false,
             original,
             result,
             comparison,
@@ -671,8 +699,8 @@ impl CompareView {
         view
     }
 
-    /// Read the subject on the background executor, then fill both
-    /// panes.
+    /// Read the subject and clean it on the background executor, then
+    /// fill both panes.
     fn read(&mut self, window: &Window, cx: &Context<Self>) {
         let Some(subject) = self.subject.take() else {
             return;
@@ -696,10 +724,15 @@ impl CompareView {
         cx: &mut Context<Self>,
     ) {
         match loaded {
-            Ok(Loaded { name, text }) => {
+            Ok(Loaded {
+                name,
+                text,
+                cleaned,
+            }) => {
                 window.set_window_title(&Title::Compare { name: &name }.text());
                 self.name = name;
                 self.original_text = Arc::from(text.as_str());
+                self.cleaned_text = Arc::from(cleaned.as_str());
                 // The finer marks, if the page asks for any — installed
                 // before the texts go in, so the first question the
                 // library puts (it puts one when a text is set) already
@@ -723,11 +756,12 @@ impl CompareView {
                         .update(cx, |result, cx| result.colour(Some(added), cx));
                 }
                 self.original.update(cx, |original, cx| {
-                    original.set_value(text.clone(), window, cx);
+                    original.set_value(text, window, cx);
                 });
-                // Announces `Changed`, which is what recomputes the marks.
+                // The cleaned text, not a copy of the original. Announces
+                // `Changed`, which is what recomputes the marks.
                 self.result.update(cx, |result, cx| {
-                    result.set_text(&text, window, cx);
+                    result.set_text(&cleaned, window, cx);
                 });
                 self.state = State::Ready;
                 // The keyboard goes to the side being written in.
@@ -742,10 +776,12 @@ impl CompareView {
         cx.notify();
     }
 
-    /// Put the result back to the original. The editor forgets its
-    /// history with it: this is a new document, not an edit.
+    /// Put the result back to what cleaning made of the original — the
+    /// text kept from the read, so nothing is cleaned here, on the
+    /// thread that draws. The editor forgets its history with it: this
+    /// is a new document, not an edit.
     fn reset(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.original_text.to_string();
+        let text = self.cleaned_text.to_string();
         self.result.update(cx, |result, cx| {
             result.set_text(&text, window, cx);
             result.focus(window, cx);
@@ -764,23 +800,25 @@ impl CompareView {
                     (view.generation == mine).then(|| {
                         (
                             view.original_text.clone(),
+                            view.cleaned_text.clone(),
                             view.result.read(cx).text(cx).to_string(),
                         )
                     })
                 })
                 .ok()
                 .flatten();
-            let Some((original, result)) = texts else {
+            let Some((original, cleaned, result)) = texts else {
                 return;
             };
-            let diff = cx
+            let (diff, edited) = cx
                 .background_executor()
-                .spawn(async move { Diff::of(&original, &result) })
+                .spawn(async move { (Diff::of(&original, &result), *cleaned != *result) })
                 .await;
             view.update_in(cx, |view, window, cx| {
                 if view.generation != mine {
                     return;
                 }
+                view.edited = edited;
                 view.apply(diff, window, cx);
             })
             .ok();
@@ -1011,9 +1049,9 @@ impl Render for CompareView {
             .size_full()
             .bg(theme.background)
             .text_color(theme.foreground)
-            // The banner: what is not here yet, said where the result
-            // is — and the one control that is the window's rather
-            // than the editor's.
+            // The banner: what the result is, and that nothing here is
+            // saved or written — and the one control that is the
+            // window's rather than the editor's.
             .child(
                 h_flex()
                     .w_full()
@@ -1039,7 +1077,11 @@ impl Render for CompareView {
                             .icon(IconName::RotateLeft)
                             .label(SharedString::from(t(Message::CompareReset)))
                             .tooltip(SharedString::from(t(Message::CompareResetTooltip)))
-                            .disabled(!ready || self.diff.is_same())
+                            // Offered once the result has moved away
+                            // from the cleaned text — not from the
+                            // original, which it differs from whenever
+                            // cleaning found anything.
+                            .disabled(!ready || !self.edited)
                             .on_click(cx.listener(|view, _: &ClickEvent, window, cx| {
                                 view.reset(window, cx);
                             })),
@@ -1262,10 +1304,19 @@ mod tests {
         text: &str,
         comparison: Comparison,
     ) -> (Entity<CompareView>, &'a mut gpui::VisualTestContext) {
+        window_on(cx, of(Handed::Text(text.to_owned())), comparison)
+    }
+
+    /// A window on `subject`, read and ready — any road in, a file
+    /// included.
+    fn window_on(
+        cx: &mut TestAppContext,
+        subject: Subject,
+        comparison: Comparison,
+    ) -> (Entity<CompareView>, &mut gpui::VisualTestContext) {
         cx.update(gpui_component::init);
         let slot: Rc<std::cell::RefCell<Option<Entity<CompareView>>>> = Rc::default();
         let held = slot.clone();
-        let subject = of(Handed::Text(text.to_owned()));
         let (_, cx) = cx.add_window_view(move |window, cx| {
             let view = cx.new(|cx| CompareView::new(subject, comparison, window, cx));
             *held.borrow_mut() = Some(view.clone());
@@ -1453,6 +1504,160 @@ mod tests {
                 .document_color_provider
                 .is_none());
         });
+    }
+
+    // -- the result is the cleaned text ---------------------------------
+
+    /// What each pane holds, as it stands.
+    fn panes_of(view: &Entity<CompareView>, cx: &mut gpui::VisualTestContext) -> (String, String) {
+        cx.update(|_, cx| {
+            let view = view.read(cx);
+            (
+                view.original.read(cx).value().to_string(),
+                view.result.read(cx).text(cx).to_string(),
+            )
+        })
+    }
+
+    const MARKED: &str = "# Notes\n\nA zero\u{200B}width space.\n";
+
+    /// Opened on a text with a zero-width space, the original keeps it
+    /// and the result is what Layer A makes of it — the space gone, the
+    /// line marked, and Reset not yet offered because nothing has been
+    /// edited. Put the copy of the original back into `loaded` and this
+    /// goes red. A text with nothing to clean still opens on itself.
+    #[gpui::test]
+    fn the_result_is_the_cleaned_text_and_the_original_is_not(cx: &mut TestAppContext) {
+        let (view, cx) = window_with(cx, MARKED, Comparison::default());
+        settle(cx);
+        let (original, result) = panes_of(&view, cx);
+        assert_eq!(original, MARKED, "the original is not what arrived");
+        assert!(original.contains('\u{200B}'));
+        assert!(
+            !result.contains('\u{200B}'),
+            "the result still carries the zero-width space: {result:?}"
+        );
+        assert_eq!(
+            result,
+            wipemark_core::clean(MARKED, &Options::default()).text,
+            "the result is not Layer A at its defaults"
+        );
+        cx.update(|_, cx| {
+            let view = view.read(cx);
+            assert!(!view.diff.is_same(), "the cleaned line was not marked");
+            assert_eq!(view.diff.removed(), 1);
+            assert_eq!(view.diff.added(), 1);
+            assert!(!view.edited, "Reset is offered on an untouched result");
+        });
+    }
+
+    /// Nothing to clean: the result is the original, line for line, and
+    /// the summary says so.
+    #[gpui::test]
+    fn a_text_with_nothing_to_clean_opens_on_itself(cx: &mut TestAppContext) {
+        let plain = "# Notes\n\nNothing hidden here.\n";
+        let (view, cx) = window_with(cx, plain, Comparison::default());
+        settle(cx);
+        let (original, result) = panes_of(&view, cx);
+        assert_eq!(original, plain);
+        assert_eq!(result, plain);
+        let summary = cx.update(|_, cx| view.read(cx).summary());
+        assert_eq!(summary, t(Message::CompareSame));
+    }
+
+    /// Reset throws the edits away and lands on the cleaned text — not
+    /// on the original, which still has the zero-width space. Point
+    /// `reset` back at the original and this goes red.
+    #[gpui::test]
+    fn reset_returns_to_the_cleaned_text_not_the_original(cx: &mut TestAppContext) {
+        let (view, cx) = window_with(cx, MARKED, Comparison::default());
+        settle(cx);
+        let result = cx.update(|_, cx| view.read(cx).result.clone());
+        cx.update(|window, cx| {
+            result.update(cx, |result, cx| result.set_text("edited\n", window, cx));
+        });
+        settle(cx);
+        assert!(
+            cx.update(|_, cx| view.read(cx).edited),
+            "an edit did not offer Reset"
+        );
+
+        cx.update(|window, cx| view.update(cx, |view, cx| view.reset(window, cx)));
+        settle(cx);
+        let (original, result) = panes_of(&view, cx);
+        assert_eq!(
+            result,
+            wipemark_core::clean(MARKED, &Options::default()).text,
+            "Reset did not return to the cleaned text"
+        );
+        assert!(
+            !result.contains('\u{200B}'),
+            "Reset returned to the original"
+        );
+        assert_eq!(original, MARKED, "Reset touched the original");
+        assert!(
+            !cx.update(|_, cx| view.read(cx).edited),
+            "Reset is still offered after it ran"
+        );
+    }
+
+    /// Layer A is deterministic, so the window's result is the text the
+    /// queue's Clean writes beside the same file — the file cleaned
+    /// through `clean::clean_one` under the default plan, then opened
+    /// here by its path, in UTF-8 and in UTF-16LE with its mark.
+    #[gpui::test]
+    fn the_result_is_what_the_queue_writes(cx: &mut TestAppContext) {
+        use wipemark_intake::Encoding;
+
+        use crate::clean::{clean_one, Verdict};
+        use crate::drop::Arrival;
+        use crate::retention::{self, Homes, Plan, Retention, Source, Written};
+
+        let scratch = Scratch::new("queue-writes");
+        let homes = Homes {
+            results: scratch.0.join("results"),
+            kept: scratch.0.join("kept"),
+        };
+        let mut sources = Vec::new();
+        for (name, encoding) in [("utf8.md", Encoding::Utf8), ("utf16.md", Encoding::Utf16Le)] {
+            let text = match encoding {
+                Encoding::Utf8 => MARKED.to_owned(),
+                _ => format!("\u{FEFF}{MARKED}"),
+            };
+            let source = scratch.file(name, &wipemark_intake::text::encode(&text, encoding));
+            let handed = Handed::Path(source.clone());
+            let arrival = Arrival {
+                intake: wipemark_intake::of(&handed),
+                handed,
+            };
+            let plan = retention::plan(&Source::of(&arrival.intake), &Retention::default(), &homes);
+            assert!(
+                matches!(&plan, Plan::File(Written::Beside(_))),
+                "the default plan is not beside the file: {plan:?}"
+            );
+            let outcome = clean_one(&arrival, &plan, 1, chrono::Utc::now());
+            assert!(
+                matches!(outcome.verdict, Verdict::Cleaned),
+                "{name}: {:?}",
+                outcome.verdict
+            );
+            let written = outcome.written.expect("the queue wrote a result");
+            let bytes = std::fs::read(&written).expect("the written result");
+            let queue_wrote = preview::decode(&bytes, arrival.intake.encoding);
+            sources.push((source, queue_wrote));
+        }
+
+        for (source, queue_wrote) in sources {
+            let (view, window) = window_on(cx, of(Handed::Path(source)), Comparison::default());
+            settle(window);
+            let (original, result) = panes_of(&view, window);
+            assert!(original.contains('\u{200B}'));
+            assert!(!result.contains('\u{200B}'));
+            assert_eq!(
+                result, queue_wrote,
+                "the window shows a result the queue did not write"
+            );
+        }
     }
 
     /// The marks answer for the visible rows only, and the rows keep

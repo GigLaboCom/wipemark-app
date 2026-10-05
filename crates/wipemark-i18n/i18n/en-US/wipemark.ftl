@@ -379,15 +379,16 @@ kind-unknown = Unrecognised
 ## editors side by side: the original on the left, read-only, and the
 ## result on the right with a toolbar of the editor's own operations
 ## over it. Every line that differs is marked on both sides. The result
-## starts as a copy of the original, because nothing cleans anything in
-## this version yet — `compare-pending` says so and stays until it does.
+## starts as what cleaning makes of the original — the text the queue's
+## Clean writes — and the window itself saves and writes nothing;
+## `compare-pending` says both, here and on the Compare page of Settings.
 ## `compare-title` takes the thing's name; `compare-changed` takes two
 ## counts; `compare-refused-too-big` takes two sizes already spelled.
 
 compare-title = Compare · { $name }
 compare-original = Original
 compare-result = Result
-compare-pending = Cleaning in the Compare window is not in this version yet: the result starts as a copy of the original. Edit it, and every line that differs is marked on both sides.
+compare-pending = In the Compare window the result is what cleaning makes of the original, and every line that differs is marked on both sides. Editing the result there saves nothing, and closing the window writes nothing.
 compare-reading = Reading…
 compare-same = The result is the original, line for line.
 compare-changed = { $added ->
@@ -400,8 +401,8 @@ compare-changed = { $added ->
 compare-refused-not-text = This is not text, so there is nothing to compare line by line.
 compare-refused-too-big = At { $size } it is more than this window compares; the limit is { $limit }.
 compare-refused-unreadable = It could not be read.
-compare-reset = Back to the original
-compare-reset-tooltip = Throw the edits away; the result is the original again.
+compare-reset = Back to the cleaned text
+compare-reset-tooltip = Throw the edits away; the result is what cleaning made of the original again.
 compare-help = What this window does
 compare-help-marks = A red mark on the original is a line the result no longer has; a green one on the result is a line the original never had.
 compare-help-follows = The original follows the result's cursor, so the two sides stay in step.
@@ -409,7 +410,7 @@ compare-help-toolbar = The toolbar over the result is the editor's own operation
 compare-help-words = Within a passage that changed, the words that differ are marked more strongly.
 compare-help-characters = Within a passage that changed, the characters that differ are marked more strongly.
 compare-help-settings = What is marked, and whether the original follows, is chosen on the Compare page of Settings — for the next window opened.
-compare-help-close = Closing this window writes nothing; the result lives only here.
+compare-help-close = Closing this window writes nothing; edits to the result live only here.
 
 # The result's toolbar: one label per editor operation, shown as a
 # tooltip beside the shortcut the editor already binds to it, and two

@@ -4029,9 +4029,9 @@ impl SettingsView {
 
     /// The Compare page: how a result is shown beside its original.
     ///
-    /// The notice above the rows is the one every pending surface
-    /// carries: nothing is cleaned in this version yet, and the window
-    /// compares what is typed against what was started from. The
+    /// The notice above the rows is the window's own banner: the
+    /// result is what cleaning makes of the original, and editing it
+    /// saves nothing and closing the window writes nothing. The
     /// page's own sentence, under the heading, is the other thing a
     /// reader has to know — that a window reads these as it opens.
     fn compare(&self, cx: &Context<Self>) -> impl IntoElement {
