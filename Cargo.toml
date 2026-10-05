@@ -125,22 +125,35 @@ sysinfo = "0.31"
 # `unsafe` in the CLI. The CLI is its only user.
 ctrlc = "3"
 
-# GPUI is consumed from the Zed repo. Pinned to 81b16f464c — the same rev
-# heretic-amuse-merge pins, which is the last commit before `gpui:
-# Improve Anchored to support center position` (#47154) removed
-# `gpui::Corner` and renamed `Bounds::from_corner_and_size` in ways the
-# vendored gpui-component rev has not caught up with. Bump this in
-# lockstep with the submodule, never on its own.
-gpui = { git = "https://github.com/zed-industries/zed", rev = "81b16f464ce91e40c1c645b56675c26ee0b2b6c4" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "81b16f464ce91e40c1c645b56675c26ee0b2b6c4", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
+# GPUI is consumed from our fork of the Zed repo, GigLaboCom/zed, branch
+# `wipemark/x11-first-frame` (protected against deletion and force-push):
+# upstream 81b16f464c plus two X11 fixes in gpui_linux's x11/client.rs —
+# upstream #62081 (f4178619ac) backported, so a new window's MapNotify is
+# not left in x11rb's queue and the first frame is drawn without waiting
+# for input; and ours, so the desktop portal's appearance event does not
+# draw while the X11 client is borrowed (a `RefCell already mutably
+# borrowed` panic). CLAUDE.md, "Build, run, look", has both.
+#
+# 81b16f464c is the same upstream rev heretic-amuse-merge pins, the last
+# commit before `gpui: Improve Anchored to support center position`
+# (#47154) removed `gpui::Corner` and renamed
+# `Bounds::from_corner_and_size` in ways the vendored gpui-component rev
+# has not caught up with. Bump this in lockstep with the submodule, never
+# on its own — and a bump is a new branch on the fork from the new
+# upstream rev, re-carrying the portal fix (the #62081 one is upstream
+# from f4178619ac on).
+gpui = { git = "https://github.com/GigLaboCom/zed", rev = "9d80553d6a3d19491c19b68b0167a366bba3be63" }
+gpui_platform = { git = "https://github.com/GigLaboCom/zed", rev = "9d80553d6a3d19491c19b68b0167a366bba3be63", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
 
 # gpui-component is vendored as a submodule under vendor/gpui-component
 # and referenced by path (see CONTRIBUTING.md). The submodule lists its
-# own `gpui` deps WITHOUT a rev, so it would otherwise resolve against
-# whatever is on zed's main today and drift away from our copy — a
-# separate `gpui` package in the same binary, which does not link.
+# own `gpui` deps against upstream zed WITHOUT a rev, so it would
+# otherwise resolve against whatever is on zed's main today — a separate
+# `gpui` package in the same binary, which does not link. Cargo tells git
+# sources apart by URL, so the fork's URL matters as much as the rev.
 # `scripts/pin-gpui-component.sh` rewrites those five lines in the
-# submodule to our rev; run it after every clone or submodule update.
+# submodule to our URL and rev; run it after every clone or submodule
+# update.
 gpui-component = { path = "vendor/gpui-component/crates/ui" }
 
 wipemark-core = { path = "crates/wipemark-core" }

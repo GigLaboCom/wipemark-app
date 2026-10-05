@@ -75,6 +75,16 @@ patch that upstream does not have — see
 `docs/sdd/line-decorations.md`. It moved there from a personal fork on
 2026-10-03; nothing else about the pin changed.
 
+GPUI itself comes from **`GigLaboCom/zed`** (a fork of upstream
+`zed-industries/zed`), branch `wipemark/x11-first-frame`, protected the
+same way: upstream `81b16f4` plus two X11 fixes (below, "Build, run,
+look"). The root `Cargo.toml` names the fork's URL and commit, and the
+pin script rewrites the submodule's five zed dependencies to **both** —
+Cargo tells git sources apart by URL, so the same commit under
+upstream's URL would still be a second package. It moved there on
+2026-10-05; a checkout pinned before that is re-pinned by running the
+script again.
+
 Skipping the pin script produces two different `gpui` packages in one
 binary and a type error deep inside gpui-component that reads like a
 compiler bug. It is idempotent; run it whenever in doubt.
@@ -193,22 +203,23 @@ cargo test -p wipemark-app duty::           # one module's tests
 cargo test -p wipemark-app -- --nocapture   # with the log lines
 ```
 
-**On X11, GPUI at the pinned rev (`81b16f4`) has two bugs we have not
-fixed yet** (`scripts/verify/startup-frame/`, 2026-10-05). The first is why
-a new window often shows a stale piece of the screen until the mouse
-moves: its `MapNotify` stays in x11rb's queue, which calloop does not
-watch, so the refresh loop never starts and nothing is presented. That is
-upstream zed #62081 (`f4178619ac`), not in our pin, and not a driver
-problem. The second is a panic, `RefCell already mutably borrowed`
-(`gpui_linux`, `x11/window.rs:1556`): the desktop portal's appearance
-event draws while the X11 client is borrowed. It needs gpui's
-`test-support`, which a `cargo test` links into `target/debug/wipemark`;
-a `cargo build -p wipemark-app` after it should give a binary without it
-(inferred, not yet checked). Until a fix is carried, a live check starts
-the app with the session bus out of reach,
-`DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent`, which also stops the
-theme following the system and may stop the portal-backed Open and Show
-in folder; `scripts/verify/e7/live-disk.sh` does that.
+**On X11, GPUI at upstream `81b16f4` has two bugs, and both are fixed
+on the fork branch we build from**, `GigLaboCom/zed`
+`wipemark/x11-first-frame` (`scripts/verify/startup-frame/`, 2026-10-05).
+The first is why a new window often showed a stale piece of the screen
+until the mouse moved: its `MapNotify` stayed in x11rb's queue, which
+calloop does not watch, so the refresh loop never started and nothing was
+presented. That is upstream zed #62081 (`f4178619ac`), backported as the
+branch's first commit — not a driver problem. The second was a panic,
+`RefCell already mutably borrowed` (`gpui_linux`, `x11/window.rs:1556`):
+the desktop portal's appearance event drew while the X11 client was
+borrowed. It showed only with gpui's `test-support`, which a `cargo test`
+links into `target/debug/wipemark`; the branch's second commit is ours and
+has no upstream counterpart. **A GPUI bump must re-carry the second**: a
+new fork branch from the new upstream rev with that commit on it (the
+first is upstream from `f4178619ac` on). A live check no longer needs the
+session bus out of reach; `scripts/verify/e7/live-disk.sh` still defaults
+to `DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent` (`APP_DBUS`).
 
 Five things steer a run, and every one of them exists so a check can be
 made against something other than the real installation:

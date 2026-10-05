@@ -26,9 +26,15 @@ That is not the revision we pin, so the build ends up with two different
 `gpui` packages in one binary and fails somewhere deep inside
 gpui-component with an error that reads like a compiler bug.
 
-Bumping `gpui` means bumping three things in one sitting: the rev in
-`Cargo.toml`, the `REV` in `scripts/pin-gpui-component.sh`, and the
-submodule checkout. Bump them in heretic-amuse-merge too — two Heretic
+GPUI comes from the organisation's fork, `GigLaboCom/zed`, branch
+`wipemark/x11-first-frame` (upstream `81b16f4` plus two X11 fixes), and
+the script rewrites the submodule's lines to the fork's URL as well as
+its rev: the same commit under two URLs is still two packages.
+
+Bumping `gpui` means a new branch on the fork from the new upstream rev,
+re-carrying the portal fix (the other one is upstream from `f4178619ac`
+on), then three things in one sitting: the rev in `Cargo.toml`, the `REV`
+in `scripts/pin-gpui-component.sh`, and the submodule checkout. Bump them in heretic-amuse-merge too — two Heretic
 apps on different gpui revisions is how the vendored component drifts.
 
 ## Before you push
