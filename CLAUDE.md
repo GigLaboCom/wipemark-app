@@ -42,9 +42,13 @@ tested on `FakeEngine` and against Qwen3 4B. The MCP tool `rewrite` and
 `docs/architecture/pipeline.md`, "The loop". The batch queue exists too —
 `wipemark-queue`: one document at a time, pause, cancel, resumable per
 chunk, surviving `kill -9` — and nothing pushes to it yet (E4-6/E7).
-Images exist as a library: `wipemark-image` reads and strips provenance
-metadata from PNG, JPEG and WebP without touching a pixel, and nothing
-calls it yet; see `docs/architecture/images.md`.
+Images exist too: `wipemark-image` reads and strips provenance metadata
+from PNG, JPEG and WebP without touching a pixel; `wipemark-pixels` finds,
+proves and takes off a generator's visible mark (Gemini's sparkle, V1 and
+V2) over a decoded raster; `wipemark-picture` runs both on a picture file
+with one writer; and `wipemark-cli inspect|clean|audit` and the MCP tools
+`inspect_image`/`clean_image` call them — no window does yet (E7/E12-8).
+See `docs/architecture/images.md` and `docs/architecture/visible-marks.md`.
 
 ## First command after any clone or submodule update
 
@@ -199,7 +203,7 @@ over the `settings` table — one row per key, values as JSON.
 
 ## Where things are
 
-Fourteen libraries under `crates/`, two applications under `apps/`. The
+Sixteen libraries under `crates/`, two applications under `apps/`. The
 dependency rule below is what keeps them apart, and
 `scripts/check-dep-direction.sh` prints the whole graph in a second —
 it reads the manifests rather than the resolved graph, so it runs
@@ -220,7 +224,9 @@ it sits.
 | `wipemark-secret` | the OS credential store, and `Secret` | real |
 | `wipemark-log` | the rotating file, the panic hook, `Elided` | real |
 | `wipemark-i18n` | the Fluent catalogues and the `Message` enum `build.rs` generates from them | real |
-| `wipemark-image` | PNG, JPEG and WebP metadata: blocks that tile the file, the AI signals as data, `inspect`/`strip` with the raster unchanged | real for PNG/JPEG/WebP (E11-1); TIFF, HEIC/AVIF refused by name (backlog); no surface calls it yet (**E11-2**) |
+| `wipemark-image` | PNG, JPEG and WebP metadata: blocks that tile the file, the AI signals as data, `inspect`/`strip` with the raster unchanged; and `reframe`, the one writer for a picture whose pixels changed (`reframe(x, x) == strip(x)`) | real for PNG/JPEG/WebP (E11-1, E11-3; `reframe` E12-3); TIFF, HEIC/AVIF refused by name (backlog); the CLI and the MCP server call it (E11-2), `wipemark-picture` too; no window yet (**E7**) |
+| `wipemark-pixels` | visible marks as data: the raster, the `.wma` opacity map, the compiled-in catalogue `manifests/marks.v1.json` with every asset pinned by sha256; propose (rows at their own place, then a search refined to the sub-pixel and to the filter that shrank the mark) → verify (edge energy over the unclamped inverse: proved, a blend not proved, or no blend) → restore, the outline check, holes, the second pass; calibration (`examples/calibrate.rs`); the report whose shelf leads with `invisible-pixel-marks`. No codec | real (E12-1, E12-2, three rounds of host verification); Gemini V1/V2 from GWT's maps (`marks/gwt/`), V1's large-row map and logo measured from real outputs (`gemini-v1-96-measured`), V2's small rows from GWT's formula; other vendors **E12-6** |
+| `wipemark-picture` | a picture file through both passes: decode to the stored raster, the visible pass, encode like the original, `wipemark_image::reframe`, the proof before a byte is handed back — one writer | real for PNG, WebP (lossless out) and JPEG (re-encoded at quality 95; CMYK examined, never written back) (E12-3, E12-4); the CLI and the MCP tools call it (E12-5); no window yet (**E12-8**) |
 | `wipemark-intake` | what was handed over — text, bytes or a path — and what it turns out to be; and `inplace`, the one module that writes: a result beside a file or over it, the original set aside first | real |
 | `wipemark-license` | activation, grace, and what a lapse never locks | types; **E9** |
 
@@ -267,14 +273,16 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `icon.rs` | `IconName` — the only glyph names that resolve — and the `Icon` element |
 | `assets.rs` | `WipemarkAssets`, the single `AssetSource` GPUI resolves every `svg()` against |
 | `dock_icon.rs` | the Dock icon for a `cargo run` that is not an `.app` |
-| `mcp/` | the JSON-RPC server, its protocol and its tools — `rewrite.rs` the one tool that runs the pipeline — and the beacon it writes |
+| `mcp/` | the JSON-RPC server, its protocol and its tools — `rewrite.rs` the one tool that runs the pipeline, `image.rs` the picture tools — and the beacon it writes |
 
 `apps/wipemark-cli/src/main.rs` is the other application: the argument
 surface, the language flag read out of `argv` before clap parses (so
 `--language=de --help` prints German), and the exit codes below. Beside
 it, `input.rs` reads and decodes a path or stdin through
 `wipemark-intake`, `report.rs` is the human report, `run.rs` is the
-two flows — `inspect` and `clean` — and their exit codes, `inplace.rs`
+two flows — `inspect` and `clean` — and their exit codes, `image.rs`
+the same two on a picture (the bytes decide, `input::read_any`) through
+`wipemark-picture` — metadata and visible marks, one writer — `inplace.rs`
 `clean --in-place` over `wipemark_intake::inplace`, which is every write
 to disk (the original set aside first, never over one already there),
 `audit.rs` the walk of a folder
@@ -297,8 +305,11 @@ Anything that needed more than a rule to explain is in `docs/`;
 * **Dependency direction:** `core ← engine ← pipeline ← app/cli`;
   `engine → wipemark-llama → wipemark-llama-sys`, and neither llama crate
   depends on anything of ours; `models` never depends on `engine`;
-  `image` depends only on `core`; `pipeline ← queue → store, intake`;
-  nothing depends on an app crate.
+  `image` depends only on `core`; `pixels` depends only on `core`, and
+  `image` and `pixels` never on each other; `picture → core, image,
+  pixels`, the one crate that decodes a picture; `i18n` takes `core` and
+  `pixels` as dev-dependencies only, for its shelf gates;
+  `pipeline ← queue → store, intake`; nothing depends on an app crate.
 * **Nothing blocks the GPUI thread.** Long work returns a
   `flume::Receiver<Event>` that the GPUI side polls from `cx.spawn`.
   One `std::fs::read` of a 2 GB model on the foreground thread is a
@@ -771,9 +782,16 @@ Anything that needed more than a rule to explain is in `docs/`;
   in it); a call blocks until its job ends, and a hang-up or 60 minutes
   cancels it; `dry_run` prices and loads nothing; `templates` lays a
   caller's templates over the rows, validated strictly; `structural` and
-  `code` are refused (they need a confirmation in a window). The banner
-  at the top of the pane (`settings-mcp-tools`) says what the three tools
-  do and where a rewrite sends the document. **A server bound past
+  `code` are refused (they need a confirmation in a window).
+  `inspect_image { data }` and `clean_image { data, scope }` (E11-2,
+  E12-5) take a picture as base64 — no path argument — and run
+  `wipemark-picture`, the metadata pass and the visible one; a mark left
+  comes back with the image and `marks_left: true`, while a result that
+  would still carry provenance metadata, or a restored picture that could
+  not be written back or failed its own check, is a refusal with no
+  image; the body stays 1 MiB (Q-V5). The banner at the top of the pane
+  (`settings-mcp-tools`) says what the five tools do and where a rewrite
+  sends the document. **A server bound past
   loopback serves `rewrite` with no password too** — the pane's warning
   covers it.
 * **Nothing the MCP server says comes from the catalogue.** The
@@ -1294,7 +1312,12 @@ Anything that needed more than a rule to explain is in `docs/`;
   metadata.** `crates/wipemark-image`: every byte of a PNG, JPEG or WebP
   belongs to exactly one block, and `strip` concatenates the kept ones
   byte for byte — the only bytes it ever computes are a WebP's RIFF size
-  and two `VP8X` bits, and only when a chunk went. Colour (`Rendering`:
+  and two `VP8X` bits, and a JPEG MP Index's first-picture size, and only
+  when a block went; a strip reports the EXIF Orientation a removed block
+  carried (`orientation_removed`). Its one other writer is `reframe`, for
+  a picture whose pixels changed: the new file's structure in the
+  original's metadata, filtered by `strip`'s own rule, so
+  `reframe(x, x) == strip(x)`. Colour (`Rendering`:
   ICC, gamma, sRGB…) is removed by no scope, because its loss changes
   how the picture looks while no raster check can see it. `still_has_*`
   and `kept` come from a second `inspect` of the output, never from
@@ -1304,6 +1327,38 @@ Anything that needed more than a rule to explain is in `docs/`;
   and the image-data bytes, compared by walkers that share no code with
   the parsers (`pixels_never_change`, `image_data_is_byte_identical`).
   See `docs/architecture/images.md`.
+* **A visible mark comes off only once it is proved, and what is left is
+  said.** `crates/wipemark-pixels` over a decoded raster,
+  `crates/wipemark-picture` for the file. A mark is data — a profile in
+  `manifests/marks.v1.json`, its maps pinned by sha256. NCC proposes: a
+  placement row at its own rectangle and **never moved**, and the search,
+  refined to an eighth of a pixel, only when no row's mark was proved
+  (D236). Edge energy over the unclamped inverse decides, and there are
+  three outcomes (D235): **proved**, and restored; **a blend not proved**
+  (the gain is not the mark's, the edges do not go far enough, the
+  inverse leaves the range), a finding left in place; **no blend**, which
+  is not a finding — never reported, never an exit code. Only a
+  `Verified` is restored, and an opaque pixel is a hole, never a
+  division. Out of range is counted in stored levels, past an allowance
+  of 8 (`BLEND_LEVELS`, D240). After a restoration the outline is held
+  three ways — its share of the mark's contour energy (D238), the faint
+  band's step in luma levels against the surroundings and their own
+  spread (D244), and the same in colour difference `‖(ΔCb, ΔCr)‖`
+  (D247) — and an outline left is a mark left. V1's large-row map and
+  logo are measured from real outputs (D242, D243), and a fitted map is
+  never claimed exact (D245); how close a restoration came is said as a
+  mean, the farthest channel's, never as a bound (D248), and "searched"
+  and "resampled" only when they happened (D249). The output is proved
+  before a byte is handed back — it decodes to the restored raster
+  (exactly when lossless, over a 34 dB PSNR floor for a JPEG re-encoded
+  at 95), nothing outside the mark moved, nothing verifies on it — or
+  nothing is written; nothing restored is `strip`'s output to the byte.
+  No flag: a proved mark is removed (the owner, 2026-10-04). The
+  picture's third shelf leads with `invisible-pixel-marks`, in every
+  language. The known limitation: a 4:2:0 JPEG under quality 95 is often
+  refused out of range — how often depends on where its blocks fall
+  around the mark — and is then said to be left, exit 3. See
+  `docs/architecture/visible-marks.md`.
 * **Layer A is never licence-gated.** Any state, expired or invalid,
   keeps the deterministic scrubber available.
 * **The CLI finds the application by its beacon, and only on loopback.**
@@ -1331,7 +1386,16 @@ Anything that needed more than a rule to explain is in `docs/`;
   kept its cleaned original, 3 beating 1 the same way. Stubs refuse loudly at **2** and say
   what did not run; never exit 0 for work that did not happen. A model
   that `models verify` finds absent or not matching exits **1**: a
-  finding, like a mark.
+  finding, like a mark. A picture keeps the four: `inspect` exits 1 on
+  AI provenance or a visible mark (camera EXIF is not a finding) and 3
+  when its pixels should have been examined and were not (a catalogue
+  that did not load, a damaged JPEG scan, an animation's frames), 3
+  beating 1; `clean` exits by the input, and a mark left — not proved,
+  under opaque pixels, or restored with its outline left — or pixels not
+  examined is **3 with the result written**, while provenance metadata
+  left is **3 with nothing written**; TIFF, HEIC and AVIF are 2 by name,
+  a picture that could not be read 3 (`docs/architecture/cli.md`,
+  "Images").
 * **Tests must be able to fail.** RED first, and for the protections
   that matter (emoji ZWJ / VS16 preservation, path containment, the
   prompts' marker ownership and placeholder rule) delete the protection locally and confirm the suite
@@ -1393,6 +1457,9 @@ What exists so far:
 | `wipemark-task-images-followups-2-2026-10-04` | FILE | the second host verification's findings as S1–S6 (an outline on a flat picture, the search's map, the out-of-range proof unguarded, the fixture, "exact", V2's noise) |
 | `wipemark-images-followups-2-report-2026-10-04` | FILE | its report (D244–D246) |
 | `wipemark-task-images-followups-3-2026-10-05` | FILE | the third verification's findings as T1–T2 + low: the outline is blind to colour (a 4:2:0 JPEG's fringe reported clean), the residual sentence states a mean as a bound |
+| `wipemark-images-followups-3-report-2026-10-05` | FILE | the third round's report: T1, the outline held in colour (D247); T2, the residual said as a mean (D248); L1–L3, "searched" and "resampled" said only when they happened (D249), decimals and plurals. The host verification found it mergeable; its JPEG tables were measured on the 1025 crops, not the 2048 originals |
+| `wipemark-task-images-followups-4-2026-10-05` | FILE | the fourth host verification's findings, after the merge: the JPEG tables re-measured on the 2048 originals (refusal at 4:2:0 depends on block alignment), a textured ghost on a 4:4:4 JPEG said, the outline figure and Cb half pinned; decisions D250–D259 |
+| `wipemark-task-e7-windows-clean-2026-10-05` | FILE | a task for an agent in a container: E7-1…E7-6, the windows clean text and pictures — the cleaner `clean.rs`, the queue's Clean / Clean all / `--clean=`, Compare's real result, the report with its three shelves, the panel, every "not yet" sentence; decisions from D260; checked live on the host after |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
@@ -1406,10 +1473,13 @@ suffix rather than replaced — and move this table to the new key.
 The plan of record is `docs/plan/README.md`; E1 is split there into
 seven self-sufficient implementer documents (`docs/plan/E1-1` …
 `E1-7`) for the `implementer-xhigh` agent, and every decision taken
-beyond the specs is a numbered row (D1–D44) in its §4.
+beyond the specs is a numbered row (D1 onwards) in its §4.
 
 E0 skeleton (done) → **E1 `wipemark-core` Layer A** → E2 engines →
 E3 models → E4 pipeline → E5 CLI → E6 GPUI shell → E7 workspace UI →
 E8 models/engine UI → E9 licensing → E10 packaging; E11 images is
-phase 2. E1 and E3 parallelise in separate worktrees; E5 lands before
+phase 2 and E12 visible marks phase 2b — E11-1…E11-3 and E12-1…E12-5
+are done (the images series merged 2026-10-05); E12-6 (other vendors),
+E12-7 (the reconstructor) and E12-8 (the windows, with E7) are not
+started. E1 and E3 parallelise in separate worktrees; E5 lands before
 E6 and gives agents a usable product before the GUI exists.
