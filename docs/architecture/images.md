@@ -6,7 +6,11 @@ from, and the same file without it. Built in E11-1
 `docs/plan/reports/E11-1-2026-10-04.md`). Two surfaces call it (E11-2,
 `docs/plan/E11-2-images-on-the-surfaces.md`): `wipemark-cli inspect|clean|audit`
 and the MCP tools `inspect_image` and `clean_image` — see "Surfaces" below.
-No window does yet: not the queue, not the panel (E7).
+The windows call it through `wipemark-picture` (E7): the queue's and the
+panel's **Clean** strip AI provenance metadata (`Scope::AiProvenance`) and take off a
+proved visible mark, by the same rules as `clean_image`
+(`apps/wipemark-app/src/clean.rs`, `docs/architecture/queue.md`,
+"Cleaning").
 
 ## The promise, and how it is kept
 
@@ -290,5 +294,5 @@ leads with `invisible-pixel-marks` (`docs/architecture/visible-marks.md`,
 TIFF (IFDs — a strip there *is* an IFD rewrite, unlike here), then
 HEIC/AVIF (ISOBMFF `meta`/`uuid`, `iloc` offsets that move when a box
 goes) — both in the backlog, built only on demand (owner: "AI generates
-JPEG and PNG"). The windows: the queue and the panel showing a picture's
-report (E7).
+JPEG and PNG"). "All metadata" (camera data, orientation) from the
+windows is an owner question; they strip AI provenance only.

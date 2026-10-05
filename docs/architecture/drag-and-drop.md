@@ -292,7 +292,7 @@ stated reason:
 
 | absent | why |
 |---|---|
-| cleaning anything | Layer A exists since E1 but runs from the command line and over MCP; cleaning what was dropped is E7, images are E11 |
+| cleaning anything | not this document's job: what was dropped is cleaned by `clean.rs` when somebody presses Clean (E7) — see `docs/architecture/queue.md`, "Cleaning", and `retention.md` |
 | expanding folders and archives | needs its own rule — traversal, symlinks, a limit on how many files, cancellation |
 | paste by key (⌘V) | the toolbar's **Paste** button reads the same `Handed` off the same `NSPasteboard` (`pasteboard::from_clipboard`, `crate::clipboard`) and lands it in the queue; a key for it has to wait until it can tell a paste into the filter bar's fields from a paste into the queue |
 | Linux, Windows | E10; until then `drop::zone` offers what GPUI itself does, which is files |

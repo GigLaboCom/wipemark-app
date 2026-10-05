@@ -110,7 +110,7 @@ setup-step-model = Das Modell
 setup-step-endpoint = Die Adresse
 setup-step-done = Fertig
 
-setup-welcome-body = { -brand-name } entfernt KI-Herkunftsspuren aus Ihren eigenen Inhalten in zwei Schichten: { -layer-a }, die die unsichtbaren Zeichen entfernt und deterministisch ist, und { -layer-b }, das ein Sprachmodell um eine Umformulierung bittet. In dieser Version laufen beide über die Kommandozeile und für einen Agenten über MCP, aber noch nicht aus diesen Fenstern. Diese Schritte klären, was das Umschreiben braucht: wer umschreibt, und was dafür nötig ist.
+setup-welcome-body = { -brand-name } entfernt KI-Herkunftsspuren aus Ihren eigenen Inhalten in zwei Schichten: { -layer-a }, die die unsichtbaren Zeichen entfernt und deterministisch ist, und { -layer-b }, das ein Sprachmodell um eine Umformulierung bittet. In dieser Version läuft die { -layer-a } aus diesen Fenstern — mit „Bereinigen“ im Hauptfenster und im Panel — sowie über die Kommandozeile und für einen Agenten über MCP; { -layer-b } läuft über die Kommandozeile und über MCP, aber noch nicht aus diesen Fenstern. Diese Schritte klären, was das Umschreiben braucht: wer umschreibt, und was dafür nötig ist.
 setup-welcome-again = Alles hier lässt sich später in den Einstellungen ändern, und dieser Rundgang lässt sich von deren Seite „Allgemein“ aus wiederholen.
 
 setup-machine-reading = Lese diesen Rechner…
@@ -521,7 +521,7 @@ settings-retention-keeps-nothing = Was ohne Datei ankommt — Eingefügtes, aus 
 settings-retention-keeps-originals = Das Original von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten; Ergebnisse nicht.
 settings-retention-keeps-results = Das Ergebnis von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten; Originale nicht.
 settings-retention-keeps-both = Original und Ergebnis von Eingefügtem oder Gezogenem bleiben in { $folder } { $period } erhalten.
-settings-retention-pending = Noch schreibt kein Fenster etwas: Keines bereinigt in dieser Version, und { -layer-b } ist nicht enthalten. Diese Einstellungen legen fest, was mit einer Datei und mit Eingefügtem geschieht, sobald sie es tun. Die Kommandozeile liest sie nie.
+settings-retention-pending = Die Fenster bereinigen nach diesen Regeln: Was sie schreiben und was sie aufbewahren, legt diese Seite fest. Die Kommandozeile und Agenten lesen keine davon — der Kommandozeile wird bei jedem Aufruf gesagt, wohin ihr Ergebnis geht, und ein Agent bekommt sein Ergebnis zurück.
 
 settings-retention-destination-title = Wohin Ergebnisse gehen
 settings-retention-destination-description = „Neben die Datei“ schreibt name.cleaned.ext daneben und lässt die Datei, wie sie ist. Der Ergebnisordner ist der unten. „Anstelle der Datei“ ersetzt sie — nachdem das Original als name.original.ext beiseitegelegt wurde, und nie über ein bereits vorhandenes Original.

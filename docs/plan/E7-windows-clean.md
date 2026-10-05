@@ -178,10 +178,20 @@ pure functions.
 
 ### E7-6 — every "not yet", and the docs
 
-`toolbar-help-pending`, `settings-retention-pending` (renamed test
-`the_retention_banner_says_who_follows_it`), `setup-welcome-body`, and
-every other sentence that says the windows do not clean — in en, ru and de;
-the architecture documents named in the task, those lines only.
+`toolbar-help-pending` (rewritten in E7-2, D271), `settings-retention-pending`
+— "the windows clean by these rules; the command line and agents read none
+of them" (renamed test `the_retention_banner_says_who_follows_it`) — and
+`setup-welcome-body` — cleaning runs from these windows, rewriting does
+not — in en, ru and de, with the en comments above them. `queue-pending`,
+`panel-pending` and `compare-pending` were rewritten with their steps; the
+tray's Clean Clipboard and the Engine and Models lines stay. The documents:
+`queue.md` (the table's Status and Actions rows), `retention.md` (the
+windows execute rules 1–7 — "How the windows execute it", the sweep),
+`images.md` and `visible-marks.md` (the "no window" lines),
+`drag-and-drop.md`'s "cleaning anything" row; and two the task did not name
+whose sentence had become false, `layer-a.md` ("Who calls it") and
+`skeleton.md`'s row for the app. `compare.md` was rewritten in E7-3. The
+live check for the host is `docs/plan/reports/E7-windows-clean-live-check.md`.
 
 ## §5 Tests, with a mutation per protection
 
@@ -262,7 +272,12 @@ for a floating level and a destination as it opens (`afloat`,
 is more than this step's change. What the window paints from these
 functions is checked live.
 
-E7-6 adds its rows when it lands.
+E7-6 (`settings.rs`, over the real catalogues):
+
+| test | protects | mutation |
+|---|---|---|
+| `the_retention_banner_says_who_follows_it` (renamed from `the_retention_banner_always_says_nothing_is_written_yet`) | the last line in every state is the new sentence — the windows, the command line, "read none of them" — and in every language it is not the old one and names agents | E7-6/M1 the old en sentence, M2 the old ru sentence |
+| `the_welcome_says_the_windows_clean_and_do_not_rewrite` | `setup-welcome-body`: cleaning runs from the windows, rewriting not yet; never the old "neither runs" in any language | E7-6/M3 |
 
 ## §6 Acceptance
 

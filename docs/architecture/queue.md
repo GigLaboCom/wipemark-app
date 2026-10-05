@@ -30,13 +30,13 @@ keeps the shape and changes what a row is about:
 | the thumbnail is the whole preview | hovering the preview opens a **hover card** with the picture at 560 × 380 or up to two thousand characters, the caption, and what the Retention page would do with it | a row is 72 points tall; recognising a document takes more than that, and a modal for it would be a third window |
 | `type` (region, window, display…) | **Kind** — Text, Image, Document, Archive, Media, Data, Folder, Unrecognised — one colour each | the same badge, over `wipemark-intake`'s taxonomy |
 | `filename` | **Name**, with the folder under it and the evidence note under that — "Named Text, and the contents are PNG" in the warning colour | a file whose name lies is the file somebody most needs told about; the panel says it, and so does the row |
-| `status` (active / deleted) | absent | a row has no lifecycle yet: nothing is cleaned, nothing is deleted |
+| `status` (active / deleted) | **Status** — waiting, queued, cleaning, then what the clean found (nothing found, cleaned, partly, not cleaned, failed), one colour each; a row that cannot be cleaned says so and why | a row's life is the clean ("Cleaning" below); nothing is deleted, the list empties with the process |
 | created and updated | **Arrived**, one clock reading, sortable | there is one event in a row's life so far |
 | a date range in the filter bar | absent | a list that empties when the application quits does not need a calendar |
 | `id LIKE '%…%'`, `key_word LIKE '%…%'` | the same, in memory: substrings, case-insensitive for the keyword | three remembered digits find the row |
 | `ORDER BY id DESC` | newest first, and the Arrived header flips it | the thing just dropped is the thing being looked for |
 | page size persisted as a setting | page size kept for the session | a persisted preference here is a row with a Settings widget (`every_persisted_preference_has_a_row`), and the size of a table is not yet worth one |
-| Actions: open, copy path, beautify, edit, OCR, delete | Actions: **open with the default app** | the one action that means something before the cleaner exists; it is disabled, not absent, on a row with no file behind it |
+| Actions: open, copy path, beautify, edit, OCR, delete | Actions: **Clean**, **open with the default app**, **Compare with the result**, and once cleaned **open**, **show** and **copy the result**, the **Report…**, and **Replace the existing result** when a clean was refused for one | what can be done to one thing that arrived; an item that cannot apply to a row is disabled, not absent (a row with no file behind it opens nothing) |
 | `assign_keyword` over MCP | a Keyword column and filter, and nothing that assigns one | the MCP tool that will assign one does not exist yet; the column is here so the day it lands is a tool change and not a table change |
 
 ## How things get in

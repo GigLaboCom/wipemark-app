@@ -1,17 +1,19 @@
-# E7 — the windows clean: report, E7-1 … E7-5
+# E7 — the windows clean: report, E7-1 … E7-6
 
 Task: Watchword FILE `wipemark-task-e7-windows-clean-2026-10-05`. Plan:
 [`docs/plan/E7-windows-clean.md`](../E7-windows-clean.md). Branch
 `e7/windows-clean`, from `origin/images/series-v3` at `ebf421a` (the fourth
 images round). `origin/feat/e0-e6-shell` came to contain `series-v3` during
 the series and was merged at `e70d2e6` (it brought `CLAUDE.md` and
-`docs/plan/README.md` only).
+`docs/plan/README.md` only). `origin/images/series-v3` then moved again
+(`2cc421d`, the fifth images round — tests, docs and fixtures) without
+`feat/e0-e6-shell` containing it, and was merged at `dcd9d98`.
 
-**Status: E7-1 … E7-5 are done. E7-6 is not** — this report grows
-step by step as the owner asks for each part, and it is not the series'
-final report: the Watchword upload and the live-check script for the
-host belong to the end of the series (§7 of the task), after `--clean=`
-exists (E7-2).
+**Status: E7-1 … E7-6 are done.** This is the series' final report (§7 of
+the task), uploaded to Watchword as `wipemark-e7-windows-clean-report-2026-10-05`.
+The live check for the host is
+[`E7-windows-clean-live-check.md`](E7-windows-clean-live-check.md); it has
+not been run — this container cannot open a window.
 
 ## Steps
 
@@ -21,8 +23,8 @@ exists (E7-2).
 | E7-2 the queue cleans | yes | `6895b6d` | 2 `#[gpui::test]` + 3 in `queue::tests`, 1 in `clean::tests`, 2 in `wording::tests`, 2 in `main::tests` | 7 of 7 (M1–M7) |
 | E7-3 Compare shows the real result | yes | `9555ab7` | 4 `#[gpui::test]` in `compare::tests` | 4 of 4 (M1–M4) |
 | E7-4 the report, three shelves | yes | `2fc5d2d` | 4 + 2 `#[gpui::test]` in `report::tests` | 7 of 7 (M1–M7) |
-| E7-5 the panel | yes | (this commit) | 5 in `panel::tests`, 2 in `clean::tests` | 8 of 8 (M1–M8) |
-| E7-6 every "not yet", the docs | no | — | — | — |
+| E7-5 the panel | yes | `d8945eb` | 5 in `panel::tests`, 2 in `clean::tests` | 8 of 8 (M1–M8) |
+| E7-6 every "not yet", the docs | yes | (this commit) | 1 renamed + 1 new in `settings::tests` | 3 of 3 (M1–M3) |
 
 ## What E7-1 built
 
@@ -135,7 +137,39 @@ owner's request, and cherry-picked onto the branch before E7-4 (its notes,
   `panel-pending` rewritten in place to say only that rewriting is not in the
   windows.
 
-## Mutations (`docs/plan/reports/e7-windows-clean-mutate.py E7-1 … E7-5`)
+## What E7-6 built
+
+- The catalogue, en/ru/de: `settings-retention-pending` — "The windows clean
+  by these rules: what they write, and what they keep, follows this page.
+  The command line and agents read none of them — the command line is told
+  where a result goes on each run, and an agent gets its result back." —
+  and `setup-welcome-body`: cleaning runs from these windows (Clean in the
+  main window and in the panel) as well as from the command line and over
+  MCP; rewriting runs from the command line and over MCP, not from these
+  windows yet. The en comments above both, and the toolbar's.
+  `toolbar-help-pending`, `queue-pending`, `panel-pending` and
+  `compare-pending` had been rewritten with their own steps. Left alone, as
+  the task says: `tray-clean-clipboard` ("— not yet") and every Engine and
+  Models line, which are about the model. A grep of the three catalogues
+  for "not in this version" and "yet" finds nothing else about cleaning in
+  the windows (the rest is the CLI's refusals, TIFF/HEIC/AVIF, the hotkey
+  platform, an empty queue and the model).
+- `settings.rs`: `the_retention_banner_always_says_nothing_is_written_yet`
+  is now `the_retention_banner_says_who_follows_it`, asserting the new line
+  in every state and, in every language, not the old one;
+  `the_welcome_says_the_windows_clean_and_do_not_rewrite` is new.
+- The documents: `queue.md` (the table's Status and Actions rows; its
+  cleaning section came in E7-2/E7-4), `retention.md` (the introduction,
+  the plan read at each start, **How the windows execute it** — rules 1–7
+  through `clean.rs`, and what the sweep removes — and "What is left
+  open"), `images.md`, `visible-marks.md`, `drag-and-drop.md`'s "cleaning
+  anything" row, and `layer-a.md` and `skeleton.md` (deviation 18).
+- `docs/plan/reports/E7-windows-clean-live-check.md`: the fourteen cases of
+  §7, each with its command, what the window must show and what must be on
+  disk; every result is compared byte for byte (`cmp`) with what
+  `wipemark-cli clean` writes for the same input.
+
+## Mutations (`docs/plan/reports/e7-windows-clean-mutate.py E7-1 … E7-6`)
 
 | # | protection | result | tests |
 |---|---|---|---|
@@ -177,6 +211,9 @@ owner's request, and cherry-picked onto the branch before E7-4 (its notes,
 | E7-5/M6 | AI metadata dropped from a not-examined line | red | `the_findings_line_says_what_a_look_found` |
 | E7-5/M7 | the panel says again that it does not clean | red | `the_panel_says_only_rewriting_is_not_here` |
 | E7-5/M8 | one number handed out twice, a kept directory shared | red | `a_number_is_handed_out_once` |
+| E7-6/M1 | the Retention banner says again that no window writes | red | `the_retention_banner_says_who_follows_it` |
+| E7-6/M2 | the Russian Retention banner keeps the old sentence | red | `the_retention_banner_says_who_follows_it` |
+| E7-6/M3 | the walk-through says again that neither layer runs from the windows | red | `the_welcome_says_the_windows_clean_and_do_not_rewrite` |
 
 E7-1's twelve were run again after E7-2 (M1's text moved with D270): all
 red. E7-2/M3 first came out **green** — Clean all already skips what is not
@@ -186,7 +223,10 @@ rows again by id, as `--clean=` and the menu do, and it is red.
 `git status --short` after the run: only this step's own uncommitted files.
 
 E7-5's eight have no counterpart in the task's list (it names none for the
-panel); they are this step's own protections, all red.
+panel); they are this step's own protections, all red. E7-6's three are the
+task's "must go red with the old sentence", for the banner in two languages
+and for the walk-through. **41 mutations in all, 41 red**, the tree restored
+after each run.
 
 Every mutation the task's list names is now in the script: the last three
 were E7-3/M1, E7-4/M1 and E7-4/M2. E7-3's four were run by the second
@@ -199,11 +239,11 @@ the cherry-pick.
 |---|---|
 | `rustup run nightly rustfmt --edition 2021 --check $(find crates apps -name '*.rs')` | clean |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
-| `cargo test --workspace --locked` | E7-1: 1401; E7-2: 1410; E7-3 + E7-4: 1420; **E7-5: 1427 passed**, 0 failed, 6 ignored |
+| `cargo test --workspace --locked` | E7-1: 1401; E7-2: 1410; E7-3 + E7-4: 1420; E7-5: 1427; **E7-6 (with the `series-v3` merge's 4): 1432 passed**, 0 failed, 6 ignored |
 | `scripts/check-dep-direction.sh` | ok |
 | `cargo check --workspace --no-default-features --locked` | ok |
 | `cargo check --workspace --features local-llama --locked` | ok |
-| `cargo test -p wipemark-app --features local-llama --locked` | E7-1: 477 + 1; E7-2: 486 + 1; E7-3 + E7-4: 496 + 1; **E7-5: 503 + 1 passed**, 0 failed, 1 ignored |
+| `cargo test -p wipemark-app --features local-llama --locked` | E7-1: 477 + 1; E7-2: 486 + 1; E7-3 + E7-4: 496 + 1; E7-5: 503 + 1; **E7-6: 504 + 1 passed**, 0 failed, 1 ignored |
 | `cargo test -p wipemark-engine --features local-llama --locked` | 36 passed, 1 ignored |
 
 Every gate ran. The app's tests link here only after installing GPUI's
@@ -229,6 +269,9 @@ The E7-4 push (`2fc5d2d`) was overtaken by the merge's push a few seconds
 later and its run cancelled. On `e70d2e6` (E7-2 … E7-4 and the merge): **success**,
 all three jobs, the `macos` one included —
 https://github.com/GigLaboCom/wipemark-app/actions/runs/37343860128
+
+On `dcd9d98` (E7-5 and the `series-v3` merge): **success**, all three jobs —
+https://github.com/GigLaboCom/wipemark-app/actions/runs/37351267513
 
 ## Decisions
 
@@ -323,6 +366,17 @@ D260–D280, stated in full in the plan's §9:
     level and the macOS drop destination as it opens, the test-window trap;
     the tests are the pure functions the task asked for, and what the
     window paints is for the live check.
+18. **Two documents the task did not name were edited**: `layer-a.md`'s
+    "Who calls it" ("Until then the windows say that they do not clean
+    yet") and `skeleton.md`'s row for the app ("say that they do not clean
+    yet") — both false after E7. One sentence each.
+19. **`setup-welcome-body` has a test** (`the_welcome_says_the_windows_clean_and_do_not_rewrite`):
+    the task asked for the rewrite and a test only for the Retention
+    banner; without one the old sentence could come back unseen.
+20. **The live check compares every result with the CLI's** (`cmp` against
+    `wipemark-cli clean -o`) rather than with recorded hashes: the bytes of
+    a restored picture depend on the encoder build, and the CLI on the same
+    machine is the oracle that cannot drift from it.
 
 ## Wanted edits to `CLAUDE.md` and `docs/plan/README.md`
 
@@ -341,6 +395,27 @@ For the end of the series, collected as they arise:
 - `CLAUDE.md`, the panel bullet ("There are four windows…") and the
   `panel.rs` row: the panel cleans — a findings line per listed thing, Clean
   beside the dismissal line.
+- `CLAUDE.md`, the introduction: "The windows do not clean yet (E7)" — they
+  do: text and pictures, from the queue, the panel and `--clean=`; Layer B
+  is still not in the windows (E4-6b).
+- `CLAUDE.md`, the crates table: `wipemark-image` and `wipemark-picture`
+  "no window yet (**E7**)" / "(**E12-8**)" — the windows call
+  `wipemark-picture` now.
+- `CLAUDE.md`, the Compare bullet: "Nothing is cleaned yet, so the result
+  starts as a copy of the original and the banner says so" — the result is
+  `clean(original)` (E7-3).
+- `CLAUDE.md`, the Retention bullet: "Nothing is written yet, and
+  `the_retention_banner_always_says_nothing_is_written_yet` keeps the page
+  saying so" — the windows write by the rows, and the gate is
+  `the_retention_banner_says_who_follows_it`; "E7 calls
+  `wipemark_intake::inplace` as the CLI does" is now done (`clean.rs`).
+- `CLAUDE.md`, the setup bullet: "Layer A runs from the command line and
+  over MCP but not yet from the windows" — it runs from the windows.
+- `CLAUDE.md`, "No epic number leaves this repository": the list of pending
+  surfaces — the queue's footer, the toolbar's help and the panel now say
+  only that *rewriting* is not here.
+- `CLAUDE.md`, the epic order: E7 done (E7-1 … E7-6); with it the window
+  half of E12-8 that cleans a picture.
 - `docs/plan/README.md` §4: D260–D280.
 
 ## Engineering question found on the way
@@ -355,13 +430,34 @@ the queue refuses is a separate decision, left open.
 
 ## Owner questions
 
-Unchanged from the task's §5 and built at their defaults so far: (1) no
-auto-clean on arrival; (2) AI provenance only from the windows; (3) Layer A
-at its defaults (Q-A1); (4) an existing result refused, with an explicit
-replace (E7-2) rather than a numbered name.
+Built at the task's defaults; each is the owner's to change.
+
+1. **Should something dropped be cleaned the moment it arrives?** Today it
+   is not: cleaning happens when it is pressed — Clean on a row, Clean all,
+   the panel's Clean, or `--clean=` at launch. Cleaning on arrival would be
+   a switch on a Settings page, off by default.
+2. **Should the windows remove all of a picture's metadata — camera make,
+   GPS, the rotation it shows upright by — or only what marks it as made by
+   AI?** Today only what marks it as made by AI, as the MCP tool does by
+   default; the command line removes all of it with `--all-metadata`.
+3. **Should the windows offer cleaning's finer choices** — replacing a
+   letter borrowed from another alphabet, Unicode normalisation, spaces?
+   Today the windows clean at the defaults, and the Report says so when it
+   keeps such a letter (Q-A1).
+4. **When a result is already there, should a clean refuse or pick a new
+   name?** Today it refuses and leaves the file as it is, and "Replace the
+   existing result" in the row's menu writes over it on request. The
+   alternative is `name.cleaned-2.md`.
 
 ## Unfinished
 
-E7-6, the live-check script (`E7-windows-clean-live-check.md`, which
-needs `--clean=` from E7-2), the final report in Watchword, and the
-`CLAUDE.md`/README edits above.
+- **The live check has not been run.** It is written for the host; nothing
+  a window paints in this series has been seen by anyone — the panel's
+  findings line and Clean least of all (no `#[gpui::test]`, deviation 17).
+- **The `CLAUDE.md` and `docs/plan/README.md` edits** above are for the
+  coordinator: this series may not edit either file.
+- **The engineering question** above (Compare's lenient decode) is open.
+- **The sweep runs only at launch and after a keep** (D267): a session
+  left open past a period removes nothing until the next launch.
+- **The tray's Clean Clipboard** stays disabled with its sentence, as the
+  task says.

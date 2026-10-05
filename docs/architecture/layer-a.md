@@ -51,10 +51,11 @@ established*, in every report.
 `wipemark-cli inspect|clean` and the MCP server's `inspect` and `clean`
 tools (*Surfaces*, below). To come: E4's pipeline, which runs Layer A
 before and after Layer B on every chunk and the five guards over every
-candidate; and E7's windows, where the Compare window's result becomes
-`clean(original)`, the panel shows a findings count, the queue gains a
-Clean action and the Inspector jumps to a position. Until then the
-windows say that they do not clean yet.
+candidate. And the windows (E7), through `apps/wipemark-app/src/clean.rs`
+on the background executor: the Compare window's result is
+`clean(original)`, the panel shows what a look found and cleans what it
+caught, and the queue has Clean and Clean all. The Inspector that jumps
+to a position is not here yet.
 
 The sections follow the code from the bottom up — *Tables* (E1-1),
 *Classes and context* (E1-2), *Scrubber, report and NFKC* (E1-3),

@@ -44,7 +44,8 @@ window-title = { -brand-name }
 ## `toolbar-import-choose` is the picker's own confirm button, so it is
 ## a verb on its own. Help is a popover of four lines, the panel's help
 ## in shape: how things get in, what the preview and the Actions menu
-## do, what is not here yet, and where the rest of the application is.
+## do, what is not in the windows yet, and where the rest of the
+## application is.
 
 toolbar-import = Import…
 toolbar-import-tooltip = Choose files or folders. They arrive the way a drop does.
@@ -198,7 +199,7 @@ setup-step-model = The model
 setup-step-endpoint = The endpoint
 setup-step-done = Done
 
-setup-welcome-body = { -brand-name } strips AI provenance marks from your own content in two layers: { -layer-a }, which removes the invisible characters and is deterministic, and { -layer-b }, which asks a language model for a paraphrase. In this version both run from the command line and for an agent over MCP, and neither runs from these windows yet. What these steps settle is what { -layer-b } needs: who rewrites, and what that takes.
+setup-welcome-body = { -brand-name } strips AI provenance marks from your own content in two layers: { -layer-a }, which removes the invisible characters and is deterministic, and { -layer-b }, which asks a language model for a paraphrase. In this version { -layer-a } runs from these windows — Clean in the main window and in the panel — as well as from the command line and for an agent over MCP; { -layer-b } runs from the command line and over MCP, and not from these windows yet. What these steps settle is what { -layer-b } needs: who rewrites, and what that takes.
 setup-welcome-again = Everything here can be changed later under Settings, and this walk-through can be run again from its General page.
 
 # Step 2. $model is the catalogue entry's display name, $ram what it
@@ -911,9 +912,9 @@ settings-models-stopped = Stopped. What was downloaded is kept, and the next att
 ## formats — a script looks for them — and are spelled the same in
 ## every language.
 ##
-## `settings-retention-pending` is the honest half, and it stays until
-## a window writes (E4/E7): the command line writes results beside a
-## file, never reads these rows, and no window writes anything yet.
+## `settings-retention-pending` says who follows these rows: the
+## windows clean by them (`clean.rs`, E7), and the command line and the
+## MCP server read none of them.
 
 settings-retention-title = What is kept
 settings-retention-description = Where a result goes, what happens to the file it came from, and whether { -brand-name } keeps a copy of what arrived without one.
@@ -932,7 +933,7 @@ settings-retention-keeps-originals = The original of a paste or a drag is kept i
 settings-retention-keeps-results = The result of a paste or a drag is kept in { $folder } { $period }; originals are not.
 settings-retention-keeps-both = The original and the result of a paste or a drag are kept in { $folder } { $period }.
 # The last line, in every state.
-settings-retention-pending = No window writes anything yet: none of them cleans in this version, and { -layer-b } is not in it. These choices decide what happens to a file, and to what you paste, once they do. The command line never reads them.
+settings-retention-pending = The windows clean by these rules: what they write, and what they keep, follows this page. The command line and agents read none of them — the command line is told where a result goes on each run, and an agent gets its result back.
 
 settings-retention-destination-title = Where results go
 settings-retention-destination-description = Beside the file writes name.cleaned.ext next to it and leaves the file as it is. The results folder is the one below. In place of the file replaces it — after the original has been set aside as name.original.ext, and never over an original already there.

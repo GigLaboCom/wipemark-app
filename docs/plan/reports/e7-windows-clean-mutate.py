@@ -32,6 +32,8 @@ COMPARE = "apps/wipemark-app/src/compare.rs"
 PANEL = "apps/wipemark-app/src/panel.rs"
 WORDING = "apps/wipemark-app/src/wording.rs"
 EN = "crates/wipemark-i18n/i18n/en-US/wipemark.ftl"
+RU = "crates/wipemark-i18n/i18n/ru/wipemark.ftl"
+SETTINGS = "apps/wipemark-app/src/settings.rs"
 
 
 def t(name):
@@ -52,6 +54,10 @@ def c(name):
 
 def p(name):
     return (APP, f"panel::tests::{name}")
+
+
+def s_(name):
+    return (APP, f"settings::tests::{name}")
 
 
 # (id, protection, file, old, new, [(cargo test args, test name filter)])
@@ -430,6 +436,31 @@ MUTATIONS = [
         """NEXT.fetch_add(1, Ordering::Relaxed)""",
         """NEXT.load(Ordering::Relaxed)""",
         [t("a_number_is_handed_out_once")],
+    ),
+    # -- E7-6: every sentence that said "not yet" ---------------------------
+    (
+        "E7-6/M1",
+        "the Retention banner says again that no window writes",
+        EN,
+        """settings-retention-pending = The windows clean by these rules: what they write, and what they keep, follows this page. The command line and agents read none of them — the command line is told where a result goes on each run, and an agent gets its result back.""",
+        """settings-retention-pending = No window writes anything yet: none of them cleans in this version, and { -layer-b } is not in it. These choices decide what happens to a file, and to what you paste, once they do. The command line never reads them.""",
+        [s_("the_retention_banner_says_who_follows_it")],
+    ),
+    (
+        "E7-6/M2",
+        "the Russian Retention banner keeps the old sentence",
+        RU,
+        """settings-retention-pending = Окна очищают по этим правилам: что они записывают и что хранят, решает эта страница. Командная строка и агенты не читают ни одного из них — командной строке место для результата называют при каждом запуске, а агент получает результат обратно.""",
+        """settings-retention-pending = Пока ни одно окно ничего не записывает: в этой версии окна не очищают, а { -layer-b } отсутствует. Эти настройки решают, что случится с файлом и со вставленным, когда окна начнут это делать. Командная строка их никогда не читает.""",
+        [s_("the_retention_banner_says_who_follows_it")],
+    ),
+    (
+        "E7-6/M3",
+        "the walk-through says again that neither layer runs from the windows",
+        EN,
+        """In this version { -layer-a } runs from these windows — Clean in the main window and in the panel — as well as from the command line and for an agent over MCP; { -layer-b } runs from the command line and over MCP, and not from these windows yet.""",
+        """In this version both run from the command line and for an agent over MCP, and neither runs from these windows yet.""",
+        [s_("the_welcome_says_the_windows_clean_and_do_not_rewrite")],
     ),
 ]
 
