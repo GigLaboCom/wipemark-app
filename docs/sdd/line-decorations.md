@@ -149,7 +149,40 @@ together.
 | also copied | the other five `heretic/*` branches from the personal fork `glani/gpui-component` (which stays until heretic-amuse-merge is switched too) |
 | this repository | `.gitmodules` points at the org fork with `branch = heretic/epic-4-line-decorations`; CI runs `git submodule sync --recursive` before `update` |
 | patches here | `line-decorations/patches/0001-…` (P1), `0002-…` (P2), `0003-…` (P3 + P4), `git format-patch` of the three commits |
-| on current upstream | **ported**: branch `heretic/line-decorations-on-upstream` (`3fba497`) on the org fork — upstream `main` `2c5162f8` underneath, five commits on top (`row_bounds`, line decorations, the gutter cursor, a marker-placement fix, comments matched to the surrounding style) — and **draft upstream PR [longbridge/gpui-kit#3359](https://github.com/longbridge/gpui-kit/pull/3359)**. API, old → new mapping, how `compare::Marks` migrates, test results and the PR text: [`line-decorations/upstream-port.md`](line-decorations/upstream-port.md) |
+| on current upstream | **ported**: branch `heretic/line-decorations-on-upstream` (`d7d678e9`) on the org fork — upstream `main` `8d8cc671` underneath (rebased 2026-10-05), seven commits on top (`row_bounds`, line decorations, the gutter cursor, a marker-placement fix, comments matched to the surrounding style, and the two that answer the review below) — and **upstream PR [longbridge/gpui-kit#3359](https://github.com/longbridge/gpui-kit/pull/3359)**, milestone 0.8.0. API, old → new mapping, how `compare::Marks` migrates, test results and the first PR text: [`line-decorations/upstream-port.md`](line-decorations/upstream-port.md) |
+
+### 4.1 The review of #3359
+
+The maintainer (huacnlee) requested changes on 2026-10-04 and put the PR
+on the 0.8.0 milestone, where an API break is allowed. All three points
+were answered on 2026-10-05 in `3f9da904` and `d7d678e9`:
+
+1. **Markers covered a digit.** A 12px marker in the gutter's left
+   padding (at most 6px in the styled editor) ran over the first digit of
+   a full number column: three digits, or more past row 999. The gutter
+   now reserves a 16px slot left of the numbers while line numbers are
+   shown, a marker renderer is set and a collection has a provider
+   (`InputExtras::has_line_decorations`); the numbers and text move right
+   by it, and an editor without a collection is unchanged. Test:
+   `gutter_markers_have_a_slot_left_of_the_line_numbers` (three- and
+   four-digit columns, before and after a horizontal scroll), red without
+   the slot; checked by eye in a throwaway window, screenshots in the PR.
+2. **`row_bounds` ignored inline completion ghost lines.** Text and bands
+   are painted lower past a multi-line completion; `row_bounds` summed
+   row heights only. The stored layout now carries the ghost lines' row
+   and height, and `LastLayout::row_extents` is the one row walk
+   `row_bounds` and the bands share. Test:
+   `rows_below_a_multiline_inline_completion_are_bounded_where_painted`,
+   red with either half removed.
+3. **`InputEditorStyle` is `#[non_exhaustive]`.** Struct literals outside
+   `gpui-base` no longer compile, `..Default::default()` included; build
+   it from `Default` and assign fields. The styled input and the Base
+   showcase were migrated; the PR's Breaking Changes says so.
+
+The fork this repository pins is unchanged: it still draws its glyph at
+the gutter's left edge, over the leftmost digit of a wide column (its own
+doc comment calls that "the JetBrains convention"). The slot exists only
+in the port.
 
 ---
 
@@ -200,7 +233,7 @@ both dropping the fork and getting the API upstream: it is built in
 `LineDecorationProvider` asked per frame, `LineDecoration::new(row)
 .with_background(..).with_marker(GutterMarker::DiffAdded)`, a
 `gutter_marker_renderer` beside `fold_icon_renderer`, and `row_bounds`
-for the on-screen band of a row — and is up for review as #3359. Moving *wipemark* onto that
+for the on-screen band of a row — and is under review as #3359 (§4.1). Moving *wipemark* onto that
 branch is a separate piece of work: it also moves `gpui` by about eight
 months (`Corner` → `Anchor` and whatever else changed underneath the
 AppKit code in `pasteboard.rs`, `screen.rs`, `panel.rs`,
