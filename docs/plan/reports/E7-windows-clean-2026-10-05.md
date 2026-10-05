@@ -7,7 +7,8 @@ images round). `origin/feat/e0-e6-shell` came to contain `series-v3` during
 the series and was merged at `e70d2e6` (it brought `CLAUDE.md` and
 `docs/plan/README.md` only). `origin/images/series-v3` then moved again
 (`2cc421d`, the fifth images round — tests, docs and fixtures) without
-`feat/e0-e6-shell` containing it, and was merged at `dcd9d98`.
+`feat/e0-e6-shell` containing it, and was merged at `dcd9d98`; once more
+at `47c4370` for its round's report (a document only).
 
 **Status: E7-1 … E7-6 are done.** This is the series' final report (§7 of
 the task), uploaded to Watchword as `wipemark-e7-windows-clean-report-2026-10-05`.
@@ -272,6 +273,10 @@ https://github.com/GigLaboCom/wipemark-app/actions/runs/37343860128
 
 On `dcd9d98` (E7-5 and the `series-v3` merge): **success**, all three jobs —
 https://github.com/GigLaboCom/wipemark-app/actions/runs/37351267513
+
+On `47c4370` (E7-6 and the merge of the fifth-round report from
+`series-v3`, `4897d0b`): **success**, all three jobs —
+https://github.com/GigLaboCom/wipemark-app/actions/runs/37356282733
 
 ## Decisions
 
