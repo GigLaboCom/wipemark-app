@@ -15,7 +15,7 @@
 
 use std::path::Path;
 
-use wipemark_i18n::{args, t, t_args, Message};
+use wipemark_i18n::{args, t, t_args, t_args_plain, FluentArgs, Message};
 use wipemark_image::ImageError;
 use wipemark_intake::{Arrived, Evidence, Intake, Kind};
 use wipemark_picture::{NotExamined, PictureError};
@@ -38,16 +38,24 @@ pub enum Tone {
 
 /// What a kind is called, in the language the window is drawn in.
 pub fn kind_label(kind: Kind) -> String {
-    t(match kind {
-        Kind::Text => Message::KindText,
-        Kind::Image => Message::KindImage,
-        Kind::Document => Message::KindDocument,
-        Kind::Archive => Message::KindArchive,
-        Kind::Media => Message::KindMedia,
-        Kind::Data => Message::KindData,
-        Kind::Folder => Message::KindFolder,
-        Kind::Unknown => Message::KindUnknown,
-    })
+    kind_label_in(&window, kind)
+}
+
+/// What a kind is called, in `say`'s words.
+pub fn kind_label_in(say: Say, kind: Kind) -> String {
+    say(
+        match kind {
+            Kind::Text => Message::KindText,
+            Kind::Image => Message::KindImage,
+            Kind::Document => Message::KindDocument,
+            Kind::Archive => Message::KindArchive,
+            Kind::Media => Message::KindMedia,
+            Kind::Data => Message::KindData,
+            Kind::Folder => Message::KindFolder,
+            Kind::Unknown => Message::KindUnknown,
+        },
+        &FluentArgs::new(),
+    )
 }
 
 /// What to call one thing that arrived.
@@ -56,11 +64,16 @@ pub fn kind_label(kind: Kind) -> String {
 /// because "image.png" for something that was never a file on this disk
 /// would be a name nobody could go and find.
 pub fn title_of(intake: &Intake) -> String {
+    title_of_in(&window, intake)
+}
+
+/// [`title_of`], in `say`'s words.
+pub fn title_of_in(say: Say, intake: &Intake) -> String {
     let named = match intake.arrived {
         Arrived::AsPath => intake.name.clone(),
         Arrived::AsText | Arrived::AsBytes => None,
     };
-    named.unwrap_or_else(|| kind_label(intake.kind))
+    named.unwrap_or_else(|| kind_label_in(say, intake.kind))
 }
 
 /// The thing worth being told about how much of this is established,
@@ -70,20 +83,29 @@ pub fn title_of(intake: &Intake) -> String {
 /// needs to see, so it is the one that is not muted. Agreement, content
 /// alone and nothing at all are not notes: the ordinary case is silent.
 pub fn evidence_note(intake: &Intake) -> Option<(String, Tone)> {
+    evidence_note_in(&window, intake)
+}
+
+/// [`evidence_note`], in `say`'s words.
+pub fn evidence_note_in(say: Say, intake: &Intake) -> Option<(String, Tone)> {
     match intake.evidence {
         Evidence::Disagreed { name_said } => Some((
-            t_args(
+            say(
                 Message::PanelDropMismatch,
                 &args!(
                     "named" => name_said.name(),
-                    "found" => intake
-                        .format
-                        .map_or_else(|| kind_label(intake.kind), |format| format.name().to_owned())
+                    "found" => intake.format.map_or_else(
+                        || kind_label_in(say, intake.kind),
+                        |format| format.name().to_owned()
+                    )
                 ),
             ),
             Tone::Warning,
         )),
-        Evidence::Name => Some((t(Message::PanelDropByName), Tone::Muted)),
+        Evidence::Name => Some((
+            say(Message::PanelDropByName, &FluentArgs::new()),
+            Tone::Muted,
+        )),
         Evidence::Content | Evidence::Agreed | Evidence::Nothing => None,
     }
 }
@@ -172,11 +194,44 @@ pub fn verdict_badge(verdict: &Verdict) -> (Message, Badge) {
     }
 }
 
+/// How a line is put into words: [`window`] for what a window draws,
+/// [`plain`] for what leaves it as text (a copied report), or a
+/// per-language `Localizer` in a test — never `wipemark_i18n::init`,
+/// which is process-wide.
+pub type Say<'a> = &'a dyn Fn(Message, &FluentArgs) -> String;
+
+/// A window's words: Fluent's isolates kept, for a text renderer that
+/// understands them.
+pub fn window(message: Message, args: &FluentArgs) -> String {
+    t_args(message, args)
+}
+
+/// Words that leave the window as text: no U+2068/U+2069, which Layer A
+/// removes — `Rendering::PlainText` for anything that is not a window.
+pub fn plain(message: Message, args: &FluentArgs) -> String {
+    t_args_plain(message, args)
+}
+
+/// [`said_in`], in a window's words.
+pub fn said(outcome: &Outcome) -> String {
+    said_in(&window, outcome)
+}
+
+/// [`unable_in`], in a window's words.
+pub fn unable(why: Unable) -> String {
+    unable_in(&window, why)
+}
+
+/// [`went_in`], in a window's words.
+pub fn went(outcome: &Outcome) -> Vec<String> {
+    went_in(&window, outcome)
+}
+
 /// The one sentence a finished clean comes to — the badge's tooltip and
 /// the first line of what a row says about it.
-pub fn said(outcome: &Outcome) -> String {
+pub fn said_in(say: Say, outcome: &Outcome) -> String {
     match &outcome.verdict {
-        Verdict::NothingFound => t(Message::CleanSaidNothingFound),
+        Verdict::NothingFound => say(Message::CleanSaidNothingFound, &FluentArgs::new()),
         Verdict::Cleaned => match &outcome.report {
             Some(Report::Text(report)) => {
                 let count: u32 = report
@@ -185,105 +240,111 @@ pub fn said(outcome: &Outcome) -> String {
                     .map(|(_, n)| n)
                     .chain(report.normalized.iter().map(|(_, n)| n))
                     .sum();
-                t_args(Message::CleanSaidCleanedText, &args!("count" => count))
+                say(Message::CleanSaidCleanedText, &args!("count" => count))
             }
-            _ => t(Message::CleanSaidCleanedPicture),
+            _ => say(Message::CleanSaidCleanedPicture, &FluentArgs::new()),
         },
-        Verdict::Partly(Left::Kept) => t(Message::CleanSaidPartlyKept),
-        Verdict::Partly(Left::Mark) => t(Message::CleanSaidPartlyMark),
+        Verdict::Partly(Left::Kept) => say(Message::CleanSaidPartlyKept, &FluentArgs::new()),
+        Verdict::Partly(Left::Mark) => say(Message::CleanSaidPartlyMark, &FluentArgs::new()),
         Verdict::Partly(Left::NotExamined(NotExamined::Animated)) => {
-            t(Message::CleanSaidPartlyAnimated)
+            say(Message::CleanSaidPartlyAnimated, &FluentArgs::new())
         }
-        Verdict::Partly(Left::NotExamined(_)) => t(Message::CleanSaidPartlyUnexamined),
-        Verdict::NotCleaned(refusal) => refused(refusal),
-        Verdict::Failed(failure) => failed(failure),
+        Verdict::Partly(Left::NotExamined(_)) => {
+            say(Message::CleanSaidPartlyUnexamined, &FluentArgs::new())
+        }
+        Verdict::NotCleaned(refusal) => refused_in(say, refusal),
+        Verdict::Failed(failure) => failed_in(say, failure),
     }
 }
 
 /// Why a thing cannot be cleaned, from what intake said about it.
-pub fn unable(unable: Unable) -> String {
+pub fn unable_in(say: Say, unable: Unable) -> String {
     match unable {
-        Unable::NotYet(format) => t_args(
+        Unable::NotYet(format) => say(
             Message::CleanRefusedNotYet,
             &args!("format" => format.name()),
         ),
-        Unable::Folder => t(Message::CleanRefusedFolder),
-        Unable::Kind { kind, format } => t_args(
+        Unable::Folder => say(Message::CleanRefusedFolder, &FluentArgs::new()),
+        Unable::Kind { kind, format } => say(
             Message::CleanRefusedKind,
-            &args!("what" => format.map_or_else(|| kind_label(kind), |format| format.name().to_owned())),
+            &args!("what" => format.map_or_else(|| kind_label_in(say, kind), |format| format.name().to_owned())),
         ),
-        Unable::UnnamedEncoding => t(Message::CleanRefusedUnnamedEncoding),
-        Unable::Unread => t(Message::CleanRefusedUnread),
+        Unable::UnnamedEncoding => say(Message::CleanRefusedUnnamedEncoding, &FluentArgs::new()),
+        Unable::Unread => say(Message::CleanRefusedUnread, &FluentArgs::new()),
     }
 }
 
 /// Why nothing was written. A picture's format is named by the
 /// container the passes read, never by the file's name.
-pub fn refused(refusal: &Refusal) -> String {
+pub fn refused_in(say: Say, refusal: &Refusal) -> String {
     match refusal {
-        Refusal::NotCleanable(why) => unable(*why),
-        Refusal::TooBig { size, limit } => t_args(
+        Refusal::NotCleanable(why) => unable_in(say, *why),
+        Refusal::TooBig { size, limit } => say(
             Message::CleanRefusedTooBig,
             &args!("size" => size_label(*size), "limit" => size_label(*limit)),
         ),
-        Refusal::Unreadable(_) => t(Message::CleanRefusedUnreadable),
-        Refusal::Undecodable { encoding, offset } => t_args(
+        Refusal::Unreadable(_) => say(Message::CleanRefusedUnreadable, &FluentArgs::new()),
+        Refusal::Undecodable { encoding, offset } => say(
             Message::CleanRefusedUndecodable,
             &args!("encoding" => encoding.name(), "offset" => *offset),
         ),
         Refusal::Picture(error) => match error {
             PictureError::Image(ImageError::UnknownContainer) => {
-                t(Message::CleanRefusedPictureUnknown)
+                say(Message::CleanRefusedPictureUnknown, &FluentArgs::new())
             }
-            PictureError::Image(ImageError::NotYet(container)) => t_args(
+            PictureError::Image(ImageError::NotYet(container)) => say(
                 Message::CleanRefusedNotYet,
                 &args!("format" => container.name()),
             ),
             PictureError::Image(ImageError::Malformed {
                 container, offset, ..
-            }) => t_args(
+            }) => say(
                 Message::CleanRefusedPictureMalformed,
                 &args!("format" => container.name(), "offset" => *offset),
             ),
             PictureError::Image(ImageError::Unsupported {
                 container, offset, ..
-            }) => t_args(
+            }) => say(
                 Message::CleanRefusedPictureUnsupported,
                 &args!("format" => container.name(), "offset" => *offset),
             ),
-            PictureError::Decode { .. } => t(Message::CleanRefusedPictureDecode),
-            PictureError::Encode { .. } => t(Message::CleanRefusedPictureEncode),
-            PictureError::Proof(_) => t(Message::CleanRefusedPictureProof),
+            PictureError::Decode { .. } => {
+                say(Message::CleanRefusedPictureDecode, &FluentArgs::new())
+            }
+            PictureError::Encode { .. } => {
+                say(Message::CleanRefusedPictureEncode, &FluentArgs::new())
+            }
+            PictureError::Proof(_) => say(Message::CleanRefusedPictureProof, &FluentArgs::new()),
         },
-        Refusal::StillMarked { .. } => t(Message::CleanRefusedStillMarked),
-        Refusal::Exists(path) => t_args(
+        Refusal::StillMarked { .. } => say(Message::CleanRefusedStillMarked, &FluentArgs::new()),
+        Refusal::Exists(path) => say(
             Message::CleanRefusedExists,
             &args!("name" => file_name(path)),
         ),
-        Refusal::OriginalExists(path) => t_args(
+        Refusal::OriginalExists(path) => say(
             Message::CleanRefusedOriginalExists,
             &args!("name" => file_name(path)),
         ),
-        Refusal::SameFile(_) => t(Message::CleanRefusedSameFile),
-        Refusal::Nowhere => t(Message::CleanRefusedNowhere),
+        Refusal::SameFile(_) => say(Message::CleanRefusedSameFile, &FluentArgs::new()),
+        Refusal::Nowhere => say(Message::CleanRefusedNowhere, &FluentArgs::new()),
     }
 }
 
 /// What a write that failed did, and where the original is when that is
 /// the question.
-pub fn failed(failure: &Failure) -> String {
+pub fn failed_in(say: Say, failure: &Failure) -> String {
     match failure {
-        Failure::Write { path, error } => t_args(
+        Failure::Write { path, error } => say(
             Message::CleanFailedWrite,
             &args!("path" => path.display().to_string(), "error" => error.message.clone()),
         ),
-        Failure::SetAside { original, error } => t_args(
+        Failure::SetAside { original, error } => say(
             Message::CleanFailedSetAside,
             &args!("name" => file_name(original), "error" => error.message.clone()),
         ),
         Failure::Stranded {
             original, error, ..
-        } => t_args(
+        } => say(
             Message::CleanFailedStranded,
             &args!("path" => original.display().to_string(), "error" => error.message.clone()),
         ),
@@ -293,35 +354,35 @@ pub fn failed(failure: &Failure) -> String {
 /// Where a clean's result went: the result, the original set aside, the
 /// kept copies — or that nothing was written. The *went* half of
 /// [`would_happen`], read off what happened rather than off the plan.
-pub fn went(outcome: &Outcome) -> Vec<String> {
+pub fn went_in(say: Say, outcome: &Outcome) -> Vec<String> {
     let mut lines = Vec::new();
     if let Some(written) = &outcome.written {
         lines.push(match (&outcome.set_aside, outcome.replaced) {
-            (Some(_), _) => t(Message::QueueWentInPlace),
-            (None, true) => t_args(
+            (Some(_), _) => say(Message::QueueWentInPlace, &FluentArgs::new()),
+            (None, true) => say(
                 Message::QueueWentReplaced,
                 &args!("name" => file_name(written)),
             ),
-            (None, false) => t_args(
+            (None, false) => say(
                 Message::QueueWentWritten,
                 &args!("name" => file_name(written)),
             ),
         });
     }
     if let Some(original) = &outcome.set_aside {
-        lines.push(t_args(
+        lines.push(say(
             Message::QueueWentSetAside,
             &args!("name" => file_name(original)),
         ));
     }
     if outcome.text.is_some() {
-        lines.push(t(Message::QueueWentAsText));
+        lines.push(say(Message::QueueWentAsText, &FluentArgs::new()));
     }
     if outcome.written.is_none() && outcome.text.is_none() {
-        lines.push(t(Message::QueueWentNothing));
+        lines.push(say(Message::QueueWentNothing, &FluentArgs::new()));
     }
     if let Some(kept) = &outcome.kept {
-        lines.push(t_args(
+        lines.push(say(
             Message::QueueWentKept,
             &args!("folder" => kept.display().to_string()),
         ));

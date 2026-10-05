@@ -975,3 +975,31 @@ clean-refused-nowhere = Nach den Einstellungen der Seite „Aufbewahrung“ kann
 clean-failed-write = { $path } ließ sich nicht schreiben ({ $error }). Sonst wurde nichts geändert.
 clean-failed-set-aside = Die Datei ließ sich nicht als { $name } beiseitelegen ({ $error }), also wurde nichts geändert.
 clean-failed-stranded = Das Ergebnis ließ sich nicht schreiben und das Original nicht zurücklegen: Es liegt unter { $path } ({ $error }).
+queue-action-report = Bericht…
+window-report-title = Bericht · { $name }
+window-report-arrived = Was ankam
+window-report-happened = Was geschah
+window-report-verifiable = Überprüfbar
+window-report-best-effort = Nach bestem Bemühen
+window-report-result = Das Ergebnis: { $path }
+window-report-original = Das Original, beiseitegelegt: { $path }
+window-report-kept = Aufbewahrte Kopien: { $path }
+window-report-finding = { $codepoint } { $name } · { $class } · { $confidence } · { $count ->
+        [one] einmal
+       *[other] { $count }-mal
+    }
+window-report-removed-none = Die Bereinigung hat aus diesem Text nichts entfernt.
+window-report-normalized = { $count ->
+        [one] Ein Zeichen wurde normalisiert.
+       *[other] { $count } Zeichen wurden normalisiert.
+    }
+window-report-kept-homoglyph = Bei den Standardeinstellungen behalten: Ein Buchstabe aus einer anderen Schrift wird nur von einer aggressiven Bereinigung ersetzt, und ein Fenster führt keine aus.
+window-report-kept-in-place = Behalten, wo es eine Aufgabe hat: in einem Emoji oder einer Schrift, die es braucht.
+window-report-picture-checked = Das Ergebnis wurde erneut gelesen: Es enthält keine Metadaten zur KI-Herkunft mehr.
+window-report-picture-still = Erneut gelesen, trug das Ergebnis noch Metadaten zur KI-Herkunft.
+window-report-shelf-empty = Für diese Bereinigung steht hier nichts.
+window-report-not-read = Es wurde nicht gelesen, also wurde hier nichts geprüft.
+window-report-copy-json = JSON kopieren
+window-report-copy-markdown = Als Markdown kopieren
+window-report-close = Schließen
+window-report-copied = Kopiert.

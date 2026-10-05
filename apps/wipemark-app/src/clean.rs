@@ -259,23 +259,11 @@ impl From<&io::Error> for Error {
 
 /// The report a clean produced, as the library's own structured value.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "the row's Report dialog reads the picture's report and the JSON; \
-                  until it lands only the text's count is shown"
-    )
-)]
 pub enum Report {
     Text(CleanReport),
     Picture(Box<PictureReport>),
 }
 
-#[cfg_attr(
-    not(test),
-    allow(dead_code, reason = "the row's Report dialog copies it")
-)]
 impl Report {
     /// The library's own JSON — a format, never translated, and always
     /// ending in its `not_established` shelf.

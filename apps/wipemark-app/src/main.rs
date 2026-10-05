@@ -64,6 +64,7 @@ mod preview;
 mod profile;
 mod queue;
 mod recorder;
+mod report;
 mod result;
 mod retention;
 mod screen;
@@ -100,7 +101,8 @@ use crate::engine_host::{EngineHandle, EngineHost, Loaded};
 use crate::hotkey::Registration;
 use crate::icon::{Icon, IconName};
 use crate::placement::Origin;
-use crate::queue::Queue;
+use crate::queue::{Queue, QueueEvent};
+use crate::report::ReportView;
 use crate::settings::{OpenSettings, Preferences, Section};
 use crate::setup::{Setup, SetupEvent};
 use crate::theme::ThemePreference;
@@ -130,8 +132,11 @@ struct Shell {
     /// what it would paste.
     clipboard: Entity<Clipboard>,
     /// Dropped with the view: a row cleaned, queued or arrived repaints
-    /// Clean all and the status bar.
-    _queue: Subscription,
+    /// Clean all and the status bar; a row's Report… opens its dialog.
+    _queue: [Subscription; 2],
+    /// A row's Report dialog, while it is open, and its subscription —
+    /// an element in this view's own tree, like the walk-through.
+    report: Option<(Entity<ReportView>, Subscription)>,
     /// Dropped with the view: a change on the clipboard repaints the
     /// toolbar, and the window coming forward looks at it again.
     _clipboard: [Subscription; 2],
@@ -255,13 +260,27 @@ impl Shell {
         // The toolbar's Clean all and the status bar's "Cleaning 2 of 5"
         // are both read off the queue.
         let working = cx.observe(&queue, |_, _, cx| cx.notify());
+        // A row's Report… — the dialog is the window's, over everything.
+        let asked = cx.subscribe_in(
+            &queue,
+            window,
+            |shell, queue, event: &QueueEvent, window, cx| match *event {
+                QueueEvent::Report(id) => {
+                    let Some((intake, outcome)) = queue.read(cx).report_of(id) else {
+                        return;
+                    };
+                    shell.open_report(&intake, &outcome, window, cx);
+                }
+            },
+        );
 
         let loaded = cx.observe(&host, |_, _, cx| cx.notify());
         let mut shell = Self {
             queue,
             clipboard,
             _clipboard: [watched, activated],
-            _queue: working,
+            _queue: [working, asked],
+            report: None,
             host,
             _host: loaded,
             preferences,
@@ -278,6 +297,24 @@ impl Shell {
             shell.open_setup(window, cx);
         }
         shell
+    }
+
+    /// Put a row's Report dialog over the window, in place of one already
+    /// open.
+    fn open_report(
+        &mut self,
+        intake: &wipemark_intake::Intake,
+        outcome: &clean::Outcome,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = cx.new(|cx| ReportView::new(intake, outcome, window, cx));
+        let closed = cx.subscribe(&view, |shell, _, _: &dialog::Answer, cx| {
+            shell.report = None;
+            cx.notify();
+        });
+        self.report = Some((view, closed));
+        cx.notify();
     }
 
     /// Put the walk-through over the panes, unless it is there already.
@@ -616,6 +653,11 @@ impl Render for Shell {
             // Last, and above everything that defers — see the note on
             // `SettingsView::dialog` for why tree order alone is not
             // enough to make an overlay modal.
+            .children(self.report.as_ref().map(|(report, _)| {
+                deferred(report.clone())
+                    .with_priority(SETUP_PRIORITY)
+                    .into_any_element()
+            }))
             .children(self.setup.as_ref().map(|setup| {
                 deferred(setup.clone())
                     .with_priority(SETUP_PRIORITY)

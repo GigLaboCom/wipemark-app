@@ -132,6 +132,20 @@ impl Catcher {
         }
     }
 
+    /// A catcher with no platform behind it: drops reach it only through
+    /// [`Catcher::land`]. For a test window, which GPUI's test platform
+    /// does not back with a real one — asking it for its native handle,
+    /// as the macOS destination does, panics.
+    #[cfg(test)]
+    pub fn detached() -> Self {
+        Self {
+            over: false,
+            caught: None,
+            reads: 0,
+            _deliveries: None,
+        }
+    }
+
     /// Whether something is being held over the window.
     pub fn over(&self) -> bool {
         self.over

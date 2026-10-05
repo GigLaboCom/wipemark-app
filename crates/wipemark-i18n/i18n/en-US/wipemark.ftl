@@ -1587,3 +1587,31 @@ clean-refused-nowhere = There is nowhere this result can go under the Retention 
 clean-failed-write = { $path } could not be written ({ $error }). Nothing else was changed.
 clean-failed-set-aside = The file could not be set aside as { $name } ({ $error }), so nothing was changed.
 clean-failed-stranded = The result could not be written and the original could not be put back: it is at { $path } ({ $error }).
+queue-action-report = Report…
+window-report-title = Report · { $name }
+window-report-arrived = What arrived
+window-report-happened = What happened
+window-report-verifiable = Verifiable
+window-report-best-effort = Best-effort
+window-report-result = The result: { $path }
+window-report-original = The original, set aside: { $path }
+window-report-kept = Kept copies: { $path }
+window-report-finding = { $codepoint } { $name } · { $class } · { $confidence } · { $count ->
+        [one] once
+       *[other] { $count } times
+    }
+window-report-removed-none = Nothing was removed from this text.
+window-report-normalized = { $count ->
+        [one] One character was normalized.
+       *[other] { $count } characters were normalized.
+    }
+window-report-kept-homoglyph = Kept at the default settings: a letter from another script is replaced only by an aggressive clean, which a window does not run.
+window-report-kept-in-place = Kept where it does a job: inside an emoji or a script that needs it.
+window-report-picture-checked = The result was read again: no AI provenance metadata is left in it.
+window-report-picture-still = Read again, the result still carried AI provenance metadata.
+window-report-shelf-empty = Nothing on this shelf for this clean.
+window-report-not-read = It was not read, so nothing here was checked.
+window-report-copy-json = Copy JSON
+window-report-copy-markdown = Copy as Markdown
+window-report-close = Close
+window-report-copied = Copied.

@@ -139,18 +139,27 @@ and so does the toolbar's help (D271); "Cleaning 2 of 5" in the status bar;
 
 ### E7-3 — Compare shows the real result
 
-`loaded` and `reset` set `clean(original, &Options::default()).text`,
-computed on the background executor with the read; `compare-pending` becomes
-a true sentence (the right side is what cleaning gives; editing saves
-nothing; closing writes nothing), on the Settings › Compare page too.
+`Subject::read` cleans with Layer A at its defaults in the same background
+task as the read (`Loaded::cleaned`); `loaded` puts it in the result pane and
+the view keeps it, so `reset` puts it back without cleaning on the GPUI
+thread (D273); Reset is offered once the result differs from the cleaned
+text and says "Back to the cleaned text" (D272); `compare-pending` becomes a
+true sentence (the right side is what cleaning gives; editing saves
+nothing; closing writes nothing), on the Settings › Compare page too, and
+`compare-reset`, its tooltip and `compare-help-close` with it.
 
 ### E7-4 — the report, with its three shelves
 
-A Report dialog (`dialog.rs`, the main window's tree, opened deferred):
-what arrived, what happened, *Verifiable*, *Best-effort*, *Not established*
-(one line per id of the report's own `not_established`, in its order, never
-empty); Copy JSON (`to_json()` exactly), Copy as Markdown (`t_plain`, no
-U+2068/U+2069, nothing Layer A would remove — in en, ru and de), Close.
+`report.rs`: `sheet` builds what arrived, what happened, *Verifiable*,
+*Best-effort*, *Not established* (one line per id of the report's own shelf,
+in its order, never empty) as values over a `wording::Say`; `ReportView` is
+the dialog, painted by the shell over the whole window and opened by
+`QueueEvent::Report` from the row's deferred Report… (D274); Copy JSON
+(`to_json()` exactly, greyed when nothing was read — D277), Copy as Markdown
+(`wording::plain`, no U+2068/U+2069, nothing Layer A would remove — in en,
+ru and de), Close. The shelf mapping is D275 and `docs/architecture/queue.md`,
+"The report"; the `wording` sentences take a `Say` so the window and the
+copy are one sheet in two renderings (D276).
 
 ### E7-5 — the panel
 
@@ -207,8 +216,27 @@ real `Queue` over `Preferences::for_tests` and a scratch directory):
 | `every_outcome_reads_as_a_sentence`, `where_a_result_went_is_said_by_its_name` (`wording.rs`) | every verdict, refusal and failure has a sentence and a *went* line; the text itself is never a note | — |
 | `files_can_be_cleaned_from_the_command_line`, `the_status_bar_counts_the_cleans` (`main.rs`) | `--clean=` parsing; the status line | — |
 
-E7-3…E7-6 add their rows when they land: Compare's result back to a copy,
-the third shelf dropped, the Markdown copy in `Rendering::Ui`.
+E7-3 (`compare.rs`, `#[gpui::test]` over `window_with` / `window_on`):
+
+| test | protects | mutation |
+|---|---|---|
+| `the_result_is_the_cleaned_text_and_the_original_is_not` | the original keeps U+200B, the result is `clean(original)`, Reset not offered untouched | E7-3/M1 a copy of the original, M3 the read does not clean, M4 Reset against the original |
+| `reset_returns_to_the_cleaned_text_not_the_original` | Reset lands on `clean(original)` | E7-3/M2, M3 |
+| `the_result_is_what_the_queue_writes` | UTF-8 and UTF-16LE files through `clean::clean_one`: the file written equals the window's result | E7-3/M1, M3 |
+| `a_text_with_nothing_to_clean_opens_on_itself` | nothing to clean: result = original, `compare-same` | — |
+
+E7-4 (`report.rs`; the endings are real cleans of real fixtures):
+
+| test | protects | mutation |
+|---|---|---|
+| `every_outcome_has_its_three_shelves` | cleaned, nothing found, partly, not cleaned — every section has a line, the third shelf at least three, the pixels' claim first exactly on a picture | E7-4/M1 drop the shelf, M4 no pixels' claim, M6 an empty shelf vanishes |
+| `a_text_is_said_by_what_was_removed_and_what_was_kept` | U+200B by name on Verifiable, the Cyrillic a and why on Best-effort, the result's path | — |
+| `the_markdown_copy_carries_nothing_layer_a_would_remove` | en, ru, de over every ending: no isolate, `inspect` finds nothing, five sections | E7-4/M7 a U+200B in the copy |
+| `the_copies_are_the_json_and_plain_markdown` | Copy JSON = `to_json()`; Copy as Markdown plain though the window is `Rendering::Ui` | E7-4/M2 the copy in `Rendering::Ui`, M3 a JSON of our own |
+| `a_claim_with_no_sentence_is_shown_in_its_own_words` | an unknown id is shown, never dropped | E7-4/M5 |
+| `a_thing_never_read_has_shelves_and_no_json` | no invented JSON | — |
+
+E7-5 and E7-6 add their rows when they land.
 
 ## §6 Acceptance
 
@@ -251,3 +279,9 @@ D221, D238, D244, D248, D250 (what a picture report says).
 | **D269** | **A greyed Clean says why under its label**, as a second, muted line inside the menu item, not as a tooltip: gpui-component's `PopupMenuItem` has no tooltip. The same sentence is the Status badge's tooltip for a waiting row that cannot be cleaned. | The task asked for the reason in a tooltip; a menu item has none, and a reason nobody can see is no reason. |
 | **D270** | **"Replace the existing result" is `clean::replace_one(…, existing)`**: the row is cleaned again with the plan taken when that clean starts, and only the file the first clean refused (`Refusal::Exists(path)`) may be written over — through the same atomic rename, never the source (`SameFile` first). If the page moved the result elsewhere meanwhile, a file there is refused as ever. The outcome says `replaced`, and the row "Written over the existing x.cleaned.md". | D261 stays the rule; the replacement is one named file, asked for by a person, said afterwards. |
 | **D271** | **`toolbar-help-pending` is rewritten in E7-2**, not E7-6: it sits beside Clean all and said "cleaning from this window is not in this version yet". It now says what Clean and Clean all do and that rewriting with a model is not in the windows. | A window must not say the opposite of the button next to it for four steps. |
+| **D272** | **Compare's Reset is offered once the result differs from the cleaned text**, not from the original, and reads "Back to the cleaned text". | Once the result is `clean(original)`, differing from the original is the normal state of any marked text; a Reset that puts back what is already there is a button that does nothing. |
+| **D273** | **The cleaned text is made by `Subject::read`, in the read's background task, and kept by the view**; Reset puts that text back and never cleans again. | The GPUI thread never runs Layer A, not even on Reset, and an 8 MiB text is cleaned once per window. |
+| **D274** | **The Report dialog is the shell's, not the table's**: the queue emits `QueueEvent::Report(id)` from a deferred click, and the shell paints `report::ReportView` over the whole window at the walk-through's priority. | A backdrop painted inside the table would leave the toolbar (Clean all, Paste) clickable under a modal; the shell's tree covers the window, and nothing goes through `Root`. |
+| **D275** | **The shelf mapping** (`docs/architecture/queue.md`, "The report"): text — removed characters, normalizations and the Unicode version verifiable; kept characters and why best-effort. Picture — removed metadata with its signals, the second inspection, proved marks and exact restorations verifiable; every inexact restoration and its reasons (the residual as a mean), holes, outline, texture, refusals, the pixels not examined, "no visible mark this version knows", marks left, metadata kept, EXIF, rotation and the re-encoding best-effort. Third shelf: the report's own ids in order, a picture's with `invisible-pixel-marks` first. | Verifiable is what this build checked and anyone can check again; whatever a catalogue, a fit or a lossy store bounds is not. |
+| **D276** | **The window's sentences take a `wording::Say`**, and the dialog is handed both — the window's and the copy's (`ReportView::with_words`). | One sheet, two renderings, and a test can give the window a real `Rendering::Ui` (the process default in tests is PlainText) to prove the Markdown copy is not in it. |
+| **D277** | **A thing refused before it was read has a report with no JSON**: Verifiable says it was not read, Best-effort says nothing is on it, the third shelf is its kind's (a picture's when it arrived as one), and Copy JSON is greyed rather than copying an invented or empty report. | `to_json()` is the library's; there is none, and a placeholder would be a report nobody produced. |

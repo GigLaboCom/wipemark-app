@@ -27,6 +27,8 @@ APP = ["-p", "wipemark-app"]
 CLEAN = "apps/wipemark-app/src/clean.rs"
 RETENTION = "apps/wipemark-app/src/retention.rs"
 QUEUE = "apps/wipemark-app/src/queue.rs"
+REPORT = "apps/wipemark-app/src/report.rs"
+COMPARE = "apps/wipemark-app/src/compare.rs"
 EN = "crates/wipemark-i18n/i18n/en-US/wipemark.ftl"
 
 
@@ -36,6 +38,14 @@ def t(name):
 
 def q(name):
     return (APP, f"queue::tests::{name}")
+
+
+def r(name):
+    return (APP, f"report::tests::{name}")
+
+
+def c(name):
+    return (APP, f"compare::tests::{name}")
 
 
 # (id, protection, file, old, new, [(cargo test args, test name filter)])
@@ -248,6 +258,107 @@ MUTATIONS = [
         "queue-pending = Rewriting with a model is not in this version's windows yet:",
         "queue-pending = Rewriting with a model (E4) is not in this version's windows yet:",
         [q("the_footer_says_rewriting_is_not_here_yet")],
+    ),
+    # ------------------------------------------------ E7-3: Compare
+    (
+        "E7-3/M1",
+        "Compare's result back to a copy of the original",
+        COMPARE,
+        "result.set_text(&cleaned, window, cx);",
+        "result.set_text(&self.original_text, window, cx);",
+        [
+            c("the_result_is_the_cleaned_text_and_the_original_is_not"),
+            c("the_result_is_what_the_queue_writes"),
+        ],
+    ),
+    (
+        "E7-3/M2",
+        "Reset returns to the original, not to the cleaned text",
+        COMPARE,
+        "let text = self.cleaned_text.to_string();",
+        "let text = self.original_text.to_string();",
+        [c("reset_returns_to_the_cleaned_text_not_the_original")],
+    ),
+    (
+        "E7-3/M3",
+        "the read does not clean: the window's result is the original",
+        COMPARE,
+        "let cleaned = wipemark_core::clean(&text, &Options::default()).text;",
+        "let cleaned = text.clone();",
+        [
+            c("the_result_is_the_cleaned_text_and_the_original_is_not"),
+            c("reset_returns_to_the_cleaned_text_not_the_original"),
+            c("the_result_is_what_the_queue_writes"),
+        ],
+    ),
+    (
+        "E7-3/M4",
+        "Reset offered against the original, not the cleaned text (D272)",
+        COMPARE,
+        "*cleaned != *result",
+        "*original != *result",
+        [c("the_result_is_the_cleaned_text_and_the_original_is_not")],
+    ),
+    # ------------------------------------------------ E7-4: the report
+    (
+        "E7-4/M1",
+        "the report's third shelf dropped",
+        REPORT,
+        """    let not_established = shelf_ids(intake, outcome)
+        .into_iter()""",
+        """    let not_established = Vec::<(&str, &str)>::new()
+        .into_iter()""",
+        [r("every_outcome_has_its_three_shelves")],
+    ),
+    (
+        "E7-4/M2",
+        "the Markdown copy rendered with Rendering::Ui",
+        REPORT,
+        "            markdown: markdown(plain, &sheet(plain, intake, outcome)),",
+        "            markdown: markdown(shown, &sheet(shown, intake, outcome)),",
+        [r("the_copies_are_the_json_and_plain_markdown")],
+    ),
+    (
+        "E7-4/M3",
+        "Copy JSON is not the library's own to_json()",
+        REPORT,
+        "            json: outcome.report.as_ref().map(Report::to_json),",
+        "            json: outcome.report.as_ref().map(|_| String::from(\"{}\")),",
+        [r("the_copies_are_the_json_and_plain_markdown")],
+    ),
+    (
+        "E7-4/M4",
+        "a picture's shelf without the pixels' claim first",
+        REPORT,
+        "    if picture {\n        ids.push((",
+        "    if false {\n        ids.push((",
+        [r("every_outcome_has_its_three_shelves")],
+    ),
+    (
+        "E7-4/M5",
+        "a claim with no sentence dropped",
+        REPORT,
+        "        _ => return format!(\"{canonical} ({id})\"),",
+        "        _ => return String::new(),",
+        [r("a_claim_with_no_sentence_is_shown_in_its_own_words")],
+    ),
+    (
+        "E7-4/M6",
+        "a shelf with nothing on it vanishes",
+        REPORT,
+        """        if shelf.is_empty() {
+            shelf.push(Line::top(say(Message::WindowReportShelfEmpty, &none())));
+        }""",
+        "",
+        [r("every_outcome_has_its_three_shelves")],
+    ),
+    (
+        "E7-4/M7",
+        "the Markdown copy carries a character Layer A would remove",
+        REPORT,
+        """            out.push_str("- ");""",
+        """            out.push_str("-\\u{200B} ");""",
+        [r("the_markdown_copy_carries_nothing_layer_a_would_remove")],
     ),
 ]
 

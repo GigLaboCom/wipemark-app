@@ -500,6 +500,14 @@ impl Row {
     }
 }
 
+/// What the queue asks of the window it is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueueEvent {
+    /// Show the Report dialog for row `id` — painted by the shell, over
+    /// the whole window, not inside the table.
+    Report(u64),
+}
+
 /// The rows, and the drop target that fills them.
 pub struct Queue {
     /// In arrival order, always; the order on screen is [`Order`]'s.
@@ -548,6 +556,17 @@ impl Queue {
     ) -> Self {
         let catcher = cx.new(|cx| Catcher::new(window, cx));
         drop::accept(window);
+        Self::with_catcher(preferences, catcher, window, cx)
+    }
+
+    /// The queue over a catcher already made — [`Queue::new`]'s, which
+    /// the platform delivers to, or a test's, which it does not.
+    fn with_catcher(
+        preferences: Entity<Preferences>,
+        catcher: Entity<Catcher>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let landed = cx.subscribe(&catcher, |queue, _, Landed(arrivals): &Landed, cx| {
             queue.take(arrivals.clone(), cx);
         });
@@ -805,7 +824,19 @@ impl Queue {
     }
 }
 
+impl gpui::EventEmitter<QueueEvent> for Queue {}
+
 impl Queue {
+    /// What row `id` arrived as and what its clean came to, for the
+    /// Report dialog — `None` until it is done.
+    pub fn report_of(&self, id: u64) -> Option<(Intake, Arc<Outcome>)> {
+        let row = self.rows.iter().find(|row| row.id == id)?;
+        match &row.status {
+            Status::Done(outcome) => Some((row.arrival.intake.clone(), outcome.clone())),
+            _ => None,
+        }
+    }
+
     /// The rows Clean all would clean: waiting, and cleanable, in the
     /// order they arrived.
     pub fn cleanable_waiting(&self) -> Vec<u64> {
@@ -1321,6 +1352,8 @@ struct Actions {
     text: bool,
     /// Whether the clean was refused over an existing result.
     replace: bool,
+    /// Whether there is a finished clean to report.
+    report: bool,
 }
 
 /// The Actions menu.
@@ -1350,8 +1383,13 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
             let path = actions.path.clone();
             let written = actions.written.clone();
             let revealed = actions.written.clone();
-            let (cleaning, comparing, copying, replacing) =
-                (queue.clone(), queue.clone(), queue.clone(), queue.clone());
+            let (cleaning, comparing, copying, replacing, reporting) = (
+                queue.clone(),
+                queue.clone(),
+                queue.clone(),
+                queue.clone(),
+                queue.clone(),
+            );
             let clean = match actions.clean.clone() {
                 None => PopupMenuItem::new(SharedString::from(t(Message::QueueActionClean)))
                     .icon(IconName::Broom)
@@ -1427,6 +1465,20 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
                             if let Some(text) = copying.read(cx).result_text(id) {
                                 cx.write_to_clipboard(ClipboardItem::new_string(text));
                             }
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionReport)))
+                        .icon(IconName::FileLines)
+                        .disabled(!actions.report)
+                        .on_click(move |_, _, cx| {
+                            // Deferred, for the reason `compare_row` is: the
+                            // shell builds the dialog in this window, and a
+                            // click runs inside this window's update.
+                            let reporting = reporting.clone();
+                            cx.defer(move |cx| {
+                                reporting.update(cx, |_, cx| cx.emit(QueueEvent::Report(id)));
+                            });
                         }),
                 )
                 .item(
@@ -1661,6 +1713,7 @@ impl Queue {
                     written: row.outcome().and_then(|outcome| outcome.written.clone()),
                     text: row.outcome().is_some_and(|outcome| outcome.text.is_some()),
                     replace: row.outcome().and_then(existing_result).is_some(),
+                    report: row.outcome().is_some(),
                 },
                 cx.entity(),
             )))
@@ -2209,7 +2262,10 @@ mod tests {
         let held = slot.clone();
         let (_, cx) = cx.add_window_view(move |window, cx| {
             let preferences = cx.new(|cx| Preferences::for_tests(homes, cx));
-            let queue = cx.new(|cx| Queue::new(preferences.clone(), window, cx));
+            // Detached: a test window has no platform window for the
+            // macOS drop destination to hang from.
+            let catcher = cx.new(|_| crate::drop::Catcher::detached());
+            let queue = cx.new(|cx| Queue::with_catcher(preferences.clone(), catcher, window, cx));
             *held.borrow_mut() = Some((queue.clone(), preferences));
             gpui_component::Root::new(queue, window, cx)
         });

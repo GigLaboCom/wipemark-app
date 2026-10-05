@@ -1009,3 +1009,35 @@ clean-refused-nowhere = При выборе на странице «Хранен
 clean-failed-write = Не удалось записать { $path } ({ $error }). Больше ничего не изменено.
 clean-failed-set-aside = Файл не удалось отложить как { $name } ({ $error }), поэтому ничего не изменено.
 clean-failed-stranded = Результат не удалось записать, а оригинал не удалось вернуть на место: он лежит в { $path } ({ $error }).
+queue-action-report = Отчёт…
+window-report-title = Отчёт · { $name }
+window-report-arrived = Что поступило
+window-report-happened = Что произошло
+window-report-verifiable = Проверяемо
+window-report-best-effort = В меру возможного
+window-report-result = Результат: { $path }
+window-report-original = Оригинал отложен: { $path }
+window-report-kept = Сохранённые копии: { $path }
+window-report-finding = { $codepoint } { $name } · { $class } · { $confidence } · { $count ->
+        [one] { $count } раз
+        [few] { $count } раза
+        [many] { $count } раз
+       *[other] { $count } раза
+    }
+window-report-removed-none = Слой очистки ничего не удалил из этого текста.
+window-report-normalized = { $count ->
+        [one] Нормализован { $count } символ.
+        [few] Нормализовано { $count } символа.
+        [many] Нормализовано { $count } символов.
+       *[other] Нормализовано { $count } символа.
+    }
+window-report-kept-homoglyph = Оставлено при настройках по умолчанию: буква другого алфавита заменяется только агрессивной очисткой, а окно её не запускает.
+window-report-kept-in-place = Оставлено там, где оно нужно: внутри эмодзи или письменности, которой оно требуется.
+window-report-picture-checked = Результат прочитан ещё раз: метаданных о происхождении от ИИ в нём не осталось.
+window-report-picture-still = При повторном чтении в результате оставались метаданные о происхождении от ИИ.
+window-report-shelf-empty = Для этой очистки здесь ничего нет.
+window-report-not-read = Это не было прочитано, поэтому здесь ничего не проверено.
+window-report-copy-json = Скопировать JSON
+window-report-copy-markdown = Скопировать как Markdown
+window-report-close = Закрыть
+window-report-copied = Скопировано.
