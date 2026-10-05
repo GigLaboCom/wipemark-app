@@ -1,12 +1,13 @@
-# E7 — the windows clean: report, E7-1 … E7-4
+# E7 — the windows clean: report, E7-1 … E7-5
 
 Task: Watchword FILE `wipemark-task-e7-windows-clean-2026-10-05`. Plan:
 [`docs/plan/E7-windows-clean.md`](../E7-windows-clean.md). Branch
 `e7/windows-clean`, from `origin/images/series-v3` at `ebf421a` (the fourth
-images round; `origin/feat/e0-e6-shell` at `b3fbee7` does not contain it, so
-nothing was merged).
+images round). `origin/feat/e0-e6-shell` came to contain `series-v3` during
+the series and was merged at `e70d2e6` (it brought `CLAUDE.md` and
+`docs/plan/README.md` only).
 
-**Status: E7-1 … E7-4 are done. E7-5 and E7-6 are not** — this report grows
+**Status: E7-1 … E7-5 are done. E7-6 is not** — this report grows
 step by step as the owner asks for each part, and it is not the series'
 final report: the Watchword upload and the live-check script for the
 host belong to the end of the series (§7 of the task), after `--clean=`
@@ -19,8 +20,8 @@ exists (E7-2).
 | E7-1 the cleaner, with no window | yes | `81af4a4` | 26 in `clean::tests` | 12 of 12 (M1–M12) |
 | E7-2 the queue cleans | yes | `6895b6d` | 2 `#[gpui::test]` + 3 in `queue::tests`, 1 in `clean::tests`, 2 in `wording::tests`, 2 in `main::tests` | 7 of 7 (M1–M7) |
 | E7-3 Compare shows the real result | yes | `9555ab7` | 4 `#[gpui::test]` in `compare::tests` | 4 of 4 (M1–M4) |
-| E7-4 the report, three shelves | yes | (this commit) | 4 + 2 `#[gpui::test]` in `report::tests` | 7 of 7 (M1–M7) |
-| E7-5 the panel | no | — | — | — |
+| E7-4 the report, three shelves | yes | `2fc5d2d` | 4 + 2 `#[gpui::test]` in `report::tests` | 7 of 7 (M1–M7) |
+| E7-5 the panel | yes | (this commit) | 5 in `panel::tests`, 2 in `clean::tests` | 8 of 8 (M1–M8) |
 | E7-6 every "not yet", the docs | no | — | — | — |
 
 ## What E7-1 built
@@ -107,7 +108,34 @@ owner's request, and cherry-picked onto the branch before E7-4 (its notes,
 - `docs/architecture/queue.md`: "Cleaning" and "The report, and its three
   shelves" (the mapping); "What it does not do yet" now says rewriting.
 
-## Mutations (`docs/plan/reports/e7-windows-clean-mutate.py E7-1 … E7-4`)
+## What E7-5 built
+
+- `clean.rs`: `inspect_one(&Arrival) -> Findings` — the read a clean makes
+  (same bytes, limits, re-identification), then `wipemark_core::inspect` or
+  `wipemark_picture::inspect`; nothing written (D278). `number()`, one
+  counter for every thing filed in a run (D280).
+- `panel.rs`: `Held`, the drop on screen with a look per listed thing and an
+  outcome per cleaned one, kept per drop; the looks run one at a time on the
+  background executor when the drop lands and stop when a later drop
+  overtakes them. Under each listed thing: the findings line ("Looking…"
+  first), then the *would* lines — none for a thing that cannot be cleaned —
+  or, once cleaned, `wording::said` in the verdict's colour and
+  `wording::went`. Clean sits beside the dismissal line (no height taken
+  from the list): every cleanable thing not yet cleaned, one at a time, the
+  plan taken at each start (D279); "Cleaning…" and greyed while it runs,
+  greyed once nothing is left, absent when nothing caught could be cleaned.
+  Pure: `to_clean`, `clean_offered`, `findings_line`, `something_found`.
+- `queue.rs`: row ids from `clean::number()` (D280).
+- `drop.rs`: `Catcher::is_caught(&Arc<[Arrival]>)`, so the panel keeps its
+  looks for the drop it shows and not for one a later drop overtook.
+- `wording.rs`: `found` / `found_in`; two stale doc lines ("once cleaning
+  exists").
+- The catalogue: `panel-looking`, `panel-found-*`, `panel-clean`,
+  `panel-clean-tooltip`, `panel-cleaning` in the E7 block (ru plurals);
+  `panel-pending` rewritten in place to say only that rewriting is not in the
+  windows.
+
+## Mutations (`docs/plan/reports/e7-windows-clean-mutate.py E7-1 … E7-5`)
 
 | # | protection | result | tests |
 |---|---|---|---|
@@ -141,6 +169,14 @@ owner's request, and cherry-picked onto the branch before E7-4 (its notes,
 | E7-4/M5 | a claim with no sentence dropped | red | `a_claim_with_no_sentence_is_shown_in_its_own_words` |
 | E7-4/M6 | a shelf with nothing on it vanishes | red | `every_outcome_has_its_three_shelves` |
 | E7-4/M7 | the Markdown copy carries a character Layer A would remove | red | `the_markdown_copy_carries_nothing_layer_a_would_remove` |
+| E7-5/M1 | the panel's Clean cleans a thing a second time | red | `clean_is_offered_only_when_something_is_left_to_clean` |
+| E7-5/M2 | Clean offered while a clean runs | red | `clean_is_offered_only_when_something_is_left_to_clean` |
+| E7-5/M3 | Clean offered over a thing that cannot be cleaned | red | `clean_is_offered_only_when_something_is_left_to_clean` |
+| E7-5/M4 | the look counts rows, not characters | red | `the_look_agrees_with_the_clean` |
+| E7-5/M5 | pixels not examined said only when they did not decode | red | `the_findings_line_says_what_a_look_found` |
+| E7-5/M6 | AI metadata dropped from a not-examined line | red | `the_findings_line_says_what_a_look_found` |
+| E7-5/M7 | the panel says again that it does not clean | red | `the_panel_says_only_rewriting_is_not_here` |
+| E7-5/M8 | one number handed out twice, a kept directory shared | red | `a_number_is_handed_out_once` |
 
 E7-1's twelve were run again after E7-2 (M1's text moved with D270): all
 red. E7-2/M3 first came out **green** — Clean all already skips what is not
@@ -148,6 +184,9 @@ waiting, so the guard in `Queue::clean` was not reached; the test now asks
 rows again by id, as `--clean=` and the menu do, and it is red.
 
 `git status --short` after the run: only this step's own uncommitted files.
+
+E7-5's eight have no counterpart in the task's list (it names none for the
+panel); they are this step's own protections, all red.
 
 Every mutation the task's list names is now in the script: the last three
 were E7-3/M1, E7-4/M1 and E7-4/M2. E7-3's four were run by the second
@@ -160,11 +199,11 @@ the cherry-pick.
 |---|---|
 | `rustup run nightly rustfmt --edition 2021 --check $(find crates apps -name '*.rs')` | clean |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
-| `cargo test --workspace --locked` | E7-1: 1401; E7-2: 1410; **E7-3 + E7-4: 1420 passed**, 0 failed, 6 ignored |
+| `cargo test --workspace --locked` | E7-1: 1401; E7-2: 1410; E7-3 + E7-4: 1420; **E7-5: 1427 passed**, 0 failed, 6 ignored |
 | `scripts/check-dep-direction.sh` | ok |
 | `cargo check --workspace --no-default-features --locked` | ok |
 | `cargo check --workspace --features local-llama --locked` | ok |
-| `cargo test -p wipemark-app --features local-llama --locked` | E7-1: 477 + 1; E7-2: 486 + 1; **E7-3 + E7-4: 496 + 1 passed**, 0 failed, 1 ignored |
+| `cargo test -p wipemark-app --features local-llama --locked` | E7-1: 477 + 1; E7-2: 486 + 1; E7-3 + E7-4: 496 + 1; **E7-5: 503 + 1 passed**, 0 failed, 1 ignored |
 | `cargo test -p wipemark-engine --features local-llama --locked` | 36 passed, 1 ignored |
 
 Every gate ran. The app's tests link here only after installing GPUI's
@@ -186,9 +225,14 @@ so this container could not see it. Fixed in the E7-4 commit: the tests
 build the queue over `Catcher::detached()` (test-only, no platform) through
 `Queue::with_catcher`; the production road is unchanged.
 
+The E7-4 push (`2fc5d2d`) was overtaken by the merge's push a few seconds
+later and its run cancelled. On `e70d2e6` (E7-2 … E7-4 and the merge): **success**,
+all three jobs, the `macos` one included —
+https://github.com/GigLaboCom/wipemark-app/actions/runs/37343860128
+
 ## Decisions
 
-D260–D277, stated in full in the plan's §9:
+D260–D280, stated in full in the plan's §9:
 
 - **D260** nothing found is nothing written;
 - **D261** a result never replaces a file already there (refused, left byte
@@ -227,7 +271,14 @@ D260–D277, stated in full in the plan's §9:
 - **D276** the window's sentences take a `Say`; the dialog is handed both
   renderings;
 - **D277** a thing never read has a report with no JSON, and Copy JSON is
-  greyed.
+  greyed;
+- **D278** the panel looks at what it lists, once per drop, by the read a
+  clean makes; a text's count is characters, and a kept look-alike is said;
+- **D279** the panel's Clean cleans every caught thing that can be and has
+  not been, one at a time, the plan at each start; a later drop does not
+  stop it;
+- **D280** one counter numbers the queue's rows and the panel's cleans, so
+  no two cleans share a kept directory.
 
 ## Deviations from the task
 
@@ -258,6 +309,20 @@ D260–D277, stated in full in the plan's §9:
 12. **E7-3 was built by a second agent in a worktree** (the owner asked for
     one in parallel) and cherry-picked; its gates were app + i18n tests and
     clippy on the app, and the workspace gates ran here after the merge.
+13. **`drop.rs` gained `Catcher::is_caught`** (E7-2 already gave it
+    `detached`); it is not in the task's list of files.
+14. **The findings line has a fourth text case**, "nothing to remove; a
+    look-alike is kept at the defaults", beyond the task's two: the clean
+    will call that text partly clean, and "nothing to remove" alone would be
+    followed by a verdict that disagrees.
+15. **A thing that cannot be cleaned has no *would* lines** in the panel any
+    more: a folder's "every file in it would be handled the way a dropped
+    file is" had become false (folders are not expanded, Q-D2).
+16. **The queue's ids skip numbers** the panel used (D280).
+17. **The panel has no `#[gpui::test]`**: its view installs the floating
+    level and the macOS drop destination as it opens, the test-window trap;
+    the tests are the pure functions the task asked for, and what the
+    window paints is for the live check.
 
 ## Wanted edits to `CLAUDE.md` and `docs/plan/README.md`
 
@@ -273,7 +338,10 @@ For the end of the series, collected as they arise:
   table cleans — the status column, one clean at a time, the plan taken at
   start, the Actions menu's new items; "Nothing is cleaned … and the footer
   says the first of those" is no longer true.
-- `docs/plan/README.md` §4: D260–D271.
+- `CLAUDE.md`, the panel bullet ("There are four windows…") and the
+  `panel.rs` row: the panel cleans — a findings line per listed thing, Clean
+  beside the dismissal line.
+- `docs/plan/README.md` §4: D260–D280.
 
 ## Engineering question found on the way
 
@@ -294,6 +362,6 @@ replace (E7-2) rather than a numbered name.
 
 ## Unfinished
 
-E7-5, E7-6, the live-check script (`E7-windows-clean-live-check.md`, which
+E7-6, the live-check script (`E7-windows-clean-live-check.md`, which
 needs `--clean=` from E7-2), the final report in Watchword, and the
 `CLAUDE.md`/README edits above.

@@ -29,6 +29,8 @@ RETENTION = "apps/wipemark-app/src/retention.rs"
 QUEUE = "apps/wipemark-app/src/queue.rs"
 REPORT = "apps/wipemark-app/src/report.rs"
 COMPARE = "apps/wipemark-app/src/compare.rs"
+PANEL = "apps/wipemark-app/src/panel.rs"
+WORDING = "apps/wipemark-app/src/wording.rs"
 EN = "crates/wipemark-i18n/i18n/en-US/wipemark.ftl"
 
 
@@ -46,6 +48,10 @@ def r(name):
 
 def c(name):
     return (APP, f"compare::tests::{name}")
+
+
+def p(name):
+    return (APP, f"panel::tests::{name}")
 
 
 # (id, protection, file, old, new, [(cargo test args, test name filter)])
@@ -359,6 +365,71 @@ MUTATIONS = [
         """            out.push_str("- ");""",
         """            out.push_str("-\\u{200B} ");""",
         [r("the_markdown_copy_carries_nothing_layer_a_would_remove")],
+    ),
+    # -- E7-5: the panel ---------------------------------------------------
+    (
+        "E7-5/M1",
+        "the panel's Clean cleans a thing a second time",
+        PANEL,
+        """!matches!(cleanable, Cleanable::No(_)) && !done)""",
+        """!matches!(cleanable, Cleanable::No(_)))""",
+        [p("clean_is_offered_only_when_something_is_left_to_clean")],
+    ),
+    (
+        "E7-5/M2",
+        "Clean offered while a clean runs",
+        PANEL,
+        """    !cleaning && !to_clean(states).is_empty()""",
+        """    !to_clean(states).is_empty()""",
+        [p("clean_is_offered_only_when_something_is_left_to_clean")],
+    ),
+    (
+        "E7-5/M3",
+        "Clean offered over a thing that cannot be cleaned",
+        PANEL,
+        """.filter(|(_, (cleanable, done))| !matches!(cleanable, Cleanable::No(_)) && !done)""",
+        """.filter(|(_, (_cleanable, done))| !done)""",
+        [p("clean_is_offered_only_when_something_is_left_to_clean")],
+    ),
+    (
+        "E7-5/M4",
+        "the look counts rows, not characters",
+        CLEAN,
+        """.map(|finding| finding.count as usize)""",
+        """.map(|_| 1usize)""",
+        [t("the_look_agrees_with_the_clean")],
+    ),
+    (
+        "E7-5/M5",
+        "pixels not examined said only when they did not decode",
+        WORDING,
+        """            not_examined: Some(why),""",
+        """            not_examined: Some(why @ NotExamined::Decode),""",
+        [p("the_findings_line_says_what_a_look_found")],
+    ),
+    (
+        "E7-5/M6",
+        "AI metadata dropped from a not-examined line",
+        WORDING,
+        '"metadata" => if *ai_metadata { "yes" } else { "no" }',
+        '"metadata" => "no"',
+        [p("the_findings_line_says_what_a_look_found")],
+    ),
+    (
+        "E7-5/M7",
+        "the panel says again that it does not clean",
+        EN,
+        """panel-pending = Rewriting with a model is not in this version's windows yet: it runs from the command line (wipemark-cli rewrite) and over MCP.""",
+        """panel-pending = Cleaning from this window is not in this version yet. Rewriting runs from the command line.""",
+        [p("the_panel_says_only_rewriting_is_not_here")],
+    ),
+    (
+        "E7-5/M8",
+        "one number handed out twice, a kept directory shared",
+        CLEAN,
+        """NEXT.fetch_add(1, Ordering::Relaxed)""",
+        """NEXT.load(Ordering::Relaxed)""",
+        [t("a_number_is_handed_out_once")],
     ),
 ]
 

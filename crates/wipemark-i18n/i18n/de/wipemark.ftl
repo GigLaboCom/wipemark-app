@@ -167,7 +167,7 @@ settings-section-retention = Aufbewahrung
 ## Das Panel — das Fenster, das man ruft.
 
 panel-title = Schnelle Reinigung
-panel-pending = Bereinigen aus diesem Fenster gibt es in dieser Version noch nicht. Echt ist heute, dass es annimmt, was man darauf ablegt, und sagt, was es ist — und dass es dort aufgeht, wo man es hingelegt hat. Die Bereinigung selbst läuft über die Kommandozeile und über MCP.
+panel-pending = Umschreiben mit einem Modell gibt es in den Fenstern dieser Version noch nicht: Es läuft über die Kommandozeile (wipemark-cli rewrite) und über MCP.
 panel-dismiss = Escape schickt es wieder weg.
 
 panel-help = Was hier möglich ist
@@ -1003,3 +1003,26 @@ window-report-copy-json = JSON kopieren
 window-report-copy-markdown = Als Markdown kopieren
 window-report-close = Schließen
 window-report-copied = Kopiert.
+
+panel-looking = Wird angesehen…
+panel-found-text = { $count ->
+        [one] Ein Zeichen zu entfernen oder zu ersetzen.
+       *[other] { $count } Zeichen zu entfernen oder zu ersetzen.
+    }
+panel-found-text-nothing = Nichts zu entfernen.
+panel-found-text-kept = Nichts zu entfernen; ein Buchstabe aus einem anderen Alphabet, der wie ein lateinischer aussieht, bleibt bei den Standardeinstellungen stehen.
+panel-found-picture-both = KI-Metadaten und ein sichtbares Zeichen.
+panel-found-picture-metadata = KI-Metadaten.
+panel-found-picture-mark = Ein sichtbares Zeichen.
+panel-found-picture-nothing = Nichts gefunden – weder in den Metadaten noch unter den sichtbaren Zeichen, die diese Version kennt.
+panel-found-not-examined = { $metadata ->
+        [yes] KI-Metadaten;
+       *[no] Keine KI-Metadaten;
+    } { $why ->
+        [animated] Die Einzelbilder eines animierten Bildes werden nicht auf ein sichtbares Zeichen geprüft.
+        [catalogue] Der Katalog sichtbarer Zeichen wurde nicht geladen, also wurden die Pixel nicht geprüft.
+       *[decode] Die Pixel ließen sich nicht dekodieren, also wurden sie nicht geprüft.
+    }
+panel-clean = Bereinigen
+panel-clean-tooltip = Bereinigen, was hier abgelegt wurde, eins nach dem anderen; jedes Ergebnis kommt dorthin, wo die Seite „Aufbewahrung“ es sagt. Ausgegraut, solange eine Bereinigung läuft oder hier nichts mehr zu bereinigen ist.
+panel-cleaning = Wird bereinigt…

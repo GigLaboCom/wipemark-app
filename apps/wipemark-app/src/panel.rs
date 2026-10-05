@@ -52,35 +52,45 @@
 //! was. Showing the invitation again for the middle one would look like
 //! the drop never happened.
 //!
-//! Cleaning from this window is not implemented yet — Layer A runs from
-//! the CLI and over MCP — so the panel says what it will do and does not
-//! pretend to do it, the same bargain the Engine banner and the disabled
-//! tray item make. What is
-//! real today is the window: that it arrives where it was told to, on
-//! the display it was told to, that it can be moved and resized, that
-//! it takes a drop and names it, and that Escape dismisses it.
+//! # It cleans what it caught
+//!
+//! Under each thing it lists is a **findings line**: what a look found,
+//! from [`clean::inspect_one`] — the bytes a clean would read, the layer's
+//! inspection rather than its clean — on the background executor, once
+//! per drop (D278). **Clean**, beside the dismissal line so it takes no
+//! height from the list, cleans every caught thing that can be, one at a
+//! time, through [`clean::clean_one`] with the plan
+//! the Retention page gives at that thing's start, the queue's road
+//! (D279); the *would* lines then become what happened and where it went.
+//! Rewriting with a model is not in the windows, and the invitation says
+//! so (`panel-pending`).
 
+use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
 use gpui::prelude::*;
 use gpui::{
     actions, div, px, AnyWindowHandle, App, Bounds, Corner, Div, Entity, FocusHandle, Focusable,
-    Global, KeyBinding, Pixels, SharedString, Size, Subscription, Window, WindowBounds, WindowKind,
-    WindowOptions,
+    Global, Hsla, KeyBinding, Pixels, SharedString, Size, Subscription, Window, WindowBounds,
+    WindowKind, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::popover::Popover;
-use gpui_component::{h_flex, v_flex, ActiveTheme, Root, Sizable as _, StyledExt as _};
+use gpui_component::{
+    h_flex, v_flex, ActiveTheme, Disableable as _, Root, Sizable as _, StyledExt as _,
+};
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_intake::{Arrived, Format, Intake, Kind};
 
-use crate::drop::{self, Catcher, Landed};
+use crate::clean::{self, Cleanable, Findings, Outcome};
+use crate::drop::{self, Arrival, Catcher, Landed};
 use crate::icon::{Icon, IconName};
 use crate::placement;
 use crate::retention::Plan;
 use crate::screen::{self, Screen};
 use crate::settings::Preferences;
-use crate::wording::{self, would_happen, Tone};
+use crate::wording::{self, would_happen, Badge, Tone};
 
 actions!(wipemark, [ClosePanel]);
 
@@ -337,6 +347,69 @@ struct PanelView {
     /// Redraws when something lands, and says so in the log. Dropped
     /// with the view.
     _caught: Subscription,
+    /// The drop on screen, with what a look found and what a clean did.
+    held: Option<Held>,
+    /// Whether a clean asked for here is still running — for this drop or
+    /// one it overtook. One clean at a time.
+    cleaning: bool,
+}
+
+/// The drop the panel shows, and what it knows about it: a look per thing
+/// it lists, and an outcome per thing it cleaned. Kept per drop, so a
+/// redraw never looks again (D278).
+struct Held {
+    arrivals: Arc<[Arrival]>,
+    /// What a look found, per listed thing; `None` while it looks.
+    found: Vec<Option<Findings>>,
+    /// What a clean did, per thing; `None` until it is cleaned.
+    done: Vec<Option<Outcome>>,
+}
+
+impl Held {
+    /// Whether each thing can be cleaned, and whether it has been — what
+    /// [`to_clean`] reads.
+    fn states(&self) -> Vec<(Cleanable, bool)> {
+        self.arrivals
+            .iter()
+            .zip(&self.done)
+            .map(|(arrival, done)| (clean::cleanable(&arrival.intake), done.is_some()))
+            .collect()
+    }
+}
+
+/// Which things Clean cleans: every one that can be cleaned and has not
+/// been, in the order they arrived. Pure.
+fn to_clean(states: &[(Cleanable, bool)]) -> Vec<usize> {
+    states
+        .iter()
+        .enumerate()
+        .filter(|(_, (cleanable, done))| !matches!(cleanable, Cleanable::No(_)) && !done)
+        .map(|(index, _)| index)
+        .collect()
+}
+
+/// Whether Clean is offered: not while a clean runs, and not when nothing
+/// caught is left to clean. Pure.
+fn clean_offered(cleaning: bool, states: &[(Cleanable, bool)]) -> bool {
+    !cleaning && !to_clean(states).is_empty()
+}
+
+/// The findings line: what a look found, or that it is still looking.
+fn findings_line(found: Option<&Findings>) -> String {
+    found.map_or_else(|| t(Message::PanelLooking), wording::found)
+}
+
+/// Whether a look found something worth the foreground colour.
+fn something_found(found: &Findings) -> bool {
+    match found {
+        Findings::Text { change, suspicious } => *change > 0 || *suspicious,
+        Findings::Picture {
+            ai_metadata,
+            mark,
+            not_examined,
+        } => *ai_metadata || *mark || not_examined.is_some(),
+        Findings::NotLooked(_) => false,
+    }
 }
 
 impl PanelView {
@@ -380,7 +453,7 @@ impl PanelView {
         // installed a frame later is a drag that was refused once.
         let catcher = cx.new(|cx| Catcher::new(window, cx));
         drop::accept(window);
-        let caught = cx.subscribe(&catcher, |_, catcher, _: &Landed, cx| {
+        let caught = cx.subscribe(&catcher, |view: &mut Self, catcher, landed: &Landed, cx| {
             // The count and the kinds, and nothing else. A log line
             // carrying what was dropped would be the document in a
             // file the product wrote — see `wipemark_log::Elided`.
@@ -392,6 +465,9 @@ impl PanelView {
                 .map(|arrival| arrival.intake.kind)
                 .collect();
             tracing::info!(?kinds, "something was dropped on the panel");
+            if catcher.read(cx).is_caught(&landed.0) {
+                view.hold(landed.0.clone(), cx);
+            }
             cx.notify();
         });
 
@@ -402,7 +478,98 @@ impl PanelView {
             moves: 0,
             catcher,
             _caught: caught,
+            held: None,
+            cleaning: false,
         }
+    }
+
+    /// Hold a new drop, and look at what it lists, one thing at a time on
+    /// the background executor. A look overtaken by the next drop stops.
+    fn hold(&mut self, arrivals: Arc<[Arrival]>, cx: &Context<Self>) {
+        let listed = arrivals.len().min(LISTED);
+        self.held = Some(Held {
+            arrivals: arrivals.clone(),
+            found: (0..listed).map(|_| None).collect(),
+            done: (0..arrivals.len()).map(|_| None).collect(),
+        });
+        cx.spawn(async move |view, cx| {
+            for index in 0..listed {
+                let thing = arrivals.clone();
+                let found = cx
+                    .background_executor()
+                    .spawn(async move { clean::inspect_one(&thing[index]) })
+                    .await;
+                let current = view
+                    .update(cx, |view, cx| {
+                        let Some(held) = view.held_for(&arrivals) else {
+                            return false;
+                        };
+                        held.found[index] = Some(found);
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false);
+                if !current {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// The held drop, if it is still `arrivals`.
+    fn held_for(&mut self, arrivals: &Arc<[Arrival]>) -> Option<&mut Held> {
+        self.held
+            .as_mut()
+            .filter(|held| Arc::ptr_eq(&held.arrivals, arrivals))
+    }
+
+    /// Clean everything caught that can be, one at a time, each by the plan
+    /// the Retention page gives when its clean starts (D279). A drop that
+    /// overtakes it does not stop it — what was asked for is finished — but
+    /// its outcomes are then nobody's to show.
+    fn clean(&mut self, cx: &mut Context<Self>) {
+        let Some(held) = &self.held else {
+            return;
+        };
+        let states = held.states();
+        if !clean_offered(self.cleaning, &states) {
+            return;
+        }
+        let asked = to_clean(&states);
+        let arrivals = held.arrivals.clone();
+        self.cleaning = true;
+        cx.notify();
+        cx.spawn(async move |view, cx| {
+            for index in asked {
+                let Ok(plan) = view.update(cx, |view, cx| {
+                    view.preferences.read(cx).plan_for(&arrivals[index].intake)
+                }) else {
+                    return;
+                };
+                let thing = arrivals.clone();
+                let number = clean::number();
+                let outcome = cx
+                    .background_executor()
+                    .spawn(
+                        async move { clean::clean_one(&thing[index], &plan, number, Utc::now()) },
+                    )
+                    .await;
+                view.update(cx, |view, cx| {
+                    if let Some(held) = view.held_for(&arrivals) {
+                        held.done[index] = Some(outcome);
+                    }
+                    cx.notify();
+                })
+                .ok();
+            }
+            view.update(cx, |view, cx| {
+                view.cleaning = false;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Write down where the user has just put this window, once they
@@ -439,10 +606,18 @@ impl PanelView {
 /// has only what it *is*, because "image.png" for something that was
 /// never a file on this disk would be a name nobody could go and find.
 /// The second line is the evidence — the format, the encoding, the size
-/// — and under it, when there is one, the thing worth being told. Last,
-/// what would happen to it: the one place today where the Retention
-/// page's choices can be seen against a real thing.
-fn caught_row(intake: &Intake, plan: &Plan, cx: &App) -> impl IntoElement {
+/// — and under it, when there is one, the thing worth being told. Then
+/// what a look found, and what would happen to it by the Retention page's
+/// choices — or, once it is cleaned, what happened and where the result
+/// went. A thing that cannot be cleaned has no *would* lines: there will
+/// be no result.
+fn caught_row(
+    intake: &Intake,
+    plan: &Plan,
+    found: Option<&Findings>,
+    done: Option<&Outcome>,
+    cx: &App,
+) -> impl IntoElement {
     let theme = cx.theme();
     let title = wording::title_of(intake);
 
@@ -472,6 +647,31 @@ fn caught_row(intake: &Intake, plan: &Plan, cx: &App) -> impl IntoElement {
         Some((note, Tone::Muted)) => (Some(note), theme.muted_foreground),
         None => (None, theme.muted_foreground),
     };
+
+    let muted = theme.muted_foreground;
+    let mut lines: Vec<(String, Hsla)> = Vec::new();
+    match done {
+        Some(outcome) => {
+            let colour = match wording::verdict_badge(&outcome.verdict).1 {
+                Badge::Danger => theme.danger,
+                Badge::Warning => theme.warning,
+                Badge::Success | Badge::Muted => theme.foreground,
+            };
+            lines.push((wording::said(outcome), colour));
+            lines.extend(wording::went(outcome).into_iter().map(|line| (line, muted)));
+        }
+        None => {
+            let colour = if found.is_some_and(something_found) {
+                theme.foreground
+            } else {
+                muted
+            };
+            lines.push((findings_line(found), colour));
+            if !matches!(clean::cleanable(intake), Cleanable::No(_)) {
+                lines.extend(would_happen(plan).into_iter().map(|line| (line, muted)));
+            }
+        }
+    }
 
     v_flex()
         .gap_0p5()
@@ -503,10 +703,10 @@ fn caught_row(intake: &Intake, plan: &Plan, cx: &App) -> impl IntoElement {
                 .child(Icon::new(IconName::CircleInfo).small())
                 .child(SharedString::from(note))
         }))
-        .children(would_happen(plan).into_iter().map(|line| {
+        .children(lines.into_iter().map(|(line, colour)| {
             div()
                 .text_xs()
-                .text_color(theme.muted_foreground)
+                .text_color(colour)
                 .child(SharedString::from(line))
         }))
 }
@@ -591,10 +791,28 @@ impl PanelView {
 
         let over_by = caught.len().saturating_sub(LISTED);
         let preferences = self.preferences.read(cx);
-        area.children(caught.iter().take(LISTED).map(|arrival| {
-            let intake = &arrival.intake;
-            caught_row(intake, &preferences.plan_for(intake), cx)
-        }))
+        // What a look found and a clean did, when the drop held is the one
+        // caught — it is, once its `Landed` has been heard.
+        let held = self
+            .held
+            .as_ref()
+            .filter(|held| self.catcher.read(cx).is_caught(&held.arrivals));
+        area.children(
+            caught
+                .iter()
+                .take(LISTED)
+                .enumerate()
+                .map(|(index, arrival)| {
+                    let intake = &arrival.intake;
+                    caught_row(
+                        intake,
+                        &preferences.plan_for(intake),
+                        held.and_then(|held| held.found.get(index)?.as_ref()),
+                        held.and_then(|held| held.done.get(index)?.as_ref()),
+                        cx,
+                    )
+                }),
+        )
         .when(over_by > 0, |area| {
             area.child(
                 div()
@@ -609,6 +827,35 @@ impl PanelView {
                     ))),
             )
         })
+    }
+}
+
+impl PanelView {
+    /// Clean, once something cleanable has been caught: greyed while a
+    /// clean runs and once nothing is left to clean, its tooltip saying so.
+    fn clean_button(&self, cx: &Context<Self>) -> Option<Button> {
+        let held = self.held.as_ref()?;
+        let states = held.states();
+        let ever = states
+            .iter()
+            .any(|(cleanable, _)| !matches!(cleanable, Cleanable::No(_)));
+        if !ever {
+            // Nothing here could ever be cleaned: no button to grey.
+            return None;
+        }
+        Some(
+            Button::new("panel-clean")
+                .xsmall()
+                .icon(IconName::Broom)
+                .label(SharedString::from(t(if self.cleaning {
+                    Message::PanelCleaning
+                } else {
+                    Message::PanelClean
+                })))
+                .disabled(!clean_offered(self.cleaning, &states))
+                .tooltip(SharedString::from(t(Message::PanelCleanTooltip)))
+                .on_click(cx.listener(|view, _, _, cx| view.clean(cx))),
+        )
     }
 }
 
@@ -683,10 +930,194 @@ impl Render for PanelView {
             )
             .child(self.landing(cx))
             .child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(t(Message::PanelDismiss))),
+                h_flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(t(Message::PanelDismiss))),
+                    )
+                    .children(self.clean_button(cx)),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use wipemark_i18n::{available_languages, FluentArgs, Localizer, Rendering};
+    use wipemark_intake::Encoding;
+    use wipemark_picture::NotExamined;
+
+    use super::*;
+    use crate::clean::{Refusal, Unable};
+
+    /// Every case a look can come to, beside the line it should read as.
+    fn every_look() -> Vec<(Findings, &'static str)> {
+        let text = |change, suspicious| Findings::Text { change, suspicious };
+        let picture = |ai_metadata, mark, not_examined| Findings::Picture {
+            ai_metadata,
+            mark,
+            not_examined,
+        };
+        vec![
+            (text(2, false), "2 characters to remove or replace."),
+            (text(1, true), "One character to remove or replace."),
+            (text(0, false), "Nothing to remove."),
+            (
+                text(0, true),
+                "Nothing to remove; a letter from another alphabet that looks like a Latin one \
+                 is kept at the default settings.",
+            ),
+            (picture(true, true, None), "AI metadata and a visible mark."),
+            (picture(true, false, None), "AI metadata."),
+            (picture(false, true, None), "A visible mark."),
+            (
+                picture(false, false, None),
+                "Nothing found in the metadata or among the visible marks this version knows.",
+            ),
+            (
+                picture(true, false, Some(NotExamined::Animated)),
+                "AI metadata; the frames of an animated picture are not examined for a visible \
+                 mark.",
+            ),
+            (
+                picture(false, false, Some(NotExamined::Catalogue)),
+                "No AI metadata; the catalogue of visible marks did not load, so the pixels were \
+                 not examined.",
+            ),
+            (
+                picture(false, false, Some(NotExamined::Decode)),
+                "No AI metadata; the pixels could not be decoded, so they were not examined.",
+            ),
+            (
+                Findings::NotLooked(Refusal::NotCleanable(Unable::NotYet(Format::Tiff))),
+                "TIFF pictures are not read in this version yet.",
+            ),
+            (
+                Findings::NotLooked(Refusal::NotCleanable(Unable::Folder)),
+                "A folder is not cleaned as one thing; drop the files in it instead.",
+            ),
+        ]
+    }
+
+    /// The findings line, case by case — and "Looking…" until the look
+    /// lands. Not examined is said whatever the metadata held.
+    #[test]
+    fn the_findings_line_says_what_a_look_found() {
+        assert_eq!(findings_line(None), "Looking…");
+        for (found, line) in every_look() {
+            assert_eq!(findings_line(Some(&found)), line, "{found:?}");
+        }
+    }
+
+    /// Every case reads as its own sentence in every language: nothing
+    /// left unresolved, and no two cases alike.
+    #[test]
+    fn every_look_reads_in_every_language() {
+        for language in available_languages() {
+            let localizer =
+                Localizer::for_languages(std::slice::from_ref(&language.id), Rendering::PlainText);
+            let say = |message: Message, args: &FluentArgs| localizer.format_args(message, args);
+            let lines: Vec<String> = every_look()
+                .iter()
+                .map(|(found, _)| wording::found_in(&say, found))
+                .collect();
+            for line in &lines {
+                assert!(
+                    !line.is_empty() && !line.contains(['{', '}', '$']),
+                    "{}: {line:?}",
+                    language.id
+                );
+            }
+            let mut unique = lines.clone();
+            unique.sort();
+            unique.dedup();
+            assert_eq!(unique.len(), lines.len(), "{}: {lines:?}", language.id);
+        }
+    }
+
+    /// Only a look that found something is painted in the foreground:
+    /// characters to change, a kept look-alike, anything on a picture, and
+    /// pixels not examined — never "nothing" and never a refusal.
+    #[test]
+    fn only_a_finding_is_painted_as_one() {
+        let expected = [
+            true, true, false, true, // text: 2, 1, nothing, kept
+            true, true, true, false, // picture: both, metadata, mark, nothing
+            true, true, true, // not examined: animated, catalogue, decode
+            false, false, // TIFF, folder
+        ];
+        let looks = every_look();
+        assert_eq!(looks.len(), expected.len());
+        for ((found, line), expected) in looks.iter().zip(expected) {
+            assert_eq!(something_found(found), expected, "{line}");
+        }
+    }
+
+    /// Clean cleans what can be cleaned and has not been, in arrival order;
+    /// it is offered only when there is such a thing and no clean runs.
+    #[test]
+    fn clean_is_offered_only_when_something_is_left_to_clean() {
+        let text = Cleanable::Text(Encoding::Utf8);
+        let png = Cleanable::Picture(Format::Png);
+        let tiff = Cleanable::No(Unable::NotYet(Format::Tiff));
+
+        let fresh = [(text, false), (tiff, false), (png, false)];
+        assert_eq!(to_clean(&fresh), [0, 2]);
+        assert!(clean_offered(false, &fresh));
+        assert!(!clean_offered(true, &fresh), "offered while a clean runs");
+
+        let half = [(text, true), (tiff, false), (png, false)];
+        assert_eq!(to_clean(&half), [2], "a thing cleaned is not cleaned again");
+
+        let done = [(text, true), (tiff, false), (png, true)];
+        assert!(to_clean(&done).is_empty());
+        assert!(!clean_offered(false, &done), "offered with nothing left");
+
+        assert!(
+            !clean_offered(false, &[(tiff, false)]),
+            "offered over a TIFF"
+        );
+        assert!(!clean_offered(false, &[]));
+    }
+
+    /// The invitation says only that rewriting is not here — in every
+    /// language, with no epic number and nothing saying the panel does not
+    /// clean.
+    #[test]
+    fn the_panel_says_only_rewriting_is_not_here() {
+        let line = t(Message::PanelPending);
+        assert!(line.contains("Rewriting"), "{line}");
+        assert!(line.contains("not in this version"), "{line}");
+        for language in available_languages() {
+            let localizer =
+                Localizer::for_languages(std::slice::from_ref(&language.id), Rendering::PlainText);
+            let line = localizer.format(Message::PanelPending);
+            for old in [
+                "Cleaning from this window is not",
+                "Очистки из этого окна",
+                "Bereinigen aus diesem Fenster",
+            ] {
+                assert!(
+                    !line.contains(old),
+                    "{}: still says the panel does not clean: {line}",
+                    language.id
+                );
+            }
+            assert!(
+                !line
+                    .split(|c: char| !c.is_ascii_alphanumeric())
+                    .any(|word| word.len() > 1
+                        && word.starts_with('E')
+                        && word[1..].chars().all(|c| c.is_ascii_digit())),
+                "{}: an epic number reached a window: {line}",
+                language.id
+            );
+        }
     }
 }

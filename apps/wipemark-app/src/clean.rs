@@ -416,6 +416,92 @@ pub fn replace_one(
     logged(row, run(arrival, plan, row, now, Some(existing)))
 }
 
+/// The next number a thing is filed under in this run, across every window
+/// (D280).
+///
+/// A clean names what it invents by its number — a result for nameless
+/// bytes, a kept directory — to the second. The queue's rows and the
+/// panel's cleans draw from this one counter, so two cleans in the same
+/// second never share a kept directory and never overwrite each other's
+/// copies there.
+pub fn number() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+/// What a look at one thing found, without touching it — the panel's
+/// findings line (E7-5).
+#[derive(Debug)]
+pub enum Findings {
+    /// Characters: how many Layer A would remove or replace at the
+    /// defaults (the counts of `inspect().findings`), and whether it found
+    /// something it keeps — the case a clean calls `Partly(Kept)`.
+    Text { change: usize, suspicious: bool },
+    /// A picture: AI provenance metadata (C2PA included), a visible mark
+    /// seen — proved or not — and why the pixels were not examined, when
+    /// they were not.
+    Picture {
+        ai_metadata: bool,
+        mark: bool,
+        not_examined: Option<NotExamined>,
+    },
+    /// Not looked at, and why — the refusal a clean would give before it
+    /// ran a layer.
+    NotLooked(Refusal),
+}
+
+/// Look at one thing as [`clean_one`] would read it — the same bytes, the
+/// same limits, the same decision of what they are — and run the layer's
+/// inspection rather than its clean. Writes nothing. **Blocking.**
+pub fn inspect_one(arrival: &Arrival) -> Findings {
+    if let Cleanable::No(unable) = cleanable(&arrival.intake) {
+        return Findings::NotLooked(Refusal::NotCleanable(unable));
+    }
+    let read = match read(arrival) {
+        Ok(read) => read,
+        Err(refusal) => return Findings::NotLooked(refusal),
+    };
+    match read.cleanable {
+        Cleanable::Text(encoding) => {
+            let input = match wipemark_intake::text::decode(&read.bytes, encoding) {
+                Ok(input) => input,
+                Err(offset) => {
+                    return Findings::NotLooked(Refusal::Undecodable { encoding, offset })
+                }
+            };
+            let report = wipemark_core::inspect(&input, &Options::default());
+            Findings::Text {
+                change: report
+                    .findings
+                    .iter()
+                    .map(|finding| finding.count as usize)
+                    .sum(),
+                suspicious: report.suspicious,
+            }
+        }
+        Cleanable::Picture(_) => {
+            let options = PictureOptions {
+                scope: SCOPE,
+                catalogue: None,
+            };
+            match wipemark_picture::inspect(&read.bytes, &options) {
+                Ok(seen) => Findings::Picture {
+                    ai_metadata: seen.metadata.has_ai_metadata() || seen.metadata.has_c2pa(),
+                    mark: seen.has_visible_mark(),
+                    not_examined: match seen.visible {
+                        Visible::NotExamined(why) => Some(why),
+                        Visible::Examined { .. } => None,
+                    },
+                },
+                Err(error) => Findings::NotLooked(Refusal::Picture(PictureError::Image(error))),
+            }
+        }
+        // Unreachable: `read` turns a `No` into a refusal.
+        Cleanable::No(unable) => Findings::NotLooked(Refusal::NotCleanable(unable)),
+    }
+}
+
 /// The one log line a clean leaves.
 fn logged(row: u64, outcome: Outcome) -> Outcome {
     tracing::info!(
@@ -1744,6 +1830,98 @@ mod tests {
             assert!(!again.has_ai_metadata(), "{name}: {:?}", again.findings);
             assert!(!again.has_c2pa(), "{name}");
         }
+    }
+
+    /// The panel's look says what the clean then does (D278): a text by the
+    /// characters it changes — counted, not rows — a picture by what is on
+    /// it, and nothing written by the look.
+    #[test]
+    fn the_look_agrees_with_the_clean() {
+        let scratch = Scratch::new("look");
+        let homes = scratch.homes();
+        for (name, text) in [
+            ("two.md", "A zero\u{200B}width\u{200B} space.\n"),
+            ("plain.md", "Nothing here.\n"),
+            ("kept.md", "p\u{0430}ypal account\n"),
+        ] {
+            let source = scratch.file(name, text.as_bytes());
+            let thing = arrival(Handed::Path(source.clone()));
+            let found = inspect_one(&thing);
+            assert_eq!(read(&source), text.as_bytes(), "{name}: the look wrote");
+            let outcome = clean(&thing, &Retention::default(), &homes);
+            let removed = match &outcome.report {
+                Some(Report::Text(report)) => report
+                    .removed
+                    .iter()
+                    .map(|(_, n)| *n as usize)
+                    .chain(report.normalized.iter().map(|(_, n)| *n as usize))
+                    .sum::<usize>(),
+                other => panic!("{name}: {other:?}"),
+            };
+            match (&found, &outcome.verdict) {
+                (Findings::Text { change, .. }, Verdict::Cleaned) => {
+                    assert_eq!(*change, removed, "{name}");
+                    assert_eq!(*change, 2, "{name}: the count is of characters");
+                }
+                (
+                    Findings::Text {
+                        change: 0,
+                        suspicious: false,
+                    },
+                    Verdict::NothingFound,
+                ) => {}
+                (
+                    Findings::Text {
+                        change: 0,
+                        suspicious: true,
+                    },
+                    Verdict::Partly(Left::Kept),
+                ) => {}
+                (found, verdict) => panic!("{name}: looked {found:?}, cleaned {verdict:?}"),
+            }
+        }
+
+        for (name, ai, mark) in [
+            ("gemini/torch-1025.png", false, true),
+            ("c2pa-jumbf.jpg", true, false),
+            ("gemini/cut-out-confetti-256.webp", false, false),
+        ] {
+            let file_name = Path::new(name).file_name().unwrap().to_string_lossy();
+            let source = scratch.file(&file_name, &read(&fixture(name)));
+            let found = inspect_one(&arrival(Handed::Path(source)));
+            assert!(
+                matches!(
+                    found,
+                    Findings::Picture { ai_metadata, mark: seen, not_examined: None }
+                        if ai_metadata == ai && seen == mark
+                ),
+                "{name}: {found:?}"
+            );
+            let (_, outcome) = clean_fixture(&scratch, name);
+            assert_eq!(
+                matches!(outcome.verdict, Verdict::NothingFound),
+                !ai && !mark,
+                "{name}: {:?}",
+                outcome.verdict
+            );
+        }
+
+        let tiff = scratch.file("scan.tif", b"II*\x00\x08\x00\x00\x00\x00\x00\x00\x00");
+        assert!(matches!(
+            inspect_one(&arrival(Handed::Path(tiff))),
+            Findings::NotLooked(Refusal::NotCleanable(Unable::NotYet(Format::Tiff)))
+        ));
+    }
+
+    /// Two cleans in one run never share a number, whichever window asked
+    /// (D280).
+    #[test]
+    fn a_number_is_handed_out_once() {
+        let numbers: Vec<u64> = (0..64).map(|_| number()).collect();
+        let mut unique = numbers.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), numbers.len());
     }
 
     /// TIFF is refused by name, before a byte past the head is read.

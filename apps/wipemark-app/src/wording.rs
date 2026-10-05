@@ -2,8 +2,8 @@
 //!
 //! Epic **E6**. The panel and the main window's queue both take a drop,
 //! and both have to say what it was — what a kind is *called*, whether
-//! the name and the bytes agreed, and what would happen to it once
-//! cleaning exists. Those sentences were the panel's until the queue
+//! the name and the bytes agreed, what would happen to it, what a look
+//! found and what a clean did. Those sentences were the panel's until the queue
 //! needed them too, and two copies of a sentence are two sentences that
 //! drift. Everything here is a pure function over values, so it can be
 //! checked without a window, and every string comes out of the
@@ -20,7 +20,7 @@ use wipemark_image::ImageError;
 use wipemark_intake::{Arrived, Evidence, Intake, Kind};
 use wipemark_picture::{NotExamined, PictureError};
 
-use crate::clean::{Failure, Left, Outcome, Refusal, Report, Unable, Verdict};
+use crate::clean::{Failure, Findings, Left, Outcome, Refusal, Report, Unable, Verdict};
 use crate::drop::size_label;
 use crate::retention::{Kept, Plan, Written};
 
@@ -110,8 +110,8 @@ pub fn evidence_note_in(say: Say, intake: &Intake) -> Option<(String, Tone)> {
     }
 }
 
-/// What would happen to one thing that arrived, once cleaning
-/// arrives — the Retention page's rows, read against this one thing.
+/// What would happen to one thing that arrived when it is cleaned — the
+/// Retention page's rows, read against this one thing.
 ///
 /// A sentence for where the result would go, and one more for what
 /// Wipemark would keep of its own when it would keep anything. Names
@@ -225,6 +225,52 @@ pub fn unable(why: Unable) -> String {
 /// [`went_in`], in a window's words.
 pub fn went(outcome: &Outcome) -> Vec<String> {
     went_in(&window, outcome)
+}
+
+/// [`found_in`], in a window's words.
+pub fn found(findings: &Findings) -> String {
+    found_in(&window, findings)
+}
+
+/// What a look found, before anything is cleaned — the panel's line under
+/// a thing it caught (E7-5). A picture whose pixels were not examined says
+/// so whatever its metadata held: not examined is not clean.
+pub fn found_in(say: Say, findings: &Findings) -> String {
+    let none = FluentArgs::new();
+    match findings {
+        Findings::Text {
+            change: 0,
+            suspicious: false,
+        } => say(Message::PanelFoundTextNothing, &none),
+        Findings::Text {
+            change: 0,
+            suspicious: true,
+        } => say(Message::PanelFoundTextKept, &none),
+        Findings::Text { change, .. } => say(Message::PanelFoundText, &args!("count" => *change)),
+        Findings::Picture {
+            ai_metadata,
+            not_examined: Some(why),
+            ..
+        } => say(
+            Message::PanelFoundNotExamined,
+            &args!(
+                "why" => why.id(),
+                "metadata" => if *ai_metadata { "yes" } else { "no" }
+            ),
+        ),
+        Findings::Picture {
+            ai_metadata, mark, ..
+        } => say(
+            match (ai_metadata, mark) {
+                (true, true) => Message::PanelFoundPictureBoth,
+                (true, false) => Message::PanelFoundPictureMetadata,
+                (false, true) => Message::PanelFoundPictureMark,
+                (false, false) => Message::PanelFoundPictureNothing,
+            },
+            &none,
+        ),
+        Findings::NotLooked(refusal) => refused_in(say, refusal),
+    }
 }
 
 /// The one sentence a finished clean comes to — the badge's tooltip and

@@ -315,7 +315,7 @@ settings-section-retention = Retention
 ## The panel — the window you summon.
 
 panel-title = Quick scrub
-panel-pending = Cleaning from this window is not in this version yet. What is real here today is that it takes what you drop and says what it is — and that it opens where you told it to. Cleaning itself runs from the command line and over MCP.
+panel-pending = Rewriting with a model is not in this version's windows yet: it runs from the command line (wipemark-cli rewrite) and over MCP.
 panel-dismiss = Escape sends it away.
 
 # The panel has no titlebar, no traffic lights and no menu of its own,
@@ -1615,3 +1615,30 @@ window-report-copy-json = Copy JSON
 window-report-copy-markdown = Copy as Markdown
 window-report-close = Close
 window-report-copied = Copied.
+
+## The panel cleans too. `panel-found-*` is the line under each thing it
+## caught, from a look that writes nothing; $why is a format id
+## (animated, catalogue, decode) and $metadata is yes or no.
+
+panel-looking = Looking…
+panel-found-text = { $count ->
+        [one] One character to remove or replace.
+       *[other] { $count } characters to remove or replace.
+    }
+panel-found-text-nothing = Nothing to remove.
+panel-found-text-kept = Nothing to remove; a letter from another alphabet that looks like a Latin one is kept at the default settings.
+panel-found-picture-both = AI metadata and a visible mark.
+panel-found-picture-metadata = AI metadata.
+panel-found-picture-mark = A visible mark.
+panel-found-picture-nothing = Nothing found in the metadata or among the visible marks this version knows.
+panel-found-not-examined = { $metadata ->
+        [yes] AI metadata;
+       *[no] No AI metadata;
+    } { $why ->
+        [animated] the frames of an animated picture are not examined for a visible mark.
+        [catalogue] the catalogue of visible marks did not load, so the pixels were not examined.
+       *[decode] the pixels could not be decoded, so they were not examined.
+    }
+panel-clean = Clean
+panel-clean-tooltip = Clean what was dropped here, one thing at a time; each result goes where the Retention page says. Greyed out while a clean runs, or when nothing here is left to clean.
+panel-cleaning = Cleaning…

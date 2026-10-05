@@ -512,7 +512,6 @@ pub enum QueueEvent {
 pub struct Queue {
     /// In arrival order, always; the order on screen is [`Order`]'s.
     rows: Vec<Row>,
-    next_id: u64,
     /// The window's drop target. Owned here rather than by the shell
     /// because the table is what a drop is *for*; the toolbar's Import
     /// reaches it through [`Queue::import`].
@@ -603,7 +602,6 @@ impl Queue {
 
         Self {
             rows: Vec::new(),
-            next_id: 1,
             catcher,
             preferences,
             scroll: UniformListScrollHandle::new(),
@@ -706,18 +704,19 @@ impl Queue {
             return;
         }
 
-        let first = self.next_id;
+        // One number per thing across the windows (D280): the panel's
+        // cleans draw from the same counter, so a gap is a clean there.
+        let ids: Vec<u64> = arrivals.iter().map(|_| clean::number()).collect();
         let now = Local::now();
-        for arrival in arrivals.iter() {
+        for (arrival, &id) in arrivals.iter().zip(&ids) {
             self.rows.push(Row {
-                id: self.next_id,
+                id,
                 keyword: None,
                 arrival: arrival.clone(),
                 preview: Preview::Pending,
                 arrived_at: now,
                 status: Status::Waiting,
             });
-            self.next_id += 1;
         }
         // The rows `--clean=` asked for, each path once.
         let mut asked = Vec::new();
@@ -741,7 +740,7 @@ impl Queue {
         // Go to where the newest row is: the first page with the newest
         // on top, the last with the oldest — unless a filter hides it,
         // in which case the page stays where the reader left it.
-        let newest = self.next_id - 1;
+        let newest = ids.last().copied().unwrap_or_default();
         let visible = self.visible();
         if let Some(position) = visible
             .iter()
@@ -768,8 +767,7 @@ impl Queue {
                 .await;
             queue
                 .update(cx, |queue, cx| {
-                    for (offset, preview) in previews.into_iter().enumerate() {
-                        let id = first + offset as u64;
+                    for (id, preview) in ids.into_iter().zip(previews) {
                         if let Some(row) = queue.rows.iter_mut().find(|row| row.id == id) {
                             row.preview = preview;
                         }

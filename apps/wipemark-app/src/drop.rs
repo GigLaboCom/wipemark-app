@@ -157,6 +157,15 @@ impl Catcher {
         self.caught.as_deref()
     }
 
+    /// Whether `drop` — a [`Landed`] event's — is the one [`Self::caught`]
+    /// shows, for a surface that keeps something per drop and paints only
+    /// the last: a read overtaken by a later drop still lands, after it.
+    pub fn is_caught(&self, drop: &Arc<[Arrival]>) -> bool {
+        self.caught
+            .as_ref()
+            .is_some_and(|caught| Arc::ptr_eq(caught, drop))
+    }
+
     /// The highlight, on or off.
     fn hovering(&mut self, over: bool, cx: &mut Context<Self>) {
         if self.over == over {

@@ -163,10 +163,18 @@ copy are one sheet in two renderings (D276).
 
 ### E7-5 — the panel
 
-A findings line per caught row (inspect on the background executor, cached
-per drop), a Clean button through `clean_one` with the same plan, *went*
-lines after it, `panel-pending` saying only that rewriting is not here; a
-tests module of pure functions.
+A findings line per listed row — `clean::inspect_one`, the bytes a clean
+would read and the layer's inspection, on the background executor, once per
+drop (D278), `wording::found` the sentence; a Clean button beside the
+dismissal line that cleans every caught thing that can be, one at a time,
+through `clean_one` with the plan taken at each start (D279), greyed while a
+clean runs and once nothing is left; after it the row says what happened
+(`wording::said`, coloured by the verdict) and where it went
+(`wording::went`); a thing that cannot be cleaned has no *would* lines (a
+folder's "every file in it would be handled" was no longer true);
+`panel-pending` says only that rewriting is not here; `clean::number`, one
+counter for the queue's rows and the panel's cleans (D280); a tests module of
+pure functions.
 
 ### E7-6 — every "not yet", and the docs
 
@@ -236,7 +244,25 @@ E7-4 (`report.rs`; the endings are real cleans of real fixtures):
 | `a_claim_with_no_sentence_is_shown_in_its_own_words` | an unknown id is shown, never dropped | E7-4/M5 |
 | `a_thing_never_read_has_shelves_and_no_json` | no invented JSON | — |
 
-E7-5 and E7-6 add their rows when they land.
+E7-5 (`panel.rs`'s pure functions; `clean.rs` over the committed fixtures):
+
+| test | protects | mutation |
+|---|---|---|
+| `the_look_agrees_with_the_clean` (`clean.rs`) | the look reads like the clean and writes nothing: a text's count is characters (two U+200B is 2) and equals what the clean removed; nothing ⇔ `NothingFound`; a kept look-alike ⇔ `Partly(Kept)`; torch, C2PA and confetti said as a mark, metadata and nothing, and cleaned accordingly; a TIFF not looked at | E7-5/M4 rows counted |
+| `a_number_is_handed_out_once` (`clean.rs`) | D280 | E7-5/M8 |
+| `the_findings_line_says_what_a_look_found` | every case's English line; "Looking…" before; not examined said with the metadata either way | E7-5/M5, M6 |
+| `every_look_reads_in_every_language` | en, ru, de: every case resolved and distinct | — |
+| `only_a_finding_is_painted_as_one` | the foreground colour only for something found | — |
+| `clean_is_offered_only_when_something_is_left_to_clean` | what Clean cleans (cleanable, not done, in order) and when it is offered | E7-5/M1, M2, M3 |
+| `the_panel_says_only_rewriting_is_not_here` | `panel-pending` in every language: rewriting, no old sentence, no epic number | E7-5/M7 |
+
+The panel itself is not built in a `#[gpui::test]`: its window asks AppKit
+for a floating level and a destination as it opens (`afloat`,
+`drop::accept`), the macOS test-window trap of E7-2, and splitting that out
+is more than this step's change. What the window paints from these
+functions is checked live.
+
+E7-6 adds its rows when it lands.
 
 ## §6 Acceptance
 
@@ -285,3 +311,6 @@ D221, D238, D244, D248, D250 (what a picture report says).
 | **D275** | **The shelf mapping** (`docs/architecture/queue.md`, "The report"): text — removed characters, normalizations and the Unicode version verifiable; kept characters and why best-effort. Picture — removed metadata with its signals, the second inspection, proved marks and exact restorations verifiable; every inexact restoration and its reasons (the residual as a mean), holes, outline, texture, refusals, the pixels not examined, "no visible mark this version knows", marks left, metadata kept, EXIF, rotation and the re-encoding best-effort. Third shelf: the report's own ids in order, a picture's with `invisible-pixel-marks` first. | Verifiable is what this build checked and anyone can check again; whatever a catalogue, a fit or a lossy store bounds is not. |
 | **D276** | **The window's sentences take a `wording::Say`**, and the dialog is handed both — the window's and the copy's (`ReportView::with_words`). | One sheet, two renderings, and a test can give the window a real `Rendering::Ui` (the process default in tests is PlainText) to prove the Markdown copy is not in it. |
 | **D277** | **A thing refused before it was read has a report with no JSON**: Verifiable says it was not read, Best-effort says nothing is on it, the third shelf is its kind's (a picture's when it arrived as one), and Copy JSON is greyed rather than copying an invented or empty report. | `to_json()` is the library's; there is none, and a placeholder would be a report nobody produced. |
+| **D278** | **The panel looks at what it lists, once per drop, as a clean would read it.** `clean::inspect_one` reads the same bytes under the same limits, decides again from them, and runs `wipemark_core::inspect` or `wipemark_picture::inspect` — never a clean, never a write. Only the four listed things are looked at, one at a time on the background executor; a look overtaken by the next drop stops. A text's count is characters (the findings' `count`s), the number its clean then says it removed or replaced; a kept look-alike with nothing to remove is said, because the clean will call it partly clean. | The line is a promise about what Clean will do; read another way, the two could disagree. Reading a hundred files nobody can see would be work for nothing. |
+| **D279** | **The panel's Clean cleans every caught thing that can be cleaned and has not been**, the listed and the counted alike, in arrival order, one at a time, each with the plan taken at its own start — the queue's road. It is greyed while a clean runs and once nothing is left; absent when nothing caught could ever be. A drop during a clean does not stop it: what was asked for is finished, its outcomes are logged and no longer shown, and the new drop's Clean waits for it. | One clean at a time across the window; a half-done batch would leave some results written and the panel not saying which. |
+| **D280** | **One counter numbers the queue's rows and the panel's cleans** (`clean::number`). | A kept directory and an invented name are `<time to the second>-<number>`: with two counters, a queue row and a panel clean in the same second would share a kept directory and the second would overwrite the first's copy of an original. The queue's ids now skip the numbers the panel used. |
