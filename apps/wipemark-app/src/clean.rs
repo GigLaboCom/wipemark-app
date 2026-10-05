@@ -259,11 +259,23 @@ impl From<&io::Error> for Error {
 
 /// The report a clean produced, as the library's own structured value.
 #[derive(Debug)]
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "the row's Report dialog reads the picture's report and the JSON; \
+                  until it lands only the text's count is shown"
+    )
+)]
 pub enum Report {
     Text(CleanReport),
     Picture(Box<PictureReport>),
 }
 
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "the row's Report dialog copies it")
+)]
 impl Report {
     /// The library's own JSON — a format, never translated, and always
     /// ending in its `not_established` shelf.
@@ -284,6 +296,9 @@ pub struct Outcome {
     pub report: Option<Report>,
     /// Where the result is now.
     pub written: Option<PathBuf>,
+    /// Whether `written` replaced a result already there — only ever when
+    /// the row asked for it by name ([`replace_one`]).
+    pub replaced: bool,
     /// Where the source was set aside, under [`Written::Over`].
     pub set_aside: Option<PathBuf>,
     /// The kept directory, when anything was kept.
@@ -307,6 +322,7 @@ impl Outcome {
             verdict,
             report: None,
             written: None,
+            replaced: false,
             set_aside: None,
             kept: None,
             text: None,
@@ -392,10 +408,32 @@ fn restored(report: &PictureReport) -> bool {
 /// the thing came without one, a kept directory — so that both are
 /// deterministic for a given row and clock reading.
 pub fn clean_one(arrival: &Arrival, plan: &Plan, row: u64, now: DateTime<Utc>) -> Outcome {
-    let outcome = run(arrival, plan, row, now);
+    logged(row, run(arrival, plan, row, now, None))
+}
+
+/// Clean one thing again, and write its result over `existing` — the one
+/// file a first clean refused to replace (D261), named by the person who
+/// asked. **Blocking.**
+///
+/// Only that file: if the plan taken now puts the result somewhere else, a
+/// file there is refused as it always is, and the source itself is never
+/// the file replaced.
+pub fn replace_one(
+    arrival: &Arrival,
+    plan: &Plan,
+    row: u64,
+    now: DateTime<Utc>,
+    existing: &Path,
+) -> Outcome {
+    logged(row, run(arrival, plan, row, now, Some(existing)))
+}
+
+/// The one log line a clean leaves.
+fn logged(row: u64, outcome: Outcome) -> Outcome {
     tracing::info!(
         row,
         outcome = outcome.verdict.id(),
+        replaced = outcome.replaced,
         format = outcome.format.map(Format::name),
         bytes_in = outcome.size_in,
         bytes_out = outcome.size_out,
@@ -465,7 +503,13 @@ struct Read {
     path: Option<PathBuf>,
 }
 
-fn run(arrival: &Arrival, plan: &Plan, row: u64, now: DateTime<Utc>) -> Outcome {
+fn run(
+    arrival: &Arrival,
+    plan: &Plan,
+    row: u64,
+    now: DateTime<Utc>,
+    replacing: Option<&Path>,
+) -> Outcome {
     // Decided on the intake first: a folder, a ZIP, a TIFF is refused
     // before a byte is read.
     if let Cleanable::No(unable) = cleanable(&arrival.intake) {
@@ -579,8 +623,11 @@ fn run(arrival: &Arrival, plan: &Plan, row: u64, now: DateTime<Utc>) -> Outcome 
             _ => outcome.verdict = Verdict::NotCleaned(Refusal::Nowhere),
         },
         Written::Beside(destination) => {
-            match write_new(destination, &bytes, read.path.as_deref()) {
-                Ok(()) => outcome.written = Some(destination.clone()),
+            match write_new(destination, &bytes, read.path.as_deref(), replacing) {
+                Ok(replaced) => {
+                    outcome.written = Some(destination.clone());
+                    outcome.replaced = replaced;
+                }
                 Err(verdict) => outcome.verdict = verdict,
             }
         }
@@ -590,8 +637,11 @@ fn run(arrival: &Arrival, plan: &Plan, row: u64, now: DateTime<Utc>) -> Outcome 
                 None => invented_name(row, now, ext),
             };
             let destination = folder.join(name);
-            match write_new(&destination, &bytes, read.path.as_deref()) {
-                Ok(()) => outcome.written = Some(destination),
+            match write_new(&destination, &bytes, read.path.as_deref(), replacing) {
+                Ok(replaced) => {
+                    outcome.written = Some(destination);
+                    outcome.replaced = replaced;
+                }
                 Err(verdict) => outcome.verdict = verdict,
             }
         }
@@ -641,24 +691,32 @@ fn replace_failed(failure: inplace::Failure, file: &Path) -> Verdict {
     }
 }
 
-/// Write a result where no file is: never over one already there (D261),
-/// never over its own source.
-fn write_new(destination: &Path, bytes: &[u8], source: Option<&Path>) -> Result<(), Verdict> {
+/// Write a result where no file is: never over one already there (D261)
+/// unless it is the very file `replacing` names, and never over its own
+/// source, named or not. `Ok(true)` when a file was replaced.
+fn write_new(
+    destination: &Path,
+    bytes: &[u8],
+    source: Option<&Path>,
+    replacing: Option<&Path>,
+) -> Result<bool, Verdict> {
     if source.is_some_and(|source| inplace::same_file(source, destination)) {
         return Err(Verdict::NotCleaned(Refusal::SameFile(
             destination.to_owned(),
         )));
     }
     // `symlink_metadata`, so that a dangling link is in the way too.
-    if std::fs::symlink_metadata(destination).is_ok() {
+    let there = std::fs::symlink_metadata(destination).is_ok();
+    if there && replacing != Some(destination) {
         return Err(Verdict::NotCleaned(Refusal::Exists(destination.to_owned())));
     }
-    inplace::write_atomically(destination, bytes, source).map_err(|error| {
-        Verdict::Failed(Failure::Write {
+    match inplace::write_atomically(destination, bytes, source) {
+        Ok(()) => Ok(there),
+        Err(error) => Err(Verdict::Failed(Failure::Write {
             path: destination.to_owned(),
             error: Error::from(&error),
-        })
-    })
+        })),
+    }
 }
 
 /// The name a result gets when the thing came with none:
@@ -1177,7 +1235,64 @@ mod tests {
             outcome.verdict
         );
         assert_eq!(outcome.written, None);
+        assert!(!outcome.replaced);
         assert_eq!(read(&existing), b"somebody's own file");
+    }
+
+    /// "Replace the existing result" writes over the one file it names,
+    /// and says so; a different file in the way is refused as ever, and
+    /// the source is never the file replaced, even when it is the one
+    /// named.
+    #[test]
+    fn a_result_is_replaced_only_where_it_was_named() {
+        let scratch = Scratch::new("replace");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let existing = scratch.file("x.cleaned.md", b"somebody's own file");
+        let arrival = arrival(Handed::Path(source.clone()));
+        let plan = planned(&arrival, &Retention::default(), &scratch.homes());
+
+        let elsewhere = scratch.0.join("y.cleaned.md");
+        let refused = replace_one(&arrival, &plan, 7, now(), &elsewhere);
+        assert!(
+            matches!(&refused.verdict, Verdict::NotCleaned(Refusal::Exists(path)) if *path == existing),
+            "{:?}",
+            refused.verdict
+        );
+        assert_eq!(read(&existing), b"somebody's own file");
+
+        let replaced = replace_one(&arrival, &plan, 7, now(), &existing);
+        assert!(
+            matches!(replaced.verdict, Verdict::Cleaned),
+            "{:?}",
+            replaced.verdict
+        );
+        assert!(replaced.replaced);
+        assert_eq!(replaced.written.as_deref(), Some(existing.as_path()));
+        assert_eq!(
+            read(&existing),
+            wipemark_core::clean(MARKED, &Options::default())
+                .text
+                .as_bytes()
+        );
+        assert_eq!(read(&source), MARKED.as_bytes(), "the source moved");
+
+        // Named the source itself, under a plan that would land on it.
+        let into = Retention {
+            destination: Destination::Folder,
+            folder: Some(scratch.0.clone()),
+            ..Retention::default()
+        };
+        let mut onto_source = planned(&arrival, &into, &scratch.homes());
+        if let Plan::File(Written::Into { name, .. }) = &mut onto_source {
+            *name = Some(String::from("x.md"));
+        }
+        let refused = replace_one(&arrival, &onto_source, 7, now(), &source);
+        assert!(
+            matches!(refused.verdict, Verdict::NotCleaned(Refusal::SameFile(_))),
+            "{:?}",
+            refused.verdict
+        );
+        assert_eq!(read(&source), MARKED.as_bytes(), "the source was replaced");
     }
 
     /// In place: the original is set aside first, then the file replaced;

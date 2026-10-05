@@ -1,4 +1,4 @@
-# E7 — the windows clean: report, E7-1 (the first part)
+# E7 — the windows clean: report, E7-1 and E7-2
 
 Task: Watchword FILE `wipemark-task-e7-windows-clean-2026-10-05`. Plan:
 [`docs/plan/E7-windows-clean.md`](../E7-windows-clean.md). Branch
@@ -6,9 +6,9 @@ Task: Watchword FILE `wipemark-task-e7-windows-clean-2026-10-05`. Plan:
 images round; `origin/feat/e0-e6-shell` at `b3fbee7` does not contain it, so
 nothing was merged).
 
-**Status: E7-1 is done. E7-2…E7-6 are not started** — this report covers the
-first part only, as the owner asked for in this session, and it is not the
-series' final report: the Watchword upload and the live-check script for the
+**Status: E7-1 and E7-2 are done. E7-3…E7-6 are not** — this report grows
+step by step as the owner asks for each part, and it is not the series'
+final report: the Watchword upload and the live-check script for the
 host belong to the end of the series (§7 of the task), after `--clean=`
 exists (E7-2).
 
@@ -17,7 +17,7 @@ exists (E7-2).
 | step | done | commit | tests | mutations red |
 |---|---|---|---|---|
 | E7-1 the cleaner, with no window | yes | `81af4a4` | 26 in `clean::tests` | 12 of 12 (M1–M12) |
-| E7-2 the queue cleans | no | — | — | — |
+| E7-2 the queue cleans | yes | (this commit) | 2 `#[gpui::test]` + 3 in `queue::tests`, 1 in `clean::tests`, 2 in `wording::tests`, 2 in `main::tests` | 7 of 7 (M1–M7) |
 | E7-3 Compare shows the real result | no | — | — | — |
 | E7-4 the report, three shelves | no | — | — | — |
 | E7-5 the panel | no | — | — | — |
@@ -42,7 +42,29 @@ exists (E7-2).
 No caller yet besides the sweep: the module is `allow(dead_code)` outside
 tests, with the reason stated, until E7-2's queue calls it.
 
-## Mutations (`docs/plan/reports/e7-windows-clean-mutate.py E7-1`)
+## What E7-2 built
+
+- `queue.rs`: `Status` on every row, the Status column after Kind (badge
+  per verdict, its sentence as tooltip), `Line` — one clean at a time,
+  first asked first done, pure — and `Queue::clean`, `clean_all`,
+  `replace`, `hand_to_clean`, `progress`; the plan taken from
+  `Preferences::plan_for` when a row's clean starts; the Name cell's note
+  and the hover card say what happened and where the result went once a
+  row is done; the Actions menu gains Clean (first; greyed with the reason
+  under it), Open the result, Show the result in its folder, Copy the
+  result, Replace the existing result.
+- `clean.rs`: `replace_one` and `Outcome::replaced` (D270).
+- `wording.rs`: `verdict_badge`, `said`, `unable`, `refused`, `failed`,
+  `went` — every sentence about a finished clean, shared with the panel in
+  E7-5.
+- `main.rs`: `--clean=<path>`, Clean all on the toolbar after Paste,
+  "Cleaning 2 of 5" in the status bar while the line runs.
+- `settings.rs`: `Preferences::for_tests`.
+- The catalogue: the `## The windows clean (E7)` block in en, ru (plurals
+  for the count and the status line) and de; `queue-pending` and
+  `toolbar-help-pending` rewritten (D271).
+
+## Mutations (`docs/plan/reports/e7-windows-clean-mutate.py E7-1 E7-2`)
 
 | # | protection | result | tests |
 |---|---|---|---|
@@ -58,13 +80,24 @@ tests, with the reason stated, until E7-2's queue calls it.
 | E7-1/M10 | the bytes read decide: a file that became a PNG is never decoded as text | red | `a_file_that_changed_after_the_drop_is_read_by_its_bytes` |
 | E7-1/M11 | text is written back in the encoding it arrived in | red | `a_marked_text_is_written_beside_it_in_its_own_encoding` |
 | E7-1/M12 | a result never lands on its own source | red | `into_the_results_folder_and_never_over_the_source` |
+| E7-2/M1 | two cleans at once instead of one at a time | red | `one_clean_runs_at_a_time_in_the_order_asked`, `the_queue_cleans_one_row_at_a_time_by_the_plan_at_its_start` |
+| E7-2/M2 | the plan is not the Retention page's as it stands when the clean starts | red | `the_queue_cleans_one_row_at_a_time_by_the_plan_at_its_start` |
+| E7-2/M3 | a row asked twice is cleaned twice | red | `the_queue_cleans_one_row_at_a_time_by_the_plan_at_its_start` |
+| E7-2/M4 | Clean offered on a thing that cannot be cleaned | red | `clean_is_greyed_with_a_reason_when_it_cannot_run` |
+| E7-2/M5 | Replace writes over a file other than the one named | red | `a_result_is_replaced_only_where_it_was_named` |
+| E7-2/M6 | the footer back to "cleaning is not here" | red | `the_footer_says_rewriting_is_not_here_yet` |
+| E7-2/M7 | an epic number in the footer | red | `the_footer_says_rewriting_is_not_here_yet` |
+
+E7-1's twelve were run again after E7-2 (M1's text moved with D270): all
+red. E7-2/M3 first came out **green** — Clean all already skips what is not
+waiting, so the guard in `Queue::clean` was not reached; the test now asks
+rows again by id, as `--clean=` and the menu do, and it is red.
 
 `git status --short` after the run: only this step's own uncommitted files.
 
-The task's list also names "two cleans at once", "Compare's result back to a
-copy", "the third shelf dropped", "the Markdown copy in `Rendering::Ui`" and
-"the footer back to 'cleaning is not here'": those protections belong to
-E7-2…E7-4 and are not built yet.
+The task's list also names "Compare's result back to a copy", "the third
+shelf dropped" and "the Markdown copy in `Rendering::Ui`": those protections
+belong to E7-3 and E7-4 and are not built yet.
 
 ## Gates (in this container, on `aarch64` Linux)
 
@@ -72,11 +105,11 @@ E7-2…E7-4 and are not built yet.
 |---|---|
 | `rustup run nightly rustfmt --edition 2021 --check $(find crates apps -name '*.rs')` | clean |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
-| `cargo test --workspace --locked` | 1401 passed, 0 failed, 6 ignored (65 test binaries) |
+| `cargo test --workspace --locked` | E7-1: 1401 passed; **E7-2: 1410 passed**, 0 failed, 6 ignored |
 | `scripts/check-dep-direction.sh` | ok |
 | `cargo check --workspace --no-default-features --locked` | ok |
 | `cargo check --workspace --features local-llama --locked` | ok |
-| `cargo test -p wipemark-app --features local-llama --locked` | 477 + 1 passed, 0 failed, 1 ignored |
+| `cargo test -p wipemark-app --features local-llama --locked` | E7-1: 477 + 1; **E7-2: 486 + 1 passed**, 0 failed, 1 ignored |
 | `cargo test -p wipemark-engine --features local-llama --locked` | 36 passed, 1 ignored |
 
 Every gate ran. The app's tests link here only after installing GPUI's
@@ -85,12 +118,12 @@ libxcb1-dev libfreetype-dev`; the image had none of them). The native
 llama gates do not apply: nothing under `crates/wipemark-llama*` or
 `crates/wipemark-engine/src/local.rs` changed.
 
-GitHub Actions, `gate` on the push of `81af4a4`: **success** in 26 min —
+GitHub Actions, `gate` on the push of `81af4a4` (E7-1): **success** in 26 min —
 https://github.com/GigLaboCom/wipemark-app/actions/runs/37323279470
 
 ## Decisions
 
-D260–D267, stated in full in the plan's §9:
+D260–D271, stated in full in the plan's §9:
 
 - **D260** nothing found is nothing written;
 - **D261** a result never replaces a file already there (refused, left byte
@@ -109,7 +142,16 @@ D260–D267, stated in full in the plan's §9:
 - **D266** `clean_one` takes no `Homes`; its log line carries paths as
   `Elided` shapes;
 - **D267** the sweep never creates the kept folder, and runs at launch and
-  after each keep.
+  after each keep;
+- **D268** `--clean=` asks for a row whatever it is; the badge of a thing
+  that cannot be cleaned says why, and the menu and Clean all offer only
+  what can be;
+- **D269** a greyed Clean carries its reason as a second line in the menu
+  item — gpui-component's menu items have no tooltip;
+- **D270** "Replace the existing result" is `clean::replace_one`: only the
+  file the first clean refused, never the source, the plan taken again;
+- **D271** `toolbar-help-pending` is rewritten in E7-2, beside the Clean all
+  button it used to contradict.
 
 ## Deviations from the task
 
@@ -127,6 +169,11 @@ D260–D267, stated in full in the plan's §9:
    while running as `retention.md` foresaw (D267).
 6. `retention.rs` is unchanged; mutation M5 is applied there, because
    `Plan::File` having no `Kept` is the protection.
+7. **Clean's disabled reason is a line under the item, not a tooltip**
+   (D269).
+8. **Report… is not in the Actions menu yet**: it comes with its dialog in
+   E7-4, rather than as a greyed item with nothing behind it.
+9. **`toolbar-help-pending` was rewritten in E7-2**, ahead of E7-6 (D271).
 
 ## Wanted edits to `CLAUDE.md` and `docs/plan/README.md`
 
@@ -135,7 +182,14 @@ For the end of the series, collected as they arise:
 - `CLAUDE.md`, the app file table: a row for `clean.rs` — "cleaning one
   thing that arrived: what can be, the read, the CLI's policy as
   `outcome_of`, the write by the plan, kept copies and the sweep".
-- `docs/plan/README.md` §4: D260–D267.
+- `CLAUDE.md`, the flags table: a `--clean=<path>` row — "puts a file in the
+  queue and cleans it at startup, once per flag — Import and Clean, so a
+  check of what a clean writes does not start by driving a menu".
+- `CLAUDE.md`, "The main window is lazy-shot's" and the `queue.rs` row: the
+  table cleans — the status column, one clean at a time, the plan taken at
+  start, the Actions menu's new items; "Nothing is cleaned … and the footer
+  says the first of those" is no longer true.
+- `docs/plan/README.md` §4: D260–D271.
 
 ## Owner questions
 
@@ -146,6 +200,6 @@ replace (E7-2) rather than a numbered name.
 
 ## Unfinished
 
-E7-2…E7-6, the live-check script (`E7-windows-clean-live-check.md`, which
+E7-3…E7-6, the live-check script (`E7-windows-clean-live-check.md`, which
 needs `--clean=` from E7-2), the final report in Watchword, and the
 `CLAUDE.md`/README edits above.

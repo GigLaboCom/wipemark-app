@@ -10,10 +10,11 @@
 //! with a **preview** beside it (the picture, or the first lines), an
 //! id and a keyword the way lazy-shot's rows have, what it is, what it
 //! was established from, how big, and when. Hovering the preview opens
-//! a larger one. The Actions menu opens the file with the system, when
-//! there is a file, and opens the Compare window on the row when it is
-//! text; a double click on the row is that second item without the
-//! menu.
+//! a larger one. The Actions menu cleans the row, opens the file with
+//! the system when there is a file, opens the Compare window on the row
+//! when it is text, and — once the row is cleaned — opens, shows or
+//! copies the result; a double click on the row is the Compare item
+//! without the menu.
 //!
 //! # lazy-shot's table, in its shape
 //!
@@ -24,9 +25,10 @@
 //! newest first, lazy-shot's `ORDER BY id DESC` — and the Arrived header
 //! flips that. The paginator under the table is lazy-shot's: a page
 //! size from the same four choices, Previous and Next, and "Page x of
-//! y". What is *not* carried over is the status column and the date
-//! range: a row here has no lifecycle yet, and a list that empties when
-//! the application quits does not need a calendar.
+//! y". lazy-shot's status column is here too, as the row's life —
+//! waiting, queued, cleaning, and what the clean came to; its date range
+//! is not, because a list that empties when the application quits does
+//! not need a calendar.
 //!
 //! # How things get in
 //!
@@ -42,13 +44,27 @@
 //! more. Nothing here recognises anything: `wipemark-intake` does, on
 //! the background executor, and the queue is told when it is done.
 //!
+//! # Cleaning
+//!
+//! A row is cleaned when somebody asks — Clean in its Actions menu,
+//! Clean all on the toolbar, `--clean=<path>` on the command line —
+//! never on arrival. One clean runs at a time, first asked first done
+//! ([`Line`]), on the background executor through
+//! [`clean::clean_one`]: a decoded picture can be hundreds of megabytes,
+//! so this is a memory rule as much as an ordering one, and nothing a
+//! clean does — a read, a decode, a write — runs on the thread that
+//! draws. The Retention page's plan is taken when a row's clean
+//! **starts**, so a choice changed while the row waited applies to it,
+//! and one changed after it was cleaned does not move its result. The
+//! row's badge says what the clean came to and its note where the result
+//! went; until then the hover card says what *would* happen, as before.
+//! A result already where this one would go is refused and left alone
+//! (D261); "Replace the existing result" is the one explicit way over
+//! it. Rewriting with a model is not here, and the footer says so.
+//!
 //! # What it does not do yet
 //!
-//! Clean anything. The row says what a thing is and, in its hover
-//! card, what would happen to it under the Retention page's choices;
-//! the footer says cleaning from this list is not in this version and
-//! where it does run (the CLI and MCP), because a surface that cannot do
-//! the thing says so out loud. Folders and archives are listed
+//! Rewrite. Folders and archives are listed
 //! as what they are and never expanded — an item that silently became
 //! four hundred rows is not what anybody dropped. A keyword is shown and
 //! searched but not yet *assigned*: in lazy-shot that is the MCP
@@ -63,17 +79,18 @@
 //! page are a `uniform_list`, so a page of a hundred draws the twelve
 //! that are on screen.
 
+use std::collections::VecDeque;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
 use gpui::prelude::*;
 use gpui::{
-    div, img, px, uniform_list, AnyElement, App, Context, Corner, Div, Entity, ImageSource,
-    ObjectFit, PathPromptOptions, Pixels, ScrollStrategy, SharedString, Stateful, Subscription,
-    UniformListScrollHandle, Window,
+    div, img, px, uniform_list, AnyElement, App, ClipboardItem, Context, Corner, Div, Entity,
+    ImageSource, ObjectFit, PathPromptOptions, Pixels, ScrollStrategy, SharedString, Stateful,
+    Subscription, UniformListScrollHandle, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::clipboard::Clipboard;
@@ -82,6 +99,7 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::scroll::Scrollbar;
 use gpui_component::tag::Tag;
+use gpui_component::tooltip::Tooltip;
 use gpui_component::{
     h_flex, v_flex, ActiveTheme, ColorName, Disableable as _, InteractiveElementExt as _,
     Sizable as _, StyledExt as _,
@@ -89,12 +107,13 @@ use gpui_component::{
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_intake::{Arrived, Handed, Intake, Kind};
 
+use crate::clean::{self, Cleanable, Outcome, Refusal, Verdict};
 use crate::compare::{self, Comparison, Subject};
 use crate::drop::{self, Arrival, Catcher, Landed};
 use crate::icon::{Icon, IconName};
 use crate::preview::{Excerpt, Picture, Preview};
 use crate::settings::Preferences;
-use crate::wording::{self, Tone};
+use crate::wording::{self, Badge, Tone};
 
 /// How tall a row is.
 ///
@@ -274,6 +293,7 @@ enum Column {
     Keyword,
     Name,
     Kind,
+    Status,
     Format,
     Size,
     Arrived,
@@ -281,12 +301,13 @@ enum Column {
 }
 
 impl Column {
-    const ALL: [Column; 9] = [
+    const ALL: [Column; 10] = [
         Column::Preview,
         Column::Id,
         Column::Keyword,
         Column::Name,
         Column::Kind,
+        Column::Status,
         Column::Format,
         Column::Size,
         Column::Arrived,
@@ -300,6 +321,7 @@ impl Column {
             Column::Keyword => Message::QueueColumnKeyword,
             Column::Name => Message::QueueColumnName,
             Column::Kind => Message::QueueColumnKind,
+            Column::Status => Message::QueueColumnStatus,
             Column::Format => Message::QueueColumnFormat,
             Column::Size => Message::QueueColumnSize,
             Column::Arrived => Message::QueueColumnArrived,
@@ -317,6 +339,7 @@ impl Column {
             Column::Keyword => Some(px(136.0)),
             Column::Name => None,
             Column::Kind => Some(px(124.0)),
+            Column::Status => Some(px(136.0)),
             Column::Format => Some(px(132.0)),
             Column::Size => Some(px(88.0)),
             Column::Arrived => Some(px(96.0)),
@@ -353,6 +376,97 @@ impl Column {
     }
 }
 
+/// Where a row is in its life.
+#[derive(Debug, Clone)]
+pub enum Status {
+    /// Arrived, and nobody has asked for it to be cleaned.
+    Waiting,
+    /// Asked for, behind the clean that is running.
+    Queued,
+    /// Being cleaned now, on the background executor.
+    Cleaning,
+    /// Cleaned, refused or failed — what happened, as one value.
+    Done(Arc<Outcome>),
+}
+
+/// One clean asked for: the row, and the one existing result it may
+/// write over when it was asked for by "Replace the existing result".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Job {
+    pub id: u64,
+    pub replacing: Option<PathBuf>,
+}
+
+/// The cleans asked for and not yet finished: **one runs at a time**, and
+/// the rest wait their turn, first asked first done.
+///
+/// One at a time because a picture is decoded whole and its raster copied
+/// to be restored — two at once is two of those in memory — and because a
+/// row's plan is taken when its clean starts, which only means something
+/// if the cleans start in the order they were asked for. Pure, so the
+/// rule is checked without a window.
+#[derive(Debug, Default)]
+pub struct Line {
+    waiting: VecDeque<Job>,
+    running: Option<u64>,
+    /// Finished, and asked for, since the line was last empty — what
+    /// "Cleaning 2 of 5" counts.
+    finished: usize,
+    asked: usize,
+}
+
+impl Line {
+    /// Put a clean at the back of the line.
+    pub fn push(&mut self, job: Job) {
+        self.asked += 1;
+        self.waiting.push_back(job);
+    }
+
+    /// The clean to start now: the front of the line, if nothing is
+    /// running.
+    pub fn start(&mut self) -> Option<Job> {
+        if self.running.is_some() {
+            return None;
+        }
+        let job = self.waiting.pop_front()?;
+        self.running = Some(job.id);
+        Some(job)
+    }
+
+    /// The clean of row `id` is over. The count starts again once the
+    /// line is empty.
+    pub fn finish(&mut self, id: u64) {
+        if self.running == Some(id) {
+            self.running = None;
+            self.finished += 1;
+        }
+        if self.running.is_none() && self.waiting.is_empty() {
+            self.finished = 0;
+            self.asked = 0;
+        }
+    }
+
+    /// Which clean of how many is running, counting from one — `None`
+    /// while nothing is.
+    pub fn progress(&self) -> Option<(usize, usize)> {
+        self.running.map(|_| (self.finished + 1, self.asked))
+    }
+}
+
+/// Why row's Clean item is greyed, or `None` when it is not: a thing
+/// that cannot be cleaned says why, and a row already in line or done
+/// says that. Pure, so the menu's rule is checked without one.
+pub fn why_not_clean(status: &Status, cleanable: Cleanable) -> Option<String> {
+    match status {
+        Status::Queued | Status::Cleaning => Some(t(Message::QueueActionCleanBusy)),
+        Status::Done(_) => Some(t(Message::QueueActionCleanDone)),
+        Status::Waiting => match cleanable {
+            Cleanable::No(unable) => Some(wording::unable(unable)),
+            Cleanable::Text(_) | Cleanable::Picture(_) => None,
+        },
+    }
+}
+
 /// One thing that arrived.
 struct Row {
     /// Stable for the life of the row, and what every element id in it
@@ -368,6 +482,22 @@ struct Row {
     arrival: Arrival,
     preview: Preview,
     arrived_at: DateTime<Local>,
+    status: Status,
+}
+
+impl Row {
+    /// Whether it can be cleaned — decided from what intake said, read
+    /// on every frame, so nothing here reads a file.
+    fn cleanable(&self) -> Cleanable {
+        clean::cleanable(&self.arrival.intake)
+    }
+
+    fn outcome(&self) -> Option<&Outcome> {
+        match &self.status {
+            Status::Done(outcome) => Some(outcome),
+            _ => None,
+        }
+    }
 }
 
 /// The rows, and the drop target that fills them.
@@ -394,6 +524,11 @@ pub struct Queue {
     /// the way in — see [`page_range`].
     page: usize,
     page_size: usize,
+    /// The cleans asked for and not yet over.
+    line: Line,
+    /// Paths `--clean=` handed in, cleaned as their rows land — each
+    /// once.
+    to_clean: Vec<PathBuf>,
     /// Dropped with the view: every drop, and every import, lands here.
     _landed: Subscription,
     /// Dropped with the view: what is typed into the filter bar.
@@ -459,6 +594,8 @@ impl Queue {
             order: Order::NewestFirst,
             page: 0,
             page_size: DEFAULT_PAGE_SIZE,
+            line: Line::default(),
+            to_clean: Vec::new(),
             _landed: landed,
             _typed: [typed_id, typed_keyword],
         }
@@ -468,6 +605,14 @@ impl Queue {
     /// in, and the one the Import button uses once the picker answers.
     pub fn hand(&self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
         self.land(paths.into_iter().map(Handed::Path).collect(), cx);
+    }
+
+    /// Hand paths down the road a drop takes and clean each as it lands —
+    /// `--clean=<path>`, which is Import followed by Clean. A row that
+    /// cannot be cleaned is still asked, and its badge says why not.
+    pub fn hand_to_clean(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        self.to_clean.extend(paths.iter().cloned());
+        self.hand(paths, cx);
     }
 
     /// Hand anything down the road a drop takes — the clipboard's way
@@ -551,8 +696,22 @@ impl Queue {
                 arrival: arrival.clone(),
                 preview: Preview::Pending,
                 arrived_at: now,
+                status: Status::Waiting,
             });
             self.next_id += 1;
+        }
+        // The rows `--clean=` asked for, each path once.
+        let mut asked = Vec::new();
+        for row in &self.rows[self.rows.len() - arrivals.len()..] {
+            if let Handed::Path(path) = &row.arrival.handed {
+                if let Some(at) = self.to_clean.iter().position(|wanted| wanted == path) {
+                    self.to_clean.remove(at);
+                    asked.push(row.id);
+                }
+            }
+        }
+        if !asked.is_empty() {
+            self.clean(&asked, cx);
         }
         // The count and the kinds, and nothing else — a log line that
         // carried what arrived would be the document in a file the
@@ -643,6 +802,155 @@ impl Queue {
             page.saturating_sub(1)
         };
         cx.notify();
+    }
+}
+
+impl Queue {
+    /// The rows Clean all would clean: waiting, and cleanable, in the
+    /// order they arrived.
+    pub fn cleanable_waiting(&self) -> Vec<u64> {
+        self.rows
+            .iter()
+            .filter(|row| matches!(row.status, Status::Waiting))
+            .filter(|row| !matches!(row.cleanable(), Cleanable::No(_)))
+            .map(|row| row.id)
+            .collect()
+    }
+
+    /// Clean every waiting row that can be cleaned — the toolbar's Clean
+    /// all. Rows queued, cleaning or done are left where they are.
+    pub fn clean_all(&mut self, cx: &mut Context<Self>) {
+        let ids = self.cleanable_waiting();
+        self.clean(&ids, cx);
+    }
+
+    /// Put the waiting rows among `ids` in line, in that order, and start
+    /// the first if nothing is running. A row that is not waiting is not
+    /// asked twice.
+    pub fn clean(&mut self, ids: &[u64], cx: &mut Context<Self>) {
+        for &id in ids {
+            let Some(row) = self.rows.iter_mut().find(|row| row.id == id) else {
+                continue;
+            };
+            if !matches!(row.status, Status::Waiting) {
+                continue;
+            }
+            row.status = Status::Queued;
+            self.line.push(Job {
+                id,
+                replacing: None,
+            });
+        }
+        self.next(cx);
+        cx.notify();
+    }
+
+    /// "Replace the existing result": clean row `id` again and write over
+    /// the one file its clean refused to (D261). Only for a row whose clean
+    /// was refused for exactly that.
+    pub fn replace(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(row) = self.rows.iter_mut().find(|row| row.id == id) else {
+            return;
+        };
+        let Some(existing) = row.outcome().and_then(existing_result) else {
+            return;
+        };
+        row.status = Status::Queued;
+        self.line.push(Job {
+            id,
+            replacing: Some(existing),
+        });
+        self.next(cx);
+        cx.notify();
+    }
+
+    /// Which clean of how many is running — the status bar's "Cleaning 2
+    /// of 5".
+    pub fn progress(&self) -> Option<(usize, usize)> {
+        self.line.progress()
+    }
+
+    /// The status of row `id`, if it is here.
+    #[cfg(test)]
+    pub fn status_of(&self, id: u64) -> Option<&Status> {
+        self.rows
+            .iter()
+            .find(|row| row.id == id)
+            .map(|row| &row.status)
+    }
+
+    /// The ids, in arrival order.
+    #[cfg(test)]
+    pub fn ids(&self) -> Vec<u64> {
+        self.rows.iter().map(|row| row.id).collect()
+    }
+
+    /// Start the clean at the front of the line, if none is running.
+    ///
+    /// The plan is taken **now**, from the Retention page's rows as they
+    /// stand: the row's clean starts with it, and a later change does not
+    /// reach a row already cleaned. Everything the clean does happens on
+    /// the background executor.
+    fn next(&mut self, cx: &Context<Self>) {
+        while let Some(job) = self.line.start() {
+            let Some(row) = self.rows.iter_mut().find(|row| row.id == job.id) else {
+                self.line.finish(job.id);
+                continue;
+            };
+            row.status = Status::Cleaning;
+            let plan = self.preferences.read(cx).plan_for(&row.arrival.intake);
+            let arrival = row.arrival.clone();
+            let id = job.id;
+            cx.spawn(async move |queue, cx| {
+                let outcome = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let now = Utc::now();
+                        match &job.replacing {
+                            Some(existing) => {
+                                clean::replace_one(&arrival, &plan, id, now, existing)
+                            }
+                            None => clean::clean_one(&arrival, &plan, id, now),
+                        }
+                    })
+                    .await;
+                queue
+                    .update(cx, |queue, cx| queue.finished(id, outcome, cx))
+                    .ok();
+            })
+            .detach();
+            return;
+        }
+    }
+
+    /// Row `id`'s clean is over: say so, and start the next.
+    fn finished(&mut self, id: u64, outcome: Outcome, cx: &mut Context<Self>) {
+        if let Some(row) = self.rows.iter_mut().find(|row| row.id == id) {
+            row.status = Status::Done(Arc::new(outcome));
+        }
+        self.line.finish(id);
+        self.next(cx);
+        cx.notify();
+    }
+
+    /// The cleaned text of row `id`, for Copy the result — looked up at
+    /// click time rather than cloned into every menu, for the reason
+    /// [`compare_row`] gives.
+    fn result_text(&self, id: u64) -> Option<String> {
+        self.rows
+            .iter()
+            .find(|row| row.id == id)
+            .and_then(Row::outcome)
+            .and_then(|outcome| outcome.text.clone())
+    }
+}
+
+/// The file a clean refused to write over, when that is why it was not
+/// cleaned — what "Replace the existing result" offers to replace.
+fn existing_result(outcome: &Outcome) -> Option<PathBuf> {
+    match &outcome.verdict {
+        Verdict::NotCleaned(Refusal::Exists(path)) => Some(path.clone()),
+        _ => None,
     }
 }
 
@@ -851,6 +1159,52 @@ fn kind_tag(kind: Kind) -> Tag {
         .child(SharedString::from(wording::kind_label(kind)))
 }
 
+/// The row's life as a badge, and the sentence behind it as its tooltip:
+/// waiting (or, for a thing that cannot be cleaned, why not), queued,
+/// cleaning, or what the clean came to.
+fn status_cell(row: &Row) -> AnyElement {
+    let (tag, word, sentence) = match &row.status {
+        Status::Waiting => match row.cleanable() {
+            Cleanable::No(unable) => (
+                Tag::secondary().outline(),
+                t(Message::QueueStatusUnable),
+                wording::unable(unable),
+            ),
+            _ => (
+                Tag::secondary(),
+                t(Message::QueueStatusWaiting),
+                t(Message::QueueStatusWaitingTooltip),
+            ),
+        },
+        Status::Queued => (
+            Tag::info(),
+            t(Message::QueueStatusQueued),
+            t(Message::QueueStatusQueuedTooltip),
+        ),
+        Status::Cleaning => (
+            Tag::primary(),
+            t(Message::QueueStatusCleaning),
+            t(Message::QueueStatusCleaningTooltip),
+        ),
+        Status::Done(outcome) => {
+            let (word, badge) = wording::verdict_badge(&outcome.verdict);
+            let tag = match badge {
+                Badge::Muted => Tag::secondary(),
+                Badge::Success => Tag::success(),
+                Badge::Warning => Tag::warning(),
+                Badge::Danger => Tag::danger(),
+            };
+            (tag, t(word), wording::said(outcome))
+        }
+    };
+    let sentence = SharedString::from(sentence);
+    div()
+        .id(("queue-status", row.id))
+        .child(tag.small().child(SharedString::from(word)))
+        .tooltip(move |window, cx| Tooltip::new(sentence.clone()).build(window, cx))
+        .into_any_element()
+}
+
 /// A value with a copy button beside it — lazy-shot's id and keyword
 /// cells, where clicking copies and a tick says so for a moment.
 /// `None` is a dash and no button: there is nothing to copy.
@@ -877,9 +1231,11 @@ fn copyable(id: (&'static str, u64), value: Option<String>, cx: &App) -> AnyElem
 }
 
 /// The name, and under it what is worth knowing about the name: the
-/// folder it is in, and the evidence note when there is one.
-fn name_cell(intake: &Intake, cx: &App) -> AnyElement {
+/// folder it is in, and the evidence note when there is one — or, once
+/// the row is cleaned, where the result went.
+fn name_cell(row: &Row, cx: &App) -> AnyElement {
     let theme = cx.theme();
+    let intake = &row.arrival.intake;
     let folder = match intake.arrived {
         Arrived::AsPath | Arrived::AsText => intake
             .path
@@ -889,7 +1245,10 @@ fn name_cell(intake: &Intake, cx: &App) -> AnyElement {
             .filter(|folder| !folder.is_empty()),
         Arrived::AsBytes => None,
     };
-    let note = wording::evidence_note(intake);
+    let note = match row.outcome() {
+        Some(outcome) => Some((wording::went(outcome).join(" · "), Tone::Muted)),
+        None => wording::evidence_note(intake),
+    };
 
     v_flex()
         .w_full()
@@ -946,49 +1305,138 @@ fn format_cell(intake: &Intake, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// The Actions menu: two items.
-///
-/// "Open with the default app" hands the path to the operating system —
-/// `App::open_with_system` is `open` on macOS and `xdg-open` on Linux,
-/// on a background task — and is disabled for a row with no file behind
-/// it: a note pasted from a chat has nothing to open. "Compare with the
-/// result" opens the Compare window on the row, and is disabled for a
-/// row that is not text: there is nothing to compare line by line in a
-/// picture. Disabled rather than absent, so the menu is the same shape
-/// on every row and the reason an item does nothing is that it is
-/// greyed, not that it moved. A double click on the row is the same
-/// item taken the short way — [`row_frame`].
-fn actions_cell(
+/// What a row's Actions menu needs to know to grey an item, read off
+/// the row once per frame — nothing big: a cleaned text or a pasted
+/// picture is looked up at click time.
+struct Actions {
     id: u64,
+    /// The file behind the row, for "Open with the default app".
     path: Option<PathBuf>,
     comparable: bool,
-    queue: Entity<Queue>,
-) -> AnyElement {
+    /// `None` when Clean can be pressed; otherwise why not.
+    clean: Option<String>,
+    /// The result on disk, for Open the result and Show it in its folder.
+    written: Option<PathBuf>,
+    /// Whether there is a cleaned text to copy.
+    text: bool,
+    /// Whether the clean was refused over an existing result.
+    replace: bool,
+}
+
+/// The Actions menu.
+///
+/// Clean comes first, and is greyed — with the reason under it, because
+/// a menu item has no tooltip — for a row that cannot be cleaned, is in
+/// line or is done. "Open with the default app" hands the path to the
+/// operating system — `App::open_with_system` is `open` on macOS and
+/// `xdg-open` on Linux, on a background task — and is disabled for a
+/// row with no file behind it: a note pasted from a chat has nothing to
+/// open. "Compare with the result" opens the Compare window on the row,
+/// and is disabled for a row that is not text. Then the result: open
+/// it, show it in its folder, copy it when it came back as text, and
+/// "Replace the existing result" when the clean refused to write over a
+/// file already there. Disabled rather than absent, every one, so the
+/// menu is the same shape on every row and the reason an item does
+/// nothing is that it is greyed, not that it moved. A double click on
+/// the row is the Compare item taken the short way — [`row_frame`].
+fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
+    let id = actions.id;
     Button::new(("queue-actions", id))
         .ghost()
         .xsmall()
         .icon(IconName::Ellipsis)
         .tooltip(SharedString::from(t(Message::QueueActions)))
         .dropdown_menu_with_anchor(Corner::TopRight, move |menu, _, _| {
-            let path = path.clone();
-            let queue = queue.clone();
-            menu.item(
-                PopupMenuItem::new(SharedString::from(t(Message::QueueActionOpen)))
-                    .icon(IconName::ArrowUpRightFromSquare)
-                    .disabled(path.is_none())
+            let path = actions.path.clone();
+            let written = actions.written.clone();
+            let revealed = actions.written.clone();
+            let (cleaning, comparing, copying, replacing) =
+                (queue.clone(), queue.clone(), queue.clone(), queue.clone());
+            let clean = match actions.clean.clone() {
+                None => PopupMenuItem::new(SharedString::from(t(Message::QueueActionClean)))
+                    .icon(IconName::Broom)
                     .on_click(move |_, _, cx| {
-                        if let Some(path) = &path {
-                            tracing::info!("opening a queued file with the system");
-                            cx.open_with_system(path);
-                        }
+                        cleaning.update(cx, |queue, cx| queue.clean(&[id], cx));
                     }),
-            )
-            .item(
-                PopupMenuItem::new(SharedString::from(t(Message::QueueActionCompare)))
-                    .icon(IconName::CodeCompare)
-                    .disabled(!comparable)
-                    .on_click(move |_, window, cx| compare_row(id, queue.clone(), window, cx)),
-            )
+                Some(why) => {
+                    let why = SharedString::from(why);
+                    PopupMenuItem::element(move |_, cx| {
+                        v_flex()
+                            .max_w(px(280.0))
+                            .child(SharedString::from(t(Message::QueueActionClean)))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(why.clone()),
+                            )
+                    })
+                    .icon(IconName::Broom)
+                    .disabled(true)
+                }
+            };
+            menu.item(clean)
+                .item(
+                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionOpen)))
+                        .icon(IconName::ArrowUpRightFromSquare)
+                        .disabled(path.is_none())
+                        .on_click(move |_, _, cx| {
+                            if let Some(path) = &path {
+                                tracing::info!("opening a queued file with the system");
+                                cx.open_with_system(path);
+                            }
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionCompare)))
+                        .icon(IconName::CodeCompare)
+                        .disabled(!actions.comparable)
+                        .on_click(move |_, window, cx| {
+                            compare_row(id, comparing.clone(), window, cx);
+                        }),
+                )
+                .separator()
+                .item(
+                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionOpenResult)))
+                        .icon(IconName::ArrowUpRightFromSquare)
+                        .disabled(written.is_none())
+                        .on_click(move |_, _, cx| {
+                            if let Some(written) = &written {
+                                tracing::info!(id, "opening a result with the system");
+                                cx.open_with_system(written);
+                            }
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionRevealResult)))
+                        .icon(IconName::FolderOpen)
+                        .disabled(revealed.is_none())
+                        .on_click(move |_, _, cx| {
+                            if let Some(written) = &revealed {
+                                cx.reveal_path(written);
+                            }
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionCopyResult)))
+                        .icon(IconName::Copy)
+                        .disabled(!actions.text)
+                        .on_click(move |_, _, cx| {
+                            // The person's own text, cleaned: no catalogue
+                            // touches it on the way to the clipboard.
+                            if let Some(text) = copying.read(cx).result_text(id) {
+                                cx.write_to_clipboard(ClipboardItem::new_string(text));
+                            }
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionReplace)))
+                        .icon(IconName::Replace)
+                        .disabled(!actions.replace)
+                        .on_click(move |_, _, cx| {
+                            replacing.update(cx, |queue, cx| queue.replace(id, cx));
+                        }),
+                )
         })
         .into_any_element()
 }
@@ -1156,8 +1604,15 @@ impl Queue {
         let theme = cx.theme();
         let row = &self.rows[index];
         let intake = &row.arrival.intake;
-        let plan = self.preferences.read(cx).plan_for(intake);
-        let plan_lines = wording::would_happen(&plan);
+        // Once cleaned, what happened; until then, what would.
+        let lines = match row.outcome() {
+            Some(outcome) => {
+                let mut lines = vec![wording::said(outcome)];
+                lines.extend(wording::went(outcome));
+                lines
+            }
+            None => wording::would_happen(&self.preferences.read(cx).plan_for(intake)),
+        };
 
         let comparable = Subject::comparable(intake);
         let open = comparable.then(|| {
@@ -1170,11 +1625,7 @@ impl Queue {
             .border_b_1()
             .border_color(theme.table_row_border)
             .hover(|row| row.bg(theme.table_hover))
-            .child(
-                Column::Preview
-                    .cell()
-                    .child(preview_cell(row, plan_lines, cx)),
-            )
+            .child(Column::Preview.cell().child(preview_cell(row, lines, cx)))
             .child(Column::Id.cell().child(copyable(
                 ("copy-id", row.id),
                 Some(row.id.to_string()),
@@ -1185,8 +1636,9 @@ impl Queue {
                 row.keyword.clone(),
                 cx,
             )))
-            .child(Column::Name.cell().child(name_cell(intake, cx)))
+            .child(Column::Name.cell().child(name_cell(row, cx)))
             .child(Column::Kind.cell().child(kind_tag(intake.kind)))
+            .child(Column::Status.cell().child(status_cell(row)))
             .child(Column::Format.cell().child(format_cell(intake, cx)))
             .child(Column::Size.cell().text_sm().child(SharedString::from(
                 intake.size.map_or_else(|| "—".to_owned(), drop::size_label),
@@ -1201,9 +1653,15 @@ impl Queue {
                     )),
             )
             .child(Column::Actions.cell().child(actions_cell(
-                row.id,
-                intake.path.clone(),
-                comparable,
+                Actions {
+                    id: row.id,
+                    path: intake.path.clone(),
+                    comparable,
+                    clean: why_not_clean(&row.status, row.cleanable()),
+                    written: row.outcome().and_then(|outcome| outcome.written.clone()),
+                    text: row.outcome().is_some_and(|outcome| outcome.text.is_some()),
+                    replace: row.outcome().and_then(existing_result).is_some(),
+                },
                 cx.entity(),
             )))
             .into_any_element()
@@ -1238,9 +1696,9 @@ impl Queue {
             .child(div().text_sm().child(SharedString::from(t(line))))
     }
 
-    /// The line under the table: that this list does not clean yet and
-    /// where cleaning does run — the sentence the panel keeps too until
-    /// E4/E7 — and lazy-shot's paginator at the right.
+    /// The line under the table: that rewriting with a model is not in
+    /// the windows and where it does run, in the words every pending
+    /// surface uses — and lazy-shot's paginator at the right.
     fn footer(&self, visible: usize, cx: &Context<Self>) -> Div {
         let theme = cx.theme();
         let pages = pages(visible, self.page_size);
@@ -1395,9 +1853,12 @@ mod tests {
     use wipemark_intake::Kind;
 
     use super::{
-        kind_glyph, kind_tag, page_range, pages, row_frame, shown, Column, Filter, Order,
-        PAGE_SIZES, ROW,
+        kind_glyph, kind_tag, page_range, pages, row_frame, shown, why_not_clean, Cleanable,
+        Column, Filter, Job, Line, Order, Queue, Status, PAGE_SIZES, ROW,
     };
+    use crate::clean::Verdict;
+    use crate::retention::{Destination, Homes};
+    use crate::settings::Preferences;
 
     /// A column added to the list is a column with a title: a header
     /// cell that rendered a catalogue key would say so on every launch.
@@ -1422,17 +1883,95 @@ mod tests {
         );
     }
 
-    /// The honesty line under the table names what is missing, in the
-    /// words the other pending surfaces use — never an epic number,
-    /// which a person reading a window can do nothing with.
+    /// The honesty line under the table names what is still missing —
+    /// rewriting with a model — in the words the other pending surfaces
+    /// use, and no longer says the list does not clean: it does. Never an
+    /// epic number, which a person reading a window can do nothing with.
     #[test]
-    fn the_footer_says_cleaning_is_not_here_yet() {
+    fn the_footer_says_rewriting_is_not_here_yet() {
         let line = t(Message::QueuePending);
         assert!(line.contains("not in this version"), "{line}");
+        assert!(line.contains("Rewriting"), "{line}");
         assert!(
-            !line.contains("E1"),
+            !line
+                .to_lowercase()
+                .contains("cleaning from this list is not"),
+            "the footer still says the list does not clean: {line}"
+        );
+        assert!(
+            !line
+                .split(|c: char| !c.is_ascii_alphanumeric())
+                .any(|word| word.len() > 1
+                    && word.starts_with('E')
+                    && word[1..].chars().all(|c| c.is_ascii_digit())),
             "an epic number reached a window: {line}"
         );
+    }
+
+    /// One clean at a time, first asked first done: a second start while
+    /// one runs hands nothing out, and the next is the one asked for
+    /// next. The count is of the cleans since the line was last empty.
+    #[test]
+    fn one_clean_runs_at_a_time_in_the_order_asked() {
+        let job = |id| Job {
+            id,
+            replacing: None,
+        };
+        let mut line = Line::default();
+        assert_eq!(line.start(), None, "an empty line starts nothing");
+        assert_eq!(line.progress(), None);
+
+        line.push(job(4));
+        line.push(job(2));
+        assert_eq!(line.start(), Some(job(4)));
+        assert_eq!(
+            line.start(),
+            None,
+            "a second clean started beside the first"
+        );
+        assert_eq!(line.progress(), Some((1, 2)));
+
+        // Asked for while one runs: behind the one already waiting.
+        line.push(job(9));
+        assert_eq!(line.progress(), Some((1, 3)));
+        line.finish(4);
+        assert_eq!(line.start(), Some(job(2)));
+        assert_eq!(line.progress(), Some((2, 3)));
+        line.finish(2);
+        assert_eq!(line.start(), Some(job(9)));
+        line.finish(9);
+        assert_eq!(line.start(), None);
+        assert_eq!(line.progress(), None, "the count starts again");
+
+        line.push(job(10));
+        assert_eq!(line.start(), Some(job(10)));
+        assert_eq!(line.progress(), Some((1, 1)));
+    }
+
+    /// Clean is greyed with a reason for a thing that cannot be cleaned —
+    /// the reason names the format — and for a row in line or done; a
+    /// waiting text or picture can be cleaned.
+    #[test]
+    fn clean_is_greyed_with_a_reason_when_it_cannot_run() {
+        use wipemark_intake::Format;
+
+        use crate::clean::Unable;
+
+        let tiff = Cleanable::No(Unable::NotYet(Format::Tiff));
+        let text = Cleanable::Text(wipemark_intake::Encoding::Utf8);
+        let why = why_not_clean(&Status::Waiting, tiff).expect("a TIFF cannot be cleaned");
+        assert!(why.contains("TIFF"), "{why}");
+        assert_eq!(why_not_clean(&Status::Waiting, text), None);
+        assert_eq!(
+            why_not_clean(&Status::Waiting, Cleanable::Picture(Format::Png)),
+            None
+        );
+        for status in [Status::Queued, Status::Cleaning] {
+            assert_eq!(
+                why_not_clean(&status, text),
+                Some(t(Message::QueueActionCleanBusy))
+            );
+        }
     }
 
     /// Every kind has a glyph for the row with no picture and a badge
@@ -1617,5 +2156,198 @@ mod tests {
         click(cx, point(px(40.0), ROW * 2.0), 1);
         click(cx, point(px(40.0), ROW * 2.0), 2);
         assert_eq!(opened.get(), 1, "a double click beside the row opened it");
+    }
+
+    /// A scratch directory that takes its own files away with it.
+    struct Scratch(std::path::PathBuf);
+
+    impl Scratch {
+        fn new(label: &str) -> Self {
+            let directory =
+                std::env::temp_dir().join(format!("wipemark-queue-{label}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&directory);
+            std::fs::create_dir_all(directory.join("results")).expect("scratch directory");
+            Self(directory)
+        }
+
+        fn file(&self, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+            let path = self.0.join(name);
+            std::fs::write(&path, bytes).expect("scratch file");
+            path
+        }
+
+        fn homes(&self) -> Homes {
+            Homes {
+                results: self.0.join("results"),
+                kept: self.0.join("kept"),
+            }
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
+
+    /// A main window's queue over preferences that forget, with its two
+    /// folders in `scratch`.
+    /// The queue and the preferences it reads, as a window holds them.
+    type Held = (gpui::Entity<Queue>, gpui::Entity<Preferences>);
+
+    fn queue_in<'a>(
+        cx: &'a mut TestAppContext,
+        scratch: &Scratch,
+    ) -> (
+        gpui::Entity<Queue>,
+        gpui::Entity<Preferences>,
+        &'a mut VisualTestContext,
+    ) {
+        cx.update(gpui_component::init);
+        let homes = scratch.homes();
+        let slot: Rc<std::cell::RefCell<Option<Held>>> = Rc::default();
+        let held = slot.clone();
+        let (_, cx) = cx.add_window_view(move |window, cx| {
+            let preferences = cx.new(|cx| Preferences::for_tests(homes, cx));
+            let queue = cx.new(|cx| Queue::new(preferences.clone(), window, cx));
+            *held.borrow_mut() = Some((queue.clone(), preferences));
+            gpui_component::Root::new(queue, window, cx)
+        });
+        let (queue, preferences) = slot.take().expect("the window builder ran");
+        (queue, preferences, cx)
+    }
+
+    fn statuses(queue: &gpui::Entity<Queue>, cx: &mut VisualTestContext) -> Vec<&'static str> {
+        cx.update(|_, cx| {
+            let queue = queue.read(cx);
+            queue
+                .ids()
+                .into_iter()
+                .map(|id| match queue.status_of(id) {
+                    Some(Status::Waiting) => "waiting",
+                    Some(Status::Queued) => "queued",
+                    Some(Status::Cleaning) => "cleaning",
+                    Some(Status::Done(outcome)) => outcome.verdict.id(),
+                    None => "gone",
+                })
+                .collect()
+        })
+    }
+
+    const MARKED: &str = "# Notes\n\nA zero\u{200B}width space.\n";
+
+    /// Clean all moves the waiting rows through queued and cleaning to
+    /// done, one at a time and in order, skips what cannot be cleaned,
+    /// and asks nothing twice; the plan is the one in force when each
+    /// row's clean **starts** — a choice changed while the second row
+    /// waited applies to it and not to the first — and the status bar's
+    /// count runs while the line does.
+    #[gpui::test]
+    fn the_queue_cleans_one_row_at_a_time_by_the_plan_at_its_start(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("cleans");
+        let first = scratch.file("a.md", MARKED.as_bytes());
+        let second = scratch.file("b.md", MARKED.as_bytes());
+        let tiff = scratch.file("c.tiff", b"II*\0\x08\0\0\0");
+        let (queue, preferences, cx) = queue_in(cx, &scratch);
+
+        queue.update(cx, |queue, cx| {
+            queue.hand(vec![first.clone(), second.clone(), tiff.clone()], cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(statuses(&queue, cx), ["waiting", "waiting", "waiting"]);
+        let waiting = cx.update(|_, cx| queue.read(cx).cleanable_waiting().len());
+        assert_eq!(waiting, 2, "the TIFF is not a row Clean all cleans");
+
+        queue.update(cx, |queue, cx| queue.clean_all(cx));
+        assert_eq!(
+            statuses(&queue, cx),
+            ["cleaning", "queued", "waiting"],
+            "not one at a time, in order"
+        );
+        assert_eq!(cx.update(|_, cx| queue.read(cx).progress()), Some((1, 2)));
+        // Asked again while the line runs — by Clean all, or row by row
+        // as `--clean=` and the menu ask: nothing is asked twice.
+        queue.update(cx, |queue, cx| queue.clean_all(cx));
+        assert_eq!(cx.update(|_, cx| queue.read(cx).progress()), Some((1, 2)));
+        let ids = cx.update(|_, cx| queue.read(cx).ids());
+        queue.update(cx, |queue, cx| queue.clean(&ids[..2], cx));
+        assert_eq!(cx.update(|_, cx| queue.read(cx).progress()), Some((1, 2)));
+        assert_eq!(statuses(&queue, cx), ["cleaning", "queued", "waiting"]);
+
+        // The page changes while the second row waits.
+        preferences.update(cx, |preferences, cx| {
+            preferences.select_destination(Destination::Folder, cx);
+        });
+        cx.run_until_parked();
+
+        assert_eq!(statuses(&queue, cx), ["cleaned", "cleaned", "waiting"]);
+        assert_eq!(cx.update(|_, cx| queue.read(cx).progress()), None);
+        // A done row asked again stays done: its result is not written twice.
+        queue.update(cx, |queue, cx| queue.clean(&ids[..1], cx));
+        assert_eq!(statuses(&queue, cx), ["cleaned", "cleaned", "waiting"]);
+        let cleaned = wipemark_core::clean(MARKED, &wipemark_core::Options::default()).text;
+        assert_eq!(
+            std::fs::read_to_string(scratch.0.join("a.cleaned.md")).expect("beside"),
+            cleaned,
+            "the first row was not cleaned by the plan at its start"
+        );
+        assert!(!scratch.0.join("b.cleaned.md").exists());
+        assert_eq!(
+            std::fs::read_to_string(scratch.0.join("results").join("b.cleaned.md"))
+                .expect("into the results folder"),
+            cleaned,
+            "the second row was not cleaned by the plan at its start"
+        );
+
+        // Clean all skips what is not waiting; the TIFF is asked by name
+        // and refused, and its badge says why.
+        queue.update(cx, |queue, cx| queue.clean_all(cx));
+        cx.run_until_parked();
+        assert_eq!(statuses(&queue, cx), ["cleaned", "cleaned", "waiting"]);
+        queue.update(cx, |queue, cx| queue.clean(&ids[2..], cx));
+        cx.run_until_parked();
+        assert_eq!(statuses(&queue, cx), ["cleaned", "cleaned", "not-cleaned"]);
+    }
+
+    /// `--clean=` is Import and Clean: the row lands and is cleaned. A
+    /// result already there is refused and left; Replace writes over that
+    /// one file and says so.
+    #[gpui::test]
+    fn a_refused_result_is_replaced_only_when_asked(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("replace");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let existing = scratch.file("x.cleaned.md", b"somebody's own file");
+        let (queue, _, cx) = queue_in(cx, &scratch);
+
+        queue.update(cx, |queue, cx| {
+            queue.hand_to_clean(vec![source.clone()], cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(statuses(&queue, cx), ["not-cleaned"]);
+        assert_eq!(
+            std::fs::read(&existing).expect("read"),
+            b"somebody's own file"
+        );
+
+        let id = cx.update(|_, cx| queue.read(cx).ids()[0]);
+        queue.update(cx, |queue, cx| queue.replace(id, cx));
+        cx.run_until_parked();
+        assert_eq!(statuses(&queue, cx), ["cleaned"]);
+        let replaced = cx.update(|_, cx| match queue.read(cx).status_of(id) {
+            Some(Status::Done(outcome)) => {
+                outcome.replaced && matches!(outcome.verdict, Verdict::Cleaned)
+            }
+            _ => false,
+        });
+        assert!(replaced, "the outcome does not say it replaced the file");
+        assert_eq!(
+            std::fs::read_to_string(&existing).expect("read"),
+            wipemark_core::clean(MARKED, &wipemark_core::Options::default()).text
+        );
+        assert_eq!(std::fs::read(&source).expect("read"), MARKED.as_bytes());
+
+        // Done is done: a second Replace has nothing to replace.
+        queue.update(cx, |queue, cx| queue.replace(id, cx));
+        assert_eq!(statuses(&queue, cx), ["cleaned"]);
     }
 }

@@ -35,14 +35,6 @@
 //! on a network home directory.
 
 mod assets;
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "the cleaner is built and tested before the queue calls it; \
-                  only the sweep has a caller in this step"
-    )
-)]
 mod clean;
 mod clipboard;
 mod compare;
@@ -137,6 +129,9 @@ struct Shell {
     /// What is on the clipboard, watched, so the Paste button can say
     /// what it would paste.
     clipboard: Entity<Clipboard>,
+    /// Dropped with the view: a row cleaned, queued or arrived repaints
+    /// Clean all and the status bar.
+    _queue: Subscription,
     /// Dropped with the view: a change on the clipboard repaints the
     /// toolbar, and the window coming forward looks at it again.
     _clipboard: [Subscription; 2],
@@ -188,7 +183,7 @@ impl Shell {
         preferences: Entity<Preferences>,
         host: Entity<EngineHost>,
         walk_through: bool,
-        import: Vec<PathBuf>,
+        arguments: Startup,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -248,16 +243,25 @@ impl Shell {
         });
         // `--import=<path>` on the command line: the same road a drop
         // takes, one step later, so that a check of the table does not
-        // start by driving a file picker.
+        // start by driving a file picker. `--clean=<path>` is that and
+        // Clean, for a check that should not start by driving a menu.
+        let Startup { import, clean } = arguments;
         if !import.is_empty() {
             queue.update(cx, |queue, cx| queue.hand(import, cx));
         }
+        if !clean.is_empty() {
+            queue.update(cx, |queue, cx| queue.hand_to_clean(clean, cx));
+        }
+        // The toolbar's Clean all and the status bar's "Cleaning 2 of 5"
+        // are both read off the queue.
+        let working = cx.observe(&queue, |_, _, cx| cx.notify());
 
         let loaded = cx.observe(&host, |_, _, cx| cx.notify());
         let mut shell = Self {
             queue,
             clipboard,
             _clipboard: [watched, activated],
+            _queue: working,
             host,
             _host: loaded,
             preferences,
@@ -393,6 +397,14 @@ fn status_line(duty: &Duty, loaded: &Loaded) -> String {
     }
 }
 
+/// The status bar's sentence while the queue cleans: which of how many.
+fn cleaning_line(current: usize, total: usize) -> String {
+    t_args(
+        Message::StatusCleaning,
+        &args!("current" => current, "total" => total),
+    )
+}
+
 /// What this window does, since a table of rows does not say.
 ///
 /// Four lines and no more, the panel's help in shape: how things get
@@ -420,9 +432,10 @@ fn help(cx: &App) -> impl IntoElement {
 }
 
 impl Shell {
-    /// The toolbar: Import and Paste on the left, Help on the right.
+    /// The toolbar: Import, Paste and Clean all on the left, Help on the
+    /// right.
     ///
-    /// Three buttons, and the space between them is deliberate — the
+    /// Four buttons, and the space between them is deliberate — the
     /// bar is where the *window's* controls go, and a preference is not
     /// one of those (the gear is in the status bar, and the pages are
     /// behind it). Import and Paste both dispatch to the queue rather
@@ -438,6 +451,8 @@ impl Shell {
         let pasting = self.queue.clone();
         let clipboard = self.clipboard.clone();
         let (paste_label, count) = clipboard::label(self.clipboard.read(cx).held());
+        let cleaning = self.queue.clone();
+        let waiting = self.queue.read(cx).cleanable_waiting().len();
         h_flex()
             .w_full()
             .flex_shrink_0()
@@ -477,6 +492,18 @@ impl Shell {
                         // but on a desktop with no poll this is the
                         // one moment it is known to be worth a look.
                         clipboard.update(cx, |clipboard, cx| clipboard.refresh(cx));
+                    }),
+            )
+            .child(
+                Button::new("clean-all")
+                    .small()
+                    .outline()
+                    .icon(IconName::Broom)
+                    .label(SharedString::from(t(Message::ToolbarCleanAll)))
+                    .tooltip(SharedString::from(t(Message::ToolbarCleanAllTooltip)))
+                    .disabled(waiting == 0)
+                    .on_click(move |_: &ClickEvent, _, cx| {
+                        cleaning.update(cx, |queue, cx| queue.clean_all(cx));
                     }),
             )
             .child(div().flex_1())
@@ -549,10 +576,15 @@ impl Render for Shell {
                     // still ends in "Layer A only": nothing in this
                     // build sends a request.
                     .child(Icon::new(IconName::CircleInfo).small().color(muted))
-                    .child(SharedString::from(status_line(
-                        &self.preferences.read(cx).duty(Role::Rewrite),
-                        self.host.read(cx).loaded(),
-                    )))
+                    .child(SharedString::from(match self.queue.read(cx).progress() {
+                        // While the queue works, that is what the
+                        // application is doing.
+                        Some((current, total)) => cleaning_line(current, total),
+                        None => status_line(
+                            &self.preferences.read(cx).duty(Role::Rewrite),
+                            self.host.read(cx).loaded(),
+                        ),
+                    }))
                     .child(div().flex_1())
                     // The far end of the status bar, which is where a
                     // desktop application has put its preferences for
@@ -651,6 +683,15 @@ const IMPORT_FLAG: &str = "--import=";
 /// window that says so.
 const COMPARE_FLAG: &str = "--compare=";
 
+/// The flag that puts a file in the queue and cleans it, at startup.
+///
+/// `--clean=<path>`, once per file: what Import followed by the row's
+/// Clean does, for the reason `--import=` exists — a check of what a
+/// clean writes should not start by driving a file picker and a menu.
+/// The result goes where the Retention page says, as for any row; a
+/// file that cannot be cleaned lands as a row whose badge says why.
+const CLEAN_FLAG: &str = "--clean=";
+
 /// The flag that opens the setup walk-through at startup, whether or
 /// not it has been through before.
 ///
@@ -690,9 +731,20 @@ struct Launch {
     version: bool,
     /// The files to queue at startup, in the order they were named.
     import: Vec<PathBuf>,
+    /// The files to queue and clean at startup, in the order they were
+    /// named.
+    clean: Vec<PathBuf>,
     /// The files to open Compare windows on, in the order they were
     /// named.
     compare: Vec<PathBuf>,
+}
+
+/// What the command line hands the main window to put in its queue.
+struct Startup {
+    /// `--import=`: listed.
+    import: Vec<PathBuf>,
+    /// `--clean=`: listed and cleaned.
+    clean: Vec<PathBuf>,
 }
 
 fn launch_from(arguments: impl IntoIterator<Item = String>) -> Launch {
@@ -718,6 +770,14 @@ fn launch_from(arguments: impl IntoIterator<Item = String>) -> Launch {
                 tracing::warn!("{IMPORT_FLAG} was given no path; nothing queued");
             } else {
                 launch.import.push(PathBuf::from(path));
+            }
+            continue;
+        }
+        if let Some(path) = argument.strip_prefix(CLEAN_FLAG) {
+            if path.is_empty() {
+                tracing::warn!("{CLEAN_FLAG} was given no path; nothing cleaned");
+            } else {
+                launch.clean.push(PathBuf::from(path));
             }
             continue;
         }
@@ -975,9 +1035,13 @@ fn main() {
                     // The walk-through opens over a fresh install, and
                     // over any launch that asked for it.
                     let walk_through = launch.setup || !stored.setup_done;
-                    let import = launch.import.clone();
-                    let shell = cx
-                        .new(|cx| Shell::new(preferences, host, walk_through, import, window, cx));
+                    let arguments = Startup {
+                        import: launch.import.clone(),
+                        clean: launch.clean.clone(),
+                    };
+                    let shell = cx.new(|cx| {
+                        Shell::new(preferences, host, walk_through, arguments, window, cx)
+                    });
 
                     // The first level inside a window has to be a Root —
                     // dialogs, sheets, notifications and tooltips all mount
@@ -1384,6 +1448,34 @@ mod tests {
             launch(&["--imports=/tmp/a.md"]).import.is_empty(),
             "a flag that merely looks similar is not it"
         );
+    }
+
+    /// `--clean=<path>` queues a file and cleans it — Import and Clean —
+    /// once per flag and in the order given; the flag with nothing after
+    /// it is a typo, a flag that merely looks similar is not it, and it
+    /// neither eats nor is eaten by `--import=`.
+    #[test]
+    fn files_can_be_cleaned_from_the_command_line() {
+        assert!(launch(&[]).clean.is_empty(), "nothing asked for it");
+        assert_eq!(
+            launch(&["--clean=/tmp/a.md", "--clean=/tmp/b c.png"]).clean,
+            vec![PathBuf::from("/tmp/a.md"), PathBuf::from("/tmp/b c.png")]
+        );
+        assert!(launch(&["--clean=", "--clean"]).clean.is_empty());
+        assert!(launch(&["--cleans=/tmp/a.md"]).clean.is_empty());
+
+        let both = launch(&["--import=/tmp/a.md", "--clean=/tmp/b.md"]);
+        assert_eq!(both.import, vec![PathBuf::from("/tmp/a.md")]);
+        assert_eq!(both.clean, vec![PathBuf::from("/tmp/b.md")]);
+    }
+
+    /// While the queue cleans, the status bar counts — the number itself,
+    /// not its spelling, so the plural is the language's.
+    #[test]
+    fn the_status_bar_counts_the_cleans() {
+        let line = cleaning_line(2, 5);
+        assert!(line.contains('2') && line.contains('5'), "{line}");
+        assert!(!line.contains("status-cleaning"), "{line}");
     }
 
     /// `--compare=<path>` opens the Compare window on a file the way a

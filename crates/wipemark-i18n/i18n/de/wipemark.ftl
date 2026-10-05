@@ -30,7 +30,7 @@ toolbar-help = Hilfe
 toolbar-help-tooltip = Was dieses Fenster tut
 toolbar-help-drop = Text, ein Bild oder Dateien irgendwo in diesem Fenster ablegen, mit Importieren auswählen – oder aus der Zwischenablage einfügen.
 toolbar-help-preview = Den Zeiger auf einer Vorschau ruhen lassen, um sie größer zu sehen. Das Aktionen-Menü am Ende einer Zeile öffnet eine Datei mit der App, die das System nehmen würde.
-toolbar-help-pending = Bereinigen aus diesem Fenster gibt es in dieser Version noch nicht: Es nimmt entgegen, was ankommt, und sagt, was es ist. In dieser Version läuft die Bereinigung über die Kommandozeile (wipemark-cli clean) und, für einen Agenten, über MCP.
+toolbar-help-pending = „Bereinigen“ im Menü „Aktionen“ bereinigt eine Zeile, „Alles bereinigen“ jede wartende; das Ergebnis kommt dorthin, wo die Seite „Aufbewahrung“ es sagt. Umschreiben mit einem Modell gibt es in den Fenstern dieser Version noch nicht: Es läuft über die Kommandozeile (wipemark-cli rewrite) und, für einen Agenten, über MCP.
 toolbar-help-elsewhere = Das Schnellreinigungs-Panel sitzt in der Menüleiste; die Einstellungen liegen hinter dem Zahnrad unten rechts.
 
 queue-column-preview = Vorschau
@@ -48,7 +48,7 @@ queue-count = { $count ->
         [one] { $count } Eintrag
        *[other] { $count } Einträge
     }
-queue-pending = Bereinigen aus dieser Liste gibt es in dieser Version noch nicht. Was sie heute tut: entgegennehmen, was abgelegt oder importiert wird, und sagen, was es ist; die Bereinigung selbst läuft über die Kommandozeile und über MCP.
+queue-pending = Umschreiben mit einem Modell gibt es in den Fenstern dieser Version noch nicht: Diese Liste bereinigt, und eine Umschreibung läuft über die Kommandozeile (wipemark-cli rewrite) und über MCP.
 queue-preview-pending = Wird gelesen…
 queue-preview-cut = Die ersten { $count } Zeichen; der Rest wird hier nicht gezeigt.
 queue-actions = Aktionen
@@ -910,3 +910,68 @@ cli-prompts-unreadable = Die Vorlagendatei { $path } konnte nicht gelesen werden
 cli-prompts-not-rows = Die Vorlagendatei { $path } ist kein JSON-Objekt aus Vorlagenzeilen ({ $reason }). Nichts wurde umgeschrieben.
 cli-prompts-unknown-row = Die Vorlagendatei { $path } nennt { $key }, und diese Vorlagenzeile gibt es in dieser Version nicht. Nichts wurde umgeschrieben.
 cli-prompts-invalid = Die Vorlage { $key } in { $path } bricht die Regel { $rule }. Nichts wurde umgeschrieben.
+
+## The windows clean (E7)
+
+toolbar-clean-all = Alles bereinigen
+toolbar-clean-all-tooltip = Jede wartende Zeile bereinigen, die sich bereinigen lässt – eine nach der anderen, in der Reihenfolge ihres Eintreffens. Ausgegraut, solange es keine gibt.
+queue-column-status = Status
+queue-status-waiting = Wartet
+queue-status-waiting-tooltip = Noch nicht bereinigt. Über das Menü „Aktionen“ bereinigen oder „Alles bereinigen“ drücken.
+queue-status-unable = Nicht bereinigbar
+queue-status-queued = Eingereiht
+queue-status-queued-tooltip = Wartet auf die Bereinigung davor: Es wird immer eines nach dem anderen bereinigt, in der verlangten Reihenfolge.
+queue-status-cleaning = Wird bereinigt…
+queue-status-cleaning-tooltip = Wird gerade bereinigt. Geschrieben wird erst, wenn es fertig ist.
+queue-status-nothing-found = Nichts gefunden
+queue-status-cleaned = Bereinigt
+queue-status-partly = Teilweise
+queue-status-not-cleaned = Nicht bereinigt
+queue-status-failed = Fehlgeschlagen
+queue-action-clean = Bereinigen
+queue-action-clean-done = Das wurde schon bereinigt.
+queue-action-clean-busy = Das steht schon zur Bereinigung an.
+queue-action-open-result = Ergebnis öffnen
+queue-action-reveal-result = Ergebnis im Ordner zeigen
+queue-action-copy-result = Ergebnis kopieren
+queue-action-replace = Vorhandenes Ergebnis ersetzen
+queue-went-written = Geschrieben als { $name }
+queue-went-replaced = Über das vorhandene { $name } geschrieben
+queue-went-in-place = Anstelle der Datei geschrieben
+queue-went-set-aside = Original beiseitegelegt als { $name }
+queue-went-kept = Aufbewahrt in { $folder }
+queue-went-as-text = Der bereinigte Text liegt bereit: „Ergebnis kopieren“ steht im Menü „Aktionen“.
+queue-went-nothing = Nichts wurde geschrieben.
+status-cleaning = Bereinige { $current } von { $total }
+clean-said-nothing-found = Es wurde nichts zum Entfernen gefunden, also wurde nichts geschrieben.
+clean-said-cleaned-text = { $count ->
+        [one] Ein Zeichen wurde entfernt oder ersetzt.
+       *[other] { $count } Zeichen wurden entfernt oder ersetzt.
+    }
+clean-said-cleaned-picture = Was das Bild als von KI gemacht kennzeichnete, wurde entfernt.
+clean-said-partly-kept = Gefunden wurde etwas, das bei den Standardeinstellungen bleibt – ein Buchstabe aus einem anderen Alphabet, der wie ein lateinischer aussieht –, also wurde nichts geändert.
+clean-said-partly-mark = Ein sichtbares Zeichen ist noch im Bild: Es ließ sich nicht ganz entfernen.
+clean-said-partly-animated = Die Einzelbilder eines animierten Bildes werden nicht auf ein sichtbares Zeichen geprüft; eines dort ist weder gefunden noch ausgeschlossen.
+clean-said-partly-unexamined = Die Pixel des Bildes ließen sich nicht prüfen; ein sichtbares Zeichen dort ist weder gefunden noch ausgeschlossen.
+clean-refused-not-yet = { $format }-Bilder werden in dieser Version noch nicht gelesen.
+clean-refused-folder = Ein Ordner wird nicht als Ganzes bereinigt; legen Sie stattdessen die Dateien darin ab.
+clean-refused-kind = Weder die Textbereinigung noch die Bildbereinigung liest so etwas: { $what }.
+clean-refused-unnamed-encoding = Die Zeichen sind in einer Kodierung, die sich nicht benennen ließ, und eine Kodierung wird nie geraten.
+clean-refused-unread = Aus dem Inhalt ließ sich nichts feststellen, und ein Name allein reicht zum Bereinigen nicht.
+clean-refused-too-big = Mit { $size } ist das mehr, als ein Fenster bereinigt; die Grenze liegt bei { $limit }.
+clean-refused-unreadable = Es ließ sich nicht lesen.
+clean-refused-undecodable = An Byte { $offset } ist es kein gültiges { $encoding }, also wurde nichts geändert.
+clean-refused-picture-unknown = Das ist kein Bild, das diese Version lesen kann.
+clean-refused-picture-malformed = Das ist keine { $format }-Datei, die diese Version lesen kann: Sie ist an Byte { $offset } beschädigt. Nicht gelesen heißt nicht sauber.
+clean-refused-picture-unsupported = Es verwendet an Byte { $offset } etwas in { $format }, das diese Version nicht unterstützt.
+clean-refused-picture-decode = Die Pixel ließen sich nicht dekodieren, also wurde es nicht bereinigt.
+clean-refused-picture-encode = Das wiederhergestellte Bild ließ sich nicht zurückschreiben, also wurde nichts geschrieben.
+clean-refused-picture-proof = Das Ergebnis hat seine eigene Prüfung nicht bestanden, also wurde nichts geschrieben. Das ist ein Fehler dieser Version.
+clean-refused-still-marked = Das Ergebnis trüge noch Metadaten zur KI-Herkunft, also wurde es nicht geschrieben.
+clean-refused-exists = { $name } ist schon da und blieb, wie es war. Um es zu überschreiben, wählen Sie „Vorhandenes Ergebnis ersetzen“ im Menü „Aktionen“.
+clean-refused-original-exists = { $name } ist schon da: Ein früher beiseitegelegtes Original wird nie überschrieben, also wurde nichts geändert.
+clean-refused-same-file = Das Ergebnis wäre auf der Datei selbst gelandet, also wurde nichts geschrieben.
+clean-refused-nowhere = Nach den Einstellungen der Seite „Aufbewahrung“ kann dieses Ergebnis nirgendwohin.
+clean-failed-write = { $path } ließ sich nicht schreiben ({ $error }). Sonst wurde nichts geändert.
+clean-failed-set-aside = Die Datei ließ sich nicht als { $name } beiseitelegen ({ $error }), also wurde nichts geändert.
+clean-failed-stranded = Das Ergebnis ließ sich nicht schreiben und das Original nicht zurücklegen: Es liegt unter { $path } ({ $error }).

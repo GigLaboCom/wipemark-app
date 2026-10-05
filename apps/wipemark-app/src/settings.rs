@@ -1142,6 +1142,28 @@ impl Preferences {
         }
     }
 
+    /// Preferences over a store that forgets, for a test that builds a
+    /// view reading them — the queue's. Every row at its default, the
+    /// server off (its default), a vault in memory, and `homes` for the
+    /// two folders, so nothing a test does lands in a real Downloads.
+    #[cfg(test)]
+    pub fn for_tests(homes: Homes, cx: &Context<Self>) -> Self {
+        let store = config::open(None);
+        let stored = config::read_all(&store);
+        let (engine, _) = EngineHandle::new();
+        Self::new(
+            stored,
+            store,
+            Arc::new(Vault::in_memory("com.GigLabo.wipemark.test")),
+            std::env::temp_dir().join("wipemark-test-models"),
+            homes,
+            None,
+            engine,
+            None,
+            cx,
+        )
+    }
+
     /// The Retention page's rows.
     pub fn retention(&self) -> &Retention {
         &self.retention

@@ -26,10 +26,16 @@ APP = ["-p", "wipemark-app"]
 
 CLEAN = "apps/wipemark-app/src/clean.rs"
 RETENTION = "apps/wipemark-app/src/retention.rs"
+QUEUE = "apps/wipemark-app/src/queue.rs"
+EN = "crates/wipemark-i18n/i18n/en-US/wipemark.ftl"
 
 
 def t(name):
     return (APP, f"clean::tests::{name}")
+
+
+def q(name):
+    return (APP, f"queue::tests::{name}")
 
 
 # (id, protection, file, old, new, [(cargo test args, test name filter)])
@@ -39,7 +45,7 @@ MUTATIONS = [
         "E7-1/M1",
         "an existing result is refused, never overwritten (D261)",
         CLEAN,
-        "    if std::fs::symlink_metadata(destination).is_ok() {",
+        "    if there && replacing != Some(destination) {",
         "    if false {",
         [t("an_existing_result_is_refused_and_left_alone")],
     ),
@@ -169,6 +175,79 @@ MUTATIONS = [
         "    if source.is_some_and(|source| inplace::same_file(source, destination)) {",
         "    if false {",
         [t("into_the_results_folder_and_never_over_the_source")],
+    ),
+    # ------------------------------------------------ E7-2: the queue cleans
+    (
+        "E7-2/M1",
+        "two cleans at once instead of one at a time",
+        QUEUE,
+        """        if self.running.is_some() {
+            return None;
+        }
+        let job = self.waiting.pop_front()?;""",
+        """        let job = self.waiting.pop_front()?;""",
+        [
+            q("one_clean_runs_at_a_time_in_the_order_asked"),
+            q("the_queue_cleans_one_row_at_a_time_by_the_plan_at_its_start"),
+        ],
+    ),
+    (
+        "E7-2/M2",
+        "the plan is not the Retention page's as it stands when the clean starts",
+        QUEUE,
+        """            row.status = Status::Cleaning;
+            let plan = self.preferences.read(cx).plan_for(&row.arrival.intake);""",
+        """            row.status = Status::Cleaning;
+            let plan = crate::retention::plan(
+                &crate::retention::Source::of(&row.arrival.intake),
+                &crate::retention::Retention::default(),
+                self.preferences.read(cx).homes(),
+            );""",
+        [q("the_queue_cleans_one_row_at_a_time_by_the_plan_at_its_start")],
+    ),
+    (
+        "E7-2/M3",
+        "a row asked twice is cleaned twice",
+        QUEUE,
+        """            if !matches!(row.status, Status::Waiting) {
+                continue;
+            }
+            row.status = Status::Queued;""",
+        """            row.status = Status::Queued;""",
+        [q("the_queue_cleans_one_row_at_a_time_by_the_plan_at_its_start")],
+    ),
+    (
+        "E7-2/M4",
+        "Clean offered on a thing that cannot be cleaned",
+        QUEUE,
+        """            Cleanable::No(unable) => Some(wording::unable(unable)),
+            Cleanable::Text(_) | Cleanable::Picture(_) => None,""",
+        """            Cleanable::No(_) | Cleanable::Text(_) | Cleanable::Picture(_) => None,""",
+        [q("clean_is_greyed_with_a_reason_when_it_cannot_run")],
+    ),
+    (
+        "E7-2/M5",
+        "Replace writes over a file other than the one named",
+        CLEAN,
+        "    if there && replacing != Some(destination) {",
+        "    if there && replacing.is_none() {",
+        [t("a_result_is_replaced_only_where_it_was_named")],
+    ),
+    (
+        "E7-2/M6",
+        "the footer back to \"cleaning is not here\"",
+        EN,
+        "queue-pending = Rewriting with a model is not in this version's windows yet: this list cleans, and a rewrite runs from the command line (wipemark-cli rewrite) and over MCP.",
+        "queue-pending = Cleaning from this list is not in this version yet. What it does today is take what you drop or import and say what it is; cleaning itself runs from the command line and over MCP.",
+        [q("the_footer_says_rewriting_is_not_here_yet")],
+    ),
+    (
+        "E7-2/M7",
+        "an epic number in the footer",
+        EN,
+        "queue-pending = Rewriting with a model is not in this version's windows yet:",
+        "queue-pending = Rewriting with a model (E4) is not in this version's windows yet:",
+        [q("the_footer_says_rewriting_is_not_here_yet")],
     ),
 ]
 

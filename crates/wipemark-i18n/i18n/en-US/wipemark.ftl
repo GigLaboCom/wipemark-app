@@ -62,7 +62,7 @@ toolbar-help = Help
 toolbar-help-tooltip = What this window does
 toolbar-help-drop = Drop text, an image or files anywhere on this window, press Import to choose them, or Paste what is on the clipboard.
 toolbar-help-preview = Rest the pointer on a preview to see it larger. The Actions menu at the end of a row opens a file with the app the system would.
-toolbar-help-pending = Cleaning from this window is not in this version yet: it takes what arrives and says what it is. In this version cleaning runs from the command line (wipemark-cli clean) and, for an agent, over MCP.
+toolbar-help-pending = Clean, in a row's Actions menu, cleans that row, and Clean all cleans every waiting one; the result goes where the Retention page says. Rewriting with a model is not in this version's windows yet: it runs from the command line (wipemark-cli rewrite) and, for an agent, over MCP.
 toolbar-help-elsewhere = The quick-scrub panel is in the menu bar; the preferences are behind the gear at the bottom right.
 
 ## The queue — the main window's table.
@@ -89,7 +89,7 @@ queue-count = { $count ->
         [one] { $count } item
        *[other] { $count } items
     }
-queue-pending = Cleaning from this list is not in this version yet. What it does today is take what you drop or import and say what it is; cleaning itself runs from the command line and over MCP.
+queue-pending = Rewriting with a model is not in this version's windows yet: this list cleans, and a rewrite runs from the command line (wipemark-cli rewrite) and over MCP.
 queue-preview-pending = Reading…
 queue-preview-cut = The first { $count } characters; the rest is not shown here.
 queue-actions = Actions
@@ -1511,3 +1511,78 @@ cli-prompts-unreadable = The templates file { $path } could not be read: { $reas
 cli-prompts-not-rows = The templates file { $path } is not a JSON object of template rows ({ $reason }). Nothing was rewritten.
 cli-prompts-unknown-row = The templates file { $path } names { $key }, which is not a template row this version has. Nothing was rewritten.
 cli-prompts-invalid = The template { $key } in { $path } breaks the rule { $rule }. Nothing was rewritten.
+
+## The windows clean (E7)
+##
+## A row in the main window's queue is cleaned — text by { -layer-a },
+## a PNG, JPEG or WebP by the picture passes — one at a time, and its
+## result written where the Retention page says. `queue-status-*` is the
+## row's badge, `clean-said-*` and `clean-refused-*` / `clean-failed-*`
+## the one sentence under it (its tooltip), `queue-went-*` where the
+## result went. $name is a file name and $folder / $path a folder or a
+## path as the operating system spells them; $size and $limit are sizes
+## already spelled; $format and $encoding are format names, never
+## translated.
+
+toolbar-clean-all = Clean all
+toolbar-clean-all-tooltip = Clean every row that is waiting and can be cleaned, one at a time, in the order they arrived. Greyed out while there is none.
+queue-column-status = Status
+queue-status-waiting = Waiting
+queue-status-waiting-tooltip = Not cleaned yet. Clean it from the Actions menu, or press Clean all.
+queue-status-unable = Cannot clean
+queue-status-queued = Queued
+queue-status-queued-tooltip = Waiting for the clean ahead of it: one thing is cleaned at a time, in the order asked for.
+queue-status-cleaning = Cleaning…
+queue-status-cleaning-tooltip = Being cleaned now. Nothing is written until it is done.
+queue-status-nothing-found = Nothing found
+queue-status-cleaned = Cleaned
+queue-status-partly = Partly
+queue-status-not-cleaned = Not cleaned
+queue-status-failed = Failed
+queue-action-clean = Clean
+queue-action-clean-done = It has been cleaned already.
+queue-action-clean-busy = It is already in line to be cleaned.
+queue-action-open-result = Open the result
+queue-action-reveal-result = Show the result in its folder
+queue-action-copy-result = Copy the result
+queue-action-replace = Replace the existing result
+queue-went-written = Written as { $name }
+queue-went-replaced = Written over the existing { $name }
+queue-went-in-place = Written in place of the file
+queue-went-set-aside = Original set aside as { $name }
+queue-went-kept = Kept in { $folder }
+queue-went-as-text = The cleaned text is ready: Copy the result is in the Actions menu.
+queue-went-nothing = Nothing was written.
+status-cleaning = Cleaning { $current } of { $total }
+clean-said-nothing-found = Nothing to remove was found, so nothing was written.
+clean-said-cleaned-text = { $count ->
+        [one] One character was removed or replaced.
+       *[other] { $count } characters were removed or replaced.
+    }
+clean-said-cleaned-picture = What marked the picture as made by AI was removed.
+clean-said-partly-kept = Something was found that is kept at the default settings — a letter from another alphabet that looks like a Latin one — so nothing was changed.
+clean-said-partly-mark = A visible mark is still in the picture: it could not be taken off whole.
+clean-said-partly-animated = The frames of an animated picture are not examined for a visible mark, so one there is neither found nor ruled out.
+clean-said-partly-unexamined = The picture's pixels could not be examined, so a visible mark there is neither found nor ruled out.
+clean-refused-not-yet = { $format } pictures are not read in this version yet.
+clean-refused-folder = A folder is not cleaned as one thing; drop the files in it instead.
+clean-refused-kind = Neither text cleaning nor picture cleaning reads this kind of thing: { $what }.
+clean-refused-unnamed-encoding = Its characters are in an encoding that could not be named, and one is never guessed.
+clean-refused-unread = Nothing could be established from its contents, and a name alone is not enough to clean by.
+clean-refused-too-big = At { $size } it is more than a window cleans; the limit is { $limit }.
+clean-refused-unreadable = It could not be read.
+clean-refused-undecodable = It is not valid { $encoding } at byte { $offset }, so nothing was changed.
+clean-refused-picture-unknown = It is not a picture this version can read.
+clean-refused-picture-malformed = It is not a { $format } file this version can read: it is damaged at byte { $offset }. Not read is not clean.
+clean-refused-picture-unsupported = It uses something in { $format } this version does not support, at byte { $offset }.
+clean-refused-picture-decode = Its pixels could not be decoded, so it was not cleaned.
+clean-refused-picture-encode = The restored picture could not be written back, so nothing was written.
+clean-refused-picture-proof = The result failed its own check, so nothing was written. This is a fault in this version.
+clean-refused-still-marked = The result would still carry AI provenance metadata, so it was not written.
+clean-refused-exists = { $name } is already there and was left as it is. To write over it, choose Replace the existing result in the Actions menu.
+clean-refused-original-exists = { $name } is already there: an original set aside before is never overwritten, so nothing was changed.
+clean-refused-same-file = The result would have landed on the file itself, so nothing was written.
+clean-refused-nowhere = There is nowhere this result can go under the Retention page's choices.
+clean-failed-write = { $path } could not be written ({ $error }). Nothing else was changed.
+clean-failed-set-aside = The file could not be set aside as { $name } ({ $error }), so nothing was changed.
+clean-failed-stranded = The result could not be written and the original could not be put back: it is at { $path } ({ $error }).

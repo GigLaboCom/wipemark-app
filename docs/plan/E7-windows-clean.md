@@ -124,14 +124,18 @@ behaviour to match; this plan's §1.3 seams in `docs/plan/README.md`.
 
 `Row::status` (`Waiting`, `Queued`, `Cleaning`, `Done(Arc<Outcome>)`), a
 Status column after Kind with a badge per verdict and its sentence as
-tooltip; **Clean** in the Actions menu (disabled with a reason, not absent),
-**Clean all** on the toolbar, `--clean=<path>`; one clean at a time, first in
-first out, on the background executor; the plan taken when the clean starts;
-the Name cell's note says where the result went; Actions gains Open the
-result, Show in folder, Copy the result, Report…, Replace the existing
-result (only on `NotCleaned(Exists)`); the footer says only that rewriting
-is not here; "Cleaning 2 of 5" in the status bar; `Preferences::for_tests`
-so a `Queue` is built in a `#[gpui::test]`.
+tooltip (a waiting row that cannot be cleaned wears "Cannot clean" and the
+reason); **Clean** in the Actions menu (disabled with the reason under it,
+D269), **Clean all** on the toolbar, `--clean=<path>` (D268); one clean at a
+time, first in first out — `queue::Line`, pure — on the background
+executor; the plan taken when the clean starts; the Name cell's note says
+where the result went (`wording::went`), the hover card says what happened
+(`wording::said`) instead of what would; Actions gains Open the result, Show
+the result in its folder, Copy the result, Replace the existing result (only
+on `NotCleaned(Exists)`, through `clean::replace_one`, D270) — Report… comes
+with its dialog in E7-4; the footer says only that rewriting is not here,
+and so does the toolbar's help (D271); "Cleaning 2 of 5" in the status bar;
+`Preferences::for_tests` so a `Queue` is built in a `#[gpui::test]`.
 
 ### E7-3 — Compare shows the real result
 
@@ -189,9 +193,22 @@ directory and the committed fixtures):
 | `a_picture_comes_to_what_the_cli_says_it_does`, `a_picture_still_marked_is_never_written`, `a_text_comes_to_what_the_cli_says_it_does` | `outcome_of`, one row of the table each | M4 write a still-marked picture, M2, M3 |
 | `what_can_be_cleaned_is_decided_from_the_intake` | the `cleanable` table | — |
 
-E7-2…E7-6 add their rows when they land: two cleans at once, Compare's
-result back to a copy, the third shelf dropped, the Markdown copy in
-`Rendering::Ui`, the footer back to "cleaning is not here".
+E7-2 (`queue.rs`, `wording.rs`, `main.rs`; the two `#[gpui::test]`s build a
+real `Queue` over `Preferences::for_tests` and a scratch directory):
+
+| test | protects | mutation |
+|---|---|---|
+| `one_clean_runs_at_a_time_in_the_order_asked` | `Line`: one running, FIFO, the count | E7-2/M1 two at once |
+| `the_queue_cleans_one_row_at_a_time_by_the_plan_at_its_start` | `Cleaning`/`Queued`/`Waiting` in order; Clean all skips the TIFF and what is not waiting; nothing asked twice; the second row follows a destination changed while it waited, the first does not; the status bar's count | E7-2/M1, M2 the plan not the page's at start, M3 a row asked twice |
+| `a_refused_result_is_replaced_only_when_asked` | `--clean=` lands and cleans; `Exists` refused and left; Replace writes over that file and says so; the source untouched | — |
+| `a_result_is_replaced_only_where_it_was_named` (`clean.rs`) | `replace_one` replaces only the named file, never the source | E7-2/M5 replace whatever is there |
+| `clean_is_greyed_with_a_reason_when_it_cannot_run` | the menu's rule; the reason names the format | E7-2/M4 offer Clean on a TIFF |
+| `the_footer_says_rewriting_is_not_here_yet` | the footer's new sentence; red with the old one and with an epic number | E7-2/M6, M7 |
+| `every_outcome_reads_as_a_sentence`, `where_a_result_went_is_said_by_its_name` (`wording.rs`) | every verdict, refusal and failure has a sentence and a *went* line; the text itself is never a note | — |
+| `files_can_be_cleaned_from_the_command_line`, `the_status_bar_counts_the_cleans` (`main.rs`) | `--clean=` parsing; the status line | — |
+
+E7-3…E7-6 add their rows when they land: Compare's result back to a copy,
+the third shelf dropped, the Markdown copy in `Rendering::Ui`.
 
 ## §6 Acceptance
 
@@ -230,3 +247,7 @@ D221, D238, D244, D248, D250 (what a picture report says).
 | **D265** | **A kept copy is made only when there is a result, and before it is written.** Nothing is kept for `NothingFound`, a refusal, or a text `Partly`; the copies go into `<kept>/<yyyymmddThhmmss>-<row>/` (UTC, so the sweep's arithmetic needs no zone) as `original.<ext>` — the bytes as they arrived, a paste as UTF-8 — and `result.<ext>`, before the destination is written, so a copy that cannot be made stops the clean. The result name invented for nameless bytes is in local time, because a person reads it. | Keeping exists so the original can be brought back once the result has replaced it; with no result there is nothing to bring back from. |
 | **D266** | **`clean_one` takes no `Homes`, and its log line carries paths as `Elided` shapes.** The plan already names both folders (`Written::Into`, `Kept::in_`). The task asked for "the paths" in the log line; the CLI and `CLAUDE.md` ("Diagnostics go to a file, and the document never does") log a path's shape, never the path, and so does this. | One source for each folder; a file name can be the document's title. |
 | **D267** | **The sweep never creates the kept folder**, runs once per launch on the background executor and after each kept write, and removes only a directory named `yyyymmddThhmmss-<digits>` (not a link) whose time is more than its period ago. | Both switches off is the default and `kept/` must not appear; anything not shaped like ours is somebody else's. "Once a day while running" (`retention.md`) is not built: a launch and every keep are the moments copies are added. |
+| **D268** | **`--clean=<path>` asks for a row whatever it is**; the menu's Clean and Clean all offer only what `cleanable` accepts. A TIFF named on the command line lands, is asked, and comes back `NotCleaned(NotCleanable(NotYet(Tiff)))` with its badge saying why. | A flag the person typed is a request to be answered, not a menu to grey; the answer costs no read (`clean_one` refuses on the intake). |
+| **D269** | **A greyed Clean says why under its label**, as a second, muted line inside the menu item, not as a tooltip: gpui-component's `PopupMenuItem` has no tooltip. The same sentence is the Status badge's tooltip for a waiting row that cannot be cleaned. | The task asked for the reason in a tooltip; a menu item has none, and a reason nobody can see is no reason. |
+| **D270** | **"Replace the existing result" is `clean::replace_one(…, existing)`**: the row is cleaned again with the plan taken when that clean starts, and only the file the first clean refused (`Refusal::Exists(path)`) may be written over — through the same atomic rename, never the source (`SameFile` first). If the page moved the result elsewhere meanwhile, a file there is refused as ever. The outcome says `replaced`, and the row "Written over the existing x.cleaned.md". | D261 stays the rule; the replacement is one named file, asked for by a person, said afterwards. |
+| **D271** | **`toolbar-help-pending` is rewritten in E7-2**, not E7-6: it sits beside Clean all and said "cleaning from this window is not in this version yet". It now says what Clean and Clean all do and that rewriting with a model is not in the windows. | A window must not say the opposite of the button next to it for four steps. |

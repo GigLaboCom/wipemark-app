@@ -13,9 +13,15 @@
 //! formatted its own prose could not be used from a CLI that had chosen
 //! a different language. This module is the other half of that rule.
 
-use wipemark_i18n::{args, t, t_args, Message};
-use wipemark_intake::{Arrived, Evidence, Intake, Kind};
+use std::path::Path;
 
+use wipemark_i18n::{args, t, t_args, Message};
+use wipemark_image::ImageError;
+use wipemark_intake::{Arrived, Evidence, Intake, Kind};
+use wipemark_picture::{NotExamined, PictureError};
+
+use crate::clean::{Failure, Left, Outcome, Refusal, Report, Unable, Verdict};
+use crate::drop::size_label;
 use crate::retention::{Kept, Plan, Written};
 
 /// How loudly a note is painted.
@@ -142,13 +148,202 @@ pub fn would_happen(plan: &Plan) -> Vec<String> {
     }
 }
 
+/// How a clean's badge is painted. A surface maps these onto its theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Badge {
+    /// Nothing happened worth a colour: nothing found.
+    Muted,
+    /// Cleaned.
+    Success,
+    /// Something is left, or nothing was done: partly, not cleaned.
+    Warning,
+    /// A write failed.
+    Danger,
+}
+
+/// The badge a finished clean wears, and its word.
+pub fn verdict_badge(verdict: &Verdict) -> (Message, Badge) {
+    match verdict {
+        Verdict::NothingFound => (Message::QueueStatusNothingFound, Badge::Muted),
+        Verdict::Cleaned => (Message::QueueStatusCleaned, Badge::Success),
+        Verdict::Partly(_) => (Message::QueueStatusPartly, Badge::Warning),
+        Verdict::NotCleaned(_) => (Message::QueueStatusNotCleaned, Badge::Warning),
+        Verdict::Failed(_) => (Message::QueueStatusFailed, Badge::Danger),
+    }
+}
+
+/// The one sentence a finished clean comes to — the badge's tooltip and
+/// the first line of what a row says about it.
+pub fn said(outcome: &Outcome) -> String {
+    match &outcome.verdict {
+        Verdict::NothingFound => t(Message::CleanSaidNothingFound),
+        Verdict::Cleaned => match &outcome.report {
+            Some(Report::Text(report)) => {
+                let count: u32 = report
+                    .removed
+                    .iter()
+                    .map(|(_, n)| n)
+                    .chain(report.normalized.iter().map(|(_, n)| n))
+                    .sum();
+                t_args(Message::CleanSaidCleanedText, &args!("count" => count))
+            }
+            _ => t(Message::CleanSaidCleanedPicture),
+        },
+        Verdict::Partly(Left::Kept) => t(Message::CleanSaidPartlyKept),
+        Verdict::Partly(Left::Mark) => t(Message::CleanSaidPartlyMark),
+        Verdict::Partly(Left::NotExamined(NotExamined::Animated)) => {
+            t(Message::CleanSaidPartlyAnimated)
+        }
+        Verdict::Partly(Left::NotExamined(_)) => t(Message::CleanSaidPartlyUnexamined),
+        Verdict::NotCleaned(refusal) => refused(refusal),
+        Verdict::Failed(failure) => failed(failure),
+    }
+}
+
+/// Why a thing cannot be cleaned, from what intake said about it.
+pub fn unable(unable: Unable) -> String {
+    match unable {
+        Unable::NotYet(format) => t_args(
+            Message::CleanRefusedNotYet,
+            &args!("format" => format.name()),
+        ),
+        Unable::Folder => t(Message::CleanRefusedFolder),
+        Unable::Kind { kind, format } => t_args(
+            Message::CleanRefusedKind,
+            &args!("what" => format.map_or_else(|| kind_label(kind), |format| format.name().to_owned())),
+        ),
+        Unable::UnnamedEncoding => t(Message::CleanRefusedUnnamedEncoding),
+        Unable::Unread => t(Message::CleanRefusedUnread),
+    }
+}
+
+/// Why nothing was written. A picture's format is named by the
+/// container the passes read, never by the file's name.
+pub fn refused(refusal: &Refusal) -> String {
+    match refusal {
+        Refusal::NotCleanable(why) => unable(*why),
+        Refusal::TooBig { size, limit } => t_args(
+            Message::CleanRefusedTooBig,
+            &args!("size" => size_label(*size), "limit" => size_label(*limit)),
+        ),
+        Refusal::Unreadable(_) => t(Message::CleanRefusedUnreadable),
+        Refusal::Undecodable { encoding, offset } => t_args(
+            Message::CleanRefusedUndecodable,
+            &args!("encoding" => encoding.name(), "offset" => *offset),
+        ),
+        Refusal::Picture(error) => match error {
+            PictureError::Image(ImageError::UnknownContainer) => {
+                t(Message::CleanRefusedPictureUnknown)
+            }
+            PictureError::Image(ImageError::NotYet(container)) => t_args(
+                Message::CleanRefusedNotYet,
+                &args!("format" => container.name()),
+            ),
+            PictureError::Image(ImageError::Malformed {
+                container, offset, ..
+            }) => t_args(
+                Message::CleanRefusedPictureMalformed,
+                &args!("format" => container.name(), "offset" => *offset),
+            ),
+            PictureError::Image(ImageError::Unsupported {
+                container, offset, ..
+            }) => t_args(
+                Message::CleanRefusedPictureUnsupported,
+                &args!("format" => container.name(), "offset" => *offset),
+            ),
+            PictureError::Decode { .. } => t(Message::CleanRefusedPictureDecode),
+            PictureError::Encode { .. } => t(Message::CleanRefusedPictureEncode),
+            PictureError::Proof(_) => t(Message::CleanRefusedPictureProof),
+        },
+        Refusal::StillMarked { .. } => t(Message::CleanRefusedStillMarked),
+        Refusal::Exists(path) => t_args(
+            Message::CleanRefusedExists,
+            &args!("name" => file_name(path)),
+        ),
+        Refusal::OriginalExists(path) => t_args(
+            Message::CleanRefusedOriginalExists,
+            &args!("name" => file_name(path)),
+        ),
+        Refusal::SameFile(_) => t(Message::CleanRefusedSameFile),
+        Refusal::Nowhere => t(Message::CleanRefusedNowhere),
+    }
+}
+
+/// What a write that failed did, and where the original is when that is
+/// the question.
+pub fn failed(failure: &Failure) -> String {
+    match failure {
+        Failure::Write { path, error } => t_args(
+            Message::CleanFailedWrite,
+            &args!("path" => path.display().to_string(), "error" => error.message.clone()),
+        ),
+        Failure::SetAside { original, error } => t_args(
+            Message::CleanFailedSetAside,
+            &args!("name" => file_name(original), "error" => error.message.clone()),
+        ),
+        Failure::Stranded {
+            original, error, ..
+        } => t_args(
+            Message::CleanFailedStranded,
+            &args!("path" => original.display().to_string(), "error" => error.message.clone()),
+        ),
+    }
+}
+
+/// Where a clean's result went: the result, the original set aside, the
+/// kept copies — or that nothing was written. The *went* half of
+/// [`would_happen`], read off what happened rather than off the plan.
+pub fn went(outcome: &Outcome) -> Vec<String> {
+    let mut lines = Vec::new();
+    if let Some(written) = &outcome.written {
+        lines.push(match (&outcome.set_aside, outcome.replaced) {
+            (Some(_), _) => t(Message::QueueWentInPlace),
+            (None, true) => t_args(
+                Message::QueueWentReplaced,
+                &args!("name" => file_name(written)),
+            ),
+            (None, false) => t_args(
+                Message::QueueWentWritten,
+                &args!("name" => file_name(written)),
+            ),
+        });
+    }
+    if let Some(original) = &outcome.set_aside {
+        lines.push(t_args(
+            Message::QueueWentSetAside,
+            &args!("name" => file_name(original)),
+        ));
+    }
+    if outcome.text.is_some() {
+        lines.push(t(Message::QueueWentAsText));
+    }
+    if outcome.written.is_none() && outcome.text.is_none() {
+        lines.push(t(Message::QueueWentNothing));
+    }
+    if let Some(kept) = &outcome.kept {
+        lines.push(t_args(
+            Message::QueueWentKept,
+            &args!("folder" => kept.display().to_string()),
+        ));
+    }
+    lines
+}
+
+/// A path's last part, as the operating system spells it.
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use wipemark_intake::{Evidence, Format, Handed, Kind};
 
-    use super::{evidence_note, title_of, would_happen, Tone};
+    use super::{evidence_note, said, title_of, went, would_happen, Tone};
+    use crate::clean::{Error, Failure, Left, Outcome, Refusal, Unable, Verdict};
     use crate::retention::{Kept, Period, Plan, Written};
 
     /// Every plan the retention module can produce, as a surface would
@@ -289,5 +484,128 @@ mod tests {
             intake.evidence = silent;
             assert_eq!(evidence_note(&intake), None, "{silent:?}");
         }
+    }
+
+    fn outcome(verdict: Verdict) -> Outcome {
+        Outcome {
+            verdict,
+            report: None,
+            written: None,
+            replaced: false,
+            set_aside: None,
+            kept: None,
+            text: None,
+            format: None,
+            size_in: None,
+            size_out: None,
+        }
+    }
+
+    /// Every way a clean can end has a sentence of its own — none renders
+    /// a catalogue key, none is empty — and every way it can end says
+    /// where the result went, "nothing was written" included.
+    #[test]
+    fn every_outcome_reads_as_a_sentence() {
+        let error = || Error {
+            kind: std::io::ErrorKind::PermissionDenied,
+            message: String::from("Permission denied (os error 13)"),
+        };
+        let path = || PathBuf::from("/d/x.cleaned.md");
+        let verdicts = vec![
+            Verdict::NothingFound,
+            Verdict::Cleaned,
+            Verdict::Partly(Left::Kept),
+            Verdict::Partly(Left::Mark),
+            Verdict::Partly(Left::NotExamined(wipemark_picture::NotExamined::Animated)),
+            Verdict::Partly(Left::NotExamined(wipemark_picture::NotExamined::Decode)),
+            Verdict::NotCleaned(Refusal::NotCleanable(Unable::NotYet(Format::Tiff))),
+            Verdict::NotCleaned(Refusal::NotCleanable(Unable::Folder)),
+            Verdict::NotCleaned(Refusal::NotCleanable(Unable::Kind {
+                kind: Kind::Archive,
+                format: Some(Format::Zip),
+            })),
+            Verdict::NotCleaned(Refusal::NotCleanable(Unable::UnnamedEncoding)),
+            Verdict::NotCleaned(Refusal::NotCleanable(Unable::Unread)),
+            Verdict::NotCleaned(Refusal::TooBig {
+                size: 70_000_000,
+                limit: 67_108_864,
+            }),
+            Verdict::NotCleaned(Refusal::Unreadable(std::io::ErrorKind::NotFound)),
+            Verdict::NotCleaned(Refusal::Undecodable {
+                encoding: wipemark_intake::Encoding::Utf8,
+                offset: 12,
+            }),
+            Verdict::NotCleaned(Refusal::Picture(wipemark_picture::PictureError::Proof(
+                wipemark_picture::Proof::Outside,
+            ))),
+            Verdict::NotCleaned(Refusal::StillMarked {
+                ai_metadata: true,
+                c2pa: false,
+            }),
+            Verdict::NotCleaned(Refusal::Exists(path())),
+            Verdict::NotCleaned(Refusal::OriginalExists(path())),
+            Verdict::NotCleaned(Refusal::SameFile(path())),
+            Verdict::NotCleaned(Refusal::Nowhere),
+            Verdict::Failed(Failure::Write {
+                path: path(),
+                error: error(),
+            }),
+            Verdict::Failed(Failure::SetAside {
+                original: path(),
+                error: error(),
+            }),
+            Verdict::Failed(Failure::Stranded {
+                original: path(),
+                error: error(),
+                restore: error(),
+            }),
+        ];
+        for verdict in verdicts {
+            let label = format!("{verdict:?}");
+            let outcome = outcome(verdict);
+            let sentence = said(&outcome);
+            assert!(!sentence.trim().is_empty(), "{label}");
+            for prefix in ["clean-", "queue-"] {
+                assert!(!sentence.starts_with(prefix), "{label}: {sentence}");
+            }
+            let lines = went(&outcome);
+            assert!(!lines.is_empty(), "{label} says nowhere");
+        }
+    }
+
+    /// The *went* lines say what happened, and only that: a result
+    /// written beside, one written over an existing result, a file
+    /// replaced with its original set aside, a text handed back, a kept
+    /// copy.
+    #[test]
+    fn where_a_result_went_is_said_by_its_name() {
+        let mut beside = outcome(Verdict::Cleaned);
+        beside.written = Some(PathBuf::from("/d/x.cleaned.md"));
+        let lines = went(&beside);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines[0].contains("x.cleaned.md"), "{lines:?}");
+
+        beside.replaced = true;
+        let replaced = went(&beside);
+        assert_ne!(replaced, lines, "a replacement reads as a fresh write");
+        assert!(replaced[0].contains("x.cleaned.md"), "{replaced:?}");
+
+        let mut over = outcome(Verdict::Cleaned);
+        over.written = Some(PathBuf::from("/d/x.md"));
+        over.set_aside = Some(PathBuf::from("/d/x.original.md"));
+        let lines = went(&over);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines[1].contains("x.original.md"), "{lines:?}");
+
+        let mut paste = outcome(Verdict::Cleaned);
+        paste.text = Some(String::from("hello"));
+        paste.kept = Some(PathBuf::from("/k/20261005T134602-7"));
+        let lines = went(&paste);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines[1].contains("20261005T134602-7"), "{lines:?}");
+        assert!(
+            lines.iter().all(|line| !line.contains("hello")),
+            "the text itself is never a note"
+        );
     }
 }
