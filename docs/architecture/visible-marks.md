@@ -334,8 +334,7 @@ traces; the proof here is stricter and the map and the logo are measured.
   takes the band's step in BT.601 colour difference, `|(ΔCb, ΔCr)|`, and
   an outline is left when that is over `CHROMA_LEVELS` **4.0** and over
   the colour's own spread around the mark. Measured on the 21
-  first-generation outputs (and the two others in the set): 0.11–0.46 as
-  handed out; 2.05–2.51 saved as JPEG 4:4:4 at 95, by Pillow or by the
+  first-generation outputs: 0.11–0.46 as handed out; 2.05–2.51 saved as JPEG 4:4:4 at 95, by Pillow or by the
   `image` crate — a step of red and blue a level or three that nobody
   finds by eye (ΔE2000 0.8–0.9) — not said; 7.6–8.9 at 4:2:0 95 and 98,
   said on every one restored (`a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said`).
@@ -366,8 +365,8 @@ traces; the proof here is stricter and the map and the logo are measured.
   name, and nothing is said by elimination.
 * **Known limitation: most subsampled JPEGs are not restored.** Under
   95, a 4:2:0 JPEG's colour error in the band is more than the
-  out-of-range allowance (`BLEND_LEVELS`, 8 stored levels) admits: 17 of
-  the 23 outputs at 4:2:0 90 are refused out of range,
+  out-of-range allowance (`BLEND_LEVELS`, 8 stored levels) admits: 16 of
+  the 21 first-generation outputs at 4:2:0 90 are refused out of range,
   `victory` already at 95. That is honest — the mark is said to be left
   and `clean` exits 3 — but it means the commonest JPEG is the one this
   release restores least. Restoring the colour at the chroma's own

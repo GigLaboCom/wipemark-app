@@ -517,10 +517,9 @@ pub const STEP_LEVELS: f32 = 1.0;
 /// keeps BT.601 luma and puts its error into colour; subsampled 4:2:0,
 /// the sparkle's white bleeds into the band, and the fringe the inverse
 /// leaves — red and blue up, green down, plain at ×4 — is a step of
-/// −0.5 to +0.3 in luma. Measured on the 21 first-generation outputs and
-/// the two others in the set: 0.11–0.46 as the vendor handed them out,
-/// 2.05–2.51 saved as JPEG 4:4:4 at 95 (nothing an eye finds), 7.6–8.9 at
-/// 4:2:0 95 and 98.
+/// −0.5 to +0.3 in luma. Measured on the 21 first-generation outputs:
+/// 0.11–0.46 as the vendor handed them out, 2.05–2.51 saved as JPEG 4:4:4
+/// at 95 (nothing an eye finds), 7.6–8.9 at 4:2:0 95 and 98.
 pub const CHROMA_LEVELS: f32 = 4.0;
 
 /// What a restoration left along the mark's contour, three ways (D238,
