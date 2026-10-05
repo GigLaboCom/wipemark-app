@@ -63,14 +63,19 @@ file behind it, and the menu is rebuilt on every frame.
 
 ## What "the result" is today
 
-Nothing is cleaned in this window yet. Layer A exists since E1 and runs
-from the command line and over MCP, but the result here starts as a copy
-of the original, the banner over the panes says so, and it stays until
-E7 makes the result `clean(original)` (spec A §7.4) — the same bargain
-the panel and the queue's footer make. The window is not a mock-up: the comparison is real, and it
-is the comparison E1's scrubber and E2's rewrite will be shown through.
-Until then it compares what a person types against what they started
-from, which is what a result pane is for once there is a result.
+The result is `wipemark_core::clean(original, &Options::default()).text`
+(spec A §7.4, E7-3): Layer A at its defaults, run by `Subject::read` on
+the background executor in the same task as the read, never on the
+thread that draws. The cleaned text is kept beside the original in the
+view, so **Back to the cleaned text** puts it back without cleaning
+again — and puts back the cleaned text, not the original. Layer A is
+deterministic, so this is the text the queue's Clean writes for the same
+document (`the_result_is_what_the_queue_writes` goes through
+`clean::clean_one` and compares). The window is a reader and not a
+writer: editing the result saves nothing, closing the window writes
+nothing, and the banner over the panes — the same sentence as the notice
+on the Compare page of Settings — says both. Layer B's rewrite is not
+shown here yet; it will be shown through this same comparison.
 
 ## What is real
 
@@ -242,10 +247,10 @@ that would have worked.
   survives the window. What *is* a preference — the grain of the marks,
   whether the original follows — is a Settings row, read as the window
   opens.
-* **Not written.** Closing the window writes nothing; the result lives
-  only there. Where a result *would* go is the Retention page's
-  question, and the day E1 produces one, that page's plan is what
-  carries it out.
+* **Not written.** Closing the window writes nothing, and edits to the
+  result live only there. Writing a result is the queue's Clean, under
+  the Retention page's plan; cleaning and saving from this window is
+  out of scope for E7.
 * **Not closed by Escape.** ⌘W closes it, scoped to its own key
   context. In an editor Escape dismisses the search panel and drops a
   selection, and a window that vanished on it would take a

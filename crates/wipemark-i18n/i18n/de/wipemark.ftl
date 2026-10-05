@@ -30,7 +30,7 @@ toolbar-help = Hilfe
 toolbar-help-tooltip = Was dieses Fenster tut
 toolbar-help-drop = Text, ein Bild oder Dateien irgendwo in diesem Fenster ablegen, mit Importieren auswählen – oder aus der Zwischenablage einfügen.
 toolbar-help-preview = Den Zeiger auf einer Vorschau ruhen lassen, um sie größer zu sehen. Das Aktionen-Menü am Ende einer Zeile öffnet eine Datei mit der App, die das System nehmen würde.
-toolbar-help-pending = Bereinigen aus diesem Fenster gibt es in dieser Version noch nicht: Es nimmt entgegen, was ankommt, und sagt, was es ist. In dieser Version läuft die Bereinigung über die Kommandozeile (wipemark-cli clean) und, für einen Agenten, über MCP.
+toolbar-help-pending = „Bereinigen“ im Menü „Aktionen“ bereinigt eine Zeile, „Alles bereinigen“ jede wartende; das Ergebnis kommt dorthin, wo die Seite „Aufbewahrung“ es sagt. Umschreiben mit einem Modell gibt es in den Fenstern dieser Version noch nicht: Es läuft über die Kommandozeile (wipemark-cli rewrite) und, für einen Agenten, über MCP.
 toolbar-help-elsewhere = Das Schnellreinigungs-Panel sitzt in der Menüleiste; die Einstellungen liegen hinter dem Zahnrad unten rechts.
 
 queue-column-preview = Vorschau
@@ -48,7 +48,7 @@ queue-count = { $count ->
         [one] { $count } Eintrag
        *[other] { $count } Einträge
     }
-queue-pending = Bereinigen aus dieser Liste gibt es in dieser Version noch nicht. Was sie heute tut: entgegennehmen, was abgelegt oder importiert wird, und sagen, was es ist; die Bereinigung selbst läuft über die Kommandozeile und über MCP.
+queue-pending = Umschreiben mit einem Modell gibt es in den Fenstern dieser Version noch nicht: Diese Liste bereinigt, und eine Umschreibung läuft über die Kommandozeile (wipemark-cli rewrite) und über MCP.
 queue-preview-pending = Wird gelesen…
 queue-preview-cut = Die ersten { $count } Zeichen; der Rest wird hier nicht gezeigt.
 queue-actions = Aktionen
@@ -110,7 +110,7 @@ setup-step-model = Das Modell
 setup-step-endpoint = Die Adresse
 setup-step-done = Fertig
 
-setup-welcome-body = { -brand-name } entfernt KI-Herkunftsspuren aus Ihren eigenen Inhalten in zwei Schichten: { -layer-a }, die die unsichtbaren Zeichen entfernt und deterministisch ist, und { -layer-b }, das ein Sprachmodell um eine Umformulierung bittet. In dieser Version laufen beide über die Kommandozeile und für einen Agenten über MCP, aber noch nicht aus diesen Fenstern. Diese Schritte klären, was das Umschreiben braucht: wer umschreibt, und was dafür nötig ist.
+setup-welcome-body = { -brand-name } entfernt KI-Herkunftsspuren aus Ihren eigenen Inhalten in zwei Schichten: { -layer-a }, die die unsichtbaren Zeichen entfernt und deterministisch ist, und { -layer-b }, das ein Sprachmodell um eine Umformulierung bittet. In dieser Version läuft die { -layer-a } aus diesen Fenstern — mit „Bereinigen“ im Hauptfenster und im Panel — sowie über die Kommandozeile und für einen Agenten über MCP; { -layer-b } läuft über die Kommandozeile und über MCP, aber noch nicht aus diesen Fenstern. Diese Schritte klären, was das Umschreiben braucht: wer umschreibt, und was dafür nötig ist.
 setup-welcome-again = Alles hier lässt sich später in den Einstellungen ändern, und dieser Rundgang lässt sich von deren Seite „Allgemein“ aus wiederholen.
 
 setup-machine-reading = Lese diesen Rechner…
@@ -167,7 +167,7 @@ settings-section-retention = Aufbewahrung
 ## Das Panel — das Fenster, das man ruft.
 
 panel-title = Schnelle Reinigung
-panel-pending = Bereinigen aus diesem Fenster gibt es in dieser Version noch nicht. Echt ist heute, dass es annimmt, was man darauf ablegt, und sagt, was es ist — und dass es dort aufgeht, wo man es hingelegt hat. Die Bereinigung selbst läuft über die Kommandozeile und über MCP.
+panel-pending = Umschreiben mit einem Modell gibt es in den Fenstern dieser Version noch nicht: Es läuft über die Kommandozeile (wipemark-cli rewrite) und über MCP.
 panel-dismiss = Escape schickt es wieder weg.
 
 panel-help = Was hier möglich ist
@@ -213,7 +213,7 @@ kind-unknown = Nicht erkannt
 compare-title = Vergleich · { $name }
 compare-original = Original
 compare-result = Ergebnis
-compare-pending = Bereinigen im Vergleichsfenster gibt es in dieser Version noch nicht: Das Ergebnis beginnt als Kopie des Originals. Bearbeiten Sie es, und jede Zeile, die abweicht, wird auf beiden Seiten markiert.
+compare-pending = Im Vergleichsfenster ist das Ergebnis das, was die Bereinigung aus dem Original macht, und jede Zeile, die abweicht, ist auf beiden Seiten markiert. Änderungen am Ergebnis werden dort nicht gespeichert, und beim Schließen des Fensters wird nichts geschrieben.
 compare-reading = Wird gelesen…
 compare-same = Das Ergebnis ist das Original, Zeile für Zeile.
 compare-changed = { $added ->
@@ -226,8 +226,8 @@ compare-changed = { $added ->
 compare-refused-not-text = Das ist kein Text, also gibt es nichts, was sich Zeile für Zeile vergleichen ließe.
 compare-refused-too-big = Mit { $size } ist es mehr, als dieses Fenster vergleicht; die Grenze liegt bei { $limit }.
 compare-refused-unreadable = Es ließ sich nicht lesen.
-compare-reset = Zurück zum Original
-compare-reset-tooltip = Die Änderungen verwerfen; das Ergebnis ist wieder das Original.
+compare-reset = Zurück zum bereinigten Text
+compare-reset-tooltip = Die Änderungen verwerfen; das Ergebnis ist wieder das, was die Bereinigung aus dem Original gemacht hat.
 compare-help = Was dieses Fenster tut
 compare-help-marks = Eine rote Markierung am Original ist eine Zeile, die das Ergebnis nicht mehr hat; eine grüne am Ergebnis eine Zeile, die das Original nie hatte.
 compare-help-follows = Das Original folgt dem Cursor im Ergebnis, damit beide Seiten im Gleichschritt bleiben.
@@ -235,7 +235,7 @@ compare-help-toolbar = Die Leiste über dem Ergebnis sind die Befehle des Editor
 compare-help-words = Innerhalb einer geänderten Passage werden die Wörter, die abweichen, stärker markiert.
 compare-help-characters = Innerhalb einer geänderten Passage werden die Zeichen, die abweichen, stärker markiert.
 compare-help-settings = Was markiert wird und ob das Original folgt, wird auf der Seite „Vergleich“ der Einstellungen gewählt — für das nächste Fenster, das aufgeht.
-compare-help-close = Wird dieses Fenster geschlossen, wird nichts geschrieben; das Ergebnis lebt nur hier.
+compare-help-close = Wird dieses Fenster geschlossen, wird nichts geschrieben; Änderungen am Ergebnis leben nur hier.
 
 result-undo = Rückgängig
 result-redo = Wiederholen
@@ -521,7 +521,7 @@ settings-retention-keeps-nothing = Was ohne Datei ankommt — Eingefügtes, aus 
 settings-retention-keeps-originals = Das Original von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten; Ergebnisse nicht.
 settings-retention-keeps-results = Das Ergebnis von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten; Originale nicht.
 settings-retention-keeps-both = Original und Ergebnis von Eingefügtem oder Gezogenem bleiben in { $folder } { $period } erhalten.
-settings-retention-pending = Noch schreibt kein Fenster etwas: Keines bereinigt in dieser Version, und { -layer-b } ist nicht enthalten. Diese Einstellungen legen fest, was mit einer Datei und mit Eingefügtem geschieht, sobald sie es tun. Die Kommandozeile liest sie nie.
+settings-retention-pending = Die Fenster bereinigen nach diesen Regeln: Was sie schreiben und was sie aufbewahren, legt diese Seite fest. Die Kommandozeile und Agenten lesen keine davon — der Kommandozeile wird bei jedem Aufruf gesagt, wohin ihr Ergebnis geht, und ein Agent bekommt sein Ergebnis zurück.
 
 settings-retention-destination-title = Wohin Ergebnisse gehen
 settings-retention-destination-description = „Neben die Datei“ schreibt name.cleaned.ext daneben und lässt die Datei, wie sie ist. Der Ergebnisordner ist der unten. „Anstelle der Datei“ ersetzt sie — nachdem das Original als name.original.ext beiseitegelegt wurde, und nie über ein bereits vorhandenes Original.
@@ -910,3 +910,119 @@ cli-prompts-unreadable = Die Vorlagendatei { $path } konnte nicht gelesen werden
 cli-prompts-not-rows = Die Vorlagendatei { $path } ist kein JSON-Objekt aus Vorlagenzeilen ({ $reason }). Nichts wurde umgeschrieben.
 cli-prompts-unknown-row = Die Vorlagendatei { $path } nennt { $key }, und diese Vorlagenzeile gibt es in dieser Version nicht. Nichts wurde umgeschrieben.
 cli-prompts-invalid = Die Vorlage { $key } in { $path } bricht die Regel { $rule }. Nichts wurde umgeschrieben.
+
+## The windows clean (E7)
+
+toolbar-clean-all = Alles bereinigen
+toolbar-clean-all-tooltip = Jede wartende Zeile bereinigen, die sich bereinigen lässt – eine nach der anderen, in der Reihenfolge ihres Eintreffens. Ausgegraut, solange es keine gibt.
+queue-column-status = Status
+queue-status-waiting = Wartet
+queue-status-waiting-tooltip = Noch nicht bereinigt. Über das Menü „Aktionen“ bereinigen oder „Alles bereinigen“ drücken.
+queue-status-unable = Nicht bereinigbar
+queue-status-queued = Eingereiht
+queue-status-queued-tooltip = Wartet auf die Bereinigung davor: Es wird immer eines nach dem anderen bereinigt, in der verlangten Reihenfolge.
+queue-status-cleaning = Wird bereinigt…
+queue-status-cleaning-tooltip = Wird gerade bereinigt. Geschrieben wird erst, wenn es fertig ist.
+queue-status-nothing-found = Nichts gefunden
+queue-status-cleaned = Bereinigt
+queue-status-partly = Teilweise
+queue-status-not-cleaned = Nicht bereinigt
+queue-status-failed = Fehlgeschlagen
+queue-action-clean = Bereinigen
+queue-action-clean-done = Das wurde schon bereinigt.
+queue-action-clean-busy = Das steht schon zur Bereinigung an.
+queue-action-open-result = Ergebnis öffnen
+queue-action-reveal-result = Ergebnis im Ordner zeigen
+queue-action-copy-result = Ergebnis kopieren
+queue-action-replace = Vorhandenes Ergebnis ersetzen
+queue-went-written = Geschrieben als { $name }
+queue-went-replaced = Über das vorhandene { $name } geschrieben
+queue-went-in-place = Anstelle der Datei geschrieben
+queue-went-set-aside = Original beiseitegelegt als { $name }
+queue-went-kept = Aufbewahrt in { $folder }
+queue-went-as-text = Der bereinigte Text liegt bereit: „Ergebnis kopieren“ steht im Menü „Aktionen“.
+queue-went-nothing = Nichts wurde geschrieben.
+status-cleaning = Bereinige { $current } von { $total }
+clean-said-nothing-found = Es wurde nichts zum Entfernen gefunden, also wurde nichts geschrieben.
+clean-said-cleaned-text = { $count ->
+        [one] Ein Zeichen wurde entfernt oder ersetzt.
+       *[other] { $count } Zeichen wurden entfernt oder ersetzt.
+    }
+clean-said-cleaned-picture = Was das Bild als von KI gemacht kennzeichnete, wurde entfernt.
+clean-said-partly-kept = Gefunden wurde etwas, das bei den Standardeinstellungen bleibt – ein Buchstabe aus einem anderen Alphabet, der wie ein lateinischer aussieht –, also wurde nichts geändert.
+clean-said-partly-mark = Ein sichtbares Zeichen ist noch im Bild: Es ließ sich nicht ganz entfernen.
+clean-said-partly-animated = Die Einzelbilder eines animierten Bildes werden nicht auf ein sichtbares Zeichen geprüft; eines dort ist weder gefunden noch ausgeschlossen.
+clean-said-partly-unexamined = Die Pixel des Bildes ließen sich nicht prüfen; ein sichtbares Zeichen dort ist weder gefunden noch ausgeschlossen.
+clean-refused-not-yet = { $format }-Bilder werden in dieser Version noch nicht gelesen.
+clean-refused-folder = Ein Ordner wird nicht als Ganzes bereinigt; legen Sie stattdessen die Dateien darin ab.
+clean-refused-kind = Weder die Textbereinigung noch die Bildbereinigung liest so etwas: { $what }.
+clean-refused-unnamed-encoding = Die Zeichen sind in einer Kodierung, die sich nicht benennen ließ, und eine Kodierung wird nie geraten.
+clean-refused-unread = Aus dem Inhalt ließ sich nichts feststellen, und ein Name allein reicht zum Bereinigen nicht.
+clean-refused-too-big = Mit { $size } ist das mehr, als ein Fenster bereinigt; die Grenze liegt bei { $limit }.
+clean-refused-unreadable = Es ließ sich nicht lesen.
+clean-refused-undecodable = An Byte { $offset } ist es kein gültiges { $encoding }, also wurde nichts geändert.
+clean-refused-picture-unknown = Das ist kein Bild, das diese Version lesen kann.
+clean-refused-picture-malformed = Das ist keine { $format }-Datei, die diese Version lesen kann: Sie ist an Byte { $offset } beschädigt. Nicht gelesen heißt nicht sauber.
+clean-refused-picture-unsupported = Es verwendet an Byte { $offset } etwas in { $format }, das diese Version nicht unterstützt.
+clean-refused-picture-decode = Die Pixel ließen sich nicht dekodieren, also wurde es nicht bereinigt.
+clean-refused-picture-encode = Das wiederhergestellte Bild ließ sich nicht zurückschreiben, also wurde nichts geschrieben.
+clean-refused-picture-proof = Das Ergebnis hat seine eigene Prüfung nicht bestanden, also wurde nichts geschrieben. Das ist ein Fehler dieser Version.
+clean-refused-still-marked = Das Ergebnis trüge noch Metadaten zur KI-Herkunft, also wurde es nicht geschrieben.
+clean-refused-exists = { $name } ist schon da und blieb, wie es war. Um es zu überschreiben, wählen Sie „Vorhandenes Ergebnis ersetzen“ im Menü „Aktionen“.
+clean-refused-original-exists = { $name } ist schon da: Ein früher beiseitegelegtes Original wird nie überschrieben, also wurde nichts geändert.
+clean-refused-same-file = Das Ergebnis wäre auf der Datei selbst gelandet, also wurde nichts geschrieben.
+clean-refused-nowhere = Nach den Einstellungen der Seite „Aufbewahrung“ kann dieses Ergebnis nirgendwohin.
+clean-failed-write = { $path } ließ sich nicht schreiben ({ $error }). Sonst wurde nichts geändert.
+clean-failed-set-aside = Die Datei ließ sich nicht als { $name } beiseitelegen ({ $error }), also wurde nichts geändert.
+clean-failed-stranded = Das Ergebnis ließ sich nicht schreiben und das Original nicht zurücklegen: Es liegt unter { $path } ({ $error }).
+queue-action-report = Bericht…
+window-report-title = Bericht · { $name }
+window-report-arrived = Was ankam
+window-report-happened = Was geschah
+window-report-verifiable = Überprüfbar
+window-report-best-effort = Nach bestem Bemühen
+window-report-result = Das Ergebnis: { $path }
+window-report-original = Das Original, beiseitegelegt: { $path }
+window-report-kept = Aufbewahrte Kopien: { $path }
+window-report-finding = { $codepoint } { $name } · { $class } · { $confidence } · { $count ->
+        [one] einmal
+       *[other] { $count }-mal
+    }
+window-report-removed-none = Die Bereinigung hat aus diesem Text nichts entfernt.
+window-report-normalized = { $count ->
+        [one] Ein Zeichen wurde normalisiert.
+       *[other] { $count } Zeichen wurden normalisiert.
+    }
+window-report-kept-homoglyph = Bei den Standardeinstellungen behalten: Ein Buchstabe aus einer anderen Schrift wird nur von einer aggressiven Bereinigung ersetzt, und ein Fenster führt keine aus.
+window-report-kept-in-place = Behalten, wo es eine Aufgabe hat: in einem Emoji oder einer Schrift, die es braucht.
+window-report-picture-checked = Das Ergebnis wurde erneut gelesen: Es enthält keine Metadaten zur KI-Herkunft mehr.
+window-report-picture-still = Erneut gelesen, trug das Ergebnis noch Metadaten zur KI-Herkunft.
+window-report-shelf-empty = Für diese Bereinigung steht hier nichts.
+window-report-not-read = Es wurde nicht gelesen, also wurde hier nichts geprüft.
+window-report-copy-json = JSON kopieren
+window-report-copy-markdown = Als Markdown kopieren
+window-report-close = Schließen
+window-report-copied = Kopiert.
+
+panel-looking = Wird angesehen…
+panel-found-text = { $count ->
+        [one] Ein Zeichen zu entfernen oder zu ersetzen.
+       *[other] { $count } Zeichen zu entfernen oder zu ersetzen.
+    }
+panel-found-text-nothing = Nichts zu entfernen.
+panel-found-text-kept = Nichts zu entfernen; ein Buchstabe aus einem anderen Alphabet, der wie ein lateinischer aussieht, bleibt bei den Standardeinstellungen stehen.
+panel-found-picture-both = KI-Metadaten und ein sichtbares Zeichen.
+panel-found-picture-metadata = KI-Metadaten.
+panel-found-picture-mark = Ein sichtbares Zeichen.
+panel-found-picture-nothing = Nichts gefunden – weder in den Metadaten noch unter den sichtbaren Zeichen, die diese Version kennt.
+panel-found-not-examined = { $metadata ->
+        [yes] KI-Metadaten;
+       *[no] Keine KI-Metadaten;
+    } { $why ->
+        [animated] Die Einzelbilder eines animierten Bildes werden nicht auf ein sichtbares Zeichen geprüft.
+        [catalogue] Der Katalog sichtbarer Zeichen wurde nicht geladen, also wurden die Pixel nicht geprüft.
+       *[decode] Die Pixel ließen sich nicht dekodieren, also wurden sie nicht geprüft.
+    }
+panel-clean = Bereinigen
+panel-clean-tooltip = Bereinigen, was hier abgelegt wurde, eins nach dem anderen; jedes Ergebnis kommt dorthin, wo die Seite „Aufbewahrung“ es sagt. Ausgegraut, solange eine Bereinigung läuft oder hier nichts mehr zu bereinigen ist.
+panel-cleaning = Wird bereinigt…

@@ -132,6 +132,20 @@ impl Catcher {
         }
     }
 
+    /// A catcher with no platform behind it: drops reach it only through
+    /// [`Catcher::land`]. For a test window, which GPUI's test platform
+    /// does not back with a real one — asking it for its native handle,
+    /// as the macOS destination does, panics.
+    #[cfg(test)]
+    pub fn detached() -> Self {
+        Self {
+            over: false,
+            caught: None,
+            reads: 0,
+            _deliveries: None,
+        }
+    }
+
     /// Whether something is being held over the window.
     pub fn over(&self) -> bool {
         self.over
@@ -141,6 +155,15 @@ impl Catcher {
     /// `None` if nothing has been dropped here yet.
     pub fn caught(&self) -> Option<&[Arrival]> {
         self.caught.as_deref()
+    }
+
+    /// Whether `drop` — a [`Landed`] event's — is the one [`Self::caught`]
+    /// shows, for a surface that keeps something per drop and paints only
+    /// the last: a read overtaken by a later drop still lands, after it.
+    pub fn is_caught(&self, drop: &Arc<[Arrival]>) -> bool {
+        self.caught
+            .as_ref()
+            .is_some_and(|caught| Arc::ptr_eq(caught, drop))
     }
 
     /// The highlight, on or off.

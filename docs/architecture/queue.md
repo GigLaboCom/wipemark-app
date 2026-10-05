@@ -30,13 +30,13 @@ keeps the shape and changes what a row is about:
 | the thumbnail is the whole preview | hovering the preview opens a **hover card** with the picture at 560 × 380 or up to two thousand characters, the caption, and what the Retention page would do with it | a row is 72 points tall; recognising a document takes more than that, and a modal for it would be a third window |
 | `type` (region, window, display…) | **Kind** — Text, Image, Document, Archive, Media, Data, Folder, Unrecognised — one colour each | the same badge, over `wipemark-intake`'s taxonomy |
 | `filename` | **Name**, with the folder under it and the evidence note under that — "Named Text, and the contents are PNG" in the warning colour | a file whose name lies is the file somebody most needs told about; the panel says it, and so does the row |
-| `status` (active / deleted) | absent | a row has no lifecycle yet: nothing is cleaned, nothing is deleted |
+| `status` (active / deleted) | **Status** — waiting, queued, cleaning, then what the clean found (nothing found, cleaned, partly, not cleaned, failed), one colour each; a row that cannot be cleaned says so and why | a row's life is the clean ("Cleaning" below); nothing is deleted, the list empties with the process |
 | created and updated | **Arrived**, one clock reading, sortable | there is one event in a row's life so far |
 | a date range in the filter bar | absent | a list that empties when the application quits does not need a calendar |
 | `id LIKE '%…%'`, `key_word LIKE '%…%'` | the same, in memory: substrings, case-insensitive for the keyword | three remembered digits find the row |
 | `ORDER BY id DESC` | newest first, and the Arrived header flips it | the thing just dropped is the thing being looked for |
 | page size persisted as a setting | page size kept for the session | a persisted preference here is a row with a Settings widget (`every_persisted_preference_has_a_row`), and the size of a table is not yet worth one |
-| Actions: open, copy path, beautify, edit, OCR, delete | Actions: **open with the default app** | the one action that means something before the cleaner exists; it is disabled, not absent, on a row with no file behind it |
+| Actions: open, copy path, beautify, edit, OCR, delete | Actions: **Clean**, **open with the default app**, **Compare with the result**, and once cleaned **open**, **show** and **copy the result**, the **Report…**, and **Replace the existing result** when a clean was refused for one | what can be done to one thing that arrived; an item that cannot apply to a row is disabled, not absent (a row with no file behind it opens nothing) |
 | `assign_keyword` over MCP | a Keyword column and filter, and nothing that assigns one | the MCP tool that will assign one does not exist yet; the column is here so the day it lands is a tool change and not a table change |
 
 ## How things get in
@@ -104,11 +104,72 @@ on screen (`Preview::Pending` until then).
   picture and a binary nobody recognised has no first lines. The row
   wears the kind's glyph instead.
 
+## Cleaning
+
+A row is cleaned when somebody asks — **Clean** in its Actions menu,
+**Clean all** on the toolbar, `--clean=<path>` on the command line — and
+never on arrival (owner question 1). Its life is a `queue::Status`:
+*waiting*, *queued*, *cleaning*, *done*, the last carrying the whole
+`clean::Outcome`. The Status column after Kind wears it as a badge —
+nothing found muted, cleaned green, partly and not cleaned amber, failed
+red — and the badge's tooltip is the outcome's one sentence
+(`wording::said`); a waiting row that cannot be cleaned wears "Cannot
+clean" and the reason, which is also the line under its greyed Clean
+item (gpui-component's menu items have no tooltip, D269).
+
+**One clean at a time, first asked first done** (`queue::Line`, pure): a
+decoded picture is hundreds of megabytes, and a row's plan means
+something only if the cleans start in the order they were asked for. The
+clean itself is `clean::clean_one` on the background executor — no read,
+decode or write on the thread that draws. **The plan is taken when the
+row's clean starts**, from `Preferences::plan_for`: a Retention change made
+while a row waits applies to it, and one made after it is done does not
+move its result. While the line runs the status bar says "Cleaning 2 of 5".
+
+Once done, the Name cell's note says where the result went
+(`wording::went`) and the hover card says what happened instead of what
+would. The Actions menu opens the result, shows it in its folder, copies
+it when it came back as text (the person's own text, no catalogue), opens
+the **Report…**, and — only when the clean was refused because a result
+was already there (D261) — **Replace the existing result**, which cleans
+again and writes over that one file (`clean::replace_one`, D270). The
+original is never the file replaced.
+
+## The report, and its three shelves
+
+**Report…** opens a dialog the shell paints over the whole window (an
+element in its own tree, for every reason `dialog.rs` gives; opened from
+a deferred click through `QueueEvent::Report`, D274). `report::sheet`
+builds it as values over a `wording::Say`, in five sections:
+
+| section | a text | a picture |
+|---|---|---|
+| What arrived | the title; kind, format, encoding; the evidence note | the same |
+| What happened | the outcome's sentence; the result, the original set aside, the kept copies, in full paths — or where nothing went | the same |
+| **Verifiable** | every character Layer A removed: `U+XXXX`, the standard's name, class, confidence, count — Layer A is deterministic and each is gone from the result; anything normalized; the Unicode version | the metadata blocks removed, with the signals that made them provenance, and the library's **second inspection** of the result; the visible marks **proved**, with their numbers; a restoration that is exact |
+| **Best-effort** | every character found and kept, and why (a homoglyph is replaced only by an aggressive clean; a joiner inside an emoji stays) | every restoration that is not exact and each reason that holds — lossy, clamped, fitted, resampled, found by the search, the residual as a **mean** (D248) — holes, an outline or a texture left; proposals refused, with the number that failed; the pixels not examined; "no visible mark this version knows" (bounded by the catalogue, so not verifiable); a mark left; metadata kept, colour kept, EXIF removed whole, a rotation lost; how the picture was written back |
+| **Not established** | one line per id of the report's own shelf, in its order | the same, `invisible-pixel-marks` first |
+
+The third shelf is **never empty**, and an id this build has no sentence
+for is shown as its canonical English beside the id rather than dropped.
+A shelf with nothing on it for this clean says so instead of vanishing; a
+thing refused before it was read says it was not read, has no JSON to
+copy (the button is greyed, never an invented report), and still carries
+the third shelf of its kind (D277). The mapping is D275.
+
+**Copy JSON** puts exactly the library's `to_json()` on the clipboard — a
+format, never translated. **Copy as Markdown** renders the same sheet
+through `wording::plain` (`Rendering::PlainText`): no U+2068/U+2069 and
+nothing Layer A would remove, in every language
+(`the_markdown_copy_carries_nothing_layer_a_would_remove`). The dialog is
+handed both words (`ReportView::with_words`), so a test gives it a real
+`Rendering::Ui` for the window and proves the copy is not in it (D276).
+Escape, the backdrop and Close are one answer.
+
 ## What it does not do yet
 
-Clean anything. The footer says so in the words every pending surface
-uses, and `the_footer_says_cleaning_is_not_here_yet` keeps an epic
-number out of it. Folders and archives are listed and never expanded.
-Nothing removes a row, because nothing has been done to one yet; the
-list empties with the process. When E7 lands, a row is where the work
-starts and the editors and the inspector (S7.2–S7.6) open from it.
+Rewrite with a model: the footer says so in the words every pending
+surface uses, and `the_footer_says_rewriting_is_not_here_yet` keeps the
+old sentence and an epic number out of it. Folders and archives are
+listed and never expanded. Nothing removes a row; the list empties with
+the process. The editors and the inspector (S7.2–S7.6) are not here.

@@ -7,12 +7,14 @@ This document is the survey the page was designed from, the rules it
 settled on, and the one question it was written to answer — whether text
 that arrived as Markdown or HTML is kept any differently.
 
-No window writes anything yet. Cleaning exists since E1 — from the
-command line, which writes its result beside the file by the same
-`with_infix` rule and never reads these rows, and over MCP, which writes
-nothing — but cleaning from the windows is E7 and the batch queue is E4;
-this page decides what they will do to a person's files when they
-arrive, and its banner says so in every state it can be in.
+The windows write by these rows (E7): the queue's **Clean** and **Clean
+all**, the panel's **Clean** and `--clean=<path>` all go through
+`apps/wipemark-app/src/clean.rs`, which executes rules 1–7 below — see
+"How the windows execute it". The command line writes its result beside
+the file by the same `with_infix` rule and never reads these rows, and
+MCP hands its result back and writes nothing; the page's banner says
+both halves in every state it can be in
+(`the_retention_banner_says_who_follows_it`).
 
 ## What the industry does
 
@@ -218,29 +220,63 @@ is on. Nothing in it touches the disk: whether `name.original.ext`
 already exists is exactly the check it cannot make, which is why
 `Written::Over` states the rule for the batch that will.
 
-The panel is the plan's first reader. Under each thing dropped on it,
-beside what it turned out to be, is a sentence saying what would happen
-to it — "Its result would go beside it, as `report.cleaned.docx`; the
-file itself would not be touched." — which is the one place today where
-the page's choices can be seen against a real thing.
-`every_plan_reads_as_a_sentence` is the gate.
+The panel and the queue's hover card read the plan before a clean: under
+each thing dropped, beside what it turned out to be, is a sentence saying
+what would happen to it — "Its result would go beside it, as
+`report.cleaned.docx`; the file itself would not be touched."
+`every_plan_reads_as_a_sentence` is the gate. A clean takes the plan
+**when it starts** (`Preferences::plan_for`), so a change on this page
+made while a line of cleans runs moves the cleans not yet started and
+never one already writing.
+
+## How the windows execute it
+
+`clean::clean_one` is the one road from a plan to the disk, run on the
+background executor, one clean at a time (the queue's line and the
+panel's loop both wait for the one before):
+
+* **Rule 1, beside.** `name.cleaned.ext`, or into the results folder,
+  written only where nothing is: a file already there is refused and
+  left byte for byte (D261), and **Replace the existing result** is the
+  one explicit way over it (`clean::replace_one`, D270). A result
+  identical to its input is never written (D260, D262).
+* **Rule 2, in place.** `wipemark_intake::inplace::replace` with
+  `Keep::Original` — the CLI's own call: the file is renamed to
+  `name.original.ext` first, refused when one is already there, and the
+  result goes over the path through a synced temporary file. The windows
+  have no "no original" road.
+* **Rule 3.** Still true: the CLI reads none of these rows. The windows
+  read them through `Preferences::plan_for`, and nothing else does.
+* **Rules 4–7, kept copies.** Only for `Plan::Loose` with `kept` present
+  — a paste, bytes with no file behind them: one directory per clean
+  under `<data dir>/kept`, named by the time in UTC and the row
+  (`20261005T134602-7`), holding `original.<ext>` (the bytes as they
+  arrived, markup included) and `result.<ext>`, each only when its switch
+  is on. With both switches off nothing is created, the folder included.
+  The copy is made **before** the result replaces anything, so a copy
+  that cannot be made stops the clean.
+* **The sweep.** `clean::sweep` removes the directories under `kept/`
+  whose own name is older than the period — once a launch, on the
+  background executor, and after each clean that kept something. It
+  removes nothing not shaped like one of ours (`yyyymmddThhmmss-<n>`),
+  never follows a link, and removes nothing under "Until removed by
+  hand".
 
 ## What is left open
 
-* **The folder itself.** `<data dir>/kept` is named by `Layout::kept_dir`
-  and by the banner, and nothing writes to it. E4 writes copies there as
-  bytes as they arrived (rule 7), one directory per job, and removes
-  them on the period — on launch and once a day while running, the way
-  the log rotates.
+* **The sweep while running.** The windows sweep `kept/` once a launch
+  and after each clean that keeps something; a session left open for a
+  month with nothing kept in it sweeps nothing until the next launch.
+  The batch queue (E4) writes its own copies by the same rule when a
+  window pushes to it.
 * **Setting aside — in a library since tails-1, called by the CLI
   (E5-1).** The filesystem half of rule 2 is `wipemark_intake::inplace`:
   rename the file to `name.original.ext`, refusing with *already exists*
   rather than overwriting, then write the result over the path through a
   synced temporary file; a failed write puts the original back. Nothing
   is set aside when nothing changed (the caller's check). The window's
-  *In place of the file* destination still writes nothing until E7 / the
-  batch (E4), which call the same `replace` and `write_atomically` the
-  CLI does. See `docs/architecture/cli.md`.
+  *In place of the file* destination calls the same `replace` (E7,
+  `clean.rs`); the batch (E4) will too. See `docs/architecture/cli.md`.
 * **The per-run "no copy" flag — done for the CLI (E5-1):**
   `clean --in-place --no-original`, never a preference. The batch
   queue's own flag is E4's.

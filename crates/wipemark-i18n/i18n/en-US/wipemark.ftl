@@ -44,7 +44,8 @@ window-title = { -brand-name }
 ## `toolbar-import-choose` is the picker's own confirm button, so it is
 ## a verb on its own. Help is a popover of four lines, the panel's help
 ## in shape: how things get in, what the preview and the Actions menu
-## do, what is not here yet, and where the rest of the application is.
+## do, what is not in the windows yet, and where the rest of the
+## application is.
 
 toolbar-import = Import…
 toolbar-import-tooltip = Choose files or folders. They arrive the way a drop does.
@@ -62,7 +63,7 @@ toolbar-help = Help
 toolbar-help-tooltip = What this window does
 toolbar-help-drop = Drop text, an image or files anywhere on this window, press Import to choose them, or Paste what is on the clipboard.
 toolbar-help-preview = Rest the pointer on a preview to see it larger. The Actions menu at the end of a row opens a file with the app the system would.
-toolbar-help-pending = Cleaning from this window is not in this version yet: it takes what arrives and says what it is. In this version cleaning runs from the command line (wipemark-cli clean) and, for an agent, over MCP.
+toolbar-help-pending = Clean, in a row's Actions menu, cleans that row, and Clean all cleans every waiting one; the result goes where the Retention page says. Rewriting with a model is not in this version's windows yet: it runs from the command line (wipemark-cli rewrite) and, for an agent, over MCP.
 toolbar-help-elsewhere = The quick-scrub panel is in the menu bar; the preferences are behind the gear at the bottom right.
 
 ## The queue — the main window's table.
@@ -89,7 +90,7 @@ queue-count = { $count ->
         [one] { $count } item
        *[other] { $count } items
     }
-queue-pending = Cleaning from this list is not in this version yet. What it does today is take what you drop or import and say what it is; cleaning itself runs from the command line and over MCP.
+queue-pending = Rewriting with a model is not in this version's windows yet: this list cleans, and a rewrite runs from the command line (wipemark-cli rewrite) and over MCP.
 queue-preview-pending = Reading…
 queue-preview-cut = The first { $count } characters; the rest is not shown here.
 queue-actions = Actions
@@ -198,7 +199,7 @@ setup-step-model = The model
 setup-step-endpoint = The endpoint
 setup-step-done = Done
 
-setup-welcome-body = { -brand-name } strips AI provenance marks from your own content in two layers: { -layer-a }, which removes the invisible characters and is deterministic, and { -layer-b }, which asks a language model for a paraphrase. In this version both run from the command line and for an agent over MCP, and neither runs from these windows yet. What these steps settle is what { -layer-b } needs: who rewrites, and what that takes.
+setup-welcome-body = { -brand-name } strips AI provenance marks from your own content in two layers: { -layer-a }, which removes the invisible characters and is deterministic, and { -layer-b }, which asks a language model for a paraphrase. In this version { -layer-a } runs from these windows — Clean in the main window and in the panel — as well as from the command line and for an agent over MCP; { -layer-b } runs from the command line and over MCP, and not from these windows yet. What these steps settle is what { -layer-b } needs: who rewrites, and what that takes.
 setup-welcome-again = Everything here can be changed later under Settings, and this walk-through can be run again from its General page.
 
 # Step 2. $model is the catalogue entry's display name, $ram what it
@@ -315,7 +316,7 @@ settings-section-retention = Retention
 ## The panel — the window you summon.
 
 panel-title = Quick scrub
-panel-pending = Cleaning from this window is not in this version yet. What is real here today is that it takes what you drop and says what it is — and that it opens where you told it to. Cleaning itself runs from the command line and over MCP.
+panel-pending = Rewriting with a model is not in this version's windows yet: it runs from the command line (wipemark-cli rewrite) and over MCP.
 panel-dismiss = Escape sends it away.
 
 # The panel has no titlebar, no traffic lights and no menu of its own,
@@ -379,15 +380,16 @@ kind-unknown = Unrecognised
 ## editors side by side: the original on the left, read-only, and the
 ## result on the right with a toolbar of the editor's own operations
 ## over it. Every line that differs is marked on both sides. The result
-## starts as a copy of the original, because nothing cleans anything in
-## this version yet — `compare-pending` says so and stays until it does.
+## starts as what cleaning makes of the original — the text the queue's
+## Clean writes — and the window itself saves and writes nothing;
+## `compare-pending` says both, here and on the Compare page of Settings.
 ## `compare-title` takes the thing's name; `compare-changed` takes two
 ## counts; `compare-refused-too-big` takes two sizes already spelled.
 
 compare-title = Compare · { $name }
 compare-original = Original
 compare-result = Result
-compare-pending = Cleaning in the Compare window is not in this version yet: the result starts as a copy of the original. Edit it, and every line that differs is marked on both sides.
+compare-pending = In the Compare window the result is what cleaning makes of the original, and every line that differs is marked on both sides. Editing the result there saves nothing, and closing the window writes nothing.
 compare-reading = Reading…
 compare-same = The result is the original, line for line.
 compare-changed = { $added ->
@@ -400,8 +402,8 @@ compare-changed = { $added ->
 compare-refused-not-text = This is not text, so there is nothing to compare line by line.
 compare-refused-too-big = At { $size } it is more than this window compares; the limit is { $limit }.
 compare-refused-unreadable = It could not be read.
-compare-reset = Back to the original
-compare-reset-tooltip = Throw the edits away; the result is the original again.
+compare-reset = Back to the cleaned text
+compare-reset-tooltip = Throw the edits away; the result is what cleaning made of the original again.
 compare-help = What this window does
 compare-help-marks = A red mark on the original is a line the result no longer has; a green one on the result is a line the original never had.
 compare-help-follows = The original follows the result's cursor, so the two sides stay in step.
@@ -409,7 +411,7 @@ compare-help-toolbar = The toolbar over the result is the editor's own operation
 compare-help-words = Within a passage that changed, the words that differ are marked more strongly.
 compare-help-characters = Within a passage that changed, the characters that differ are marked more strongly.
 compare-help-settings = What is marked, and whether the original follows, is chosen on the Compare page of Settings — for the next window opened.
-compare-help-close = Closing this window writes nothing; the result lives only here.
+compare-help-close = Closing this window writes nothing; edits to the result live only here.
 
 # The result's toolbar: one label per editor operation, shown as a
 # tooltip beside the shortcut the editor already binds to it, and two
@@ -910,9 +912,9 @@ settings-models-stopped = Stopped. What was downloaded is kept, and the next att
 ## formats — a script looks for them — and are spelled the same in
 ## every language.
 ##
-## `settings-retention-pending` is the honest half, and it stays until
-## a window writes (E4/E7): the command line writes results beside a
-## file, never reads these rows, and no window writes anything yet.
+## `settings-retention-pending` says who follows these rows: the
+## windows clean by them (`clean.rs`, E7), and the command line and the
+## MCP server read none of them.
 
 settings-retention-title = What is kept
 settings-retention-description = Where a result goes, what happens to the file it came from, and whether { -brand-name } keeps a copy of what arrived without one.
@@ -931,7 +933,7 @@ settings-retention-keeps-originals = The original of a paste or a drag is kept i
 settings-retention-keeps-results = The result of a paste or a drag is kept in { $folder } { $period }; originals are not.
 settings-retention-keeps-both = The original and the result of a paste or a drag are kept in { $folder } { $period }.
 # The last line, in every state.
-settings-retention-pending = No window writes anything yet: none of them cleans in this version, and { -layer-b } is not in it. These choices decide what happens to a file, and to what you paste, once they do. The command line never reads them.
+settings-retention-pending = The windows clean by these rules: what they write, and what they keep, follows this page. The command line and agents read none of them — the command line is told where a result goes on each run, and an agent gets its result back.
 
 settings-retention-destination-title = Where results go
 settings-retention-destination-description = Beside the file writes name.cleaned.ext next to it and leaves the file as it is. The results folder is the one below. In place of the file replaces it — after the original has been set aside as name.original.ext, and never over an original already there.
@@ -1511,3 +1513,133 @@ cli-prompts-unreadable = The templates file { $path } could not be read: { $reas
 cli-prompts-not-rows = The templates file { $path } is not a JSON object of template rows ({ $reason }). Nothing was rewritten.
 cli-prompts-unknown-row = The templates file { $path } names { $key }, which is not a template row this version has. Nothing was rewritten.
 cli-prompts-invalid = The template { $key } in { $path } breaks the rule { $rule }. Nothing was rewritten.
+
+## The windows clean (E7)
+##
+## A row in the main window's queue is cleaned — text by { -layer-a },
+## a PNG, JPEG or WebP by the picture passes — one at a time, and its
+## result written where the Retention page says. `queue-status-*` is the
+## row's badge, `clean-said-*` and `clean-refused-*` / `clean-failed-*`
+## the one sentence under it (its tooltip), `queue-went-*` where the
+## result went. $name is a file name and $folder / $path a folder or a
+## path as the operating system spells them; $size and $limit are sizes
+## already spelled; $format and $encoding are format names, never
+## translated.
+
+toolbar-clean-all = Clean all
+toolbar-clean-all-tooltip = Clean every row that is waiting and can be cleaned, one at a time, in the order they arrived. Greyed out while there is none.
+queue-column-status = Status
+queue-status-waiting = Waiting
+queue-status-waiting-tooltip = Not cleaned yet. Clean it from the Actions menu, or press Clean all.
+queue-status-unable = Cannot clean
+queue-status-queued = Queued
+queue-status-queued-tooltip = Waiting for the clean ahead of it: one thing is cleaned at a time, in the order asked for.
+queue-status-cleaning = Cleaning…
+queue-status-cleaning-tooltip = Being cleaned now. Nothing is written until it is done.
+queue-status-nothing-found = Nothing found
+queue-status-cleaned = Cleaned
+queue-status-partly = Partly
+queue-status-not-cleaned = Not cleaned
+queue-status-failed = Failed
+queue-action-clean = Clean
+queue-action-clean-done = It has been cleaned already.
+queue-action-clean-busy = It is already in line to be cleaned.
+queue-action-open-result = Open the result
+queue-action-reveal-result = Show the result in its folder
+queue-action-copy-result = Copy the result
+queue-action-replace = Replace the existing result
+queue-went-written = Written as { $name }
+queue-went-replaced = Written over the existing { $name }
+queue-went-in-place = Written in place of the file
+queue-went-set-aside = Original set aside as { $name }
+queue-went-kept = Kept in { $folder }
+queue-went-as-text = The cleaned text is ready: Copy the result is in the Actions menu.
+queue-went-nothing = Nothing was written.
+status-cleaning = Cleaning { $current } of { $total }
+clean-said-nothing-found = Nothing to remove was found, so nothing was written.
+clean-said-cleaned-text = { $count ->
+        [one] One character was removed or replaced.
+       *[other] { $count } characters were removed or replaced.
+    }
+clean-said-cleaned-picture = What marked the picture as made by AI was removed.
+clean-said-partly-kept = Something was found that is kept at the default settings — a letter from another alphabet that looks like a Latin one — so nothing was changed.
+clean-said-partly-mark = A visible mark is still in the picture: it could not be taken off whole.
+clean-said-partly-animated = The frames of an animated picture are not examined for a visible mark, so one there is neither found nor ruled out.
+clean-said-partly-unexamined = The picture's pixels could not be examined, so a visible mark there is neither found nor ruled out.
+clean-refused-not-yet = { $format } pictures are not read in this version yet.
+clean-refused-folder = A folder is not cleaned as one thing; drop the files in it instead.
+clean-refused-kind = Neither text cleaning nor picture cleaning reads this kind of thing: { $what }.
+clean-refused-unnamed-encoding = Its characters are in an encoding that could not be named, and one is never guessed.
+clean-refused-unread = Nothing could be established from its contents, and a name alone is not enough to clean by.
+clean-refused-too-big = At { $size } it is more than a window cleans; the limit is { $limit }.
+clean-refused-unreadable = It could not be read.
+clean-refused-undecodable = It is not valid { $encoding } at byte { $offset }, so nothing was changed.
+clean-refused-picture-unknown = It is not a picture this version can read.
+clean-refused-picture-malformed = It is not a { $format } file this version can read: it is damaged at byte { $offset }. Not read is not clean.
+clean-refused-picture-unsupported = It uses something in { $format } this version does not support, at byte { $offset }.
+clean-refused-picture-decode = Its pixels could not be decoded, so it was not cleaned.
+clean-refused-picture-encode = The restored picture could not be written back, so nothing was written.
+clean-refused-picture-proof = The result failed its own check, so nothing was written. This is a fault in this version.
+clean-refused-still-marked = The result would still carry AI provenance metadata, so it was not written.
+clean-refused-exists = { $name } is already there and was left as it is. To write over it, choose Replace the existing result in the Actions menu.
+clean-refused-original-exists = { $name } is already there: an original set aside before is never overwritten, so nothing was changed.
+clean-refused-same-file = The result would have landed on the file itself, so nothing was written.
+clean-refused-nowhere = There is nowhere this result can go under the Retention page's choices.
+clean-failed-write = { $path } could not be written ({ $error }). Nothing else was changed.
+clean-failed-set-aside = The file could not be set aside as { $name } ({ $error }), so nothing was changed.
+clean-failed-stranded = The result could not be written and the original could not be put back: it is at { $path } ({ $error }).
+queue-action-report = Report…
+window-report-title = Report · { $name }
+window-report-arrived = What arrived
+window-report-happened = What happened
+window-report-verifiable = Verifiable
+window-report-best-effort = Best-effort
+window-report-result = The result: { $path }
+window-report-original = The original, set aside: { $path }
+window-report-kept = Kept copies: { $path }
+window-report-finding = { $codepoint } { $name } · { $class } · { $confidence } · { $count ->
+        [one] once
+       *[other] { $count } times
+    }
+window-report-removed-none = Nothing was removed from this text.
+window-report-normalized = { $count ->
+        [one] One character was normalized.
+       *[other] { $count } characters were normalized.
+    }
+window-report-kept-homoglyph = Kept at the default settings: a letter from another script is replaced only by an aggressive clean, which a window does not run.
+window-report-kept-in-place = Kept where it does a job: inside an emoji or a script that needs it.
+window-report-picture-checked = The result was read again: no AI provenance metadata is left in it.
+window-report-picture-still = Read again, the result still carried AI provenance metadata.
+window-report-shelf-empty = Nothing on this shelf for this clean.
+window-report-not-read = It was not read, so nothing here was checked.
+window-report-copy-json = Copy JSON
+window-report-copy-markdown = Copy as Markdown
+window-report-close = Close
+window-report-copied = Copied.
+
+## The panel cleans too. `panel-found-*` is the line under each thing it
+## caught, from a look that writes nothing; $why is a format id
+## (animated, catalogue, decode) and $metadata is yes or no.
+
+panel-looking = Looking…
+panel-found-text = { $count ->
+        [one] One character to remove or replace.
+       *[other] { $count } characters to remove or replace.
+    }
+panel-found-text-nothing = Nothing to remove.
+panel-found-text-kept = Nothing to remove; a letter from another alphabet that looks like a Latin one is kept at the default settings.
+panel-found-picture-both = AI metadata and a visible mark.
+panel-found-picture-metadata = AI metadata.
+panel-found-picture-mark = A visible mark.
+panel-found-picture-nothing = Nothing found in the metadata or among the visible marks this version knows.
+panel-found-not-examined = { $metadata ->
+        [yes] AI metadata;
+       *[no] No AI metadata;
+    } { $why ->
+        [animated] the frames of an animated picture are not examined for a visible mark.
+        [catalogue] the catalogue of visible marks did not load, so the pixels were not examined.
+       *[decode] the pixels could not be decoded, so they were not examined.
+    }
+panel-clean = Clean
+panel-clean-tooltip = Clean what was dropped here, one thing at a time; each result goes where the Retention page says. Greyed out while a clean runs, or when nothing here is left to clean.
+panel-cleaning = Cleaning…

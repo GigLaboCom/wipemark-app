@@ -1142,6 +1142,28 @@ impl Preferences {
         }
     }
 
+    /// Preferences over a store that forgets, for a test that builds a
+    /// view reading them — the queue's. Every row at its default, the
+    /// server off (its default), a vault in memory, and `homes` for the
+    /// two folders, so nothing a test does lands in a real Downloads.
+    #[cfg(test)]
+    pub fn for_tests(homes: Homes, cx: &Context<Self>) -> Self {
+        let store = config::open(None);
+        let stored = config::read_all(&store);
+        let (engine, _) = EngineHandle::new();
+        Self::new(
+            stored,
+            store,
+            Arc::new(Vault::in_memory("com.GigLabo.wipemark.test")),
+            std::env::temp_dir().join("wipemark-test-models"),
+            homes,
+            None,
+            engine,
+            None,
+            cx,
+        )
+    }
+
     /// The Retention page's rows.
     pub fn retention(&self) -> &Retention {
         &self.retention
@@ -4007,9 +4029,9 @@ impl SettingsView {
 
     /// The Compare page: how a result is shown beside its original.
     ///
-    /// The notice above the rows is the one every pending surface
-    /// carries: nothing is cleaned in this version yet, and the window
-    /// compares what is typed against what was started from. The
+    /// The notice above the rows is the window's own banner: the
+    /// result is what cleaning makes of the original, and editing it
+    /// saves nothing and closing the window writes nothing. The
     /// page's own sentence, under the heading, is the other thing a
     /// reader has to know — that a window reads these as it opens.
     fn compare(&self, cx: &Context<Self>) -> impl IntoElement {
@@ -8469,13 +8491,13 @@ mod tests {
         states
     }
 
-    /// The Retention page's banner keeps the bargain the other four
-    /// keep: whatever else it says, it says that nothing is written
-    /// yet. A page that described results landing beside files, over a
-    /// product with no scrubber in it, would be describing a product
-    /// that does not exist.
+    /// The Retention page's banner says, in every state, who follows
+    /// these rows: the windows clean by them, and the command line and
+    /// agents read none of them. It said for a long time that nothing was
+    /// written yet; with the windows cleaning, that sentence would be a
+    /// page describing a product that no longer exists — in any language.
     #[test]
-    fn the_retention_banner_always_says_nothing_is_written_yet() {
+    fn the_retention_banner_says_who_follows_it() {
         let results = Path::new("/Users/someone/Downloads");
         let kept = Path::new("/Users/someone/Library/Application Support/wipemark/kept");
         for retention in every_retention_state() {
@@ -8483,10 +8505,68 @@ mod tests {
             assert_eq!(lines.len(), 3, "{retention:?}: {lines:?}");
             assert!(
                 reads_as(&lines[2], Message::SettingsRetentionPending),
-                "{retention:?} stopped saying that nothing is written yet: {lines:?}"
+                "{retention:?} stopped saying who follows these rows: {lines:?}"
+            );
+            assert!(
+                lines[2].contains("The windows clean by these rules")
+                    && lines[2].contains("command line")
+                    && lines[2].contains("read none of them"),
+                "{retention:?}: {}",
+                lines[2]
             );
             for line in &lines {
                 assert!(!line.trim().is_empty(), "{retention:?}: an empty line");
+            }
+        }
+        for language in wipemark_i18n::available_languages() {
+            let localizer = wipemark_i18n::Localizer::for_languages(
+                std::slice::from_ref(&language.id),
+                wipemark_i18n::Rendering::PlainText,
+            );
+            let line = localizer.format(Message::SettingsRetentionPending);
+            for old in [
+                "No window writes anything yet",
+                "Пока ни одно окно ничего не записывает",
+                "Noch schreibt kein Fenster etwas",
+            ] {
+                assert!(
+                    !line.contains(old),
+                    "{}: still says no window writes: {line}",
+                    language.id
+                );
+            }
+            assert!(
+                line.to_lowercase().contains("agent") || line.contains("агент"),
+                "{}: says nothing about agents: {line}",
+                language.id
+            );
+        }
+    }
+
+    /// The first-launch walk-through says that cleaning runs from these
+    /// windows and rewriting does not — in every language, and never
+    /// the old "neither runs from these windows".
+    #[test]
+    fn the_welcome_says_the_windows_clean_and_do_not_rewrite() {
+        let line = t(Message::SetupWelcomeBody);
+        assert!(line.contains("cleaning runs from these windows"), "{line}");
+        assert!(line.contains("not from these windows yet"), "{line}");
+        for language in wipemark_i18n::available_languages() {
+            let localizer = wipemark_i18n::Localizer::for_languages(
+                std::slice::from_ref(&language.id),
+                wipemark_i18n::Rendering::PlainText,
+            );
+            let line = localizer.format(Message::SetupWelcomeBody);
+            for old in [
+                "neither runs from these windows",
+                "оба работают из командной строки",
+                "laufen beide über die Kommandozeile",
+            ] {
+                assert!(
+                    !line.contains(old),
+                    "{}: still says the windows do not clean: {line}",
+                    language.id
+                );
             }
         }
     }

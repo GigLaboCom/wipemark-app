@@ -652,5 +652,7 @@ removed"); plan: [`docs/plan/E12-5-surfaces.md`](../plan/E12-5-surfaces.md).
 
 * **V2 rows for the 512-pixel tier and the 1:4 and 1:8 shapes** — GWT's
   formula does not reach them; a capture of each would.
-* **Other vendors** (E12-6), **reconstruction** (E12-7), **the windows**
-  (E12-8); restoring a `logo_map` or a linear-light mark.
+* **Other vendors** (E12-6), **reconstruction** (E12-7); restoring a
+  `logo_map` or a linear-light mark. The windows clean a picture through
+  `wipemark-picture` since E7 — the queue's and the panel's Clean, with
+  the picture's report and its three shelves.
