@@ -934,3 +934,54 @@ fn a_request_is_honoured_by_its_own_language_whatever_the_region() {
         "following the desktop is honoured by whatever it resolved to"
     );
 }
+
+/// A figure in a sentence is written with the language's own decimal
+/// separator, and never grouped.
+#[test]
+fn a_decimal_is_written_the_way_its_language_writes_it() {
+    for (language, expected) in [("en-US", "13.2"), ("de", "13,2"), ("ru", "13,2")] {
+        let localizer = only(&language.parse().unwrap());
+        assert_eq!(localizer.decimal(13.2, 1), expected, "{language}");
+        assert_eq!(localizer.decimal(13_200.0, 0), "13200", "{language}");
+    }
+}
+
+/// A count of clamped samples agrees with its noun in every language:
+/// Russian's one, few and many, German's and English's one and other.
+#[test]
+fn a_clamped_count_agrees_with_its_noun() {
+    for (language, cases) in [
+        (
+            "en-US",
+            &[
+                (1u32, "1 sample fell"),
+                (3, "3 samples fell"),
+                (37, "37 samples fell"),
+            ][..],
+        ),
+        (
+            "de",
+            &[
+                (1, "fiel 1 Wert"),
+                (3, "fielen 3 Werte"),
+                (37, "fielen 37 Werte"),
+            ],
+        ),
+        (
+            "ru",
+            &[
+                (1, "1 значение вышло"),
+                (3, "3 значения вышли"),
+                (37, "37 значений вышли"),
+                (21, "21 значение вышло"),
+            ],
+        ),
+    ] {
+        let localizer = only(&language.parse().unwrap());
+        for &(count, phrase) in cases {
+            let said =
+                localizer.format_args(Message::CliImageVisibleClamped, &args!("clamped" => count));
+            assert!(said.contains(phrase), "{language} {count}: {said}");
+        }
+    }
+}

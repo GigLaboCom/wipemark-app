@@ -48,11 +48,15 @@ impl Scratch {
     }
 
     fn run(&self, arguments: &[&str]) -> Output {
+        self.run_in("en-US", arguments)
+    }
+
+    fn run_in(&self, language: &str, arguments: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_wipemark-cli"))
             .args(arguments)
             .current_dir(&self.0)
             .env("WIPEMARK_DATA_DIR", self.0.join("data"))
-            .env("WIPEMARK_LANG", "en-US")
+            .env("WIPEMARK_LANG", language)
             .env_remove("WIPEMARK_LOG")
             .stdin(Stdio::null())
             .output()
@@ -159,7 +163,9 @@ fn clean_removes_a_proved_mark_with_no_flag() {
     assert_eq!(restored["fitted"], Value::Bool(true));
     assert_eq!(restored["exact"], Value::Bool(false));
     assert!(said.contains("measured from real outputs"), "{said}");
-    assert!(said.contains("levels of the picture around it"), "{said}");
+    // How close is a mean, not a bound (D248).
+    assert!(said.contains("on average"), "{said}");
+    assert!(!said.contains("within"), "{said}");
     assert!(!said.contains("stored with loss"), "{said}");
     assert!(!said.contains("to within one level"), "{said}");
 }
@@ -197,6 +203,57 @@ fn an_outline_left_is_said_and_exits_three() {
     let restored = &answer["report"]["visible"]["restored"][0];
     assert_eq!(restored["outline_left"], Value::Bool(true));
     assert!(restored["step"].as_f64().unwrap() < -1.0, "{restored}");
+}
+
+/// The same sticker saved as most JPEGs are, 4:2:0: restored, and the
+/// colour fringe the inverse leaves along the mark's edge — luma alone
+/// calls it clean — is said, the mark counted as left, exit 3 (D247).
+#[test]
+fn a_fringe_left_in_colour_is_said_and_exits_three() {
+    let scratch = Scratch::new("fringe");
+    scratch.file("art.jpg", &real("torch-1025-q95-420.jpg"));
+    let output = scratch.run(&["clean", "art.jpg"]);
+    let said = stdout(&output);
+    assert_eq!(code(&output), 3, "{said}");
+    assert!(said.contains("An outline of the mark is left"), "{said}");
+    let answer = json(&scratch.run(&["clean", "art.jpg", "-o", "j.jpg", "--json"]));
+    let restored = &answer["report"]["visible"]["restored"][0];
+    assert_eq!(restored["outline_left"], Value::Bool(true));
+    assert!(restored["step"].as_f64().unwrap().abs() < 1.0, "{restored}");
+    assert!(restored["chroma"].as_f64().unwrap() > 4.0, "{restored}");
+}
+
+/// In Russian and German the figure is a mean — "в среднем", "im Mittel"
+/// — never a bound ("не больше чем", "höchstens"), and it is written
+/// with the language's decimal comma (D248).
+#[test]
+fn the_figure_is_a_mean_in_every_language_with_its_own_decimals() {
+    let scratch = Scratch::new("languages");
+    scratch.file("crying.png", &real("crying-1025.png"));
+    scratch.file("torch.png", &marked_png());
+    for (language, mean, bound) in [
+        ("ru", "в среднем", "не больше чем"),
+        ("de", "im Mittel", "höchstens"),
+    ] {
+        for name in ["crying.png", "torch.png"] {
+            let output = scratch.run_in(language, &["clean", name, "-o", "out.png"]);
+            let said = stdout(&output);
+            assert!(said.contains(mean), "{language} {name}: {said}");
+            assert!(!said.contains(bound), "{language} {name}: {said}");
+            let figure = said
+                .lines()
+                .find(|line| line.contains(mean))
+                .expect("the line with the figure");
+            let digits: Vec<char> = figure.chars().collect();
+            let comma = digits
+                .windows(3)
+                .any(|w| w[0].is_ascii_digit() && w[1] == ',' && w[2].is_ascii_digit());
+            let point = digits
+                .windows(3)
+                .any(|w| w[0].is_ascii_digit() && w[1] == '.' && w[2].is_ascii_digit());
+            assert!(comma && !point, "{language} {name}: {figure}");
+        }
+    }
 }
 
 /// A real sticker cut out of its background: Gemini's mark is still in

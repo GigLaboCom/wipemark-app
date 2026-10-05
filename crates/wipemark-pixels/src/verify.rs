@@ -94,9 +94,11 @@ pub struct Verified {
     gain: f32,
     edge_ratio: f32,
     holes: u32,
-    /// A canonical map at a row's own place: the one placement that can
-    /// be exact.
-    exact_place: bool,
+    /// The map was drawn at another size or a sub-pixel offset, or the
+    /// row asks for a resample: not the map as it was captured.
+    resampled: bool,
+    /// Placed by the search, not at a row's own place.
+    searched: bool,
     /// The map was fitted from real outputs (D245): never exact.
     fitted: bool,
     /// The capture noise the template dropped, per pixel (D241, D246).
@@ -147,8 +149,18 @@ impl Verified {
         self.opaque_above
     }
 
+    /// A canonical map at a row's own place: the one placement that can
+    /// be exact.
     pub(crate) fn exact_place(&self) -> bool {
-        self.exact_place
+        !self.resampled && !self.searched
+    }
+
+    pub(crate) fn resampled(&self) -> bool {
+        self.resampled
+    }
+
+    pub(crate) fn searched(&self) -> bool {
+        self.searched
     }
 
     pub(crate) fn fitted(&self) -> bool {
@@ -452,9 +464,8 @@ pub(crate) fn verify(
             share: out_of_range,
         })
     } else {
-        let exact_place = matches!(proposal.placed, crate::Placed::Row(_))
-            && !proposal.resample
-            && shape.canonical;
+        let resampled = proposal.resample || !shape.canonical;
+        let searched = !matches!(proposal.placed, crate::Placed::Row(_));
         Outcome::Verified(Verified {
             profile: profile.id.clone(),
             rect: proposal.rect,
@@ -465,7 +476,8 @@ pub(crate) fn verify(
             gain,
             edge_ratio,
             holes,
-            exact_place,
+            resampled,
+            searched,
             fitted: profile.fitted.get(proposal.map).copied().unwrap_or(false),
             noise,
             width: raster.width(),
@@ -719,7 +731,8 @@ mod tests {
             gain: 1.0,
             edge_ratio: 0.0,
             holes: 0,
-            exact_place: true,
+            resampled: false,
+            searched: false,
             fitted: false,
             noise: vec![0.0],
             width: 1,

@@ -624,10 +624,17 @@ fn footer(say: Say) -> Vec<String> {
     lines
 }
 
-/// A number as the report spells it: a fixed number of decimals, never
-/// grouped by the locale.
+/// A number as the report spells it: a fixed number of decimals, the
+/// language's decimal separator, never grouped.
 fn fixed(value: f32, decimals: usize) -> String {
-    format!("{value:.decimals$}")
+    wipemark_i18n::decimal(f64::from(value), decimals)
+}
+
+/// How far the restored mark's faint band lies from the picture around
+/// it: the mean step of the channel farthest from it (D247, D248), a mean and
+/// not a bound.
+fn farthest(restored: &wipemark_pixels::Restored) -> f32 {
+    restored.steps.iter().fold(0f32, |m, s| m.max(s.abs()))
 }
 
 /// The visible pass, as it went: every finding, proved or not, with its
@@ -686,27 +693,27 @@ fn visible_lines(say: Say, visible: &Visible, cleaned: bool) -> Vec<String> {
                 if restored.clamped > 0 {
                     notes.push(say(
                         Message::CliImageVisibleClamped,
-                        &args!("clamped" => restored.clamped.to_string()),
+                        &args!("clamped" => restored.clamped),
                     ));
                 }
                 if restored.fitted {
                     notes.push(say(Message::CliImageVisibleFitted, &FluentArgs::new()));
                 }
-                let said = restored.lossy
-                    || restored.clamped > 0
-                    || restored.fitted
-                    || restored.holes > 0
-                    || restored.outline_left;
-                if !said {
+                // Each only when it happened (D249): a map drawn as captured
+                // by the search was not resampled.
+                if restored.resampled {
                     notes.push(say(Message::CliImageVisibleResampled, &FluentArgs::new()));
                 }
+                if restored.searched {
+                    notes.push(say(Message::CliImageVisibleSearched, &FluentArgs::new()));
+                }
                 // Not exact, so what it is: the mark's faint band against
-                // the picture around it (D244). An outline left says its
-                // own number below.
+                // the picture around it, on average (D247, D248). An
+                // outline left says its own number below.
                 if !restored.outline_left {
                     notes.push(say(
                         Message::CliImageVisibleResidual,
-                        &args!("levels" => fixed(restored.step.abs(), 1)),
+                        &args!("levels" => fixed(farthest(restored), 1)),
                     ));
                 }
             }
@@ -728,8 +735,8 @@ fn visible_lines(say: Say, visible: &Visible, cleaned: bool) -> Vec<String> {
                     say(
                         Message::CliImageVisibleOutline,
                         &args!(
-                            "levels" => fixed(restored.step.abs(), 1),
-                            "share" => format!("{:.0}", restored.outline * 100.0),
+                            "levels" => fixed(farthest(restored), 1),
+                            "share" => fixed(restored.outline * 100.0, 0),
                         ),
                     )
                 ));
@@ -891,7 +898,7 @@ mod tests {
 
     use super::{
         clean_exit, clean_lines, defect_label, inspect_lines, kind_label, picture_inspect_exit,
-        signal_label, strip_exit, Ask,
+        signal_label, strip_exit, visible_lines, Ask,
     };
     use crate::input::{Picture, Source};
     use crate::report::Written;
@@ -1285,5 +1292,83 @@ mod tests {
                 "3 beats 1: {why:?}"
             );
         }
+    }
+
+    /// A restoration that is not exact says each reason that holds and
+    /// none that does not: a mark the search found with its map drawn as
+    /// captured — at its own size, a whole-pixel offset — was searched,
+    /// not resampled (D249); one at a row whose map was resampled says
+    /// that and not the search. How far it is, is a mean — the farthest
+    /// channel's (D247, D248) — never a bound.
+    #[test]
+    fn a_restoration_says_each_reason_it_is_not_exact_and_its_mean() {
+        let restored = |searched: bool, resampled: bool| wipemark_pixels::Restored {
+            profile: "gemini-sparkle-v2".into(),
+            rect: wipemark_pixels::PixelRect {
+                x: 10,
+                y: 10,
+                width: 48,
+                height: 48,
+            },
+            changed: 640,
+            holes: 0,
+            clamped: 0,
+            outline: 0.01,
+            steps: [0.2, -2.26, 0.4],
+            step: -0.6,
+            chroma: 0.9,
+            outline_left: false,
+            noise: false,
+            lossy: false,
+            fitted: false,
+            resampled,
+            searched,
+            exact: false,
+        };
+        let english = Localizer::for_languages(&["en-US".parse().unwrap()], Rendering::PlainText);
+        let say = |message: Message, args: &FluentArgs| english.format_args(message, args);
+        let lines = |r: wipemark_pixels::Restored| {
+            // A finding for the pass to report under; its own lines are
+            // not what is asserted here.
+            let found = wipemark_pixels::Finding {
+                profile: "gemini-sparkle-v2".into(),
+                vendor: "test".into(),
+                product: "synthetic".into(),
+                rect: wipemark_pixels::SubRect {
+                    x: 10.0,
+                    y: 10.0,
+                    size: 48.0,
+                },
+                pixels: None,
+                placed: wipemark_pixels::Placed::Searched,
+                kernel: wipemark_pixels::Kernel::Area,
+                ncc: 0.9,
+                pass: 1,
+                scores: None,
+                verdict: wipemark_pixels::Verdict::Refused(wipemark_pixels::Refusal::Gain {
+                    k: 0.72,
+                }),
+                also_tried: Vec::new(),
+            };
+            let visible = Visible::Examined {
+                report: PixelReport {
+                    found: vec![found],
+                    restored: vec![r],
+                    dismissed: 0,
+                    not_established: wipemark_pixels::not_established::shelf(),
+                },
+                restorable: true,
+            };
+            visible_lines(&say, &visible, true).join("\n")
+        };
+        let searched = lines(restored(true, false));
+        assert!(searched.contains("found by the search"), "{searched}");
+        assert!(!searched.contains("resampled"), "{searched}");
+        assert!(searched.contains("on average 2"), "{searched}");
+        assert!(searched.contains("farthest from it"), "{searched}");
+        assert!(!searched.contains("within"), "{searched}");
+        let resampled = lines(restored(false, true));
+        assert!(resampled.contains("resampled"), "{resampled}");
+        assert!(!resampled.contains("found by the search"), "{resampled}");
     }
 }

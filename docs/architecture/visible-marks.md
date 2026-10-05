@@ -307,8 +307,8 @@ traces; the proof here is stricter and the map and the logo are measured.
   fitted (the logo's spread across pictures alone is over a level), and
   `Restored` carries `fitted` and `lossy`. The CLI names each reason a
   restoration is not exact — loss, clamped samples, a fitted map, a
-  resampled one — and how close it is, never "stored with loss" for a
-  lossless PNG that only clamped.
+  resampled one, a searched one (D249) — and how close it is, on average
+  (D248), never "stored with loss" for a lossless PNG that only clamped.
 * **The capture's noise is looked for, not assumed away** (D246). D241
   drops it from every template; V1's real outputs show the vendor draws
   none, V2 has no real output to say. `restore::drawn_noise` looks for
@@ -321,7 +321,7 @@ traces; the proof here is stricter and the map and the logo are measured.
   fitted map: what its denoising drops is the fit's own noise (slopes of
   1.3–1.8 on the outputs it was fitted from), not evidence.
 
-## What the third host verification taught (D247–)
+## What the third host verification taught (D247–D249)
 
 * **An outline is held to the picture in colour too** (D247). The step
   of D244 was BT.601 luma — JPEG's own luma. A JPEG subsampled 4:2:0
@@ -346,6 +346,24 @@ traces; the proof here is stricter and the map and the logo are measured.
   `Restored.chroma` the colour difference. The share (D238) stays luma:
   a fringe of a few levels is a small share of a mark of a hundred in any
   channel, and the colour step is what sees it.
+* **How close is a mean, and says so** (D248). The CLI's sentence under
+  a restoration that is not exact gave the band's mean step as "within N
+  levels" — a bound it is not: per pixel, the host verifier measured the
+  clean originals 1.7–3.6 levels from the picture around them. It now
+  reads "on average N levels … in the colour channel farthest from it",
+  N the largest of
+  `Restored.steps` (in German "im Mittel", in Russian "в среднем"), and so
+  does the outline's sentence. Its figures are written with the
+  language's decimal comma (`wipemark_i18n::decimal`), and the clamped
+  count agrees with its noun in each language.
+* **A resample is said only when one happened** (D249). The search
+  proposed every mark with `resample: true`, so a mark found by it at the
+  map's own size and a whole-pixel offset was told its map "was
+  resampled". A search now proposes none, and the shape says whether the
+  map was drawn as captured: `Restored.resampled` is a row that asks for
+  it or a map drawn at another size or a sub-pixel offset;
+  `Restored.searched` is a mark placed by the search. Each is said by
+  name, and nothing is said by elimination.
 * **Known limitation: most subsampled JPEGs are not restored.** Under
   95, a 4:2:0 JPEG's colour error in the band is more than the
   out-of-range allowance (`BLEND_LEVELS`, 8 stored levels) admits: 18 of

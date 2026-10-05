@@ -1356,11 +1356,15 @@ cli-image-visible-restored = { $profile }: { $changed } pixels restored.
 cli-image-visible-exact = The restored pixels are the original values to within one level.
 cli-image-visible-inexact = The picture was stored with loss, so the restoration is as close as the stored values allow, not exact.
 cli-image-visible-holes = { $holes } pixels under an opaque part of the mark could not be recovered and were left as they were.
-cli-image-visible-outline = An outline of the mark is left along its edge — { $levels } levels from the picture around it, { $share } % of its contour — more than this version accepts, so the mark counts as still in the result.
-cli-image-visible-clamped = { $clamped } samples fell outside the range when the blend was inverted and were clamped, so the restoration is not exact.
+cli-image-visible-outline = An outline of the mark is left along its edge — on average { $levels } levels from the picture around it, in the colour channel farthest from it, { $share } % of its contour — more than this version accepts, so the mark counts as still in the result.
+cli-image-visible-clamped = { $clamped ->
+        [one] { $clamped } sample fell outside the range when the blend was inverted and was clamped, so the restoration is not exact.
+       *[other] { $clamped } samples fell outside the range when the blend was inverted and were clamped, so the restoration is not exact.
+    }
 cli-image-visible-fitted = The mark's opacity map was measured from real outputs rather than taken from the vendor, so the restoration is not claimed exact.
 cli-image-visible-resampled = The mark was not at the place and size its map was drawn for; the map was resampled, so the restoration is not claimed exact.
-cli-image-visible-residual = Along its faint edge the restored mark lies within { $levels } levels of the picture around it.
+cli-image-visible-searched = The mark was found by the search, away from the place its profile names, so the restoration is not claimed exact.
+cli-image-visible-residual = Along its faint edge the restored mark lies on average { $levels } levels from the picture around it, in the colour channel farthest from it.
 cli-image-visible-left = A visible mark was found and is still in the result.
 cli-image-visible-not-restorable = This kind of picture (a CMYK JPEG) is not written back by this version, so the mark was left.
 cli-image-visible-not-examined-animated = An animated picture: its frames were not examined for visible marks, only its metadata. Not examined is not clean.

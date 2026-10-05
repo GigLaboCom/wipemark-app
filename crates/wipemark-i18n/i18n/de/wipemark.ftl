@@ -778,11 +778,15 @@ cli-image-visible-restored = { $profile }: { $changed } Pixel wiederhergestellt.
 cli-image-visible-exact = Die wiederhergestellten Pixel sind die ursprünglichen Werte bis auf eine Stufe.
 cli-image-visible-inexact = Das Bild war verlustbehaftet gespeichert; die Wiederherstellung ist so nah, wie die gespeicherten Werte es erlauben, aber nicht exakt.
 cli-image-visible-holes = { $holes } Pixel unter einem deckenden Teil der Markierung ließen sich nicht zurückgewinnen und blieben, wie sie waren.
-cli-image-visible-outline = Entlang ihres Randes ist ein Umriss der Markierung geblieben — { $levels } Stufen vom Bild um sie herum, { $share } % ihrer Kontur —, mehr als diese Version zulässt, daher gilt die Markierung als noch im Ergebnis.
-cli-image-visible-clamped = Beim Umkehren der Überblendung fielen { $clamped } Werte aus dem Wertebereich und wurden begrenzt, daher ist die Wiederherstellung nicht exakt.
+cli-image-visible-outline = Entlang ihres Randes ist ein Umriss der Markierung geblieben — im Mittel { $levels } Stufen vom Bild um sie herum im am stärksten abweichenden Farbkanal, { $share } % ihrer Kontur —, mehr als diese Version zulässt, daher gilt die Markierung als noch im Ergebnis.
+cli-image-visible-clamped = { $clamped ->
+        [one] Beim Umkehren der Überblendung fiel { $clamped } Wert aus dem Wertebereich und wurde begrenzt, daher ist die Wiederherstellung nicht exakt.
+       *[other] Beim Umkehren der Überblendung fielen { $clamped } Werte aus dem Wertebereich und wurden begrenzt, daher ist die Wiederherstellung nicht exakt.
+    }
 cli-image-visible-fitted = Die Deckkraftkarte der Markierung wurde an echten Ausgaben gemessen und nicht vom Hersteller übernommen, daher wird keine exakte Wiederherstellung behauptet.
 cli-image-visible-resampled = Die Markierung stand nicht an der Stelle und in der Größe, für die ihre Karte gezeichnet ist; die Karte wurde umgerechnet, daher wird keine exakte Wiederherstellung behauptet.
-cli-image-visible-residual = Entlang ihres schwachen Randes liegt die wiederhergestellte Markierung höchstens { $levels } Stufen vom Bild um sie herum.
+cli-image-visible-searched = Die Markierung wurde von der Suche gefunden, nicht an der Stelle, die ihr Profil nennt, daher wird keine exakte Wiederherstellung behauptet.
+cli-image-visible-residual = Entlang ihres schwachen Randes liegt die wiederhergestellte Markierung im Mittel { $levels } Stufen vom Bild um sie herum, im am stärksten abweichenden Farbkanal.
 cli-image-visible-left = Eine sichtbare Markierung wurde gefunden und ist noch im Ergebnis.
 cli-image-visible-not-restorable = Diese Art Bild (ein CMYK-JPEG) schreibt diese Version nicht zurück, daher blieb die Markierung.
 cli-image-visible-not-examined-animated = Ein animiertes Bild: Seine Einzelbilder wurden nicht auf sichtbare Markierungen geprüft, nur seine Metadaten. Nicht geprüft ist nicht sauber.

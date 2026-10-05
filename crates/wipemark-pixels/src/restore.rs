@@ -64,6 +64,11 @@ pub struct Restored {
     /// (D245): the restoration is held to the picture around it
     /// (`step`), never claimed exact.
     pub fitted: bool,
+    /// The map was drawn at another size or a sub-pixel offset, or its row
+    /// asks for a resample: not the map as captured, so not exact.
+    pub resampled: bool,
+    /// Found by the search, away from every row: not exact.
+    pub searched: bool,
     /// Lossless source, a row's own canonical map that is not fitted, no
     /// hole, no clamp, no outline: the original values to within one level.
     pub exact: bool,
@@ -167,6 +172,8 @@ pub fn restore(
         noise,
         lossy: options.source == Fidelity::Lossy,
         fitted: verified.fitted(),
+        resampled: verified.resampled(),
+        searched: verified.searched(),
         exact: options.source == Fidelity::Lossless
             && verified.exact_place()
             && !verified.fitted()

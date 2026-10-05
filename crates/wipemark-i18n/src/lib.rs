@@ -169,6 +169,19 @@ impl Localizer {
             .unwrap_or_else(catalogue::fallback)
     }
 
+    /// `value` with `decimals` decimals as the language on screen writes
+    /// it — a comma in German and Russian, a point in English — never
+    /// grouped. Fluent's `NUMBER` keeps the point in every language, so a
+    /// figure in a sentence is spelled here and handed in as text.
+    pub fn decimal(&self, value: f64, decimals: usize) -> String {
+        let point = format!("{value:.decimals$}");
+        if DECIMAL_COMMA.contains(&self.language().language.as_str()) {
+            point.replace('.', ",")
+        } else {
+            point
+        }
+    }
+
     /// The full chain, best first. Worth logging at startup: it is the
     /// difference between "German is missing" and "German was never
     /// asked for".
@@ -374,6 +387,14 @@ pub fn language() -> LanguageIdentifier {
         .read()
         .unwrap_or_else(PoisonError::into_inner)
         .language()
+}
+
+/// The languages, by subtag, that write a decimal comma.
+const DECIMAL_COMMA: [&str; 2] = ["de", "ru"];
+
+/// [`Localizer::decimal`] in the language on screen.
+pub fn decimal(value: f64, decimals: usize) -> String {
+    with_localizer(|localizer| localizer.decimal(value, decimals))
 }
 
 /// Localize a message with no arguments.

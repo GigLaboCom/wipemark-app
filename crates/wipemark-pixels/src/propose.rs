@@ -38,7 +38,8 @@ pub(crate) struct Proposal {
     pub rect: SubRect,
     pub placed: Placed,
     pub ncc: f32,
-    /// The row resamples its map; never exact.
+    /// The row asks for its map resampled; never exact. A search
+    /// proposes none: its shape says whether it drew the map as captured.
     pub resample: bool,
     /// The filter the map is brought to `rect` with (D238).
     pub kernel: Kernel,
@@ -358,7 +359,9 @@ pub(crate) fn search(scene: &Scene<'_>, profile: &Profile) -> Option<Proposal> {
         rect,
         placed: Placed::Searched,
         ncc: score,
-        resample: true,
+        // Whether the map is drawn as captured is the shape's to say: at
+        // its own size and a whole-pixel offset it is not resampled.
+        resample: false,
         kernel,
     })
 }

@@ -91,7 +91,10 @@ fn a_mark_a_pixel_off_its_row_is_found_by_the_search() {
             .expect("proved");
         assert_eq!(f.placed, Placed::Searched, "{kind:?}");
         assert_eq!(f.pixels, Some(off), "{kind:?}");
-        assert!(!report.restored[0].exact);
+        let r = &report.restored[0];
+        // Searched at the map's own size and a whole-pixel offset: not
+        // exact, and not resampled either — the map is drawn as captured.
+        assert!(!r.exact && r.searched && !r.resampled, "{kind:?}: {r:?}");
         assert!(!report.marks_left(), "{kind:?}: {:#?}", report.found);
         assert!(max_error(&marked, &original) <= 1, "{kind:?}");
     }
@@ -367,7 +370,8 @@ fn a_resampled_row_is_never_exact() {
     composite(&mut marked, &map, at, [255.0; 3]);
     let report = clean(&mut marked, &catalogue, &lossless());
     assert_eq!(report.restored.len(), 1, "{:#?}", report.found);
-    assert!(!report.restored[0].exact);
+    let r = &report.restored[0];
+    assert!(!r.exact && r.resampled && !r.searched, "{r:?}");
     assert!(max_error(&marked, &original) <= 1);
 }
 
