@@ -82,6 +82,10 @@ def s_(name):
     return (APP, f"settings::tests::{name}")
 
 
+def i(name):
+    return (["-p", "wipemark-i18n"], f"tests::{name}")
+
+
 # (id, protection, file, old, new, [(cargo test args, test name filter)])
 MUTATIONS = [
     # ------------------------------------------------ E7-1: the cleaner
@@ -483,6 +487,93 @@ MUTATIONS = [
         """In this version { -layer-a } runs from these windows — Clean in the main window and in the panel — as well as from the command line and for an agent over MCP; { -layer-b } runs from the command line and over MCP, and not from these windows yet.""",
         """In this version both run from the command line and for an agent over MCP, and neither runs from these windows yet.""",
         [s_("the_welcome_says_the_windows_clean_and_do_not_rewrite")],
+    ),
+    # -- W: the first follow-ups (wipemark-task-e7-followups-1-2026-10-05) ---
+    (
+        "W1/M1",
+        "no epic number in a catalogue value (the verifier's H16)",
+        EN,
+        "panel-cleaning = Cleaning…",
+        "panel-cleaning = Cleaning (E7)…",
+        [i("no_catalogue_value_carries_an_epic_number")],
+    ),
+    (
+        "W2/M1",
+        "a window cleans a picture of AI provenance only (H3)",
+        CLEAN,
+        "const SCOPE: Scope = Scope::AiProvenance;",
+        "const SCOPE: Scope = Scope::AllMetadata;",
+        [t("a_picture_loses_its_ai_provenance_and_keeps_the_rest")],
+    ),
+    (
+        "W3/M1",
+        "the log line carries a path's shape, never the path (H6)",
+        CLEAN,
+        "        written = shape(outcome.written.as_deref()),",
+        "        written = ?outcome.written,",
+        [t("the_log_line_carries_no_path_no_name_and_no_text")],
+    ),
+    (
+        "W3/M2",
+        "a refusal's log line names no path",
+        CLEAN,
+        'Refusal::SameFile(path) => format!("same file: {}", elided(path)),',
+        'Refusal::SameFile(path) => format!("same file: {}", path.display()),',
+        [t("the_log_line_carries_no_path_no_name_and_no_text")],
+    ),
+    (
+        "W4/M1",
+        "the look counts a C2PA manifest alone as AI metadata, as the clean does",
+        CLEAN,
+        "                    ai_metadata: seen.metadata.has_ai_metadata(),",
+        "                    ai_metadata: seen.metadata.has_ai_metadata() && !seen.metadata.has_c2pa(),",
+        [
+            t("a_picture_marked_by_c2pa_alone_is_looked_at_and_cleaned_alike"),
+            t("the_look_agrees_with_the_clean"),
+        ],
+    ),
+    (
+        "W5/M1",
+        "a picture past PICTURE_LIMIT is refused before it is decoded (H10)",
+        CLEAN,
+        "Cleanable::Picture(_) => Ok(PICTURE_LIMIT),",
+        "Cleanable::Picture(_) => Ok(u64::MAX / 2),",
+        [
+            t("a_picture_past_the_limit_is_refused_before_it_is_decoded"),
+            t("a_picture_that_grows_past_the_limit_while_read_is_refused"),
+        ],
+    ),
+    (
+        "W5/M2",
+        "a file that grows past the limit while read is refused",
+        CLEAN,
+        "    if bytes.len() as u64 > limit {",
+        "    if false {",
+        [t("a_picture_that_grows_past_the_limit_while_read_is_refused")],
+    ),
+    (
+        "W10/M1",
+        "in place replaces the file that was read and no other (H8)",
+        CLEAN,
+        "            if read.path.as_deref() != Some(file.as_path()) {",
+        "            if false {",
+        [t("in_place_never_replaces_a_file_other_than_the_one_read")],
+    ),
+    (
+        "W10/M2",
+        "the sweep runs after each keep (H11, D267)",
+        CLEAN,
+        "                if let Err(error) = sweep(&kept.in_, kept.for_, now) {",
+        "                if let Err(error) = Ok::<usize, io::Error>(0) {",
+        [t("a_clean_that_keeps_sweeps_what_has_expired")],
+    ),
+    (
+        "W10/M3",
+        "a dangling link where the result would go is in the way (H14)",
+        CLEAN,
+        "    let there = std::fs::symlink_metadata(destination).is_ok();",
+        "    let there = destination.exists();",
+        [t("a_dangling_link_where_the_result_goes_is_in_the_way")],
     ),
 ]
 

@@ -486,8 +486,12 @@ pub fn inspect_one(arrival: &Arrival) -> Findings {
                 catalogue: None,
             };
             match wipemark_picture::inspect(&read.bytes, &options) {
+                // What the clean would remove, by the rule the clean's
+                // verdict reads (`removed.any(is_ai_provenance)`). A C2PA
+                // block is AI provenance by `wipemark_image`'s own
+                // definition, so a manifest alone is counted (D281).
                 Ok(seen) => Findings::Picture {
-                    ai_metadata: seen.metadata.has_ai_metadata() || seen.metadata.has_c2pa(),
+                    ai_metadata: seen.metadata.has_ai_metadata(),
                     mark: seen.has_visible_mark(),
                     not_examined: match seen.visible {
                         Visible::NotExamined(why) => Some(why),
@@ -511,10 +515,10 @@ fn logged(row: u64, outcome: Outcome) -> Outcome {
         format = outcome.format.map(Format::name),
         bytes_in = outcome.size_in,
         bytes_out = outcome.size_out,
-        written = ?outcome.written.as_deref().map(elided),
-        set_aside = ?outcome.set_aside.as_deref().map(elided),
-        kept = ?outcome.kept.as_deref().map(elided),
-        why = ?why_of(&outcome.verdict),
+        written = shape(outcome.written.as_deref()),
+        set_aside = shape(outcome.set_aside.as_deref()),
+        kept = shape(outcome.kept.as_deref()),
+        why = why_of(&outcome.verdict),
         "clean"
     );
     outcome
@@ -524,6 +528,12 @@ fn logged(row: u64, outcome: Outcome) -> Outcome {
 /// document, and the log never carries either.
 fn elided(path: &Path) -> Elided {
     Elided::from(path.to_string_lossy())
+}
+
+/// [`elided`] as a log field, rendered as the line a person debugging
+/// reads — `<elided chars=43 bytes=43>` — rather than the struct's `Debug`.
+fn shape(path: Option<&Path>) -> Option<tracing::field::DisplayValue<Elided>> {
+    path.map(|path| tracing::field::display(elided(path)))
 }
 
 /// The log's half of a refusal or a failure: an `io::ErrorKind`, never the
@@ -1415,6 +1425,79 @@ mod tests {
         assert_eq!(names(&scratch.0), ["x.md", "x.original.md"]);
     }
 
+    /// In place replaces the file that was read and no other: a plan whose
+    /// `Over` names a different file is refused as having nowhere to go,
+    /// and both files are left as they were.
+    #[test]
+    fn in_place_never_replaces_a_file_other_than_the_one_read() {
+        let scratch = Scratch::new("over-other");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let other = scratch.file("other.md", b"somebody else's file");
+        let wrong = Plan::File(Written::Over {
+            file: other.clone(),
+            set_aside_as: scratch.0.join("other.original.md"),
+        });
+        let outcome = clean_one(&arrival(Handed::Path(source.clone())), &wrong, 7, now());
+        assert!(
+            matches!(outcome.verdict, Verdict::NotCleaned(Refusal::Nowhere)),
+            "{:?}",
+            outcome.verdict
+        );
+        assert_eq!(outcome.written, None);
+        assert_eq!(read(&other), b"somebody else's file");
+        assert_eq!(read(&source), MARKED.as_bytes());
+        assert_eq!(names(&scratch.0), ["other.md", "x.md"]);
+    }
+
+    /// A dangling link where the result would go is something in the way:
+    /// refused as existing, and the link left exactly as it was — never
+    /// followed to create the file it points at.
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_link_where_the_result_goes_is_in_the_way() {
+        let scratch = Scratch::new("dangling");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let link = scratch.0.join("x.cleaned.md");
+        let target = scratch.0.join("nowhere").join("target.md");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink");
+        let outcome = clean(
+            &arrival(Handed::Path(source)),
+            &Retention::default(),
+            &scratch.homes(),
+        );
+        assert!(
+            matches!(&outcome.verdict, Verdict::NotCleaned(Refusal::Exists(path)) if *path == link),
+            "{:?}",
+            outcome.verdict
+        );
+        assert_eq!(std::fs::read_link(&link).expect("still a link"), target);
+        assert!(!target.exists());
+        assert_eq!(names(&scratch.0), ["x.cleaned.md", "x.md"]);
+    }
+
+    /// Keeping sweeps: a kept directory past its period is gone after the
+    /// next clean that keeps something, with no launch in between (D267).
+    #[test]
+    fn a_clean_that_keeps_sweeps_what_has_expired() {
+        let scratch = Scratch::new("keep-sweeps");
+        let homes = scratch.homes();
+        let old = homes.kept.join("20260920T120000-3");
+        let fresh = homes.kept.join("20261004T120000-4");
+        for directory in [&old, &fresh] {
+            std::fs::create_dir_all(directory).expect("kept");
+            std::fs::write(directory.join("original.txt"), b"x").expect("copy");
+        }
+        let keeping = Retention {
+            keep_originals: true,
+            keep_for: Period::Week,
+            ..Retention::default()
+        };
+        let outcome = clean(&arrival(Handed::Text(MARKED.to_owned())), &keeping, &homes);
+        assert!(outcome.kept.is_some(), "{:?}", outcome.verdict);
+        assert!(!old.exists(), "a copy past its week stayed");
+        assert!(fresh.exists(), "a copy inside its week went");
+    }
+
     /// Into the results folder — and never over the source, even when the
     /// results folder is the source's own.
     #[test]
@@ -1625,6 +1708,108 @@ mod tests {
         assert_eq!(names(&scratch.0), ["big.txt"]);
     }
 
+    /// A PNG's head and IHDR, then nothing.
+    fn png_head() -> Vec<u8> {
+        let mut head = b"\x89PNG\r\n\x1a\n".to_vec();
+        head.extend_from_slice(&13u32.to_be_bytes());
+        head.extend_from_slice(b"IHDR");
+        head.extend_from_slice(&1u32.to_be_bytes());
+        head.extend_from_slice(&1u32.to_be_bytes());
+        head.extend_from_slice(&[8, 2, 0, 0, 0]);
+        head.extend_from_slice(&[0x90, 0x77, 0x53, 0xDE]);
+        head
+    }
+
+    /// A picture one byte past [`PICTURE_LIMIT`] is refused with its size
+    /// on the `stat`, before the rest is read or a pixel decoded — a sparse
+    /// file, so the test costs no 64 MiB of disk — and nothing is written.
+    #[test]
+    fn a_picture_past_the_limit_is_refused_before_it_is_decoded() {
+        let scratch = Scratch::new("big-picture");
+        let source = scratch.file("huge.png", &png_head());
+        let size = PICTURE_LIMIT + 1;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&source)
+            .and_then(|file| file.set_len(size))
+            .expect("sparse");
+        let thing = arrival(Handed::Path(source));
+        assert_eq!(
+            cleanable(&thing.intake),
+            Cleanable::Picture(Format::Png),
+            "the head does not read as a PNG"
+        );
+        let outcome = clean(&thing, &Retention::default(), &scratch.homes());
+        assert!(
+            matches!(
+                outcome.verdict,
+                Verdict::NotCleaned(Refusal::TooBig { size: s, limit }) if s == size && limit == PICTURE_LIMIT
+            ),
+            "{:?}",
+            outcome.verdict
+        );
+        assert!(outcome.report.is_none(), "a layer ran");
+        assert!(matches!(
+            inspect_one(&thing),
+            Findings::NotLooked(Refusal::TooBig {
+                limit: PICTURE_LIMIT,
+                ..
+            })
+        ));
+        assert_eq!(names(&scratch.0), ["huge.png"]);
+    }
+
+    /// The read side: a file the `stat` calls small that keeps coming — a
+    /// pipe here, a file still being written in life — is refused once one
+    /// byte past the limit has been read, and nothing past that is read.
+    #[cfg(unix)]
+    #[test]
+    fn a_picture_that_grows_past_the_limit_while_read_is_refused() {
+        use std::io::Write as _;
+        let scratch = Scratch::new("growing");
+        let pipe = scratch.0.join("growing.png");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&pipe)
+            .status()
+            .expect("mkfifo");
+        assert!(made.success());
+        let writer = {
+            let pipe = pipe.clone();
+            std::thread::spawn(move || {
+                let mut file = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&pipe)
+                    .expect("open the pipe");
+                let _ = file.write_all(&png_head());
+                let zeros = vec![0u8; 1 << 20];
+                // Two megabytes past the limit; the reader hangs up first.
+                for _ in 0..(PICTURE_LIMIT >> 20) + 2 {
+                    if file.write_all(&zeros).is_err() {
+                        break;
+                    }
+                }
+            })
+        };
+        let thing = Arrival {
+            intake: Intake {
+                path: Some(pipe.clone()),
+                ..intake(Some(Format::Png), None, Evidence::Content)
+            },
+            handed: Handed::Path(pipe),
+        };
+        let outcome = clean(&thing, &Retention::default(), &scratch.homes());
+        writer.join().expect("writer");
+        assert!(
+            matches!(
+                outcome.verdict,
+                Verdict::NotCleaned(Refusal::TooBig { size, limit }) if size == PICTURE_LIMIT + 1 && limit == PICTURE_LIMIT
+            ),
+            "{:?}",
+            outcome.verdict
+        );
+        assert_eq!(names(&scratch.0), ["growing.png"]);
+    }
+
     /// A decode error is a refusal naming the byte, and nothing written.
     #[test]
     fn a_text_that_does_not_decode_is_refused_at_its_offset() {
@@ -1832,6 +2017,105 @@ mod tests {
         }
     }
 
+    /// A window cleans a picture of AI provenance and nothing else: on a
+    /// JPEG whose XMP is a C2PA reference beside camera EXIF, IPTC and an
+    /// ICC profile, the XMP goes and the other three are there on a second
+    /// inspection — and the bytes are what `wipemark-cli clean` writes
+    /// without `--all-metadata` (`all_metadata: false` is
+    /// `Scope::AiProvenance` there).
+    #[test]
+    fn a_picture_loses_its_ai_provenance_and_keeps_the_rest() {
+        use wipemark_image::MetadataKind;
+        let scratch = Scratch::new("scope");
+        let (source, outcome) = clean_fixture(&scratch, "xmp-provenance.jpg");
+        assert!(
+            matches!(outcome.verdict, Verdict::Cleaned),
+            "{:?}",
+            outcome.verdict
+        );
+        let kinds = |bytes: &[u8]| -> Vec<MetadataKind> {
+            wipemark_image::inspect(bytes)
+                .expect("inspect")
+                .findings
+                .iter()
+                .map(|finding| finding.kind)
+                .collect()
+        };
+        let before = kinds(&read(&source));
+        for kind in [
+            MetadataKind::Xmp,
+            MetadataKind::Exif,
+            MetadataKind::Iptc,
+            MetadataKind::Rendering,
+        ] {
+            assert!(before.contains(&kind), "the fixture has no {kind:?}");
+        }
+        let result = read(&scratch.0.join("xmp-provenance.cleaned.jpg"));
+        let after = kinds(&result);
+        assert!(!after.contains(&MetadataKind::Xmp), "the XMP stayed");
+        for kind in [
+            MetadataKind::Exif,
+            MetadataKind::Iptc,
+            MetadataKind::Rendering,
+        ] {
+            assert!(after.contains(&kind), "{kind:?} went: {after:?}");
+        }
+        let cli_default = PictureOptions {
+            scope: Scope::AiProvenance,
+            catalogue: None,
+        };
+        let (expected, _) =
+            wipemark_picture::clean(&read(&source), &cli_default).expect("the CLI's clean");
+        assert_eq!(result, expected, "not what the CLI writes at its default");
+    }
+
+    /// A picture whose only provenance is a C2PA manifest — a manifest
+    /// store in APP11 beside camera EXIF, no XMP — is AI metadata to the
+    /// look and cleaned by the clean. `wipemark_image` counts every C2PA
+    /// block as AI provenance, which is why the look needs no clause of its
+    /// own for one (D281); this pins that on the real file.
+    #[test]
+    fn a_picture_marked_by_c2pa_alone_is_looked_at_and_cleaned_alike() {
+        use wipemark_image::MetadataKind;
+        let scratch = Scratch::new("c2pa-alone");
+        let bytes = read(&fixture("c2pa-jumbf.jpg"));
+        let seen = wipemark_image::inspect(&bytes).expect("inspect");
+        let provenance: Vec<_> = seen
+            .findings
+            .iter()
+            .filter(|finding| finding.is_ai_provenance())
+            .collect();
+        assert!(!provenance.is_empty() && seen.has_c2pa());
+        assert!(
+            provenance.iter().all(|finding| finding.is_c2pa()),
+            "the fixture carries provenance other than C2PA: {provenance:?}"
+        );
+        assert!(
+            !seen.findings.iter().any(|f| f.kind == MetadataKind::Xmp),
+            "the fixture carries XMP"
+        );
+        let source = scratch.file("c2pa-jumbf.jpg", &bytes);
+        let thing = arrival(Handed::Path(source));
+        assert!(
+            matches!(
+                inspect_one(&thing),
+                Findings::Picture {
+                    ai_metadata: true,
+                    mark: false,
+                    not_examined: None
+                }
+            ),
+            "{:?}",
+            inspect_one(&thing)
+        );
+        let outcome = clean(&thing, &Retention::default(), &scratch.homes());
+        assert!(
+            matches!(outcome.verdict, Verdict::Cleaned),
+            "{:?}",
+            outcome.verdict
+        );
+    }
+
     /// The panel's look says what the clean then does (D278): a text by the
     /// characters it changes — counted, not rows — a picture by what is on
     /// it, and nothing written by the look.
@@ -1911,6 +2195,138 @@ mod tests {
             inspect_one(&arrival(Handed::Path(tiff))),
             Findings::NotLooked(Refusal::NotCleanable(Unable::NotYet(Format::Tiff)))
         ));
+    }
+
+    // -- the log line --------------------------------------------------
+
+    /// Every event logged on this thread while `body` runs, one line each:
+    /// the message and its fields as `name=value`.
+    fn logged_while(body: impl FnOnce()) -> Vec<String> {
+        use std::fmt::Write as _;
+        use std::sync::{Arc, Mutex};
+
+        use tracing::field::{Field, Visit};
+        use tracing::span;
+
+        struct Line(String);
+        impl Visit for Line {
+            fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+                let _ = write!(self.0, " {}={value:?}", field.name());
+            }
+        }
+
+        struct Capture(Arc<Mutex<Vec<String>>>);
+        impl tracing::Subscriber for Capture {
+            fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+                true
+            }
+            fn new_span(&self, _: &span::Attributes<'_>) -> span::Id {
+                span::Id::from_u64(1)
+            }
+            fn record(&self, _: &span::Id, _: &span::Record<'_>) {}
+            fn record_follows_from(&self, _: &span::Id, _: &span::Id) {}
+            fn event(&self, event: &tracing::Event<'_>) {
+                let mut line = Line(String::new());
+                event.record(&mut line);
+                self.0.lock().expect("lines").push(line.0);
+            }
+            fn enter(&self, _: &span::Id) {}
+            fn exit(&self, _: &span::Id) {}
+        }
+
+        // With exactly one dispatcher alive, `tracing-core` computes a
+        // callsite's interest from the *registering thread's* default: a
+        // parallel test that reaches `logged` first, with no subscriber of
+        // its own, caches "never" and this capture sees nothing. A second
+        // dispatcher, interested in everything and kept for the life of the
+        // test binary, keeps every callsite's interest open.
+        static OPEN: std::sync::OnceLock<tracing::Dispatch> = std::sync::OnceLock::new();
+        OPEN.get_or_init(|| tracing::Dispatch::new(Capture(Arc::default())));
+
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        tracing::subscriber::with_default(Capture(Arc::clone(&lines)), body);
+        let lines = lines.lock().expect("lines").clone();
+        lines
+    }
+
+    /// The clean's log line names no path, no file and no text — beside a
+    /// file in a folder whose names are distinctive, on a refusal that
+    /// names the source, and on a paste that is kept — and renders a
+    /// path's shape as the person debugging reads it.
+    #[test]
+    fn the_log_line_carries_no_path_no_name_and_no_text() {
+        let scratch = Scratch::new("log");
+        let folder = scratch.0.join("Quarterly-Qx7Folder");
+        std::fs::create_dir_all(&folder).expect("folder");
+        let text = "Zz9Confidential\u{200B}Phrase\n";
+        let source = folder.join("Payroll-Kv3Name.md");
+        std::fs::write(&source, text).expect("source");
+        let homes = Homes {
+            results: folder.clone(),
+            kept: folder.join("kept"),
+        };
+        let keeping = Retention {
+            keep_originals: true,
+            keep_results: true,
+            ..Retention::default()
+        };
+        let lines = logged_while(|| {
+            let dropped = arrival(Handed::Path(source.clone()));
+            let beside = clean(&dropped, &Retention::default(), &homes);
+            assert!(beside.written.is_some(), "{:?}", beside.verdict);
+            let onto_source = Plan::File(Written::Into {
+                folder: folder.clone(),
+                name: Some(String::from("Payroll-Kv3Name.md")),
+            });
+            let refused = clean_one(&dropped, &onto_source, 7, now());
+            assert!(
+                matches!(refused.verdict, Verdict::NotCleaned(Refusal::SameFile(_))),
+                "{:?}",
+                refused.verdict
+            );
+            let pasted = clean(&arrival(Handed::Text(text.to_owned())), &keeping, &homes);
+            assert!(pasted.kept.is_some(), "{:?}", pasted.verdict);
+        });
+        let cleans: Vec<&String> = lines
+            .iter()
+            .filter(|line| line.contains("message=clean "))
+            .collect();
+        assert_eq!(cleans.len(), 3, "{lines:#?}");
+        let scratch_name = scratch
+            .0
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        for line in &lines {
+            for secret in [
+                "Qx7Folder",
+                "Kv3Name",
+                "Zz9Confidential",
+                "Phrase",
+                scratch_name.as_str(),
+                "kept",
+                ".md",
+            ] {
+                // `kept=` is a field's name; the path under it is not.
+                let body = line.replace(" kept=", " ");
+                assert!(
+                    !body.contains(secret),
+                    "{secret:?} is in a log line: {line}"
+                );
+            }
+        }
+        assert!(
+            cleans[0].contains("written=<elided chars="),
+            "a path's shape is said as its Display: {}",
+            cleans[0]
+        );
+        assert!(
+            cleans[1].contains("same file: <elided chars="),
+            "{}",
+            cleans[1]
+        );
+        assert!(cleans[2].contains(" kept=<elided chars="), "{}", cleans[2]);
     }
 
     /// Two cleans in one run never share a number, whichever window asked
