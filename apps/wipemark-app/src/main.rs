@@ -35,6 +35,15 @@
 //! on a network home directory.
 
 mod assets;
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "the cleaner is built and tested before the queue calls it; \
+                  only the sweep has a caller in this step"
+    )
+)]
+mod clean;
 mod clipboard;
 mod compare;
 mod config;
@@ -913,6 +922,10 @@ fn main() {
             // just after.
             let (engine_handle, engine_inbox) = EngineHandle::new();
 
+            // What the sweep below needs, before the window builder
+            // takes the rest.
+            let kept_home = homes.kept.clone();
+            let keep_for = stored.retention.keep_for;
             let opened = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -999,6 +1012,18 @@ fn main() {
             install_shortcut(window, preferences.clone(), cx);
             install_tray(preference, window, preferences.clone(), cx);
             install_hotkeys(window, preferences.clone(), cx);
+
+            // Kept copies past their period go once a launch, by the
+            // time in their own names — off this thread, because a
+            // removal is a walk of a folder that can be anywhere.
+            let kept = kept_home.clone();
+            cx.background_executor()
+                .spawn(async move {
+                    if let Err(error) = clean::sweep(&kept, keep_for, chrono::Utc::now()) {
+                        tracing::warn!(error = ?error.kind(), "sweeping kept copies failed");
+                    }
+                })
+                .detach();
 
             // Before Settings, so that a launch asking for both ends
             // up with the window somebody asked to *read* in front.
