@@ -38,13 +38,20 @@ pub struct Restored {
     /// the texture around it (D238, [`crate::verify::OUTLINE_BOUND`]).
     pub outline: f32,
     /// The mark's faint band against the picture around it after it was
-    /// restored, in 8-bit luma levels, signed (D244,
+    /// restored: per colour channel — R, G, B — the band's mean less the
+    /// mean around it, in 8-bit levels, signed (D247).
+    pub steps: [f32; 3],
+    /// The same step in BT.601 luma, signed (D244,
     /// [`crate::verify::STEP_LEVELS`]).
     pub step: f32,
+    /// The same step in BT.601 colour difference, `|(ΔCb, ΔCr)|` (D247,
+    /// [`crate::verify::CHROMA_LEVELS`]).
+    pub chroma: f32,
     /// An outline is left — `outline` over its bound, or `step` over
-    /// [`crate::verify::STEP_LEVELS`] and the picture's own spread: the
-    /// restoration is kept — it took most of the mark away — and an
-    /// outline of it is said to be left.
+    /// [`crate::verify::STEP_LEVELS`] and the luma's own spread around
+    /// the mark, or `chroma` over [`crate::verify::CHROMA_LEVELS`] and the
+    /// colour's: the restoration is kept — it took most of the mark away —
+    /// and an outline of it is said to be left.
     pub outline_left: bool,
     /// The map's capture noise — dropped from every template (D241) — was
     /// found drawn in this picture after all, and taken off with the rest
@@ -153,7 +160,9 @@ pub fn restore(
         holes,
         clamped,
         outline: outline.share,
+        steps: outline.steps,
         step: outline.step,
+        chroma: outline.chroma,
         outline_left: outline.left(),
         noise,
         lossy: options.source == Fidelity::Lossy,

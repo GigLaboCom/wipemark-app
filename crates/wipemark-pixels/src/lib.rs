@@ -50,8 +50,8 @@ pub use raster::{Layout, Raster, RasterError};
 pub use restore::{composite, restore, RestoreError, Restored};
 use serde::Serialize;
 pub use verify::{
-    Refusal, Scores, Verified, BAND, BLEND_LEVELS, NOISE_FLOOR, NO_BLEND_RATIO, OUTLINE_BOUND,
-    STEP_LEVELS,
+    Refusal, Scores, Verified, BAND, BLEND_LEVELS, CHROMA_LEVELS, NOISE_FLOOR, NO_BLEND_RATIO,
+    OUTLINE_BOUND, STEP_LEVELS,
 };
 
 /// The claim this crate adds to the third shelf (D156). The English is

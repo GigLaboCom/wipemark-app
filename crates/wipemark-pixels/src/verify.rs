@@ -494,13 +494,24 @@ pub const BAND: [f32; 2] = [3.0 / 255.0, 0.2];
 /// picture around the mark, and over that picture's own spread, an
 /// outline is left (D244) — whatever share of the mark's contour that is.
 /// Measured on 21 first-generation Gemini outputs over their flat greens,
-/// restored at their row: −0.17 to +0.30. Left by GWT's capture map in the search: −1.84 to
-/// −1.93; on the re-saved `11_crying`, over a background of no spread at
-/// all: −3.67.
+/// restored at their row: −0.17 to +0.30. Left by GWT's capture map in
+/// the search: −1.84 to −1.93; on the re-saved `11_crying`, over a
+/// background of no spread at all: −3.67.
 pub const STEP_LEVELS: f32 = 1.0;
 
-/// What a restoration left along the mark's contour, two ways (D238,
-/// D244).
+/// Over this many 8-bit levels of colour difference — the faint band's
+/// step in BT.601 `Cb` and `Cr`, as one distance — and over the spread of
+/// that colour around the mark, an outline is left too (D247). A JPEG
+/// keeps BT.601 luma and puts its error into colour; subsampled 4:2:0,
+/// the sparkle's white bleeds into the band, and the fringe the inverse
+/// leaves — red and blue up, green down, plain at ×4 — is a step of
+/// −0.6 to +0.4 in luma. Measured on 21 first-generation outputs: under
+/// 0.5 as the vendor handed them out, 1.5–2.4 saved as JPEG 4:4:4 at 95
+/// (nothing an eye finds), 7.5–8.7 at 4:2:0 95 and 98.
+pub const CHROMA_LEVELS: f32 = 4.0;
+
+/// What a restoration left along the mark's contour, three ways (D238,
+/// D244, D247).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Outline {
     /// The contour's energy on the restored raster, less what the texture
@@ -508,19 +519,29 @@ pub(crate) struct Outline {
     /// had before (D238). Relative: on a flat picture a ring of twenty
     /// levels is a small share of a mark of a hundred.
     pub share: f32,
-    /// The faint band's mean luma less the mean of the pixels around the
-    /// mark, in 8-bit levels: what an eye compares on a flat picture.
+    /// Per colour channel — R, G, B — the faint band's mean less the mean
+    /// of the pixels around the mark, in 8-bit levels: what an eye
+    /// compares on a flat picture.
+    pub steps: [f32; 3],
+    /// The same step in BT.601 luma (D244).
     pub step: f32,
-    /// The standard deviation of those pixels around the mark, in 8-bit
+    /// The standard deviation of the luma around the mark, in 8-bit
     /// levels: how much a step can hide in.
     pub spread: f32,
+    /// The same step in BT.601 colour difference, `|(ΔCb, ΔCr)|` (D247).
+    pub chroma: f32,
+    /// The spread of that colour around the mark, `√(σ²Cb + σ²Cr)`.
+    pub chroma_spread: f32,
 }
 
 impl Outline {
-    /// A share over [`OUTLINE_BOUND`], or a step over both
-    /// [`STEP_LEVELS`] and the picture's own spread.
+    /// A share over [`OUTLINE_BOUND`]; a luma step over both
+    /// [`STEP_LEVELS`] and the luma's spread around the mark; or a colour
+    /// step over both [`CHROMA_LEVELS`] and the colour's spread there.
     pub fn left(&self) -> bool {
-        self.share > OUTLINE_BOUND || self.step.abs() > STEP_LEVELS.max(self.spread)
+        self.share > OUTLINE_BOUND
+            || self.step.abs() > STEP_LEVELS.max(self.spread)
+            || self.chroma > CHROMA_LEVELS.max(self.chroma_spread)
     }
 }
 
@@ -531,9 +552,9 @@ impl Outline {
 /// weight — as a share of the energy the mark had before. 0 for a
 /// restoration that left the contour as busy as its surroundings; a dark
 /// or light ring left by a map at the wrong size, place or filter is a
-/// share of what was there. The step: see [`Outline::step`].
+/// share of what was there. The steps: see [`Outline::steps`].
 pub(crate) fn outline(raster: &Raster, verified: &Verified) -> Outline {
-    let (step, spread) = step(raster, verified);
+    let steps = steps(raster, verified);
     let share = if verified.contour <= 1e-12 {
         0.0
     } else {
@@ -550,33 +571,37 @@ pub(crate) fn outline(raster: &Raster, verified: &Verified) -> Outline {
         let texture = texture_around(raster, verified.at);
         ((after - weight * texture).max(0.0) / verified.contour) as f32
     };
-    Outline {
-        share,
-        step,
-        spread,
-    }
+    Outline { share, ..steps }
 }
 
-/// The faint band's step and the spread around it, in 8-bit luma levels:
-/// the band is the template's pixels with `α` in [`BAND`]; around it is
-/// every pixel of the rectangle under the noise floor and of a ring four
-/// pixels out, inside the picture. `(0, 0)` with either empty.
-fn step(raster: &Raster, verified: &Verified) -> (f32, f32) {
+/// The faint band's step against the picture around it, per channel and
+/// in luma and colour difference, with the spread around it, in 8-bit
+/// levels: the band is the template's pixels with `α` in [`BAND`]; around
+/// it is every pixel of the rectangle under the noise floor and of a ring
+/// four pixels out, inside the picture. Zeros with either empty; the
+/// share is left to the caller.
+fn steps(raster: &Raster, verified: &Verified) -> Outline {
     let (w, h) = (i64::from(raster.width()), i64::from(raster.height()));
-    let max = f64::from(raster.layout().max());
+    let scale = 255.0 / f64::from(raster.layout().max());
     let samples = raster.samples();
-    let luma = |x: i64, y: i64| {
+    // R, G, B, then BT.601 Y, Cb and Cr (JFIF's, less the offset).
+    let six = |x: i64, y: i64| {
         let i = raster.at(x as u32, y as u32);
-        (f64::from(LUMA[0]) * f64::from(samples[i])
-            + f64::from(LUMA[1]) * f64::from(samples[i + 1])
-            + f64::from(LUMA[2]) * f64::from(samples[i + 2]))
-            * 255.0
-            / max
+        let [r, g, b] = [0, 1, 2].map(|c| f64::from(samples[i + c]) * scale);
+        let luma = f64::from(LUMA[0]) * r + f64::from(LUMA[1]) * g + f64::from(LUMA[2]) * b;
+        [
+            r,
+            g,
+            b,
+            luma,
+            -0.168_736 * r - 0.331_264 * g + 0.5 * b,
+            0.5 * r - 0.418_688 * g - 0.081_312 * b,
+        ]
     };
     let at = verified.at;
     let (x0, y0) = (i64::from(at.x), i64::from(at.y));
     let (x1, y1) = (x0 + i64::from(at.width), y0 + i64::from(at.height));
-    let (mut band, mut nb) = (0f64, 0f64);
+    let (mut band, mut nb) = ([0f64; 6], 0f64);
     let mut around = Vec::new();
     for y in (y0 - 4).max(0)..(y1 + 4).min(h) {
         for x in (x0 - 4).max(0)..(x1 + 4).min(w) {
@@ -587,20 +612,39 @@ fn step(raster: &Raster, verified: &Verified) -> (f32, f32) {
                 0.0
             };
             if a < NOISE_FLOOR {
-                around.push(luma(x, y));
+                around.push(six(x, y));
             } else if (BAND[0]..=BAND[1]).contains(&a) {
-                band += luma(x, y);
+                for (b, v) in band.iter_mut().zip(six(x, y)) {
+                    *b += v;
+                }
                 nb += 1.0;
             }
         }
     }
+    let mut outline = Outline {
+        share: 0.0,
+        steps: [0.0; 3],
+        step: 0.0,
+        spread: 0.0,
+        chroma: 0.0,
+        chroma_spread: 0.0,
+    };
     if nb == 0.0 || around.is_empty() {
-        return (0.0, 0.0);
+        return outline;
     }
     let n = around.len() as f64;
-    let mean = around.iter().sum::<f64>() / n;
-    let spread = (around.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n).sqrt();
-    ((band / nb - mean) as f32, spread as f32)
+    let (mut step, mut var) = ([0f64; 6], [0f64; 6]);
+    for c in 0..6 {
+        let mean = around.iter().map(|p| p[c]).sum::<f64>() / n;
+        var[c] = around.iter().map(|p| (p[c] - mean).powi(2)).sum::<f64>() / n;
+        step[c] = band[c] / nb - mean;
+    }
+    outline.steps = [step[0] as f32, step[1] as f32, step[2] as f32];
+    outline.step = step[3] as f32;
+    outline.spread = var[3].sqrt() as f32;
+    outline.chroma = step[4].hypot(step[5]) as f32;
+    outline.chroma_spread = (var[4] + var[5]).sqrt() as f32;
+    outline
 }
 
 /// The mean luma gradient (central differences, luma in [0, 1]) over the
@@ -709,6 +753,84 @@ mod tests {
             verify(&raster, &profile, &proposal),
             (None, Outcome::NoBlend)
         );
+    }
+
+    /// A perfectly flat green 24 × 24 picture, a 16-pixel mark at (4, 4):
+    /// its two outer rings the faint band (`α` 0.1), its middle the body,
+    /// the four pixels around it the picture. `shift(i)` moves the `i`-th
+    /// pixel of the band by so many levels per channel. What is left
+    /// there, measured.
+    fn flat_band(shift: impl Fn(usize) -> [i32; 3]) -> Outline {
+        const GREEN: [i32; 3] = [9, 150, 56];
+        let mut values = vec![0.5f32; 16 * 16];
+        let mut samples = Vec::with_capacity(24 * 24 * 3);
+        let mut band = 0;
+        for y in 0..24u32 {
+            for x in 0..24u32 {
+                let (tx, ty) = (x.wrapping_sub(4), y.wrapping_sub(4));
+                let mut px = GREEN;
+                if tx < 16 && ty < 16 && (tx.min(ty) < 2 || tx.max(ty) >= 14) {
+                    values[(ty * 16 + tx) as usize] = 0.1;
+                    for (p, d) in px.iter_mut().zip(shift(band)) {
+                        *p += d;
+                    }
+                    band += 1;
+                }
+                samples.extend(px.map(|v| v as u8));
+            }
+        }
+        let verified = Verified {
+            at: PixelRect {
+                x: 4,
+                y: 4,
+                width: 16,
+                height: 16,
+            },
+            values,
+            noise: vec![0.0; 16 * 16],
+            width: 24,
+            height: 24,
+            ..one(0.1)
+        };
+        let raster = Raster::from_u8(24, 24, Layout::Rgb8, &samples).unwrap();
+        outline(&raster, &verified)
+    }
+
+    /// On a picture with no spread at all, a step under a level is
+    /// nothing an eye finds and is not said; one over it is — the luma
+    /// bound from below as well as above (D244).
+    #[test]
+    fn a_sub_level_step_on_a_flat_picture_is_not_an_outline() {
+        // 84 of the band's 112 pixels a level lighter: 0.75 in luma.
+        let under = flat_band(|i| if i < 84 { [1; 3] } else { [0; 3] });
+        assert!((under.step - 0.75).abs() < 1e-3, "{under:?}");
+        assert!(under.chroma < 1e-3 && under.spread == 0.0, "{under:?}");
+        assert!(!under.left(), "{under:?}");
+        // All a level lighter, 28 of them two: 1.25.
+        let over = flat_band(|i| if i < 28 { [2; 3] } else { [1; 3] });
+        assert!((over.step - 1.25).abs() < 1e-3, "{over:?}");
+        assert!(over.left(), "{over:?}");
+    }
+
+    /// A fringe in colour with the luma kept — red up, green down, as a
+    /// subsampled JPEG leaves it — is held to [`CHROMA_LEVELS`] (D247):
+    /// 2.8 levels of colour difference is not said, 5.2 is, and luma
+    /// alone sees neither.
+    #[test]
+    fn a_fringe_in_colour_is_said_over_its_bound_and_not_under_it() {
+        let under = flat_band(|_| [4, -2, 0]);
+        assert!(
+            under.step.abs() < 0.1 && (under.chroma - 2.84).abs() < 0.01,
+            "{under:?}"
+        );
+        assert!(!under.left(), "{under:?}");
+        let over = flat_band(|_| [7, -4, 0]);
+        assert!(
+            over.step.abs() < 0.3 && (over.chroma - 5.18).abs() < 0.01,
+            "{over:?}"
+        );
+        assert_eq!(over.steps, [7.0, -4.0, 0.0]);
+        assert!(over.left(), "{over:?}");
     }
 
     /// The inverse is rounded to the nearest level, as GWT's is — not

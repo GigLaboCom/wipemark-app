@@ -287,12 +287,14 @@ traces; the proof here is stricter and the map and the logo are measured.
   their flat greens the step is −0.17 to +0.30 (`anchor-alternative`'s
   corner is textured, spread 21: +13.2, not said); `crying` −3.67 and
   JPEG 90 +2.2 to +2.8 are said,
-  JPEG 95 (+0.16) is not. On the synthetic shrunk-and-compressed cases,
+  JPEG 95 at 4:4:4 (+0.16) is not — at 4:2:0, the JPEG most files
+  are, it leaves a fringe in colour that luma does not see (D247,
+  below). On the synthetic shrunk-and-compressed cases,
   checked against the picture shrunk without the mark, the one said is
   +2.25 off the truth and every one not said within 1.26
   (`tests/outline.rs`). A lopsided ring whose band averages out is the
   share's to say (`a_lopsided_outline_is_said_by_its_share`).
-  `Restored.step` carries the number, and the CLI says it.
+  `Restored.step` carries the number.
 * **The search draws with the map a row names** (D244). `map_for`
   took the first map of a width in the list — GWT's capture, listed
   before the measured map — so a mark off its row came back with 4 027
@@ -319,6 +321,40 @@ traces; the proof here is stricter and the map and the logo are measured.
   fitted map: what its denoising drops is the fit's own noise (slopes of
   1.3–1.8 on the outputs it was fitted from), not evidence.
 
+## What the third host verification taught (D247–)
+
+* **An outline is held to the picture in colour too** (D247). The step
+  of D244 was BT.601 luma — JPEG's own luma. A JPEG subsampled 4:2:0
+  (Pillow's default, and most JPEGs there are) keeps that luma and halves
+  the colour's resolution: the sparkle's white bleeds into the faint band
+  in colour alone, and the inverse leaves a fringe — red 10–11 levels up,
+  green 6–7 down, blue 5–6 up, plain at ×4 with no amplification — whose
+  luma step is −0.5 to +0.3. The restoration is right (byte-identical to
+  a naive inverse); the measure was blind. `verify::outline` now also
+  takes the band's step in BT.601 colour difference, `|(ΔCb, ΔCr)|`, and
+  an outline is left when that is over `CHROMA_LEVELS` **4.0** and over
+  the colour's own spread around the mark. Measured on the 21
+  first-generation outputs (and the two others in the set): 0.11–0.46 as
+  handed out; 2.05–2.51 saved as JPEG 4:4:4 at 95, by Pillow or by the
+  `image` crate — a step of red and blue a level or three that nobody
+  finds by eye (ΔE2000 0.8–0.9) — not said; 7.6–8.9 at 4:2:0 95 and 98,
+  said on every one restored (`a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said`).
+  Not the largest channel: a 4:4:4 JPEG's blue alone is up 3–4 levels,
+  as large as `crying`'s outline in luma and invisible, because the eye
+  resolves colour more coarsely than light — which is why 4:2:0 exists.
+  `Restored.steps` carries the step per channel, R, G and B, and
+  `Restored.chroma` the colour difference. The share (D238) stays luma:
+  a fringe of a few levels is a small share of a mark of a hundred in any
+  channel, and the colour step is what sees it.
+* **Known limitation: most subsampled JPEGs are not restored.** Under
+  95, a 4:2:0 JPEG's colour error in the band is more than the
+  out-of-range allowance (`BLEND_LEVELS`, 8 stored levels) admits: 18 of
+  23 first-generation outputs at 4:2:0 90 are refused out of range,
+  `victory` already at 95. That is honest — the mark is said to be left
+  and `clean` exits 3 — but it means the commonest JPEG is the one this
+  release restores least. Restoring the colour at the chroma's own
+  resolution is the road, and not taken here.
+
 ## Thresholds
 
 The shipped profiles carry `min_ncc` **0.70** (a row: half of it),
@@ -328,8 +364,9 @@ The shipped profiles carry `min_ncc` **0.70** (a row: half of it),
 (D240); a template drops the capture's noise under `CAPTURE_NOISE`
 **7/255** (D241), and a restoration takes it back off where its speckle
 is in the picture (D246); an outline is left past `OUTLINE_BOUND`
-**0.20** of the contour or `STEP_LEVELS` **1.0** level on the faint band
-and the picture's own spread (D238, D244). Measured on the synthetic pair and the shipped maps
+**0.20** of the contour, or on the faint band past `STEP_LEVELS` **1.0**
+level of luma or `CHROMA_LEVELS` **4.0** levels of colour difference and
+the picture's own spread in each (D238, D244, D247). Measured on the synthetic pair and the shipped maps
 (2026-10-04, `--nocapture`):
 
 | | |
@@ -378,7 +415,7 @@ cargo test -p wipemark-pixels --release --test measure -- --ignored --nocapture
   Q-V8 for these four): `wipemark-picture`'s `tests/real.rs` proves the
   vendor's mark at its row and restores it (not exact: GWT's maps are
   8-bit captures, and a few samples of a real output clamp), as JPEG at
-  90/95, and shrunk with its picture to 373 pixels by Lanczos or bilinear
+  90/95 (4:4:4) and at 95/98 4:2:0 (the fringe said, D247), and shrunk with its picture to 373 pixels by Lanczos or bilinear
   (proved in 6 of 8, the filter recognised, outline 0.07–0.11); an edited
   corner is seen and left; a cut-out sticker's confetti under its
   transparent corner is no finding. The CLI's `tests/visible.rs` and the

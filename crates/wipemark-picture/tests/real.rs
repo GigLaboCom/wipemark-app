@@ -11,7 +11,7 @@ use image::imageops::FilterType;
 use wipemark_picture::{clean, decode, inspect, Encoding, PictureOptions, Visible};
 use wipemark_pixels::{
     Catalogue, ExamineOptions, Fidelity, Layout, PixelRect, Placed, Raster, Refusal, Verdict,
-    OUTLINE_BOUND, STEP_LEVELS,
+    CHROMA_LEVELS, OUTLINE_BOUND, STEP_LEVELS,
 };
 
 fn fixture(name: &str) -> Vec<u8> {
@@ -42,10 +42,11 @@ const ROW: PixelRect = PixelRect {
 /// is said (`a_flattened_copy_is_restored_with_its_outline_said`).
 const MARKED: [&str; 2] = ["torch-1025.png", "victory-1025.png"];
 
-/// How far, in 8-bit luma levels, the faint band of a first-generation
-/// mark may lie from the picture around it once restored: that picture's
-/// own noise (−0.17 to +0.30 over 21 outputs on their flat greens; the
-/// host verifier's independent measure, −0.55 to +0.60).
+/// How far, in 8-bit levels of luma or of colour difference, the faint
+/// band of a first-generation mark may lie from the picture around it
+/// once restored: that picture's own noise (−0.17 to +0.30 in luma and
+/// 0.11 to 0.46 in colour over 21 outputs on their flat greens; the host
+/// verifier's independent measure, −0.55 to +0.60 per channel).
 const NOISE_LEVELS: f32 = 0.6;
 
 fn raster_of(bytes: &[u8]) -> Raster {
@@ -105,6 +106,8 @@ fn a_real_mark_is_proved_at_its_row_and_restored() {
         let r = &report.restored[0];
         assert!(!r.outline_left, "{name}: {r:?}");
         assert!(r.step.abs() <= NOISE_LEVELS, "{name}: {r:?}");
+        assert!(r.chroma <= NOISE_LEVELS, "{name}: {r:?}");
+        assert!(r.steps.iter().all(|s| s.abs() <= 1.0), "{name}: {r:?}");
         // The map is fitted from real outputs: held to the picture around
         // it, never claimed exact (D245) — the logo's spread across
         // pictures alone is over a level.
@@ -306,12 +309,15 @@ fn the_sparkle_leaves_no_ghost() {
     }
 }
 
-/// The same pictures saved as JPEG: proved, restored, re-encoded. At 95
-/// the codec's error in the mark's faint band averages out — nothing is
-/// left. At 90 it does not: the inverse amplifies it by `1/(1 − α)`, and
-/// the band comes back 2–3 levels lighter than the picture around it, the
-/// same order as `crying`'s outline — said, the mark counted as left
-/// (D244), within the relative bound all the same.
+/// The same pictures saved as JPEG by the `image` crate — 4:4:4, no
+/// colour subsampled: proved, restored, re-encoded. At 95 the codec's
+/// error in the mark's faint band averages out in luma, and what it
+/// leaves in colour (2.0–2.5 levels of `Cb`/`Cr`, red and blue a level or
+/// two up) is under what an eye finds — nothing is said. At 90 it does
+/// not: the inverse amplifies it by `1/(1 − α)`, and the band comes back
+/// 2–3 levels lighter than the picture around it, the same order as
+/// `crying`'s outline — said, the mark counted as left (D244), within the
+/// relative bound all the same.
 #[test]
 fn a_real_mark_saved_as_jpeg_is_restored_and_an_outline_said_where_left() {
     for name in MARKED {
@@ -328,6 +334,7 @@ fn a_real_mark_saved_as_jpeg_is_restored_and_an_outline_said_where_left() {
             assert!(r.outline <= OUTLINE_BOUND, "{label}: {r:?}");
             if quality == 95 {
                 assert!(r.step.abs() <= NOISE_LEVELS, "{label}: {r:?}");
+                assert!(r.chroma < CHROMA_LEVELS, "{label}: {r:?}");
                 assert!(!cleaned.marks_left(), "{label}");
             } else {
                 assert!(r.step > STEP_LEVELS && r.outline_left, "{label}: {r:?}");
@@ -336,6 +343,53 @@ fn a_real_mark_saved_as_jpeg_is_restored_and_an_outline_said_where_left() {
             assert_eq!(cleaned.encoding, Encoding::Jpeg { quality: 95 });
         }
     }
+}
+
+/// The same pictures saved as most JPEGs are — 4:2:0, the colour at half
+/// the resolution, Pillow's default — at 95 and 98: the sparkle's white
+/// bleeds into the faint band in colour while the luma keeps it, and the
+/// inverse leaves a fringe, red 10–11 levels up, green 6–7 down, blue 5–6
+/// up, plain at ×4 with no amplification — and a step of under half a
+/// level in luma, which alone would call it clean. So the band is held to
+/// the picture in colour difference too (D247): the fringe is said, or
+/// the mark is refused out of range before it is restored. Either way the
+/// mark counts as left.
+#[test]
+fn a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said() {
+    let mut said = 0;
+    for name in [
+        "torch-1025-q95-420.jpg",
+        "victory-1025-q95-420.jpg",
+        "victory-1025-q98-420.jpg",
+    ] {
+        let (_, cleaned) = clean(&fixture(name), &shipped()).unwrap();
+        let Visible::Examined { report, .. } = &cleaned.visible else {
+            panic!("{name}: {:?}", cleaned.visible)
+        };
+        assert_eq!(report.found.len(), 1, "{name}: {:#?}", report.found);
+        assert!(cleaned.marks_left(), "{name}: {report:#?}");
+        if let [r] = report.restored.as_slice() {
+            assert!(
+                r.step.abs() <= NOISE_LEVELS,
+                "luma alone sees it: {name}: {r:?}"
+            );
+            assert!(r.chroma > 1.5 * CHROMA_LEVELS, "{name}: {r:?}");
+            assert!(r.steps[0] > 8.0 && r.steps[1] < -4.0, "{name}: {r:?}");
+            assert!(r.outline_left && !r.exact, "{name}: {r:?}");
+            said += 1;
+        } else {
+            assert!(
+                matches!(
+                    report.found[0].verdict,
+                    Verdict::Refused(Refusal::OutOfRange { .. })
+                ),
+                "{name}: {:?}",
+                report.found[0].verdict
+            );
+        }
+    }
+    // Not every one is refused: on two the fringe is said.
+    assert_eq!(said, 2);
 }
 
 /// The vendor's mark shrunk with its picture — the 1025 corner taken to
