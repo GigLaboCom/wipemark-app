@@ -108,10 +108,20 @@ headers say what each one does.
 **The decision (the owner, 2026-10-05).** The two fixes are carried in
 a fork of zed: `GigLaboCom/zed`, branch `wipemark/x11-first-frame`, cut
 from `81b16f4`, carrying patch A and patch B. The
-application takes it on its branch `gpui/x11-first-frame`. The fork's
-commit is `<to be filled at merge>`; the application's merge is
-`<to be filled at merge>`; how the workspace points at it is recorded
-by that merge.
+application takes it on its branch `gpui/x11-first-frame`. Patch A is
+`a9bd665`, patch B `9d80553` (the branch head), and the application took
+it in the merge `c3aee8e`. The workspace names the fork's URL and that
+rev in place of upstream's — the root `Cargo.toml`'s two gpui lines,
+and `scripts/pin-gpui-component.sh` rewriting the submodule's five zed
+lines to the same URL and rev and failing if any zed dependency is
+still on upstream — rather than a `[patch]` section, which would have
+to list every zed crate (25 today) and would let a crate a later bump
+adds come from upstream unnoticed. `Cargo.lock` changed only in the 23
+zed `source` lines. Measured after the merge on this host: the refresh
+loop starts 0.000–0.002 s after the window activates and the capture at
+3 s is the UI, in 18 of 18 launches (debug, release, test-support), with
+the real session bus and no panic; the D-Bus workaround is no longer
+needed.
 
 ### Patch A — a stale window at start
 
@@ -428,7 +438,7 @@ order:
 **Our forks**
 
 - `GigLaboCom/gpui-component`, the pinned branch: <https://github.com/GigLaboCom/gpui-component/tree/heretic/epic-4-line-decorations>; the port: <https://github.com/GigLaboCom/gpui-component/tree/heretic/line-decorations-on-upstream>
-- `GigLaboCom/zed`, patches A and B: <https://github.com/GigLaboCom/zed/tree/wipemark/x11-first-frame> (commit `<to be filled at merge>`)
+- `GigLaboCom/zed`, patches A and B: <https://github.com/GigLaboCom/zed/tree/wipemark/x11-first-frame> (patch A `a9bd6652a7de76dc9ce6a5e3854234e5adfef414`, patch B `9d80553d6a3d19491c19b68b0167a366bba3be63`)
 
 **In this repository**
 

@@ -72,7 +72,7 @@ cleaned or rewritten, which every surface says out loud.
 | gates at `497eafa` | dep-direction, nightly rustfmt, clippy `-D warnings --locked`, `cargo test --workspace --locked` **576 passed, 0 failed, 1 ignored**, both `--locked` feature checks — all green | run 2026-10-03, recorded in `wipemark-status-2026-10-03` |
 | size | ≈44.6 k lines of Rust in `crates/` + `apps/`; 14 documents in `docs/architecture/`; 421 catalogue keys × 3 languages | `wc -l`, `grep -c` |
 | toolchain | 1.94.1 pinned in `rust-toolchain.toml` with `clippy`/`rustfmt` components; nightly only for rustfmt | `rust-toolchain.toml`, CLAUDE.md "Gates" |
-| GPUI | zed `gpui` at rev `81b16f464ce91e40c1c645b56675c26ee0b2b6c4`, rewritten into the submodule by `scripts/pin-gpui-component.sh` | that script |
+| GPUI | zed `gpui` at rev `81b16f464ce91e40c1c645b56675c26ee0b2b6c4`, rewritten into the submodule by `scripts/pin-gpui-component.sh`; since 2026-10-05 taken from the fork `GigLaboCom/zed` at `9d80553` (that rev plus two X11 fixes, `docs/architecture/gpui-pin.md`) | that script |
 | gpui-component | submodule `vendor/gpui-component` at `a2f9c95`, from the organisation's fork `GigLaboCom/gpui-component`, protected branch `heretic/epic-4-line-decorations` (moved from a personal fork on 2026-10-03; §8 R1, `docs/sdd/line-decorations.md`) | `.gitmodules`; `git submodule status` |
 
 ### 1.2 Per crate
