@@ -6,17 +6,21 @@ is model rewriting.
 
 **Layer A exists; Layer B does not yet.** Layer A — the UCD 18.0.0
 tables, the classifier and what it keeps, the scrubber, NFKC,
-homoglyphs and the five guards, in `wipemark-core` — is real, and two
+homoglyphs and the five guards, in `wipemark-core` — is real, and three
 surfaces call it: `wipemark-cli inspect|clean|audit` (and `clean
---in-place`) and the MCP tools `inspect`/`clean`. Real around it: the workspace and its four gates, the
+--in-place`), the MCP tools `inspect`/`clean`, and the windows — Clean in
+the main window's table and in the panel, and `--clean=<path>`, through
+`apps/wipemark-app/src/clean.rs` (E7). Real around it: the workspace and its four gates, the
 GPUI shell and its Settings window, preferences as rows in SQLite, the
 API key in the OS credential store, the model catalogue and its
 verifying downloader, the MCP server, the rule that decides who would
-rewrite if anything could, and the panel that takes a drop and says what
-it was. The windows do not clean yet (E7), and Layer B is E2; both say
-so out loud wherever a user could mistake them for present — see
-`docs/architecture/skeleton.md` and `docs/architecture/layer-a.md`
-before assuming anything works. Of Layer B, the local engine exists —
+rewrite if anything could, the panel that takes a drop, says what it
+found and cleans it, and the report with its three shelves. The windows
+clean and do not rewrite (that is E4-6b), and they say so out loud
+wherever a user could mistake a rewrite for present — see
+`docs/architecture/retention.md` ("How the windows execute it"),
+`docs/architecture/queue.md`, `docs/architecture/skeleton.md` and
+`docs/architecture/layer-a.md` before assuming anything works. Of Layer B, the local engine exists —
 llama.cpp in `wipemark-llama{,-sys}` and `wipemark_engine::LocalEngine`
 behind `local-llama`, tested against a real GGUF (Qwen3 4B, Gemma 4 12B, Qwen3.8 27B) — and the application
 hands it out: the windows can **load** the chosen model, keep it or let it
@@ -38,16 +42,21 @@ validation of an edited template and the clean-up of an answer, in
 loop: `wipemark_pipeline::start` runs a job — Layer A, candidates ×
 rounds, the guards, the language check and the no-op floor, the most-diverged winner, Layer A again —
 tested on `FakeEngine` and against Qwen3 4B. The MCP tool `rewrite` and
-`wipemark-cli rewrite` start one (E4-6a); the windows do not (E4-6b/E7); see
+`wipemark-cli rewrite` start one (E4-6a); the windows do not (E4-6b); see
 `docs/architecture/pipeline.md`, "The loop". The batch queue exists too —
 `wipemark-queue`: one document at a time, pause, cancel, resumable per
-chunk, surviving `kill -9` — and nothing pushes to it yet (E4-6/E7).
+chunk, surviving `kill -9` — and nothing pushes to it yet (E4-6b): the
+windows' clean does not go through it, one thing at a time on a line of
+its own.
 Images exist too: `wipemark-image` reads and strips provenance metadata
 from PNG, JPEG and WebP without touching a pixel; `wipemark-pixels` finds,
 proves and takes off a generator's visible mark (Gemini's sparkle, V1 and
 V2) over a decoded raster; `wipemark-picture` runs both on a picture file
-with one writer; and `wipemark-cli inspect|clean|audit` and the MCP tools
-`inspect_image`/`clean_image` call them — no window does yet (E7/E12-8).
+with one writer; and `wipemark-cli inspect|clean|audit`, the MCP tools
+`inspect_image`/`clean_image` and, since E7, the windows' Clean call them
+— the windows at the MCP tool's default scope, AI provenance only. That
+is the cleaning half of E12-8; Compare for pictures and the batch queue's
+picture item are the rest of it, not started.
 See `docs/architecture/images.md` and `docs/architecture/visible-marks.md`.
 
 ## First command after any clone or submodule update
@@ -184,6 +193,16 @@ cargo test -p wipemark-app duty::           # one module's tests
 cargo test -p wipemark-app -- --nocapture   # with the log lines
 ```
 
+**On the Ubuntu X11 host the window panics at its first frame** — any
+build, pre-E7 included — when the desktop portal reports the appearance:
+GPUI at the pinned rev borrows a `RefCell` that is already mutably
+borrowed (`gpui_linux`, `x11/window.rs:1556`). Under investigation. Until
+it is fixed, start it with the session bus out of reach,
+`DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent cargo run -p wipemark-app`;
+the theme then does not follow the system, and the portal-backed Open
+and Show in folder may do nothing. `scripts/verify/e7/live-disk.sh` does
+the same.
+
 Five things steer a run, and every one of them exists so a check can be
 made against something other than the real installation:
 
@@ -196,6 +215,7 @@ made against something other than the real installation:
 | `--setup` | opens the first-launch walk-through over the main window, whether or not it has been through before. Writes nothing; its own Finish and Skip do. |
 | `--import=<path>` | puts a file in the queue at startup, once per flag — what a drop or the Import button does, so a check of the table does not start by driving a file picker. |
 | `--compare=<path>` | opens the Compare window on a file at startup, once per flag — what a row's Actions menu does, so a check of two panes of text does not start by driving a menu. |
+| `--clean=<path>` | puts a file in the queue and cleans it at startup, once per flag — Import followed by the row's Clean, so a check of what a clean writes does not start by driving a file picker and a menu. The result goes where the Retention page says; a file that cannot be cleaned still lands, as a row whose badge says why (D268). |
 | `--version` | prints `wipemark <version>` and exits before the database, the MCP port or a window — what `tests/standalone.rs` runs to prove a binary built with `llama-native` finds llama.cpp's libraries without cargo's loader path. |
 
 Seeding a scratch database is `sqlite3 $WIPEMARK_DATA_DIR/wipemark.db`
@@ -220,13 +240,13 @@ it sits.
 | `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation, prompts and the loop real (E4-1…E4-3), the resumable job the queue drives (E4-4), the prompt bench (`examples/bench`, `bench/`, E4-5 — `docs/architecture/prompt-bench.md`) and its recommendations built (E4-7); the windows' surfaces are **E4-6b** |
 | `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
 | `wipemark-store` | the SQLite file, the `settings` table and the queue's tables (schema 2) | real |
-| `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination | real; no surface pushes to it (**E4-6**) |
+| `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination | real; no surface pushes to it (**E4-6b**) — the windows' clean has a line of its own |
 | `wipemark-secret` | the OS credential store, and `Secret` | real |
 | `wipemark-log` | the rotating file, the panic hook, `Elided` | real |
 | `wipemark-i18n` | the Fluent catalogues and the `Message` enum `build.rs` generates from them | real |
-| `wipemark-image` | PNG, JPEG and WebP metadata: blocks that tile the file, the AI signals as data, `inspect`/`strip` with the raster unchanged; and `reframe`, the one writer for a picture whose pixels changed (`reframe(x, x) == strip(x)`) | real for PNG/JPEG/WebP (E11-1, E11-3; `reframe` E12-3); TIFF, HEIC/AVIF refused by name (backlog); the CLI and the MCP server call it (E11-2), `wipemark-picture` too; no window yet (**E7**) |
+| `wipemark-image` | PNG, JPEG and WebP metadata: blocks that tile the file, the AI signals as data, `inspect`/`strip` with the raster unchanged; and `reframe`, the one writer for a picture whose pixels changed (`reframe(x, x) == strip(x)`) | real for PNG/JPEG/WebP (E11-1, E11-3; `reframe` E12-3); TIFF, HEIC/AVIF refused by name (backlog); the CLI and the MCP server call it (E11-2), `wipemark-picture` too, and through it the windows' Clean (E7) |
 | `wipemark-pixels` | visible marks as data: the raster, the `.wma` opacity map, the compiled-in catalogue `manifests/marks.v1.json` with every asset pinned by sha256; propose (rows at their own place, then a search refined to the sub-pixel and to the filter that shrank the mark) → verify (edge energy over the unclamped inverse: proved, a blend not proved, or no blend) → restore, the outline and texture checks, holes, the second pass; calibration (`examples/calibrate.rs`); the report whose shelf leads with `invisible-pixel-marks`. No codec | real (E12-1, E12-2, five rounds of host verification); Gemini V1/V2 from GWT's maps (`marks/gwt/`), V1's large-row map and logo measured from real outputs (`gemini-v1-96-measured`), V2's small rows from GWT's formula; other vendors **E12-6** |
-| `wipemark-picture` | a picture file through both passes: decode to the stored raster, the visible pass, encode like the original, `wipemark_image::reframe`, the proof before a byte is handed back — one writer | real for PNG, WebP (lossless out) and JPEG (re-encoded at quality 95; CMYK examined, never written back) (E12-3, E12-4); the CLI and the MCP tools call it (E12-5); no window yet (**E12-8**) |
+| `wipemark-picture` | a picture file through both passes: decode to the stored raster, the visible pass, encode like the original, `wipemark_image::reframe`, the proof before a byte is handed back — one writer | real for PNG, WebP (lossless out) and JPEG (re-encoded at quality 95; CMYK examined, never written back) (E12-3, E12-4); the CLI and the MCP tools call it (E12-5), and the windows' Clean and the panel's look at AI-provenance scope (E7); Compare for pictures and the batch queue's picture item are **E12-8** |
 | `wipemark-intake` | what was handed over — text, bytes or a path — and what it turns out to be; and `inplace`, the one module that writes: a result beside a file or over it, the original set aside first | real |
 | `wipemark-license` | activation, grace, and what a lapse never locks | types; **E9** |
 
@@ -247,12 +267,14 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `engine.rs` | the Layer B endpoint vocabulary and its refusals |
 | `profile.rs` | endpoint settings saved under a name |
 | `models.rs` | the Models page's vocabulary, the recommendation, the adoption |
-| `compare.rs` | the fourth window: the result beside its original, every line that differs marked on both sides and the words within a changed line marked more strongly; what it reads, what it refuses, how the original follows the result's cursor, and the Compare page's rows as values |
+| `compare.rs` | the fourth window: the original beside what cleaning makes of it — `clean(original)` at Layer A's defaults, made in the read's background task and kept for Reset — every line that differs marked on both sides and the words within a changed line marked more strongly; what it reads, what it refuses, how the original follows the result's cursor, and the Compare page's rows as values |
 | `result.rs` | the result as an editor with a toolbar — the toolbar is `gpui_component::input`'s own actions taken by a different road, and the component knows nothing about originals |
 | `diff.rs` | two texts, line against line — and within a changed line, word against word or character against character: the pure function under the Compare window's marks |
-| `queue.rs` | the main window's table: what was dropped or imported, one row each — the preview, the hover card, the filter bar, the sort, the paginator, the Actions menu and the double click that is its Compare item without the menu |
+| `queue.rs` | the main window's table: what was dropped or imported, one row each — the preview, the hover card, the filter bar, the sort, the paginator, the Status column, the `Line` that cleans one row at a time with the plan taken at its start, the Actions menu (Clean first, greyed with its reason under it; then open with the default app, Compare, Open the result, Show the result in its folder, Copy the result, Report…, Replace the existing result) and the double click that is its Compare item without the menu |
 | `preview.rs` | what a row looks like before it is opened: the picture, the first lines, or nothing |
-| `wording.rs` | the sentences the panel and the queue share about one thing that arrived — what a kind is called, whether the name lied, what would happen to it |
+| `wording.rs` | the sentences the panel, the queue and the report share about one thing that arrived — what a kind is called, whether the name lied, what would happen to it, what a look found, what a clean came to and where its result went — each over a `Say`, so a window and a copied report are one sentence in two renderings |
+| `clean.rs` | cleaning one thing that arrived, with no window: what can be (`cleanable`), the read that decides again from the bytes, the CLI's policy stated once as `outcome_of`, the write by the plan, the kept copies and the `sweep`; `inspect_one`, the same read for the panel's look; `number`, the one counter for rows and kept directories |
+| `report.rs` | the Report dialog: one finished clean said in full — what arrived, what happened, and the three shelves — Copy JSON (the library's `to_json()`) and Copy as Markdown (plain) |
 | `drop.rs` | a place on screen that accepts what is dragged onto it, and what came back |
 | `pasteboard.rs` | the dragging destination GPUI has not got, and the one place a pasteboard is read |
 | `dialog.rs` | the modal overlays and the focus trap |
@@ -264,7 +286,7 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `keys.rs` | a chord, painted: how its keys are spelled and what goes between them |
 | `window_state.rs` | the Settings window's rectangle, one row per display |
 | `title.rs` | every window title, built as plain text |
-| `panel.rs` | the third window: summoned from the menu bar, no titlebar, placed by nothing but the Placement page |
+| `panel.rs` | the third window: summoned from the menu bar, no titlebar, placed by nothing but the Placement page; a findings line under each listed thing, and Clean beside the dismissal line |
 | `setup.rs` | the first-launch walk-through: five steps over the main window, the recommendation the machine's memory makes, and the rows it writes through the pages' own methods |
 | `placement.rs` | which screen the panel opens on, and which sixth of it — one answer per display |
 | `retention.rs` | where a result goes, what happens to the file it came from, what the product keeps of its own and for how long — and the plan for one thing that arrived |
@@ -324,9 +346,12 @@ Anything that needed more than a rule to explain is in `docs/`;
   backlog. A person reading a window, and an agent reading a refusal,
   can do nothing with them — what they can act on is "not in this
   version yet", which is what every pending surface now says: the
-  queue's footer and the toolbar's help, the panel, the Engine and
-  Models banners, the MCP tools pane, the tray's disabled item and the
-  CLI's refusal.
+  queue's footer, the toolbar's help and the panel — which since E7 say
+  only that *rewriting* is not in the windows, because they clean — the
+  Engine and Models banners, the MCP tools pane, the tray's disabled item
+  and the CLI's refusal. The footer's and the panel's sentences are gated
+  against an epic number; the catalogue as a whole is not yet (the E7
+  follow-ups' W1).
   The rule that produced them is unchanged and is the point — a surface
   that cannot do the thing says so out loud — only the shorthand is
   gone. Epic ids stay in the code, in this file and in `docs/`, and in
@@ -414,7 +439,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   back), because a rectangle somebody dragged a window to is the most
   specific answer there is — that is `Answer::Manual`, and it beats a
   cell. It is also the first window that **takes a drop**, which is its
-  own rule below. What the missing `Titled` bit takes away with it is the zoom: a
+  own rule below, and since E7 it cleans what it took: under each listed
+  thing a findings line — `clean::inspect_one`, the very read a clean
+  makes, once per drop on the background executor (D278) — and **Clean**
+  beside the dismissal line, every caught thing that can be cleaned, one
+  at a time, each with the plan taken at its own start (D279). What the missing `Titled` bit takes away with it is the zoom: a
   full-size content view makes the whole top of a titled window a
   title-bar region, and a double-click there maximized the one window
   whose point is that it is small. The **main window** opens centred and is dragged
@@ -424,7 +453,8 @@ Anything that needed more than a rule to explain is in `docs/`;
   jumped into a corner while its own grid was being read would be
   answering a question about a different window. The **Compare window**
   (below) opens centred over the main window like Settings and
-  remembers nothing. E7's workspace windows join the panel.
+  remembers nothing. The workspace windows E7 still owes (the source
+  editor, the Inspector — S7.2, S7.5) join the panel when they come.
 * **Which screen the panel opens on is one preference; where on it is
   one per display.** `apps/wipemark-app/src/placement.rs`. `Onto` is a
   row (`ui.window.screen`) and two radio buttons — the primary display,
@@ -537,9 +567,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   the window or imported, one row each, with a **preview** beside it
   (`preview.rs`: the picture for an image, the first three lines for
   text, a glyph for the rest), an id and a keyword the way lazy-shot's
-  rows have, the kind as a coloured badge, the format and encoding, the
+  rows have, the kind as a coloured badge, the Status (a badge per
+  verdict, its sentence as the tooltip), the format and encoding, the
   size, and when it arrived. Hovering the preview opens a hover card
-  with the larger one and the Retention page's sentence for that thing.
+  with the larger one and the Retention page's sentence for that thing —
+  what *would* happen until the row is cleaned, what *did* afterwards.
   The filter bar takes an id and a keyword as substrings (lazy-shot's
   `LIKE`), "Reset filters" appears while either is set, the Arrived
   header flips newest-first to oldest-first, and the paginator under the
@@ -557,15 +589,31 @@ Anything that needed more than a rule to explain is in `docs/`;
   `the_button_says_what_it_would_paste`). Off macOS the road is GPUI's
   `read_from_clipboard`, folded into the same order by
   `clipboard::handed_of`, refreshed on activation because there is no
-  change count to poll (E10). The Actions menu has one item, *open with
-  the default app* (`App::open_with_system`), disabled rather than
-  absent on a row with no file behind it. A preview never reads a whole file: sixteen
+  change count to poll (E10). **The table cleans** (E7): Clean in a row's
+  Actions menu, **Clean all** on the toolbar after Paste, and
+  `--clean=<path>` all ask `queue::Line` — pure, one clean at a time,
+  first asked first done, a row asked twice cleaned once — and each
+  row's plan is taken from the Retention page **when its clean starts**,
+  so a change made while a line runs moves the rows still waiting and
+  never one already writing. The status bar says "Cleaning 2 of 5" while
+  it runs. Clean is greyed with its reason as a second line in the item
+  (gpui-component's menu items have no tooltip, D269); Clean all offers
+  only what `clean::cleanable` accepts, while `--clean=` asks for a row
+  whatever it is and its badge says why (D268). The rest of the menu:
+  *open with the default app* (`App::open_with_system`, disabled rather
+  than absent on a row with no file behind it), Compare, Open the
+  result, Show the result in its folder, Copy the result and **Report…**
+  (`report.rs`, painted by the shell over the whole window, D274) — each
+  greyed until there is something behind it — and **Replace the existing
+  result** (D270), enabled only on a row refused because its result was
+  already there. A preview never reads a whole file: sixteen
   kilobytes for an excerpt, and no thumbnail past `IMAGE_LIMIT` (32 MB)
   because a decoded image is four bytes a pixel whatever the file cost
   (`an_image_past_the_limit_gets_no_thumbnail`). `Encoding::Other` is
   previewed as its ASCII and replacement marks, never a guessed code
-  page. Nothing is cleaned, nothing is expanded, nothing assigns a
-  keyword yet, and the footer says the first of those in every language.
+  page. Nothing is rewritten, nothing is expanded and nothing assigns a
+  keyword yet; the footer says the first of those in every language
+  (`the_footer_says_rewriting_is_not_here_yet`).
   The page size is session state, not a preference: a preference here
   is a Settings row, and the size of a table is not yet worth one. See
   `docs/architecture/queue.md`.
@@ -710,10 +758,18 @@ Anything that needed more than a rule to explain is in `docs/`;
   `Diff::original_row_of` is the map, `set_cursor_position` is the only
   public way to move an editor, and the focus it steals is handed back
   in the same update, before GPUI compares focus paths at the next
-  frame. Nothing is cleaned yet, so the result starts as a copy of the
-  original and the banner says so. Reading is on the background
-  executor and refuses what is not text, what is past `TEXT_LIMIT`
-  (checked on the size before the read) and what will not open. ⌘W
+  frame. The result is **`clean(original)`** at Layer A's defaults (E7-3),
+  made by `Subject::read` in the read's own background task and kept by
+  the view, so **Back to the cleaned text** puts it back without running
+  Layer A on the GPUI thread (D273) and is offered only once the result
+  differs from it (D272); `the_result_is_what_the_queue_writes` holds the
+  pane to the bytes `clean::clean_one` writes. Editing the result saves
+  nothing and closing writes nothing, and the banner says both. Reading is
+  on the background executor and refuses what is not text, what is past
+  `TEXT_LIMIT` (checked on the size before the read) and what will not
+  open — but it decodes leniently, the preview's way, where the queue
+  decodes strictly: a file the queue refuses is still compared (an open
+  question; the verifier's recommendation is the queue's road). ⌘W
   closes it; Escape deliberately does not. Opened from a row's Actions
   menu, from a **double click on the row** — both through
   `queue::compare_row`, deferred for the reason `SetupEvent::Open`
@@ -1026,8 +1082,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   ("Forget it was shown" deletes `ui.setup.done`, so the *next* launch
   takes the first-launch path `--setup` does not) — and its
   `models/recommend.rs` in policy. Five steps:
-  what the product is (and that Layer A runs from the command line and
-  over MCP but not yet from the windows, and Layer B not at all), what this
+  what the product is (and that Layer A runs from these windows — Clean
+  in the main window and in the panel — as well as from the command line
+  and over MCP, while Layer B runs from the command line and over MCP and
+  not from the windows yet; `the_welcome_says_the_windows_clean_and_do_not_rewrite`
+  holds that in every language), what this
   machine has room for, who rewrites, the model or the endpoint, done.
   It is **not a sixth page**: every choice is an Engine or Models row
   and is written through `select_serves`, `download_model` and the
@@ -1165,8 +1224,10 @@ Anything that needed more than a rule to explain is in `docs/`;
   deletes originals goes off months after it was set — on the CLI it is
   `clean --in-place --no-original` (E5-1), and `--in-place` alone sets
   the original aside by a rename first and refuses when one is already
-  there; its file-system half is `wipemark_intake::inplace`, which E7
-  calls as the CLI does. The CLI reads **none** of these rows: its "in-place needs an
+  there; its file-system half is `wipemark_intake::inplace`, which the
+  windows' `clean.rs` calls as the CLI does (with `Keep::Original`
+  always — the windows never replace without setting the original aside).
+  The CLI reads **none** of these rows: its "in-place needs an
   explicit flag, never a default" would be broken by a radio button in
   a window. What the
   product keeps *of its own* — under `Layout::kept_dir`,
@@ -1185,12 +1246,47 @@ Anything that needed more than a rule to explain is in `docs/`;
   extracted from them, because an HTML original is where provenance
   hides. Neither layer offers a byte-exact way back (`CleanReport` says
   so), so the layer does not decide either. `retention::plan` is a pure
-  function over a `Source`, the rows and two folders, and the panel is
-  its first reader — under each thing dropped on it is a sentence
-  saying what would happen to it, the one place today where the page's
-  choices meet a real thing. Nothing is written yet, and
-  `the_retention_banner_always_says_nothing_is_written_yet` keeps the
-  page saying so. See `docs/architecture/retention.md`.
+  function over a `Source`, the rows and two folders; the panel and the
+  queue say under each thing what would happen to it, and since E7 the
+  windows **execute** it — `clean::clean_one` is the one road from a plan
+  to the disk, the plan taken when each clean starts. A kept copy is made
+  only when there is a result, before the result is written (D265), into
+  `<kept>/<yyyymmddThhmmss UTC>-<n>/`, and `clean::sweep` removes such a
+  directory once its period has passed — at launch and after each keep,
+  never creating the folder (D267). The page's last line says the windows
+  follow it and the command line and agents read none of it
+  (`the_retention_banner_says_who_follows_it`). See
+  `docs/architecture/retention.md`, "How the windows execute it".
+* **The windows clean as the CLI does, and write less.**
+  `apps/wipemark-app/src/clean.rs` is the one cleaner behind the queue,
+  the panel and `--clean=`, and it is blocking code with no window in it:
+  every caller runs it on the background executor, and nothing in it
+  localizes — an `Outcome` is a value and the window words it. It reads
+  head first and decides **again from the bytes read** (a file can change
+  after its drop), refuses past `compare::TEXT_LIMIT` (8 MiB) or
+  `PICTURE_LIMIT` (64 MiB, D264) on the size before the read, cleans a
+  text with Layer A at its defaults and a picture with `wipemark-picture`
+  at `Scope::AiProvenance`, and decides with `outcome_of` — the CLI's
+  policy stated once, because it lives inside a binary and cannot be
+  imported. Where it differs from the CLI it writes *less*: nothing found
+  is nothing written (D260); a file already where the result would go is
+  refused and left byte for byte, and only **Replace the existing result**
+  writes over that one named file (D261, D270); a result identical to its
+  input is never written, whatever the verdict (D262); a text is `Cleaned`
+  when it changed and `Partly` when a kept look-alike is all there is
+  (D263); a picture whose metadata is still marked is never written, as
+  on the CLI. Text goes back in the encoding it arrived in. Its one log
+  line carries paths as `Elided` shapes, never in full (D266), and one
+  counter, `clean::number`, numbers the queue's rows and the panel's
+  cleans so two cleans never share a kept directory (D280). What it
+  writes is the CLI's to the byte — `wipemark-cli clean -o` over the same
+  inputs — which `scripts/verify/e7/parity.sh` (through `clean_one`) and
+  `scripts/verify/e7/live-disk.sh` (through the running application and
+  `--clean=`) check on the host; the tests restate the CLI's table by hand
+  rather than call it. One clean at a time holds *within* the queue
+  (`queue::Line`) and *within* the panel, not yet across the two (the E7
+  follow-ups' W7). See `docs/plan/E7-windows-clean.md` §9 and
+  `docs/architecture/queue.md`, "Cleaning".
 
 * **The local engine is ours.** `crates/wipemark-llama-sys`,
   `crates/wipemark-llama` and `wipemark_engine::LocalEngine` are code
@@ -1477,6 +1573,8 @@ What exists so far:
 | `wipemark-task-images-followups-5-2026-10-05` | FILE | the fourth verification's low findings as V1–V5: tests for the texture sentence's figure, a lossy WebP held as lossy, q98 not said; stale exit table and JSON keys in the docs |
 | `wipemark-images-followups-5-report-2026-10-05` | FILE | its report: V1–V5 done, tests and docs only, no decision; the host verification found it mergeable (merged with the series' fifth round) |
 | `wipemark-task-e7-windows-clean-2026-10-05` | FILE | a task for an agent in a container: E7-1…E7-6, the windows clean text and pictures — the cleaner `clean.rs`, the queue's Clean / Clean all / `--clean=`, Compare's real result, the report with its three shelves, the panel, every "not yet" sentence; decisions from D260; checked live on the host after |
+| `wipemark-e7-windows-clean-report-2026-10-05` | FILE | its report: E7-1…E7-6 done, D260–D280, 41 of 41 mutations red, four owner questions, Compare's lenient decode left open; the host verification found it mergeable (merged `7621c9f`) — parity with the CLI over 13 inputs, 38 of 38 disk checks, 8 of the verifier's 18 mutations green |
+| `wipemark-task-e7-followups-1-2026-10-05` | FILE | the host verification's findings as W1–W15: an i18n gate on epic numbers, the picture scope, the log rule, C2PA alone and `PICTURE_LIMIT` guarded; Compare through the queue's strict road; one clean at a time per application and a no-clobber rename; gpui tests for the paste, Replace and the panel; parity tests that run the CLI's own code; the report's shelf and Markdown; decisions from D281 |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
@@ -1496,7 +1594,12 @@ E0 skeleton (done) → **E1 `wipemark-core` Layer A** → E2 engines →
 E3 models → E4 pipeline → E5 CLI → E6 GPUI shell → E7 workspace UI →
 E8 models/engine UI → E9 licensing → E10 packaging; E11 images is
 phase 2 and E12 visible marks phase 2b — E11-1…E11-3 and E12-1…E12-5
-are done (the images series merged 2026-10-05); E12-6 (other vendors),
-E12-7 (the reconstructor) and E12-8 (the windows, with E7) are not
-started. E1 and E3 parallelise in separate worktrees; E5 lands before
+are done (the images series merged 2026-10-05); E12-6 (other vendors)
+and E12-7 (the reconstructor) are not started. **E7's windows clean is
+done** (E7-1…E7-6, merged 2026-10-05 as `7621c9f`; follow-ups W1–W15
+open), and with it the half of E12-8 that cleans a picture from the
+windows; what remains of E7 is rewriting in the windows (**E4-6b**), the
+source editor with its badges (S7.2), the streamed result (S7.3) and the
+Inspector (S7.5), and of E12-8 Compare for pictures and the batch
+queue's picture item. E1 and E3 parallelise in separate worktrees; E5 lands before
 E6 and gives agents a usable product before the GUI exists.

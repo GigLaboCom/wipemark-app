@@ -599,6 +599,27 @@ tell a decision from an accident.
 | **D251** | **Only a lossy source is held to D250.** `texture` is measured on every source, `texture_left` only on a lossy one (JPEG; WebP by `is_lossy`). A JPEG re-saved as PNG is not looked at for texture. | A lossless source stored no error past rounding; what is rough under its mark is the picture's own (a glyph sheet: 20.2 against 0.06). |
 | **D252** | **A 4:2:0 refusal by the 16-pixel grid is intended**: the out-of-range bound stays 1 %, both sides are said; figures are the 2048 originals' or labelled as crops, and a 1040 crop stands for the 2048 file. | The share lands at 1.0–1.7 % at q90 by where the blocks fall; at 2048, q95 refuses none and q90 10 of 21. |
 | **D253** | **`CHROMA_LEVELS` is held from above by a picture** (`thinking`, 7.40, the lowest of the 21 at 4:2:0 95), not by a multiple of itself. | Third host verification L-c: the constant-tied assertion went red at 7.5 while the fixtures were still said. |
+| **D260** | **Nothing found is nothing written**: a text Layer A did not change and found nothing suspicious in, and a picture with nothing removed, restored or left and its pixels examined, get no `.cleaned` copy. | A copy identical to its input says "cleaned" about a file nobody touched; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D261** | **A result never replaces a file already there**: `Beside` and `Into` refuse with `Exists` and leave it byte for byte (a dangling link counts as there); replacing it is an explicit second action on the row. | The product never overwrites a file it did not write in this run without being asked; a numbered name is Q-C4; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D262** | **A result identical to its input is never written, whatever the verdict** — `crying-transparent-1025.png` is `Partly(Mark)` with nothing written. | D260's reason holds for every verdict; the CLI writes the identical file and exits 3, the window says the same without the file; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D263** | **A text's verdict is by change, then by suspicion**: changed is `Cleaned` (a soft hyphen alone included); unchanged and suspicious (a kept homoglyph) is `Partly(Kept)` with nothing written. | The CLI writes every changed text and Compare shows `clean(original)`, so the queue writes the same; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D264** | **`PICTURE_LIMIT` is 64 MiB**, on the `stat` and again on the read; text keeps `TEXT_LIMIT` (8 MiB). | A picture is decoded whole and its raster copied once; the CLI has no window and no limit; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D265** | **A kept copy is made only when there is a result, and before it is written**, into `<kept>/<yyyymmddThhmmss UTC>-<n>/`; invented result names are in local time. | Keeping exists to bring an original back after a result replaced it; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D266** | **`clean_one` takes no `Homes`, and its log line carries paths as `Elided` shapes.** | The plan already names both folders; a file name can be the document's title; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D267** | **The sweep never creates the kept folder**, runs at launch and after each keep, and removes only `yyyymmddThhmmss-<digits>` directories (not links) past their period. | Both switches off is the default and `kept/` must not appear; "once a day while running" is not built; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D268** | **`--clean=<path>` asks for a row whatever it is**; the menu's Clean and Clean all offer only what `cleanable` accepts. | A flag the person typed is a request to answer, not a menu to grey; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D269** | **A greyed Clean says why as a second line in the menu item**, not as a tooltip. | gpui-component's `PopupMenuItem` has no tooltip; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D270** | **"Replace the existing result" is `clean::replace_one`**: only the file the first clean refused, never the source, the plan taken again; said as "Written over the existing …". | D261 stays the rule; the replacement is one named file, asked for; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D271** | **`toolbar-help-pending` was rewritten in E7-2**, beside the Clean all button it contradicted. | A window must not say the opposite of the button next to it; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D272** | **Compare's Reset is offered against the cleaned text**, "Back to the cleaned text". | Differing from the original is the normal state of a marked text; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D273** | **Compare cleans in the read's background task and keeps the text**; Reset never cleans again. | Layer A never runs on the GPUI thread; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D274** | **The Report dialog is the shell's**, over the whole window, opened by `QueueEvent::Report`. | A backdrop inside the table would leave the toolbar clickable under a modal; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D275** | **The shelf mapping** of a window's report (`docs/architecture/queue.md`, "The report"): verifiable is what this build checked and anyone can check again; whatever a catalogue, a fit or a lossy store bounds is best-effort; the third shelf is the report's own ids, a picture's with `invisible-pixel-marks` first. | `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D276** | **The window's sentences take a `wording::Say`**; the dialog is handed both renderings. | One sheet, two renderings, and a test can prove the Markdown copy is not `Rendering::Ui`; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D277** | **A thing never read has a report with no JSON**, and Copy JSON is greyed. | `to_json()` is the library's; a placeholder would be a report nobody produced; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D278** | **The panel looks at what it lists, once per drop, as a clean would read it** (`clean::inspect_one`); a text's count is characters; a kept look-alike is said. | The line is a promise about what Clean will do; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D279** | **The panel's Clean cleans every caught thing that can be and has not been**, in arrival order, one at a time, the plan at each start; a later drop does not stop it. | `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D280** | **One counter numbers the queue's rows and the panel's cleans** (`clean::number`). | Two counters would let two cleans in one second share a kept directory; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
 
 ---
 
@@ -634,6 +655,11 @@ answered moves here or to §4.
 | Q-V8 | your own generated pictures as test fixtures | E12 | **Superseded for the Gemini stickers by the owner's request, 2026-10-04**: Watchword `wipemark-gemini-stickers-2026-10-04`; crops of them in `fixtures/image/gemini/` (origin and sha256 in `fixtures/image/README.md`) — [reports/images-real-fixtures-2026-10-04.md](reports/images-real-fixtures-2026-10-04.md). Other vendors' pictures: open. |
 | Q-E47 | after E4-7: very short list items reported as "partial"; a request per list item (+5 %); the language check's rare false refusal (1 in 1 887) | — | **Closed by the owner, 2026-10-04: kept as built** (D111–D117) — short items are asked and reported as kept, a request per item, the language check as it is; [reports/E4-7-2026-10-04.md](reports/E4-7-2026-10-04.md). |
 | Q-D1–Q-D6 | drag-and-drop: paste ⌘V, folders and archives, drop position, size limits, CLI exit on `Disagreed`, UTF-16 without BOM | E7 / E5 | Unchanged by E1. Q-D5 meets E1-6: the CLI reads a file whose name and bytes disagree by its bytes and says so on stderr; the exit code is decided by findings as for any file. |
+| Q-C1 | should a thing be cleaned the moment it is dropped? | — | **Open (owner), from E7.** Not: cleaning happens when it is pressed — Clean on a row, Clean all, the panel's Clean, or `--clean=` at launch. Cleaning on arrival would be a Settings switch, off by default. |
+| Q-C2 | should the windows remove all of a picture's metadata (camera, GPS, the rotation) or only what marks it as AI-made? | — | **Open (owner), from E7.** Only AI provenance, as `clean_image`'s default; the CLI removes all with `--all-metadata`. |
+| Q-C3 | should the windows offer cleaning's finer choices — a borrowed letter replaced, normalisation, spaces? | — | **Open (owner), from E7; meets Q-A1.** The windows clean at Layer A's defaults, and the Report says so when it keeps such a letter. |
+| Q-C4 | when a result is already there, refuse or pick a new name (`name.cleaned-2.md`)? | — | **Open (owner), from E7.** Refused and left as it is (D261); "Replace the existing result" writes over it on request (D270). |
+| Q-C5 | *(engineering)* Compare decodes leniently, the preview's way; the queue strictly (`wipemark_intake::text::decode`): a file the queue refuses is still compared | — | **Open; the host verifier's recommendation, accepted by the coordinator, is follow-up W6**: Compare reads through the queue's strict road and refuses with the queue's sentence; the lenient decode stays for previews only. Watchword `wipemark-task-e7-followups-1-2026-10-05`. |
 
 ---
 
@@ -851,7 +877,25 @@ the gate the overview set, and the open edges.
 - **Basis.** OV §6.1–6.2; `docs/architecture/compare.md`, `queue.md`.
 - **Gate.** A 1 k-token stream keeps 30 FPS; a click on a finding
   scrolls to it.
-- **Open.** Q7, Q-A1, Q-A3, Q-D2.
+- **Open.** Q7, Q-A1, Q-A3, Q-D2; Q-C1…Q-C5 (after E7-1…E7-6).
+- **E7-1…E7-6, the windows clean — status: done** (one series for one
+  agent in a container, verified on the host once after the final step:
+  1432 passed, 0 failed, 6 ignored at `cecfa12`; 41 of 41 of the series'
+  mutations red, 10 of the verifier's 18 red and the 8 green ones turned
+  into follow-ups; the windows' results byte-identical to `wipemark-cli
+  clean -o` over 13 inputs; 38 of 38 disk checks of the live check through
+  `--clean=`; CI green on `47c4370`, all three jobs). Merged into
+  `feat/e0-e6-shell` as `7621c9f` on 2026-10-05. `clean.rs` (the cleaner), the queue's Clean / Clean all /
+  `--clean=`, Compare's result as `clean(original)`, `report.rs` (the
+  Report with its three shelves), the panel's findings line and Clean,
+  every "not yet" sentence (D260–D280) —
+  [E7-windows-clean.md](E7-windows-clean.md),
+  [reports/E7-windows-clean-2026-10-05.md](reports/E7-windows-clean-2026-10-05.md),
+  [reports/E7-windows-clean-live-check.md](reports/E7-windows-clean-live-check.md);
+  the verifier's scripts in `scripts/verify/e7/`. With it the cleaning
+  half of E12-8. Follow-ups W1–W15 (Watchword
+  `wipemark-task-e7-followups-1-2026-10-05`): status open. What remains
+  of E7: S7.2, S7.3, S7.5 above, and rewriting in the windows (E4-6b).
 
 ### E8 — models and engine UI (the rest)
 
@@ -936,8 +980,11 @@ the gate the overview set, and the open edges.
     Known limitation: a 4:2:0 JPEG under quality 95 is often refused out
     of range — said to be left, exit 3.
   - E12-6 (profiles from the owner's captures, other vendors — Q-V6,
-    Q-V7), E12-7 (the reconstructor — Q-V4) and E12-8 (the queue and the
-    windows, with E7) — status: not started.
+    Q-V7) and E12-7 (the reconstructor — Q-V4) — status: not started.
+    E12-8 (the queue and the windows, with E7) — status: **half done**:
+    the windows clean a picture since E7 (`7621c9f`, at AI-provenance
+    scope, Q-C2); Compare for pictures, a badge per finding and the batch
+    queue's picture item are not started.
 
 ---
 
