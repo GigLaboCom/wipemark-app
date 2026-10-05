@@ -155,15 +155,19 @@ fn a_marked_jpeg_is_restored_and_re_encoded() {
             "{name}: {:?}",
             report.visible
         );
-        assert!(!report.marks_left(), "{name}");
         match &report.visible {
             Visible::Examined { report, restorable } => {
                 assert!(*restorable);
                 assert_eq!(report.restored.len(), 1, "{name}");
-                assert!(
-                    !report.restored[0].exact,
-                    "{name}: a lossy source is never exact"
-                );
+                let r = &report.restored[0];
+                assert!(!r.exact, "{name}: a lossy source is never exact");
+                // No outline and no hole; but the codec's error under the
+                // mark, amplified by the inverse, is a texture left — 6.3
+                // to 6.7 levels against 2.5 to 2.6 around it — and the
+                // mark counts as left (D250).
+                assert!(r.holes == 0 && !r.outline_left, "{name}: {r:?}");
+                assert!(r.texture_left, "{name}: {r:?}");
+                assert!(report.marks_left(), "{name}");
             }
             Visible::NotExamined(why) => panic!("{name}: {why:?}"),
         }

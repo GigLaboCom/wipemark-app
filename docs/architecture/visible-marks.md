@@ -333,11 +333,16 @@ traces; the proof here is stricter and the map and the logo are measured.
   a naive inverse); the measure was blind. `verify::outline` now also
   takes the band's step in BT.601 colour difference, `|(ΔCb, ΔCr)|`, and
   an outline is left when that is over `CHROMA_LEVELS` **4.0** and over
-  the colour's own spread around the mark. Measured on the 21
-  first-generation outputs: 0.11–0.46 as handed out; 2.05–2.51 saved as JPEG 4:4:4 at 95, by Pillow or by the
-  `image` crate — a step of red and blue a level or three that nobody
-  finds by eye (ΔE2000 0.8–0.9) — not said; 7.6–8.9 at 4:2:0 95 and 98,
-  said on every one restored (`a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said`).
+  the colour's own spread around the mark. Measured on the vendor's
+  2048 × 2048 files, `11_crying` aside, saved by Pillow 12.3.0: 0.11–0.46
+  as handed out; 2.41–2.88 at JPEG 4:4:4 95 — a step of red and blue a
+  level or three, the band's mean colour ΔE2000 0.95–1.16 from the
+  picture's before the re-encode and 0.03–0.24 in the written file — not
+  said; 7.40–8.37 at 4:2:0 95 and 7.54–8.26 at 98 (ΔE2000 2.52–2.82 and
+  2.59–2.77 before, 2.06–2.47 and 1.79–2.15 written), said on every one
+  restored (`a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said`).
+  The figures first written here were measured on the 1025 × 1025 crops
+  in `fixtures/` and labelled as the 2048 files; see D252.
   Not the largest channel: a 4:4:4 JPEG's blue alone is up 3–4 levels,
   as large as `crying`'s outline in luma and invisible, because the eye
   resolves colour more coarsely than light — which is why 4:2:0 exists.
@@ -363,14 +368,63 @@ traces; the proof here is stricter and the map and the logo are measured.
   it or a map drawn at another size or a sub-pixel offset;
   `Restored.searched` is a mark placed by the search. Each is said by
   name, and nothing is said by elimination.
-* **Known limitation: most subsampled JPEGs are not restored.** Under
-  95, a 4:2:0 JPEG's colour error in the band is more than the
-  out-of-range allowance (`BLEND_LEVELS`, 8 stored levels) admits: 16 of
-  the 21 first-generation outputs at 4:2:0 90 are refused out of range,
-  `victory` already at 95. That is honest — the mark is said to be left
-  and `clean` exits 3 — but it means the commonest JPEG is the one this
-  release restores least. Restoring the colour at the chroma's own
-  resolution is the road, and not taken here.
+* **Known limitation: a subsampled JPEG under 95 is often not
+  restored.** A 4:2:0 JPEG's colour error in the band can take the
+  inverse past the out-of-range allowance (`BLEND_LEVELS`, 8 stored
+  levels) on more than the profile's 1 % of the samples. On the vendor's
+  2048 × 2048 files at 4:2:0 95 none is refused; at 90, 10 of 21 are
+  (shares 1.02–1.38 %). Which ones depends on where the codec's 16-pixel
+  blocks fall on the mark, not on the code: see D252. That is honest —
+  the mark is said to be left and `clean` exits 3 — but the commonest
+  JPEG is the one this release restores least. Restoring the colour at
+  the chroma's own resolution is the road, and not taken here.
+
+## What the fourth host verification taught (D250–D253)
+
+* **A texture left is said** (D250). Saved as JPEG 4:4:4 at 95, every
+  one of the 21 is restored with its band within every bound on average
+  — luma −0.5 to +0.2, colour 2.4–2.9 — and with an 8 × 8 checker along
+  the sparkle's contour, plain at ×2 and faint at 1× on the flat green:
+  the codec's error, amplified pixel by pixel by the inverse's
+  `1/(1 − α)` (a naive inverse leaves the same). No mean sees it.
+  `verify::outline` now also takes the **roughness** of the pixels the
+  restoration changed — the 95th percentile of each one's distance in
+  `(Y, Cb, Cr)` from the mean of its eight neighbours — and the same
+  around the mark; a texture is left when the first is over
+  `TEXTURE_LEVELS` **5.5** and over `TEXTURE_RATIO` **2.0** times the
+  second. On the 2048 files, `11_crying` aside: 1.59–2.05 as handed out
+  (around them 1.18–1.88); at JPEG 4:4:4 95, 8.59–9.22 against
+  3.05–3.36; at 4:2:0 95, 10.25–10.90. The bound sits where an eye stops finding it, on a
+  scale of the same pictures at 4:4:4: 6.2–6.3 at 97 is faint at ×3,
+  5.0–5.2 at 98 is barely found at ×6, 3.5 at 99 is nothing. It is
+  measured before the re-encode; the written file keeps it (9.1–10.0
+  against 3.8–4.1 at 4:4:4 95, by the same measure). `Restored.texture`,
+  `Restored.texture_around` and `Restored.texture_left` carry it; the mark
+  counts as left (`marks_left`, exit 3), as an outline does — a checker
+  plain at ×2 is the "visible ring reported as clean" D238 rules out. The
+  CLI says it as a percentile beside the same around the mark, never a
+  bound (D248).
+* **Only a lossy source is looked at for texture** (D251). What makes
+  the texture is an error the source stored; a lossless one stored none
+  past the rounding to a level, which the exactness suites hold to a
+  level. What is rough under a lossless mark is the picture's own: on a
+  glyph sheet whose strokes run under the mark and miss the ring around
+  it, 20.2 against 0.06. Limitation: a JPEG re-saved as PNG carries its
+  checker and is not looked at for it; its outline and step still are.
+* **A 4:2:0 refusal is by block alignment, and both sides are said**
+  (D252). `19_victory` at 4:2:0 95 is restored in the 2048 file (the mark
+  at 1888, 118 × 16; 0.91 % of its samples out of range) and refused in
+  the 1025 crop (at 865, a pixel off the grid; 1.06 %, over the 1 %). On the 21, the share
+  lands at 1.02–1.72 % at 90 over the crops and 1.02–1.38 % over the
+  originals — the same bound, other pictures over it. A crop of 1040 puts
+  the mark at 880 (55 × 16) and reproduces the 2048 file's values to the
+  hundredth on all 21, so `fixtures/` carries 1040 crops where a 2048
+  figure is wanted. Neither side is restored with nothing said
+  (`a_subsampled_jpeg_is_refused_or_said_by_where_its_blocks_fall`).
+* **The colour bound is held from above by a picture, not by a
+  multiple of itself** (D253). `09_thinking` at 4:2:0 95 is the lowest of
+  the 21, 7.40, and is said by its colour alone
+  (`thinking-1040-q95-420.jpg`); a bound of 7.5 leaves it unsaid.
 
 ## Thresholds
 
@@ -383,7 +437,10 @@ The shipped profiles carry `min_ncc` **0.70** (a row: half of it),
 is in the picture (D246); an outline is left past `OUTLINE_BOUND`
 **0.20** of the contour, or on the faint band past `STEP_LEVELS` **1.0**
 level of luma or `CHROMA_LEVELS` **4.0** levels of colour difference and
-the picture's own spread in each (D238, D244, D247). Measured on the synthetic pair and the shipped maps
+the picture's own spread in each (D238, D244, D247); a texture is left,
+on a lossy source, past `TEXTURE_LEVELS` **5.5** levels of roughness and
+`TEXTURE_RATIO` **2.0** times the roughness around the mark (D250,
+D251). Measured on the synthetic pair and the shipped maps
 (2026-10-04, `--nocapture`):
 
 | | |

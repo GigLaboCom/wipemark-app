@@ -741,6 +741,20 @@ fn visible_lines(say: Say, visible: &Visible, cleaned: bool) -> Vec<String> {
                     )
                 ));
             }
+            // A lossy source's error, amplified by the inverse: a
+            // percentile, beside the same around the mark (D250).
+            if restored.texture_left {
+                lines.push(format!(
+                    "    {}",
+                    say(
+                        Message::CliImageVisibleTexture,
+                        &args!(
+                            "levels" => fixed(restored.texture, 1),
+                            "around" => fixed(restored.texture_around, 1),
+                        ),
+                    )
+                ));
+            }
         }
     }
     lines
@@ -1318,6 +1332,9 @@ mod tests {
             step: -0.6,
             chroma: 0.9,
             outline_left: false,
+            texture: 1.8,
+            texture_around: 1.6,
+            texture_left: false,
             noise: false,
             lossy: false,
             fitted: false,

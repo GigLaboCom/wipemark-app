@@ -53,6 +53,19 @@ pub struct Restored {
     /// colour's: the restoration is kept — it took most of the mark away —
     /// and an outline of it is said to be left.
     pub outline_left: bool,
+    /// The roughness of the pixels the restoration changed, in 8-bit
+    /// levels: the 95th percentile of each one's distance in `(Y, Cb, Cr)`
+    /// from the mean of its eight neighbours (D250,
+    /// [`crate::verify::TEXTURE_LEVELS`]).
+    pub texture: f32,
+    /// The same over the picture around the mark.
+    pub texture_around: f32,
+    /// A texture is left — a lossy source, and `texture` over
+    /// [`crate::verify::TEXTURE_LEVELS`] and over
+    /// [`crate::verify::TEXTURE_RATIO`] times `texture_around`: the
+    /// source's error, amplified by the inverse, along the mark's contour.
+    /// The restoration is kept, and the mark counts as left (D250).
+    pub texture_left: bool,
     /// The map's capture noise — dropped from every template (D241) — was
     /// found drawn in this picture after all, and taken off with the rest
     /// (D246).
@@ -169,6 +182,12 @@ pub fn restore(
         step: outline.step,
         chroma: outline.chroma,
         outline_left: outline.left(),
+        texture: outline.texture,
+        texture_around: outline.texture_around,
+        // The error a lossy source stored, amplified: a lossless one stored
+        // none past the rounding to a level, and what is rough under its
+        // mark is the picture's own (D250).
+        texture_left: options.source == Fidelity::Lossy && outline.textured(),
         noise,
         lossy: options.source == Fidelity::Lossy,
         fitted: verified.fitted(),

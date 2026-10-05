@@ -117,6 +117,9 @@ fn a_real_mark_is_proved_at_its_row_and_restored() {
         assert!(!r.noise, "{name}: {r:?}");
         assert!(r.clamped * 100 < r.changed * 3, "{name}: {r:?}");
         assert!(r.outline <= OUTLINE_BOUND, "{name}: {r:?}");
+        // As rough as the picture around it (D250).
+        assert!(!r.texture_left, "{name}: {r:?}");
+        assert!(r.texture < 1.5 * r.texture_around.max(1.0), "{name}: {r:?}");
         assert!(!cleaned.marks_left(), "{name}");
         let again = inspect(&out, &shipped()).unwrap();
         let Visible::Examined { report, .. } = &again.visible else {
@@ -312,14 +315,17 @@ fn the_sparkle_leaves_no_ghost() {
 /// The same pictures saved as JPEG by the `image` crate — 4:4:4, no
 /// colour subsampled: proved, restored, re-encoded. At 95 the codec's
 /// error in the mark's faint band averages out in luma, and what it
-/// leaves in colour (2.0–2.5 levels of `Cb`/`Cr`, red and blue a level or
-/// two up) is under what an eye finds — nothing is said. At 90 it does
-/// not: the inverse amplifies it by `1/(1 − α)`, and the band comes back
-/// 2–3 levels lighter than the picture around it, the same order as
-/// `crying`'s outline — said, the mark counted as left (D244), within the
+/// leaves in colour on average (2.0–2.9 levels of `Cb`/`Cr`) is under
+/// [`CHROMA_LEVELS`]: no outline. But the inverse amplifies the error
+/// pixel by pixel by `1/(1 − α)`, and it comes back as an 8 × 8 checker
+/// along the sparkle's contour — plain at ×2, faint at 1× on the flat
+/// green — three times as rough as the picture around it: a texture
+/// left, said, and the mark counted as left (D250). At 90 the band also
+/// comes back 2–3 levels lighter than the picture around it, the order
+/// of `crying`'s outline: the outline is said too (D244), within the
 /// relative bound all the same.
 #[test]
-fn a_real_mark_saved_as_jpeg_is_restored_and_an_outline_said_where_left() {
+fn a_real_mark_saved_as_jpeg_leaves_a_texture_that_is_said() {
     for name in MARKED {
         let raster = raster_of(&fixture(name));
         for quality in [90u8, 95] {
@@ -332,13 +338,15 @@ fn a_real_mark_saved_as_jpeg_is_restored_and_an_outline_said_where_left() {
             let r = &report.restored[0];
             println!("{label}: {r:?}");
             assert!(r.outline <= OUTLINE_BOUND, "{label}: {r:?}");
+            assert!(r.texture_left && !r.exact, "{label}: {r:?}");
+            assert!(r.texture > 2.0 * r.texture_around, "{label}: {r:?}");
+            assert!(cleaned.marks_left(), "{label}");
             if quality == 95 {
                 assert!(r.step.abs() <= NOISE_LEVELS, "{label}: {r:?}");
                 assert!(r.chroma < CHROMA_LEVELS, "{label}: {r:?}");
-                assert!(!cleaned.marks_left(), "{label}");
+                assert!(!r.outline_left, "the texture alone: {label}: {r:?}");
             } else {
                 assert!(r.step > STEP_LEVELS && r.outline_left, "{label}: {r:?}");
-                assert!(cleaned.marks_left(), "{label}");
             }
             assert_eq!(cleaned.encoding, Encoding::Jpeg { quality: 95 });
         }
@@ -348,48 +356,81 @@ fn a_real_mark_saved_as_jpeg_is_restored_and_an_outline_said_where_left() {
 /// The same pictures saved as most JPEGs are — 4:2:0, the colour at half
 /// the resolution, Pillow's default — at 95 and 98: the sparkle's white
 /// bleeds into the faint band in colour while the luma keeps it, and the
-/// inverse leaves a fringe, red 10–11 levels up, green 6–7 down, blue 5–6
+/// inverse leaves a fringe, red 9–11 levels up, green 6–7 down, blue 5–6
 /// up, plain at ×4 with no amplification — and a step of under half a
 /// level in luma, which alone would call it clean. So the band is held to
-/// the picture in colour difference too (D247): the fringe is said, or
-/// the mark is refused out of range before it is restored. Either way the
-/// mark counts as left.
+/// the picture in colour difference too (D247), and the fringe is said as
+/// an outline whatever else is: luma and the share are under their bounds
+/// on every one. `thinking` is the lowest of the 21 at 95, 7.40 levels:
+/// the colour bound is held from above by it.
 #[test]
 fn a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said() {
-    let mut said = 0;
     for name in [
         "torch-1025-q95-420.jpg",
-        "victory-1025-q95-420.jpg",
         "victory-1025-q98-420.jpg",
+        "thinking-1040-q95-420.jpg",
     ] {
         let (_, cleaned) = clean(&fixture(name), &shipped()).unwrap();
         let Visible::Examined { report, .. } = &cleaned.visible else {
             panic!("{name}: {:?}", cleaned.visible)
         };
         assert_eq!(report.found.len(), 1, "{name}: {:#?}", report.found);
+        let [r] = report.restored.as_slice() else {
+            panic!("{name}: {report:#?}")
+        };
+        assert!(
+            r.step.abs() <= NOISE_LEVELS,
+            "luma alone sees it: {name}: {r:?}"
+        );
+        assert!(r.outline <= OUTLINE_BOUND, "{name}: {r:?}");
+        assert!(r.chroma > 7.0, "{name}: {r:?}");
+        assert!(r.steps[0] > 8.0 && r.steps[1] < -4.0, "{name}: {r:?}");
+        assert!(r.outline_left && !r.exact, "{name}: {r:?}");
         assert!(cleaned.marks_left(), "{name}: {report:#?}");
-        if let [r] = report.restored.as_slice() {
-            assert!(
-                r.step.abs() <= NOISE_LEVELS,
-                "luma alone sees it: {name}: {r:?}"
-            );
-            assert!(r.chroma > 1.5 * CHROMA_LEVELS, "{name}: {r:?}");
-            assert!(r.steps[0] > 8.0 && r.steps[1] < -4.0, "{name}: {r:?}");
-            assert!(r.outline_left && !r.exact, "{name}: {r:?}");
-            said += 1;
-        } else {
-            assert!(
-                matches!(
-                    report.found[0].verdict,
-                    Verdict::Refused(Refusal::OutOfRange { .. })
-                ),
-                "{name}: {:?}",
-                report.found[0].verdict
-            );
-        }
     }
-    // Not every one is refused: on two the fringe is said.
-    assert_eq!(said, 2);
+}
+
+/// Whether a 4:2:0 JPEG's mark is refused or restored depends on where
+/// the codec's 16-pixel blocks fall on it — and either way it is said.
+/// The same corner of `19_victory`, saved at 95: cut to 1040, the mark
+/// sits at 880, on the grid, as at 1888 in the 2048 original — restored,
+/// its fringe said; cut to 1025, at 865, a pixel off it — the inverse
+/// leaves the range on 1.06 % of the samples, over the profile's 1 %,
+/// and it is refused before it is restored. The share lands at 0.9–1.4 %
+/// at 4:2:0 by the grid alone, so a bound between would only move which
+/// pictures fall on which side. Never restored with nothing said.
+#[test]
+fn a_subsampled_jpeg_is_refused_or_said_by_where_its_blocks_fall() {
+    for (name, at, refused) in [
+        ("victory-1040-q95-420.jpg", 880, false),
+        ("victory-1025-q95-420.jpg", 865, true),
+    ] {
+        let (_, cleaned) = clean(&fixture(name), &shipped()).unwrap();
+        let Visible::Examined { report, .. } = &cleaned.visible else {
+            panic!("{name}: {:?}", cleaned.visible)
+        };
+        assert_eq!(report.found.len(), 1, "{name}: {:#?}", report.found);
+        let f = &report.found[0];
+        assert_eq!(f.placed, Placed::Row(0), "{name}");
+        assert_eq!(f.pixels.map(|p| (p.x, p.y)), Some((at, at)), "{name}");
+        assert_eq!(at % 16 == 0, !refused, "{name}");
+        if refused {
+            let Verdict::Refused(Refusal::OutOfRange { share }) = f.verdict else {
+                panic!("{name}: {:?}", f.verdict)
+            };
+            assert!((0.010..0.012).contains(&share), "{name}: {share}");
+            assert!(report.restored.is_empty(), "{name}");
+        } else {
+            let [r] = report.restored.as_slice() else {
+                panic!("{name}: {report:#?}")
+            };
+            assert!(r.outline_left && r.chroma > CHROMA_LEVELS, "{name}: {r:?}");
+        }
+        assert!(
+            cleaned.marks_left(),
+            "never restored with nothing said: {name}"
+        );
+    }
 }
 
 /// The vendor's mark shrunk with its picture — the 1025 corner taken to

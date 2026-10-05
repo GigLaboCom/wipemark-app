@@ -19,7 +19,7 @@ use image::imageops::FilterType;
 use support::*;
 use wipemark_pixels::{
     clean, composite, resampled, Catalogue, ExamineOptions, Fidelity, Layout, PixelRect, Raster,
-    BAND, OUTLINE_BOUND, STEP_LEVELS,
+    BAND, NOISE_FLOOR, OUTLINE_BOUND, STEP_LEVELS, TEXTURE_LEVELS, TEXTURE_RATIO,
 };
 
 const LARGE: (u32, u32) = (704, 384);
@@ -113,7 +113,11 @@ fn a_shrunk_and_compressed_mark_is_restored_within_the_outline_bound() {
         assert_eq!(report.restored.len(), 1, "{name}: {:#?}", report.found);
         let r = &report.restored[0];
         assert!(r.outline <= OUTLINE_BOUND, "{name}: outline {}", r.outline);
-        assert_eq!(report.marks_left(), r.outline_left, "{name}");
+        assert_eq!(
+            report.marks_left(),
+            r.outline_left || r.texture_left,
+            "{name}"
+        );
         // Inside the mark's rectangle, as close to the picture shrunk
         // without the mark as the codec's own error lets it be.
         let (mut sum, mut n) = (0f64, 0f64);
@@ -162,6 +166,55 @@ fn a_shrunk_and_compressed_mark_is_restored_within_the_outline_bound() {
             }
         }
         let off = (off / nb) as f32;
+        // The roughness under the mark against the truth's (D250): each
+        // pixel's distance in (Y, Cb, Cr) from its eight neighbours' mean,
+        // the 95th percentile over the pixels the restoration changed.
+        let rough = |s: &[u16]| {
+            let ycc = |x: u32, y: u32| {
+                let i = ((y * SMALL.0 + x) as usize) * c;
+                let [r, g, b] = [0, 1, 2].map(|k| f64::from(s[i + k]));
+                [
+                    0.299 * r + 0.587 * g + 0.114 * b,
+                    -0.168_736 * r - 0.331_264 * g + 0.5 * b,
+                    0.5 * r - 0.418_688 * g - 0.081_312 * b,
+                ]
+            };
+            let mut all = Vec::new();
+            for y in 0..band.height() {
+                for x in 0..band.width() {
+                    let a = band.get(i64::from(x), i64::from(y));
+                    if !(NOISE_FLOOR..0.95).contains(&a) {
+                        continue;
+                    }
+                    let (px, py) = (f.rect.x as u32 + x, f.rect.y as u32 + y);
+                    let mut mean = [0f64; 3];
+                    for (dx, dy) in (0..9).map(|k| (k % 3, k / 3)).filter(|&k| k != (1, 1)) {
+                        for (m, v) in mean.iter_mut().zip(ycc(px + dx - 1, py + dy - 1)) {
+                            *m += v / 8.0;
+                        }
+                    }
+                    let p = ycc(px, py);
+                    all.push((0..3).map(|k| (p[k] - mean[k]).powi(2)).sum::<f64>().sqrt());
+                }
+            }
+            all.sort_by(f64::total_cmp);
+            all[((all.len() - 1) as f64 * 0.95).round() as usize] as f32
+        };
+        let (restored, truthful) = (rough(raster.samples()), rough(truth.samples()));
+        println!(
+            "{name}: roughness {restored:.2} under the mark, the truth's {truthful:.2}; said {}",
+            r.texture_left
+        );
+        // A texture said is one the truth has not got; one not said is
+        // under the bound or the picture's own — the sky's grain is.
+        if r.texture_left {
+            assert!(restored > 2.0 * truthful.max(1.0), "{name}: said");
+        } else {
+            assert!(
+                restored <= TEXTURE_LEVELS || restored <= TEXTURE_RATIO * truthful,
+                "{name}: not said, {restored:.2} against the truth's {truthful:.2}"
+            );
+        }
         println!(
             "{name}: the band {off:+.2} over the truth, step {:+.2}",
             r.step
