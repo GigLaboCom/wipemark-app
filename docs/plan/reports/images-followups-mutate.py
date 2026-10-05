@@ -4,8 +4,9 @@
 round, `wipemark-task-images-followups-2-2026-10-04`, T1 ... L3 of the
 third, `wipemark-task-images-followups-3-2026-10-05`, and U1, U2 and L1 ...
 L3 of the fourth, `wipemark-task-images-followups-4-2026-10-05` — whose
-L1 ... L3 are `4L1` ... `4L3` here, the third's keeping their names), as a
-script the verifier runs.
+L1 ... L3 are `4L1` ... `4L3` here, the third's keeping their names — and
+V1 ... V5 of the fifth, `wipemark-task-images-followups-5-2026-10-05`, as
+`5V1` ... `5V5` (V4 is docs and has none)), as a script the verifier runs.
 
 Each mutation is applied alone to the sources, the named tests run, and the
 file is restored from memory whatever happens. A mutation PASSES this script
@@ -753,7 +754,66 @@ MUTATIONS = [
         "pub const CHROMA_LEVELS: f32 = 7.5;",
         [(PIC + ["--test", "real"], "a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said")],
     ),
-
+    # ------------------------------------- 5V1: the texture sentence's figure
+    (
+        "5V1/M1",
+        "the texture sentence's figure is the restoration's, not the surroundings'",
+        "apps/wipemark-cli/src/image.rs",
+        '                            "levels" => fixed(restored.texture, 1),',
+        '                            "levels" => fixed(restored.texture_around, 1),',
+        [(VISIBLE, "a_texture_left_on_a_jpeg_is_said_and_exits_three")],
+    ),
+    # ------------------------------------------ 5V2: a lossy WebP is held as lossy
+    (
+        "5V2/M1",
+        "a lossy WebP is decoded as a lossy source (D251)",
+        "crates/wipemark-picture/src/decode.rs",
+        "        fidelity: if lossy {",
+        "        fidelity: if false {",
+        [(VISIBLE, "a_lossy_webp_is_held_as_lossy")],
+    ),
+    # --------------------------------- 5V3: TEXTURE_LEVELS and TEXTURE_RATIO, tight
+    (
+        "5V3/M1",
+        "TEXTURE_LEVELS from below on a real picture: 4:4:4 q98 at 5.22 is not said",
+        "crates/wipemark-pixels/src/verify.rs",
+        "pub const TEXTURE_LEVELS: f32 = 5.5;",
+        "pub const TEXTURE_LEVELS: f32 = 5.0;",
+        [(PIC + ["--test", "real"], "a_texture_an_eye_barely_finds_is_not_said")],
+    ),
+    (
+        "5V3/M2",
+        "TEXTURE_RATIO from below: 1.86 times as rough is the picture's",
+        "crates/wipemark-pixels/src/verify.rs",
+        "pub const TEXTURE_RATIO: f32 = 2.0;",
+        "pub const TEXTURE_RATIO: f32 = 1.8;",
+        [(PIX + ["--lib"], "a_texture_the_picture_has_around_the_mark_is_not_said")],
+    ),
+    (
+        "5V3/M3",
+        "TEXTURE_RATIO from above: 2.14 times as rough is said",
+        "crates/wipemark-pixels/src/verify.rs",
+        "pub const TEXTURE_RATIO: f32 = 2.0;",
+        "pub const TEXTURE_RATIO: f32 = 2.2;",
+        [(PIX + ["--lib"], "a_texture_the_picture_has_around_the_mark_is_not_said")],
+    ),
+    (
+        "5V3/M4",
+        "TEXTURE_RATIO's real job: anchor's grain at 4:4:4 95 (1.12) is not said",
+        "crates/wipemark-pixels/src/verify.rs",
+        "pub const TEXTURE_RATIO: f32 = 2.0;",
+        "pub const TEXTURE_RATIO: f32 = 1.1;",
+        [(PIC + ["--test", "real"], "a_grain_the_picture_has_is_not_said_under_a_real_mark")],
+    ),
+    # --------------------------------------- 5V5: a model's size in the decimals
+    (
+        "5V5/M1",
+        "a model's size is said in the language's decimals",
+        "apps/wipemark-cli/src/models.rs",
+        "    wipemark_i18n::decimal(bytes as f64 / 1e9, 1)",
+        '    format!("{:.1}", bytes as f64 / 1e9)',
+        [(CLI + ["--test", "cli"], "models_sizes_are_spelled_in_the_languages_decimals")],
+    ),
 ]
 
 

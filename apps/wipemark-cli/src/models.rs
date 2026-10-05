@@ -154,10 +154,11 @@ fn say_out(io: &mut Io, line: &str) -> Result<(), Exit> {
     run::emit(&mut io.stdout, format!("{line}\n").as_bytes()).map_err(|_| Exit::Partial)
 }
 
-/// `n` bytes as gigabytes with one decimal — a string, so the locale does
-/// not group it.
+/// `n` bytes as gigabytes with one decimal, in the language's decimals —
+/// "4,7" in Russian and German — and a string, so Fluent does not group
+/// it.
 fn gigabytes(bytes: u64) -> String {
-    format!("{:.1}", bytes as f64 / 1e9)
+    wipemark_i18n::decimal(bytes as f64 / 1e9, 1)
 }
 
 fn megabytes(bytes: u64) -> String {
@@ -725,9 +726,12 @@ mod tests {
     use super::{gigabytes, percent};
 
     #[test]
-    fn sizes_and_shares_are_spelled_without_a_locale() {
-        assert_eq!(gigabytes(2_546_340_960), "2.5");
-        assert_eq!(gigabytes(7_432_229_248), "7.4");
+    fn sizes_and_shares_are_rounded_to_what_is_said() {
+        // The decimal mark is the language's (`models_sizes_are_spelled_
+        // in_the_languages_decimals`); the rounding is this function's.
+        let point = |s: String| s.replace(',', ".");
+        assert_eq!(point(gigabytes(2_546_340_960)), "2.5");
+        assert_eq!(point(gigabytes(7_432_229_248)), "7.4");
         assert_eq!(percent(1000, 2_546_340_960), 0);
         assert_eq!(percent(2_400_000_000, 2_546_340_960), 94);
         assert_eq!(

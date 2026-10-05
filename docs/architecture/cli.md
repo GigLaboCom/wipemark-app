@@ -175,13 +175,19 @@ were not are 3 the same way.
 **`--json`.** `inspect`: `PictureInspection::to_json()` — E11's
 `ImageReport` keys where they were,
 `{"container","ai_metadata","c2pa","findings":[{"kind","chunk","key","offset","length","ai","c2pa","evidence":[…]}],`
-then `"visible"` — `{"examined":true,"restorable","found":[{"profile","vendor","product","pass","rect","pixels","placed","row","ncc","verdict","refusal","scores","also_tried"}],"restored":[]}`
+then `"visible"` — `{"examined":true,"restorable","found":[{"profile","vendor","product","pass","rect","pixels","placed","row","kernel","ncc","verdict","refusal","scores","also_tried"}],"restored":[]}`
 or `{"examined":false,"why":"animated"|"catalogue"|"decode"}` — and the
 picture's `"not_established"`, `invisible-pixel-marks` first; one line of
 ASCII. `clean`: `{"report":<PictureReport>,"written":…}` with E11's
 `StripReport` keys
 (`"container","still_has_ai_metadata","still_has_c2pa","removed","kept","orientation_removed"`),
-then `"visible"` (with `restored`: `{"profile","rect","changed","holes","clamped","exact"}`),
+then `"visible"` (with `restored`:
+`{"profile","rect","changed","holes","clamped","outline","steps","step","chroma","outline_left","texture","texture_around","texture_left","noise","lossy","fitted","resampled","searched","exact"}`
+— `wipemark_pixels::Restored`, field for field: the outline's share of
+the contour, the faint band's step per channel (`steps`, R G B), in luma
+(`step`) and in colour difference (`chroma`), the roughness the
+restoration left and the same around the mark, and why it is or is not
+`exact`),
 `"encoding"` (`{"kind":"unchanged"|"png"|"webp-lossless"|"jpeg",…}`),
 `"marks_left"`, `"not_established"`. The writers are the libraries'
 (`wipemark-image`'s `json.rs`, `wipemark-pixels`'s report,
