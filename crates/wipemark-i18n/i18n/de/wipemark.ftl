@@ -518,9 +518,9 @@ settings-retention-beside = Ergebnisse werden neben die Datei geschrieben, als n
 settings-retention-into = Ergebnisse werden nach { $folder } geschrieben; die Datei selbst wird nie angerührt.
 settings-retention-over = Eine Datei wird durch ihr Ergebnis ersetzt, sobald das Original als name.original.ext beiseitegelegt ist — und ein bereits vorhandenes Original wird nie überschrieben.
 settings-retention-keeps-nothing = Was ohne Datei ankommt — Eingefügtes, aus einem Browser Gezogenes — wird nicht aufbewahrt, sobald das Ergebnis es ersetzt hat.
-settings-retention-keeps-originals = Das Original von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten; Ergebnisse nicht.
+settings-retention-keeps-originals = Das Original von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten, wenn das Bereinigen daran etwas geändert hat; Ergebnisse nicht.
 settings-retention-keeps-results = Das Ergebnis von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten; Originale nicht.
-settings-retention-keeps-both = Original und Ergebnis von Eingefügtem oder Gezogenem bleiben in { $folder } { $period } erhalten.
+settings-retention-keeps-both = Original und Ergebnis von Eingefügtem oder Gezogenem bleiben in { $folder } { $period } erhalten, wenn das Bereinigen daran etwas geändert hat.
 settings-retention-pending = Die Fenster bereinigen nach diesen Regeln: Was sie schreiben und was sie aufbewahren, legt diese Seite fest. Die Kommandozeile und Agenten lesen keine davon — der Kommandozeile wird bei jedem Aufruf gesagt, wohin ihr Ergebnis geht, und ein Agent bekommt sein Ergebnis zurück.
 
 settings-retention-destination-title = Wohin Ergebnisse gehen

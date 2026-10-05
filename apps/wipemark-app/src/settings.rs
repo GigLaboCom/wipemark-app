@@ -8543,6 +8543,39 @@ mod tests {
         }
     }
 
+    /// "Keep what you paste" keeps an original only when the clean had a
+    /// result (D265): the banner's second line says so, in every language,
+    /// for the originals and for both — never that every paste is kept.
+    #[test]
+    fn the_keep_sentence_says_only_a_change_is_kept() {
+        for language in wipemark_i18n::available_languages() {
+            let condition = match language.id.language.as_str() {
+                "en" => "when cleaning it changed something",
+                "ru" => "если очистка что-то в нём изменила",
+                "de" => "wenn das Bereinigen daran etwas geändert hat",
+                other => panic!("{other}: a language this test has no sentence for"),
+            };
+            let localizer = wipemark_i18n::Localizer::for_languages(
+                std::slice::from_ref(&language.id),
+                wipemark_i18n::Rendering::PlainText,
+            );
+            for message in [
+                Message::SettingsRetentionKeepsOriginals,
+                Message::SettingsRetentionKeepsBoth,
+            ] {
+                let line = localizer.format_args(
+                    message,
+                    &wipemark_i18n::args!("folder" => "kept", "period" => "x"),
+                );
+                assert!(
+                    line.contains(condition),
+                    "{}: {message:?} says every paste is kept: {line}",
+                    language.id
+                );
+            }
+        }
+    }
+
     /// The first-launch walk-through says that cleaning runs from these
     /// windows and rewriting does not — in every language, and never
     /// the old "neither runs from these windows".

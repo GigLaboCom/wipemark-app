@@ -175,7 +175,7 @@ in is a `.md` out, container preserved, which is E4's parser's job
 |---|---|---|---|
 | Where results go | `results.destination` | `beside` · `folder` · `replace` | `beside` |
 | Results folder | `results.folder` | absolute path, or `""` for the platform's Downloads folder | `""` |
-| Keep what you paste | `keep.originals` | `true` · `false` | `false` |
+| Keep what you paste — the original of a paste that cleaning changed (D265) | `keep.originals` | `true` · `false` | `false` |
 | Keep results | `keep.results` | `true` · `false` | `false` |
 | For how long | `keep.for` | `1d` · `7d` · `30d` · `90d` · `forever` | `7d` |
 
@@ -252,9 +252,13 @@ panel's loop both wait for the one before):
   under `<data dir>/kept`, named by the time in UTC and the row
   (`20261005T134602-7`), holding `original.<ext>` (the bytes as they
   arrived, markup included) and `result.<ext>`, each only when its switch
-  is on. With both switches off nothing is created, the folder included.
-  The copy is made **before** the result replaces anything, so a copy
-  that cannot be made stops the clean.
+  is on — and only when the clean **has a result** (D265): "Keep what you
+  paste" keeps the original of a paste that cleaning changed, and nothing
+  for a paste in which nothing was found, one that was refused, or a text
+  only partly clean. The Retention page's second line says so in every
+  language. With both switches off nothing is created, the folder
+  included. The copy is made **before** the result replaces anything, so
+  a copy that cannot be made stops the clean.
 * **The sweep.** `clean::sweep` removes the directories under `kept/`
   whose own name is older than the period — once a launch, on the
   background executor, and after each clean that kept something. It
