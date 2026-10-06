@@ -62,6 +62,10 @@ WAIT=${WAIT:-60}
 # gpui_linux x11/window.rs:1556, from XDPEventSource -> set_appearance ->
 # draw -> is_subpixel_rendering_supported). It is not E7's: the pre-E7 build
 # panics the same way. An unreachable session bus keeps the portal quiet.
+# Since 2e006cf GPUI comes from GigLaboCom/zed with that fix; the host
+# verification of the E7 follow-ups (asked by the coordinator, 2026-10-06)
+# runs this script twice — with this default, and with
+# APP_DBUS=$DBUS_SESSION_BUS_ADDRESS, the real bus — to check it holds.
 APP_DBUS=${APP_DBUS:-unix:path=/nonexistent-wipemark-verify}
 W=$WORK/files
 mkdir -p "$W"

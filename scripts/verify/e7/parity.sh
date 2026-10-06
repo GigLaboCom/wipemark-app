@@ -28,6 +28,14 @@
 #      clean.rs from a copy whatever happened (trap).
 #   5. Prints a table: name, CLI exit, CLI sha256, app verdict, app sha256,
 #      whether the bytes are the same (or both absent).
+#   6. (Added 2026-10-06, the host verification of the E7 follow-ups
+#      W1–W15, asked by the coordinator.) Copies every input that
+#      `fixtures/clean-parity/table.tsv` names into the inputs as
+#      `table-<name>` (the implementer's parity table, D285), and prints a
+#      second table: per row of `table.tsv`, the CLI exit, whether the CLI
+#      wrote and whether `clean_one` wrote — as the table claims them and
+#      as this script measured them, independently of both tests that read
+#      the table.
 #
 # How to run
 #   From the repository root:
@@ -48,6 +56,9 @@
 #   writes the identical copy) and D263 (a homoglyph-only text is not
 #   written by the window) are declared deviations and show as "cli-only".
 #   `git status --short` afterwards must show clean.rs unchanged.
+#   In the second table, "agrees" means the three measured columns are the
+#   table's; "DISAGREES" names a column where `table.tsv` says something
+#   neither binary does.
 set -euo pipefail
 
 ROOT=$(git rev-parse --show-toplevel)
@@ -74,6 +85,12 @@ tail = "café zero​width\n"
 open(sys.argv[1], "wb").write((head + tail).encode("utf-8"))
 EOF
 for p in $PICTURES; do cp "fixtures/image/$p" "$IN/"; done
+TABLE=fixtures/clean-parity/table.tsv
+if [ -f "$TABLE" ]; then
+  grep -v '^#' "$TABLE" | while IFS=$'\t' read -r input _rest; do
+    [ -n "$input" ] && cp "fixtures/$input" "$IN/table-$(basename "$input")"
+  done
+fi
 
 declare -A EXIT
 for f in "$IN"/*; do
@@ -143,4 +160,17 @@ while IFS=$'\t' read -r n verdict written; do
   else same="DIFFERENT"; fi
   printf '| %s | %s | %s | %s | %s | %s |\n' "$n" "${EXIT[$n]}" "$c" "${verdict:0:90}" "$a" "$same"
 done < "$PARITY_DIR/app.tsv"
+if [ -f "$TABLE" ]; then
+  printf '\n| table.tsv row | CLI exit (table / measured) | CLI writes (table / measured) | app writes (table / measured) | |\n|---|---|---|---|---|\n'
+  grep -v '^#' "$TABLE" | while IFS=$'\t' read -r input t_exit t_cli t_app _why; do
+    [ -n "$input" ] || continue
+    n="table-$(basename "$input")"
+    m_exit=${EXIT[$n]:-?}
+    if [ -f "$PARITY_DIR/cli/$n" ]; then m_cli=yes; else m_cli=no; fi
+    written=$(awk -F'\t' -v n="$n" '$1 == n { print $3 }' "$PARITY_DIR/app.tsv")
+    if [ -n "$written" ]; then m_app=yes; else m_app=no; fi
+    if [ "$t_exit" = "$m_exit" ] && [ "$t_cli" = "$m_cli" ] && [ "$t_app" = "$m_app" ]; then v=agrees; else v=DISAGREES; fi
+    printf '| %s | %s / %s | %s / %s | %s / %s | %s |\n' "$input" "$t_exit" "$m_exit" "$t_cli" "$m_cli" "$t_app" "$m_app" "$v"
+  done
+fi
 echo "PARITY_DIR=$PARITY_DIR"
