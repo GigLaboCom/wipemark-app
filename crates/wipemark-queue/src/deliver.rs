@@ -99,11 +99,18 @@ pub(crate) fn deliver(
 
 /// Finish a delivery a `kill -9` interrupted. A file destination is
 /// written again — the same bytes, atomically. An in-place item whose
-/// original is already aside is the case that matters: if the file is
-/// missing (the crash fell between the set-aside and the write) or already
-/// holds the result (it fell after the write), the delivery is finished;
-/// if it holds anything else, the first original is still the original and
-/// nothing is touched.
+/// original is already aside is the case that matters, and a crash between
+/// the set-aside and the write leaves one of two states. Set aside by a
+/// hard link (D284, wherever the file system has them), the file never
+/// moved: it is still there, and it *is* the set-aside — one inode under
+/// two names, or, where the inode cannot be seen, the same bytes under both
+/// (D286). Set aside by a rename (where hard links are refused), the file
+/// is missing. Either way the delivery is finished by the atomic write,
+/// which replaces only the file's name and leaves the original under its
+/// second one. A file that already holds the result (the crash fell after
+/// the write) is finished as it is; one that holds anything else is
+/// someone's, the first original is still the original, and nothing is
+/// touched.
 pub(crate) fn redeliver(
     source: &Source,
     destination: &Destination,
@@ -119,6 +126,16 @@ pub(crate) fn redeliver(
                     path: path.clone(),
                     original: Some(original),
                 })),
+                // Set aside by a hard link, not yet written.
+                Ok(current) if is_the_set_aside(path, &current, &original) => {
+                    inplace::write_atomically(path, &bytes, Some(&original))
+                        .map_err(|error| Undelivered::Write { kind: error.kind() })?;
+                    Ok(Some(Written {
+                        path: path.clone(),
+                        original: Some(original),
+                    }))
+                }
+                // Set aside by a rename, not yet written.
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {
                     inplace::write_atomically(path, &bytes, Some(&original))
                         .map_err(|error| Undelivered::Write { kind: error.kind() })?;
@@ -132,6 +149,16 @@ pub(crate) fn redeliver(
         }
     }
     deliver(source, destination, text, encoding, false)
+}
+
+/// Whether `path`, which reads `current`, is the set-aside `original`
+/// under its first name. The inode where it can be seen; otherwise the
+/// bytes — `same_file` compares canonical paths off Unix, and two hard
+/// links have two (D286). Writing the result over a byte-identical copy
+/// loses nothing: the original is whole under its second name.
+fn is_the_set_aside(path: &Path, current: &[u8], original: &Path) -> bool {
+    inplace::same_file(path, original)
+        || std::fs::read(original).is_ok_and(|aside| aside == current)
 }
 
 fn replace(path: &Path, bytes: &[u8], keep: Keep) -> Result<Option<Written>, Undelivered> {
