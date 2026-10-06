@@ -402,13 +402,15 @@ fn text_of_expression(expression: &ast::Expression<&str>, out: &mut String) {
     }
 }
 
-/// The first match of `\bE\d+(-\d+[a-z]?)?\b` in `text`, by hand: this
-/// crate takes no regex engine for one test.
+/// The first match of `\b[EЕ]\d+(-\d+[a-z]?)?\b` in `text`, by hand:
+/// this crate takes no regex engine for one test. The second letter is the
+/// Cyrillic capital Ie, U+0415 — the one a Russian keyboard types for an E
+/// and the one no reader tells apart from it (X9).
 fn epic_number_in(text: &str) -> Option<String> {
     let word = |c: char| c.is_alphanumeric() || c == '_';
     let chars: Vec<char> = text.chars().collect();
     for (at, &c) in chars.iter().enumerate() {
-        if c != 'E' || (at > 0 && word(chars[at - 1])) {
+        if !matches!(c, 'E' | '\u{0415}') || (at > 0 && word(chars[at - 1])) {
             continue;
         }
         let digits = |from: usize| {
@@ -450,6 +452,9 @@ fn an_epic_number_is_found_where_the_pattern_finds_one() {
         ("E4-6b is next", Some("E4-6b")),
         ("in E12-8.", Some("E12-8")),
         ("Ende E1", Some("E1")),
+        ("Очистка (\u{0415}7)", Some("\u{0415}7")),
+        ("(\u{0415}4-6b)", Some("\u{0415}4-6b")),
+        ("\u{0415}сли", None),
         ("E7a", None),
         ("NE7", None),
         ("E", None),
