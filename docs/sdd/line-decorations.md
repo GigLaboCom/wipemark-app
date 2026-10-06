@@ -149,7 +149,7 @@ together.
 | also copied | the other five `heretic/*` branches from the personal fork `glani/gpui-component` (which stays until heretic-amuse-merge is switched too) |
 | this repository | `.gitmodules` points at the org fork with `branch = heretic/epic-4-line-decorations`; CI runs `git submodule sync --recursive` before `update` |
 | patches here | `line-decorations/patches/0001-…` (P1), `0002-…` (P2), `0003-…` (P3 + P4), `git format-patch` of the three commits |
-| on current upstream | **ported**: branch `heretic/line-decorations-on-upstream` (`d7d678e9`) on the org fork — upstream `main` `8d8cc671` underneath (rebased 2026-10-05), seven commits on top (`row_bounds`, line decorations, the gutter cursor, a marker-placement fix, comments matched to the surrounding style, and the two that answer the review below) — and **upstream PR [longbridge/gpui-kit#3359](https://github.com/longbridge/gpui-kit/pull/3359)**, milestone 0.8.0. API, old → new mapping, how `compare::Marks` migrates, test results and the first PR text: [`line-decorations/upstream-port.md`](line-decorations/upstream-port.md) |
+| on current upstream | **ported**: branch `heretic/line-decorations-on-upstream` (`8aa3bcbc`) on the org fork — upstream `main` `8d8cc671` underneath (rebased 2026-10-05), eight commits on top (`row_bounds`, line decorations, the gutter cursor, a marker-placement fix, comments matched to the surrounding style, the two that answer the review below, and the maintainer's own on top of them, §4.1) — and **upstream PR [longbridge/gpui-kit#3359](https://github.com/longbridge/gpui-kit/pull/3359)**, milestone 0.8.0. API, old → new mapping, how `compare::Marks` migrates, test results and the first PR text: [`line-decorations/upstream-port.md`](line-decorations/upstream-port.md) |
 
 ### 4.1 The review of #3359
 
@@ -178,6 +178,23 @@ were answered on 2026-10-05 in `3f9da904` and `d7d678e9`:
    `gpui-base` no longer compile, `..Default::default()` included; build
    it from `Default` and assign fields. The styled input and the Base
    showcase were migrated; the PR's Breaking Changes says so.
+
+**The maintainer's commit (2026-10-06).** huacnlee then finished the
+markers himself as one commit on top of `d7d678e9`, `8aa3bcbc` "input:
+Scale gutter markers with the editor font", and asked for it to be
+cherry-picked, because GitHub's maintainer edits do not reach a fork
+owned by an organization. It was taken as-is, a fast-forward with no
+force-push, and checked locally (clippy `-D warnings` over the workspace;
+`gpui-base` 335, `gpui-component` 43 and `gpui-kit` 166 input tests).
+It replaces the fixed 16px slot: `InputEditorStyle`'s three new fields are
+private, set through `with_gutter_marker_renderer`, `with_gutter_marker_size`
+and `with_gutter_marker_gap` (`AbsoluteLength`, resolved against the
+window's rem at each layout), with readers of the same names. Size and gap
+default to zero, which paints no marker and reserves no slot, so a Base
+user supplies all three. The styled editor sizes the marker at 90% of its
+effective font size and the gap at 30%, so the icon, the slot and the
+vertical centering follow interface zoom and an editor's `.text_size(...)`.
+The PR's Public API and Breaking Changes were updated to match.
 
 The fork this repository pins is unchanged: it still draws its glyph at
 the gutter's left edge, over the leftmost digit of a wide column (its own
