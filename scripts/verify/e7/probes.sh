@@ -13,6 +13,17 @@
 #   hard-link crash state itself), C gains C2, and G and H are new. PROBES
 #   picks probes by letter (below).
 #
+#   Extended again for the host verification of the third follow-ups, Y1–Y9
+#   (asked by the owner via the coordinator, 2026-10-06), with two questions
+#   the round's own tests leave open, answered without mutating anything:
+#   H2 — Y1's test asks for the clean after the panicking one only once the
+#   panic is over, so `ask` itself starts it; H2 asks for three in one go,
+#   as Clean all does (the first runs, the second's plan panics when the
+#   line comes to it from `finished`, the third waits behind it), and says
+#   whether the third is cleaned. I — Y8's tests panic after the publish
+#   only on the hard-link road; I panics after the publish on the rename
+#   road (where hard links are refused) and says what the folder holds.
+#
 #   A. The queue's crash recovery (D284, D286). Since X1 the test
 #      `an_interrupted_delivery_is_finished_not_failed` builds the hard-link
 #      crash state itself (and A runs it as it is). A now asks what that test
@@ -74,6 +85,9 @@
 #   the application, waits for its clean line in the log, kills exactly the
 #   PID it started and checks the port is free again. H: edits
 #   apps/wipemark-app/src/settings.rs and cleaner.rs from copies, as A–C do.
+#   H2: appends a temporary `#[gpui::test]` to cleaner.rs (the line's `plan`
+#   field set to one that panics for one name) and puts it back. I: appends a
+#   temporary test to crates/wipemark-intake/src/inplace.rs and puts it back.
 #
 # How to run
 #   From the repository root, after `cargo build -p wipemark-cli`:
@@ -108,6 +122,15 @@
 #   H: "escaped ask" means a panic in `plan_for` is not D288's to catch —
 #      on the GPUI thread it ends the application; what the line holds
 #      afterwards is printed.
+#   H2: one line per thing, "<name>: <verdict>", then whether
+#      after.cleaned.md was written and the line's progress. Expected:
+#      before Cleaned, plan-panics Failed(Panicked), after Cleaned, written,
+#      None. "after: never started" is a line left waiting behind a plan
+#      that panicked.
+#   I: the names in the folder and what note.md and note.original.md hold.
+#      Expected: note.md holds the result, note.original.md the original —
+#      the rename road's guard must not put the original back over a
+#      published result.
 #   `git status --short` afterwards must show none of the source files.
 set -uo pipefail
 
@@ -119,15 +142,17 @@ REPORT_RS=apps/wipemark-app/src/report.rs
 CLEAN_RS=apps/wipemark-app/src/clean.rs
 SETTINGS_RS=apps/wipemark-app/src/settings.rs
 CLEANER_RS=apps/wipemark-app/src/cleaner.rs
-PROBES=${PROBES:-"A B C D E F G H"}
+INPLACE_RS=crates/wipemark-intake/src/inplace.rs
+PROBES=${PROBES:-"A B C D E F G H H2 I"}
 want() { case " $PROBES " in *" $1 "*) return 0;; *) return 1;; esac; }
-for f in $QUEUE_RS $REPORT_RS $CLEAN_RS $SETTINGS_RS $CLEANER_RS; do cp "$f" "$PROBE_DIR/$(basename "$f").orig"; done
+for f in $QUEUE_RS $REPORT_RS $CLEAN_RS $SETTINGS_RS $CLEANER_RS $INPLACE_RS; do cp "$f" "$PROBE_DIR/$(basename "$f").orig"; done
 restore() {
   cp "$PROBE_DIR/queue.rs.orig" $QUEUE_RS
   cp "$PROBE_DIR/report.rs.orig" $REPORT_RS
   cp "$PROBE_DIR/clean.rs.orig" $CLEAN_RS
   cp "$PROBE_DIR/settings.rs.orig" $SETTINGS_RS
   cp "$PROBE_DIR/cleaner.rs.orig" $CLEANER_RS
+  cp "$PROBE_DIR/inplace.rs.orig" $INPLACE_RS
 }
 trap restore EXIT
 
@@ -540,5 +565,100 @@ echo "H exit: $?"
 grep -o "H: .*" "$PROBE_DIR/h.log"
 cp "$PROBE_DIR/settings.rs.orig" $SETTINGS_RS
 cp "$PROBE_DIR/cleaner.rs.orig" $CLEANER_RS
+fi
+# -- H2 -----------------------------------------------------------------------
+if want H2; then
+echo "== H2. (Y1) a plan that panics for a clean already waiting behind a running one"
+python3 - "$CLEANER_RS" <<'PY'
+import sys
+cleaner = sys.argv[1]
+c = open(cleaner, encoding="utf-8").read()
+probe = r"""
+    fn verifier_probe_h2_plan(preferences: &Preferences, intake: &wipemark_intake::Intake) -> Plan {
+        let named = intake.path.as_deref().and_then(Path::file_name);
+        if named.is_some_and(|name| name == "plan-panics.md") {
+            panic!("verifier probe H2: a fault in the plan");
+        }
+        preferences.plan_for(intake)
+    }
+
+    #[gpui::test]
+    fn verifier_probe_h2_a_plan_that_panics_behind_a_running_clean(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("probe-h2");
+        let names = ["before.md", "plan-panics.md", "after.md"];
+        for name in names {
+            std::fs::write(scratch.0.join(name), "A zero\u{200B}width space.\n").expect("source");
+        }
+        let (cleaner, events, cx) = line_in(cx, &scratch);
+        let ids: Vec<u64> = names.iter().map(|_| clean::number()).collect();
+        let asked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            cleaner.update(cx, |cleaner, cx| {
+                cleaner.plan = verifier_probe_h2_plan;
+                for (id, name) in ids.iter().zip(names) {
+                    cleaner.ask(*id, arrival(Handed::Path(scratch.0.join(name))), None, cx);
+                }
+            })
+        }));
+        println!("H2: asking {}", if asked.is_err() { "panicked" } else { "returned" });
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cx.run_until_parked()));
+        for (id, name) in ids.iter().zip(names) {
+            let verdict = events.borrow().iter().find_map(|event| match event {
+                Event::Finished(done, outcome) if done == id => Some(format!("{:?}", outcome.verdict)),
+                _ => None,
+            });
+            println!("H2: {name}: {}", verdict.unwrap_or_else(|| String::from("never started")));
+        }
+        println!(
+            "H2: after.cleaned.md {}",
+            if scratch.0.join("after.cleaned.md").exists() { "written" } else { "never written" }
+        );
+        println!("H2: the line's progress afterwards: {:?}", cx.update(|_, cx| cleaner.read(cx).progress()));
+    }
+}
+"""
+assert c.endswith("}\n"), "probe H2: cleaner.rs does not end with its tests module"
+open(cleaner, "w", encoding="utf-8").write(c[: -len("}\n")] + probe)
+PY
+cargo test --locked -p wipemark-app verifier_probe_h2 -- --nocapture >"$PROBE_DIR/h2.log" 2>&1
+echo "H2 exit: $?"
+grep -o "H2: .*" "$PROBE_DIR/h2.log"
+cp "$PROBE_DIR/cleaner.rs.orig" $CLEANER_RS
+fi
+
+# -- I ------------------------------------------------------------------------
+if want I; then
+echo "== I. (Y8) a panic after the publish on the rename road"
+python3 - "$INPLACE_RS" <<'PY'
+import sys
+inplace = sys.argv[1]
+c = open(inplace, encoding="utf-8").read()
+probe = r"""
+    #[test]
+    fn verifier_probe_i_a_panic_after_the_publish_by_rename() {
+        let scratch = Scratch::new("probe-i");
+        let file = scratch.0.join("note.md");
+        std::fs::write(&file, b"the original").expect("file");
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = replace_with(&file, Keep::Original, no_links, |destination, model| {
+                write_atomically(destination, b"the result", Some(model)).expect("published");
+                panic!("verifier probe I: a fault after the publish")
+            });
+        }));
+        println!("I: {}", if unwound.is_err() { "panicked" } else { "did not panic" });
+        println!("I: names {:?}", scratch.names());
+        for name in ["note.md", "note.original.md"] {
+            let held = std::fs::read(scratch.0.join(name)).map(|b| String::from_utf8_lossy(&b).into_owned());
+            println!("I: {name} holds {held:?}");
+        }
+    }
+}
+"""
+assert c.endswith("}\n"), "probe I: inplace.rs does not end with its tests module"
+open(inplace, "w", encoding="utf-8").write(c[: -len("}\n")] + probe)
+PY
+cargo test --locked -p wipemark-intake --lib verifier_probe_i -- --nocapture >"$PROBE_DIR/i.log" 2>&1
+echo "I exit: $?"
+grep -o "I: .*" "$PROBE_DIR/i.log"
+cp "$PROBE_DIR/inplace.rs.orig" $INPLACE_RS
 fi
 echo "PROBE_DIR=$PROBE_DIR"

@@ -47,6 +47,14 @@ shelf and the JSON's bytes (D289) — the last also against the CLI's and the
 application's suites alone, without core's — and the Markdown copy's
 spelling by position (X10) and the epic-number gate's letters (X9).
 
+Changes on 2026-10-06 (Y1–Y9, the third follow-ups; the host verification
+asked by the owner via the coordinator): H20's third text and H45 follow
+the code Y1 and Y4 moved — the plan is taken inside the line's catch, and
+the panel's plans in `PanelView::plans_now` at 12 spaces (the text the
+implementer's report gave). Both checked to be in the tree once with
+`--check`; neither was run — the owner stopped mutation testing for that
+verification (coverage, not mutation, is the planned measure).
+
 Usage
 -----
 From the repository root (an E7 checkout), after the gates are green:
@@ -212,9 +220,10 @@ MUTATIONS = [
       (CLEANER,
        "        self.things.insert(id, arrival);\n",
        "        PLANS.lock().unwrap().insert(id, self.preferences.read(cx).plan_for(&arrival.intake));\n        self.things.insert(id, arrival);\n"),
+      # Y1 moved the plan into a caught region (the third follow-ups).
       (CLEANER,
-       "            let plan = self.preferences.read(cx).plan_for(&arrival.intake);\n",
-       "            let plan = PLANS.lock().unwrap().remove(&job.id).expect(\"planned when asked\");\n")],
+       "            let planned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {\n                plan_of(preferences, &arrival.intake)\n            }));\n",
+       "            let _ = (plan_of, preferences);\n            let planned: std::thread::Result<Plan> =\n                Ok(PLANS.lock().unwrap().remove(&job.id).expect(\"planned when asked\"));\n")],
      APP),
     ("H21", "a clean already in the line is not asked twice",
      one(CLEANER,
@@ -347,10 +356,12 @@ MUTATIONS = [
          "    std::fs::symlink_metadata(file)\n        .is_ok_and(|metadata| metadata.file_type().is_symlink())",
          "    std::fs::canonicalize(file)\n        .is_ok_and(|real| real != *file)"),
      APP),
+    # Y4 moved the plans into `PanelView::plans_now`: the line is at 12
+    # spaces now (the third follow-ups' report gave the text).
     ("H45", "the panel's look is asked with the plan a clean would take (D287)",
      one(PANEL,
-         "                .map(|thing| preferences.plan_for(&thing.intake))",
-         "                .map(|thing| {\n                    let _ = (&preferences, thing);\n                    Plan::EachFileIn(std::path::PathBuf::new())\n                })"),
+         "            .map(|thing| preferences.plan_for(&thing.intake))",
+         "            .map(|thing| {\n                let _ = (&preferences, thing);\n                Plan::EachFileIn(std::path::PathBuf::new())\n            })"),
      APP),
     ("H46", "a clean that panicked is said as Failed(Panicked), not as a refusal (D288)",
      one(CLEAN,
