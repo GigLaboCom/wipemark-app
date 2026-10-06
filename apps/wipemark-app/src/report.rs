@@ -1282,6 +1282,38 @@ mod tests {
             found.findings
         );
         assert_eq!(super::spelled(&line), format!("aU+200Db {family}"));
+
+        // One finding, two places: both are spelled, not the first (Y5).
+        let twice = "a\u{200B}b\u{200B}c";
+        let found = wipemark_core::inspect(twice, &wipemark_core::Options::default());
+        assert_eq!(
+            found
+                .findings
+                .iter()
+                .map(|f| f.positions.len())
+                .collect::<Vec<_>>(),
+            [2],
+            "{:?}",
+            found.findings
+        );
+        assert_eq!(super::spelled(twice), "aU+200BbU+200Bc");
+
+        // VS16 after an emoji presents it as a picture, and Layer A keeps
+        // it; the same U+FE0F after a letter selects nothing and is
+        // removed. Only the second is spelled.
+        let heart = "\u{2764}\u{FE0F} x\u{FE0F}y";
+        let found = wipemark_core::inspect(heart, &wipemark_core::Options::default());
+        assert_eq!(
+            found
+                .findings
+                .iter()
+                .flat_map(|f| f.positions.iter().copied())
+                .collect::<Vec<_>>(),
+            [heart.rfind('\u{FE0F}').expect("the stray one")],
+            "Layer A no longer keeps the heart's VS16, or keeps the stray one: {:?}",
+            found.findings
+        );
+        assert_eq!(super::spelled(heart), "\u{2764}\u{FE0F} xU+FE0Fy");
     }
 
     /// What a Markdown reader shows for a backslash-escaped line.

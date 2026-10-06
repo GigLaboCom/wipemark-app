@@ -306,7 +306,10 @@ as `delivering`, then the file is written, then the row becomes `done`
 (the text dropped from it when it is on disk). A `kill -9` between the two
 re-delivers at the next open: a `File` write is idempotent; an in-place
 item whose original is already aside **and** whose file already holds the
-result is done, not "original exists".
+result is done, not "original exists". (Since D284 sets the original aside
+by a hard link, it is also done when the file is still the set-aside — one
+inode, or the same bytes — and is written then; only a file holding
+anything else is "original exists", D286 in `docs/plan/E7-windows-clean.md`.)
 
 ### 4.5 Documents
 

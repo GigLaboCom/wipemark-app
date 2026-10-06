@@ -1555,6 +1555,52 @@ mod tests {
             .is_symlink());
     }
 
+    /// In place through a **linked folder** is not a link: only the last
+    /// name is the check's, as on the CLI. A folder above the file may be
+    /// a link — every temporary folder on macOS is under `/var ->
+    /// /private/var` — and refusing there would refuse every in-place
+    /// clean on that machine. The file is cleaned where the link leads, the
+    /// original set aside beside it, and the folder's link left a link (Y3).
+    #[cfg(unix)]
+    #[test]
+    fn in_place_through_a_linked_folder_is_cleaned() {
+        let scratch = Scratch::new("linked-folder");
+        let real = scratch.0.join("real");
+        std::fs::create_dir(&real).expect("real");
+        std::fs::write(real.join("note.md"), MARKED).expect("note");
+        let folder = scratch.0.join("dir-link");
+        std::os::unix::fs::symlink(&real, &folder).expect("link");
+        let over = Retention {
+            destination: Destination::Replace,
+            ..Retention::default()
+        };
+        let thing = arrival(Handed::Path(folder.join("note.md")));
+
+        let plan = planned(&thing, &over, &scratch.homes());
+        assert!(
+            matches!(inspect_one(&thing, &plan), Findings::Text { change: 1, .. }),
+            "the look refused a file under a linked folder"
+        );
+        let outcome = clean(&thing, &over, &scratch.homes());
+        assert!(
+            matches!(outcome.verdict, Verdict::Cleaned),
+            "{:?}",
+            outcome.verdict
+        );
+        assert_eq!(
+            read(&real.join("note.md")),
+            wipemark_core::clean(MARKED, &Options::default())
+                .text
+                .as_bytes()
+        );
+        assert_eq!(read(&real.join("note.original.md")), MARKED.as_bytes());
+        assert!(std::fs::symlink_metadata(&folder)
+            .expect("the folder's link")
+            .file_type()
+            .is_symlink());
+        assert_eq!(names(&real), ["note.md", "note.original.md"]);
+    }
+
     /// In place replaces the file that was read and no other: a plan whose
     /// `Over` names a different file is refused as having nowhere to go,
     /// and both files are left as they were.

@@ -147,6 +147,13 @@ fn replace_with(
     //    anything — a dangling link included — already has it.
     match link(path, &original) {
         Ok(()) => {
+            // A panic in the write takes the second name with it while the
+            // first is still the original — the next in-place clean would
+            // otherwise refuse it as an original already there.
+            let _unwinding = Unwinding(OnUnwind::SecondName {
+                first: path.to_owned(),
+                second: original.clone(),
+            });
             // 2. The result takes the first name, with its permissions; the
             //    original keeps the second.
             match write(path, &original) {
@@ -184,6 +191,11 @@ fn set_aside_by_rename(
     if let Err(error) = std::fs::rename(path, &original) {
         return Err(Failure::SetAside { original, error });
     }
+    // A panic in the write puts it back while its name is still free.
+    let _unwinding = Unwinding(OnUnwind::RenameBack {
+        first: path.to_owned(),
+        second: original.clone(),
+    });
     // 2. The result takes the name it had, with its permissions.
     match write(path, &original) {
         Ok(()) => Ok(Replaced {
@@ -206,9 +218,22 @@ fn set_aside_by_rename(
 /// the destination. `model`'s permissions are copied onto the result when
 /// there is a model — the input file, or its set-aside original. Blocking.
 pub fn write_atomically(destination: &Path, bytes: &[u8], model: Option<&Path>) -> io::Result<()> {
+    write_atomically_with(destination, bytes, model, |from, to| {
+        std::fs::rename(from, to)
+    })
+}
+
+/// [`write_atomically`] with the publishing rename handed in, so that a
+/// test can make it fail or panic.
+fn write_atomically_with(
+    destination: &Path,
+    bytes: &[u8],
+    model: Option<&Path>,
+    publish: impl FnOnce(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
     let temporary = temporary_for(destination);
-    let written =
-        staged(&temporary, bytes, model).and_then(|()| std::fs::rename(&temporary, destination));
+    let _unwinding = Unwinding(OnUnwind::Remove(temporary.clone()));
+    let written = staged(&temporary, bytes, model).and_then(|()| publish(&temporary, destination));
     if written.is_err() {
         let _ = std::fs::remove_file(&temporary);
     }
@@ -242,6 +267,7 @@ fn write_new_with(
     copy: impl FnOnce(&mut File, &mut File) -> io::Result<()>,
 ) -> io::Result<()> {
     let temporary = temporary_for(destination);
+    let _unwinding = Unwinding(OnUnwind::Remove(temporary.clone()));
     let written =
         staged(&temporary, bytes, model).and_then(|()| match link(&temporary, destination) {
             Ok(()) => Ok(()),
@@ -265,6 +291,8 @@ fn copied_new(
         .write(true)
         .create_new(true)
         .open(destination)?;
+    // Made by `create_new` a line ago: ours, and part of a result.
+    let _unwinding = Unwinding(OnUnwind::Remove(destination.to_owned()));
     let copied = (|| {
         copy(&mut File::open(temporary)?, &mut file)?;
         file.sync_all()?;
@@ -275,6 +303,57 @@ fn copied_new(
         let _ = std::fs::remove_file(destination);
     }
     copied
+}
+
+/// What a panic between two steps of a write leaves to be put right. Since
+/// D288 the application goes on after a clean that panicked, and the next
+/// clean is the one that would meet it: a temporary is litter, and a
+/// second name left for an original still under its first is a refusal
+/// somebody has to clear by hand (Y8). Nothing here is ever lost either way.
+enum OnUnwind {
+    /// A file that is only ours: a temporary, or a result half copied.
+    Remove(PathBuf),
+    /// The original's second name, made by a hard link — removed only while
+    /// the first name is still the original (the same inode, or the same
+    /// bytes, D286): once the result has the first name, the second is the
+    /// only copy of the original.
+    SecondName { first: PathBuf, second: PathBuf },
+    /// The original renamed aside — put back only while its first name is
+    /// free.
+    RenameBack { first: PathBuf, second: PathBuf },
+}
+
+/// Does what its [`OnUnwind`] says when it is dropped by an unwinding
+/// panic, and nothing otherwise: an `Err` is put right where it is
+/// returned.
+struct Unwinding(OnUnwind);
+
+impl Drop for Unwinding {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            return;
+        }
+        match &self.0 {
+            OnUnwind::Remove(path) => {
+                let _ = std::fs::remove_file(path);
+            }
+            OnUnwind::SecondName { first, second } => {
+                let still_the_original = same_file(first, second)
+                    || matches!(
+                        (std::fs::read(first), std::fs::read(second)),
+                        (Ok(first), Ok(second)) if first == second
+                    );
+                if still_the_original {
+                    let _ = std::fs::remove_file(second);
+                }
+            }
+            OnUnwind::RenameBack { first, second } => {
+                if std::fs::symlink_metadata(first).is_err() {
+                    let _ = std::fs::rename(second, first);
+                }
+            }
+        }
+    }
 }
 
 /// Every byte of `from` into `to`.
@@ -340,8 +419,8 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{
-        copy, original_beside, replace, replace_with, temporary_for, write_atomically, write_new,
-        write_new_with, Failure, Keep, Replaced,
+        copy, original_beside, replace, replace_with, temporary_for, write_atomically,
+        write_atomically_with, write_new, write_new_with, Failure, Keep, Replaced,
     };
 
     struct Scratch(PathBuf);
@@ -484,6 +563,101 @@ mod tests {
         );
         assert!(failed.is_err());
         assert_eq!(scratch.names(), Vec::<String>::new(), "something was left");
+    }
+
+    /// Run `step`, which panics, as a caller that goes on after a panic
+    /// does — the application's line of cleans (D288).
+    fn panicking(step: impl FnOnce()) {
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(step));
+        assert!(unwound.is_err(), "the step did not panic");
+    }
+
+    /// A panic between the stage and the publish leaves nothing behind:
+    /// the temporary goes with the unwinding, from an atomic write, a new
+    /// file's link, and a new file's copy where links are refused — which
+    /// takes the half-copied result with it too (Y8).
+    #[test]
+    fn a_panic_before_the_publish_leaves_no_temporary() {
+        let scratch = Scratch::new("panic-publish");
+        let destination = scratch.0.join("x.cleaned.md");
+        panicking(|| {
+            let _ = write_atomically_with(&destination, b"the result", None, |_, _| {
+                panic!("a fault in this version, on purpose")
+            });
+        });
+        assert_eq!(scratch.names(), Vec::<String>::new(), "something was left");
+
+        panicking(|| {
+            let _ = write_new_with(
+                &destination,
+                b"the result",
+                None,
+                |_, _| panic!("a fault in this version, on purpose"),
+                copy,
+            );
+        });
+        assert_eq!(scratch.names(), Vec::<String>::new(), "something was left");
+
+        panicking(|| {
+            let _ = write_new_with(&destination, b"the result", None, no_links, |from, to| {
+                use std::io::{Read as _, Write as _};
+                let mut half = [0u8; 4];
+                from.read_exact(&mut half).expect("read");
+                to.write_all(&half).expect("write");
+                panic!("a fault in this version, on purpose")
+            });
+        });
+        assert_eq!(scratch.names(), Vec::<String>::new(), "something was left");
+    }
+
+    /// A panic in the write after the original was set aside leaves the
+    /// folder as it was: the file alone, byte for byte — no second name
+    /// for the next in-place clean to refuse as an original already there,
+    /// and no temporary. By a hard link and by a rename (Y8).
+    #[test]
+    fn a_panic_after_the_set_aside_leaves_the_file_alone() {
+        let scratch = Scratch::new("panic-aside");
+        let file = scratch.0.join("note.md");
+        std::fs::write(&file, b"the original").expect("file");
+        panicking(|| {
+            let _ = replace_with(
+                &file,
+                Keep::Original,
+                |from, to| std::fs::hard_link(from, to),
+                |destination, model| {
+                    write_atomically_with(destination, b"the result", Some(model), |_, _| {
+                        panic!("a fault in this version, on purpose")
+                    })
+                },
+            );
+        });
+        assert_eq!(scratch.names(), ["note.md"], "something was left");
+        assert_eq!(read(&file), b"the original");
+
+        panicking(|| {
+            let _ = replace_with(&file, Keep::Original, no_links, |_, _| {
+                panic!("a fault in this version, on purpose")
+            });
+        });
+        assert_eq!(scratch.names(), ["note.md"], "something was left");
+        assert_eq!(read(&file), b"the original");
+
+        // Published, then a panic: the second name is the only copy of the
+        // original, and stays.
+        panicking(|| {
+            let _ = replace_with(
+                &file,
+                Keep::Original,
+                |from, to| std::fs::hard_link(from, to),
+                |destination, model| {
+                    write_atomically(destination, b"the result", Some(model)).expect("published");
+                    panic!("a fault in this version, on purpose")
+                },
+            );
+        });
+        assert_eq!(scratch.names(), ["note.md", "note.original.md"]);
+        assert_eq!(read(&file), b"the result");
+        assert_eq!(read(&scratch.0.join("note.original.md")), b"the original");
     }
 
     /// A new result is published without replacing anything: a file

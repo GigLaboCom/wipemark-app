@@ -29,7 +29,11 @@ child starts a session of its own and `os.killpg` takes it down (the
 second follow-ups, X2 — the coordinator, 2026-10-06).
 
 Step `X` is the second follow-ups' (`wipemark-task-e7-followups-2-2026-10-06`,
-report `docs/plan/reports/E7-followups-2-2026-10-06.md`).
+report `docs/plan/reports/E7-followups-2-2026-10-06.md`); step `Y` the
+third's (`wipemark-task-e7-followups-3-2026-10-06`, the coordinator,
+2026-10-06; report `docs/plan/reports/E7-followups-3-2026-10-06.md`).
+`--check`, `--compile` and a run all exit 1 on a selection that names
+nothing (Y9).
 
 Usage
 -----
@@ -131,9 +135,14 @@ def co(name):
     return (["-p", "wipemark-core"], f"json::tests::{name}")
 
 
+def cb(name):
+    return (["-p", "wipemark-cli", "--bin", "wipemark-cli"], f"input::tests::{name}")
+
+
 DELIVER = "crates/wipemark-queue/src/deliver.rs"
 I18N_TESTS = "crates/wipemark-i18n/src/tests.rs"
 CORE_JSON = "crates/wipemark-core/src/json.rs"
+CLI_INPUT = "apps/wipemark-cli/src/input.rs"
 
 
 # (id, protection, file, old, new, [(cargo test args, test name filter)])
@@ -293,12 +302,13 @@ MUTATIONS = [
         "E7-2/M2",
         "the plan is not the Retention page's as it stands when the clean starts",
         CLEANER,
-        """            let plan = self.preferences.read(cx).plan_for(&arrival.intake);""",
-        """            let plan = crate::retention::plan(
-                &crate::retention::Source::of(&arrival.intake),
-                &crate::retention::Retention::default(),
-                self.preferences.read(cx).homes(),
-            );""",
+        # Y1 moved the line into a caught region (the third follow-ups).
+        """                plan_of(preferences, &arrival.intake)\n""",
+        """                crate::retention::plan(
+                    &crate::retention::Source::of(&arrival.intake),
+                    &crate::retention::Retention::default(),
+                    preferences.homes(),
+                )\n""",
         [q("the_queue_cleans_one_row_at_a_time_by_the_plan_at_its_start")],
     ),
     (
@@ -901,6 +911,75 @@ MUTATIONS = [
         "    let _ = shelf;\n    for (i, (id, _)) in crate::report::not_established::ALL.iter().enumerate() {",
         [co("the_json_shelf_is_the_reports_own")],
     ),
+    (
+        "Y1/M1",
+        "a panic while a clean's plan is taken does not stop the line",
+        CLEANER,
+        "            let planned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {\n                plan_of(preferences, &arrival.intake)\n            }));",
+        "            let planned: std::thread::Result<Plan> = Ok(plan_of(preferences, &arrival.intake));",
+        [k("a_plan_that_panics_does_not_stop_the_line")],
+        900,
+    ),
+    (
+        "Y2/M1",
+        "D286's bytes road compares the bytes, not their length (the verifier's H41)",
+        DELIVER,
+        "        || std::fs::read(original).is_ok_and(|aside| aside == current)",
+        "        || std::fs::read(original).is_ok_and(|aside| aside.len() == current.len())",
+        [qq("an_interrupted_delivery_is_finished_not_failed")],
+    ),
+    (
+        "Y3/M1",
+        "in place through a linked folder is not refused: only the last name is the link check's (H44)",
+        CLEAN,
+        "    std::fs::symlink_metadata(file)\n        .is_ok_and(|metadata| metadata.file_type().is_symlink())",
+        "    std::fs::canonicalize(file)\n        .is_ok_and(|real| real != *file)",
+        [t("in_place_through_a_linked_folder_is_cleaned")],
+    ),
+    (
+        "Y4/M1",
+        "the panel's look is asked with the plan a clean would take (H45)",
+        PANEL,
+        "            .map(|thing| preferences.plan_for(&thing.intake))",
+        "            .map(|thing| {\n                let _ = (&preferences, thing);\n                Plan::EachFileIn(std::path::PathBuf::new())\n            })",
+        [p("the_look_is_taken_by_the_plan_a_clean_would_take")],
+    ),
+    (
+        "Y4/M2",
+        "a change on the Retention page reaches the held drop's look (D290)",
+        PANEL,
+        "        let replanned = cx.observe(&preferences, |view: &mut Self, _, cx| view.replan(cx));",
+        "        let replanned = cx.observe(&preferences, |_: &mut Self, _, _| {});",
+        [p("the_look_follows_a_change_of_plan")],
+    ),
+    (
+        "Y5/M1",
+        "the Markdown copy spells every position a finding lists, not its first (H53)",
+        REPORT,
+        "            .flat_map(|finding| finding.positions.iter().copied())",
+        "            .filter_map(|finding| finding.positions.first().copied())",
+        [r("a_kept_emoji_joiner_is_not_spelled")],
+    ),
+    (
+        "Y7/M1",
+        "the CLI's FIFO test fails, never hangs, when the read never opens the pipe",
+        CLI_INPUT,
+        "    if metadata.is_dir() {",
+        "    if !metadata.is_file() {",
+        [cb("rewrite_refuses_a_picture_on_its_head")],
+        900,
+    ),
+    (
+        "Y8/M1",
+        "a panic between the stage and the publish leaves nothing behind",
+        INPLACE,
+        "        if !std::thread::panicking() {\n            return;\n        }",
+        "        if !std::thread::panicking() || true {\n            return;\n        }",
+        [
+            n("a_panic_before_the_publish_leaves_no_temporary"),
+            n("a_panic_after_the_set_aside_leaves_the_file_alone"),
+        ],
+    ),
 ]
 def run(args, name, timeout):
     """`(red, compiled, hung, command)`: a mutation that does not compile is
@@ -947,10 +1026,22 @@ def selected(wanted):
             yield m
 
 
+def nothing_selected(entries):
+    """An empty selection is a failure, whichever mode was asked (Y9): a
+    step that matched nothing must not read as a step that passed."""
+    if entries:
+        return False
+    print("nothing selected", flush=True)
+    return True
+
+
 def check(wanted):
     """Every text to mutate is there exactly once — nothing is run."""
+    entries = list(selected(wanted))
+    if nothing_selected(entries):
+        return 1
     ok = True
-    for mid, _, path, old, *_ in selected(wanted):
+    for mid, _, path, old, *_ in entries:
         with open(path, encoding="utf-8") as f:
             n = f.read().count(old)
         if n != 1:
@@ -974,8 +1065,11 @@ def mutate(path, old, new, body):
 
 
 def compile_all(wanted):
+    entries = list(selected(wanted))
+    if nothing_selected(entries):
+        return 1
     ok = True
-    for mid, _, path, old, new, tests, *_ in selected(wanted):
+    for mid, _, path, old, new, tests, *_ in entries:
         result = mutate(path, old, new, lambda: compile_only(sum((a for a, _ in tests), [])))
         if result is None:
             print(f"{mid}: NOT APPLIED: the text to mutate moved", flush=True)
@@ -1017,8 +1111,7 @@ def main(wanted):
         print(f"{mid}: {verdict}", flush=True)
         for name, r, _, command in red:
             print(f"    {'red  ' if r else 'GREEN'} {command}", flush=True)
-    if not results:
-        print("nothing selected", flush=True)
+    if nothing_selected(results):
         return 1
     print()
     print("| # | protection | result | tests |")

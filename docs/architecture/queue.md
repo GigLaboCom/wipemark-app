@@ -133,7 +133,12 @@ which is how a row goes from Queued to Cleaning to done. While it runs the
 status bar says "Cleaning 2 of 5", counting the panel's cleans too. A clean
 that panics — a fault in this version — is caught where it runs and ends
 as *failed* with a sentence of its own, and the next clean starts (D288):
-uncaught, the line would wait for it for ever, in both windows.
+uncaught, the line would wait for it for ever, in both windows. So does a
+panic while its plan is taken, on this thread before the clean is handed
+out (Y1). What a panic in the middle of a write would leave — a temporary,
+a second name for an original still under its first — goes as it unwinds
+(`wipemark_intake::inplace`, Y8), so the next in-place clean of the file
+is not refused for it.
 
 *In place of the file* refuses a row whose file is a symbolic link before
 it is read (D287) — see `retention.md`, "How the windows execute it".

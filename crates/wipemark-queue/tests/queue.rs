@@ -500,31 +500,71 @@ fn an_interrupted_delivery_is_finished_not_failed() {
         Rename,
         Copy,
     }
+    // What the first name holds when the queue opens again: what the crash
+    // left, bytes written into whatever file is there, or someone's atomic
+    // save — a temporary renamed over the first name, a new inode. After a
+    // set-aside by a link, a write through the first name would change the
+    // set-aside too; an editor's save does not, and that is the state.
+    enum Now {
+        Left,
+        Written(&'static str),
+        Saved(String),
+    }
+    let same_length = "S".repeat(PARAGRAPHS[0].len());
     for (case, aside_by, file_now, ends_done) in [
         (
             "set aside by a link, not yet written",
             Aside::Link,
-            None,
+            Now::Left,
             true,
         ),
         (
             "set aside by a rename, not yet written",
             Aside::Rename,
-            None,
+            Now::Left,
             true,
         ),
-        ("the same bytes under both names", Aside::Copy, None, true),
+        (
+            "the same bytes under both names",
+            Aside::Copy,
+            Now::Left,
+            true,
+        ),
         (
             "written, not yet recorded",
             Aside::Rename,
-            Some(result),
+            Now::Written(result),
             true,
         ),
         (
             "someone else's bytes",
             Aside::Rename,
-            Some("Edited by hand since."),
+            Now::Written("Edited by hand since."),
             false,
+        ),
+        // D286 compares the bytes, not their length: a save of as many
+        // bytes is still someone's, and is not written over (Y2).
+        (
+            "set aside by a link, then saved over: the same length",
+            Aside::Link,
+            Now::Saved(same_length.clone()),
+            false,
+        ),
+        (
+            "set aside by a link, then saved over: another length",
+            Aside::Link,
+            Now::Saved(String::from("Saved by an editor since.")),
+            false,
+        ),
+        // The original's very bytes saved back under the first name — a
+        // second inode, the same bytes as the set-aside: that is the
+        // set-aside as D286 sees it where the inode cannot be seen, and
+        // writing the result over it loses nothing.
+        (
+            "set aside by a link, then the original's bytes saved back",
+            Aside::Link,
+            Now::Saved(String::from(PARAGRAPHS[0])),
+            true,
         ),
     ] {
         let scratch = Scratch::new("delivering");
@@ -545,9 +585,19 @@ fn an_interrupted_delivery_is_finished_not_failed() {
             Aside::Copy => std::fs::copy(&source, &aside).map(drop),
         }
         .expect("the original set aside");
-        if let Some(now) = file_now {
-            std::fs::write(&source, now).expect("the file as the crash left it");
-        }
+        let left = match &file_now {
+            Now::Left => None,
+            Now::Written(now) => {
+                std::fs::write(&source, now).expect("the file as the crash left it");
+                Some(String::from(*now))
+            }
+            Now::Saved(now) => {
+                let temporary = scratch.path(".note.md.save");
+                std::fs::write(&temporary, now).expect("the editor's temporary");
+                std::fs::rename(&temporary, &source).expect("the editor's save");
+                Some(now.clone())
+            }
+        };
 
         let queue = Queue::open(&scratch.db(), Arc::new(engine(None)));
         let end = end_of(&queue.events(), item);
@@ -581,8 +631,8 @@ fn an_interrupted_delivery_is_finished_not_failed() {
                 "{case}"
             );
             assert_eq!(
-                std::fs::read_to_string(&source).expect("file"),
-                "Edited by hand since.",
+                Some(std::fs::read_to_string(&source).expect("file")),
+                left,
                 "{case}"
             );
         }

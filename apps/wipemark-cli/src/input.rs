@@ -307,6 +307,8 @@ pub(crate) use wipemark_intake::text::{decode, encode};
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use wipemark_intake::{Format, HEAD};
 
     use super::{decode, encode, picture_of, read, read_any, Content, Encoding, Source};
@@ -375,18 +377,20 @@ mod tests {
         assert!(made.success());
 
         let (release, hold) = mpsc::channel::<()>();
+        let (done, written) = mpsc::channel::<()>();
         let writer = {
             let fifo = fifo.clone();
             std::thread::spawn(move || {
-                let mut pipe = std::fs::OpenOptions::new()
-                    .write(true)
-                    .open(&fifo)
-                    .expect("the pipe");
-                let mut head = PNG_HEAD.to_vec();
-                head.resize(2 * HEAD, 0);
-                let _ = pipe.write_all(&head);
-                // Hold the pipe open until the test is done with it.
-                let _ = hold.recv_timeout(Duration::from_secs(60));
+                // Done, opened or not: a reader that never opens the pipe
+                // leaves this in `open` until `released` lets it through.
+                if let Ok(mut pipe) = std::fs::OpenOptions::new().write(true).open(&fifo) {
+                    let mut head = PNG_HEAD.to_vec();
+                    head.resize(2 * HEAD, 0);
+                    let _ = pipe.write_all(&head);
+                    // Hold the pipe open until the test is done with it.
+                    let _ = hold.recv_timeout(Duration::from_secs(60));
+                }
+                let _ = done.send(());
             })
         };
         let (answer, answered) = mpsc::channel();
@@ -400,10 +404,47 @@ mod tests {
         };
         let refused = answered.recv_timeout(Duration::from_secs(20));
         let _ = release.send(());
-        let _ = writer.join();
-        let _ = reader.join();
+        released(&fifo, &written, "the pipe's writer");
+        writer.join().expect("writer");
+        // The writer has closed its end: a reader still reading has its
+        // end of file now.
+        let refused = refused.or_else(|_| answered.recv_timeout(Duration::from_secs(10)));
         let _ = std::fs::remove_dir_all(&dir);
+        assert!(refused.is_ok(), "the reader never answered");
+        reader.join().expect("reader");
         assert_eq!(refused, Ok(true), "the picture was not refused on its head");
+    }
+
+    /// Wait, ten seconds at most, for a pipe's writer to say it is done —
+    /// opening and closing the read end without blocking now and then, which
+    /// lets a writer still waiting in `open` through to a hang-up. A writer
+    /// that never finishes is a failed assertion that names it, never a
+    /// wait (Y7, the shape of the application's X2).
+    #[cfg(unix)]
+    fn released(pipe: &Path, finished: &std::sync::mpsc::Receiver<()>, who: &str) {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        use std::sync::mpsc::RecvTimeoutError;
+        use std::time::{Duration, Instant};
+        // Spelled by hand: the CLI does not take `libc`.
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        const O_NONBLOCK: i32 = 0o4000;
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        const O_NONBLOCK: i32 = 0x0004;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match finished.recv_timeout(Duration::from_millis(100)) {
+                Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
+                Err(RecvTimeoutError::Timeout) => {}
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{who} never got its reader: the read did not open the pipe"
+            );
+            let _ = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(O_NONBLOCK)
+                .open(pipe);
+        }
     }
 
     const ENCODINGS: [Encoding; 5] = [
