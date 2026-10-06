@@ -515,9 +515,18 @@ impl PanelView {
     }
 
     /// Hold a new drop, and look at what it lists, one thing at a time on
-    /// the background executor. A look overtaken by the next drop stops.
+    /// the background executor, each by the plan a clean would take now —
+    /// so a look says what that clean refuses before reading (D287). A look
+    /// overtaken by the next drop stops.
     fn hold(&mut self, arrivals: Arc<[Arrival]>, cx: &Context<Self>) {
         let listed = arrivals.len().min(LISTED);
+        let plans: Vec<Plan> = {
+            let preferences = self.preferences.read(cx);
+            arrivals[..listed]
+                .iter()
+                .map(|thing| preferences.plan_for(&thing.intake))
+                .collect()
+        };
         self.held = Some(Held {
             arrivals: arrivals.clone(),
             found: (0..listed).map(|_| None).collect(),
@@ -526,9 +535,10 @@ impl PanelView {
         cx.spawn(async move |view, cx| {
             for index in 0..listed {
                 let thing = arrivals.clone();
+                let plan = plans[index].clone();
                 let found = cx
                     .background_executor()
-                    .spawn(async move { clean::inspect_one(&thing[index]) })
+                    .spawn(async move { clean::inspect_one(&thing[index], &plan) })
                     .await;
                 let current = view
                     .update(cx, |view, cx| {
@@ -701,7 +711,10 @@ fn caught_row(
                 muted
             };
             lines.push((findings_line(found), colour));
-            if !matches!(clean::cleanable(intake), Cleanable::No(_)) {
+            // Where a result would go, unless the look already said why
+            // there will be none.
+            let refused = matches!(found, Some(Findings::NotLooked(_)));
+            if !refused && !matches!(clean::cleanable(intake), Cleanable::No(_)) {
                 lines.extend(would_happen(plan).into_iter().map(|line| (line, muted)));
             }
         }

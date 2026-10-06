@@ -35,7 +35,9 @@ fn table() -> Vec<Row> {
         .filter(|line| !line.starts_with('#') && !line.trim().is_empty())
         .map(|line| {
             let columns: Vec<&str> = line.split('\t').collect();
-            assert_eq!(columns.len(), 5, "a row of five columns: {line:?}");
+            // input, cli_exit, cli_writes, then the window's two columns,
+            // read past here, and the person's.
+            assert_eq!(columns.len(), 6, "a row of six columns: {line:?}");
             Row {
                 input: columns[0].to_owned(),
                 cli_exit: columns[1].parse().expect("an exit code"),

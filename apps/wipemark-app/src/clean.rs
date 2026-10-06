@@ -218,6 +218,10 @@ pub enum Refusal {
     OriginalExists(PathBuf),
     /// The result would land on its own source.
     SameFile(PathBuf),
+    /// In place of a file that is a symbolic link: setting it aside and
+    /// replacing it would replace the link and leave the file it points to
+    /// as it was. Refused before the read, as the CLI does (D287).
+    Link(PathBuf),
     /// The plan has no place this result can go — a folder, or a picture
     /// asked to come back as text.
     Nowhere,
@@ -237,6 +241,10 @@ pub enum Failure {
         error: Error,
         restore: Error,
     },
+    /// The clean panicked — a fault in this version — before it could say
+    /// what it did. The panic hook logged the panic; the line goes on
+    /// (D288).
+    Panicked,
 }
 
 /// An `io::Error` reduced to what an `Outcome` can carry and a window can
@@ -416,6 +424,13 @@ pub fn replace_one(
     logged(row, run(arrival, plan, row, now, Some(existing)))
 }
 
+/// What a clean that panicked comes to (D288): a failure of its own, and
+/// the one log line every clean leaves — the panic itself is the panic
+/// hook's. Called by the line that caught it.
+pub fn panicked(row: u64) -> Outcome {
+    logged(row, Outcome::of(Verdict::Failed(Failure::Panicked)))
+}
+
 /// The next number a thing is filed under in this run, across every window
 /// (D280).
 ///
@@ -453,10 +468,15 @@ pub enum Findings {
 
 /// Look at one thing as [`clean_one`] would read it — the same bytes, the
 /// same limits, the same decision of what they are — and run the layer's
-/// inspection rather than its clean. Writes nothing. **Blocking.**
-pub fn inspect_one(arrival: &Arrival) -> Findings {
+/// inspection rather than its clean. `plan` is the one a clean would take
+/// now: what it refuses before the read ([`over_a_link`]) is refused here
+/// too. Writes nothing. **Blocking.**
+pub fn inspect_one(arrival: &Arrival, plan: &Plan) -> Findings {
     if let Cleanable::No(unable) = cleanable(&arrival.intake) {
         return Findings::NotLooked(Refusal::NotCleanable(unable));
+    }
+    if let Some(refusal) = over_a_link(plan) {
+        return Findings::NotLooked(refusal);
     }
     let read = match read(arrival) {
         Ok(read) => read,
@@ -574,6 +594,7 @@ fn why_of(verdict: &Verdict) -> Option<String> {
             Refusal::Exists(_) => String::from("exists"),
             Refusal::OriginalExists(_) => String::from("original exists"),
             Refusal::SameFile(path) => format!("same file: {}", elided(path)),
+            Refusal::Link(_) => String::from("in place on a link"),
             Refusal::Nowhere => String::from("nowhere"),
         }),
         Verdict::Failed(failure) => Some(match failure {
@@ -593,6 +614,7 @@ fn why_of(verdict: &Verdict) -> Option<String> {
                 error.kind,
                 restore.kind
             ),
+            Failure::Panicked => String::from("panicked"),
         }),
         _ => None,
     }
@@ -618,6 +640,9 @@ fn run(
     // before a byte is read.
     if let Cleanable::No(unable) = cleanable(&arrival.intake) {
         return Outcome::refused(Refusal::NotCleanable(unable));
+    }
+    if let Some(refusal) = over_a_link(plan) {
+        return Outcome::refused(refusal);
     }
     let read = match read(arrival) {
         Ok(read) => read,
@@ -765,6 +790,21 @@ fn run(
         }
     }
     outcome
+}
+
+/// In place of a symbolic link: the read follows it, and the set-aside and
+/// the rename would then work on the link — `link.original.md` the link,
+/// `link.md` a new file, the document it points to untouched, and a clean
+/// said over it. Refused before anything is read or written, whatever the
+/// file holds, as `wipemark-cli clean --in-place` refuses it (D287).
+/// `Beside` and `Into` write a new file and never touch the source.
+fn over_a_link(plan: &Plan) -> Option<Refusal> {
+    let Plan::File(Written::Over { file, .. }) = plan else {
+        return None;
+    };
+    std::fs::symlink_metadata(file)
+        .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        .then(|| Refusal::Link(file.clone()))
 }
 
 /// What a failed in-place replacement comes to. Everything but `Stranded`
@@ -1153,6 +1193,15 @@ mod tests {
         clean_one(arrival, &planned(arrival, retention, homes), 7, now())
     }
 
+    /// The panel's look, by the plan a clean at the defaults would take.
+    fn look(arrival: &Arrival) -> Findings {
+        let homes = Homes {
+            results: PathBuf::from("results"),
+            kept: PathBuf::from("kept"),
+        };
+        inspect_one(arrival, &planned(arrival, &Retention::default(), &homes))
+    }
+
     fn read(path: &Path) -> Vec<u8> {
         std::fs::read(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
     }
@@ -1452,6 +1501,58 @@ mod tests {
         assert_eq!(read(&source), "again\u{200B}".as_bytes());
         assert_eq!(read(&original), MARKED.as_bytes());
         assert_eq!(names(&scratch.0), ["x.md", "x.original.md"]);
+    }
+
+    /// In place of a symbolic link is refused before anything is read or
+    /// written (D287, X3): the link stays a link to the same file, that file
+    /// keeps its U+200B, nothing is set aside under either name — and the
+    /// panel's look, by the same plan, says the same refusal. Beside the
+    /// link is a new file and goes ahead.
+    #[cfg(unix)]
+    #[test]
+    fn in_place_of_a_symbolic_link_is_refused_and_touches_nothing() {
+        let scratch = Scratch::new("over-link");
+        let target = scratch.file("target.md", MARKED.as_bytes());
+        let link = scratch.0.join("link.md");
+        std::os::unix::fs::symlink(&target, &link).expect("link");
+        let over = Retention {
+            destination: Destination::Replace,
+            ..Retention::default()
+        };
+        let thing = arrival(Handed::Path(link.clone()));
+
+        let outcome = clean(&thing, &over, &scratch.homes());
+        assert!(
+            matches!(&outcome.verdict, Verdict::NotCleaned(Refusal::Link(path)) if *path == link),
+            "{:?}",
+            outcome.verdict
+        );
+        assert!(outcome.report.is_none(), "read before refusing");
+        assert!(outcome.written.is_none() && outcome.set_aside.is_none());
+        let metadata = std::fs::symlink_metadata(&link).expect("the link");
+        assert!(metadata.file_type().is_symlink(), "the link was replaced");
+        assert_eq!(std::fs::read_link(&link).expect("points"), target);
+        assert_eq!(read(&target), MARKED.as_bytes());
+        assert_eq!(names(&scratch.0), ["link.md", "target.md"]);
+
+        let plan = planned(&thing, &over, &scratch.homes());
+        assert!(
+            matches!(inspect_one(&thing, &plan), Findings::NotLooked(Refusal::Link(path)) if path == link),
+            "the look says something else"
+        );
+
+        // Beside it, a new file: the link and its target as they were.
+        let outcome = clean(&thing, &Retention::default(), &scratch.homes());
+        assert!(
+            matches!(outcome.verdict, Verdict::Cleaned),
+            "{:?}",
+            outcome.verdict
+        );
+        assert_eq!(read(&target), MARKED.as_bytes());
+        assert!(std::fs::symlink_metadata(&link)
+            .expect("the link")
+            .file_type()
+            .is_symlink());
     }
 
     /// In place replaces the file that was read and no other: a plan whose
@@ -1779,7 +1880,7 @@ mod tests {
         );
         assert!(outcome.report.is_none(), "a layer ran");
         assert!(matches!(
-            inspect_one(&thing),
+            look(&thing),
             Findings::NotLooked(Refusal::TooBig {
                 limit: PICTURE_LIMIT,
                 ..
@@ -1802,21 +1903,26 @@ mod tests {
             .status()
             .expect("mkfifo");
         assert!(made.success());
+        // The writer's open blocks until a reader opens the pipe. A clean
+        // that never opens it (one that refused first) would leave it
+        // blocked for ever, and the join with it: so the writer says when
+        // it is done, and the wait for that is bounded (below).
+        let (done, finished) = std::sync::mpsc::channel();
         let writer = {
             let pipe = pipe.clone();
             std::thread::spawn(move || {
-                let mut file = std::fs::OpenOptions::new()
-                    .write(true)
-                    .open(&pipe)
-                    .expect("open the pipe");
-                let _ = file.write_all(&png_head());
-                let zeros = vec![0u8; 1 << 20];
-                // Two megabytes past the limit; the reader hangs up first.
-                for _ in 0..(PICTURE_LIMIT >> 20) + 2 {
-                    if file.write_all(&zeros).is_err() {
-                        break;
+                let opened = std::fs::OpenOptions::new().write(true).open(&pipe);
+                if let Ok(mut file) = opened {
+                    let _ = file.write_all(&png_head());
+                    let zeros = vec![0u8; 1 << 20];
+                    // Two megabytes past the limit; the reader hangs up first.
+                    for _ in 0..(PICTURE_LIMIT >> 20) + 2 {
+                        if file.write_all(&zeros).is_err() {
+                            break;
+                        }
                     }
                 }
+                let _ = done.send(());
             })
         };
         let thing = Arrival {
@@ -1824,9 +1930,10 @@ mod tests {
                 path: Some(pipe.clone()),
                 ..intake(Some(Format::Png), None, Evidence::Content)
             },
-            handed: Handed::Path(pipe),
+            handed: Handed::Path(pipe.clone()),
         };
         let outcome = clean(&thing, &Retention::default(), &scratch.homes());
+        release(&pipe, &finished, "the pipe's writer");
         writer.join().expect("writer");
         assert!(
             matches!(
@@ -1837,6 +1944,36 @@ mod tests {
             outcome.verdict
         );
         assert_eq!(names(&scratch.0), ["growing.png"]);
+    }
+
+    /// Wait, ten seconds at most, for a pipe's writer to say it is done —
+    /// opening and closing the read end without blocking now and then, which
+    /// lets a writer still waiting in `open` through to a hang-up. A writer
+    /// that never finishes is a failed assertion that names it, never a
+    /// wait (X2).
+    #[cfg(unix)]
+    fn release(pipe: &Path, finished: &std::sync::mpsc::Receiver<()>, who: &str) {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        // Spelled by hand: the application does not take `libc`.
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        const O_NONBLOCK: i32 = 0o4000;
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        const O_NONBLOCK: i32 = 0x0004;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            match finished.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{who} never got its reader: the clean did not read the pipe"
+            );
+            let _ = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(O_NONBLOCK)
+                .open(pipe);
+        }
     }
 
     /// A decode error is a refusal naming the byte, and nothing written.
@@ -2127,7 +2264,7 @@ mod tests {
         let thing = arrival(Handed::Path(source));
         assert!(
             matches!(
-                inspect_one(&thing),
+                look(&thing),
                 Findings::Picture {
                     ai_metadata: true,
                     mark: false,
@@ -2135,7 +2272,7 @@ mod tests {
                 }
             ),
             "{:?}",
-            inspect_one(&thing)
+            look(&thing)
         );
         let outcome = clean(&thing, &Retention::default(), &scratch.homes());
         assert!(
@@ -2159,7 +2296,7 @@ mod tests {
         ] {
             let source = scratch.file(name, text.as_bytes());
             let thing = arrival(Handed::Path(source.clone()));
-            let found = inspect_one(&thing);
+            let found = look(&thing);
             assert_eq!(read(&source), text.as_bytes(), "{name}: the look wrote");
             let outcome = clean(&thing, &Retention::default(), &homes);
             let removed = match &outcome.report {
@@ -2201,7 +2338,7 @@ mod tests {
         ] {
             let file_name = Path::new(name).file_name().unwrap().to_string_lossy();
             let source = scratch.file(&file_name, &read(&fixture(name)));
-            let found = inspect_one(&arrival(Handed::Path(source)));
+            let found = look(&arrival(Handed::Path(source)));
             assert!(
                 matches!(
                     found,
@@ -2221,7 +2358,7 @@ mod tests {
 
         let tiff = scratch.file("scan.tif", b"II*\x00\x08\x00\x00\x00\x00\x00\x00\x00");
         assert!(matches!(
-            inspect_one(&arrival(Handed::Path(tiff))),
+            look(&arrival(Handed::Path(tiff))),
             Findings::NotLooked(Refusal::NotCleanable(Unable::NotYet(Format::Tiff)))
         ));
     }
@@ -2315,12 +2452,26 @@ mod tests {
             );
             let pasted = clean(&arrival(Handed::Text(text.to_owned())), &keeping, &homes);
             assert!(pasted.kept.is_some(), "{:?}", pasted.verdict);
+            // In place: the set-aside names the folder and the file too.
+            let replaced = folder.join("Payroll-Kv3Name-over.md");
+            std::fs::write(&replaced, text).expect("source");
+            let over = Retention {
+                destination: retention::Destination::Replace,
+                ..Retention::default()
+            };
+            let in_place = clean(&arrival(Handed::Path(replaced)), &over, &homes);
+            assert!(in_place.set_aside.is_some(), "{:?}", in_place.verdict);
         });
         let cleans: Vec<&String> = lines
             .iter()
             .filter(|line| line.contains("message=clean "))
             .collect();
-        assert_eq!(cleans.len(), 3, "{lines:#?}");
+        assert_eq!(cleans.len(), 4, "{lines:#?}");
+        assert!(
+            cleans[3].contains("set_aside=<elided chars="),
+            "the set-aside is said as its shape: {}",
+            cleans[3]
+        );
         let scratch_name = scratch
             .0
             .file_name()
@@ -2611,11 +2762,12 @@ mod tests {
             }
             rows += 1;
             let columns: Vec<&str> = line.split('\t').collect();
-            assert_eq!(columns.len(), 5, "{line:?}");
-            let (input, cli_exit, app_writes) = (
+            assert_eq!(columns.len(), 6, "{line:?}");
+            let (input, cli_exit, app_writes, app_verdict) = (
                 columns[0],
                 columns[1].parse::<i32>().expect("an exit"),
                 columns[3] == "yes",
+                columns[4],
             );
             let name = Path::new(input).file_name().unwrap().to_string_lossy();
             let bytes = read(&fixtures.join(input));
@@ -2629,6 +2781,14 @@ mod tests {
                 cli_exit_of(&outcome),
                 cli_exit,
                 "{input}: a window's clean is not what the CLI exits with: {:?}",
+                outcome.verdict
+            );
+            // The window's own verdict: for a text, the exit above is Layer
+            // A's `suspicious` — the CLI's rule — and says nothing of it (X11).
+            assert_eq!(
+                outcome.verdict.id(),
+                app_verdict,
+                "{input}: {:?}",
                 outcome.verdict
             );
             assert_eq!(

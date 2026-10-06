@@ -413,9 +413,10 @@ pub(crate) fn destination(
             ));
         }
         (Source::File(input), _, Some(keep)) => {
-            // A link would be renamed aside as a link and replaced by a
-            // file, leaving the file it pointed at as it was — a run that
-            // reports success over a document it did not change.
+            // A link would be set aside — by a hard link or a rename — as a
+            // link and replaced by a file, leaving the file it pointed at
+            // as it was: a run that reports success over a document it did
+            // not change.
             if std::fs::symlink_metadata(input).is_ok_and(|meta| meta.file_type().is_symlink()) {
                 let line = t_args(Message::CliInPlaceLink, &args!("path" => label));
                 return Err(refused(
