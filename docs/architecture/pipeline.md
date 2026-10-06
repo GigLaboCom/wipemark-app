@@ -534,8 +534,12 @@ Delivery is two-phase: the result goes into the row as `delivering`, then
 the file is written, then the row is `done` (and loses the text when the
 text is on disk). The next open finishes a `delivering` item: a file is
 written again; an in-place item whose original is already aside is done
-when the file is missing or already holds the result, and fails with
-"original exists" when it holds anything else.
+when the file is missing (set aside by a rename), when it is still the
+set-aside (set aside by a hard link, D284: one inode under two names, or,
+where the inode cannot be seen, the same bytes — D286), or when it already
+holds the result. It fails with "original exists" only when the file holds
+anything else — someone's save of exactly as many bytes included: the
+comparison is of the bytes, never of their length.
 
 ### What it keeps
 

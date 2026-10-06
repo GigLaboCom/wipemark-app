@@ -258,7 +258,11 @@ end as one result and one refusal, never as two writes:
   the rename would work on the link — `link.original.md` the link,
   `link.md` a new file — and leave the document it points to as it was,
   a clean said over a file nothing touched. The CLI refuses it too; the
-  panel's look says the refusal before Clean is pressed.
+  panel's look says the refusal before Clean is pressed, and says it again
+  — or takes it back — when the Retention page changes under a held drop
+  (D290). Only the **last** name is checked: a folder above the file may
+  be a link (every temporary folder on macOS is under `/var ->
+  /private/var`), and a file reached through one is cleaned where it is.
 * **Rule 3.** Still true: the CLI reads none of these rows. The windows
   read them through `Preferences::plan_for`, and nothing else does.
 * **Rules 4–7, kept copies.** Only for `Plan::Loose` with `kept` present
@@ -299,7 +303,12 @@ end as one result and one refusal, never as two writes:
   free, a rename aside, and a failed write renames it back. Nothing is set
   aside when nothing changed (the caller's check). A crash between the
   set-aside and the write leaves the file whole under both names; the
-  batch queue finishes that delivery rather than failing it (D286). The window's
+  batch queue finishes that delivery rather than failing it (D286). A
+  *panic* there — the application goes on after one (D288) — is put right
+  as it unwinds: the second name goes while the first is still the
+  original (one inode, or the same bytes), a renamed original comes back
+  while its name is free, and a temporary or a half-copied new result is
+  removed (Y8). Nothing is lost either way. The window's
   *In place of the file* destination calls the same `replace` (E7,
   `clean.rs`); the batch (E4) will too. See `docs/architecture/cli.md`.
 * **The per-run "no copy" flag — done for the CLI (E5-1):**
