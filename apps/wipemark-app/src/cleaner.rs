@@ -23,17 +23,42 @@
 //! the queue's rows and the panel's lines learn it. The status bar's count
 //! and the panel's "Cleaning…" read [`Cleaner::progress`] and
 //! [`Cleaner::pending`].
+//!
+//! A clean that panics does not stop the line (D288): the panic is caught
+//! where the clean runs, the clean finishes as
+//! [`clean::Failure::Panicked`], and the next one starts. Uncaught, the
+//! task that waits for it would never finish it, and every later clean in
+//! every window would wait for ever.
 
 use std::collections::{HashMap, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Global};
 
 use crate::clean::{self, Outcome};
 use crate::drop::Arrival;
+use crate::retention::Plan;
 use crate::settings::Preferences;
+
+/// What runs one clean: [`clean::clean_one`], or [`clean::replace_one`]
+/// when there is a result to replace. A field of the [`Cleaner`] so that a
+/// test can hand it one that panics.
+type Run = fn(&Arrival, &Plan, u64, DateTime<Utc>, Option<&Path>) -> Outcome;
+
+fn run(
+    arrival: &Arrival,
+    plan: &Plan,
+    id: u64,
+    now: DateTime<Utc>,
+    replacing: Option<&Path>,
+) -> Outcome {
+    match replacing {
+        Some(existing) => clean::replace_one(arrival, plan, id, now, existing),
+        None => clean::clean_one(arrival, plan, id, now),
+    }
+}
 
 /// One clean asked for: the number it is filed under — a queue row's id, a
 /// panel clean's number, both from [`clean::number`] — and the one existing
@@ -116,6 +141,7 @@ pub struct Cleaner {
     line: Line,
     /// What each clean in the line is a clean of.
     things: HashMap<u64, Arrival>,
+    run: Run,
 }
 
 impl EventEmitter<Event> for Cleaner {}
@@ -135,6 +161,7 @@ impl Cleaner {
             preferences: preferences.clone(),
             line: Line::default(),
             things: HashMap::new(),
+            run,
         });
         cx.set_global(Shared(cleaner.clone()));
         cleaner
@@ -184,18 +211,18 @@ impl Cleaner {
             };
             let plan = self.preferences.read(cx).plan_for(&arrival.intake);
             let id = job.id;
+            let run = self.run;
             cx.emit(Event::Started(id));
             cx.spawn(async move |cleaner, cx| {
                 let outcome = cx
                     .background_executor()
                     .spawn(async move {
                         let now = Utc::now();
-                        match &job.replacing {
-                            Some(existing) => {
-                                clean::replace_one(&arrival, &plan, id, now, existing)
-                            }
-                            None => clean::clean_one(&arrival, &plan, id, now),
-                        }
+                        // Caught here, so that the line hears of it (D288).
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            run(&arrival, &plan, id, now, job.replacing.as_deref())
+                        }))
+                        .unwrap_or_else(|_| clean::panicked(id))
                     })
                     .await;
                 cleaner
@@ -333,6 +360,59 @@ mod tests {
         ) -> impl gpui::IntoElement {
             gpui::Empty
         }
+    }
+
+    /// A clean that panics on a thing named `panics.md`, and runs the real
+    /// clean on everything else.
+    fn panics_on_one(
+        arrival: &Arrival,
+        plan: &Plan,
+        id: u64,
+        now: DateTime<Utc>,
+        replacing: Option<&Path>,
+    ) -> Outcome {
+        let named = arrival.intake.path.as_deref().and_then(Path::file_name);
+        if named.is_some_and(|name| name == "panics.md") {
+            panic!("a fault in this version, on purpose");
+        }
+        run(arrival, plan, id, now, replacing)
+    }
+
+    /// A clean that panics finishes as a failure of its own, and the clean
+    /// asked after it is cleaned: the line is not stuck behind it (X12).
+    #[gpui::test]
+    fn a_clean_that_panics_does_not_stop_the_line(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("panics");
+        let panics = scratch.0.join("panics.md");
+        let after = scratch.0.join("after.md");
+        for path in [&panics, &after] {
+            std::fs::write(path, "A zero\u{200B}width space.\n").expect("source");
+        }
+        let (cleaner, events, cx) = line_in(cx, &scratch);
+        let (first, second) = (clean::number(), clean::number());
+        cleaner.update(cx, |cleaner, cx| {
+            cleaner.run = panics_on_one;
+            assert!(cleaner.ask(first, arrival(Handed::Path(panics.clone())), None, cx));
+            assert!(cleaner.ask(second, arrival(Handed::Path(after.clone())), None, cx));
+        });
+        cx.run_until_parked();
+        let outcomes: Vec<(u64, String)> = events
+            .borrow()
+            .iter()
+            .filter_map(|event| match event {
+                Event::Finished(id, outcome) => Some((*id, format!("{:?}", outcome.verdict))),
+                Event::Started(_) => None,
+            })
+            .collect();
+        assert_eq!(
+            outcomes,
+            [
+                (first, String::from("Failed(Panicked)")),
+                (second, String::from("Cleaned")),
+            ]
+        );
+        assert!(scratch.0.join("after.cleaned.md").exists());
+        assert_eq!(cx.update(|_, cx| cleaner.read(cx).progress()), None);
     }
 
     fn arrival(handed: Handed) -> Arrival {

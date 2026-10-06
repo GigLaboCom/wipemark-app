@@ -7,9 +7,10 @@
 //!
 //! Three properties are the writer's, not the data's:
 //!
-//! * **The third shelf is always there.** `not_established` is written
-//!   from [`not_established::ALL`] as the last key of both forms, so no
-//!   surface can forget it.
+//! * **The third shelf is always there.** `not_established` is the last
+//!   key of both forms, written from the report's own shelf — which core
+//!   builds from [`not_established::ALL`] (D289) — so no surface can forget
+//!   it.
 //! * **The output is ASCII** (D29). Every character from U+007F upward is
 //!   written as `\u` escapes, so a report a client renders can never
 //!   carry an invisible character, whatever a UCD name contains.
@@ -17,7 +18,7 @@
 
 use crate::class::{Action, UnicodeClass, UnicodeFinding};
 use crate::name::name_of;
-use crate::report::{not_established, CleanReport, InspectReport, TextStats};
+use crate::report::{CleanReport, InspectReport, TextStats};
 
 impl InspectReport {
     /// The A §7.1 form: one line of ASCII JSON, keys in a fixed order, the
@@ -31,7 +32,7 @@ impl InspectReport {
         rows(&mut out, "kept", &self.kept, false);
         out.push(',');
         stats(&mut out, &self.stats);
-        tail(&mut out);
+        tail(&mut out, &self.not_established);
         out
     }
 }
@@ -68,7 +69,7 @@ impl CleanReport {
         out.push_str(&self.output_len.to_string());
         out.push(',');
         stats(&mut out, &self.stats);
-        tail(&mut out);
+        tail(&mut out, &self.not_established);
         out
     }
 }
@@ -81,11 +82,11 @@ fn head(out: &mut String, unicode_version: &str, suspicious: bool) {
     out.push(',');
 }
 
-/// The third shelf, read from the constant and never re-typed (D9), then
-/// the closing brace.
-fn tail(out: &mut String) {
+/// The third shelf, read off the report — never re-typed (D9, D289) —
+/// then the closing brace.
+fn tail(out: &mut String, shelf: &[&str]) {
     out.push_str(",\"not_established\":[");
-    for (i, (id, _)) in not_established::ALL.iter().enumerate() {
+    for (i, id) in shelf.iter().enumerate() {
         if i > 0 {
             out.push(',');
         }
@@ -248,6 +249,7 @@ mod tests {
                 urls: 1,
             },
             unicode_version: "18.0.0",
+            not_established: crate::report::not_established::ids(),
         };
         assert_eq!(
             report.to_json(),
@@ -289,6 +291,7 @@ mod tests {
             normalized: vec![(NormKind::SpaceToAscii, 1), (NormKind::Nfkc, 0)],
             output_len: 17,
             unicode_version: "18.0.0",
+            not_established: crate::report::not_established::ids(),
         };
         assert_eq!(
             report.to_json(),
@@ -313,6 +316,39 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The JSON is a format: with the shelf read off the report (D289),
+    /// both forms of a real report are byte for byte what they were at
+    /// `2f7ce56`, before the field existed — the CLI's `--json` and the MCP
+    /// tools' `structuredContent` are this string.
+    #[test]
+    fn the_json_of_a_real_report_is_what_it_was_before_the_shelf_was_a_field() {
+        let options = Options::default();
+        let text = "A zero\u{200B}width, a no\u{A0}break, a Cyrillic \u{0430} in p\u{0430}ss.\u{1F468}\u{200D}\u{1F469}";
+        assert_eq!(
+            inspect(text, &options).to_json(),
+            r#"{"unicode_version":"18.0.0","suspicious":true,"findings":[{"codepoint":"U+200B","name":"ZERO WIDTH SPACE","class":"zero-width","confidence":"confirmed","action":"remove","count":1,"positions":[6]}],"kept":[{"codepoint":"U+200D","name":"ZERO WIDTH JOINER","class":"zwj","confidence":"likely-false-positive","action":"keep","count":1,"positions":[56]},{"codepoint":"U+00A0","name":"NO-BREAK SPACE","class":"exotic-space","confidence":"informational","action":"keep","count":1,"positions":[20]},{"codepoint":"U+0430","name":"CYRILLIC SMALL LETTER A","class":"homoglyph","confidence":"probable","action":"keep","count":2,"positions":[40,47]}],"stats":{"chars":50,"words":10,"latin_ratio":0.9411765,"cyrillic_ratio":0.05882353,"cjk_ratio":0.0,"code_blocks":0,"urls":0},"not_established":["vendor-detector-evasion","human-authorship","unknown-mark-schemes"]}"#
+        );
+        assert_eq!(
+            clean(text, &options).report.to_json(),
+            r#"{"unicode_version":"18.0.0","suspicious":true,"findings":[{"codepoint":"U+200B","name":"ZERO WIDTH SPACE","class":"zero-width","confidence":"confirmed","action":"remove","count":1,"positions":[6]}],"kept":[{"codepoint":"U+200D","name":"ZERO WIDTH JOINER","class":"zwj","confidence":"likely-false-positive","action":"keep","count":1,"positions":[56]},{"codepoint":"U+00A0","name":"NO-BREAK SPACE","class":"exotic-space","confidence":"informational","action":"keep","count":1,"positions":[20]},{"codepoint":"U+0430","name":"CYRILLIC SMALL LETTER A","class":"homoglyph","confidence":"probable","action":"keep","count":2,"positions":[40,47]}],"removed":{"zero-width":1},"normalized":{},"output_len":60,"stats":{"chars":50,"words":10,"latin_ratio":0.9411765,"cyrillic_ratio":0.05882353,"cjk_ratio":0.0,"code_blocks":0,"urls":0},"not_established":["vendor-detector-evasion","human-authorship","unknown-mark-schemes"]}"#
+        );
+    }
+
+    /// The shelf written is the report's: an id a report carries is in its
+    /// JSON, in its place.
+    #[test]
+    fn the_json_shelf_is_the_reports_own() {
+        let mut cleaned = clean("a\u{200B}b", &Options::default()).report;
+        cleaned.not_established.push("a-text-claim");
+        assert!(
+            cleaned
+                .to_json()
+                .ends_with(r#""unknown-mark-schemes","a-text-claim"]}"#),
+            "{}",
+            cleaned.to_json()
+        );
     }
 
     #[test]

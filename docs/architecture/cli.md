@@ -93,9 +93,11 @@ is the check-then-rename still the road, and `wipemark_intake::inplace`
 says so where the next caller will read it.
 
 Two refusals the document did not list: **standard input** (`-`) has no
-file to replace, and **a symbolic link** is refused — renaming it aside
-would set aside the *link* and leave the file it points at unchanged, a
-run that reports success over a document it did not touch. A hard link
+file to replace, and **a symbolic link** is refused — setting it aside,
+by a hard link or a rename, would set aside the *link*, and the result
+would replace the link and leave the file it points at unchanged, a run
+that reports success over a document it did not touch. The windows' *In
+place of the file* refuses it the same way (D287). A hard link
 is not refused and cannot be: the replacement is a new inode, so the
 other name keeps the old bytes, which is the same rule `-o` has always
 kept ("never into an existing file").

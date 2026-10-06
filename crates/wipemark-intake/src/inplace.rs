@@ -223,25 +223,30 @@ pub fn write_atomically(destination: &Path, bytes: &[u8], model: Option<&Path>) 
 /// always there. Where hard links are refused, a `create_new` copy, which
 /// refuses a taken name too (see the module docs). Blocking.
 pub fn write_new(destination: &Path, bytes: &[u8], model: Option<&Path>) -> io::Result<()> {
-    write_new_with(destination, bytes, model, |from, to| {
-        std::fs::hard_link(from, to)
-    })
+    write_new_with(
+        destination,
+        bytes,
+        model,
+        |from, to| std::fs::hard_link(from, to),
+        copy,
+    )
 }
 
-/// [`write_new`] with the link handed in, so that a test can take hard
-/// links away.
+/// [`write_new`] with the link and the fallback's copy handed in, so that
+/// a test can take hard links away, or make the copy fail part way.
 fn write_new_with(
     destination: &Path,
     bytes: &[u8],
     model: Option<&Path>,
     link: impl FnOnce(&Path, &Path) -> io::Result<()>,
+    copy: impl FnOnce(&mut File, &mut File) -> io::Result<()>,
 ) -> io::Result<()> {
     let temporary = temporary_for(destination);
     let written =
         staged(&temporary, bytes, model).and_then(|()| match link(&temporary, destination) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Err(error),
-            Err(_) => copied_new(&temporary, destination),
+            Err(_) => copied_new(&temporary, destination, copy),
         });
     // Published or not, the temporary name goes: after a link it is only
     // a second name for the result.
@@ -251,13 +256,17 @@ fn write_new_with(
 
 /// The result copied into a file only `create_new` may make — where hard
 /// links are refused. Removed again if the copy fails part way.
-fn copied_new(temporary: &Path, destination: &Path) -> io::Result<()> {
+fn copied_new(
+    temporary: &Path,
+    destination: &Path,
+    copy: impl FnOnce(&mut File, &mut File) -> io::Result<()>,
+) -> io::Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(destination)?;
     let copied = (|| {
-        io::copy(&mut File::open(temporary)?, &mut file)?;
+        copy(&mut File::open(temporary)?, &mut file)?;
         file.sync_all()?;
         std::fs::set_permissions(destination, std::fs::metadata(temporary)?.permissions())
     })();
@@ -268,7 +277,14 @@ fn copied_new(temporary: &Path, destination: &Path) -> io::Result<()> {
     copied
 }
 
-/// `.name.wipemark-<pid>.tmp` in the destination's own folder.
+/// Every byte of `from` into `to`.
+fn copy(from: &mut File, to: &mut File) -> io::Result<()> {
+    io::copy(from, to).map(drop)
+}
+
+/// `.name.wipemark-<pid>.tmp` in the destination's own folder — the folder
+/// is the point: a hard link, and a rename, work only within one file
+/// system.
 fn temporary_for(destination: &Path) -> PathBuf {
     let folder = match destination.parent() {
         Some(folder) if !folder.as_os_str().is_empty() => folder.to_owned(),
@@ -324,8 +340,8 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{
-        original_beside, replace, replace_with, write_atomically, write_new, write_new_with,
-        Failure, Keep, Replaced,
+        copy, original_beside, replace, replace_with, temporary_for, write_atomically, write_new,
+        write_new_with, Failure, Keep, Replaced,
     };
 
     struct Scratch(PathBuf);
@@ -394,7 +410,10 @@ mod tests {
         let failed = replace_with(
             &file,
             Keep::Original,
-            |from, to| std::fs::hard_link(from, to),
+            |from, to| {
+                assert_eq!(from.parent(), to.parent(), "set aside in another folder");
+                std::fs::hard_link(from, to)
+            },
             |_, model| {
                 assert_eq!(read(model), b"the original", "set aside before the write");
                 Err(io::Error::other("the disk is full"))
@@ -416,9 +435,55 @@ mod tests {
         assert_eq!(scratch.names(), ["note.md"], "something was left behind");
     }
 
-    /// A file system that refuses hard links, as FAT does.
-    fn no_links(_: &Path, _: &Path) -> io::Result<()> {
+    /// A file system that refuses hard links, as FAT does — asked, as any
+    /// link is, within one folder.
+    fn no_links(from: &Path, to: &Path) -> io::Result<()> {
+        assert_eq!(from.parent(), to.parent(), "staged in another folder");
         Err(io::Error::from(io::ErrorKind::Unsupported))
+    }
+
+    /// A hard link, asked within one folder: the temporary is staged
+    /// beside the destination, because a link — and a rename — cannot
+    /// cross file systems (X8).
+    fn linked(from: &Path, to: &Path) -> io::Result<()> {
+        assert_eq!(from.parent(), to.parent(), "staged in another folder");
+        std::fs::hard_link(from, to)
+    }
+
+    /// The temporary's folder is the destination's, for a bare name too.
+    #[test]
+    fn the_temporary_is_staged_beside_the_destination() {
+        let nested = Path::new("some/folder/x.cleaned.md");
+        assert_eq!(temporary_for(nested).parent(), nested.parent());
+        assert_eq!(
+            temporary_for(Path::new("x.md")).parent(),
+            Some(Path::new("."))
+        );
+    }
+
+    /// Where hard links are refused, a copy that fails part way leaves
+    /// nothing under the result's name — the short file is removed — and
+    /// no temporary either (X7).
+    #[test]
+    fn a_copy_that_fails_part_way_leaves_nothing_behind() {
+        use std::io::{Read as _, Write as _};
+        let scratch = Scratch::new("short");
+        let destination = scratch.0.join("x.cleaned.md");
+        let failed = write_new_with(
+            &destination,
+            b"the whole result",
+            None,
+            no_links,
+            |from, to| {
+                let mut half = [0u8; 8];
+                from.read_exact(&mut half)?;
+                to.write_all(&half)?;
+                to.sync_all()?;
+                Err(io::Error::other("the disk is full"))
+            },
+        );
+        assert!(failed.is_err());
+        assert_eq!(scratch.names(), Vec::<String>::new(), "something was left");
     }
 
     /// A new result is published without replacing anything: a file
@@ -429,12 +494,11 @@ mod tests {
     #[test]
     fn a_new_result_never_replaces_what_appeared_under_its_name() {
         type Link = fn(&Path, &Path) -> io::Result<()>;
-        let linked: Link = |from, to| std::fs::hard_link(from, to);
-        for (label, link) in [("linked", linked), ("copied", no_links as Link)] {
+        for (label, link) in [("linked", linked as Link), ("copied", no_links as Link)] {
             let scratch = Scratch::new(label);
             let taken = scratch.0.join("x.cleaned.md");
             std::fs::write(&taken, b"written by another process").expect("write");
-            let refused = write_new_with(&taken, b"ours", None, link);
+            let refused = write_new_with(&taken, b"ours", None, link, copy);
             assert_eq!(
                 refused.as_ref().map_err(io::Error::kind),
                 Err(io::ErrorKind::AlreadyExists),
@@ -447,14 +511,14 @@ mod tests {
             {
                 let dangling = scratch.0.join("y.cleaned.md");
                 std::os::unix::fs::symlink(scratch.0.join("nowhere"), &dangling).expect("link");
-                let refused = write_new_with(&dangling, b"ours", None, link);
+                let refused = write_new_with(&dangling, b"ours", None, link, copy);
                 assert!(refused.is_err(), "{label}: written through a dangling link");
                 assert!(!scratch.0.join("nowhere").exists(), "{label}");
                 std::fs::remove_file(&dangling).expect("remove");
             }
 
             let free = scratch.0.join("z.cleaned.md");
-            write_new_with(&free, b"ours", None, link).expect("written");
+            write_new_with(&free, b"ours", None, link, copy).expect("written");
             assert_eq!(read(&free), b"ours", "{label}");
             assert_eq!(scratch.names(), ["x.cleaned.md", "z.cleaned.md"], "{label}");
         }

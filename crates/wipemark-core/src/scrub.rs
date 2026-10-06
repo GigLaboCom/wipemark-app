@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 
 use crate::class::{Action, Confidence, UnicodeClass, UnicodeFinding};
 use crate::context::{self, Hit};
-use crate::report::{CleanReport, InspectReport, NormKind, TextStats};
+use crate::report::{not_established, CleanReport, InspectReport, NormKind, TextStats};
 use crate::tables::UNICODE_VERSION;
 use crate::{homoglyph, nfkc, Cleaned, Options};
 
@@ -246,6 +246,7 @@ pub(crate) fn inspect(text: &str, options: &Options) -> InspectReport {
         kept: pass.kept,
         stats: TextStats::of(text), // once per call (A §5.5)
         unicode_version: UNICODE_VERSION,
+        not_established: not_established::ids(),
     }
 }
 
@@ -303,6 +304,7 @@ pub(crate) fn clean(text: &str, options: &Options) -> Cleaned {
             .collect(),
         output_len: out.len(),
         unicode_version: UNICODE_VERSION,
+        not_established: not_established::ids(),
     };
     Cleaned { text: out, report }
 }

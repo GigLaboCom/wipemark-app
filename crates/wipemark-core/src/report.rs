@@ -44,6 +44,12 @@ pub mod not_established {
         ("unknown-mark-schemes", UNKNOWN_MARK_SCHEMES),
     ];
 
+    /// The ids of [`ALL`], in its order — what a report built here carries
+    /// as its own shelf (D289).
+    pub fn ids() -> Vec<&'static str> {
+        ALL.iter().map(|(id, _)| *id).collect()
+    }
+
     /// The two claims that are never established, whatever a job did.
     /// A caller adds [`UNKNOWN_MARK_SCHEMES`] when no mark scheme was
     /// searched for at all — a rewrite's report always does.
@@ -107,6 +113,11 @@ pub struct InspectReport {
     /// time and printed in every report — a finding is only meaningful
     /// against a known Unicode version.
     pub unicode_version: &'static str,
+    /// The third shelf, as ids: what this report does not establish, in
+    /// the order it is listed. Built from [`not_established::ALL`] and
+    /// written by `to_json` from here, so a surface reads one report's
+    /// shelf off the report, as it does a picture's (D289).
+    pub not_established: Vec<&'static str>,
 }
 
 /// A normalisation the scrubber performed, as opposed to a removal.
@@ -185,6 +196,8 @@ pub struct CleanReport {
     /// Length of the cleaned text, in bytes.
     pub output_len: usize,
     pub unicode_version: &'static str,
+    /// As [`InspectReport::not_established`] (D289).
+    pub not_established: Vec<&'static str>,
 }
 
 #[cfg(test)]

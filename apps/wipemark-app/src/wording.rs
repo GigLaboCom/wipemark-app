@@ -372,6 +372,7 @@ pub fn refused_in(say: Say, refusal: &Refusal) -> String {
             &args!("name" => file_name(path)),
         ),
         Refusal::SameFile(_) => say(Message::CleanRefusedSameFile, &FluentArgs::new()),
+        Refusal::Link(path) => say(Message::CleanRefusedLink, &args!("name" => file_name(path))),
         Refusal::Nowhere => say(Message::CleanRefusedNowhere, &FluentArgs::new()),
     }
 }
@@ -394,6 +395,7 @@ pub fn failed_in(say: Say, failure: &Failure) -> String {
             Message::CleanFailedStranded,
             &args!("path" => original.display().to_string(), "error" => error.message.clone()),
         ),
+        Failure::Panicked => say(Message::CleanFailedPanicked, &FluentArgs::new()),
     }
 }
 
@@ -652,6 +654,7 @@ mod tests {
             Verdict::NotCleaned(Refusal::Exists(path())),
             Verdict::NotCleaned(Refusal::OriginalExists(path())),
             Verdict::NotCleaned(Refusal::SameFile(path())),
+            Verdict::NotCleaned(Refusal::Link(path())),
             Verdict::NotCleaned(Refusal::Nowhere),
             Verdict::Failed(Failure::Write {
                 path: path(),
@@ -666,6 +669,7 @@ mod tests {
                 error: error(),
                 restore: error(),
             }),
+            Verdict::Failed(Failure::Panicked),
         ];
         for verdict in verdicts {
             let label = format!("{verdict:?}");

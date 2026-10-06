@@ -710,9 +710,13 @@ escapes. The output is ASCII by construction: a report carries no user
 text, only ids, `U+XXXX`, UCD names and numbers, so this costs nothing,
 and "the JSON a client renders carries no invisible character" is a
 property of the writer rather than of the data. **The third shelf** is
-written by the writer, from `report::not_established::ALL`, as the last
-key of both forms — a surface cannot forget it, and
-`every_json_report_carries_the_third_shelf` checks every fixture.
+written by the writer, as the last key of both forms, from the report's
+own `not_established` field — which `inspect` and `clean` fill from
+`report::not_established::ALL` (D289), so a window reads a text's shelf
+off its report as it does a picture's — a surface cannot forget it,
+`every_json_report_carries_the_third_shelf` checks every fixture, and
+`the_json_of_a_real_report_is_what_it_was_before_the_shelf_was_a_field`
+holds the bytes to what they were before the field existed.
 Ratios are `f32` `Debug` (`0.98`, `1.0`), a valid JSON number for every
 finite value; `TextStats::of` never makes a non-finite one.
 

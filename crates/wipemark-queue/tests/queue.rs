@@ -490,10 +490,42 @@ fn delivering(db: &std::path::Path, item: ItemId, text: &str) {
 #[test]
 fn an_interrupted_delivery_is_finished_not_failed() {
     let result = "The rewritten note.";
-    for (case, file_now, ends_done) in [
-        ("set aside, not yet written", None, true),
-        ("written, not yet recorded", Some(result), true),
-        ("someone else's bytes", Some("Edited by hand since."), false),
+    // How the original was set aside before the crash: a hard link (D284,
+    // the file never moves), a rename (a file system without hard links),
+    // or what a hard link looks like where the inode cannot be seen — the
+    // same bytes under both names (D286).
+    #[derive(Clone, Copy)]
+    enum Aside {
+        Link,
+        Rename,
+        Copy,
+    }
+    for (case, aside_by, file_now, ends_done) in [
+        (
+            "set aside by a link, not yet written",
+            Aside::Link,
+            None,
+            true,
+        ),
+        (
+            "set aside by a rename, not yet written",
+            Aside::Rename,
+            None,
+            true,
+        ),
+        ("the same bytes under both names", Aside::Copy, None, true),
+        (
+            "written, not yet recorded",
+            Aside::Rename,
+            Some(result),
+            true,
+        ),
+        (
+            "someone else's bytes",
+            Aside::Rename,
+            Some("Edited by hand since."),
+            false,
+        ),
     ] {
         let scratch = Scratch::new("delivering");
         let source = scratch.path("note.md");
@@ -507,7 +539,12 @@ fn an_interrupted_delivery_is_finished_not_failed() {
             .expect("pushed");
         queue.shutdown();
         delivering(&scratch.db(), item, result);
-        std::fs::rename(&source, &aside).expect("the original set aside");
+        match aside_by {
+            Aside::Link => std::fs::hard_link(&source, &aside),
+            Aside::Rename => std::fs::rename(&source, &aside),
+            Aside::Copy => std::fs::copy(&source, &aside).map(drop),
+        }
+        .expect("the original set aside");
         if let Some(now) = file_now {
             std::fs::write(&source, now).expect("the file as the crash left it");
         }

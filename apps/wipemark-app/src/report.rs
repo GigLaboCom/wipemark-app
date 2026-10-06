@@ -174,10 +174,9 @@ pub fn sheet(say: Say, intake: &Intake, outcome: &Outcome) -> Sheet {
 /// A picture's is read off its report: the pixel pass's shelf, which leads
 /// with `invisible-pixel-marks` — or that claim alone, when the pixels were
 /// not examined and the pass has no report — then every id the metadata
-/// pass carries that is not already there. A text's `CleanReport` carries
-/// no shelf of its own: its JSON writes core's `not_established::ALL`, and
-/// so does this. A thing never read has no report at all, and is given the
-/// shelf of what it arrived as (D277).
+/// pass carries that is not already there. A text's is its `CleanReport`'s
+/// own, the shelf its JSON writes (D289). A thing never read has no report
+/// at all, and is given the shelf of what it arrived as (D277).
 pub fn shelf_ids(intake: &Intake, outcome: &Outcome) -> Vec<&'static str> {
     let core = || not_established::ALL.iter().map(|(id, _)| *id);
     match &outcome.report {
@@ -193,7 +192,7 @@ pub fn shelf_ids(intake: &Intake, outcome: &Outcome) -> Vec<&'static str> {
             }
             ids
         }
-        Some(Report::Text(_)) => core().collect(),
+        Some(Report::Text(report)) => report.not_established.clone(),
         None if intake.kind == Kind::Image => wipemark_pixels::not_established::shelf(),
         None => core().collect(),
     }
@@ -669,17 +668,22 @@ pub fn markdown(say: Say, sheet: &Sheet) -> String {
 /// One line of the Markdown copy: what Layer A would remove from it, and
 /// any control character, spelled as `U+XXXX`; Markdown's characters
 /// escaped with a backslash. Everything else — Cyrillic, umlauts, the
-/// typography of the catalogue — as it is.
+/// typography of the catalogue, and what Layer A keeps where it stands —
+/// as it is. What is removed is found by **where** it is, the findings'
+/// byte offsets, never by which code point it is: a U+200D joining an
+/// emoji is kept, and the same code point stray on the same line must not
+/// take it with it (X10).
 fn spelled(line: &str) -> String {
     use std::fmt::Write as _;
-    let removed: Vec<char> = wipemark_core::inspect(line, &wipemark_core::Options::default())
-        .findings
-        .iter()
-        .map(|finding| finding.codepoint)
-        .collect();
+    let removed: std::collections::BTreeSet<usize> =
+        wipemark_core::inspect(line, &wipemark_core::Options::default())
+            .findings
+            .iter()
+            .flat_map(|finding| finding.positions.iter().copied())
+            .collect();
     let mut out = String::with_capacity(line.len());
-    for character in line.chars() {
-        if character.is_control() || removed.contains(&character) {
+    for (at, character) in line.char_indices() {
+        if character.is_control() || removed.contains(&at) {
             let _ = write!(out, "U+{:04X}", u32::from(character));
         } else {
             if MARKDOWN.contains(&character) {
@@ -1149,6 +1153,53 @@ mod tests {
         assert_eq!(shelf[5], "a-metadata-claim", "{shelf:?}");
     }
 
+    /// A picture whose pixels were not examined has no pixel report to read
+    /// a shelf off, and still leads with the pixels' claim — not examined is
+    /// not clean — then the metadata pass's ids, in its order (X4).
+    #[test]
+    fn a_picture_not_examined_still_leads_with_the_pixels_claim() {
+        use wipemark_picture::{NotExamined, Visible};
+        let scratch = Scratch::new("not-examined");
+        let bytes = std::fs::read(fixture("gemini/torch-1025.png")).expect("fixture");
+        let (arrival, mut outcome) = cleaned(&scratch, "torch-1025.png", &bytes);
+        let Some(Report::Picture(picture)) = &mut outcome.report else {
+            panic!("{:?}", outcome.verdict);
+        };
+        picture.visible = Visible::NotExamined(NotExamined::Animated);
+        let metadata: Vec<&str> = picture
+            .metadata
+            .not_established
+            .iter()
+            .copied()
+            .filter(|id| *id != wipemark_pixels::not_established::ID)
+            .collect();
+        assert!(!metadata.is_empty(), "the metadata pass carries no shelf");
+        let shelf = super::shelf_ids(&arrival.intake, &outcome);
+        assert_eq!(shelf[0], wipemark_pixels::not_established::ID, "{shelf:?}");
+        assert_eq!(shelf[1..], metadata[..], "{shelf:?}");
+    }
+
+    /// A text's shelf is read off its report too (D289): an id its
+    /// `CleanReport` carries is shown, after core's three (X14).
+    #[test]
+    fn a_texts_third_shelf_is_its_reports_own() {
+        let scratch = Scratch::new("text-shelf");
+        let (arrival, mut outcome) = cleaned(&scratch, "marked.md", MARKED.as_bytes());
+        let Some(Report::Text(report)) = &mut outcome.report else {
+            panic!("{:?}", outcome.verdict);
+        };
+        report.not_established.push("a-text-claim");
+        let localizer = english();
+        let say = |message: Message, args: &FluentArgs| localizer.format_args(message, args);
+        let shelf: Vec<String> = sheet(&say, &arrival.intake, &outcome)
+            .not_established
+            .into_iter()
+            .map(|line| line.text)
+            .collect();
+        assert_eq!(shelf.len(), 4, "{shelf:?}");
+        assert_eq!(shelf[3], "a-text-claim", "{shelf:?}");
+    }
+
     /// An id core lists that this build's catalogue has no sentence for is
     /// shown as its canonical English beside the id; an id nothing here
     /// knows, as the id — never dropped.
@@ -1202,6 +1253,35 @@ mod tests {
                 language.id
             );
         }
+    }
+
+    /// `|`, `<` and `>` are Markdown too — a table's cell, an HTML tag — and
+    /// no file name carries them on every platform, so the line is spelled
+    /// here directly (X6).
+    #[test]
+    fn the_markdown_copy_escapes_what_a_name_cannot_carry() {
+        assert_eq!(super::spelled("a|b<c>d\\e"), "a\\|b\\<c\\>d\\\\e");
+    }
+
+    /// A ZWJ Layer A keeps inside an emoji is not spelled because the same
+    /// code point stray elsewhere on the line is: the stray one is
+    /// `U+200D`, the family comes through whole (X10).
+    #[test]
+    fn a_kept_emoji_joiner_is_not_spelled() {
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+        let line = format!("a\u{200D}b {family}");
+        let found = wipemark_core::inspect(&line, &wipemark_core::Options::default());
+        assert_eq!(
+            found
+                .findings
+                .iter()
+                .map(|f| f.positions.len())
+                .sum::<usize>(),
+            1,
+            "Layer A no longer keeps the family's joiners: {:?}",
+            found.findings
+        );
+        assert_eq!(super::spelled(&line), format!("aU+200Db {family}"));
     }
 
     /// What a Markdown reader shows for a backslash-escaped line.

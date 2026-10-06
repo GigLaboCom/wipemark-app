@@ -48,8 +48,9 @@
 //!
 //! A row is cleaned when somebody asks — Clean in its Actions menu,
 //! Clean all on the toolbar, `--clean=<path>` on the command line —
-//! never on arrival. One clean runs at a time, first asked first done
-//! ([`Line`]), on the background executor through
+//! never on arrival. One clean runs at a time in the whole application —
+//! the panel's cleans wait in the same line — first asked first done
+//! ([`crate::cleaner::Line`], D283), on the background executor through
 //! [`clean::clean_one`]: a decoded picture can be hundreds of megabytes,
 //! so this is a memory rule as much as an ordering one, and nothing a
 //! clean does — a read, a decode, a write — runs on the thread that
