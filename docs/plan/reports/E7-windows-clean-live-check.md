@@ -75,23 +75,21 @@ Ubuntu, X11) the same cases run with these substitutions:
   Use `'"replace"'` for case 9, and `'"beside"'` (or delete the row) to put
   it back. Where there is no `sqlite3` binary, `live-disk.sh`'s `seed`
   function does the same through Python's `sqlite3` module.
-- **The session bus.** At the pinned GPUI rev, the X11 backend panics at
-  the first frame when the desktop portal reports the appearance
-  (`RefCell already mutably borrowed`, `gpui_linux` `x11/window.rs:1556`).
-  Any build does this, pre-E7 included. Start the application with an
-  unreachable session bus so the portal stays quiet:
-
-  ```sh
-  DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent $APP --clean=$W/marked.md &
-  ```
-
-  The theme then stays at its default for the run, which no case checks.
+- **The session bus.** Nothing to do since `2e006cf` (merged here as
+  `9baf2d1`): GPUI now comes from the fork `GigLaboCom/zed`, whose second
+  X11 fix stops the desktop portal's appearance event from drawing while
+  the X11 client is borrowed. That event was the `RefCell already mutably
+  borrowed` panic (`gpui_linux` `x11/window.rs:1556`) that once needed an
+  unreachable session bus; see `docs/architecture/gpui-pin.md`.
+  `live-disk.sh` still starts the application with
+  `DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent` by default (`APP_DBUS`);
+  a hand-run case does not need it.
 - **Show the result in its folder** (case 8). GPUI asks the desktop
-  portal over D-Bus first, which the unreachable bus above refuses. It then
-  falls back to opening the result's **folder** with the desktop's default
-  handler (`xdg-open`'s road), so expect a file-manager window on `$W/out`
-  with no file selected in it. Nothing else in the cases depends on the
-  desktop.
+  portal over D-Bus to open the folder; where the portal refuses — or the
+  bus is out of reach, as under `live-disk.sh` — it opens the result's
+  **folder** with the desktop's default handler instead. Either way,
+  expect a file-manager window on `$W/out`. Nothing else in the cases
+  depends on the desktop.
 
 ## 0. Setup
 
