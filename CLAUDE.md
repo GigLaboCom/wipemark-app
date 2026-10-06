@@ -1593,7 +1593,10 @@ Anything that needed more than a rule to explain is in `docs/`;
 * **Tests must be able to fail.** RED first, and for the protections
   that matter (emoji ZWJ / VS16 preservation, path containment, the
   prompts' marker ownership and placeholder rule) delete the protection locally and confirm the suite
-  goes red.
+  goes red. Once, when the protection is written — not a table of mutations
+  re-run every round: those are not needed for now (the owner,
+  2026-10-06, Watchword `wipemark-mutations-not-needed-2026-10-06`), and
+  coverage is the measure wanted next.
 
 ## Specs
 
@@ -1663,6 +1666,7 @@ What exists so far:
 | `wipemark-task-e7-followups-2-2026-10-06` | FILE | that verification's findings as X1–X14: the queue's crash recovery after the hard-link set-aside, W5's FIFO test that can hang the suite, the windows' in-place clean of a symbolic link refused as the CLI's; the green mutations as tests, the cleaner panic-safe, a kept emoji joiner left unspelled in the Markdown copy, the window's own verdict in the parity table, the docs' drift; optionally a text report's own shelf; decisions D286–D290 |
 | `wipemark-e7-followups-2-report-2026-10-06` | FILE | its report: X1–X14 done, D286–D289 (an interrupted in-place delivery finished by inode or by bytes, in place of a symbolic link refused, a clean that panics ends as failed, a text's third shelf a field of its report), 85 of 85 of the series' mutations red; the host verification found it mergeable with no High or Medium (merged `78fd9e2`) — 1462/0/6 over three runs, the CLI's `--json`, prose and exits byte-identical to the round before over 191 commands and the MCP answers over 89, parity over 25 inputs, 38 of 38 disk checks on the real bus, nine Low findings |
 | `wipemark-task-e7-followups-3-2026-10-06` | FILE | that verification's Low findings as Y1–Y9: the plan taken inside D288's catch, D286's bytes comparison and a hard-link set-aside replaced by an atomic save pinned, an in-place clean through a linked folder pinned, the panel's look by the clean's plan and re-planned after a Retention change, the Markdown copy's every position spelled, D286 in `pipeline.md`, the CLI's FIFO test bounded, a temporary left by a panic, the mutation script's empty selection in every mode; decision D290 at most |
+| `wipemark-mutations-not-needed-2026-10-06` | TEXT | mutation testing — how a once-per-protection check grew into two tables (93 entries and H1–H56, about 13 hours a re-run) that no one had decided on, what it found and did not, and the owner's resolution: not needed for now; tasks ask for no mutation tables, verifiers run none, coverage is the measure wanted next |
 | `wipemark-gpui-pin-architecture-2026-10-052` | FILE | a snapshot of `docs/architecture/gpui-pin.md`: GPUI at `81b16f4` from the fork `GigLaboCom/zed` (`9d80553`) with two X11 fixes — a stale first frame (upstream #62081) and a double borrow on the portal's appearance event (ours) — how upstream moved to `gpui-pre` snapshots, and what a bump means, with references |
 | `wipemark-task-gpui-bump-2026-10-052` | FILE | a task for an agent in a container: GPUI onto the newest `gpui-pre` snapshot, our gpui-component patch rebased (or dropped once gpui-kit#3359 lands), the API fixed, patch B re-carried through `[patch.crates-io]`, the host's checklist after; decisions D291–D300. The keys without the trailing `2` are the first uploads, before the fork's commits were filled in |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
