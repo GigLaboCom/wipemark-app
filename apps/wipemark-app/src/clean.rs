@@ -809,21 +809,19 @@ fn write_new(
             destination.to_owned(),
         )));
     }
-    // `symlink_metadata`, so that a dangling link is in the way too.
-    let there = std::fs::symlink_metadata(destination).is_ok();
-    if there && replacing != Some(destination) {
-        return Err(Verdict::NotCleaned(Refusal::Exists(destination.to_owned())));
-    }
-    // Over the named file by a rename; anywhere else only where nothing is,
-    // which the publish itself checks — a file another process put there
-    // after the check above is refused too, never replaced (D284).
-    let written = if there {
+    // Over a file only when it is the one `replacing` names. Everywhere
+    // else the publish itself refuses whatever has the name — a file put
+    // there a moment ago by another process, a link that points nowhere —
+    // and that refusal is the one protection (D261, D284): no check comes
+    // before it for anything to race with.
+    let replaces = replacing == Some(destination) && std::fs::symlink_metadata(destination).is_ok();
+    let written = if replaces {
         inplace::write_atomically(destination, bytes, source)
     } else {
         inplace::write_new(destination, bytes, source)
     };
     match written {
-        Ok(()) => Ok(there),
+        Ok(()) => Ok(replaces),
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
             Err(Verdict::NotCleaned(Refusal::Exists(destination.to_owned())))
         }

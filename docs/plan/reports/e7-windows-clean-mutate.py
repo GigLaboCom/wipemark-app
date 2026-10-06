@@ -109,8 +109,8 @@ MUTATIONS = [
         "E7-1/M1",
         "an existing result is refused, never overwritten (D261)",
         CLEAN,
-        "    if there && replacing != Some(destination) {",
-        "    if false {",
+        "        inplace::write_new(destination, bytes, source)",
+        "        inplace::write_atomically(destination, bytes, source)",
         [t("an_existing_result_is_refused_and_left_alone")],
     ),
     (
@@ -291,8 +291,8 @@ MUTATIONS = [
         "E7-2/M5",
         "Replace writes over a file other than the one named",
         CLEAN,
-        "    if there && replacing != Some(destination) {",
-        "    if there && replacing.is_none() {",
+        "    let replaces = replacing == Some(destination) &&",
+        "    let replaces = replacing.is_some() &&",
         [t("a_result_is_replaced_only_where_it_was_named")],
     ),
     (
@@ -358,7 +358,7 @@ MUTATIONS = [
         REPORT,
         """    let not_established = shelf_ids(intake, outcome)
         .into_iter()""",
-        """    let not_established = Vec::<(&str, &str)>::new()
+        """    let not_established = Vec::<&str>::new()
         .into_iter()""",
         [r("every_outcome_has_its_three_shelves")],
     ),
@@ -583,10 +583,10 @@ MUTATIONS = [
     ),
     (
         "W10/M3",
-        "a dangling link where the result would go is in the way (H14)",
+        "a dangling link where the result would go is in the way (H14's protection, now the publish's, D284)",
         CLEAN,
-        "    let there = std::fs::symlink_metadata(destination).is_ok();",
-        "    let there = destination.exists();",
+        "        inplace::write_new(destination, bytes, source)",
+        "        inplace::write_atomically(destination, bytes, source)",
         [t("a_dangling_link_where_the_result_goes_is_in_the_way")],
     ),
     (

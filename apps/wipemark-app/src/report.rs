@@ -1279,6 +1279,13 @@ mod tests {
             !copied.contains(['\u{2068}', '\u{2069}']),
             "the copy carries an isolate: {copied:?}"
         );
+        // Nor their spelling: the copy is made of plain words, not of the
+        // window's words with the isolates spelled out (W12 spells any that
+        // got there).
+        assert!(
+            !copied.contains("U+2068") && !copied.contains("U+2069"),
+            "the copy was made from the window's words: {copied:?}"
+        );
     }
 
     /// A refusal before anything was read still has a report to show —
