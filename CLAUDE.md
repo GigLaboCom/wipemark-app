@@ -254,14 +254,14 @@ it sits.
 
 | crate | what it owns | today |
 |---|---|---|
-| `wipemark-core` | Layer A: the UCD tables, the Unicode taxonomy, the classifier and scrubber, NFKC, homoglyphs, the guards, the report and its JSON | real (the guards have no caller until **E4**) |
+| `wipemark-core` | Layer A: the UCD tables, the Unicode taxonomy, the classifier and scrubber, NFKC, homoglyphs, the guards, the report and its JSON — each report carrying its third shelf as a field, which the JSON writes (D289) | real (the guards have no caller until **E4**) |
 | `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP) | both engines real, handed out by `duty::engine_for` and asked by the Check; the pipeline that rewrites with them is **E4** |
 | `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`, `src/pin.rs`) | real under `native` — the prebuilt release by default, cmake with `WIPEMARK_LLAMA_SOURCE=1`; an empty shim without it |
 | `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends | real under `native`; refuses every load without it |
 | `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation, prompts and the loop real (E4-1…E4-3), the resumable job the queue drives (E4-4), the prompt bench (`examples/bench`, `bench/`, E4-5 — `docs/architecture/prompt-bench.md`) and its recommendations built (E4-7); the windows' surfaces are **E4-6b** |
 | `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
 | `wipemark-store` | the SQLite file, the `settings` table and the queue's tables (schema 2) | real |
-| `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination | real; no surface pushes to it (**E4-6b**) — the windows' clean has a line of its own |
+| `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination — an in-place delivery a crash cut short after the set-aside finished, not failed (D286) | real; no surface pushes to it (**E4-6b**) — the windows' clean has a line of its own |
 | `wipemark-secret` | the OS credential store, and `Secret` | real |
 | `wipemark-log` | the rotating file, the panic hook, `Elided` | real |
 | `wipemark-i18n` | the Fluent catalogues and the `Message` enum `build.rs` generates from them | real |
@@ -292,11 +292,11 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `result.rs` | the result as an editor with a toolbar — the toolbar is `gpui_component::input`'s own actions taken by a different road, and the component knows nothing about originals |
 | `diff.rs` | two texts, line against line — and within a changed line, word against word or character against character: the pure function under the Compare window's marks |
 | `queue.rs` | the main window's table: what was dropped or imported, one row each — the preview, the hover card, the filter bar, the sort, the paginator, the Status column, a row's clean asked of `cleaner.rs`'s line and its `Started`/`Finished` read back into the row, the Actions menu (Clean first, greyed with its reason under it; then open with the default app, Compare, Open the result, Show the result in its folder, Copy the result, Report…, Replace the existing result) and the double click that is its Compare item without the menu |
-| `cleaner.rs` | the one line of cleans per application (D283): `Cleaner`, a GPUI global over the pure `Line`, which the queue's Clean, Clean all, `--clean=` and Replace and the panel's Clean all ask — one clean at a time, first asked first done, a thing asked twice cleaned once, the plan taken when each starts — and the `Started`/`Finished` events the rows, the panel's lines and the status bar's count are drawn from |
+| `cleaner.rs` | the one line of cleans per application (D283): `Cleaner`, a GPUI global over the pure `Line`, which the queue's Clean, Clean all, `--clean=` and Replace and the panel's Clean all ask — one clean at a time, first asked first done, a thing asked twice cleaned once, the plan taken when each starts, each run under `catch_unwind` so a clean that panics ends as failed and the line goes on (D288) — and the `Started`/`Finished` events the rows, the panel's lines and the status bar's count are drawn from |
 | `preview.rs` | what a row looks like before it is opened: the picture, the first lines, or nothing |
 | `wording.rs` | the sentences the panel, the queue and the report share about one thing that arrived — what a kind is called, whether the name lied, what would happen to it, what a look found, what a clean came to and where its result went — each over a `Say`, so a window and a copied report are one sentence in two renderings |
 | `clean.rs` | cleaning one thing that arrived, with no window: what can be (`cleanable`), the read that decides again from the bytes, the CLI's policy stated once as `outcome_of`, the write by the plan, the kept copies and the `sweep`; `inspect_one`, the same read for the panel's look; `number`, the one counter for rows and kept directories |
-| `report.rs` | the Report dialog: one finished clean said in full — what arrived, what happened, and the three shelves — Copy JSON (the library's `to_json()`) and Copy as Markdown (plain) |
+| `report.rs` | the Report dialog: one finished clean said in full — what arrived, what happened, and the three shelves, the third read off the report itself for a text and a picture alike (D289) — Copy JSON (the library's `to_json()`) and Copy as Markdown (plain, what Layer A removes spelled `U+XXXX` by its position, so a joiner it keeps inside an emoji is not) |
 | `drop.rs` | a place on screen that accepts what is dragged onto it, and what came back |
 | `pasteboard.rs` | the dragging destination GPUI has not got, and the one place a pasteboard is read |
 | `dialog.rs` | the modal overlays and the focus trap |
@@ -364,7 +364,14 @@ Anything that needed more than a rule to explain is in `docs/`;
   docs says "undetectable" — there is no oracle for it. *In any
   language*: `no_language_promises_more_than_the_product_does` gates the
   catalogues, and every item of `not_established::ALL` must have a
-  translation in every one of them.
+  translation in every one of them. The shelf is a **field of the
+  report**, not a constant each surface re-reads: a picture's report
+  carries its own, and since D289 so does a text's —
+  `InspectReport::not_established` and `CleanReport::not_established`,
+  filled from `ALL` by `not_established::ids()` — which `to_json` writes
+  and the window's Report reads, so a shelf that grows lands on every
+  surface at once. The JSON is a format and did not move by a byte
+  (`the_json_of_a_real_report_is_what_it_was_before_the_shelf_was_a_field`).
 * **No epic number leaves this repository.** `E1`, `E2`, `E7` are our
   backlog. A person reading a window, and an agent reading a refusal,
   can do nothing with them — what they can act on is "not in this
@@ -466,7 +473,12 @@ Anything that needed more than a rule to explain is in `docs/`;
   cell. It is also the first window that **takes a drop**, which is its
   own rule below, and since E7 it cleans what it took: under each listed
   thing a findings line — `clean::inspect_one`, the very read a clean
-  makes, once per drop on the background executor (D278) — and **Clean**
+  makes, once per drop on the background executor (D278), and by the plan
+  a clean would take, so a refusal the clean makes before reading — in
+  place of a symbolic link (D287) — is said before Clean is pressed. That
+  plan is taken when the drop is held and not again when the Retention
+  page changes, so the look can disagree with the clean after a change
+  there; that is filed (the E7 follow-ups' Y4) — and **Clean**
   beside the dismissal line, every caught thing that can be cleaned,
   each with the plan taken at its own start (D279), handed to the
   application's one line of cleans (`cleaner.rs`, D283) — the line the
@@ -1335,9 +1347,20 @@ Anything that needed more than a rule to explain is in `docs/`;
   `--clean=`) check the same. One clean at a time holds across the whole
   application — the queue and the panel ask one line, `cleaner.rs`
   (D283) — and between processes the publish refuses a taken name
-  (D284). One gap is known and filed: an *in place* clean of a
-  **symbolic link** replaces the link and leaves the file it points at
-  marked, where the CLI refuses it (the E7 follow-ups' X3). See
+  (D284). *In place of* a **symbolic link** is refused before the read,
+  whatever the file holds, as `wipemark-cli clean --in-place` refuses it
+  (`Refusal::Link`, D287): the read would follow the link while the
+  set-aside and the rename worked on the link itself, and "cleaned" would
+  be said over a document nobody touched. Only the last name is the
+  check's — a file reached through a linked *folder* is cleaned, as it
+  must be under macOS's `/var -> /private/var`, though no test pins that
+  yet (the E7 follow-ups' Y3). A clean that **panics**
+  is caught on the background executor and ends as
+  `Failure::Panicked`, and the line goes on to the next (D288); its
+  sentence asks the person to look where the result would go rather than
+  claim nothing was written, because a panic can fall after a write. The
+  plan itself is still taken on the GPUI thread before that catch, so a
+  panic there is not caught yet (the E7 follow-ups' Y1). See
   `docs/plan/E7-windows-clean.md` §9 and `docs/architecture/queue.md`,
   "Cleaning".
 
@@ -1434,12 +1457,15 @@ Anything that needed more than a rule to explain is in `docs/`;
   (`select::RULES`, D116) — and asks the rest. A result goes
   where the item said when it was pushed (its row, beside, a chosen path,
   or in place by a per-run flag), in two phases so a crash between them is
-  finished rather than lost — with one exception until the E7
-  follow-ups' X1: since D284 sets an original aside by a hard link, a
-  crash between the link and the write leaves the file with its
-  original's bytes beside a second name for it, and `deliver::redeliver`,
-  written for the rename, fails that item as original-exists (nothing
-  pushes to the queue yet, and it is fixed before E4-6b). A database
+  finished rather than lost. In place, a crash between the set-aside and
+  the write leaves one of two states, and `deliver::redeliver` finishes
+  both (D286): set aside by a **hard link** (D284) the file never moved
+  and *is* the set-aside — one inode under two names, or, where the inode
+  cannot be seen (off Unix), the same bytes under both — and set aside by
+  a **rename** the file is missing. Either way the atomic write replaces
+  only the first name and the original stays whole under its second; a
+  file that holds anything else is someone's, and the item fails as
+  original-exists with nothing touched. A database
   that will not open is left alone and the queue says it runs in memory. A pasted text stays in its row
   until the item is removed (`secure_delete` on). `the_queue_survives_kill_9`
   is the gate.
@@ -1635,6 +1661,8 @@ What exists so far:
 | `wipemark-task-e7-followups-1-2026-10-05` | FILE | the host verification's findings as W1–W15: an i18n gate on epic numbers, the picture scope, the log rule, C2PA alone and `PICTURE_LIMIT` guarded; Compare through the queue's strict road; one clean at a time per application and a no-clobber rename; gpui tests for the paste, Replace and the panel; parity tests that run the CLI's own code; the report's shelf and Markdown; decisions from D281 |
 | `wipemark-e7-followups-1-report-2026-10-05` | FILE | its report: W1–W15 done, D281–D285 (C2PA alone is AI provenance, Compare on the queue's strict road, one line of cleans per application, the hard-link publish and set-aside, the parity table), 68 of 68 of the series' mutations red; the host verification found it mergeable (merged `2f7ce56`) — 1452/0/6 over three runs, parity over 25 inputs, 38 of 38 disk checks on both buses, the verifier's H25, H30, H34, H37, H38 green and H39 hanging, and three Medium findings |
 | `wipemark-task-e7-followups-2-2026-10-06` | FILE | that verification's findings as X1–X14: the queue's crash recovery after the hard-link set-aside, W5's FIFO test that can hang the suite, the windows' in-place clean of a symbolic link refused as the CLI's; the green mutations as tests, the cleaner panic-safe, a kept emoji joiner left unspelled in the Markdown copy, the window's own verdict in the parity table, the docs' drift; optionally a text report's own shelf; decisions D286–D290 |
+| `wipemark-e7-followups-2-report-2026-10-06` | FILE | its report: X1–X14 done, D286–D289 (an interrupted in-place delivery finished by inode or by bytes, in place of a symbolic link refused, a clean that panics ends as failed, a text's third shelf a field of its report), 85 of 85 of the series' mutations red; the host verification found it mergeable with no High or Medium (merged `78fd9e2`) — 1462/0/6 over three runs, the CLI's `--json`, prose and exits byte-identical to the round before over 191 commands and the MCP answers over 89, parity over 25 inputs, 38 of 38 disk checks on the real bus, nine Low findings |
+| `wipemark-task-e7-followups-3-2026-10-06` | FILE | that verification's Low findings as Y1–Y9: the plan taken inside D288's catch, D286's bytes comparison and a hard-link set-aside replaced by an atomic save pinned, an in-place clean through a linked folder pinned, the panel's look by the clean's plan and re-planned after a Retention change, the Markdown copy's every position spelled, D286 in `pipeline.md`, the CLI's FIFO test bounded, a temporary left by a panic, the mutation script's empty selection in every mode; decision D290 at most |
 | `wipemark-gpui-pin-architecture-2026-10-052` | FILE | a snapshot of `docs/architecture/gpui-pin.md`: GPUI at `81b16f4` from the fork `GigLaboCom/zed` (`9d80553`) with two X11 fixes — a stale first frame (upstream #62081) and a double borrow on the portal's appearance event (ours) — how upstream moved to `gpui-pre` snapshots, and what a bump means, with references |
 | `wipemark-task-gpui-bump-2026-10-052` | FILE | a task for an agent in a container: GPUI onto the newest `gpui-pre` snapshot, our gpui-component patch rebased (or dropped once gpui-kit#3359 lands), the API fixed, patch B re-carried through `[patch.crates-io]`, the host's checklist after; decisions D291–D300. The keys without the trailing `2` are the first uploads, before the fork's commits were filled in |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
@@ -1660,7 +1688,8 @@ phase 2 and E12 visible marks phase 2b — E11-1…E11-3 and E12-1…E12-5
 are done (the images series merged 2026-10-05); E12-6 (other vendors)
 and E12-7 (the reconstructor) are not started. **E7's windows clean is
 done** (E7-1…E7-6, merged 2026-10-05 as `7621c9f`; follow-ups W1–W15
-merged as `2f7ce56`; follow-ups X1–X14 filed), and with it the half of E12-8 that cleans a picture from the
+merged as `2f7ce56`; follow-ups X1–X14 merged as `78fd9e2`; follow-ups
+Y1–Y9 filed), and with it the half of E12-8 that cleans a picture from the
 windows; what remains of E7 is rewriting in the windows (**E4-6b**), the
 source editor with its badges (S7.2), the streamed result (S7.3) and the
 Inspector (S7.5), and of E12-8 Compare for pictures and the batch

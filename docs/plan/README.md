@@ -150,7 +150,7 @@ ahead of `main` (last `main` commit 2026-09-07). Today it carries:
 - E4-1…E4-7 and E4-6a;
 - E5's CLI;
 - E11-1…E11-3 and E12-1…E12-5 (five host-verified rounds);
-- E7's windows clean (`7621c9f`) and its follow-ups W1–W15 (`2f7ce56`);
+- E7's windows clean (`7621c9f`) and its follow-ups W1–W15 (`2f7ce56`) and X1–X14 (`78fd9e2`);
 - GPUI from the fork `GigLaboCom/zed` with the two X11 fixes (`c3aee8e`, `docs/architecture/gpui-pin.md`).
 
 Every work branch on `origin` is merged into it: `images/series{,-v2,-v3}`,
@@ -178,15 +178,17 @@ opens its own pull request against `main` instead of riding on `feat`.
 | # | branch (to be) | what | task (Watchword) | decisions | state |
 |---|---|---|---|---|---|
 | 1 | `e7/windows-clean` (continued) | E7 follow-ups W1–W15: an i18n gate on epic numbers; the picture scope, the log rule, C2PA alone and `PICTURE_LIMIT` guarded; Compare through the queue's strict road; one clean at a time per application, plus a no-clobber rename; gpui tests for paste, Replace and the panel; parity tests that run the CLI's code; the report's shelf and Markdown; wording and docs | `wipemark-task-e7-followups-1-2026-10-05` | D281–D285 | **done**: verified at `8b3e7f1`, merged as `2f7ce56`; the verifier's scripts `3262e68` |
-| 1a | `e7/windows-clean` (continued) | E7 follow-ups X1–X14, the host verification of W1–W15: the queue's crash recovery after the hard-link set-aside (X1), W5's FIFO test bounded (X2), an in-place clean of a symbolic link refused as on the CLI (X3); the verifier's green mutations H25, H26, H30, H34, H37, H38 as tests; the cleaner panic-safe; a kept emoji joiner left unspelled; the window's own verdict in the parity table; the docs' drift; optionally the text report's own shelf (X14) | `wipemark-task-e7-followups-2-2026-10-06` | D286–D290 | filed, not started; before 3 |
+| 1a | `e7/windows-clean` (continued) | E7 follow-ups X1–X14, the host verification of W1–W15: the queue's crash recovery after the hard-link set-aside (X1), W5's FIFO test bounded (X2), an in-place clean of a symbolic link refused as on the CLI (X3); the verifier's green mutations H25, H26, H30, H34, H37, H38 as tests; the cleaner panic-safe; a kept emoji joiner left unspelled; the window's own verdict in the parity table; the docs' drift; optionally the text report's own shelf (X14) | `wipemark-task-e7-followups-2-2026-10-06` | D286–D289 | **done**: verified on the host (the branch at `5b753fd`, its code at `fc27642`) with no High and no Medium finding, merged as `78fd9e2`; the verifier's scripts `d3f425c` |
+| 1b | `e7/windows-clean` (continued) | E7 follow-ups Y1–Y9, the host verification's nine Lows on X1–X14: the plan taken inside D288's catch (Y1); D286's bytes comparison and a hard-link set-aside replaced by an atomic save pinned (Y2); an in-place clean through a linked folder pinned (Y3); the panel's look by the clean's plan, taken again when the Retention rows change (Y4); the Markdown copy's every position spelled (Y5); D286 in `pipeline.md` (Y6); the CLI's FIFO test bounded (Y7); a temporary a panic leaves (Y8); the mutation script's empty selection in every mode (Y9) | `wipemark-task-e7-followups-3-2026-10-06` | D290 at most | filed, not started; before 3 |
 | 2 | — (the owner, by hand) | E7's live check in the windows, `docs/plan/reports/E7-windows-clean-live-check.md`: what the windows paint. The disk half is automated (`scripts/verify/e7/live-disk.sh`, 38/38). On this host the D-Bus workaround is no longer needed, and `scripts/verify/e7/clip.py` stands in for `pbcopy`/`pbpaste`. | — | — | waiting for the owner |
-| 3 | `gpui/bump-pre` | GPUI onto the newest `gpui-pre` snapshot; our gpui-component patch rebased, or dropped once longbridge/gpui-kit#3359 lands; the API fixed; patch B re-carried through `[patch.crates-io]`; the host's checklist after | `wipemark-task-gpui-bump-2026-10-052` | D291–D300 | filed, not started; after 1a |
+| 3 | `gpui/bump-pre` | GPUI onto the newest `gpui-pre` snapshot; our gpui-component patch rebased, or dropped once longbridge/gpui-kit#3359 lands; the API fixed; patch B re-carried through `[patch.crates-io]`; the host's checklist after | `wipemark-task-gpui-bump-2026-10-052` | D291–D300 | filed, not started; after 1b |
 | 4 | `images/series-v3` (or the next images round) | three doc nits not yet filed: `visible-marks.md` 3439–3441 → 3442; "all 22" against `crying`'s aside; the fixtures README's `.convert("RGB")` | to be filed with the next images task | — | open |
 | 5 | `e4/windows-rewrite` | E4-6b: rewriting from the windows, with the queue (`wipemark-queue`) pushed to | to be written | — | next epic step |
 | 6 | — | E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), E9 licensing, E10 packaging | to be written | — | §7 |
 
 **Open with the owner** (§5): Q-C1–Q-C4 (E7's defaults: clean on arrival,
-all metadata, Layer A's finer choices, an existing result), Q-V4–Q-V7
+all metadata, Layer A's finer choices, an existing result), Q-C6 (refuse
+what is not a regular file before opening it), Q-V4–Q-V7
 and Q-V9, the mn-embed-fleet restart, the Gemma 4 / Qwen3.8 catalogue
 entries, `llama-cpp-prebuilt`'s LICENSE, and the OpenAI/Grok captures.
 
@@ -681,8 +683,12 @@ tell a decision from an accident.
 | **D281** | **The panel's look reads `has_ai_metadata()` alone** (W4). | Every C2PA block is AI provenance in `wipemark-image`, so the dropped `\|\| has_c2pa()` could never change the answer — an equivalent clause, which no test can guard (the verifier's H12, retired); `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-1-2026-10-05.md`. |
 | **D282** | **Compare reads through `clean::text_of`, the queue's strict road** (W6, answers Q-C5), and refuses what the queue would not decode in the queue's words; the lenient decode is the preview's alone. | A comparison is a promise about what Clean will write; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-1-2026-10-05.md`. |
 | **D283** | **One line of cleans per application**, `cleaner::Cleaner` (W7): the queue's cleans and the panel's, one at a time, first asked first done, the plan at each start. Supersedes D279's "one at a time" within the window. | D264's memory rule assumed one decode at a time, and two windows cleaning one file to one destination raced the check and the write (D261 broken in one process); `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-1-2026-10-05.md`. |
-| **D284** | **A new result is published, and an original set aside, by a hard link that cannot replace anything** (`inplace::write_new`, `inplace::replace`, W7); `create_new` and check-then-rename only where hard links are refused. Supersedes D81's accepted race. | Closes the window between "is the name free" and the write for other processes too, with no `unsafe` and no dependency; a failed in-place write strands nothing. The queue's crash recovery was written for the rename road and is follow-ups-2 X1; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-1-2026-10-05.md`. |
+| **D284** | **A new result is published, and an original set aside, by a hard link that cannot replace anything** (`inplace::write_new`, `inplace::replace`, W7); `create_new` and check-then-rename only where hard links are refused. Supersedes D81's accepted race. | Closes the window between "is the name free" and the write for other processes too, with no `unsafe` and no dependency; a failed in-place write strands nothing. The queue's crash recovery was written for the rename road; D286 completed it (follow-ups-2 X1); `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-1-2026-10-05.md`. |
 | **D285** | **Parity with the CLI is one table both sides are tested against** (W9): `fixtures/clean-parity/table.tsv`; the CLI's binary in `apps/wipemark-cli/tests/parity.rs`, `clean_one` in `clean::tests::the_windows_clean_to_the_clis_table`. | A hand-written restatement drifts unseen; a shared library would move a rule the CLI owns out of it; an app test cannot build the CLI's binary; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-1-2026-10-05.md`. |
+| **D286** | **An interrupted in-place delivery whose file is still its set-aside is finished, not failed** (X1): `wipemark_queue`'s `redeliver` writes the result when the file and `name.original.ext` are one inode (`inplace::same_file`) **or hold the same bytes**; a file holding anything else still fails as `OriginalExists`. Completes D284 for the queue. | Since D284 the set-aside is a hard link and the file never moves, so a crash between the link and the write leaves the file whole under two names, not missing. Off Unix `same_file` compares canonical paths, which two hard links do not share, and std has no stable file identity on Windows; the bytes see it there, and writing the result over a byte-identical copy loses nothing — the original is whole under its second name; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-2-2026-10-06.md`. |
+| **D287** | **In place of a symbolic link is refused before the read** (X3): `Refusal::Link`, `clean-refused-link` in en, ru, de; `clean::inspect_one` takes the plan a clean would take and says the same refusal, and the panel then says nowhere a result would go. Only the last name is checked; `Beside` and `Into` are unchanged. | The read follows the link while the set-aside and the rename work on the link: `link.md` became a new file, `link.original.md` the link, the document untouched, and `cleaned` was said over it. The CLI refuses it with exit 2; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-2-2026-10-06.md`. |
+| **D288** | **A clean that panics ends as `Failure::Panicked` and the line goes on** (X12): `cleaner::Cleaner` runs each clean under `catch_unwind`; `clean-failed-panicked` in en, ru, de asks the person to look where the result would go, and does not say nothing was written. | Uncaught, `Line::running` stayed set and every later clean in both windows waited for ever; a panic can fall after a write. The plan, taken on the GPUI thread before the catch, is follow-ups-3 Y1; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-2-2026-10-06.md`. |
+| **D289** | **A text's third shelf is a field of its report** (X14): `InspectReport` and `CleanReport` carry `not_established`, filled from `not_established::ALL`; `to_json` writes the field and the window's `shelf_ids` reads it, as W11 does for a picture. The JSON is unchanged byte for byte. | Two surfaces reading one constant is the drift W11 removed for pictures. Held by a core test against the JSON at `2f7ce56`, and by the host over 191 CLI commands and 89 MCP answers (`scripts/verify/e7/json-bytes.sh`, `mcp-bytes.sh`); core keeps zero dependencies; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-2-2026-10-06.md`. |
 
 ---
 
@@ -723,6 +729,7 @@ answered moves here or to §4.
 | Q-C3 | should the windows offer cleaning's finer choices — a borrowed letter replaced, normalisation, spaces? | — | **Open (owner), from E7; meets Q-A1.** The windows clean at Layer A's defaults, and the Report says so when it keeps such a letter. |
 | Q-C4 | when a result is already there, refuse or pick a new name (`name.cleaned-2.md`)? | — | **Open (owner), from E7.** Refused and left as it is (D261); "Replace the existing result" writes over it on request (D270). |
 | Q-C5 | *(engineering)* Compare decodes leniently, the preview's way; the queue strictly (`wipemark_intake::text::decode`): a file the queue refuses is still compared | — | **Answered by D282** (follow-up W6, merged as `2f7ce56`): Compare reads through `clean::text_of`, the queue's strict road, and refuses with the queue's sentence; the lenient decode is the preview's alone. |
+| Q-C6 | should a clean refuse what is not a regular file — a FIFO, a socket, a device — before opening it? | — | **Open (owner), from the E7 follow-ups' X2;** the implementer and the host verifier both think it sound hardening. Not built: such a file is opened and read under the limits (D264), and W5's FIFO test is how a file that grows during the read is tested — refusing first would retire that test, and the read-side check would need another (a file appended to by a second thread, which is racy). |
 
 ---
 
@@ -940,8 +947,8 @@ the gate the overview set, and the open edges.
 - **Basis.** OV §6.1–6.2; `docs/architecture/compare.md`, `queue.md`.
 - **Gate.** A 1 k-token stream keeps 30 FPS; a click on a finding
   scrolls to it.
-- **Open.** Q7, Q-A1, Q-A3, Q-D2; Q-C1…Q-C4 (after E7-1…E7-6). Q-C5
-  is answered by D282.
+- **Open.** Q7, Q-A1, Q-A3, Q-D2; Q-C1…Q-C4 (after E7-1…E7-6), Q-C6
+  (after X1–X14). Q-C5 is answered by D282.
 - **E7-1…E7-6, the windows clean — status: done** (one series for one
   agent in a container, verified on the host once after the final step:
   1432 passed, 0 failed, 6 ignored at `cecfa12`; 41 of 41 of the series'
@@ -972,12 +979,38 @@ the gate the overview set, and the open edges.
   on an unreachable bus and on the real one, no panic; the verifier's
   scripts `3262e68` (`scripts/verify/e7/`, with `probes.sh`).
   **Follow-ups X1–X14** (Watchword
-  `wipemark-task-e7-followups-2-2026-10-06`, D286–D290): filed — the
-  queue's crash recovery after the hard link (X1), W5's FIFO test that
-  can hang the suite (X2), the windows' in-place clean of a symbolic link
-  refused as the CLI's (X3), the green mutations turned into tests, the
-  cleaner made panic-safe, and the docs' drift. What remains
-  of E7: S7.2, S7.3, S7.5 above, and rewriting in the windows (E4-6b).
+  `wipemark-task-e7-followups-2-2026-10-06`, report
+  `wipemark-e7-followups-2-report-2026-10-06`,
+  [reports/E7-followups-2-2026-10-06.md](reports/E7-followups-2-2026-10-06.md)):
+  **done**, D286–D289 — the queue's crash recovery after the hard link
+  (X1), W5's FIFO test bounded (X2), the windows' in-place clean of a
+  symbolic link refused as the CLI's (X3), the green mutations turned into
+  tests, the cleaner panic-safe (X12), a kept emoji joiner left unspelled
+  (X10), the window's own verdict in the parity table (X11), the docs'
+  drift, and a text's third shelf read off its report (X14). Verified on
+  the host with no High and no Medium finding and merged as `78fd9e2` on
+  2026-10-06 — 1462 passed, 0 failed, 6 ignored, three runs; the app with
+  `local-llama` 526 + 1 passed; the engine 36; 85 of 85 of the series'
+  mutations red, none hanging; of the verifier's `mutate-host.py`, H1–H39
+  red with H12 retired, and of H40–H56 all red but H41, H44, H45 and H53
+  (Lows) and H55 and H56 (informational); core's JSON unchanged (D289),
+  the CLI's `--json`, prose and exits byte-identical to the round before
+  over 191 commands and 653 files and the MCP answers over 89; parity over
+  25 inputs with no mismatch, `table.tsv`'s new `app_verdict` column
+  agreeing; probes A–H passing, A, C and E of which were red or hanging
+  before the round, G (in place of a symbolic link through the running
+  application with `--clean=`) refusing and touching nothing;
+  `live-disk.sh` 38 of 38 on the real session bus; the verifier's scripts
+  `d3f425c` (`json-bytes.sh`, `mcp-bytes.sh`, H40–H56, probes C2, G, H).
+  Its nine Lows are **follow-ups Y1–Y9** (Watchword
+  `wipemark-task-e7-followups-3-2026-10-06`, D290 at most): filed — the
+  plan taken inside D288's catch, D286's bytes comparison, a linked
+  folder, the panel's look by the clean's plan, the Markdown copy's every
+  position, D286 in `pipeline.md`, the CLI's FIFO test, a temporary a
+  panic leaves, the mutation script's empty selection. X2's question —
+  refuse what is not a regular file before opening it — is Q-C6. What
+  remains of E7: S7.2, S7.3, S7.5 above, and rewriting in the windows
+  (E4-6b).
 
 ### E8 — models and engine UI (the rest)
 
