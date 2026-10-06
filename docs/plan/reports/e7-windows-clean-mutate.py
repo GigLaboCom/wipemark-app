@@ -58,6 +58,8 @@ RU = "crates/wipemark-i18n/i18n/ru/wipemark.ftl"
 SETTINGS = "apps/wipemark-app/src/settings.rs"
 CLEANER = "apps/wipemark-app/src/cleaner.rs"
 INPLACE = "crates/wipemark-intake/src/inplace.rs"
+CLI_IMAGE = "apps/wipemark-cli/src/image.rs"
+CLI_RUN = "apps/wipemark-cli/src/run.rs"
 
 
 def t(name):
@@ -90,6 +92,10 @@ def i(name):
 
 def n(name):
     return (["-p", "wipemark-intake"], f"inplace::tests::{name}")
+
+
+def cli(name):
+    return (["-p", "wipemark-cli", "--test", "parity"], name)
 
 
 def k(name):
@@ -687,8 +693,39 @@ MUTATIONS = [
         "        for index in to_clean(&states).into_iter().skip(1) {",
         [p("a_drop_on_the_panel_is_looked_at_and_cleaned")],
     ),
+    (
+        "W9/M1",
+        "the CLI's picture exit changes and the table is not changed (the CLI's half)",
+        CLI_IMAGE,
+        "    if restored {\n        Exit::Findings",
+        "    if restored {\n        Exit::Clean",
+        [cli("the_cli_cleans_to_the_windows_table")],
+    ),
+    (
+        "W9/M2",
+        "the CLI's text exit changes and the table is not changed (the CLI's half)",
+        CLI_RUN,
+        "    let exit = if cleaned.report.suspicious {",
+        "    let exit = if cleaned.report.suspicious || cleaned.text != read.text {",
+        [cli("the_cli_cleans_to_the_windows_table")],
+    ),
+    (
+        "W9/M3",
+        "a window's picture verdict drifts from the CLI's exit (the application's half)",
+        CLEAN,
+        "            let verdict = if report.marks_left() {\n                Verdict::Partly(Left::Mark)",
+        "            let verdict = if report.marks_left() {\n                Verdict::Cleaned",
+        [t("the_windows_clean_to_the_clis_table")],
+    ),
+    (
+        "W9/M4",
+        "a window writes where the table says it does not (the application's half)",
+        CLEAN,
+        "            (verdict, changed)",
+        "            (verdict, true)",
+        [t("the_windows_clean_to_the_clis_table")],
+    ),
 ]
-
 def run(args, name):
     """`(red, compiled, command)`: a mutation that does not compile is not a
     protection that bit, and is reported apart."""

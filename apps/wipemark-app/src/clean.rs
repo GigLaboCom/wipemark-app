@@ -2577,6 +2577,94 @@ mod tests {
         );
     }
 
+    /// The CLI's exit for what a window's clean came to: the mapping the
+    /// parity table holds this side to (W9, D285). A text exits by whether
+    /// Layer A found something it calls suspicious, as the CLI's `clean`
+    /// does; a picture by the verdict; a thing never cleaned is a refusal.
+    fn cli_exit_of(outcome: &Outcome) -> i32 {
+        match (&outcome.report, &outcome.verdict) {
+            (_, Verdict::NotCleaned(Refusal::NotCleanable(_))) => 2,
+            (_, Verdict::NotCleaned(Refusal::StillMarked { .. })) => 3,
+            (Some(Report::Text(report)), _) => i32::from(report.suspicious),
+            (Some(Report::Picture(_)), Verdict::NothingFound) => 0,
+            (Some(Report::Picture(_)), Verdict::Cleaned) => 1,
+            (Some(Report::Picture(_)), Verdict::Partly(_)) => 3,
+            (_, verdict) => panic!("no row of the table ends as {verdict:?}"),
+        }
+    }
+
+    /// The application's half of `fixtures/clean-parity/table.tsv`; the
+    /// CLI's half, `apps/wipemark-cli/tests/parity.rs`, runs the real
+    /// binary over the same rows. A window's clean of each input comes to
+    /// the CLI's exit for it and writes where the table says — the rows
+    /// that differ are the declared deviations, named in the table — and
+    /// what it writes is the library's answer at the CLI's defaults, the
+    /// answer the CLI's half holds the binary's bytes to.
+    #[test]
+    fn the_windows_clean_to_the_clis_table() {
+        let fixtures = PathBuf::from(format!("{}/../../fixtures", env!("CARGO_MANIFEST_DIR")));
+        let table =
+            std::fs::read_to_string(fixtures.join("clean-parity/table.tsv")).expect("table");
+        let scratch = Scratch::new("parity");
+        let mut rows = 0;
+        for line in table.lines() {
+            if line.starts_with('#') || line.trim().is_empty() {
+                continue;
+            }
+            rows += 1;
+            let columns: Vec<&str> = line.split('\t').collect();
+            assert_eq!(columns.len(), 5, "{line:?}");
+            let (input, cli_exit, app_writes) = (
+                columns[0],
+                columns[1].parse::<i32>().expect("an exit"),
+                columns[3] == "yes",
+            );
+            let name = Path::new(input).file_name().unwrap().to_string_lossy();
+            let bytes = read(&fixtures.join(input));
+            let source = scratch.file(&name, &bytes);
+            let outcome = clean(
+                &arrival(Handed::Path(source)),
+                &Retention::default(),
+                &scratch.homes(),
+            );
+            assert_eq!(
+                cli_exit_of(&outcome),
+                cli_exit,
+                "{input}: a window's clean is not what the CLI exits with: {:?}",
+                outcome.verdict
+            );
+            assert_eq!(
+                outcome.written.is_some(),
+                app_writes,
+                "{input}: {:?}",
+                outcome.verdict
+            );
+            if let Some(written) = &outcome.written {
+                let expected = match outcome.report {
+                    Some(Report::Picture(_)) => {
+                        let options = PictureOptions {
+                            scope: Scope::AiProvenance,
+                            catalogue: None,
+                        };
+                        wipemark_picture::clean(&bytes, &options)
+                            .expect("picture")
+                            .0
+                    }
+                    _ => {
+                        let encoding = wipemark_intake::of_bytes(&bytes, Some(&name))
+                            .encoding
+                            .expect("an encoding");
+                        let text = wipemark_intake::text::decode(&bytes, encoding).expect("text");
+                        let cleaned = wipemark_core::clean(&text, &Options::default()).text;
+                        encoded(&cleaned, encoding)
+                    }
+                };
+                assert_eq!(read(written), expected, "{input}: not the CLI's bytes");
+            }
+        }
+        assert!(rows >= 12, "the table lost rows");
+    }
+
     /// The report's JSON is the library's own, third shelf and all.
     #[test]
     fn the_report_is_the_librarys_own_json() {
