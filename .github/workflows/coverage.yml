@@ -1,0 +1,124 @@
+# wipemark — test coverage on GitHub Actions.
+#
+# Why: the owner, 2026-10-06 — test coverage is the measure of what the
+# tests reach, in place of the mutation tables that took ~13 hours a
+# re-run (Watchword `wipemark-mutations-not-needed-2026-10-06`). Asked for
+# as a mode of its own, on `main` only, the way the industry usually runs
+# it: not a gate, not on every push or pull request.
+#
+# When: a push to `main` (a merged pull request), and by hand
+# (`gh workflow run coverage.yml --ref <branch>`, or the Actions tab).
+# A manual run needs this file on the default branch first; that is how
+# GitHub finds a `workflow_dispatch` workflow.
+#
+# What: the workspace tests (`cargo test --workspace`'s set, nothing else)
+# once, under LLVM's source-based coverage via cargo-llvm-cov, with the
+# vendored gpui-component left out of the figures. No threshold and no
+# failure on a low figure: it reports. No external service and no token:
+# the figures stay in the run.
+#
+# Output: the per-file summary in the run's page (the job summary); the
+# artifact `coverage` holding `lcov.info` (for an editor's gutter or any
+# lcov tool) and `html/` (open `html/index.html`, a line-by-line view).
+# A line counted as covered was executed by some test — not that a test
+# asserted on it; CLAUDE.md's "Tests must be able to fail" stays the rule
+# for that.
+name: coverage
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  coverage:
+    name: coverage (workspace tests, report only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+            /usr/share/swift /usr/local/julia* /opt/microsoft/msedge \
+            /usr/local/share/chromium /usr/local/share/powershell
+          sudo docker image prune --all --force > /dev/null || true
+          df -h /
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # As in gate.yml: must precede every cargo command.
+      - name: Pin the gpui-component submodule
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+          scripts/pin-gpui-component.sh
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install
+          rustup component add llvm-tools-preview
+          rustup show active-toolchain
+
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libxcb1-dev libx11-xcb-dev libx11-dev \
+            libfontconfig1-dev libfreetype-dev libssl-dev libzstd-dev libasound2-dev \
+            libvulkan1 mesa-vulkan-drivers \
+            libgtk-3-dev libayatana-appindicator3-dev
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: coverage
+          cache-on-failure: true
+
+      - name: Tests under coverage
+        run: cargo llvm-cov --workspace --locked --no-report
+
+      - name: Reports
+        run: |
+          ignore='vendor/'
+          mkdir -p coverage
+          cargo llvm-cov report --ignore-filename-regex "$ignore" --lcov --output-path coverage/lcov.info
+          cargo llvm-cov report --ignore-filename-regex "$ignore" --html --output-dir coverage
+          {
+            echo '## Coverage — workspace tests'
+            echo
+            echo 'Lines executed by a test; not a gate. Line-by-line: the `coverage` artifact, `html/index.html`.'
+            echo
+            echo '```'
+            cargo llvm-cov report --ignore-filename-regex "$ignore" --summary-only
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 30
+
+      - name: Disk left
+        if: always()
+        run: df -h /
