@@ -359,6 +359,9 @@ struct PanelView {
     asked: HashMap<u64, (Arc<[Arrival]>, usize)>,
     /// Dropped with the view: the line says what each clean did.
     _cleaned: Subscription,
+    /// Dropped with the view: a change on the Retention page plans the held
+    /// things again, and looks again at those whose plan moved.
+    _replanned: Subscription,
 }
 
 /// The drop the panel shows, and what it knows about it: a look per thing
@@ -366,6 +369,10 @@ struct PanelView {
 /// redraw never looks again (D278).
 struct Held {
     arrivals: Arc<[Arrival]>,
+    /// The plan each listed thing is looked at by, painted by and — the
+    /// Retention page unchanged — cleaned by: the page's as it stands,
+    /// followed when it changes (D290).
+    plans: Vec<Plan>,
     /// What a look found, per listed thing; `None` while it looks.
     found: Vec<Option<Findings>>,
     /// What a clean did, per thing; `None` until it is cleaned.
@@ -500,6 +507,10 @@ impl PanelView {
             },
         );
 
+        // A plan changed on the Retention page is the held things' too: a
+        // look taken by the old one says what a clean will not do (D290).
+        let replanned = cx.observe(&preferences, |view: &mut Self, _, cx| view.replan(cx));
+
         Self {
             preferences,
             focus,
@@ -511,42 +522,84 @@ impl PanelView {
             cleaner,
             asked: HashMap::new(),
             _cleaned: cleaned,
+            _replanned: replanned,
         }
     }
 
     /// Hold a new drop, and look at what it lists, one thing at a time on
     /// the background executor, each by the plan a clean would take now —
-    /// so a look says what that clean refuses before reading (D287). A look
-    /// overtaken by the next drop stops.
+    /// so a look says what that clean refuses before reading (D287).
     fn hold(&mut self, arrivals: Arc<[Arrival]>, cx: &Context<Self>) {
         let listed = arrivals.len().min(LISTED);
-        let plans: Vec<Plan> = {
-            let preferences = self.preferences.read(cx);
-            arrivals[..listed]
-                .iter()
-                .map(|thing| preferences.plan_for(&thing.intake))
-                .collect()
-        };
+        let plans = self.plans_now(&arrivals[..listed], cx);
         self.held = Some(Held {
             arrivals: arrivals.clone(),
+            plans: plans.clone(),
             found: (0..listed).map(|_| None).collect(),
             done: (0..arrivals.len()).map(|_| None).collect(),
         });
+        Self::look(arrivals, plans.into_iter().enumerate().collect(), cx);
+    }
+
+    /// The plan a clean of each thing would take now.
+    fn plans_now(&self, things: &[Arrival], cx: &App) -> Vec<Plan> {
+        let preferences = self.preferences.read(cx);
+        things
+            .iter()
+            .map(|thing| preferences.plan_for(&thing.intake))
+            .collect()
+    }
+
+    /// The preferences changed: plan the held things again, and look again
+    /// at each one not yet cleaned whose plan moved — one read per such
+    /// thing, never one per frame, and none for a change elsewhere (D290).
+    fn replan(&mut self, cx: &mut Context<Self>) {
+        let Some(held) = &self.held else {
+            return;
+        };
+        let arrivals = held.arrivals.clone();
+        let plans = self.plans_now(&arrivals[..held.plans.len()], cx);
+        let Some(held) = self.held.as_mut() else {
+            return;
+        };
+        let mut again = Vec::new();
+        for (index, plan) in plans.into_iter().enumerate() {
+            if held.plans[index] == plan || held.done[index].is_some() {
+                continue;
+            }
+            held.plans[index] = plan.clone();
+            held.found[index] = None;
+            again.push((index, plan));
+        }
+        if !again.is_empty() {
+            Self::look(arrivals, again, cx);
+            cx.notify();
+        }
+    }
+
+    /// Look at the things of the drop `arrivals` at these places, each by
+    /// its plan, one at a time on the background executor. A look lands
+    /// only while its drop is held and its plan is still the thing's — a
+    /// drop that overtakes it stops the rest, a plan that moved has a look
+    /// of its own on the way.
+    fn look(arrivals: Arc<[Arrival]>, places: Vec<(usize, Plan)>, cx: &Context<Self>) {
         cx.spawn(async move |view, cx| {
-            for index in 0..listed {
+            for (index, plan) in places {
                 let thing = arrivals.clone();
-                let plan = plans[index].clone();
+                let by = plan.clone();
                 let found = cx
                     .background_executor()
-                    .spawn(async move { clean::inspect_one(&thing[index], &plan) })
+                    .spawn(async move { clean::inspect_one(&thing[index], &by) })
                     .await;
                 let current = view
                     .update(cx, |view, cx| {
                         let Some(held) = view.held_for(&arrivals) else {
                             return false;
                         };
-                        held.found[index] = Some(found);
-                        cx.notify();
+                        if held.plans[index] == plan {
+                            held.found[index] = Some(found);
+                            cx.notify();
+                        }
                         true
                     })
                     .unwrap_or(false);
@@ -644,6 +697,16 @@ impl PanelView {
     }
 }
 
+/// Where a result would go, unless the look already said why there will
+/// be none or the thing cannot be cleaned. Pure.
+fn would_lines(intake: &Intake, plan: &Plan, found: Option<&Findings>) -> Vec<String> {
+    let refused = matches!(found, Some(Findings::NotLooked(_)));
+    if refused || matches!(clean::cleanable(intake), Cleanable::No(_)) {
+        return Vec::new();
+    }
+    would_happen(plan)
+}
+
 /// One thing that was dropped, in two lines and a sentence.
 ///
 /// The first is what to call it: a file has a name, and everything else
@@ -711,12 +774,11 @@ fn caught_row(
                 muted
             };
             lines.push((findings_line(found), colour));
-            // Where a result would go, unless the look already said why
-            // there will be none.
-            let refused = matches!(found, Some(Findings::NotLooked(_)));
-            if !refused && !matches!(clean::cleanable(intake), Cleanable::No(_)) {
-                lines.extend(would_happen(plan).into_iter().map(|line| (line, muted)));
-            }
+            lines.extend(
+                would_lines(intake, plan, found)
+                    .into_iter()
+                    .map(|line| (line, muted)),
+            );
         }
     }
 
@@ -851,9 +913,14 @@ impl PanelView {
                 .enumerate()
                 .map(|(index, arrival)| {
                     let intake = &arrival.intake;
+                    // The plan its look was taken by; the page's, until
+                    // the drop is held.
+                    let plan = held
+                        .and_then(|held| held.plans.get(index).cloned())
+                        .unwrap_or_else(|| preferences.plan_for(intake));
                     caught_row(
                         intake,
-                        &preferences.plan_for(intake),
+                        &plan,
                         held.and_then(|held| held.found.get(index)?.as_ref()),
                         held.and_then(|held| held.done.get(index)?.as_deref()),
                         cx,
@@ -1002,6 +1069,7 @@ mod tests {
 
     use super::*;
     use crate::clean::{Refusal, Unable};
+    use crate::retention::Destination;
 
     /// Every case a look can come to, beside the line it should read as.
     fn every_look() -> Vec<(Findings, &'static str)> {
@@ -1326,5 +1394,152 @@ mod tests {
             "Clean is still offered with nothing left"
         );
         std::fs::remove_dir_all(&scratch).ok();
+    }
+
+    /// A panel over preferences that forget, in a test window, with
+    /// `link.md -> target.md` in a scratch folder — what the two tests of
+    /// the look's plan share (Y4).
+    #[cfg(unix)]
+    struct LinkPanel {
+        scratch: std::path::PathBuf,
+        link: std::path::PathBuf,
+        view: Entity<PanelView>,
+        preferences: Entity<Preferences>,
+    }
+
+    #[cfg(unix)]
+    impl LinkPanel {
+        fn new<'a>(
+            label: &str,
+            cx: &'a mut gpui::TestAppContext,
+        ) -> (Self, &'a mut gpui::VisualTestContext) {
+            use std::cell::RefCell;
+            use std::rc::Rc;
+
+            use crate::retention::Homes;
+
+            let scratch =
+                std::env::temp_dir().join(format!("wipemark-panel-{label}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&scratch);
+            std::fs::create_dir_all(&scratch).expect("scratch");
+            let target = scratch.join("target.md");
+            std::fs::write(&target, "A zero\u{200B}width space.\n").expect("target");
+            let link = scratch.join("link.md");
+            std::os::unix::fs::symlink(&target, &link).expect("link");
+
+            cx.update(gpui_component::init);
+            let homes = Homes {
+                results: scratch.join("results"),
+                kept: scratch.join("kept"),
+            };
+            type Made = Option<(Entity<PanelView>, Entity<Preferences>)>;
+            let slot: Rc<RefCell<Made>> = Rc::default();
+            let held = slot.clone();
+            let (_, cx) = cx.add_window_view(move |window, cx| {
+                let preferences = cx.new(|cx| Preferences::for_tests(homes, cx));
+                let catcher = cx.new(|_| Catcher::detached());
+                let view =
+                    cx.new(|cx| PanelView::with_catcher(preferences.clone(), catcher, window, cx));
+                *held.borrow_mut() = Some((view.clone(), preferences));
+                gpui_component::Root::new(view, window, cx)
+            });
+            let (view, preferences) = slot.take().expect("the window builder ran");
+            let panel = Self {
+                scratch,
+                link,
+                view,
+                preferences,
+            };
+            (panel, cx)
+        }
+
+        fn destination(&self, destination: Destination, cx: &mut gpui::VisualTestContext) {
+            self.preferences.update(cx, |preferences, cx| {
+                preferences.select_destination(destination, cx)
+            });
+            cx.run_until_parked();
+        }
+
+        fn drop_link(&self, cx: &mut gpui::VisualTestContext) {
+            let catcher = cx.update(|_, cx| self.view.read(cx).catcher.clone());
+            catcher.update(cx, |catcher, cx| {
+                catcher.land(vec![wipemark_intake::Handed::Path(self.link.clone())], cx);
+            });
+            cx.run_until_parked();
+        }
+
+        /// What the panel holds for the link: whether its look is the link
+        /// refusal (`Some(true)`), a look that found the one U+200B
+        /// (`Some(false)`) or anything else (`None`), and the lines it
+        /// paints under it about where a result would go.
+        fn looked(&self, cx: &mut gpui::VisualTestContext) -> (Option<bool>, Vec<String>) {
+            cx.update(|_, cx| {
+                let held = self.view.read(cx).held.as_ref().expect("the drop is held");
+                let found = held.found[0].as_ref();
+                let refused = match found {
+                    Some(Findings::NotLooked(Refusal::Link(path))) if *path == self.link => {
+                        Some(true)
+                    }
+                    Some(Findings::Text { change: 1, .. }) => Some(false),
+                    other => {
+                        eprintln!("the look: {other:?}");
+                        None
+                    }
+                };
+                let would = would_lines(&held.arrivals[0].intake, &held.plans[0], found);
+                (refused, would)
+            })
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for LinkPanel {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.scratch).ok();
+        }
+    }
+
+    /// The panel's look is asked with the plan a clean would take: in
+    /// place of a symbolic link it is the link refusal, beside it a look
+    /// (Y4).
+    #[cfg(unix)]
+    #[gpui::test]
+    fn the_look_is_taken_by_the_plan_a_clean_would_take(cx: &mut gpui::TestAppContext) {
+        let (panel, cx) = LinkPanel::new("look-plan", cx);
+        panel.destination(Destination::Replace, cx);
+        panel.drop_link(cx);
+        let (refused, would) = panel.looked(cx);
+        assert_eq!(refused, Some(true), "the look is not the link refusal");
+        assert!(would.is_empty(), "{would:?}");
+
+        panel.destination(Destination::Beside, cx);
+        panel.drop_link(cx);
+        let (refused, would) = panel.looked(cx);
+        assert_eq!(refused, Some(false), "the link was not looked at");
+        assert!(!would.is_empty(), "nothing said of where it would go");
+    }
+
+    /// A change on the Retention page reaches a drop already held: the
+    /// link dropped under *Beside* and the page then switched to *In
+    /// place* is the link refusal, with no new drop and no would-happen
+    /// lines; switched back, it is looked at again (Y4, D290).
+    #[cfg(unix)]
+    #[gpui::test]
+    fn the_look_follows_a_change_of_plan(cx: &mut gpui::TestAppContext) {
+        let (panel, cx) = LinkPanel::new("look-follows", cx);
+        panel.drop_link(cx);
+        let (refused, would) = panel.looked(cx);
+        assert_eq!(refused, Some(false), "the link was not looked at");
+        assert!(!would.is_empty());
+
+        panel.destination(Destination::Replace, cx);
+        let (refused, would) = panel.looked(cx);
+        assert_eq!(refused, Some(true), "the look did not follow the page");
+        assert!(would.is_empty(), "{would:?}");
+
+        panel.destination(Destination::Beside, cx);
+        let (refused, would) = panel.looked(cx);
+        assert_eq!(refused, Some(false), "the link was not looked at");
+        assert!(!would.is_empty());
     }
 }

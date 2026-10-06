@@ -28,7 +28,11 @@
 //! where the clean runs, the clean finishes as
 //! [`clean::Failure::Panicked`], and the next one starts. Uncaught, the
 //! task that waits for it would never finish it, and every later clean in
-//! every window would wait for ever.
+//! every window would wait for ever. The plan is taken on this thread
+//! before the clean is handed to the background, and a panic there is
+//! caught the same way and ends that clean the same way (Y1): the line has
+//! already handed the job out, and an uncaught panic would leave it running
+//! for ever and unwind into whichever window asked.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -46,6 +50,10 @@ use crate::settings::Preferences;
 /// when there is a result to replace. A field of the [`Cleaner`] so that a
 /// test can hand it one that panics.
 type Run = fn(&Arrival, &Plan, u64, DateTime<Utc>, Option<&Path>) -> Outcome;
+
+/// What takes a clean's plan: [`Preferences::plan_for`]. A field of the
+/// [`Cleaner`] for the reason [`Run`] is.
+type PlanOf = fn(&Preferences, &wipemark_intake::Intake) -> Plan;
 
 fn run(
     arrival: &Arrival,
@@ -142,6 +150,7 @@ pub struct Cleaner {
     /// What each clean in the line is a clean of.
     things: HashMap<u64, Arrival>,
     run: Run,
+    plan: PlanOf,
 }
 
 impl EventEmitter<Event> for Cleaner {}
@@ -162,6 +171,7 @@ impl Cleaner {
             line: Line::default(),
             things: HashMap::new(),
             run,
+            plan: Preferences::plan_for,
         });
         cx.set_global(Shared(cleaner.clone()));
         cleaner
@@ -209,10 +219,21 @@ impl Cleaner {
                 self.line.finish(job.id);
                 continue;
             };
-            let plan = self.preferences.read(cx).plan_for(&arrival.intake);
             let id = job.id;
-            let run = self.run;
             cx.emit(Event::Started(id));
+            // Caught here too: the job is out of the line's hands, and a
+            // panic that escaped would leave it running for ever (Y1).
+            let plan_of = self.plan;
+            let preferences = self.preferences.read(cx);
+            let planned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                plan_of(preferences, &arrival.intake)
+            }));
+            let Ok(plan) = planned else {
+                self.line.finish(id);
+                cx.emit(Event::Finished(id, Arc::new(clean::panicked(id))));
+                continue;
+            };
+            let run = self.run;
             cx.spawn(async move |cleaner, cx| {
                 let outcome = cx
                     .background_executor()
@@ -412,6 +433,56 @@ mod tests {
             ]
         );
         assert!(scratch.0.join("after.cleaned.md").exists());
+        assert_eq!(cx.update(|_, cx| cleaner.read(cx).progress()), None);
+    }
+
+    /// A plan that panics for a thing named `plan-panics.md`, and is the
+    /// Retention page's for everything else.
+    fn plan_panics_on_one(preferences: &Preferences, intake: &wipemark_intake::Intake) -> Plan {
+        let named = intake.path.as_deref().and_then(Path::file_name);
+        if named.is_some_and(|name| name == "plan-panics.md") {
+            panic!("a fault in this version, on purpose");
+        }
+        preferences.plan_for(intake)
+    }
+
+    /// A panic while a clean's plan is taken — on this thread, before the
+    /// clean is handed to the background — ends that clean as one that
+    /// panicked: `ask` returns, and the clean asked after it is cleaned
+    /// (Y1).
+    #[gpui::test]
+    fn a_plan_that_panics_does_not_stop_the_line(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("plan-panics");
+        let panics = scratch.0.join("plan-panics.md");
+        let after = scratch.0.join("after.md");
+        for path in [&panics, &after] {
+            std::fs::write(path, "A zero\u{200B}width space.\n").expect("source");
+        }
+        let (cleaner, events, cx) = line_in(cx, &scratch);
+        let (first, second) = (clean::number(), clean::number());
+        cleaner.update(cx, |cleaner, cx| {
+            cleaner.plan = plan_panics_on_one;
+            assert!(cleaner.ask(first, arrival(Handed::Path(panics.clone())), None, cx));
+            assert!(cleaner.ask(second, arrival(Handed::Path(after.clone())), None, cx));
+        });
+        cx.run_until_parked();
+        let outcomes: Vec<(u64, String)> = events
+            .borrow()
+            .iter()
+            .filter_map(|event| match event {
+                Event::Finished(id, outcome) => Some((*id, format!("{:?}", outcome.verdict))),
+                Event::Started(_) => None,
+            })
+            .collect();
+        assert_eq!(
+            outcomes,
+            [
+                (first, String::from("Failed(Panicked)")),
+                (second, String::from("Cleaned")),
+            ]
+        );
+        assert!(scratch.0.join("after.cleaned.md").exists());
+        assert!(!scratch.0.join("plan-panics.cleaned.md").exists());
         assert_eq!(cx.update(|_, cx| cleaner.read(cx).progress()), None);
     }
 
