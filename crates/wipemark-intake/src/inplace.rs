@@ -12,40 +12,58 @@
 //!
 //! # Never into an existing file
 //!
-//! Every write is a temporary file in the destination's own folder, synced,
-//! given the model file's permissions and renamed over the destination
-//! ([`write_atomically`]). A rename replaces a directory entry rather than
-//! writing into the inode behind it, so a hard link to the input keeps the
-//! old bytes, and a run that dies halfway leaves no half-written file.
+//! Every write is a temporary file in the destination's own folder, synced
+//! and given the model file's permissions, then published. [`write_atomically`]
+//! publishes by a rename over the destination — for a file the caller means
+//! to replace: a rename replaces a directory entry rather than writing into
+//! the inode behind it, so a hard link to the input keeps the old bytes, and
+//! a run that dies halfway leaves no half-written file. [`write_new`]
+//! publishes **without replacing anything**, for a result that must land
+//! where nothing is.
+//!
+//! # No clobbering, between processes too
+//!
+//! "Is the name free?" and "write it" are two calls, and between them
+//! another process — the CLI, a second launch of the application — can put
+//! a file there; a rename would then replace it silently. So a new name is
+//! taken by `std::fs::hard_link(temporary, destination)`, which the
+//! operating system refuses with `AlreadyExists` when anything — a file, a
+//! folder, a link that points nowhere — has that name, and the temporary
+//! name is removed afterwards. It is portable (`link` on Unix,
+//! `CreateHardLink` on Windows), needs no `unsafe` and no dependency, and is
+//! one call where `renameat2(RENAME_NOREPLACE)` and `renamex_np(RENAME_EXCL)`
+//! would be two platforms' worth (D284).
+//!
+//! A file system without hard links (FAT, exFAT, some network shares)
+//! refuses the link with some other error. There the result is copied into
+//! a file opened with `create_new` — `O_EXCL`, which also refuses a name
+//! that is taken — so the fallback still never overwrites; what it gives up
+//! is atomicity: a run that dies in the middle of that copy leaves a short
+//! file under the result's name, which is removed when the copy itself
+//! fails.
 //!
 //! # In place, and the order that is the protection
 //!
 //! Retention rule 2 (`docs/architecture/retention.md`): the original is
-//! **set aside first** as `name.original.ext` beside it — a rename, so the
-//! set-aside copy is the original byte for byte and inode for inode — and
-//! only then is the result written over the path the original had. An
-//! original that is already set aside is never overwritten: the first
-//! original is the original, and [`replace`] refuses before anything moves.
-//! With [`Keep::Nothing`] there is no set-aside step and the replacement is
-//! the same atomic write.
+//! **set aside first** as `name.original.ext` beside it, and only then is
+//! the result written over the path the original had. Setting aside is the
+//! same no-clobber step: a hard link gives the original its second name —
+//! byte for byte and inode for inode the original, refused when the name is
+//! taken — and the result's rename over the first name then leaves the
+//! original under the second alone. An original that is already set aside
+//! is never overwritten: the first original is the original, and [`replace`]
+//! refuses before anything moves. With [`Keep::Nothing`] there is no
+//! set-aside step and the replacement is the same atomic write.
 //!
-//! If the write fails after the original was moved, the original is moved
-//! back; if *that* fails, [`Failure::Stranded`] says where the original is
-//! now. Nothing here decides whether a write is needed at all — a caller
-//! whose text did not change skips all of this.
-//!
-//! # The race this accepts
-//!
-//! "Is `name.original.ext` free?" and "rename the original there" are two
-//! calls, and another process could create that name between them; the
-//! rename would then replace it. Closing the window needs
-//! `renameat2(RENAME_NOREPLACE)` on Linux and `renamex_np(RENAME_EXCL)` on
-//! macOS — `unsafe` or a dependency in a crate that has neither, and two
-//! code paths beside a third for Windows. The folder is the user's own and
-//! the other writer would have to be racing for a name this product
-//! invented, so the check-then-rename stays, and stays documented here.
+//! If the write fails, the second name is removed and the file is what it
+//! was. Without hard links the original is renamed aside after a check that
+//! the name is free — the one window this module still leaves, and only on
+//! such a file system — and a failed write renames it back; if *that*
+//! fails, [`Failure::Stranded`] says where the original is now. Nothing
+//! here decides whether a write is needed at all — a caller whose text did
+//! not change skips all of this.
 
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 
@@ -100,17 +118,22 @@ pub fn original_beside(path: &Path) -> Option<PathBuf> {
 /// Replace `path` with `bytes`, setting the original aside first unless
 /// `keep` says not to. Blocking: call it off a window's foreground thread.
 pub fn replace(path: &Path, bytes: &[u8], keep: Keep) -> Result<Replaced, Failure> {
-    replace_with(path, keep, |destination, model| {
-        write_atomically(destination, bytes, Some(model))
-    })
+    replace_with(
+        path,
+        keep,
+        |from, to| std::fs::hard_link(from, to),
+        |destination, model| write_atomically(destination, bytes, Some(model)),
+    )
 }
 
-/// [`replace`] with the write handed in, so that a test can make it fail
-/// after the original has been moved. `write` gets the destination and the
-/// file whose permissions the result takes.
+/// [`replace`] with the link and the write handed in, so that a test can
+/// take hard links away, or make the write fail after the original has been
+/// set aside. `write` gets the destination and the file whose permissions
+/// the result takes.
 fn replace_with(
     path: &Path,
     keep: Keep,
+    link: impl FnOnce(&Path, &Path) -> io::Result<()>,
     write: impl FnOnce(&Path, &Path) -> io::Result<()>,
 ) -> Result<Replaced, Failure> {
     let Keep::Original = keep else {
@@ -120,10 +143,40 @@ fn replace_with(
     };
 
     let original = original_beside(path).ok_or(Failure::Unnamed)?;
-    // `symlink_metadata`, so that a dangling link already called
-    // `name.original.ext` counts as being in the way — renaming over it
-    // would replace it, and it is not ours to replace. The window between
-    // this check and the rename is the race the module docs accept.
+    // 1. The original's second name, refused by the operating system when
+    //    anything — a dangling link included — already has it.
+    match link(path, &original) {
+        Ok(()) => {
+            // 2. The result takes the first name, with its permissions; the
+            //    original keeps the second.
+            match write(path, &original) {
+                Ok(()) => Ok(Replaced {
+                    original: Some(original),
+                }),
+                // 3. The file never moved: only the second name goes.
+                Err(error) => {
+                    let _ = std::fs::remove_file(&original);
+                    Err(Failure::Write(error))
+                }
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            Err(Failure::OriginalExists(original))
+        }
+        // No hard links on this file system: check, then rename.
+        Err(_) => set_aside_by_rename(path, original, write),
+    }
+}
+
+/// Setting aside where hard links are refused: a check that the name is
+/// free — `symlink_metadata`, so a dangling link counts as taken — then a
+/// rename. The window between the two is the one race this module leaves,
+/// and only on such a file system.
+fn set_aside_by_rename(
+    path: &Path,
+    original: PathBuf,
+    write: impl FnOnce(&Path, &Path) -> io::Result<()>,
+) -> Result<Replaced, Failure> {
     if std::fs::symlink_metadata(&original).is_ok() {
         return Err(Failure::OriginalExists(original));
     }
@@ -153,6 +206,70 @@ fn replace_with(
 /// the destination. `model`'s permissions are copied onto the result when
 /// there is a model — the input file, or its set-aside original. Blocking.
 pub fn write_atomically(destination: &Path, bytes: &[u8], model: Option<&Path>) -> io::Result<()> {
+    let temporary = temporary_for(destination);
+    let written =
+        staged(&temporary, bytes, model).and_then(|()| std::fs::rename(&temporary, destination));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    written
+}
+
+/// Write `bytes` to `destination` **only where nothing is**: a temporary
+/// file in the same folder, synced, given `model`'s permissions, then
+/// published under the destination's name by a hard link, which the
+/// operating system refuses with `AlreadyExists` when that name is taken —
+/// by a file another process wrote a moment ago as much as by one that was
+/// always there. Where hard links are refused, a `create_new` copy, which
+/// refuses a taken name too (see the module docs). Blocking.
+pub fn write_new(destination: &Path, bytes: &[u8], model: Option<&Path>) -> io::Result<()> {
+    write_new_with(destination, bytes, model, |from, to| {
+        std::fs::hard_link(from, to)
+    })
+}
+
+/// [`write_new`] with the link handed in, so that a test can take hard
+/// links away.
+fn write_new_with(
+    destination: &Path,
+    bytes: &[u8],
+    model: Option<&Path>,
+    link: impl FnOnce(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    let temporary = temporary_for(destination);
+    let written =
+        staged(&temporary, bytes, model).and_then(|()| match link(&temporary, destination) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Err(error),
+            Err(_) => copied_new(&temporary, destination),
+        });
+    // Published or not, the temporary name goes: after a link it is only
+    // a second name for the result.
+    let _ = std::fs::remove_file(&temporary);
+    written
+}
+
+/// The result copied into a file only `create_new` may make — where hard
+/// links are refused. Removed again if the copy fails part way.
+fn copied_new(temporary: &Path, destination: &Path) -> io::Result<()> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)?;
+    let copied = (|| {
+        io::copy(&mut File::open(temporary)?, &mut file)?;
+        file.sync_all()?;
+        std::fs::set_permissions(destination, std::fs::metadata(temporary)?.permissions())
+    })();
+    if copied.is_err() {
+        drop(file);
+        let _ = std::fs::remove_file(destination);
+    }
+    copied
+}
+
+/// `.name.wipemark-<pid>.tmp` in the destination's own folder.
+fn temporary_for(destination: &Path) -> PathBuf {
     let folder = match destination.parent() {
         Some(folder) if !folder.as_os_str().is_empty() => folder.to_owned(),
         _ => PathBuf::from("."),
@@ -161,22 +278,19 @@ pub fn write_atomically(destination: &Path, bytes: &[u8], model: Option<&Path>) 
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let temporary = folder.join(format!(".{name}.wipemark-{}.tmp", std::process::id()));
+    folder.join(format!(".{name}.wipemark-{}.tmp", std::process::id()))
+}
 
-    let written = (|| {
-        let mut file = File::create_new(&temporary)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        drop(file);
-        if let Some(model) = model {
-            std::fs::set_permissions(&temporary, std::fs::metadata(model)?.permissions())?;
-        }
-        std::fs::rename(&temporary, destination)
-    })();
-    if written.is_err() {
-        let _ = std::fs::remove_file(&temporary);
+/// The bytes in a new temporary file, synced, with `model`'s permissions.
+fn staged(temporary: &Path, bytes: &[u8], model: Option<&Path>) -> io::Result<()> {
+    let mut file = File::create_new(temporary)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    if let Some(model) = model {
+        std::fs::set_permissions(temporary, std::fs::metadata(model)?.permissions())?;
     }
-    written
+    Ok(())
 }
 
 // Moved from the CLI's `input.rs` (E4-4), for the queue's own check.
@@ -210,7 +324,8 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{
-        original_beside, replace, replace_with, write_atomically, Failure, Keep, Replaced,
+        original_beside, replace, replace_with, write_atomically, write_new, write_new_with,
+        Failure, Keep, Replaced,
     };
 
     struct Scratch(PathBuf);
@@ -276,7 +391,22 @@ mod tests {
         let file = scratch.0.join("note.md");
         std::fs::write(&file, b"the original").expect("write");
 
-        let failed = replace_with(&file, Keep::Original, |destination, model| {
+        let failed = replace_with(
+            &file,
+            Keep::Original,
+            |from, to| std::fs::hard_link(from, to),
+            |_, model| {
+                assert_eq!(read(model), b"the original", "set aside before the write");
+                Err(io::Error::other("the disk is full"))
+            },
+        );
+        assert!(matches!(failed, Err(Failure::Write(_))), "{failed:?}");
+        assert_eq!(read(&file), b"the original");
+        assert_eq!(scratch.names(), ["note.md"], "something was left behind");
+
+        // The same on a file system with no hard links: moved aside, then
+        // moved back.
+        let failed = replace_with(&file, Keep::Original, no_links, |destination, model| {
             assert_eq!(read(model), b"the original", "set aside before the write");
             assert!(!destination.exists(), "the write was asked before the move");
             Err(io::Error::other("the disk is full"))
@@ -284,6 +414,56 @@ mod tests {
         assert!(matches!(failed, Err(Failure::Write(_))), "{failed:?}");
         assert_eq!(read(&file), b"the original");
         assert_eq!(scratch.names(), ["note.md"], "something was left behind");
+    }
+
+    /// A file system that refuses hard links, as FAT does.
+    fn no_links(_: &Path, _: &Path) -> io::Result<()> {
+        Err(io::Error::from(io::ErrorKind::Unsupported))
+    }
+
+    /// A new result is published without replacing anything: a file
+    /// another process put under that name after any check a caller made —
+    /// or a link that points nowhere — is `AlreadyExists` and left as it
+    /// was, with no temporary name left behind; a free name is written.
+    /// The same without hard links, through `create_new`.
+    #[test]
+    fn a_new_result_never_replaces_what_appeared_under_its_name() {
+        type Link = fn(&Path, &Path) -> io::Result<()>;
+        let linked: Link = |from, to| std::fs::hard_link(from, to);
+        for (label, link) in [("linked", linked), ("copied", no_links as Link)] {
+            let scratch = Scratch::new(label);
+            let taken = scratch.0.join("x.cleaned.md");
+            std::fs::write(&taken, b"written by another process").expect("write");
+            let refused = write_new_with(&taken, b"ours", None, link);
+            assert_eq!(
+                refused.as_ref().map_err(io::Error::kind),
+                Err(io::ErrorKind::AlreadyExists),
+                "{label}"
+            );
+            assert_eq!(read(&taken), b"written by another process", "{label}");
+            assert_eq!(scratch.names(), ["x.cleaned.md"], "{label}");
+
+            #[cfg(unix)]
+            {
+                let dangling = scratch.0.join("y.cleaned.md");
+                std::os::unix::fs::symlink(scratch.0.join("nowhere"), &dangling).expect("link");
+                let refused = write_new_with(&dangling, b"ours", None, link);
+                assert!(refused.is_err(), "{label}: written through a dangling link");
+                assert!(!scratch.0.join("nowhere").exists(), "{label}");
+                std::fs::remove_file(&dangling).expect("remove");
+            }
+
+            let free = scratch.0.join("z.cleaned.md");
+            write_new_with(&free, b"ours", None, link).expect("written");
+            assert_eq!(read(&free), b"ours", "{label}");
+            assert_eq!(scratch.names(), ["x.cleaned.md", "z.cleaned.md"], "{label}");
+        }
+        // The public road is the linked one.
+        let scratch = Scratch::new("public");
+        let taken = scratch.0.join("x.cleaned.md");
+        std::fs::write(&taken, b"theirs").expect("write");
+        assert!(write_new(&taken, b"ours", None).is_err());
+        assert_eq!(read(&taken), b"theirs");
     }
 
     #[test]
@@ -323,6 +503,15 @@ mod tests {
         assert_eq!(read(&file), b"marked again");
         assert_eq!(read(&original), b"the first original");
         assert_eq!(scratch.names(), ["note.md", "note.original.md"]);
+        // And where hard links are refused, by the check before the rename.
+        let refused = replace_with(&file, Keep::Original, no_links, |_, _| {
+            panic!("written over an original that was there")
+        });
+        assert!(
+            matches!(&refused, Err(Failure::OriginalExists(_))),
+            "{refused:?}"
+        );
+        assert_eq!(read(&original), b"the first original");
 
         #[cfg(unix)]
         {

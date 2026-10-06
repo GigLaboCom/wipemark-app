@@ -36,6 +36,7 @@
 
 mod assets;
 mod clean;
+mod cleaner;
 mod clipboard;
 mod compare;
 mod config;
@@ -613,7 +614,7 @@ impl Render for Shell {
                     // still ends in "Layer A only": nothing in this
                     // build sends a request.
                     .child(Icon::new(IconName::CircleInfo).small().color(muted))
-                    .child(SharedString::from(match self.queue.read(cx).progress() {
+                    .child(SharedString::from(match self.queue.read(cx).progress(cx) {
                         // While the queue works, that is what the
                         // application is doing.
                         Some((current, total)) => cleaning_line(current, total),

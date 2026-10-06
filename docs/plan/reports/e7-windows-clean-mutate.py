@@ -56,6 +56,8 @@ WORDING = "apps/wipemark-app/src/wording.rs"
 EN = "crates/wipemark-i18n/i18n/en-US/wipemark.ftl"
 RU = "crates/wipemark-i18n/i18n/ru/wipemark.ftl"
 SETTINGS = "apps/wipemark-app/src/settings.rs"
+CLEANER = "apps/wipemark-app/src/cleaner.rs"
+INPLACE = "crates/wipemark-intake/src/inplace.rs"
 
 
 def t(name):
@@ -84,6 +86,14 @@ def s_(name):
 
 def i(name):
     return (["-p", "wipemark-i18n"], f"tests::{name}")
+
+
+def n(name):
+    return (["-p", "wipemark-intake"], f"inplace::tests::{name}")
+
+
+def k(name):
+    return (APP, f"cleaner::tests::{name}")
 
 
 # (id, protection, file, old, new, [(cargo test args, test name filter)])
@@ -228,26 +238,24 @@ MUTATIONS = [
     (
         "E7-2/M1",
         "two cleans at once instead of one at a time",
-        QUEUE,
+        CLEANER,
         """        if self.running.is_some() {
             return None;
         }
         let job = self.waiting.pop_front()?;""",
         """        let job = self.waiting.pop_front()?;""",
         [
-            q("one_clean_runs_at_a_time_in_the_order_asked"),
+            k("one_clean_runs_at_a_time_in_the_order_asked"),
             q("the_queue_cleans_one_row_at_a_time_by_the_plan_at_its_start"),
         ],
     ),
     (
         "E7-2/M2",
         "the plan is not the Retention page's as it stands when the clean starts",
-        QUEUE,
-        """            row.status = Status::Cleaning;
-            let plan = self.preferences.read(cx).plan_for(&row.arrival.intake);""",
-        """            row.status = Status::Cleaning;
-            let plan = crate::retention::plan(
-                &crate::retention::Source::of(&row.arrival.intake),
+        CLEANER,
+        """            let plan = self.preferences.read(cx).plan_for(&arrival.intake);""",
+        """            let plan = crate::retention::plan(
+                &crate::retention::Source::of(&arrival.intake),
                 &crate::retention::Retention::default(),
                 self.preferences.read(cx).homes(),
             );""",
@@ -260,8 +268,8 @@ MUTATIONS = [
         """            if !matches!(row.status, Status::Waiting) {
                 continue;
             }
-            row.status = Status::Queued;""",
-        """            row.status = Status::Queued;""",
+            let arrival = row.arrival.clone();""",
+        """            let arrival = row.arrival.clone();""",
         [q("the_queue_cleans_one_row_at_a_time_by_the_plan_at_its_start")],
     ),
     (
@@ -623,8 +631,63 @@ MUTATIONS = [
         "settings-retention-keeps-both = Оригинал и результат вставленного или перетащенного хранятся в { $folder } { $period }.",
         [s_("the_keep_sentence_says_only_a_change_is_kept")],
     ),
+    (
+        "W6/M1",
+        "Compare decodes through the queue's strict road, not the preview's (D282)",
+        COMPARE,
+        "        let text = clean::text_of(&arrival).map_err(Refusal::of)?;",
+        "        let text = match &arrival.handed { Handed::Path(path) => crate::preview::decode(&std::fs::read(path).map_err(|_| Refusal::Unreadable)?, arrival.intake.encoding), _ => clean::text_of(&arrival).map_err(Refusal::of)? };",
+        [c("what_the_queue_will_not_decode_is_refused_in_its_words")],
+    ),
+    (
+        "W7/M1",
+        "one line per application, not per window (D283)",
+        CLEANER,
+        "        if let Some(Shared(cleaner)) = cx.try_global::<Shared>() {",
+        "        if let Some(Shared(cleaner)) = None::<&Shared> {",
+        [k("two_windows_cleaning_one_file_write_it_once")],
+    ),
+    (
+        "W7/M2",
+        "a new result is published without replacing what appeared (D284)",
+        INPLACE,
+        "match link(&temporary, destination) {",
+        "match std::fs::rename(&temporary, destination) {",
+        [n("a_new_result_never_replaces_what_appeared_under_its_name")],
+    ),
+    (
+        "W7/M3",
+        "the original is set aside without replacing one already there (D284)",
+        INPLACE,
+        "    match link(path, &original) {",
+        "    match std::fs::rename(path, &original) {",
+        [n("an_existing_original_is_never_overwritten")],
+    ),
+    (
+        "W8/M1",
+        "Copy the result copies the cleaned text, not the paste",
+        QUEUE,
+        "        row.outcome()?.text.clone()",
+        "        row.outcome()?;\n        match &row.arrival.handed { Handed::Text(text) => Some(text.clone()), _ => None }",
+        [q("a_paste_is_cleaned_copied_and_its_original_kept")],
+    ),
+    (
+        "W8/M2",
+        "Replace writes over the refused result, never the source",
+        QUEUE,
+        "            cleaner.ask(id, arrival, Some(existing), cx)",
+        "            cleaner.ask(id, arrival.clone(), arrival.intake.path.clone(), cx)",
+        [q("a_refused_result_is_replaced_only_when_asked")],
+    ),
+    (
+        "W8/M3",
+        "the panel's Clean cleans every thing that can be cleaned",
+        PANEL,
+        "        for index in to_clean(&states) {",
+        "        for index in to_clean(&states).into_iter().skip(1) {",
+        [p("a_drop_on_the_panel_is_looked_at_and_cleaned")],
+    ),
 ]
-
 
 def run(args, name):
     """`(red, compiled, command)`: a mutation that does not compile is not a

@@ -506,6 +506,26 @@ pub fn inspect_one(arrival: &Arrival) -> Findings {
     }
 }
 
+/// The characters of one thing, read and decoded exactly as [`clean_one`]
+/// reads them — the same bytes, the same limit, the strict decode — or the
+/// refusal a clean would give: what Compare opens on (D282). A thing whose
+/// bytes turn out to be a picture is refused as one. **Blocking.**
+pub fn text_of(arrival: &Arrival) -> Result<String, Refusal> {
+    if let Cleanable::No(unable) = cleanable(&arrival.intake) {
+        return Err(Refusal::NotCleanable(unable));
+    }
+    let read = read(arrival)?;
+    match read.cleanable {
+        Cleanable::Text(encoding) => wipemark_intake::text::decode(&read.bytes, encoding)
+            .map_err(|offset| Refusal::Undecodable { encoding, offset }),
+        Cleanable::Picture(format) => Err(Refusal::NotCleanable(Unable::Kind {
+            kind: Kind::Image,
+            format: Some(format),
+        })),
+        Cleanable::No(unable) => Err(Refusal::NotCleanable(unable)),
+    }
+}
+
 /// The one log line a clean leaves.
 fn logged(row: u64, outcome: Outcome) -> Outcome {
     tracing::info!(
@@ -794,8 +814,19 @@ fn write_new(
     if there && replacing != Some(destination) {
         return Err(Verdict::NotCleaned(Refusal::Exists(destination.to_owned())));
     }
-    match inplace::write_atomically(destination, bytes, source) {
+    // Over the named file by a rename; anywhere else only where nothing is,
+    // which the publish itself checks — a file another process put there
+    // after the check above is refused too, never replaced (D284).
+    let written = if there {
+        inplace::write_atomically(destination, bytes, source)
+    } else {
+        inplace::write_new(destination, bytes, source)
+    };
+    match written {
         Ok(()) => Ok(there),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            Err(Verdict::NotCleaned(Refusal::Exists(destination.to_owned())))
+        }
         Err(error) => Err(Verdict::Failed(Failure::Write {
             path: destination.to_owned(),
             error: Error::from(&error),

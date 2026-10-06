@@ -109,14 +109,14 @@ use gpui_component::{
 use lsp_types::{Color, ColorInformation};
 use wipemark_core::Options;
 use wipemark_i18n::{args, t, t_args, Message};
-use wipemark_intake::{Handed, Intake, Kind};
+use wipemark_intake::{Encoding, Handed, Intake, Kind};
 
 use crate::diff::{Diff, Grain};
 use crate::icon::{Icon, IconName};
 use crate::result::{ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
 use crate::screen::{self, Screen};
 use crate::title::{self, Title};
-use crate::{drop, placement, preview, wording};
+use crate::{clean, drop, placement, wording};
 
 actions!(wipemark, [CloseCompare]);
 
@@ -217,6 +217,12 @@ pub enum Refusal {
     TooBig { size: u64 },
     /// A file that would not open, or a path that led nowhere.
     Unreadable,
+    /// Not valid in the encoding it announced, at this byte — what the
+    /// queue's row refuses too (D282).
+    Undecodable { encoding: Encoding, offset: usize },
+    /// Text intake could not read as the queue would: an eight-bit encoding
+    /// it does not name, or nothing established from the bytes.
+    Unable(clean::Unable),
 }
 
 impl Refusal {
@@ -232,6 +238,33 @@ impl Refusal {
                 ),
             ),
             Refusal::Unreadable => t(Message::CompareRefusedUnreadable),
+            // The queue's own sentences, through the queue's own words.
+            Refusal::Undecodable { encoding, offset } => wording::refused_in(
+                &wording::window,
+                &clean::Refusal::Undecodable {
+                    encoding: *encoding,
+                    offset: *offset,
+                },
+            ),
+            Refusal::Unable(unable) => wording::unable_in(&wording::window, *unable),
+        }
+    }
+
+    /// What the clean's read refused, as the window says it. A size and an
+    /// unreadable file keep Compare's own sentences; what is not text is
+    /// Compare's "not text".
+    fn of(refusal: clean::Refusal) -> Self {
+        use clean::Unable;
+        match refusal {
+            clean::Refusal::TooBig { size, .. } => Refusal::TooBig { size },
+            clean::Refusal::Unreadable(_) => Refusal::Unreadable,
+            clean::Refusal::Undecodable { encoding, offset } => {
+                Refusal::Undecodable { encoding, offset }
+            }
+            clean::Refusal::NotCleanable(unable @ (Unable::UnnamedEncoding | Unable::Unread)) => {
+                Refusal::Unable(unable)
+            }
+            _ => Refusal::NotText,
         }
     }
 }
@@ -260,8 +293,11 @@ impl Subject {
     ///
     /// **Blocking**: it examines a path that was not examined yet,
     /// reads a whole file and runs Layer A over all of it. Call it off
-    /// the foreground thread. The decoding is the preview's, so a file
-    /// the queue shows in one encoding is not compared in another.
+    /// the foreground thread. The read and the decoding are the queue's
+    /// Clean's, `clean::text_of` — strict, the limit checked on the size
+    /// before the read — so Compare opens exactly what the queue would
+    /// clean and refuses what it would refuse (D282); the lenient decode
+    /// is the preview's alone.
     pub fn read(self) -> Result<Loaded, Refusal> {
         let intake = self
             .intake
@@ -269,39 +305,18 @@ impl Subject {
         if !Self::comparable(&intake) {
             return Err(Refusal::NotText);
         }
+        // A path that leads nowhere is unreadable, not text of no kind.
+        if let Handed::Path(path) = &self.handed {
+            if std::fs::metadata(path).is_err() {
+                return Err(Refusal::Unreadable);
+            }
+        }
         let name = wording::title_of(&intake);
-
-        let too_big = |size: u64| (size > TEXT_LIMIT).then_some(Refusal::TooBig { size });
-
-        let text = match (&self.handed, &intake.path) {
-            // Characters that arrived as characters — unless they named
-            // a file, in which case the file is the thing.
-            (Handed::Text(text), None) => {
-                if let Some(refusal) = too_big(text.len() as u64) {
-                    return Err(refusal);
-                }
-                text.clone()
-            }
-            (_, Some(path)) => {
-                let size = std::fs::metadata(path)
-                    .map(|metadata| metadata.len())
-                    .map_err(|_| Refusal::Unreadable)?;
-                if let Some(refusal) = too_big(size) {
-                    return Err(refusal);
-                }
-                let bytes = std::fs::read(path).map_err(|_| Refusal::Unreadable)?;
-                preview::decode(&bytes, intake.encoding)
-            }
-            (Handed::Bytes { bytes, .. }, None) => {
-                if let Some(refusal) = too_big(bytes.len() as u64) {
-                    return Err(refusal);
-                }
-                preview::decode(bytes, intake.encoding)
-            }
-            // A path the intake could not place is a path that led
-            // nowhere.
-            (Handed::Path(_), None) => return Err(Refusal::Unreadable),
+        let arrival = drop::Arrival {
+            intake,
+            handed: self.handed,
         };
+        let text = clean::text_of(&arrival).map_err(Refusal::of)?;
         // Layer A at its defaults, as the queue's Clean and the CLI run
         // it: deterministic, so this is the text they write.
         let cleaned = wipemark_core::clean(&text, &Options::default()).text;
@@ -1163,7 +1178,7 @@ mod tests {
     }
 
     /// The three roads in — characters, bytes, a file — all end as the
-    /// same text, decoded the way the preview decodes it.
+    /// same text, decoded the way the queue's Clean decodes it.
     #[test]
     fn text_arrives_the_same_way_by_every_road() {
         let scratch = Scratch::new("roads");
@@ -1183,8 +1198,14 @@ mod tests {
         assert_eq!(file.text, typed.text);
         assert_eq!(file.name, "note.txt", "a file is called by its name");
 
+        // Decoded strictly, as the queue decodes it: the byte order mark is
+        // the text's first character, and the result keeps it as the
+        // queue's written file does.
         let wide = of(Handed::Path(utf16)).read().unwrap();
-        assert_eq!(wide.text, "hi\n", "a UTF-16 file was not decoded as such");
+        assert_eq!(
+            wide.text, "\u{FEFF}hi\n",
+            "a UTF-16 file was not decoded as such"
+        );
     }
 
     /// A path examined on the way in — the command line's road — reads
@@ -1601,6 +1622,68 @@ mod tests {
         );
     }
 
+    /// Compare refuses what the queue's Clean refuses, in the sentence the
+    /// queue's row shows for the same file (D282): a file that is not
+    /// valid UTF-8 past its head, and one in an eight-bit encoding intake
+    /// does not name — where the lenient decode used to open both with
+    /// replacement characters the queue would never write.
+    #[gpui::test]
+    fn what_the_queue_will_not_decode_is_refused_in_its_words(cx: &mut TestAppContext) {
+        use wipemark_intake::Encoding;
+
+        use crate::clean::{clean_one, Verdict};
+        use crate::drop::Arrival;
+        use crate::retention::{self, Homes, Retention, Source};
+
+        cx.update(gpui_component::init);
+        let scratch = Scratch::new("strict");
+        let homes = Homes {
+            results: scratch.0.join("results"),
+            kept: scratch.0.join("kept"),
+        };
+        let mut invalid = MARKED.as_bytes().to_vec();
+        invalid.extend_from_slice(&[b'a'; wipemark_intake::HEAD]);
+        invalid.extend_from_slice(b"\xff\xfe tail\n");
+        let latin1 = b"Caf\xe9 au lait, cr\xe8me br\xfbl\xe9e.\n".to_vec();
+        for (name, bytes, encoding) in [
+            ("invalid.md", invalid, Encoding::Utf8),
+            ("latin1.txt", latin1, Encoding::Other),
+        ] {
+            let source = scratch.file(name, &bytes);
+            let handed = Handed::Path(source.clone());
+            let arrival = Arrival {
+                intake: wipemark_intake::of(&handed),
+                handed,
+            };
+            assert_eq!(arrival.intake.encoding, Some(encoding), "{name}");
+            let plan = retention::plan(&Source::of(&arrival.intake), &Retention::default(), &homes);
+            let outcome = clean_one(&arrival, &plan, 1, chrono::Utc::now());
+            assert!(
+                matches!(outcome.verdict, Verdict::NotCleaned(_)),
+                "{name}: {:?}",
+                outcome.verdict
+            );
+            let row_says = wording::said_in(&wording::window, &outcome);
+
+            let slot: Rc<std::cell::RefCell<Option<Entity<CompareView>>>> = Rc::default();
+            let held = slot.clone();
+            let subject = of(Handed::Path(source));
+            let (_, window) = cx.add_window_view(move |window, cx| {
+                let view =
+                    cx.new(|cx| CompareView::new(subject, Comparison::default(), window, cx));
+                *held.borrow_mut() = Some(view.clone());
+                Root::new(view, window, cx)
+            });
+            window.run_until_parked();
+            let view = slot.take().expect("the window builder ran");
+            let shown = window.update(|_, cx| match &view.read(cx).state {
+                State::Refused(refusal) => refusal.sentence(),
+                _ => panic!("{name}: opened what the queue will not decode"),
+            });
+            assert_eq!(shown, row_says, "{name}");
+        }
+    }
+
     /// Layer A is deterministic, so the window's result is the text the
     /// queue's Clean writes beside the same file — the file cleaned
     /// through `clean::clean_one` under the default plan, then opened
@@ -1643,7 +1726,8 @@ mod tests {
             );
             let written = outcome.written.expect("the queue wrote a result");
             let bytes = std::fs::read(&written).expect("the written result");
-            let queue_wrote = preview::decode(&bytes, arrival.intake.encoding);
+            let encoding = arrival.intake.encoding.expect("an encoding");
+            let queue_wrote = wipemark_intake::text::decode(&bytes, encoding).expect("decodes");
             sources.push((source, queue_wrote));
         }
 
