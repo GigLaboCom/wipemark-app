@@ -36,6 +36,17 @@ Changes on 2026-10-06 (W1–W15): H6 and H14 follow the code that moved
 tree once); H12 is retired as an equivalent mutation (D281); H19–H39 are
 new. Every entry may now edit several files, and every run has a timeout.
 
+Changes on 2026-10-06 (X1–X14, the second follow-ups; the host
+verification asked by the coordinator): H31 follows the code X10 moved —
+`spelled` now finds what to spell by byte offset, `removed.contains(&at)`,
+the text the implementer's report gave, checked to be in the tree once.
+H40–H56 are new: the queue's recovery after a hard-link set-aside (D286),
+the link refusal and a linked folder (D287), the panel's look by the
+clean's plan, the panicked verdict and its words (D288), a text's own third
+shelf and the JSON's bytes (D289) — the last also against the CLI's and the
+application's suites alone, without core's — and the Markdown copy's
+spelling by position (X10) and the epic-number gate's letters (X9).
+
 Usage
 -----
 From the repository root (an E7 checkout), after the gates are green:
@@ -77,8 +88,16 @@ COMPARE = "apps/wipemark-app/src/compare.rs"
 REPORT = "apps/wipemark-app/src/report.rs"
 INPLACE = "crates/wipemark-intake/src/inplace.rs"
 CLI_RUN = "apps/wipemark-cli/src/run.rs"
+PANEL = "apps/wipemark-app/src/panel.rs"
 EN = "crates/wipemark-i18n/i18n/en-US/wipemark.ftl"
 RU = "crates/wipemark-i18n/i18n/ru/wipemark.ftl"
+DE = "crates/wipemark-i18n/i18n/de/wipemark.ftl"
+DELIVER = "crates/wipemark-queue/src/deliver.rs"
+CORE_SCRUB = "crates/wipemark-core/src/scrub.rs"
+CORE_REPORT = "crates/wipemark-core/src/report.rs"
+I18N_TESTS = "crates/wipemark-i18n/src/tests.rs"
+QUEUE = ["wipemark-queue"]
+CORE = ["wipemark-core"]
 
 TIMEOUT = int(os.environ.get("MUTATE_TIMEOUT", "1800"))
 
@@ -247,9 +266,12 @@ MUTATIONS = [
          "const MARKDOWN: [char; 10] = ['\\\\', '`', '*', '_', '[', ']', '#', '<', '>', '|'];",
          "const MARKDOWN: [char; 7] = ['\\\\', '`', '*', '_', '[', ']', '#'];"),
      APP),
+    # X10 made `spelled` find what to spell by byte offset; the old text
+    # `removed.contains(&character)` is gone with it (the implementer's
+    # report gave this one).
     ("H31", "the Markdown copy spells a character Layer A would remove",
      one(REPORT,
-         "        if character.is_control() || removed.contains(&character) {",
+         "        if character.is_control() || removed.contains(&at) {",
          "        if character.is_control() {"),
      APP),
     ("H32", "Compare says an undecodable file in the queue's words, not as 'not text' (D282)",
@@ -295,6 +317,102 @@ MUTATIONS = [
          "    if metadata.is_dir() {\n        return Err(Refusal::NotCleanable(Unable::Folder));\n    }",
          "    if !metadata.is_file() {\n        return Err(Refusal::NotCleanable(Unable::Folder));\n    }"),
      APP, 900),
+
+    # -- X1–X14 (2026-10-06) ------------------------------------------------
+    ("H40", "an interrupted delivery over someone else's bytes is never finished (D286's arm is not 'always')",
+     one(DELIVER,
+         "    inplace::same_file(path, original)\n        || std::fs::read(original).is_ok_and(|aside| aside == current)",
+         "    let _ = (path, current, original);\n    true"),
+     QUEUE),
+    ("H41", "D286's bytes road compares the bytes, not only their length (a same-length edit is someone's)",
+     one(DELIVER,
+         "        || std::fs::read(original).is_ok_and(|aside| aside == current)",
+         "        || std::fs::read(original).is_ok_and(|aside| aside.len() == current.len())"),
+     QUEUE),
+    ("H42", "D286 finishes by replacing the name, never by writing through the shared inode",
+     one(DELIVER,
+         "                Ok(current) if is_the_set_aside(path, &current, &original) => {\n                    inplace::write_atomically(path, &bytes, Some(&original))",
+         "                Ok(current) if is_the_set_aside(path, &current, &original) => {\n                    std::fs::write(path, &bytes)"),
+     QUEUE),
+    ("H43", "the link check reads the link itself, not what it points to (D287)",
+     one(CLEAN,
+         "    std::fs::symlink_metadata(file)\n        .is_ok_and(|metadata| metadata.file_type().is_symlink())",
+         "    std::fs::metadata(file)\n        .is_ok_and(|metadata| metadata.file_type().is_symlink())"),
+     APP),
+    # Not a protection the round claims: whether anything pins that a file
+    # reached through a linked *folder* is still cleaned in place (on macOS
+    # every temporary folder is under the /var -> /private/var link).
+    ("H44", "in place through a linked folder is not refused (only the last name is the link check's)",
+     one(CLEAN,
+         "    std::fs::symlink_metadata(file)\n        .is_ok_and(|metadata| metadata.file_type().is_symlink())",
+         "    std::fs::canonicalize(file)\n        .is_ok_and(|real| real != *file)"),
+     APP),
+    ("H45", "the panel's look is asked with the plan a clean would take (D287)",
+     one(PANEL,
+         "                .map(|thing| preferences.plan_for(&thing.intake))",
+         "                .map(|thing| {\n                    let _ = (&preferences, thing);\n                    Plan::EachFileIn(std::path::PathBuf::new())\n                })"),
+     APP),
+    ("H46", "a clean that panicked is said as Failed(Panicked), not as a refusal (D288)",
+     one(CLEAN,
+         "    logged(row, Outcome::of(Verdict::Failed(Failure::Panicked)))",
+         "    logged(row, Outcome::of(Verdict::NotCleaned(Refusal::Nowhere)))"),
+     APP),
+    ("H47", "the panicked sentence is in German (D288)",
+     one(DE,
+         "\nclean-failed-panicked = ",
+         "\n# clean-failed-panicked = "),
+     I18N),
+    ("H48", "the link refusal is in Russian (D287)",
+     one(RU,
+         "\nclean-refused-link = ",
+         "\n# clean-refused-link = "),
+     I18N),
+    ("H49", "inspect's report carries the third shelf (D289)",
+     one(CORE_SCRUB,
+         "        not_established: not_established::ids(),\n    }\n}",
+         "        not_established: Vec::new(),\n    }\n}"),
+     CORE),
+    ("H50", "the shelf's ids are ALL's, in ALL's order (D289; core's own suite)",
+     one(CORE_REPORT,
+         "        ALL.iter().map(|(id, _)| *id).collect()",
+         "        ALL.iter().rev().map(|(id, _)| *id).collect()"),
+     CORE),
+    # H51 and H52 are H50 against the two surfaces' own suites: does the
+    # CLI's `--json`, or the MCP server's answer, notice the order change
+    # without core's test?
+    ("H51", "the CLI's suite alone notices the JSON shelf reordered (D289)",
+     one(CORE_REPORT,
+         "        ALL.iter().map(|(id, _)| *id).collect()",
+         "        ALL.iter().rev().map(|(id, _)| *id).collect()"),
+     CLI_PKG),
+    ("H52", "the application's suite (MCP, the report sheet) alone notices the shelf reordered (D289)",
+     one(CORE_REPORT,
+         "        ALL.iter().map(|(id, _)| *id).collect()",
+         "        ALL.iter().rev().map(|(id, _)| *id).collect()"),
+     APP),
+    ("H53", "the Markdown copy spells every occurrence a finding lists, not its first (X10)",
+     one(REPORT,
+         "            .flat_map(|finding| finding.positions.iter().copied())",
+         "            .filter_map(|finding| finding.positions.first().copied())"),
+     APP),
+    ("H54", "the Markdown copy's positions are byte offsets, not character indices (X10)",
+     one(REPORT,
+         "    for (at, character) in line.char_indices() {",
+         "    for (at, character) in line.chars().enumerate() {"),
+     APP),
+    # Not the round's protection: a gate stricter than its pattern. Whether
+    # the boundary before a Cyrillic letter is pinned.
+    ("H55", "the epic-number gate's word boundary is Unicode, not ASCII (X9)",
+     one(I18N_TESTS,
+         "    let word = |c: char| c.is_alphanumeric() || c == '_';",
+         "    let word = |c: char| c.is_ascii_alphanumeric() || c == '_';"),
+     I18N),
+    # Not the round's protection either: another capital that reads as E.
+    ("H56", "no epic number spelled with a Greek capital Epsilon (U+0395) in the Russian catalogue",
+     one(RU,
+         "        [few] Вставить { $count } файла\n",
+         "        [few] Вставить { $count } файла (Ε" + "7)\n"),
+     I18N),
 ]
 
 RETIRED = {

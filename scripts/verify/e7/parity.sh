@@ -36,6 +36,12 @@
 #      wrote and whether `clean_one` wrote — as the table claims them and
 #      as this script measured them, independently of both tests that read
 #      the table.
+#   7. (Added 2026-10-06, the host verification of the second follow-ups,
+#      X1–X14, asked by the coordinator.) X11 gave `table.tsv` a sixth
+#      column, `app_verdict` (`Verdict::id()`), between `app_writes` and the
+#      person's note. The probe now writes `outcome.verdict.id()` too, and
+#      the second table holds that column against it as well; before this
+#      change the new column fell silently into the note's variable.
 #
 # How to run
 #   From the repository root:
@@ -56,7 +62,7 @@
 #   writes the identical copy) and D263 (a homoglyph-only text is not
 #   written by the window) are declared deviations and show as "cli-only".
 #   `git status --short` afterwards must show clean.rs unchanged.
-#   In the second table, "agrees" means the three measured columns are the
+#   In the second table, "agrees" means the four measured columns are the
 #   table's; "DISAGREES" names a column where `table.tsv` says something
 #   neither binary does.
 set -euo pipefail
@@ -137,8 +143,9 @@ mod parity_probe {
             let verdict = format!("{:?}", outcome.verdict).replace(['\n', '\t'], " ");
             writeln!(
                 out,
-                "{name}\t{verdict}\t{}",
-                outcome.written.map(|p| p.display().to_string()).unwrap_or_default()
+                "{name}\t{verdict}\t{}\t{}",
+                outcome.written.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+                outcome.verdict.id()
             )
             .expect("line");
         }
@@ -150,7 +157,7 @@ cp "$BACKUP" "$CLEAN_RS"
 
 sha() { if [ -f "$1" ]; then sha256sum "$1" | cut -c1-16; else echo "-"; fi; }
 printf '| input | CLI exit | CLI sha256 | clean_one verdict | app sha256 | bytes |\n|---|---|---|---|---|---|\n'
-while IFS=$'\t' read -r n verdict written; do
+while IFS=$'\t' read -r n verdict written _id; do
   c=$(sha "$PARITY_DIR/cli/$n"); a=$(sha "$PARITY_DIR/app/$n")
   if [ "$c" = "-" ] && [ "$a" = "-" ]; then same="same (none)";
   elif [ "$c" = "-" ]; then same="app-only";
@@ -161,16 +168,18 @@ while IFS=$'\t' read -r n verdict written; do
   printf '| %s | %s | %s | %s | %s | %s |\n' "$n" "${EXIT[$n]}" "$c" "${verdict:0:90}" "$a" "$same"
 done < "$PARITY_DIR/app.tsv"
 if [ -f "$TABLE" ]; then
-  printf '\n| table.tsv row | CLI exit (table / measured) | CLI writes (table / measured) | app writes (table / measured) | |\n|---|---|---|---|---|\n'
-  grep -v '^#' "$TABLE" | while IFS=$'\t' read -r input t_exit t_cli t_app _why; do
+  printf '\n| table.tsv row | CLI exit (table / measured) | CLI writes (table / measured) | app writes (table / measured) | app verdict (table / measured) | |\n|---|---|---|---|---|---|\n'
+  grep -v '^#' "$TABLE" | while IFS=$'\t' read -r input t_exit t_cli t_app t_verdict _why; do
     [ -n "$input" ] || continue
     n="table-$(basename "$input")"
     m_exit=${EXIT[$n]:-?}
     if [ -f "$PARITY_DIR/cli/$n" ]; then m_cli=yes; else m_cli=no; fi
     written=$(awk -F'\t' -v n="$n" '$1 == n { print $3 }' "$PARITY_DIR/app.tsv")
     if [ -n "$written" ]; then m_app=yes; else m_app=no; fi
-    if [ "$t_exit" = "$m_exit" ] && [ "$t_cli" = "$m_cli" ] && [ "$t_app" = "$m_app" ]; then v=agrees; else v=DISAGREES; fi
-    printf '| %s | %s / %s | %s / %s | %s / %s | %s |\n' "$input" "$t_exit" "$m_exit" "$t_cli" "$m_cli" "$t_app" "$m_app" "$v"
+    m_verdict=$(awk -F'\t' -v n="$n" '$1 == n { print $4 }' "$PARITY_DIR/app.tsv")
+    if [ "$t_exit" = "$m_exit" ] && [ "$t_cli" = "$m_cli" ] && [ "$t_app" = "$m_app" ] \
+       && [ "$t_verdict" = "$m_verdict" ]; then v=agrees; else v=DISAGREES; fi
+    printf '| %s | %s / %s | %s / %s | %s / %s | %s / %s | %s |\n' "$input" "$t_exit" "$m_exit" "$t_cli" "$m_cli" "$t_app" "$m_app" "$t_verdict" "$m_verdict" "$v"
   done
 fi
 echo "PARITY_DIR=$PARITY_DIR"
