@@ -219,7 +219,7 @@ has no upstream counterpart. **A GPUI bump must re-carry the second**: a
 new fork branch from the new upstream rev with that commit on it (the
 first is upstream from `f4178619ac` on). A live check no longer needs the
 session bus out of reach; `scripts/verify/e7/live-disk.sh` still defaults
-to `DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent` (`APP_DBUS`). Where GPUI comes from, what we carry on it
+to `DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent-wipemark-verify` (`APP_DBUS`). Where GPUI comes from, what we carry on it
 and what a bump means, with every upstream reference, is
 `docs/architecture/gpui-pin.md`; the bump itself is the task
 `wipemark-task-gpui-bump-2026-10-052`.
@@ -291,7 +291,8 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `compare.rs` | the fourth window: the original beside what cleaning makes of it — `clean(original)` at Layer A's defaults, made in the read's background task and kept for Reset — every line that differs marked on both sides and the words within a changed line marked more strongly; what it reads, what it refuses, how the original follows the result's cursor, and the Compare page's rows as values |
 | `result.rs` | the result as an editor with a toolbar — the toolbar is `gpui_component::input`'s own actions taken by a different road, and the component knows nothing about originals |
 | `diff.rs` | two texts, line against line — and within a changed line, word against word or character against character: the pure function under the Compare window's marks |
-| `queue.rs` | the main window's table: what was dropped or imported, one row each — the preview, the hover card, the filter bar, the sort, the paginator, the Status column, the `Line` that cleans one row at a time with the plan taken at its start, the Actions menu (Clean first, greyed with its reason under it; then open with the default app, Compare, Open the result, Show the result in its folder, Copy the result, Report…, Replace the existing result) and the double click that is its Compare item without the menu |
+| `queue.rs` | the main window's table: what was dropped or imported, one row each — the preview, the hover card, the filter bar, the sort, the paginator, the Status column, a row's clean asked of `cleaner.rs`'s line and its `Started`/`Finished` read back into the row, the Actions menu (Clean first, greyed with its reason under it; then open with the default app, Compare, Open the result, Show the result in its folder, Copy the result, Report…, Replace the existing result) and the double click that is its Compare item without the menu |
+| `cleaner.rs` | the one line of cleans per application (D283): `Cleaner`, a GPUI global over the pure `Line`, which the queue's Clean, Clean all, `--clean=` and Replace and the panel's Clean all ask — one clean at a time, first asked first done, a thing asked twice cleaned once, the plan taken when each starts — and the `Started`/`Finished` events the rows, the panel's lines and the status bar's count are drawn from |
 | `preview.rs` | what a row looks like before it is opened: the picture, the first lines, or nothing |
 | `wording.rs` | the sentences the panel, the queue and the report share about one thing that arrived — what a kind is called, whether the name lied, what would happen to it, what a look found, what a clean came to and where its result went — each over a `Say`, so a window and a copied report are one sentence in two renderings |
 | `clean.rs` | cleaning one thing that arrived, with no window: what can be (`cleanable`), the read that decides again from the bytes, the CLI's policy stated once as `outcome_of`, the write by the plan, the kept copies and the `sweep`; `inspect_one`, the same read for the panel's look; `number`, the one counter for rows and kept directories |
@@ -325,9 +326,10 @@ it, `input.rs` reads and decodes a path or stdin through
 `wipemark-intake`, `report.rs` is the human report, `run.rs` is the
 two flows — `inspect` and `clean` — and their exit codes, `image.rs`
 the same two on a picture (the bytes decide, `input::read_any`) through
-`wipemark-picture` — metadata and visible marks, one writer — `inplace.rs`
-`clean --in-place` over `wipemark_intake::inplace`, which is every write
-to disk (the original set aside first, never over one already there),
+`wipemark-picture` — metadata and visible marks, one writer — with
+`run.rs` carrying `clean --in-place` over `wipemark_intake::inplace`,
+which is every write to disk (the original set aside first, never over
+one already there, a symbolic link refused),
 `audit.rs` the walk of a folder
 and its human, `--json` and SARIF 2.1.0 renderings, and `models.rs`
 `models list|pull|verify|rm` over `wipemark-models`, reading the app's
@@ -371,8 +373,10 @@ Anything that needed more than a rule to explain is in `docs/`;
   only that *rewriting* is not in the windows, because they clean — the
   Engine and Models banners, the MCP tools pane, the tray's disabled item
   and the CLI's refusal. The footer's and the panel's sentences are gated
-  against an epic number; the catalogue as a whole is not yet (the E7
-  follow-ups' W1).
+  against an epic number, and so is every value of every catalogue —
+  every message, term and selector variant, in every language
+  (`no_catalogue_value_carries_an_epic_number`, W1); the comments keep
+  their epic ids, because a comment is code.
   The rule that produced them is unchanged and is the point — a surface
   that cannot do the thing says so out loud — only the shorthand is
   gone. Epic ids stay in the code, in this file and in `docs/`, and in
@@ -463,8 +467,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   own rule below, and since E7 it cleans what it took: under each listed
   thing a findings line — `clean::inspect_one`, the very read a clean
   makes, once per drop on the background executor (D278) — and **Clean**
-  beside the dismissal line, every caught thing that can be cleaned, one
-  at a time, each with the plan taken at its own start (D279). What the missing `Titled` bit takes away with it is the zoom: a
+  beside the dismissal line, every caught thing that can be cleaned,
+  each with the plan taken at its own start (D279), handed to the
+  application's one line of cleans (`cleaner.rs`, D283) — the line the
+  main window's cleans wait in too, so the two windows never run two
+  cleans at once. What the missing `Titled` bit takes away with it is the zoom: a
   full-size content view makes the whole top of a titled window a
   title-bar region, and a double-click there maximized the one window
   whose point is that it is small. The **main window** opens centred and is dragged
@@ -612,8 +619,10 @@ Anything that needed more than a rule to explain is in `docs/`;
   `clipboard::handed_of`, refreshed on activation because there is no
   change count to poll (E10). **The table cleans** (E7): Clean in a row's
   Actions menu, **Clean all** on the toolbar after Paste, and
-  `--clean=<path>` all ask `queue::Line` — pure, one clean at a time,
-  first asked first done, a row asked twice cleaned once — and each
+  `--clean=<path>` all ask the application's one line of cleans —
+  `cleaner::Cleaner`, a GPUI global over the pure `cleaner::Line`, which
+  the panel's Clean asks too (D283): one clean at a time across both
+  windows, first asked first done, a row asked twice cleaned once — and each
   row's plan is taken from the Retention page **when its clean starts**,
   so a change made while a line runs moves the rows still waiting and
   never one already writing. The status bar says "Cleaning 2 of 5" while
@@ -786,11 +795,13 @@ Anything that needed more than a rule to explain is in `docs/`;
   differs from it (D272); `the_result_is_what_the_queue_writes` holds the
   pane to the bytes `clean::clean_one` writes. Editing the result saves
   nothing and closing writes nothing, and the banner says both. Reading is
-  on the background executor and refuses what is not text, what is past
-  `TEXT_LIMIT` (checked on the size before the read) and what will not
-  open — but it decodes leniently, the preview's way, where the queue
-  decodes strictly: a file the queue refuses is still compared (an open
-  question; the verifier's recommendation is the queue's road). ⌘W
+  on the background executor, through `clean::text_of` — the queue's
+  strict road, `clean_one`'s own read, limit and decode (D282) — and
+  refuses what is not text, what is past `TEXT_LIMIT` (checked on the
+  size before the read), what will not open, and what the queue would
+  not decode, in the queue's own words; a comparison is a promise about
+  what Clean will write, so a file the queue refuses is not compared
+  either. The lenient decode is the preview's alone. ⌘W
   closes it; Escape deliberately does not. Opened from a row's Actions
   menu, from a **double click on the row** — both through
   `queue::compare_row`, deferred for the reason `SetupEvent::Open`
@@ -1244,8 +1255,17 @@ Anything that needed more than a rule to explain is in `docs/`;
   per-run flag for the CLI and the batch (E4, E5), because a row that
   deletes originals goes off months after it was set — on the CLI it is
   `clean --in-place --no-original` (E5-1), and `--in-place` alone sets
-  the original aside by a rename first and refuses when one is already
-  there; its file-system half is `wipemark_intake::inplace`, which the
+  the original aside first and refuses when one is already there.
+  Setting aside is a **hard link** — `name.original.ext` becomes a
+  second name of the file, and only then is the result renamed over the
+  first — which the operating system refuses when the name is taken, so
+  nothing can be overwritten in the moment a check would leave open, and
+  a failed write strands nothing because the file never moved. A new
+  result is published the same way, a hard link from a temporary
+  (`inplace::write_new`). Only where hard links are refused (FAT, some
+  shares) is it a `create_new` copy or a check and a rename (D284, which
+  supersedes D81's accepted race). Its file-system half is
+  `wipemark_intake::inplace`, which the
   windows' `clean.rs` calls as the CLI does (with `Keep::Original`
   always — the windows never replace without setting the original aside).
   The CLI reads **none** of these rows: its "in-place needs an
@@ -1301,13 +1321,25 @@ Anything that needed more than a rule to explain is in `docs/`;
   counter, `clean::number`, numbers the queue's rows and the panel's
   cleans so two cleans never share a kept directory (D280). What it
   writes is the CLI's to the byte — `wipemark-cli clean -o` over the same
-  inputs — which `scripts/verify/e7/parity.sh` (through `clean_one`) and
+  inputs — and one table holds both sides to it (D285):
+  `fixtures/clean-parity/table.tsv` gives, per input, the CLI's exit,
+  whether the CLI writes and whether a window writes, the declared
+  deviations named in it; `apps/wipemark-cli/tests/parity.rs` runs the
+  CLI's real binary over every row, and
+  `clean::tests::the_windows_clean_to_the_clis_table` runs `clean_one`
+  over the same rows, each holding its bytes to the library at the CLI's
+  defaults — so a change to either side's rule is red until the table
+  moves, and red on the other side until it follows. On the host,
+  `scripts/verify/e7/parity.sh` (through `clean_one`) and
   `scripts/verify/e7/live-disk.sh` (through the running application and
-  `--clean=`) check on the host; the tests restate the CLI's table by hand
-  rather than call it. One clean at a time holds *within* the queue
-  (`queue::Line`) and *within* the panel, not yet across the two (the E7
-  follow-ups' W7). See `docs/plan/E7-windows-clean.md` §9 and
-  `docs/architecture/queue.md`, "Cleaning".
+  `--clean=`) check the same. One clean at a time holds across the whole
+  application — the queue and the panel ask one line, `cleaner.rs`
+  (D283) — and between processes the publish refuses a taken name
+  (D284). One gap is known and filed: an *in place* clean of a
+  **symbolic link** replaces the link and leaves the file it points at
+  marked, where the CLI refuses it (the E7 follow-ups' X3). See
+  `docs/plan/E7-windows-clean.md` §9 and `docs/architecture/queue.md`,
+  "Cleaning".
 
 * **The local engine is ours.** `crates/wipemark-llama-sys`,
   `crates/wipemark-llama` and `wipemark_engine::LocalEngine` are code
@@ -1402,8 +1434,13 @@ Anything that needed more than a rule to explain is in `docs/`;
   (`select::RULES`, D116) — and asks the rest. A result goes
   where the item said when it was pushed (its row, beside, a chosen path,
   or in place by a per-run flag), in two phases so a crash between them is
-  finished rather than lost. A database that will not open is left alone
-  and the queue says it runs in memory. A pasted text stays in its row
+  finished rather than lost — with one exception until the E7
+  follow-ups' X1: since D284 sets an original aside by a hard link, a
+  crash between the link and the write leaves the file with its
+  original's bytes beside a second name for it, and `deliver::redeliver`,
+  written for the rename, fails that item as original-exists (nothing
+  pushes to the queue yet, and it is fixed before E4-6b). A database
+  that will not open is left alone and the queue says it runs in memory. A pasted text stays in its row
   until the item is removed (`secure_delete` on). `the_queue_survives_kill_9`
   is the gate.
 * **The prompts are data, and the assembler owns the markers.**
@@ -1596,6 +1633,8 @@ What exists so far:
 | `wipemark-task-e7-windows-clean-2026-10-05` | FILE | a task for an agent in a container: E7-1…E7-6, the windows clean text and pictures — the cleaner `clean.rs`, the queue's Clean / Clean all / `--clean=`, Compare's real result, the report with its three shelves, the panel, every "not yet" sentence; decisions from D260; checked live on the host after |
 | `wipemark-e7-windows-clean-report-2026-10-05` | FILE | its report: E7-1…E7-6 done, D260–D280, 41 of 41 mutations red, four owner questions, Compare's lenient decode left open; the host verification found it mergeable (merged `7621c9f`) — parity with the CLI over 13 inputs, 38 of 38 disk checks, 8 of the verifier's 18 mutations green |
 | `wipemark-task-e7-followups-1-2026-10-05` | FILE | the host verification's findings as W1–W15: an i18n gate on epic numbers, the picture scope, the log rule, C2PA alone and `PICTURE_LIMIT` guarded; Compare through the queue's strict road; one clean at a time per application and a no-clobber rename; gpui tests for the paste, Replace and the panel; parity tests that run the CLI's own code; the report's shelf and Markdown; decisions from D281 |
+| `wipemark-e7-followups-1-report-2026-10-05` | FILE | its report: W1–W15 done, D281–D285 (C2PA alone is AI provenance, Compare on the queue's strict road, one line of cleans per application, the hard-link publish and set-aside, the parity table), 68 of 68 of the series' mutations red; the host verification found it mergeable (merged `2f7ce56`) — 1452/0/6 over three runs, parity over 25 inputs, 38 of 38 disk checks on both buses, the verifier's H25, H30, H34, H37, H38 green and H39 hanging, and three Medium findings |
+| `wipemark-task-e7-followups-2-2026-10-06` | FILE | that verification's findings as X1–X14: the queue's crash recovery after the hard-link set-aside, W5's FIFO test that can hang the suite, the windows' in-place clean of a symbolic link refused as the CLI's; the green mutations as tests, the cleaner panic-safe, a kept emoji joiner left unspelled in the Markdown copy, the window's own verdict in the parity table, the docs' drift; optionally a text report's own shelf; decisions D286–D290 |
 | `wipemark-gpui-pin-architecture-2026-10-052` | FILE | a snapshot of `docs/architecture/gpui-pin.md`: GPUI at `81b16f4` from the fork `GigLaboCom/zed` (`9d80553`) with two X11 fixes — a stale first frame (upstream #62081) and a double borrow on the portal's appearance event (ours) — how upstream moved to `gpui-pre` snapshots, and what a bump means, with references |
 | `wipemark-task-gpui-bump-2026-10-052` | FILE | a task for an agent in a container: GPUI onto the newest `gpui-pre` snapshot, our gpui-component patch rebased (or dropped once gpui-kit#3359 lands), the API fixed, patch B re-carried through `[patch.crates-io]`, the host's checklist after; decisions D291–D300. The keys without the trailing `2` are the first uploads, before the fork's commits were filled in |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
@@ -1621,7 +1660,7 @@ phase 2 and E12 visible marks phase 2b — E11-1…E11-3 and E12-1…E12-5
 are done (the images series merged 2026-10-05); E12-6 (other vendors)
 and E12-7 (the reconstructor) are not started. **E7's windows clean is
 done** (E7-1…E7-6, merged 2026-10-05 as `7621c9f`; follow-ups W1–W15
-open), and with it the half of E12-8 that cleans a picture from the
+merged as `2f7ce56`; follow-ups X1–X14 filed), and with it the half of E12-8 that cleans a picture from the
 windows; what remains of E7 is rewriting in the windows (**E4-6b**), the
 source editor with its badges (S7.2), the streamed result (S7.3) and the
 Inspector (S7.5), and of E12-8 Compare for pictures and the batch

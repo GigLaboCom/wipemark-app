@@ -138,7 +138,7 @@ that say "not in this version". It is also a hard dependency of Layer B:
 the pipeline runs A, then B, then A again (OV §4.2 step 4), and the five
 guards that reject a bad rewrite are E1 code (A §6).
 
-### 2.1 Pull requests and branches — the plan as of 2026-10-05
+### 2.1 Pull requests and branches — the plan as of 2026-10-06
 
 **One pull request is open: #1, `feat/e0-e6-shell` → `main`**
 (<https://github.com/GigLaboCom/wipemark-app/pull/1>). It is 160 commits
@@ -150,7 +150,7 @@ ahead of `main` (last `main` commit 2026-09-07). Today it carries:
 - E4-1…E4-7 and E4-6a;
 - E5's CLI;
 - E11-1…E11-3 and E12-1…E12-5 (five host-verified rounds);
-- E7's windows clean (`7621c9f`);
+- E7's windows clean (`7621c9f`) and its follow-ups W1–W15 (`2f7ce56`);
 - GPUI from the fork `GigLaboCom/zed` with the two X11 fixes (`c3aee8e`, `docs/architecture/gpui-pin.md`).
 
 Every work branch on `origin` is merged into it: `images/series{,-v2,-v3}`,
@@ -177,16 +177,16 @@ opens its own pull request against `main` instead of riding on `feat`.
 
 | # | branch (to be) | what | task (Watchword) | decisions | state |
 |---|---|---|---|---|---|
-| 1 | `e7/windows-clean` (continued) | E7 follow-ups W1–W15: an i18n gate on epic numbers; the picture scope, the log rule, C2PA alone and `PICTURE_LIMIT` guarded; Compare through the queue's strict road; one clean at a time per application, plus a no-clobber rename; gpui tests for paste, Replace and the panel; parity tests that run the CLI's code; the report's shelf and Markdown; wording and docs | `wipemark-task-e7-followups-1-2026-10-05` | D281–D290 | filed, not started |
+| 1 | `e7/windows-clean` (continued) | E7 follow-ups W1–W15: an i18n gate on epic numbers; the picture scope, the log rule, C2PA alone and `PICTURE_LIMIT` guarded; Compare through the queue's strict road; one clean at a time per application, plus a no-clobber rename; gpui tests for paste, Replace and the panel; parity tests that run the CLI's code; the report's shelf and Markdown; wording and docs | `wipemark-task-e7-followups-1-2026-10-05` | D281–D285 | **done**: verified at `8b3e7f1`, merged as `2f7ce56`; the verifier's scripts `3262e68` |
+| 1a | `e7/windows-clean` (continued) | E7 follow-ups X1–X14, the host verification of W1–W15: the queue's crash recovery after the hard-link set-aside (X1), W5's FIFO test bounded (X2), an in-place clean of a symbolic link refused as on the CLI (X3); the verifier's green mutations H25, H26, H30, H34, H37, H38 as tests; the cleaner panic-safe; a kept emoji joiner left unspelled; the window's own verdict in the parity table; the docs' drift; optionally the text report's own shelf (X14) | `wipemark-task-e7-followups-2-2026-10-06` | D286–D290 | filed, not started; before 3 |
 | 2 | — (the owner, by hand) | E7's live check in the windows, `docs/plan/reports/E7-windows-clean-live-check.md`: what the windows paint. The disk half is automated (`scripts/verify/e7/live-disk.sh`, 38/38). On this host the D-Bus workaround is no longer needed, and `scripts/verify/e7/clip.py` stands in for `pbcopy`/`pbpaste`. | — | — | waiting for the owner |
-| 3 | `gpui/bump-pre` | GPUI onto the newest `gpui-pre` snapshot; our gpui-component patch rebased, or dropped once longbridge/gpui-kit#3359 lands; the API fixed; patch B re-carried through `[patch.crates-io]`; the host's checklist after | `wipemark-task-gpui-bump-2026-10-052` | D291–D300 | filed, not started; after 1 |
+| 3 | `gpui/bump-pre` | GPUI onto the newest `gpui-pre` snapshot; our gpui-component patch rebased, or dropped once longbridge/gpui-kit#3359 lands; the API fixed; patch B re-carried through `[patch.crates-io]`; the host's checklist after | `wipemark-task-gpui-bump-2026-10-052` | D291–D300 | filed, not started; after 1a |
 | 4 | `images/series-v3` (or the next images round) | three doc nits not yet filed: `visible-marks.md` 3439–3441 → 3442; "all 22" against `crying`'s aside; the fixtures README's `.convert("RGB")` | to be filed with the next images task | — | open |
 | 5 | `e4/windows-rewrite` | E4-6b: rewriting from the windows, with the queue (`wipemark-queue`) pushed to | to be written | — | next epic step |
 | 6 | — | E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), E9 licensing, E10 packaging | to be written | — | §7 |
 
 **Open with the owner** (§5): Q-C1–Q-C4 (E7's defaults: clean on arrival,
-all metadata, Layer A's finer choices, an existing result), Q-C5 (Compare's
-lenient decode; the verifier's recommendation is accepted as W6), Q-V4–Q-V7
+all metadata, Layer A's finer choices, an existing result), Q-V4–Q-V7
 and Q-V9, the mn-embed-fleet restart, the Gemma 4 / Qwen3.8 catalogue
 entries, `llama-cpp-prebuilt`'s LICENSE, and the OpenAI/Grok captures.
 
@@ -515,7 +515,7 @@ tell a decision from an accident.
 | **D78** | **E4-1's own choices** (its report, "Deviations"), adopted: CJK `。！？` end a sentence with no whitespace after them; in a list chunk each glue placeholder starts a line of the text the model sees, and `restore` refuses items that come back **out of order** (`RestoreError::OutOfOrder` — `PlaceholderGuard` does not check order, so the loop treats any `RestoreError` as a rejection); `restore` trims the candidate's outer whitespace; URLs, markers and brackets are scanned over the whole piece and overlapping spans merged; a piece with no letter outside its placeholders is not a chunk; in HTML an inline `<code>` is one protected span, list items are separate chunks, and an unclosed tag keeps everything to the end; plain text protects one-line backtick spans; the context is capped at a quarter of the budget; `lang::detect` carries short stop-word lists of the neighbours (fr, es, it, pt, nl; uk, bg, and Ukrainian's letters) only so that they read as unknown. `estimate_tokens` is calibrated on Qwen3 4B's tokenizer (worst undercount 5 %, English overcounted ×1.39). | Each was forced by a property test or a measured case (the report has them): a Chinese paragraph that could not split, reordered items restored under the wrong numbers, a `[[[` split by a link opener, a 29 s quadratic case on 700 KB, Afrikaans read as German. **Revised by E4-7 (D114): a list item is a chunk of its own.** |
 | **D79** | **A key no request could carry is refused at Save** (tails-1): not printable ASCII (`!`..`~`), empty, or with a space or control character inside — through `wipemark_engine::http::sendable`, the same rule that builds the `Authorization` header (still the one `Secret::expose` outside the vault), with a catalogue sentence per `KeyFault`, storing nothing. A key already stored that breaks it is a `Transport` refusal until `Unavailable` gains `KeyUnsendable` (after E4-3). | E2-3: Save accepted a Cyrillic key that failed only at the first request. |
 | **D80** | **Window titles are plain text** (tails-1): `title::Title::text` through `t_plain`/`format_args_plain`; the process stays `Ui`. A file name that itself carries a bidi control is shown as it is (spelling it `U+XXXX` would be a product decision). | Fluent's U+2068/U+2069 reached the X11 title — a window list and a screen reader read it. |
-| **D81** | **Setting the original aside lives in `wipemark-intake`** (`inplace`, tails-1), not a new crate; the check-then-rename race is accepted. | std-only, already names the copy (`with_infix`, `ORIGINAL_INFIX`), and every surface already depends on it; E7's windows must write the way the CLI does. |
+| **D81** | **Setting the original aside lives in `wipemark-intake`** (`inplace`, tails-1), not a new crate; the check-then-rename race is accepted. *The accepted race is superseded by D284: a hard link that cannot replace anything, check-then-rename only where links are refused.* | std-only, already names the copy (`with_infix`, `ORIGINAL_INFIX`), and every surface already depends on it; E7's windows must write the way the CLI does. |
 | **D82** | **A seed against an endpoint promises different candidates, not a byte-identical rerun** (tails-1): llama-server's prompt cache re-evaluates part of a cached prompt and moves the last logits in their low bits, so one seed at temperature 0.9 can sample differently; `--no-cache-prompt` (server) or `cache_prompt: false` (request) makes it repeat. The client sends no `cache_prompt` — it is llama.cpp-only and saves E4's second candidate the prompt. The local engine is unaffected (no cache across requests). | Measured; `docs/architecture/remote-engine.md` "Reproducibility". |
 | **D83** | **Seeds** (E4-3): `base + (chunk·rounds + round−1)·candidates + candidate−1`, wrapping — unique across a job, recorded per attempt; both steps of a two-step attempt share one seed. The base is the caller's (0 by default, so the same document rewrites to the same bytes; E4-6 picks one per job if "Rewrite again" should differ). | OV's `base_seed + round·c` collides ((1,2) and (2,1)) and repeats per chunk. |
 | **D84** | **Engine errors in the loop** (E4-3): `Unavailable` fails the job; `Transport`, `Protocol`, `ContextOverflow` and `NotImplemented` reject that attempt only; a truncated or empty answer is a rejection. `max_tokens`, when the options leave it unset, is `2 × estimate + 64`. | A model that cannot run is not a bad candidate; one bad answer is. |
@@ -676,8 +676,13 @@ tell a decision from an accident.
 | **D276** | **The window's sentences take a `wording::Say`**; the dialog is handed both renderings. | One sheet, two renderings, and a test can prove the Markdown copy is not `Rendering::Ui`; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
 | **D277** | **A thing never read has a report with no JSON**, and Copy JSON is greyed. | `to_json()` is the library's; a placeholder would be a report nobody produced; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
 | **D278** | **The panel looks at what it lists, once per drop, as a clean would read it** (`clean::inspect_one`); a text's count is characters; a kept look-alike is said. | The line is a promise about what Clean will do; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
-| **D279** | **The panel's Clean cleans every caught thing that can be and has not been**, in arrival order, one at a time, the plan at each start; a later drop does not stop it. | `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D279** | **The panel's Clean cleans every caught thing that can be and has not been**, in arrival order, one at a time, the plan at each start; a later drop does not stop it. *"One at a time" within the window is superseded by D283: one line of cleans for the whole application.* | `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
 | **D280** | **One counter numbers the queue's rows and the panel's cleans** (`clean::number`). | Two counters would let two cleans in one second share a kept directory; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-windows-clean-2026-10-05.md`. |
+| **D281** | **The panel's look reads `has_ai_metadata()` alone** (W4). | Every C2PA block is AI provenance in `wipemark-image`, so the dropped `\|\| has_c2pa()` could never change the answer — an equivalent clause, which no test can guard (the verifier's H12, retired); `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-1-2026-10-05.md`. |
+| **D282** | **Compare reads through `clean::text_of`, the queue's strict road** (W6, answers Q-C5), and refuses what the queue would not decode in the queue's words; the lenient decode is the preview's alone. | A comparison is a promise about what Clean will write; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-1-2026-10-05.md`. |
+| **D283** | **One line of cleans per application**, `cleaner::Cleaner` (W7): the queue's cleans and the panel's, one at a time, first asked first done, the plan at each start. Supersedes D279's "one at a time" within the window. | D264's memory rule assumed one decode at a time, and two windows cleaning one file to one destination raced the check and the write (D261 broken in one process); `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-1-2026-10-05.md`. |
+| **D284** | **A new result is published, and an original set aside, by a hard link that cannot replace anything** (`inplace::write_new`, `inplace::replace`, W7); `create_new` and check-then-rename only where hard links are refused. Supersedes D81's accepted race. | Closes the window between "is the name free" and the write for other processes too, with no `unsafe` and no dependency; a failed in-place write strands nothing. The queue's crash recovery was written for the rename road and is follow-ups-2 X1; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-1-2026-10-05.md`. |
+| **D285** | **Parity with the CLI is one table both sides are tested against** (W9): `fixtures/clean-parity/table.tsv`; the CLI's binary in `apps/wipemark-cli/tests/parity.rs`, `clean_one` in `clean::tests::the_windows_clean_to_the_clis_table`. | A hand-written restatement drifts unseen; a shared library would move a rule the CLI owns out of it; an app test cannot build the CLI's binary; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-1-2026-10-05.md`. |
 
 ---
 
@@ -717,7 +722,7 @@ answered moves here or to §4.
 | Q-C2 | should the windows remove all of a picture's metadata (camera, GPS, the rotation) or only what marks it as AI-made? | — | **Open (owner), from E7.** Only AI provenance, as `clean_image`'s default; the CLI removes all with `--all-metadata`. |
 | Q-C3 | should the windows offer cleaning's finer choices — a borrowed letter replaced, normalisation, spaces? | — | **Open (owner), from E7; meets Q-A1.** The windows clean at Layer A's defaults, and the Report says so when it keeps such a letter. |
 | Q-C4 | when a result is already there, refuse or pick a new name (`name.cleaned-2.md`)? | — | **Open (owner), from E7.** Refused and left as it is (D261); "Replace the existing result" writes over it on request (D270). |
-| Q-C5 | *(engineering)* Compare decodes leniently, the preview's way; the queue strictly (`wipemark_intake::text::decode`): a file the queue refuses is still compared | — | **Open; the host verifier's recommendation, accepted by the coordinator, is follow-up W6**: Compare reads through the queue's strict road and refuses with the queue's sentence; the lenient decode stays for previews only. Watchword `wipemark-task-e7-followups-1-2026-10-05`. |
+| Q-C5 | *(engineering)* Compare decodes leniently, the preview's way; the queue strictly (`wipemark_intake::text::decode`): a file the queue refuses is still compared | — | **Answered by D282** (follow-up W6, merged as `2f7ce56`): Compare reads through `clean::text_of`, the queue's strict road, and refuses with the queue's sentence; the lenient decode is the preview's alone. |
 
 ---
 
@@ -935,7 +940,8 @@ the gate the overview set, and the open edges.
 - **Basis.** OV §6.1–6.2; `docs/architecture/compare.md`, `queue.md`.
 - **Gate.** A 1 k-token stream keeps 30 FPS; a click on a finding
   scrolls to it.
-- **Open.** Q7, Q-A1, Q-A3, Q-D2; Q-C1…Q-C5 (after E7-1…E7-6).
+- **Open.** Q7, Q-A1, Q-A3, Q-D2; Q-C1…Q-C4 (after E7-1…E7-6). Q-C5
+  is answered by D282.
 - **E7-1…E7-6, the windows clean — status: done** (one series for one
   agent in a container, verified on the host once after the final step:
   1432 passed, 0 failed, 6 ignored at `cecfa12`; 41 of 41 of the series'
@@ -951,8 +957,26 @@ the gate the overview set, and the open edges.
   [reports/E7-windows-clean-2026-10-05.md](reports/E7-windows-clean-2026-10-05.md),
   [reports/E7-windows-clean-live-check.md](reports/E7-windows-clean-live-check.md);
   the verifier's scripts in `scripts/verify/e7/`. With it the cleaning
-  half of E12-8. Follow-ups W1–W15 (Watchword
-  `wipemark-task-e7-followups-1-2026-10-05`): status open. What remains
+  half of E12-8. **Follow-ups W1–W15** (Watchword
+  `wipemark-task-e7-followups-1-2026-10-05`, report
+  `wipemark-e7-followups-1-report-2026-10-05`,
+  [reports/E7-followups-1-2026-10-05.md](reports/E7-followups-1-2026-10-05.md)):
+  **done**, D281–D285, verified on the host at `8b3e7f1` and merged as
+  `2f7ce56` on 2026-10-06 — 1452 passed, 0 failed, 6 ignored, three
+  runs; the app with `local-llama` 520 + 1 passed, 1 ignored; the engine
+  36; 68 of 68 of the series' mutations red; of the verifier's
+  `mutate-host.py`, H1–H11 and H13–H18 red, H12 retired as equivalent
+  (D281), H19–H39 red but for H25, H30, H34, H37 and H38 (green) and H39
+  (it hangs the suite); parity over 25 inputs with no mismatch and the
+  12 rows of `table.tsv` measured independently; `live-disk.sh` 38 of 38
+  on an unreachable bus and on the real one, no panic; the verifier's
+  scripts `3262e68` (`scripts/verify/e7/`, with `probes.sh`).
+  **Follow-ups X1–X14** (Watchword
+  `wipemark-task-e7-followups-2-2026-10-06`, D286–D290): filed — the
+  queue's crash recovery after the hard link (X1), W5's FIFO test that
+  can hang the suite (X2), the windows' in-place clean of a symbolic link
+  refused as the CLI's (X3), the green mutations turned into tests, the
+  cleaner made panic-safe, and the docs' drift. What remains
   of E7: S7.2, S7.3, S7.5 above, and rewriting in the windows (E4-6b).
 
 ### E8 — models and engine UI (the rest)
