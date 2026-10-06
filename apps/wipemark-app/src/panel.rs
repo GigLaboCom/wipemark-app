@@ -65,10 +65,10 @@
 //! Rewriting with a model is not in the windows, and the invitation says
 //! so (`panel-pending`).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
 use gpui::prelude::*;
 use gpui::{
     actions, div, px, AnyWindowHandle, App, Bounds, Corner, Div, Entity, FocusHandle, Focusable,
@@ -84,6 +84,7 @@ use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_intake::{Arrived, Format, Intake, Kind};
 
 use crate::clean::{self, Cleanable, Findings, Outcome};
+use crate::cleaner::{self, Cleaner};
 use crate::drop::{self, Arrival, Catcher, Landed};
 use crate::icon::{Icon, IconName};
 use crate::placement;
@@ -349,9 +350,15 @@ struct PanelView {
     _caught: Subscription,
     /// The drop on screen, with what a look found and what a clean did.
     held: Option<Held>,
-    /// Whether a clean asked for here is still running — for this drop or
-    /// one it overtook. One clean at a time.
-    cleaning: bool,
+    /// The application's one line of cleans, which the queue's wait in too
+    /// (D283).
+    cleaner: Entity<Cleaner>,
+    /// The cleans asked for here and not yet heard back from, by number:
+    /// the drop and the thing in it each is a clean of. Still waiting or
+    /// running in the line is what "Cleaning…" reads.
+    asked: HashMap<u64, (Arc<[Arrival]>, usize)>,
+    /// Dropped with the view: the line says what each clean did.
+    _cleaned: Subscription,
 }
 
 /// The drop the panel shows, and what it knows about it: a look per thing
@@ -362,7 +369,7 @@ struct Held {
     /// What a look found, per listed thing; `None` while it looks.
     found: Vec<Option<Findings>>,
     /// What a clean did, per thing; `None` until it is cleaned.
-    done: Vec<Option<Outcome>>,
+    done: Vec<Option<Arc<Outcome>>>,
 }
 
 impl Held {
@@ -414,6 +421,28 @@ fn something_found(found: &Findings) -> bool {
 
 impl PanelView {
     fn new(preferences: Entity<Preferences>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        afloat(window);
+
+        // The drop zone, and the AppKit destination behind it. Both
+        // belong here rather than in `show`: a window that is not built
+        // yet has no view to insert anything under, and a destination
+        // installed a frame later is a drag that was refused once.
+        let catcher = cx.new(|cx| Catcher::new(window, cx));
+        drop::accept(window);
+        Self::with_catcher(preferences, catcher, window, cx)
+    }
+
+    /// The panel over a catcher already made — [`PanelView::new`]'s, which
+    /// the platform delivers to, or a test's, which it does not — with none
+    /// of the platform's hooks: no floating level, no drag destination. The
+    /// queue's seam (`Queue::with_catcher`), for the same reason: a test
+    /// window has no native window for either to hang from.
+    fn with_catcher(
+        preferences: Entity<Preferences>,
+        catcher: Entity<Catcher>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
 
@@ -445,14 +474,6 @@ impl PanelView {
             view.settle(screen, frame, cx);
         });
 
-        afloat(window);
-
-        // The drop zone, and the AppKit destination behind it. Both
-        // belong here rather than in `show`: a window that is not built
-        // yet has no view to insert anything under, and a destination
-        // installed a frame later is a drag that was refused once.
-        let catcher = cx.new(|cx| Catcher::new(window, cx));
-        drop::accept(window);
         let caught = cx.subscribe(&catcher, |view: &mut Self, catcher, landed: &Landed, cx| {
             // The count and the kinds, and nothing else. A log line
             // carrying what was dropped would be the document in a
@@ -471,6 +492,14 @@ impl PanelView {
             cx.notify();
         });
 
+        let cleaner = Cleaner::shared(&preferences, cx);
+        let cleaned = cx.subscribe(
+            &cleaner,
+            |view: &mut Self, _, event: &cleaner::Event, cx| {
+                view.heard(event, cx);
+            },
+        );
+
         Self {
             preferences,
             focus,
@@ -479,7 +508,9 @@ impl PanelView {
             catcher,
             _caught: caught,
             held: None,
-            cleaning: false,
+            cleaner,
+            asked: HashMap::new(),
+            _cleaned: cleaned,
         }
     }
 
@@ -524,52 +555,55 @@ impl PanelView {
             .filter(|held| Arc::ptr_eq(&held.arrivals, arrivals))
     }
 
-    /// Clean everything caught that can be, one at a time, each by the plan
-    /// the Retention page gives when its clean starts (D279). A drop that
-    /// overtakes it does not stop it — what was asked for is finished — but
-    /// its outcomes are then nobody's to show.
+    /// Clean everything caught that can be, in the application's one line,
+    /// one at a time, each by the plan the Retention page gives when its
+    /// clean starts (D279). A drop that overtakes it does not stop it —
+    /// what was asked for is finished — but its outcomes are then nobody's
+    /// to show.
     fn clean(&mut self, cx: &mut Context<Self>) {
         let Some(held) = &self.held else {
             return;
         };
         let states = held.states();
-        if !clean_offered(self.cleaning, &states) {
+        if !clean_offered(self.cleaning(cx), &states) {
             return;
         }
-        let asked = to_clean(&states);
         let arrivals = held.arrivals.clone();
-        self.cleaning = true;
+        for index in to_clean(&states) {
+            let number = clean::number();
+            let thing = arrivals[index].clone();
+            if self
+                .cleaner
+                .update(cx, |cleaner, cx| cleaner.ask(number, thing, None, cx))
+            {
+                self.asked.insert(number, (arrivals.clone(), index));
+            }
+        }
         cx.notify();
-        cx.spawn(async move |view, cx| {
-            for index in asked {
-                let Ok(plan) = view.update(cx, |view, cx| {
-                    view.preferences.read(cx).plan_for(&arrivals[index].intake)
-                }) else {
+    }
+
+    /// Whether a clean asked for here is still in the line — for this drop
+    /// or one it overtook.
+    fn cleaning(&self, cx: &App) -> bool {
+        let cleaner = self.cleaner.read(cx);
+        self.asked.keys().any(|number| cleaner.pending(*number))
+    }
+
+    /// What the line said about a clean asked for here — one of the queue's
+    /// is not this window's, and is not heard.
+    fn heard(&mut self, event: &cleaner::Event, cx: &mut Context<Self>) {
+        match event {
+            cleaner::Event::Started(_) => cx.notify(),
+            cleaner::Event::Finished(number, outcome) => {
+                let Some((arrivals, index)) = self.asked.remove(number) else {
                     return;
                 };
-                let thing = arrivals.clone();
-                let number = clean::number();
-                let outcome = cx
-                    .background_executor()
-                    .spawn(
-                        async move { clean::clean_one(&thing[index], &plan, number, Utc::now()) },
-                    )
-                    .await;
-                view.update(cx, |view, cx| {
-                    if let Some(held) = view.held_for(&arrivals) {
-                        held.done[index] = Some(outcome);
-                    }
-                    cx.notify();
-                })
-                .ok();
-            }
-            view.update(cx, |view, cx| {
-                view.cleaning = false;
+                if let Some(held) = self.held_for(&arrivals) {
+                    held.done[index] = Some(outcome.clone());
+                }
                 cx.notify();
-            })
-            .ok();
-        })
-        .detach();
+            }
+        }
     }
 
     /// Write down where the user has just put this window, once they
@@ -808,7 +842,7 @@ impl PanelView {
                         intake,
                         &preferences.plan_for(intake),
                         held.and_then(|held| held.found.get(index)?.as_ref()),
-                        held.and_then(|held| held.done.get(index)?.as_ref()),
+                        held.and_then(|held| held.done.get(index)?.as_deref()),
                         cx,
                     )
                 }),
@@ -847,12 +881,12 @@ impl PanelView {
             Button::new("panel-clean")
                 .xsmall()
                 .icon(IconName::Broom)
-                .label(SharedString::from(t(if self.cleaning {
+                .label(SharedString::from(t(if self.cleaning(cx) {
                     Message::PanelCleaning
                 } else {
                     Message::PanelClean
                 })))
-                .disabled(!clean_offered(self.cleaning, &states))
+                .disabled(!clean_offered(self.cleaning(cx), &states))
                 .tooltip(SharedString::from(t(Message::PanelCleanTooltip)))
                 .on_click(cx.listener(|view, _, _, cx| view.clean(cx))),
         )
@@ -1119,5 +1153,165 @@ mod tests {
                 language.id
             );
         }
+    }
+
+    /// The live check's case 13, as a test: a drop of a marked text, a
+    /// plain one, a Gemini picture and a TIFF on a panel built without the
+    /// platform's hooks; the looks land, Clean cleans every thing that can
+    /// be cleaned through the application's one line, each row says what
+    /// happened, and on disk there is a result for the marked text and the
+    /// picture and for nothing else. Clean is then greyed: nothing is left
+    /// to clean. This retires the series' deviation 17.
+    #[gpui::test]
+    fn a_drop_on_the_panel_is_looked_at_and_cleaned(cx: &mut gpui::TestAppContext) {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        use wipemark_intake::Handed;
+
+        use crate::retention::Homes;
+
+        let scratch =
+            std::env::temp_dir().join(format!("wipemark-panel-drop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch");
+        let file = |name: &str, bytes: &[u8]| {
+            let path = scratch.join(name);
+            std::fs::write(&path, bytes).expect("scratch file");
+            path
+        };
+        let marked = file(
+            "marked.md",
+            "# Notes\n\nTwo\u{200B} marks\u{200B} here.\n".as_bytes(),
+        );
+        let plain = file("plain.md", b"# Plain\n\nNothing to find.\n");
+        let torch = file(
+            "torch-1025.png",
+            &std::fs::read(format!(
+                "{}/../../fixtures/image/gemini/torch-1025.png",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .expect("fixture"),
+        );
+        let tiff = file("scan.tif", b"II*\x00\x08\x00\x00\x00\x00\x00\x00\x00");
+
+        cx.update(gpui_component::init);
+        let homes = Homes {
+            results: scratch.join("results"),
+            kept: scratch.join("kept"),
+        };
+        let slot: Rc<RefCell<Option<Entity<PanelView>>>> = Rc::default();
+        let held = slot.clone();
+        let (_, cx) = cx.add_window_view(move |window, cx| {
+            let preferences = cx.new(|cx| Preferences::for_tests(homes, cx));
+            // Detached, and no `afloat` or `drop::accept`: a test window
+            // has no native window for either.
+            let catcher = cx.new(|_| Catcher::detached());
+            let view = cx.new(|cx| PanelView::with_catcher(preferences, catcher, window, cx));
+            *held.borrow_mut() = Some(view.clone());
+            gpui_component::Root::new(view, window, cx)
+        });
+        let view = slot.take().expect("the window builder ran");
+
+        let catcher = cx.update(|_, cx| view.read(cx).catcher.clone());
+        catcher.update(cx, |catcher, cx| {
+            catcher.land(
+                [&marked, &plain, &torch, &tiff]
+                    .into_iter()
+                    .map(|path| Handed::Path(path.clone()))
+                    .collect(),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+
+        let looked = cx.update(|_, cx| {
+            let held = view.read(cx).held.as_ref().expect("the drop is held");
+            held.found
+                .iter()
+                .map(|found| found.as_ref().map(wording::found))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            looked,
+            [
+                Some(String::from("2 characters to remove or replace.")),
+                Some(String::from("Nothing to remove.")),
+                Some(String::from("A visible mark.")),
+                Some(String::from(
+                    "TIFF pictures are not read in this version yet."
+                )),
+            ]
+        );
+        let offered = cx.update(|_, cx| {
+            let panel = view.read(cx);
+            clean_offered(panel.cleaning(cx), &panel.held.as_ref().unwrap().states())
+        });
+        assert!(
+            offered,
+            "Clean is not offered over a drop with things to clean"
+        );
+
+        view.update(cx, |view, cx| view.clean(cx));
+        let busy = cx.update(|_, cx| view.read(cx).cleaning(cx));
+        assert!(busy, "Clean does not say it is cleaning");
+        cx.run_until_parked();
+
+        let done = cx.update(|_, cx| {
+            let panel = view.read(cx);
+            let held = panel.held.as_ref().expect("the drop is held");
+            held.done
+                .iter()
+                .map(|done| done.as_ref().map(|outcome| outcome.verdict.id()))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            done,
+            [
+                Some("cleaned"),
+                Some("nothing-found"),
+                Some("cleaned"),
+                None
+            ],
+            "a thing was skipped, or the TIFF was cleaned"
+        );
+        let mut names: Vec<String> = std::fs::read_dir(&scratch)
+            .expect("list")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                "marked.cleaned.md",
+                "marked.md",
+                "plain.md",
+                "scan.tif",
+                "torch-1025.cleaned.png",
+                "torch-1025.png",
+            ]
+        );
+        assert!(!std::fs::read_to_string(scratch.join("marked.cleaned.md"))
+            .expect("result")
+            .contains('\u{200B}'));
+        let after = cx.update(|_, cx| {
+            let panel = view.read(cx);
+            (
+                panel.cleaning(cx),
+                clean_offered(panel.cleaning(cx), &panel.held.as_ref().unwrap().states()),
+            )
+        });
+        assert_eq!(
+            after,
+            (false, false),
+            "Clean is still offered with nothing left"
+        );
+        std::fs::remove_dir_all(&scratch).ok();
     }
 }

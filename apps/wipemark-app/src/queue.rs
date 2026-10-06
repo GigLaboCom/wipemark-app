@@ -79,13 +79,12 @@
 //! page are a `uniform_list`, so a page of a hundred draws the twelve
 //! that are on screen.
 
-use std::collections::VecDeque;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Local};
 use gpui::prelude::*;
 use gpui::{
     div, img, px, uniform_list, AnyElement, App, ClipboardItem, Context, Corner, Div, Entity,
@@ -108,6 +107,7 @@ use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_intake::{Arrived, Handed, Intake, Kind};
 
 use crate::clean::{self, Cleanable, Outcome, Refusal, Verdict};
+use crate::cleaner::{self, Cleaner};
 use crate::compare::{self, Comparison, Subject};
 use crate::drop::{self, Arrival, Catcher, Landed};
 use crate::icon::{Icon, IconName};
@@ -389,70 +389,6 @@ pub enum Status {
     Done(Arc<Outcome>),
 }
 
-/// One clean asked for: the row, and the one existing result it may
-/// write over when it was asked for by "Replace the existing result".
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Job {
-    pub id: u64,
-    pub replacing: Option<PathBuf>,
-}
-
-/// The cleans asked for and not yet finished: **one runs at a time**, and
-/// the rest wait their turn, first asked first done.
-///
-/// One at a time because a picture is decoded whole and its raster copied
-/// to be restored — two at once is two of those in memory — and because a
-/// row's plan is taken when its clean starts, which only means something
-/// if the cleans start in the order they were asked for. Pure, so the
-/// rule is checked without a window.
-#[derive(Debug, Default)]
-pub struct Line {
-    waiting: VecDeque<Job>,
-    running: Option<u64>,
-    /// Finished, and asked for, since the line was last empty — what
-    /// "Cleaning 2 of 5" counts.
-    finished: usize,
-    asked: usize,
-}
-
-impl Line {
-    /// Put a clean at the back of the line.
-    pub fn push(&mut self, job: Job) {
-        self.asked += 1;
-        self.waiting.push_back(job);
-    }
-
-    /// The clean to start now: the front of the line, if nothing is
-    /// running.
-    pub fn start(&mut self) -> Option<Job> {
-        if self.running.is_some() {
-            return None;
-        }
-        let job = self.waiting.pop_front()?;
-        self.running = Some(job.id);
-        Some(job)
-    }
-
-    /// The clean of row `id` is over. The count starts again once the
-    /// line is empty.
-    pub fn finish(&mut self, id: u64) {
-        if self.running == Some(id) {
-            self.running = None;
-            self.finished += 1;
-        }
-        if self.running.is_none() && self.waiting.is_empty() {
-            self.finished = 0;
-            self.asked = 0;
-        }
-    }
-
-    /// Which clean of how many is running, counting from one — `None`
-    /// while nothing is.
-    pub fn progress(&self) -> Option<(usize, usize)> {
-        self.running.map(|_| (self.finished + 1, self.asked))
-    }
-}
-
 /// Why row's Clean item is greyed, or `None` when it is not: a thing
 /// that cannot be cleaned says why, and a row already in line or done
 /// says that. Pure, so the menu's rule is checked without one.
@@ -531,13 +467,17 @@ pub struct Queue {
     /// the way in — see [`page_range`].
     page: usize,
     page_size: usize,
-    /// The cleans asked for and not yet over.
-    line: Line,
+    /// The application's one line of cleans, which the panel's wait in
+    /// too (D283).
+    cleaner: Entity<Cleaner>,
     /// Paths `--clean=` handed in, cleaned as their rows land — each
     /// once.
     to_clean: Vec<PathBuf>,
     /// Dropped with the view: every drop, and every import, lands here.
     _landed: Subscription,
+    /// Dropped with the view: the line says when a row's clean starts and
+    /// what it did.
+    _cleaned: Subscription,
     /// Dropped with the view: what is typed into the filter bar.
     _typed: [Subscription; 2],
 }
@@ -569,6 +509,13 @@ impl Queue {
         let landed = cx.subscribe(&catcher, |queue, _, Landed(arrivals): &Landed, cx| {
             queue.take(arrivals.clone(), cx);
         });
+        let cleaner = Cleaner::shared(&preferences, cx);
+        let cleaned = cx.subscribe(
+            &cleaner,
+            |queue: &mut Self, _, event: &cleaner::Event, cx| {
+                queue.heard(event, cx);
+            },
+        );
 
         let by_id = cx.new(|cx| {
             InputState::new(window, cx).placeholder(SharedString::from(t(Message::QueueFilterId)))
@@ -611,9 +558,10 @@ impl Queue {
             order: Order::NewestFirst,
             page: 0,
             page_size: DEFAULT_PAGE_SIZE,
-            line: Line::default(),
+            cleaner,
             to_clean: Vec::new(),
             _landed: landed,
+            _cleaned: cleaned,
             _typed: [typed_id, typed_keyword],
         }
     }
@@ -853,9 +801,9 @@ impl Queue {
         self.clean(&ids, cx);
     }
 
-    /// Put the waiting rows among `ids` in line, in that order, and start
-    /// the first if nothing is running. A row that is not waiting is not
-    /// asked twice.
+    /// Put the waiting rows among `ids` in the application's line, in that
+    /// order, behind whatever any window asked before. A row that is not
+    /// waiting is not asked twice.
     pub fn clean(&mut self, ids: &[u64], cx: &mut Context<Self>) {
         for &id in ids {
             let Some(row) = self.rows.iter_mut().find(|row| row.id == id) else {
@@ -864,13 +812,14 @@ impl Queue {
             if !matches!(row.status, Status::Waiting) {
                 continue;
             }
-            row.status = Status::Queued;
-            self.line.push(Job {
-                id,
-                replacing: None,
-            });
+            let arrival = row.arrival.clone();
+            if self
+                .cleaner
+                .update(cx, |cleaner, cx| cleaner.ask(id, arrival, None, cx))
+            {
+                row.status = Status::Queued;
+            }
         }
-        self.next(cx);
         cx.notify();
     }
 
@@ -884,19 +833,19 @@ impl Queue {
         let Some(existing) = row.outcome().and_then(existing_result) else {
             return;
         };
-        row.status = Status::Queued;
-        self.line.push(Job {
-            id,
-            replacing: Some(existing),
-        });
-        self.next(cx);
+        let arrival = row.arrival.clone();
+        if self.cleaner.update(cx, |cleaner, cx| {
+            cleaner.ask(id, arrival, Some(existing), cx)
+        }) {
+            row.status = Status::Queued;
+        }
         cx.notify();
     }
 
     /// Which clean of how many is running — the status bar's "Cleaning 2
-    /// of 5".
-    pub fn progress(&self) -> Option<(usize, usize)> {
-        self.line.progress()
+    /// of 5", counted over every window's cleans.
+    pub fn progress(&self, cx: &App) -> Option<(usize, usize)> {
+        self.cleaner.read(cx).progress()
     }
 
     /// The status of row `id`, if it is here.
@@ -914,63 +863,33 @@ impl Queue {
         self.rows.iter().map(|row| row.id).collect()
     }
 
-    /// Start the clean at the front of the line, if none is running.
-    ///
-    /// The plan is taken **now**, from the Retention page's rows as they
-    /// stand: the row's clean starts with it, and a later change does not
-    /// reach a row already cleaned. Everything the clean does happens on
-    /// the background executor.
-    fn next(&mut self, cx: &Context<Self>) {
-        while let Some(job) = self.line.start() {
-            let Some(row) = self.rows.iter_mut().find(|row| row.id == job.id) else {
-                self.line.finish(job.id);
-                continue;
-            };
-            row.status = Status::Cleaning;
-            let plan = self.preferences.read(cx).plan_for(&row.arrival.intake);
-            let arrival = row.arrival.clone();
-            let id = job.id;
-            cx.spawn(async move |queue, cx| {
-                let outcome = cx
-                    .background_executor()
-                    .spawn(async move {
-                        let now = Utc::now();
-                        match &job.replacing {
-                            Some(existing) => {
-                                clean::replace_one(&arrival, &plan, id, now, existing)
-                            }
-                            None => clean::clean_one(&arrival, &plan, id, now),
-                        }
-                    })
-                    .await;
-                queue
-                    .update(cx, |queue, cx| queue.finished(id, outcome, cx))
-                    .ok();
-            })
-            .detach();
-            return;
-        }
-    }
-
-    /// Row `id`'s clean is over: say so, and start the next.
-    fn finished(&mut self, id: u64, outcome: Outcome, cx: &mut Context<Self>) {
+    /// What the line said about one of this queue's rows — a clean of the
+    /// panel's is not a row here, and is not heard.
+    fn heard(&mut self, event: &cleaner::Event, cx: &mut Context<Self>) {
+        let (id, status) = match event {
+            cleaner::Event::Started(id) => (*id, Status::Cleaning),
+            cleaner::Event::Finished(id, outcome) => (*id, Status::Done(outcome.clone())),
+        };
         if let Some(row) = self.rows.iter_mut().find(|row| row.id == id) {
-            row.status = Status::Done(Arc::new(outcome));
+            row.status = status;
+            cx.notify();
         }
-        self.line.finish(id);
-        self.next(cx);
-        cx.notify();
     }
 
     /// The cleaned text of row `id`, for Copy the result — looked up at
     /// click time rather than cloned into every menu, for the reason
     /// [`compare_row`] gives.
     fn result_text(&self, id: u64) -> Option<String> {
-        self.rows
-            .iter()
-            .find(|row| row.id == id)
-            .and_then(Row::outcome)
-            .and_then(|outcome| outcome.text.clone())
+        let row = self.rows.iter().find(|row| row.id == id)?;
+        row.outcome()?.text.clone()
+    }
+}
+
+/// Copy the result: row `id`'s cleaned text onto the clipboard. The
+/// person's own text, cleaned: no catalogue touches it on the way there.
+fn copy_result(queue: &Entity<Queue>, id: u64, cx: &App) {
+    if let Some(text) = queue.read(cx).result_text(id) {
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
     }
 }
 
@@ -1457,13 +1376,7 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
                     PopupMenuItem::new(SharedString::from(t(Message::QueueActionCopyResult)))
                         .icon(IconName::Copy)
                         .disabled(!actions.text)
-                        .on_click(move |_, _, cx| {
-                            // The person's own text, cleaned: no catalogue
-                            // touches it on the way to the clipboard.
-                            if let Some(text) = copying.read(cx).result_text(id) {
-                                cx.write_to_clipboard(ClipboardItem::new_string(text));
-                            }
-                        }),
+                        .on_click(move |_, _, cx| copy_result(&copying, id, cx)),
                 )
                 .item(
                     PopupMenuItem::new(SharedString::from(t(Message::QueueActionReport)))
@@ -1900,16 +1813,17 @@ mod tests {
         div, point, px, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, TestAppContext,
         VisualTestContext,
     };
-    use wipemark_i18n::{t, Message};
-    use wipemark_intake::Kind;
+    use wipemark_i18n::{args, t, Message};
+    use wipemark_intake::{Handed, Kind};
 
     use super::{
-        kind_glyph, kind_tag, page_range, pages, row_frame, shown, why_not_clean, Cleanable,
-        Column, Filter, Job, Line, Order, Queue, Status, PAGE_SIZES, ROW,
+        copy_result, kind_glyph, kind_tag, page_range, pages, row_frame, shown, why_not_clean,
+        Cleanable, Column, Filter, Order, Queue, Status, PAGE_SIZES, ROW,
     };
     use crate::clean::Verdict;
     use crate::retention::{Destination, Homes};
     use crate::settings::Preferences;
+    use crate::wording;
 
     /// A column added to the list is a column with a title: a header
     /// cell that rendered a catalogue key would say so on every launch.
@@ -1957,46 +1871,6 @@ mod tests {
                     && word[1..].chars().all(|c| c.is_ascii_digit())),
             "an epic number reached a window: {line}"
         );
-    }
-
-    /// One clean at a time, first asked first done: a second start while
-    /// one runs hands nothing out, and the next is the one asked for
-    /// next. The count is of the cleans since the line was last empty.
-    #[test]
-    fn one_clean_runs_at_a_time_in_the_order_asked() {
-        let job = |id| Job {
-            id,
-            replacing: None,
-        };
-        let mut line = Line::default();
-        assert_eq!(line.start(), None, "an empty line starts nothing");
-        assert_eq!(line.progress(), None);
-
-        line.push(job(4));
-        line.push(job(2));
-        assert_eq!(line.start(), Some(job(4)));
-        assert_eq!(
-            line.start(),
-            None,
-            "a second clean started beside the first"
-        );
-        assert_eq!(line.progress(), Some((1, 2)));
-
-        // Asked for while one runs: behind the one already waiting.
-        line.push(job(9));
-        assert_eq!(line.progress(), Some((1, 3)));
-        line.finish(4);
-        assert_eq!(line.start(), Some(job(2)));
-        assert_eq!(line.progress(), Some((2, 3)));
-        line.finish(2);
-        assert_eq!(line.start(), Some(job(9)));
-        line.finish(9);
-        assert_eq!(line.start(), None);
-        assert_eq!(line.progress(), None, "the count starts again");
-
-        line.push(job(10));
-        assert_eq!(line.start(), Some(job(10)));
-        assert_eq!(line.progress(), Some((1, 1)));
     }
 
     /// Clean is greyed with a reason for a thing that cannot be cleaned —
@@ -2318,14 +2192,14 @@ mod tests {
             ["cleaning", "queued", "waiting"],
             "not one at a time, in order"
         );
-        assert_eq!(cx.update(|_, cx| queue.read(cx).progress()), Some((1, 2)));
+        assert_eq!(cx.update(|_, cx| queue.read(cx).progress(cx)), Some((1, 2)));
         // Asked again while the line runs — by Clean all, or row by row
         // as `--clean=` and the menu ask: nothing is asked twice.
         queue.update(cx, |queue, cx| queue.clean_all(cx));
-        assert_eq!(cx.update(|_, cx| queue.read(cx).progress()), Some((1, 2)));
+        assert_eq!(cx.update(|_, cx| queue.read(cx).progress(cx)), Some((1, 2)));
         let ids = cx.update(|_, cx| queue.read(cx).ids());
         queue.update(cx, |queue, cx| queue.clean(&ids[..2], cx));
-        assert_eq!(cx.update(|_, cx| queue.read(cx).progress()), Some((1, 2)));
+        assert_eq!(cx.update(|_, cx| queue.read(cx).progress(cx)), Some((1, 2)));
         assert_eq!(statuses(&queue, cx), ["cleaning", "queued", "waiting"]);
 
         // The page changes while the second row waits.
@@ -2335,7 +2209,7 @@ mod tests {
         cx.run_until_parked();
 
         assert_eq!(statuses(&queue, cx), ["cleaned", "cleaned", "waiting"]);
-        assert_eq!(cx.update(|_, cx| queue.read(cx).progress()), None);
+        assert_eq!(cx.update(|_, cx| queue.read(cx).progress(cx)), None);
         // A done row asked again stays done: its result is not written twice.
         queue.update(cx, |queue, cx| queue.clean(&ids[..1], cx));
         assert_eq!(statuses(&queue, cx), ["cleaned", "cleaned", "waiting"]);
@@ -2400,8 +2274,86 @@ mod tests {
         );
         assert_eq!(std::fs::read(&source).expect("read"), MARKED.as_bytes());
 
+        // That file only: nothing else was written, and the row says it
+        // replaced the result rather than wrote a new one.
+        let mut names: Vec<String> = std::fs::read_dir(&scratch.0)
+            .expect("list")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        names.sort();
+        assert_eq!(names, ["results", "x.cleaned.md", "x.md"]);
+        let went = cx.update(|_, cx| match queue.read(cx).status_of(id) {
+            Some(Status::Done(outcome)) => wording::went_in(&wording::window, outcome),
+            _ => Vec::new(),
+        });
+        let replaced_line =
+            wording::window(Message::QueueWentReplaced, &args!("name" => "x.cleaned.md"));
+        assert!(went.contains(&replaced_line), "{went:?}");
+
         // Done is done: a second Replace has nothing to replace.
         queue.update(cx, |queue, cx| queue.replace(id, cx));
         assert_eq!(statuses(&queue, cx), ["cleaned"]);
+    }
+
+    /// The live check's case 7, as a test: a pasted text with a U+200B,
+    /// "Keep what you paste" on, cleaned; Copy the result puts the cleaned
+    /// text on the clipboard, and the kept directory holds the characters
+    /// as they were pasted and no result.
+    #[gpui::test]
+    fn a_paste_is_cleaned_copied_and_its_original_kept(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("paste");
+        let (queue, preferences, cx) = queue_in(cx, &scratch);
+        preferences.update(cx, |preferences, cx| preferences.keep_originals(true, cx));
+        let pasted = "paste\u{200B}me";
+
+        queue.update(cx, |queue, cx| {
+            queue.land(vec![Handed::Text(pasted.to_owned())], cx)
+        });
+        cx.run_until_parked();
+        let ids = cx.update(|_, cx| queue.read(cx).ids());
+        assert_eq!(ids.len(), 1);
+        queue.update(cx, |queue, cx| queue.clean(&ids, cx));
+        cx.run_until_parked();
+        assert_eq!(statuses(&queue, cx), ["cleaned"]);
+
+        cx.update(|_, cx| copy_result(&queue, ids[0], cx));
+        let copied = cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text()));
+        assert_eq!(
+            copied.as_deref(),
+            Some("pasteme"),
+            "the copy is not the result"
+        );
+
+        let kept: Vec<std::path::PathBuf> = std::fs::read_dir(scratch.0.join("kept"))
+            .expect("kept/")
+            .map(|entry| entry.expect("entry").path())
+            .collect();
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        let mut copies: Vec<String> = std::fs::read_dir(&kept[0])
+            .expect("the kept directory")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        copies.sort();
+        assert_eq!(
+            copies,
+            ["original.txt"],
+            "a result was kept with its switch off"
+        );
+        assert_eq!(
+            std::fs::read(kept[0].join("original.txt")).expect("original"),
+            pasted.as_bytes()
+        );
     }
 }

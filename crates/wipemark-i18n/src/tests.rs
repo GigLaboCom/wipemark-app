@@ -330,6 +330,137 @@ fn no_catalogue_string_carries_a_run_of_spaces() {
     }
 }
 
+/// Our backlog's ids — `E7`, `E4-6b` — are ours: a person reading a window
+/// can do nothing with one, and what every pending surface says instead is
+/// "not in this version yet" (`CLAUDE.md`, "No epic number leaves this
+/// repository"). Over the **values** of every message and term, in every
+/// language, every variant of a selector included — a comment is code and
+/// keeps its epic ids. The pattern is `\bE\d+(-\d+[a-z]?)?\b`.
+#[test]
+fn no_catalogue_value_carries_an_epic_number() {
+    // A value that legitimately matches the pattern goes here by key, with
+    // the reason — never a looser pattern. None does today.
+    const ALLOWED: [&str; 0] = [];
+    for language in languages() {
+        let source = catalogue::source(&language).expect("shipped catalogue");
+        for entry in &parse(&source).body {
+            let (id, value, attributes) = match entry {
+                ast::Entry::Message(message) => {
+                    (message.id.name, message.value.as_ref(), &message.attributes)
+                }
+                ast::Entry::Term(term) => (term.id.name, Some(&term.value), &term.attributes),
+                _ => continue,
+            };
+            if ALLOWED.contains(&id) {
+                continue;
+            }
+            let mut text = String::new();
+            for pattern in value
+                .into_iter()
+                .chain(attributes.iter().map(|attribute| &attribute.value))
+            {
+                text_of(pattern, &mut text);
+            }
+            if let Some(found) = epic_number_in(&text) {
+                panic!(
+                    "{language}: `{id}` says {found:?} — an epic number is our backlog, \
+                     and a reader can do nothing with it: {text:?}"
+                );
+            }
+        }
+    }
+}
+
+/// Every literal a pattern can render, every variant included.
+fn text_of(pattern: &ast::Pattern<&str>, out: &mut String) {
+    for element in &pattern.elements {
+        match element {
+            ast::PatternElement::TextElement { value } => out.push_str(value),
+            ast::PatternElement::Placeable { expression } => text_of_expression(expression, out),
+        }
+    }
+}
+
+fn text_of_expression(expression: &ast::Expression<&str>, out: &mut String) {
+    match expression {
+        ast::Expression::Inline(ast::InlineExpression::StringLiteral { value }) => {
+            out.push(' ');
+            out.push_str(value);
+            out.push(' ');
+        }
+        ast::Expression::Inline(ast::InlineExpression::Placeable { expression }) => {
+            text_of_expression(expression, out);
+        }
+        ast::Expression::Inline(_) => out.push(' '),
+        ast::Expression::Select { variants, .. } => {
+            for variant in variants {
+                out.push(' ');
+                text_of(&variant.value, out);
+                out.push(' ');
+            }
+        }
+    }
+}
+
+/// The first match of `\bE\d+(-\d+[a-z]?)?\b` in `text`, by hand: this
+/// crate takes no regex engine for one test.
+fn epic_number_in(text: &str) -> Option<String> {
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let chars: Vec<char> = text.chars().collect();
+    for (at, &c) in chars.iter().enumerate() {
+        if c != 'E' || (at > 0 && word(chars[at - 1])) {
+            continue;
+        }
+        let digits = |from: usize| {
+            chars[from..]
+                .iter()
+                .take_while(|c| c.is_ascii_digit())
+                .count()
+        };
+        let mut end = at + 1;
+        let n = digits(end);
+        if n == 0 {
+            continue;
+        }
+        end += n;
+        // The optional `-\d+[a-z]?`, taken only when it leaves a boundary.
+        if chars.get(end) == Some(&'-') {
+            let m = digits(end + 1);
+            if m > 0 {
+                let mut step = end + 1 + m;
+                if chars.get(step).is_some_and(char::is_ascii_lowercase) {
+                    step += 1;
+                }
+                if !chars.get(step).copied().is_some_and(word) {
+                    end = step;
+                }
+            }
+        }
+        if !chars.get(end).copied().is_some_and(word) {
+            return Some(chars[at..end].iter().collect());
+        }
+    }
+    None
+}
+
+#[test]
+fn an_epic_number_is_found_where_the_pattern_finds_one() {
+    for (text, found) in [
+        ("Cleaning (E7)…", Some("E7")),
+        ("E4-6b is next", Some("E4-6b")),
+        ("in E12-8.", Some("E12-8")),
+        ("Ende E1", Some("E1")),
+        ("E7a", None),
+        ("NE7", None),
+        ("E", None),
+        ("Excel", None),
+        ("the E-mail", None),
+        ("U+200E", None),
+    ] {
+        assert_eq!(epic_number_in(text).as_deref(), found, "{text:?}");
+    }
+}
+
 /// Every confidence `wipemark_core` has, listed by hand — core has no
 /// `Confidence::ALL` — and kept honest by [`confidence_ordinal`]'s
 /// exhaustive `match`: a fifth confidence does not compile there until

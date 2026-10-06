@@ -929,9 +929,9 @@ settings-retention-over = A file is replaced by its result once the original has
 # is Wipemark's own folder; $period is one of the `settings-retention-span-*`
 # lines, so the sentence reads "kept in … for a week".
 settings-retention-keeps-nothing = Nothing that arrives without a file — a paste, a drag out of a browser — is kept once its result has replaced it.
-settings-retention-keeps-originals = The original of a paste or a drag is kept in { $folder } { $period }; results are not.
+settings-retention-keeps-originals = The original of a paste or a drag is kept in { $folder } { $period } when cleaning it changed something; results are not.
 settings-retention-keeps-results = The result of a paste or a drag is kept in { $folder } { $period }; originals are not.
-settings-retention-keeps-both = The original and the result of a paste or a drag are kept in { $folder } { $period }.
+settings-retention-keeps-both = The original and the result of a paste or a drag are kept in { $folder } { $period } when cleaning it changed something.
 # The last line, in every state.
 settings-retention-pending = The windows clean by these rules: what they write, and what they keep, follows this page. The command line and agents read none of them — the command line is told where a result goes on each run, and an agent gets its result back.
 

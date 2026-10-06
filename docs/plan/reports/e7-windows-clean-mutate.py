@@ -56,6 +56,10 @@ WORDING = "apps/wipemark-app/src/wording.rs"
 EN = "crates/wipemark-i18n/i18n/en-US/wipemark.ftl"
 RU = "crates/wipemark-i18n/i18n/ru/wipemark.ftl"
 SETTINGS = "apps/wipemark-app/src/settings.rs"
+CLEANER = "apps/wipemark-app/src/cleaner.rs"
+INPLACE = "crates/wipemark-intake/src/inplace.rs"
+CLI_IMAGE = "apps/wipemark-cli/src/image.rs"
+CLI_RUN = "apps/wipemark-cli/src/run.rs"
 
 
 def t(name):
@@ -82,6 +86,22 @@ def s_(name):
     return (APP, f"settings::tests::{name}")
 
 
+def i(name):
+    return (["-p", "wipemark-i18n"], f"tests::{name}")
+
+
+def n(name):
+    return (["-p", "wipemark-intake"], f"inplace::tests::{name}")
+
+
+def cli(name):
+    return (["-p", "wipemark-cli", "--test", "parity"], name)
+
+
+def k(name):
+    return (APP, f"cleaner::tests::{name}")
+
+
 # (id, protection, file, old, new, [(cargo test args, test name filter)])
 MUTATIONS = [
     # ------------------------------------------------ E7-1: the cleaner
@@ -89,8 +109,8 @@ MUTATIONS = [
         "E7-1/M1",
         "an existing result is refused, never overwritten (D261)",
         CLEAN,
-        "    if there && replacing != Some(destination) {",
-        "    if false {",
+        "        inplace::write_new(destination, bytes, source)",
+        "        inplace::write_atomically(destination, bytes, source)",
         [t("an_existing_result_is_refused_and_left_alone")],
     ),
     (
@@ -224,26 +244,24 @@ MUTATIONS = [
     (
         "E7-2/M1",
         "two cleans at once instead of one at a time",
-        QUEUE,
+        CLEANER,
         """        if self.running.is_some() {
             return None;
         }
         let job = self.waiting.pop_front()?;""",
         """        let job = self.waiting.pop_front()?;""",
         [
-            q("one_clean_runs_at_a_time_in_the_order_asked"),
+            k("one_clean_runs_at_a_time_in_the_order_asked"),
             q("the_queue_cleans_one_row_at_a_time_by_the_plan_at_its_start"),
         ],
     ),
     (
         "E7-2/M2",
         "the plan is not the Retention page's as it stands when the clean starts",
-        QUEUE,
-        """            row.status = Status::Cleaning;
-            let plan = self.preferences.read(cx).plan_for(&row.arrival.intake);""",
-        """            row.status = Status::Cleaning;
-            let plan = crate::retention::plan(
-                &crate::retention::Source::of(&row.arrival.intake),
+        CLEANER,
+        """            let plan = self.preferences.read(cx).plan_for(&arrival.intake);""",
+        """            let plan = crate::retention::plan(
+                &crate::retention::Source::of(&arrival.intake),
                 &crate::retention::Retention::default(),
                 self.preferences.read(cx).homes(),
             );""",
@@ -256,8 +274,8 @@ MUTATIONS = [
         """            if !matches!(row.status, Status::Waiting) {
                 continue;
             }
-            row.status = Status::Queued;""",
-        """            row.status = Status::Queued;""",
+            let arrival = row.arrival.clone();""",
+        """            let arrival = row.arrival.clone();""",
         [q("the_queue_cleans_one_row_at_a_time_by_the_plan_at_its_start")],
     ),
     (
@@ -273,8 +291,8 @@ MUTATIONS = [
         "E7-2/M5",
         "Replace writes over a file other than the one named",
         CLEAN,
-        "    if there && replacing != Some(destination) {",
-        "    if there && replacing.is_none() {",
+        "    let replaces = replacing == Some(destination) &&",
+        "    let replaces = replacing.is_some() &&",
         [t("a_result_is_replaced_only_where_it_was_named")],
     ),
     (
@@ -340,7 +358,7 @@ MUTATIONS = [
         REPORT,
         """    let not_established = shelf_ids(intake, outcome)
         .into_iter()""",
-        """    let not_established = Vec::<(&str, &str)>::new()
+        """    let not_established = Vec::<&str>::new()
         .into_iter()""",
         [r("every_outcome_has_its_three_shelves")],
     ),
@@ -364,16 +382,16 @@ MUTATIONS = [
         "E7-4/M4",
         "a picture's shelf without the pixels' claim first",
         REPORT,
-        "    if picture {\n        ids.push((",
-        "    if false {\n        ids.push((",
+        "        None if intake.kind == Kind::Image => wipemark_pixels::not_established::shelf(),",
+        "        None if intake.kind == Kind::Image => core().collect(),",
         [r("every_outcome_has_its_three_shelves")],
     ),
     (
         "E7-4/M5",
         "a claim with no sentence dropped",
         REPORT,
-        "        _ => return format!(\"{canonical} ({id})\"),",
-        "        _ => return String::new(),",
+        "                None => id.to_owned(),",
+        "                None => String::new(),",
         [r("a_claim_with_no_sentence_is_shown_in_its_own_words")],
     ),
     (
@@ -484,9 +502,230 @@ MUTATIONS = [
         """In this version both run from the command line and for an agent over MCP, and neither runs from these windows yet.""",
         [s_("the_welcome_says_the_windows_clean_and_do_not_rewrite")],
     ),
+    # -- W: the first follow-ups (wipemark-task-e7-followups-1-2026-10-05) ---
+    (
+        "W1/M1",
+        "no epic number in a catalogue value (the verifier's H16)",
+        EN,
+        "panel-cleaning = Cleaning…",
+        "panel-cleaning = Cleaning (E7)…",
+        [i("no_catalogue_value_carries_an_epic_number")],
+    ),
+    (
+        "W2/M1",
+        "a window cleans a picture of AI provenance only (H3)",
+        CLEAN,
+        "const SCOPE: Scope = Scope::AiProvenance;",
+        "const SCOPE: Scope = Scope::AllMetadata;",
+        [t("a_picture_loses_its_ai_provenance_and_keeps_the_rest")],
+    ),
+    (
+        "W3/M1",
+        "the log line carries a path's shape, never the path (H6)",
+        CLEAN,
+        "        written = shape(outcome.written.as_deref()),",
+        "        written = ?outcome.written,",
+        [t("the_log_line_carries_no_path_no_name_and_no_text")],
+    ),
+    (
+        "W3/M2",
+        "a refusal's log line names no path",
+        CLEAN,
+        'Refusal::SameFile(path) => format!("same file: {}", elided(path)),',
+        'Refusal::SameFile(path) => format!("same file: {}", path.display()),',
+        [t("the_log_line_carries_no_path_no_name_and_no_text")],
+    ),
+    (
+        "W4/M1",
+        "the look counts a C2PA manifest alone as AI metadata, as the clean does",
+        CLEAN,
+        "                    ai_metadata: seen.metadata.has_ai_metadata(),",
+        "                    ai_metadata: seen.metadata.has_ai_metadata() && !seen.metadata.has_c2pa(),",
+        [
+            t("a_picture_marked_by_c2pa_alone_is_looked_at_and_cleaned_alike"),
+            t("the_look_agrees_with_the_clean"),
+        ],
+    ),
+    (
+        "W5/M1",
+        "a picture past PICTURE_LIMIT is refused before it is decoded (H10)",
+        CLEAN,
+        "Cleanable::Picture(_) => Ok(PICTURE_LIMIT),",
+        "Cleanable::Picture(_) => Ok(u64::MAX / 2),",
+        [
+            t("a_picture_past_the_limit_is_refused_before_it_is_decoded"),
+            t("a_picture_that_grows_past_the_limit_while_read_is_refused"),
+        ],
+    ),
+    (
+        "W5/M2",
+        "a file that grows past the limit while read is refused",
+        CLEAN,
+        "    if bytes.len() as u64 > limit {",
+        "    if false {",
+        [t("a_picture_that_grows_past_the_limit_while_read_is_refused")],
+    ),
+    (
+        "W10/M1",
+        "in place replaces the file that was read and no other (H8)",
+        CLEAN,
+        "            if read.path.as_deref() != Some(file.as_path()) {",
+        "            if false {",
+        [t("in_place_never_replaces_a_file_other_than_the_one_read")],
+    ),
+    (
+        "W10/M2",
+        "the sweep runs after each keep (H11, D267)",
+        CLEAN,
+        "                if let Err(error) = sweep(&kept.in_, kept.for_, now) {",
+        "                if let Err(error) = Ok::<usize, io::Error>(0) {",
+        [t("a_clean_that_keeps_sweeps_what_has_expired")],
+    ),
+    (
+        "W10/M3",
+        "a dangling link where the result would go is in the way (H14's protection, now the publish's, D284)",
+        CLEAN,
+        "        inplace::write_new(destination, bytes, source)",
+        "        inplace::write_atomically(destination, bytes, source)",
+        [t("a_dangling_link_where_the_result_goes_is_in_the_way")],
+    ),
+    (
+        "W11/M1",
+        "a picture's third shelf is its pixel pass's own, not the constants",
+        REPORT,
+        "                Visible::Examined { report, .. } => report.not_established.clone(),",
+        "                Visible::Examined { .. } => wipemark_pixels::not_established::shelf(),",
+        [r("the_third_shelf_is_the_reports_own")],
+    ),
+    (
+        "W11/M2",
+        "an id the metadata pass carries is on the shelf",
+        REPORT,
+        "            for id in &picture.metadata.not_established {",
+        "            for id in &Vec::<&'static str>::new() {",
+        [r("the_third_shelf_is_the_reports_own")],
+    ),
+    (
+        "W12/M1",
+        "the Markdown copy spells and escapes what it pastes",
+        REPORT,
+        "            out.push_str(&spelled(&line.text));",
+        "            out.push_str(&line.text);",
+        [r("the_markdown_copy_spells_and_escapes_a_name")],
+    ),
+    (
+        "W12/M2",
+        "Markdown's characters are escaped in the copy",
+        REPORT,
+        "            if MARKDOWN.contains(&character) {",
+        "            if false {",
+        [r("the_markdown_copy_spells_and_escapes_a_name")],
+    ),
+    (
+        "W13/M1",
+        "the keep sentence says only a paste that cleaning changed is kept",
+        EN,
+        "settings-retention-keeps-originals = The original of a paste or a drag is kept in { $folder } { $period } when cleaning it changed something; results are not.",
+        "settings-retention-keeps-originals = The original of a paste or a drag is kept in { $folder } { $period }; results are not.",
+        [s_("the_keep_sentence_says_only_a_change_is_kept")],
+    ),
+    (
+        "W13/M2",
+        "the Russian keep sentence says the same",
+        RU,
+        "settings-retention-keeps-both = Оригинал и результат вставленного или перетащенного хранятся в { $folder } { $period }, если очистка что-то в нём изменила.",
+        "settings-retention-keeps-both = Оригинал и результат вставленного или перетащенного хранятся в { $folder } { $period }.",
+        [s_("the_keep_sentence_says_only_a_change_is_kept")],
+    ),
+    (
+        "W6/M1",
+        "Compare decodes through the queue's strict road, not the preview's (D282)",
+        COMPARE,
+        "        let text = clean::text_of(&arrival).map_err(Refusal::of)?;",
+        "        let text = match &arrival.handed { Handed::Path(path) => crate::preview::decode(&std::fs::read(path).map_err(|_| Refusal::Unreadable)?, arrival.intake.encoding), _ => clean::text_of(&arrival).map_err(Refusal::of)? };",
+        [c("what_the_queue_will_not_decode_is_refused_in_its_words")],
+    ),
+    (
+        "W7/M1",
+        "one line per application, not per window (D283)",
+        CLEANER,
+        "        if let Some(Shared(cleaner)) = cx.try_global::<Shared>() {",
+        "        if let Some(Shared(cleaner)) = None::<&Shared> {",
+        [k("two_windows_cleaning_one_file_write_it_once")],
+    ),
+    (
+        "W7/M2",
+        "a new result is published without replacing what appeared (D284)",
+        INPLACE,
+        "match link(&temporary, destination) {",
+        "match std::fs::rename(&temporary, destination) {",
+        [n("a_new_result_never_replaces_what_appeared_under_its_name")],
+    ),
+    (
+        "W7/M3",
+        "the original is set aside without replacing one already there (D284)",
+        INPLACE,
+        "    match link(path, &original) {",
+        "    match std::fs::rename(path, &original) {",
+        [n("an_existing_original_is_never_overwritten")],
+    ),
+    (
+        "W8/M1",
+        "Copy the result copies the cleaned text, not the paste",
+        QUEUE,
+        "        row.outcome()?.text.clone()",
+        "        row.outcome()?;\n        match &row.arrival.handed { Handed::Text(text) => Some(text.clone()), _ => None }",
+        [q("a_paste_is_cleaned_copied_and_its_original_kept")],
+    ),
+    (
+        "W8/M2",
+        "Replace writes over the refused result, never the source",
+        QUEUE,
+        "            cleaner.ask(id, arrival, Some(existing), cx)",
+        "            cleaner.ask(id, arrival.clone(), arrival.intake.path.clone(), cx)",
+        [q("a_refused_result_is_replaced_only_when_asked")],
+    ),
+    (
+        "W8/M3",
+        "the panel's Clean cleans every thing that can be cleaned",
+        PANEL,
+        "        for index in to_clean(&states) {",
+        "        for index in to_clean(&states).into_iter().skip(1) {",
+        [p("a_drop_on_the_panel_is_looked_at_and_cleaned")],
+    ),
+    (
+        "W9/M1",
+        "the CLI's picture exit changes and the table is not changed (the CLI's half)",
+        CLI_IMAGE,
+        "    if restored {\n        Exit::Findings",
+        "    if restored {\n        Exit::Clean",
+        [cli("the_cli_cleans_to_the_windows_table")],
+    ),
+    (
+        "W9/M2",
+        "the CLI's text exit changes and the table is not changed (the CLI's half)",
+        CLI_RUN,
+        "    let exit = if cleaned.report.suspicious {",
+        "    let exit = if cleaned.report.suspicious || cleaned.text != read.text {",
+        [cli("the_cli_cleans_to_the_windows_table")],
+    ),
+    (
+        "W9/M3",
+        "a window's picture verdict drifts from the CLI's exit (the application's half)",
+        CLEAN,
+        "            let verdict = if report.marks_left() {\n                Verdict::Partly(Left::Mark)",
+        "            let verdict = if report.marks_left() {\n                Verdict::Cleaned",
+        [t("the_windows_clean_to_the_clis_table")],
+    ),
+    (
+        "W9/M4",
+        "a window writes where the table says it does not (the application's half)",
+        CLEAN,
+        "            (verdict, changed)",
+        "            (verdict, true)",
+        [t("the_windows_clean_to_the_clis_table")],
+    ),
 ]
-
-
 def run(args, name):
     """`(red, compiled, command)`: a mutation that does not compile is not a
     protection that bit, and is reported apart."""

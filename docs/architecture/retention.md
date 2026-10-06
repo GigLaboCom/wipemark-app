@@ -175,7 +175,7 @@ in is a `.md` out, container preserved, which is E4's parser's job
 |---|---|---|---|
 | Where results go | `results.destination` | `beside` · `folder` · `replace` | `beside` |
 | Results folder | `results.folder` | absolute path, or `""` for the platform's Downloads folder | `""` |
-| Keep what you paste | `keep.originals` | `true` · `false` | `false` |
+| Keep what you paste — the original of a paste that cleaning changed (D265) | `keep.originals` | `true` · `false` | `false` |
 | Keep results | `keep.results` | `true` · `false` | `false` |
 | For how long | `keep.for` | `1d` · `7d` · `30d` · `90d` · `forever` | `7d` |
 
@@ -232,18 +232,27 @@ never one already writing.
 ## How the windows execute it
 
 `clean::clean_one` is the one road from a plan to the disk, run on the
-background executor, one clean at a time (the queue's line and the
-panel's loop both wait for the one before):
+background executor, one clean at a time across the application: the
+queue's cleans and the panel's wait in one line, `cleaner::Cleaner`
+(D283). Two cleans of the same file to the same destination therefore
+end as one result and one refusal, never as two writes:
 
 * **Rule 1, beside.** `name.cleaned.ext`, or into the results folder,
   written only where nothing is: a file already there is refused and
   left byte for byte (D261), and **Replace the existing result** is the
-  one explicit way over it (`clean::replace_one`, D270). A result
+  one explicit way over it (`clean::replace_one`, D270). "Only where
+  nothing is" is the write's own rule, not just a check before it:
+  `wipemark_intake::inplace::write_new` publishes the result by a hard
+  link, which the operating system refuses when a file has taken the name
+  meanwhile — the CLI's, a second launch's (D284). A file system without
+  hard links gets a `create_new` copy, which refuses a taken name too. A result
   identical to its input is never written (D260, D262).
 * **Rule 2, in place.** `wipemark_intake::inplace::replace` with
-  `Keep::Original` — the CLI's own call: the file is renamed to
-  `name.original.ext` first, refused when one is already there, and the
-  result goes over the path through a synced temporary file. The windows
+  `Keep::Original` — the CLI's own call: the file gets its second name,
+  `name.original.ext`, first, by a hard link that is refused when the name
+  is taken (D284; a rename after a check where hard links are refused).
+  Then the result goes over the path through a synced temporary file,
+  and the original keeps the second name. The windows
   have no "no original" road.
 * **Rule 3.** Still true: the CLI reads none of these rows. The windows
   read them through `Preferences::plan_for`, and nothing else does.
@@ -252,9 +261,13 @@ panel's loop both wait for the one before):
   under `<data dir>/kept`, named by the time in UTC and the row
   (`20261005T134602-7`), holding `original.<ext>` (the bytes as they
   arrived, markup included) and `result.<ext>`, each only when its switch
-  is on. With both switches off nothing is created, the folder included.
-  The copy is made **before** the result replaces anything, so a copy
-  that cannot be made stops the clean.
+  is on — and only when the clean **has a result** (D265): "Keep what you
+  paste" keeps the original of a paste that cleaning changed, and nothing
+  for a paste in which nothing was found, one that was refused, or a text
+  only partly clean. The Retention page's second line says so in every
+  language. With both switches off nothing is created, the folder
+  included. The copy is made **before** the result replaces anything, so
+  a copy that cannot be made stops the clean.
 * **The sweep.** `clean::sweep` removes the directories under `kept/`
   whose own name is older than the period — once a launch, on the
   background executor, and after each clean that kept something. It

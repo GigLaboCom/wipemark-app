@@ -22,6 +22,14 @@ image/    real PNG/JPEG/WebP files from the C2PA project's public
           each file's claim are in `image/README.md`; everything
           injected (SD `parameters`, ComfyUI, XMP DigitalSourceType…)
           is built in `crates/wipemark-image/tests/support/`.
+clean-parity/
+          the windows' clean against the CLI's (E7, W9): six small
+          inputs — two Markdown files, a UTF-16 text with a byte order
+          mark, a soft hyphen, a homoglyph, a TIFF head — and
+          `table.tsv`, which also names six of `image/`'s pictures. The
+          table is the claim: the CLI's exit and whether it writes, and
+          whether a window writes, per input; `apps/wipemark-cli/tests/
+          parity.rs` and the app's `clean::tests` both read it.
 ```
 
 `text/keep-*.txt` — the survival set (E1-2): one file per context rule

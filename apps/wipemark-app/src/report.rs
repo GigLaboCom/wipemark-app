@@ -156,7 +156,7 @@ pub fn sheet(say: Say, intake: &Intake, outcome: &Outcome) -> Sheet {
 
     let not_established = shelf_ids(intake, outcome)
         .into_iter()
-        .map(|(id, canonical)| Line::top(shelf_line(say, id, canonical)))
+        .map(|id| Line::top(shelf_line(say, id)))
         .collect();
 
     Sheet {
@@ -169,36 +169,57 @@ pub fn sheet(say: Say, intake: &Intake, outcome: &Outcome) -> Sheet {
     }
 }
 
-/// The report's own third shelf, as `(id, canonical English)`, in its
-/// order: a picture's leads with the pixels' claim, then core's three. A
-/// thing never read is a picture when it arrived as one.
-pub fn shelf_ids(intake: &Intake, outcome: &Outcome) -> Vec<(&'static str, &'static str)> {
-    let picture = match &outcome.report {
-        Some(Report::Picture(_)) => true,
-        Some(Report::Text(_)) => false,
-        None => intake.kind == Kind::Image,
-    };
-    let mut ids = Vec::new();
-    if picture {
-        ids.push((
-            wipemark_pixels::not_established::ID,
-            wipemark_pixels::not_established::INVISIBLE_PIXEL_MARKS,
-        ));
+/// The report's own third shelf, as ids, in its order.
+///
+/// A picture's is read off its report: the pixel pass's shelf, which leads
+/// with `invisible-pixel-marks` — or that claim alone, when the pixels were
+/// not examined and the pass has no report — then every id the metadata
+/// pass carries that is not already there. A text's `CleanReport` carries
+/// no shelf of its own: its JSON writes core's `not_established::ALL`, and
+/// so does this. A thing never read has no report at all, and is given the
+/// shelf of what it arrived as (D277).
+pub fn shelf_ids(intake: &Intake, outcome: &Outcome) -> Vec<&'static str> {
+    let core = || not_established::ALL.iter().map(|(id, _)| *id);
+    match &outcome.report {
+        Some(Report::Picture(picture)) => {
+            let mut ids = match &picture.visible {
+                Visible::Examined { report, .. } => report.not_established.clone(),
+                Visible::NotExamined(_) => vec![wipemark_pixels::not_established::ID],
+            };
+            for id in &picture.metadata.not_established {
+                if !ids.contains(id) {
+                    ids.push(*id);
+                }
+            }
+            ids
+        }
+        Some(Report::Text(_)) => core().collect(),
+        None if intake.kind == Kind::Image => wipemark_pixels::not_established::shelf(),
+        None => core().collect(),
     }
-    ids.extend(not_established::ALL.iter().copied());
-    ids
 }
 
 /// One entry of the third shelf in the reader's language — or, for an id
-/// this build has no sentence for, the canonical English beside its id:
-/// an entry is never dropped.
-fn shelf_line(say: Say, id: &str, canonical: &str) -> String {
+/// this build has no sentence for, its canonical English beside it, or the
+/// id alone when nothing here knows it: an entry is never dropped.
+fn shelf_line(say: Say, id: &str) -> String {
     let message = match id {
         "vendor-detector-evasion" => Message::ReportNotEstablishedVendorDetectorEvasion,
         "human-authorship" => Message::ReportNotEstablishedHumanAuthorship,
         "unknown-mark-schemes" => Message::ReportNotEstablishedUnknownMarkSchemes,
         "invisible-pixel-marks" => Message::ReportNotEstablishedInvisiblePixelMarks,
-        _ => return format!("{canonical} ({id})"),
+        _ => {
+            let canonical = not_established::ALL
+                .iter()
+                .find(|(known, _)| *known == id)
+                .map(|(_, canonical)| *canonical)
+                .or((id == wipemark_pixels::not_established::ID)
+                    .then_some(wipemark_pixels::not_established::INVISIBLE_PIXEL_MARKS));
+            return match canonical {
+                Some(canonical) => format!("{canonical} ({id})"),
+                None => id.to_owned(),
+            };
+        }
     };
     say(message, &none())
 }
@@ -619,25 +640,59 @@ fn signal_label(signal: Signal) -> Message {
 /// The sheet as Markdown, every word through `say` — [`wording::plain`]
 /// for the clipboard, so nothing a window needs and a pipe does not
 /// (U+2068/U+2069) leaves with it.
+///
+/// A line carries what nobody wrote for Markdown — a file's name, a path,
+/// the operating system's sentence — so every line is [`spelled`]: a
+/// character Layer A would remove is written as `U+XXXX`, the way the MCP
+/// server says back what a client sent, and Markdown's own characters are
+/// escaped, so a name with `*` or `#` in it reads back as itself.
 pub fn markdown(say: Say, sheet: &Sheet) -> String {
     let mut out = format!(
         "# {}\n",
-        say(
+        spelled(&say(
             Message::WindowReportTitle,
             &args!("name" => sheet.title.clone())
-        )
+        ))
     );
     for (title, lines) in sheet.sections() {
-        out.push_str(&format!("\n## {}\n\n", say(title, &none())));
+        out.push_str(&format!("\n## {}\n\n", spelled(&say(title, &none()))));
         for line in lines {
             out.push_str(&"  ".repeat(line.depth));
             out.push_str("- ");
-            out.push_str(&line.text);
+            out.push_str(&spelled(&line.text));
             out.push('\n');
         }
     }
     out
 }
+
+/// One line of the Markdown copy: what Layer A would remove from it, and
+/// any control character, spelled as `U+XXXX`; Markdown's characters
+/// escaped with a backslash. Everything else — Cyrillic, umlauts, the
+/// typography of the catalogue — as it is.
+fn spelled(line: &str) -> String {
+    use std::fmt::Write as _;
+    let removed: Vec<char> = wipemark_core::inspect(line, &wipemark_core::Options::default())
+        .findings
+        .iter()
+        .map(|finding| finding.codepoint)
+        .collect();
+    let mut out = String::with_capacity(line.len());
+    for character in line.chars() {
+        if character.is_control() || removed.contains(&character) {
+            let _ = write!(out, "U+{:04X}", u32::from(character));
+        } else {
+            if MARKDOWN.contains(&character) {
+                out.push('\\');
+            }
+            out.push(character);
+        }
+    }
+    out
+}
+
+/// The characters Markdown reads as markup anywhere in a line.
+const MARKDOWN: [char; 10] = ['\\', '`', '*', '_', '[', ']', '#', '<', '>', '|'];
 
 /// What was last copied, for the word beside the button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -874,7 +929,7 @@ mod tests {
     use wipemark_intake::Handed;
 
     use super::{markdown, sheet, Copied, ReportView, Sheet};
-    use crate::clean::{self, Outcome, Refusal, Verdict};
+    use crate::clean::{self, Outcome, Refusal, Report, Verdict};
     use crate::drop::Arrival;
     use crate::retention::{self, Homes, Retention, Source};
 
@@ -1058,15 +1113,108 @@ mod tests {
         }
     }
 
-    /// An id of the third shelf this build has no sentence for is shown
-    /// as its canonical English beside the id — never dropped.
+    /// The third shelf is read off the report: an id a picture's pixel
+    /// pass or its metadata pass carries — one this build has no sentence
+    /// for — is shown, as itself, in the report's order, and never dropped.
+    #[test]
+    fn the_third_shelf_is_the_reports_own() {
+        use wipemark_picture::Visible;
+        let scratch = Scratch::new("own-shelf");
+        let bytes = std::fs::read(fixture("gemini/torch-1025.png")).expect("fixture");
+        let (arrival, mut outcome) = cleaned(&scratch, "torch-1025.png", &bytes);
+        let Some(Report::Picture(picture)) = &mut outcome.report else {
+            panic!("{:?}", outcome.verdict);
+        };
+        let Visible::Examined { report, .. } = &mut picture.visible else {
+            panic!("the pixels were not examined");
+        };
+        report.not_established.push("a-pixel-claim");
+        picture.metadata.not_established.push("a-metadata-claim");
+        let localizer = english();
+        let say = |message: Message, args: &FluentArgs| localizer.format_args(message, args);
+        let shelf: Vec<String> = sheet(&say, &arrival.intake, &outcome)
+            .not_established
+            .into_iter()
+            .map(|line| line.text)
+            .collect();
+        assert_eq!(shelf.len(), 6, "{shelf:?}");
+        assert_eq!(
+            shelf[0],
+            say(
+                Message::ReportNotEstablishedInvisiblePixelMarks,
+                &FluentArgs::new()
+            )
+        );
+        assert_eq!(shelf[4], "a-pixel-claim", "{shelf:?}");
+        assert_eq!(shelf[5], "a-metadata-claim", "{shelf:?}");
+    }
+
+    /// An id core lists that this build's catalogue has no sentence for is
+    /// shown as its canonical English beside the id; an id nothing here
+    /// knows, as the id — never dropped.
     #[test]
     fn a_claim_with_no_sentence_is_shown_in_its_own_words() {
         let localizer = english();
         let say = |message: Message, args: &FluentArgs| localizer.format_args(message, args);
-        let line = super::shelf_line(&say, "a-new-claim", "a claim added to core first");
-        assert!(line.contains("a claim added to core first"), "{line}");
-        assert!(line.contains("a-new-claim"), "{line}");
+        assert_eq!(super::shelf_line(&say, "a-new-claim"), "a-new-claim");
+        let empty = |_: Message, _: &FluentArgs| String::new();
+        for (id, canonical) in wipemark_core::report::not_established::ALL {
+            let line = super::shelf_line(&say, id);
+            assert!(!line.is_empty() && !line.contains(id), "{id}: {line}");
+            // With no sentence to say it in, the canonical words and the id.
+            let unsaid = super::shelf_line(&empty, id);
+            assert!(unsaid.is_empty() || unsaid.contains(canonical), "{unsaid}");
+        }
+    }
+
+    /// The Markdown copy spells what nobody wrote for Markdown: a file
+    /// named with a U+200B and Markdown's characters, in every language,
+    /// leaves no character Layer A would remove in the copy, and reads
+    /// back as its own name with the invisible character spelled.
+    #[test]
+    fn the_markdown_copy_spells_and_escapes_a_name() {
+        let scratch = Scratch::new("named");
+        let name = "a\u{200B}b*c_d`e[f]#g.md";
+        let (arrival, outcome) = cleaned(&scratch, name, MARKED.as_bytes());
+        let spelled = "aU+200Bb*c_d`e[f]#g";
+        for language in available_languages() {
+            let localizer =
+                Localizer::for_languages(std::slice::from_ref(&language.id), Rendering::PlainText);
+            let say = |message: Message, args: &FluentArgs| localizer.format_args(message, args);
+            let copy = markdown(&say, &sheet(&say, &arrival.intake, &outcome));
+            let found = wipemark_core::inspect(&copy, &wipemark_core::Options::default());
+            assert!(
+                found.findings.is_empty(),
+                "{}: {:?} in {copy}",
+                language.id,
+                found.findings
+            );
+            assert!(
+                copy.contains("aU+200Bb\\*c\\_d\\`e\\[f\\]\\#g"),
+                "{}: the name is not escaped: {copy}",
+                language.id
+            );
+            let read_back = unescaped(&copy);
+            assert!(
+                read_back.contains(&format!("{spelled}.md"))
+                    && read_back.contains(&format!("{spelled}.cleaned.md")),
+                "{}: {read_back}",
+                language.id
+            );
+        }
+    }
+
+    /// What a Markdown reader shows for a backslash-escaped line.
+    fn unescaped(markdown: &str) -> String {
+        let mut out = String::new();
+        let mut chars = markdown.chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' => out.extend(chars.next()),
+                c => out.push(c),
+            }
+        }
+        out
     }
 
     /// A dialog over `outcome`, drawn in a window's real words — with the
@@ -1130,6 +1278,13 @@ mod tests {
         assert!(
             !copied.contains(['\u{2068}', '\u{2069}']),
             "the copy carries an isolate: {copied:?}"
+        );
+        // Nor their spelling: the copy is made of plain words, not of the
+        // window's words with the isolates spelled out (W12 spells any that
+        // got there).
+        assert!(
+            !copied.contains("U+2068") && !copied.contains("U+2069"),
+            "the copy was made from the window's words: {copied:?}"
         );
     }
 

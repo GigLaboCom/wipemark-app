@@ -266,7 +266,7 @@ that still ships in the binary and still has to be licence-audited.
 | `film` | the queue's glyph for sound and video (E6) |
 | `chevron-up` / `chevron-down` | the queue's Arrived header: which way the rows run (E6); `chevron-down` was already the disclosure glyph and the page-size menu's |
 | `chevron-left` / `chevron-right` | the paginator's Previous and Next (E6); `chevron-right` was already the disclosure glyph |
-| `rotate-left` | the filter bar's "Reset filters" (E6) — lazy-shot's `RotateCcw`; the Compare window's "Back to the original" (E7) |
+| `rotate-left` | the filter bar's "Reset filters" (E6) — lazy-shot's `RotateCcw`; the Compare window's "Back to the cleaned text" (E7, D272) |
 | `code-compare` | the queue's Actions menu: compare with the result; the Compare window's footer, beside the count of lines that differ (E7) |
 | `scissors` | the result's toolbar: Cut — `input::Cut`, the editor's own action (E7) |
 | `object-group` | the result's toolbar: Select all — `input::SelectAll` (E7) |
