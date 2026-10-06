@@ -36,7 +36,8 @@ Usage
 Run from the repository root, after the gates are green:
 
     python3 docs/plan/reports/e7-windows-clean-mutate.py              # every mutation
-    python3 docs/plan/reports/e7-windows-clean-mutate.py E7-1         # one step
+    python3 docs/plan/reports/e7-windows-clean-mutate.py E7-1         # one item
+    python3 docs/plan/reports/e7-windows-clean-mutate.py X            # one step
     python3 docs/plan/reports/e7-windows-clean-mutate.py E7-1/M3      # one mutation
     python3 docs/plan/reports/e7-windows-clean-mutate.py --check      # every old text is there once
     python3 docs/plan/reports/e7-windows-clean-mutate.py --compile    # each applied and compiled
@@ -936,9 +937,13 @@ def compile_only(args):
 
 
 def selected(wanted):
+    """The mutations asked for: all, one (`X3/M1`), one item (`X3`) or one
+    step (`X`, `W`, `E7`) — an item's id with its number taken off."""
     for m in MUTATIONS:
         mid = m[0]
-        if not wanted or mid in wanted or mid.split("/")[0] in wanted:
+        item = mid.split("/")[0]
+        step = item.rstrip("0123456789").rstrip("-") or item
+        if not wanted or mid in wanted or item in wanted or step in wanted:
             yield m
 
 
@@ -1012,6 +1017,9 @@ def main(wanted):
         print(f"{mid}: {verdict}", flush=True)
         for name, r, _, command in red:
             print(f"    {'red  ' if r else 'GREEN'} {command}", flush=True)
+    if not results:
+        print("nothing selected", flush=True)
+        return 1
     print()
     print("| # | protection | result | tests |")
     print("|---|---|---|---|")
