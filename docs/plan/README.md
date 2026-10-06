@@ -72,7 +72,7 @@ cleaned or rewritten, which every surface says out loud.
 | gates at `497eafa` | dep-direction, nightly rustfmt, clippy `-D warnings --locked`, `cargo test --workspace --locked` **576 passed, 0 failed, 1 ignored**, both `--locked` feature checks — all green | run 2026-10-03, recorded in `wipemark-status-2026-10-03` |
 | size | ≈44.6 k lines of Rust in `crates/` + `apps/`; 14 documents in `docs/architecture/`; 421 catalogue keys × 3 languages | `wc -l`, `grep -c` |
 | toolchain | 1.94.1 pinned in `rust-toolchain.toml` with `clippy`/`rustfmt` components; nightly only for rustfmt | `rust-toolchain.toml`, CLAUDE.md "Gates" |
-| GPUI | zed `gpui` at rev `81b16f464ce91e40c1c645b56675c26ee0b2b6c4`, rewritten into the submodule by `scripts/pin-gpui-component.sh` | that script |
+| GPUI | zed `gpui` at rev `81b16f464ce91e40c1c645b56675c26ee0b2b6c4`, rewritten into the submodule by `scripts/pin-gpui-component.sh`; since 2026-10-05 taken from the fork `GigLaboCom/zed` at `9d80553` (that rev plus two X11 fixes, `docs/architecture/gpui-pin.md`) | that script |
 | gpui-component | submodule `vendor/gpui-component` at `a2f9c95`, from the organisation's fork `GigLaboCom/gpui-component`, protected branch `heretic/epic-4-line-decorations` (moved from a personal fork on 2026-10-03; §8 R1, `docs/sdd/line-decorations.md`) | `.gitmodules`; `git submodule status` |
 
 ### 1.2 Per crate
@@ -137,6 +137,64 @@ the only part of the product whose output is *verifiable* (OV §0.1 rule
 that say "not in this version". It is also a hard dependency of Layer B:
 the pipeline runs A, then B, then A again (OV §4.2 step 4), and the five
 guards that reject a bad rewrite are E1 code (A §6).
+
+### 2.1 Pull requests and branches — the plan as of 2026-10-05
+
+**One pull request is open: #1, `feat/e0-e6-shell` → `main`**
+(<https://github.com/GigLaboCom/wipemark-app/pull/1>). It is 160 commits
+ahead of `main` (last `main` commit 2026-09-07). Today it carries:
+
+- E0–E6;
+- E1 Layer A;
+- E2's engines;
+- E4-1…E4-7 and E4-6a;
+- E5's CLI;
+- E11-1…E11-3 and E12-1…E12-5 (five host-verified rounds);
+- E7's windows clean (`7621c9f`);
+- GPUI from the fork `GigLaboCom/zed` with the two X11 fixes (`c3aee8e`, `docs/architecture/gpui-pin.md`).
+
+Every work branch on `origin` is merged into it: `images/series{,-v2,-v3}`,
+`e7/windows-clean`, `gpui/x11-first-frame`, `e4/headless-rewrite`,
+`e2/llama-prebuilt`, `e11/image-{metadata,surfaces}`, `ci/{github,macos-tests}`.
+
+Merging #1 into `main` is the owner's to do. The coordinator never
+touches `main`. Its CI on GitHub Actions has every job green on code
+identical to the head. Jobs cancelled on 2026-10-05 with "not acquired by
+Runner of type hosted" were GitHub's capacity (`degraded_performance`,
+macOS arm64 queues), not the code, and are re-run rather than read as
+red.
+
+**The way of working stays as it is.** Each piece of work is a branch of
+its own, written by an agent from a Watchword task. The host then
+verifies it: the gates, the mutations, and a verifier's own mutations and
+measurements, whose scripts are committed under `scripts/verify/<series>/`.
+The coordinator merges it into `feat/e0-e6-shell`, updates `CLAUDE.md`
+and this plan, and pushes. A verifier's findings become the next task's
+requirements, never local fixes. Once #1 is merged, each next branch
+opens its own pull request against `main` instead of riding on `feat`.
+
+**What comes next, in order:**
+
+| # | branch (to be) | what | task (Watchword) | decisions | state |
+|---|---|---|---|---|---|
+| 1 | `e7/windows-clean` (continued) | E7 follow-ups W1–W15: an i18n gate on epic numbers; the picture scope, the log rule, C2PA alone and `PICTURE_LIMIT` guarded; Compare through the queue's strict road; one clean at a time per application, plus a no-clobber rename; gpui tests for paste, Replace and the panel; parity tests that run the CLI's code; the report's shelf and Markdown; wording and docs | `wipemark-task-e7-followups-1-2026-10-05` | D281–D290 | filed, not started |
+| 2 | — (the owner, by hand) | E7's live check in the windows, `docs/plan/reports/E7-windows-clean-live-check.md`: what the windows paint. The disk half is automated (`scripts/verify/e7/live-disk.sh`, 38/38). On this host the D-Bus workaround is no longer needed, and `scripts/verify/e7/clip.py` stands in for `pbcopy`/`pbpaste`. | — | — | waiting for the owner |
+| 3 | `gpui/bump-pre` | GPUI onto the newest `gpui-pre` snapshot; our gpui-component patch rebased, or dropped once longbridge/gpui-kit#3359 lands; the API fixed; patch B re-carried through `[patch.crates-io]`; the host's checklist after | `wipemark-task-gpui-bump-2026-10-052` | D291–D300 | filed, not started; after 1 |
+| 4 | `images/series-v3` (or the next images round) | three doc nits not yet filed: `visible-marks.md` 3439–3441 → 3442; "all 22" against `crying`'s aside; the fixtures README's `.convert("RGB")` | to be filed with the next images task | — | open |
+| 5 | `e4/windows-rewrite` | E4-6b: rewriting from the windows, with the queue (`wipemark-queue`) pushed to | to be written | — | next epic step |
+| 6 | — | E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), E9 licensing, E10 packaging | to be written | — | §7 |
+
+**Open with the owner** (§5): Q-C1–Q-C4 (E7's defaults: clean on arrival,
+all metadata, Layer A's finer choices, an existing result), Q-C5 (Compare's
+lenient decode; the verifier's recommendation is accepted as W6), Q-V4–Q-V7
+and Q-V9, the mn-embed-fleet restart, the Gemma 4 / Qwen3.8 catalogue
+entries, `llama-cpp-prebuilt`'s LICENSE, and the OpenAI/Grok captures.
+
+**Housekeeping, for the owner to allow:**
+
+- **Delete merged branches.** All eleven work branches above are merged into `feat`. Deleting them on `origin` is safe once #1 is merged.
+- **Remove the host worktrees.** They are `../wipemark-e7v`, `../wipemark-gpuifix` and `../wipemark-imgv3`, and can go.
+- **heretic-amuse-merge.** It pins the same GPUI rev "in lockstep" and needs the same fork lines (`docs/architecture/gpui-pin.md`, "What a bump means").
 
 ---
 

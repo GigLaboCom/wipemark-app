@@ -75,6 +75,16 @@ patch that upstream does not have — see
 `docs/sdd/line-decorations.md`. It moved there from a personal fork on
 2026-10-03; nothing else about the pin changed.
 
+GPUI itself comes from **`GigLaboCom/zed`** (a fork of upstream
+`zed-industries/zed`), branch `wipemark/x11-first-frame`, protected the
+same way: upstream `81b16f4` plus two X11 fixes (below, "Build, run,
+look"). The root `Cargo.toml` names the fork's URL and commit, and the
+pin script rewrites the submodule's five zed dependencies to **both** —
+Cargo tells git sources apart by URL, so the same commit under
+upstream's URL would still be a second package. It moved there on
+2026-10-05; a checkout pinned before that is re-pinned by running the
+script again.
+
 Skipping the pin script produces two different `gpui` packages in one
 binary and a type error deep inside gpui-component that reads like a
 compiler bug. It is idempotent; run it whenever in doubt.
@@ -193,15 +203,26 @@ cargo test -p wipemark-app duty::           # one module's tests
 cargo test -p wipemark-app -- --nocapture   # with the log lines
 ```
 
-**On the Ubuntu X11 host the window panics at its first frame** — any
-build, pre-E7 included — when the desktop portal reports the appearance:
-GPUI at the pinned rev borrows a `RefCell` that is already mutably
-borrowed (`gpui_linux`, `x11/window.rs:1556`). Under investigation. Until
-it is fixed, start it with the session bus out of reach,
-`DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent cargo run -p wipemark-app`;
-the theme then does not follow the system, and the portal-backed Open
-and Show in folder may do nothing. `scripts/verify/e7/live-disk.sh` does
-the same.
+**On X11, GPUI at upstream `81b16f4` has two bugs, and both are fixed
+on the fork branch we build from**, `GigLaboCom/zed`
+`wipemark/x11-first-frame` (`scripts/verify/startup-frame/`, 2026-10-05).
+The first is why a new window often showed a stale piece of the screen
+until the mouse moved: its `MapNotify` stayed in x11rb's queue, which
+calloop does not watch, so the refresh loop never started and nothing was
+presented. That is upstream zed #62081 (`f4178619ac`), backported as the
+branch's first commit — not a driver problem. The second was a panic,
+`RefCell already mutably borrowed` (`gpui_linux`, `x11/window.rs:1556`):
+the desktop portal's appearance event drew while the X11 client was
+borrowed. It showed only with gpui's `test-support`, which a `cargo test`
+links into `target/debug/wipemark`; the branch's second commit is ours and
+has no upstream counterpart. **A GPUI bump must re-carry the second**: a
+new fork branch from the new upstream rev with that commit on it (the
+first is upstream from `f4178619ac` on). A live check no longer needs the
+session bus out of reach; `scripts/verify/e7/live-disk.sh` still defaults
+to `DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent` (`APP_DBUS`). Where GPUI comes from, what we carry on it
+and what a bump means, with every upstream reference, is
+`docs/architecture/gpui-pin.md`; the bump itself is the task
+`wipemark-task-gpui-bump-2026-10-052`.
 
 Five things steer a run, and every one of them exists so a check can be
 made against something other than the real installation:
@@ -1575,7 +1596,10 @@ What exists so far:
 | `wipemark-task-e7-windows-clean-2026-10-05` | FILE | a task for an agent in a container: E7-1…E7-6, the windows clean text and pictures — the cleaner `clean.rs`, the queue's Clean / Clean all / `--clean=`, Compare's real result, the report with its three shelves, the panel, every "not yet" sentence; decisions from D260; checked live on the host after |
 | `wipemark-e7-windows-clean-report-2026-10-05` | FILE | its report: E7-1…E7-6 done, D260–D280, 41 of 41 mutations red, four owner questions, Compare's lenient decode left open; the host verification found it mergeable (merged `7621c9f`) — parity with the CLI over 13 inputs, 38 of 38 disk checks, 8 of the verifier's 18 mutations green |
 | `wipemark-task-e7-followups-1-2026-10-05` | FILE | the host verification's findings as W1–W15: an i18n gate on epic numbers, the picture scope, the log rule, C2PA alone and `PICTURE_LIMIT` guarded; Compare through the queue's strict road; one clean at a time per application and a no-clobber rename; gpui tests for the paste, Replace and the panel; parity tests that run the CLI's own code; the report's shelf and Markdown; decisions from D281 |
+| `wipemark-gpui-pin-architecture-2026-10-052` | FILE | a snapshot of `docs/architecture/gpui-pin.md`: GPUI at `81b16f4` from the fork `GigLaboCom/zed` (`9d80553`) with two X11 fixes — a stale first frame (upstream #62081) and a double borrow on the portal's appearance event (ours) — how upstream moved to `gpui-pre` snapshots, and what a bump means, with references |
+| `wipemark-task-gpui-bump-2026-10-052` | FILE | a task for an agent in a container: GPUI onto the newest `gpui-pre` snapshot, our gpui-component patch rebased (or dropped once gpui-kit#3359 lands), the API fixed, patch B re-carried through `[patch.crates-io]`, the host's checklist after; decisions D291–D300. The keys without the trailing `2` are the first uploads, before the fork's commits were filled in |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
+| `wipemark-status-2026-10-05` | FILE | where the project stood at the end of 2026-10-05: images rounds 3–5, E7 merged, the X11 first frame fixed through `GigLaboCom/zed`, and the plan of pull requests and branches (`docs/plan/README.md` §2.1) — PR #1 and what comes next, in order |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
