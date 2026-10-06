@@ -11,6 +11,88 @@ runs the same libraries with the same defaults (Layer A's defaults, a
 picture's AI provenance only): **the window's result and the CLI's must
 be the same bytes**. Each case says which `cmp` proves it.
 
+## What is already automated
+
+- `scripts/verify/e7/live-disk.sh` runs cases 1–6, 8, 9 (both runs) and
+  the first half of 10 with no click: it seeds a scratch database, launches
+  the application with `--clean=`, checks the disk against
+  `wipemark-cli clean -o` and checks the log.
+- Three of the hand steps are `#[gpui::test]`s now (E7 follow-ups, W8):
+  - case 7 is `queue::tests::a_paste_is_cleaned_copied_and_its_original_kept`;
+  - case 10's Replace is `queue::tests::a_refused_result_is_replaced_only_when_asked`;
+  - case 13 is `panel::tests::a_drop_on_the_panel_is_looked_at_and_cleaned`.
+
+  What is left for hands is what a test cannot see:
+  - the sentences as they read;
+  - a control that truncates;
+  - the Report and Compare windows (cases 11 and 12);
+  - a real drag from the file manager.
+
+## On Linux
+
+The cases are written for macOS. On a Linux desktop (the host verifier's
+Ubuntu, X11) the same cases run with these substitutions:
+
+- **The clipboard.** Where a case says `pbcopy` or `pbpaste`, use
+  `scripts/verify/e7/clip.py`. It speaks GTK's CLIPBOARD selection, the
+  one GPUI reads and writes on X11 and Wayland, and needs no xclip.
+
+  ```sh
+  printf 'paste\xe2\x80\x8bme' | python3 scripts/verify/e7/clip.py copy &   # pbcopy
+  python3 scripts/verify/e7/clip.py paste | od -An -tx1                     # pbpaste | xxd
+  ```
+
+  `copy` has to stay running: X11 has no clipboard without an owner. Where
+  `xxd` is missing, `od -An -tx1` shows the same bytes: `e2 80 8b` is
+  U+200B, and `e2 81 a8` / `e2 81 a9` are the isolates.
+- **The file manager.** Drag from Files instead of Finder. Off macOS a drop
+  goes through GPUI's own `ExternalPaths` (`drop::zone`), which carries
+  **files only**: a drag of text or of an image out of a browser does not
+  arrive at all (E10). Case 13's four files work. A text drag has no Linux
+  equivalent; its macOS case is the pasteboard destination's.
+- **Quitting.** Kill the PID the case started, not every `wipemark`:
+
+  ```sh
+  $APP --clean=$W/marked.md & PID=$!
+  # … the case …
+  kill $PID; wait $PID 2>/dev/null; ss -ltn | grep -q ':5056 ' || echo "port free"
+  ```
+
+  `pkill -x wipemark` would also take a second checkout's application, and
+  `lsof` is often not installed; `ss` is.
+- **The Retention rows.** For cases 8 and 9, seed the rows rather than
+  typing into the folder field. The values are JSON, as the page writes
+  them:
+
+  ```sh
+  sqlite3 $WIPEMARK_DATA_DIR/wipemark.db \
+    "INSERT OR REPLACE INTO settings (key, value) VALUES
+       ('ui.setup.done', 'true'),
+       ('results.destination', '\"folder\"'),
+       ('results.folder', '\"$W/out\"');"
+  ```
+
+  Use `'"replace"'` for case 9, and `'"beside"'` (or delete the row) to put
+  it back. Where there is no `sqlite3` binary, `live-disk.sh`'s `seed`
+  function does the same through Python's `sqlite3` module.
+- **The session bus.** At the pinned GPUI rev, the X11 backend panics at
+  the first frame when the desktop portal reports the appearance
+  (`RefCell already mutably borrowed`, `gpui_linux` `x11/window.rs:1556`).
+  Any build does this, pre-E7 included. Start the application with an
+  unreachable session bus so the portal stays quiet:
+
+  ```sh
+  DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent $APP --clean=$W/marked.md &
+  ```
+
+  The theme then stays at its default for the run, which no case checks.
+- **Show the result in its folder** (case 8). GPUI asks the desktop
+  portal over D-Bus first, which the unreachable bus above refuses. It then
+  falls back to opening the result's **folder** with the desktop's default
+  handler (`xdg-open`'s road), so expect a file-manager window on `$W/out`
+  with no file selected in it. Nothing else in the cases depends on the
+  desktop.
+
 ## 0. Setup
 
 ```sh

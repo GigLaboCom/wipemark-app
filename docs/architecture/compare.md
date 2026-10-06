@@ -80,13 +80,19 @@ shown here yet; it will be shown through this same comparison.
 ## What is real
 
 **Reading.** `Subject::read` turns what arrived into text on the
-background executor: characters as they came, a file read whole and
-decoded in the encoding the intake found (the preview's own decoder, so
-a file the queue shows in one encoding is not compared in another),
-bytes with no file behind them likewise. It refuses three things by
-name: what is not text, what is past `TEXT_LIMIT` (eight megabytes,
-checked on the size *before* the read, so the file past it is never
-loaded to be refused), and what would not open. The window opens
+background executor through `clean::text_of` — the queue's Clean's own
+read: characters as they came, a file read whole and decoded **strictly**
+in the encoding the bytes say, bytes with no file behind them likewise
+(D282). So the window opens on exactly the text the queue would clean,
+a UTF-16 file's byte order mark included, and refuses what the queue
+refuses, in the sentence the queue's row shows: a file that is not valid
+in its encoding (at the byte), and one in an eight-bit encoding nobody
+named. The lenient decode — replacement characters for what does not
+decode — is the preview's alone, because a preview is a glance and a
+comparison is a promise about what will be written. It also refuses what
+is not text, what is past `TEXT_LIMIT` (eight megabytes, checked on the
+size *before* the read, so the file past it is never loaded to be
+refused), and what would not open. The window opens
 first, says "Reading…", and fills a moment later — nothing waits on a
 disk on the thread that draws the window.
 

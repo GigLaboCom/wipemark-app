@@ -72,21 +72,25 @@ The order is the protection, and it is `wipemark_intake::inplace::replace`'s:
    anything already has that name — a dangling link included — the run
    **refuses with 2**, names it, and touches neither file: the first
    original is the original (ExifTool's rule). Otherwise the file is
-   **renamed** there — one directory, so one volume, so atomic, and the
-   set-aside copy is the original byte for byte and inode for inode.
+   given that **second name by a hard link** — one directory, so one
+   volume; the operating system refuses it when the name is taken, so no
+   check comes before it (D284) — and the set-aside copy is the original
+   byte for byte and inode for inode. A file system without hard links
+   gets the old road: a check, then a rename.
 4. The cleaned bytes, in the file's own encoding with its byte order mark
    (D11), go to a temporary file in the same folder, are `fsync`ed, take
    the original's permissions and are renamed over the path.
-5. If step 4 fails after step 3, the original is renamed back and the run
-   exits 2 saying the file was not changed; if that rename fails too, the
+5. If step 4 fails after step 3, the second name is removed and the run
+   exits 2 saying the file was not changed — the file never moved. On the
+   rename road the original is renamed back; if that rename fails too, the
    refusal says where the original is now.
 
-The check in step 3 and the rename are two calls: a file created under
-that name between them would be replaced. `std` has no no-clobber rename
-(`renameat2(RENAME_NOREPLACE)` is Linux-only and needs `unsafe`), and a
-race against another process naming a file `x.original.md` in the same
-moment is accepted rather than hidden — and documented in
-`wipemark_intake::inplace` itself, where the next caller will read it.
+Step 3 used to be a check and a rename — two calls, so a file another
+process created under that name between them would have been replaced.
+The hard link is one call that cannot replace anything (D284, which
+supersedes D81's accepted race). Only on a file system without hard links
+is the check-then-rename still the road, and `wipemark_intake::inplace`
+says so where the next caller will read it.
 
 Two refusals the document did not list: **standard input** (`-`) has no
 file to replace, and **a symbolic link** is refused — renaming it aside

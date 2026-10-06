@@ -117,14 +117,20 @@ red — and the badge's tooltip is the outcome's one sentence
 clean" and the reason, which is also the line under its greyed Clean
 item (gpui-component's menu items have no tooltip, D269).
 
-**One clean at a time, first asked first done** (`queue::Line`, pure): a
-decoded picture is hundreds of megabytes, and a row's plan means
-something only if the cleans start in the order they were asked for. The
-clean itself is `clean::clean_one` on the background executor — no read,
-decode or write on the thread that draws. **The plan is taken when the
-row's clean starts**, from `Preferences::plan_for`: a Retention change made
-while a row waits applies to it, and one made after it is done does not
-move its result. While the line runs the status bar says "Cleaning 2 of 5".
+**One clean at a time, first asked first done — across the application**
+(`cleaner::Cleaner`, a GPUI global, over the pure `cleaner::Line`, D283):
+the queue's rows and the panel's Clean wait in the same line. A decoded
+picture is hundreds of megabytes; a row's plan means something only if the
+cleans start in the order they were asked for; and two cleans of one file
+to one destination, from two windows, must end as one result and one
+"already there" rather than two writes. The clean itself is
+`clean::clean_one` on the background executor — no read, decode or write
+on the thread that draws. **The plan is taken when the row's clean
+starts**, from `Preferences::plan_for`: a Retention change made while a row
+waits applies to it, and one made after it is done does not move its
+result. The line says when each clean starts and what it did as events,
+which is how a row goes from Queued to Cleaning to done. While it runs the
+status bar says "Cleaning 2 of 5", counting the panel's cleans too.
 
 Once done, the Name cell's note says where the result went
 (`wording::went`) and the hover card says what happened instead of what
