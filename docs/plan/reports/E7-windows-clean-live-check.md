@@ -82,7 +82,8 @@ Ubuntu, X11) the same cases run with these substitutions:
   borrowed` panic (`gpui_linux` `x11/window.rs:1556`) that once needed an
   unreachable session bus; see `docs/architecture/gpui-pin.md`.
   `live-disk.sh` still starts the application with
-  `DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent` by default (`APP_DBUS`);
+  `DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent-wipemark-verify` by
+  default (`APP_DBUS`, `scripts/verify/e7/live-disk.sh`);
   a hand-run case does not need it.
 - **Show the result in its folder** (case 8). GPUI asks the desktop
   portal over D-Bus to open the folder; where the portal refuses — or the

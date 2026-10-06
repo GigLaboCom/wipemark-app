@@ -13,10 +13,23 @@ trusting the report.
 What it does
 ------------
 For each entry of `MUTATIONS` — (id, protection, file, old text, new text,
-tests): check that the old text is in the file exactly once, write the file
-with it replaced, run the named tests with `cargo test --locked`, and put the
-file back from memory whatever happened (an exception, Ctrl-C). One mutation
-at a time; nothing else in the tree is touched.
+tests[, timeout]): check that the old text is in the file exactly once,
+write the file with it replaced, run the named tests with `cargo test
+--locked`, and put the file back from memory whatever happened (an
+exception, Ctrl-C). One mutation at a time; nothing else in the tree is
+touched.
+
+Every cargo run has a timeout — `MUTATE_TIMEOUT` seconds (default 1800),
+or the entry's own seventh element — because a mutation can make a test
+block rather than fail, and one blocked test would block the whole run. A
+run that outlives it is killed with its whole process group (cargo, the
+test binary and any thread it left waiting) and reported as **HANG**,
+which is not red. The kill is `scripts/verify/e7/mutate-host.py`'s: the
+child starts a session of its own and `os.killpg` takes it down (the
+second follow-ups, X2 — the coordinator, 2026-10-06).
+
+Step `X` is the second follow-ups' (`wipemark-task-e7-followups-2-2026-10-06`,
+report `docs/plan/reports/E7-followups-2-2026-10-06.md`).
 
 Usage
 -----
@@ -27,6 +40,7 @@ Run from the repository root, after the gates are green:
     python3 docs/plan/reports/e7-windows-clean-mutate.py E7-1/M3      # one mutation
     python3 docs/plan/reports/e7-windows-clean-mutate.py --check      # every old text is there once
     python3 docs/plan/reports/e7-windows-clean-mutate.py --compile    # each applied and compiled
+    MUTATE_TIMEOUT=900 python3 docs/plan/reports/e7-windows-clean-mutate.py X2
 
 Needs Python 3 and the repository's own toolchain (cargo, the GPUI system
 libraries the app's tests link against); no Python package.
@@ -36,13 +50,19 @@ What the output means
 One line per mutation and then a Markdown table. **red** is the expected
 answer: the protection is real. **GREEN** means the tests passed with the
 protection gone — the test guards nothing and the run exits non-zero.
+**HANG** means a test run outlived its timeout and was killed: a test that
+blocks instead of failing, also not red.
 A mutation the compiler stops is not a test that bit: it counts as not red,
 with its command marked `<- DID NOT COMPILE`. Afterwards `git status --short` must show nothing the script
 wrote. The results are in `docs/plan/reports/E7-windows-clean-<date>.md`.
 """
 
+import os
+import signal
 import subprocess
 import sys
+
+TIMEOUT = int(os.environ.get("MUTATE_TIMEOUT", "1800"))
 
 APP = ["-p", "wipemark-app"]
 
@@ -100,6 +120,19 @@ def cli(name):
 
 def k(name):
     return (APP, f"cleaner::tests::{name}")
+
+
+def qq(name):
+    return (["-p", "wipemark-queue", "--test", "queue"], name)
+
+
+def co(name):
+    return (["-p", "wipemark-core"], f"json::tests::{name}")
+
+
+DELIVER = "crates/wipemark-queue/src/deliver.rs"
+I18N_TESTS = "crates/wipemark-i18n/src/tests.rs"
+CORE_JSON = "crates/wipemark-core/src/json.rs"
 
 
 # (id, protection, file, old, new, [(cargo test args, test name filter)])
@@ -725,15 +758,166 @@ MUTATIONS = [
         "            (verdict, true)",
         [t("the_windows_clean_to_the_clis_table")],
     ),
+    # ------------------------------------- X: the second follow-ups (X1–X14)
+    (
+        "X1/M1",
+        "an interrupted in-place delivery whose file is its set-aside is finished (D286)",
+        DELIVER,
+        "                Ok(current) if is_the_set_aside(path, &current, &original) => {",
+        "                Ok(current) if false && is_the_set_aside(path, &current, &original) => {",
+        [qq("an_interrupted_delivery_is_finished_not_failed")],
+    ),
+    (
+        "X1/M2",
+        "where the inode cannot be seen, the same bytes under both names are the set-aside (D286)",
+        DELIVER,
+        "    inplace::same_file(path, original)\n        || std::fs::read(original).is_ok_and(|aside| aside == current)",
+        "    let _ = current;\n    inplace::same_file(path, original)",
+        [qq("an_interrupted_delivery_is_finished_not_failed")],
+    ),
+    (
+        "X2/M1",
+        "the FIFO test fails, never hangs, when the clean never opens the pipe (H39's change)",
+        CLEAN,
+        "    if metadata.is_dir() {\n        return Err(Refusal::NotCleanable(Unable::Folder));\n    }",
+        "    if !metadata.is_file() {\n        return Err(Refusal::NotCleanable(Unable::Folder));\n    }",
+        [t("a_picture_that_grows_past_the_limit_while_read_is_refused")],
+        900,
+    ),
+    (
+        "X3/M1",
+        "in place of a symbolic link is refused before the read (D287)",
+        CLEAN,
+        "    if let Some(refusal) = over_a_link(plan) {\n        return Outcome::refused(refusal);\n    }\n",
+        "",
+        [t("in_place_of_a_symbolic_link_is_refused_and_touches_nothing")],
+    ),
+    (
+        "X3/M2",
+        "the panel's look says the link refusal the clean will (D287)",
+        CLEAN,
+        "    if let Some(refusal) = over_a_link(plan) {\n        return Findings::NotLooked(refusal);\n    }\n",
+        "",
+        [t("in_place_of_a_symbolic_link_is_refused_and_touches_nothing")],
+    ),
+    (
+        "X4/M1",
+        "a picture not examined still leads its shelf with invisible-pixel-marks (H34)",
+        REPORT,
+        "                Visible::NotExamined(_) => vec![wipemark_pixels::not_established::ID],",
+        "                Visible::NotExamined(_) => Vec::new(),",
+        [r("a_picture_not_examined_still_leads_with_the_pixels_claim")],
+    ),
+    (
+        "X5/M1",
+        "the log line's set-aside is a shape, never the path (H38)",
+        CLEAN,
+        "        set_aside = shape(outcome.set_aside.as_deref()),",
+        "        set_aside = ?outcome.set_aside,",
+        [t("the_log_line_carries_no_path_no_name_and_no_text")],
+    ),
+    (
+        "X6/M1",
+        "the Markdown copy escapes '|', '<' and '>' (H30)",
+        REPORT,
+        "const MARKDOWN: [char; 10] = ['\\\\', '`', '*', '_', '[', ']', '#', '<', '>', '|'];",
+        "const MARKDOWN: [char; 7] = ['\\\\', '`', '*', '_', '[', ']', '#'];",
+        [r("the_markdown_copy_escapes_what_a_name_cannot_carry")],
+    ),
+    (
+        "X7/M1",
+        "the fallback removes its partial file when the copy fails (H25)",
+        INPLACE,
+        "        let _ = std::fs::remove_file(destination);\n",
+        "",
+        [n("a_copy_that_fails_part_way_leaves_nothing_behind")],
+    ),
+    (
+        "X8/M1",
+        "the temporary is staged in the destination's own folder (H26)",
+        INPLACE,
+        "    folder.join(format!(\".{name}.wipemark-{}.tmp\", std::process::id()))",
+        "    let _ = folder;\n    std::env::temp_dir().join(format!(\".{name}.wipemark-{}.tmp\", std::process::id()))",
+        [
+            n("a_new_result_never_replaces_what_appeared_under_its_name"),
+            n("the_temporary_is_staged_beside_the_destination"),
+        ],
+    ),
+    (
+        "X9/M1",
+        "no epic number spelled with a Cyrillic Е in a catalogue (H37)",
+        RU,
+        "        [few] Вставить { $count } файла\n",
+        "        [few] Вставить { $count } файла (Е7)\n",
+        [i("no_catalogue_value_carries_an_epic_number")],
+    ),
+    (
+        "X9/M2",
+        "the gate's pattern takes the Cyrillic Е",
+        I18N_TESTS,
+        "        if !matches!(c, 'E' | '\\u{0415}') || (at > 0 && word(chars[at - 1])) {",
+        "        if c != 'E' || (at > 0 && word(chars[at - 1])) {",
+        [i("an_epic_number_is_found_where_the_pattern_finds_one")],
+    ),
+    (
+        "X10/M1",
+        "the Markdown copy spells a removed character by where it is, not which it is",
+        REPORT,
+        "        if character.is_control() || removed.contains(&at) {",
+        "        let _ = at;\n        if character.is_control()\n            || line\n                .char_indices()\n                .any(|(other, same)| same == character && removed.contains(&other))\n        {",
+        [r("a_kept_emoji_joiner_is_not_spelled")],
+    ),
+    (
+        "X11/M1",
+        "a window's verdict for an unchanged suspicious text is the table's (D263)",
+        CLEAN,
+        "                (true, false) => Verdict::Partly(Left::Kept),",
+        "                (true, false) => Verdict::Cleaned,",
+        [t("the_windows_clean_to_the_clis_table")],
+    ),
+    (
+        "X12/M1",
+        "a clean that panics does not stop the line (D288)",
+        CLEANER,
+        "                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {\n                            run(&arrival, &plan, id, now, job.replacing.as_deref())\n                        }))\n                        .unwrap_or_else(|_| clean::panicked(id))",
+        "                        run(&arrival, &plan, id, now, job.replacing.as_deref())",
+        [k("a_clean_that_panics_does_not_stop_the_line")],
+        900,
+    ),
+    (
+        "X14/M1",
+        "a text's third shelf is read off its report (D289)",
+        REPORT,
+        "        Some(Report::Text(report)) => report.not_established.clone(),",
+        "        Some(Report::Text(_)) => core().collect(),",
+        [r("a_texts_third_shelf_is_its_reports_own")],
+    ),
+    (
+        "X14/M2",
+        "the JSON writes the report's own shelf (D289)",
+        CORE_JSON,
+        "    for (i, id) in shelf.iter().enumerate() {",
+        "    let _ = shelf;\n    for (i, (id, _)) in crate::report::not_established::ALL.iter().enumerate() {",
+        [co("the_json_shelf_is_the_reports_own")],
+    ),
 ]
-def run(args, name):
-    """`(red, compiled, command)`: a mutation that does not compile is not a
-    protection that bit, and is reported apart."""
+def run(args, name, timeout):
+    """`(red, compiled, hung, command)`: a mutation that does not compile is
+    not a protection that bit, and is reported apart; nor is one whose run
+    outlived `timeout`, which is killed with its whole process group."""
     command = ["cargo", "test", "--locked"] + args + ["--", name]
-    done = subprocess.run(command, capture_output=True, text=True)
-    compiled = "could not compile" not in done.stderr
-    ran = "running " in done.stdout
-    return done.returncode != 0 and compiled and ran, compiled, " ".join(command)
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               text=True, start_new_session=True)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        return False, True, True, " ".join(command)
+    compiled = "could not compile" not in stderr
+    ran = "running " in stdout
+    red = process.returncode != 0 and compiled and ran
+    return red, compiled, False, " ".join(command)
 
 
 def compile_only(args):
@@ -761,7 +945,7 @@ def selected(wanted):
 def check(wanted):
     """Every text to mutate is there exactly once — nothing is run."""
     ok = True
-    for mid, _, path, old, _, _ in selected(wanted):
+    for mid, _, path, old, *_ in selected(wanted):
         with open(path, encoding="utf-8") as f:
             n = f.read().count(old)
         if n != 1:
@@ -786,7 +970,7 @@ def mutate(path, old, new, body):
 
 def compile_all(wanted):
     ok = True
-    for mid, _, path, old, new, tests in selected(wanted):
+    for mid, _, path, old, new, tests, *_ in selected(wanted):
         result = mutate(path, old, new, lambda: compile_only(sum((a for a, _ in tests), [])))
         if result is None:
             print(f"{mid}: NOT APPLIED: the text to mutate moved", flush=True)
@@ -800,25 +984,33 @@ def compile_all(wanted):
 
 def main(wanted):
     results = []
-    for mid, protection, path, old, new, tests in selected(wanted):
+    for mid, protection, path, old, new, tests, *rest in selected(wanted):
+        timeout = rest[0] if rest else TIMEOUT
 
         def body():
             red = []
             for args, name in tests:
-                bit, compiled, command = run(args, name)
-                if not compiled:
+                bit, compiled, hung, command = run(args, name, timeout)
+                if hung:
+                    command += f"   <- HANG (killed after {timeout} s)"
+                elif not compiled:
                     command += "   <- DID NOT COMPILE"
-                red.append((name, bit, command))
+                red.append((name, bit, hung, command))
             return red
 
         red = mutate(path, old, new, body)
         if red is None:
             results.append((mid, protection, "NOT APPLIED: the text to mutate moved", ""))
             continue
-        verdict = "red" if all(r for _, r, _ in red) else "GREEN — the protection did not bite"
-        results.append((mid, protection, verdict, ", ".join(n for n, _, _ in red)))
+        if any(h for _, _, h, _ in red):
+            verdict = f"HANG (killed after {timeout} s)"
+        elif all(r for _, r, _, _ in red):
+            verdict = "red"
+        else:
+            verdict = "GREEN — the protection did not bite"
+        results.append((mid, protection, verdict, ", ".join(n for n, _, _, _ in red)))
         print(f"{mid}: {verdict}", flush=True)
-        for name, r, command in red:
+        for name, r, _, command in red:
             print(f"    {'red  ' if r else 'GREEN'} {command}", flush=True)
     print()
     print("| # | protection | result | tests |")

@@ -253,7 +253,12 @@ end as one result and one refusal, never as two writes:
   is taken (D284; a rename after a check where hard links are refused).
   Then the result goes over the path through a synced temporary file,
   and the original keeps the second name. The windows
-  have no "no original" road.
+  have no "no original" road. A file that is a **symbolic link** is
+  refused before it is read, whatever it holds (D287): the set-aside and
+  the rename would work on the link — `link.original.md` the link,
+  `link.md` a new file — and leave the document it points to as it was,
+  a clean said over a file nothing touched. The CLI refuses it too; the
+  panel's look says the refusal before Clean is pressed.
 * **Rule 3.** Still true: the CLI reads none of these rows. The windows
   read them through `Preferences::plan_for`, and nothing else does.
 * **Rules 4–7, kept copies.** Only for `Plan::Loose` with `kept` present
@@ -284,10 +289,17 @@ end as one result and one refusal, never as two writes:
   window pushes to it.
 * **Setting aside — in a library since tails-1, called by the CLI
   (E5-1).** The filesystem half of rule 2 is `wipemark_intake::inplace`:
-  rename the file to `name.original.ext`, refusing with *already exists*
-  rather than overwriting, then write the result over the path through a
-  synced temporary file; a failed write puts the original back. Nothing
-  is set aside when nothing changed (the caller's check). The window's
+  give the file a second name, `name.original.ext`, by a hard link — which
+  the operating system refuses with *already exists* rather than
+  overwriting — then write the result over the first name through a
+  synced temporary file and a rename. The file never moves: the original
+  keeps its inode under the second name, and a failed write removes only
+  that second name (D284). Where hard links are refused (FAT, exFAT, some
+  network shares) the road is the old one — a check that the name is
+  free, a rename aside, and a failed write renames it back. Nothing is set
+  aside when nothing changed (the caller's check). A crash between the
+  set-aside and the write leaves the file whole under both names; the
+  batch queue finishes that delivery rather than failing it (D286). The window's
   *In place of the file* destination calls the same `replace` (E7,
   `clean.rs`); the batch (E4) will too. See `docs/architecture/cli.md`.
 * **The per-run "no copy" flag — done for the CLI (E5-1):**
