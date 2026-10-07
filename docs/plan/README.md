@@ -1178,6 +1178,13 @@ the gate the overview set, and the open edges.
   Vulkan), a release lane on `wipemark-v*` tags, `cargo license` into
   `NOTICE`, the size budget. Gate: on a clean machine, download → open →
   first rewrite in under five minutes.
+- **Build. The tray and the system-wide shortcut on Linux** (the owner looked
+  for the tray on 2026-10-07). `tray::install` and the hotkey registrar are
+  macOS-only (`tray.rs:517` logs "no tray on this platform yet — E10" and
+  returns `None`), so on Linux there is no menu-bar item, no way to summon
+  the panel, and the close button closes. `tray-icon` 0.21 supports Linux
+  through libayatana-appindicator (already in CI's packages); it needs a
+  GTK main loop on its own thread, which is the work.
 
 ### E11 — images (phase 2) and E12 — pixels (phase 2b)
 
