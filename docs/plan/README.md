@@ -1029,6 +1029,11 @@ the gate the overview set, and the open edges.
 - **Basis.** OV §6.1–6.2; `docs/architecture/compare.md`, `queue.md`.
 - **Gate.** A 1 k-token stream keeps 30 FPS; a click on a finding
   scrolls to it.
+- **Build. A row's action is a button, not only a menu item** (the owner,
+  2026-10-07). Clean — and Rewrite with E4-6b — sit inside the row's Actions
+  menu ("…"), so a dropped document shows no way forward; the owner looked
+  for one. Put the row's next action on the row itself (a button in the
+  Status or a column of its own), the menu keeping the rest.
 - **Fix. A paste of empty text lands nothing** (the owner, 2026-10-07,
   seen on Linux: an empty row `kinds=[Text]` in the queue).
   `clipboard::handed_of` turns a `ClipboardEntry::String` holding `""`
