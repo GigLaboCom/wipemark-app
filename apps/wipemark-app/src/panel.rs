@@ -593,14 +593,7 @@ impl PanelView {
                     .await;
                 let current = view
                     .update(cx, |view, cx| {
-                        let Some(held) = view.held_for(&arrivals) else {
-                            return false;
-                        };
-                        if held.plans[index] == plan {
-                            held.found[index] = Some(found);
-                            cx.notify();
-                        }
-                        true
+                        view.landed(&arrivals, index, &plan, found, cx)
                     })
                     .unwrap_or(false);
                 if !current {
@@ -609,6 +602,28 @@ impl PanelView {
             }
         })
         .detach();
+    }
+
+    /// A look at the thing `index` of `arrivals`, taken by `plan`, is back:
+    /// it is kept only while that drop is held and `plan` is still the
+    /// thing's — a look taken by a plan the page has since left is dropped,
+    /// whenever it lands (D290). Whether the drop is still held.
+    fn landed(
+        &mut self,
+        arrivals: &Arc<[Arrival]>,
+        index: usize,
+        plan: &Plan,
+        found: Findings,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(held) = self.held_for(arrivals) else {
+            return false;
+        };
+        if held.plans[index] == *plan {
+            held.found[index] = Some(found);
+            cx.notify();
+        }
+        true
     }
 
     /// The held drop, if it is still `arrivals`.
@@ -1541,5 +1556,52 @@ mod tests {
         let (refused, would) = panel.looked(cx);
         assert_eq!(refused, Some(false), "the link was not looked at");
         assert!(!would.is_empty());
+    }
+
+    /// A look taken by a plan the page has since left — the drop's own,
+    /// slow off its volume — lands after the look by the new plan, and is
+    /// dropped: the panel keeps the newer look, its lines and its plan
+    /// (Z2, D290). The late look is landed by hand, because the test's
+    /// executor runs both looks on this thread in an order of its own.
+    #[cfg(unix)]
+    #[gpui::test]
+    fn a_look_by_an_older_plan_does_not_overwrite_the_newer(cx: &mut gpui::TestAppContext) {
+        let (panel, cx) = LinkPanel::new("look-stale", cx);
+        panel.drop_link(cx);
+        let (arrivals, beside) = cx.update(|_, cx| {
+            let held = panel.view.read(cx).held.as_ref().expect("the drop is held");
+            (held.arrivals.clone(), held.plans[0].clone())
+        });
+        let late = clean::inspect_one(&arrivals[0], &beside);
+        assert!(matches!(late, Findings::Text { change: 1, .. }), "{late:?}");
+
+        panel.destination(Destination::Replace, cx);
+        let (refused, would) = panel.looked(cx);
+        assert_eq!(refused, Some(true), "the look did not follow the page");
+        assert!(would.is_empty(), "{would:?}");
+
+        let held = panel
+            .view
+            .update(cx, |view, cx| view.landed(&arrivals, 0, &beside, late, cx));
+        assert!(held, "the drop is no longer held");
+        let (refused, would) = panel.looked(cx);
+        assert_eq!(
+            refused,
+            Some(true),
+            "a look by the older plan overwrote the newer"
+        );
+        assert!(would.is_empty(), "{would:?}");
+        let (plan, now) = cx.update(|_, cx| {
+            let held = panel.view.read(cx).held.as_ref().expect("the drop is held");
+            let now = panel
+                .preferences
+                .read(cx)
+                .plan_for(&held.arrivals[0].intake);
+            (held.plans[0].clone(), now)
+        });
+        assert!(
+            plan == now && plan != beside,
+            "the held plan is not the page's"
+        );
     }
 }
