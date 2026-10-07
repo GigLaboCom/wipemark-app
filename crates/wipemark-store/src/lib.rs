@@ -68,6 +68,7 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
 
+pub mod entry;
 mod journal;
 mod queue;
 mod settings;
