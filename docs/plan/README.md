@@ -928,6 +928,26 @@ the gate the overview set, and the open edges.
     only lists the row; Clean (Layer A) runs when asked, and the batch
     queue has no caller. Open with E4-6b's document: whether a drop starts
     the job by itself or waits for a Rewrite / Rewrite all beside Clean.
+  - **Seen on 2026-10-07, Qwen3.8 27B in the application** (a 2 285-word
+    Markdown article, paraphrase moderate, GPU 2 × 2, through
+    `wipemark-cli rewrite` → the running application; 52 chunks, 110 calls,
+    210 s, 50 rewritten, 2 kept, 15 candidates rejected):
+    - **Fix. The identifier guard reads a placeholder as part of a word.**
+      A link-only line (`**→ [host/path](url)**`) was refused as
+      `identifier-missing` on the token `⟦1⟧host/path⟦2⟧**`: a placeholder
+      should end a token, as a space does.
+    - **Check. `macOS-only` is an identifier** to the guard (a capital inside
+      a word), so "only on macOS" is a lost identifier — 3 candidates
+      refused, one chunk kept. Decide whether a hyphenated word whose parts
+      are dictionary words with a brand's casing is held.
+    - **Check. The most-diverged pick reads formal.** Passed candidates
+      diverge 0.86 at the median; the chosen ones are longer (+10 % words),
+      lose the second person and the article's voice ("Your agent is smart,
+      fast, and completely blind" → "Your agent possesses intelligence and
+      speed yet lacks visual capability") and now and then the meaning
+      ("agent included" → "least of all the agent itself"). D111's pick is
+      the bench's; a meaning check or a closeness cap is for the owner to
+      weigh with E4-6b.
 
 ### E5 — the rest of the CLI
 
