@@ -59,11 +59,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Pin the gpui-component submodule
+      - name: Submodule
         run: |
           git submodule sync --recursive
           git submodule update --init --recursive
-          scripts/pin-gpui-component.sh
 
       - name: Toolchain
         run: |
@@ -131,11 +130,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Pin the gpui-component submodule
+      - name: Submodule
         run: |
           git submodule sync --recursive
           git submodule update --init --recursive
-          scripts/pin-gpui-component.sh
 
       - name: Toolchain
         run: |

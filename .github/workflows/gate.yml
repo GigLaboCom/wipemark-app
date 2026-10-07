@@ -76,18 +76,23 @@ jobs:
         with:
           submodules: recursive
 
-      # gpui-component lists its own `gpui` without a rev; without the pin
-      # a second, different `gpui` lands in the binary and the failure
-      # reads like a compiler bug. Must precede every cargo command.
-      - name: Pin the gpui-component submodule
+      # The component (upstream gpui-kit, branch `next`) is a submodule;
+      # `sync` first, because a cached checkout keeps the URL it was cloned
+      # with and the submodule moved to longbridge/gpui-kit on 2026-10-07.
+      - name: Submodule
         run: |
           git submodule sync --recursive
           git submodule update --init --recursive
-          scripts/pin-gpui-component.sh
           git -C vendor/gpui-component log --oneline -1
 
       - name: Dependency direction
         run: scripts/check-dep-direction.sh
+
+      # One GPUI: `gpui-pre` at the component's exact version, once in the
+      # lock, no zed git source but the one patched crate — and that crate
+      # still carrying its fix. Replaces the retired pin script.
+      - name: GPUI pin
+        run: scripts/check-gpui-pin.sh
 
       - name: Toolchains
         run: |
@@ -154,12 +159,11 @@ jobs:
           submodules: recursive
 
       # The workspace manifest names the submodule's crates, so cargo
-      # needs it pinned even for `-p wipemark-llama`.
-      - name: Pin the gpui-component submodule
+      # needs it checked out even for `-p wipemark-llama`.
+      - name: Submodule
         run: |
           git submodule sync --recursive
           git submodule update --init --recursive
-          scripts/pin-gpui-component.sh
 
       - name: Toolchain
         run: |
@@ -201,11 +205,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Pin the gpui-component submodule
+      - name: Submodule
         run: |
           git submodule sync --recursive
           git submodule update --init --recursive
-          scripts/pin-gpui-component.sh
 
       - name: Toolchain
         run: |
