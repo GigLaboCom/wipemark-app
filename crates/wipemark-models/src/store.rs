@@ -10,6 +10,8 @@
 //!                                         under the folder (D302)
 //! <data dir>/records/<key>-<file>         size:mtime and sha256 at the last
 //!                                         hash, keyed by the file's path (D303)
+//! <data dir>/records/<key>-<file>.downloaded  the mark a download leaves: only a
+//!                                         marked file is ours to remove (D302)
 //! ```
 //!
 //! `<models>` is `<data dir>/models` unless the `models.dir` row names
@@ -27,6 +29,16 @@
 //! [`Downloads::weights_path`] hands an engine, it is never downloaded
 //! over, and [`Downloads::remove`] never deletes it — remove deletes only
 //! what a download writes, at the place it writes it.
+//!
+//! **And the place alone is not a download** (D302, amended after the
+//! host verification, H1). A folder another tool fills may be laid out
+//! `<id>/<file>` too — the owner's mirror is. A download writes
+//! `<data dir>/records/<key>-<file>.downloaded` when it renames its
+//! verified `.part` into place, and a look or a verify never does; a file
+//! at its place without that mark is another tool's — used when it
+//! matches, said and left alone when it does not, never removed and never
+//! downloaded over ([`StoreError::Occupied`]). A download made before the
+//! mark existed reads as another tool's: the safe side.
 //!
 //! # Why blocking
 //!
@@ -124,6 +136,11 @@ pub enum StoreError {
     },
     #[error("cancelled")]
     Cancelled,
+    /// The place a download would write is taken by a file this product
+    /// did not download, and that is not the catalogue's file. It is left
+    /// exactly as it is (D302).
+    #[error("{} is not a file this product downloaded; it is left as it is", .path.display())]
+    Occupied { path: PathBuf },
 }
 
 impl StoreError {
@@ -239,10 +256,17 @@ pub struct Located {
     /// Every file of the entry that was found, wherever it was — so a
     /// listing of the folder can leave the catalogue's own files out.
     pub files: Vec<PathBuf>,
-    /// Some file of the entry was found somewhere other than where a
-    /// download puts it (`<models>/<id>/<file>`). Such a file is the
-    /// user's: it is loaded, and it is never downloaded over or deleted.
-    pub elsewhere: bool,
+    /// Some file of the entry is not one this product downloaded: found
+    /// somewhere other than where a download puts it, or at that place
+    /// with no download's mark beside it (D302, amended). Such a file is
+    /// the user's: it is loaded, and it is never downloaded over or
+    /// deleted.
+    pub theirs: bool,
+    /// A file at the entry's own place, `<models>/<id>/<file>`, that no
+    /// download of this product wrote and whose sha256 is not the
+    /// catalogue's — another tool's file under the same name. Not used,
+    /// never deleted and never downloaded over; a page says it is there.
+    pub mismatched: Option<PathBuf>,
 }
 
 /// One walk of the models folder and what it says about every entry of
@@ -286,6 +310,9 @@ pub struct Downloads {
     hashed: AtomicUsize,
     /// Where a hash tells how far it has got (F1b), when anybody asked.
     hash_watch: std::sync::Mutex<Option<flume::Sender<Hashing>>>,
+    /// Set by [`Downloads::stop`]: every hash under way gives up at its
+    /// next chunk, and none starts.
+    stopped: AtomicBool,
 }
 
 impl Downloads {
@@ -307,7 +334,16 @@ impl Downloads {
             agent: config.into(),
             hashed: AtomicUsize::new(0),
             hash_watch: std::sync::Mutex::new(None),
+            stopped: AtomicBool::new(false),
         }
+    }
+
+    /// Give up every hash this store is making and refuse the next — for
+    /// a store over a folder that is no longer the one being looked at,
+    /// so a scan of the old folder stops reading gigabytes nobody will see
+    /// the answer for. A stopped hash records nothing.
+    pub fn stop(&self) {
+        self.stopped.store(true, Ordering::SeqCst);
     }
 
     /// Every hash this store makes from now on — a look at a file whose
@@ -396,7 +432,8 @@ impl Downloads {
             state: State::Absent,
             weights: None,
             files: Vec::new(),
-            elsewhere: false,
+            theirs: false,
+            mismatched: None,
         };
         let Some(dir) = self.model_dir(&entry.id) else {
             return located;
@@ -411,7 +448,26 @@ impl Downloads {
                 return located;
             };
             let target = dir.join(name);
-            if target.is_file() {
+            // A file at its place without a download's mark is another
+            // tool's (D302, amended): used when its sha256 is the
+            // catalogue's, as one found elsewhere is, and otherwise left
+            // alone and said — never ours to call damaged and remove.
+            if target.is_file() && !self.downloaded(&target) {
+                let matches = match file.sha256.as_deref() {
+                    Some(expected) => self.verified(&target, Some(expected)) == Ok(true),
+                    None => false,
+                };
+                if matches {
+                    present += file.size_bytes;
+                    located.theirs = true;
+                    located.files.push(target.clone());
+                    if index == 0 {
+                        located.weights = Some(target);
+                    }
+                    continue;
+                }
+                located.mismatched.get_or_insert(target.clone());
+            } else if target.is_file() {
                 located.files.push(target.clone());
                 if index == 0 {
                     located.weights = Some(target.clone());
@@ -435,7 +491,7 @@ impl Downloads {
             }
             if let Some(found) = self.elsewhere(file, name, &target, listing) {
                 present += file.size_bytes;
-                located.elsewhere = true;
+                located.theirs = true;
                 located.files.push(found.clone());
                 if index == 0 {
                     located.weights = Some(found);
@@ -543,11 +599,7 @@ impl Downloads {
                 };
                 let actual = match recorded {
                     Some(actual) => actual,
-                    None => {
-                        let actual = self.hash(candidate)?;
-                        self.record(candidate, &actual);
-                        actual
-                    }
+                    None => self.hash_and_record(candidate)?,
                 };
                 if actual == expected {
                     matched = true;
@@ -573,12 +625,16 @@ impl Downloads {
     /// Delete what was downloaded for `entry` — and nothing else. Returns
     /// whether there was anything to delete.
     ///
-    /// Only the files a download writes, at the place it writes them:
-    /// each `<models>/<id>/<file>`, its `.part`, the `meta.json` and the
-    /// stamps the old layout kept beside them; the directory goes only
-    /// when that leaves it empty. A file of the entry found anywhere else
-    /// under the folder is the user's and is never touched (D302), and
-    /// neither is anything else a person put in `<models>/<id>/`.
+    /// Only what a download of this product wrote, at the place it wrote
+    /// it: each `<models>/<id>/<file>` **that carries a download's mark**
+    /// (D302, amended), its `.part`, and — when a marked file went — the
+    /// `meta.json` and the stamp the old layout kept beside it; the
+    /// directory goes only when that leaves it empty. A file at that
+    /// place with no mark is another tool's, however well it matches, and
+    /// is never touched; nor is a file of the entry found anywhere else,
+    /// nor anything else a person put in `<models>/<id>/`. A download made
+    /// by a build before the mark existed has none, and so is kept too —
+    /// the safe side.
     pub fn remove(&self, entry: &ModelEntry) -> Result<bool, StoreError> {
         let Some(dir) = self.model_dir(&entry.id) else {
             return Err(StoreError::UnusableId(entry.id.clone()));
@@ -586,18 +642,28 @@ impl Downloads {
         if !dir.exists() {
             return Ok(false);
         }
-        let mut doomed = vec![dir.join(META_FILE)];
+        let mut doomed = Vec::new();
+        let mut ours = false;
         for file in &entry.files {
             let Some(name) = file.filename() else {
                 continue;
             };
             let target = dir.join(name);
-            self.forget(&target);
+            // Only the working name a download of ours writes.
             doomed.push(dir.join(format!("{name}.part")));
+            if !self.downloaded(&target) {
+                continue;
+            }
+            ours = true;
             if let Some(sha) = file.sha256.as_deref() {
                 doomed.push(dir.join(format!(".{name}.ok-{sha}")));
             }
-            doomed.push(target);
+            doomed.push(target.clone());
+            self.forget(&target);
+            self.unmark(&target);
+        }
+        if ours {
+            doomed.push(dir.join(META_FILE));
         }
         let mut removed = false;
         for path in doomed {
@@ -689,6 +755,15 @@ impl Downloads {
             .to_string();
         let target = dir.join(&name);
 
+        if target.is_file() && !self.downloaded(&target) {
+            // Another tool's file at our place (D302, amended): used as it
+            // is when it matches, and otherwise refused — never removed,
+            // and never downloaded over.
+            return match self.verified(&target, file.sha256.as_deref()) {
+                Ok(true) => Ok(()),
+                _ => Err(StoreError::Occupied { path: target }),
+            };
+        }
         if target.is_file() {
             match self.verified(&target, file.sha256.as_deref()) {
                 Ok(true) => return Ok(()),
@@ -708,7 +783,7 @@ impl Downloads {
         self.download(file, &name, &part, index, count, cancel, report)?;
 
         if let Some(expected) = file.sha256.as_deref() {
-            let actual = self.hash(&part)?;
+            let (actual, _) = self.hash(&part)?;
             if actual != expected {
                 // The bytes are wrong, so keeping them is keeping a
                 // resume point that can only ever produce the same wrong
@@ -722,8 +797,14 @@ impl Downloads {
             }
         }
         std::fs::rename(&part, &target).map_err(StoreError::io(&target))?;
+        // The mark is what makes this file ours to remove or replace
+        // later; without it the file reads as another tool's — the safe
+        // side, so a mark that cannot be written is a warning.
+        self.mark(&target);
         if let Some(expected) = file.sha256.as_deref() {
-            self.record(&target, expected);
+            if let Ok(now) = fingerprint(&target) {
+                self.record(&target, expected, &now);
+            }
         }
         Ok(())
     }
@@ -919,17 +1000,29 @@ impl Downloads {
         if let Some(actual) = self.recorded(target) {
             return Ok(actual == expected);
         }
-        match self.hash(target) {
-            Ok(actual) => {
-                self.record(target, &actual);
-                Ok(actual == expected)
-            }
+        match self.hash_and_record(target) {
+            Ok(actual) => Ok(actual == expected),
             Err(err) => Err(err.to_string()),
         }
     }
 
-    /// Hash `path` in full, and count it.
-    fn hash(&self, path: &Path) -> Result<String, StoreError> {
+    /// Hash `path` and record what it hashed to — under the size and mtime
+    /// it had **before** the read (L1): a file that changed while it was
+    /// being read then no longer matches its record, and is read again on
+    /// the next look rather than trusted with a hash of other bytes.
+    fn hash_and_record(&self, path: &Path) -> Result<String, StoreError> {
+        let (actual, before) = self.hash(path)?;
+        self.record(path, &actual, &before);
+        Ok(actual)
+    }
+
+    /// Hash `path` in full, and count it: its sha256, and its fingerprint
+    /// as it was when the read began.
+    fn hash(&self, path: &Path) -> Result<(String, String), StoreError> {
+        if self.stopped.load(Ordering::SeqCst) {
+            return Err(StoreError::Cancelled);
+        }
+        let before = fingerprint(path)?;
         self.hashed.fetch_add(1, Ordering::Relaxed);
         let sink = self
             .hash_watch
@@ -937,10 +1030,10 @@ impl Downloads {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
         let Some(sink) = sink else {
-            return hash_file(path, &mut |_, _| {});
+            return hash_file(path, &self.stopped, &mut |_, _| {}).map(|sha| (sha, before));
         };
         let mut last: Option<Instant> = None;
-        let hashed = hash_file(path, &mut |done_bytes, total_bytes| {
+        let hashed = hash_file(path, &self.stopped, &mut |done_bytes, total_bytes| {
             let due =
                 done_bytes == total_bytes || last.is_none_or(|at| at.elapsed() >= REPORT_EVERY);
             if due {
@@ -957,7 +1050,7 @@ impl Downloads {
         let _ = sink.send(Hashing::Done {
             path: path.to_path_buf(),
         });
-        hashed
+        hashed.map(|sha| (sha, before))
     }
 
     /// The record of `target`: `<records>/<key>-<file name>`, the key the
@@ -998,16 +1091,18 @@ impl Downloads {
         (fingerprint(target).ok()? == fingerprint_then && sha.len() == 64).then(|| sha.to_owned())
     }
 
-    /// Write down that `target`, at its present size and mtime, hashes to
-    /// `sha`. A record that cannot be written costs the next look a
-    /// re-hash and nothing else, so it is a warning and not a failure.
-    fn record(&self, target: &Path, sha: &str) {
-        let written = fingerprint(target).and_then(|fingerprint| {
-            std::fs::create_dir_all(&self.records).map_err(StoreError::io(&self.records))?;
-            let path = self.record_path(target);
-            let body = format!("{fingerprint}\n{sha}\n{}\n", target.display());
-            std::fs::write(&path, body).map_err(StoreError::io(&path))
-        });
+    /// Write down that `target`, at the size and mtime `fingerprint`
+    /// says, hashes to `sha`. A record that cannot be written costs the
+    /// next look a re-hash and nothing else, so it is a warning and not a
+    /// failure.
+    fn record(&self, target: &Path, sha: &str, fingerprint: &str) {
+        let written = std::fs::create_dir_all(&self.records)
+            .map_err(StoreError::io(&self.records))
+            .and_then(|()| {
+                let path = self.record_path(target);
+                let body = format!("{fingerprint}\n{sha}\n{}\n", target.display());
+                std::fs::write(&path, body).map_err(StoreError::io(&path))
+            });
         if let Err(error) = written {
             tracing::warn!(%error, "could not record a verify");
         }
@@ -1016,6 +1111,44 @@ impl Downloads {
     /// Drop the record of `target`.
     fn forget(&self, target: &Path) {
         let _ = std::fs::remove_file(self.record_path(target));
+    }
+
+    /// The download mark of `target`: beside its record, under the data
+    /// directory (D302, amended). Written by a download and by nothing
+    /// else — never by a look or a verify — so its presence says this
+    /// product wrote the file at that place.
+    fn mark_path(&self, target: &Path) -> PathBuf {
+        let mut path = self.record_path(target).into_os_string();
+        path.push(".downloaded");
+        PathBuf::from(path)
+    }
+
+    /// Whether a download of this product wrote `target`.
+    fn downloaded(&self, target: &Path) -> bool {
+        self.mark_path(target).is_file()
+    }
+
+    /// Mark `target` as downloaded by this product.
+    fn mark(&self, target: &Path) {
+        let written = std::fs::create_dir_all(&self.records)
+            .map_err(StoreError::io(&self.records))
+            .and_then(|()| {
+                let path = self.mark_path(target);
+                let fetched_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let body = format!("{fetched_at}\n{}\n", target.display());
+                std::fs::write(&path, body).map_err(StoreError::io(&path))
+            });
+        if let Err(error) = written {
+            tracing::warn!(%error, "could not mark a download; it will read as another tool's file");
+        }
+    }
+
+    /// Drop the download mark of `target`.
+    fn unmark(&self, target: &Path) {
+        let _ = std::fs::remove_file(self.mark_path(target));
     }
 }
 
@@ -1035,7 +1168,11 @@ fn fingerprint(target: &Path) -> Result<String, StoreError> {
 
 /// The sha256 of `path`, telling `read` the bytes hashed so far and the
 /// file's size: once at zero, once per chunk, and at the end.
-fn hash_file(path: &Path, read: &mut dyn FnMut(u64, u64)) -> Result<String, StoreError> {
+fn hash_file(
+    path: &Path,
+    stop: &AtomicBool,
+    read: &mut dyn FnMut(u64, u64),
+) -> Result<String, StoreError> {
     let mut file = std::fs::File::open(path).map_err(StoreError::io(path))?;
     let total = file.metadata().map(|meta| meta.len()).unwrap_or(0);
     let mut hasher = Sha256::new();
@@ -1043,6 +1180,9 @@ fn hash_file(path: &Path, read: &mut dyn FnMut(u64, u64)) -> Result<String, Stor
     let mut done = 0u64;
     read(0, total);
     loop {
+        if stop.load(Ordering::SeqCst) {
+            return Err(StoreError::Cancelled);
+        }
         let got = file.read(&mut buffer).map_err(StoreError::io(path))?;
         if got == 0 {
             break;
@@ -1166,6 +1306,8 @@ mod tests {
         let model_dir = store.model_dir("m").expect("model dir");
         std::fs::create_dir_all(&model_dir).expect("mkdir");
         std::fs::write(model_dir.join("m.gguf"), &bytes).expect("write");
+        // A download of ours: only then is a mismatch "damaged".
+        store.mark(&model_dir.join("m.gguf"));
 
         assert!(store.verify(&entry).is_ok(), "a matching file verifies");
         assert_eq!(store.state(&entry), State::Present { bytes: 11 });
@@ -1304,7 +1446,7 @@ mod tests {
             }
         );
         assert_eq!(located.weights.as_deref(), Some(path.as_path()));
-        assert!(located.elsewhere);
+        assert!(located.theirs);
         assert_eq!(located.files, std::slice::from_ref(&path));
         assert_eq!(store.weights_path(&mirror.entry), Some(path));
         store
@@ -1374,19 +1516,110 @@ mod tests {
         let mirror = Mirror::new();
         let theirs = mirror.put("Vendor/qwen-q4.gguf", &mirror.bytes);
         let store = mirror.store();
-        assert!(store.locate(&mirror.entry).elsewhere);
+        assert!(store.locate(&mirror.entry).theirs);
         assert!(!store.remove(&mirror.entry).expect("nothing of ours"));
         assert_eq!(std::fs::read(&theirs).expect("still there"), mirror.bytes);
 
         // And beside a download of ours: ours goes, theirs stays.
         let ours = mirror.put("qwen/qwen-q4.gguf", &mirror.bytes);
+        store.mark(&ours);
         let note = mirror.put("qwen/notes.txt", b"mine");
         mirror.put("qwen/meta.json", b"{}");
         assert!(store.remove(&mirror.entry).expect("ours"));
         assert!(!ours.exists());
+        assert!(!store.downloaded(&ours), "the mark outlived the download");
         assert!(note.exists(), "a file nobody downloaded was deleted");
         assert!(theirs.exists());
         assert_eq!(store.weights_path(&mirror.entry), Some(theirs));
+    }
+
+    /// H1 (D302, amended): a file at the entry's own place that no
+    /// download of this product wrote is another tool's — the owner's
+    /// mirror is laid out `<id>/<file>`. Matching, it is used, reads as
+    /// theirs, and survives Remove and a fetch; not matching, it is said,
+    /// survives Remove, and a fetch refuses rather than download over it.
+    #[test]
+    fn a_file_at_its_place_that_no_download_wrote_is_never_removed() {
+        let mirror = Mirror::new();
+        let theirs = mirror.put("qwen/qwen-q4.gguf", &mirror.bytes);
+        let store = mirror.store();
+        let located = store.locate(&mirror.entry);
+        assert!(matches!(located.state, State::Present { .. }));
+        assert!(located.theirs, "another tool's file read as ours");
+        assert_eq!(located.weights.as_deref(), Some(theirs.as_path()));
+        assert!(!store.remove(&mirror.entry).expect("nothing of ours"));
+        store
+            .fetch(&mirror.entry, &Cancel::new(), &|_| {})
+            .expect("already here");
+        assert_eq!(std::fs::read(&theirs).expect("still there"), mirror.bytes);
+        assert_eq!(tree(&mirror.models), ["qwen/qwen-q4.gguf"]);
+
+        // Another tool's file of that name that is not the catalogue's.
+        let other = b"another tool put me here".to_vec();
+        std::fs::write(&theirs, &other).expect("replace");
+        let located = store.locate(&mirror.entry);
+        assert_eq!(located.state, State::Absent, "{located:?}");
+        assert_eq!(located.mismatched.as_deref(), Some(theirs.as_path()));
+        assert!(located.weights.is_none());
+        assert!(!store.remove(&mirror.entry).expect("nothing of ours"));
+        match store.fetch(&mirror.entry, &Cancel::new(), &|_| {}) {
+            Err(StoreError::Occupied { path }) => assert_eq!(path, theirs),
+            other => panic!("a fetch over another tool's file: {other:?}"),
+        }
+        assert_eq!(std::fs::read(&theirs).expect("still there"), other);
+        assert_eq!(tree(&mirror.models), ["qwen/qwen-q4.gguf"]);
+    }
+
+    /// L1: a file that changes while it is being hashed is not recorded
+    /// under its new size and mtime with the old bytes' hash — the next
+    /// look reads it again.
+    #[test]
+    fn a_file_changed_while_it_is_hashed_is_read_again() {
+        let mirror = Mirror::new();
+        let path = mirror.put("qwen/qwen-q4.gguf", &vec![1u8; 8 * super::CHUNK]);
+        // A rendezvous: every report waits for this thread to take it, so
+        // the hash cannot end — and record — before the change is made.
+        let (sink, told) = flume::bounded(0);
+        let store = std::sync::Arc::new(mirror.store());
+        store.watch_hashes(sink);
+        let hashing = {
+            let store = std::sync::Arc::clone(&store);
+            let entry = mirror.entry.clone();
+            std::thread::spawn(move || store.state(&entry))
+        };
+        // The first report comes before the first byte is read.
+        let _ = told.recv().expect("the hash started");
+        std::fs::write(&path, b"changed under the read").expect("change it");
+        while let Ok(report) = told.recv() {
+            if matches!(report, Hashing::Done { .. }) {
+                break;
+            }
+        }
+        let _ = hashing.join().expect("the hash ended");
+
+        let again = mirror.store();
+        let _ = again.state(&mirror.entry);
+        assert_eq!(
+            again.hashes(),
+            1,
+            "a record taken after the change was trusted"
+        );
+    }
+
+    /// L4: a stopped store reads no more and records nothing — a scan of
+    /// a folder nobody looks at any more gives up.
+    #[test]
+    fn a_stopped_store_hashes_nothing() {
+        let mirror = Mirror::new();
+        mirror.put("qwen/qwen-q4.gguf", &mirror.bytes);
+        let store = mirror.store();
+        store.stop();
+        assert!(!matches!(store.state(&mirror.entry), State::Present { .. }));
+        assert_eq!(store.hashes(), 0);
+        assert!(
+            !mirror.records.exists(),
+            "a stopped hash recorded something"
+        );
     }
 
     /// D303: a folder held read-only verifies and is found with nothing

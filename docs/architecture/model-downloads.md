@@ -190,11 +190,11 @@ A file found that way is **the user's**:
   because nothing needs fetching, and no Remove
   (`Availability::Found`, `settings-models-found-at`;
   `a_model_found_elsewhere_offers_no_remove`);
-* `Downloads::remove` deletes only what a download writes, at the place
-  it writes it — each `<models>/<id>/<file>`, its `.part`, `meta.json`
-  and the old stamp — and the directory only if that leaves it empty, so
-  a found file, or anything else a person put in `<models>/<id>/`, is
-  never deleted (`delete_leaves_a_file_found_elsewhere_alone`);
+* `remove` deletes only what a download of this product wrote — a file
+  at its place carrying the download's mark (amended below) — and never a
+  found file, nor anything else a person put in `<models>/<id>/`
+  (`delete_leaves_a_file_found_elsewhere_alone`,
+  `a_file_at_its_place_that_no_download_wrote_is_never_removed`);
   `wipemark-cli models rm` says where the file is and that nothing was
   removed (`cli-models-rm-found`), and `models list` adds "found at"
   (and `found_at` in `--json`).
@@ -205,11 +205,39 @@ every entry wherever it was found, is "Also in this folder".
 `Downloads::locate` (and `state`, `weights_path`) walk only when a file
 is not at its place.
 
-A file at `<models>/<id>/<file>` is taken as the product's own whoever
-put it there — the place is the only mark a download leaves that
-survives a restart, and old builds wrote `meta.json` on a verify, so
-that is no mark either. Loading a GGUF that is in no catalogue — the
-user's own model, unverified — is an owner question, not this rule.
+**Amended after the host verification (H1, 2026-10-07).** The first
+version took a file at `<models>/<id>/<file>` as the product's own,
+whoever put it there — and the owner's mirror is laid out exactly
+`<id>/<file>`, so its Qwen card read Installed with a Remove that deleted
+12 GB another tool had put there (`scripts/verify/owner-fixes/rm-in-a-mirror.sh`
+said DELETED). Now **a download leaves a mark a look never writes**: when
+`fetch_one` renames a verified `.part` into place it writes
+`<data dir>/records/<key>-<file>.downloaded` beside the file's record
+(`Downloads::mark`), and only a file with that mark is the product's:
+
+* a file at its place **with** the mark is a download of ours — Installed
+  with Remove, Damaged with Remove when it no longer matches, and the
+  only file `remove` deletes or `fetch_one` replaces;
+* a file at its place **without** the mark is another tool's: when its
+  sha256 is the catalogue's it is used where it is and the card says
+  "Found at …" with no button, like one found elsewhere; when it is not,
+  the entry stays absent, the card says "A file at … has this model's name
+  but not its contents … move it away to download this model here"
+  (`Availability::Foreign`, `settings-models-foreign`) and offers
+  **nothing** — no Download, which would have to write over it, and no
+  Remove; `fetch` refuses with `StoreError::Occupied`, the file untouched;
+* `remove` deletes, at the entry's place, only marked files, their old
+  stamp, the `.part` (the download's own working name) and — only when a
+  marked file went — `meta.json`; the directory only if that empties it.
+
+**A download made by a build from before the mark has none**, so it now
+reads as "Found at …" and cannot be removed from the page; that is the
+safe side. To have it removable again, delete it by hand and download it
+anew. A mark that cannot be written is a warning: the file then reads as
+another tool's, the same safe side.
+
+Loading a GGUF that is in no catalogue — the user's own model,
+unverified — is an owner question, not this rule.
 
 ### Resume, and the 200 that ruins it
 

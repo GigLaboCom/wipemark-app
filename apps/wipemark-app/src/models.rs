@@ -108,6 +108,12 @@ pub enum Availability {
     /// promised, and the user is told which model that is before
     /// anything is deleted.
     Damaged,
+    /// Not on this machine, and its own place, `<models>/<id>/<file>`,
+    /// holds another tool's file of its name that is not the catalogue's
+    /// (D302, amended) — `at` is where, below the folder. Nothing to
+    /// press: a download would have to write over that file, and nothing
+    /// deletes a file this product did not download. The line says so.
+    Foreign { at: String },
     /// A file of it is being hashed now — a look at what is already on
     /// the disk, or the check of a download that just finished (F1b).
     /// Minutes for a large model; nothing to press meanwhile.
@@ -129,7 +135,9 @@ impl Availability {
             Availability::Resumable { .. } => Some(Message::SettingsModelsResume),
             Availability::Downloading { .. } => Some(Message::SettingsModelsCancel),
             Availability::Installed | Availability::Damaged => Some(Message::SettingsModelsRemove),
-            Availability::Found { .. } | Availability::Checking { .. } => None,
+            Availability::Found { .. }
+            | Availability::Foreign { .. }
+            | Availability::Checking { .. } => None,
         }
     }
 
@@ -157,6 +165,7 @@ impl Availability {
             Availability::Absent
             | Availability::Installed
             | Availability::Found { .. }
+            | Availability::Foreign { .. }
             | Availability::Damaged => None,
         }
     }
@@ -220,6 +229,10 @@ impl Card {
                     "total" => bytes_label(*total_bytes),
                 ),
             ),
+            Availability::Foreign { at } => t_args(
+                Message::SettingsModelsForeign,
+                &args!("path" => at.as_str()),
+            ),
             Availability::Found { at } => t_args(
                 Message::SettingsModelsFoundAt,
                 &args!("path" => at.as_str()),
@@ -230,6 +243,17 @@ impl Card {
 }
 
 impl Card {
+    /// This card when its own place holds another tool's file of its name
+    /// that is not the catalogue's (D302, amended): `at` is where. Only a
+    /// card with nothing better to say — absent — says it.
+    #[must_use]
+    pub fn foreign(mut self, at: Option<&str>) -> Card {
+        if let (Some(at), Availability::Absent) = (at, &self.availability) {
+            self.availability = Availability::Foreign { at: at.to_owned() };
+        }
+        self
+    }
+
     /// This card while one of its files is hashed (F1b): `checking` is
     /// the bytes read so far and the file's size, and wins over every
     /// other state — a download being checked is no longer downloading,
@@ -947,6 +971,35 @@ mod tests {
         if let Some(none) = cx.debug_bounds("installed") {
             assert_eq!(none.size.height, px(0.0), "a bar over an installed model");
         }
+    }
+
+    /// H1 (D302, amended): another tool's file at the model's own place,
+    /// with its name and not its contents, is said on the card and offers
+    /// nothing — no Download over it, no Remove of it. A card that has
+    /// something better to say keeps saying it.
+    #[test]
+    fn another_tools_file_in_the_way_offers_nothing() {
+        let entry = a_rewriter();
+        let foreign =
+            card(&entry, Some(roomy()), &State::Absent, None, None).foreign(Some("qwen/m.gguf"));
+        assert_eq!(
+            foreign.availability,
+            Availability::Foreign {
+                at: "qwen/m.gguf".into()
+            }
+        );
+        assert_eq!(foreign.availability.action(), None);
+        assert_eq!(foreign.availability.bar(), None);
+        assert!(foreign.line().contains("qwen/m.gguf"), "{}", foreign.line());
+        let installed = card(
+            &entry,
+            Some(roomy()),
+            &State::Present { bytes: 1 },
+            None,
+            None,
+        )
+        .foreign(Some("qwen/m.gguf"));
+        assert_eq!(installed.availability, Availability::Installed);
     }
 
     /// D302: a model found where no download put it is on this machine

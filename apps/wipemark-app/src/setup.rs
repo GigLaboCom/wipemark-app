@@ -772,6 +772,7 @@ impl Setup {
             preferences.downloading(&entry.id),
             found_at.as_deref(),
         )
+        .foreign(preferences.model_foreign_at(&entry.id).as_deref())
         .checking(preferences.checking_for(entry));
         let elsewhere = preferences.any_download_running() && !card.availability.is_running();
         let chosen = preferences.rewrite_model() == Some(entry.id.as_str());
@@ -827,7 +828,8 @@ impl Setup {
                                 .into_any_element()
                         }
                         // Being read: nothing to press until it is.
-                        models::Availability::Checking { .. } => div().into_any_element(),
+                        models::Availability::Checking { .. }
+                        | models::Availability::Foreign { .. } => div().into_any_element(),
                         ref availability => {
                             let availability = availability.clone();
                             Button::new(SharedString::from(format!("setup-{id}")))
@@ -854,6 +856,7 @@ impl Setup {
                                                 preferences.remove_model(&id, cx);
                                             }
                                             models::Availability::Found { .. }
+                                            | models::Availability::Foreign { .. }
                                             | models::Availability::Checking { .. } => {}
                                         }
                                     });
