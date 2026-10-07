@@ -1053,6 +1053,27 @@ the gate the overview set, and the open edges.
   `wipemark_llama::ffi` (`keep_loading`) receives it and drops it. Carry it
   as an engine event through `EngineHost` to the Engine and Models pages and
   the status bar, like the download's `Progress`.
+- **Build. Models found wherever they are** (the owner, 2026-10-07, on a
+  first launch over `/mnt/data/mnemoria/models`). Today a catalogue model
+  is found only at `<models.dir>/<id>/<file>` (`Downloads::model_dir`), so
+  a folder laid out any other way reads as "not downloaded" and offers
+  Download; the walk that already exists (`scan::weights_under`, eight
+  levels) only lists strangers, and nothing loads one. Wanted: walk the
+  folder recursively and recognise every catalogue model in it, at any
+  path — by file name and size first, the sha256 to confirm — and decide
+  what a GGUF that is in no catalogue can be (listed, or loadable as the
+  user's own, with what that costs the "verified" promise).
+- **Fix. One hash per file at a time.** `Preferences::look_at_models` is
+  called by the main window, by Settings opening and after every change on
+  disk; each call hashes on the background executor and a newer one only
+  discards an older one's *answer*, so three ran over the same 12 GB at
+  once on that launch (three descriptors on one `.gguf`). Cancel or join
+  the running scan instead.
+- **Fix. A verify stamp never written beside the weights.** `stamp_path`
+  puts `.<file>.ok-<sha256>` next to the file, which writes into a
+  folder the user may hold read-only or share with another program (the
+  owner's model mirror is). Keep stamps under the data directory, keyed
+  by the path.
 
 ### E9 — licensing
 
