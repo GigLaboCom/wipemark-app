@@ -1072,8 +1072,10 @@ the gate the overview set, and the open edges.
 - **Fix. A verify stamp never written beside the weights.** `stamp_path`
   puts `.<file>.ok-<sha256>` next to the file, which writes into a
   folder the user may hold read-only or share with another program (the
-  owner's model mirror is). Keep stamps under the data directory, keyed
-  by the path.
+  owner's model mirror is), and a verify of a file that was never
+  downloaded writes `meta.json` (with a `fetched_at`) beside it too — both
+  seen on 2026-10-07. Keep stamps and the record under the data directory,
+  keyed by the path.
 
 ### E9 — licensing
 
