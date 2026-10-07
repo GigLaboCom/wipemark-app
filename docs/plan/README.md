@@ -976,6 +976,22 @@ the gate the overview set, and the open edges.
       ("agent included" → "least of all the agent itself"). D111's pick is
       the bench's; a meaning check or a closeness cap is for the owner to
       weigh with E4-6b.
+    - **Measured the same day against upstream**
+      (`research/divergence-vs-upstream`, `bdb5197`,
+      `docs/plan/reports/divergence-vs-upstream-2026-10-07.md`): upstream
+      `1181fd4` sends what we read in 2026-09 — and with no detector it
+      returns the most-diverged attempt too (D71's premise was wrong). The
+      drift comes first from the paraphrase instruction (nothing about voice,
+      person or register: every candidate is formal), then per-paragraph
+      chunks with wide length windows (×1.28 on ~33-word paragraphs), and
+      only then D111's pick (−8 points of pairs left, −2 "you"). A
+      **keep-voice rule** in the contract brings second person back 26 → 35
+      of 41 at the same 23 % pairs left. **Build:** the rule in en/ru/de after
+      a four-model `--variant keep-voice` bench; a voice measure (second-person
+      retention, word ratio) in the bench report. D111, the 0.2 floor and
+      "moderate" stay.
+    - **Fix. No gate builds the bench example**: `examples/bench/analyse.rs:537`
+      fails clippy `-D warnings` (`unnecessary_sort_by`) on 1.95.0 unseen.
 
 ### E5 — the rest of the CLI
 
