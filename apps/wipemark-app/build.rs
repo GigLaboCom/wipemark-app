@@ -20,7 +20,14 @@ use std::{env, fs};
 
 fn main() {
     llama_rpath();
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // Read when the script runs, never `env!` — that is fixed when the
+    // script is compiled, and cargo reuses one compiled script across
+    // checkouts sharing a target directory: a second checkout built into
+    // it and then deleted left this script reading that checkout's
+    // vanished `assets/icons/` and generating an `IconName` with no
+    // variants.
+    let manifest_dir =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let icons_dir = manifest_dir.join("assets").join("icons");
 
     // The directory entry catches an added or removed file; the
