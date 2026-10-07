@@ -204,6 +204,13 @@ skip when unset (D186).
   subject deleted is worse than no test, and this repository has thrown
   two of those away rather than keep them.
 
+* **A commit has human authors only.** No `Co-Authored-By:` line naming
+  an LLM, no `Claude-Session:` line and no "Generated with" line — in a
+  commit message, a pull request or an issue, in this repository and in
+  anything sent upstream (`GigLaboCom/zed`, gpui-kit, zed). An agent's
+  commits follow the same rule; a task document for one says so (the
+  owner, 2026-10-07).
+
 ## Build, run, look
 
 ```sh
