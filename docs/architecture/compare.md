@@ -165,7 +165,7 @@ changes — it is the other side that moves — and there is no public
 "ask again". The one road to that question is an edit, so once a
 comparison has landed the window makes an **edit of nothing** at the
 original's cursor (`CompareView::repaint_original`): the text is
-untouched, the editor is disabled so its history is nobody's and
+untouched, the editor is read-only so its history is nobody's and
 nothing listens to its changes, and the library asks. What it costs is
 a selection in the original, which collapses when the marks move; the
 window spares it that when it can — no changed passage before or
@@ -176,6 +176,19 @@ when the window opens and not a toggle in the window: turning the
 marks *on* in an open window would need that question put to the
 result, where an edit of nothing is an entry in the user's undo
 history. The page says so, in its own words.
+
+**Read-only, not disabled.** The original is built `.readonly(true)`:
+it focuses, selects, copies and searches, by mouse and by key, and
+refuses every change a person makes — typing, a paste, a cut, undo —
+while the programmatic edits above (the empty edit, a placed cursor)
+still land, because the library lifts its own restriction for them.
+It was `.disabled(true)` until the GPUI bump (2026-10-07), which under
+the old fork refused only edits; in gpui-kit `next` a disabled field
+swallows every mouse-down, so the original could be neither selected
+nor focused by a click nor scrolled by its bar.
+`the_original_selects_with_the_mouse` is the gate on that (red with
+`.disabled(true)` back), and `typing_into_the_original_changes_nothing`
+the gate on the other half.
 
 **Following.** The editor has no public way to be scrolled from
 outside, and this repository does not patch the library for a

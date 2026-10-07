@@ -641,8 +641,12 @@ struct CompareView {
     /// Whether the result has been edited away from `cleaned_text`, as
     /// of the latest comparison — what Reset is offered on.
     edited: bool,
-    /// The left pane: the same editor as the right, disabled — which
-    /// still selects, copies and searches, and no longer edits.
+    /// The left pane: the same editor as the right, read-only — which
+    /// still focuses, selects, copies and searches, by mouse and by
+    /// key, and refuses every change a person makes. Not *disabled*:
+    /// in this library a disabled field swallows every mouse-down, so
+    /// the pane could be neither selected nor scrolled by its bar
+    /// (`the_original_selects_with_the_mouse`).
     original: Entity<EditorState>,
     /// The original's line marks, once a comparison has put any there:
     /// `None` until then, so an editor that has compared nothing yet
@@ -885,7 +889,7 @@ impl CompareView {
     /// it is over changes, and the original's never does — it is the
     /// other side that moves. The one public road to that question is
     /// an edit, so this is an edit of nothing at the cursor: the text
-    /// is untouched, the editor is disabled so its history is nobody's
+    /// is untouched, the editor is read-only so its history is nobody's
     /// and nothing listens to its changes, and what it costs is a
     /// selection in the original, which collapses to its end. See the
     /// module docs, and `the_original_is_asked_again_when_the_marks_move`.
@@ -972,7 +976,7 @@ impl CompareView {
                 div()
                     .flex_1()
                     .min_h(px(0.0))
-                    .child(result::pane(&self.original, cx).disabled(true)),
+                    .child(result::pane(&self.original, cx).readonly(true)),
             );
         let right = v_flex()
             .size_full()
@@ -1788,6 +1792,96 @@ mod tests {
                 "the window shows a result the queue did not write"
             );
         }
+    }
+
+    /// Press the left button at `from`, drag to `to` and let go — a
+    /// person's drag, through the window's own mouse events.
+    fn drag(cx: &mut gpui::VisualTestContext, from: gpui::Point<Pixels>, to: gpui::Point<Pixels>) {
+        use gpui::{Modifiers, MouseButton};
+        cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+    }
+
+    /// Two points across the middle of row 0 of the original, two
+    /// fifths in and nine tenths in.
+    fn across_the_original(
+        view: &Entity<CompareView>,
+        cx: &mut gpui::VisualTestContext,
+    ) -> (gpui::Point<Pixels>, gpui::Point<Pixels>) {
+        let row = cx.update(|_, cx| {
+            view.read(cx)
+                .original
+                .read(cx)
+                .row_bounds(0)
+                .expect("the original painted its first row")
+        });
+        let y = row.origin.y + row.size.height / 2.0;
+        (
+            gpui::point(row.origin.x + row.size.width * 0.4, y),
+            gpui::point(row.origin.x + row.size.width * 0.9, y),
+        )
+    }
+
+    /// The original is read with the mouse as well as shown: a drag
+    /// across a line selects some of it and puts the keyboard there, so
+    /// it can be copied and searched. Built `.disabled(true)` — which in
+    /// this library swallows every mouse-down over the field — the
+    /// selection stays empty and this goes red.
+    #[gpui::test]
+    fn the_original_selects_with_the_mouse(cx: &mut TestAppContext) {
+        let line = "word ".repeat(80);
+        let (view, cx) = window_with(cx, &format!("{line}\n{line}\n"), Comparison::default());
+        settle(cx);
+        let (from, to) = across_the_original(&view, cx);
+        drag(cx, from, to);
+
+        let (selected, focused) = cx.update(|window, cx| {
+            let original = view.read(cx).original.read(cx);
+            (
+                original.selected_range(),
+                original.focus_handle(cx).is_focused(window),
+            )
+        });
+        assert!(
+            !selected.is_empty(),
+            "a drag across the original selected nothing: {selected:?}"
+        );
+        assert!(focused, "a click on the original did not focus it");
+    }
+
+    /// And it is still the original: with the keyboard in it, nothing a
+    /// person types, deletes, pastes, cuts or undoes changes a byte of
+    /// it. The focus is asserted first, so the keystrokes cannot have
+    /// gone somewhere else and passed for refused.
+    #[gpui::test]
+    fn typing_into_the_original_changes_nothing(cx: &mut TestAppContext) {
+        let text = format!("{}\n", "word ".repeat(80));
+        let (view, cx) = window_with(cx, &text, Comparison::default());
+        settle(cx);
+        let (from, to) = across_the_original(&view, cx);
+        drag(cx, from, to);
+        assert!(
+            cx.update(|window, cx| view
+                .read(cx)
+                .original
+                .read(cx)
+                .focus_handle(cx)
+                .is_focused(window)),
+            "the original never took the keyboard; the keystrokes would prove nothing"
+        );
+
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("pasted".to_owned()));
+        cx.simulate_input("x");
+        cx.simulate_keystrokes("backspace delete enter tab");
+        cx.dispatch_action(gpui_component::input::Paste);
+        cx.dispatch_action(gpui_component::input::Cut);
+        cx.dispatch_action(gpui_component::input::Undo);
+        cx.run_until_parked();
+
+        let original = cx.update(|_, cx| view.read(cx).original.read(cx).value().to_string());
+        assert_eq!(original, text, "a keystroke changed the original");
     }
 
     /// The marks answer for the visible rows only, and the rows keep
