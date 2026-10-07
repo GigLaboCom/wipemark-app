@@ -930,9 +930,16 @@ the gate the overview set, and the open edges.
     the job by itself or waits for a Rewrite / Rewrite all beside Clean.
     And a rewrite the application runs for someone else — the CLI through
     the beacon, an agent through MCP `rewrite` — leaves no trace in the
-    windows today (the owner looked for the article in the table, 2026-10-07):
-    whether such a job is a row of the queue, with its result, is for the
-    same document.
+    windows today (the owner looked for the article in the table, 2026-10-07).
+    **The owner's rule, 2026-10-07: every document has a status, whoever
+    asked** — a drop, a paste, an import, the CLI (`clean`, `rewrite`) and an
+    MCP tool (`clean`, `rewrite`, `clean_image`) are each a row of the queue
+    with its state and its result, unless the call's own parameters say not
+    to (a CLI flag, an MCP argument — to be named). E4-6b builds it. Two
+    things it has to settle: the CLI with no application running opens
+    `wipemark.db` **read-only** today (`CLAUDE.md`, "Preferences are rows")
+    and would have to write the queue's rows itself; and an MCP `inspect`
+    (a look, no result) is a row or not.
   - **Seen on 2026-10-07, Qwen3.8 27B in the application** (a 2 285-word
     Markdown article, paraphrase moderate, GPU 2 × 2, through
     `wipemark-cli rewrite` → the running application; 52 chunks, 110 calls,
