@@ -382,5 +382,12 @@ come from a script kept inside this worktree's `target/`.
 
 ### Round 2 CI
 
-The run is recorded here once it has finished.
+At `e75c4e3` (the round's code `e4b8b26` and this report), on push:
+`gate` · [37668728614](https://github.com/GigLaboCom/wipemark-app/actions/runs/37668728614)
+— **success**: gate (fmt, clippy, test, deps, features) success; native
+(llama.cpp prebuilt + Vulkan, model-free) success; macos (clippy, tests,
+llama-native prebuilt with Metal) success — the lane that compiles and
+runs L2's and L3's `pasteboard.rs` and their tests. `llama-source` did not
+run: no change under the two llama crates this round. The commit that
+fills in this paragraph changes this file only.
 
