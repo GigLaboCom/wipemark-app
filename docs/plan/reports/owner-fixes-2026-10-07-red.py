@@ -173,9 +173,15 @@ CHECKS = {
         "        let before",
         ["-p", "wipemark-models", "--", "store::"],
     ),
+    "L6": (
+        "apps/wipemark-app/src/engine_host.rs",
+        "        if of != self.handle.shared.engines.load(Ordering::SeqCst) {\n            return;\n        }\n",
+        "",
+        ["-p", "wipemark-app", "--", "an_abandoned"],
+    ),
     "F1a-forwarding": (
         "apps/wipemark-app/src/engine_host.rs",
-        "        if let Slot::Engine(engine) = &slot {\n            engine.watch_loads(self.shared.loads.clone());\n        }\n",
+        "        if let Slot::Engine(engine) = &slot {\n            engine.watch_loads(LoadSink::new(self.shared.loads.clone(), of));\n        }\n",
         "",
         ["-p", "wipemark-app", "--", "a_load_tells"],
     ),

@@ -93,7 +93,7 @@ use gpui::{App, AppContext as _, Context, Entity, Global, Subscription, Task};
 use wipemark_engine::http::KeyFault;
 use wipemark_engine::{
     async_trait, CancellationToken, ChatRequest, Completion, EngineError, EngineInfo, LoadProgress,
-    RewriteEngine, SamplingParams, TokenSink, Unavailable,
+    LoadSink, RewriteEngine, SamplingParams, TokenSink, Unavailable,
 };
 use wipemark_i18n::{args, t_args, Message};
 use wipemark_models::manifest::Role;
@@ -435,8 +435,12 @@ struct Shared {
     events: flume::Sender<Event>,
     /// Where every engine that takes the slot tells its loads, and the
     /// end the host listens on (F1).
-    loads: flume::Sender<LoadProgress>,
-    load_inbox: flume::Receiver<LoadProgress>,
+    loads: flume::Sender<(u64, LoadProgress)>,
+    load_inbox: flume::Receiver<(u64, LoadProgress)>,
+    /// Which engine is in the slot, counted: every report carries the
+    /// number of the engine that made it, and one from an engine the slot
+    /// let go of is not the current load's (L6).
+    engines: std::sync::atomic::AtomicU64,
     /// What a price needs to know about the engine in the slot.
     pace: Mutex<Pace>,
 }
@@ -522,6 +526,7 @@ impl EngineHandle {
                     events,
                     loads,
                     load_inbox,
+                    engines: std::sync::atomic::AtomicU64::new(0),
                     pace: Mutex::new(Pace::default()),
                 }),
             },
@@ -546,8 +551,9 @@ impl EngineHandle {
     /// loads are reported (F1) — here, so that no road into the slot can
     /// forget to.
     fn set(&self, slot: Slot) {
+        let of = self.shared.engines.fetch_add(1, Ordering::SeqCst) + 1;
         if let Slot::Engine(engine) = &slot {
-            engine.watch_loads(self.shared.loads.clone());
+            engine.watch_loads(LoadSink::new(self.shared.loads.clone(), of));
         }
         *self
             .shared
@@ -600,7 +606,8 @@ impl EngineHandle {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner);
                 if matches!(&*slot, Slot::Keyed { generation: now, .. } if *now == generation) {
-                    engine.watch_loads(self.shared.loads.clone());
+                    let of = self.shared.engines.fetch_add(1, Ordering::SeqCst) + 1;
+                    engine.watch_loads(LoadSink::new(self.shared.loads.clone(), of));
                     *slot = Slot::Engine(Arc::clone(&engine));
                 }
                 Ok(engine)
@@ -713,7 +720,7 @@ impl RewriteEngine for JobEngine {
 
     /// Nothing: the engine inside was told where its loads go when it took
     /// the slot, and a job does not get to move that.
-    fn watch_loads(&self, _sink: wipemark_engine::LoadSink) {}
+    fn watch_loads(&self, _sink: LoadSink) {}
 }
 
 /// An endpoint's engine, with its key read from the credential store on a
@@ -921,9 +928,9 @@ impl EngineHost {
         .detach();
         let loads = handle.shared.load_inbox.clone();
         cx.spawn(async move |host, cx| {
-            while let Ok(told) = loads.recv_async().await {
+            while let Ok((of, told)) = loads.recv_async().await {
                 if host
-                    .update(cx, |host, cx| host.load_told(told, cx))
+                    .update(cx, |host, cx| host.load_told(of, told, cx))
                     .is_err()
                 {
                     break;
@@ -966,7 +973,12 @@ impl EngineHost {
     /// percent moves, or the load starts or ends: the engine already paces
     /// its reports, and a window has nothing new to draw between two of
     /// the same percent.
-    fn load_told(&mut self, told: LoadProgress, cx: &mut Context<Self>) {
+    fn load_told(&mut self, of: u64, told: LoadProgress, cx: &mut Context<Self>) {
+        // From an engine the slot has let go of: its abandoned load says
+        // nothing about the current one's (L6).
+        if of != self.handle.shared.engines.load(Ordering::SeqCst) {
+            return;
+        }
         let before = self.loading.map(percent);
         self.loading = match told {
             LoadProgress::Reading(fraction) => Some(fraction.clamp(0.0, 1.0)),
@@ -2191,7 +2203,7 @@ mod tests {
     /// holds there until the test lets it go, then reads the rest and ends
     /// — told to whatever sink it was handed when it took the slot.
     struct Loader {
-        sink: Mutex<Option<wipemark_engine::LoadSink>>,
+        sink: Mutex<Option<LoadSink>>,
         gate: flume::Receiver<()>,
     }
 
@@ -2243,7 +2255,7 @@ mod tests {
 
         async fn unload(&self) {}
 
-        fn watch_loads(&self, sink: wipemark_engine::LoadSink) {
+        fn watch_loads(&self, sink: LoadSink) {
             *self.sink.lock().unwrap_or_else(PoisonError::into_inner) = Some(sink);
         }
     }
@@ -2283,6 +2295,50 @@ mod tests {
                 host.loaded()
             );
         });
+    }
+
+    /// L6: an engine let go of in the middle of its load — another model
+    /// took the slot — tells its end late; that end is not the new
+    /// engine's, and the new engine's bar stays until its own load ends.
+    #[gpui::test]
+    fn an_abandoned_loads_end_does_not_clear_the_next_ones_bar(cx: &mut gpui::TestAppContext) {
+        let (release_first, gate) = flume::unbounded();
+        let first = Arc::new(Loader {
+            sink: Mutex::new(None),
+            gate,
+        });
+        let host = host_over(first, Keeping::OnDemand, cx);
+        host.update(cx, |host, cx| host.load(cx));
+        cx.run_until_parked();
+
+        let (release_second, gate) = flume::unbounded();
+        let second = Arc::new(Loader {
+            sink: Mutex::new(None),
+            gate,
+        });
+        host.update(cx, |host, cx| {
+            host.handle.set(Slot::Engine(second));
+            host.generation += 1;
+            host.loaded = Loaded::No;
+            host.load(cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            host.read_with(cx, |host, _| host.load_progress()),
+            Some(0.5)
+        );
+
+        release_first.send(()).expect("the first double waits");
+        cx.run_until_parked();
+        assert_eq!(
+            host.read_with(cx, |host, _| host.load_progress()),
+            Some(0.5),
+            "the abandoned load's end cleared the current load's bar"
+        );
+
+        release_second.send(()).expect("the second double waits");
+        cx.run_until_parked();
+        assert_eq!(host.read_with(cx, |host, _| host.load_progress()), None);
     }
 
     #[test]

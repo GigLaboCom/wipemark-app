@@ -21,10 +21,30 @@ pub enum LoadProgress {
     Ended,
 }
 
-/// Where an engine tells how its loads are going. A `flume` sender, for
-/// the reason [`crate::TokenSink`] is one: the receiving end is the GPUI
-/// executor. A send to a receiver that went away is not an error.
-pub type LoadSink = flume::Sender<LoadProgress>;
+/// Where an engine tells how its loads are going: a `flume` sender, for
+/// the reason [`crate::TokenSink`] is one — the receiving end is the GPUI
+/// executor — and the number the receiver handed out with it, sent with
+/// every report. One receiver can listen to engine after engine and tell a
+/// report from one it let go of — an abandoned load's `Ended` arriving
+/// after the next engine started — from the current one's (L6). A send to
+/// a receiver that went away is not an error.
+#[derive(Debug, Clone)]
+pub struct LoadSink {
+    to: flume::Sender<(u64, LoadProgress)>,
+    of: u64,
+}
+
+impl LoadSink {
+    /// Reports go to `to`, each with `of`.
+    pub fn new(to: flume::Sender<(u64, LoadProgress)>, of: u64) -> Self {
+        Self { to, of }
+    }
+
+    /// Tell one report. `false` once nobody listens.
+    pub fn send(&self, told: LoadProgress) -> bool {
+        self.to.send((self.of, told)).is_ok()
+    }
+}
 
 /// The rate limit between llama.cpp's per-tensor reports and a sink.
 #[derive(Debug, Default)]

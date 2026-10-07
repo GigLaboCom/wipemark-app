@@ -562,16 +562,16 @@ mod tests {
         let weights = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
         let engine = LocalEngine::new(config(weights));
         let (sink, told) = flume::unbounded();
-        engine.watch_loads(sink);
+        engine.watch_loads(crate::LoadSink::new(sink, 7));
         assert!(engine.warmup().await.is_err());
         assert_eq!(
             told.drain().collect::<Vec<_>>(),
-            [LoadProgress::Reading(0.0), LoadProgress::Ended]
+            [(7, LoadProgress::Reading(0.0)), (7, LoadProgress::Ended)]
         );
 
         let missing = LocalEngine::new(config(PathBuf::from("/nonexistent/m.gguf")));
         let (sink, told) = flume::unbounded();
-        missing.watch_loads(sink);
+        missing.watch_loads(crate::LoadSink::new(sink, 8));
         assert!(missing.warmup().await.is_err());
         assert!(told.is_empty(), "a refusal before the load told a load");
     }
