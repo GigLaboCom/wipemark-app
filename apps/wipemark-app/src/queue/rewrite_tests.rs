@@ -450,11 +450,27 @@ fn a_restart_reads_the_rows_back(cx: &mut TestAppContext) {
             ended: Some(journal::now_ms()),
             entry: &entry.to_json(),
         });
+        // And one of this window's own, finished before the restart.
+        journal.record(&wipemark_store::NewRow {
+            origin: Origin::Window.as_str(),
+            action: "rewrite",
+            state: Phase::Done.as_str(),
+            item: None,
+            arrived: 2,
+            ended: Some(journal::now_ms()),
+            entry: &Entry {
+                name: Some("pasted".to_owned()),
+                kind: Some("text".to_owned()),
+                result: Some(Delivered::Caller),
+                ..Entry::default()
+            }
+            .to_json(),
+        });
     }
     let store = Arc::new(Store::open(&db).expect("db again"));
     let work = work_over(store, Some(swapping()));
     let (queue, _, cx) = queue_with(cx, &scratch, Some(work));
-    until(cx, "the rows", |cx| !ids(&queue, cx).is_empty());
+    until(cx, "the rows", |cx| ids(&queue, cx).len() == 2);
     let (origin, said, has_file) = cx.update(|_, cx| {
         let row = &queue.read(cx).rows[0];
         (row.origin, row.said().cloned(), row.arrival.is_some())
@@ -467,6 +483,13 @@ fn a_restart_reads_the_rows_back(cx: &mut TestAppContext) {
         said.outcome.map(|outcome| outcome.verdict),
         Some("cleaned".to_owned())
     );
+    // The window's own row came back too, with nothing behind it.
+    let (origin, has_file) = cx.update(|_, cx| {
+        let row = &queue.read(cx).rows[1];
+        (row.origin, row.arrival.is_some())
+    });
+    assert_eq!(origin, Origin::Window);
+    assert!(!has_file);
 }
 
 /// В3: Remove takes a row out of the list and the journal, and its queue
