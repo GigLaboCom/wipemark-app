@@ -928,6 +928,11 @@ the gate the overview set, and the open edges.
     only lists the row; Clean (Layer A) runs when asked, and the batch
     queue has no caller. Open with E4-6b's document: whether a drop starts
     the job by itself or waits for a Rewrite / Rewrite all beside Clean.
+    And a rewrite the application runs for someone else — the CLI through
+    the beacon, an agent through MCP `rewrite` — leaves no trace in the
+    windows today (the owner looked for the article in the table, 2026-10-07):
+    whether such a job is a row of the queue, with its result, is for the
+    same document.
   - **Seen on 2026-10-07, Qwen3.8 27B in the application** (a 2 285-word
     Markdown article, paraphrase moderate, GPU 2 × 2, through
     `wipemark-cli rewrite` → the running application; 52 chunks, 110 calls,
