@@ -110,13 +110,16 @@ tar = { version = "0.4", default-features = false }
 # roots come from the operating system rather than a baked-in bundle, so
 # a machine behind a corporate TLS proxy can still fetch a model.
 ureq = { version = "3.4", default-features = false, features = ["rustls", "platform-verifier"] }
-# Verifies a downloaded file against the manifest's sha256. Already in
-# the tree via gpui's dependencies, so this pins no new build.
+# Verifies a downloaded file against the manifest's sha256. On Linux
+# already in the tree via gpui's dependencies (gpui-pre-linux's `oo7`), so
+# there it pins no new build; on macOS and Windows since gpui-pre 0.3.8 it
+# is ours alone.
 sha2 = "0.10"
 hex = "0.4"
 # Total RAM, and the free space on the volume the weights land on — both
 # cross-platform, both consulted before a multi-gigabyte download starts.
-# Already in the tree via gpui.
+# Ours alone since gpui-pre 0.3.8 (the old zed pin pulled it in through
+# `zed-scap`).
 sysinfo = "0.31"
 # Ctrl-C for `wipemark-cli models pull`: the first press cancels the
 # download through `wipemark_models::Cancel`, so the `.part` is flushed and
