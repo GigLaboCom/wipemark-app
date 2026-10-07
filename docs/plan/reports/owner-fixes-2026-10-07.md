@@ -152,7 +152,18 @@ fractions are therefore seen only in the window.
 
 ## CI
 
-The GitHub Actions run for the branch is recorded here once it has finished.
+At `8a61315` (the code head `a18533f` and this report's first version),
+on push, both workflows green:
+
+| workflow · run | job | conclusion |
+|---|---|---|
+| `gate` · [37644357029](https://github.com/GigLaboCom/wipemark-app/actions/runs/37644357029) | gate (fmt, clippy, test, deps, features) | success |
+| | native (llama.cpp prebuilt + Vulkan, model-free) | success |
+| | macos (clippy, tests, llama-native prebuilt with Metal) — the only lane that compiles and runs `pasteboard.rs`'s D301 change and its test | success |
+| `llama-source` · [37644357067](https://github.com/GigLaboCom/wipemark-app/actions/runs/37644357067) (the llama crates changed: F1c) | linux (from source + Vulkan; bindings against the archive's) | success |
+| | windows (prebuilt, then from source with MSVC) | success |
+
+The commit that fills in this table changes this file only.
 
 ## What to look at in the running window
 
