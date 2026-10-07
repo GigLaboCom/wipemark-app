@@ -1045,6 +1045,14 @@ the gate the overview set, and the open edges.
 - **Build.** A connection test (the first request this product sends —
   needs E2); a RAM/VRAM indicator while a model is loaded. (No non-origin
   warning: D62.)
+- **Build. A progress bar while a model loads** (the owner, 2026-10-07).
+  A load is seconds to tens of seconds — Qwen3.8 27B 4.6–21 s from the page
+  cache (`docs/architecture/local-engine.md`) — and today the Check, a
+  resident load and a job's first load show nothing until it ends. llama.cpp
+  already reports the fraction: `progress_callback` in
+  `wipemark_llama::ffi` (`keep_loading`) receives it and drops it. Carry it
+  as an engine event through `EngineHost` to the Engine and Models pages and
+  the status bar, like the download's `Progress`.
 
 ### E9 — licensing
 
