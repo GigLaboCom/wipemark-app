@@ -508,6 +508,7 @@ settings-models-fit-tight = Würde passen, mit wenig Rest für alles andere.
 settings-models-fit-too-big = { $short } MB mehr Arbeitsspeicher, als dieses Gerät hat.
 settings-models-fit-unknown = Nicht beurteilt: Der Arbeitsspeicher dieses Geräts war nicht lesbar.
 settings-models-damaged = Auf diesem Gerät, aber nicht das, was der Katalog beschreibt. Entfernen und neu laden.
+settings-models-found-at = Gefunden unter { $path }. { -brand-name } hat diese Datei nicht heruntergeladen; sie wird dort verwendet, wo sie liegt, und nie entfernt.
 settings-models-failed = Der Download wurde beendet: { $reason }
 settings-models-stopped = Angehalten. Das bereits Geladene bleibt erhalten, der nächste Versuch setzt darauf auf.
 
@@ -843,6 +844,7 @@ image-defect-inflate-limit = ein komprimierter Text wird beim Entpacken größer
 cli-models-folder = Modellordner: { $path }
 cli-models-entry = { $id } · { $name } · { $roles } · { $size } · { $state } · { $fit }
 cli-models-chosen = zum Umschreiben gewählt
+cli-models-found-at = gefunden unter { $path }
 cli-models-state-present = auf diesem Rechner, entspricht dem Katalog
 cli-models-state-absent = nicht heruntergeladen
 cli-models-state-partial = teilweise heruntergeladen ({ $percent } %), pull setzt fort
@@ -868,6 +870,7 @@ cli-models-verify-mismatch = { $id }: { $file } entspricht nicht dem Katalog (er
 cli-models-verify-unreadable = { $id }: { $file } konnte nicht gelesen werden: { $reason }. Nicht gelesen ist nicht geprüft.
 cli-models-rm-removed = { $id } wurde aus { $path } entfernt.
 cli-models-rm-absent = { $id } lag nicht auf diesem Rechner; nichts wurde entfernt.
+cli-models-rm-found = { $id } liegt unter { $path }, wohin { -brand-name } es nicht heruntergeladen hat; nichts wurde entfernt.
 cli-models-rm-chosen = Es war das zum Umschreiben gewählte Modell: Die Anwendung zeigt kein gewähltes Modell, bis ein anderes ausgewählt wird. Dieser Befehl ändert diese Einstellung nicht.
 cli-models-rm-failed = { $id } konnte nicht aus { $path } entfernt werden: { $reason }.
 

@@ -104,10 +104,14 @@ channel — the shape every long operation in this product has, because
 the GPUI executor and tokio cannot await each other's futures.
 
 ```text
-<models folder>/<id>/<file>            the weights
+<models folder>/<id>/<file>            the weights, where a download puts them
 <models folder>/<id>/<file>.part       a download in progress
-<models folder>/<id>/.<file>.ok-<sha>  size:mtime at the last verify
-<models folder>/<id>/meta.json         what was fetched, and when
+<models folder>/<id>/meta.json         what was fetched, and when — written
+                                       by a download, never by a verify
+<models folder>/…/<file>               a catalogue file found anywhere else
+                                       under the folder (D302)
+<data dir>/records/<key>-<file>        size:mtime and sha256 at the last
+                                       hash, keyed by the file's path (D303)
 ```
 
 `<models folder>` is `<data dir>/models` unless the `models.dir` row
@@ -130,10 +134,82 @@ What is checked, and when:
   it would keep a resume point that can only ever produce the same wrong
   file again.
 * **On every later look** — the size and mtime recorded at the last
-  verify. They match and the file is trusted without re-reading seven
-  gigabytes; they do not and it is hashed again. The stamp is not a
-  security check — the sha256 is — and anything that moves the file
-  re-hashes it.
+  hash, beside the sha256 the file had then. They match and the recorded
+  hash is the answer without re-reading seven gigabytes; they do not and
+  it is hashed again. The record is not a security check — the sha256
+  is — and anything that moves the file re-hashes it.
+
+### Records under the data directory, never beside the weights (D303)
+
+Until 2026-10-07 a verify left `.<file>.ok-<sha256>` beside the file,
+and a fetch of an entry that was already whole wrote `meta.json` (with
+`fetched_at_unix`) beside weights it had not fetched — both seen on the
+owner's model mirror, a folder shared with another program. Now:
+
+* What a verify learned is a **record** under `<data dir>/records/`
+  (`Layout::records_dir`), one per weight file, named
+  `<first 32 hex of sha256(path)>-<file name>` — the path is the folder
+  made absolute (`canonicalize`) joined with the file name, so a file
+  reached as `/var/…` and `/private/var/…` is one record. It holds
+  `size:mtime`, the sha256 the file *had*, and the path. Recording the
+  hash rather than "it matched" is what lets a file with a catalogue
+  file's name and size and another hash be read once rather than on
+  every look, and lets a manifest that changes an expected hash be
+  compared against what the file is rather than a stale "ok".
+* A record that cannot be written is a warning: the next look hashes
+  again, and the verify still answers.
+* `fetch` of an entry already whole — at its place or found elsewhere —
+  downloads nothing and writes nothing. `meta.json` is written only
+  after a download, in the entry's own `<models>/<id>/`.
+* A stamp the old layout left beside a file is not read and not
+  removed (it is hidden, so the walk never lists it; `remove` deletes
+  the one beside a download of ours). The first look after the move
+  hashes each file once and records it
+  (`a_stamp_beside_the_file_is_not_needed`).
+
+A folder held read-only verifies and loads with nothing written in it
+(`a_read_only_folder_verifies_with_nothing_written_in_it`, which also
+holds that the record saves the second look its hash).
+
+### Found wherever it is (D302)
+
+A catalogue model is not only where a download puts it. When a file of
+an entry is not at `<models>/<id>/<file>`, the walk of the folder
+(`scan::weights_under`, eight levels) is searched for it: every file of
+its **name and size** is a candidate, its **sha256** decides, and the
+first that matches in path order is used. A same-name file of another
+size is not even hashed; one of the right size and another hash is not
+used, stays under "Also in this folder", and is read once (its record
+remembers the hash it had). An entry with no sha256 is never recognised
+elsewhere — a name and a size are not a confirmation.
+
+A file found that way is **the user's**:
+
+* it is `Present`, and `Downloads::weights_path` hands it to the engine;
+* the card says where it was found and offers no button — no Download,
+  because nothing needs fetching, and no Remove
+  (`Availability::Found`, `settings-models-found-at`;
+  `a_model_found_elsewhere_offers_no_remove`);
+* `Downloads::remove` deletes only what a download writes, at the place
+  it writes it — each `<models>/<id>/<file>`, its `.part`, `meta.json`
+  and the old stamp — and the directory only if that leaves it empty, so
+  a found file, or anything else a person put in `<models>/<id>/`, is
+  never deleted (`delete_leaves_a_file_found_elsewhere_alone`);
+  `wipemark-cli models rm` says where the file is and that nothing was
+  removed (`cli-models-rm-found`), and `models list` adds "found at"
+  (and `found_at` in `--json`).
+
+One walk serves the whole page: `Downloads::survey` walks once and
+locates every entry in it, and the same listing, less every file of
+every entry wherever it was found, is "Also in this folder".
+`Downloads::locate` (and `state`, `weights_path`) walk only when a file
+is not at its place.
+
+A file at `<models>/<id>/<file>` is taken as the product's own whoever
+put it there — the place is the only mark a download leaves that
+survives a restart, and old builds wrote `meta.json` on a verify, so
+that is no mark either. Loading a GGUF that is in no catalogue — the
+user's own model, unverified — is an owner question, not this rule.
 
 ### Resume, and the 200 that ruins it
 

@@ -13,10 +13,13 @@
 //!   queue.json                    batch queue, survives a restart
 //!   history.jsonl                 job history: hashes and outcomes, never text
 //!   models/<id>/<file>            weights — the default; the `models.dir`
-//!                                 row moves this tree anywhere
+//!                                 row moves this tree anywhere, and a
+//!                                 catalogue file is found anywhere under it
 //!   models/<id>/<file>.part       a download in progress
-//!   models/<id>/.<file>.ok-<sha>  size:mtime at the last verify
-//!   models/<id>/meta.json         sha256, source, fetch date
+//!   models/<id>/meta.json         sha256, source, fetch date — written by a
+//!                                 download, never by a verify
+//!   records/<key>-<file>          size:mtime and sha256 at the last hash of
+//!                                 a weight file, wherever it is (D303)
 //!   kept/                         copies of what arrived with no file behind
 //!                                 it, and of their results — only when the
 //!                                 Retention page asks, and only for as long
@@ -162,6 +165,18 @@ impl Layout {
     /// anything will names this folder so it can be found.
     pub fn kept_dir(&self) -> PathBuf {
         self.root.join("kept")
+    }
+
+    /// `<root>/records` — what a verify learned about a weight file: its
+    /// size, mtime and sha256 at the last hash, one file per weight file,
+    /// keyed by that file's path (D303).
+    ///
+    /// Here and never beside the weights, because the models folder may
+    /// be one the user holds read-only or shares with another program —
+    /// a folder of models found where they already were (D302) is not a
+    /// folder this product gets to write into.
+    pub fn records_dir(&self) -> PathBuf {
+        self.root.join("records")
     }
 
     /// `<root>/mcp.json` — the running application's MCP server: its

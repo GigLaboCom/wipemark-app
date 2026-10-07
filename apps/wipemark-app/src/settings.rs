@@ -789,6 +789,10 @@ pub struct Preferences {
     /// pair `duty::on_duty` refuses: a path to a `.part` is a path to a
     /// file no runtime can open.
     weights: BTreeMap<String, PathBuf>,
+    /// The entries whose weights were found somewhere in the folder other
+    /// than where a download puts them (D302), and where — the user's
+    /// files, used where they are and never removed.
+    found: BTreeMap<String, PathBuf>,
     /// The one download in flight, if there is one.
     ///
     /// One at a time on purpose: two seven-gigabyte downloads over one
@@ -821,6 +825,10 @@ pub struct Preferences {
     /// flight keeps the old one, which is why the row cannot move while
     /// one runs.
     models: Arc<Downloads>,
+    /// Where verify records go — `<data dir>/records`, never the models
+    /// folder (D303). Kept to build the next `Downloads` when the folder
+    /// moves.
+    records_dir: PathBuf,
     /// What the last scan found in the folder beyond the catalogue's
     /// own files — see `models::Folder`. `Unread` until the first scan
     /// answers, and again the moment the folder moves.
@@ -982,6 +990,7 @@ impl Preferences {
         store: SettingsStore,
         vault: Arc<Vault>,
         models_default: PathBuf,
+        records_dir: PathBuf,
         homes: Homes,
         pinned: Option<String>,
         engine_handle: EngineHandle,
@@ -1087,6 +1096,7 @@ impl Preferences {
             host: None,
             installed: BTreeMap::new(),
             weights: BTreeMap::new(),
+            found: BTreeMap::new(),
             download: None,
             download_said: None,
             download_error: None,
@@ -1097,7 +1107,9 @@ impl Preferences {
             // directory.
             models: Arc::new(Downloads::new(
                 models_dir.clone().unwrap_or_else(|| models_default.clone()),
+                records_dir.clone(),
             )),
+            records_dir,
             models_default,
             models_dir,
             folder: Folder::Unread,
@@ -1149,6 +1161,7 @@ impl Preferences {
             store,
             Arc::new(Vault::in_memory("com.GigLabo.wipemark.test")),
             std::env::temp_dir().join("wipemark-test-models"),
+            std::env::temp_dir().join("wipemark-test-records"),
             homes,
             None,
             engine,
@@ -1674,6 +1687,18 @@ impl Preferences {
         self.installed.get(id).cloned().unwrap_or(State::Absent)
     }
 
+    /// Where `id`'s weights were found, below the folder, when that is
+    /// not where a download puts them (D302).
+    pub fn model_found_at(&self, id: &str) -> Option<String> {
+        let path = self.found.get(id)?;
+        Some(
+            path.strip_prefix(self.models.models_dir())
+                .unwrap_or(path)
+                .display()
+                .to_string(),
+        )
+    }
+
     /// The download in flight, if it is `id`'s.
     pub fn downloading(&self, id: &str) -> Option<&Progress> {
         let running = self.download.as_ref()?;
@@ -1751,10 +1776,11 @@ impl Preferences {
         }
         let effective = dir.clone().unwrap_or_else(|| self.models_default.clone());
         tracing::info!(folder = %effective.display(), "models folder moved");
-        self.models = Arc::new(Downloads::new(effective));
+        self.models = Arc::new(Downloads::new(effective, self.records_dir.clone()));
         self.models_dir = dir;
         self.installed.clear();
         self.weights.clear();
+        self.found.clear();
         self.folder = Folder::Unread;
         self.download_said = None;
         self.download_error = None;
@@ -1858,28 +1884,46 @@ impl Preferences {
                 .spawn(async move {
                     let host = Host::probe();
                     let gpu = gpu_backend();
-                    let states: BTreeMap<String, State> = entries
+                    // One walk of the folder, and every catalogue entry
+                    // looked for in it — at its place, or anywhere under
+                    // the folder by name, size and sha256 (D302).
+                    let survey = models.survey(&entries);
+                    let states: BTreeMap<String, State> = survey
+                        .located
                         .iter()
-                        .map(|entry| (entry.id.clone(), models.state(entry)))
+                        .map(|(id, located)| (id.clone(), located.state.clone()))
                         .collect();
                     // The path an engine is handed, gathered here so
                     // that answering "who rewrites" later costs no I/O.
-                    let weights: BTreeMap<String, PathBuf> = entries
+                    let weights: BTreeMap<String, PathBuf> = survey
+                        .located
                         .iter()
-                        .filter_map(|entry| {
-                            models.weights_path(entry).map(|at| (entry.id.clone(), at))
+                        .filter_map(|(id, located)| {
+                            located.weights.clone().map(|at| (id.clone(), at))
+                        })
+                        .collect();
+                    let found: BTreeMap<String, PathBuf> = survey
+                        .located
+                        .iter()
+                        .filter(|(_, located)| located.elsewhere)
+                        .filter_map(|(id, located)| {
+                            located.weights.clone().map(|at| (id.clone(), at))
                         })
                         .collect();
                     // Everything else in the folder, however deep. The
                     // catalogue's own files are the ones above,
-                    // whatever state they are in — a damaged download
-                    // is still the catalogue's, and belongs on its card
-                    // rather than in the list of strangers.
-                    let folder = Folder::from_listing(
-                        wipemark_models::scan::weights_under(models.models_dir()),
-                        |path| weights.values().any(|ours| ours == path),
-                    );
-                    (host, gpu, states, weights, folder)
+                    // wherever they were found and whatever state they
+                    // are in — a damaged download is still the
+                    // catalogue's, and belongs on its card rather than
+                    // in the list of strangers.
+                    let ours: Vec<PathBuf> = survey
+                        .located
+                        .values()
+                        .flat_map(|located| located.files.iter().cloned())
+                        .collect();
+                    let folder =
+                        Folder::from_listing(survey.listing, |path| ours.iter().any(|o| o == path));
+                    (host, gpu, states, weights, found, folder)
                 })
                 .await;
 
@@ -1890,11 +1934,12 @@ impl Preferences {
                     if preferences.scans != mine {
                         return;
                     }
-                    let (host, gpu, states, weights, folder) = found;
+                    let (host, gpu, states, weights, found, folder) = found;
                     preferences.host = Some(host);
                     preferences.gpu = gpu;
                     preferences.installed = states;
                     preferences.weights = weights;
+                    preferences.found = found;
                     preferences.folder = folder;
                     // The moment the answer stops being provisional:
                     // before the scan lands, "that model is not here"
@@ -5267,11 +5312,13 @@ impl SettingsView {
     /// One catalogue entry.
     fn model_card(&self, entry: &ModelEntry, cx: &Context<Self>) -> impl IntoElement {
         let preferences = self.preferences.read(cx);
+        let found_at = preferences.model_found_at(&entry.id);
         let card = models::card(
             entry,
             preferences.host(),
             &preferences.model_state(&entry.id),
             preferences.downloading(&entry.id),
+            found_at.as_deref(),
         );
         let elsewhere = preferences.any_download_running() && !card.availability.is_running();
         let chosen = preferences.rewrite_model() == Some(entry.id.as_str());
@@ -5354,25 +5401,36 @@ impl SettingsView {
                                     ))),
                             ),
                     )
-                    .child(div().flex().flex_none().justify_end().child({
-                        let label = card.availability.action();
-                        Button::new(id.clone())
-                            .small()
-                            .outline()
-                            .label(SharedString::from(t(label)))
-                            // Every other card's button is off
-                            // while one download runs: the
-                            // free-space check that let this
-                            // one start was made for one file.
-                            .disabled(elsewhere)
-                            .on_click(cx.listener({
-                                let id = entry.id.clone();
-                                let availability = card.availability.clone();
-                                move |view, _, _, cx| {
-                                    view.act_on_model(&id, &availability, cx);
-                                }
-                            }))
-                    })),
+                    .child(
+                        div().flex().flex_none().justify_end().child(
+                            match card.availability.action() {
+                                Some(label) => Button::new(id.clone())
+                                    .small()
+                                    .outline()
+                                    .label(SharedString::from(t(label)))
+                                    // Every other card's button is off
+                                    // while one download runs: the
+                                    // free-space check that let this
+                                    // one start was made for one file.
+                                    .disabled(elsewhere)
+                                    .on_click(cx.listener({
+                                        let id = entry.id.clone();
+                                        let availability = card.availability.clone();
+                                        move |view, _, _, cx| {
+                                            view.act_on_model(&id, &availability, cx);
+                                        }
+                                    }))
+                                    .into_any_element(),
+                                // Found where no download put it (D302):
+                                // nothing to fetch, and nothing to remove.
+                                None => div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(SharedString::from(t(Message::SettingsModelsInstalled)))
+                                    .into_any_element(),
+                            },
+                        ),
+                    ),
             )
             .child(
                 div()
@@ -5398,6 +5456,8 @@ impl SettingsView {
                 models::Availability::Installed | models::Availability::Damaged => {
                     preferences.remove_model(id, cx);
                 }
+                // No button is drawn for it; the arm says why.
+                models::Availability::Found { .. } => {}
             });
     }
 

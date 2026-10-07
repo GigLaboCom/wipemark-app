@@ -522,6 +522,7 @@ settings-models-fit-tight = Поместится, но почти ничего �
 settings-models-fit-too-big = На { $short } МБ памяти больше, чем есть на этой машине.
 settings-models-fit-unknown = Не оценено: объём памяти машины прочитать не удалось.
 settings-models-damaged = На машине есть, но это не то, что описано в каталоге. Удалите и загрузите заново.
+settings-models-found-at = Найдена здесь: { $path }. { -brand-name } не загружал этот файл, поэтому использует его на месте и никогда не удаляет.
 settings-models-failed = Загрузка прервана: { $reason }
 settings-models-stopped = Остановлено. Загруженное сохранено, следующая попытка продолжит с этого места.
 
@@ -876,6 +877,7 @@ image-defect-inflate-limit = сжатый текст распаковывает�
 cli-models-folder = Папка моделей: { $path }
 cli-models-entry = { $id } · { $name } · { $roles } · { $size } · { $state } · { $fit }
 cli-models-chosen = выбрана для перезаписи
+cli-models-found-at = найдена здесь: { $path }
 cli-models-state-present = есть на этой машине, совпадает с каталогом
 cli-models-state-absent = не загружена
 cli-models-state-partial = загружена частично ({ $percent } %), pull докачает
@@ -901,6 +903,7 @@ cli-models-verify-mismatch = { $id }: { $file } не совпадает с ка�
 cli-models-verify-unreadable = { $id }: { $file } не удалось прочитать: { $reason }. Не прочитано — не проверено.
 cli-models-rm-removed = { $id } удалена из { $path }.
 cli-models-rm-absent = { $id } не было на этой машине; ничего не удалено.
+cli-models-rm-found = { $id } лежит здесь: { $path }, куда { -brand-name } её не загружал; ничего не удалено.
 cli-models-rm-chosen = Это была модель, выбранная для перезаписи: приложение будет показывать, что модель не выбрана, пока не выбрать другую. Эта команда настройку не меняет.
 cli-models-rm-failed = { $id } не удалось удалить из { $path }: { $reason }.
 

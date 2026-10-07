@@ -967,6 +967,12 @@ fn main() {
         Ok(layout) => layout.models_dir(),
         Err(_) => std::env::temp_dir().join("wipemark-models"),
     };
+    // What a verify learned about each weight file, under the data
+    // directory and never beside the weights (D303).
+    let records_dir = match &layout {
+        Ok(layout) => layout.records_dir(),
+        Err(_) => std::env::temp_dir().join("wipemark-records"),
+    };
     // And the two folders the Retention page names: where a result
     // with no file to sit beside goes, and where kept copies go. Asked
     // of the platform here, once, for the reason the models folder is.
@@ -1052,6 +1058,7 @@ fn main() {
                             store.clone(),
                             vault.clone(),
                             models_default.clone(),
+                            records_dir.clone(),
                             homes.clone(),
                             launch.profile.clone(),
                             engine_handle.clone(),

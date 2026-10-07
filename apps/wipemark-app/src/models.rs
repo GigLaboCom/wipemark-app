@@ -96,6 +96,12 @@ pub enum Availability {
     Downloading { done_bytes: u64, total_bytes: u64 },
     /// Present and matching the catalogue.
     Installed,
+    /// Present and matching the catalogue, found somewhere in the folder
+    /// other than where a download puts it (D302) — `at` is where, below
+    /// the folder. The user's file: it is used where it is and offers no
+    /// Remove, because nothing deletes a file this product did not
+    /// download.
+    Found { at: String },
     /// Present and *not* matching the catalogue. Never repaired
     /// silently: the bytes on disk are not the bytes that were
     /// promised, and the user is told which model that is before
@@ -109,12 +115,16 @@ impl Availability {
     /// Every state has exactly one, which is the point: a card with a
     /// Download *and* a Remove on it is a card that has to explain
     /// which one applies.
-    pub fn action(&self) -> Message {
+    ///
+    /// `None` for a model found where no download put it: there is
+    /// nothing to fetch and nothing this product may delete.
+    pub fn action(&self) -> Option<Message> {
         match self {
-            Availability::Absent => Message::SettingsModelsDownload,
-            Availability::Resumable { .. } => Message::SettingsModelsResume,
-            Availability::Downloading { .. } => Message::SettingsModelsCancel,
-            Availability::Installed | Availability::Damaged => Message::SettingsModelsRemove,
+            Availability::Absent => Some(Message::SettingsModelsDownload),
+            Availability::Resumable { .. } => Some(Message::SettingsModelsResume),
+            Availability::Downloading { .. } => Some(Message::SettingsModelsCancel),
+            Availability::Installed | Availability::Damaged => Some(Message::SettingsModelsRemove),
+            Availability::Found { .. } => None,
         }
     }
 
@@ -167,6 +177,10 @@ impl Card {
                 ),
             ),
             Availability::Damaged => t(Message::SettingsModelsDamaged),
+            Availability::Found { at } => t_args(
+                Message::SettingsModelsFoundAt,
+                &args!("path" => at.as_str()),
+            ),
             Availability::Installed | Availability::Absent => fit_line(self.fit),
         }
     }
@@ -208,19 +222,24 @@ pub fn host_line(host: Option<Host>) -> String {
 /// `running` is the download in flight, if it is this entry's — the
 /// caller passes `None` for every other card, because only one download
 /// runs at a time and a second progress bar would be describing a
-/// different file.
+/// different file. `found_at` is where below the folder the entry's
+/// weights were found, when that is not where a download puts them.
 pub fn card(
     entry: &ModelEntry,
     host: Option<Host>,
     state: &State,
     running: Option<&Progress>,
+    found_at: Option<&str>,
 ) -> Card {
     let availability = match (running, state) {
         (Some(progress), _) => Availability::Downloading {
             done_bytes: progress.done_bytes,
             total_bytes: progress.total_bytes,
         },
-        (None, State::Present { .. }) => Availability::Installed,
+        (None, State::Present { .. }) => match found_at {
+            Some(at) => Availability::Found { at: at.to_owned() },
+            None => Availability::Installed,
+        },
         (None, State::Corrupt { .. }) => Availability::Damaged,
         (
             None,
@@ -679,7 +698,7 @@ mod tests {
     #[test]
     fn every_state_offers_one_thing_and_it_is_never_start_over() {
         let entry = a_rewriter();
-        let absent = card(&entry, Some(roomy()), &State::Absent, None);
+        let absent = card(&entry, Some(roomy()), &State::Absent, None, None);
         assert_eq!(absent.availability, Availability::Absent);
 
         let partial = card(
@@ -689,6 +708,7 @@ mod tests {
                 done_bytes: 40,
                 total_bytes: 100,
             },
+            None,
             None,
         );
         assert!(
@@ -701,7 +721,13 @@ mod tests {
             "resuming and starting must not read as the same button"
         );
 
-        let present = card(&entry, Some(roomy()), &State::Present { bytes: 100 }, None);
+        let present = card(
+            &entry,
+            Some(roomy()),
+            &State::Present { bytes: 100 },
+            None,
+            None,
+        );
         assert_eq!(present.availability, Availability::Installed);
         let damaged = card(
             &entry,
@@ -709,6 +735,7 @@ mod tests {
             &State::Corrupt {
                 reason: "mismatch".into(),
             },
+            None,
             None,
         );
         assert_eq!(damaged.availability, Availability::Damaged);
@@ -723,6 +750,38 @@ mod tests {
         );
     }
 
+    /// D302: a model found where no download put it is on this machine
+    /// and offers nothing — no Download, and no Remove of a file this
+    /// product did not download — and its line says where it is.
+    #[test]
+    fn a_model_found_elsewhere_offers_no_remove() {
+        let entry = a_rewriter();
+        let found = card(
+            &entry,
+            Some(roomy()),
+            &State::Present { bytes: 100 },
+            None,
+            Some("Vendor/m.gguf"),
+        );
+        assert_eq!(
+            found.availability,
+            Availability::Found {
+                at: "Vendor/m.gguf".into()
+            }
+        );
+        assert_eq!(found.availability.action(), None);
+        assert!(found.line().contains("Vendor/m.gguf"), "{}", found.line());
+        // Found elsewhere is only a present model's story.
+        let absent = card(
+            &entry,
+            Some(roomy()),
+            &State::Absent,
+            None,
+            Some("x/m.gguf"),
+        );
+        assert_eq!(absent.availability, Availability::Absent);
+    }
+
     /// A download in flight is described by the download, whatever is
     /// on disk — and it is the only state that offers to stop.
     #[test]
@@ -735,7 +794,7 @@ mod tests {
             file_index: 1,
             file_count: 1,
         };
-        let running = card(&entry, Some(roomy()), &State::Absent, Some(&progress));
+        let running = card(&entry, Some(roomy()), &State::Absent, Some(&progress), None);
         assert!(running.availability.is_running());
         let line = running.line();
         assert!(line.contains("500.0 MB"), "{line}");
@@ -747,7 +806,7 @@ mod tests {
     #[test]
     fn an_unmeasured_machine_is_not_told_no() {
         let entry = a_rewriter();
-        let unknown = card(&entry, None, &State::Absent, None);
+        let unknown = card(&entry, None, &State::Absent, None, None);
         assert_eq!(unknown.fit, wipemark_models::host::Fit::Unknown);
         let tiny = Host {
             total_ram_mb: 512,
@@ -755,7 +814,7 @@ mod tests {
             vram_mb: None,
             unified_memory: false,
         };
-        let refused = card(&entry, Some(tiny), &State::Absent, None);
+        let refused = card(&entry, Some(tiny), &State::Absent, None, None);
         assert!(matches!(
             refused.fit,
             wipemark_models::host::Fit::TooBig { .. }
