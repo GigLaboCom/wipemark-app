@@ -198,14 +198,35 @@ before anybody can record it.
 
 ## Platforms
 
-macOS today, through `global-hotkey` 0.7 — the crate Tauri's own
-plugin is built on, a sibling of the `muda` the tray uses, and a
-macOS-only dependency for the same reason `tray-icon` is one. It
-registers through Carbon's `RegisterEventHotKey`, which needs no
+macOS and Linux under X11, through `global-hotkey` 0.7 — the crate
+Tauri's own plugin is built on, a sibling of the `muda` the tray uses,
+and a dependency on exactly the platforms `tray-icon` is one. On macOS
+it registers through Carbon's `RegisterEventHotKey`, which needs no
 Accessibility permission (lazy-shot's CGEventTap path exists for
-chords Carbon cannot express; nothing here needs it). Linux wants an
-X11 connection and Windows a message loop on the registering thread;
-both are E10 work beside the tray's. Until then `hotkey::install`
+chords Carbon cannot express; nothing here needs it).
+
+**D346 — Linux: an X11 key grab, asked only in an X11 session.** On
+Linux `global-hotkey` starts a thread with its own X11 connection and
+grabs the chord on the root window (with and without NumLock and
+CapsLock). `hotkey::install(compositor)` asks for it only when
+`hotkey::x11_session` says so: GPUI draws through X11
+(`App::compositor_name() == "X11"`) *and* `XDG_SESSION_TYPE` is not
+`wayland`. The second half is XWayland — a grab there hears only the
+keys typed into other X11 clients, a shortcut that works in one
+terminal and nowhere else. And it is asked *before* the manager exists
+because the crate's thread dies quietly when it cannot connect, after
+which every `register` answers Ok: a chord the row would call active
+and nothing would deliver. A grab another client holds is refused by
+the X server (`BadAccess`), and the row shows it. On GNOME the shipped
+panel chord, Ctrl+Alt+D, is one of the keys bound to *Show desktop*
+(`org.gnome.desktop.wm.keybindings show-desktop`), so expect it to be
+refused there and record another — the ordinary case the line under
+the field exists for. A registration waits on the grab thread, which
+looks at its inbox every 50 ms, so assigning a chord can hold the GPUI
+thread for up to that long, at launch and when a chord is recorded.
+
+Windows wants a message loop on the registering thread (E10), and a
+Wayland session has no API this build uses; there `hotkey::install`
 returns `None` and every row says the shortcut is stored and not
 registered (`hotkey-unavailable`), because a preference that silently
 did nothing would be worse than one that says so.

@@ -612,25 +612,25 @@ pub enum Registration {
     Unset,
     /// The desktop delivers it.
     #[cfg_attr(
-        not(target_os = "macos"),
+        not(any(target_os = "macos", target_os = "linux")),
         allow(
             dead_code,
-            reason = "only the macOS registrar asks the desktop; elsewhere every \
+            reason = "only the macOS and Linux registrars ask the desktop; elsewhere every \
                       answer is `Unset` or `Unavailable` (E10)"
         )
     )]
     Registered,
     /// The desktop refused, in its own words.
     #[cfg_attr(
-        not(target_os = "macos"),
+        not(any(target_os = "macos", target_os = "linux")),
         allow(
             dead_code,
-            reason = "only the macOS registrar asks the desktop; elsewhere every \
+            reason = "only the macOS and Linux registrars ask the desktop; elsewhere every \
                       answer is `Unset` or `Unavailable` (E10)"
         )
     )]
     Refused(String),
-    /// This build cannot register one on this platform. E10.
+    /// This build cannot register one here: Windows (E10), or a Linux session that is not X11 (D346).
     Unavailable,
 }
 
@@ -641,7 +641,7 @@ pub enum Registration {
 /// — the same arrangement as the tray, for the same reason: the
 /// callback the desktop calls has no `&mut App` in scope and no way to
 /// be given one, so it sends, and the acting happens on the GPUI side.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub struct Registrar {
     manager: global_hotkey::GlobalHotKeyManager,
     /// What is registered now, per action, so a change can unregister
@@ -656,10 +656,10 @@ pub struct Registrar {
 /// There is no registrar on this platform, and the type says so:
 /// [`install`] returns `None`, nothing constructs one, and the call
 /// sites in `main` still compile.
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub enum Registrar {}
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 impl Registrar {
     /// A receiver for the presses. Cheap to clone; `main` takes one and
     /// polls it from `cx.spawn`.
@@ -722,7 +722,7 @@ impl Registrar {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 impl Registrar {
     pub fn presses(&self) -> flume::Receiver<Action> {
         match *self {}
@@ -743,14 +743,35 @@ impl Registrar {
 /// rows say so — the same judgement as the tray: an affordance that
 /// failed to install is not a reason to fail a launch.
 ///
+/// `compositor` is `App::compositor_name` — what GPUI draws through. On
+/// Linux the registrar is an X11 key grab on a thread `global-hotkey`
+/// starts, so it is asked for only where [`x11_session`] says the
+/// keyboard is X11's (D346).
+///
 /// Must be called on the main thread, from inside
 /// `gpui_platform::application().run(…)`, and only once: `global-hotkey`
 /// keeps exactly one event handler for the process (a `OnceCell`), so a
 /// second call would build a registrar whose presses are delivered to
 /// the first call's channel.
-#[cfg(target_os = "macos")]
-pub fn install() -> Option<Registrar> {
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub fn install(compositor: &str) -> Option<Registrar> {
     use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
+
+    // Asked before the manager exists: on Linux `new` starts a thread
+    // that connects to X11 and dies quietly when it cannot, after which
+    // every `register` answers Ok — a chord the row would call active
+    // and nothing would deliver.
+    #[cfg(target_os = "linux")]
+    if !x11_session(compositor, std::env::var_os("XDG_SESSION_TYPE").as_deref()) {
+        tracing::info!(
+            compositor,
+            "system-wide shortcuts skipped: not an X11 session, and an X11 key grab \
+             is all this build has"
+        );
+        return None;
+    }
+    #[cfg(target_os = "macos")]
+    let _ = compositor;
 
     let manager = match GlobalHotKeyManager::new() {
         Ok(manager) => manager,
@@ -793,10 +814,27 @@ pub fn install() -> Option<Registrar> {
     })
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn install() -> Option<Registrar> {
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn install(_compositor: &str) -> Option<Registrar> {
     tracing::debug!("no system-wide shortcuts on this platform yet — E10");
     None
+}
+
+/// Whether a system-wide X11 key grab would hear the keyboard (D346).
+///
+/// Two answers have to agree: GPUI draws through X11 (`compositor`, from
+/// `App::compositor_name`), and the session is not a Wayland one. The
+/// second matters because GPUI on X11 inside a Wayland session is
+/// XWayland, where a grab on the root window hears only the keys typed
+/// into other X11 clients — a shortcut that works in one terminal and
+/// nowhere else is worse than one the row says is not active. A session
+/// type nobody set (`startx`, a bare window manager) is X11's.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(dead_code, reason = "only Linux asks; tested everywhere")
+)]
+pub fn x11_session(compositor: &str, session_type: Option<&std::ffi::OsStr>) -> bool {
+    compositor == "X11" && session_type.is_none_or(|kind| kind != "wayland")
 }
 
 #[cfg(test)]
@@ -1037,7 +1075,7 @@ mod tests {
     /// platform that has a registrar, because that is where the crate
     /// is built — a chord the recorder accepts and the desktop cannot
     /// be asked for would otherwise be a row that fails at launch.
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn every_stored_spelling_is_one_the_registrar_parses() {
         use global_hotkey::hotkey::{HotKey, Modifiers as Mods};
@@ -1047,10 +1085,17 @@ mod tests {
         keys.extend((1..=24).map(Key::Function));
         keys.extend(Named::ALL.map(Key::Named));
 
+        // ⌃ is a modifier of its own only on macOS; elsewhere the
+        // recorder never sets it and `CmdOrCtrl` is Ctrl.
+        let (control, expected) = if cfg!(target_os = "macos") {
+            (true, Mods::SUPER | Mods::CONTROL | Mods::ALT | Mods::SHIFT)
+        } else {
+            (false, Mods::CONTROL | Mods::ALT | Mods::SHIFT)
+        };
         for key in keys {
             let stored = Hotkey {
                 command: true,
-                control: true,
+                control,
                 alt: true,
                 shift: true,
                 key,
@@ -1059,11 +1104,22 @@ mod tests {
             let parsed: HotKey = text
                 .parse()
                 .unwrap_or_else(|error| panic!("{text}: {error}"));
-            assert_eq!(
-                parsed.mods,
-                Mods::SUPER | Mods::CONTROL | Mods::ALT | Mods::SHIFT,
-                "{text}"
-            );
+            assert_eq!(parsed.mods, expected, "{text}");
         }
+    }
+
+    /// D346: on Linux a shortcut is asked for only in an X11 session —
+    /// GPUI on X11, and not XWayland inside a Wayland session, where a
+    /// grab hears only other X11 clients.
+    #[test]
+    fn a_shortcut_is_asked_for_only_where_an_x11_grab_hears_the_keyboard() {
+        use std::ffi::OsStr;
+
+        assert!(x11_session("X11", Some(OsStr::new("x11"))));
+        assert!(x11_session("X11", None), "startx sets no session type");
+        assert!(!x11_session("X11", Some(OsStr::new("wayland"))), "XWayland");
+        assert!(!x11_session("Wayland", Some(OsStr::new("wayland"))));
+        assert!(!x11_session("Wayland", None));
+        assert!(!x11_session("headless", Some(OsStr::new("x11"))));
     }
 }
