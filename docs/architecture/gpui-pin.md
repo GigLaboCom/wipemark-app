@@ -325,10 +325,12 @@ is still ours. Zed's own toolchain at `279fe07` is Rust 1.98.1; ours is
 **Our patch upstream.** The line-decoration patch, re-done in the shape
 of upstream's #3040 decoration collections, is gpui-kit PR **#3359**,
 "input: Add line decorations with row backgrounds and gutter markers",
-from `GigLaboCom:heretic/line-decorations-on-upstream` (`d7d678e9`,
-seven commits on `8d8cc671`). It is **open**, on milestone 0.8.0,
-review state *changes requested* (2026-10-04), with all three points
-answered on 2026-10-05; last updated 2026-10-05. The review and the
+from `GigLaboCom:heretic/line-decorations-on-upstream` (`8aa3bcbc` at
+the end, the maintainer's own commit on top). It was **merged on
+2026-10-07 into gpui-kit's `next`** as `f8429177` (squashed), milestone
+0.8.0 — not into `main`: `next` is `main` at `8d8cc671` plus that commit,
+and `main` has moved on without it. Both pin `gpui-pre =0.3.8`. The
+owner's decision (2026-10-07): the bump pins the component to `next`. The review and the
 answers are in `docs/sdd/line-decorations.md` §4.1. Of the four other
 fork commits, upstream merged the substance of `selected_range`, the
 viewport accessors and the configurable rows (#2278, #2279, #2410,
@@ -338,10 +340,12 @@ viewport accessors and the configurable rows (#2278, #2279, #2410,
 
 A bump is not a line in `Cargo.toml`. It moves GPUI by about five and a
 half months and the component by 733 commits, and it is planned as its
-own piece of work (Watchword `wipemark-task-gpui-bump-2026-10-05`). In
+own piece of work (Watchword `wipemark-task-gpui-bump-2026-10-07`, which
+supersedes the `-2026-10-05`/`-2026-10-052` uploads). In
 order:
 
-1. **The component.** If #3359 has been merged, take upstream as it is
+1. **The component.** #3359 is merged into `next` (2026-10-07), so take upstream as it is
+   — gpui-kit `next` at `f8429177` or later; in general,
    — a submodule on `longbridge/gpui-kit`, or the released
    `gpui-component` from crates.io once 0.8.0 is out — and retire the
    fork. If not, pin a **new** branch of `GigLaboCom/gpui-component`

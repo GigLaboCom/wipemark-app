@@ -232,7 +232,7 @@ session bus out of reach; `scripts/verify/e7/live-disk.sh` still defaults
 to `DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent-wipemark-verify` (`APP_DBUS`). Where GPUI comes from, what we carry on it
 and what a bump means, with every upstream reference, is
 `docs/architecture/gpui-pin.md`; the bump itself is the task
-`wipemark-task-gpui-bump-2026-10-052`.
+`wipemark-task-gpui-bump-2026-10-07`.
 
 Five things steer a run, and every one of them exists so a check can be
 made against something other than the real installation:
@@ -1643,7 +1643,7 @@ What exists so far:
 | `wipemark-status-2026-10-03` | TEXT | where the project stood on 2026-10-03, and the branch that first took E0–E6 to `origin` |
 | `wipemark-plan-2026-10-03` | FILE | `docs/plan/README.md`: the plan of record — every remaining epic, decisions D1–D44, owner questions |
 | `wipemark-e1-1-ucd-tables-2026-10-03` … `wipemark-e1-7-closure-2026-10-03` | FILE ×7 | the E1 series, `docs/plan/E1-1` … `E1-7`: self-sufficient implementer documents for Layer A (`-e1-2-classifier`, `-e1-3-scrubber-and-nfkc`, `-e1-4-homoglyphs`, `-e1-5-guards`, `-e1-6-mcp-and-cli` between) |
-| `wipemark-line-decorations-2026-10-03` | FILE | `docs/sdd/line-decorations.md`: the fork's `LineDecorationProvider` patch, with `-screenshot-2026-10-03` (annotated PNG) and `-upstream-port-2026-10-03` (the port onto gpui-kit `main`, PR longbridge/gpui-kit#3359, under review — `docs/sdd/line-decorations.md` §4.1) |
+| `wipemark-line-decorations-2026-10-03` | FILE | `docs/sdd/line-decorations.md`: the fork's `LineDecorationProvider` patch, with `-screenshot-2026-10-03` (annotated PNG) and `-upstream-port-2026-10-03` (the port onto gpui-kit `main`, PR longbridge/gpui-kit#3359, merged into `next` on 2026-10-07 — `docs/sdd/line-decorations.md` §4.1) |
 | `wipemark-e1-plan-filed-2026-10-03` | TEXT | what was filed on 2026-10-03 and the decisions the step authors forced out of the real Unicode 18.0.0 data |
 | `wipemark-core-layer-a-closed-2026-10-03` | TEXT | the closure of `wipemark-core-layer-a-2026-09-21` (E1): what landed in E1-1…E1-7, the gates and every RED check, the live gate, the deviations, what is left open |
 | `wipemark-layer-a-architecture-2026-10-03` | FILE | a snapshot of `docs/architecture/layer-a.md` at the closure |
@@ -1682,6 +1682,7 @@ What exists so far:
 | `wipemark-mutations-not-needed-2026-10-06` | TEXT | mutation testing — how a once-per-protection check grew into two tables (93 entries and H1–H56, about 13 hours a re-run) that no one had decided on, what it found and did not, and the owner's resolution: not needed for now; tasks ask for no mutation tables, verifiers run none, coverage is the measure wanted next |
 | `wipemark-gpui-pin-architecture-2026-10-052` | FILE | a snapshot of `docs/architecture/gpui-pin.md`: GPUI at `81b16f4` from the fork `GigLaboCom/zed` (`9d80553`) with two X11 fixes — a stale first frame (upstream #62081) and a double borrow on the portal's appearance event (ours) — how upstream moved to `gpui-pre` snapshots, and what a bump means, with references |
 | `wipemark-task-gpui-bump-2026-10-052` | FILE | a task for an agent in a container: GPUI onto the newest `gpui-pre` snapshot, our gpui-component patch rebased (or dropped once gpui-kit#3359 lands), the API fixed, patch B re-carried through `[patch.crates-io]`, the host's checklist after; decisions D291–D300. The keys without the trailing `2` are the first uploads, before the fork's commits were filled in |
+| `wipemark-task-gpui-bump-2026-10-07` | FILE | the same task revised: gpui-kit#3359 is merged into `next` (`f8429177`, 2026-10-07), so the component is pinned to upstream `next` and the fork's patch dropped, not rebased; no mutation tables; supersedes the `-052` upload |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 | `wipemark-status-2026-10-05` | FILE | where the project stood at the end of 2026-10-05: images rounds 3–5, E7 merged, the X11 first frame fixed through `GigLaboCom/zed`, and the plan of pull requests and branches (`docs/plan/README.md` §2.1) — PR #1 and what comes next, in order |
 | `wipemark-status-2026-10-06` | TEXT | where the project stood at the end of 2026-10-06: E7 follow-ups X1–X14 and Y1–Y9 merged, Z1–Z3 filed, mutation tables dropped for `coverage.yml` (on `main` and by hand), what is next |

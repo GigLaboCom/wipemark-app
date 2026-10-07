@@ -153,6 +153,11 @@ together.
 
 ### 4.1 The review of #3359
 
+**Merged 2026-10-07** into gpui-kit's `next` as `f8429177` (squashed,
+`8aa3bcbc` included), milestone 0.8.0; `main` does not have it. Wipemark
+moves onto it with the GPUI bump (Watchword
+`wipemark-task-gpui-bump-2026-10-07`), and the fork's patch is dropped then.
+
 The maintainer (huacnlee) requested changes on 2026-10-04 and put the PR
 on the 0.8.0 milestone, where an API break is allowed. All three points
 were answered on 2026-10-05 in `3f9da904` and `d7d678e9`:
@@ -250,7 +255,7 @@ both dropping the fork and getting the API upstream: it is built in
 `LineDecorationProvider` asked per frame, `LineDecoration::new(row)
 .with_background(..).with_marker(GutterMarker::DiffAdded)`, a
 `gutter_marker_renderer` beside `fold_icon_renderer`, and `row_bounds`
-for the on-screen band of a row — and is under review as #3359 (§4.1). Moving *wipemark* onto that
+for the on-screen band of a row — and is merged as #3359 into gpui-kit `next` (§4.1). Moving *wipemark* onto that
 branch is a separate piece of work: it also moves `gpui` by about eight
 months (`Corner` → `Anchor` and whatever else changed underneath the
 AppKit code in `pasteboard.rs`, `screen.rs`, `panel.rs`,
