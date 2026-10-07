@@ -439,7 +439,14 @@ struct Shared {
     load_inbox: flume::Receiver<LoadProgress>,
     /// What a price needs to know about the engine in the slot.
     pace: Mutex<Pace>,
+    /// Told whenever the slot changes — the batch queue, whose hold lifts
+    /// when the duty does (E4-6b, R1).
+    watchers: Mutex<Vec<Watcher>>,
 }
+
+/// One thing told when the slot changes. Called on whichever thread
+/// changed it, after the slot's lock is let go: it must not block.
+type Watcher = Box<dyn Fn() + Send + Sync>;
 
 /// What a surface needs to price a job before it runs (D61), read from any
 /// thread.
@@ -523,6 +530,7 @@ impl EngineHandle {
                     loads,
                     load_inbox,
                     pace: Mutex::new(Pace::default()),
+                    watchers: Mutex::new(Vec::new()),
                 }),
             },
             inbox,
@@ -554,6 +562,26 @@ impl EngineHandle {
             .slot
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = slot;
+        for watcher in self
+            .shared
+            .watchers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+        {
+            watcher();
+        }
+    }
+
+    /// Be told whenever the engine on duty changes — another model, an
+    /// endpoint, nothing. `told` runs on the thread that changed it and
+    /// must not block: the batch queue's is a channel send.
+    pub fn when_changed(&self, told: impl Fn() + Send + Sync + 'static) {
+        self.shared
+            .watchers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Box::new(told));
     }
 
     /// The executor of the engine on duty and the rate last measured on
@@ -714,6 +742,26 @@ impl RewriteEngine for JobEngine {
     /// Nothing: the engine inside was told where its loads go when it took
     /// the slot, and a job does not get to move that.
     fn watch_loads(&self, _sink: wipemark_engine::LoadSink) {}
+}
+
+/// The batch queue's engine (R1, E4-6b): the engine on duty when an item
+/// **starts** — whatever the person chose by then — taken through
+/// [`EngineHandle::for_job`], so the item is counted busy for its whole
+/// length and an **Unload now** or another model waits for it (D51). Asked
+/// on the queue's own thread, which may block on a key read; nothing on
+/// duty, or a refusal, is the queue's hold rather than the item's failure.
+impl wipemark_queue::EngineSource for EngineHandle {
+    fn for_item(&self) -> Result<Arc<dyn RewriteEngine>, Unavailable> {
+        match wipemark_pipeline::block_on(self.for_job()) {
+            Ok(job) => Ok(Arc::new(job)),
+            Err(EngineError::Unavailable(why)) => Err(why),
+            // `for_job` refuses only with `Unavailable` today; anything else
+            // is still "no engine for this item", said in the engine's words.
+            Err(other) => Err(Unavailable::LoadFailed {
+                detail: other.to_string(),
+            }),
+        }
+    }
 }
 
 /// An endpoint's engine, with its key read from the credential store on a
@@ -1893,6 +1941,75 @@ mod tests {
             decide(&ON_DEMAND, &yes(), false, after[0]),
             vec![Action::ArmIdle(IDLE)]
         );
+    }
+
+    /// The batch queue on the handle (R1): an item pushed with nothing on
+    /// duty waits — the queue holds, nothing fails — and once an engine is
+    /// on duty and the queue is told, the item runs on it, counted busy on
+    /// every call it makes and let go of when it ends. Without the
+    /// `EngineSource` going through `for_job`, the probe sees a busy count
+    /// of zero.
+    #[test]
+    fn a_queued_item_waits_for_an_engine_and_holds_it_for_its_whole_length() {
+        use wipemark_queue::{Destination, Durability, Queue, QueueEvent, Request, Source};
+
+        let (handle, _inbox) = EngineHandle::new();
+        let queue = Queue::with_source(
+            Arc::new(wipemark_store::Store::in_memory().expect("memory")),
+            Durability::Memory { detail: None },
+            Arc::new(handle.clone()),
+        )
+        .expect("opens");
+        let events = queue.events();
+        let text = "The build takes about twelve minutes on an ordinary laptop, and the second \
+                    run is much faster because the dependencies are already compiled.\n";
+        let item = queue
+            .push(Request {
+                source: Source::Text(text.to_owned()),
+                format: wipemark_pipeline::prepare::TextFormat::Plain,
+                destination: Destination::Row,
+                options: wipemark_pipeline::Options::for_executor(Executor::LocalCpu),
+            })
+            .expect("pushed");
+        let wait = |until: &dyn Fn(&QueueEvent) -> bool| loop {
+            let event = events
+                .recv_timeout(Duration::from_secs(30))
+                .expect("an event");
+            assert!(
+                !matches!(event, QueueEvent::Ended { .. }) || until(&event),
+                "ended early: {event:?}"
+            );
+            if until(&event) {
+                return event;
+            }
+        };
+        wait(&|event| {
+            matches!(
+                event,
+                QueueEvent::Held {
+                    reason: Unavailable::NothingOnDuty
+                }
+            )
+        });
+
+        let probe = Arc::new(Probe {
+            handle: handle.clone(),
+            seen: Mutex::new(Vec::new()),
+        });
+        handle.set(Slot::Engine(probe.clone()));
+        queue.engine_changed();
+        wait(&|event| matches!(event, QueueEvent::Ended { item: ended, .. } if *ended == item));
+        let seen = probe.seen.lock().expect("lock").clone();
+        assert!(!seen.is_empty(), "the item never reached the engine");
+        assert!(
+            seen.iter().all(|&busy| busy == 1),
+            "the item was not counted busy on every call: {seen:?}"
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while handle.busy() != 0 {
+            assert!(Instant::now() < deadline, "the item never let go");
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     /// Every refusal, and a match that stops compiling the day a variant

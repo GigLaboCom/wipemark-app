@@ -202,10 +202,64 @@ pub fn init(cx: &mut App) {
 /// What a window is opened on: the thing, and what it was established
 /// to be — or not yet, for a path named on the command line, which is
 /// examined on the way in like a dropped one.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Subject {
     pub handed: Handed,
     pub intake: Option<Intake>,
+    /// What the right-hand pane opens with: what cleaning makes of the
+    /// original, or a rewrite's result (E4-6b, R5).
+    pub made: Made,
+}
+
+/// What the result pane opens with and Reset puts back.
+#[derive(Clone)]
+pub enum Made {
+    /// `clean(original)` at Layer A's defaults — the text the queue's Clean
+    /// writes for the same document.
+    Cleaned,
+    /// A rewrite's result, as it was delivered: the file it was written
+    /// to, or the batch queue's row that holds it. `kept` is how many of
+    /// how many paragraphs kept their cleaned original, when known.
+    Rewritten {
+        from: RewriteFrom,
+        kept: Option<(u32, u32)>,
+    },
+}
+
+/// Where a rewrite's result is.
+#[derive(Clone)]
+pub enum RewriteFrom {
+    /// Written to this file.
+    File(std::path::PathBuf),
+    /// In the batch queue's row, the one home a text with no file has.
+    Item(Arc<wipemark_queue::Queue>, wipemark_queue::ItemId),
+}
+
+impl std::fmt::Debug for Made {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Made::Cleaned => f.write_str("Cleaned"),
+            Made::Rewritten { kept, .. } => f
+                .debug_struct("Rewritten")
+                .field("kept", kept)
+                .finish_non_exhaustive(),
+        }
+    }
+}
+
+/// What the result pane holds, as the window words it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MadeKind {
+    Cleaned,
+    Rewritten { kept: Option<(u32, u32)> },
+}
+
+impl std::fmt::Debug for Subject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Subject")
+            .field("made", &self.made)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Why there is nothing to compare.
@@ -278,8 +332,11 @@ pub struct Loaded {
     pub text: String,
     /// The result the window opens with and Reset returns to:
     /// `wipemark_core::clean(text, &Options::default()).text`, the text
-    /// the queue's Clean writes for the same document.
+    /// the queue's Clean writes for the same document — or a rewrite's
+    /// result as it was delivered.
     pub cleaned: String,
+    /// Which of the two `cleaned` is.
+    pub kind: MadeKind,
 }
 
 impl Subject {
@@ -317,14 +374,44 @@ impl Subject {
             handed: self.handed,
         };
         let text = clean::text_of(&arrival).map_err(Refusal::of)?;
-        // Layer A at its defaults, as the queue's Clean and the CLI run
-        // it: deterministic, so this is the text they write.
-        let cleaned = wipemark_core::clean(&text, &Options::default()).text;
+        let (cleaned, kind) = match self.made {
+            // Layer A at its defaults, as the queue's Clean and the CLI run
+            // it: deterministic, so this is the text they write.
+            Made::Cleaned => (
+                wipemark_core::clean(&text, &Options::default()).text,
+                MadeKind::Cleaned,
+            ),
+            // The rewrite as it was delivered, read back — nothing is
+            // rewritten here, and nothing is recomputed (D273's shape).
+            Made::Rewritten { from, kept } => {
+                (rewritten_text(&from)?, MadeKind::Rewritten { kept })
+            }
+        };
         Ok(Loaded {
             name,
             text,
             cleaned,
+            kind,
         })
+    }
+}
+
+/// A rewrite's result, read from where it was delivered. Blocking.
+pub fn rewritten_text(from: &RewriteFrom) -> Result<String, Refusal> {
+    match from {
+        RewriteFrom::File(path) => {
+            let arrival = drop::Arrival {
+                intake: wipemark_intake::of_path(path),
+                handed: Handed::Path(path.clone()),
+            };
+            clean::text_of(&arrival).map_err(Refusal::of)
+        }
+        RewriteFrom::Item(queue, item) => queue
+            .result(*item)
+            .ok()
+            .flatten()
+            .and_then(|result| result["text"].as_str().map(str::to_owned))
+            .ok_or(Refusal::Unreadable),
     }
 }
 
@@ -641,6 +728,9 @@ struct CompareView {
     /// Whether the result has been edited away from `cleaned_text`, as
     /// of the latest comparison — what Reset is offered on.
     edited: bool,
+    /// Whether the result is a clean's or a rewrite's — what the banner
+    /// and Reset say.
+    kind: MadeKind,
     /// The left pane: the same editor as the right, read-only — which
     /// still focuses, selects, copies and searches, by mouse and by
     /// key, and refuses every change a person makes. Not *disabled*:
@@ -714,6 +804,7 @@ impl CompareView {
             original_text: Arc::from(""),
             cleaned_text: Arc::from(""),
             edited: false,
+            kind: MadeKind::Cleaned,
             original,
             original_marks: None,
             result,
@@ -756,7 +847,9 @@ impl CompareView {
                 name,
                 text,
                 cleaned,
+                kind,
             }) => {
+                self.kind = kind;
                 window.set_window_title(&Title::Compare { name: &name }.text());
                 self.name = name;
                 self.original_text = Arc::from(text.as_str());
@@ -1028,6 +1121,26 @@ impl CompareView {
 /// What this window does, since two panes of text do not say — as it
 /// was opened, so a line about following is there only while the
 /// original follows.
+/// The banner's lines: what the result pane is, and — for a rewrite whose
+/// paragraphs did not all pass — how many kept their cleaned original. A
+/// rewrite is never called better here: it is the most diverged candidate
+/// that passed the checks, and that is all the banner says of it.
+pub fn banner_lines(kind: MadeKind) -> Vec<String> {
+    match kind {
+        MadeKind::Cleaned => vec![t(Message::ComparePending)],
+        MadeKind::Rewritten { kept } => {
+            let mut lines = vec![t(Message::CompareRewrittenBanner)];
+            if let Some((kept, chunks)) = kept.filter(|(kept, _)| *kept > 0) {
+                lines.push(t_args(
+                    Message::CompareRewrittenKept,
+                    &args!("kept" => kept, "chunks" => chunks),
+                ));
+            }
+            lines
+        }
+    }
+}
+
 fn help(comparison: Comparison, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
     let mut lines = vec![Message::CompareHelpMarks];
@@ -1094,19 +1207,25 @@ impl Render for CompareView {
                     .border_color(theme.border)
                     .child(Icon::new(IconName::CircleInfo).small().color(muted))
                     .child(
-                        div()
+                        v_flex()
                             .flex_1()
                             .text_xs()
                             .text_color(muted)
-                            .child(SharedString::from(t(Message::ComparePending))),
+                            .children(banner_lines(self.kind).into_iter().map(SharedString::from)),
                     )
                     .child(
                         Button::new("compare-reset")
                             .small()
                             .outline()
                             .icon(IconName::RotateLeft)
-                            .label(SharedString::from(t(Message::CompareReset)))
-                            .tooltip(SharedString::from(t(Message::CompareResetTooltip)))
+                            .label(SharedString::from(t(match self.kind {
+                                MadeKind::Cleaned => Message::CompareReset,
+                                MadeKind::Rewritten { .. } => Message::CompareResetRewritten,
+                            })))
+                            .tooltip(SharedString::from(t(match self.kind {
+                                MadeKind::Cleaned => Message::CompareResetTooltip,
+                                MadeKind::Rewritten { .. } => Message::CompareResetRewrittenTooltip,
+                            })))
                             // Offered once the result has moved away
                             // from the cleaned text — not from the
                             // original, which it differs from whenever
@@ -1189,6 +1308,7 @@ mod tests {
         Subject {
             intake: Some(wipemark_intake::of(&handed)),
             handed,
+            made: Made::Cleaned,
         }
     }
 
@@ -1232,6 +1352,7 @@ mod tests {
         let loaded = Subject {
             handed: Handed::Path(path),
             intake: None,
+            made: Made::Cleaned,
         }
         .read()
         .unwrap();
@@ -1251,6 +1372,7 @@ mod tests {
         let gone = Subject {
             handed: Handed::Path(scratch.0.join("nowhere.txt")),
             intake: None,
+            made: Made::Cleaned,
         };
         assert!(
             matches!(gone.read(), Err(Refusal::Unreadable | Refusal::NotText)),
@@ -1669,6 +1791,52 @@ mod tests {
         assert!(
             !cx.update(|_, cx| view.read(cx).edited),
             "Reset is still offered after it ran"
+        );
+    }
+
+    /// R5: a rewritten row's window opens on the rewrite as it was
+    /// delivered — `the_result_is_what_the_queue_writes`'s twin — says how
+    /// many paragraphs kept their original, and Reset returns to the
+    /// rewrite, not to a clean of the original.
+    #[gpui::test]
+    fn reset_returns_to_the_rewrite_not_the_clean(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("rewritten");
+        let rewrite = "# Notes\n\nA rewritten line, as it was delivered.\n";
+        let delivered = scratch.file("notes.rewritten.md", rewrite.as_bytes());
+        let subject = Subject {
+            handed: Handed::Text(MARKED.to_owned()),
+            intake: None,
+            made: Made::Rewritten {
+                from: RewriteFrom::File(delivered),
+                kept: Some((1, 3)),
+            },
+        };
+        let (view, cx) = window_on(cx, subject, Comparison::default());
+        settle(cx);
+        let (original, result) = panes_of(&view, cx);
+        assert_eq!(original, MARKED);
+        assert_eq!(result, rewrite, "the pane is not the delivered rewrite");
+        let kind = cx.update(|_, cx| view.read(cx).kind);
+        let lines = banner_lines(kind);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(
+            lines[1].contains('1') && lines[1].contains('3'),
+            "{lines:?}"
+        );
+
+        let editor = cx.update(|_, cx| view.read(cx).result.clone());
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| editor.set_text("edited\n", window, cx));
+        });
+        settle(cx);
+        cx.update(|window, cx| view.update(cx, |view, cx| view.reset(window, cx)));
+        settle(cx);
+        let (_, result) = panes_of(&view, cx);
+        assert_eq!(result, rewrite, "Reset did not return to the rewrite");
+        assert_ne!(
+            result,
+            wipemark_core::clean(MARKED, &Options::default()).text,
+            "Reset returned to the clean"
         );
     }
 

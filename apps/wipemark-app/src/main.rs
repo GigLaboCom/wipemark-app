@@ -50,6 +50,7 @@ mod engine;
 mod engine_host;
 mod hotkey;
 mod icon;
+mod journal;
 mod keys;
 mod language;
 mod mcp;
@@ -131,6 +132,8 @@ struct Shell {
     /// A row's Report dialog, while it is open, and its subscription —
     /// an element in this view's own tree, like the walk-through.
     report: Option<(Entity<ReportView>, Subscription)>,
+    /// Rewrite all's price, or "send these away?", while it asks (E4-6b).
+    asking: Option<(Entity<dialog::Confirm>, Subscription)>,
     /// Dropped with the view: a change on the clipboard repaints the
     /// toolbar, and the window coming forward looks at it again.
     _clipboard: [Subscription; 2],
@@ -246,7 +249,7 @@ impl Shell {
         // Clean, for a check that should not start by driving a menu.
         let Startup { import, clean } = arguments;
         if !import.is_empty() {
-            queue.update(cx, |queue, cx| queue.hand(import, cx));
+            queue.update(cx, |queue, cx| queue.hand_from_launch(import, cx));
         }
         if !clean.is_empty() {
             queue.update(cx, |queue, cx| queue.hand_to_clean(clean, cx));
@@ -258,12 +261,36 @@ impl Shell {
         let asked = cx.subscribe_in(
             &queue,
             window,
-            |shell, queue, event: &QueueEvent, window, cx| match *event {
+            |shell, queue, event: &QueueEvent, window, cx| match event {
                 QueueEvent::Report(id) => {
-                    let Some((intake, outcome)) = queue.read(cx).report_of(id) else {
+                    let Some((intake, outcome)) = queue.read(cx).report_of(*id) else {
                         return;
                     };
                     shell.open_report(&intake, &outcome, window, cx);
+                }
+                // The price first (D61), and nothing pushed until yes.
+                QueueEvent::Price { ids, price } => {
+                    let title = t_args(
+                        Message::RewritePriceTitle,
+                        &args!("count" => price.documents),
+                    );
+                    shell.ask(
+                        title,
+                        price.lines(),
+                        Message::RewritePriceGo,
+                        ids.clone(),
+                        window,
+                        cx,
+                    );
+                }
+                // A drop the switch would send away is asked about once (В1).
+                QueueEvent::SendAway { ids, host } => {
+                    let title = t_args(
+                        Message::RewriteSendTitle,
+                        &args!("count" => ids.len(), "host" => host.clone()),
+                    );
+                    let body = vec![t(Message::RewriteSendBody)];
+                    shell.ask(title, body, Message::RewriteSendGo, ids.clone(), window, cx);
                 }
             },
         );
@@ -275,6 +302,7 @@ impl Shell {
             _clipboard: [watched, activated],
             _queue: [working, asked],
             report: None,
+            asking: None,
             host,
             _host: loaded,
             preferences,
@@ -308,6 +336,32 @@ impl Shell {
             cx.notify();
         });
         self.report = Some((view, closed));
+        cx.notify();
+    }
+
+    /// Ask before rows `ids` are rewritten — Rewrite all's price, or a drop
+    /// that would be sent away. Yes pushes them; anything else, nothing.
+    fn ask(
+        &mut self,
+        title: String,
+        body: Vec<String>,
+        go: Message,
+        ids: Vec<u64>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = cx.new(|cx| {
+            dialog::Confirm::new(title, body, t(go), t(Message::RewriteCancel), window, cx)
+        });
+        let queue = self.queue.clone();
+        let answered = cx.subscribe(&view, move |shell, _, answer: &dialog::Answer, cx| {
+            if *answer == dialog::Answer::Accepted {
+                queue.update(cx, |queue, cx| queue.rewrite(&ids, cx));
+            }
+            shell.asking = None;
+            cx.notify();
+        });
+        self.asking = Some((view, answered));
         cx.notify();
     }
 
@@ -444,6 +498,28 @@ fn status_line(duty: &Duty, loaded: &Loaded) -> String {
     }
 }
 
+impl Shell {
+    /// The status bar's one sentence: what the application is doing. A
+    /// model loading says how far (F1); then the cleans, which are quick
+    /// and the person's own clicks; then the batch queue's rewrites — which
+    /// of how many, which paragraph, or why it waits; then who is on duty.
+    fn status(&self, cx: &App) -> String {
+        let duty = self.preferences.read(cx).duty(Role::Rewrite);
+        let host = self.host.read(cx);
+        if let (Some(Performer::Machine(_)), Some(_)) = (duty.performer(), host.load_progress()) {
+            return status_now(&duty, host.loaded(), host.load_progress());
+        }
+        let queue = self.queue.read(cx);
+        if let Some((current, total)) = queue.progress(cx) {
+            return cleaning_line(current, total);
+        }
+        if let Some(line) = queue.rewrite_line() {
+            return line;
+        }
+        status_now(&duty, host.loaded(), host.load_progress())
+    }
+}
+
 /// The status bar's sentence while the queue cleans: which of how many.
 fn cleaning_line(current: usize, total: usize) -> String {
     t_args(
@@ -500,6 +576,12 @@ impl Shell {
         let (paste_label, count) = clipboard::label(self.clipboard.read(cx).held());
         let cleaning = self.queue.clone();
         let waiting = self.queue.read(cx).cleanable_waiting().len();
+        let (rewriting, pausing, clearing) =
+            (self.queue.clone(), self.queue.clone(), self.queue.clone());
+        let rewritable = self.queue.read(cx).rewritable_waiting(cx).len();
+        let open = self.queue.read(cx).rewrites_open();
+        let paused = self.queue.read(cx).rewrites_paused();
+        let finished = self.queue.read(cx).any_finished();
         h_flex()
             .w_full()
             .flex_shrink_0()
@@ -553,6 +635,55 @@ impl Shell {
                         cleaning.update(cx, |queue, cx| queue.clean_all(cx));
                     }),
             )
+            .child(
+                Button::new("rewrite-all")
+                    .small()
+                    .outline()
+                    .icon(IconName::Pen)
+                    .label(SharedString::from(t(Message::ToolbarRewriteAll)))
+                    .tooltip(SharedString::from(t(Message::ToolbarRewriteAllTooltip)))
+                    .disabled(rewritable == 0)
+                    .on_click(move |_: &ClickEvent, _, cx| {
+                        rewriting.update(cx, |queue, cx| queue.ask_rewrite_all(cx));
+                    }),
+            )
+            // While anything is in the batch queue — every surface's.
+            .when(open || paused, |bar| {
+                bar.child(
+                    Button::new("pause-rewrites")
+                        .small()
+                        .ghost()
+                        .label(SharedString::from(t(if paused {
+                            Message::ToolbarResume
+                        } else {
+                            Message::ToolbarPause
+                        })))
+                        .tooltip(SharedString::from(t(if paused {
+                            Message::ToolbarResumeTooltip
+                        } else {
+                            Message::ToolbarPauseTooltip
+                        })))
+                        .on_click(move |_: &ClickEvent, _, cx| {
+                            pausing.update(cx, |queue, cx| {
+                                queue.pause_rewrites(!paused);
+                                cx.notify();
+                            });
+                        }),
+                )
+            })
+            .when(finished, |bar| {
+                bar.child(
+                    Button::new("clear-finished")
+                        .small()
+                        .ghost()
+                        .icon(IconName::Trash)
+                        .label(SharedString::from(t(Message::ToolbarClearFinished)))
+                        .tooltip(SharedString::from(t(Message::ToolbarClearFinishedTooltip)))
+                        .on_click(move |_: &ClickEvent, _, cx| {
+                            clearing.update(cx, |queue, cx| queue.clear_finished(cx));
+                        }),
+                )
+            })
             .child(div().flex_1())
             .child(
                 Popover::new("help")
@@ -623,16 +754,7 @@ impl Render for Shell {
                     // still ends in "Layer A only": nothing in this
                     // build sends a request.
                     .child(Icon::new(IconName::CircleInfo).small().color(muted))
-                    .child(SharedString::from(match self.queue.read(cx).progress(cx) {
-                        // While the queue works, that is what the
-                        // application is doing.
-                        Some((current, total)) => cleaning_line(current, total),
-                        None => status_now(
-                            &self.preferences.read(cx).duty(Role::Rewrite),
-                            self.host.read(cx).loaded(),
-                            self.host.read(cx).load_progress(),
-                        ),
-                    }))
+                    .child(SharedString::from(self.status(cx)))
                     .child(div().flex_1())
                     // The far end of the status bar, which is where a
                     // desktop application has put its preferences for
@@ -667,6 +789,11 @@ impl Render for Shell {
             // or a tooltip of the library's that would have to show over
             // it. See the note on `SettingsView::dialog` for why tree
             // order alone is not enough to make an overlay modal.
+            .children(self.asking.as_ref().map(|(asking, _)| {
+                deferred(asking.clone())
+                    .with_priority(dialog::MODAL_PRIORITY)
+                    .into_any_element()
+            }))
             .children(self.report.as_ref().map(|(report, _)| {
                 deferred(report.clone())
                     .with_priority(dialog::MODAL_PRIORITY)
@@ -925,6 +1052,64 @@ fn init_logging(layout: Option<&Layout>) {
     }
 }
 
+/// Open the batch queue over the application's database, and the journal
+/// beside it; settle what an earlier run left mid-way, sweep the rows past
+/// their keep period, start the bookkeeper, and install both for the MCP
+/// server (E4-6b, R1, R4).
+///
+/// The queue asks `engine` for an engine as each item starts, and is told
+/// whenever the duty changes, so a hold for want of an engine lifts by
+/// itself. A database that would not open is the store's in-memory
+/// stand-in, and the queue says so as its `Durability`.
+fn open_work(
+    store: &config::SettingsStore,
+    engine: &EngineHandle,
+    keep_days: u32,
+) -> journal::Work {
+    use wipemark_queue::{Durability, Queue};
+
+    let durability = if store.path() == std::path::Path::new(":memory:") {
+        Durability::Memory {
+            detail: Some("the preferences database would not open".to_owned()),
+        }
+    } else {
+        Durability::File(store.path().to_path_buf())
+    };
+    let source: Arc<dyn wipemark_queue::EngineSource> = Arc::new(engine.clone());
+    let queue = match Queue::with_source(store.clone(), durability, Arc::clone(&source)) {
+        Ok(queue) => queue,
+        Err(error) => {
+            tracing::warn!(%error, "the batch queue's rows would not read; it runs in memory");
+            let memory = Arc::new(
+                wipemark_store::Store::in_memory().expect("an in-memory database always opens"),
+            );
+            Queue::with_source(
+                memory,
+                Durability::Memory {
+                    detail: Some(error.to_string()),
+                },
+                source,
+            )
+            .expect("an empty in-memory queue always reads")
+        }
+    };
+    let queue = Arc::new(queue);
+    let told = Arc::clone(&queue);
+    engine.when_changed(move || told.engine_changed());
+    let work = journal::Work {
+        queue,
+        journal: journal::Journal::new(store.clone()),
+        engine: engine.clone(),
+    };
+    journal::settle_at_launch(&work);
+    for item in work.journal.sweep(keep_days, journal::now_ms()) {
+        work.queue.remove(item);
+    }
+    journal::keep_books(&work);
+    journal::install(work.clone());
+    work
+}
+
 fn main() {
     // Resolved here and not inside `init_logging` so that the block
     // below can reuse it rather than asking the platform twice.
@@ -961,6 +1146,17 @@ fn main() {
     // `config::read_all`.
     let stored = config::read_all(&store);
     let preference = stored.theme;
+
+    // The road to the engine on duty, built before anything that holds
+    // one: the batch queue asks it for an engine as each item starts, the
+    // MCP server takes it when `Preferences` starts it, and the host that
+    // serves it is built over `Preferences` once the window exists.
+    let (engine_handle, engine_inbox) = EngineHandle::new();
+    // The batch queue and the document journal (E4-6b), over the same
+    // database as the preferences — before the window and before the MCP
+    // server, both of which push to it. Opening it reads its rows, which
+    // blocks the way `config::open` does, and once, here.
+    let work = open_work(&store, &engine_handle, stored.journal_keep_days);
     let language = stored.language.clone();
 
     // The credential store, for the one setting that is not a row in
@@ -1038,11 +1234,9 @@ fn main() {
             let preferences_slot: Rc<RefCell<Option<Entity<Preferences>>>> = Rc::default();
             let slot = preferences_slot.clone();
 
-            // The road to the engine on duty, built before anything that
-            // holds one: the MCP server takes it when `Preferences` starts
-            // it, and the host that serves it is built over `Preferences`
-            // just after.
-            let (engine_handle, engine_inbox) = EngineHandle::new();
+            // The windows reach the queue and the journal through a
+            // global; the MCP server through `journal::installed`.
+            cx.set_global(journal::Working(work.clone()));
 
             // What the sweep below needs, before the window builder
             // takes the rest.
@@ -1167,6 +1361,7 @@ fn main() {
                     compare::Subject {
                         handed: wipemark_intake::Handed::Path(path.clone()),
                         intake: None,
+                        made: compare::Made::Cleaned,
                     },
                     preferences.read(cx).comparison(),
                     AnyWindowHandle::from(window),

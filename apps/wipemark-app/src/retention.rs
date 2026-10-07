@@ -57,7 +57,7 @@ use wipemark_i18n::{t, Message};
 /// The result and set-aside names. They live in `wipemark_intake::name`
 /// because the CLI writes results too and must not depend on this crate
 /// (D10); re-exported so every caller here keeps its spelling.
-pub use wipemark_intake::name::{with_infix, ORIGINAL_INFIX, RESULT_INFIX};
+pub use wipemark_intake::name::{with_infix, ORIGINAL_INFIX, RESULT_INFIX, REWRITTEN_INFIX};
 use wipemark_intake::{Intake, Kind};
 
 use crate::engine::Choice;
@@ -439,6 +439,37 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// Where a **rewrite** of the thing `plan` was made for goes, as the batch
+/// queue stores it (R3, E4-6b) — taken when the rewrite is **pushed**, not
+/// when it starts, because the queue executes what was stored, after a
+/// restart too (D91). That is the deliberate asymmetry with a clean, whose
+/// plan is taken at its start (D283); the Retention page says so.
+///
+/// Beside the file is `name.rewritten.ext` (В8) and into the results
+/// folder the same name there — each a **new** file, refused where one is
+/// already (D261); over the file is in place with the original set aside
+/// first, never without (the windows never replace without setting the
+/// original aside); a thing with no file behind it keeps its result in the
+/// queue's row, shown and copied from there. `None` for a folder, which is
+/// not rewritten whole.
+pub fn rewrite_destination(
+    plan: &Plan,
+    source: Option<&Path>,
+) -> Option<wipemark_queue::Destination> {
+    use wipemark_queue::{Destination as Goes, Keep};
+    let rewritten = || {
+        let name = source?.file_name()?.to_string_lossy().into_owned();
+        Some(with_infix(&name, REWRITTEN_INFIX))
+    };
+    match plan {
+        Plan::EachFileIn(_) => None,
+        Plan::File(Written::Beside(_)) => Some(Goes::New(source?.with_file_name(rewritten()?))),
+        Plan::File(Written::Into { folder, .. }) => Some(Goes::New(folder.join(rewritten()?))),
+        Plan::File(Written::Over { .. }) => Some(Goes::InPlace(Keep::Original)),
+        Plan::File(Written::AsText) | Plan::Loose { .. } => Some(Goes::Row),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
@@ -769,5 +800,49 @@ mod tests {
         for (choice, period) in choices.iter().zip(Period::ALL) {
             assert_eq!(*choice.item(), period);
         }
+    }
+
+    /// Each plan, as the batch queue stores it for a rewrite (R3): beside
+    /// is `name.rewritten.ext` and the results folder the same name there,
+    /// both new files; over the file is in place with the original set
+    /// aside; a paste stays in the queue's row; a folder is not rewritten.
+    #[test]
+    fn every_plan_is_a_rewrite_destination() {
+        use wipemark_queue::{Destination as Goes, Keep};
+
+        let source = PathBuf::from("/notes/article.md");
+        let homes = Homes {
+            results: PathBuf::from("/Users/me/Downloads"),
+            kept: PathBuf::from("/data/kept"),
+        };
+        let file = Source::File(source.clone());
+        let mut retention = Retention::default();
+        assert_eq!(
+            super::rewrite_destination(&plan(&file, &retention, &homes), Some(&source)),
+            Some(Goes::New(PathBuf::from("/notes/article.rewritten.md")))
+        );
+        retention.destination = Destination::Folder;
+        assert_eq!(
+            super::rewrite_destination(&plan(&file, &retention, &homes), Some(&source)),
+            Some(Goes::New(PathBuf::from(
+                "/Users/me/Downloads/article.rewritten.md"
+            )))
+        );
+        retention.destination = Destination::Replace;
+        assert_eq!(
+            super::rewrite_destination(&plan(&file, &retention, &homes), Some(&source)),
+            Some(Goes::InPlace(Keep::Original))
+        );
+        for loose in [Source::Text, Source::Bytes { name: None }] {
+            assert_eq!(
+                super::rewrite_destination(&plan(&loose, &retention, &homes), None),
+                Some(Goes::Row)
+            );
+        }
+        let folder = Source::Folder(PathBuf::from("/notes"));
+        assert_eq!(
+            super::rewrite_destination(&plan(&folder, &retention, &homes), None),
+            None
+        );
     }
 }

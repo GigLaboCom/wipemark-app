@@ -418,7 +418,10 @@ mod tests {
                 },
             )
             .expect("update open"));
-        assert_eq!(journal.row(first).expect("row").expect("there").state, "done");
+        assert_eq!(
+            journal.row(first).expect("row").expect("there").state,
+            "done"
+        );
         assert!(journal.remove(first).expect("remove"));
         assert!(!journal.remove(first).expect("gone"));
         // An id is never handed out twice, even after the newest went.
