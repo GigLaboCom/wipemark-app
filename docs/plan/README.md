@@ -920,7 +920,14 @@ the gate the overview set, and the open edges.
     [reports/E4-7-2026-10-04.md](reports/E4-7-2026-10-04.md).
   - E4-6b — the windows' half: the Settings page for templates and
     "Check template", the pivot row's widget, the Compare and queue
-    integration (with E7). Not started.
+    integration (with E7). Not started. **The owner's expectation, 2026-10-07**
+    (an article dropped on the main window with Qwen3.8 on duty, and
+    nothing happened): a thing dropped on the queue is *processed* — the
+    row goes into `wipemark-queue` and is rewritten by whoever is on duty,
+    its progress in the Status column, the result in Compare. Today a drop
+    only lists the row; Clean (Layer A) runs when asked, and the batch
+    queue has no caller. Open with E4-6b's document: whether a drop starts
+    the job by itself or waits for a Rewrite / Rewrite all beside Clean.
 
 ### E5 — the rest of the CLI
 
