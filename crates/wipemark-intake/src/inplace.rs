@@ -613,7 +613,9 @@ mod tests {
     /// A panic in the write after the original was set aside leaves the
     /// folder as it was: the file alone, byte for byte — no second name
     /// for the next in-place clean to refuse as an original already there,
-    /// and no temporary. By a hard link and by a rename (Y8).
+    /// and no temporary. By a hard link and by a rename (Y8). A panic after
+    /// the publish leaves the result and the original's second name, on
+    /// either road (Y8, Z3).
     #[test]
     fn a_panic_after_the_set_aside_leaves_the_file_alone() {
         let scratch = Scratch::new("panic-aside");
@@ -654,6 +656,21 @@ mod tests {
                     panic!("a fault in this version, on purpose")
                 },
             );
+        });
+        assert_eq!(scratch.names(), ["note.md", "note.original.md"]);
+        assert_eq!(read(&file), b"the result");
+        assert_eq!(read(&scratch.0.join("note.original.md")), b"the original");
+
+        // The same by a rename, where links are refused: the first name
+        // holds the result, so the original is not put back over it (Z3).
+        let scratch = Scratch::new("panic-aside-renamed");
+        let file = scratch.0.join("note.md");
+        std::fs::write(&file, b"the original").expect("file");
+        panicking(|| {
+            let _ = replace_with(&file, Keep::Original, no_links, |destination, model| {
+                write_atomically(destination, b"the result", Some(model)).expect("published");
+                panic!("a fault in this version, on purpose")
+            });
         });
         assert_eq!(scratch.names(), ["note.md", "note.original.md"]);
         assert_eq!(read(&file), b"the result");

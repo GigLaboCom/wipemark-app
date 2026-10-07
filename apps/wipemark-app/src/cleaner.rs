@@ -486,6 +486,49 @@ mod tests {
         assert_eq!(cx.update(|_, cx| cleaner.read(cx).progress()), None);
     }
 
+    /// Clean all asks for every row in one update, so the clean behind a
+    /// plan that panics is already waiting when the line reaches it: the
+    /// line comes to the panicking plan from the running clean's finish,
+    /// and goes on to the one behind it rather than stopping there (Z1).
+    #[gpui::test]
+    fn a_plan_that_panics_behind_a_running_clean_does_not_stop_the_line(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("plan-panics-behind");
+        let names = ["before.md", "plan-panics.md", "after.md"];
+        for name in names {
+            std::fs::write(scratch.0.join(name), "A zero\u{200B}width space.\n").expect("source");
+        }
+        let (cleaner, events, cx) = line_in(cx, &scratch);
+        let ids: Vec<u64> = names.iter().map(|_| clean::number()).collect();
+        cleaner.update(cx, |cleaner, cx| {
+            cleaner.plan = plan_panics_on_one;
+            for (id, name) in ids.iter().zip(names) {
+                assert!(cleaner.ask(*id, arrival(Handed::Path(scratch.0.join(name))), None, cx));
+            }
+            assert_eq!(cleaner.progress(), Some((1, 3)));
+        });
+        cx.run_until_parked();
+        let outcomes: Vec<(u64, String)> = events
+            .borrow()
+            .iter()
+            .filter_map(|event| match event {
+                Event::Finished(id, outcome) => Some((*id, format!("{:?}", outcome.verdict))),
+                Event::Started(_) => None,
+            })
+            .collect();
+        assert_eq!(
+            outcomes,
+            [
+                (ids[0], String::from("Cleaned")),
+                (ids[1], String::from("Failed(Panicked)")),
+                (ids[2], String::from("Cleaned")),
+            ]
+        );
+        assert!(scratch.0.join("before.cleaned.md").exists());
+        assert!(scratch.0.join("after.cleaned.md").exists());
+        assert!(!scratch.0.join("plan-panics.cleaned.md").exists());
+        assert_eq!(cx.update(|_, cx| cleaner.read(cx).progress()), None);
+    }
+
     fn arrival(handed: Handed) -> Arrival {
         Arrival {
             intake: wipemark_intake::of(&handed),
