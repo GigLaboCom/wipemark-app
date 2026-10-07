@@ -96,6 +96,11 @@ bothered to attach":
 | PNG, TIFF | text | a screenshot dragged out of a chat window carries a caption nobody meant to hand over |
 | plain text | RTF, HTML | this product's subject is characters; the markup around them is a container, and it is still read when it is all there is |
 
+An item whose text is empty, or ASCII white space alone, hands over
+nothing (D301, `Handed::is_nothing`; [queue.md](queue.md), "How things
+get in"), and `Catcher::land` leaves such a thing out whichever road it
+came by — a drop of it is a drop that carried nothing.
+
 `a_file_beats_the_text_that_describes_it` and
 `an_image_beats_the_caption_attached_to_it` are the gates, and they run
 against a real `NSPasteboard` — `pasteboardWithUniqueName`, filled by

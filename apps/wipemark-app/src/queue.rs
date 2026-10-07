@@ -2302,6 +2302,46 @@ mod tests {
         assert_eq!(statuses(&queue, cx), ["cleaned"]);
     }
 
+    /// D301, the owner's empty row of 2026-10-07: an empty text on the
+    /// clipboard greys the Paste button, a press of it lands no row, and
+    /// neither does a drop of empty text or of a lone newline — while a
+    /// text beside them still lands.
+    #[gpui::test]
+    fn a_paste_or_a_drop_of_empty_text_lands_nothing(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("empty-paste");
+        let (queue, _preferences, cx) = queue_in(cx, &scratch);
+        cx.update(|_, cx| cx.write_to_clipboard(gpui::ClipboardItem::new_string(String::new())));
+        let clipboard = cx.update(|_, cx| cx.new(crate::clipboard::Clipboard::new));
+        let label = cx.update(|_, cx| crate::clipboard::label(clipboard.read(cx).held()));
+        assert_eq!(
+            label,
+            (Message::ToolbarPaste, 0),
+            "the button over an empty text is not the greyed Paste"
+        );
+
+        let pasted = cx.update(|_, cx| crate::clipboard::Clipboard::take(cx));
+        queue.update(cx, |queue, cx| queue.land(pasted, cx));
+        cx.run_until_parked();
+        assert!(cx.update(|_, cx| queue.read(cx).ids()).is_empty());
+
+        queue.update(cx, |queue, cx| {
+            queue.land(
+                vec![
+                    Handed::Text(String::new()),
+                    Handed::Text("\n".to_owned()),
+                    Handed::Text("a word".to_owned()),
+                ],
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            cx.update(|_, cx| queue.read(cx).ids()).len(),
+            1,
+            "an empty text was listed, or the word beside it was not"
+        );
+    }
+
     /// The live check's case 7, as a test: a pasted text with a U+200B,
     /// "Keep what you paste" on, cleaned; Copy the result puts the cleaned
     /// text on the clipboard, and the kept directory holds the characters

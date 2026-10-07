@@ -273,6 +273,10 @@ pub fn attach(window: &gpui::Window) -> bool {
 /// * **plain text** beats rich text, because this product's subject is
 ///   characters and RTF is a container around them — but RTF is still
 ///   read when it is all there is.
+///
+/// An item whose text is empty, or ASCII white space alone, hands over
+/// nothing (D301, `Handed::is_nothing`) — a paste or a drop of it lands
+/// no row.
 pub fn handed(pasteboard: &NSPasteboard) -> Vec<Handed> {
     let Some(items) = pasteboard.pasteboardItems() else {
         return Vec::new();
@@ -301,22 +305,30 @@ fn from_item(item: &NSPasteboardItem) -> Option<Handed> {
             }
         }
         if let Some(text) = item.stringForType(NSPasteboardTypeString) {
-            return Some(Handed::Text(text.to_string()));
+            let text = Handed::Text(text.to_string());
+            if !text.is_nothing() {
+                return Some(text);
+            }
         }
         if let Some(data) = item.dataForType(NSPasteboardTypeRTF) {
-            return Some(Handed::Bytes {
+            return something(Handed::Bytes {
                 name: Some("clipping.rtf".to_owned()),
                 bytes: data.to_vec(),
             });
         }
         if let Some(data) = item.dataForType(NSPasteboardTypeHTML) {
-            return Some(Handed::Bytes {
+            return something(Handed::Bytes {
                 name: Some("clipping.html".to_owned()),
                 bytes: data.to_vec(),
             });
         }
     }
     None
+}
+
+/// `handed`, unless it is nothing (D301).
+fn something(handed: Handed) -> Option<Handed> {
+    (!handed.is_nothing()).then_some(handed)
 }
 
 /// What is on the general pasteboard — the clipboard — without reading
@@ -329,6 +341,11 @@ fn from_item(item: &NSPasteboardItem) -> Option<Handed> {
 /// built from, and it is polled — so it must not copy a screenshot's
 /// bytes twice a second to say "Paste image". [`change_count`] is how
 /// the poll knows whether to ask at all.
+///
+/// Text is the one kind read rather than peeked at: an empty string is
+/// no item (D301), and only its characters can say so. That read is made
+/// only when the change count moved, and only for an item that is
+/// neither a file nor an image.
 pub fn held() -> Vec<Held> {
     held_on(&NSPasteboard::generalPasteboard())
 }
@@ -357,7 +374,7 @@ pub fn held_on(pasteboard: &NSPasteboard) -> Vec<Held> {
                     || carries(NSPasteboardTypeRTF)
                     || carries(NSPasteboardTypeHTML)
                 {
-                    Some(Held::Text)
+                    from_item(&item).map(|_| Held::Text)
                 } else {
                     None
                 }
@@ -467,6 +484,20 @@ mod tests {
         let pasteboard = scratch();
         assert!(handed(&pasteboard).is_empty());
         assert!(held_on(&pasteboard).is_empty());
+    }
+
+    /// D301: an empty string is no item — the read hands over nothing
+    /// and the peek counts nothing, so Paste is greyed over it.
+    #[test]
+    fn an_empty_string_hands_over_nothing() {
+        for empty in ["", "\n"] {
+            let pasteboard = scratch();
+            unsafe {
+                pasteboard.setString_forType(&NSString::from_str(empty), NSPasteboardTypeString)
+            };
+            assert!(handed(&pasteboard).is_empty(), "{empty:?}");
+            assert!(held_on(&pasteboard).is_empty(), "{empty:?}");
+        }
     }
 
     /// The peek says what the read would hand over, kind for kind and
