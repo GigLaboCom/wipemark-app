@@ -1052,6 +1052,13 @@ the gate the overview set, and the open edges.
   pull request by the owner, as #3359 was. Upstream `main` has since added a
   read-only split `Diff` view (#3378, #3388): a reference, not a fit for an
   editable result.
+  **And the gutter** (the owner, the same day): a mirrored layout like
+  IntelliJ's — the original's gutter (line numbers, the #3359 markers) on
+  its **right**, facing the middle, its scrollbar on the left; the result
+  as today. A "gutter side" option on the editor is a second, larger
+  upstream change than the scrollbar's; assessed with the scrollbar patch
+  (fork branch `scrollbar-left-side`, and `editor-gutter-right-side` if it
+  is small).
 - **Build. A row's action is a button, not only a menu item** (the owner,
   2026-10-07). Clean — and Rewrite with E4-6b — sit inside the row's Actions
   menu ("…"), so a dropped document shows no way forward; the owner looked
