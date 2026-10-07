@@ -64,30 +64,18 @@ See `docs/architecture/images.md` and `docs/architecture/visible-marks.md`.
 ```sh
 git submodule sync --recursive      # picks up a moved URL in .gitmodules
 git submodule update --init --recursive
-scripts/pin-gpui-component.sh
 ```
 
-The submodule comes from **`GigLaboCom/gpui-component`** (a fork of
-upstream `longbridge/gpui-kit`), branch
-`heretic/epic-4-line-decorations`, which is protected against deletion
-and force-push. The pinned commit carries the `LineDecorationProvider`
-patch that upstream does not have — see
-`docs/sdd/line-decorations.md`. It moved there from a personal fork on
-2026-10-03; nothing else about the pin changed.
-
-GPUI itself comes from **`GigLaboCom/zed`** (a fork of upstream
-`zed-industries/zed`), branch `wipemark/x11-first-frame`, protected the
-same way: upstream `81b16f4` plus two X11 fixes (below, "Build, run,
-look"). The root `Cargo.toml` names the fork's URL and commit, and the
-pin script rewrites the submodule's five zed dependencies to **both** —
-Cargo tells git sources apart by URL, so the same commit under
-upstream's URL would still be a second package. It moved there on
-2026-10-05; a checkout pinned before that is re-pinned by running the
-script again.
-
-Skipping the pin script produces two different `gpui` packages in one
-binary and a type error deep inside gpui-component that reads like a
-compiler bug. It is idempotent; run it whenever in doubt.
+The submodule is upstream **`longbridge/gpui-kit`**, branch **`next`**,
+at `f8429177` — the commit that merged our line decorations as
+gpui-kit#3359 (2026-10-07; `docs/sdd/line-decorations.md` §4.1). Nothing
+of ours is carried on it. GPUI is the **`gpui-pre`** snapshots on
+crates.io at exactly the component's version (`=0.3.8`, zed `279fe07`),
+so the graph holds one GPUI by construction; `scripts/check-gpui-pin.sh`
+is the check, and CI runs it. Until 2026-10-07 both came from forks
+(`GigLaboCom/gpui-component`, `GigLaboCom/zed`) through
+`scripts/pin-gpui-component.sh`, which is now a stub that says so;
+`docs/architecture/gpui-pin.md` has the history.
 
 ## Gates — all four, before pushing
 
@@ -98,6 +86,7 @@ rustup run nightly rustfmt --edition 2021 --check $(find crates apps -name '*.rs
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 scripts/check-dep-direction.sh
+scripts/check-gpui-pin.sh           # one GPUI, from crates.io, and the X11 guards (below)
 ```
 
 `cargo clippy --workspace` compiles GPUI from source. When iterating on
@@ -107,7 +96,7 @@ minutes faster and catches the same things.
 The first gate needs a nightly rustfmt on the machine once:
 `rustup toolchain install nightly --component rustfmt --profile minimal`.
 The other three run on the pinned stable toolchain in
-`rust-toolchain.toml` (1.94.1, with its own `components` list, so a
+`rust-toolchain.toml` (1.95.0, the first that compiles `gpui-pre 0.3.8`, with its own `components` list, so a
 fresh machine has clippy and rustfmt without a second install).
 
 CI is `.github/workflows/gate.yml` (GitHub Actions, on every push and
@@ -220,26 +209,21 @@ cargo test -p wipemark-app duty::           # one module's tests
 cargo test -p wipemark-app -- --nocapture   # with the log lines
 ```
 
-**On X11, GPUI at upstream `81b16f4` has two bugs, and both are fixed
-on the fork branch we build from**, `GigLaboCom/zed`
-`wipemark/x11-first-frame` (`scripts/verify/startup-frame/`, 2026-10-05).
-The first is why a new window often showed a stale piece of the screen
-until the mouse moved: its `MapNotify` stayed in x11rb's queue, which
-calloop does not watch, so the refresh loop never started and nothing was
-presented. That is upstream zed #62081 (`f4178619ac`), backported as the
-branch's first commit — not a driver problem. The second was a panic,
-`RefCell already mutably borrowed` (`gpui_linux`, `x11/window.rs:1556`):
-the desktop portal's appearance event drew while the X11 client was
-borrowed. It showed only with gpui's `test-support`, which a `cargo test`
-links into `target/debug/wipemark`; the branch's second commit is ours and
-has no upstream counterpart. **A GPUI bump must re-carry the second**: a
-new fork branch from the new upstream rev with that commit on it (the
-first is upstream from `f4178619ac` on). A live check no longer needs the
-session bus out of reach; `scripts/verify/e7/live-disk.sh` still defaults
-to `DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent-wipemark-verify` (`APP_DBUS`). Where GPUI comes from, what we carry on it
-and what a bump means, with every upstream reference, is
-`docs/architecture/gpui-pin.md`; the bump itself is the task
-`wipemark-task-gpui-bump-2026-10-07`.
+**On X11 nothing is carried any more.** GPUI is `gpui-pre 0.3.8` (zed
+`279fe07`). The stale first frame — a new window showing a piece of the
+screen until the mouse moved, because its `MapNotify` stayed in x11rb's
+queue — is upstream #62081 (`f4178619ac`), in the snapshot. The
+`RefCell already mutably borrowed` panic on the desktop portal's
+appearance event no longer happens because #61789 (`a11083f9a7`) defers
+the appearance callback: measured 2026-10-07, no panic in 24 launches
+with the real session bus, with and without our old fix
+(`docs/plan/reports/gpui-bump-startup-2026-10-07.md`). The X11 client's
+borrow is still there (`gpui-pre-linux` `client.rs:612`, `:621`), so
+`scripts/check-gpui-pin.sh` fails on a snapshot that drops the deferral,
+and on anything of ours that calls `observe_button_layout_changed`, whose
+callback is still synchronous. The measurement scripts are
+`scripts/verify/startup-frame/`; the history and every upstream reference
+is `docs/architecture/gpui-pin.md`.
 
 Five things steer a run, and every one of them exists so a check can be
 made against something other than the real installation:
@@ -1045,8 +1029,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   pointer, so without it one click both dismissed the dialog and changed
   the page behind), `stop_propagation` on its actions (the Settings
   window binds Escape to closing itself, and dismissing a dialog closed
-  the window with it), `deferred` at a priority above gpui-component's
-  own overlays and the `Sidebar`, and `tab`/`shift-tab` bound in the
+  the window with it), `deferred` at `dialog::MODAL_PRIORITY`, over
+  every overlay gpui-component defers (its popups at 100, toasts at 101,
+  tooltips at 200) — or, for a dialog that holds a text field, at
+  `dialog::FIELD_MODAL_PRIORITY`, under the popups, so the field's own
+  right-click menu shows over it (D299) — and `tab`/`shift-tab` bound in the
   dialog's key context — GPUI's `focus_next` is window-wide, wraps
   around, and lands on element-owned handles that die with the frame that
   made them. A dialog answers **once**; Escape, the backdrop and Cancel
@@ -1691,6 +1678,7 @@ What exists so far:
 | `wipemark-gpui-pin-architecture-2026-10-052` | FILE | a snapshot of `docs/architecture/gpui-pin.md`: GPUI at `81b16f4` from the fork `GigLaboCom/zed` (`9d80553`) with two X11 fixes — a stale first frame (upstream #62081) and a double borrow on the portal's appearance event (ours) — how upstream moved to `gpui-pre` snapshots, and what a bump means, with references |
 | `wipemark-task-gpui-bump-2026-10-052` | FILE | a task for an agent in a container: GPUI onto the newest `gpui-pre` snapshot, our gpui-component patch rebased (or dropped once gpui-kit#3359 lands), the API fixed, patch B re-carried through `[patch.crates-io]`, the host's checklist after; decisions D291–D300. The keys without the trailing `2` are the first uploads, before the fork's commits were filled in |
 | `wipemark-task-gpui-bump-2026-10-07` | FILE | the same task revised: gpui-kit#3359 is merged into `next` (`f8429177`, 2026-10-07), so the component is pinned to upstream `next` and the fork's patch dropped, not rebased; no mutation tables; supersedes the `-052` upload |
+| `wipemark-gpui-bump-report-2026-10-07` | FILE | its report: the component on gpui-kit `next` (`f8429177`), GPUI `gpui-pre =0.3.8` from crates.io with nothing carried — patch A upstream (#62081), patch B unneeded since #61789 (measured) — toolchain 1.95.0, `check-gpui-pin.sh`, D291–D299; the host verification's M1 (Compare's original read-only, not disabled) and L1 (modal priorities) fixed before the merge |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 | `wipemark-status-2026-10-05` | FILE | where the project stood at the end of 2026-10-05: images rounds 3–5, E7 merged, the X11 first frame fixed through `GigLaboCom/zed`, and the plan of pull requests and branches (`docs/plan/README.md` §2.1) — PR #1 and what comes next, in order |
 | `wipemark-status-2026-10-06` | TEXT | where the project stood at the end of 2026-10-06: E7 follow-ups X1–X14 and Y1–Y9 merged, Z1–Z3 filed, mutation tables dropped for `coverage.yml` (on `main` and by hand), what is next |
