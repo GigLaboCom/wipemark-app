@@ -145,12 +145,15 @@ pub fn handed_of(item: &ClipboardItem) -> Vec<Handed> {
                 paths.extend(external.paths().iter().cloned().map(Handed::Path));
             }
             ClipboardEntry::Image(picture) => {
-                image.get_or_insert_with(|| Handed::Bytes {
+                let handed = Handed::Bytes {
                     // The name the macOS side invents for the same
                     // thing, so the intake crate hears one story.
                     name: Some(format!("image.{}", extension_of(picture.format))),
                     bytes: picture.bytes.clone(),
-                });
+                };
+                if !handed.is_nothing() {
+                    image.get_or_insert(handed);
+                }
             }
             ClipboardEntry::String(string) => {
                 let handed = Handed::Text(string.text().clone());
@@ -165,12 +168,7 @@ pub fn handed_of(item: &ClipboardItem) -> Vec<Handed> {
     if !paths.is_empty() {
         return paths;
     }
-    image
-        .into_iter()
-        .chain(text)
-        .filter(|handed| !handed.is_nothing())
-        .take(1)
-        .collect()
+    image.into_iter().chain(text).take(1).collect()
 }
 
 /// [`handed_of`]'s kinds, without the data — for a label.
