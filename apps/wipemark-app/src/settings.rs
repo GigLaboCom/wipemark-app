@@ -833,13 +833,16 @@ pub struct Preferences {
     /// own files — see `models::Folder`. `Unread` until the first scan
     /// answers, and again the moment the folder moves.
     folder: Folder,
-    /// Which scan of the models directory is the current one.
-    ///
-    /// The same counter `key_lookups` is, for the same reason: a scan
-    /// hashes files, so a slow one can outlive the download that
-    /// invalidated it, and the last answer to arrive must not win over
-    /// the last one asked for.
-    scans: u64,
+    /// A scan is running now. At most one does (D304): a scan hashes
+    /// every file whose record moved, and three asked at once — the main
+    /// window, Settings opening, a download landing — were three tasks
+    /// reading one twelve-gigabyte file side by side.
+    scanning: bool,
+    /// A scan was asked for while one ran. The running one's answer may
+    /// describe a disk that has since changed, so it is set aside and
+    /// one more scan runs when it lands — after the first, so whatever
+    /// it hashed is a record by then and is not hashed again.
+    rescan: bool,
     /// Held as an `Arc` because the write happens on a background
     /// thread, and what crosses that boundary has to own itself. Never
     /// `None` — a store that could not be opened is an in-memory one
@@ -1113,7 +1116,8 @@ impl Preferences {
             models_default,
             models_dir,
             folder: Folder::Unread,
-            scans: 0,
+            scanning: false,
+            rescan: false,
             store,
             serves,
             local,
@@ -1872,9 +1876,18 @@ impl Preferences {
     ///
     /// Called once the main window exists, again when the Settings
     /// window opens, and after anything that changes what is on disk.
+    ///
+    /// **One at a time** (D304). Asked while a scan runs, it starts
+    /// nothing: the running scan's answer is set aside when it lands and
+    /// one more scan runs then — so a file is hashed by one task at a
+    /// time, and the second scan finds the first one's record instead of
+    /// hashing the file again.
     pub fn look_at_models(&mut self, cx: &Context<Self>) {
-        self.scans += 1;
-        let mine = self.scans;
+        if self.scanning {
+            self.rescan = true;
+            return;
+        }
+        self.scanning = true;
         let models = self.models.clone();
         let entries: Vec<ModelEntry> = self.catalogue.models.clone();
 
@@ -1929,9 +1942,13 @@ impl Preferences {
 
             preferences
                 .update(cx, |preferences, cx| {
-                    // A newer scan was asked for while this one hashed.
-                    // Its answer is the one that describes the disk.
-                    if preferences.scans != mine {
+                    preferences.scanning = false;
+                    // Asked for again while this one ran: what it found
+                    // may already be out of date, so it is set aside and
+                    // the next one runs now — after this one, never
+                    // beside it.
+                    if std::mem::take(&mut preferences.rescan) {
+                        preferences.look_at_models(cx);
                         return;
                     }
                     let (host, gpu, states, weights, found, folder) = found;
@@ -8883,5 +8900,87 @@ mod tests {
             beside >= CONTROL_COLUMN.as_f32() * 2.0,
             "at the minimum width the control column would take {beside} points of the section"
         );
+    }
+
+    /// D304 (F3): two scans of the models folder asked back to back run
+    /// one after the other and never side by side — the second waits
+    /// for the first and then finds its record — so the one catalogue
+    /// file under the folder is hashed once. On 2026-10-07 three ran at
+    /// once over one twelve-gigabyte file. The file sits two folders
+    /// down under another tool's naming, so the scan is also D302's.
+    #[gpui::test]
+    fn two_scans_asked_back_to_back_hash_a_file_once(cx: &mut gpui::TestAppContext) {
+        const BYTES: &[u8] = b"weights for one scan";
+        const SHA: &str = "0352f0d048e4ebde7dd99dcd2a64670f260cdd9b09482a953eef3d62bb71d5c6";
+        let root = std::env::temp_dir().join(format!(
+            "wipemark-one-scan-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let models_dir = root.join("models");
+        std::fs::create_dir_all(models_dir.join("vendor")).expect("mkdir");
+        std::fs::write(models_dir.join("vendor").join("one.gguf"), BYTES).expect("write");
+        let mut entry = crate::models::catalogue().models[0].clone();
+        entry.id = "one".into();
+        entry.files = vec![wipemark_models::manifest::FileSpec {
+            url: "https://example.com/one.gguf".into(),
+            sha256: Some(SHA.into()),
+            size_bytes: BYTES.len() as u64,
+            variant: None,
+        }];
+        let store = Arc::new(Downloads::new(&models_dir, root.join("records")));
+        let homes = Homes {
+            results: root.join("results"),
+            kept: root.join("kept"),
+        };
+        // Held by a window, as the application holds it: the server's
+        // thread then outlives the test rather than waking it on the way
+        // out.
+        struct Holder(#[allow(dead_code)] Entity<Preferences>);
+        impl Render for Holder {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        let slot: std::rc::Rc<std::cell::RefCell<Option<Entity<Preferences>>>> =
+            std::rc::Rc::default();
+        let held = slot.clone();
+        let (_, cx) = cx.add_window_view(move |_, cx| {
+            let preferences = cx.new(|cx| Preferences::for_tests(homes, cx));
+            *held.borrow_mut() = Some(preferences.clone());
+            Holder(preferences)
+        });
+        let preferences = slot.take().expect("the window builder ran");
+
+        preferences.update(cx, |preferences, cx| {
+            preferences.catalogue = Manifest {
+                schema: wipemark_models::manifest::SCHEMA_VERSION,
+                models: vec![entry],
+            };
+            preferences.models = store.clone();
+            preferences.look_at_models(cx);
+            preferences.look_at_models(cx);
+            assert!(
+                preferences.scanning && preferences.rescan,
+                "the second scan did not wait for the first"
+            );
+        });
+        cx.run_until_parked();
+
+        preferences.read_with(cx, |preferences, _| {
+            assert!(!preferences.scanning && !preferences.rescan);
+            assert!(
+                matches!(preferences.model_state("one"), State::Present { .. }),
+                "{:?}",
+                preferences.model_state("one")
+            );
+            assert_eq!(
+                preferences.model_found_at("one"),
+                Some(Path::new("vendor").join("one.gguf").display().to_string())
+            );
+        });
+        assert_eq!(store.hashes(), 1, "the file was hashed more than once");
+        std::fs::remove_dir_all(&root).ok();
     }
 }

@@ -388,9 +388,20 @@ folder is described rather than silently missing a section.
 The probe may spawn a process and the scan may re-hash gigabytes, so
 both run on the background executor and both happen when the Settings
 window opens — not at startup, for the same reason the API key is not
-read at startup. A generation counter (`scans`) means a slow scan that
-outlived the download which invalidated it does not win over the answer
-that was asked for later.
+read at startup.
+
+**One scan at a time (D304).** `Preferences::look_at_models` is asked
+by the main window, by Settings opening and after every change on disk;
+on 2026-10-07 three scans ran at once over one twelve-gigabyte file
+(three descriptors on one `.gguf`). Now a scan asked while one runs
+starts nothing and sets `rescan`; when the running one lands its answer
+is set aside — it may describe a disk that has since changed — and one
+more scan runs, after it, never beside it. Whatever the first one hashed
+is a record by then, so the second reads the record instead of the file
+(`two_scans_asked_back_to_back_hash_a_file_once`, over
+`Downloads::hashes`, the count of full hashes a store has made). A
+`wipemark-cli models verify` in another process is not joined: it is
+the one command asked to hash in full.
 
 ## What is deliberately not here
 
