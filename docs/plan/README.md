@@ -958,6 +958,14 @@ the gate the overview set, and the open edges.
 - **Basis.** OV §6.1–6.2; `docs/architecture/compare.md`, `queue.md`.
 - **Gate.** A 1 k-token stream keeps 30 FPS; a click on a finding
   scrolls to it.
+- **Fix. A paste of empty text lands nothing** (the owner, 2026-10-07,
+  seen on Linux: an empty row `kinds=[Text]` in the queue).
+  `clipboard::handed_of` turns a `ClipboardEntry::String` holding `""`
+  into `Handed::Text("")`, and Paste takes it as a thing that arrived. An
+  empty string is no item: the button should read as over an empty
+  clipboard (greyed "Paste"), and the press should land no row — on the
+  macOS pasteboard road too (`pasteboard.rs`), and a drop of empty text
+  likewise.
 - **Open.** Q7, Q-A1, Q-A3, Q-D2; Q-C1…Q-C4 (after E7-1…E7-6), Q-C6
   (after X1–X14). Q-C5 is answered by D282.
 - **E7-1…E7-6, the windows clean — status: done** (one series for one
