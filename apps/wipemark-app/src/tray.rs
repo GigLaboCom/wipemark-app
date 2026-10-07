@@ -669,6 +669,13 @@ impl Tray {
     /// ends (D344). `main` waits for the answer inside GPUI's quit
     /// budget. On macOS there is nothing to wait for — the item leaves
     /// with the process.
+    #[cfg_attr(
+        target_os = "macos",
+        allow(
+            clippy::unused_self,
+            reason = "the macOS item leaves with the process; the signature is the Linux one's"
+        )
+    )]
     pub fn leave(&self) -> flume::Receiver<()> {
         let (done, left) = flume::bounded(1);
         #[cfg(target_os = "linux")]
