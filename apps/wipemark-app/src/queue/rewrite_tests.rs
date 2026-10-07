@@ -646,3 +646,30 @@ fn the_bookkeeper_writes_a_window_rewrites_end() {
     assert_eq!(journal.rows()[0].state, "cancelled");
     let _ = Source::Text(String::new());
 }
+
+/// В1, D318: with "Process what arrives" set, a drop goes straight into a
+/// line — cleaned, or queued for rewrite — and is never left not started.
+#[gpui::test]
+fn process_what_arrives_puts_a_drop_straight_in_a_line(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("on-arrival");
+    let first = scratch.file("a.md", PARAGRAPH.as_bytes());
+    let second = scratch.file("b.md", PARAGRAPH.as_bytes());
+    let work = work(swapping());
+    work.queue.pause();
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+
+    preferences.update(cx, |preferences, cx| {
+        preferences.select_on_arrival(super::OnArrival::Clean, cx);
+    });
+    queue.update(cx, |queue, cx| queue.hand(vec![first], cx));
+    // Nothing to remove in it: the clean ran and found nothing.
+    until(cx, "the clean", |cx| status(&queue, cx) == "nothing-found");
+
+    preferences.update(cx, |preferences, cx| {
+        preferences.select_on_arrival(super::OnArrival::Rewrite, cx);
+    });
+    queue.update(cx, |queue, cx| queue.hand(vec![second], cx));
+    until(cx, "the push", |_| !work.queue.items().is_empty());
+    assert_eq!(statuses(&queue, cx)[1], "rewrite-queued");
+    work.queue.resume();
+}
