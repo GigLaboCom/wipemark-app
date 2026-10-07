@@ -409,6 +409,11 @@ JSON, `seconds` `null` without a measured rate.
 ## The queue
 
 E4-4 (spec S4.8, OV §4.5; the plan document `docs/plan/E4-4-the-queue.md`).
+Since E4-6b the application runs it: see
+[queue.md](queue.md#rewriting-e4-6b) — the engine is asked for when each
+item starts (`EngineSource`, D310), nothing on duty holds rather than fails
+(D311), `subscribe()` gives a second reader every event, and
+`Destination::New` never replaces a file already there (D319).
 
 ```
 crates/wipemark-pipeline/src/job/resume.rs   Decided (one chunk's decision, ASCII JSON), the fingerprint, the chunk digest
