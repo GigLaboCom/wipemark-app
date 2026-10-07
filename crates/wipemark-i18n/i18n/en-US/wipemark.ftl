@@ -131,6 +131,8 @@ status-idle-away = Idle · { $model } at { $host } · the document would leave t
 # be read. Every one still ends in "cleaning only": a loaded model is a
 # fact about memory, not a claim that rewriting works.
 status-local-loading = Loading { $model } · nothing leaves this machine · { -layer-a } only
+# While the model is read into memory (F1): how far, as a whole percent.
+status-local-loading-progress = Loading { $model } — { $percent } % · nothing leaves this machine · { -layer-a } only
 status-local-loaded = { $model } loaded · { -brand-name } holds { $ram } · nothing leaves this machine · { -layer-a } only
 status-local-loaded-unmeasured = { $model } loaded · nothing leaves this machine · { -layer-a } only
 # $reason is one of the engine-refusal-* sentences.
@@ -595,6 +597,9 @@ settings-engine-local-not-here = Nothing on duty runs on this machine, so there 
 settings-engine-local-not-loaded = { $model } is not loaded.
 settings-engine-local-resident-again = “{ settings-engine-keep-resident }” is still chosen, so it loads again the next time { -brand-name } starts.
 settings-engine-local-loading = Loading { $model }…
+# The Engine page while the model is read into memory, beside a bar (F1).
+# $percent is a whole number.
+settings-engine-local-loading-progress = Loading { $model } — { $percent } % read…
 # $ram is the memory the whole process holds, measured after the load;
 # $since is the time it was loaded, e.g. "14:05".
 settings-engine-local-loaded = { $model } is loaded. { -brand-name } holds { $ram } of memory, measured. Loaded at { $since }.
@@ -897,6 +902,8 @@ settings-models-damaged = On this machine, but not what the catalogue describes.
 # download puts it (D302). The user's file: used where it is, never
 # removed. $path is where, below the folder.
 settings-models-found-at = Found at { $path }. { -brand-name } did not download this file, so it uses it where it is and never removes it.
+# The card of the model on duty while it is read into memory (F1).
+settings-models-loading = Loading into memory — { $percent } % read…
 # $reason is the store's own words, never localized.
 settings-models-failed = The download stopped: { $reason }
 settings-models-stopped = Stopped. What was downloaded is kept, and the next attempt carries on from it.

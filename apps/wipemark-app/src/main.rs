@@ -361,6 +361,22 @@ impl Shell {
     }
 }
 
+/// [`status_line`], unless the model on this machine is being read into
+/// memory: then how far, as a whole percent (F1). Whoever asked for the
+/// load — the keep policy, a Check, a job — it is the same sentence.
+fn status_now(duty: &Duty, loaded: &Loaded, progress: Option<f32>) -> String {
+    if let (Some(Performer::Machine(local)), Some(fraction)) = (duty.performer(), progress) {
+        return t_args(
+            Message::StatusLocalLoadingProgress,
+            &args!(
+                "model" => local.display.clone(),
+                "percent" => engine_host::percent(fraction).to_string(),
+            ),
+        );
+    }
+    status_line(duty, loaded)
+}
+
 /// The status bar's sentence: who is on duty, whether the document
 /// would leave this machine, and — for the model on this machine —
 /// whether it is in memory and how much the process holds.
@@ -611,9 +627,10 @@ impl Render for Shell {
                         // While the queue works, that is what the
                         // application is doing.
                         Some((current, total)) => cleaning_line(current, total),
-                        None => status_line(
+                        None => status_now(
                             &self.preferences.read(cx).duty(Role::Rewrite),
                             self.host.read(cx).loaded(),
+                            self.host.read(cx).load_progress(),
                         ),
                     }))
                     .child(div().flex_1())
@@ -1650,6 +1667,18 @@ mod tests {
             reads_as(&loading, Message::StatusLocalLoading),
             "{loading:?}"
         );
+        // F1: while the weights are read, how far — whatever `Loaded` says,
+        // since a Check's or a job's load is not the policy's — and the
+        // ordinary sentence the moment it is over.
+        let reading = status_now(&machine, &Loaded::No, Some(0.42));
+        assert!(
+            reading.contains("Qwen3 4B Instruct") && reading.contains("42"),
+            "{reading:?}"
+        );
+        for other in all {
+            assert_ne!(&reading, other, "a load under way reads as another state");
+        }
+        assert_eq!(status_now(&machine, &Loaded::No, None), idle);
         // The measured figure, in the Models page's units.
         assert!(
             measured.contains(&engine_host::memory_label(4_000)),

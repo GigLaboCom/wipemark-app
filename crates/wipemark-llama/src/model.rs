@@ -272,6 +272,19 @@ impl Model {
         params: LoadParams,
         stop: &AtomicBool,
     ) -> Result<Model, LlamaError> {
+        Self::load_watched(path, params, stop, &|_| {})
+    }
+
+    /// [`Model::load_unless`], telling `progress` how much of the weights
+    /// has been read — a fraction from 0 to 1, as llama.cpp reports it,
+    /// once per tensor and from the thread that loads (F1). A caller that
+    /// shows it rate-limits it: a model is hundreds of tensors.
+    pub fn load_watched(
+        path: &Path,
+        params: LoadParams,
+        stop: &AtomicBool,
+        progress: &dyn Fn(f32),
+    ) -> Result<Model, LlamaError> {
         if !path.is_file() {
             return Err(LlamaError::NoSuchFile(path.to_path_buf()));
         }
@@ -282,7 +295,7 @@ impl Model {
             });
         }
         let started = std::time::Instant::now();
-        let session = crate::ffi::Session::load(path, &params, stop)?;
+        let session = crate::ffi::Session::load(path, &params, stop, progress)?;
         tracing::info!(
             n_ctx = session.n_ctx(),
             n_gpu_layers = params.n_gpu_layers,
@@ -445,7 +458,18 @@ impl Model {
         params: LoadParams,
         stop: &AtomicBool,
     ) -> Result<Model, LlamaError> {
-        let _ = (params, stop);
+        Self::load_watched(path, params, stop, &|_| {})
+    }
+
+    /// Refuses as [`Model::load`] does; `stop` is never read and
+    /// `progress` never told anything — nothing is read.
+    pub fn load_watched(
+        path: &Path,
+        params: LoadParams,
+        stop: &AtomicBool,
+        progress: &dyn Fn(f32),
+    ) -> Result<Model, LlamaError> {
+        let _ = (params, stop, progress);
         if !path.is_file() {
             return Err(LlamaError::NoSuchFile(path.to_path_buf()));
         }

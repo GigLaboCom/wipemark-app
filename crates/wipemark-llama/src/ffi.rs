@@ -360,20 +360,23 @@ unsafe impl Send for Session {}
 
 impl Session {
     /// Load the weights at `path` and create one context over them. `stop`
-    /// is read as the weights are read, and set aborts the load.
+    /// is read as the weights are read, and set aborts the load;
+    /// `progress` is told the fraction read each time llama.cpp reports it.
     pub(crate) fn load(
         path: &Path,
         params: &LoadParams,
         stop: &AtomicBool,
+        progress: &dyn Fn(f32),
     ) -> Result<Session, LlamaError> {
         install_log();
         let c_path = path_cstring(path)?;
+        let watch = Watch { stop, progress };
         // SAFETY: `llama_backend_init` is idempotent; the params are a
-        // stack copy; the path outlives the call. `stop` is borrowed for the
-        // length of this function and llama.cpp reads it only from inside
-        // `llama_model_load_from_file`, on this thread, through
-        // `keep_loading`. The model pointer is null-checked before anything
-        // else uses it.
+        // stack copy; the path outlives the call. `watch` lives on this
+        // stack frame for the length of this function and llama.cpp reads
+        // it only from inside `llama_model_load_from_file`, on this thread,
+        // through `keep_loading`. The model pointer is null-checked before
+        // anything else uses it.
         let weights = unsafe {
             sys::llama_backend_init();
             let mut mparams = sys::llama_model_default_params();
@@ -384,7 +387,7 @@ impl Session {
                 LoadMode::MmapMlock => sys::llama_load_mode_LLAMA_LOAD_MODE_MMAP_MLOCK,
             };
             mparams.progress_callback = Some(keep_loading);
-            mparams.progress_callback_user_data = std::ptr::from_ref(stop).cast_mut().cast();
+            mparams.progress_callback_user_data = std::ptr::from_ref(&watch).cast_mut().cast();
             let model = sys::llama_model_load_from_file(c_path.as_ptr(), mparams);
             if model.is_null() {
                 return Err(LlamaError::Load(if stop.load(Ordering::SeqCst) {
@@ -624,19 +627,35 @@ impl Session {
     }
 }
 
-/// llama.cpp's load-progress callback: keep loading unless the flag handed
-/// to [`Session::load`] is set. Replaces llama.cpp's own default, which
-/// only prints dots.
-extern "C" fn keep_loading(_progress: f32, stop: *mut c_void) -> bool {
-    if stop.is_null() {
+/// What [`Session::load`] hands llama.cpp's load-progress callback: the
+/// flag that stops the load, and where the fraction read is told.
+struct Watch<'a> {
+    stop: &'a AtomicBool,
+    progress: &'a dyn Fn(f32),
+}
+
+/// llama.cpp's load-progress callback: tell the fraction read, then keep
+/// loading unless the flag handed to [`Session::load`] is set. Replaces
+/// llama.cpp's own default, which only prints dots.
+///
+/// A panic in the caller's `progress` is caught here and the load goes on:
+/// unwinding out of an `extern "C"` function aborts the process.
+extern "C" fn keep_loading(progress: f32, watch: *mut c_void) -> bool {
+    if watch.is_null() {
         return true;
     }
     // SAFETY: the only pointer ever handed to llama.cpp with this function
-    // is `Session::load`'s `stop`, a live `&AtomicBool` for the whole of the
-    // load call that invokes this. An `AtomicBool` is read through a shared
-    // reference from any thread.
-    let stop = unsafe { &*stop.cast_const().cast::<AtomicBool>() };
-    !stop.load(Ordering::SeqCst)
+    // is `Session::load`'s `&Watch`, live on that function's stack for the
+    // whole of the load call that invokes this, on the same thread. Both
+    // of its fields are shared references, read and never written.
+    let watch = unsafe { &*watch.cast_const().cast::<Watch<'_>>() };
+    let told = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (watch.progress)(progress);
+    }));
+    if told.is_err() {
+        tracing::warn!("a load-progress observer panicked; the load goes on");
+    }
+    !watch.stop.load(Ordering::SeqCst)
 }
 
 /// One `llama_chat_apply_template` call into `buf`, with the assistant's

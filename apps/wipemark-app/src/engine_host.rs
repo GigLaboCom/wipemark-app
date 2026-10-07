@@ -54,6 +54,18 @@
 //! engine on duty and the rate the last Check measured for it — what a
 //! surface needs to price a job before it runs (D61), from any thread.
 //!
+//! # A load, as it goes (F1)
+//!
+//! Whatever engine takes the slot is handed the host's load sink
+//! ([`RewriteEngine::watch_loads`]) — in [`EngineHandle::set`], the one
+//! place an engine enters the slot — so every load it makes, a resident
+//! load, a Check's or a job's first request's, tells the host the fraction
+//! of the weights read and the load's end. The engine paces it to ten
+//! reports a second; the host repaints only when the whole percent moves.
+//! [`EngineHost::load_progress`] is what the Engine page, the Models card
+//! of the model on duty and the status bar draw a bar or a percent from,
+//! and it is `None` the moment the load is over, however it ended.
+//!
 //! # An endpoint
 //!
 //! When an endpoint is on duty the slot holds an `HttpEngine` (E2-3), and
@@ -80,7 +92,7 @@ use std::time::{Duration, Instant};
 use gpui::{App, AppContext as _, Context, Entity, Global, Subscription, Task};
 use wipemark_engine::http::KeyFault;
 use wipemark_engine::{
-    async_trait, CancellationToken, ChatRequest, Completion, EngineError, EngineInfo,
+    async_trait, CancellationToken, ChatRequest, Completion, EngineError, EngineInfo, LoadProgress,
     RewriteEngine, SamplingParams, TokenSink, Unavailable,
 };
 use wipemark_i18n::{args, t_args, Message};
@@ -421,6 +433,10 @@ struct Shared {
     /// Jobs and checks running now, through any handle or the page.
     busy: AtomicUsize,
     events: flume::Sender<Event>,
+    /// Where every engine that takes the slot tells its loads, and the
+    /// end the host listens on (F1).
+    loads: flume::Sender<LoadProgress>,
+    load_inbox: flume::Receiver<LoadProgress>,
     /// What a price needs to know about the engine in the slot.
     pace: Mutex<Pace>,
 }
@@ -497,12 +513,15 @@ impl EngineHandle {
     /// which [`EngineHost::new`] takes.
     pub fn new() -> (EngineHandle, flume::Receiver<Event>) {
         let (events, inbox) = flume::unbounded();
+        let (loads, load_inbox) = flume::unbounded();
         (
             EngineHandle {
                 shared: Arc::new(Shared {
                     slot: Mutex::new(Slot::Nothing),
                     busy: AtomicUsize::new(0),
                     events,
+                    loads,
+                    load_inbox,
                     pace: Mutex::new(Pace::default()),
                 }),
             },
@@ -523,7 +542,13 @@ impl EngineHandle {
             .clone()
     }
 
+    /// Put `slot` in the slot. An engine entering it is told where its
+    /// loads are reported (F1) — here, so that no road into the slot can
+    /// forget to.
     fn set(&self, slot: Slot) {
+        if let Slot::Engine(engine) = &slot {
+            engine.watch_loads(self.shared.loads.clone());
+        }
         *self
             .shared
             .slot
@@ -575,6 +600,7 @@ impl EngineHandle {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner);
                 if matches!(&*slot, Slot::Keyed { generation: now, .. } if *now == generation) {
+                    engine.watch_loads(self.shared.loads.clone());
                     *slot = Slot::Engine(Arc::clone(&engine));
                 }
                 Ok(engine)
@@ -684,6 +710,10 @@ impl RewriteEngine for JobEngine {
 
     /// Nothing: the host unloads, by its policy, after the job lets go.
     async fn unload(&self) {}
+
+    /// Nothing: the engine inside was told where its loads go when it took
+    /// the slot, and a job does not get to move that.
+    fn watch_loads(&self, _sink: wipemark_engine::LoadSink) {}
 }
 
 /// An endpoint's engine, with its key read from the credential store on a
@@ -836,6 +866,9 @@ pub struct EngineHost {
     idle: Option<Task<()>>,
     /// Events held until the running job ends (rule 10).
     deferred: Vec<Event>,
+    /// How much of the weights the load under way has read, 0 to 1, or
+    /// `None` when no load is under way (F1).
+    loading: Option<f32>,
     check: Check,
     /// The observer of the preferences, while there is one.
     preferences: Option<Subscription>,
@@ -886,6 +919,18 @@ impl EngineHost {
             }
         })
         .detach();
+        let loads = handle.shared.load_inbox.clone();
+        cx.spawn(async move |host, cx| {
+            while let Ok(told) = loads.recv_async().await {
+                if host
+                    .update(cx, |host, cx| host.load_told(told, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
 
         Self {
             handle,
@@ -899,6 +944,7 @@ impl EngineHost {
             generation: 0,
             idle: None,
             deferred: Vec::new(),
+            loading: None,
             check: Check::Idle,
             preferences: None,
             _quit: quit,
@@ -907,6 +953,28 @@ impl EngineHost {
 
     pub fn loaded(&self) -> &Loaded {
         &self.loaded
+    }
+
+    /// How much of the weights the load under way has read, from 0 to 1 —
+    /// `None` while no load is under way (F1). A load a Check or a job
+    /// asked for counts as much as one the policy asked for.
+    pub fn load_progress(&self) -> Option<f32> {
+        self.loading
+    }
+
+    /// One report from the engine's load. A repaint only when the whole
+    /// percent moves, or the load starts or ends: the engine already paces
+    /// its reports, and a window has nothing new to draw between two of
+    /// the same percent.
+    fn load_told(&mut self, told: LoadProgress, cx: &mut Context<Self>) {
+        let before = self.loading.map(percent);
+        self.loading = match told {
+            LoadProgress::Reading(fraction) => Some(fraction.clamp(0.0, 1.0)),
+            LoadProgress::Ended => None,
+        };
+        if self.loading.map(percent) != before {
+            cx.notify();
+        }
     }
 
     /// When the model was loaded, on the wall clock.
@@ -1265,6 +1333,11 @@ impl EngineHost {
             cancel.cancel();
         }
     }
+}
+
+/// A fraction read, as the whole percent a page shows.
+pub fn percent(fraction: f32) -> u32 {
+    (fraction.clamp(0.0, 1.0) * 100.0).floor() as u32
 }
 
 /// The engine for `performer`, or the refusal in its place — and a log line
@@ -2068,7 +2141,7 @@ mod tests {
     /// A host started with a one-minute idle span, the machine on duty,
     /// `model` in its slot, and `keeping` as the keep row.
     fn host_over(
-        model: Arc<Model>,
+        model: Arc<dyn RewriteEngine>,
         keeping: Keeping,
         cx: &mut gpui::TestAppContext,
     ) -> Entity<EngineHost> {
@@ -2112,6 +2185,113 @@ mod tests {
             }
         });
         host
+    }
+
+    /// F1's double: a load that reads a quarter and a half of its weights,
+    /// holds there until the test lets it go, then reads the rest and ends
+    /// — told to whatever sink it was handed when it took the slot.
+    struct Loader {
+        sink: Mutex<Option<wipemark_engine::LoadSink>>,
+        gate: flume::Receiver<()>,
+    }
+
+    impl Loader {
+        fn tell(&self, told: LoadProgress) {
+            if let Some(sink) = self
+                .sink
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_ref()
+            {
+                let _ = sink.send(told);
+            }
+        }
+    }
+
+    #[async_trait]
+    impl RewriteEngine for Loader {
+        fn info(&self) -> EngineInfo {
+            EngineInfo {
+                vendor: Vendor::OpenLlm,
+                model_id: "loader".to_owned(),
+                local: true,
+                ctx_len: Some(512),
+            }
+        }
+
+        async fn complete(
+            &self,
+            _req: ChatRequest,
+            _sink: TokenSink,
+            _cancel: CancellationToken,
+        ) -> Result<Completion, EngineError> {
+            Ok(Completion {
+                text: String::new(),
+                tokens_out: 0,
+                finish: FinishReason::Stop,
+            })
+        }
+
+        async fn warmup(&self) -> Result<(), EngineError> {
+            self.tell(LoadProgress::Reading(0.25));
+            self.tell(LoadProgress::Reading(0.5));
+            let _ = self.gate.recv_async().await;
+            self.tell(LoadProgress::Reading(1.0));
+            self.tell(LoadProgress::Ended);
+            Ok(())
+        }
+
+        async fn unload(&self) {}
+
+        fn watch_loads(&self, sink: wipemark_engine::LoadSink) {
+            *self.sink.lock().unwrap_or_else(PoisonError::into_inner) = Some(sink);
+        }
+    }
+
+    /// F1: the fraction a load reads reaches the host while it reads —
+    /// what the Engine page, the Models card and the status bar draw from —
+    /// and is gone the moment the load is over. Red with the forwarding in
+    /// `EngineHandle::set` deleted: the engine is then never told where
+    /// its loads go.
+    #[gpui::test]
+    fn a_load_tells_the_host_how_far_it_has_got(cx: &mut gpui::TestAppContext) {
+        let (release, gate) = flume::unbounded();
+        let loader = Arc::new(Loader {
+            sink: Mutex::new(None),
+            gate,
+        });
+        let host = host_over(loader, Keeping::OnDemand, cx);
+
+        host.update(cx, |host, cx| host.load(cx));
+        cx.run_until_parked();
+        host.read_with(cx, |host, _| {
+            assert_eq!(
+                host.load_progress(),
+                Some(0.5),
+                "the load's fraction did not arrive"
+            );
+            assert_eq!(host.loaded(), &Loaded::Loading);
+        });
+
+        release.send(()).expect("the double waits");
+        cx.run_until_parked();
+        host.read_with(cx, |host, _| {
+            assert_eq!(host.load_progress(), None, "the bar outlived the load");
+            assert!(
+                matches!(host.loaded(), Loaded::Yes { .. }),
+                "{:?}",
+                host.loaded()
+            );
+        });
+    }
+
+    #[test]
+    fn a_fraction_reads_as_a_whole_percent() {
+        assert_eq!(percent(0.0), 0);
+        assert_eq!(percent(0.499), 49);
+        assert_eq!(percent(1.0), 100);
+        assert_eq!(percent(1.5), 100);
+        assert_eq!(percent(-1.0), 0);
     }
 
     /// The execution half, with a clock: a check loads the model, its end

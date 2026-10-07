@@ -4564,6 +4564,17 @@ impl SettingsView {
         let can_check = duty.performer().is_some() && state.can_check() && !running;
         let tray = cx.try_global::<Tray>().is_some();
         let machine = endpoint.is_none();
+        // F1: while the weights are read, the bar and how far — in place of
+        // what `Loaded` says, since a Check's or a job's load is not the
+        // policy's and would otherwise read as "not loaded".
+        let reading = machine
+            .then(|| state.model().zip(state.load_progress()))
+            .flatten()
+            .and_then(|(model, progress)| load_shown(Some(model), Some(progress)));
+        let (tone, lines) = match &reading {
+            Some((_, line)) => (Tone::Quiet, vec![line.clone()]),
+            None => (tone, lines),
+        };
 
         let unloading = host.clone();
         let checking = host.clone();
@@ -4586,6 +4597,11 @@ impl SettingsView {
                             .child(SharedString::from(line))
                     })),
             )
+            .children(reading.map(|(value, _)| {
+                gpui_component::progress::Progress::new("engine-load")
+                    .small()
+                    .value(value)
+            }))
             .child(
                 h_flex()
                     .gap_2()
@@ -5339,6 +5355,15 @@ impl SettingsView {
         );
         let elsewhere = preferences.any_download_running() && !card.availability.is_running();
         let chosen = preferences.rewrite_model() == Some(entry.id.as_str());
+        // F1: the card of the model on duty, while it is read into memory.
+        let on_duty = matches!(
+            preferences.duty(Role::Rewrite).performer(),
+            Some(Performer::Machine(local)) if local.id == entry.id
+        );
+        let reading = on_duty
+            .then(|| engine_host::hosted(cx).and_then(|host| host.read(cx).load_progress()))
+            .flatten()
+            .and_then(|progress| load_shown(None, Some(progress)));
         // The catalogue's own answer to "which of these", shown only
         // while the question is still open — see `models::recommended`.
         let suggested = models::recommended(
@@ -5453,8 +5478,19 @@ impl SettingsView {
                 div()
                     .text_xs()
                     .text_color(muted)
-                    .child(SharedString::from(card.line())),
+                    .child(SharedString::from(match &reading {
+                        Some((_, line)) => line.clone(),
+                        None => card.line(),
+                    })),
             )
+            .children(reading.map(|(value, _)| {
+                gpui_component::progress::Progress::new(SharedString::from(format!(
+                    "load-{}",
+                    entry.id
+                )))
+                .small()
+                .value(value)
+            }))
     }
 
     /// The one thing this card's button does.
@@ -6981,6 +7017,26 @@ fn local_status(
             (Tone::Warn, lines)
         }
     }
+}
+
+/// What a page draws while the model on this machine is read into memory
+/// (F1): the bar's value, 0 to 100, and the sentence beside it — the Engine
+/// page's, naming the model, or the Models card's, which sits under the
+/// model's own name. `None` when nothing is being read, so the bar goes the
+/// moment the load is over.
+fn load_shown(model: Option<&str>, progress: Option<f32>) -> Option<(f32, String)> {
+    let percent = engine_host::percent(progress?);
+    let line = match model {
+        Some(model) => t_args(
+            Message::SettingsEngineLocalLoadingProgress,
+            &args!("model" => model.to_owned(), "percent" => percent.to_string()),
+        ),
+        None => t_args(
+            Message::SettingsModelsLoading,
+            &args!("percent" => percent.to_string()),
+        ),
+    };
+    Some((percent as f32, line))
 }
 
 /// The endpoint block's state, as values: where a check goes, or why the
@@ -8899,6 +8955,24 @@ mod tests {
         assert!(
             beside >= CONTROL_COLUMN.as_f32() * 2.0,
             "at the minimum width the control column would take {beside} points of the section"
+        );
+    }
+
+    /// F1: while the weights are read a page draws a bar and says how far
+    /// — the Engine page naming the model, the Models card not — and the
+    /// moment the load is over it draws neither.
+    #[test]
+    fn a_bar_is_drawn_while_a_model_loads_and_none_after() {
+        let (value, line) = load_shown(Some("Qwen3 4B"), Some(0.5)).expect("a bar while loading");
+        assert_eq!(value, 50.0);
+        assert!(line.contains("Qwen3 4B") && line.contains("50"), "{line}");
+        let (value, line) = load_shown(None, Some(0.999)).expect("a bar on the card");
+        assert_eq!(value, 99.0);
+        assert!(line.contains("99"), "{line}");
+        assert_eq!(
+            load_shown(Some("Qwen3 4B"), None),
+            None,
+            "a bar after the load"
         );
     }
 
