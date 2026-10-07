@@ -24,18 +24,35 @@
 #      but `gpui-pre-reqwest` at that version, and no package from a zed
 #      git repository other than the patched crates named in the root
 #      manifest's [patch.crates-io].
+#   4. Asks `cargo metadata --locked` where the resolved `gpui-pre-linux`
+#      source is — the patched crate when [patch.crates-io] carries one —
+#      and reads it for the two X11 fixes this product needs (G4;
+#      docs/architecture/gpui-pin.md §2):
+#        A. the stale first frame (zed #62081): after each foreground
+#           runnable the idle callback calls the `after_runnable` hook, and
+#           the X11 client sets that hook to `process_x11_events`;
+#        B. the portal panic (ours): no `borrow_mut().windows.values_mut()`
+#           loop left in x11/client.rs — the XDP appearance and button-
+#           layout arms call the windows outside the client's borrow.
+#      A snapshot bump that drops either, or a [patch.crates-io] entry
+#      that is removed or stops matching (Cargo then takes the registry's
+#      crate and only warns), fails here.
 #
 # How to run
-#   scripts/check-gpui-pin.sh            (from anywhere; offline, a second)
-#   ROOT_MANIFEST, COMPONENT_MANIFEST, LOCKFILE override the three paths —
-#   how a scratch copy is checked when the gate is seen red on purpose.
+#   scripts/check-gpui-pin.sh            (from anywhere; a few seconds)
+#   ROOT_MANIFEST, COMPONENT_MANIFEST, LOCKFILE override the paths steps
+#   1–3 read — how a scratch copy is checked when the gate is seen red on
+#   purpose. SKIP_PATCHES=1 skips step 4, the only step that runs cargo
+#   (which fetches the sources once if they are not on disk).
 #
 # What it needs
-#   python3 (3.11 or newer, for tomllib); the submodule checked out.
+#   python3 (3.11 or newer, for tomllib); the submodule checked out; for
+#   step 4, cargo, and the network or a filled ~/.cargo.
 #
 # What its output means
-#   "gpui pin ok: gpui-pre =x.y.z …" and exit 0, or one line per problem
-#   and exit 1. A problem names the file and the package.
+#   "gpui pin ok: gpui-pre =x.y.z …" and "x11 fixes ok in gpui-pre-linux
+#   … from <source>" and exit 0, or one line per problem and exit 1. A
+#   problem names the file, the package, and for step 4 the fix (A or B).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -154,3 +171,65 @@ print(
     + (f" but the patched {', '.join(sorted(patched))}" if patched else "")
 )
 PY
+
+[ "${SKIP_PATCHES:-}" = 1 ] && exit 0
+
+# Step 4: the X11 fixes, in the source Cargo actually resolved.
+metadata=$(mktemp)
+trap 'rm -f "$metadata"' EXIT
+cargo metadata --locked --format-version 1 >"$metadata"
+METADATA="$metadata" python3 - <<'X11'
+import json
+import os
+import re
+import sys
+
+with open(os.environ["METADATA"]) as f:
+    meta = json.load(f)
+found = [p for p in meta["packages"] if p["name"] == "gpui-pre-linux"]
+if len(found) != 1:
+    sys.exit(f"error: cargo metadata resolved {len(found)} gpui-pre-linux packages, not one")
+package = found[0]
+root = os.path.dirname(package["manifest_path"])
+where = f"gpui-pre-linux {package['version']} from {package['source']}"
+problems = []
+
+
+def read(relative):
+    with open(os.path.join(root, relative)) as f:
+        return f.read()
+
+
+platform = read("src/linux/platform.rs")
+client = read("src/linux/x11/client.rs")
+
+# A: the runnable, then the hook, inside one idle callback ...
+idle = re.search(r"insert_idle\(move \|_\| \{(.*?)\n\s*\}\);", platform, re.S)
+body = idle.group(1) if idle else ""
+run_at, hook_at = body.find("runnable.run();"), body.find("after_runnable();")
+if not 0 <= run_at < hook_at:
+    problems.append(
+        "A: the idle callback in src/linux/platform.rs does not call "
+        "after_runnable() after runnable.run()"
+    )
+# ... and the X11 client hangs the drain of x11rb's queue on that hook.
+if not re.search(r"after_runnable\s*=\s*Some\(.{0,300}?process_x11_events", client, re.S):
+    problems.append("A: src/linux/x11/client.rs does not set after_runnable to process_x11_events")
+
+# B: no window is called under the client's mutable borrow.
+for number, line in enumerate(client.splitlines(), 1):
+    if "borrow_mut().windows.values_mut()" in line:
+        problems.append(
+            f"B: src/linux/x11/client.rs:{number} walks the windows under borrow_mut(): "
+            f"{line.strip()}"
+        )
+
+if problems:
+    for problem in problems:
+        print(f"error: {where}: {problem}", file=sys.stderr)
+    sys.exit(1)
+print(
+    f"x11 fixes ok in {where}: x11rb's queue drained after each runnable (A), "
+    "no window called under the client's borrow (B)"
+)
+X11
