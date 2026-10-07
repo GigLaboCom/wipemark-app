@@ -67,10 +67,12 @@ pub struct NewRow<'a> {
     pub entry: &'a str,
 }
 
-/// What changes in a row: everything but where it came from, what was
-/// asked and when it arrived.
+/// What changes in a row: everything but where it came from and when it
+/// arrived — what was asked included, because a document cleaned and then
+/// rewritten is one row whose last action is the rewrite.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Change<'a> {
+    pub action: &'a str,
     pub state: &'a str,
     pub item: Option<i64>,
     pub ended: Option<i64>,
@@ -109,8 +111,16 @@ fn insert(connection: &Connection, row: &NewRow) -> Result<i64> {
 fn update(connection: &Connection, id: i64, change: &Change) -> Result<bool> {
     connection
         .execute(
-            "UPDATE journal SET state = ?2, item = ?3, ended = ?4, entry = ?5 WHERE id = ?1",
-            params![id, change.state, change.item, change.ended, change.entry],
+            "UPDATE journal SET action = ?2, state = ?3, item = ?4, ended = ?5, entry = ?6
+             WHERE id = ?1",
+            params![
+                id,
+                change.action,
+                change.state,
+                change.item,
+                change.ended,
+                change.entry
+            ],
         )
         .map(|changed| changed > 0)
         .map_err(failed("update"))
@@ -145,6 +155,28 @@ impl<'store> Journal<'store> {
     /// its document was being worked on, which is the person's call.
     pub fn update(&self, id: i64, change: &Change) -> Result<bool> {
         update(&self.store.lock(), id, change)
+    }
+
+    /// Change a row only if it has not ended — what a start or an
+    /// interruption heard late must never undo: an end another thread wrote
+    /// first stands. `false` when there is no such open row.
+    pub fn update_open(&self, id: i64, change: &Change) -> Result<bool> {
+        self.store
+            .lock()
+            .execute(
+                "UPDATE journal SET action = ?2, state = ?3, item = ?4, ended = ?5, entry = ?6
+                 WHERE id = ?1 AND ended IS NULL",
+                params![
+                    id,
+                    change.action,
+                    change.state,
+                    change.item,
+                    change.ended,
+                    change.entry
+                ],
+            )
+            .map(|changed| changed > 0)
+            .map_err(failed("update open"))
     }
 
     /// Every row, oldest first.
@@ -358,6 +390,7 @@ mod tests {
             .update(
                 first,
                 &Change {
+                    action: "clean",
                     state: "done",
                     item: None,
                     ended: Some(20),
@@ -372,6 +405,20 @@ mod tests {
         assert_eq!(rows[1].item, Some(4));
         assert_eq!(rows[1].origin, "agent");
         assert_eq!(journal.row(second).expect("row"), Some(rows[1].clone()));
+        // An ended row is not reopened by a start heard late.
+        assert!(!journal
+            .update_open(
+                first,
+                &Change {
+                    action: "clean",
+                    state: "running",
+                    item: None,
+                    ended: None,
+                    entry: "{}",
+                },
+            )
+            .expect("update open"));
+        assert_eq!(journal.row(first).expect("row").expect("there").state, "done");
         assert!(journal.remove(first).expect("remove"));
         assert!(!journal.remove(first).expect("gone"));
         // An id is never handed out twice, even after the newest went.

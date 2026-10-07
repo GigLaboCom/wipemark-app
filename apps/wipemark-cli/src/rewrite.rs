@@ -59,7 +59,7 @@ use wipemark_pipeline::{Document, Ending, Event, JobId, PipelineError, Stage};
 use crate::app::{self, Unheard};
 use crate::input::{self, Source};
 use crate::run::{self, Destination, Io};
-use crate::{audit, models, report, Exit};
+use crate::{audit, journal, models, report, Exit};
 
 /// The command line, as `main` parsed it.
 #[derive(Debug, Clone, Copy)]
@@ -78,6 +78,10 @@ pub(crate) struct Flags<'a> {
     pub prompts: Option<&'a Path>,
     pub seed: Option<u64>,
     pub json: bool,
+    /// Whether the run leaves a row in the application's journal — `false`
+    /// for `--no-record` (В6). Said to the application when it serves the
+    /// call; this command's own row is `main`'s.
+    pub record: bool,
 }
 
 /// Who rewrote it: what `--json`'s `served_by` names and stderr says.
@@ -231,6 +235,7 @@ pub(crate) fn rewrite_with(flags: &Flags, io: &mut Io, roads: &Roads) -> Exit {
         Err(unread) => return run::refuse_unread("rewrite", path, &label, &unread, io),
     };
     run::say_note(&read, &label, io);
+    run::text_read(&read);
 
     let asked = Asked {
         tactic,
@@ -249,8 +254,15 @@ pub(crate) fn rewrite_with(flags: &Flags, io: &mut Io, roads: &Roads) -> Exit {
         seed: flags.seed,
     };
 
+    let call = Call {
+        text: &read.text,
+        asked: &asked,
+        templates: &templates,
+        record: flags.record,
+        meta: meta_of(&source, read.text.len()),
+    };
     let rewritten = match roads.layout.and_then(app::find) {
-        Some(found) => match by_the_application(found, &read.text, &asked, &templates, roads, io) {
+        Some(found) => match by_the_application(found, &call, roads, io) {
             Ok(rewritten) => rewritten,
             // Nobody took the call: nothing was sent, so this side may run it.
             Err(None) => match by_this_command(&read.text, &asked, overrides, pivot, roads, io) {
@@ -267,8 +279,12 @@ pub(crate) fn rewrite_with(flags: &Flags, io: &mut Io, roads: &Roads) -> Exit {
 
     let Some(exit) = exit_of(&rewritten.report) else {
         tracing::warn!("a report with no totals or no Layer A pass came back");
+        journal::note(|draft| draft.failed = Some("report"));
         return run::failed("rewrite", path, "unreadable report", None, Exit::Partial);
     };
+    journal::note(|draft| {
+        draft.entry.outcome = Some(journal::rewrite_outcome(&rewritten.report, exit));
+    });
     deliver(
         flags,
         &source,
@@ -350,10 +366,43 @@ fn saved_rows(layout: Option<&Layout>) -> (Overrides, Option<Lang>) {
     (overrides, row::pivot_of(rows.get(row::PIVOT_KEY)))
 }
 
+/// What one run asks the application.
+struct Call<'a> {
+    text: &'a str,
+    asked: &'a Asked,
+    templates: &'a Map<String, Value>,
+    /// `--no-record` is `false` (В6): the application keeps no row.
+    record: bool,
+    /// The `tools/call` params' `_meta`: who asks and what the document is
+    /// called, for the application's row — `wipemark/origin` is `cli`.
+    meta: Value,
+}
+
+/// The `_meta` a call carries: this command is the origin, and the
+/// document's name, path and size, for a file — never its text.
+fn meta_of(source: &Source, bytes: usize) -> Value {
+    let mut meta = json!({ "wipemark/origin": "cli", "wipemark/size": bytes });
+    if let Source::File(path) = source {
+        if let Some(name) = path.file_name() {
+            meta["wipemark/name"] = json!(name.to_string_lossy());
+        }
+        if let Ok(absolute) = std::path::absolute(path) {
+            meta["wipemark/path"] = json!(absolute.to_string_lossy());
+        }
+    }
+    meta
+}
+
 /// The arguments of the MCP call that asks the application for `asked`.
-fn call_arguments(text: &str, asked: &Asked, templates: &Map<String, Value>) -> Value {
+fn call_arguments(
+    text: &str,
+    asked: &Asked,
+    templates: &Map<String, Value>,
+    record: bool,
+) -> Value {
     let mut arguments = json!({
         "text": text,
+        "record": record,
         "tactic": asked.tactic.as_str(),
         "intensity": asked.intensity.as_str(),
         "format": asked::format_id(asked.format),
@@ -380,19 +429,19 @@ fn call_arguments(text: &str, asked: &Asked, templates: &Map<String, Value>) -> 
 /// stderr, and the run ends.
 fn by_the_application(
     found: app::App,
-    text: &str,
-    asked: &Asked,
-    templates: &Map<String, Value>,
+    call: &Call,
     roads: &Roads,
     io: &mut Io,
 ) -> Result<Rewritten, Option<Exit>> {
-    let arguments = call_arguments(text, asked, templates);
+    let arguments = call_arguments(call.text, call.asked, call.templates, call.record);
     if roads.terminal {
         // The price before the run (D61), asked of the application — which
-        // knows its engine and the rate its last Check measured.
+        // knows its engine and the rate its last Check measured. A price is
+        // not a document's status: never recorded.
         let mut priced = arguments.clone();
         priced["dry_run"] = json!(true);
-        if let Ok(result) = app::rewrite(found, &priced, roads.interrupted) {
+        priced["record"] = json!(false);
+        if let Ok(result) = app::rewrite(found, &priced, &call.meta, roads.interrupted) {
             let cost = &result["structuredContent"]["cost"];
             say_price(
                 io,
@@ -405,7 +454,19 @@ fn by_the_application(
     let say = |io: &mut Io, line: String| {
         let _ = writeln!(io.stderr, "wipemark-cli: {line}");
     };
-    match app::rewrite(found, &arguments, roads.interrupted) {
+    let answer = app::rewrite(found, &arguments, &call.meta, roads.interrupted);
+    match &answer {
+        // Nobody took the call: this command may run it, and records it.
+        Err(Unheard::Unreachable(_)) => {}
+        // The application saw the call: its row, if it kept one, is the
+        // run's — this command writes none of its own.
+        Ok(result) => {
+            let recorded = result["_meta"]["wipemark/journal"].as_i64();
+            journal::note(|draft| draft.served_by_app = Some(recorded));
+        }
+        Err(_) => journal::note(|draft| draft.served_by_app = Some(None)),
+    }
+    match answer {
         Ok(result) if result["isError"].as_bool().unwrap_or(false) => {
             let reason = result["content"][0]["text"]
                 .as_str()
@@ -490,7 +551,9 @@ fn by_this_command(
     roads: &Roads,
     io: &mut Io,
 ) -> Result<Rewritten, Exit> {
-    let (engine, executor) = (roads.own)(roads.layout, io)?;
+    let (engine, executor) = (roads.own)(roads.layout, io).inspect_err(|_| {
+        journal::note(|draft| draft.failed = Some("engine"));
+    })?;
     let document = Document {
         text: text.to_owned(),
         format: asked.format,
@@ -506,7 +569,8 @@ fn by_this_command(
         },
         roads,
         io,
-    )?;
+    )
+    .inspect_err(|_| journal::note(|draft| draft.failed = Some("job")))?;
     Ok(Rewritten {
         text,
         report,
@@ -681,7 +745,8 @@ fn deliver(
             match inplace::replace(file, &bytes, *keep) {
                 Ok(done) => replaced = Some(done),
                 Err(failure) => {
-                    return run::refuse_replacement(io, "rewrite", path, file, &failure)
+                    journal::note(|draft| draft.failed = Some("in-place"));
+                    return run::refuse_replacement(io, "rewrite", path, file, &failure);
                 }
             }
         }
@@ -701,6 +766,7 @@ fn deliver(
                 ),
             );
             let _ = writeln!(io.stderr, "wipemark-cli: {line}");
+            journal::note(|draft| draft.failed = Some("write"));
             return run::failed(
                 "rewrite",
                 path,
@@ -731,6 +797,7 @@ fn deliver(
         (_, _, Some(path)) => report::Written::File { path, from_file },
         (_, _, None) => report::Written::Stdout { from_file },
     };
+    journal::went(&written);
     let human = || {
         run::joined(report::rewrite_lines(
             &run::say,
@@ -1139,6 +1206,7 @@ mod tests {
             prompts: None,
             seed: Some(11),
             json,
+            record: true,
         }
     }
 

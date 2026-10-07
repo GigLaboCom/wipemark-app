@@ -1035,3 +1035,11 @@ panel-found-not-examined = { $metadata ->
 panel-clean = Bereinigen
 panel-clean-tooltip = Bereinigen, was hier abgelegt wurde, eins nach dem anderen; jedes Ergebnis kommt dorthin, wo die Seite „Aufbewahrung“ es sagt. Ausgegraut, solange eine Bereinigung läuft oder hier nichts mehr zu bereinigen ist.
 panel-cleaning = Wird bereinigt…
+
+## E4-6b — the command line
+cli-arg-record = Für diese Ansicht eine Zeile im Journal der Anwendung hinterlassen, das ihr Hauptfenster zeigt. Eine Ansicht ändert nichts und wird ohne dieses Flag nicht festgehalten.
+cli-arg-no-record = Für diesen Lauf keine Zeile im Journal der Anwendung hinterlassen. Ohne das Flag erscheint der Lauf im Hauptfenster der Anwendung, als von der Befehlszeile gekommen.
+cli-arg-out-rewrite = Ausgabedatei, oder `-` für die Standardausgabe. Standard ist `<name>.rewritten.<ext>` neben der Eingabe — das `<name>.cleaned.<ext>` einer Bereinigung ist ein anderes Ergebnis —, und die Standardausgabe, wenn die Eingabe die Standardeingabe ist; direktes Überschreiben braucht ein ausdrückliches Flag und ist nie der Standard.
+cli-journal-too-old = Im Journal der Anwendung wurde nichts festgehalten: ihre Datenbank unter { $path } stammt von einer älteren Version, und die Anwendung bringt sie beim nächsten Start auf den neuesten Stand.
+cli-journal-newer = Im Journal der Anwendung wurde nichts festgehalten: ihre Datenbank unter { $path } wurde von einer neueren Version von { -brand-name } geschrieben.
+cli-journal-unwritable = Im Journal der Anwendung wurde nichts festgehalten: in ihre Datenbank unter { $path } konnte nicht geschrieben werden ({ $reason }).

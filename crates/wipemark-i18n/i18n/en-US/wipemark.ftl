@@ -1664,3 +1664,18 @@ panel-found-not-examined = { $metadata ->
 panel-clean = Clean
 panel-clean-tooltip = Clean what was dropped here, one thing at a time; each result goes where the Retention page says. Greyed out while a clean runs, or when nothing here is left to clean.
 panel-cleaning = Cleaning…
+
+## E4-6b — the command line
+##
+## Every run of `clean`, `rewrite` and `inspect --record` leaves a row in
+## the application's journal, which its main window lists, unless
+## --no-record says not to. The command line never creates or migrates the
+## application's database: a database that cannot take the row is said in
+## one line, and the run is otherwise what it would have been. $path is the
+## database's path and $reason the store's own words, never translated.
+cli-arg-record = Leave a row for this look in the application's journal, which its main window lists. A look changes nothing and is not recorded without this.
+cli-arg-no-record = Leave no row for this run in the application's journal. Without it, the run is listed in the application's main window, from the command line.
+cli-arg-out-rewrite = Output file, or `-` for standard output. Defaults to `<name>.rewritten.<ext>` beside the input — a clean's `<name>.cleaned.<ext>` is another result — and to standard output when the input is standard input; in-place needs an explicit flag, never a default.
+cli-journal-too-old = Nothing was recorded in the application's journal: its database at { $path } is from an older version, and the application brings it up to date the next time it starts.
+cli-journal-newer = Nothing was recorded in the application's journal: its database at { $path } was written by a newer version of { -brand-name }.
+cli-journal-unwritable = Nothing was recorded in the application's journal: its database at { $path } could not be written ({ $reason }).

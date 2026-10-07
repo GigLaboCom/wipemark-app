@@ -80,6 +80,7 @@ mod app;
 mod audit;
 mod image;
 mod input;
+mod journal;
 mod models;
 mod report;
 mod rewrite;
@@ -139,6 +140,9 @@ enum Action {
         path: String,
         #[arg(long)]
         json: bool,
+        // A look changes nothing and is not recorded unless asked (В7).
+        #[arg(long)]
+        record: bool,
     },
     Clean {
         path: String,
@@ -159,6 +163,9 @@ enum Action {
         all_metadata: bool,
         #[arg(long)]
         json: bool,
+        // No row in the application's journal for this run (В6).
+        #[arg(long)]
+        no_record: bool,
     },
     Rewrite {
         path: String,
@@ -195,6 +202,8 @@ enum Action {
         seed: Option<u64>,
         #[arg(long)]
         json: bool,
+        #[arg(long)]
+        no_record: bool,
     },
     #[command(subcommand)]
     Models(ModelsAction),
@@ -245,7 +254,7 @@ const TACTICS: [&str; 5] = [
 /// is set per subcommand: `inspect`, `clean` and `rewrite` take `-` for
 /// stdin and `audit` takes a folder, and help that offered it everywhere
 /// would be help that lies.
-const ARGUMENT_HELP: [(&str, Message); 18] = [
+const ARGUMENT_HELP: [(&str, Message); 20] = [
     ("path", Message::CliArgPath),
     ("out", Message::CliArgOut),
     ("in_place", Message::CliArgInPlace),
@@ -264,6 +273,8 @@ const ARGUMENT_HELP: [(&str, Message); 18] = [
     ("id", Message::CliArgId),
     ("dir", Message::CliArgDir),
     ("sarif", Message::CliArgSarif),
+    ("record", Message::CliArgRecord),
+    ("no_record", Message::CliArgNoRecord),
 ];
 
 /// Put one command's own description, its arguments' help and the frame
@@ -390,8 +401,10 @@ fn command() -> Command {
                 .mut_arg("path", |path| path.help(t(Message::CliArgPathOrStdin)))
         })
         .mut_subcommand("rewrite", |rewrite| {
+            // `-o`'s default is the rewrite's own name (В8).
             localized(rewrite, Message::CliCommandRewrite)
                 .mut_arg("path", |path| path.help(t(Message::CliArgPathOrStdin)))
+                .mut_arg("out", |out| out.help(t(Message::CliArgOutRewrite)))
         })
         .mut_subcommand("audit", |audit| localized(audit, Message::CliCommandAudit))
         .mut_subcommand("models", |models| {
@@ -535,8 +548,13 @@ fn main() -> ExitCode {
     }
 
     let io = &mut run::Io::standard();
+    // The run's row in the application's journal, when it is to have one
+    // (E4-6b, `journal`): opened here, filled in by the flow, written below.
+    if let Some((action, path)) = recorded(&cli.command) {
+        journal::begin(action, path);
+    }
     let exit = match &cli.command {
-        Action::Inspect { path, json } => run::inspect(path, *json, io),
+        Action::Inspect { path, json, .. } => run::inspect(path, *json, io),
         Action::Clean {
             path,
             out,
@@ -546,6 +564,7 @@ fn main() -> ExitCode {
             aggressive,
             all_metadata,
             json,
+            ..
         } => run::clean(
             &run::Clean {
                 path,
@@ -590,6 +609,7 @@ fn main() -> ExitCode {
             prompts,
             seed,
             json,
+            no_record,
         } => rewrite::rewrite(
             &rewrite::Flags {
                 path,
@@ -609,11 +629,39 @@ fn main() -> ExitCode {
                 prompts: prompts.as_deref(),
                 seed: *seed,
                 json: *json,
+                record: !*no_record,
             },
             io,
         ),
     };
+    let db = wipemark_models::layout::Layout::discover()
+        .ok()
+        .map(|layout| layout.db_path());
+    journal::finish(db.as_deref(), exit, io);
     exit.into()
+}
+
+/// What a run records in the journal, and of what — `None` for a run that
+/// records nothing: `audit`, `models`, `--no-record`, and an `inspect`
+/// without `--record` (В6, В7).
+fn recorded(command: &Action) -> Option<(wipemark_store::entry::Action, &str)> {
+    use wipemark_store::entry::Action as Asked;
+    match command {
+        Action::Inspect {
+            path, record: true, ..
+        } => Some((Asked::Inspect, path)),
+        Action::Clean {
+            path,
+            no_record: false,
+            ..
+        } => Some((Asked::Clean, path)),
+        Action::Rewrite {
+            path,
+            no_record: false,
+            ..
+        } => Some((Asked::Rewrite, path)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -793,7 +841,7 @@ mod tests {
     fn stdin_is_addressable_as_dash() {
         let cli = Cli::parse_from(["wipemark-cli", "inspect", "-", "--json"]);
         match cli.command {
-            Action::Inspect { path, json } => {
+            Action::Inspect { path, json, .. } => {
                 assert_eq!(path, "-");
                 assert!(json);
             }

@@ -42,12 +42,12 @@ use std::path::{Path, PathBuf};
 use wipemark_core::Options;
 use wipemark_i18n::{args, t, t_args, FluentArgs, Message};
 use wipemark_intake::inplace::{self, Failure, Keep};
-use wipemark_intake::name::{with_infix, RESULT_INFIX};
+use wipemark_intake::name::{with_infix, RESULT_INFIX, REWRITTEN_INFIX};
 use wipemark_log::Elided;
 
 use crate::input::{self, Content, Source, Unread};
 use crate::report::{Say, Written};
-use crate::{image, report, Exit};
+use crate::{image, journal, report, Exit};
 
 /// The three standard streams, as values a test can replace.
 pub(crate) struct Io<'a> {
@@ -72,8 +72,9 @@ impl Io<'static> {
 /// anything is read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Destination {
-    /// `name.cleaned.ext` beside the input — the Retention page's default,
-    /// spelled by the same `with_infix`.
+    /// `name.cleaned.ext` beside the input for `clean` — the Retention
+    /// page's default, spelled by the same `with_infix` — and
+    /// `name.rewritten.ext` for `rewrite` (В8, E4-6b).
     Beside(PathBuf),
     /// The file `-o` named.
     Out(PathBuf),
@@ -117,11 +118,27 @@ pub(crate) fn inspect(path: &str, json: bool, io: &mut Io) -> Exit {
     say_named(content.note(), &label, io);
     let read = match content {
         Content::Text(read) => read,
-        Content::Image(picture) => return image::inspect(path, &label, &picture, json, io),
+        Content::Image(picture) => {
+            journal::read(
+                "image",
+                Some(picture.format.name()),
+                None,
+                picture.bytes.len(),
+            );
+            return image::inspect(path, &label, &picture, json, io);
+        }
     };
+    text_read(&read);
 
     let options = Options::default();
     let report = wipemark_core::inspect(&read.text, &options);
+    journal::note(|draft| {
+        draft.entry.outcome = Some(wipemark_store::entry::Outcome {
+            findings: Some(report.findings.len() as u64),
+            kept: Some(report.kept.len() as u64),
+            ..Default::default()
+        });
+    });
     let exit = if report.suspicious {
         Exit::Findings
     } else {
@@ -140,6 +157,7 @@ pub(crate) fn inspect(path: &str, json: bool, io: &mut Io) -> Exit {
         ))
     };
     if let Err(error) = emit(&mut io.stdout, out.as_bytes()) {
+        journal::note(|draft| draft.failed = Some("stdout"));
         return failed("inspect", path, "stdout", Some(error.kind()), Exit::Partial);
     }
 
@@ -242,6 +260,7 @@ pub(crate) fn clean(flags: &Clean, io: &mut Io) -> Exit {
         }
         Content::Text(read) => read,
     };
+    text_read(&read);
 
     let options = Options {
         aggressive,
@@ -249,6 +268,21 @@ pub(crate) fn clean(flags: &Clean, io: &mut Io) -> Exit {
         ..Options::default()
     };
     let cleaned = wipemark_core::clean(&read.text, &options);
+    // The window's words (D263): a text is partly clean when what Layer A
+    // found it keeps — a look-alike without --aggressive — and nothing
+    // changed.
+    journal::note(|draft| {
+        draft.entry.outcome = Some(wipemark_store::entry::Outcome {
+            verdict: if cleaned.report.suspicious && cleaned.text == read.text {
+                "partly".to_owned()
+            } else {
+                String::new()
+            },
+            findings: Some(cleaned.report.findings.len() as u64),
+            kept: Some(cleaned.report.kept.len() as u64),
+            ..Default::default()
+        });
+    });
     // Over the input, as A §7.3 asks — never over the result.
     let exit = if cleaned.report.suspicious {
         Exit::Findings
@@ -265,7 +299,10 @@ pub(crate) fn clean(flags: &Clean, io: &mut Io) -> Exit {
             let bytes = input::encode(&cleaned.text, read.encoding);
             match inplace::replace(file, &bytes, *keep) {
                 Ok(done) => replaced = Some(done),
-                Err(failure) => return refuse_replacement(io, "clean", path, file, &failure),
+                Err(failure) => {
+                    journal::note(|draft| draft.failed = Some("in-place"));
+                    return refuse_replacement(io, "clean", path, file, &failure);
+                }
             }
         }
     }
@@ -284,6 +321,7 @@ pub(crate) fn clean(flags: &Clean, io: &mut Io) -> Exit {
                 ),
             );
             let _ = writeln!(io.stderr, "wipemark-cli: {line}");
+            journal::note(|draft| draft.failed = Some("write"));
             return failed(
                 "clean",
                 path,
@@ -315,6 +353,7 @@ pub(crate) fn clean(flags: &Clean, io: &mut Io) -> Exit {
         (_, _, Some(path)) => Written::File { path, from_file },
         (_, _, None) => Written::Stdout { from_file },
     };
+    journal::went(&written);
     let human = || {
         joined(report::clean_lines(
             &say,
@@ -369,6 +408,7 @@ pub(crate) fn clean(flags: &Clean, io: &mut Io) -> Exit {
         stdout
     };
     if let Err(error) = emit(&mut io.stdout, &stdout) {
+        journal::note(|draft| draft.failed = Some("stdout"));
         return failed("clean", path, "stdout", Some(error.kind()), Exit::Partial);
     }
 
@@ -400,6 +440,13 @@ pub(crate) fn destination(
     in_place: Option<Keep>,
     io: &mut Io,
 ) -> Result<Destination, Exit> {
+    // A rewrite's result is not a clean's (В8): two results of one file
+    // under two names, never one over the other.
+    let infix = if command == "rewrite" {
+        REWRITTEN_INFIX
+    } else {
+        RESULT_INFIX
+    };
     Ok(match (source, out, in_place) {
         (Source::Stdin, _, Some(_)) => {
             let line = t(Message::CliInPlaceStdin);
@@ -468,7 +515,7 @@ pub(crate) fn destination(
             (Source::Stdin, None) => Destination::Stdout,
             (Source::File(input), None) => match input.file_name() {
                 Some(name) => Destination::Beside(
-                    input.with_file_name(with_infix(&name.to_string_lossy(), RESULT_INFIX)),
+                    input.with_file_name(with_infix(&name.to_string_lossy(), infix)),
                 ),
                 // No last component — `..`, `/`. Nothing of that shape is a
                 // file, and the read below says what it is instead.
@@ -476,6 +523,16 @@ pub(crate) fn destination(
             },
         },
     })
+}
+
+/// A text was read: what it is, for the journal's row.
+pub(crate) fn text_read(read: &input::Read) {
+    journal::read(
+        "text",
+        read.format.map(wipemark_intake::Format::name),
+        Some(read.encoding.name()),
+        read.text.len(),
+    );
 }
 
 /// What a report calls the input: the path exactly as typed, or the

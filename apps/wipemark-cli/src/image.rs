@@ -55,14 +55,17 @@ use wipemark_pixels::{Finding, Placed, Refusal, Verdict};
 use crate::input::{Picture, Source};
 use crate::report::{self, Say, Written};
 use crate::run::{self, Destination, Io};
-use crate::Exit;
+use crate::{journal, Exit};
 
 /// `inspect` on a picture: its metadata and the visible marks in its
 /// pixels. Never writes a file.
 pub(crate) fn inspect(path: &str, label: &str, picture: &Picture, json: bool, io: &mut Io) -> Exit {
     let report = match wipemark_picture::inspect(&picture.bytes, &PictureOptions::default()) {
         Ok(report) => report,
-        Err(error) => return refuse(io, "inspect", path, label, &error),
+        Err(error) => {
+            journal::note(|draft| draft.failed = Some("unreadable"));
+            return refuse(io, "inspect", path, label, &error);
+        }
     };
     let exit = picture_inspect_exit(&report);
     let out = if json {
@@ -190,16 +193,29 @@ pub(crate) fn clean(ask: &Ask, picture: &Picture, io: &mut Io) -> Exit {
         }
     }
 
+    // Recorded from here: what came before is about the arguments, and a
+    // run refused for them has no status to give.
+    journal::note(|draft| draft.action = wipemark_store::entry::Action::CleanImage);
+    journal::read(
+        "image",
+        Some(picture.format.name()),
+        None,
+        picture.bytes.len(),
+    );
     let options = PictureOptions {
         scope,
         catalogue: None,
     };
     let (bytes, report) = match wipemark_picture::clean(&picture.bytes, &options) {
         Ok(cleaned) => cleaned,
-        Err(error) => return refuse_picture(io, "clean", path, label, &error),
+        Err(error) => {
+            journal::note(|draft| draft.failed = Some("unreadable"));
+            return refuse_picture(io, "clean", path, label, &error);
+        }
     };
     let exit = clean_exit(&report);
     if strip_exit(&report.metadata) == Exit::Partial {
+        journal::note(|draft| draft.failed = Some("still-marked"));
         // The output still carries what this command exists to remove. A
         // file named `.cleaned` that is not is worse than no file.
         let line = run::say(Message::CliImageStillMarked, &args!("path" => label));
@@ -212,7 +228,10 @@ pub(crate) fn clean(ask: &Ask, picture: &Picture, io: &mut Io) -> Exit {
         if bytes != picture.bytes {
             match inplace::replace(file, &bytes, *keep) {
                 Ok(done) => replaced = Some(done),
-                Err(failure) => return run::refuse_replacement(io, "clean", path, file, &failure),
+                Err(failure) => {
+                    journal::note(|draft| draft.failed = Some("in-place"));
+                    return run::refuse_replacement(io, "clean", path, file, &failure);
+                }
             }
         }
     }
@@ -230,6 +249,7 @@ pub(crate) fn clean(ask: &Ask, picture: &Picture, io: &mut Io) -> Exit {
                 ),
             );
             let _ = writeln!(io.stderr, "wipemark-cli: {line}");
+            journal::note(|draft| draft.failed = Some("write"));
             return run::failed(
                 "clean",
                 path,
@@ -260,6 +280,7 @@ pub(crate) fn clean(ask: &Ask, picture: &Picture, io: &mut Io) -> Exit {
         (_, _, Some(path)) => Written::File { path, from_file },
         (_, _, None) => Written::Stdout { from_file },
     };
+    journal::went(&written);
     let human = || run::joined(clean_lines(&run::say, label, &report, scope, written));
 
     let stdout: Vec<u8> = match (destination, json) {

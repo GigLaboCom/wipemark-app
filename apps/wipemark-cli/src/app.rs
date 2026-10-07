@@ -109,17 +109,20 @@ pub(crate) fn find(layout: &Layout) -> Option<App> {
 
 /// `tools/call rewrite` with `arguments`, and the result — the tool's
 /// answer, an `isError` refusal included. Waits as long as the job takes;
-/// `interrupted` hangs up.
+/// `interrupted` hangs up. `meta` is the params' `_meta` (MCP's own place
+/// for what is not an argument): that this command is asking, and what the
+/// document is called, for the application's journal row (E4-6b, R4).
 pub(crate) fn rewrite(
     app: App,
     arguments: &Value,
+    meta: &Value,
     interrupted: &AtomicBool,
 ) -> Result<Value, Unheard> {
     let call = json!({
         "jsonrpc": "2.0",
         "id": 2,
         "method": "tools/call",
-        "params": { "name": "rewrite", "arguments": arguments },
+        "params": { "name": "rewrite", "arguments": arguments, "_meta": meta },
     });
     let answer = exchange(app.address, &call, None, interrupted)?;
     if let Some(error) = answer.get("error") {
