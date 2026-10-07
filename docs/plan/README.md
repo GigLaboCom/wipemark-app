@@ -1029,6 +1029,16 @@ the gate the overview set, and the open edges.
 - **Basis.** OV §6.1–6.2; `docs/architecture/compare.md`, `queue.md`.
 - **Gate.** A 1 k-token stream keeps 30 FPS; a click on a finding
   scrolls to it.
+- **Build. Compare scrolls both panes together** (the owner, 2026-10-07;
+  a Settings row on the Compare page, **on by default**). Like IntelliJ
+  IDEA Community's diff viewer (synchronized scrolling): scrolling either
+  pane — wheel, middle button, the scrollbar — scrolls the other so the
+  matching lines stay level, through `Diff::original_row_of` and its
+  inverse; a changed block taller on one side holds the other still until
+  its end. Beside today's `compare.follow` (the cursor), not instead of it.
+  And whether the scrollbar can sit on the **left** (the original's outer
+  edge): feasibility being read 2026-10-07 — the editor's scroll API in
+  the vendored gpui-component decides whether this needs a component patch.
 - **Build. A row's action is a button, not only a menu item** (the owner,
   2026-10-07). Clean — and Rewrite with E4-6b — sit inside the row's Actions
   menu ("…"), so a dropped document shows no way forward; the owner looked
