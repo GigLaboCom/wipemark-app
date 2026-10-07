@@ -138,12 +138,13 @@ ctrlc = "3"
 # lock with no zed git source. A bump moves this and the submodule
 # together, never one alone. See docs/architecture/gpui-pin.md.
 #
-# One X11 fix of ours is carried over the snapshot: the desktop portal's
-# appearance event must not draw while the X11 client is borrowed (a
-# `RefCell already mutably borrowed` panic) — `[patch.crates-io]
-# gpui-pre-linux` at the bottom of this file. The stale first frame
-# (upstream #62081) is in the snapshot itself. CLAUDE.md, "Build, run,
-# look", has both.
+# The snapshot carries nothing of ours. Both X11 bugs the old zed pin needed
+# a fork for are upstream in it: the stale first frame (zed #62081) and,
+# through the deferred appearance callback (zed #61789), the portal's
+# `RefCell already mutably borrowed` panic. `scripts/check-gpui-pin.sh`
+# reads the resolved sources for both, so a snapshot that loses either is
+# a red gate rather than a window that misbehaves. See
+# docs/architecture/gpui-pin.md §2.
 gpui = { package = "gpui-pre", version = "=0.3.8" }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
 
@@ -221,23 +222,3 @@ wipemark-pixels = { opt-level = 3 }
 lto = "thin"
 codegen-units = 1
 
-# The one change carried over the gpui-pre snapshot (CLAUDE.md, "Build,
-# run, look"; docs/architecture/gpui-pin.md §2): the desktop portal's
-# appearance and button-layout events walked the X11 client's windows
-# under its `borrow_mut` and called back into the application, and a draw
-# from there borrows the client again — `RefCell already mutably
-# borrowed`. Still so in zed `main` on 2026-10-06, so still ours.
-#
-# `[patch]` matches by package name, and the package is the snapshot's
-# `gpui-pre-linux`, not zed's `gpui_linux`. GigLaboCom/zed, branch
-# `wipemark/gpui-pre-0.3.8-r2` (cut from 279fe07, the commit gpui-pre
-# 0.3.8 was made from), holds the change twice: on zed's own crate
-# (9c78601, in zed's style and with an upstream-ready message — what a PR
-# would be made from) and on the published crate unpacked at
-# `gpui-pre-linux/` (6485d48 as published, 54e4976 changed), which is
-# what this takes — by rev, never by branch. The version stays 0.3.8, so
-# a snapshot bump without a re-carried patch is not silently unpatched:
-# Cargo warns that the patch was not used, and `scripts/check-gpui-pin.sh`
-# fails on the resolved source.
-[patch.crates-io]
-gpui-pre-linux = { git = "https://github.com/GigLaboCom/zed", rev = "54e49766049313ccfdb11ab6fa389cc99ea43c53" }

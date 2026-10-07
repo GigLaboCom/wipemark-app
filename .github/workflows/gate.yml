@@ -89,8 +89,9 @@ jobs:
         run: scripts/check-dep-direction.sh
 
       # One GPUI: `gpui-pre` at the component's exact version, once in the
-      # lock, no zed git source but the one patched crate — and that crate
-      # still carrying its fix. Replaces the retired pin script.
+      # lock, all from crates.io, no zed git source — and the resolved
+      # sources still carrying the upstream X11 fixes the windows rely on
+      # (#62081, #61789). Replaces the retired pin script.
       - name: GPUI pin
         run: scripts/check-gpui-pin.sh
 

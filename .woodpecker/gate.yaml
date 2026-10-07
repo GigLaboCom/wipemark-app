@@ -48,8 +48,9 @@ steps:
   # gpui-component (upstream gpui-kit, branch `next`) takes GPUI from the
   # `gpui-pre` snapshots at an exact version, as the workspace does; the
   # check is that the two agree, the lock holds one of each snapshot
-  # crate and no zed git source but the one patched crate, and that crate
-  # still carries its fix. It replaces the retired pin script.
+  # crate, all from crates.io and no zed git source, and the resolved
+  # sources still carry the upstream X11 fixes the windows rely on
+  # (#62081, #61789). It replaces the retired pin script.
   - name: submodule
     image: *rust_image
     environment: *ci_env
