@@ -158,6 +158,11 @@ gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = 
 # `gpui` requirements are the same exact `gpui-pre` pins as ours, so
 # nothing rewrites the submodule any more.
 gpui-component = { path = "vendor/gpui-component/crates/component" }
+# The component's foundation crate, already in the tree through it. The
+# app takes it as a dev-dependency only, for one public number the
+# component does not re-export: the priority its popups defer at, which
+# `dialog::MODAL_PRIORITY` has to stay above (apps/wipemark-app/src/dialog.rs).
+gpui-base = { path = "vendor/gpui-component/crates/base" }
 
 wipemark-core = { path = "crates/wipemark-core" }
 wipemark-i18n = { path = "crates/wipemark-i18n" }

@@ -87,6 +87,45 @@ use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable as _, Sizable, Sty
 /// whatever was half-typed in it.
 pub const CONTEXT: &str = "Dialog";
 
+/// How high a modal overlay is painted: over every overlay
+/// gpui-component defers.
+///
+/// A modal is `deferred` because painting last in tree order is not
+/// enough — anything of the library's that defers paints over a plain
+/// sibling, and takes its clicks. GPUI paints and hit-tests deferred
+/// draws in priority order across the whole window, and gpui-kit
+/// `next` defers its interactive overlays (popovers, hover cards,
+/// selects, menus, the Linux right-click menu) at `POPUP_PRIORITY`,
+/// 100, a submenu one above its parent; its toasts at 101; and its
+/// tooltips at 200 (`crates/base/src/popup.rs`, `tooltip.rs`,
+/// `crates/shell/src/root.rs`). So a modal sits at a thousand, and one
+/// of those left open when it appears — the main window's help
+/// popover, when Settings › General › "Run again" opens the
+/// walk-through from the other window — is under it, painted and hit
+/// alike. The price is that nothing of the library's can open *from*
+/// such a modal and be seen: none of the three that use this (the
+/// walk-through, the Report, the Settings window's Confirm) has a
+/// select, a popover, a tooltip or a text field. One that gains one
+/// moves to [`FIELD_MODAL_PRIORITY`].
+/// `a_modal_is_over_every_overlay_the_library_defers` is the gate
+/// against the library's public number.
+pub const MODAL_PRIORITY: usize = 1000;
+
+/// How high a modal holding a text field is painted: over everything
+/// in the window except the library's popups.
+///
+/// A text field has a right-click menu, and off macOS it is not the
+/// platform's: gpui-component draws it through `Root`'s overlay at
+/// `POPUP_PRIORITY` (`native_menu/fallback.rs`). A modal over that
+/// would hide the menu it just opened — and take the click aimed at
+/// it. So [`Naming`] is painted under the popup layer, where upstream
+/// paints its own dialogs (`crates/base/src/dialog.rs`, `10 + layer`),
+/// and above anything that defers at the default. What it gives up is
+/// [`MODAL_PRIORITY`]'s cover over a popup left open when it appears;
+/// it opens from the Settings window's Save button, whose press has
+/// closed any select or popover on that page.
+pub const FIELD_MODAL_PRIORITY: usize = 50;
+
 actions!(wipemark, [Accept, Dismiss, Next, Previous]);
 
 /// Bind the two keys a dialog answers to. Called once, from `main`.
@@ -556,6 +595,33 @@ mod tests {
 
     fn body() -> Vec<String> {
         vec!["Only the saved copy goes.".to_owned()]
+    }
+
+    /// The library's tooltips defer at this. It is a private constant
+    /// (`TOOLTIP_PRIORITY`, `crates/base/src/tooltip.rs`), so it is
+    /// restated here rather than read; upstream's own test holds it
+    /// above `POPUP_PRIORITY`.
+    const LIBRARY_TOOLTIP_PRIORITY: usize = 200;
+
+    /// A modal is over every overlay gpui-component defers — its popups
+    /// and their submenus, its toasts, its tooltips — and a modal with a
+    /// text field is under the popups, so the field's own right-click
+    /// menu shows over it. Read against the library's public number, so
+    /// a bump that moves the popup layer past either is red here rather
+    /// than a popover painted over a dialog. This bump moved it from 1
+    /// to 100, past the 10 both overlays were painted at then.
+    #[test]
+    fn a_modal_is_over_every_overlay_the_library_defers() {
+        // A submenu defers one above its parent; leave room for a
+        // nesting nobody will build.
+        const SUBMENUS: usize = 10;
+        const {
+            assert!(MODAL_PRIORITY > gpui_base::POPUP_PRIORITY + SUBMENUS);
+            assert!(MODAL_PRIORITY > LIBRARY_TOOLTIP_PRIORITY);
+            assert!(FIELD_MODAL_PRIORITY < gpui_base::POPUP_PRIORITY);
+            // Above what defers at the default, and upstream's own dialogs.
+            assert!(FIELD_MODAL_PRIORITY > 10);
+        }
     }
 
     /// Escape, the backdrop and Cancel are three ways to the same answer,

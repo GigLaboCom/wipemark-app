@@ -165,7 +165,9 @@ to disagree, and the profile-application rule —
 ## A dialog, of a different shape
 
 It is an element in the main window's own tree, painted over the panes
-at the priority the Settings window paints a dialog, for every reason
+at `dialog::MODAL_PRIORITY` — over every overlay gpui-component defers,
+a help popover left open when Settings › General › "Run again" opens it
+included — for every reason
 `dialog.rs` gives for not going through `Root`; its backdrop and its
 focus hold are that module's, exported for it.
 

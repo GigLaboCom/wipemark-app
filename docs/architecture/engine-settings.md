@@ -429,9 +429,16 @@ Every one of these was a real failure first, seen in the running window:
   not painting order. GPUI hands a click to every handler under the
   pointer unless one stops it, so a click aimed at the sidebar dismissed
   the dialog *and* changed the page behind it, both from one click.
-* **The paint order.** The dialog is `deferred` at priority 10.
-  gpui-component defers its own overlays at 1 and 2, and the `Sidebar`
-  defers too, so a plain last-child sibling ends up under it.
+* **The paint order.** The dialog is `deferred`, because whatever of
+  gpui-component's defers ends up over a plain last-child sibling, in
+  paint and in hit testing. gpui-kit `next` defers its popups at 100
+  (`POPUP_PRIORITY`), its toasts at 101 and its tooltips at 200; the
+  `Sidebar`, which deferred under the old fork, no longer does. Confirm
+  is painted over all of them (`dialog::MODAL_PRIORITY`, 1000). Naming
+  is painted under the popups (`dialog::FIELD_MODAL_PRIORITY`, 50),
+  because its name field's right-click menu is one of them off macOS
+  and has to show over the dialog. Until the GPUI bump (2026-10-07)
+  both sat at 10, over the old fork's 1 and 2 and under the new 100.
 * **The scrim.** `theme().overlay` is only filled in when a theme file
   names it, and none of the ones this build ships does — the backdrop
   painted nothing at all. It is an explicit black at 45% now.

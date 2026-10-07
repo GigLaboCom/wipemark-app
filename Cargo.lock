@@ -9789,6 +9789,7 @@ dependencies = [
  "chrono",
  "flume 0.11.1",
  "global-hotkey",
+ "gpui-base",
  "gpui-component",
  "gpui-pre",
  "gpui-pre-platform",
