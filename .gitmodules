@@ -1,4 +1,4 @@
 [submodule "vendor/gpui-component"]
 	path = vendor/gpui-component
-	url = https://github.com/GigLaboCom/gpui-component.git
-	branch = heretic/epic-4-line-decorations
+	url = https://github.com/longbridge/gpui-kit.git
+	branch = next
