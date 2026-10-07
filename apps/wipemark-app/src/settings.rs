@@ -90,7 +90,7 @@ use wipemark_engine::Unavailable;
 use wipemark_i18n::{args, t, t_args, LanguagePreference, Message};
 use wipemark_models::host::Host;
 use wipemark_models::manifest::{Manifest, ModelEntry, Role};
-use wipemark_models::store::{Cancel, Downloads, Event, Progress, State};
+use wipemark_models::store::{Cancel, Downloads, Event, Hashing, Progress, State};
 use wipemark_secret::{Secret, Vault};
 
 use crate::compare::Comparison;
@@ -789,6 +789,9 @@ pub struct Preferences {
     /// pair `duty::on_duty` refuses: a path to a `.part` is a path to a
     /// file no runtime can open.
     weights: BTreeMap<String, PathBuf>,
+    /// The file being hashed now and how far — bytes read, size — while a
+    /// look, a verify or a download's own check reads one (F1b).
+    checking: Option<(PathBuf, u64, u64)>,
     /// The entries whose weights were found somewhere in the folder other
     /// than where a download puts them (D302), and where — the user's
     /// files, used where they are and never removed.
@@ -1062,6 +1065,17 @@ impl Preferences {
             preferences.screens_changed(screens, cx);
         });
 
+        // Where the weights go. A path and a client, and nothing else:
+        // constructing this touches no disk, so a machine that never
+        // downloads a model never gets a `models/` directory. Its hashes
+        // are heard from the start, so a look at a large file shows a bar
+        // (F1b).
+        let models = Arc::new(Downloads::new(
+            models_dir.clone().unwrap_or_else(|| models_default.clone()),
+            records_dir.clone(),
+        ));
+        Self::listen_to_hashes(&models, cx);
+
         Self {
             theme,
             language,
@@ -1100,18 +1114,12 @@ impl Preferences {
             installed: BTreeMap::new(),
             weights: BTreeMap::new(),
             found: BTreeMap::new(),
+            checking: None,
             download: None,
             download_said: None,
             download_error: None,
             rewrite_model,
-            // Where the weights go. A path and a client, and nothing
-            // else: constructing this touches no disk, so a machine
-            // that never downloads a model never gets a `models/`
-            // directory.
-            models: Arc::new(Downloads::new(
-                models_dir.clone().unwrap_or_else(|| models_default.clone()),
-                records_dir.clone(),
-            )),
+            models,
             records_dir,
             models_default,
             models_dir,
@@ -1703,6 +1711,60 @@ impl Preferences {
         )
     }
 
+    /// How far the hash of one of `entry`'s files has got — bytes read and
+    /// the file's size — while one is read (F1b). A download's own check
+    /// reads its `.part`, which is the same file under a working name.
+    pub fn checking_for(&self, entry: &ModelEntry) -> Option<(u64, u64)> {
+        let (path, done, total) = self.checking.as_ref()?;
+        let name = path.file_name()?.to_str()?;
+        let name = name.strip_suffix(".part").unwrap_or(name);
+        entry
+            .files
+            .iter()
+            .any(|file| file.filename() == Some(name))
+            .then_some((*done, *total))
+    }
+
+    /// Hear every hash `models` makes (F1b): what the cards draw a bar
+    /// from. The task ends when `models` is dropped — the folder moved —
+    /// because its sender goes with it.
+    fn listen_to_hashes(models: &Downloads, cx: &Context<Self>) {
+        let (sink, heard) = flume::unbounded();
+        models.watch_hashes(sink);
+        cx.spawn(async move |preferences, cx| {
+            while let Ok(told) = heard.recv_async().await {
+                if preferences
+                    .update(cx, |preferences, cx| preferences.hash_said(told, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// One report of a hash. Already paced by the store.
+    fn hash_said(&mut self, told: Hashing, cx: &mut Context<Self>) {
+        match told {
+            Hashing::Progress {
+                path,
+                done_bytes,
+                total_bytes,
+            } => self.checking = Some((path, done_bytes, total_bytes)),
+            Hashing::Done { path } => {
+                if self
+                    .checking
+                    .as_ref()
+                    .is_some_and(|(checked, ..)| *checked == path)
+                {
+                    self.checking = None;
+                }
+            }
+        }
+        cx.notify();
+    }
+
     /// The download in flight, if it is `id`'s.
     pub fn downloading(&self, id: &str) -> Option<&Progress> {
         let running = self.download.as_ref()?;
@@ -1781,6 +1843,8 @@ impl Preferences {
         let effective = dir.clone().unwrap_or_else(|| self.models_default.clone());
         tracing::info!(folder = %effective.display(), "models folder moved");
         self.models = Arc::new(Downloads::new(effective, self.records_dir.clone()));
+        Self::listen_to_hashes(&self.models, cx);
+        self.checking = None;
         self.models_dir = dir;
         self.installed.clear();
         self.weights.clear();
@@ -5352,7 +5416,8 @@ impl SettingsView {
             &preferences.model_state(&entry.id),
             preferences.downloading(&entry.id),
             found_at.as_deref(),
-        );
+        )
+        .checking(preferences.checking_for(entry));
         let elsewhere = preferences.any_download_running() && !card.availability.is_running();
         let chosen = preferences.rewrite_model() == Some(entry.id.as_str());
         // F1: the card of the model on duty, while it is read into memory.
@@ -5463,6 +5528,15 @@ impl SettingsView {
                                         }
                                     }))
                                     .into_any_element(),
+                                // Being hashed: nothing to press until it is
+                                // read (F1b).
+                                None if matches!(
+                                    card.availability,
+                                    models::Availability::Checking { .. }
+                                ) =>
+                                {
+                                    div().into_any_element()
+                                }
                                 // Found where no download put it (D302):
                                 // nothing to fetch, and nothing to remove.
                                 None => div()
@@ -5483,6 +5557,9 @@ impl SettingsView {
                         None => card.line(),
                     })),
             )
+            // The download's bar, or the check's (F1a, F1b) — the text
+            // above keeps the bytes beside it.
+            .children(reading.is_none().then(|| models::bar(&card)).flatten())
             .children(reading.map(|(value, _)| {
                 gpui_component::progress::Progress::new(SharedString::from(format!(
                     "load-{}",
@@ -5510,7 +5587,7 @@ impl SettingsView {
                     preferences.remove_model(id, cx);
                 }
                 // No button is drawn for it; the arm says why.
-                models::Availability::Found { .. } => {}
+                models::Availability::Found { .. } | models::Availability::Checking { .. } => {}
             });
     }
 
@@ -8974,6 +9051,95 @@ mod tests {
             None,
             "a bar after the load"
         );
+    }
+
+    /// F1b: a look at a file whose record is missing hashes it, and the
+    /// hash's progress reaches the preferences through the store the
+    /// folder row built — so the card of that model is a "checking" bar
+    /// while it is read, and nothing once it is done. Red with the
+    /// listener not attached to the new store.
+    #[gpui::test]
+    fn a_hash_in_progress_reaches_the_card(cx: &mut gpui::TestAppContext) {
+        const SIZE: usize = 3 * 1_048_576 + 17;
+        const SHA: &str = "78dcae8b38b1abefc434d7cd8a36ee32a38493e2ad22d3e16a80bc3bc676b661";
+        let root = std::env::temp_dir().join(format!(
+            "wipemark-hash-bar-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let models_dir = root.join("models");
+        std::fs::create_dir_all(models_dir.join("vendor")).expect("mkdir");
+        std::fs::write(models_dir.join("vendor").join("big.gguf"), vec![7u8; SIZE]).expect("write");
+        let mut entry = crate::models::catalogue().models[0].clone();
+        entry.id = "big".into();
+        entry.files = vec![wipemark_models::manifest::FileSpec {
+            url: "https://example.com/big.gguf".into(),
+            sha256: Some(SHA.into()),
+            size_bytes: SIZE as u64,
+            variant: None,
+        }];
+        let homes = Homes {
+            results: root.join("results"),
+            kept: root.join("kept"),
+        };
+        struct Holder(#[allow(dead_code)] Entity<Preferences>);
+        impl Render for Holder {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        let slot: std::rc::Rc<std::cell::RefCell<Option<Entity<Preferences>>>> =
+            std::rc::Rc::default();
+        let held = slot.clone();
+        let (_, cx) = cx.add_window_view(move |_, cx| {
+            let preferences = cx.new(|cx| Preferences::for_tests(homes, cx));
+            *held.borrow_mut() = Some(preferences.clone());
+            Holder(preferences)
+        });
+        let preferences = slot.take().expect("the window builder ran");
+
+        // Every moment the card would have drawn a checking bar.
+        let bars: std::rc::Rc<std::cell::RefCell<Vec<f32>>> = std::rc::Rc::default();
+        let seen = bars.clone();
+        let watched = entry.clone();
+        let _watch = cx.update(|_, cx| {
+            cx.observe(&preferences, move |preferences, cx| {
+                let preferences = preferences.read(cx);
+                let card = crate::models::card(
+                    &watched,
+                    None,
+                    &preferences.model_state("big"),
+                    None,
+                    None,
+                )
+                .checking(preferences.checking_for(&watched));
+                if let crate::models::Availability::Checking { .. } = card.availability {
+                    seen.borrow_mut().extend(card.availability.bar());
+                }
+            })
+        });
+        preferences.update(cx, |preferences, cx| {
+            preferences.catalogue = Manifest {
+                schema: wipemark_models::manifest::SCHEMA_VERSION,
+                models: vec![entry],
+            };
+            assert!(preferences.select_models_dir(Some(models_dir.clone()), cx));
+        });
+        cx.run_until_parked();
+
+        let bars = bars.borrow().clone();
+        assert!(!bars.is_empty(), "no checking bar was ever drawn");
+        assert_eq!(bars.first(), Some(&0.0), "{bars:?}");
+        assert_eq!(bars.last(), Some(&100.0), "{bars:?}");
+        preferences.read_with(cx, |preferences, _| {
+            assert!(preferences.checking.is_none(), "the bar outlived the hash");
+            assert!(matches!(
+                preferences.model_state("big"),
+                State::Present { .. }
+            ));
+        });
+        std::fs::remove_dir_all(&root).ok();
     }
 
     /// D304 (F3): two scans of the models folder asked back to back run

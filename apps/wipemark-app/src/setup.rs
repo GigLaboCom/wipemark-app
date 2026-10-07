@@ -65,7 +65,6 @@ use gpui::{
     Subscription, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::progress::Progress;
 use gpui_component::radio::Radio;
 use gpui_component::stepper::{Stepper, StepperItem};
 use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable as _, Sizable as _, StyledExt as _};
@@ -772,7 +771,8 @@ impl Setup {
             &preferences.model_state(&entry.id),
             preferences.downloading(&entry.id),
             found_at.as_deref(),
-        );
+        )
+        .checking(preferences.checking_for(entry));
         let elsewhere = preferences.any_download_running() && !card.availability.is_running();
         let chosen = preferences.rewrite_model() == Some(entry.id.as_str());
         let theme = cx.theme();
@@ -781,13 +781,9 @@ impl Setup {
         let border = theme.border;
         let radius = theme.radius;
         let id = entry.id.clone();
-        let progress = match card.availability {
-            models::Availability::Downloading {
-                done_bytes,
-                total_bytes,
-            } if total_bytes > 0 => Some(done_bytes as f32 / total_bytes as f32 * 100.0),
-            _ => None,
-        };
+        // The Models page's own bar (F1a): a download, one waiting to be
+        // resumed, or a file being checked.
+        let bar = models::bar(&card);
 
         v_flex()
             .gap_1()
@@ -830,6 +826,8 @@ impl Setup {
                                 .child(SharedString::from(t(Message::SettingsModelsInstalled)))
                                 .into_any_element()
                         }
+                        // Being read: nothing to press until it is.
+                        models::Availability::Checking { .. } => div().into_any_element(),
                         ref availability => {
                             let availability = availability.clone();
                             Button::new(SharedString::from(format!("setup-{id}")))
@@ -855,7 +853,8 @@ impl Setup {
                                             | models::Availability::Damaged => {
                                                 preferences.remove_model(&id, cx);
                                             }
-                                            models::Availability::Found { .. } => {}
+                                            models::Availability::Found { .. }
+                                            | models::Availability::Checking { .. } => {}
                                         }
                                     });
                                 }))
@@ -864,7 +863,7 @@ impl Setup {
                     }),
             )
             .child(Self::aside(card.line(), cx))
-            .children(progress.map(|value| Progress::new("setup-download").small().value(value)))
+            .children(bar)
     }
 
     /// The endpoint step: the Engine page's rows live there, and this

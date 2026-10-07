@@ -158,6 +158,23 @@ impl Progress {
     }
 }
 
+/// How far the sha256 of one file has got (F1b) — what
+/// [`Downloads::watch_hashes`] is told. A 12 GB file is minutes of reading,
+/// and a page that said only "checking" over it would read as stuck.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Hashing {
+    /// `done_bytes` of `path`'s `total_bytes` read into the hash so far.
+    /// The first report is at zero; then at most one per [`REPORT_EVERY`],
+    /// and the last at `total_bytes`.
+    Progress {
+        path: PathBuf,
+        done_bytes: u64,
+        total_bytes: u64,
+    },
+    /// The hash of `path` is over — matched or not, read or not.
+    Done { path: PathBuf },
+}
+
 /// What [`Downloads::spawn`] sends back.
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -267,6 +284,8 @@ pub struct Downloads {
     /// counts to prove a record saved a hash (D303), or that a file is
     /// hashed once.
     hashed: AtomicUsize,
+    /// Where a hash tells how far it has got (F1b), when anybody asked.
+    hash_watch: std::sync::Mutex<Option<flume::Sender<Hashing>>>,
 }
 
 impl Downloads {
@@ -287,7 +306,18 @@ impl Downloads {
             records: records_dir.into(),
             agent: config.into(),
             hashed: AtomicUsize::new(0),
+            hash_watch: std::sync::Mutex::new(None),
         }
+    }
+
+    /// Every hash this store makes from now on — a look at a file whose
+    /// record moved, a verify, the check of a finished download — tells
+    /// `sink` how far it has got ([`Hashing`]). A later call replaces it.
+    pub fn watch_hashes(&self, sink: flume::Sender<Hashing>) {
+        *self
+            .hash_watch
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(sink);
     }
 
     #[must_use]
@@ -901,7 +931,33 @@ impl Downloads {
     /// Hash `path` in full, and count it.
     fn hash(&self, path: &Path) -> Result<String, StoreError> {
         self.hashed.fetch_add(1, Ordering::Relaxed);
-        hash_file(path)
+        let sink = self
+            .hash_watch
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let Some(sink) = sink else {
+            return hash_file(path, &mut |_, _| {});
+        };
+        let mut last: Option<Instant> = None;
+        let hashed = hash_file(path, &mut |done_bytes, total_bytes| {
+            let due =
+                done_bytes == total_bytes || last.is_none_or(|at| at.elapsed() >= REPORT_EVERY);
+            if due {
+                last = Some(Instant::now());
+                let _ = sink.send(Hashing::Progress {
+                    path: path.to_path_buf(),
+                    done_bytes,
+                    total_bytes,
+                });
+            }
+        });
+        // However it ended: a bar left over a hash that failed would say
+        // the file is still being read.
+        let _ = sink.send(Hashing::Done {
+            path: path.to_path_buf(),
+        });
+        hashed
     }
 
     /// The record of `target`: `<records>/<key>-<file name>`, the key the
@@ -977,16 +1033,23 @@ fn fingerprint(target: &Path) -> Result<String, StoreError> {
     Ok(format!("{}:{}", meta.len(), mtime))
 }
 
-fn hash_file(path: &Path) -> Result<String, StoreError> {
+/// The sha256 of `path`, telling `read` the bytes hashed so far and the
+/// file's size: once at zero, once per chunk, and at the end.
+fn hash_file(path: &Path, read: &mut dyn FnMut(u64, u64)) -> Result<String, StoreError> {
     let mut file = std::fs::File::open(path).map_err(StoreError::io(path))?;
+    let total = file.metadata().map(|meta| meta.len()).unwrap_or(0);
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; CHUNK];
+    let mut done = 0u64;
+    read(0, total);
     loop {
-        let read = file.read(&mut buffer).map_err(StoreError::io(path))?;
-        if read == 0 {
+        let got = file.read(&mut buffer).map_err(StoreError::io(path))?;
+        if got == 0 {
             break;
         }
-        hasher.update(&buffer[..read]);
+        hasher.update(&buffer[..got]);
+        done += got as u64;
+        read(done.min(total), total.max(done));
     }
     Ok(hex::encode(hasher.finalize()))
 }
@@ -1010,7 +1073,7 @@ fn free_bytes_on(path: &Path) -> Option<u64> {
 mod tests {
     use std::sync::Arc;
 
-    use super::{Cancel, Downloads, Event, State, StoreError};
+    use super::{Cancel, Downloads, Event, Hashing, State, StoreError};
     use crate::manifest::{FileSpec, Format, MemSpec, ModelEntry, Role, Status};
 
     fn entry(id: &str, files: Vec<FileSpec>) -> ModelEntry {
@@ -1397,6 +1460,40 @@ mod tests {
             .fetch(&mirror.entry, &Cancel::new(), &|_| {})
             .expect("already here");
         assert!(!weights.with_file_name("meta.json").exists());
+    }
+
+    /// F1b: a hash tells how far it has got — from zero, never backwards,
+    /// to the whole file — and that it is over, so a page can draw a bar
+    /// over a 12 GB verify instead of "checking" for minutes.
+    #[test]
+    fn a_hash_tells_how_far_it_has_got() {
+        let mirror = Mirror::new();
+        let big = vec![7u8; 3 * super::CHUNK + 17];
+        let path = mirror.put("qwen/qwen-q4.gguf", &big);
+        let store = mirror.store();
+        let (sink, told) = flume::unbounded();
+        store.watch_hashes(sink);
+        let _ = store.state(&mirror.entry);
+        let told: Vec<Hashing> = told.drain().collect();
+        let done: Vec<u64> = told
+            .iter()
+            .filter_map(|event| match event {
+                Hashing::Progress {
+                    done_bytes,
+                    total_bytes,
+                    path: at,
+                } => {
+                    assert_eq!(at, &path);
+                    assert_eq!(*total_bytes, big.len() as u64);
+                    Some(*done_bytes)
+                }
+                Hashing::Done { .. } => None,
+            })
+            .collect();
+        assert_eq!(done.first(), Some(&0), "{told:?}");
+        assert_eq!(done.last(), Some(&(big.len() as u64)), "{told:?}");
+        assert!(done.windows(2).all(|pair| pair[0] <= pair[1]), "{told:?}");
+        assert_eq!(told.last(), Some(&Hashing::Done { path }), "{told:?}");
     }
 
     #[test]

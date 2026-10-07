@@ -516,6 +516,7 @@ settings-models-remove = Удалить
 settings-models-installed = На этой машине
 settings-models-progress = { $done } из { $total }
 settings-models-verifying = Проверяем, что уже есть…
+settings-models-checking = Сверяем с каталогом: { $done } из { $total }…
 settings-models-host = Машина сообщает о { $ram } МБ памяти.
 settings-models-host-unknown = Объём памяти машины прочитать не удалось, поэтому ничего ниже с ним не сверяется.
 settings-models-fit-roomy = Место есть, и остальной машиной по-прежнему можно пользоваться.

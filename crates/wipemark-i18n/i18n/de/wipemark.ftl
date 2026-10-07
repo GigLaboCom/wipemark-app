@@ -502,6 +502,7 @@ settings-models-remove = Entfernen
 settings-models-installed = Auf diesem Gerät
 settings-models-progress = { $done } von { $total }
 settings-models-verifying = Prüfe, was schon da ist …
+settings-models-checking = Prüfe { $done } von { $total } gegen den Katalog …
 settings-models-host = Dieses Gerät meldet { $ram } MB Arbeitsspeicher.
 settings-models-host-unknown = Der Arbeitsspeicher dieses Geräts war nicht lesbar, daher wird unten nichts daran gemessen.
 settings-models-fit-roomy = Dafür ist Platz, und der Rest des Geräts bleibt benutzbar.

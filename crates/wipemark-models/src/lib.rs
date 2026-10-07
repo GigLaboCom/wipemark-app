@@ -35,4 +35,4 @@ pub use host::{default_for_role, fit, Fit, Host};
 pub use layout::{data_dir, model_dir, models_dir, Layout, LayoutError, BUNDLE_ID};
 pub use manifest::{FileSpec, Format, Manifest, ManifestError, MemSpec, ModelEntry, Role, Status};
 pub use scan::{weights_under, Found};
-pub use store::{Cancel, Downloads, Event, Located, Progress, State, StoreError, Survey};
+pub use store::{Cancel, Downloads, Event, Hashing, Located, Progress, State, StoreError, Survey};

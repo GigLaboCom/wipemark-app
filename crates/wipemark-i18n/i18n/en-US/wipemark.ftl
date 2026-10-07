@@ -880,6 +880,9 @@ settings-models-installed = On this machine
 # $done and $total are human-readable byte counts.
 settings-models-progress = { $done } of { $total }
 settings-models-verifying = Checking what is already here…
+# A file of the model being hashed against the catalogue's checksum,
+# beside a bar (F1b). $done and $total are human-readable byte counts.
+settings-models-checking = Checking { $done } of { $total } against the catalogue…
 
 ## What this machine can hold. `unknown` is not `no`: there is no
 ## portable way to ask a graphics card its size without linking a
