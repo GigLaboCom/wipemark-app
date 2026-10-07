@@ -584,7 +584,11 @@ because unwinding out of an `extern "C"` function aborts. Up from there:
   keeps `load_progress()`, repainting only when the whole percent moves.
   It does not depend on `Loaded`: a Check's or a job's load is not the
   policy's (`Loaded` may say "not loaded" while it reads), and the bar
-  says what is happening.
+  says what is happening. Every engine that enters the slot is numbered
+  and its `LoadSink` carries the number; a report from an engine the slot
+  has let go of — an abandoned load's late `Ended` — is ignored, so it
+  cannot clear the next engine's bar (the host verification's L6,
+  `an_abandoned_loads_end_does_not_clear_the_next_ones_bar`).
 * The **Engine page** puts a bar and "Loading *model* — *n* % read…" in
   place of the state line while it reads; the **Models** card of the
   model on duty does the same under its name; the **status bar** says

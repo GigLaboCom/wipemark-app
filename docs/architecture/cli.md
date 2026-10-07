@@ -325,17 +325,30 @@ depend on the application; the keys are formats. The CLI writes no row,
 ever.
 
 **`list [--json]`.** Every entry: id, name, roles, size, the state on
-this machine (`present` — every file matches; `absent`; `partial` with
-how far, which `pull` resumes; `mismatch` — on disk and not the
-catalogue's), whether it is the model chosen for rewriting, and
-`host::fit` for this machine, probed once (`None` is "unknown", never
-"no"). Then the weight files in the folder the catalogue did not put
-there, from `wipemark_models::scan::weights_under` — listed, never
-verified, never loaded, and the heading says so. A state may re-hash a
-file whose size or mtime moved since its stamp; that is a CLI with no
-window to freeze.
+this machine (`present` — every file matches, **wherever under the folder
+it was found** (D302); `absent`; `partial` with how far, which `pull`
+resumes; `mismatch` — a download of this product at its place that is no
+longer the catalogue's), whether it is the model chosen for rewriting,
+and `host::fit` for this machine, probed once (`None` is "unknown", never
+"no"). A model whose file this product did not download — found
+anywhere else, or at its own `<id>/<file>` place with no download's mark
+(D302, amended) — adds "found at *path*" (`found_at` in `--json`, the
+path below the folder, `/`-separated). Another tool's file at the
+entry's own place with its name and not its contents leaves the entry
+`absent` and adds "another tool's file of its name is at *path*, left as
+it is" (`foreign_at`). Then the weight files in the folder the catalogue
+did not put there, from `wipemark_models::scan::weights_under` — listed,
+never verified, never loaded, and the heading says so; the catalogue's
+files, wherever found, and a `foreign_at` file are not among them. A
+state may re-hash a file whose size or mtime moved since its record
+(`<data dir>/records`, D303 — never beside the weights); that is a CLI
+with no window to freeze.
 
-**`pull <id>`.** Present and verified: says so, exits 0, no network.
+**`pull <id>`.** Present and verified — wherever it was found — says
+so and where, exits 0, no network, and writes nothing. A file at the
+entry's own place that this product did not download and that is not the
+catalogue's is never downloaded over: `StoreError::Occupied`, exit 2,
+the file untouched.
 Otherwise `Downloads::fetch` on a thread of its own (which resumes a
 `.part`), with the typed `StoreError` sent back so each failure has its
 own sentence. Progress goes to **stderr**: one line redrawn at most twice
@@ -353,16 +366,25 @@ words and the `.part` kept. The log line records where the download
 resumed from, how far it got, and how long it took.
 
 **`verify <id>`.** `Downloads::rehash`: every file hashed in full,
-whatever the stamp says — the stamp is a cache of the last verify, enough
+whatever the record says (`<data dir>/records`, D303) — the record is a
+cache of the last verify, enough
 to notice a file that was replaced and not a byte changed in place, and
 a command asked to verify is not asked to consult a cache
-(`a_full_rehash_does_not_trust_the_stamp`). A match refreshes the stamp.
+(`a_full_rehash_does_not_trust_the_stamp`). A match refreshes the record.
+A file found elsewhere under the folder is verified where it is.
 Exit **1** when the file does not match *or is not there* — the same
 finding, the file on disk is not the file the catalogue promised — and 3
 when it could not be read.
 
 **`rm <id>`.** `Downloads::remove`; exit 0 whether or not there was
-anything (and says which). Removing the chosen model says that the
+anything (and says which). It removes only what a download of this
+product wrote — a file at its place carrying the download's mark under
+`<data dir>/records` (D302, amended). A file it did not download — found
+elsewhere, at its place without the mark (a download by a build from
+before the mark included), or another tool's file of its name — is left,
+and the answer is "*id* is at *path*, where Wipemark did not download it;
+nothing was removed" (`models_rm_leaves_another_tools_file_at_the_entrys_place`,
+and `scripts/verify/owner-fixes/rm-in-a-mirror.sh`, which says KEPT). Removing the chosen model says that the
 application will show no model chosen until another is picked — and
 leaves the row alone.
 

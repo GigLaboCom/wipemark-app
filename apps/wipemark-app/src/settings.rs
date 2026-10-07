@@ -815,6 +815,9 @@ pub struct Preferences {
     /// than where a download puts them (D302), and where — the user's
     /// files, used where they are and never removed.
     found: BTreeMap<String, PathBuf>,
+    /// The entries whose own place holds another tool's file of their
+    /// name that is not the catalogue's (D302, amended), and where.
+    foreign: BTreeMap<String, PathBuf>,
     /// The one download in flight, if there is one.
     ///
     /// One at a time on purpose: two seven-gigabyte downloads over one
@@ -865,6 +868,10 @@ pub struct Preferences {
     /// one more scan runs when it lands — after the first, so whatever
     /// it hashed is a record by then and is not hashed again.
     rescan: bool,
+    /// Makes the next scan panic, for the test that a panicking scan does
+    /// not leave `scanning` set.
+    #[cfg(test)]
+    scan_panics: bool,
     /// Held as an `Arc` because the write happens on a background
     /// thread, and what crosses that boundary has to own itself. Never
     /// `None` — a store that could not be opened is an in-memory one
@@ -1140,6 +1147,7 @@ impl Preferences {
             installed: BTreeMap::new(),
             weights: BTreeMap::new(),
             found: BTreeMap::new(),
+            foreign: BTreeMap::new(),
             checking: None,
             download: None,
             download_said: None,
@@ -1152,6 +1160,8 @@ impl Preferences {
             folder: Folder::Unread,
             scanning: false,
             rescan: false,
+            #[cfg(test)]
+            scan_panics: false,
             store,
             serves,
             local,
@@ -1777,6 +1787,18 @@ impl Preferences {
         )
     }
 
+    /// Where `id`'s own place holds another tool's file of its name that
+    /// is not the catalogue's (D302, amended), below the folder.
+    pub fn model_foreign_at(&self, id: &str) -> Option<String> {
+        let path = self.foreign.get(id)?;
+        Some(
+            path.strip_prefix(self.models.models_dir())
+                .unwrap_or(path)
+                .display()
+                .to_string(),
+        )
+    }
+
     /// How far the hash of one of `entry`'s files has got — bytes read and
     /// the file's size — while one is read (F1b). A download's own check
     /// reads its `.part`, which is the same file under a working name.
@@ -1908,6 +1930,10 @@ impl Preferences {
         }
         let effective = dir.clone().unwrap_or_else(|| self.models_default.clone());
         tracing::info!(folder = %effective.display(), "models folder moved");
+        // The scan of the old folder stops reading: nobody will see its
+        // answer (L4). A scan asked now waits for it to give up, which is
+        // one chunk, and then reads the new folder.
+        self.models.stop();
         self.models = Arc::new(Downloads::new(effective, self.records_dir.clone()));
         Self::listen_to_hashes(&self.models, cx);
         self.checking = None;
@@ -1915,6 +1941,7 @@ impl Preferences {
         self.installed.clear();
         self.weights.clear();
         self.found.clear();
+        self.foreign.clear();
         self.folder = Folder::Unread;
         self.download_said = None;
         self.download_error = None;
@@ -2020,53 +2047,77 @@ impl Preferences {
         self.scanning = true;
         let models = self.models.clone();
         let entries: Vec<ModelEntry> = self.catalogue.models.clone();
+        #[cfg(test)]
+        let panics = self.scan_panics;
 
         cx.spawn(async move |preferences, cx| {
+            // A scan that panics is caught here (L4): otherwise `scanning`
+            // would stay set and no scan would ever run again.
             let found = cx
                 .background_executor()
                 .spawn(async move {
-                    let host = Host::probe();
-                    let gpu = gpu_backend();
-                    // One walk of the folder, and every catalogue entry
-                    // looked for in it — at its place, or anywhere under
-                    // the folder by name, size and sha256 (D302).
-                    let survey = models.survey(&entries);
-                    let states: BTreeMap<String, State> = survey
-                        .located
-                        .iter()
-                        .map(|(id, located)| (id.clone(), located.state.clone()))
-                        .collect();
-                    // The path an engine is handed, gathered here so
-                    // that answering "who rewrites" later costs no I/O.
-                    let weights: BTreeMap<String, PathBuf> = survey
-                        .located
-                        .iter()
-                        .filter_map(|(id, located)| {
-                            located.weights.clone().map(|at| (id.clone(), at))
-                        })
-                        .collect();
-                    let found: BTreeMap<String, PathBuf> = survey
-                        .located
-                        .iter()
-                        .filter(|(_, located)| located.elsewhere)
-                        .filter_map(|(id, located)| {
-                            located.weights.clone().map(|at| (id.clone(), at))
-                        })
-                        .collect();
-                    // Everything else in the folder, however deep. The
-                    // catalogue's own files are the ones above,
-                    // wherever they were found and whatever state they
-                    // are in — a damaged download is still the
-                    // catalogue's, and belongs on its card rather than
-                    // in the list of strangers.
-                    let ours: Vec<PathBuf> = survey
-                        .located
-                        .values()
-                        .flat_map(|located| located.files.iter().cloned())
-                        .collect();
-                    let folder =
-                        Folder::from_listing(survey.listing, |path| ours.iter().any(|o| o == path));
-                    (host, gpu, states, weights, found, folder)
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        #[cfg(test)]
+                        if panics {
+                            panic!("a scan that panics, for a test");
+                        }
+                        let host = Host::probe();
+                        let gpu = gpu_backend();
+                        // One walk of the folder, and every catalogue entry
+                        // looked for in it — at its place, or anywhere under
+                        // the folder by name, size and sha256 (D302).
+                        let survey = models.survey(&entries);
+                        let states: BTreeMap<String, State> = survey
+                            .located
+                            .iter()
+                            .map(|(id, located)| (id.clone(), located.state.clone()))
+                            .collect();
+                        // The path an engine is handed, gathered here so
+                        // that answering "who rewrites" later costs no I/O.
+                        let weights: BTreeMap<String, PathBuf> = survey
+                            .located
+                            .iter()
+                            .filter_map(|(id, located)| {
+                                located.weights.clone().map(|at| (id.clone(), at))
+                            })
+                            .collect();
+                        let found: BTreeMap<String, PathBuf> = survey
+                            .located
+                            .iter()
+                            .filter(|(_, located)| located.theirs)
+                            .filter_map(|(id, located)| {
+                                located.weights.clone().map(|at| (id.clone(), at))
+                            })
+                            .collect();
+                        // Another tool's file at an entry's own place that is
+                        // not the catalogue's (D302, amended): said on the
+                        // card, never removed.
+                        let foreign: BTreeMap<String, PathBuf> = survey
+                            .located
+                            .iter()
+                            .filter_map(|(id, located)| {
+                                located.mismatched.clone().map(|at| (id.clone(), at))
+                            })
+                            .collect();
+                        // Everything else in the folder, however deep. The
+                        // catalogue's own files are the ones above,
+                        // wherever they were found and whatever state they
+                        // are in — a damaged download is still the
+                        // catalogue's, and belongs on its card rather than
+                        // in the list of strangers.
+                        let ours: Vec<PathBuf> = survey
+                            .located
+                            .values()
+                            .flat_map(|located| {
+                                located.files.iter().chain(&located.mismatched).cloned()
+                            })
+                            .collect();
+                        let folder = Folder::from_listing(survey.listing, |path| {
+                            ours.iter().any(|o| o == path)
+                        });
+                        (host, gpu, states, weights, found, foreign, folder)
+                    }))
+                    .ok()
                 })
                 .await;
 
@@ -2081,12 +2132,19 @@ impl Preferences {
                         preferences.look_at_models(cx);
                         return;
                     }
-                    let (host, gpu, states, weights, found, folder) = found;
+                    let Some(found) = found else {
+                        tracing::error!(
+                            "the scan of the models folder panicked; nothing it found is used"
+                        );
+                        return;
+                    };
+                    let (host, gpu, states, weights, found, foreign, folder) = found;
                     preferences.host = Some(host);
                     preferences.gpu = gpu;
                     preferences.installed = states;
                     preferences.weights = weights;
                     preferences.found = found;
+                    preferences.foreign = foreign;
                     preferences.folder = folder;
                     // The moment the answer stops being provisional:
                     // before the scan lands, "that model is not here"
@@ -5562,6 +5620,7 @@ impl SettingsView {
             preferences.downloading(&entry.id),
             found_at.as_deref(),
         )
+        .foreign(preferences.model_foreign_at(&entry.id).as_deref())
         .checking(preferences.checking_for(entry));
         let elsewhere = preferences.any_download_running() && !card.availability.is_running();
         let chosen = preferences.rewrite_model() == Some(entry.id.as_str());
@@ -5674,10 +5733,12 @@ impl SettingsView {
                                     }))
                                     .into_any_element(),
                                 // Being hashed: nothing to press until it is
-                                // read (F1b).
+                                // read (F1b). Another tool's file in the way:
+                                // nothing this product may do about it.
                                 None if matches!(
                                     card.availability,
                                     models::Availability::Checking { .. }
+                                        | models::Availability::Foreign { .. }
                                 ) =>
                                 {
                                     div().into_any_element()
@@ -5732,7 +5793,9 @@ impl SettingsView {
                     preferences.remove_model(id, cx);
                 }
                 // No button is drawn for it; the arm says why.
-                models::Availability::Found { .. } | models::Availability::Checking { .. } => {}
+                models::Availability::Found { .. }
+                | models::Availability::Foreign { .. }
+                | models::Availability::Checking { .. } => {}
             });
     }
 
@@ -9319,6 +9382,56 @@ mod tests {
                 preferences.model_state("big"),
                 State::Present { .. }
             ));
+        });
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// L4: a scan that panics does not leave `scanning` set — the next
+    /// scan runs and answers.
+    #[gpui::test]
+    fn a_scan_that_panics_does_not_stop_the_next(cx: &mut gpui::TestAppContext) {
+        let root = std::env::temp_dir().join(format!(
+            "wipemark-scan-panics-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let homes = Homes {
+            results: root.join("results"),
+            kept: root.join("kept"),
+        };
+        struct Holder(#[allow(dead_code)] Entity<Preferences>);
+        impl Render for Holder {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        let slot: std::rc::Rc<std::cell::RefCell<Option<Entity<Preferences>>>> =
+            std::rc::Rc::default();
+        let held = slot.clone();
+        let (_, cx) = cx.add_window_view(move |_, cx| {
+            let preferences = cx.new(|cx| Preferences::for_tests(homes, cx));
+            *held.borrow_mut() = Some(preferences.clone());
+            Holder(preferences)
+        });
+        let preferences = slot.take().expect("the window builder ran");
+
+        preferences.update(cx, |preferences, cx| {
+            preferences.models =
+                Arc::new(Downloads::new(root.join("models"), root.join("records")));
+            preferences.scan_panics = true;
+            preferences.look_at_models(cx);
+        });
+        cx.run_until_parked();
+        preferences.update(cx, |preferences, cx| {
+            assert!(!preferences.scanning, "a panicked scan left the flag set");
+            assert!(!preferences.models_scanned());
+            preferences.scan_panics = false;
+            preferences.look_at_models(cx);
+        });
+        cx.run_until_parked();
+        preferences.read_with(cx, |preferences, _| {
+            assert!(!preferences.scanning);
+            assert!(preferences.models_scanned(), "the next scan never answered");
         });
         std::fs::remove_dir_all(&root).ok();
     }

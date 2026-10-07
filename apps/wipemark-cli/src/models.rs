@@ -27,7 +27,7 @@
 //! is the same finding, because a missing model does not match either.
 
 use std::io::{IsTerminal as _, Write as _};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -186,10 +186,12 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
     // One walk: where every catalogue entry is (D302), and what else is
     // there. A catalogue file is the catalogue's wherever it was found.
     let survey = context.downloads.survey(&context.catalogue.models);
+    // Another tool's file at an entry's own place is said on that entry's
+    // line (D302, amended), not again among the strangers.
     let ours: Vec<PathBuf> = survey
         .located
         .values()
-        .flat_map(|located| located.files.iter().cloned())
+        .flat_map(|located| located.files.iter().chain(&located.mismatched).cloned())
         .collect();
     let (others, unreadable) = match survey.listing {
         Ok(found) => (
@@ -219,16 +221,21 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
         .collect();
     // Where an entry was found, when that is not where a download puts
     // it — the folder-relative path, `/`-separated.
+    let below = |path: &Path| -> String {
+        path.strip_prefix(folder)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
     let found_at = |entry: &ModelEntry| -> Option<String> {
         let located = survey.located.get(&entry.id)?;
-        let weights = located.weights.as_ref().filter(|_| located.elsewhere)?;
-        Some(
-            weights
-                .strip_prefix(folder)
-                .unwrap_or(weights)
-                .to_string_lossy()
-                .replace('\\', "/"),
-        )
+        let weights = located.weights.as_ref().filter(|_| located.theirs)?;
+        Some(below(weights))
+    };
+    // Another tool's file at the entry's own place that is not it.
+    let foreign_at = |entry: &ModelEntry| -> Option<String> {
+        let located = survey.located.get(&entry.id)?;
+        located.mismatched.as_deref().map(below)
     };
 
     let text = if json {
@@ -244,6 +251,9 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                 });
                 if let Some(at) = found_at(entry) {
                     value["found_at"] = at.into();
+                }
+                if let Some(at) = foreign_at(entry) {
+                    value["foreign_at"] = at.into();
                 }
                 match state {
                     State::Absent => value["state"] = "absent".into(),
@@ -340,6 +350,10 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
             if let Some(at) = found_at(entry) {
                 line.push_str(" · ");
                 line.push_str(&say(Message::CliModelsFoundAt, &args!("path" => at)));
+            }
+            if let Some(at) = foreign_at(entry) {
+                line.push_str(" · ");
+                line.push_str(&say(Message::CliModelsForeignAt, &args!("path" => at)));
             }
             if *chosen {
                 line.push_str(" · ");
@@ -554,6 +568,7 @@ fn kind_of(error: &StoreError) -> &'static str {
         StoreError::Missing { .. } => "missing",
         StoreError::NoRoom { .. } => "no room",
         StoreError::Cancelled => "cancelled",
+        StoreError::Occupied { .. } => "occupied",
     }
 }
 
@@ -703,11 +718,16 @@ pub(crate) fn rm(id: &str, io: &mut Io) -> Exit {
         .downloads
         .model_dir(id)
         .unwrap_or_else(|| context.place.folder.clone());
-    // A file found elsewhere under the folder is the user's (D302): rm
-    // removes what a download wrote and says what it left.
+    // A file this product did not download — found elsewhere under the
+    // folder, or at the entry's own place with no download's mark, whether
+    // or not it matches — is the user's (D302, amended): rm removes what a
+    // download wrote and says what it left.
     let theirs = {
         let located = context.downloads.locate(&entry);
-        located.weights.filter(|_| located.elsewhere)
+        located
+            .weights
+            .filter(|_| located.theirs)
+            .or(located.mismatched)
     };
     match context.downloads.remove(&entry) {
         Ok(false) if theirs.is_some() => {

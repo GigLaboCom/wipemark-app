@@ -304,11 +304,11 @@ fn from_item(item: &NSPasteboardItem) -> Option<Handed> {
                 });
             }
         }
+        // An item with a plain string is that string, and nothing else
+        // of it is read: an empty one is no item (D301), never a reason to
+        // land its rich-text twin as a `clipping.rtf` instead (L2).
         if let Some(text) = item.stringForType(NSPasteboardTypeString) {
-            let text = Handed::Text(text.to_string());
-            if !text.is_nothing() {
-                return Some(text);
-            }
+            return something(Handed::Text(text.to_string()));
         }
         if let Some(data) = item.dataForType(NSPasteboardTypeRTF) {
             return something(Handed::Bytes {
@@ -342,13 +342,21 @@ fn something(handed: Handed) -> Option<Handed> {
 /// bytes twice a second to say "Paste image". [`change_count`] is how
 /// the poll knows whether to ask at all.
 ///
-/// Text is the one kind read rather than peeked at: an empty string is
-/// no item (D301), and only its characters can say so. That read is made
-/// only when the change count moved, and only for an item that is
-/// neither a file nor an image.
+/// Text is the one kind looked into rather than only peeked at: an empty
+/// string is no item (D301), and only its characters can say so. That
+/// look is made only when the change count moved, only for an item that
+/// is neither a file nor an image, and it copies nothing long (L3): the
+/// string AppKit hands back is measured first, and one past [`PEEK`]
+/// UTF-16 units is something without being converted or scanned. A
+/// rich-text clipping with no plain string is counted as text without
+/// being read at all.
 pub fn held() -> Vec<Held> {
     held_on(&NSPasteboard::generalPasteboard())
 }
+
+/// How long a string the peek converts and looks into, in UTF-16 units.
+/// Past it, a string is certainly not empty — and is left unread.
+const PEEK: usize = 4096;
 
 /// [`held`], over any pasteboard — the general one in the application
 /// and a scratch one in a test.
@@ -370,11 +378,14 @@ pub fn held_on(pasteboard: &NSPasteboard) -> Vec<Held> {
                     Some(Held::File)
                 } else if carries(NSPasteboardTypePNG) || carries(NSPasteboardTypeTIFF) {
                     Some(Held::Image)
-                } else if carries(NSPasteboardTypeString)
-                    || carries(NSPasteboardTypeRTF)
-                    || carries(NSPasteboardTypeHTML)
-                {
-                    from_item(&item).map(|_| Held::Text)
+                } else if carries(NSPasteboardTypeString) {
+                    let text = item.stringForType(NSPasteboardTypeString)?;
+                    if text.length() > PEEK {
+                        return Some(Held::Text);
+                    }
+                    (!Handed::Text(text.to_string()).is_nothing()).then_some(Held::Text)
+                } else if carries(NSPasteboardTypeRTF) || carries(NSPasteboardTypeHTML) {
+                    Some(Held::Text)
                 } else {
                     None
                 }
@@ -410,7 +421,8 @@ const _: Option<NonNull<()>> = None;
 #[cfg(test)]
 mod tests {
     use objc2_app_kit::{
-        NSPasteboard, NSPasteboardTypeFileURL, NSPasteboardTypePNG, NSPasteboardTypeString,
+        NSPasteboard, NSPasteboardTypeFileURL, NSPasteboardTypeHTML, NSPasteboardTypePNG,
+        NSPasteboardTypeRTF, NSPasteboardTypeString,
     };
     use objc2_foundation::{NSData, NSString};
 
@@ -498,6 +510,31 @@ mod tests {
             assert!(handed(&pasteboard).is_empty(), "{empty:?}");
             assert!(held_on(&pasteboard).is_empty(), "{empty:?}");
         }
+        // L2: an empty plain string beside its rich-text twins is still no
+        // item — never a `clipping.rtf` or `clipping.html` in its place.
+        let pasteboard = scratch();
+        unsafe {
+            pasteboard.setString_forType(&NSString::from_str("\n"), NSPasteboardTypeString);
+            pasteboard.setData_forType(
+                Some(&NSData::with_bytes(b"{\\rtf1 hello}")),
+                NSPasteboardTypeRTF,
+            );
+            pasteboard.setData_forType(
+                Some(&NSData::with_bytes(b"<p>hello</p>")),
+                NSPasteboardTypeHTML,
+            );
+        }
+        assert!(handed(&pasteboard).is_empty(), "{:?}", handed(&pasteboard));
+        assert!(held_on(&pasteboard).is_empty());
+    }
+
+    /// L3: a long string is counted as text by its length alone.
+    #[test]
+    fn a_long_string_is_text_without_being_looked_into() {
+        let pasteboard = scratch();
+        let long = " ".repeat(super::PEEK + 1);
+        unsafe { pasteboard.setString_forType(&NSString::from_str(&long), NSPasteboardTypeString) };
+        assert_eq!(held_on(&pasteboard), vec![Held::Text]);
     }
 
     /// The peek says what the read would hand over, kind for kind and

@@ -15,7 +15,10 @@
   sha256 of a large file already on the disk (F1b); the load into memory
   (F1c) was optional. F1c had been built by then and is kept.
 
-**Status: F1–F6 done.** Gates and CI: see "Gates" and "CI".
+**Status: F1–F6 done; the host verification's H1 and L1–L6 fixed in a
+second round** (see "Round 2", at the end — D302 is amended there). Gates
+and CI: see "Gates" and "CI" for the first round, "Round 2" for the
+second.
 
 ## The fixes
 
@@ -57,7 +60,9 @@ check). It is a record, not a table to run every round.
   moved, only for an item that is neither a file nor an image — because
   only its characters can say it is empty), and by `Catcher::land`
   whichever road a thing came by.
-- **D302 — a catalogue file found anywhere is the user's**
+- **D302 — a catalogue file found anywhere is the user's** (**amended in
+  round 2**: the place alone is no longer taken as a download — see
+  "Round 2", H1)
   (`docs/architecture/model-downloads.md`, "Found wherever it is"). When a
   file is not at `<models>/<id>/<file>`, the walk of the folder is searched:
   candidates by name and size, the sha256 deciding, the first match in path
@@ -182,10 +187,12 @@ The commit that fills in this table changes this file only.
    *model* — *n* %" meanwhile. Models page: the card of the model on duty
    shows the same bar during a load (press Check, switch to Models).
    **Unload now**, and Resident on the next launch, show it too.
-4. **F2.** With the models folder at a mirror laid out by another tool
-   (`/mnt/data/mnemoria/models` in the owner's scratch data directory),
-   the Qwen card says "Found at …", has no Download and no Remove, and the
-   model can be chosen and loaded. "Also in this folder" no longer lists it.
+4. **F2, H1.** With the models folder at a mirror laid out by another tool
+   (`/mnt/data/mnemoria/models` in the owner's scratch data directory) —
+   including one laid out `<id>/<file>` as the catalogue's own place —
+   the Qwen card says "Found at …", has no Download and **no Remove**, and
+   the model can be chosen and loaded. "Also in this folder" no longer
+   lists it. A model downloaded by this build still shows Remove.
 5. **F4.** After that, nothing new in the mirror (`ls -la` for `.…ok-…`
    and `meta.json`), and `<data dir>/records/` holds one file per model.
    The first look hashes once (minutes for 12 GB); reopening Settings does
@@ -216,8 +223,11 @@ The commit that fills in this table changes this file only.
 - The bullet "**A downloaded model is verified, resumable, and never
   repaired silently.**": add that a catalogue file is recognised anywhere
   under the folder by name, size and sha256, used where it is and never
-  deleted (D302), and that what a verify learned is a record under the data
-  directory, never beside the weights (D303).
+  deleted (D302), that **only a file carrying a download's mark
+  (`<data dir>/records/…downloaded`) is removed, replaced or called
+  damaged — a file at the catalogue's own place without it is another
+  tool's (D302 amended, H1)**, and that what a verify learned is a record
+  under the data directory, never beside the weights (D303).
 - The bullet "**The models folder is one row, and it is read
   recursively.**": "the catalogue's own files are subtracted" → "the
   catalogue's files, wherever they were found, are subtracted"; "nothing
@@ -259,6 +269,118 @@ The commit that fills in this table changes this file only.
 - An entry of several files with one found elsewhere and another missing
   would download the found one again into `<models>/<id>/` — no shipped
   entry has two files.
-- `wipemark-cli models list|rm` over a found-elsewhere entry is not tested
-  through the CLI binary: the catalogue's files are gigabytes and no test
-  fixture matches their sha256. The store under them is tested.
+- `wipemark-cli models list|rm` over a *matching* found-elsewhere entry
+  is not tested through the CLI binary: the catalogue's files are
+  gigabytes and no test fixture matches their sha256. The store under them
+  is tested, and round 2 tests the binary over another tool's *mismatching*
+  file at an entry's place.
+
+## Round 2 — the host verification (H1, L1–L6)
+
+The coordinator relayed the host verification of `2f7024d`: not mergeable
+on one High (H1), every gate and CI green otherwise, six Lows. All seven
+are fixed on this branch.
+
+| | what | done | commit | tests | deleted once, seen red |
+|---|---|---|---|---|---|
+| H1 (High) | Remove deleted another tool's file at the catalogue's own `<id>/<file>` place (the owner's mirror is laid out so); `fetch_one` removed a mismatching one before downloading | yes (D302 amended) | `649eaf9` | `store::tests::a_file_at_its_place_that_no_download_wrote_is_never_removed` (matching: used, theirs, survives Remove and a fetch; mismatching: said, survives Remove, fetch refuses `Occupied`, the folder unchanged), `delete_leaves_a_file_found_elsewhere_alone` (a *marked* download is still removed, and its mark with it), `a_replaced_file_stops_being_trusted` (now over a marked download), `models::tests::another_tools_file_in_the_way_offers_nothing`, the CLI's `models_rm_leaves_another_tools_file_at_the_entrys_place` and `models_list_names_every_catalogue_entry_and_its_state` (`foreign_at`), and `scripts/verify/owner-fixes/rm-in-a-mirror.sh` (the verifier's, copied in: **KEPT**) | `locate` taking an unmarked file as ours, `remove` not asking for the mark, `fetch_one` not asking for it: the store test red each time; the card's `Foreign` dropped: the card test red; `rm` not naming another tool's mismatching file: the CLI test red |
+| L1 | a record took the fingerprint after the hash | yes | `649eaf9` | `store::tests::a_file_changed_while_it_is_hashed_is_read_again` (a rendezvous channel holds the hash until the file is changed under it) | the fingerprint taken after the hash: red |
+| L2 | macOS: an empty plain string fell through to RTF/HTML and landed a clipping row | yes | `6c2935b` | `pasteboard::tests::an_empty_string_hands_over_nothing`, extended to an item carrying `"\n"`, RTF and HTML | **not run on this host** (macOS only); CI's `macos` lane runs it — see below |
+| L3 | macOS: the Paste peek read whole contents | yes | `6c2935b` | `pasteboard::tests::a_long_string_is_text_without_being_looked_into` | as L2 |
+| L4 | a scan that panics left `scanning` set; a moved folder's scan read on | yes | `649eaf9` | `settings::tests::a_scan_that_panics_does_not_stop_the_next`, `store::tests::a_stopped_store_hashes_nothing` | the panic re-raised instead of caught: the settings test red; `stop` not read by `hash`: the store test red |
+| L5 | `cli.md` silent on `found_at`, the rm answer, the records; no CLI-level test | yes | `649eaf9` | the two CLI tests above | (H1's CLI check) |
+| L6 | an abandoned load's `Ended` cleared the next engine's bar | yes | `e4b8b26` | `engine_host::tests::an_abandoned_loads_end_does_not_clear_the_next_ones_bar` | the engine-number check removed: red |
+
+### H1, what changed (D302 amended)
+
+A download now leaves a **mark a look never writes**: when `fetch_one`
+renames a verified `.part` into place it writes
+`<data dir>/records/<key>-<file>.downloaded`. Only a marked file is the
+product's: Installed or Damaged with **Remove**, and the only file
+`remove` deletes or `fetch_one` replaces. A file at its place without the
+mark is another tool's, exactly like one found elsewhere: when its sha256
+is the catalogue's it is used where it is and the card says "Found at …"
+with **no button**; when it is not, the entry stays absent and the card
+says "A file at … has this model's name but not its contents. Wipemark
+did not download it, so it neither uses nor removes it; move it away to
+download this model here." (`Availability::Foreign`) — again **no
+button**: no Download (it would have to write over that file) and no
+Remove. `fetch` refuses with `StoreError::Occupied` and touches nothing;
+`wipemark-cli models list` adds "another tool's file of its name is at …,
+left as it is" (`foreign_at` in `--json`) and `models rm` says "*id* is at
+*path*, where Wipemark did not download it; nothing was removed".
+`remove` deletes, at the entry's place, only marked files, their old
+stamp, the `.part` (the download's own working name) and — only when a
+marked file went — `meta.json`.
+
+**A download made by a build from before the mark has none**, so it now
+reads as "Found at …" and offers no Remove; that is the safe side. To have
+it removable again: delete it by hand and download it anew. A mark that
+cannot be written is a warning, with the same safe outcome.
+
+### The Lows
+
+- **L1.** `Downloads::hash` returns the fingerprint taken before the read;
+  the record stores that one, so a file changed during its hash no longer
+  matches its record and is read again.
+- **L2, L3** (macOS). A plain string decides an item: an empty or
+  ASCII-white-space one is no item, and its RTF/HTML twins are not read.
+  The peek takes the string from AppKit, measures it (UTF-16 units) and
+  converts only one up to 4096; a longer one is text unread; a rich-text
+  clipping with no plain string is counted as text without being read
+  (an empty RTF then reads as "Paste text" and pastes nothing — rare, and
+  said here). **Their red checks could not be run here**: the code is
+  `cfg(target_os = "macos")`, and only this branch may be pushed, so no
+  deliberately red commit was sent to the `macos` lane. The tests run
+  there green with the protection in.
+- **L4.** The scan's work runs under `catch_unwind`; a panic is logged,
+  `scanning` is cleared and a waiting rescan runs. Moving the folder now
+  **stops** the old store (`Downloads::stop`, read between chunks of every
+  hash): the old scan gives up within a chunk and its answer is set aside
+  as before, so the new folder is read next — the join stays only as the
+  way the next scan waits for that one chunk.
+- **L5.** `docs/architecture/cli.md`, the models section: "wherever found",
+  `found_at` and `foreign_at`, `pull`'s refusal over another tool's file,
+  the rm answer, records under `<data dir>/records` (not stamps).
+- **L6.** `LoadSink` is now a sender with a number: `EngineHandle::set`
+  numbers every engine that enters the slot, and the host ignores a
+  report whose number is not the current engine's.
+
+### Round 2 gates
+
+All at `e4b8b26` (the round's code head), on this host, `--locked`:
+
+| gate | result |
+|---|---|
+| nightly rustfmt `--check` over `crates/` and `apps/` | clean |
+| `cargo clippy --workspace --all-targets -- -D warnings` | clean |
+| `cargo test --workspace` | **1503 passed, 0 failed, 6 ignored** |
+| `scripts/check-dep-direction.sh` | ok |
+| `scripts/check-gpui-pin.sh` | ok (A, B, C) |
+| `cargo check --workspace --no-default-features` | clean |
+| `cargo check --workspace --features local-llama` | clean |
+| `cargo test -p wipemark-engine --features local-llama` | 39 passed, 0 failed, 1 ignored |
+| `cargo test -p wipemark-app --features local-llama` | 550 passed, 0 failed, 1 ignored |
+| native clippy (`llama-native`, prebuilt `b10731`) | clean |
+| native tests (`llama-native`, no live gate) | 56 passed, 0 failed, 18 ignored |
+| `scripts/verify/owner-fixes/rm-in-a-mirror.sh` | **KEPT** |
+
+Every entry of `owner-fixes-2026-10-07-red.py` still finds its source, and
+each new one was run and seen RED (above), the round-1 entries whose
+source moved (F1c's forwarding, F2's remove, F5's clipboard check) re-run
+RED. `a_port_something_else_holds_is_stepped_past` passed with the owner's
+`wipemark` on 5056.
+
+One thing to know about this host: the session's scratch directory turned
+out to be shared with the verifier's session, which wrote its own
+`gates.sh` over mine. One gate run of this round therefore started the
+verifier's script in the verifier's worktree; it was stopped (its
+`cargo test --workspace`, pid 648088, was mine), and an earlier stop of a
+`cargo test --workspace` (pid 583688) may have been the verifier's own —
+if a verifier log of about 19:30 ends early, that is why. The counts above
+come from a script kept inside this worktree's `target/`.
+
+### Round 2 CI
+
+The run is recorded here once it has finished.
+

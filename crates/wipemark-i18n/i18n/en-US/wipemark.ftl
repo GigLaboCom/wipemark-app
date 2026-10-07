@@ -905,6 +905,9 @@ settings-models-damaged = On this machine, but not what the catalogue describes.
 # download puts it (D302). The user's file: used where it is, never
 # removed. $path is where, below the folder.
 settings-models-found-at = Found at { $path }. { -brand-name } did not download this file, so it uses it where it is and never removes it.
+# Another tool's file at this model's own place, with its name but not
+# its contents (D302, amended). Nothing to press. $path is below the folder.
+settings-models-foreign = A file at { $path } has this model's name but not its contents. { -brand-name } did not download it, so it neither uses nor removes it; move it away to download this model here.
 # The card of the model on duty while it is read into memory (F1).
 settings-models-loading = Loading into memory — { $percent } % read…
 # $reason is the store's own words, never localized.
@@ -1457,6 +1460,9 @@ cli-models-chosen = chosen for rewriting
 # A catalogue model found in the folder other than where a download
 # puts it (D302). $path is below the folder.
 cli-models-found-at = found at { $path }
+# Another tool's file at the entry's own place, with its name but not its
+# contents (D302, amended): left alone. $path is below the folder.
+cli-models-foreign-at = another tool's file of its name is at { $path }, left as it is
 cli-models-state-present = on this machine, matches the catalogue
 cli-models-state-absent = not downloaded
 cli-models-state-partial = partly downloaded ({ $percent } %), pull resumes it

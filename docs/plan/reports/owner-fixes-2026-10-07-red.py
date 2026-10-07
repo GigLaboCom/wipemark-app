@@ -72,8 +72,8 @@ CHECKS = {
     ),
     "F2c-remove": (
         "crates/wipemark-models/src/store.rs",
-        "        let mut doomed = vec![dir.join(META_FILE)];",
-        "        std::fs::remove_dir_all(&dir).ok();\n        let mut doomed = vec![dir.join(META_FILE)];",
+        "        let mut doomed = Vec::new();",
+        "        std::fs::remove_dir_all(&dir).ok();\n        let mut doomed = Vec::new();",
         ["-p", "wipemark-models", "--", "store::"],
     ),
     "F2d-fetch": (
@@ -124,9 +124,64 @@ CHECKS = {
         "",
         ["-p", "wipemark-app", "--", "a_hash_in_progress"],
     ),
+    # The verification round of 2026-10-07 (H1, L1-L6).
+    "H1-locate": (
+        "crates/wipemark-models/src/store.rs",
+        "            if target.is_file() && !self.downloaded(&target) {\n",
+        "            if target.is_file() && !self.downloaded(&target) && false {\n",
+        ["-p", "wipemark-models", "--", "store::"],
+    ),
+    "H1-remove": (
+        "crates/wipemark-models/src/store.rs",
+        "            if !self.downloaded(&target) {\n                continue;\n            }\n",
+        "",
+        ["-p", "wipemark-models", "--", "store::"],
+    ),
+    "H1-fetch": (
+        "crates/wipemark-models/src/store.rs",
+        "        if target.is_file() && !self.downloaded(&target) {\n            // Another tool's",
+        "        if target.is_file() && !self.downloaded(&target) && false {\n            // Another tool's",
+        ["-p", "wipemark-models", "--", "store::"],
+    ),
+    "H1-card": (
+        "apps/wipemark-app/src/models.rs",
+        "            self.availability = Availability::Foreign { at: at.to_owned() };",
+        "            let _ = at;",
+        ["-p", "wipemark-app", "--", "another_tools_file"],
+    ),
+    "H1-cli-rm": (
+        "apps/wipemark-cli/src/models.rs",
+        "            .or(located.mismatched)",
+        "",
+        ["-p", "wipemark-cli", "--test", "cli", "--", "models_rm_leaves"],
+    ),
+    "L4-panic": (
+        "apps/wipemark-app/src/settings.rs",
+        "                    }))\n                    .ok()\n",
+        "                    }))\n                    .map_err(|panic| -> () { std::panic::resume_unwind(panic) })\n                    .ok()\n",
+        ["-p", "wipemark-app", "--", "a_scan_that_panics"],
+    ),
+    "L1": (
+        "crates/wipemark-models/src/store.rs",
+        "        self.record(path, &actual, &before);",
+        "        self.record(path, &actual, &fingerprint(path)?);",
+        ["-p", "wipemark-models", "--", "store::"],
+    ),
+    "L4-stop": (
+        "crates/wipemark-models/src/store.rs",
+        "        if self.stopped.load(Ordering::SeqCst) {\n            return Err(StoreError::Cancelled);\n        }\n        let before",
+        "        let before",
+        ["-p", "wipemark-models", "--", "store::"],
+    ),
+    "L6": (
+        "apps/wipemark-app/src/engine_host.rs",
+        "        if of != self.handle.shared.engines.load(Ordering::SeqCst) {\n            return;\n        }\n",
+        "",
+        ["-p", "wipemark-app", "--", "an_abandoned"],
+    ),
     "F1a-forwarding": (
         "apps/wipemark-app/src/engine_host.rs",
-        "        if let Slot::Engine(engine) = &slot {\n            engine.watch_loads(self.shared.loads.clone());\n        }\n",
+        "        if let Slot::Engine(engine) = &slot {\n            engine.watch_loads(LoadSink::new(self.shared.loads.clone(), of));\n        }\n",
         "",
         ["-p", "wipemark-app", "--", "a_load_tells"],
     ),

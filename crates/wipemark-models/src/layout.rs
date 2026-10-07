@@ -20,6 +20,7 @@
 //!                                 download, never by a verify
 //!   records/<key>-<file>          size:mtime and sha256 at the last hash of
 //!                                 a weight file, wherever it is (D303)
+//!   records/<key>-<file>.downloaded  the mark of a download of ours (D302)
 //!   kept/                         copies of what arrived with no file behind
 //!                                 it, and of their results — only when the
 //!                                 Retention page asks, and only for as long
