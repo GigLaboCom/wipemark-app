@@ -1037,8 +1037,21 @@ the gate the overview set, and the open edges.
   inverse; a changed block taller on one side holds the other still until
   its end. Beside today's `compare.follow` (the cursor), not instead of it.
   And whether the scrollbar can sit on the **left** (the original's outer
-  edge): feasibility being read 2026-10-07 — the editor's scroll API in
-  the vendored gpui-component decides whether this needs a component patch.
+  edge). **Read the same day:** the sync needs no component patch — the
+  pinned editor (`gpui-kit` `f8429177`) has public `visible_row_range`,
+  `scroll_offset`, `line_height` and `set_scroll_offset` (base
+  `input/base/state.rs:2992–3007`), and a scroll by wheel or scrollbar
+  notifies the editor entity, so a `cx.observe_in` per pane (as the cursor
+  follow does, `compare.rs:699`) with a re-entrancy guard is enough; it
+  needs the reverse map `Diff::result_row_of`; with soft wrap on, the
+  alignment is by first visible row and approximate. `compare.rs:60–75`'s
+  "no public way to scroll" is out of date. The **left scrollbar** needs a
+  small upstream patch: a side option on `Scrollbar` (the right edge is
+  hard-coded at base `scrollbar.rs:1409–1413`, `:1506–1523`) and an editor
+  option to put or hide its own bar (`state.rs:610`, `:4610`) — a gpui-kit
+  pull request by the owner, as #3359 was. Upstream `main` has since added a
+  read-only split `Diff` view (#3378, #3388): a reference, not a fit for an
+  editable result.
 - **Build. A row's action is a button, not only a menu item** (the owner,
   2026-10-07). Clean — and Rewrite with E4-6b — sit inside the row's Actions
   menu ("…"), so a dropped document shows no way forward; the owner looked
