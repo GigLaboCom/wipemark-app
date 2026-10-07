@@ -92,15 +92,15 @@ use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, size, AnyElement, AnyWindowHandle, App, Bounds, ClickEvent, Context, Corner,
+    actions, div, px, size, Anchor, AnyElement, AnyWindowHandle, App, Bounds, ClickEvent, Context,
     Entity, FocusHandle, Focusable, Global, Hsla, KeyBinding, Pixels, Rgba, SharedString, Size,
     Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::highlighter::{
-    LineDecorationGlyph, LineDecorationItem, LineDecorationProvider,
+use gpui_component::input::{
+    DocumentColorProvider, EditorState, GutterMarker, LineDecoration, LineDecorationCollection,
+    LineDecorationProvider, Position, Rope,
 };
-use gpui_component::input::{DocumentColorProvider, Input, InputState, Position, Rope};
 use gpui_component::popover::Popover;
 use gpui_component::resizable::{h_resizable, resizable_panel};
 use gpui_component::{
@@ -113,7 +113,7 @@ use wipemark_intake::{Encoding, Handed, Intake, Kind};
 
 use crate::diff::{Diff, Grain};
 use crate::icon::{Icon, IconName};
-use crate::result::{ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
+use crate::result::{self, ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
 use crate::screen::{self, Screen};
 use crate::title::{self, Title};
 use crate::{clean, drop, placement, wording};
@@ -457,27 +457,30 @@ impl Marks {
     }
 
     /// The rows within `visible`, which is what the library will paint.
-    pub fn within(&self, visible: Range<u32>) -> &[u32] {
-        let start = self.rows.partition_point(|&row| row < visible.start);
-        let end = self.rows.partition_point(|&row| row < visible.end);
+    pub fn within(&self, visible: Range<usize>) -> &[u32] {
+        let start = self
+            .rows
+            .partition_point(|&row| (row as usize) < visible.start);
+        let end = self
+            .rows
+            .partition_point(|&row| (row as usize) < visible.end);
         &self.rows[start..end]
     }
 }
 
 impl LineDecorationProvider for Marks {
-    fn decorations_for(&self, visible_rows: Range<u32>, cx: &App) -> Vec<LineDecorationItem> {
+    fn line_decorations(&self, rows: Range<usize>, cx: &App) -> Vec<LineDecoration> {
         let theme = cx.theme();
-        let (glyph, tint) = match self.side {
-            Side::Original => (LineDecorationGlyph::DiffRemoved, theme.danger.opacity(0.16)),
-            Side::Result => (LineDecorationGlyph::DiffAdded, theme.success.opacity(0.16)),
+        let (marker, tint) = match self.side {
+            Side::Original => (GutterMarker::DiffRemoved, theme.danger.opacity(0.16)),
+            Side::Result => (GutterMarker::DiffAdded, theme.success.opacity(0.16)),
         };
-        self.within(visible_rows)
+        self.within(rows)
             .iter()
-            .map(|&line| LineDecorationItem {
-                line,
-                glyph: Some(glyph.clone()),
-                line_tint: Some(tint),
-                tooltip: None,
+            .map(|&row| {
+                LineDecoration::new(row as usize)
+                    .with_background(tint)
+                    .with_marker(marker.clone())
             })
             .collect()
     }
@@ -502,11 +505,11 @@ pub struct Inline {
     original: Arc<str>,
     /// The result's editor, whose text is read when the question is
     /// put.
-    result: Entity<InputState>,
+    result: Entity<EditorState>,
 }
 
 impl Inline {
-    pub fn new(side: Side, grain: Grain, original: Arc<str>, result: Entity<InputState>) -> Self {
+    pub fn new(side: Side, grain: Grain, original: Arc<str>, result: Entity<EditorState>) -> Self {
         Self {
             side,
             grain,
@@ -640,7 +643,12 @@ struct CompareView {
     edited: bool,
     /// The left pane: the same editor as the right, disabled — which
     /// still selects, copies and searches, and no longer edits.
-    original: Entity<InputState>,
+    original: Entity<EditorState>,
+    /// The original's line marks, once a comparison has put any there:
+    /// `None` until then, so an editor that has compared nothing yet
+    /// carries no collection at all — the library reserves the marker
+    /// slot in the gutter only while one has a provider.
+    original_marks: Option<LineDecorationCollection>,
     /// The right pane, toolbar and all.
     result: Entity<ResultEditor>,
     /// What the window was opened with — see [`Comparison`].
@@ -669,8 +677,8 @@ impl CompareView {
         let original = cx.new(|cx| {
             // The same editor as the result's, for the same reasons —
             // see `ResultEditor::new`.
-            InputState::new(window, cx)
-                .code_editor("text")
+            EditorState::new(window, cx)
+                .language("text")
                 .line_number(true)
                 .folding(false)
                 .soft_wrap(false)
@@ -703,6 +711,7 @@ impl CompareView {
             cleaned_text: Arc::from(""),
             edited: false,
             original,
+            original_marks: None,
             result,
             comparison,
             diff: Diff::of("", ""),
@@ -765,7 +774,7 @@ impl CompareView {
                     let removed = inline(Side::Original);
                     let added = inline(Side::Result);
                     self.original.update(cx, |original, _| {
-                        original.lsp.document_color_provider = Some(removed);
+                        original.lsp_mut().document_color_provider = Some(removed);
                     });
                     self.result
                         .update(cx, |result, cx| result.colour(Some(added), cx));
@@ -845,13 +854,18 @@ impl CompareView {
     /// question to the original again where the answer could have
     /// moved.
     fn apply(&mut self, diff: Diff, window: &mut Window, cx: &mut Context<Self>) {
-        let removed: Arc<dyn LineDecorationProvider> =
-            Arc::new(Marks::new(diff.removed_rows(), Side::Original));
-        let added: Arc<dyn LineDecorationProvider> =
-            Arc::new(Marks::new(diff.added_rows(), Side::Result));
-        self.original.update(cx, |original, cx| {
-            original.set_line_decoration_provider(Some(removed), cx);
-        });
+        let removed: Rc<dyn LineDecorationProvider> =
+            Rc::new(Marks::new(diff.removed_rows(), Side::Original));
+        let added: Rc<dyn LineDecorationProvider> =
+            Rc::new(Marks::new(diff.added_rows(), Side::Result));
+        match &self.original_marks {
+            Some(marks) => marks.set_provider(removed, cx),
+            None => {
+                self.original_marks = Some(self.original.update(cx, |original, cx| {
+                    original.create_line_decorations_collection(removed, cx)
+                }));
+            }
+        }
         self.result
             .update(cx, |result, cx| result.decorate(Some(added), cx));
         // Only where a changed passage is or was: with none on either
@@ -955,13 +969,10 @@ impl CompareView {
                     .border_color(theme.border),
             )
             .child(
-                div().flex_1().min_h(px(0.0)).child(
-                    Input::new(&self.original)
-                        .disabled(true)
-                        .bordered(false)
-                        .focus_bordered(false)
-                        .size_full(),
-                ),
+                div()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .child(result::pane(&self.original, cx).disabled(true)),
             );
         let right = v_flex()
             .size_full()
@@ -1103,7 +1114,7 @@ impl Render for CompareView {
                     )
                     .child(
                         Popover::new("compare-help")
-                            .anchor(Corner::TopRight)
+                            .anchor(Anchor::TopRight)
                             .trigger(
                                 Button::new("compare-help-trigger")
                                     .small()
@@ -1398,12 +1409,12 @@ mod tests {
 
         let (removed, added) = cx.update(|_, cx| {
             (
-                original.read(cx).lsp.document_color_provider.clone(),
+                original.read(cx).lsp().document_color_provider.clone(),
                 result
                     .read(cx)
                     .state()
                     .read(cx)
-                    .lsp
+                    .lsp()
                     .document_color_provider
                     .clone(),
             )
@@ -1452,7 +1463,7 @@ mod tests {
         let counting: Rc<dyn DocumentColorProvider> = Rc::new(Counting(asked.clone()));
         cx.update(|_, cx| {
             original.update(cx, |original, _| {
-                original.lsp.document_color_provider = Some(counting);
+                original.lsp_mut().document_color_provider = Some(counting);
             });
         });
 
@@ -1492,8 +1503,8 @@ mod tests {
         let (left, right) = cx.update(|_, cx| {
             let view = view.read(cx);
             (
-                view.original.read(cx).visible_line_bounds(0),
-                view.result.read(cx).state().read(cx).visible_line_bounds(0),
+                view.original.read(cx).row_bounds(0),
+                view.result.read(cx).state().read(cx).row_bounds(0),
             )
         });
         let left = left.expect("the original was painted");
@@ -1502,6 +1513,36 @@ mod tests {
             left.origin.y, right.origin.y,
             "the original's first line is not level with the result's"
         );
+    }
+
+    /// A comparison puts the line marks on both sides — the library's
+    /// line-decoration collection, one per editor, with a provider in
+    /// it — and the window holds the original's, so the next comparison
+    /// replaces what it is asked rather than stacking a second one. Take
+    /// out either `create_line_decorations_collection` and this goes red.
+    #[gpui::test]
+    fn a_comparison_puts_line_marks_on_both_sides(cx: &mut TestAppContext) {
+        let (view, cx) = window_with(cx, "one\ntwo\n", Comparison::default());
+        cx.update(|window, cx| {
+            let result = view.read(cx).result.clone();
+            result.update(cx, |result, cx| result.set_text("one\n2\n", window, cx));
+        });
+        settle(cx);
+        cx.update(|_, cx| {
+            let view = view.read(cx);
+            assert!(
+                view.original_marks
+                    .as_ref()
+                    .is_some_and(|marks| marks.has_provider(cx)),
+                "the original has no line marks"
+            );
+            assert!(
+                view.result.read(cx).is_decorated(cx),
+                "the result has no line marks"
+            );
+            assert_eq!(view.diff.removed_rows(), vec![1]);
+            assert_eq!(view.diff.added_rows(), vec![1]);
+        });
     }
 
     /// Lines only: no provider is put on either side, so the library
@@ -1515,13 +1556,18 @@ mod tests {
         let (view, cx) = window_with(cx, "a\n", comparison);
         cx.update(|_, cx| {
             let view = view.read(cx);
-            assert!(view.original.read(cx).lsp.document_color_provider.is_none());
+            assert!(view
+                .original
+                .read(cx)
+                .lsp()
+                .document_color_provider
+                .is_none());
             assert!(view
                 .result
                 .read(cx)
                 .state()
                 .read(cx)
-                .lsp
+                .lsp()
                 .document_color_provider
                 .is_none());
         });

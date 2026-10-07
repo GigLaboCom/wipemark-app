@@ -65,7 +65,7 @@ pub fn available() -> &'static [Language] {
                 Some(Language { id, autonym })
             })
             .collect();
-        languages.sort_by(|a, b| a.id.to_string().cmp(&b.id.to_string()));
+        languages.sort_by_key(|language| language.id.to_string());
         languages.dedup_by(|a, b| a.id == b.id);
         languages
     });

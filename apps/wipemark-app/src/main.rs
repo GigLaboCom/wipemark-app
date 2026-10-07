@@ -85,7 +85,7 @@ use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::{
-    deferred, div, px, size, AnyWindowHandle, App, Bounds, ClickEvent, Context, Corner, Entity,
+    deferred, div, px, size, Anchor, AnyWindowHandle, App, Bounds, ClickEvent, Context, Entity,
     SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowHandle, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -547,7 +547,7 @@ impl Shell {
             .child(div().flex_1())
             .child(
                 Popover::new("help")
-                    .anchor(Corner::TopRight)
+                    .anchor(Anchor::TopRight)
                     .trigger(
                         Button::new("help-trigger")
                             .small()

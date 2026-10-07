@@ -44,16 +44,17 @@
 //! to do does nothing, which is what the keystroke does.
 
 use std::rc::Rc;
-use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, Action, AnyElement, App, ClickEvent, Context, Entity, EventEmitter, Pixels,
+    div, px, rems, Action, AnyElement, App, ClickEvent, Context, Entity, EventEmitter, Pixels,
     SharedString, Subscription, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::highlighter::LineDecorationProvider;
-use gpui_component::input::{self, DocumentColorProvider, Input, InputEvent, InputState};
+use gpui_component::input::{
+    self, DocumentColorProvider, Editor, EditorState, InputEvent, LineDecorationCollection,
+    LineDecorationProvider,
+};
 use gpui_component::{
     h_flex, v_flex, ActiveTheme, Disableable as _, Selectable as _, Sizable as _,
 };
@@ -223,12 +224,17 @@ pub enum ResultEvent {
 
 /// The editor, and the strip of buttons over it.
 pub struct ResultEditor {
-    state: Entity<InputState>,
+    state: Entity<EditorState>,
+    /// The line marks, once something has handed some in: `None` until
+    /// then, so an editor nobody decorated carries no collection — the
+    /// library reserves the marker slot in the gutter only while one has
+    /// a provider.
+    marks: Option<LineDecorationCollection>,
     soft_wrap: bool,
     whitespace: bool,
     /// Dropped with the view: every change to the text is re-announced
     /// as a [`ResultEvent`], so a reader need not know there is an
-    /// `InputState` underneath.
+    /// `EditorState` underneath.
     _changed: Subscription,
     /// Dropped with the view: a change to the selection repaints the
     /// strip, because Cut and Copy grey out on it.
@@ -248,8 +254,8 @@ impl ResultEditor {
             // nothing folds, because a fold chevron beside the first
             // paragraph of a letter is a control for a different kind
             // of document.
-            InputState::new(window, cx)
-                .code_editor("text")
+            EditorState::new(window, cx)
+                .language("text")
                 .line_number(true)
                 .folding(false)
                 .soft_wrap(false)
@@ -263,6 +269,7 @@ impl ResultEditor {
         let repaint = cx.observe(&state, |_, _, cx| cx.notify());
         Self {
             state,
+            marks: None,
             soft_wrap: false,
             whitespace: false,
             _changed: changed,
@@ -272,7 +279,7 @@ impl ResultEditor {
 
     /// The editor underneath, for a reader that has to ask it something
     /// this component does not — where the cursor is, what is selected.
-    pub fn state(&self) -> &Entity<InputState> {
+    pub fn state(&self) -> &Entity<EditorState> {
         &self.state
     }
 
@@ -293,15 +300,33 @@ impl ResultEditor {
 
     /// Marks to paint beside the lines — the window's business, handed
     /// in as the library's own provider so this component need not know
-    /// what a mark means. `None` clears them.
+    /// what a mark means. `None` clears them. The first provider makes
+    /// the editor's one collection of line marks; every later one
+    /// replaces what that collection is asked.
     pub fn decorate(
-        &self,
-        provider: Option<Arc<dyn LineDecorationProvider>>,
+        &mut self,
+        provider: Option<Rc<dyn LineDecorationProvider>>,
         cx: &mut Context<Self>,
     ) {
-        self.state.update(cx, |state, cx| {
-            state.set_line_decoration_provider(provider, cx);
-        });
+        match (&self.marks, provider) {
+            (Some(marks), Some(provider)) => marks.set_provider(provider, cx),
+            (Some(marks), None) => marks.clear(cx),
+            (None, Some(provider)) => {
+                self.marks = Some(self.state.update(cx, |state, cx| {
+                    state.create_line_decorations_collection(provider, cx)
+                }));
+            }
+            (None, None) => {}
+        }
+    }
+
+    /// Whether line marks are on the editor now: a collection that has a
+    /// provider to ask. For the tests, which cannot ask the library.
+    #[cfg(test)]
+    pub(crate) fn is_decorated(&self, cx: &App) -> bool {
+        self.marks
+            .as_ref()
+            .is_some_and(|marks| marks.has_provider(cx))
     }
 
     /// Marks to paint *within* the lines — stretches of text with a
@@ -315,8 +340,8 @@ impl ResultEditor {
             // A fresh `Lsp` is how what was painted is forgotten: the
             // colours themselves are the library's, and this is the one
             // public road to an empty set of them.
-            state.lsp = input::Lsp::default();
-            state.lsp.document_color_provider = provider;
+            *state.lsp_mut() = input::Lsp::default();
+            state.lsp_mut().document_color_provider = provider;
             cx.notify();
         });
     }
@@ -448,6 +473,23 @@ impl ResultEditor {
 /// the gate.
 pub const TOOLBAR_HEIGHT: Pixels = px(25.);
 
+/// The library's editor as a pane of prose: the form-field chrome off
+/// (this editor is the whole pane), and the interface's own font at the
+/// size and row height a text field has, rather than the editor's
+/// monospace code look. The document being compared is a letter, not a
+/// program, and this is how both panes read before the library split its
+/// editor from its text field — the original's pane is built by the same
+/// call, so the two stay one look. `size_full` is load-bearing: without
+/// it a multi-line editor sizes itself to one row.
+pub fn pane(state: &Entity<EditorState>, cx: &App) -> Editor {
+    Editor::new(state)
+        .bordered(false)
+        .font_family(cx.theme().font_family.clone())
+        .text_sm()
+        .line_height(rems(1.25))
+        .size_full()
+}
+
 /// The line between two groups on the strip.
 fn separator(cx: &App) -> AnyElement {
     div()
@@ -460,18 +502,10 @@ fn separator(cx: &App) -> AnyElement {
 
 impl Render for ResultEditor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex().size_full().child(self.toolbar(cx)).child(
-            div().flex_1().min_h(px(0.0)).child(
-                // The form-field chrome is for a field beside a
-                // label; this editor is the whole pane. `size_full`
-                // is load-bearing — without it a multi-line input
-                // sizes itself to one row.
-                Input::new(&self.state)
-                    .bordered(false)
-                    .focus_bordered(false)
-                    .size_full(),
-            ),
-        )
+        v_flex()
+            .size_full()
+            .child(self.toolbar(cx))
+            .child(div().flex_1().min_h(px(0.0)).child(pane(&self.state, cx)))
     }
 }
 
