@@ -1,41 +1,54 @@
 # Contributing
 
-## The submodule, and the one command people forget
+## The submodule, and where GPUI comes from
 
-`vendor/gpui-component` is a git submodule pinned to the same revision
-`heretic-amuse-merge` uses. After a fresh clone, after
-`git submodule update`, and after any bump of the `gpui` rev in
-`Cargo.toml`:
+`vendor/gpui-component` is a git submodule: upstream
+**`longbridge/gpui-kit`**, branch **`next`**, at the commit
+`git submodule status` names. After a fresh clone and after
+`git submodule update`:
 
 ```sh
 git submodule sync --recursive
 git submodule update --init --recursive
-scripts/pin-gpui-component.sh
 ```
 
-`sync` matters once: on 2026-10-03 the submodule URL moved from upstream
-(where the pinned commit never was) to the organisation's fork,
-`GigLaboCom/gpui-component`, branch `heretic/epic-4-line-decorations`.
-A checkout made before that keeps the old URL until it is synced.
+`sync` matters once per move of the URL. On 2026-10-03 the submodule
+moved to the organisation's fork, `GigLaboCom/gpui-component`; on
+2026-10-07 it moved again, to upstream itself, because our line
+decorations were merged there (gpui-kit #3359, on `next`). A checkout made
+before either keeps the old URL until it is synced. The fork's branch
+`heretic/epic-4-line-decorations` stays where it was for
+heretic-amuse-merge.
 
-The script is idempotent. It exists because gpui-component declares its
-own `gpui`, `gpui_platform`, `gpui_web`, `gpui_macros` and
-`reqwest_client` dependencies **without a revision**, so Cargo resolves
-them against whatever is on `zed-industries/zed`'s main branch today.
-That is not the revision we pin, so the build ends up with two different
-`gpui` packages in one binary and fails somewhere deep inside
-gpui-component with an error that reads like a compiler bug.
+GPUI itself comes from crates.io: the **`gpui-pre`** snapshots of Zed's
+GPUI crates that gpui-kit's maintainer publishes, at **exactly** the
+version the component's manifest pins (`=0.3.8` today) — in the root
+`Cargo.toml`, `gpui = { package = "gpui-pre", version = "=0.3.8" }` and
+its siblings. The component's own requirements are the same exact pins,
+so the graph holds one GPUI by construction, and two different exact
+versions of a `0.3.x` crate cannot resolve at all. `scripts/check-gpui-pin.sh`
+is the gate (CI runs it): exact pins, equal to the component's, one copy
+of each `gpui-pre*` crate in the lock, no zed git source. The old
+`scripts/pin-gpui-component.sh`, which rewrote the component's zed git
+lines, has nothing left to do and only says so.
 
-GPUI comes from the organisation's fork, `GigLaboCom/zed`, branch
-`wipemark/x11-first-frame` (upstream `81b16f4` plus two X11 fixes), and
-the script rewrites the submodule's lines to the fork's URL as well as
-its rev: the same commit under two URLs is still two packages.
+Nothing of ours is carried over the snapshot, and no fork of zed is
+used. The two X11 bugs the old pin needed `GigLaboCom/zed` for are fixed
+upstream and in 0.3.8: the stale first frame (zed #62081) and the
+portal's `RefCell already mutably borrowed` panic (made unreachable by
+zed #61789, which defers the window's appearance callback — measured on
+2026-10-07, `docs/plan/reports/gpui-bump-startup-2026-10-07.md`). The
+check script also reads the resolved sources and fails if a snapshot
+loses either fix. `docs/architecture/gpui-pin.md` has the whole story.
 
-Bumping `gpui` means a new branch on the fork from the new upstream rev,
-re-carrying the portal fix (the other one is upstream from `f4178619ac`
-on), then three things in one sitting: the rev in `Cargo.toml`, the `REV`
-in `scripts/pin-gpui-component.sh`, and the submodule checkout. Bump them in heretic-amuse-merge too — two Heretic
-apps on different gpui revisions is how the vendored component drifts.
+Bumping `gpui` means, in one sitting: the submodule moved to the
+gpui-kit commit that takes the new snapshot; the root `Cargo.toml`'s
+`gpui-pre` versions set to exactly what that commit pins; then
+`scripts/check-gpui-pin.sh` — which says whether the new snapshot still
+holds the two upstream X11 fixes — and every gate. A snapshot may need a newer
+Rust than `rust-toolchain.toml` pins. Bump heretic-amuse-merge too, while
+the lockstep holds — two Heretic apps on different GPUIs is how the
+shared code drifts.
 
 ## Before you push
 

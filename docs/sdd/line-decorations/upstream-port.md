@@ -208,6 +208,36 @@ is a much larger change: there is a crate split (`gpui-kit`,
 `EditorState` instead of `InputState::code_editor`, `lsp()` /
 `lsp_mut()`, and so on.
 
+### As it landed in Wipemark (2026-10-07)
+
+The GPUI bump moved `compare.rs` and `result.rs` onto the API as merged
+(`f8429177` on gpui-kit `next`, the maintainer's `8aa3bcbc` included).
+Where it differed from the plan above:
+
+- **No collection until the first comparison.** The plan made each
+  side's collection once, when the editor is built, with an empty
+  `Marks`. As merged, the gutter reserves the marker slot whenever a
+  collection *has a provider* (`InputExtras::has_line_decorations`), so
+  an empty provider would already move the numbers right. The original's
+  collection is made by the first `apply` and kept on `CompareView`
+  (`original_marks`); the result's by the first `ResultEditor::decorate`
+  and kept there (`marks`, `None` until then; `decorate(None)` clears it).
+  Later comparisons call `set_provider` on the same handle.
+- **The provider is `Rc`, not `Arc`**, and `Marks` keeps its `u32` rows
+  (what `Diff` hands it); `within` takes the `Range<usize>` the editor
+  asks with.
+- **The editor is the styled `Editor` over `EditorState`**, built by one
+  `result::pane` for both sides. The styled `Editor` defaults to the
+  theme's monospace font at 1.5× rows; `pane` sets the interface font,
+  `text_sm` and 1.25rem rows, the look both panes had under `Input`, and
+  the marker size and gap follow that font (90% and 30% of it, the
+  styled editor's own rule from `8aa3bcbc`).
+- **`row_bounds(0)`** replaced `visible_line_bounds(0)` as planned, and
+  `the_first_lines_sit_level` still goes red (77 px against 102 px)
+  without the blank strip.
+- **`lsp` is `lsp()` / `lsp_mut()`**, for the word marks' document-colour
+  provider.
+
 ## Build, test, lint and format results
 
 Local toolchain note: the machine's `stable` is 1.94.1, and it **cannot

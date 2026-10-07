@@ -110,14 +110,22 @@ always are. The recomputation waits 120 ms for typing to settle, runs
 on the background executor, and carries a generation counter so an
 older answer that finishes late is thrown away.
 
-**Marking.** Each side paints its rows through the library's own
-`LineDecorationProvider` — the P1 patch our vendored `gpui-component`
-carries from heretic-amuse-merge — with a glyph in the gutter and a
-tint across the line. The original's are `DiffRemoved` (a `minus`, in
-the theme's danger colour); the result's are `DiffAdded` (a `plus`, in
-its success colour). The colour is read from the theme at paint time
-rather than stored, so a theme switch repaints the marks with
-everything else. The glyphs resolve only because `plus.svg` and
+**Marking.** Each side paints its rows through the library's own line
+decorations — our patch from heretic-amuse-merge, merged upstream as
+gpui-kit #3359 (on `next`, which the submodule follows): one
+`LineDecorationCollection` per editor, made by the first comparison
+(`EditorState::create_line_decorations_collection`) and handed a new
+`compare::Marks` provider by every later one, which the editor asks for
+its visible rows on every frame. A decoration is
+`LineDecoration::new(row).with_background(tint).with_marker(marker)`: a
+marker in a slot left of the line numbers and a tint across the row,
+gutter to edge. The original's marker is `GutterMarker::DiffRemoved` (a
+`minus`, in the theme's danger colour); the result's is `DiffAdded` (a
+`plus`, in its success colour). The colour is read from the theme at
+paint time rather than stored, so a theme switch repaints the marks
+with everything else. No collection exists until the first comparison,
+because the editor reserves the marker slot only while one has a
+provider. `a_comparison_puts_line_marks_on_both_sides` is the gate. The glyphs resolve only because `plus.svg` and
 `minus.svg` are among the fifty-six files this repository ships — see
 [icons.md](icons.md) for why a `gpui-component` glyph name is a blank
 square by default.
@@ -224,9 +232,10 @@ height** under its caption. The two sides are read across, line against
 line; without the blank strip every line on the left sat a toolbar
 higher than its counterpart on the right, which reads as an offset in
 the diff rather than as chrome. `the_first_lines_sit_level` compares the
-on-screen top of line 1 in both editors (`InputState::visible_line_bounds`,
-the fork's P4 accessor) and goes red — 77 px against 102 px — with the
-blank strip taken out.
+on-screen top of line 1 in both editors (`row_bounds`, the editor's
+on-screen band of a row — the fork's P4 `visible_line_bounds`, merged
+with #3359) and goes red — 77 px against 102 px — with the blank strip
+taken out.
 
 What the strip does not carry is deliberate: the forty movement and
 selection keys are not buttons anywhere; `ShowCharacterPalette` is the
@@ -265,8 +274,10 @@ that would have worked.
 ## What heretic-amuse-merge contributed
 
 The shape: `gpui_component::input::Input` in code-editor mode as the
-editor, the `LineDecorationProvider` patch to paint per-line glyphs and
-tints, `DiffAdded` / `DiffRemoved` as the vocabulary, and the research
+editor (the styled `Editor` over an `EditorState` since the GPUI bump,
+built by `result::pane` in the interface font so both panes read as
+prose, as they did under `Input`), the `LineDecorationProvider` patch to
+paint per-line glyphs and tints (upstream since gpui-kit #3359), `DiffAdded` / `DiffRemoved` as the vocabulary, and the research
 in its `docs/research/zed-two-panel-diff.md` on what Zed does — two
 editors with a shared scroll anchor and companion display maps. What
 was not taken is the scroll sync, because that needs a scroll setter

@@ -139,7 +139,16 @@ together.
 
 ---
 
-## 4. Where it lives (since 2026-10-03)
+## 4. Where it lives
+
+**Since 2026-10-07: upstream.** #3359 is merged into gpui-kit's `next`
+(`f8429177`), and this repository's submodule is `longbridge/gpui-kit`,
+branch `next`, at that commit — the GPUI bump (Watchword
+`wipemark-task-gpui-bump-2026-10-07`). Nothing of ours is carried in the
+component any more; `compare.rs` and `result.rs` use the API as merged
+(§4.1, and `line-decorations/upstream-port.md`, "As it landed"). The
+table below is the fork as it was from 2026-10-03 until then; the fork's
+branch stays, protected, for heretic-amuse-merge and old checkouts.
 
 | | |
 |---|---|
@@ -201,10 +210,10 @@ effective font size and the gap at 30%, so the icon, the slot and the
 vertical centering follow interface zoom and an editor's `.text_size(...)`.
 The PR's Public API and Breaking Changes were updated to match.
 
-The fork this repository pins is unchanged: it still draws its glyph at
-the gutter's left edge, over the leftmost digit of a wide column (its own
-doc comment calls that "the JetBrains convention"). The slot exists only
-in the port.
+The fork this repository pinned until 2026-10-07 drew its glyph at the
+gutter's left edge, over the leftmost digit of a wide column (its own doc
+comment calls that "the JetBrains convention"). The slot exists only in
+the port — which is what the Compare window draws since the bump.
 
 ---
 
@@ -249,17 +258,24 @@ window needs all of this, and its tests say so:
 6. **The on-screen bounds of a row** are readable, so alignment can be
    tested (`the_first_lines_sit_level`).
 
-The port to current upstream (§4, last row) is the first step toward
-both dropping the fork and getting the API upstream: it is built in
-#3040's shape — `EditorState::create_line_decorations_collection`, a
+The port to current upstream (§4, last row) dropped the fork and got
+the API upstream: it is built in #3040's shape —
+`EditorState::create_line_decorations_collection`, a
 `LineDecorationProvider` asked per frame, `LineDecoration::new(row)
-.with_background(..).with_marker(GutterMarker::DiffAdded)`, a
-`gutter_marker_renderer` beside `fold_icon_renderer`, and `row_bounds`
-for the on-screen band of a row — and is merged as #3359 into gpui-kit `next` (§4.1). Moving *wipemark* onto that
-branch is a separate piece of work: it also moves `gpui` by about eight
-months (`Corner` → `Anchor` and whatever else changed underneath the
-AppKit code in `pasteboard.rs`, `screen.rs`, `panel.rs`,
-`dock_icon.rs`), and heretic-amuse-merge has to move with it.
+.with_background(..).with_marker(GutterMarker::DiffAdded)`, a gutter
+marker renderer beside `fold_icon_renderer` (set through
+`with_gutter_marker_renderer`, `_size` and `_gap`, which the styled
+editor fills from its font), and `row_bounds` for the on-screen band of
+a row — and is merged as #3359 into gpui-kit `next` (§4.1). Wipemark
+moved onto it with the GPUI bump of 2026-10-07, which also moved `gpui`
+by about five and a half months (`gpui-pre` 0.3.8): the six requirements
+above hold, each with its test — 1 and 2 by the port's own tests
+upstream and by eye on the host, 3 by `marks_are_cut_to_the_visible_rows`,
+4 by `lines_alone_put_no_provider_on_either_side` and by no collection
+existing before the first comparison, 5 by the word-mark tests, 6 by
+`the_first_lines_sit_level` over `row_bounds`, and the wiring by
+`a_comparison_puts_line_marks_on_both_sides`. heretic-amuse-merge has
+to move too, while the lockstep holds.
 
 ---
 
