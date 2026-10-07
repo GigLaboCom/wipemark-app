@@ -452,7 +452,9 @@ decisions D291–D300):
    under the styled `Editor` (the Compare window's two panes, through
    one `result::pane` that keeps the prose look); `lsp()`/`lsp_mut()`;
    the line marks on #3359's collections; `row_bounds`. The AppKit code
-   compiled unchanged on the macOS runner.
+   needed one change, seen only by the macOS runner: `DisplayId` holds a
+   `u64` now, so the `CGDirectDisplayID` read off an `NSScreen` is widened
+   (`screen.rs`, twice), as `gpui_macos` widens it.
 5. **Nothing carried over the snapshot.** Patch A dropped (#62081 is in
    it); patch B dropped too (#61789 defers the appearance callback;
    measured, 0 panics without it — D296). `scripts/check-gpui-pin.sh`
