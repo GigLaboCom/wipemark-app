@@ -35,7 +35,7 @@ labels:
   platform: linux/arm64
 
 variables:
-  - &rust_image rust:1.94-trixie
+  - &rust_image rust:1.95-trixie
   - &ci_env
     CARGO_TERM_COLOR: always
     # Keeps the dependency cache without the bulky incremental/ dir.
@@ -44,23 +44,24 @@ variables:
     CARGO_TARGET_DIR: /cache/wipemark/target
 
 steps:
-  # ── 0. The submodule, and the pin that makes it usable ─────────────
-  # gpui-component lists its own `gpui` dependency WITHOUT a rev, so a
-  # plain checkout resolves it against whatever is on zed's main today —
-  # a second, different `gpui` package in the same binary, which does
-  # not link. The script rewrites those lines to our pinned rev. A
-  # checkout that skips this step fails later with a type error deep
-  # inside gpui-component, which reads like a compiler bug and is not.
+  # ── 0. The submodule, and the one-GPUI check ─────────────────────────
+  # gpui-component (upstream gpui-kit, branch `next`) takes GPUI from the
+  # `gpui-pre` snapshots at an exact version, as the workspace does; the
+  # check is that the two agree, the lock holds one of each snapshot
+  # crate, all from crates.io and no zed git source, and the resolved
+  # sources still carry the upstream X11 fixes the windows rely on
+  # (#62081, #61789). It replaces the retired pin script.
   - name: submodule
     image: *rust_image
     environment: *ci_env
     commands:
       # sync first: a cached checkout keeps the submodule URL it was
-      # cloned with, and the fork moved to GigLaboCom on 2026-10-03.
+      # cloned with, and the submodule moved to longbridge/gpui-kit on
+      # 2026-10-07.
       - git submodule sync --recursive
       - git submodule update --init --recursive
-      - scripts/pin-gpui-component.sh
       - git -C vendor/gpui-component log --oneline -1
+      - scripts/check-gpui-pin.sh
 
   # ── 1. Structure. Runs first because it is instant and it catches the
   #       class of mistake that compiles perfectly well.

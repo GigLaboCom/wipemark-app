@@ -140,8 +140,10 @@ fn names() -> Vec<(DisplayId, String)> {
                 .objectForKey(ns_string!("NSScreenNumber"))?
                 .downcast()
                 .ok()?;
+            // A `DisplayId` is a `u64` since gpui-pre; `gpui_macos` widens
+            // the `CGDirectDisplayID` the same way (`display.rs`, `id`).
             Some((
-                DisplayId::new(number.unsignedIntValue()),
+                DisplayId::new(u64::from(number.unsignedIntValue())),
                 screen.localizedName().to_string(),
             ))
         })
@@ -294,13 +296,14 @@ pub fn under_the_pointer(cx: &App) -> Option<Screen> {
     })?;
 
     // The same key `gpui_macos` reads to map an `NSScreen` back to a
-    // `CGDirectDisplayID`, which is what a `DisplayId` wraps.
+    // `CGDirectDisplayID`, which is what a `DisplayId` wraps — widened to
+    // the `u64` it holds since gpui-pre, as `gpui_macos` widens it.
     let number: Retained<NSNumber> = found
         .deviceDescription()
         .objectForKey(ns_string!("NSScreenNumber"))?
         .downcast()
         .ok()?;
-    let wanted = DisplayId::new(number.unsignedIntValue());
+    let wanted = DisplayId::new(u64::from(number.unsignedIntValue()));
 
     cx.displays()
         .into_iter()

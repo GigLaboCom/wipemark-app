@@ -66,6 +66,9 @@ WAIT=${WAIT:-60}
 # verification of the E7 follow-ups (asked by the coordinator, 2026-10-06)
 # runs this script twice — with this default, and with
 # APP_DBUS=$DBUS_SESSION_BUS_ADDRESS, the real bus — to check it holds.
+# Since the GPUI bump (2026-10-07) GPUI is gpui-pre 0.3.8 from crates.io,
+# no fork: zed #61789 defers the appearance callback, and the real bus is
+# safe there too (docs/architecture/gpui-pin.md §2).
 APP_DBUS=${APP_DBUS:-unix:path=/nonexistent-wipemark-verify}
 W=$WORK/files
 mkdir -p "$W"

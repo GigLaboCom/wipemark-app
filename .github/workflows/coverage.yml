@@ -61,12 +61,14 @@ jobs:
         with:
           submodules: recursive
 
-      # As in gate.yml: must precede every cargo command.
-      - name: Pin the gpui-component submodule
+      # As in gate.yml: must precede every cargo command. `sync` first,
+      # because a cached checkout keeps the URL it was cloned with and the
+      # submodule moved to longbridge/gpui-kit on 2026-10-07. Nothing pins
+      # any more: GPUI is gpui-pre from crates.io (docs/architecture/gpui-pin.md).
+      - name: Submodule
         run: |
           git submodule sync --recursive
           git submodule update --init --recursive
-          scripts/pin-gpui-component.sh
 
       - name: Toolchain
         run: |

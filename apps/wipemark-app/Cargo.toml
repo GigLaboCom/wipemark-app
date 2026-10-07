@@ -99,6 +99,11 @@ rust-embed = { version = "8", features = ["interpolate-folder-path", "include-ex
 # `debug_bounds` exist — the icon size regression can only be caught
 # by measuring what actually painted.
 gpui = { workspace = true, features = ["test-support"] }
+# `gpui_base::POPUP_PRIORITY`, which gpui-component does not re-export:
+# the gate on `dialog::MODAL_PRIORITY` reads it rather than a copy of it,
+# so a bump that moves it is a red test. Already in the tree through
+# gpui-component, at the same path.
+gpui-base.workspace = true
 
 # macOS-only, and both of these are affordances rather than features:
 # the Dock icon of an unbundled dev build (src/dock_icon.rs) and the

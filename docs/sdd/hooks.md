@@ -425,7 +425,7 @@ pull request, and manually:
 
 | Step | Command | Note |
 | --- | --- | --- |
-| `submodule` | `git submodule update --init --recursive` + `scripts/pin-gpui-component.sh` | must be first — see below |
+| `submodule` | `git submodule sync` / `update --init --recursive` + `scripts/check-gpui-pin.sh` | must be first — see below |
 | `structure` | `scripts/check-dep-direction.sh` | first real step because it is instant and catches what compiles fine |
 | `fmt` | `rustup run nightly rustfmt --edition 2021 --check $(find crates apps -name '*.rs')` | nightly for the unstable `rustfmt.toml` options; **not** `cargo fmt --all`, which would reformat the vendored `gpui-component` |
 | `deps` | apt: xkbcommon, wayland, xcb, vulkan, gtk-3, ayatana-appindicator | what GPUI needs on Linux |
@@ -437,17 +437,17 @@ The persistent `CARGO_HOME` / `CARGO_TARGET_DIR` volumes are not an
 optimisation — the lane is unusable without them, and they need
 `trusted.volumes` on the repo.
 
-`scripts/pin-gpui-component.sh` is the closest thing here to a setup
-hook, and the only reason it is not one is that nothing invokes it
-automatically. `gpui-component` lists its own `gpui` dependency **without
-a rev**, so a plain checkout resolves it against whatever is on zed's
-`main` today — two different `gpui` packages in one binary, which does
-not link. Skipping it produces a type error deep inside `gpui-component`
-that reads like a compiler bug and is not. It is idempotent, CLAUDE.md
-makes it the first command after any clone or submodule update, and CI
-runs it as step zero. Making it a `post-checkout` hook would put it back
-in the "not cloned, off by default" category §1 argues against — the
-place it actually needs to hold is CI, and that is where it is.
+`scripts/pin-gpui-component.sh` was, until 2026-10-07, the closest
+thing here to a setup hook: the vendored `gpui-component` listed its own
+`gpui` without a rev, and a checkout that skipped the script built two
+`gpui` packages in one binary. Since the GPUI bump both the workspace and
+the component take GPUI from the `gpui-pre` snapshots on crates.io at one
+exact version, so there is nothing to rewrite after a checkout, and the
+script only says so. What is left is a *check*, not a setup step —
+`scripts/check-gpui-pin.sh`, one GPUI and the X11 fixes in the resolved
+source — and the place it needs to hold is CI, which runs it as step
+zero. It would not belong in a `post-checkout` hook either, for the
+reason §1 gives.
 
 macOS-only work (the `metal` feature, codesign, notarisation) cannot run
 on this backend; it needs the local-backend Mac agent and arrives with

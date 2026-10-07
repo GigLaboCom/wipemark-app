@@ -38,7 +38,8 @@ resolved graph so it runs offline in a second. A crate that is not
 classified in that script fails the check — adding a crate means
 deciding where it sits.
 
-**S0.2 — toolchain pin.** `rust-toolchain.toml` pins **1.94.1** and
+**S0.2 — toolchain pin.** `rust-toolchain.toml` pinned **1.94.1** (1.95.0
+since the GPUI bump of 2026-10-07: `gpui-pre` 0.3.8 needs it) and
 declares `components = ["rustfmt", "clippy"]`. The component list is the
 part that matters: with `profile = "minimal"` and no list, a fresh CI
 runner has no `cargo fmt` and no `cargo clippy`, and the gate fails with
@@ -98,7 +99,11 @@ from it.
 4. **gpui pinned to Merge's rev** (`81b16f46`), submodule at Merge's rev
    (`a2f9c95b`), and Merge's `scripts/pin-gpui-component.sh` rather than
    a `[patch]` block. Not novelty — that pair is proven to build, and
-   spec §12 asks for exactly these revisions.
+   spec §12 asks for exactly these revisions. (Superseded on 2026-10-07
+   by the GPUI bump: `gpui-pre` from crates.io at the component's exact
+   version, the component on upstream gpui-kit `next`, the pin script
+   retired in favour of `scripts/check-gpui-pin.sh` —
+   `docs/architecture/gpui-pin.md`.)
 5. **`.cargo/config.toml` sets `net.git-fetch-with-cli`.** Cargo's
    libgit2 transport cannot follow a global
    `url."git@github.com:".insteadOf` rewrite without an ssh-agent

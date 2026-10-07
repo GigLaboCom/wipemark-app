@@ -92,15 +92,15 @@ use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, size, AnyElement, AnyWindowHandle, App, Bounds, ClickEvent, Context, Corner,
+    actions, div, px, size, Anchor, AnyElement, AnyWindowHandle, App, Bounds, ClickEvent, Context,
     Entity, FocusHandle, Focusable, Global, Hsla, KeyBinding, Pixels, Rgba, SharedString, Size,
     Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::highlighter::{
-    LineDecorationGlyph, LineDecorationItem, LineDecorationProvider,
+use gpui_component::input::{
+    DocumentColorProvider, EditorState, GutterMarker, LineDecoration, LineDecorationCollection,
+    LineDecorationProvider, Position, Rope,
 };
-use gpui_component::input::{DocumentColorProvider, Input, InputState, Position, Rope};
 use gpui_component::popover::Popover;
 use gpui_component::resizable::{h_resizable, resizable_panel};
 use gpui_component::{
@@ -113,7 +113,7 @@ use wipemark_intake::{Encoding, Handed, Intake, Kind};
 
 use crate::diff::{Diff, Grain};
 use crate::icon::{Icon, IconName};
-use crate::result::{ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
+use crate::result::{self, ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
 use crate::screen::{self, Screen};
 use crate::title::{self, Title};
 use crate::{clean, drop, placement, wording};
@@ -457,27 +457,30 @@ impl Marks {
     }
 
     /// The rows within `visible`, which is what the library will paint.
-    pub fn within(&self, visible: Range<u32>) -> &[u32] {
-        let start = self.rows.partition_point(|&row| row < visible.start);
-        let end = self.rows.partition_point(|&row| row < visible.end);
+    pub fn within(&self, visible: Range<usize>) -> &[u32] {
+        let start = self
+            .rows
+            .partition_point(|&row| (row as usize) < visible.start);
+        let end = self
+            .rows
+            .partition_point(|&row| (row as usize) < visible.end);
         &self.rows[start..end]
     }
 }
 
 impl LineDecorationProvider for Marks {
-    fn decorations_for(&self, visible_rows: Range<u32>, cx: &App) -> Vec<LineDecorationItem> {
+    fn line_decorations(&self, rows: Range<usize>, cx: &App) -> Vec<LineDecoration> {
         let theme = cx.theme();
-        let (glyph, tint) = match self.side {
-            Side::Original => (LineDecorationGlyph::DiffRemoved, theme.danger.opacity(0.16)),
-            Side::Result => (LineDecorationGlyph::DiffAdded, theme.success.opacity(0.16)),
+        let (marker, tint) = match self.side {
+            Side::Original => (GutterMarker::DiffRemoved, theme.danger.opacity(0.16)),
+            Side::Result => (GutterMarker::DiffAdded, theme.success.opacity(0.16)),
         };
-        self.within(visible_rows)
+        self.within(rows)
             .iter()
-            .map(|&line| LineDecorationItem {
-                line,
-                glyph: Some(glyph.clone()),
-                line_tint: Some(tint),
-                tooltip: None,
+            .map(|&row| {
+                LineDecoration::new(row as usize)
+                    .with_background(tint)
+                    .with_marker(marker.clone())
             })
             .collect()
     }
@@ -502,11 +505,11 @@ pub struct Inline {
     original: Arc<str>,
     /// The result's editor, whose text is read when the question is
     /// put.
-    result: Entity<InputState>,
+    result: Entity<EditorState>,
 }
 
 impl Inline {
-    pub fn new(side: Side, grain: Grain, original: Arc<str>, result: Entity<InputState>) -> Self {
+    pub fn new(side: Side, grain: Grain, original: Arc<str>, result: Entity<EditorState>) -> Self {
         Self {
             side,
             grain,
@@ -638,9 +641,18 @@ struct CompareView {
     /// Whether the result has been edited away from `cleaned_text`, as
     /// of the latest comparison — what Reset is offered on.
     edited: bool,
-    /// The left pane: the same editor as the right, disabled — which
-    /// still selects, copies and searches, and no longer edits.
-    original: Entity<InputState>,
+    /// The left pane: the same editor as the right, read-only — which
+    /// still focuses, selects, copies and searches, by mouse and by
+    /// key, and refuses every change a person makes. Not *disabled*:
+    /// in this library a disabled field swallows every mouse-down, so
+    /// the pane could be neither selected nor scrolled by its bar
+    /// (`the_original_selects_with_the_mouse`).
+    original: Entity<EditorState>,
+    /// The original's line marks, once a comparison has put any there:
+    /// `None` until then, so an editor that has compared nothing yet
+    /// carries no collection at all — the library reserves the marker
+    /// slot in the gutter only while one has a provider.
+    original_marks: Option<LineDecorationCollection>,
     /// The right pane, toolbar and all.
     result: Entity<ResultEditor>,
     /// What the window was opened with — see [`Comparison`].
@@ -669,8 +681,8 @@ impl CompareView {
         let original = cx.new(|cx| {
             // The same editor as the result's, for the same reasons —
             // see `ResultEditor::new`.
-            InputState::new(window, cx)
-                .code_editor("text")
+            EditorState::new(window, cx)
+                .language("text")
                 .line_number(true)
                 .folding(false)
                 .soft_wrap(false)
@@ -703,6 +715,7 @@ impl CompareView {
             cleaned_text: Arc::from(""),
             edited: false,
             original,
+            original_marks: None,
             result,
             comparison,
             diff: Diff::of("", ""),
@@ -765,7 +778,7 @@ impl CompareView {
                     let removed = inline(Side::Original);
                     let added = inline(Side::Result);
                     self.original.update(cx, |original, _| {
-                        original.lsp.document_color_provider = Some(removed);
+                        original.lsp_mut().document_color_provider = Some(removed);
                     });
                     self.result
                         .update(cx, |result, cx| result.colour(Some(added), cx));
@@ -845,13 +858,18 @@ impl CompareView {
     /// question to the original again where the answer could have
     /// moved.
     fn apply(&mut self, diff: Diff, window: &mut Window, cx: &mut Context<Self>) {
-        let removed: Arc<dyn LineDecorationProvider> =
-            Arc::new(Marks::new(diff.removed_rows(), Side::Original));
-        let added: Arc<dyn LineDecorationProvider> =
-            Arc::new(Marks::new(diff.added_rows(), Side::Result));
-        self.original.update(cx, |original, cx| {
-            original.set_line_decoration_provider(Some(removed), cx);
-        });
+        let removed: Rc<dyn LineDecorationProvider> =
+            Rc::new(Marks::new(diff.removed_rows(), Side::Original));
+        let added: Rc<dyn LineDecorationProvider> =
+            Rc::new(Marks::new(diff.added_rows(), Side::Result));
+        match &self.original_marks {
+            Some(marks) => marks.set_provider(removed, cx),
+            None => {
+                self.original_marks = Some(self.original.update(cx, |original, cx| {
+                    original.create_line_decorations_collection(removed, cx)
+                }));
+            }
+        }
         self.result
             .update(cx, |result, cx| result.decorate(Some(added), cx));
         // Only where a changed passage is or was: with none on either
@@ -871,7 +889,7 @@ impl CompareView {
     /// it is over changes, and the original's never does — it is the
     /// other side that moves. The one public road to that question is
     /// an edit, so this is an edit of nothing at the cursor: the text
-    /// is untouched, the editor is disabled so its history is nobody's
+    /// is untouched, the editor is read-only so its history is nobody's
     /// and nothing listens to its changes, and what it costs is a
     /// selection in the original, which collapses to its end. See the
     /// module docs, and `the_original_is_asked_again_when_the_marks_move`.
@@ -955,13 +973,10 @@ impl CompareView {
                     .border_color(theme.border),
             )
             .child(
-                div().flex_1().min_h(px(0.0)).child(
-                    Input::new(&self.original)
-                        .disabled(true)
-                        .bordered(false)
-                        .focus_bordered(false)
-                        .size_full(),
-                ),
+                div()
+                    .flex_1()
+                    .min_h(px(0.0))
+                    .child(result::pane(&self.original, cx).readonly(true)),
             );
         let right = v_flex()
             .size_full()
@@ -1103,7 +1118,7 @@ impl Render for CompareView {
                     )
                     .child(
                         Popover::new("compare-help")
-                            .anchor(Corner::TopRight)
+                            .anchor(Anchor::TopRight)
                             .trigger(
                                 Button::new("compare-help-trigger")
                                     .small()
@@ -1398,12 +1413,12 @@ mod tests {
 
         let (removed, added) = cx.update(|_, cx| {
             (
-                original.read(cx).lsp.document_color_provider.clone(),
+                original.read(cx).lsp().document_color_provider.clone(),
                 result
                     .read(cx)
                     .state()
                     .read(cx)
-                    .lsp
+                    .lsp()
                     .document_color_provider
                     .clone(),
             )
@@ -1452,7 +1467,7 @@ mod tests {
         let counting: Rc<dyn DocumentColorProvider> = Rc::new(Counting(asked.clone()));
         cx.update(|_, cx| {
             original.update(cx, |original, _| {
-                original.lsp.document_color_provider = Some(counting);
+                original.lsp_mut().document_color_provider = Some(counting);
             });
         });
 
@@ -1492,8 +1507,8 @@ mod tests {
         let (left, right) = cx.update(|_, cx| {
             let view = view.read(cx);
             (
-                view.original.read(cx).visible_line_bounds(0),
-                view.result.read(cx).state().read(cx).visible_line_bounds(0),
+                view.original.read(cx).row_bounds(0),
+                view.result.read(cx).state().read(cx).row_bounds(0),
             )
         });
         let left = left.expect("the original was painted");
@@ -1502,6 +1517,36 @@ mod tests {
             left.origin.y, right.origin.y,
             "the original's first line is not level with the result's"
         );
+    }
+
+    /// A comparison puts the line marks on both sides — the library's
+    /// line-decoration collection, one per editor, with a provider in
+    /// it — and the window holds the original's, so the next comparison
+    /// replaces what it is asked rather than stacking a second one. Take
+    /// out either `create_line_decorations_collection` and this goes red.
+    #[gpui::test]
+    fn a_comparison_puts_line_marks_on_both_sides(cx: &mut TestAppContext) {
+        let (view, cx) = window_with(cx, "one\ntwo\n", Comparison::default());
+        cx.update(|window, cx| {
+            let result = view.read(cx).result.clone();
+            result.update(cx, |result, cx| result.set_text("one\n2\n", window, cx));
+        });
+        settle(cx);
+        cx.update(|_, cx| {
+            let view = view.read(cx);
+            assert!(
+                view.original_marks
+                    .as_ref()
+                    .is_some_and(|marks| marks.has_provider(cx)),
+                "the original has no line marks"
+            );
+            assert!(
+                view.result.read(cx).is_decorated(cx),
+                "the result has no line marks"
+            );
+            assert_eq!(view.diff.removed_rows(), vec![1]);
+            assert_eq!(view.diff.added_rows(), vec![1]);
+        });
     }
 
     /// Lines only: no provider is put on either side, so the library
@@ -1515,13 +1560,18 @@ mod tests {
         let (view, cx) = window_with(cx, "a\n", comparison);
         cx.update(|_, cx| {
             let view = view.read(cx);
-            assert!(view.original.read(cx).lsp.document_color_provider.is_none());
+            assert!(view
+                .original
+                .read(cx)
+                .lsp()
+                .document_color_provider
+                .is_none());
             assert!(view
                 .result
                 .read(cx)
                 .state()
                 .read(cx)
-                .lsp
+                .lsp()
                 .document_color_provider
                 .is_none());
         });
@@ -1742,6 +1792,96 @@ mod tests {
                 "the window shows a result the queue did not write"
             );
         }
+    }
+
+    /// Press the left button at `from`, drag to `to` and let go — a
+    /// person's drag, through the window's own mouse events.
+    fn drag(cx: &mut gpui::VisualTestContext, from: gpui::Point<Pixels>, to: gpui::Point<Pixels>) {
+        use gpui::{Modifiers, MouseButton};
+        cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
+        cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+    }
+
+    /// Two points across the middle of row 0 of the original, two
+    /// fifths in and nine tenths in.
+    fn across_the_original(
+        view: &Entity<CompareView>,
+        cx: &mut gpui::VisualTestContext,
+    ) -> (gpui::Point<Pixels>, gpui::Point<Pixels>) {
+        let row = cx.update(|_, cx| {
+            view.read(cx)
+                .original
+                .read(cx)
+                .row_bounds(0)
+                .expect("the original painted its first row")
+        });
+        let y = row.origin.y + row.size.height / 2.0;
+        (
+            gpui::point(row.origin.x + row.size.width * 0.4, y),
+            gpui::point(row.origin.x + row.size.width * 0.9, y),
+        )
+    }
+
+    /// The original is read with the mouse as well as shown: a drag
+    /// across a line selects some of it and puts the keyboard there, so
+    /// it can be copied and searched. Built `.disabled(true)` — which in
+    /// this library swallows every mouse-down over the field — the
+    /// selection stays empty and this goes red.
+    #[gpui::test]
+    fn the_original_selects_with_the_mouse(cx: &mut TestAppContext) {
+        let line = "word ".repeat(80);
+        let (view, cx) = window_with(cx, &format!("{line}\n{line}\n"), Comparison::default());
+        settle(cx);
+        let (from, to) = across_the_original(&view, cx);
+        drag(cx, from, to);
+
+        let (selected, focused) = cx.update(|window, cx| {
+            let original = view.read(cx).original.read(cx);
+            (
+                original.selected_range(),
+                original.focus_handle(cx).is_focused(window),
+            )
+        });
+        assert!(
+            !selected.is_empty(),
+            "a drag across the original selected nothing: {selected:?}"
+        );
+        assert!(focused, "a click on the original did not focus it");
+    }
+
+    /// And it is still the original: with the keyboard in it, nothing a
+    /// person types, deletes, pastes, cuts or undoes changes a byte of
+    /// it. The focus is asserted first, so the keystrokes cannot have
+    /// gone somewhere else and passed for refused.
+    #[gpui::test]
+    fn typing_into_the_original_changes_nothing(cx: &mut TestAppContext) {
+        let text = format!("{}\n", "word ".repeat(80));
+        let (view, cx) = window_with(cx, &text, Comparison::default());
+        settle(cx);
+        let (from, to) = across_the_original(&view, cx);
+        drag(cx, from, to);
+        assert!(
+            cx.update(|window, cx| view
+                .read(cx)
+                .original
+                .read(cx)
+                .focus_handle(cx)
+                .is_focused(window)),
+            "the original never took the keyboard; the keystrokes would prove nothing"
+        );
+
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("pasted".to_owned()));
+        cx.simulate_input("x");
+        cx.simulate_keystrokes("backspace delete enter tab");
+        cx.dispatch_action(gpui_component::input::Paste);
+        cx.dispatch_action(gpui_component::input::Cut);
+        cx.dispatch_action(gpui_component::input::Undo);
+        cx.run_until_parked();
+
+        let original = cx.update(|_, cx| view.read(cx).original.read(cx).value().to_string());
+        assert_eq!(original, text, "a keystroke changed the original");
     }
 
     /// The marks answer for the visible rows only, and the rows keep

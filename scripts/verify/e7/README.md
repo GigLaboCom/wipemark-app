@@ -31,4 +31,6 @@ the app with an unreachable session bus by default (`APP_DBUS`, default
 `unix:path=/nonexistent-wipemark-verify`) so the portal stays quiet. Since
 `2e006cf` GPUI comes from `GigLaboCom/zed` with that fix; run `live-disk.sh`
 a second time with `APP_DBUS=$DBUS_SESSION_BUS_ADDRESS` to check the real
-bus.
+bus. Since the GPUI bump of 2026-10-07 GPUI is `gpui-pre` 0.3.8 from
+crates.io with no fork: zed #61789 defers the appearance callback, and
+the real bus is safe there too (`docs/architecture/gpui-pin.md` §2).

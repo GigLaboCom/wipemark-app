@@ -24,6 +24,15 @@
 #        again (`is_subpixel_rendering_supported`) and panics. Patch: clone
 #        the window pointers out, drop the borrow, then call.
 #
+# After the GPUI bump (2026-10-07)
+#   This reproduces the 2026-10-05 research at the old pin, zed 81b16f4,
+#   and does not apply after the bump: the workspace now takes GPUI from
+#   the gpui-pre snapshots on crates.io, which have A (zed #62081) and no
+#   longer need B (zed #61789 defers the appearance callback; measured,
+#   docs/plan/reports/gpui-bump-startup-2026-10-07.md), and carries
+#   neither (docs/architecture/gpui-pin.md §2). Run it from a checkout of
+#   a commit before the bump, where the lock still names zed's git source.
+#
 # What it does
 #   1. Copies the pinned zed checkout from ~/.cargo/git/checkouts to
 #      $WORK/zed and applies A and/or B ($PATCHES, default "A B") by exact

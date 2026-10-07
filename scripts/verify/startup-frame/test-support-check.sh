@@ -13,6 +13,9 @@
 #   wipemark-app` after it relinks the binary without. This checks both,
 #   and with MEASURE=1 launches each binary through startup-batch.sh so the
 #   fork's portal fix is seen to hold in the test-support build too.
+#   Since the GPUI bump (2026-10-07) no fork is used: the same check over
+#   gpui-pre 0.3.8 without patch B found no panic in the test-support
+#   build (docs/plan/reports/gpui-bump-startup-2026-10-07.md).
 #
 # What it does
 #   1. `cargo test -p wipemark-app --no-run --locked` — the same unit
@@ -21,7 +24,8 @@
 #      marker — the number of `PlatformDispatcher::as_test` /
 #      `PlatformWindow::as_test` symbols, trait methods gpui declares under
 #      `#[cfg(any(test, feature = "test-support"))]` (platform.rs at
-#      81b16f4); 0 is an ordinary build. (`TestDispatcher` alone is not a
+#      81b16f4, and still in gpui-pre 0.3.8's src/platform.rs); 0 is an
+#      ordinary build. (`TestDispatcher` alone is not a
 #      marker: the linker keeps or drops it build by build.) Copies it
 #      aside as $WORK/wipemark-after-test.
 #   3. `cargo build -p wipemark-app --locked -v` and reports whether cargo

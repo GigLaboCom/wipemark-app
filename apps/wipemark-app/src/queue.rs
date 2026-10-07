@@ -88,7 +88,7 @@ use std::time::Duration;
 use chrono::{DateTime, Local};
 use gpui::prelude::*;
 use gpui::{
-    div, img, px, uniform_list, AnyElement, App, ClipboardItem, Context, Corner, Div, Entity,
+    div, img, px, uniform_list, Anchor, AnyElement, App, ClipboardItem, Context, Div, Entity,
     ImageSource, ObjectFit, PathPromptOptions, Pixels, ScrollStrategy, SharedString, Stateful,
     Subscription, UniformListScrollHandle, Window,
 };
@@ -363,7 +363,7 @@ impl Column {
             .flex_shrink_0();
         let cell = match self.width() {
             Some(width) => cell.w(width),
-            None => cell.flex_1().flex_shrink(),
+            None => cell.flex_1().flex_shrink_1(),
         };
         let cell = if self.right_aligned() {
             cell.justify_end()
@@ -950,7 +950,7 @@ fn preview_cell(row: &Row, plan_lines: Vec<String>, cx: &App) -> AnyElement {
             );
             let caption = caption_of(intake);
             HoverCard::new(("preview", row.id))
-                .anchor(Corner::TopLeft)
+                .anchor(Anchor::TopLeft)
                 .open_delay(HOVER_DELAY)
                 .trigger(trigger)
                 .content(move |_, _, cx| {
@@ -990,7 +990,7 @@ fn preview_cell(row: &Row, plan_lines: Vec<String>, cx: &App) -> AnyElement {
             let caption = caption_of(intake);
             let excerpt = excerpt.clone();
             HoverCard::new(("preview", row.id))
-                .anchor(Corner::TopLeft)
+                .anchor(Anchor::TopLeft)
                 .open_delay(HOVER_DELAY)
                 .trigger(trigger)
                 .content(move |_, _, cx| {
@@ -1297,7 +1297,7 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
         .xsmall()
         .icon(IconName::Ellipsis)
         .tooltip(SharedString::from(t(Message::QueueActions)))
-        .dropdown_menu_with_anchor(Corner::TopRight, move |menu, _, _| {
+        .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
             let path = actions.path.clone();
             let written = actions.written.clone();
             let revealed = actions.written.clone();
@@ -1696,7 +1696,7 @@ impl Queue {
                         &args!("count" => self.page_size),
                     )))
                     .icon(IconName::ChevronDown)
-                    .dropdown_menu_with_anchor(Corner::BottomRight, {
+                    .dropdown_menu_with_anchor(Anchor::BottomRight, {
                         let queue = cx.entity();
                         let current = self.page_size;
                         move |mut menu, _, _| {

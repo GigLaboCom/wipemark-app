@@ -71,7 +71,7 @@ use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, AnyWindowHandle, App, Bounds, Corner, Div, Entity, FocusHandle, Focusable,
+    actions, div, px, Anchor, AnyWindowHandle, App, Bounds, Div, Entity, FocusHandle, Focusable,
     Global, Hsla, KeyBinding, Pixels, SharedString, Size, Subscription, Window, WindowBounds,
     WindowKind, WindowOptions,
 };
@@ -1046,7 +1046,7 @@ impl Render for PanelView {
                     // looks exactly like a panel that can do neither.
                     .child(
                         Popover::new("panel-help")
-                            .anchor(Corner::TopRight)
+                            .anchor(Anchor::TopRight)
                             .trigger(
                                 Button::new("panel-help-trigger")
                                     .ghost()

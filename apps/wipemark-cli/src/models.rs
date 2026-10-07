@@ -166,11 +166,10 @@ fn megabytes(bytes: u64) -> String {
 }
 
 fn percent(done: u64, total: u64) -> u64 {
-    if total == 0 {
-        100
-    } else {
-        (done.saturating_mul(100) / total).min(100)
-    }
+    // Nothing to fetch is all of it.
+    done.saturating_mul(100)
+        .checked_div(total)
+        .map_or(100, |share| share.min(100))
 }
 
 /// `models list [--json]`.

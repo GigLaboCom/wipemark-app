@@ -110,13 +110,16 @@ tar = { version = "0.4", default-features = false }
 # roots come from the operating system rather than a baked-in bundle, so
 # a machine behind a corporate TLS proxy can still fetch a model.
 ureq = { version = "3.4", default-features = false, features = ["rustls", "platform-verifier"] }
-# Verifies a downloaded file against the manifest's sha256. Already in
-# the tree via gpui's dependencies, so this pins no new build.
+# Verifies a downloaded file against the manifest's sha256. On Linux
+# already in the tree via gpui's dependencies (gpui-pre-linux's `oo7`), so
+# there it pins no new build; on macOS and Windows since gpui-pre 0.3.8 it
+# is ours alone.
 sha2 = "0.10"
 hex = "0.4"
 # Total RAM, and the free space on the volume the weights land on — both
 # cross-platform, both consulted before a multi-gigabyte download starts.
-# Already in the tree via gpui.
+# Ours alone since gpui-pre 0.3.8 (the old zed pin pulled it in through
+# `zed-scap`).
 sysinfo = "0.31"
 # Ctrl-C for `wipemark-cli models pull`: the first press cancels the
 # download through `wipemark_models::Cancel`, so the `.part` is flushed and
@@ -125,36 +128,41 @@ sysinfo = "0.31"
 # `unsafe` in the CLI. The CLI is its only user.
 ctrlc = "3"
 
-# GPUI is consumed from our fork of the Zed repo, GigLaboCom/zed, branch
-# `wipemark/x11-first-frame` (protected against deletion and force-push):
-# upstream 81b16f464c plus two X11 fixes in gpui_linux's x11/client.rs —
-# upstream #62081 (f4178619ac) backported, so a new window's MapNotify is
-# not left in x11rb's queue and the first frame is drawn without waiting
-# for input; and ours, so the desktop portal's appearance event does not
-# draw while the X11 client is borrowed (a `RefCell already mutably
-# borrowed` panic). CLAUDE.md, "Build, run, look", has both.
+# GPUI comes from the `gpui-pre` snapshots of Zed's GPUI crates on
+# crates.io — what upstream gpui-kit itself builds on (gpui-kit #2929) —
+# at **exactly** the version the vendored component's manifest pins
+# (`vendor/gpui-component/Cargo.toml`, `[workspace.dependencies]`). The
+# alias keeps `use gpui::…` working: every snapshot crate keeps its
+# original `[lib]` name. An exact pin on both sides is one package; two
+# different exact versions of a 0.3.x crate cannot coexist in one graph,
+# so Cargo refuses to resolve rather than building two `gpui`s.
+# `scripts/check-gpui-pin.sh` is the gate: `=x.y.z` here, one version,
+# equal to the component's, and one copy of each `gpui-pre*` crate in the
+# lock with no zed git source. A bump moves this and the submodule
+# together, never one alone. See docs/architecture/gpui-pin.md.
 #
-# 81b16f464c is the same upstream rev heretic-amuse-merge pins, the last
-# commit before `gpui: Improve Anchored to support center position`
-# (#47154) removed `gpui::Corner` and renamed
-# `Bounds::from_corner_and_size` in ways the vendored gpui-component rev
-# has not caught up with. Bump this in lockstep with the submodule, never
-# on its own — and a bump is a new branch on the fork from the new
-# upstream rev, re-carrying the portal fix (the #62081 one is upstream
-# from f4178619ac on).
-gpui = { git = "https://github.com/GigLaboCom/zed", rev = "9d80553d6a3d19491c19b68b0167a366bba3be63" }
-gpui_platform = { git = "https://github.com/GigLaboCom/zed", rev = "9d80553d6a3d19491c19b68b0167a366bba3be63", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
+# The snapshot carries nothing of ours. Both X11 bugs the old zed pin needed
+# a fork for are upstream in it: the stale first frame (zed #62081) and,
+# through the deferred appearance callback (zed #61789), the portal's
+# `RefCell already mutably borrowed` panic. `scripts/check-gpui-pin.sh`
+# reads the resolved sources for both, so a snapshot that loses either is
+# a red gate rather than a window that misbehaves. See
+# docs/architecture/gpui-pin.md §2.
+gpui = { package = "gpui-pre", version = "=0.3.8" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
 
-# gpui-component is vendored as a submodule under vendor/gpui-component
-# and referenced by path (see CONTRIBUTING.md). The submodule lists its
-# own `gpui` deps against upstream zed WITHOUT a rev, so it would
-# otherwise resolve against whatever is on zed's main today — a separate
-# `gpui` package in the same binary, which does not link. Cargo tells git
-# sources apart by URL, so the fork's URL matters as much as the rev.
-# `scripts/pin-gpui-component.sh` rewrites those five lines in the
-# submodule to our URL and rev; run it after every clone or submodule
-# update.
-gpui-component = { path = "vendor/gpui-component/crates/ui" }
+# gpui-component is vendored as a submodule under vendor/gpui-component —
+# upstream `longbridge/gpui-kit`, branch `next` — and referenced by path
+# (see CONTRIBUTING.md). Its library is `crates/component`, beside
+# `crates/base` (`gpui-base`), since upstream split `crates/ui`. Its own
+# `gpui` requirements are the same exact `gpui-pre` pins as ours, so
+# nothing rewrites the submodule any more.
+gpui-component = { path = "vendor/gpui-component/crates/component" }
+# The component's foundation crate, already in the tree through it. The
+# app takes it as a dev-dependency only, for one public number the
+# component does not re-export: the priority its popups defer at, which
+# `dialog::MODAL_PRIORITY` has to stay above (apps/wipemark-app/src/dialog.rs).
+gpui-base = { path = "vendor/gpui-component/crates/base" }
 
 wipemark-core = { path = "crates/wipemark-core" }
 wipemark-i18n = { path = "crates/wipemark-i18n" }
@@ -208,9 +216,11 @@ private_intra_doc_links = "allow"
 # unoptimised — scrolling drops to single-digit FPS. Cost is paid once
 # per gpui bump, not per edit of our own crates.
 [profile.dev.package]
-gpui = { opt-level = 3 }
-gpui_platform = { opt-level = 3 }
-gpui_macros = { opt-level = 3 }
+# Profile keys are *package* names: the snapshot's, not the `[lib]`
+# names they keep. A key that matches nothing is only a warning.
+gpui-pre = { opt-level = 3 }
+gpui-pre-platform = { opt-level = 3 }
+gpui-pre-macros = { opt-level = 3 }
 # The NCC and verification loops of a visible-mark search are orders of
 # magnitude slower unoptimised, and the false-positive suite runs two
 # thousand of them: optimised in every profile, like the framework above.
@@ -219,3 +229,4 @@ wipemark-pixels = { opt-level = 3 }
 [profile.release]
 lto = "thin"
 codegen-units = 1
+

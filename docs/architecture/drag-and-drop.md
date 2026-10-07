@@ -22,7 +22,8 @@ This is the fact the whole macOS half of this feature exists for.
 GPUI's macOS window registers for exactly one pasteboard type:
 
 ```rust
-// gpui_macos::window, in the pinned rev 81b16f464c
+// gpui_macos::window, in the pinned rev 81b16f464c — and unchanged in
+// gpui-pre-macos 0.3.8 (src/window.rs:1077), pinned since 2026-10-07
 let () = msg_send![
     native_window,
     registerForDraggedTypes:

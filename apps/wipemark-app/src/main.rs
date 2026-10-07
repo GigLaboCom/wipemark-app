@@ -85,7 +85,7 @@ use std::sync::Arc;
 
 use gpui::prelude::*;
 use gpui::{
-    deferred, div, px, size, AnyWindowHandle, App, Bounds, ClickEvent, Context, Corner, Entity,
+    deferred, div, px, size, Anchor, AnyWindowHandle, App, Bounds, ClickEvent, Context, Entity,
     SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowHandle, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -109,13 +109,6 @@ use crate::setup::{Setup, SetupEvent};
 use crate::theme::ThemePreference;
 use crate::title::Title;
 use crate::tray::TrayCommand;
-
-/// How far above everything else the setup walk-through is painted.
-///
-/// The same number the Settings window paints a dialog at, for the
-/// same reason: gpui-component defers its own overlays at 1 and 2, and
-/// a modal has to be over all of them.
-const SETUP_PRIORITY: usize = 10;
 
 /// Root view of the main window.
 ///
@@ -547,7 +540,7 @@ impl Shell {
             .child(div().flex_1())
             .child(
                 Popover::new("help")
-                    .anchor(Corner::TopRight)
+                    .anchor(Anchor::TopRight)
                     .trigger(
                         Button::new("help-trigger")
                             .small()
@@ -651,17 +644,20 @@ impl Render for Shell {
                             }),
                     ),
             )
-            // Last, and above everything that defers — see the note on
-            // `SettingsView::dialog` for why tree order alone is not
-            // enough to make an overlay modal.
+            // Last, and over every overlay gpui-component defers — a
+            // help popover left open included — at
+            // `dialog::MODAL_PRIORITY`: neither holds a field, a select
+            // or a tooltip of the library's that would have to show over
+            // it. See the note on `SettingsView::dialog` for why tree
+            // order alone is not enough to make an overlay modal.
             .children(self.report.as_ref().map(|(report, _)| {
                 deferred(report.clone())
-                    .with_priority(SETUP_PRIORITY)
+                    .with_priority(dialog::MODAL_PRIORITY)
                     .into_any_element()
             }))
             .children(self.setup.as_ref().map(|setup| {
                 deferred(setup.clone())
-                    .with_priority(SETUP_PRIORITY)
+                    .with_priority(dialog::MODAL_PRIORITY)
                     .into_any_element()
             }))
     }

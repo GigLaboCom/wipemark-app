@@ -10,6 +10,6 @@
 # NOTE: `cargo fmt` must still be run through nightly — rustfmt.toml uses
 # unstable options. See .woodpecker/gate.yaml.
 [toolchain]
-channel = "1.94.1"
+channel = "1.95.0"
 components = ["rustfmt", "clippy"]
 profile = "minimal"

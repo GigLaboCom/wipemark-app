@@ -238,7 +238,7 @@ that still ships in the binary and still has to be licence-audited.
 | `close` | dismiss a modal or sheet (E6) |
 | `chevron-right` / `chevron-down` | collapsed / expanded disclosure (E7) |
 | `arrow-right` | Source → Result direction (E7) |
-| `plus` / `minus` | add to and remove from the batch queue (E7); and the gutter marks of the Compare window — `gpui_component`'s `LineDecorationGlyph::DiffAdded` and `DiffRemoved` ask for `icons/plus.svg` and `icons/minus.svg` by name, which is why the window's marks paint at all (E7) |
+| `plus` / `minus` | add to and remove from the batch queue (E7); and the gutter marks of the Compare window — the styled editor's marker renderer paints `GutterMarker::DiffAdded` and `DiffRemoved` (gpui-kit #3359) as `gpui_component::IconName::Plus` and `Minus`, which ask for `icons/plus.svg` and `icons/minus.svg` by name, which is why the window's marks paint at all (E7) |
 | `ellipsis` | per-row overflow: the queue's Actions menu (E6) |
 | `gear` | settings; engine and model configuration (E8) |
 | `save` | export the result (E7) |

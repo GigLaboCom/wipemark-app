@@ -160,13 +160,6 @@ const SIDEBAR_WIDTH: Pixels = px(180.0);
 /// took.
 const SETTLE: Duration = Duration::from_millis(500);
 
-/// How far above everything else a dialog is painted.
-///
-/// gpui-component defers its own overlays at 1 (popovers, selects,
-/// context menus) and 2 (tooltips, date pickers). A modal dialog has to
-/// be over all of them, and over the `Sidebar`, which defers too.
-const DIALOG_PRIORITY: usize = 10;
-
 /// How tall one display's grid of zones is drawn.
 ///
 /// The width follows the display's own shape, so the card for a
@@ -4934,27 +4927,31 @@ impl SettingsView {
 
     /// The dialog on top of the page, if there is one.
     ///
-    /// `deferred` with a priority above everything else that defers, and
-    /// that is not a paint-order nicety — it is what makes the dialog
-    /// modal at all. Painting last in tree order is not enough: several
-    /// gpui-component controls defer their own drawing, the `Sidebar`
-    /// among them, so a plain sibling ends up *under* it in both paint
-    /// and hit testing. A click on the sidebar then reached straight
-    /// through the backdrop and changed the page behind an open dialog,
-    /// which is precisely the thing a backdrop exists to stop. The
-    /// priorities in use around here are 1 for popovers, selects and
-    /// context menus and 2 for tooltips and date pickers; a dialog is
-    /// above all of them.
+    /// `deferred` at a priority, and that is not a paint-order nicety —
+    /// it is what makes the dialog modal at all. Painting last in tree
+    /// order is not enough: whatever of gpui-component's defers its own
+    /// drawing ends up *over* a plain sibling, in paint and in hit
+    /// testing alike, and a click then reaches through the backdrop to
+    /// the page behind an open dialog — precisely the thing a backdrop
+    /// exists to stop. (Under the old fork the `Sidebar` deferred and did
+    /// exactly that; in gpui-kit `next` it does not, and the library's
+    /// popups, toasts and tooltips are what is left.) Confirm is painted
+    /// over all of those, [`crate::dialog::MODAL_PRIORITY`]; Naming under the
+    /// popups, [`crate::dialog::FIELD_MODAL_PRIORITY`], because its name field's
+    /// right-click menu is one of them off macOS and has to show over
+    /// the dialog it was opened from. See both constants.
     fn dialog(&self) -> Option<AnyElement> {
-        let dialog: AnyElement = match self.overlay.as_ref()? {
-            Overlay::Naming(dialog) => dialog.clone().into_any_element(),
-            Overlay::Confirm(dialog) => dialog.clone().into_any_element(),
+        let (dialog, priority): (AnyElement, usize) = match self.overlay.as_ref()? {
+            Overlay::Naming(dialog) => (
+                dialog.clone().into_any_element(),
+                crate::dialog::FIELD_MODAL_PRIORITY,
+            ),
+            Overlay::Confirm(dialog) => (
+                dialog.clone().into_any_element(),
+                crate::dialog::MODAL_PRIORITY,
+            ),
         };
-        Some(
-            deferred(dialog)
-                .with_priority(DIALOG_PRIORITY)
-                .into_any_element(),
-        )
+        Some(deferred(dialog).with_priority(priority).into_any_element())
     }
 
     /// The models folder: the field, and under it the picker and the

@@ -246,16 +246,17 @@ the main window's close button closes.
 
 ```sh
 git clone <repo> && cd wipemark-app
+git submodule sync --recursive     # once after the submodule's URL moved
 git submodule update --init --recursive
-scripts/pin-gpui-component.sh      # required after every clone/update
 
 cargo run -p wipemark-app          # the GUI  (binary: wipemark)
 cargo run -p wipemark-cli -- --help
 ```
 
-The first build compiles GPUI from source and takes a while. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for why the pin script is not
-optional.
+The first build compiles GPUI (the `gpui-pre` crates from crates.io) and
+takes a while. See [CONTRIBUTING.md](CONTRIBUTING.md) for where GPUI and
+the vendored component come from, and `scripts/check-gpui-pin.sh` for the
+check that there is exactly one of each.
 
 ## Layout
 
