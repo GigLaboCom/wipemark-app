@@ -29,13 +29,28 @@
 //! read its rows — a surface calls them off its foreground thread, and so
 //! [`Queue::result`], which reads a row.
 //!
+//! # The engine, asked when an item starts
+//!
+//! The queue does not hold an engine; it holds an [`EngineSource`] and asks
+//! it for one **each time an item starts** (R1, E4-6b) — so an item started
+//! after the person changed the model runs on the new one, and the engine
+//! is held for the item's whole length (the application's source counts it
+//! busy until the job lets go). When the source has nothing to hand out —
+//! nothing on duty, or a refusal — the queue is **held** with that reason:
+//! a pause the queue took, not the person's, shown as
+//! [`QueueEvent::Held`] and lifted by [`Queue::engine_changed`] or
+//! [`Queue::resume`]. The item waits; it never fails for want of an engine.
+//! A job that the engine refuses part way (a model that will not load) is
+//! the same hold, its decided chunks kept.
+//!
 //! # Where a result goes
 //!
 //! Where the item said when it was pushed ([`Destination`]): its row, a
-//! new file — beside the source as `name.cleaned.ext`, or a path somebody
-//! chose, never the source itself — or, by a per-run flag only, over the
-//! source with the original set aside first. The queue reads no Retention
-//! row; the surface that pushes does.
+//! new file — beside the source as `name.rewritten.ext` (В8), or a path
+//! somebody chose, never the source itself, and never over a file already
+//! there unless the item said to replace it — or, by a per-run flag only,
+//! over the source with the original set aside first. The queue reads no
+//! Retention row; the surface that pushes does.
 //!
 //! # What it keeps
 //!
@@ -50,6 +65,7 @@
 mod deliver;
 mod item;
 mod read;
+mod source;
 mod worker;
 
 use std::path::{Path, PathBuf};
@@ -61,7 +77,8 @@ pub use deliver::{Undelivered, Written};
 pub use item::{Destination, ItemId, Refused, Request, Source, State, Unusable, ITEM_VERSION};
 pub use read::Unread;
 use serde_json::Value;
-use wipemark_engine::RewriteEngine;
+pub use source::{EngineSource, Fixed};
+use wipemark_engine::{RewriteEngine, Unavailable};
 pub use wipemark_intake::inplace::Keep;
 use wipemark_pipeline::{Event, JobReport, PipelineError};
 use wipemark_store::Store;
@@ -119,6 +136,14 @@ pub enum QueueEvent {
     },
     Paused,
     Resumed,
+    /// The queue is holding: an item is waiting and the engine source had
+    /// nothing to hand out, for this reason. Not the person's pause — it
+    /// lifts itself on [`Queue::engine_changed`].
+    Held {
+        reason: Unavailable,
+    },
+    /// The hold is lifted; the next item is asked for again.
+    Unheld,
     /// A write to the database failed. The queue goes on; what it could
     /// not write will not survive a restart. `what` names the statement.
     Unsaved {
@@ -214,6 +239,10 @@ pub enum Shown {
 pub struct Queue {
     commands: flume::Sender<worker::Command>,
     events: flume::Receiver<QueueEvent>,
+    /// Every other reader's channel ([`Queue::subscribe`]).
+    subscribers: worker::Subscribers,
+    /// What the queue is holding for, while it holds.
+    held: Arc<Mutex<Option<Unavailable>>>,
     items: Arc<Mutex<Vec<ItemView>>>,
     next: Arc<AtomicI64>,
     store: Arc<Store>,
@@ -239,6 +268,11 @@ impl Queue {
     /// surface says it will not survive a restart. Blocking: it opens a
     /// file and reads rows.
     pub fn open(path: &Path, engine: Arc<dyn RewriteEngine>) -> Queue {
+        Queue::open_with(path, Arc::new(Fixed(engine)))
+    }
+
+    /// [`Queue::open`] with an engine asked for when each item starts.
+    pub fn open_with(path: &Path, engine: Arc<dyn EngineSource>) -> Queue {
         let (store, durability) = match Store::open(path) {
             Ok(store) => (store, Durability::File(path.to_path_buf())),
             Err(error) => {
@@ -257,7 +291,7 @@ impl Queue {
             }
         };
         let store = Arc::new(store);
-        match Queue::on(Arc::clone(&store), durability.clone(), engine.clone()) {
+        match Queue::with_source(Arc::clone(&store), durability.clone(), engine.clone()) {
             Ok(queue) => queue,
             Err(error) => {
                 // The file opened and its queue tables would not read: the
@@ -268,7 +302,7 @@ impl Queue {
                 );
                 let memory =
                     Arc::new(Store::in_memory().expect("an in-memory database always opens"));
-                Queue::on(
+                Queue::with_source(
                     memory,
                     Durability::Memory {
                         detail: Some(error.to_string()),
@@ -288,10 +322,31 @@ impl Queue {
         durability: Durability,
         engine: Arc<dyn RewriteEngine>,
     ) -> Result<Queue, wipemark_store::Error> {
+        Queue::with_source(store, durability, Arc::new(Fixed(engine)))
+    }
+
+    /// [`Queue::on`] with an engine asked for when each item starts — the
+    /// application's engine on duty, whatever it is by then (R1).
+    pub fn with_source(
+        store: Arc<Store>,
+        durability: Durability,
+        source: Arc<dyn EngineSource>,
+    ) -> Result<Queue, wipemark_store::Error> {
         let (commands, inbox) = flume::unbounded();
         let (outbox, events) = flume::unbounded();
         let items = Arc::new(Mutex::new(Vec::new()));
-        let loaded = worker::Worker::load(Arc::clone(&store), engine, outbox, Arc::clone(&items))?;
+        let subscribers = worker::Subscribers::default();
+        let held = Arc::new(Mutex::new(None));
+        let loaded = worker::Worker::load(
+            Arc::clone(&store),
+            source,
+            worker::Outbox {
+                first: outbox,
+                others: subscribers.clone(),
+            },
+            Arc::clone(&items),
+            Arc::clone(&held),
+        )?;
         let next = Arc::new(AtomicI64::new(loaded.last_id() + 1));
         let thread = std::thread::Builder::new()
             .name("wipemark-queue".to_owned())
@@ -303,6 +358,8 @@ impl Queue {
         Ok(Queue {
             commands,
             events,
+            subscribers,
+            held,
             items,
             next,
             store,
@@ -316,9 +373,31 @@ impl Queue {
     }
 
     /// The queue's events. Every clone of the receiver competes for them:
-    /// one reader.
+    /// one reader. Another reader takes [`Queue::subscribe`].
     pub fn events(&self) -> flume::Receiver<QueueEvent> {
         self.events.clone()
+    }
+
+    /// A channel of its own that hears every event from now on — a window
+    /// and an agent's waiting call each hear the same item end. Dropping
+    /// the receiver unsubscribes.
+    pub fn subscribe(&self) -> flume::Receiver<QueueEvent> {
+        self.subscribers.add()
+    }
+
+    /// What the queue is holding for, or `None` while it is not holding.
+    pub fn held(&self) -> Option<Unavailable> {
+        self.held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// The engine on duty may have changed: lift a hold and ask the source
+    /// again for the next item. Nothing happens when the queue is not
+    /// holding — a running item keeps the engine it started with.
+    pub fn engine_changed(&self) {
+        let _ = self.commands.send(worker::Command::Retry);
     }
 
     /// Every item, oldest first, as the queue's thread last saw it.
@@ -350,8 +429,15 @@ impl Queue {
         let _ = self.commands.send(worker::Command::Pause);
     }
 
+    /// Go on after [`Queue::pause`] — and lift a hold too: the person
+    /// asked for the queue to run.
     pub fn resume(&self) {
         let _ = self.commands.send(worker::Command::Resume);
+    }
+
+    /// Whether the person paused the queue, as its thread last saw it.
+    pub fn paused(&self) -> bool {
+        self.store.queue().paused().unwrap_or(false)
     }
 
     /// End an item as cancelled: a running job is stopped, a waiting one

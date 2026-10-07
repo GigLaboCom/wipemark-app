@@ -247,7 +247,7 @@ mod tests {
             .lock()
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("version");
-        assert_eq!(version, 2);
+        assert_eq!(version, MIGRATIONS.len() as i64);
     }
 
     #[test]

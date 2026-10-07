@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use wipemark_engine::RewriteEngine;
+use wipemark_engine::Unavailable;
 use wipemark_intake::Encoding;
 use wipemark_log::Elided;
 use wipemark_pipeline::{
@@ -23,6 +23,7 @@ use wipemark_store::Store;
 use crate::deliver::{self, Undelivered, Written};
 use crate::item::{self, Destination, ItemId, Request, Source, State, Unusable};
 use crate::read::{self, Unread};
+use crate::source::EngineSource;
 use crate::{Done, End, Failure, ItemView, QueueEvent, Shown};
 
 /// How long a shut-down waits for the running job to say it stopped. A
@@ -37,7 +38,40 @@ pub(crate) enum Command {
     Resume,
     Cancel(ItemId),
     Remove(ItemId),
+    /// The engine on duty may have changed: lift a hold.
+    Retry,
     Shutdown,
+}
+
+/// Every reader beyond the first: each hears every event (R4, E4-6b — a
+/// window and an agent's waiting call both hear the item they care about
+/// end). A reader that dropped its receiver is let go of on the next send.
+#[derive(Clone, Default)]
+pub(crate) struct Subscribers(Arc<Mutex<Vec<flume::Sender<QueueEvent>>>>);
+
+impl Subscribers {
+    pub(crate) fn add(&self) -> flume::Receiver<QueueEvent> {
+        let (sender, receiver) = flume::unbounded();
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(sender);
+        receiver
+    }
+
+    fn send(&self, event: &QueueEvent) {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|sender| sender.send(event.clone()).is_ok());
+    }
+}
+
+/// Where the queue's events go: the handle's own channel, and every
+/// subscriber's.
+pub(crate) struct Outbox {
+    pub first: flume::Sender<QueueEvent>,
+    pub others: Subscribers,
 }
 
 /// Why the running job was cancelled — what its `Cancelled` means.
@@ -65,8 +99,10 @@ struct Current {
 
 pub(crate) struct Worker {
     store: Arc<Store>,
-    engine: Arc<dyn RewriteEngine>,
-    events: flume::Sender<QueueEvent>,
+    source: Arc<dyn EngineSource>,
+    events: Outbox,
+    /// What the queue holds for, shared with the handle.
+    held: Arc<Mutex<Option<Unavailable>>>,
     shown: Arc<Mutex<Vec<ItemView>>>,
     requests: BTreeMap<ItemId, Result<Request, Unusable>>,
     paused: bool,
@@ -80,9 +116,10 @@ impl Worker {
     /// the queue was paused. Blocking; called by the constructor.
     pub(crate) fn load(
         store: Arc<Store>,
-        engine: Arc<dyn RewriteEngine>,
-        events: flume::Sender<QueueEvent>,
+        source: Arc<dyn EngineSource>,
+        events: Outbox,
         shown: Arc<Mutex<Vec<ItemView>>>,
+        held: Arc<Mutex<Option<Unavailable>>>,
     ) -> Result<Worker, wipemark_store::Error> {
         let queue = store.queue();
         let interrupted = queue.rename_state(State::Running.as_str(), State::Queued.as_str())?;
@@ -118,8 +155,9 @@ impl Worker {
         *shown.lock().unwrap_or_else(PoisonError::into_inner) = views;
         Ok(Worker {
             store,
-            engine,
+            source,
             events,
+            held,
             shown,
             requests,
             paused,
@@ -135,7 +173,7 @@ impl Worker {
     pub(crate) fn run(mut self, inbox: &flume::Receiver<Command>) {
         self.finish_deliveries();
         loop {
-            if self.current.is_none() && !self.paused {
+            if self.current.is_none() && !self.paused && !self.holding() {
                 if let Some(next) = self.next_waiting() {
                     self.begin(next);
                     continue;
@@ -185,6 +223,7 @@ impl Worker {
                 self.say(QueueEvent::Paused);
             }
             Command::Resume => {
+                self.unhold();
                 if !self.paused {
                     return;
                 }
@@ -209,6 +248,7 @@ impl Worker {
                     self.forget(id);
                 }
             }
+            Command::Retry => self.unhold(),
             // Handled by the loop.
             Command::Shutdown => {}
         }
@@ -262,6 +302,12 @@ impl Worker {
             }
             None => return,
         };
+        // The engine first, before the source is read: an item that cannot
+        // run waits with the queue held, and a file is read once it can.
+        let engine = match self.source.for_item() {
+            Ok(engine) => engine,
+            Err(reason) => return self.hold(reason),
+        };
         let (text, encoding) = match &request.source {
             Source::File(path) => match read::file(path) {
                 Ok(read) => (read.text, read.encoding),
@@ -293,13 +339,7 @@ impl Worker {
             text: text.clone(),
             format: request.format,
         };
-        match start_resumable(
-            job,
-            document,
-            request.options.clone(),
-            Arc::clone(&self.engine),
-            carried,
-        ) {
+        match start_resumable(job, document, request.options.clone(), engine, carried) {
             Ok((handle, jobs)) => {
                 self.save(Some(id), "set state", |store| {
                     store.queue().set_state(id.0, State::Running.as_str())
@@ -356,6 +396,16 @@ impl Worker {
         };
         match event {
             Event::Finished { outcome, .. } => self.finish(&current, *outcome),
+            // The engine refused part way — a model that will not load, a
+            // key the endpoint turned down: not the document's fault. The
+            // item waits with its decided chunks and the queue holds (R1).
+            Event::Failed {
+                error: PipelineError::Unavailable(reason),
+                ..
+            } => {
+                self.interrupt(id);
+                self.hold(reason);
+            }
             Event::Failed { error, .. } => self.fail(id, Failure::Pipeline(error), None),
             Event::Cancelled { .. } => match current.stop {
                 Some(Stop::Cancel) => self.end(id, End::Cancelled, &json!({"end": "cancelled"})),
@@ -555,7 +605,41 @@ impl Worker {
     }
 
     fn say(&self, event: QueueEvent) {
-        let _ = self.events.send(event);
+        self.events.others.send(&event);
+        let _ = self.events.first.send(event);
+    }
+
+    fn holding(&self) -> bool {
+        self.held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some()
+    }
+
+    /// Hold the queue for `reason` — said once per reason, so a source that
+    /// answers the same refusal on every retry is not a stream of events.
+    fn hold(&self, reason: Unavailable) {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        if held.as_ref() == Some(&reason) {
+            return;
+        }
+        *held = Some(reason.clone());
+        drop(held);
+        tracing::info!(%reason, "the queue holds: no engine to run the next item on");
+        self.say(QueueEvent::Held { reason });
+    }
+
+    fn unhold(&self) {
+        let lifted = self
+            .held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+            .is_some();
+        if lifted {
+            tracing::info!("the queue's hold is lifted");
+            self.say(QueueEvent::Unheld);
+        }
     }
 
     /// A database write. A failure is said and logged, and the queue goes
@@ -684,6 +768,9 @@ fn failure_value(failure: &Failure) -> Value {
             Undelivered::OriginalExists(original) | Undelivered::Stranded { original },
         ) => {
             value["original"] = json!(original.to_string_lossy());
+        }
+        Failure::Undelivered(Undelivered::Exists(path)) => {
+            value["existing"] = json!(path.to_string_lossy());
         }
         _ => {}
     }

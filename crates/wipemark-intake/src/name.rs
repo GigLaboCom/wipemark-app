@@ -140,6 +140,15 @@ const EXTENSIONS: &[(&str, Format)] = &[
 /// pattern.
 pub const RESULT_INFIX: &str = "cleaned";
 
+/// The infix a **rewrite's** result carries: `report.md` →
+/// `report.rewritten.md` (В8, E4-6b) — in the windows, the batch queue and
+/// the CLI alike.
+///
+/// Not [`RESULT_INFIX`]: a clean and a rewrite of the same file are two
+/// results, and one name for both is a clean and a rewrite overwriting
+/// each other. A format, like its sibling.
+pub const REWRITTEN_INFIX: &str = "rewritten";
+
 /// The infix a set-aside original carries when a file is replaced:
 /// `report.docx` → `report.original.docx`.
 ///
@@ -271,7 +280,7 @@ fn unescape(text: &str) -> String {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{of, path_in, with_infix, ORIGINAL_INFIX, RESULT_INFIX};
+    use super::{of, path_in, with_infix, ORIGINAL_INFIX, RESULT_INFIX, REWRITTEN_INFIX};
     use crate::format::Format;
 
     #[test]
@@ -294,10 +303,18 @@ mod tests {
 
     #[test]
     fn the_infixes_are_formats_and_stay_ascii() {
-        for infix in [RESULT_INFIX, ORIGINAL_INFIX] {
+        for infix in [RESULT_INFIX, REWRITTEN_INFIX, ORIGINAL_INFIX] {
             assert!(infix.is_ascii() && !infix.contains('.'), "{infix:?}");
         }
         assert_ne!(RESULT_INFIX, ORIGINAL_INFIX);
+        // A clean and a rewrite of one file are two results under two
+        // names (В8), and neither is the set-aside original.
+        assert_ne!(RESULT_INFIX, REWRITTEN_INFIX);
+        assert_ne!(REWRITTEN_INFIX, ORIGINAL_INFIX);
+        assert_eq!(
+            with_infix("article.md", REWRITTEN_INFIX),
+            "article.rewritten.md"
+        );
     }
 
     /// The one case where collapsing would be wrong, for every shape a
@@ -318,7 +335,7 @@ mod tests {
             "x.cleaned",
             "заметки.cleaned.md",
         ] {
-            for infix in [RESULT_INFIX, ORIGINAL_INFIX] {
+            for infix in [RESULT_INFIX, REWRITTEN_INFIX, ORIGINAL_INFIX] {
                 assert_ne!(with_infix(name, infix), name, "{name:?} + {infix:?}");
             }
         }

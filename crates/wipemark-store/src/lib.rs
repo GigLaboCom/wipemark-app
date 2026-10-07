@@ -1,10 +1,11 @@
 //! The local database.
 //!
 //! One SQLite file under the data directory holds everything the
-//! product remembers between runs: the settings table, and since schema
-//! version 2 the batch queue of spec §4.5 ([`Queue`], E4-4). The job
-//! history of §6.3 is the next tenant; they are why this is a database
-//! rather than more files beside `config.toml`.
+//! product remembers between runs: the settings table, since schema
+//! version 2 the batch queue of spec §4.5 ([`Queue`], E4-4), and since
+//! version 3 the document journal ([`Journal`], E4-6b) — a status for
+//! every document, whoever asked. They are why this is a database rather
+//! than more files beside `config.toml`.
 //!
 //! # Why SQLite and not more TOML
 //!
@@ -67,9 +68,11 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
 
+mod journal;
 mod queue;
 mod settings;
 
+pub use journal::{Change, Journal, JournalRow, JournalWriter, NewRow, JOURNAL_SINCE};
 pub use queue::{Queue, QueueRow};
 pub use settings::Settings;
 
@@ -122,6 +125,24 @@ const MIGRATIONS: &[&str] = &[
          paused INTEGER NOT NULL
      );
      INSERT OR IGNORE INTO queue_control (id, paused) VALUES (1, 0)",
+    // 2 -> 3: the document journal (E4-6b). One row per document handed
+    // over — by a window, the command line or an agent — with its state and
+    // what came of it, the outcome and the rest as JSON the store does not
+    // read. Metadata only: the document itself is never a column here
+    // (D312). `AUTOINCREMENT` for the queue's reason: an id an agent was
+    // told keeps naming the row it named. `ended` is what the keep period
+    // sweeps by, so it has an index.
+    "CREATE TABLE IF NOT EXISTS journal (
+         id      INTEGER PRIMARY KEY AUTOINCREMENT,
+         origin  TEXT NOT NULL,
+         action  TEXT NOT NULL,
+         state   TEXT NOT NULL,
+         item    INTEGER,
+         arrived INTEGER NOT NULL,
+         ended   INTEGER,
+         entry   TEXT NOT NULL
+     );
+     CREATE INDEX IF NOT EXISTS journal_ended ON journal (ended)",
 ];
 
 /// The version [`MIGRATIONS`] arrives at. A database numbered higher
@@ -183,6 +204,27 @@ pub enum Error {
         what: &'static str,
         #[source]
         source: rusqlite::Error,
+    },
+
+    /// A journal statement failed; `what` names which, never a value.
+    #[error("the journal: {what}")]
+    Journal {
+        what: &'static str,
+        #[source]
+        source: rusqlite::Error,
+    },
+
+    /// A database the application has not migrated to the journal yet.
+    /// Only the application migrates; a [`JournalWriter`] says this and
+    /// writes nothing.
+    #[error(
+        "the database at {path} is at schema version {found}; the journal needs {needs}, which \
+         the application brings it to when it next starts"
+    )]
+    TooOld {
+        path: PathBuf,
+        found: i64,
+        needs: i64,
     },
 
     /// The stored text is not the JSON this build expected. Kept
@@ -307,6 +349,14 @@ impl Store {
         };
         store.prepare(true)?;
         Ok(store)
+    }
+
+    /// A store over a connection already prepared — [`JournalWriter`]'s.
+    pub(crate) fn from_connection(connection: Connection, path: &Path) -> Self {
+        Self {
+            connection: Mutex::new(connection),
+            path: path.to_path_buf(),
+        }
     }
 
     /// The file this store was opened from.

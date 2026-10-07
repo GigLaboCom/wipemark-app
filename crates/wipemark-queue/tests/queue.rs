@@ -250,7 +250,7 @@ fn an_unreadable_document_fails_and_the_queue_moves_on() {
         "an eight-bit encoding is refused, never guessed"
     );
     assert!(matches!(end_of(&events, c), End::Done(_)));
-    assert!(!scratch.path("holiday.cleaned.txt").exists());
+    assert!(!scratch.path("holiday.rewritten.txt").exists());
     let failed = queue
         .items()
         .into_iter()
@@ -335,7 +335,7 @@ fn a_file_changed_before_the_resume_is_rewritten_whole() {
     assert!(discarded >= recorded, "{discarded} of {recorded}");
     assert_eq!(engine.asked().len() - asked_before, 6, "every chunk again");
     assert_eq!(
-        std::fs::read_to_string(scratch.path("notes.cleaned.txt")).expect("beside"),
+        std::fs::read_to_string(scratch.path("notes.rewritten.txt")).expect("beside"),
         reference(&changed)
     );
 }
@@ -355,7 +355,7 @@ fn a_result_goes_beside_the_file_and_the_file_is_untouched() {
         ))
         .expect("pushed");
     let done = done(end_of(&events, item));
-    let beside = scratch.path("note.cleaned.md");
+    let beside = scratch.path("note.rewritten.md");
     assert_eq!(
         done.written,
         Some(wipemark_queue::Written {
