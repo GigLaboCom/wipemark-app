@@ -1005,7 +1005,9 @@ All private, O(n), slices of their input in source order.
   `It was 3.` → `3`; `0.5 %` → `0.5`; `12:00-13:00` → itself; `-5` → `5`.
 - **Identifiers** — maximal runs of non-`White_Space` (E1-2's
   definition, re-stated in `guard.rs` because `stats::is_white_space` is
-  private; U+200B is not whitespace), trimmed at both ends by `TRIM`,
+  private; U+200B is not whitespace), cut again at every canonical
+  placeholder, which ends a token as a space does (D300), trimmed at
+  both ends by `TRIM`,
   kept when any of five shapes holds: **URL** (contains `://`),
   **e-mail** (an `@` with a character before it and a `.` after it),
   **path** (at least two non-empty segments when split on `/` and `\`),
@@ -1020,6 +1022,19 @@ U+2018, U+2019, U+201C, U+201D, U+201E, U+2039, U+203A and the backtick
 U+0060 — so a rewrite that curls or straightens the quotes around an
 identifier, or drops its Markdown backticks, has not lost it. Only the
 ends are trimmed; the `’` inside `user’s` stays.
+
+A placeholder ends an identifier (D300, 2026-10-07). It stands for a
+protected span the model never sees — a link's `[` and `](url)`, a code
+span — so the prose glued to it is a word of its own. Before, the
+link-only line `**→ [host/path](url)**` was the chunk
+`**→ ⟦1⟧host/path⟦2⟧**`, its one identifier the token
+`⟦1⟧host/path⟦2⟧**`, and every candidate that moved or dropped the bold
+lost it: Qwen3.8 27B's run of 2026-10-07 refused every candidate of such
+a line. Now the identifier is `host/path`, and a candidate that drops it
+is still refused. What is a placeholder is the placeholder tokenizer's
+definition above — the format `wipemark_pipeline::placeholder` writes,
+which core re-states (`placeholder_at`) because core depends on nothing.
+Brackets around anything else (`⟦01⟧`) are text and split nothing.
 
 ### Why strict, and what they cannot see
 

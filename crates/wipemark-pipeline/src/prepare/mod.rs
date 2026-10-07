@@ -94,8 +94,9 @@ const CLOSE: char = '\u{27E7}';
 ///
 /// The one place the format lives (D68), so the bench (E4-5) can try
 /// another. [`placeholders_in`] is its reader and shares its brackets;
-/// `wipemark_core::PlaceholderGuard` hard-codes the same format and has
-/// to move with it.
+/// `wipemark_core`'s guards hard-code the same format and have to move
+/// with it — `PlaceholderGuard` counts the placeholders, `NumbersGuard`
+/// skips their digits and `IdentifierGuard` ends a token at one (D300).
 pub fn placeholder(n: usize) -> String {
     format!("{OPEN}{n}{CLOSE}")
 }
