@@ -230,13 +230,14 @@ codegen-units = 1
 #
 # `[patch]` matches by package name, and the package is the snapshot's
 # `gpui-pre-linux`, not zed's `gpui_linux`. GigLaboCom/zed, branch
-# `wipemark/gpui-pre-0.3.8` (cut from 279fe07, the commit gpui-pre 0.3.8
-# was made from), holds the hunk twice: on zed's own crate (57bcc82, what
-# an upstream PR would be made from) and on the published crate unpacked
-# at `gpui-pre-linux/` (1922e15 as published, 4a091ed patched), which is
+# `wipemark/gpui-pre-0.3.8-r2` (cut from 279fe07, the commit gpui-pre
+# 0.3.8 was made from), holds the change twice: on zed's own crate
+# (9c78601, in zed's style and with an upstream-ready message — what a PR
+# would be made from) and on the published crate unpacked at
+# `gpui-pre-linux/` (6485d48 as published, 54e4976 changed), which is
 # what this takes — by rev, never by branch. The version stays 0.3.8, so
 # a snapshot bump without a re-carried patch is not silently unpatched:
 # Cargo warns that the patch was not used, and `scripts/check-gpui-pin.sh`
 # fails on the resolved source.
 [patch.crates-io]
-gpui-pre-linux = { git = "https://github.com/GigLaboCom/zed", rev = "4a091ed4ddf039ba76ca06b9f69a58de521adee6" }
+gpui-pre-linux = { git = "https://github.com/GigLaboCom/zed", rev = "54e49766049313ccfdb11ab6fa389cc99ea43c53" }

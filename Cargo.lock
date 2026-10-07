@@ -3034,7 +3034,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-linux"
 version = "0.3.8"
-source = "git+https://github.com/GigLaboCom/zed?rev=4a091ed4ddf039ba76ca06b9f69a58de521adee6#4a091ed4ddf039ba76ca06b9f69a58de521adee6"
+source = "git+https://github.com/GigLaboCom/zed?rev=54e49766049313ccfdb11ab6fa389cc99ea43c53#54e49766049313ccfdb11ab6fa389cc99ea43c53"
 dependencies = [
  "accesskit",
  "accesskit_unix",
