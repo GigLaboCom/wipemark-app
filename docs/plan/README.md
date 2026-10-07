@@ -940,6 +940,22 @@ the gate the overview set, and the open edges.
     `wipemark.db` **read-only** today (`CLAUDE.md`, "Preferences are rows")
     and would have to write the queue's rows itself; and an MCP `inspect`
     (a look, no result) is a row or not.
+    **Tasks filed 2026-10-07:** `wipemark-task-e4-6b-windows-rewrite-2026-10-07`
+    (the windows rewrite, the queue pushed to, a status row for every
+    document; owner questions В1–В10) and
+    `wipemark-task-e4-6c-templates-widgets-2026-10-07` (the Prompts page,
+    "Check template", the pivot; Г1–Г7). **The owner took every default**
+    ("делай по дефолту"): a drop waits for Rewrite / Rewrite all, with a
+    General switch for what arrives (off); Clean and Rewrite stay two; the
+    table is a journal that survives a restart (finished rows kept 7 days);
+    the CLI writes journal rows without the app; `--no-record` /
+    `"record": false`; `inspect` is no row unless asked; a rewrite is
+    `name.rewritten.ext`; MCP jobs first come first served; the panel does
+    not rewrite yet; templates in their own "Prompts" section, adaptation on a
+    button only, checks on a built-in sample, a template's length checked
+    against the engine's window on every surface. Both start after
+    `fix/owner-2026-10-07` (F1–F6) is merged; E4-6b decisions D310–D329,
+    E4-6c D330 on.
   - **Seen on 2026-10-07, Qwen3.8 27B in the application** (a 2 285-word
     Markdown article, paraphrase moderate, GPU 2 × 2, through
     `wipemark-cli rewrite` → the running application; 52 chunks, 110 calls,
