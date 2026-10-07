@@ -114,6 +114,7 @@ use crate::models::Folder;
 // dialog's yes or no, and two words that short would read as one.
 use crate::placement::{self, Onto, Origin, Spot, Zone};
 use crate::profile::{self, Profile, Standing};
+use crate::prompts::PromptsPage;
 use crate::recorder::{Recorder, RecorderEvent};
 use crate::retention::{self, Destination, Homes, Period, Retention};
 use crate::screen::{self, Connected, Screen};
@@ -186,6 +187,8 @@ pub enum Section {
     Placement,
     Compare,
     Engine,
+    /// E4-6c: how a model is asked — the templates and the pivot.
+    Prompts,
     Models,
     Retention,
     Mcp,
@@ -213,11 +216,16 @@ impl Section {
     /// work: Engine says who rewrites, Models what is on the disk, and
     /// Retention what is written once they have — and what the product
     /// keeps of its own. After it only the integration is left.
-    pub const ALL: [Section; 7] = [
+    ///
+    /// Prompts ("Rewriting") follows Engine (E4-6c, Г1): Engine is *who*
+    /// rewrites, this is *how* they are asked, and it is not inside
+    /// Engine because a template outlives every engine it is sent to.
+    pub const ALL: [Section; 8] = [
         Self::General,
         Self::Placement,
         Self::Compare,
         Self::Engine,
+        Self::Prompts,
         Self::Models,
         Self::Retention,
         Self::Mcp,
@@ -230,6 +238,7 @@ impl Section {
             Self::Placement => Message::SettingsSectionPlacement,
             Self::Compare => Message::SettingsSectionCompare,
             Self::Engine => Message::SettingsSectionEngine,
+            Self::Prompts => Message::SettingsSectionPrompts,
             Self::Models => Message::SettingsSectionModels,
             Self::Retention => Message::SettingsSectionRetention,
             Self::Mcp => Message::SettingsSectionMcp,
@@ -259,6 +268,9 @@ impl Section {
             // page and the window are found by the same picture.
             Self::Compare => IconName::CodeCompare,
             Self::Engine => IconName::Microchip,
+            // A pen: this page is where the words a model is sent are
+            // written.
+            Self::Prompts => IconName::Pen,
             // A disk, because that is what this page is about: weights
             // that take gigabytes of it and stay there until they are
             // removed.
@@ -283,6 +295,7 @@ impl Section {
             Self::Placement => "placement",
             Self::Compare => "compare",
             Self::Engine => "engine",
+            Self::Prompts => "prompts",
             Self::Models => "models",
             Self::Retention => "retention",
             Self::Mcp => "mcp",
@@ -344,6 +357,8 @@ pub enum Setting {
     EngineTemperature,
     EngineReasoning,
     EngineTimeout,
+    /// E4-6c: the pivot of `back_translate` (D60, D331).
+    RewritePivot,
     ModelsFolder,
     ModelForRewrite,
     ResultsDestination,
@@ -388,7 +403,7 @@ impl Setting {
     ///
     /// The Compare rows put what is *marked* before how the two sides
     /// *move*: a reader opens the window for the marks.
-    pub const ALL: [Setting; 32] = [
+    pub const ALL: [Setting; 33] = [
         Self::Appearance,
         Self::Language,
         Self::ShortcutShow,
@@ -411,6 +426,7 @@ impl Setting {
         Self::EngineTemperature,
         Self::EngineReasoning,
         Self::EngineTimeout,
+        Self::RewritePivot,
         Self::ModelsFolder,
         Self::ModelForRewrite,
         Self::ResultsDestination,
@@ -446,6 +462,7 @@ impl Setting {
             | Self::EngineTemperature
             | Self::EngineReasoning
             | Self::EngineTimeout => Section::Engine,
+            Self::RewritePivot => Section::Prompts,
             Self::ModelsFolder | Self::ModelForRewrite => Section::Models,
             Self::ResultsDestination
             | Self::ResultsFolder
@@ -481,6 +498,7 @@ impl Setting {
             Self::EngineTemperature => Message::SettingsEngineTemperatureTitle,
             Self::EngineReasoning => Message::SettingsEngineReasoningTitle,
             Self::EngineTimeout => Message::SettingsEngineTimeoutTitle,
+            Self::RewritePivot => Message::SettingsPromptsPivotTitle,
             Self::ModelsFolder => Message::SettingsModelsFolderTitle,
             Self::ModelForRewrite => Message::SettingsModelsRewriteTitle,
             Self::ResultsDestination => Message::SettingsRetentionDestinationTitle,
@@ -527,6 +545,7 @@ impl Setting {
             Self::EngineTemperature => Message::SettingsEngineTemperatureDescription,
             Self::EngineReasoning => Message::SettingsEngineReasoningDescription,
             Self::EngineTimeout => Message::SettingsEngineTimeoutDescription,
+            Self::RewritePivot => Message::SettingsPromptsPivotDescription,
             Self::ModelsFolder => Message::SettingsModelsFolderDescription,
             Self::ModelForRewrite => Message::SettingsModelsRewriteDescription,
             Self::ResultsDestination => Message::SettingsRetentionDestinationDescription,
@@ -588,6 +607,7 @@ impl Setting {
             Self::EngineTemperature => Storage::Row(config::ENGINE_TEMPERATURE_KEY),
             Self::EngineReasoning => Storage::Row(config::ENGINE_REASONING_KEY),
             Self::EngineTimeout => Storage::Row(config::ENGINE_TIMEOUT_KEY),
+            Self::RewritePivot => Storage::Row(config::REWRITE_PIVOT_KEY),
             Self::ModelsFolder => Storage::Row(config::MODELS_DIR_KEY),
             Self::ModelForRewrite => Storage::Row(config::MODEL_REWRITE_KEY),
             Self::ResultsDestination => Storage::Row(config::RESULTS_DESTINATION_KEY),
@@ -962,6 +982,9 @@ pub struct Preferences {
     /// the platform's Downloads folder, and `<data dir>/kept`. Gathered
     /// by `main` once, for the reason `models_default` is.
     homes: Homes,
+    /// E4-6c: a clone of the handle the MCP server was given — what the
+    /// Prompts page's Check and adaptation reach the engine through.
+    rewriter: EngineHandle,
 }
 
 /// A download in flight.
@@ -1028,6 +1051,7 @@ impl Preferences {
         // `rewrite` tool runs the pipeline on the engine on duty, reads the
         // template rows off this store, and leaves a beacon under the data
         // directory while it listens, so the CLI finds it (D52).
+        let rewriter = engine_handle.clone();
         let supervisor = Supervisor::spawn(
             events,
             server::Tools {
@@ -1156,7 +1180,17 @@ impl Preferences {
             retention,
             comparison,
             homes,
+            rewriter,
         }
+    }
+
+    // E4-6c
+
+    /// The way to the engine on duty that the Prompts page checks and
+    /// adapts a template through — the handle the MCP server holds, so a
+    /// check is counted busy like any job (D51).
+    pub fn rewriter(&self) -> EngineHandle {
+        self.rewriter.clone()
     }
 
     /// Preferences over a store that forgets, for a test that builds a
@@ -3055,6 +3089,9 @@ struct SettingsView {
     period_select: Entity<SelectState<Vec<Choice<Period>>>>,
     /// How many idle minutes unload an on-demand model. Five fixed spans.
     idle_select: Entity<SelectState<Vec<Choice<u32>>>>,
+    /// E4-6c: the Prompts section — its slots, its editor, its check —
+    /// an entity of its own, built with the window like every widget.
+    prompts: Entity<PromptsPage>,
     /// The engine host, for the Engine page's local-model block — `None`
     /// only where nothing installed one.
     host: Option<Entity<EngineHost>>,
@@ -3600,6 +3637,11 @@ impl SettingsView {
             },
         );
 
+        let prompts = {
+            let preferences = preferences.clone();
+            cx.new(|cx| PromptsPage::new(preferences, window, cx))
+        };
+
         let host = engine_host::hosted(cx);
         let watched_host = host
             .as_ref()
@@ -3719,6 +3761,7 @@ impl SettingsView {
             results_shown,
             period_select,
             idle_select,
+            prompts,
             host,
             section: at.unwrap_or(Section::General),
             client: Client::ClaudeCode,
@@ -3836,6 +3879,10 @@ impl SettingsView {
             select.set_items(choices, window, cx);
             select.set_selected_index(row, window, cx);
         });
+
+        // E4-6c: the pivot's dropdown and the page's own fields.
+        self.prompts
+            .update(cx, |page, cx| page.retranslate(window, cx));
 
         // Not a row label, but the one string inside a control that
         // would otherwise stay in the language the window opened in.
@@ -3978,6 +4025,7 @@ impl SettingsView {
             Setting::EngineTemperature => number_field(&self.temperature).into_any_element(),
             Setting::EngineReasoning => self.reasoning_selector().into_any_element(),
             Setting::EngineTimeout => number_field(&self.timeout).into_any_element(),
+            Setting::RewritePivot => self.prompts.read(cx).pivot_control().into_any_element(),
             Setting::ModelsFolder => self.folder_control(cx).into_any_element(),
             Setting::ModelForRewrite => self.model_selector().into_any_element(),
             Setting::ResultsDestination => self.destination_choice(cx).into_any_element(),
@@ -4550,6 +4598,24 @@ impl SettingsView {
 
     /// The Engine page: what this configuration would do, the rows that
     /// decide it, and the sentence saying that nothing does it yet.
+    /// E4-6c: the Prompts section ("Rewriting"): its heading, the banner,
+    /// the pivot row, and the page that lists every template.
+    fn prompts_page(&self, cx: &Context<Self>) -> impl IntoElement {
+        let duty = self.preferences.read(cx).duty(Role::Rewrite);
+        let (glyph, tone, lines) = crate::prompts::banner(&duty);
+        v_flex()
+            .gap_4()
+            .child(heading(
+                Message::SettingsPromptsTitle,
+                Some(Message::SettingsPromptsDescription),
+                cx,
+            ))
+            .child(notice(glyph, tone.colour(cx), lines, cx))
+            .child(crate::prompts::variables_table(cx))
+            .child(self.rows(Section::Prompts, cx))
+            .child(self.prompts.clone())
+    }
+
     fn engine(&self, cx: &Context<Self>) -> impl IntoElement {
         v_flex()
             .gap_4()
@@ -7411,6 +7477,7 @@ impl Render for SettingsView {
                                 Section::Placement => self.placement(cx).into_any_element(),
                                 Section::Compare => self.compare(cx).into_any_element(),
                                 Section::Engine => self.engine(cx).into_any_element(),
+                                Section::Prompts => self.prompts_page(cx).into_any_element(),
                                 Section::Models => self.models(cx).into_any_element(),
                                 Section::Retention => self.retention(cx).into_any_element(),
                                 Section::Mcp => self.mcp(cx).into_any_element(),

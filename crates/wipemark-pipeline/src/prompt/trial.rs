@@ -26,7 +26,7 @@
 
 use std::time::{Duration, Instant};
 
-use wipemark_core::{Guard as _, GuardOutcome};
+use wipemark_core::GuardOutcome;
 use wipemark_engine::{
     CancellationToken, ChatRequest, EngineError, FinishReason, RewriteEngine, SamplingParams,
     TokenSink, Unavailable,
