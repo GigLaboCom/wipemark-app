@@ -92,8 +92,8 @@ use std::time::{Duration, Instant};
 use gpui::{App, AppContext as _, Context, Entity, Global, Subscription, Task};
 use wipemark_engine::http::KeyFault;
 use wipemark_engine::{
-    async_trait, CancellationToken, ChatRequest, Completion, EngineError, EngineInfo, LoadProgress,
-    LoadSink, RewriteEngine, SamplingParams, TokenSink, Unavailable,
+    async_trait, CancellationToken, ChatRefusal, ChatRequest, Completion, EngineError, EngineInfo,
+    LoadProgress, LoadSink, RewriteEngine, SamplingParams, TokenSink, Unavailable,
 };
 use wipemark_i18n::{args, t_args, Message};
 use wipemark_models::manifest::Role;
@@ -1688,6 +1688,12 @@ fn refusal_message(why: &Unavailable) -> Message {
             KeyFault::Control => Message::EngineRefusalKeyUnsendableControl,
             KeyFault::Space => Message::EngineRefusalKeyUnsendableSpace,
         },
+        Unavailable::ChatFormat(ChatRefusal::NoTemplate) => {
+            Message::EngineRefusalChatFormatNoTemplate
+        }
+        Unavailable::ChatFormat(ChatRefusal::Unrecognised) => {
+            Message::EngineRefusalChatFormatUnrecognised
+        }
     }
 }
 
@@ -2322,6 +2328,8 @@ mod tests {
             Unavailable::KeyUnsendable(KeyFault::NotAscii),
             Unavailable::KeyUnsendable(KeyFault::Control),
             Unavailable::KeyUnsendable(KeyFault::Space),
+            Unavailable::ChatFormat(ChatRefusal::NoTemplate),
+            Unavailable::ChatFormat(ChatRefusal::Unrecognised),
         ];
         for why in &all {
             match why {
@@ -2339,7 +2347,8 @@ mod tests {
                 | Unavailable::Refused { .. }
                 | Unavailable::KeyUnreadable { .. }
                 | Unavailable::NoKey
-                | Unavailable::KeyUnsendable(_) => {}
+                | Unavailable::KeyUnsendable(_)
+                | Unavailable::ChatFormat(_) => {}
             }
         }
         all

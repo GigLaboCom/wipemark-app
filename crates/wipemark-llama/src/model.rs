@@ -316,18 +316,28 @@ impl Model {
         self.session.n_ctx_train()
     }
 
+    /// Whether a conversation can be written for this model — the verdict
+    /// [`crate::chat_support`] gives the chat template it carries.
+    pub fn chat_support(&self) -> crate::ChatSupport {
+        crate::chat_support(self.session.chat_template().as_deref())
+    }
+
     /// Render one system message (when given) and one user message with the
     /// chat template the GGUF carries, ending with the assistant's opener so
     /// generation continues as the assistant — with thinking off, where the
     /// template has a switch for it. Gemma 4 and ChatML-with-a-switch are
     /// rendered by this crate (`chat`), everything else by
     /// `llama_chat_apply_template`. A model whose template neither
-    /// recognises is refused rather than formatted with a guess: a wrong
-    /// template still produces fluent text.
+    /// recognises is refused by name ([`LlamaError::ChatFormat`]) rather
+    /// than formatted with a guess: a wrong template still produces fluent
+    /// text.
     pub fn chat_prompt(&self, system: Option<&str>, user: &str) -> Result<String, LlamaError> {
-        let template = self.session.chat_template().ok_or_else(|| {
-            LlamaError::Inference("the model carries no chat template".to_owned())
-        })?;
+        let template = self.session.chat_template();
+        let support = crate::chat_support(template.as_deref());
+        if let Some(refused) = support.refusal() {
+            return Err(LlamaError::ChatFormat(refused));
+        }
+        let template = template.unwrap_or_default();
         if let Some(family) = crate::chat::family_of(&template) {
             return Ok(crate::chat::render(family, system, user));
         }
@@ -481,6 +491,10 @@ impl Model {
     }
 
     pub fn n_ctx_train(&self) -> u32 {
+        match self.never {}
+    }
+
+    pub fn chat_support(&self) -> crate::ChatSupport {
         match self.never {}
     }
 

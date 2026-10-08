@@ -1204,6 +1204,12 @@ pub(crate) fn refusal_line(why: &Unavailable) -> String {
             },
             none(),
         ),
+        Unavailable::ChatFormat(wipemark_engine::ChatRefusal::NoTemplate) => {
+            (Message::EngineRefusalChatFormatNoTemplate, none())
+        }
+        Unavailable::ChatFormat(wipemark_engine::ChatRefusal::Unrecognised) => {
+            (Message::EngineRefusalChatFormatUnrecognised, none())
+        }
     };
     t_args(message, &args)
 }
