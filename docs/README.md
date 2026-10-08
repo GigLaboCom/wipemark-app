@@ -29,6 +29,7 @@
 | [sdd/layer-b-rewrite-reference.md](sdd/layer-b-rewrite-reference.md) | the upstream Layer B rewrite reference — every prompt verbatim, the Ollama / OpenAI-compatible wire format, and what we take from it |
 | [architecture/visible-marks.md](architecture/visible-marks.md) | visible marks as built (E12-1): `wipemark-pixels` — the raster, the `.wma` map, the catalogue `manifests/marks.v1.json` and its checks, propose (rows, then the bounded search) → verify (edge energy, the gain sweep) → restore, holes, the report and its third shelf, the thresholds and what is not here yet |
 | [sdd/visible-marks.md](sdd/visible-marks.md) | visible marks on AI pictures — the study (GeminiWatermarkTool, every vendor, invisible marks) and the E12 architecture; the plan is [plan/E12-visible-marks.md](plan/E12-visible-marks.md) |
+| [plan/E12-R-recon.md](plan/E12-R-recon.md) | the restoration measured, then made more precise (E12-R1…R12): the regression over real files, the corpora, the JPEG planes, the analytics, the bench with ground truth, the planar inverse, `consistency`, the value inside the codec's interval, the blend model where the evidence asks, models at a stated trigger, and Grok — twelve self-contained steps, proposed D301–D312 |
 | [sdd/hooks.md](sdd/hooks.md) | every hook in this repository across five meanings of the word, and the ones that deliberately do not exist |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | submodule setup, the pin script, the gates |
 | [../manifests/README.md](../manifests/README.md) | model manifest shape and why it ships empty |

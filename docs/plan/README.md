@@ -186,6 +186,7 @@ opens its own pull request against `main` instead of riding on `feat`.
 | 4 | `images/series-v3` (or the next images round) | three doc nits not yet filed: `visible-marks.md` 3439–3441 → 3442; "all 22" against `crying`'s aside; the fixtures README's `.convert("RGB")` | to be filed with the next images task | — | open |
 | 5 | `e4/windows-rewrite` | E4-6b: rewriting from the windows, with the queue (`wipemark-queue`) pushed to | to be written | — | next epic step |
 | 6 | — | E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), E9 licensing, E10 packaging | to be written | — | §7 |
+| 7 | `recon/r<n>` (one branch per step) | **E12-R1…R12, the restoration measured, then made more precise**, from the owner's spec `wipemark-recon-spec-2026-10-08`: the regression over real files with gates by route (R1), the corpora (R2, the owner's generations first), the JPEG planes through a `zune-jpeg` fork (R3), the analytics that decide what changes (R4), the bench against ground truth (R5), the planar inverse for 4:2:0 (R6), `consistency` (R7), the value inside the codec's interval (R8), the blend model only where R4 asks (R9), FDnCNN/LaMa at a stated trigger (R10), Grok's map, profile, thresholds and support (R11, R12) | [E12-R-recon.md](E12-R-recon.md) and its twelve steps; Watchword `wipemark-recon-plan-2026-10-08`; one task per step when dispatched | proposed D301–D312 | **filed 2026-10-08, not started**; R1, R2 and R3 can start at once (R3 waits for the fork repository, Q-R9) |
 
 **Open with the owner** (§5): Q-C1–Q-C4 (E7's defaults: clean on arrival,
 all metadata, Layer A's finer choices, an existing result), Q-C6 (refuse
@@ -691,6 +692,7 @@ tell a decision from an accident.
 | **D288** | **A clean that panics ends as `Failure::Panicked` and the line goes on** (X12): `cleaner::Cleaner` runs each clean under `catch_unwind`; `clean-failed-panicked` in en, ru, de asks the person to look where the result would go, and does not say nothing was written. | Uncaught, `Line::running` stayed set and every later clean in both windows waited for ever; a panic can fall after a write. Since Y1 the plan is taken inside the catch too, and since Y8 `inplace`'s unwind guards leave no temporary and the original under its name when a panic falls between the stage and the publish; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-2-2026-10-06.md`. |
 | **D289** | **A text's third shelf is a field of its report** (X14): `InspectReport` and `CleanReport` carry `not_established`, filled from `not_established::ALL`; `to_json` writes the field and the window's `shelf_ids` reads it, as W11 does for a picture. The JSON is unchanged byte for byte. | Two surfaces reading one constant is the drift W11 removed for pictures. Held by a core test against the JSON at `2f7ce56`, and by the host over 191 CLI commands and 89 MCP answers (`scripts/verify/e7/json-bytes.sh`, `mcp-bytes.sh`); core keeps zero dependencies; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-2-2026-10-06.md`. |
 | **D290** | **The panel's look, its painted row and its clean read one plan** (Y4): `Held` keeps the plan each listed thing was looked at by; the panel observes `Preferences`, plans the held things again on every notification, and looks again — one read on the background executor — at each thing not yet cleaned whose plan moved. A look lands only while its plan is still the thing's. | Taken once per drop the look went stale the moment the Retention page changed — a link dropped under *Beside* and switched to *In place* was painted as going ahead while its clean would refuse it. Planning is pure and cheap; only a changed plan costs a read, never a frame (D278 kept). The stale-look guard's test is follow-ups-4 Z2; `docs/plan/E7-windows-clean.md` §9, report `docs/plan/reports/E7-followups-3-2026-10-06.md`. |
+| **D301–D312** | *(proposed by the E12-R series, 2026-10-08; the coordinator numbers them when each step lands)* D301 `zune-jpeg` from the fork `GigLaboCom/zune-image`, pinned by `[patch.crates-io]`; D302 `wipemark_pixels::Planes` and `Decoded.planes`; D303 regression routes `lossy`/`model`/`detect` and their gates; D304 a corpus is a dated Watchword ZIP with its manifest in git; D305 `consistency_px`/`consistency_dct` in `Restored`; D306 out of range by planes for 4:2:0/4:2:2 (amends D240, D252); D307 `TEXTURE_RATIO_MIN` 0.8; D308 a bias as profile data (conditional); D309 bounds as profile data (conditional); D310 restored vs reconstructed; D311 D152 revisited only on three agreements; D312 every file-reading developer tool is a `wipemark-picture` example, `synth` `#[doc(hidden)]` in `wipemark-pixels` | [E12-R-recon.md](E12-R-recon.md) §5.2, each with the step that confirms or amends it. The owner's decisions of 2026-10-08 that the series records as taken are S1–S12 there (§5.1). |
 
 ---
 
@@ -732,6 +734,7 @@ answered moves here or to §4.
 | Q-C4 | when a result is already there, refuse or pick a new name (`name.cleaned-2.md`)? | — | **Open (owner), from E7.** Refused and left as it is (D261); "Replace the existing result" writes over it on request (D270). |
 | Q-C5 | *(engineering)* Compare decodes leniently, the preview's way; the queue strictly (`wipemark_intake::text::decode`): a file the queue refuses is still compared | — | **Answered by D282** (follow-up W6, merged as `2f7ce56`): Compare reads through `clean::text_of`, the queue's strict road, and refuses with the queue's sentence; the lenient decode is the preview's alone. |
 | Q-C6 | should a clean refuse what is not a regular file — a FIFO, a socket, a device — before opening it? | — | **Open (owner), from the E7 follow-ups' X2;** the implementer and the host verifier both think it sound hardening. Not built: such a file is opened and read under the limits (D264), and W5's FIFO test is how a file that grows during the read is tested — refusing first would retire that test, and the read-side check would need another (a file appended to by a second thread, which is racy). |
+| Q-R1–Q-R9 | the restoration and Grok: rows fitted by the residual (D236), FDnCNN into Rust, E12-7's inpainter, Grok support when its opacity varies, xAI's policy, exit 3 by holes, the blind A/B's observers, bounds as profile data, the fork repository | E12-R | Listed in [E12-R-recon.md](E12-R-recon.md) §6, each with what the series does meanwhile: nothing moves, a hole is a mark left (exit 3), no model is integrated, no Grok profile ships. |
 
 ---
 
@@ -1117,6 +1120,15 @@ the gate the overview set, and the open edges.
     the windows clean a picture since E7 (`7621c9f`, at AI-provenance
     scope, Q-C2); Compare for pictures, a badge per finding and the batch
     queue's picture item are not started.
+  - **E12-R1…R12 — the restoration measured, then made more precise**
+    (filed 2026-10-08 from the owner's spec `wipemark-recon-spec-2026-10-08`):
+    [E12-R-recon.md](E12-R-recon.md). Instruments first — the regression
+    over real files (R1), the corpora (R2), the JPEG planes (R3), the
+    analytics (R4), the bench with ground truth (R5) — then the changes:
+    the planar inverse for 4:2:0 (R6), `consistency` (R7), the value inside
+    the codec's interval on a lossy source (R8), the blend model where R4
+    asks (R9); models at a stated trigger (R10); Grok as E12-6 (R11, R12).
+    Proposed D301–D312, owner questions Q-R1…Q-R9 — status: not started.
 
 ---
 

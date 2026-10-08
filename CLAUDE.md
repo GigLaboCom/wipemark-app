@@ -1693,6 +1693,10 @@ What exists so far:
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 | `wipemark-status-2026-10-05` | FILE | where the project stood at the end of 2026-10-05: images rounds 3–5, E7 merged, the X11 first frame fixed through `GigLaboCom/zed`, and the plan of pull requests and branches (`docs/plan/README.md` §2.1) — PR #1 and what comes next, in order |
 | `wipemark-status-2026-10-06` | TEXT | where the project stood at the end of 2026-10-06: E7 follow-ups X1–X14 and Y1–Y9 merged, Z1–Z3 filed, mutation tables dropped for `coverage.yml` (on `main` and by hand), what is next |
+| `wipemark-recon-spec-2026-10-08` | FILE | the owner's spec for the restoration's precision, its verification and models (a ZIP of ten files, `00-context` … `09-decisions`, Russian), checked against `4b5ba17`; it absorbed the earlier recon, cleanup and verification notes |
+| `wipemark-recon-plan-2026-10-08` | FILE | `docs/plan/E12-R-recon.md`: the E12-R series built from that spec — twelve steps, the order, what the code changed in the spec, the owner's S1–S12, proposed D301–D312, Q-R1…Q-R9 |
+| `wipemark-recon-r1-regression-harness-2026-10-08` … `wipemark-recon-r12-grok-thresholds-and-support-2026-10-08` | FILE ×12 | the series' self-contained step documents, `docs/plan/E12-R1` … `E12-R12` (`-r2-corpora`, `-r3-jpeg-planes`, `-r4-corpus-analytics`, `-r5-recon-bench`, `-r6-planar-inverse`, `-r7-consistency`, `-r8-value-inside-the-interval`, `-r9-blend-model-changes`, `-r10-model-evaluation`, `-r11-grok-map` between) |
+| `wipemark-recon-plan-filed-2026-10-08` | TEXT | what was filed on 2026-10-08, what the code changed in the spec, and the order of the series |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
@@ -1712,7 +1716,7 @@ E3 models → E4 pipeline → E5 CLI → E6 GPUI shell → E7 workspace UI →
 E8 models/engine UI → E9 licensing → E10 packaging; E11 images is
 phase 2 and E12 visible marks phase 2b — E11-1…E11-3 and E12-1…E12-5
 are done (the images series merged 2026-10-05); E12-6 (other vendors)
-and E12-7 (the reconstructor) are not started. **E7's windows clean is
+and E12-7 (the reconstructor) are not started; the E12-R series (the restoration measured against ground truth and made more precise, Grok as E12-6) is filed — `docs/plan/E12-R-recon.md`, not started. **E7's windows clean is
 done** (E7-1…E7-6, merged 2026-10-05 as `7621c9f`; follow-ups W1–W15
 merged as `2f7ce56`; follow-ups X1–X14 merged as `78fd9e2`; follow-ups
 Y1–Y9 merged as `bb73dc3`; follow-ups Z1–Z3 filed), and with it the half of E12-8 that cleans a picture from the
