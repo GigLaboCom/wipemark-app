@@ -9,9 +9,11 @@ and D74 (`docs/plan/README.md` §4).
 Nothing here talks to an engine. E4-3's loop chooses the templates
 (`templates_for`), renders a step (`render`), sends the result as a
 `wipemark_engine::ChatRequest`, and cleans the answer (`clean_response`)
-before the guards see it. E4-6's Settings page edits a template, validates
-it (`validate`), stores it as a row (`row`), and offers to adapt it into
-another language (`adaptation_request`, `check_adaptation`).
+before the guards see it. The Settings window's **Prompts** section
+("Rewriting", E4-6c — `apps/wipemark-app/src/prompts.rs`) edits a template,
+admits it by the one rule (`row::admit`, which `lay_over` asks too), stores
+it as a row (`row`), checks it on a built-in sample and offers to adapt it
+into another language (`prompt::trial`); see "The Prompts page" below.
 
 Layer B is best-effort, and the templates say nothing that suggests
 otherwise: they ask for a rewrite, never for a mark to be removed.
@@ -31,7 +33,7 @@ main reason a rewrite turns into a translation (layer-b reference §7).
 | `code` | English, for every document (D73) | — |
 
 The pivot (D60) is German for a Russian document, Russian for an English
-one, English for a German one; the `rewrite.pivot` row (E4-6) overrides
+one, English for a German one; the `rewrite.pivot` row (the Prompts page, E4-6c) overrides
 it unless it names the document's own language, because English into
 English is not a translation.
 
@@ -169,7 +171,7 @@ shipped template and the row is left as it is.
 Which template a document in language L gets: the user's override for L;
 else the shipped one for L; for an undetected language, the English
 override or shipped template with the clause. A Russian override does
-nothing for a German document — the page says so (E4-6). The report
+nothing for a German document — the page says so (E4-6c). The report
 records which version ran: shipped with its hash, or the override with
 its hash, its origin and whether it is **stale** — the shipped template
 changed after `based_on`, or the source it was adapted from changed after
@@ -214,6 +216,107 @@ full validation plus A1: the main risk of a machine adaptation is `{TEXT}`
 coming back as `{ТЕКСТ}` or `{PROTECTED}` not coming back. Nothing calls
 either on its own: an automatic adaptation would be an unseen request to a
 rewriter that may not be on this machine, and a template nobody read.
+
+## The Prompts page (E4-6c)
+
+The Settings window's section **Rewriting** (`Section::Prompts`, between
+Engine and Models — Engine is *who* rewrites, this is *how*, Г1) is the one
+place a template or the pivot is changed. Before it the rows could be
+changed only with a database client. The owner took every default of the
+task (Г1–Г7, 2026-10-07); the decisions are D330–D339 below.
+
+**What it shows.** A banner (what a template is; the markers and `⟦n⟧` are
+the product's; `{PROTECTED}` once per step and why; the CLI and MCP use the
+same rows, a `--prompts` file or a `templates` argument lays its own over
+them for one run; and — when the endpoint on duty is not this machine —
+that a rewrite sends the rendered prompt with the document there), the
+variables table, the pivot row, and the list of **every** slot
+`Slot::new` accepts, by language, tactic, step and turn — `structural`
+marked "used only after a confirmation" (D73), `code` "not in this
+version" (Г4). `every_template_slot_has_a_row` holds the list to
+`Slot::all()`. The chosen slot shows the template **as it will be used**,
+who wrote it (shipped; by hand; by the model, not reviewed; by the model,
+reviewed), the shipped text and the fragments under it read-only (Г7,
+D77), and a field committed by **Save** — never on change.
+
+**The one rule (D330).** `row::admit(slot, row, beside, ctx_len)` decides
+whether an override may be stored: `validate` beside the other turn of its
+step **as it will be used**, the row's own `based_on` (so a stale one is
+warned about), errors refuse, warnings are said. The page's `prompts::save`
+and `row::lay_over` both ask it, so the page stores exactly what the CLI and
+MCP run (`the_page_and_lay_over_accept_the_same_templates`, a table with
+one row per error rule, the warnings, a valid one and the two pairs where
+only one turn carries `{PROTECTED}`). The page passes the window of the
+model on duty (`too-long`, R8); `lay_over` keeps its signature and passes
+none — it refuses exactly what it refused before — and `lay_over_within`
+takes the window for a surface that knows it. Every problem is shown with
+its rule id (a format), a catalogue sentence and, where it has one, its line
+and column; a refused Save writes nothing.
+
+**The rows.** An override is written as D74's object, one row; Save of the
+shipped text with no row stores nothing; `based_on` stays what it was —
+only **Keep mine** moves it to today's shipped hash (Г6); a machine
+adaptation saved by the person becomes `machine-reviewed` and keeps its
+source; "Adapted by hand from L" records L and the hash of L's template as
+it is used now (D333). **Reset to shipped** deletes the row and never writes
+the shipped text into one — and is refused when the other turn's stored
+override would then break the placeholder rule, because a step that does
+not render is a job that fails (D334). A row this build cannot read is
+shown — its value, or that it is not JSON — and **left** until Reset or a
+Save replaces it (D74). The pivot `rewrite.pivot` is a preference with a
+row on this page and is in `config::PERSISTED` (D331); "by the document's
+language" deletes the row. `prompts.*` stay dynamic keys outside it
+(`a_prompt_row_is_never_a_preference_row`).
+
+**Check template (R4, D332).** `prompt::trial::plan_trial` lays the
+**edited, unsaved** text over the saved rows and plans the whole tactic over
+a fixed sample (`trial::sample`: one Markdown paragraph per language with a
+date, numbers, a name, an inline command and a link — three protected spans,
+the link's words staying prose); `run_trial` renders each step, asks the
+engine, cleans the answer, runs Layer A, asks **every** guard and then
+`job::verdict` — the loop's one verdict (D117). The sample is in the language
+the slot's step writes for: the slot's own, except `back_translate`'s first
+step, whose sample is in the language whose default pivot the slot's
+language is. The page runs it on the background executor through the
+`EngineHandle` the MCP server holds (`Preferences::rewriter`), so a check is
+counted busy and an **Unload now** waits for it (D51); it is cancellable,
+shows F1's load progress while a model loads, and writes nothing. It says it
+is a check of a template and not a rewrite of a document; when the endpoint
+on duty is not this machine it says, before the button is pressed, that the
+sample and the templates go there; with nobody on duty the buttons are
+greyed under the duty's own sentence; a template with errors, and `code`,
+cannot be checked.
+
+**Adapt with the model (R5, Г2, D335).** A button per other language that
+has the slot: `trial::adapt_with` sends the source template — as it is used
+now, never a document — to the engine on duty with `adaptation_request`,
+cleans the answer and judges it with `row::admit_adaptation` (the one rule
+plus the source's exact variables). Only an admitted answer is stored, as
+`origin: machine` naming the source and its hash; a refused one is shown
+with its problems and nothing is written. The button never replaces a
+template written in its own language (no `adapted_from`): a person's own
+writing is not overwritten by a click. Saving a source changes no other row;
+its adaptations become **stale**, the page says "the Russian source changed
+after the German adaptation", shows the source's change when the old source
+was the shipped template (its hash matches) and only today's source
+otherwise — the earlier text is not kept — and offers to adapt again
+(D336). An override in one language only says that documents in the others
+run the shipped template.
+
+### Decisions D330–D339
+
+| # | decision | why |
+|---|---|---|
+| D330 | `row::admit` is the one rule; `lay_over` asks it with no window (unchanged refusals), `lay_over_within` with one, the page with the duty's | two rules drift; the window is known on the page, and E4-6b's MCP and CLI can pass theirs by changing one call |
+| D331 | `rewrite.pivot` is in `config::PERSISTED` with `Setting::RewritePivot` on the Prompts section; "by the document" deletes the row | a fixed key with a widget is a preference, and the gates should see it; no row is D60's default |
+| D332 | Check runs the whole tactic over a fixed per-language sample with seed 0 and the job's default options, judged by Layer A, every guard and `job::verdict` | the loop judges the final answer against the chunk; a step judged alone would be judged against the wrong text |
+| D333 | Save: shipped text with no row stores nothing; `based_on` kept; machine → machine-reviewed; a hand claim records the source's current hash | Reset is the way back to shipped; drift is acknowledged only by Keep mine; a save is a review |
+| D334 | Reset refused when the other turn's override would break beside the shipped text | a step that does not render fails the job (`PipelineError::ShippedTemplate`) |
+| D335 | Adapt writes only into an empty slot or an adaptation; temperature 0.3, seed 0, budget 3× the source + 128 | a button must not replace a person's own template; an adaptation is a careful translation |
+| D336 | Drift shown as a line diff of yours against today's shipped; a stale adaptation's source diff only when the old source was the shipped text | the build carries only today's shipped text and a hash of the past |
+| D337 | The variables table lists the four variables; `{LANG_NAME}` and `{PIVOT_NAME}` are said not to exist | D64 dropped them; the register's table predates that |
+| D338 | The check's words for a guard's reason and a rejection live in `prompts.rs` (`reason_line`, `rejection_line`) | the pipeline is i18n-free; one vocabulary E4-6b can reuse |
+| D339 | The sample has three protected spans: the command, and the link's markup either side of its words | that is how E4-1 prepares a Markdown link; the guards see all three |
 
 ## Cleaning an answer (D67)
 

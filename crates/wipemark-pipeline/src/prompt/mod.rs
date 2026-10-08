@@ -27,6 +27,9 @@
 //!   and checking what came back; never called on its own (Q-B22).
 //! * [`clean`] — what is taken off a model's answer before it is judged,
 //!   and only what is unambiguous (D67).
+//! * [`trial`] — "Check template" over a built-in sample, and "Adapt with
+//!   the model", each on an engine the caller hands in and only when a
+//!   person asks (E4-6c).
 //!
 //! Layer B is best-effort: nothing in a template promises that a rewrite
 //! removes a mark, and nothing here claims it either.
@@ -38,15 +41,21 @@ pub mod render;
 pub mod row;
 pub mod shipped;
 mod template;
+pub mod trial;
 pub mod validate;
 
 pub use adapt::{adaptation_request, check_adaptation, AdaptRefusal};
 pub use choose::{
-    pivot_for, templates_for, Chosen, Overrides, Plan, Refusal, Stale, StepTemplates, Version,
+    pivot_for, staleness, templates_for, Chosen, Overrides, Plan, Refusal, Stale, StepTemplates,
+    Version,
 };
 pub use clean::{clean_response, Cleaned, Stripped};
 pub use render::{render, Input, RenderError, Rendered};
-pub use row::{hash, AdaptedFrom, Origin, Override, RowError};
+pub use row::{admit, hash, AdaptedFrom, Admission, Origin, Override, RowError};
+pub use trial::{
+    adapt_with, plan_trial, run_trial, sample, AdaptEnd, GuardVerdict, Trial, TrialEnd,
+    TrialRefusal, TrialReport, TrialStep,
+};
 pub use validate::{validate, BraceSide, Problem, Script, Severity, ValidationContext};
 
 use crate::lang::Lang;

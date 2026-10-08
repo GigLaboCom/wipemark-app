@@ -64,6 +64,8 @@ mod pasteboard;
 mod placement;
 mod preview;
 mod profile;
+// E4-6c: the Prompts section of the Settings window.
+mod prompts;
 mod queue;
 mod recorder;
 mod report;
