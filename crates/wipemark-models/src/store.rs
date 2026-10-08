@@ -343,6 +343,11 @@ pub struct Downloads {
     /// Set by [`Downloads::stop`]: every hash under way gives up at its
     /// next chunk, and none starts.
     stopped: AtomicBool,
+    /// The hashes under way, by path: a second asker for a file being read
+    /// waits for the first one's answer rather than reading it again — a
+    /// Remove clicked during a launch's scan, a fetch's check beside it —
+    /// so a file is read by one hash at a time (D304, D397).
+    hashing: std::sync::Mutex<std::collections::HashMap<PathBuf, Arc<InFlight>>>,
     /// What a test adds to every device and inode number this store reads
     /// — a remount, a file system whose numbers do not survive one (D375).
     #[cfg(test)]
@@ -369,6 +374,7 @@ impl Downloads {
             hashed: AtomicUsize::new(0),
             hash_watch: std::sync::Mutex::new(None),
             stopped: AtomicBool::new(false),
+            hashing: std::sync::Mutex::new(std::collections::HashMap::new()),
             #[cfg(test)]
             remount: std::sync::atomic::AtomicU64::new(0),
         }
@@ -1118,9 +1124,46 @@ impl Downloads {
         Ok(actual)
     }
 
-    /// Hash `path` in full, and count it: its sha256, and its fingerprint
-    /// as it was when the read began.
+    /// Hash `path` in full, once at a time: its sha256, and its
+    /// fingerprint as it was when the read began.
+    ///
+    /// The first asker reads the file; anyone asking for the same path
+    /// while it does waits and takes its answer (D397). A hash that failed
+    /// or gave up answers nobody else: whoever waited asks again, and
+    /// reads the file itself if it still can.
     fn hash(&self, path: &Path) -> Result<(String, String), StoreError> {
+        loop {
+            let (first, flight) = {
+                let mut hashing = self
+                    .hashing
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                match hashing.get(path) {
+                    Some(flight) => (false, Arc::clone(flight)),
+                    None => {
+                        let flight = Arc::new(InFlight::default());
+                        hashing.insert(path.to_path_buf(), Arc::clone(&flight));
+                        (true, flight)
+                    }
+                }
+            };
+            if first {
+                let landing = Landing {
+                    store: self,
+                    path,
+                    flight: &flight,
+                    answer: None,
+                };
+                return landing.with(self.hash_now(path));
+            }
+            if let Some(answer) = flight.wait() {
+                return Ok(answer);
+            }
+        }
+    }
+
+    /// Hash `path` in full, now, and count it.
+    fn hash_now(&self, path: &Path) -> Result<(String, String), StoreError> {
         if self.stopped.load(Ordering::SeqCst) {
             return Err(StoreError::Cancelled);
         }
@@ -1585,6 +1628,69 @@ fn fingerprint(target: &Path) -> Result<String, StoreError> {
 
 /// The sha256 of `path`, telling `read` the bytes hashed so far and the
 /// file's size: once at zero, once per chunk, and at the end.
+/// One hash under way, which a second asker for the same file waits on.
+#[derive(Default)]
+struct InFlight {
+    /// `None` while it runs; then the answer, or `None` inside for a hash
+    /// that failed and answers nobody.
+    answer: std::sync::Mutex<Option<Option<(String, String)>>>,
+    landed: std::sync::Condvar,
+}
+
+impl InFlight {
+    /// Wait for the hash to end: its answer, or `None` when it failed.
+    fn wait(&self) -> Option<(String, String)> {
+        let mut answer = self
+            .answer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        loop {
+            if let Some(answer) = answer.as_ref() {
+                return answer.clone();
+            }
+            answer = self
+                .landed
+                .wait(answer)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+}
+
+/// The first asker's end of a hash: whatever happens — an answer, an
+/// error, a panic — the waiters are told and the path is free again.
+struct Landing<'a> {
+    store: &'a Downloads,
+    path: &'a Path,
+    flight: &'a Arc<InFlight>,
+    answer: Option<(String, String)>,
+}
+
+impl Landing<'_> {
+    fn with(
+        mut self,
+        hashed: Result<(String, String), StoreError>,
+    ) -> Result<(String, String), StoreError> {
+        self.answer = hashed.as_ref().ok().cloned();
+        hashed
+    }
+}
+
+impl Drop for Landing<'_> {
+    fn drop(&mut self) {
+        self.store
+            .hashing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(self.path);
+        *self
+            .flight
+            .answer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(self.answer.take());
+        self.flight.landed.notify_all();
+    }
+}
+
 fn hash_file(
     path: &Path,
     stop: &AtomicBool,
@@ -2114,6 +2220,55 @@ mod tests {
             !store.mark_path(&part).exists(),
             "the .part's mark outlived it"
         );
+    }
+
+    /// D397 (L-3): a file is read by one hash at a time across everything
+    /// the store does. A first hash is held mid-read — its progress goes
+    /// down a channel nobody reads yet — while a second asks for the same
+    /// file: the second waits and takes the first one's answer, and the
+    /// store counts one full read. Let every asker read for itself, as
+    /// before, and the count is two: red.
+    #[test]
+    fn two_askers_for_one_file_read_it_once() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Arc::new(Downloads::new(dir.path(), dir.path().join(".records")));
+        let bytes = vec![7u8; 4 * 1024 * 1024];
+        let entry = entry(
+            "m",
+            vec![file(
+                "https://x/m.gguf",
+                Some(&sha_of(&bytes)),
+                bytes.len() as u64,
+            )],
+        );
+        let model_dir = store.model_dir("m").expect("model dir");
+        std::fs::create_dir_all(&model_dir).expect("mkdir");
+        std::fs::write(model_dir.join("m.gguf"), &bytes).expect("write");
+
+        // A channel of no room: the first report blocks the hash that
+        // sends it until somebody reads.
+        let (sink, reports) = flume::bounded(0);
+        store.watch_hashes(sink);
+        let first = {
+            let (store, entry) = (Arc::clone(&store), entry.clone());
+            std::thread::spawn(move || store.rehash(&entry))
+        };
+        let held = reports
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the first hash reports");
+        assert!(matches!(held, Hashing::Progress { .. }), "{held:?}");
+        let second = {
+            let (store, entry) = (Arc::clone(&store), entry.clone());
+            std::thread::spawn(move || store.rehash(&entry))
+        };
+        // Give the second asker time to arrive while the first is held.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let draining = std::thread::spawn(move || while reports.recv().is_ok() {});
+        first.join().expect("first").expect("first hash");
+        second.join().expect("second").expect("second hash");
+        assert_eq!(store.hashes(), 1, "the file was read twice at once");
+        drop(store);
+        draining.join().expect("drained");
     }
 
     /// The stamp notices a file that was replaced, not bytes that changed

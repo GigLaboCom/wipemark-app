@@ -138,6 +138,9 @@ pub(crate) struct Worker {
     paused: bool,
     last: i64,
     current: Option<Current>,
+    /// The source said a swap is on its way (D395): nothing starts until
+    /// [`Command::Retry`] says the engine moved.
+    settling: bool,
 }
 
 impl Worker {
@@ -203,6 +206,7 @@ impl Worker {
             paused,
             last,
             current: None,
+            settling: false,
         })
     }
 
@@ -213,7 +217,12 @@ impl Worker {
     pub(crate) fn run(mut self, inbox: &flume::Receiver<Command>) {
         self.finish_deliveries();
         loop {
-            if self.current.is_none() && !self.paused && !self.holding() && !self.asks() {
+            if self.current.is_none()
+                && !self.paused
+                && !self.holding()
+                && !self.asks()
+                && !self.settling
+            {
                 if let Some(next) = self.next_waiting() {
                     self.begin(next);
                     continue;
@@ -330,6 +339,7 @@ impl Worker {
                 }
             }
             Command::Retry => {
+                self.settling = false;
                 self.unhold();
                 // Another engine on duty: the question may be another one,
                 // or none — asked again as the next item starts.
@@ -414,6 +424,22 @@ impl Worker {
             }
             None => return,
         };
+        // A swap on its way: the item waits for the engine it brings, rather
+        // than starting on the one leaving — which, for an item consented
+        // to the old endpoint, would send it there against the duty now
+        // (D395). Told to look again when the engine moves.
+        if self.source.settling() {
+            tracing::debug!(item = id.0, "the item waits for the engine on its way");
+            self.settling = true;
+            return;
+        }
+        // Where the engine would send it, before it is built or a key is
+        // read: an item that would only be asked about costs no read of the
+        // credential store (D396). Checked again below, against the engine
+        // actually handed out, which is the one that decides (D370).
+        if let Some(asking) = self.question_for(id, self.source.whereto().as_ref()) {
+            return self.ask(asking);
+        }
         // The engine first, before the source is read: an item that cannot
         // run waits with the queue held, and a file is read once it can.
         let Handed { engine, whereto } = match self.source.for_item() {

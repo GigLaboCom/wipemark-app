@@ -974,3 +974,139 @@ fn the_window_reads_no_row_to_say_the_queue_is_paused(cx: &mut TestAppContext) {
     );
     work.queue.resume();
 }
+
+// ## The consent follow-ups (D393–D397)
+
+/// A row whose rewrite was refused over a file already there: `existing`
+/// named, the row otherwise as a person sees it, waiting.
+fn refused_over(
+    queue: &gpui::Entity<Queue>,
+    existing: &std::path::Path,
+    cx: &mut VisualTestContext,
+) -> u64 {
+    let id = ids(queue, cx)[0];
+    queue.update(cx, |queue, _| {
+        queue.rows[0].existing = Some(existing.to_path_buf());
+    });
+    id
+}
+
+/// Put an endpoint that is not this machine on duty, alone.
+fn endpoint_on_duty(
+    preferences: &gpui::Entity<crate::settings::Preferences>,
+    cx: &mut VisualTestContext,
+) {
+    preferences.update(cx, |preferences, cx| {
+        preferences.select_serves(crate::duty::Serves::EndpointOnly, cx);
+        preferences.select_provider(crate::engine::Provider::OpenAiCompatible, cx);
+        preferences.select_endpoint(
+            crate::engine::BaseUrl::parse("https://y.example.com").expect("a url"),
+            cx,
+        );
+        preferences.allow_remote(true, cx);
+        preferences.select_model("m".to_owned(), cx);
+    });
+    cx.run_until_parked();
+}
+
+/// D393 (M-A): with nothing on duty, "Replace the existing result" is
+/// greyed with the reason a Rewrite is, and pressed anyway it pushes
+/// nothing — no item waits with no consent of the person's, to go to
+/// whatever endpoint is put on duty later. Let Replace bypass the Rewrite's
+/// checks and push with nothing on duty, as it did, and an item is pushed:
+/// red.
+#[gpui::test]
+fn replace_with_nothing_on_duty_pushes_nothing(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("replace-vacant");
+    let source = scratch.file("article.md", PARAGRAPH.as_bytes());
+    let existing = scratch.file("article.rewritten.md", b"somebody's own file");
+    let work = work_over(Arc::new(Store::in_memory().expect("memory")), None);
+    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = refused_over(&queue, &existing, cx);
+
+    let why = cx.update(|_, cx| queue.read(cx).why_not_rewrite(id, cx));
+    assert!(why.is_some(), "Replace is not greyed with nothing on duty");
+    queue.update(cx, |queue, cx| queue.replace(id, cx));
+    cx.run_until_parked();
+    std::thread::sleep(Duration::from_millis(100));
+    cx.run_until_parked();
+    assert!(
+        work.queue.items().is_empty(),
+        "a replace was pushed with nothing on duty"
+    );
+    assert_eq!(status(&queue, cx), "waiting");
+    assert_eq!(
+        std::fs::read(&existing).expect("read"),
+        b"somebody's own file"
+    );
+}
+
+/// D393 (M-A): with an endpoint on duty that is not this machine, Replace
+/// asks the question a Rewrite of an arrival asks before the document is
+/// sent away (В1), pushes nothing until it is answered, and yes pushes the
+/// replace with that endpoint as the person's consent. Push the replace
+/// straight away, as it did, and an item is in the line before anybody was
+/// asked: red.
+#[gpui::test]
+fn replace_asks_before_a_document_leaves_the_machine(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("replace-away");
+    let source = scratch.file("article.md", PARAGRAPH.as_bytes());
+    let existing = scratch.file("article.rewritten.md", b"somebody's own file");
+    let work = work(swapping());
+    work.queue.pause();
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    endpoint_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = refused_over(&queue, &existing, cx);
+
+    type Heard = Vec<(Vec<u64>, String, Option<PathBuf>)>;
+    let heard: Arc<std::sync::Mutex<Heard>> = Arc::default();
+    let hearing = Arc::clone(&heard);
+    cx.update(|_, cx| {
+        cx.subscribe(&queue, move |_, event: &QueueEvent, _| {
+            if let QueueEvent::SendAway {
+                ids,
+                host,
+                replacing,
+            } = event
+            {
+                hearing
+                    .lock()
+                    .expect("lock")
+                    .push((ids.clone(), host.clone(), replacing.clone()));
+            }
+        })
+        .detach();
+    });
+    queue.update(cx, |queue, cx| queue.replace(id, cx));
+    cx.run_until_parked();
+    std::thread::sleep(Duration::from_millis(100));
+    cx.run_until_parked();
+    assert!(
+        work.queue.items().is_empty(),
+        "the replace went before it was asked about"
+    );
+    let asked = heard.lock().expect("lock").clone();
+    assert_eq!(asked.len(), 1, "the question was not asked once: {asked:?}");
+    assert_eq!(asked[0].0, vec![id]);
+    assert_eq!(asked[0].2.as_deref(), Some(existing.as_path()));
+
+    queue.update(cx, |queue, cx| {
+        queue.replace_agreed(id, existing.clone(), cx)
+    });
+    until(cx, "the push", |_| !work.queue.items().is_empty());
+    let items = work.queue.items();
+    assert_eq!(
+        items[0].destination,
+        Some(Destination::File(existing.clone()))
+    );
+    assert!(
+        matches!(&items[0].consent, Some(wipemark_queue::Whereto::Away(host)) if *host == asked[0].1),
+        "the consent is not the endpoint asked about: {:?}",
+        items[0].consent
+    );
+    work.queue.resume();
+}

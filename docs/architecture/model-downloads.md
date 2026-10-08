@@ -583,6 +583,17 @@ is a record by then, so the second reads the record instead of the file
 `wipemark-cli models verify` in another process is not joined: it is
 the one command asked to hash in full.
 
+**One read of a file at a time, whoever asks (D397).** One scan at a time
+did not cover the other two that hash in full: `remove` (whether a file is
+the product's) and a fetch's check of a finished download. A Remove clicked
+while a launch's scan was reading a twelve-gigabyte file read it a second
+time beside the first. `Downloads::hash` now keeps the hashes under way by
+path: the first asker reads, and another asking for the same file while it
+does waits and takes its answer; a hash that failed or gave up answers
+nobody, and whoever waited asks again and reads for itself if it still
+can. A panic in the reader still frees the path and wakes the waiters
+(`two_askers_for_one_file_read_it_once`, over `Downloads::hashes`).
+
 ## What is deliberately not here
 
 * **Loading a model.** E2. The banner says so in every state
