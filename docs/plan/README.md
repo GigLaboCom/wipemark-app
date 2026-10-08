@@ -1239,6 +1239,20 @@ the gate the overview set, and the open edges.
   clipboard (greyed "Paste"), and the press should land no row — on the
   macOS pasteboard road too (`pasteboard.rs`), and a drop of empty text
   likewise.
+- **E7-8 done** (`fix/consent-compare-followups`, D390–D397, merged with
+  this commit's parent, report `reports/consent-compare-followups-2026-10-08.md`):
+  Replace by the Rewrite's road with consent, a withdrawn question taken
+  down, no item on an engine leaving, the key after the check, one hash per
+  file; a recompute moves neither pane, a leftover ask dropped, the result
+  looked at first. Its verification left: **M1** D393's fallback
+  (`rewriting.rs:602`, `whereto().or_else(engine.sends_to())`) can record
+  consent for an endpoint never shown while a swap to nobody is deferred —
+  `away()`/`vacancy()`/the consent must come from one fact (or drop the
+  fallback and give the 16 table tests a duty); **L1** a yes records the duty
+  as it stands at the yes, not the one asked about; **L2** D392 can leave a
+  stale ask that swallows one scroll; **L3** D392 does not hold with the
+  result wrapping; **L4** D390 can overwrite a pending ask; **L5** D395 waits
+  silently (nothing says why); **L6** a doc comment moved in `store.rs`.
 - **Build. Saving an edited result, with autosave** (the owner,
   2026-10-08). Compare's result is editable but nothing saves it
   (`compare-pending`, `compare-rewritten-banner`, `compare-help-close`:
