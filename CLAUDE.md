@@ -4,50 +4,68 @@ Native Rust + GPUI desktop tool that strips AI provenance marks from the
 user's own content. Layer A is deterministic Unicode scrubbing; Layer B
 is model rewriting.
 
-**Layer A exists; Layer B does not yet.** Layer A — the UCD 18.0.0
-tables, the classifier and what it keeps, the scrubber, NFKC,
+**Both layers exist, and the windows clean and rewrite.** Layer A — the
+UCD 18.0.0 tables, the classifier and what it keeps, the scrubber, NFKC,
 homoglyphs and the five guards, in `wipemark-core` — is real, and three
 surfaces call it: `wipemark-cli inspect|clean|audit` (and `clean
 --in-place`), the MCP tools `inspect`/`clean`, and the windows — Clean in
 the main window's table and in the panel, and `--clean=<path>`, through
-`apps/wipemark-app/src/clean.rs` (E7). Real around it: the workspace and its four gates, the
-GPUI shell and its Settings window, preferences as rows in SQLite, the
-API key in the OS credential store, the model catalogue and its
-verifying downloader, the MCP server, the rule that decides who would
-rewrite if anything could, the panel that takes a drop, says what it
-found and cleans it, and the report with its three shelves. The windows
-clean and do not rewrite (that is E4-6b), and they say so out loud
-wherever a user could mistake a rewrite for present — see
-`docs/architecture/retention.md` ("How the windows execute it"),
+`apps/wipemark-app/src/clean.rs` (E7). Layer B is real too: the loop in
+`wipemark-pipeline` rewrites a document with the model this machine holds
+or with an endpoint, and three surfaces start it — `wipemark-cli rewrite`
+and the MCP tool `rewrite` (E4-6a), and since E4-6b the main window's
+**Rewrite** (a button on every row) and **Rewrite all** (its price asked
+first) — every one of them an item of the one batch queue
+(`wipemark-queue`) the application runs. Real around them: the workspace
+and its four gates, the GPUI shell and its Settings window, preferences as
+rows in SQLite, the API key in the OS credential store, the model
+catalogue and its verifying downloader — which recognises a catalogue
+file anywhere under the models folder and removes only what it downloaded
+itself (D302, D350) — the MCP server, the rule that decides who rewrites,
+the panel that takes a drop, says what it found and cleans it, the report
+with its three shelves, the menu-bar item on macOS and on Linux (D340),
+the **document journal** — a row for every document somebody handed over,
+whoever asked: a window, the panel, a launch flag, an agent, the command
+line (`wipemark-store` schema 3, `apps/wipemark-app/src/journal.rs`,
+D310–D326) — and the **Rewriting** section of Settings, where every
+template and the pivot are edited by the rule MCP and the CLI use, checked
+on a built-in sample and adapted into another language on a button
+(`apps/wipemark-app/src/prompts.rs`, E4-6c, D330–D339). What the windows
+still do not do, they say out loud: the panel cleans and says rewriting is
+in the main window; there is no source editor with badges, no streamed
+result and no Inspector (S7.2, S7.3, S7.5), and no Compare for pictures —
+see `docs/architecture/retention.md` ("How the windows execute it"),
 `docs/architecture/queue.md`, `docs/architecture/skeleton.md` and
-`docs/architecture/layer-a.md` before assuming anything works. Of Layer B, the local engine exists —
-llama.cpp in `wipemark-llama{,-sys}` and `wipemark_engine::LocalEngine`
-behind `local-llama`, tested against a real GGUF (Qwen3 4B, Gemma 4 12B, Qwen3.8 27B) — and the application
-hands it out: the windows can **load** the chosen model, keep it or let it
-go by the owner's policy (`EngineHost`), and **check** that it writes —
-but nothing rewrites a document yet (that is the pipeline, E4); see
-`docs/architecture/local-engine.md`. The endpoint exists too —
+`docs/architecture/layer-a.md` before assuming anything works. Of Layer B,
+the local engine is llama.cpp in `wipemark-llama{,-sys}` and
+`wipemark_engine::LocalEngine` behind `local-llama`, tested against a real
+GGUF (Qwen3 4B, Gemma 4 12B, Qwen3.8 27B); the application **loads** the
+chosen model, telling how far the load has got (D305), keeps it or lets it
+go by the owner's policy (`EngineHost`), and **checks** that it writes;
+see `docs/architecture/local-engine.md`. The endpoint is
 `wipemark_engine::HttpEngine`, Ollama's native API or any
 OpenAI-compatible server, streamed, tested against a fake server and a
 live llama.cpp server — and the same **Check** asks it a fixed sentence;
-see `docs/architecture/remote-engine.md`. What the pipeline will feed a
-model exists too: the preparation of a document — prose told from code
-and markup, protected spans as `⟦n⟧`, chunks by paragraph with their
-context, the document's language, and the way back byte for byte — in
+see `docs/architecture/remote-engine.md`. What the pipeline feeds a model:
+the preparation of a document — prose told from code and markup,
+protected spans as `⟦n⟧`, chunks by paragraph with their context, the
+document's language, and the way back byte for byte — in
 `wipemark_pipeline::prepare` (`docs/architecture/pipeline.md`); and the
-prompts — the
-shipped en/ru/de templates, the assembler that owns the markers, the
-validation of an edited template and the clean-up of an answer, in
+prompts — the shipped en/ru/de templates, the assembler that owns the
+markers, the one rule an edited template is held to (`row::admit`, D330;
+no invisible character in one, D369), the check and the adaptation
+(`prompt::trial`) and the clean-up of an answer, in
 `wipemark_pipeline::prompt` (`docs/architecture/prompts.md`). And the
 loop: `wipemark_pipeline::start` runs a job — Layer A, candidates ×
-rounds, the guards, the language check and the no-op floor, the most-diverged winner, Layer A again —
-tested on `FakeEngine` and against Qwen3 4B. The MCP tool `rewrite` and
-`wipemark-cli rewrite` start one (E4-6a); the windows do not (E4-6b); see
-`docs/architecture/pipeline.md`, "The loop". The batch queue exists too —
-`wipemark-queue`: one document at a time, pause, cancel, resumable per
-chunk, surviving `kill -9` — and nothing pushes to it yet (E4-6b): the
-windows' clean does not go through it, one thing at a time on a line of
-its own.
+rounds, the guards, the language check and the no-op floor, the
+most-diverged winner, Layer A again — tested on `FakeEngine` and against
+Qwen3 4B; see `docs/architecture/pipeline.md`, "The loop". The batch queue
+— `wipemark-queue`: one document at a time, pause, cancel, resumable per
+chunk, surviving `kill -9` — asks the application for an engine when each
+item **starts**, holds while nothing is on duty (D311), and asks the person
+again before a document goes somewhere other than where they agreed
+(D361); the windows' clean does not go through it, one thing at a time on
+a line of its own (D283).
 Images exist too: `wipemark-image` reads and strips provenance metadata
 from PNG, JPEG and WebP without touching a pixel; `wipemark-pixels` finds,
 proves and takes off a generator's visible mark (Gemini's sparkle, V1 and
@@ -92,6 +110,18 @@ scripts/check-gpui-pin.sh           # one GPUI, from crates.io, and the X11 guar
 `cargo clippy --workspace` compiles GPUI from source. When iterating on
 the library crates only, `-p wipemark-core -p wipemark-engine …` is
 minutes faster and catches the same things.
+
+**Linking on Linux.** GPUI links `libxkbcommon-x11`, and the linker wants
+the unversioned `libxkbcommon-x11.so` that only the `-dev` package
+installs. The owner's host has no `libxkbcommon-x11-dev`, so there every
+build that links the application runs with `LIBRARY_PATH` pointing at a
+directory holding a `libxkbcommon-x11.so` symlink to the installed
+`libxkbcommon-x11.so.0` — a worktree's agent makes its own under the
+worktree. The Linux binary also links GTK 3 (`libgtk-3.so.0`, the tray's
+thread, D340) and loads libayatana-appindicator at run time, so the `.deb`
+(E10) must depend on `libgtk-3-0` and `libayatana-appindicator3-1`;
+`scripts/verify/linux-tray/headless.sh` is the closest thing to a live
+check of the indicator.
 
 The first gate needs a nightly rustfmt on the machine once:
 `rustup toolchain install nightly --component rustfmt --profile minimal`.
@@ -232,7 +262,7 @@ made against something other than the real installation:
 |---|---|
 | `WIPEMARK_DATA_DIR` | the data directory — `wipemark.db`, `models/`, `logs/`. Point it at a scratch directory and the run touches nothing real. `models/` is only the default: the `models.dir` row moves the weights anywhere, and a scratch database with that row set still reads the real folder it names. |
 | `WIPEMARK_LOG` | the log filter, and the CLI's stderr mirror. A debug build of the app mirrors to stderr regardless. |
-| `--settings[=<section>]` | opens the Settings window directly on `general`, `placement`, `compare`, `engine`, `models`, `retention` or `mcp`. A section this build does not have is a warning and the front page. |
+| `--settings[=<section>]` | opens the Settings window directly on `general`, `placement`, `compare`, `engine`, `prompts` (the sidebar's "Rewriting"), `models`, `retention` or `mcp`. A section this build does not have is a warning and the front page. |
 | `--profile=<name>` | pins a saved endpoint profile for this session **without applying it**. |
 | `--setup` | opens the first-launch walk-through over the main window, whether or not it has been through before. Writes nothing; its own Finish and Skip do. |
 | `--import=<path>` | puts a file in the queue at startup, once per flag — what a drop or the Import button does, so a check of the table does not start by driving a file picker. |
@@ -255,21 +285,21 @@ it sits.
 
 | crate | what it owns | today |
 |---|---|---|
-| `wipemark-core` | Layer A: the UCD tables, the Unicode taxonomy, the classifier and scrubber, NFKC, homoglyphs, the guards, the report and its JSON — each report carrying its third shelf as a field, which the JSON writes (D289) | real (the guards have no caller until **E4**) |
-| `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP) | both engines real, handed out by `duty::engine_for` and asked by the Check; the pipeline that rewrites with them is **E4** |
+| `wipemark-core` | Layer A: the UCD tables, the Unicode taxonomy, the classifier and scrubber, NFKC, homoglyphs, the guards, the report and its JSON — each report carrying its third shelf as a field, which the JSON writes (D289) | real; the guards are the loop's (E4) |
+| `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP); the load-progress sink (`watch_loads`, `LoadProgress`, `progress::Pacer`, D305) | both engines real, handed out by `duty::engine_for`, asked by the Check and by every rewrite |
 | `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`, `src/pin.rs`) | real under `native` — the prebuilt release by default, cmake with `WIPEMARK_LLAMA_SOURCE=1`; an empty shim without it |
 | `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends | real under `native`; refuses every load without it |
-| `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) | preparation, prompts and the loop real (E4-1…E4-3), the resumable job the queue drives (E4-4), the prompt bench (`examples/bench`, `bench/`, E4-5 — `docs/architecture/prompt-bench.md`) and its recommendations built (E4-7); the windows' surfaces are **E4-6b** |
-| `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
-| `wipemark-store` | the SQLite file, the `settings` table and the queue's tables (schema 2) | real |
-| `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination — an in-place delivery a crash cut short after the set-aside finished, not failed (D286) | real; no surface pushes to it (**E4-6b**) — the windows' clean has a line of its own |
+| `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) and the one rule a stored template is held to — `row::admit`, which the Prompts page, `lay_over` and `lay_over_within` all ask (D330), with no invisible character in any template (`invisible-character`, D369); `prompt::trial`, a template checked on a built-in sample or adapted by the model (D332, D335) | preparation, prompts and the loop real (E4-1…E4-3), the resumable job the queue drives (E4-4), the prompt bench (`examples/bench`, `bench/`, E4-5 — `docs/architecture/prompt-bench.md`, with `--variant`, the sampling flags and a `whole` mode since the divergence research) and its recommendations built (E4-7); the windows rewrite through it (E4-6b) and edit its templates (E4-6c) |
+| `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; a catalogue file found anywhere under the folder by name, size and sha256 (D302); what a verify learned as a record under `<data dir>/records`, never beside the weights (D303); a download's **mark** naming the file by its identity, and a `.part` that is ours only when a download opened it (D350, D351); hash progress (`watch_hashes`, D306); the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
+| `wipemark-store` | the SQLite file, the `settings` table, the queue's tables and, since schema 3, the document **journal** (`journal`, its vocabulary in `entry` — `Origin`, `Action`, `Phase`, `Entry` — because two applications write it, D312) and `JournalWriter`, the CLI's read-write handle that never creates or migrates (D314) | real |
+| `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination — an in-place delivery a crash cut short after the set-aside finished, not failed (D286); `EngineSource`, asked for an engine as each item starts (D310), a hold rather than a failure while there is none (D311), `reserve`/`push_reserved` so a row names its item before it can end (D358), the consent asked again at start (`whereto`, `QueueEvent::Ask`, `agree`, D361), `paused` and `states` from memory (D359) | real; the application runs it — the windows' Rewrite, an agent's `rewrite`, the CLI's rewrite through the application (E4-6b); the windows' clean has a line of its own |
 | `wipemark-secret` | the OS credential store, and `Secret` | real |
 | `wipemark-log` | the rotating file, the panic hook, `Elided` | real |
 | `wipemark-i18n` | the Fluent catalogues and the `Message` enum `build.rs` generates from them | real |
 | `wipemark-image` | PNG, JPEG and WebP metadata: blocks that tile the file, the AI signals as data, `inspect`/`strip` with the raster unchanged; and `reframe`, the one writer for a picture whose pixels changed (`reframe(x, x) == strip(x)`) | real for PNG/JPEG/WebP (E11-1, E11-3; `reframe` E12-3); TIFF, HEIC/AVIF refused by name (backlog); the CLI and the MCP server call it (E11-2), `wipemark-picture` too, and through it the windows' Clean (E7) |
 | `wipemark-pixels` | visible marks as data: the raster, the `.wma` opacity map, the compiled-in catalogue `manifests/marks.v1.json` with every asset pinned by sha256; propose (rows at their own place, then a search refined to the sub-pixel and to the filter that shrank the mark) → verify (edge energy over the unclamped inverse: proved, a blend not proved, or no blend) → restore, the outline and texture checks, holes, the second pass; calibration (`examples/calibrate.rs`); the report whose shelf leads with `invisible-pixel-marks`. No codec | real (E12-1, E12-2, five rounds of host verification); Gemini V1/V2 from GWT's maps (`marks/gwt/`), V1's large-row map and logo measured from real outputs (`gemini-v1-96-measured`), V2's small rows from GWT's formula; other vendors **E12-6** |
 | `wipemark-picture` | a picture file through both passes: decode to the stored raster, the visible pass, encode like the original, `wipemark_image::reframe`, the proof before a byte is handed back — one writer | real for PNG, WebP (lossless out) and JPEG (re-encoded at quality 95; CMYK examined, never written back) (E12-3, E12-4); the CLI and the MCP tools call it (E12-5), and the windows' Clean and the panel's look at AI-provenance scope (E7); Compare for pictures and the batch queue's picture item are **E12-8** |
-| `wipemark-intake` | what was handed over — text, bytes or a path — and what it turns out to be; and `inplace`, the one module that writes: a result beside a file or over it, the original set aside first | real |
+| `wipemark-intake` | what was handed over — text, bytes or a path — and what it turns out to be (`Handed::is_nothing`: an empty or ASCII-white-space text is no item, D301; no head read from a FIFO, terminal, socket or device, D356); and `inplace`, the one module that writes: a result beside a file or over it, the original set aside first, a new file only where nothing is (`write_new`) | real |
 | `wipemark-license` | activation, grace, and what a lapse never locks | types; **E9** |
 
 A crate marked "types" still has tests, and they still have to pass —
@@ -280,19 +310,22 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 
 | file | what it owns |
 |---|---|
-| `main.rs` | the window, the toolbar, the status bar, the command line, startup order |
-| `clipboard.rs` | the clipboard, watched: what the Paste button says it would paste, and what it takes when pressed |
-| `settings.rs` | the Settings window: sections, rows, and the `Preferences` entity every page reads |
+| `main.rs` | the window, the toolbar, the status bar (a load's percent, then the cleans, then the rewrites or why they wait, then who is on duty — D324), the command line, startup order; `open_work`, the batch queue and the journal over the application's own `wipemark.db`; the main window's questions — Rewrite all's price, a drop that would be sent away, the queue's consent — one at a time, in the order they came (D364); `install_tray`/`adopt_tray`, and `take_beacon_at_quit` (D344) |
+| `clipboard.rs` | the clipboard, watched: what the Paste button says it would paste, and what it takes when pressed — an empty or ASCII-white-space text is nothing, the button greyed (D301) |
+| `settings.rs` | the Settings window: sections, rows, and the `Preferences` entity every page reads; `look_at_models`, one scan of the models folder at a time (D304), a scan that panics not stopping the next |
+| `prompts.rs` | the Settings window's **Rewriting** section (`Section::Prompts`, `--settings=prompts`): every template slot and the pivot as widgets, Save by the rule `lay_over` asks (`row::admit`, D330), Reset by deleting the row, Check template on a built-in sample through the engine on duty, Adapt with the model on a button — each run belonging to its slot and cancelled when the slot or the page goes (D367); the words of a guard's and the loop's refusal (`reason_line`, `rejection_line`, D338) |
+| `journal.rs` | the document journal as the application keeps it: the `Writer` thread the windows write through, the MCP connections writing directly, the bookkeeper that writes every queued rewrite's start and end, the launch's settling (D317), the sweep by `journal.keep_days`, `Work` (the queue and the journal together), and `Duty`/`Going` — where an engine would now send a document, for the queue's consent (D361) |
+| `queue/rewriting.rs` | the table's half of E4-6b: a row's Rewrite and Rewrite all pushed to the batch queue with the plan taken at push (D91), the hold, Pause/Resume/Cancel, the statuses, the journal's rows read back as table rows (`rewrite_tests.rs` beside it) |
 | `config.rs` | every preference as a row in `wipemark.db` |
 | `duty.rs` | who rewrites — an endpoint or this machine — and in what order; `engine_for`, where that becomes an engine |
-| `engine_host.rs` | when the model on this machine is in memory: the keep policy (`decide`), the `EngineHost` that executes it, the Check (for the machine or an endpoint), an endpoint's key read when it is first asked, the `EngineHandle` other threads reach it through, `for_job`'s `JobEngine` that holds a job busy for its whole length, and the `Pace` a price is measured by |
+| `engine_host.rs` | when the model on this machine is in memory: the keep policy (`decide`), the `EngineHost` that executes it, the Check (for the machine or an endpoint), an endpoint's key read when it is first asked, the `EngineHandle` other threads reach it through, `for_job`'s `JobEngine` that holds a job busy for its whole length — the batch queue's engine source — `when_changed`, which tells the queue the duty moved, the `Pace` a price is measured by, and the load progress an engine tells (`load_progress()`, numbered per engine so an abandoned load's end clears nothing, D305) |
 | `engine.rs` | the Layer B endpoint vocabulary and its refusals |
 | `profile.rs` | endpoint settings saved under a name |
-| `models.rs` | the Models page's vocabulary, the recommendation, the adoption |
-| `compare.rs` | the fourth window: the original beside what cleaning makes of it — `clean(original)` at Layer A's defaults, made in the read's background task and kept for Reset — every line that differs marked on both sides and the words within a changed line marked more strongly; what it reads, what it refuses, how the original follows the result's cursor, and the Compare page's rows as values |
+| `models.rs` | the Models page's vocabulary, the recommendation, the adoption; the card's bar while a download runs, waits or is checked (`models::bar`, D306); a model found elsewhere or another tool's file in the way, each with no button (`Availability::Found`, `Foreign`) |
+| `compare.rs` | the fourth window: the original beside what cleaning made of it — `clean(original)` at Layer A's defaults, made in the read's background task and kept for Reset — or, for a rewritten row, the rewrite as delivered (`Made::Rewritten`, "Back to the rewritten text") — every line that differs marked on both sides and the words within a changed line marked more strongly; what it reads, what it refuses, how the original follows the result's cursor, and the Compare page's rows as values |
 | `result.rs` | the result as an editor with a toolbar — the toolbar is `gpui_component::input`'s own actions taken by a different road, and the component knows nothing about originals |
 | `diff.rs` | two texts, line against line — and within a changed line, word against word or character against character: the pure function under the Compare window's marks |
-| `queue.rs` | the main window's table: what was dropped or imported, one row each — the preview, the hover card, the filter bar, the sort, the paginator, the Status column, a row's clean asked of `cleaner.rs`'s line and its `Started`/`Finished` read back into the row, the Actions menu (Clean first, greyed with its reason under it; then open with the default app, Compare, Open the result, Show the result in its folder, Copy the result, Report…, Replace the existing result) and the double click that is its Compare item without the menu |
+| `queue.rs` | the main window's table: what was dropped or imported, one row each — the preview, the hover card, the filter bar, the sort, the paginator, the Status column, a row's clean asked of `cleaner.rs`'s line and its `Started`/`Finished` read back into the row, the Process column's **Clean** and **Rewrite** buttons on every row, greyed with the menu's own reason (D325), the Actions menu (Clean and Rewrite first, each greyed with its reason under it; then open with the default app, Compare, Open the result, Show the result in its folder, Copy the result, Report…, Replace the existing result, Cancel, Remove — greyed while an agent or the command line waits for the row, D355) and the double click that opens the latest result in Compare; a row nobody asked to process says *Not started* (D318), every badge reads without its tooltip (D326), and Arrived carries the date for another day's row (D363) |
 | `cleaner.rs` | the one line of cleans per application (D283): `Cleaner`, a GPUI global over the pure `Line`, which the queue's Clean, Clean all, `--clean=` and Replace and the panel's Clean all ask — one clean at a time, first asked first done, a thing asked twice cleaned once, the plan taken when each starts, the plan and the clean under `catch_unwind` so a clean that panics ends as failed and the line goes on (D288) — and the `Started`/`Finished` events the rows, the panel's lines and the status bar's count are drawn from |
 | `preview.rs` | what a row looks like before it is opened: the picture, the first lines, or nothing |
 | `wording.rs` | the sentences the panel, the queue and the report share about one thing that arrived — what a kind is called, whether the name lied, what would happen to it, what a look found, what a clean came to and where its result went — each over a `Say`, so a window and a copied report are one sentence in two renderings |
@@ -303,22 +336,22 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `dialog.rs` | the modal overlays and the focus trap |
 | `theme.rs` | Light, Dark and `System` — the live one |
 | `language.rs` | what the language selector offers, and what a click means |
-| `tray.rs` | the menu-bar item, and the close button that only hides while it exists |
-| `hotkey.rs` | a system-wide shortcut: the chord, its row spelling, what a keystroke means while one is recorded, and the registration |
+| `tray.rs` | the menu-bar item on macOS and on Linux — one menu, `build_menu`; on Linux a GTK thread of its own, installed only where a StatusNotifier host would draw it, the icon derived at run time (D340–D342, D347) — and the close button that only hides while it exists |
+| `hotkey.rs` | a system-wide shortcut: the chord, its row spelling, what a keystroke means while one is recorded, and the registration — Carbon on macOS, an X11 key grab on a thread of its own on Linux under X11 (D346, B1) |
 | `recorder.rs` | the shortcut recorder — the field that is clicked, then pressed into |
 | `keys.rs` | a chord, painted: how its keys are spelled and what goes between them |
 | `window_state.rs` | the Settings window's rectangle, one row per display |
 | `title.rs` | every window title, built as plain text |
-| `panel.rs` | the third window: summoned from the menu bar, no titlebar, placed by nothing but the Placement page; a findings line under each listed thing, and Clean beside the dismissal line |
+| `panel.rs` | the third window: summoned from the menu bar, no titlebar, placed by nothing but the Placement page; a findings line under each listed thing, and Clean beside the dismissal line — it cleans, and says rewriting is in the main window |
 | `setup.rs` | the first-launch walk-through: five steps over the main window, the recommendation the machine's memory makes, and the rows it writes through the pages' own methods |
 | `placement.rs` | which screen the panel opens on, and which sixth of it — one answer per display |
-| `retention.rs` | where a result goes, what happens to the file it came from, what the product keeps of its own and for how long — and the plan for one thing that arrived |
+| `retention.rs` | where a result goes, what happens to the file it came from, what the product keeps of its own and for how long — and the plan for one thing that arrived: a clean's, taken when it starts, and a rewrite's (`rewrite_destination`, `name.rewritten.ext`), taken when it is pushed |
 | `display_watch.rs` | noticing that the displays changed, from two sources |
 | `screen.rs` | a display reduced to the three facts placing a window needs, the displays as a page lists them, and the one call that moves a window |
 | `icon.rs` | `IconName` — the only glyph names that resolve — and the `Icon` element |
 | `assets.rs` | `WipemarkAssets`, the single `AssetSource` GPUI resolves every `svg()` against |
 | `dock_icon.rs` | the Dock icon for a `cargo run` that is not an `.app` |
-| `mcp/` | the JSON-RPC server, its protocol and its tools — `rewrite.rs` the one tool that runs the pipeline, `image.rs` the picture tools — and the beacon it writes |
+| `mcp/` | the JSON-RPC server, its protocol and its tools — `rewrite.rs` the one tool that runs the pipeline, as an item of the batch queue it waits for, and `saved_rows`, the templates and pivot a window's rewrite shares (D323); `image.rs` the picture tools — the journal row each call writes unless it says not to, and the beacon it writes |
 
 `apps/wipemark-cli/src/main.rs` is the other application: the argument
 surface, the language flag read out of `argv` before clap parses (so
@@ -334,9 +367,16 @@ one already there, a symbolic link refused),
 `audit.rs` the walk of a folder
 and its human, `--json` and SARIF 2.1.0 renderings, and `models.rs`
 `models list|pull|verify|rm` over `wipemark-models`, reading the app's
-`models.dir` and `models.rewrite` rows read-only; `rewrite.rs` the
-rewrite flow and the command's own local engine, `app.rs` the road to the
-running application. No command refuses any more. The table of every command's exit codes and streams is
+`models.dir` and `models.rewrite` rows read-only — `list` says "found at"
+and "another tool's file", `rm` removes only what a download marked —;
+`rewrite.rs` the rewrite flow and the command's own local engine —
+`name.rewritten.ext` by default, refused when a file is already there
+(exit 2 before the read, naming `-o` and `--in-place`, D362) — `app.rs`
+the road to the running application, its origin, file name, path and size
+in `params._meta` (D321), and `journal.rs` the command's own journal row
+when no application takes the call (D314, D315) — a path that is not a
+regular file, or any name under `/dev` or `/proc`, recorded as no file
+(D356). No command refuses any more. The table of every command's exit codes and streams is
 `docs/architecture/cli.md`.
 
 Anything that needed more than a rule to explain is in `docs/`;
@@ -376,11 +416,11 @@ Anything that needed more than a rule to explain is in `docs/`;
 * **No epic number leaves this repository.** `E1`, `E2`, `E7` are our
   backlog. A person reading a window, and an agent reading a refusal,
   can do nothing with them — what they can act on is "not in this
-  version yet", which is what every pending surface now says: the
-  queue's footer, the toolbar's help and the panel — which since E7 say
-  only that *rewriting* is not in the windows, because they clean — the
-  Engine and Models banners, the MCP tools pane, the tray's disabled item
-  and the CLI's refusal. The footer's and the panel's sentences are gated
+  version yet", which is what every pending surface says: the tray's
+  disabled Clean Clipboard, and — since E4-6b, about what they *do* — the
+  queue's footer (the list cleans and rewrites), the toolbar's help, the
+  panel (rewriting is in the main window), the Engine and Models banners
+  and the MCP tools pane. The footer's and the panel's sentences are gated
   against an epic number, and so is every value of every catalogue —
   every message, term and selector variant, in every language
   (`no_catalogue_value_carries_an_epic_number`, W1); the comments keep
@@ -428,15 +468,42 @@ Anything that needed more than a rule to explain is in `docs/`;
   build cannot use is read as the default and **left in the row**, never
   corrected; and a database that will not open is **left on disk**, byte
   for byte, while the app runs on an in-memory store that forgets. The
-  CLI opens the same file read-only — it never creates or migrates one.
+  CLI opens the same file read-only — it never creates or migrates one —
+  **except one write**: its own journal row through `JournalWriter`, which
+  can write the journal table and nothing else, and never creates or
+  migrates the file (D314); with no database it is silent but for a log
+  line, and with one it cannot write it says so in one stderr line (D315).
+  `rewrite.pivot` is a persisted preference with a row on the Rewriting
+  page since E4-6c (D331); no row is "by the document's language". The
+  template overrides `prompts.<lang>.<tactic>.<step>.<role>` stay dynamic
+  keys outside `config::PERSISTED`
+  (`a_prompt_row_is_never_a_preference_row`), and the page is their widget
+  (`every_template_slot_has_a_row`).
 * **The close button only hides while there is a way back.** The
-  menu-bar item (`apps/wipemark-app/src/tray.rs`) is installed first,
-  and the `on_window_should_close` hook that hides the app instead of
-  closing the window is registered inside that `Some` — a platform
+  menu-bar item (`apps/wipemark-app/src/tray.rs`) is installed first —
+  on macOS, and on Linux since 2026-10-07 — and the `on_window_should_close`
+  hook that keeps the window is registered inside that `Some` — a platform
   without a tray, or a tray that failed to install, keeps a close button
-  that closes. Menu clicks reach GPUI through a `flume` channel for the
-  same reason every long operation does: the `muda` callback runs with
-  no `&mut App` in scope and no way to get one.
+  that closes. `tray::install` answers asynchronously on every platform
+  (`tray::Pending`), and `tray::when_installed` runs `adopt_tray` only on
+  `Some`, which is what keeps the hook inside it however late the answer
+  comes (`without_a_tray_the_close_button_closes`,
+  `with_a_tray_the_close_button_keeps_the_window`). On macOS the hook
+  hides the application. On Linux the item lives on a GTK thread of its
+  own (`wipemark-tray`; the widgets never leave it, changes travel to it as
+  `tray::Change`s, D340), is installed only where a StatusNotifier host
+  would draw it — the indicator library, then GTK, then a watcher on the
+  session bus that says a host is registered (D341) — and the hook
+  **minimizes** the main window under X11, where Show can restore it, and
+  is not registered under Wayland, whose compositor refuses the activation
+  Show would need (D343; GPUI's `App::hide` does nothing on Linux,
+  `the_close_button_hides_only_where_show_brings_the_window_back`). Quit is
+  `App::quit` on both platforms: the model is dropped and waited for, the
+  item taken down, and the MCP beacon removed if it names this process
+  (`main::take_beacon_at_quit`, D344). Windows has no tray yet. Menu clicks
+  reach GPUI through a `flume` channel for the same reason every long
+  operation does: the `muda` callback runs with no `&mut App` in scope and
+  no way to get one.
 * **A preference belongs in Settings, not in the chrome.** The status
   bar says what the application is doing; the preferences are reached
   from the gear at its right, from `secondary-,`, from the menu bar, or
@@ -630,7 +697,13 @@ Anything that needed more than a rule to explain is in `docs/`;
   `the_button_says_what_it_would_paste`). Off macOS the road is GPUI's
   `read_from_clipboard`, folded into the same order by
   `clipboard::handed_of`, refreshed on activation because there is no
-  change count to poll (E10). **The table cleans** (E7): Clean in a row's
+  change count to poll (E10). **Nothing is no item** (D301): an empty
+  text, a text of ASCII white space alone, or bytes of length zero lands
+  no row by any road — the clipboard, the macOS pasteboard, `Catcher::land`
+  — and the button reads greyed "Paste" over it; a text holding any other
+  space (U+00A0, U+3000 …) is something, because those are what Layer A
+  looks for (`a_paste_or_a_drop_of_empty_text_lands_nothing`). **The
+  table cleans** (E7): Clean on the row and in its
   Actions menu, **Clean all** on the toolbar after Paste, and
   `--clean=<path>` all ask the application's one line of cleans —
   `cleaner::Cleaner`, a GPUI global over the pure `cleaner::Line`, which
@@ -654,12 +727,92 @@ Anything that needed more than a rule to explain is in `docs/`;
   because a decoded image is four bytes a pixel whatever the file cost
   (`an_image_past_the_limit_gets_no_thumbnail`). `Encoding::Other` is
   previewed as its ASCII and replacement marks, never a guessed code
-  page. Nothing is rewritten, nothing is expanded and nothing assigns a
-  keyword yet; the footer says the first of those in every language
-  (`the_footer_says_rewriting_is_not_here_yet`).
+  page. Nothing is expanded and nothing assigns a keyword yet; the footer
+  says the list cleans and rewrites, in every language
+  (`the_footer_says_the_list_cleans_and_rewrites`).
   The page size is session state, not a preference: a preference here
   is a Settings row, and the size of a table is not yet worth one. See
   `docs/architecture/queue.md`.
+* **The table rewrites, through the one batch queue** (E4-6b). **Rewrite**
+  is a button on every row beside Clean (D325) and the second item of its
+  Actions menu, greyed with its reason — nothing on duty in the engine
+  handle's own sentence, not text, not kept, already queued or being
+  cleaned; **Rewrite all** on the toolbar says the **price first** —
+  calls, tokens, minutes or "unknown", here or sent away — and pushes
+  nothing until it is answered (D61); Pause, Resume and a row's Cancel
+  while anything is in the line. Every rewrite on every surface — a row,
+  an agent's `rewrite`, the CLI's through the application — is an item of
+  one `wipemark-queue`, first come first served (В9); cleans keep their
+  own line (D283), a clean of a row being rewritten is refused with its
+  reason, and a clean and a rewrite never share a name. The queue asks the
+  application for an engine when an item **starts** (`EngineSource`,
+  blocking, on the queue's thread — D310), through `EngineHandle::for_job`,
+  so the item is busy for its whole length and no unload lands inside it;
+  nothing on duty, or a refusal part way, **holds** the queue rather than
+  failing the item, and the hold lifts on a duty change or Resume, never
+  by a retry loop (D311). The plan is taken at **push** (D91), unlike a
+  clean's at start: `retention::rewrite_destination` — beside as
+  `name.rewritten.ext`, a new file only where nothing is
+  (`Destination::New`, D319), in place with the original set aside, a
+  paste into its own row — and a file already where the result would go
+  makes the row *Rewrite failed* at once, nothing pushed, with Replace the
+  existing result pushing a replace of that one file (D357). **Consent is
+  taken at push and asked again at start** (D361): a window's push records
+  where the person agreed the document may go (here, or that endpoint), and
+  before such an item starts the queue asks where an engine would now send
+  it (`EngineSource::whereto`); an endpoint other than the one agreed to
+  holds the queue and asks once, for every waiting item
+  (`QueueEvent::Ask`, `Queue::agree`), and a duty back on this machine asks
+  nothing. An agent's or the command line's item carries no consent of the
+  window's and is never asked. The main window asks its questions — the
+  price, a drop that would be sent away, this one — one at a time, in the
+  order they came (D364). A row nobody asked to process says *Not
+  started*, its tooltip naming the row's buttons (D318, D363); with
+  Settings › General › *Process what arrives* (`queue.on_arrival`:
+  nothing, clean or rewrite; nothing by default, В1) a drop goes straight
+  into a line, and with an endpoint on duty a rewrite on arrival asks
+  first (`QueueEvent::SendAway`). The status bar: a load's percent, the
+  cleans, "Rewriting 2 of 5 · paragraph 7 of 52" or why the queue waits,
+  then who is on duty (D324); the toolbar and the status bar read the
+  queue's pause and states from memory, never a row per frame (D359).
+  Compare of a rewritten row opens on the rewrite as delivered, never
+  called "better" (`compare_of_a_rewritten_row_is_the_delivered_text`).
+  A window's rewrite is an agent's call with no arguments — paraphrase,
+  the default intensity, the saved templates and pivot (D323). See
+  `docs/architecture/queue.md`, "Rewriting".
+* **Every document has a status, whoever asked** (the owner, 2026-10-07;
+  E4-6b). The table is the **document journal** — `wipemark-store`
+  schema 3, `apps/wipemark-app/src/journal.rs` — read at launch, so its
+  rows survive a restart, swept by `journal.keep_days` (7, a Retention
+  row), Remove and Clear finished taking rows out. A row is written for a
+  drop, a paste, an import, the panel, `--import=`/`--clean=`, every MCP
+  `clean`, `clean_image` and `rewrite`, and every CLI `clean` and
+  `rewrite` — through the application when it runs (`params._meta` in,
+  `result._meta["wipemark/journal"]` out, D321), on its own
+  `JournalWriter` row when it does not (D314). The opt-outs are the
+  call's own: `--no-record` on the CLI, `"record": false` over MCP; an
+  `inspect` (`inspect_image` too) is a look with no result and is a row
+  only on `--record` / `"record": true` (В6, В7;
+  `a_call_is_a_row_unless_it_says_not`, `inspect_records_nothing_unless_asked`).
+  A row is **metadata** — name, path, kind, format, encoding, size, what
+  was asked, the verdict and its counts, where the result went — never the
+  document (D312, `an_entry_never_carries_the_text`); a rewrite's text
+  lives in the batch queue's row only while it is queued or running, or
+  when that row is the result's one home (a paste), and an agent's item is
+  removed the moment its answer goes back (D313). One row per document,
+  its action the last asked (D320). Rows of another process are noticed by
+  `PRAGMA data_version` once a second, the application's own by a notes
+  channel (D316); a launch settles what the last run left (D317). An
+  agent's or the CLI's call waiting for its rewrite ends as a refusal if
+  its item is removed, and Remove is greyed on such a row while it waits
+  (D355). Nothing reading the journal back opens a path that is not a
+  regular file — a FIFO, a terminal, a socket, a device — and a path an
+  MCP client names in `_meta` is shown, never opened (`Entry::said_path`,
+  D356; `a_journal_row_naming_a_fifo_never_blocks_the_read`). A row names
+  its queue item before the item can start (`Queue::reserve`, then
+  `push_reserved` after the row is written, D358); a template refused is
+  no row on any road (D360). See `docs/architecture/queue.md`, "The
+  journal".
 * **The bytes decide what a thing is; the name may only refine it.**
   `crates/wipemark-intake` is the recogniser, and a leaf with **no
   dependencies at all** — the panel, the main window, the CLI and the
@@ -740,12 +893,20 @@ Anything that needed more than a rule to explain is in `docs/`;
   table of key *names* stays upstream's, and `keys.rs` is the only file
   in this repository that imports `Kbd`. Registration is
   `global-hotkey` — Tauri's own plugin's crate, a sibling of `muda`,
-  Carbon `RegisterEventHotKey` with no Accessibility prompt — macOS
-  only like the tray; the row is the request and `Registration` is the
-  desktop's answer, shown under the field, so a refused chord is not a
-  preference that quietly does nothing. `main::install_hotkeys` owns
-  the registrar, follows every change (old chord released *first*), and
-  performs a press on the GPUI side over a `flume` channel. **One
+  Carbon `RegisterEventHotKey` with no Accessibility prompt on macOS, and
+  on Linux an X11 key grab, asked for only where GPUI draws through X11
+  and `XDG_SESSION_TYPE` is not `wayland` (D346, `x11_session`; elsewhere
+  the row says *Stored, and not active*); the row is the request and
+  `Registration` is the desktop's answer, shown under the field, so a
+  refused chord is not a preference that quietly does nothing.
+  `main::install_hotkeys` owns the registrar, follows every change (old
+  chord released *first*), and performs a press on the GPUI side over a
+  `flume` channel. Asking never waits for the desktop: on Linux a thread
+  of its own (`wipemark-hotkeys`) owns the manager and answers on
+  `Registrar::answers`, which `install_hotkeys` polls (B1,
+  `asking_for_a_shortcut_never_waits_for_the_desktop`). On GNOME the
+  shipped Ctrl+Alt+D is one of *Show desktop*'s bindings, so expect it
+  refused there and record another. **One
   shipped chord, and it is the panel's**: `hotkey::PANEL_DEFAULT` is
   ⌘⌥D (`CmdOrCtrl+Alt+D`), because a window you *summon* over somebody
   else's document is useless if it has to be found in Settings first —
@@ -880,10 +1041,21 @@ Anything that needed more than a rule to explain is in `docs/`;
   (`U+XXXX`), except the `id` and the kept characters of a cleaned text.
   `rewrite` (E4-6a) runs the pipeline on the application's engine and
   answers `{text, report}` (`JobReport::to_json`, the third shelf always
-  in it); a call blocks until its job ends, and a hang-up or 60 minutes
-  cancels it; `dry_run` prices and loads nothing; `templates` lays a
-  caller's templates over the rows, validated strictly; `structural` and
-  `code` are refused (they need a confirmation in a window).
+  in it); since E4-6b the call is **an item of the batch queue** the
+  windows push to, first come first served, and it blocks until its item
+  ends — a hang-up or 60 minutes from the item's *start* cancels it (В9),
+  a queue that holds or is paused answers at once rather than waiting on a
+  line that is not moving (D322), and an item removed before it ended is a
+  refusal, never an empty report (D355); `dry_run` prices and loads
+  nothing; `templates` lays a caller's templates over the rows by the one
+  rule, against the window of the engine on duty (`row::lay_over_within`,
+  `5a9e525` — a template over a tenth of a known window is `too-long`);
+  `structural` and `code` are refused (they need a confirmation in a
+  window). Every `clean`, `clean_image` and `rewrite` is a journal row
+  unless `"record": false`, and `inspect`/`inspect_image` only with
+  `"record": true`; the CLI's origin, name, path and size come in
+  `params._meta` and the row's id goes back in
+  `result._meta["wipemark/journal"]` (D321).
   `inspect_image { data }` and `clean_image { data, scope }` (E11-2,
   E12-5) take a picture as base64 — no path argument — and run
   `wipemark-picture`, the metadata pass and the visible one; a mark left
@@ -984,10 +1156,10 @@ Anything that needed more than a rule to explain is in `docs/`;
   also refuses a redirect and a scheme other than `http`/`https` itself
   (`wipemark_engine::http`, before a socket opens or a 3xx is followed) —
   defence in depth under `engine::refusal`, not a second rule. The Engine
-  banner's last line says, in every state the page can be in, that the
-  windows send no document and the Check is the one request the page
-  makes, while an agent's or the CLI's rewrite goes to whatever the page
-  puts on duty (`the_engine_banner_always_says_a_rewrite_is_not_here_yet`).
+  banner's last line says, in every state the page can be in, where a
+  rewrite goes — the windows', an agent's and the CLI's alike go to
+  whatever the page puts on duty, and the Check is the one request the
+  page itself makes (`the_engine_banner_always_says_where_a_rewrite_goes`).
 * **A saved profile is every *endpoint* setting except the key.** The
   endpoint settings are keepable under a name — `engine.profiles.<id>`,
   one row each, so saving one cannot disturb another — and two things
@@ -1059,8 +1231,37 @@ Anything that needed more than a rule to explain is in `docs/`;
   `Authorization` header and refuses a URL carrying userinfo, which is
   what makes following Hugging Face's redirect to its CDN safe — the
   upstream rule about 3xx is satisfied by having no credential to leak,
-  so adding a token later means adding that rule, not replacing it. See
-  `docs/architecture/model-downloads.md`.
+  so adding a token later means adding that rule, not replacing it.
+  **A catalogue file is recognised wherever it is, and the product never
+  deletes a file it did not download.** When a file is not at
+  `<models>/<id>/<file>`, the walk of the folder is searched — candidates
+  by name and size, the sha256 deciding — and a match is `Present`, used
+  where it is, its card saying "Found at …" with **no button** (D302). A
+  download leaves a **mark** a look never writes,
+  `<data dir>/records/<key>-<file>.downloaded`, naming the file by its
+  identity (`size:mtime_ns:dev:ino` on Unix, read with `symlink_metadata`;
+  none for a link) — and only a file that still has that identity is the
+  product's: Installed or Damaged with Remove, the only file `remove`
+  deletes and `fetch` replaces (D302 amended in round 2, D350). A file at
+  the catalogue's own place without the mark, a file renamed or written
+  over a marked one, or a link there, is another tool's: used when its
+  sha256 is the catalogue's, otherwise said (`Availability::Foreign`, no
+  Download, no Remove) and a fetch refused as `Occupied`, the mark dropped
+  (`a_file_at_its_place_that_no_download_wrote_is_never_removed`,
+  `a_mark_names_the_file_and_not_the_place`). A `.part` is ours only when
+  a download created it (`create_new`) and marked it at once; another
+  one is never resumed, truncated or removed (D351). A download made by a
+  build from before the mark has none and reads as "Found at …" — the
+  safe side. What a verify learned is a **record** under
+  `<data dir>/records` — the size and time, the sha256 the file had, the
+  path — never a stamp or a `meta.json` beside the weights, which may sit
+  in a folder the user holds read-only or shares with another program
+  (D303); a file changed while it was hashed is read again. A hash tells
+  how far it has got (`watch_hashes`), and the card draws gpui-component's
+  bar while a download runs, waits to be resumed or is checked
+  (`models::bar`, D306). A GGUF in no catalogue stays listed and not
+  loadable; loading the user's own GGUF, unverified, is an owner question.
+  See `docs/architecture/model-downloads.md`, "Found wherever it is".
 * **Who rewrites is a decision, it has a name, and there is one place it
   is made.** `apps/wipemark-app/src/duty.rs`. Two things can rewrite — an
   endpoint described by the Engine page or by one of its saved profiles,
@@ -1130,11 +1331,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   ("Forget it was shown" deletes `ui.setup.done`, so the *next* launch
   takes the first-launch path `--setup` does not) — and its
   `models/recommend.rs` in policy. Five steps:
-  what the product is (and that Layer A runs from these windows — Clean
-  in the main window and in the panel — as well as from the command line
-  and over MCP, while Layer B runs from the command line and over MCP and
-  not from the windows yet; `the_welcome_says_the_windows_clean_and_do_not_rewrite`
-  holds that in every language), what this
+  what the product is (and that both layers run from these windows —
+  Clean in the main window and in the panel, Rewrite in the main window —
+  as well as from the command line and over MCP;
+  `the_welcome_says_the_windows_clean_and_rewrite` holds that in every
+  language), what this
   machine has room for, who rewrites, the model or the endpoint, done.
   It is **not a sixth page**: every choice is an Engine or Models row
   and is written through `select_serves`, `download_model` and the
@@ -1177,10 +1378,16 @@ Anything that needed more than a rule to explain is in `docs/`;
   executor, and both happen when the **main** window opens rather than
   when Settings does: the status bar cannot say who rewrites without
   knowing what is on the disk. `Downloads::state` re-hashes only a file
-  whose size or mtime has moved, so a steady-state launch is a handful
-  of `stat` calls — but hashing seven gigabytes on the thread that draws
-  the window would still be a frozen window, which is why neither ever
-  runs on it.
+  whose size or mtime has moved against its record (D303), so a
+  steady-state launch is a handful of `stat` calls — but hashing seven
+  gigabytes on the thread that draws the window would still be a frozen
+  window, which is why neither ever runs on it. And only **one scan at a
+  time** (D304): `look_at_models` asked while a scan runs starts nothing
+  and asks for one more after it, whose answer replaces the first's, so a
+  file is hashed by one task at a time
+  (`two_scans_asked_back_to_back_hash_a_file_once`); moving the folder
+  stops the old store between chunks of a hash, and a scan that panics is
+  caught and does not stop the next.
 * **The models folder is one row, and it is read recursively.**
   `models.dir` is an absolute path or `""` for `<data dir>/models`;
   a relative one reads as the default and is left in the row. On the
@@ -1193,8 +1400,8 @@ Anything that needed more than a rule to explain is in `docs/`;
   a catalogue entry and not a path. `wipemark_models::scan::weights_under`
   walks the folder to eight levels for anything with a weight
   extension, skipping hidden entries and linked *directories*; the
-  catalogue's own files are subtracted and the rest is **listed and
-  nothing more** under "Also in this folder" — no checksum, so nothing
+  catalogue's files, wherever they were found, are subtracted and the rest
+  is **listed and nothing more** under "Also in this folder" — no checksum, so nothing
   verifies one, and nothing loads one, and the sentence over the list
   says both. "Does not exist yet" is the ordinary state on a
   fresh install and is not a fault; "could not be read" is.
@@ -1310,9 +1517,16 @@ Anything that needed more than a rule to explain is in `docs/`;
   only when there is a result, before the result is written (D265), into
   `<kept>/<yyyymmddThhmmss UTC>-<n>/`, and `clean::sweep` removes such a
   directory once its period has passed — at launch and after each keep,
-  never creating the folder (D267). The page's last line says the windows
-  follow it and the command line and agents read none of it
-  (`the_retention_banner_says_who_follows_it`). See
+  never creating the folder (D267). A **rewrite** follows the same page
+  with two differences: its result is `name.rewritten.ext` (В8 — in the
+  windows, the queue and the CLI alike, so a clean and a rewrite never
+  share a name), and its plan is taken when it is **pushed** to the batch
+  queue (D91), not when it starts (`retention::rewrite_destination`;
+  beside and the results folder only where nothing is, D319). The page's
+  last line says the windows follow it — a clean's plan at its start, a
+  rewrite's at its push — and the command line and agents read none of it
+  (`the_retention_banner_says_who_follows_it`); `journal.keep_days`, how
+  long a finished journal row stays, is a row on the same page. See
   `docs/architecture/retention.md`, "How the windows execute it".
 * **The windows clean as the CLI does, and write less.**
   `apps/wipemark-app/src/clean.rs` is the one cleaner behind the queue,
@@ -1410,14 +1624,21 @@ Anything that needed more than a rule to explain is in `docs/`;
   memory shown is the process's RSS, **measured** after the load, never
   `MemEstimate`, and nothing when it could not be read. A refusal is a
   value (`Unavailable`, D53) and the window's sentence comes from the
-  catalogue. **Check** is the one place a window shows a model's words
-  before E4, and it says it is a check, not a rewrite (D54). Every other
+  catalogue. **Check** says it is a check, not a rewrite (D54), and so
+  does the Rewriting page's Check template. Every other
   surface reaches the model through `EngineHandle` (`Send + Sync +
   Clone`), whose jobs go through the same busy count and events; the MCP
-  server holds one from startup, and its `rewrite` tool takes a
-  `JobEngine` (`for_job`) that keeps the job counted busy from the first
-  call to the last, so no unload lands between two candidates (E4-6a). See `docs/architecture/local-engine.md`, "Keeping a
-  model".
+  server holds one from startup, and its `rewrite` tool — and the batch
+  queue, for every item — takes a `JobEngine` (`for_job`) that keeps the
+  job counted busy from the first call to the last, so no unload lands
+  between two candidates (E4-6a, D310). **A load tells how far it has
+  got** (D305): `EngineHandle::set` hands every engine that enters the
+  slot the host's sink, numbered so that an abandoned load's end clears
+  nothing of the next one's; `LocalEngine` tells `Reading(f)`, paced, and
+  `Ended` however the load ends; and `load_progress()` is what the Engine
+  page, the Models card of the model on duty and the status bar draw
+  from. See `docs/architecture/local-engine.md`, "Keeping a model" and "A
+  load, as it goes".
 * **A document goes back byte for byte.** `wipemark_pipeline::prepare`
   turns a document into chunks — one paragraph or one list item each,
   never merged, and never a list marker — and every
@@ -1492,7 +1713,46 @@ Anything that needed more than a rule to explain is in `docs/`;
   An adaptation into another language is never automatic (Q-B22), and
   `clean_response` never cuts a preface (D67) — a sentence removed by a
   pattern is a content edit. There is no non-origin rule (D62): the
-  model the user chose rewrites. See `docs/architecture/prompts.md`.
+  model the user chose rewrites. **No template carries an invisible
+  character** (D369): `validate`'s `invisible-character` refuses, in any
+  template, what Layer A removes at its defaults — a zero-width character,
+  a bidi control, a tag, a soft hyphen, a selector out of place — so the
+  page's Save, `lay_over` (CLI, MCP) and `render` all refuse it, and a row
+  stored before the rule is refused by name by the job rather than sent
+  (`an_invisible_character_is_an_error`). A placeholder ends a token for
+  `IdentifierGuard`, as a space does, so `⟦1⟧host/path⟦2⟧` is the
+  identifier `host/path` (D300). See `docs/architecture/prompts.md`.
+* **A template is changed on the Rewriting page, by the one rule.**
+  `apps/wipemark-app/src/prompts.rs` (`Section::Prompts`,
+  `--settings=prompts`). `row::admit` decides whether an override may be
+  stored — `validate` beside the other turn of its step as it will be
+  used, with the row's own `based_on` and the window when the surface
+  knows it; errors refuse, warnings are said — and the page's Save,
+  `lay_over` and `lay_over_within` all ask it, so a template the page
+  stores is one the CLI's `--prompts` and the MCP tool's `templates`
+  accept and the other way round
+  (`the_page_and_lay_over_accept_the_same_templates`, D330). The CLI lays
+  its templates over its own model's window and the MCP tool over the
+  window of the engine on duty (`5a9e525`); a window nobody knows is
+  unknown, never guessed. Save never stores the shipped text and never
+  replaces a row this build cannot read — only **Reset**, which deletes
+  the row, does (D366); an unreadable row is shown and left. Reset that
+  would break the step is refused (D334). **Check template** runs the
+  whole tactic over a fixed sample of the language with the edited text,
+  through `EngineHandle::for_job` on the background executor, and writes
+  nothing (D332); **Adapt from L** asks the model on a button only, sends
+  a template and never a document, runs Layer A over the answer, and
+  stores it only when admitted, marked `machine` until a person's Save
+  reviews it (D333, D335) — and only into an empty slot or an earlier
+  adaptation, looked at again under the one writer of template rows just
+  before the write, so a template saved while the model answered is never
+  overwritten (D365). A check or an adaptation belongs to its slot:
+  another slot, or the page let go of, cancels it (D367). Drift — yours
+  against today's shipped text, or an adaptation whose source moved — is
+  shown as a diff and acknowledged by **Keep mine**, never merged (D336,
+  D368). With an endpoint on duty that is not this machine, the page says
+  where a check or an adaptation would go before anything is pressed. See
+  `docs/architecture/prompts.md`, "The Prompts page".
 * **An image is cut into blocks that tile it, and colour is never
   metadata.** `crates/wipemark-image`: every byte of a PNG, JPEG or WebP
   belongs to exactly one block, and `strip` concatenates the kept ones
@@ -1560,7 +1820,16 @@ Anything that needed more than a rule to explain is in `docs/`;
   **the local model only**: with an endpoint on duty and no application
   running it refuses, naming the application, because `engine::refusal`
   lives in the app crate and a second copy of the default-deny rule is
-  the one copy that drifts (E4-6a H16). `wipemark_models::beacon`,
+  the one copy that drifts (E4-6a H16). Through the application the run
+  is an item of its batch queue and a row in its journal (`params._meta`
+  carries the CLI's origin and file, D321); alone, the CLI writes its own
+  journal row (D314). Either way `rewrite` writes `name.rewritten.ext` by
+  default and **refuses a file already there** — exit 2 before the read,
+  naming `-o` and `--in-place`, the write itself `write_new` so a file that
+  appears meanwhile is refused too (D362,
+  `a_rewrite_never_writes_over_a_rewritten_file_already_there`); `-o` is
+  the person's word and replaces, and `clean`'s `name.cleaned.ext` is
+  unchanged (the parity table pins it). `wipemark_models::beacon`,
   `apps/wipemark-cli/src/app.rs`.
 * **Exit codes are the CLI's interface, and there are four.** `0`
   clean, `1` findings, `2` usage or a refusal, `3` partial. The third
@@ -1680,6 +1949,9 @@ What exists so far:
 | `wipemark-task-gpui-bump-2026-10-052` | FILE | a task for an agent in a container: GPUI onto the newest `gpui-pre` snapshot, our gpui-component patch rebased (or dropped once gpui-kit#3359 lands), the API fixed, patch B re-carried through `[patch.crates-io]`, the host's checklist after; decisions D291–D300. The keys without the trailing `2` are the first uploads, before the fork's commits were filled in |
 | `wipemark-task-gpui-bump-2026-10-07` | FILE | the same task revised: gpui-kit#3359 is merged into `next` (`f8429177`, 2026-10-07), so the component is pinned to upstream `next` and the fork's patch dropped, not rebased; no mutation tables; supersedes the `-052` upload |
 | `wipemark-gpui-bump-report-2026-10-07` | FILE | its report: the component on gpui-kit `next` (`f8429177`), GPUI `gpui-pre =0.3.8` from crates.io with nothing carried — patch A upstream (#62081), patch B unneeded since #61789 (measured) — toolchain 1.95.0, `check-gpui-pin.sh`, D291–D299; the host verification's M1 (Compare's original read-only, not disabled) and L1 (modal priorities) fixed before the merge |
+| `wipemark-task-owner-fixes-2026-10-07` | FILE | a task for an agent: the owner's fixes from the first Qwen3.8 27B session in the application, F1–F6 — a bar while a model downloads, is checked and loads, catalogue models found anywhere under the folder, one hash per file, records out of the weights' folder, an empty paste lands nothing, a placeholder ends an identifier. Its report is in the tree, `docs/plan/reports/owner-fixes-2026-10-07.md` (D300–D306, with round 2's H1 and L1–L6) |
+| `wipemark-task-e4-6b-windows-rewrite-2026-10-07` | FILE | a task for an agent: E4-6b, the windows rewrite through the batch queue and every document has a status — the journal, whoever asked; owner questions В1–В10, built at their defaults. Its report is in the tree, `docs/plan/reports/E4-6b-2026-10-07.md` (D310–D326) |
+| `wipemark-task-e4-6c-templates-widgets-2026-10-07` | FILE | a task for an agent: E4-6c, the Prompts (Rewriting) section — every template and the pivot as widgets, Save by the one rule, Check template, Adapt on a button; Г1–Г7, built at their defaults. Its report is in the tree, `docs/plan/reports/E4-6c-2026-10-07.md` (D330–D339) |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 | `wipemark-status-2026-10-05` | FILE | where the project stood at the end of 2026-10-05: images rounds 3–5, E7 merged, the X11 first frame fixed through `GigLaboCom/zed`, and the plan of pull requests and branches (`docs/plan/README.md` §2.1) — PR #1 and what comes next, in order |
 | `wipemark-status-2026-10-06` | TEXT | where the project stood at the end of 2026-10-06: E7 follow-ups X1–X14 and Y1–Y9 merged, Z1–Z3 filed, mutation tables dropped for `coverage.yml` (on `main` and by hand), what is next |
@@ -1706,8 +1978,25 @@ and E12-7 (the reconstructor) are not started. **E7's windows clean is
 done** (E7-1…E7-6, merged 2026-10-05 as `7621c9f`; follow-ups W1–W15
 merged as `2f7ce56`; follow-ups X1–X14 merged as `78fd9e2`; follow-ups
 Y1–Y9 merged as `bb73dc3`; follow-ups Z1–Z3 merged, squashed), and with it the half of E12-8 that cleans a picture from the
-windows; what remains of E7 is rewriting in the windows (**E4-6b**), the
-source editor with its badges (S7.2), the streamed result (S7.3) and the
-Inspector (S7.5), and of E12-8 Compare for pictures and the batch
-queue's picture item. E1 and E3 parallelise in separate worktrees; E5 lands before
+windows. **The windows rewrite too**: `integrate/2026-10-08`, merged into
+`feat/e0-e6-shell` as `9b907bb` on 2026-10-08, carried the owner's fixes
+F1–F6 and their second round (D300–D306), **E4-6b** — rewriting from the
+windows through the batch queue, and the document journal (D310–D326) —
+**E4-6c**, the Rewriting section of Settings (D330–D339), the **tray and
+the shortcut on Linux** (D340–D347), the divergence research's bench
+additions, and the fix round after one host verification (D350–D351,
+D355–D364, D365–D369); gates once on `844aa01`, 1623/0/7, the app with
+`local-llama` 628/0/2, CI green. What remains: of E7, Compare scrolling
+both panes together (on by default) and saving an edited result (with
+autosave), the source editor with its badges (S7.2), the streamed result
+(S7.3) and the Inspector (S7.5); Compare's left scrollbar and the
+original's gutter on its right, which wait on the owner's gpui-kit pull
+requests #3416 and #3417 (drafts); of E4, the keep-voice rule after a
+four-model bench and a voice measure in the bench; the rest of E8; E9;
+E10 (the Linux tray is done; Windows, packaging and the rest are not);
+E12-6, E12-7, and of E12-8 Compare for pictures and the batch queue's
+picture item. The fix in progress is `fix/consent-and-lows`: the
+verification's M-1 — the queue's consent checked against the window's
+record of where an engine sends rather than the engine actually handed
+out — and its Lows. E1 and E3 parallelise in separate worktrees; E5 lands before
 E6 and gives agents a usable product before the GUI exists.
