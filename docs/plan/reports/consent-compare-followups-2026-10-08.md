@@ -112,10 +112,26 @@ back wrong first and were fixed before the commit:
 
 ## Gates
 
-On `74db067` plus the report commit, all `--locked`, through
+All `--locked`, through
 `docs/plan/reports/consent-compare-followups-2026-10-08-gates.sh`:
 
-GATES
+| gate | exit | counts |
+|---|---|---|
+| `rustup run nightly rustfmt --edition 2021 --check …` | 0 | |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | 0 | |
+| `cargo test --workspace --locked` | 0 | 1663 passed, 0 failed, 7 ignored |
+| `scripts/check-dep-direction.sh` | 0 | |
+| `scripts/check-gpui-pin.sh` | 0 | |
+| `cargo check --workspace --no-default-features --locked` | 0 | |
+| `cargo check --workspace --features local-llama --locked` | 0 | |
+| `cargo test -p wipemark-app --features local-llama --locked` | 0 | 656 passed, 0 failed, 2 ignored |
+| `cargo test -p wipemark-engine --features local-llama --locked` | 0 | 39 passed, 0 failed, 1 ignored |
+
+On `28b333a`. The first full run, on `74db067`, had 16 failures — every
+table rewrite test, the window's consent refusing a push the preferences
+did not name (the fallback in D393 is the fix); targeted runs had not
+included them. No llama crate and no `local.rs` changed, so the native
+gates were not due.
 
 CI: CI_RUN
 
