@@ -112,6 +112,10 @@ the GPUI executor and tokio cannot await each other's futures.
                                        under the folder (D302)
 <data dir>/records/<key>-<file>        size:mtime and sha256 at the last
                                        hash, keyed by the file's path (D303)
+<data dir>/records/<key>-<file>.downloaded       a download's mark, with the
+                                       identity of the file it marks (D302, D350)
+<data dir>/records/<key>-<file>.part.downloaded  the same for the `.part` a
+                                       download opened (D351)
 ```
 
 `<models folder>` is `<data dir>/models` unless the `models.dir` row
@@ -235,6 +239,58 @@ reads as "Found at …" and cannot be removed from the page; that is the
 safe side. To have it removable again, delete it by hand and download it
 anew. A mark that cannot be written is a warning: the file then reads as
 another tool's, the same safe side.
+
+**A mark names the file, not the place (D350, after the host
+verification of 2026-10-08, A1).** The first mark held a time and a path
+and nothing about the file, and was never dropped: a download deleted by
+hand, or replaced at the same path by another tool — a `models.dir` that
+is the owner's mirror, laid out `<id>/<file>` — left a mark that made the
+new file "ours", so Remove deleted it, a fetch removed it and downloaded
+over it, and the card read Damaged with Remove
+(`scripts/verify/owner-fixes/rm-through-a-link.sh`, case `stale`, said
+DELETED). Now the mark is
+
+```text
+wipemark download mark 1
+<identity>
+<fetched at, unix seconds>
+<path>
+```
+
+and the identity is what the file was when it was marked, read without
+following a link: `size:mtime_ns:dev:ino` on Unix, `size:mtime_ns:birth_ns`
+elsewhere. A file at the place is a download of ours only while it has
+that identity; anything else — written over in place (the mtime moves),
+renamed over (a new inode), a symbolic link put there (never a regular
+file), or a mark in the old shape with no identity — reads as another
+tool's file (Found when it matches, Foreign when it does not; never
+removed, never downloaded over), and the mark is dropped, as it is when
+its file is found absent. A mark that names another file can never be
+right again. The cost is on the safe side: a download of ours whose mtime
+something else touched is "Found at …" from then on, not Installed with
+Remove (`a_mark_names_the_file_and_not_the_place`,
+`a_mark_whose_file_is_gone_is_dropped`,
+`a_link_at_a_marked_place_is_not_the_download`).
+
+**A `.part` is ours only when a download opened it (D351, A2).** Remove
+deleted `<id>/<file>.part` unconditionally, a look read any `.part` as a
+resumable download, Resume appended HTTP bytes into it, and a mismatch
+deleted it — so another tool's download in progress under the same name
+(case `dirlink`: `<models>/<id>` a link into a mirror) was lost. Now a
+download creates its `.part` with `create_new` and marks it at once,
+before the first byte, with an identity that survives appending:
+`dev:ino:birth_ns` on Unix (`-` where the file system keeps no birth
+time), `birth_ns` elsewhere. Only a marked `.part` is a resume point, is
+truncated when a server ignores the range, and is removed (by Remove, or
+on a mismatch); its mark goes when it is renamed into place or thrown
+away. An unmarked `.part` is another tool's: the entry is not Partial,
+the card says it is there as it would another tool's file
+(`Located::mismatched`, `Availability::Foreign`), Remove leaves it, and a
+fetch refuses with `StoreError::Occupied` before any request
+(`a_part_nobody_marked_is_never_resumed_or_removed`,
+`a_download_marks_its_own_part`). A `.part` left by a build before D351
+has no mark and reads the same way: move it away, and the download
+starts over.
 
 Loading a GGUF that is in no catalogue — the user's own model,
 unverified — is an owner question, not this rule.
