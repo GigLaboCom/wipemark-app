@@ -192,18 +192,21 @@ opens its own pull request against `main` instead of riding on `feat`.
 | 3 | `gpui/bump-pre` | GPUI onto `gpui-pre =0.3.8` from crates.io, nothing carried (patch A upstream as #62081, patch B unneeded since #61789 — measured); the component on gpui-kit `next` at `f8429177` (#3359 merged there); toolchain 1.95.0; `check-gpui-pin.sh`; Compare's original read-only; modal priorities | `wipemark-task-gpui-bump-2026-10-07` | D291–D299 | **done**: verified on the host (M1, L1–L4 fixed before the merge), CI green on Linux and macOS, merged as `ebd83b4` on 2026-10-07; the owner's window checklist `docs/plan/reports/gpui-bump-host-check.md` not yet run |
 | 4 | `images/series-v3` (or the next images round) | three doc nits not yet filed: `visible-marks.md` 3439–3441 → 3442; "all 22" against `crying`'s aside; the fixtures README's `.convert("RGB")` | to be filed with the next images task | — | open |
 | 5 | `integrate/2026-10-08` | One integration branch for the day's work, each part on its own branch first: `fix/owner-2026-10-07` (F1–F6 and round 2's H1, L1–L6), `e4/windows-rewrite` (E4-6b: the windows rewrite through the batch queue, the document journal), `e4/templates-widgets` (E4-6c: the Rewriting page), `e10/linux-tray` (the tray and the shortcut on Linux), `research/divergence-vs-upstream` (the bench's additions; no product code), `5a9e525` (templates against the engine's window on the CLI and over MCP); then one host verification of the whole, and its findings fixed on three branches — `fix/integrate-models-tray` (A1–A4, B1), `fix/integrate-e4-6b` (M1–M3, L1–L5), `fix/integrate-e4-6c` (M1, L1–L6) — with targeted checks only, the full gates run once on the merge of the three | `wipemark-task-owner-fixes-2026-10-07`, `wipemark-task-e4-6b-windows-rewrite-2026-10-07`, `wipemark-task-e4-6c-templates-widgets-2026-10-07` | D300–D306, D310–D326, D330–D339, D340–D347, D350–D351, D355–D369 | **done**: gates once on `844aa01` — 1623 passed, 0 failed, 7 ignored; the app with `local-llama` 628/0/2 — CI green; merged into `feat` as `9b907bb` on 2026-10-08. Reports: [owner-fixes](reports/owner-fixes-2026-10-07.md), [E4-6b](reports/E4-6b-2026-10-07.md), [E4-6c](reports/E4-6c-2026-10-07.md), [linux-tray](reports/linux-tray-2026-10-07.md), [divergence](reports/divergence-vs-upstream-2026-10-07.md), [models-tray fixes](reports/integrate-fixes-models-tray-2026-10-08.md), [E4-6b fixes](reports/integrate-fixes-e4-6b-2026-10-08.md), [E4-6c fixes](reports/integrate-fixes-e4-6c-2026-10-08.md). The owner's window checklists in those reports not yet run |
-| 6 | `fix/consent-and-lows` — **merged `72da17d`** | The verification's open item **M-1** — the queue's consent (D361) is checked against the window's record of where an engine sends (`journal::Going`) rather than against the engine actually handed out — and its remaining Lows | — (the coordinator) | — | **in progress** |
+| 6 | `fix/consent-and-lows` — **merged `72da17d`** | The verification's open item **M-1** — the queue's consent (D361) is checked against the window's record of where an engine sends (`journal::Going`) rather than against the engine actually handed out — and its remaining Lows | — (the coordinator) | D370–D375 | **done**: merged as `72da17d`; its verification's M-A, M-B and lows followed up by E7-8 (`fix/consent-compare-followups`, D390–D397, merged `021a5e8`) |
 | 7 | `e7/compare-synced-scroll` — **merged `9e1eb95`** | Compare scrolls both panes together, on by default (§7 E7), D380–D387 | `docs/plan/E7-7-compare-synced-scroll.md` | [E7-7](reports/E7-7-compare-synced-scroll-2026-10-08.md) | done; M1 and lows open |
+| 7a | `e8/user-models` — **merged `630d409`** | E8-1: a GGUF the catalogue does not have, added by the person — picked, named, given a purpose, held to the sha256 it had when added — and Qwen3.8 27B and Gemma 4 12B in the shipped catalogue (§7 E8) | `wipemark-task-user-models-2026-10-08` | D400–D409, [E8-1](reports/E8-1-user-models-2026-10-08.md) | done; the host verification's M1 and M2 fixed in `baca2eb`, M3 and lows open |
 | 8 | gpui-kit #3416, #3417 (upstream, the owner's) | The scrollbar on the left and the original's gutter on its right in the editor — what Compare's mirrored layout needs (§7 E7) | — | — | **open as drafts** upstream |
 | 9 | — | Saving an edited result with autosave (§7 E7); the keep-voice rule after a four-model bench, and a voice measure in the bench (§7 E4); E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), S7.2, S7.3, S7.5, E9 licensing, E10 packaging (Windows; the Linux tray is done) | to be written | — | §7 |
 
 **Open with the owner** (§5): Q-C2–Q-C4 (E7's defaults: all metadata,
 Layer A's finer choices, an existing result; Q-C1 is answered by E4-6b's
 В1), Q-C6 (refuse what is not a regular file before opening it — D356
-does it for the journal's road), D361's consent default, loading the
-user's own GGUF unverified (D302), Q-V4–Q-V7
-and Q-V9, the mn-embed-fleet restart, the Gemma 4 / Qwen3.8 catalogue
-entries, `llama-cpp-prebuilt`'s LICENSE, and the OpenAI/Grok captures.
+does it for the journal's road), D361's consent default, whether the
+command line may write a moved identity back to an added model's row
+(E8-1's M3, §7 E8), Q-V4–Q-V7
+and Q-V9, the mn-embed-fleet restart, `llama-cpp-prebuilt`'s LICENSE, and
+the OpenAI/Grok captures. (Loading the user's own GGUF, D302's, is
+answered by E8-1; the Gemma 4 / Qwen3.8 catalogue entries are D403.)
 
 **Housekeeping, for the owner to allow:**
 
@@ -545,7 +548,7 @@ tell a decision from an accident.
 | **D93** | **E4-6a — rewriting without a window** (delegated, written without a compiler; verified on the host 2026-10-04: two build errors fixed, 1124 tests green, nine of its mutations re-run, all red). Its H1–H20 are adopted as written in `docs/plan/E4-6a-headless-rewrite.md`; the ones a reader needs here: `EngineHandle::for_job` → `JobEngine` holds a job busy for its whole length (closes D56); the MCP `rewrite` blocks until done, a hang-up or 60 min cancels, `dry_run` prices without loading, `templates` lay a caller's templates over the rows strictly; the CLI finds the application by a loopback-only beacon (`<data dir>/mcp.json`, closes D52); the CLI's own engine is the **local model only** — an endpoint without the application refuses (H16); a seed is fresh per job unless named (D83); `rewrite` exits 3 when a chunk kept its source; `Unavailable::KeyUnsendable` (closes D79); core's `RewriteSummary`/`RiskLabel`/`FinalReport` removed, the baseline is `not_established::baseline()` (closes D85); a rewrite's result is `name.cleaned.ext`. | The task in Watchword `wipemark-task-e4-6a-headless-rewrite-2026-10-04`; report `docs/plan/reports/E4-6a-2026-10-04.md` (also Watchword `wipemark-e4-6a-report-2026-10-04`). |
 | **D94** | **The prompt bench and its two template changes** (E4-5, adopted): `crates/wipemark-pipeline/examples/bench` (requires `local-llama`), a corpus of 121 items en/ru/de, results in `bench/results/summary.json`, method in `docs/architecture/prompt-bench.md`; the bench reproduces `start`'s verdicts exactly (54/54 attempts). Shipped: every rewrite and translation contract says to write numbers in digits exactly as in the text (Gemma 3 number rejections 4.1 %→1.6 %); `structural` step 1 outputs only the bullet points, step 2 only the finished text (Gemma 4 passes 17→106 of 133). | Four models measured: Qwen3 4B and Gemma 3 12B on our engine (Vulkan), Gemma 4 12B and Qwen3.8 27B as loopback endpoints (llama.cpp b10731). |
 | **D95** | **The bench's recommendations — built by E4-7 (D111–D117), measured again: `docs/plan/reports/E4-7-2026-10-04.md`** (E4-5; the first is the owner's "how strongly" question): (1) pick the **most**-changed candidate that passed, raise the no-op floor 0.05→0.2, drop the dead 0.15 length penalty, keep the length guard 0.6–1.6 for chunks of 20+ words and widen it to 0.5–2.0 below; (2) a language check in the loop — reject an answer of 20+ words whose language differs from the chunk's (catches all 32 instruction-obeying answers that passed, costs 0.3–0.4 % of the rest); (3) a list item as a chunk of its own (revises D70/D78/D87 — list-line placeholders are where `⟦n⟧` is lost); (4) `NumbersGuard` reads a placeholder's digits as a number (a lost placeholder reported twice), and whether "1800" for "1,800" is a loss. Keep D61's 1×2 / 2×2 and "moderate". | Pairs of the original's words left in the result, paraphrase/moderate/GPU: 25–33 % today → 20–23 % with (1), no more meaning drift by the judge; KGW arithmetic: one page can drop under the threshold, no setting makes a 5–20-page document safe. |
-| **D96** | **Found by the bench, for E2/E8** (open): Gemma 4 does not run on our local engine at this pin — `llama_chat_apply_template` does not know its template, every request refused before a token; 5 of 6 Vulkan processes crashed with SIGSEGV **at exit**, after their output (the app's quit path shares the code — check on a Vulkan build); Qwen3.8 returned an empty answer 5 times in 1 394. | `docs/plan/reports/E4-5-2026-10-04.md`. The SIGSEGV at exit seen again by E4-7's judge run (Gemma 3 12B, Vulkan). **Closed by E2-4:** Gemma 4 runs locally (D181); the SIGSEGV at exit was the engine's drop racing `exit`, fixed (D184); Qwen3.8 runs locally at `b10731` (D180); its empty answers are model behaviour — reasoning written as text after a closed think block (report). |
+| **D96** | **Found by the bench, for E2/E8** (open): Gemma 4 does not run on our local engine at this pin — `llama_chat_apply_template` does not know its template, every request refused before a token; 5 of 6 Vulkan processes crashed with SIGSEGV **at exit**, after their output (the app's quit path shares the code — check on a Vulkan build); Qwen3.8 returned an empty answer 5 times in 1 394. | `docs/plan/reports/E4-5-2026-10-04.md`. The SIGSEGV at exit seen again by E4-7's judge run (Gemma 3 12B, Vulkan). **Closed by E2-4:** Gemma 4 runs locally (D181); the SIGSEGV at exit was the engine's drop racing `exit`, fixed (D184); Qwen3.8 runs locally at `b10731` (D180); its empty answers are model behaviour — reasoning written as text after a closed think block (report). E2-4's open question 1, Gemma 4's catalogue commit: **pinned to `f18012b8`** by D403 (the owner's file); HEAD's re-upload with the updated official template is unchecked. |
 | **D97** | **An image is blocks that tile it**: every byte in exactly one block; `strip` keeps the unselected blocks and concatenates them byte for byte (E11-1 I1). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
 | **D98** | **What is structure**: PNG's critical chunks (any unknown one included), `tRNS`, APNG; JPEG's non-APP markers, APP0, APP14 `Adobe`, APP2 `MPF`; WebP's image chunks — never listed, never removed (I2). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
 | **D99** | **`Rendering` and `Other`** join `MetadataKind`; colour (ICC, gamma, sRGB…) is listed and removed by no scope (I3). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
@@ -714,7 +717,7 @@ tell a decision from an accident.
 | **D299** | Our modals are painted over every overlay gpui-component defers — `dialog::MODAL_PRIORITY`, 1000, over its popups (100, a submenu +1), toasts (101) and tooltips (200) — except one that holds a text field: `dialog::FIELD_MODAL_PRIORITY`, 50, under the popups, because off macOS the field's right-click menu is the component's popup and has to show over the dialog it was opened from. Today: the walk-through, the Report and Confirm at 1000; Naming at 50. | GPUI bump, `docs/plan/reports/gpui-bump-2026-10-07.md`; `docs/architecture/gpui-pin.md`. |
 | **D300** | **A placeholder ends a token.** `IdentifierGuard` cuts each whitespace-separated token again at every canonical placeholder (`⟦n⟧`, the format `wipemark_pipeline::placeholder` writes); the pieces are trimmed and shaped as before. Non-canonical brackets (`⟦01⟧`) are text and cut nothing; `placeholder()`'s doc names all three guards that move with it. | F6, the link-only line refused as `identifier-missing` on 2026-10-07; `docs/plan/reports/owner-fixes-2026-10-07.md`; `docs/architecture/layer-a.md`, "The three tokenizers". |
 | **D301** | **What "nothing" is.** `Handed::is_nothing`: an empty text, a text of ASCII white space alone (U+0009, U+000A, U+000C, U+000D, U+0020), bytes of length zero; a path never. A text holding any other space (U+00A0, U+202F, U+3000 …) is something, because Layer A looks for exactly those. Left out by `clipboard::handed_of`, `pasteboard::handed` and `Catcher::land`, whichever road a thing came by. | F5, an empty paste landed a row on Linux; round 2's L2/L3 for the macOS pasteboard; `owner-fixes-2026-10-07.md`; `docs/architecture/queue.md`, "How things get in". |
-| **D302** | **A catalogue file found anywhere is the user's.** When a file is not at `<models>/<id>/<file>`, the walk of the folder is searched — candidates by name and size, the sha256 deciding, the first match in path order — and an entry with no sha256 is never recognised elsewhere. Such a file is `Present`, handed out, never downloaded over and never removed; its card says "Found at …" with no button; `models list` says `found_at`, `models rm` removes nothing. **Amended in round 2 (H1):** the place alone is no longer taken as a download — only a file carrying a download's mark is the product's; a file at the catalogue's own place without it is another tool's (used if its sha256 matches, otherwise `Availability::Foreign`, a fetch refused `Occupied`). Loading the user's own GGUF, unverified, is an owner question. | F2 and H1 (Remove deleted another tool's file in the owner's mirror); `owner-fixes-2026-10-07.md`; `docs/architecture/model-downloads.md`, "Found wherever it is". Amended again by D350, D351. |
+| **D302** | **A catalogue file found anywhere is the user's.** When a file is not at `<models>/<id>/<file>`, the walk of the folder is searched — candidates by name and size, the sha256 deciding, the first match in path order — and an entry with no sha256 is never recognised elsewhere. Such a file is `Present`, handed out, never downloaded over and never removed; its card says "Found at …" with no button; `models list` says `found_at`, `models rm` removes nothing. **Amended in round 2 (H1):** the place alone is no longer taken as a download — only a file carrying a download's mark is the product's; a file at the catalogue's own place without it is another tool's (used if its sha256 matches, otherwise `Availability::Foreign`, a fetch refused `Occupied`). Loading the user's own GGUF, unverified, is an owner question — answered by E8-1 (D400–D409): added by the person, its checksum recorded, refused when it changes, never vouched for. | F2 and H1 (Remove deleted another tool's file in the owner's mirror); `owner-fixes-2026-10-07.md`; `docs/architecture/model-downloads.md`, "Found wherever it is". Amended again by D350, D351. |
 | **D303** | **Verify records live under the data directory.** One record per weight file at `<data dir>/records/<first 32 hex of sha256(path)>-<file name>` (`Layout::records_dir`) holding `size:mtime`, the sha256 the file had, and the path; a record that cannot be written is a warning. `fetch` of an entry already whole writes nothing. An old beside-the-file stamp is not read (the first look hashes once). Round 2 (L1): the fingerprint is the one taken before the hash, so a file changed during its hash is read again. | F4 — stamps and `meta.json` written into the owner's read-only mirror; `owner-fixes-2026-10-07.md`; `model-downloads.md`, "Records under the data directory". |
 | **D304** | **One scan of the models folder at a time.** `look_at_models` asked while a scan runs starts nothing and sets `rescan`; the running one's answer is set aside and one more scan runs after it, so a file is hashed by one task at a time. Round 2 (L4): the scan runs under `catch_unwind`, and moving the folder stops the old store between chunks. A `models verify` in another process is not joined. | F3 — three hashes of one 12 GB file at once; `owner-fixes-2026-10-07.md`; `model-downloads.md`, "Nothing blocks the window". |
 | **D305** | **Load progress.** `RewriteEngine::watch_loads(LoadSink)` (default: ignored); `LocalEngine` tells `Reading(f)` paced by `progress::Pacer` (the first, one per 100 ms, the end, never backwards) and `Ended` however the load ends; a refusal before the load tells nothing. The sink is handed to an engine in `EngineHandle::set`, numbered per engine so an abandoned load's end clears nothing (round 2, L6). The Engine page, the Models card of the model on duty and the status bar draw from `load_progress()`. | F1c (optional, kept); `owner-fixes-2026-10-07.md`; `docs/architecture/local-engine.md`, "A load, as it goes". |
@@ -786,6 +789,16 @@ tell a decision from an accident.
 | **D385** | **`compare.sync_scroll` is read when a window opens**, like `compare.grain`. | E7-7 |
 | **D386** | **A scroll is seen two ways**: the editor's notification, and a look deferred to after each painted frame (the only reader of a wrapped pane). | E7-7 |
 | **D387** | **One `Side` enum**, `diff::Side`. | E7-7 |
+| **D400** | **An added model's id is `user-` and the slug of its name** (letters and digits lowercased, every other run one `-`, at most 60 characters), numbered `-2`, `-3`… when taken, derived **once** at the add and never again; `Manifest::parse` refuses a catalogue id that begins with `user-`. | E8-1; `models.rewrite` must name exactly one kind of model, today and after any catalogue edit — the profiles' "`id_of` runs once" for the identity, the prefix so neither kind can shadow the other; `user-models.md`. |
+| **D401** | **The row's identity is a cache key**: while it holds, the record is trusted (the file hashed once when there is none); when it moved, another size is **changed** without a byte read, anything else is read in full — never off the record — and the sha256 decides: the bytes that were added are still the model, its new identity written back; other bytes are **changed**. A record is believed when it **refuses**, even with the identity moved. Re-check reads in full whatever the identity says. | E8-1; a model's identity is its bytes, but a record keyed by size and mtime may vouch only while the identity holds; believing a refusing record keeps a changed 12 GB file from being read on every look, and Re-check covers its one blind spot; `user-models.md`. |
+| **D402** | **The memory estimate is the catalogue's own recipe**: the file's size, the context cache at F16 over the header's shape at the model's context (`KvShape::COARSE` when the header states none, and said), 1 GiB to work in, rounded up to 512 MiB; shown as an estimate; the measured resident memory after a load (D55) is unchanged. | E8-1; one recipe for both kinds, so "needs about" means one thing — an added Qwen3 4B lands on the catalogue's 4608 MB; it over-states a sliding-window cache, on the side of not promising room; `user-models.md`. |
+| **D403** | **Qwen3.8 27B UD-IQ3_S and Gemma 4 12B it QAT UD-Q4_K_XL join the catalogue**, from E2-4's figures (sha256 and size re-read off Hugging Face's metadata at the pinned commits); Gemma 4 pinned to `f18012b8`, the owner's file. Tiers: Qwen3.8 10, Gemma 4 12B 9, Gemma 3 12B 8, Qwen3 4B 5. Memory: Qwen3.8 14 336 MiB; Gemma 4 12B 8 704 MiB, chosen rather than computed. The constrained-machine gate's roomy half reads "the best entry this machine has room for". | E8-1's U6; the owner runs both; an 18 GB Mac is offered Gemma 4 12B, which is what `default_for_role` always meant; answers E2-4's open question 1 (D96); `user-models.md`. |
+| **D404** | **The command line writes added models' rows through `wipemark_store::RowsWriter`**: read-write, never created and never migrated, exactly this build's schema (`TooOld`, `FromTheFuture`), and only keys under `models.user.` — anything else is `OutOfReach` before a statement runs; no database, or another schema, is a refusal naming the application. | E8-1; the journal writer's rule (D314) for the second thing a command line writes; `user-models.md`. |
+| **D405** | **One row per file**: adding a file already added — from the dialog (which says so and starts from the name and context it was added with) or from `models add` — reads it in full again and writes the same id; "Add again…" on a changed model is that road. | E8-1; two rows for one file would be two models with one identity; re-adding is the one act that may move a recorded sha256; `user-models.md`. |
+| **D406** | **Adding is not choosing**: `adopted` does not apply to an add, and `recommended` / `host::default_for_role` never pick an added model. | E8-1; adding a file the person has is not the expensive half of choosing, and the catalogue cannot recommend what nobody vouched for; `user-models.md`. |
+| **D407** | **One chat-format verdict, `wipemark_llama::chat_support`**: this crate's families (Gemma 4, ChatML with a thinking switch), then a line-for-line port of llama.cpp's `llm_chat_detect_template` at the pin, then a refusal by name — no template, or one neither recognises. The dialog and the card show it from the header; the local load refuses by it (`Unavailable::ChatFormat`) right after the weights are read; `chat_prompt` refuses by it before llama.cpp is asked; a recognised template still goes to llama.cpp as the model's own string. A model whose format is not written may still be added, and the dialog says its load will be refused. | E8-1; "never a guessed template" needs the verdict before a request and without llama.cpp; the port is held to llama.cpp by `the_port_agrees_with_llama_cpp` (CI's `native` job); `user-models.md`. |
+| **D408** | **Not offered as a model that rewrites**, in this order: a projector (`mmproj` name, `general.type = mmproj`, or `clip`), an adapter, a file with no tensors, an encoder, embedding or speech model (`gguf::NOT_WRITERS`, a pooling type, `attention.causal = false`), a model with no chat template — said in one line under the row and by the CLI's refusal. Only the folder's `.gguf` files are read; a picked file is read by its bytes, unless its name is another weight format's. | E8-1; most specific first, so "a vision projector" is said where "no chat template" would not help; `user-models.md`. |
+| **D409** | **An add and a re-check take the scan's slot (D304)** — one reading at a time, queued behind a scan, through a store of their own whose hashes draw the card's bar; a folder moved meanwhile does not stop them. Forget in the window clears `models.rewrite` when it named the model; `models forget` leaves that row, which the application then reads as nothing chosen. | E8-1; one hash of a file at a time is D304's rule; the command line never writes `models.rewrite`, as `rm` never does; `user-models.md`. |
 
 ---
 
@@ -829,8 +842,8 @@ answered moves here or to §4.
 | Q-C6 | should a clean refuse what is not a regular file — a FIFO, a socket, a device — before opening it? | — | **Open (owner), from the E7 follow-ups' X2;** the implementer and the host verifier both think it sound hardening. Not built: such a file is opened and read under the limits (D264), and W5's FIFO test is how a file that grows during the read is tested — refusing first would retire that test, and the read-side check would need another (a file appended to by a second thread, which is racy). **D356 (2026-10-08) does it for the journal's road**: nothing reading a journal row back opens a path that is not a regular file, and `wipemark_intake::of_path` reads no head from a FIFO, terminal, socket or device; the clean's own read is unchanged. |
 | В1–В10 | E4-6b: what a drop does, Clean and Rewrite, the journal's life, what a row keeps, the CLI's writes, the opt-outs, `inspect`, `name.rewritten.ext`, the agents' order, the panel | — | **Closed 2026-10-07 at their defaults** ("делай по дефолту"): `docs/plan/reports/E4-6b-2026-10-07.md` §2, D310–D326. |
 | Г1–Г7 | E4-6c: the section, adaptations, the sample, which slots, the pivot, drift, fragments | — | **Closed 2026-10-07 at their defaults**: `docs/plan/reports/E4-6c-2026-10-07.md`, D330–D339. |
-| D302's | load the user's own GGUF, one in no catalogue, unverified — and what it costs the "verified" promise | E8 | **Open (owner), from D302.** Listed under "Also in this folder", not loadable. |
-| D361's | the queue's consent: asked again at start when the duty moved away from where the person agreed (D361) | — | **Open (owner)**: the coordinator's default is built (asked once, for every waiting item); the verification's M-1 is being fixed on `fix/consent-and-lows`. |
+| D302's | load the user's own GGUF, one in no catalogue, unverified — and what it costs the "verified" promise | E8 | **Closed (owner, 2026-10-08, by asking for E8-1):** added by the person, its checksum recorded, refused when it changes, never vouched for — D400–D409, `docs/architecture/user-models.md`. |
+| D361's | the queue's consent: asked again at start when the duty moved away from where the person agreed (D361) | — | **Open (owner)**: the coordinator's default is built (asked once, for every waiting item); the verification's M-1 is fixed by D370 (`fix/consent-and-lows`, merged `72da17d`), its follow-ups by E7-8 (D390–D397, merged `021a5e8`). |
 
 ---
 
@@ -914,7 +927,10 @@ the gate the overview set, and the open edges.
 - **E2-4** — [E2-4-llama-bump.md](E2-4-llama-bump.md): the llama.cpp pin
   bumped to `b10731`; Gemma 4 and Qwen3.8 run locally (`wipemark_llama::chat`,
   thinking off); the Vulkan SIGSEGV at exit fixed (D180–D186) — status:
-  done — [reports/E2-4-2026-10-04.md](reports/E2-4-2026-10-04.md).
+  done — [reports/E2-4-2026-10-04.md](reports/E2-4-2026-10-04.md). Its
+  open question 1, Gemma 4's catalogue commit, is answered by E8-1's D403:
+  pinned to `f18012b8`, the owner's file; HEAD's re-upload with the updated
+  official template is unchecked.
 - **E2-5** — [E2-5-llama-prebuilt.md](E2-5-llama-prebuilt.md): `native`
   links release `b10731` of `GigLaboCom/llama-cpp-prebuilt` (sha256-pinned
   in `src/pin.rs`) on the four published targets; `WIPEMARK_LLAMA_SOURCE=1`
@@ -1380,11 +1396,14 @@ the gate the overview set, and the open edges.
   recognised anywhere under the folder by name, size and sha256, used
   where it is, and never removed or downloaded over; only a file a
   download marked is the product's. The open half — loading the user's
-  own GGUF, unverified — is an owner question (§5, D302's). Today a catalogue model
-  is found only at `<models.dir>/<id>/<file>` (`Downloads::model_dir`), so
-  a folder laid out any other way reads as "not downloaded" and offers
-  Download; the walk that already exists (`scan::weights_under`, eight
-  levels) only lists strangers, and nothing loads one. Wanted: walk the
+  own GGUF, unverified, and what a GGUF in no catalogue can be — is
+  **done by E8-1** (below): listed with its header read and offered **Add
+  as a model…**, added by a person, loadable, verified against its own
+  checksum (D400–D409, `docs/architecture/user-models.md`). What was asked: a catalogue model
+  was found only at `<models.dir>/<id>/<file>` (`Downloads::model_dir`), so
+  a folder laid out any other way read as "not downloaded" and offered
+  Download; the walk that already existed (`scan::weights_under`, eight
+  levels) only listed strangers, and nothing loaded one. Wanted: walk the
   folder recursively and recognise every catalogue model in it, at any
   path — by file name and size first, the sha256 to confirm — and decide
   what a GGUF that is in no catalogue can be (listed, or loadable as the
@@ -1403,6 +1422,59 @@ the gate the overview set, and the open edges.
   downloaded writes `meta.json` (with a `fetched_at`) beside it too — both
   seen on 2026-10-07. Keep stamps and the record under the data directory,
   keyed by the path.
+- **E8-1 done** (`e8/user-models`, D400–D409, merged as `630d409` on
+  2026-10-08; report
+  [reports/E8-1-user-models-2026-10-08.md](reports/E8-1-user-models-2026-10-08.md),
+  task `docs/plan/E8-1-user-models.md`, decisions
+  `docs/architecture/user-models.md`): a GGUF the catalogue does not have
+  is added by the person — Add as a model… under "Also in this folder" or
+  Add a model file… on the Models page, one dialog with what the header
+  says, a name, a purpose and a context, the file read once in the scan's
+  slot — and becomes a row `models.user.<id>`, held to the sha256 it had
+  when added, refused when it changes, selectable, never recommended or
+  adopted, and loaded at its own context; a chat format this build does
+  not write is refused by name (D407), and what is not a model that writes
+  text is said in one line (D408); on the command line `models
+  add|list|verify|forget`, writing only its own rows (D404); and Qwen3.8 27B
+  and Gemma 4 12B join the shipped catalogue (D403). The host verification
+  found two Mediums and fixed them on the integration branch (`baca2eb`):
+  **M1** the context cache's shape read off a header could overflow the
+  estimate's arithmetic, and **M2** an add could write over another model's
+  row. Gates once on the merge: 1725 passed, 0 failed, 7 ignored; the app
+  with `local-llama` 678/0/2; the native gates 61/0/6; the live gate on
+  Vulkan with Gemma 4 12B and Qwen3.8 27B, 2/2. The CLI's `models add`,
+  `list`, `verify` and `forget` were checked on the host, and nothing was
+  written beside the weights.
+- **Fix. E8-1's open follow-ups** (the host verification of `e8/user-models`):
+  - **M3** — the command line never writes a moved identity back to an
+    added model's row (`apps/wipemark-cli/src/models.rs:322`, "Read-only: a
+    moved identity is the application's to" write), though `RowsWriter`
+    (`crates/wipemark-store/src/rows.rs:32`) could; so after a `touch` every
+    `models list` and every CLI `rewrite` reads the whole file again — 12 GB
+    for the 27B — until the application scans, and `own_engine`
+    (`apps/wipemark-cli/src/rewrite.rs:1010`) does it even with an endpoint
+    on duty, when it is about to refuse anyway. **Owner decision:** may the
+    command line write the identity (D401's write-back) as well as the row?
+  - **Lows:**
+    `Header::read` (`crates/wipemark-models/src/gguf.rs:237`) opens the file
+    before checking it is a regular file, so a FIFO hangs it, against D356;
+    a re-add is matched by its exact `PathBuf`, so the same file reached
+    through `..` or a symbolic link becomes a second row (against D405), and
+    a CLI re-add resets the name and context the dialog would have kept;
+    `pooling_type = 0` (none) is taken as an embedding model
+    (`gguf.rs:325`, `self.pooling_type.is_some()`); `gguf::NOT_WRITERS`
+    (`gguf.rs:188`) misses diffusion and draft architectures, and
+    `Qwen3-ASR-1.7B` (architecture `qwen3vl`, ChatML) is offered as a model
+    that rewrites, against D408; a model with an unrecognised chat format
+    can be put on duty, and every Check and queue start hashes the whole
+    file before the load refuses it; a Forget during a scan's hash of
+    another file can be undone by that scan's identity write-back; a NUL in
+    a template is judged "supported" while the load refuses it; the added
+    card shows the role's id `rewrite` rather than `role_label`
+    (`crates/wipemark-models/src/user.rs:721`); the header and the hash can
+    describe two different files if the file is swapped between the two
+    reads; and `models rm <catalogue-id>` can remove a file the person has
+    also added by its path.
 
 ### E9 — licensing
 
