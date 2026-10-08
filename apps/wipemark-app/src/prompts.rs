@@ -109,6 +109,16 @@ fn spelled(variable: Variable) -> String {
     format!("{{{}}}", variable.name())
 }
 
+/// A code point as the report spells one — `U+200B ZERO WIDTH SPACE` —
+/// never the character itself: a sentence about an invisible character
+/// must not carry it. The name is the standard's, never translated.
+fn spelled_char(c: char) -> String {
+    match wipemark_core::name_of(c) {
+        Some(name) => format!("U+{:04X} {name}", u32::from(c)),
+        None => format!("U+{:04X}", u32::from(c)),
+    }
+}
+
 /// The 1-based line and column (in characters) of byte offset `at`.
 pub fn position(text: &str, at: usize) -> (usize, usize) {
     let at = at.min(text.len());
@@ -128,7 +138,9 @@ fn place_of(problem: &Problem) -> Option<usize> {
         Problem::UnknownVariable { span, .. }
         | Problem::MisplacedVariable { span, .. }
         | Problem::HandWrittenMarker { span, .. } => Some(span.start),
-        Problem::UnclosedBrace { at, .. } | Problem::ReservedBracket { at } => Some(*at),
+        Problem::UnclosedBrace { at, .. }
+        | Problem::ReservedBracket { at }
+        | Problem::InvisibleCharacter { at, .. } => Some(*at),
         Problem::RepeatedVariable { spans, .. } => spans.get(1).map(|span| span.start),
         Problem::MissingVariable { .. }
         | Problem::Empty
@@ -190,6 +202,12 @@ pub fn problem_line(problem: &Problem) -> Line {
         } => (
             Message::PromptsProblemTooLong,
             args!("tokens" => estimated_tokens.to_string(), "limit" => limit.to_string()),
+        ),
+        Problem::InvisibleCharacter {
+            codepoint, count, ..
+        } => (
+            Message::PromptsProblemInvisible,
+            args!("character" => spelled_char(*codepoint), "count" => count.to_string()),
         ),
         Problem::ScriptMismatch { expected, .. } => (
             Message::PromptsProblemScript,
@@ -552,8 +570,41 @@ pub enum Adapted {
         text: String,
         stored: Result<bool, String>,
     },
+    /// Not stored because of what the slot holds (D365): checked before
+    /// the model is asked and again, under the row writer, just before the
+    /// write. `text` is the model's answer when it had given one — shown,
+    /// never stored.
+    Kept {
+        why: Blocked,
+        text: Option<String>,
+    },
     Ended(AdaptEnd),
     Failed(String),
+}
+
+/// Why "Adapt with the model" may not write into a slot (D335, D365).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Blocked {
+    /// A template written in its own language: the person's own writing,
+    /// which a button never replaces.
+    OwnTemplate,
+    /// A row this build cannot read — perhaps a newer build's. Only an
+    /// explicit Reset replaces it (D74, D366).
+    Unreadable,
+    /// The row changed while the model was writing — a Save, a Reset or
+    /// another adaptation landed first. Whatever it is now, the person
+    /// did it after the press, and it is left alone.
+    ChangedMeanwhile,
+}
+
+impl Blocked {
+    fn message(self) -> Message {
+        match self {
+            Blocked::OwnTemplate => Message::PromptsAdaptOwnTemplate,
+            Blocked::Unreadable => Message::PromptsAdaptUnreadable,
+            Blocked::ChangedMeanwhile => Message::PromptsAdaptOvertaken,
+        }
+    }
 }
 
 /// What an adaptation came to, as lines.
@@ -570,6 +621,17 @@ pub fn adapt_lines(adapted: &Adapted) -> Vec<Shown> {
             Shown::Said(Tone::Warn, plain(Message::PromptsAdaptRefused)),
             Shown::Quoted(excerpt(text)),
         ],
+        Adapted::Kept { why, text } => {
+            let mut shown = vec![Shown::Said(Tone::Warn, plain(why.message()))];
+            if let Some(text) = text {
+                shown.push(Shown::Said(
+                    Tone::Quiet,
+                    plain(Message::PromptsAdaptNotStored),
+                ));
+                shown.push(Shown::Quoted(excerpt(text)));
+            }
+            shown
+        }
         Adapted::Answered {
             stored: Err(reason),
             ..
@@ -902,10 +964,32 @@ pub enum Saved {
     /// Nothing to store: the text is the shipped template and no row is
     /// there to replace.
     Unchanged,
+    /// Nothing written: the text is the shipped template and a row is
+    /// there. Only changes are stored — a copy of the shipped text would
+    /// stop following it — so the road back is Reset, which deletes the
+    /// row (D366).
+    ShippedText,
+    /// Nothing written: the row is one this build cannot read — perhaps a
+    /// newer build's — and only an explicit Reset replaces it (D366, D74).
+    Unreadable,
     /// Refused by the rule: nothing was written.
     Refused(Admission),
     /// The database said no; its words.
     Failed(String),
+}
+
+/// One writer of template rows at a time, in this process: a Save, a
+/// Reset, a Keep mine and an adaptation's last look-and-write (D365) each
+/// read the rows and write under it, so an adaptation that looked at the
+/// slot and found it may write cannot have a Save land between the look
+/// and the write.
+static ROW_WRITER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn exclusively<T>(work: impl FnOnce() -> T) -> T {
+    let _held = ROW_WRITER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    work()
 }
 
 /// Save `text` as `slot`'s override (R1, R3): checked by `row::admit` —
@@ -915,9 +999,27 @@ pub enum Saved {
 /// language's row (Q-B22) — its adaptations become stale, and say so.
 ///
 /// `claim` is the person's word that this is an adaptation of the same
-/// template in that language: recorded with the source's hash as it is
-/// now. A machine adaptation keeps its source and becomes reviewed.
+/// template in that language: a new claim is recorded with the source's
+/// hash as it is now. A machine adaptation keeps its source and becomes
+/// reviewed. A source already recorded keeps its hash: a save is not an
+/// acknowledgement that the source moved on — only **Keep mine** is
+/// ([`keep_mine_source`], D368), as for the shipped text.
+///
+/// The shipped text is never stored (D366): with no row it is
+/// [`Saved::Unchanged`], over a row it is [`Saved::ShippedText`] — Reset is
+/// the road back. A row this build cannot read is replaced by nothing but
+/// Reset ([`Saved::Unreadable`]).
 pub fn save(
+    store: &Store,
+    slot: Slot,
+    text: &str,
+    claim: Option<Lang>,
+    ctx_len: Option<u32>,
+) -> Saved {
+    exclusively(|| save_now(store, slot, text, claim, ctx_len))
+}
+
+fn save_now(
     store: &Store,
     slot: Slot,
     text: &str,
@@ -926,28 +1028,39 @@ pub fn save(
 ) -> Saved {
     let rows = config::read_prompt_rows(store);
     let overrides = config::overrides_of(&rows);
+    let shipped_text = shipped::template(slot).unwrap_or_default();
+    if text == shipped_text {
+        return if rows.contains_key(&slot) {
+            Saved::ShippedText
+        } else {
+            Saved::Unchanged
+        };
+    }
     let current = match rows.get(&slot) {
         Some(PromptRow::Read(read)) => Some(read),
-        _ => None,
+        Some(PromptRow::Unread(_)) => return Saved::Unreadable,
+        None => None,
     };
-    let shipped_text = shipped::template(slot).unwrap_or_default();
-    if current.is_none() && !rows.contains_key(&slot) && text == shipped_text && claim.is_none() {
-        return Saved::Unchanged;
-    }
     let origin = match current.map(|row| row.origin) {
         Some(Origin::Machine | Origin::MachineReviewed) => Origin::MachineReviewed,
         Some(Origin::Hand) | None => Origin::Hand,
     };
-    let source = match (origin, current.and_then(|row| row.adapted_from.as_ref())) {
+    let recorded = current.and_then(|row| row.adapted_from.as_ref());
+    let source = match (origin, recorded) {
         (Origin::MachineReviewed, Some(source)) => Some(source.lang),
         _ => claim,
     };
     let adapted_from = source
         .filter(|lang| *lang != slot.lang())
         .and_then(|lang| slot.with_lang(lang))
-        .map(|source_slot| AdaptedFrom {
-            lang: source_slot.lang(),
-            hash: hash(overrides.effective(source_slot).unwrap_or_default()),
+        .map(|source_slot| match recorded {
+            // The same source as recorded: its hash stays, so a source
+            // that moved on is still said until Keep mine (D368).
+            Some(recorded) if recorded.lang == source_slot.lang() => recorded.clone(),
+            _ => AdaptedFrom {
+                lang: source_slot.lang(),
+                hash: hash(overrides.effective(source_slot).unwrap_or_default()),
+            },
         });
     let candidate = Override {
         text: text.to_owned(),
@@ -990,6 +1103,10 @@ pub enum Reset {
 /// left breaking the rule beside the shipped text, because a step that
 /// does not render is a job that fails.
 pub fn reset(store: &Store, slot: Slot) -> Reset {
+    exclusively(|| reset_now(store, slot))
+}
+
+fn reset_now(store: &Store, slot: Slot) -> Reset {
     let rows = config::read_prompt_rows(store);
     let mut overrides = config::overrides_of(&rows);
     overrides.remove(slot);
@@ -1012,15 +1129,45 @@ pub fn reset(store: &Store, slot: Slot) -> Reset {
 /// their override — its `based_on` moves to today's shipped hash. The
 /// text is not touched, and nothing is merged.
 pub fn keep_mine(store: &Store, slot: Slot) -> Result<(), String> {
-    let rows = config::read_prompt_rows(store);
-    let Some(PromptRow::Read(read)) = rows.get(&slot) else {
-        return Ok(());
-    };
-    let kept = Override {
-        based_on: hash(shipped::template(slot).unwrap_or_default()),
-        ..read.clone()
-    };
-    config::write_prompt(store, slot, &kept).map_err(|error| error.to_string())
+    exclusively(|| {
+        let rows = config::read_prompt_rows(store);
+        let Some(PromptRow::Read(read)) = rows.get(&slot) else {
+            return Ok(());
+        };
+        let kept = Override {
+            based_on: hash(shipped::template(slot).unwrap_or_default()),
+            ..read.clone()
+        };
+        config::write_prompt(store, slot, &kept).map_err(|error| error.to_string())
+    })
+}
+
+/// "Keep mine" under a source that moved on (D368): the adaptation's
+/// source changed after it was made, and the person keeps theirs — its
+/// `adapted_from.hash` moves to the source's template as it is used now.
+/// The text is not touched; a save never does this on its own.
+pub fn keep_mine_source(store: &Store, slot: Slot) -> Result<(), String> {
+    exclusively(|| {
+        let rows = config::read_prompt_rows(store);
+        let Some(PromptRow::Read(read)) = rows.get(&slot) else {
+            return Ok(());
+        };
+        let Some(source) = &read.adapted_from else {
+            return Ok(());
+        };
+        let Some(source_slot) = slot.with_lang(source.lang) else {
+            return Ok(());
+        };
+        let overrides = config::overrides_of(&rows);
+        let kept = Override {
+            adapted_from: Some(AdaptedFrom {
+                lang: source.lang,
+                hash: hash(overrides.effective(source_slot).unwrap_or_default()),
+            }),
+            ..read.clone()
+        };
+        config::write_prompt(store, slot, &kept).map_err(|error| error.to_string())
+    })
 }
 
 /// Run a check of `edited` as `slot`'s template (R4): the rows read fresh
@@ -1076,6 +1223,13 @@ impl From<TrialEnd> for CheckEnd {
 /// duty (R5, Г2) — only ever because a person pressed the button. The
 /// answer is stored as `origin: machine` only when the rule and the
 /// source's variables admit it; otherwise nothing is written.
+///
+/// What the slot holds is looked at twice (D365): when the button is
+/// pressed — a slot [`adapt_blocked`] refuses is not asked about at all —
+/// and again just before the write, under the row writer: a row that
+/// appeared or changed while the model wrote is left as it is, and the
+/// answer is shown and not stored. A cancel that lands after the answer
+/// writes nothing either (D367).
 pub async fn adapt_template(
     handle: EngineHandle,
     store: SettingsStore,
@@ -1089,6 +1243,10 @@ pub async fn adapt_template(
     let Some(source_slot) = target.with_lang(source) else {
         return Adapted::Ended(AdaptEnd::NotAsked(AdaptRefusal::NoSuchSlot));
     };
+    let pressed = rows.get(&target).cloned();
+    if let Some(why) = adapt_blocked(pressed.as_ref()) {
+        return Adapted::Kept { why, text: None };
+    }
     let source_text = overrides
         .effective(source_slot)
         .unwrap_or_default()
@@ -1112,53 +1270,123 @@ pub async fn adapt_template(
     )
     .await;
     drop(engine);
-    match end {
-        AdaptEnd::Answered { row, admission, .. } => {
-            let stored = if admission.admitted() {
-                config::write_prompt(&store, target, &row)
-                    .map(|()| true)
-                    .map_err(|error| error.to_string())
-            } else {
-                Ok(false)
-            };
-            tracing::info!(
-                key = row::key(target),
-                from = source.as_str(),
-                admitted = admission.admitted(),
-                "a template was adapted by the model"
-            );
-            Adapted::Answered {
-                admission,
-                text: row.text,
-                stored,
-            }
+    let AdaptEnd::Answered { row, .. } = end else {
+        return Adapted::Ended(end);
+    };
+    let adapted = exclusively(|| {
+        if cancel.is_cancelled() {
+            return Adapted::Ended(AdaptEnd::Cancelled);
         }
-        other => Adapted::Ended(other),
-    }
+        let rows = config::read_prompt_rows(&store);
+        let now = rows.get(&target);
+        let blocked = if now != pressed.as_ref() {
+            Some(Blocked::ChangedMeanwhile)
+        } else {
+            adapt_blocked(now)
+        };
+        if let Some(why) = blocked {
+            return Adapted::Kept {
+                why,
+                text: Some(row.text.clone()),
+            };
+        }
+        // Judged again beside the other turn as it is now: it may have
+        // moved while the model wrote.
+        let admission = row::admit_adaptation(
+            target,
+            &row,
+            &source_text,
+            &config::overrides_of(&rows),
+            ctx_len,
+        );
+        let stored = if admission.admitted() {
+            config::write_prompt(&store, target, &row)
+                .map(|()| true)
+                .map_err(|error| error.to_string())
+        } else {
+            Ok(false)
+        };
+        Adapted::Answered {
+            admission,
+            text: row.text.clone(),
+            stored,
+        }
+    });
+    tracing::info!(
+        key = row::key(target),
+        from = source.as_str(),
+        stored = matches!(
+            adapted,
+            Adapted::Answered {
+                stored: Ok(true),
+                ..
+            }
+        ),
+        "a template was adapted by the model"
+    );
+    adapted
 }
 
-/// Whether "Adapt with the model" may write into `slot`: when it holds no
-/// override, or one that is itself an adaptation. A template the person
-/// wrote in its own language is theirs, and a button must not replace it.
-pub fn may_adapt_into(row: Option<&PromptRow>) -> bool {
+/// Why "Adapt with the model" may not write into a slot holding `row`, or
+/// `None` when it may: an empty slot, or one that is itself an adaptation.
+/// A template the person wrote in its own language is theirs, and a button
+/// must not replace it; a row this build cannot read is replaced only by an
+/// explicit Reset (D365).
+pub fn adapt_blocked(row: Option<&PromptRow>) -> Option<Blocked> {
     match row {
-        None | Some(PromptRow::Unread(_)) => true,
-        Some(PromptRow::Read(read)) => read.adapted_from.is_some(),
+        None => None,
+        Some(PromptRow::Unread(_)) => Some(Blocked::Unreadable),
+        Some(PromptRow::Read(read)) if read.adapted_from.is_some() => None,
+        Some(PromptRow::Read(_)) => Some(Blocked::OwnTemplate),
     }
 }
 
 // ─── The view ───────────────────────────────────────────────────────
 
-/// Something running in the background, cancellable, and what it came to.
+/// Something running in the background for one slot, cancellable, and
+/// what it came to. `run` tells one press from the next, so an answer
+/// that lands after its run was let go of is dropped rather than shown
+/// under whatever is on screen now (D367).
 enum Activity<T> {
     Idle,
-    Running { cancel: CancellationToken },
-    Done(T),
+    Running {
+        run: u64,
+        slot: Slot,
+        cancel: CancellationToken,
+    },
+    Done {
+        slot: Slot,
+        end: T,
+    },
 }
 
 impl<T> Activity<T> {
     fn running(&self) -> bool {
         matches!(self, Activity::Running { .. })
+    }
+
+    /// Let go of it: a running one is cancelled — it writes nothing from
+    /// here on — and whatever it was is forgotten.
+    fn let_go(&mut self) {
+        if let Activity::Running { cancel, .. } = self {
+            cancel.cancel();
+        }
+        *self = Activity::Idle;
+    }
+
+    /// What run `run` came to, kept only while that run is the one on the
+    /// page; `false` when it had been let go of.
+    fn land(&mut self, run: u64, end: T) -> bool {
+        match self {
+            Activity::Running {
+                run: current, slot, ..
+            } if *current == run => {
+                let slot = *slot;
+                *self = Activity::Done { slot, end };
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -1167,6 +1395,10 @@ enum Said {
     Saved(Saved),
     Reset(Reset),
     Kept(Result<(), String>),
+    /// Keep mine under a source that moved on (D368).
+    KeptSource(Result<(), String>),
+    /// The page's own refusal, before anything was asked of the database.
+    Waits(Message),
 }
 
 /// The pivot dropdown's rows: "by the document's language", then each
@@ -1205,6 +1437,8 @@ pub struct PromptsPage {
     said: Option<Said>,
     check: Activity<CheckEnd>,
     adapting: Activity<Adapted>,
+    /// Presses of Check and Adapt so far: each run's number.
+    runs: u64,
     pivot_select: Entity<SelectState<Vec<Choice<Option<Lang>>>>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -1268,6 +1502,7 @@ impl PromptsPage {
             said: None,
             check: Activity::Idle,
             adapting: Activity::Idle,
+            runs: 0,
             pivot_select,
             _subscriptions: subscriptions,
         };
@@ -1387,12 +1622,11 @@ impl PromptsPage {
         self.selected = slot;
         self.said = None;
         self.show_shipped = false;
-        if !self.check.running() {
-            self.check = Activity::Idle;
-        }
-        if !self.adapting.running() {
-            self.adapting = Activity::Idle;
-        }
+        // A check or an adaptation belongs to the slot it was asked for:
+        // choosing another cancels it, and an adaptation cancelled writes
+        // nothing (D367).
+        self.check.let_go();
+        self.adapting.let_go();
         self.fill(window, cx);
         cx.notify();
     }
@@ -1419,8 +1653,13 @@ impl PromptsPage {
             let (said, rows, pivot) = task.await;
             let _ = cx.update_window(window, |_, window, cx| {
                 let _ = page.update(cx, |page, cx| {
-                    let refill =
-                        refill && matches!(said, Said::Reset(Reset::Done) | Said::Kept(Ok(())));
+                    let refill = refill
+                        && matches!(
+                            said,
+                            Said::Reset(Reset::Done)
+                                | Said::Kept(Ok(()))
+                                | Said::KeptSource(Ok(()))
+                        );
                     page.said = Some(said);
                     page.read_back(rows, pivot, window, cx);
                     if refill {
@@ -1435,7 +1674,24 @@ impl PromptsPage {
         .detach();
     }
 
-    fn save(&self, window: &Window, cx: &Context<Self>) {
+    /// Why Save is greyed, when it is: the model is adapting this very
+    /// template, and its answer is about to be judged against what the slot
+    /// holds (D365).
+    fn save_blocked(&self) -> Option<Message> {
+        match &self.adapting {
+            Activity::Running { slot, .. } if *slot == self.selected => {
+                Some(Message::PromptsSaveWhileAdapting)
+            }
+            _ => None,
+        }
+    }
+
+    fn save(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if let Some(why) = self.save_blocked() {
+            self.said = Some(Said::Waits(why));
+            cx.notify();
+            return;
+        }
         let slot = self.selected;
         let text = self.edited(cx);
         let claim = self.claim;
@@ -1464,6 +1720,16 @@ impl PromptsPage {
             window,
             cx,
             move |store| Said::Kept(keep_mine(store, slot)),
+            true,
+        );
+    }
+
+    fn keep_source(&self, window: &Window, cx: &Context<Self>) {
+        let slot = self.selected;
+        self.write(
+            window,
+            cx,
+            move |store| Said::KeptSource(keep_mine_source(store, slot)),
             true,
         );
     }
@@ -1497,17 +1763,25 @@ impl PromptsPage {
         cx.notify();
     }
 
+    fn next_run(&mut self) -> u64 {
+        self.runs += 1;
+        self.runs
+    }
+
     fn run_check(&mut self, cx: &mut Context<Self>) {
         if self.check.running() {
             return;
         }
         let cancel = CancellationToken::new();
+        let run = self.next_run();
+        let slot = self.selected;
         self.check = Activity::Running {
+            run,
+            slot,
             cancel: cancel.clone(),
         };
         let handle = self.preferences.read(cx).rewriter();
         let store = self.store.clone();
-        let slot = self.selected;
         let edited = self.edited(cx);
         let task = cx
             .background_executor()
@@ -1515,8 +1789,9 @@ impl PromptsPage {
         cx.spawn(async move |page, cx| {
             let end = task.await;
             let _ = page.update(cx, |page, cx| {
-                page.check = Activity::Done(end);
-                cx.notify();
+                if page.check.land(run, end) {
+                    cx.notify();
+                }
             });
         })
         .detach();
@@ -1528,12 +1803,15 @@ impl PromptsPage {
             return;
         }
         let cancel = CancellationToken::new();
+        let run = self.next_run();
+        let target = self.selected;
         self.adapting = Activity::Running {
+            run,
+            slot: target,
             cancel: cancel.clone(),
         };
         let handle = self.preferences.read(cx).rewriter();
         let store = self.store.clone();
-        let target = self.selected;
         let ctx_len = self.ctx_len(cx);
         let task = cx.background_executor().spawn(async move {
             let adapted =
@@ -1556,9 +1834,12 @@ impl PromptsPage {
                             ..
                         }
                     );
-                    page.adapting = Activity::Done(adapted);
+                    let landed = page.adapting.land(run, adapted);
+                    // An unsaved edit in the field is the person's, and an
+                    // adaptation that lands does not replace it.
+                    let untouched = page.edited(cx) == page.filled;
                     page.read_back(rows, pivot, window, cx);
-                    if stored && page.selected == target {
+                    if landed && stored && page.selected == target && untouched {
                         page.fill(window, cx);
                     }
                     cx.notify();
@@ -1799,6 +2080,26 @@ impl PromptsPage {
                         &args!("source" => lang_name(source.lang), "target" => lang_name(slot.lang())),
                     ))),
                 );
+                // D368: acknowledged by asking, as the shipped drift is —
+                // a save leaves it said.
+                block = block.child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            Button::new("prompts-keep-mine-source")
+                                .small()
+                                .outline()
+                                .label(SharedString::from(t(Message::PromptsKeepMine)))
+                                .on_click(
+                                    cx.listener(|page, _, window, cx| page.keep_source(window, cx)),
+                                ),
+                        )
+                        .child(div().text_color(muted).child(SharedString::from(t_args(
+                            Message::PromptsStaleSourceKeep,
+                            &args!("source" => lang_name(source.lang)),
+                        )))),
+                );
                 if let Some(source_slot) = slot.with_lang(source.lang) {
                     let now = overrides.effective(source_slot).unwrap_or_default();
                     let shipped_source = shipped::template(source_slot).unwrap_or_default();
@@ -1913,6 +2214,7 @@ impl PromptsPage {
         }
 
         let overridden = row.is_some();
+        let save_blocked = self.save_blocked();
         block = block.child(
             h_flex()
                 .gap_2()
@@ -1922,6 +2224,7 @@ impl PromptsPage {
                         .small()
                         .primary()
                         .label(SharedString::from(t(Message::PromptsSave)))
+                        .disabled(save_blocked.is_some())
                         .on_click(cx.listener(|page, _, window, cx| page.save(window, cx))),
                 )
                 .child(
@@ -1942,6 +2245,9 @@ impl PromptsPage {
                 ),
         );
 
+        if let Some(why) = save_blocked {
+            block = block.child(div().text_color(muted).child(SharedString::from(t(why))));
+        }
         if let Some(said) = &self.said {
             block = block.child(Self::lines(said_lines(said), cx));
         }
@@ -1979,7 +2285,7 @@ impl PromptsPage {
                 .disabled(!can_check)
                 .on_click(cx.listener(|page, _, _, cx| page.run_check(cx))),
         );
-        if let Activity::Running { cancel } = &self.check {
+        if let Activity::Running { cancel, .. } = &self.check {
             let cancel = cancel.clone();
             buttons = buttons.child(
                 Button::new("prompts-check-cancel")
@@ -1990,7 +2296,7 @@ impl PromptsPage {
             );
         }
         // R5: adapt from another language with the model.
-        let may_adapt = may_adapt_into(row.as_ref());
+        let blocked = adapt_blocked(row.as_ref());
         for lang in siblings.iter().copied() {
             buttons = buttons.child(
                 Button::new(SharedString::from(format!(
@@ -2003,21 +2309,20 @@ impl PromptsPage {
                     Message::PromptsAdaptFrom,
                     &args!("language" => lang_name(lang)),
                 )))
-                .tooltip(SharedString::from(if may_adapt {
-                    t_args(
+                .tooltip(SharedString::from(match blocked {
+                    None => t_args(
                         Message::PromptsAdaptNote,
                         &args!("source" => lang_name(lang), "target" => lang_name(slot.lang())),
-                    )
-                } else {
-                    t(Message::PromptsAdaptOwnTemplate)
+                    ),
+                    Some(why) => t(why.message()),
                 }))
-                .disabled(nobody.is_some() || adapting || !may_adapt)
+                .disabled(nobody.is_some() || adapting || blocked.is_some())
                 .on_click(cx.listener(move |page, _, window, cx| {
                     page.run_adaptation(lang, window, cx);
                 })),
             );
         }
-        if let Activity::Running { cancel } = &self.adapting {
+        if let Activity::Running { cancel, .. } = &self.adapting {
             let cancel = cancel.clone();
             buttons = buttons.child(
                 Button::new("prompts-adapt-cancel")
@@ -2027,11 +2332,11 @@ impl PromptsPage {
                     .on_click(move |_, _, _| cancel.cancel()),
             );
         }
-        if !siblings.is_empty() && !may_adapt {
+        if let (false, Some(why)) = (siblings.is_empty(), blocked) {
             asking = asking.child(
                 div()
                     .text_color(muted)
-                    .child(SharedString::from(t(Message::PromptsAdaptOwnTemplate))),
+                    .child(SharedString::from(t(why.message()))),
             );
         }
         asking = asking.child(buttons);
@@ -2056,14 +2361,19 @@ impl PromptsPage {
                         );
                 }
             }
-            Activity::Done(end) => asking = asking.child(Self::lines(check_lines(end), cx)),
+            // Only under the slot it was asked for (D367).
+            Activity::Done { slot: checked, end } if *checked == slot => {
+                asking = asking.child(Self::lines(check_lines(end), cx));
+            }
+            Activity::Done { .. } => {}
         }
         match &self.adapting {
             Activity::Idle => {}
             Activity::Running { .. } => {
                 asking = asking.child(div().child(SharedString::from(t(Message::PromptsAdapting))));
             }
-            Activity::Done(adapted) => {
+            Activity::Done { slot: target, .. } if *target != slot => {}
+            Activity::Done { end: adapted, .. } => {
                 asking = asking.child(Self::lines(adapt_lines(adapted), cx));
                 if let Adapted::Answered {
                     admission, text, ..
@@ -2150,6 +2460,16 @@ impl PromptsPage {
     }
 }
 
+/// The page goes with the Settings window, and so does what it started: a
+/// check stops asking the engine — which it then lets go of — and an
+/// adaptation writes nothing unseen (D367).
+impl Drop for PromptsPage {
+    fn drop(&mut self) {
+        self.check.let_go();
+        self.adapting.let_go();
+    }
+}
+
 /// What a Save, a Reset or a Keep said, as lines.
 fn said_lines(said: &Said) -> Vec<Shown> {
     match said {
@@ -2170,12 +2490,26 @@ fn said_lines(said: &Said) -> Vec<Shown> {
         Said::Saved(Saved::Unchanged) => {
             vec![Shown::Said(Tone::Quiet, plain(Message::PromptsUnchanged))]
         }
+        Said::Saved(Saved::ShippedText) => {
+            vec![Shown::Said(
+                Tone::Warn,
+                plain(Message::PromptsSaveShippedText),
+            )]
+        }
+        Said::Saved(Saved::Unreadable) => {
+            vec![Shown::Said(
+                Tone::Warn,
+                plain(Message::PromptsSaveUnreadable),
+            )]
+        }
+        Said::Waits(why) => vec![Shown::Said(Tone::Warn, plain(*why))],
         Said::Saved(Saved::Refused(_)) => {
             vec![Shown::Said(Tone::Bad, plain(Message::PromptsRefused))]
         }
         Said::Saved(Saved::Failed(reason))
         | Said::Reset(Reset::Failed(reason))
-        | Said::Kept(Err(reason)) => {
+        | Said::Kept(Err(reason))
+        | Said::KeptSource(Err(reason)) => {
             vec![Shown::Said(
                 Tone::Bad,
                 (
@@ -2197,6 +2531,9 @@ fn said_lines(said: &Said) -> Vec<Shown> {
             ),
         )],
         Said::Kept(Ok(())) => vec![Shown::Said(Tone::Good, plain(Message::PromptsKept))],
+        Said::KeptSource(Ok(())) => {
+            vec![Shown::Said(Tone::Good, plain(Message::PromptsKeptSource))]
+        }
     }
 }
 
@@ -2289,9 +2626,9 @@ mod tests {
     use wipemark_store::Store;
 
     use super::{
-        adapt_template, before_asking, check_lines, check_template, coverage_line, keep_mine,
-        listed_slots, nobody_on_duty, problem_line, reset, save, Adapted, CheckEnd, Line, Reset,
-        Saved, Shown,
+        adapt_blocked, adapt_template, before_asking, check_lines, check_template, coverage_line,
+        keep_mine, keep_mine_source, listed_slots, nobody_on_duty, problem_line, reset, save,
+        Activity, Adapted, Blocked, CheckEnd, Line, Reset, Saved, Shown,
     };
     use crate::config::{self, PromptRow};
     use crate::duty::{self, Duty, Performer, Remote, Vacancy};
@@ -2380,6 +2717,11 @@ mod tests {
                 span: 0..16,
             },
             Problem::ReservedBracket { at: 0 },
+            Problem::InvisibleCharacter {
+                codepoint: '\u{200B}',
+                at: 0,
+                count: 2,
+            },
             Problem::Empty,
             Problem::TooLong {
                 estimated_tokens: 900,
@@ -2432,7 +2774,7 @@ mod tests {
             renders_everywhere(&line, problem.rule());
             seen.insert(line.0.id());
         }
-        assert!(seen.len() >= 14, "two rules share one sentence: {seen:?}");
+        assert!(seen.len() >= 15, "two rules share one sentence: {seen:?}");
     }
 
     /// One row of the table both surfaces are held to: a slot, the text,
@@ -3151,5 +3493,442 @@ mod tests {
             config::read_prompt_rows(&store).get(&user),
             Some(PromptRow::Read(read)) if read.text == "Перепиши своими словами.\n{TEXT}"
         ));
+    }
+
+    fn stored(store: &Store, slot: Slot) -> Option<PromptRow> {
+        config::read_prompt_rows(store).get(&slot).cloned()
+    }
+
+    /// M1, D365: a template the person saves while the model is adapting
+    /// that slot is never replaced by the answer — the slot is looked at
+    /// again, under the row writer, just before the write; the answer is
+    /// shown and not stored.
+    #[test]
+    fn an_adaptation_never_writes_over_a_template_saved_while_it_ran() {
+        let store = store();
+        let en = slot(Lang::En, Tactic::Paraphrase, 1, Role::User);
+        let de = en.with_lang(Lang::De).expect("a German slot");
+        assert!(matches!(
+            save(&store, en, "Say it again.\n{TEXT}", None, None),
+            Saved::Stored { .. }
+        ));
+        let mine = "Sag es mit meinen eigenen Worten.\n{TEXT}";
+        let meanwhile = store.clone();
+        // While the model writes, the person types their own German
+        // template and saves it.
+        let engine = FakeEngine::answering(move |_, _| {
+            let saved = save(&meanwhile, de, mine, None, None);
+            assert!(matches!(saved, Saved::Stored { .. }), "{saved:?}");
+            "Sag es noch einmal.\n{TEXT}".to_owned()
+        });
+        let adapted = block_on(adapt_template(
+            handle_with(engine.clone()),
+            store.clone(),
+            Lang::En,
+            de,
+            None,
+            CancellationToken::new(),
+        ));
+        assert_eq!(engine.asked().len(), 1);
+        assert!(
+            matches!(
+                &adapted,
+                Adapted::Kept {
+                    why: Blocked::ChangedMeanwhile,
+                    text: Some(text),
+                } if text.contains("noch einmal")
+            ),
+            "{adapted:?}"
+        );
+        let Some(PromptRow::Read(row)) = stored(&store, de) else {
+            panic!("the person's row is gone");
+        };
+        assert_eq!(row.text, mine);
+        assert_eq!(row.origin, Origin::Hand);
+        assert_eq!(row.adapted_from, None);
+    }
+
+    /// M1, D365: Save is greyed — and refuses, with its reason — on the
+    /// slot the model is adapting; another slot's adaptation does not.
+    #[gpui::test]
+    fn save_waits_while_the_model_adapts_this_template(cx: &mut gpui::TestAppContext) {
+        let ru = slot(Lang::Ru, Tactic::Paraphrase, 1, Role::User);
+        let (page, store, cx) = page_with(cx, Vec::new());
+        let cancel = CancellationToken::new();
+        cx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.select(ru, window, cx);
+                page.adapting = Activity::Running {
+                    run: 1,
+                    slot: ru,
+                    cancel: cancel.clone(),
+                };
+                page.editor.update(cx, |editor, cx| {
+                    editor.replace_all("Перепиши по-своему.\n{TEXT}", window, cx);
+                });
+                assert_eq!(page.save_blocked(), Some(Message::PromptsSaveWhileAdapting));
+                page.save(window, cx);
+            });
+        });
+        cx.run_until_parked();
+        assert!(rows_of(&store).is_empty(), "{:?}", rows_of(&store));
+        cx.update(|_, cx| {
+            assert!(matches!(
+                page.read(cx).said,
+                Some(super::Said::Waits(Message::PromptsSaveWhileAdapting))
+            ));
+        });
+        cx.update(|_, cx| {
+            page.update(cx, |page, _| {
+                page.adapting = Activity::Running {
+                    run: 1,
+                    slot: ru.with_lang(Lang::De).expect("a German slot"),
+                    cancel: cancel.clone(),
+                };
+                assert_eq!(page.save_blocked(), None, "another slot's adaptation");
+            });
+        });
+    }
+
+    /// L1, D366: Save never stores the shipped text — over a row it says
+    /// to Reset and writes nothing — and never replaces a row this build
+    /// cannot read, whatever the field holds; only Reset does.
+    #[test]
+    fn save_never_stores_the_shipped_text_or_replaces_an_unreadable_row() {
+        let store = store();
+        let user = slot(Lang::En, Tactic::Humanize, 1, Role::User);
+        let shipped = shipped::template(user).expect("shipped");
+
+        assert!(matches!(
+            save(&store, user, "Make it sound human.\n{TEXT}", None, None),
+            Saved::Stored { .. }
+        ));
+        let before = rows_of(&store);
+        assert_eq!(save(&store, user, shipped, None, None), Saved::ShippedText);
+        assert_eq!(
+            save(&store, user, shipped, Some(Lang::Ru), None),
+            Saved::ShippedText
+        );
+        assert_eq!(rows_of(&store), before, "the shipped text was stored");
+
+        let newer = json!({"text": "Make it sound human.\n{TEXT}", "origin": "someone-newer"});
+        store
+            .settings()
+            .set(&row::key(user), &newer)
+            .expect("a newer build's row");
+        assert_eq!(save(&store, user, shipped, None, None), Saved::ShippedText);
+        assert_eq!(
+            save(&store, user, "Mine.\n{TEXT}", None, None),
+            Saved::Unreadable
+        );
+        assert_eq!(
+            store
+                .settings()
+                .get::<Value>(&row::key(user))
+                .expect("read"),
+            Some(newer),
+            "a save replaced a row this build cannot read"
+        );
+        assert_eq!(reset(&store, user), Reset::Done);
+        assert!(matches!(
+            save(&store, user, "Mine.\n{TEXT}", None, None),
+            Saved::Stored { .. }
+        ));
+    }
+
+    /// L2, D365: a row this build cannot read blocks Adapt — the button is
+    /// greyed with its reason, and a press that got through asks nothing
+    /// and writes nothing.
+    #[test]
+    fn an_unreadable_row_blocks_an_adaptation() {
+        let store = store();
+        let ru = slot(Lang::Ru, Tactic::Paraphrase, 1, Role::User);
+        assert_eq!(
+            adapt_blocked(Some(&PromptRow::Unread(Some("{}".to_owned())))),
+            Some(Blocked::Unreadable)
+        );
+        assert_eq!(
+            adapt_blocked(Some(&PromptRow::Unread(None))),
+            Some(Blocked::Unreadable)
+        );
+        assert_eq!(adapt_blocked(None), None);
+        let own = Override::by_hand(ru, "Перепиши.\n{TEXT}");
+        assert_eq!(
+            adapt_blocked(Some(&PromptRow::Read(own.clone()))),
+            Some(Blocked::OwnTemplate)
+        );
+        let adapted = Override {
+            adapted_from: Some(AdaptedFrom {
+                lang: Lang::En,
+                hash: "0".repeat(16),
+            }),
+            ..own
+        };
+        assert_eq!(adapt_blocked(Some(&PromptRow::Read(adapted))), None);
+
+        let value = json!({"text": 7});
+        store
+            .settings()
+            .set(&row::key(ru), &value)
+            .expect("a row from elsewhere");
+        let engine = FakeEngine::answering(|_, _| "Перескажи.\n{TEXT}".to_owned());
+        let end = block_on(adapt_template(
+            handle_with(engine.clone()),
+            store.clone(),
+            Lang::En,
+            ru,
+            None,
+            CancellationToken::new(),
+        ));
+        assert_eq!(
+            end,
+            Adapted::Kept {
+                why: Blocked::Unreadable,
+                text: None
+            }
+        );
+        assert!(engine.asked().is_empty(), "the model was asked anyway");
+        assert_eq!(
+            store.settings().get::<Value>(&row::key(ru)).expect("read"),
+            Some(value)
+        );
+    }
+
+    /// An engine that answers and then — as a slot switch or a closed
+    /// window would — has its run cancelled before the answer is written.
+    struct CancelledAfterAnswering {
+        inner: FakeEngine,
+        cancel: CancellationToken,
+    }
+
+    #[wipemark_engine::async_trait]
+    impl wipemark_engine::RewriteEngine for CancelledAfterAnswering {
+        fn info(&self) -> wipemark_engine::EngineInfo {
+            self.inner.info()
+        }
+
+        async fn complete(
+            &self,
+            req: wipemark_engine::ChatRequest,
+            sink: wipemark_engine::TokenSink,
+            cancel: CancellationToken,
+        ) -> Result<wipemark_engine::Completion, wipemark_engine::EngineError> {
+            let answer = self.inner.complete(req, sink, cancel).await;
+            self.cancel.cancel();
+            answer
+        }
+
+        async fn warmup(&self) -> Result<(), wipemark_engine::EngineError> {
+            Ok(())
+        }
+
+        async fn unload(&self) {}
+    }
+
+    /// L3, D367: an adaptation cancelled after the model answered writes
+    /// nothing.
+    #[test]
+    fn an_adaptation_cancelled_after_the_answer_writes_nothing() {
+        let store = store();
+        let en = slot(Lang::En, Tactic::Paraphrase, 1, Role::User);
+        let ru = en.with_lang(Lang::Ru).expect("a Russian slot");
+        assert!(matches!(
+            save(&store, en, "Say it again.\n{TEXT}", None, None),
+            Saved::Stored { .. }
+        ));
+        let before = rows_of(&store);
+        let cancel = CancellationToken::new();
+        let engine = CancelledAfterAnswering {
+            inner: FakeEngine::answering(|_, _| "Перескажи это своими словами.\n{TEXT}".to_owned()),
+            cancel: cancel.clone(),
+        };
+        let handle = EngineHandle::serving(Arc::new(engine), Pace::default()).0;
+        let end = block_on(adapt_template(
+            handle.clone(),
+            store.clone(),
+            Lang::En,
+            ru,
+            None,
+            cancel,
+        ));
+        assert_eq!(
+            end,
+            Adapted::Ended(wipemark_pipeline::prompt::AdaptEnd::Cancelled)
+        );
+        assert_eq!(rows_of(&store), before, "a cancelled adaptation wrote");
+        assert_eq!(handle.busy(), 0);
+    }
+
+    /// L3, D367: choosing another slot cancels the check and the
+    /// adaptation that were running, and their answers, when they land,
+    /// are dropped rather than shown under the slot on screen; letting the
+    /// page go — the Settings window closing — cancels them too.
+    #[gpui::test]
+    fn another_slot_or_a_closed_page_cancels_what_runs(cx: &mut gpui::TestAppContext) {
+        use gpui::AppContext as _;
+
+        let en = slot(Lang::En, Tactic::Paraphrase, 1, Role::User);
+        let de = en.with_lang(Lang::De).expect("a German slot");
+        let (page, _store, cx) = page_with(cx, Vec::new());
+        let (checking, adapting) = (CancellationToken::new(), CancellationToken::new());
+        cx.update(|window, cx| {
+            page.update(cx, |page, cx| {
+                page.select(en, window, cx);
+                page.check = Activity::Running {
+                    run: 7,
+                    slot: en,
+                    cancel: checking.clone(),
+                };
+                page.adapting = Activity::Running {
+                    run: 8,
+                    slot: en,
+                    cancel: adapting.clone(),
+                };
+                page.select(de, window, cx);
+                assert!(checking.is_cancelled() && adapting.is_cancelled());
+                assert!(matches!(page.check, Activity::Idle));
+                assert!(matches!(page.adapting, Activity::Idle));
+                assert!(
+                    !page.check.land(7, CheckEnd::Failed("late".to_owned())),
+                    "a check let go of landed"
+                );
+                assert!(matches!(page.check, Activity::Idle));
+            });
+        });
+
+        let preferences = cx.update(|_, cx| page.read(cx).preferences.clone());
+        let other =
+            cx.update(|window, cx| cx.new(|cx| super::PromptsPage::new(preferences, window, cx)));
+        cx.run_until_parked();
+        let (checking, adapting) = (CancellationToken::new(), CancellationToken::new());
+        cx.update(|_, cx| {
+            other.update(cx, |page, _| {
+                page.check = Activity::Running {
+                    run: 1,
+                    slot: en,
+                    cancel: checking.clone(),
+                };
+                page.adapting = Activity::Running {
+                    run: 2,
+                    slot: en,
+                    cancel: adapting.clone(),
+                };
+            });
+        });
+        drop(other);
+        // An entity let go of is released when the app next flushes.
+        cx.update(|_, _| {});
+        cx.run_until_parked();
+        assert!(checking.is_cancelled(), "the check outlived the page");
+        assert!(adapting.is_cancelled(), "the adaptation outlived the page");
+    }
+
+    /// L4, D368: a save — a review of a machine adaptation, or an edit of
+    /// a hand adaptation — keeps the source's recorded hash, so a source
+    /// that moved on is still said; Keep mine is what moves it.
+    #[test]
+    fn a_save_keeps_the_sources_hash_and_keep_mine_moves_it() {
+        let store = store();
+        let ru = slot(Lang::Ru, Tactic::Paraphrase, 1, Role::User);
+        let de = ru.with_lang(Lang::De).expect("a German slot");
+        assert!(matches!(
+            save(&store, ru, "Перепиши своими словами.\n{TEXT}", None, None),
+            Saved::Stored { .. }
+        ));
+        assert!(matches!(
+            save(
+                &store,
+                de,
+                "Schreib es mit eigenen Worten.\n{TEXT}",
+                Some(Lang::Ru),
+                None
+            ),
+            Saved::Stored { .. }
+        ));
+        let read = |store: &Store| match stored(store, de) {
+            Some(PromptRow::Read(read)) => read,
+            other => panic!("{other:?}"),
+        };
+        let made_from = read(&store).adapted_from.expect("a source");
+        assert!(matches!(
+            save(&store, ru, "Перескажи иначе.\n{TEXT}", None, None),
+            Saved::Stored { .. }
+        ));
+        let stale = |store: &Store| {
+            let overrides = config::overrides_of(&config::read_prompt_rows(store));
+            staleness(de, &read(store), &overrides).source_changed
+        };
+        assert!(stale(&store));
+
+        // An edit and a save of the German adaptation: still said.
+        assert!(matches!(
+            save(
+                &store,
+                de,
+                "Schreib es anders.\n{TEXT}",
+                Some(Lang::Ru),
+                None
+            ),
+            Saved::Stored { .. }
+        ));
+        assert_eq!(read(&store).adapted_from, Some(made_from.clone()));
+        assert!(stale(&store), "a save cleared the warning");
+
+        // A machine adaptation reviewed by a save: still said.
+        let machine = Override {
+            origin: Origin::Machine,
+            ..read(&store)
+        };
+        config::write_prompt(&store, de, &machine).expect("a machine row");
+        assert!(matches!(
+            save(&store, de, "Schreib es noch anders.\n{TEXT}", None, None),
+            Saved::Stored { reviewed: true, .. }
+        ));
+        assert_eq!(read(&store).adapted_from, Some(made_from));
+        assert!(stale(&store), "a review cleared the warning");
+
+        let text = read(&store).text;
+        keep_mine_source(&store, de).expect("kept");
+        assert!(!stale(&store), "Keep mine did not clear it");
+        assert_eq!(read(&store).text, text, "Keep mine touched the text");
+        assert_eq!(
+            read(&store).adapted_from.map(|source| source.hash),
+            Some(row::hash("Перескажи иначе.\n{TEXT}"))
+        );
+    }
+
+    /// D369: a template with an invisible character is refused by Save
+    /// and by `lay_over` alike, and the sentence names the character by
+    /// `U+XXXX` and its name — never carrying it.
+    #[test]
+    fn an_invisible_character_is_refused_and_spelled_not_carried() {
+        let store = store();
+        let user = slot(Lang::En, Tactic::Paraphrase, 1, Role::User);
+        let text = "Say it\u{200B} again.\n{TEXT}";
+        let Saved::Refused(admission) = save(&store, user, text, None, None) else {
+            panic!("an invisible character was saved");
+        };
+        assert_eq!(
+            admission.first_error().map(Problem::rule),
+            Some("invisible-character")
+        );
+        assert!(rows_of(&store).is_empty());
+        let mut saved = Overrides::new();
+        let laid: Map<String, Value> = json!({ row::key(user): text })
+            .as_object()
+            .expect("an object")
+            .clone();
+        assert!(matches!(
+            lay_over(&mut saved, &laid),
+            Err(row::Laid::Breaks {
+                rule: "invisible-character",
+                ..
+            })
+        ));
+        let (_, rule, sentence) =
+            super::problem_shown(admission.first_error().expect("an error"), text);
+        assert_eq!(rule, "invisible-character");
+        assert!(sentence.contains("U+200B ZERO WIDTH SPACE"), "{sentence}");
+        assert!(!sentence.contains('\u{200B}'), "{sentence:?}");
     }
 }
