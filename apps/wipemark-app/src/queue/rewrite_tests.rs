@@ -1110,3 +1110,166 @@ fn replace_asks_before_a_document_leaves_the_machine(cx: &mut TestAppContext) {
     );
     work.queue.resume();
 }
+
+// -- Compare's Save (E7-9) ---------------------------------------------
+
+/// A cleaned row opens Compare on its result as it stands (D410): beside,
+/// the result's file with the source on the left; in place, the source's
+/// name with the original set aside on the left; a paste, its row's text.
+/// A paste's text saved from Compare is what Copy the result and the next
+/// Compare read (D412), and a row that holds no text will not take one.
+#[gpui::test]
+fn a_cleaned_row_opens_compare_on_its_result_and_a_paste_keeps_its_edit(cx: &mut TestAppContext) {
+    use crate::compare::{CleanedTo, Made, Told};
+    use crate::retention::Destination as Goes;
+
+    let scratch = Scratch::new("compare-cleaned");
+    let beside = scratch.file("b.md", "b\u{200B}\n".as_bytes());
+    let over = scratch.file("o.md", "o\u{200B}\n".as_bytes());
+    let (queue, preferences, cx) = queue_with(cx, &scratch, None);
+    queue.update(cx, |queue, cx| queue.hand(vec![beside.clone()], cx));
+    cx.run_until_parked();
+    let first = ids(&queue, cx)[0];
+    queue.update(cx, |queue, cx| queue.clean(&[first], cx));
+    cx.run_until_parked();
+    preferences.update(cx, |preferences, cx| {
+        preferences.select_destination(Goes::Replace, cx)
+    });
+    queue.update(cx, |queue, cx| queue.hand(vec![over.clone()], cx));
+    queue.update(cx, |queue, cx| {
+        queue.land(vec![Handed::Text("p\u{200B}\n".to_owned())], cx)
+    });
+    cx.run_until_parked();
+    let all = ids(&queue, cx);
+    queue.update(cx, |queue, cx| queue.clean(&all[1..], cx));
+    cx.run_until_parked();
+
+    fn subject(
+        queue: &gpui::Entity<Queue>,
+        id: u64,
+        cx: &mut VisualTestContext,
+    ) -> crate::compare::Subject {
+        cx.update(|_, cx| queue.read(cx).subject_of(id))
+            .expect("a subject")
+    }
+    let made = |subject: &crate::compare::Subject| format!("{:?}", subject.made);
+
+    let s = subject(&queue, all[0], cx);
+    assert!(matches!(&s.handed, Handed::Path(path) if *path == beside));
+    assert_eq!(
+        made(&s),
+        format!(
+            "{:?}",
+            Made::CleanedTo(CleanedTo::File(scratch.0.join("b.cleaned.md")))
+        )
+    );
+    let s = subject(&queue, all[1], cx);
+    assert!(
+        matches!(&s.handed, Handed::Path(path) if *path == scratch.0.join("o.original.md")),
+        "in place, the original is not the file set aside"
+    );
+    assert_eq!(
+        made(&s),
+        format!("{:?}", Made::CleanedTo(CleanedTo::File(over.clone())))
+    );
+    let s = subject(&queue, all[2], cx);
+    assert!(matches!(&s.made, Made::CleanedTo(CleanedTo::Text(text)) if text == "p\n"));
+
+    // The paste takes Compare's text; Copy the result and Compare read it.
+    let took = queue.update(cx, |queue, cx| {
+        queue.told_by_compare(all[2], Told::Text("p, edited\n".to_owned()), cx)
+    });
+    assert!(took);
+    assert_eq!(
+        cx.update(|_, cx| queue.read(cx).result_text(all[2]))
+            .as_deref(),
+        Some("p, edited\n")
+    );
+    let s = subject(&queue, all[2], cx);
+    assert!(matches!(&s.made, Made::CleanedTo(CleanedTo::Text(text)) if text == "p, edited\n"));
+    // A file's row holds no text to replace.
+    let took = queue.update(cx, |queue, cx| {
+        queue.told_by_compare(all[0], Told::Text("x".to_owned()), cx)
+    });
+    assert!(!took, "a file's row took a text");
+    assert!(!queue.update(cx, |queue, cx| queue.told_by_compare(999, Told::Saved, cx)));
+
+    // A Save that cleans asks first, and a row being rewritten or in the
+    // line says no — the rule its own Clean keeps (D411).
+    let cleans = |queue: &gpui::Entity<Queue>, cx: &mut VisualTestContext| {
+        queue.update(cx, |queue, cx| {
+            queue.told_by_compare(all[0], Told::Cleans, cx)
+        })
+    };
+    assert!(
+        cleans(&queue, cx),
+        "a cleaned row may be cleaned again by a save"
+    );
+    for busy in [
+        Status::Rewriting(None),
+        Status::RewriteQueued,
+        Status::Cleaning,
+    ] {
+        queue.update(cx, |queue, _| queue.rows[0].status = busy);
+        assert!(!cleans(&queue, cx), "a busy row said yes");
+    }
+}
+
+/// A Save in Compare of a row nothing was written for is a clean of that
+/// row, in the one line (D411): the row moves as a clean's does, its
+/// result is the edited text, and its journal entry says it was edited —
+/// when, never what (D417). A later save over that file is marked again,
+/// through the row. Leave `edited` out of `clean_end` and the journal
+/// says nothing of the edit: red.
+#[gpui::test]
+fn a_save_that_cleans_moves_the_row_and_marks_its_journal(cx: &mut TestAppContext) {
+    use wipemark_store::entry::Entry;
+
+    use crate::compare::Told;
+
+    let scratch = Scratch::new("compare-save-clean");
+    let source = scratch.file("s.md", PARAGRAPH.as_bytes());
+    let work = work(swapping());
+    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    queue.update(cx, |queue, cx| queue.hand(vec![source.clone()], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    until(cx, "the row's journal id", |cx| {
+        cx.update(|_, cx| queue.read(cx).rows[0].entry.is_some())
+    });
+    let arrival = cx
+        .update(|_, cx| queue.read(cx).rows[0].arrival.clone())
+        .expect("an arrival");
+    let line = cx.update(|_, cx| queue.read(cx).cleaner.clone());
+    let edit = "An edited result, as the person typed it.\n";
+    let asked = line.update(cx, |line, cx| {
+        line.ask_with(id, arrival, None, Some(Arc::from(edit)), cx)
+    });
+    assert!(asked);
+    cx.run_until_parked();
+    assert_eq!(status(&queue, cx), "cleaned");
+    assert_eq!(
+        std::fs::read_to_string(scratch.0.join("s.cleaned.md")).expect("written"),
+        edit
+    );
+    let edited = |work: &Work| {
+        work.journal
+            .rows()
+            .first()
+            .and_then(|row| Entry::from_json(&row.entry).outcome)
+            .and_then(|outcome| outcome.edited)
+    };
+    until(cx, "the journal's mark", |_| edited(&work).is_some());
+    assert!(
+        !work.journal.rows()[0].entry.contains("person typed"),
+        "the journal carries the text"
+    );
+
+    // A later save over that file, told through the row: marked again.
+    let first = edited(&work).expect("marked");
+    std::thread::sleep(Duration::from_millis(5));
+    assert!(queue.update(cx, |queue, cx| queue.told_by_compare(id, Told::Saved, cx)));
+    until(cx, "the journal's second mark", |_| {
+        edited(&work).is_some_and(|at| at > first)
+    });
+}

@@ -345,6 +345,7 @@ pub enum Setting {
     CompareGrain,
     CompareFollow,
     CompareSyncScroll,
+    CompareAutosave,
     EngineServes,
     EngineKeep,
     EngineIdle,
@@ -407,7 +408,7 @@ impl Setting {
     ///
     /// The Compare rows put what is *marked* before how the two sides
     /// *move*: a reader opens the window for the marks.
-    pub const ALL: [Setting; 36] = [
+    pub const ALL: [Setting; 37] = [
         Self::Appearance,
         Self::Language,
         Self::ShortcutShow,
@@ -420,6 +421,8 @@ impl Setting {
         Self::CompareGrain,
         Self::CompareFollow,
         Self::CompareSyncScroll,
+        // ## E7-9
+        Self::CompareAutosave,
         Self::EngineServes,
         Self::EngineKeep,
         Self::EngineIdle,
@@ -457,7 +460,10 @@ impl Setting {
             | Self::ShortcutPanel
             | Self::Setup => Section::General,
             Self::WindowScreen | Self::CloseAfterDrop => Section::Placement,
-            Self::CompareGrain | Self::CompareFollow | Self::CompareSyncScroll => Section::Compare,
+            Self::CompareGrain
+            | Self::CompareFollow
+            | Self::CompareSyncScroll
+            | Self::CompareAutosave => Section::Compare,
             Self::EngineServes
             | Self::EngineKeep
             | Self::EngineIdle
@@ -498,6 +504,7 @@ impl Setting {
             Self::CompareGrain => Message::SettingsCompareGrainTitle,
             Self::CompareFollow => Message::SettingsCompareFollowTitle,
             Self::CompareSyncScroll => Message::SettingsCompareSyncScrollTitle,
+            Self::CompareAutosave => Message::SettingsCompareAutosaveTitle,
             Self::EngineServes => Message::SettingsEngineServesTitle,
             Self::EngineKeep => Message::SettingsEngineKeepTitle,
             Self::EngineIdle => Message::SettingsEngineIdleTitle,
@@ -549,6 +556,7 @@ impl Setting {
             Self::CompareGrain => Message::SettingsCompareGrainDescription,
             Self::CompareFollow => Message::SettingsCompareFollowDescription,
             Self::CompareSyncScroll => Message::SettingsCompareSyncScrollDescription,
+            Self::CompareAutosave => Message::SettingsCompareAutosaveDescription,
             Self::EngineServes => Message::SettingsEngineServesDescription,
             Self::EngineKeep => Message::SettingsEngineKeepDescription,
             Self::EngineIdle => Message::SettingsEngineIdleDescription,
@@ -615,6 +623,7 @@ impl Setting {
             Self::CompareGrain => Storage::Row(config::COMPARE_GRAIN_KEY),
             Self::CompareFollow => Storage::Row(config::COMPARE_FOLLOW_KEY),
             Self::CompareSyncScroll => Storage::Row(config::COMPARE_SYNC_SCROLL_KEY),
+            Self::CompareAutosave => Storage::Row(config::COMPARE_AUTOSAVE_KEY),
             Self::EngineServes => Storage::Row(config::ENGINE_SERVES_KEY),
             Self::EngineKeep => Storage::Row(config::ENGINE_LOCAL_KEEP_KEY),
             Self::EngineIdle => Storage::Row(config::ENGINE_LOCAL_IDLE_KEY),
@@ -1336,6 +1345,18 @@ impl Preferences {
         cx.notify();
         self.persist(cx, move |store| {
             config::write_compare_sync_scroll(store, sync_scroll)
+        });
+    }
+
+    /// Record whether a Compare window saves edits as they are typed.
+    pub fn save_as_you_type(&mut self, autosave: bool, cx: &mut Context<Self>) {
+        if self.comparison.autosave == autosave {
+            return;
+        }
+        self.comparison.autosave = autosave;
+        cx.notify();
+        self.persist(cx, move |store| {
+            config::write_compare_autosave(store, autosave)
         });
     }
 
@@ -4224,6 +4245,7 @@ impl SettingsView {
             Setting::CompareGrain => self.grain_choice(cx).into_any_element(),
             Setting::CompareFollow => self.follow_switch(cx).into_any_element(),
             Setting::CompareSyncScroll => self.sync_scroll_switch(cx).into_any_element(),
+            Setting::CompareAutosave => self.autosave_switch(cx).into_any_element(),
             Setting::EngineServes => self.serves_selector().into_any_element(),
             Setting::EngineKeep => self.keep_choice(cx).into_any_element(),
             Setting::EngineIdle => self.idle_selector(cx).into_any_element(),
@@ -4481,6 +4503,19 @@ impl SettingsView {
                 let together = *together;
                 view.preferences.update(cx, |preferences, cx| {
                     preferences.scroll_together(together, cx);
+                });
+            }))
+    }
+
+    /// The switch that saves a Compare window's edits as they are typed.
+    fn autosave_switch(&self, cx: &Context<Self>) -> impl IntoElement {
+        let autosave = self.preferences.read(cx).comparison().autosave;
+        Switch::new("compare-autosave")
+            .checked(autosave)
+            .on_click(cx.listener(|view, autosave: &bool, _, cx| {
+                let autosave = *autosave;
+                view.preferences.update(cx, |preferences, cx| {
+                    preferences.save_as_you_type(autosave, cx);
                 });
             }))
     }

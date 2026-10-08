@@ -670,6 +670,84 @@ fn text_has_no_file_to_write_and_stays_in_the_row() {
     assert!(queue.items().is_empty());
 }
 
+/// The Compare window's Save of a rewritten paste writes into the row that
+/// is the result's one home, and only there (D410): the text moves and
+/// nothing else of the result does, it survives a reopen, and an item that
+/// is not done, holds no text or is gone is `false` with nothing written.
+/// A delivery that failed keeps its text in its row and is not done: take
+/// the `state` check out and that row takes the save — red.
+#[test]
+fn a_saved_edit_replaces_a_done_rows_text_and_nothing_else() {
+    let scratch = Scratch::new("save-text");
+    let queue = Queue::open(&scratch.db(), Arc::new(engine(None)));
+    let events = queue.events();
+    let item = queue.push(text_request(PARAGRAPHS[3])).expect("pushed");
+    let _ = done(end_of(&events, item));
+    let before = queue.result(item).expect("reads").expect("a result");
+
+    assert!(queue.save_text(item, "edited by hand\n").expect("saves"));
+    let after = queue.result(item).expect("reads").expect("a result");
+    assert_eq!(after["text"].as_str(), Some("edited by hand\n"));
+    assert_eq!(after["report"], before["report"], "the report moved");
+    assert_eq!(after["end"], before["end"]);
+    assert_eq!(state(&queue, item), State::Done, "the item started again");
+    queue.shutdown();
+    let queue = Queue::open(&scratch.db(), Arc::new(engine(None)));
+    let events = queue.events();
+    assert_eq!(
+        queue.result(item).expect("reads").expect("a result")["text"].as_str(),
+        Some("edited by hand\n"),
+        "the saved text did not survive a restart"
+    );
+
+    // Not done: a delivery refused by a file already there failed, and
+    // keeps its text in the row for whoever looks — not a home a save
+    // writes into.
+    let source = scratch.path("source.md");
+    std::fs::write(&source, document()).expect("source");
+    let taken = scratch.path("taken.md");
+    std::fs::write(&taken, "somebody's\n").expect("taken");
+    let failed = queue
+        .push(file_request(&source, Destination::New(taken.clone())))
+        .expect("pushed");
+    assert!(matches!(end_of(&events, failed), End::Failed(_)));
+    let kept = queue.result(failed).expect("reads").expect("a result");
+    assert!(kept["text"].is_string(), "the failure kept no text: {kept}");
+    assert!(
+        !queue.save_text(failed, "x").expect("reads"),
+        "a failed item took a text"
+    );
+    assert_eq!(
+        queue.result(failed).expect("reads").expect("a result")["text"],
+        kept["text"]
+    );
+
+    // A file's result holds no text in its row: nothing to put one in
+    // place of.
+    let filed = queue
+        .push(file_request(
+            &source,
+            Destination::beside(&source).expect("beside"),
+        ))
+        .expect("pushed");
+    let _ = done(end_of(&events, filed));
+    assert!(
+        !queue.save_text(filed, "x").expect("reads"),
+        "a file's row took a text"
+    );
+    assert!(
+        queue.result(filed).expect("reads").expect("a result")["text"].is_null(),
+        "a text was put in a file's row"
+    );
+
+    queue.remove(item);
+    wait_for(&events, |event| matches!(event, QueueEvent::Removed { .. }));
+    assert!(
+        !queue.save_text(item, "x").expect("reads"),
+        "a removed item took a text"
+    );
+}
+
 #[test]
 fn a_database_that_will_not_open_is_left_alone_and_the_queue_runs_in_memory() {
     let scratch = Scratch::new("garbage");

@@ -383,15 +383,16 @@ kind-unknown = Unrecognised
 ## result on the right with a toolbar of the editor's own operations
 ## over it. Every line that differs is marked on both sides. The result
 ## starts as what cleaning makes of the original — the text the queue's
-## Clean writes — and the window itself saves and writes nothing;
-## `compare-pending` says both, here and on the Compare page of Settings.
+## Clean writes — or as the result already written for it, and an edited
+## result is saved where the result lives, never over the original;
+## `compare-pending` says so, here and on the Compare page of Settings.
 ## `compare-title` takes the thing's name; `compare-changed` takes two
 ## counts; `compare-refused-too-big` takes two sizes already spelled.
 
 compare-title = Compare · { $name }
 compare-original = Original
 compare-result = Result
-compare-pending = In the Compare window the result is what cleaning makes of the original, and every line that differs is marked on both sides. Editing the result there saves nothing, and closing the window writes nothing.
+compare-pending = In the Compare window the result is what cleaning makes of the original, and every line that differs is marked on both sides. An edited result is saved where the result lives — never over the original.
 compare-reading = Reading…
 compare-same = The result is the original, line for line.
 compare-changed = { $added ->
@@ -405,7 +406,7 @@ compare-refused-not-text = This is not text, so there is nothing to compare line
 compare-refused-too-big = At { $size } it is more than this window compares; the limit is { $limit }.
 compare-refused-unreadable = It could not be read.
 compare-reset = Back to the cleaned text
-compare-reset-tooltip = Throw the edits away; the result is what cleaning made of the original again.
+compare-reset-tooltip = Put back what cleaning makes of the original, and let the edits go. This is an edit like any other, and is saved as edits are.
 compare-help = What this window does
 compare-help-marks = A red mark on the original is a line the result no longer has; a green one on the result is a line the original never had.
 compare-help-follows = The original follows the result's cursor, so the two sides stay in step.
@@ -413,8 +414,61 @@ compare-help-scrolls = Scrolling either side scrolls the other, so the lines the
 compare-help-toolbar = The toolbar over the result is the editor's own operations, with the shortcuts it already answers to.
 compare-help-words = Within a passage that changed, the words that differ are marked more strongly.
 compare-help-characters = Within a passage that changed, the characters that differ are marked more strongly.
-compare-help-settings = The Compare page of Settings chooses three things for the next window opened: what is marked, whether the original follows the cursor, and whether the sides scroll together.
-compare-help-close = Closing this window writes nothing; edits to the result live only here.
+compare-help-settings = The Compare page of Settings chooses four things for the next window opened: what is marked, whether the original follows the cursor, whether the sides scroll together, and whether edits are saved as they are typed.
+compare-help-close = Closing this window saves the result first if it has edits that are not saved yet.
+compare-help-close-asks = Closing this window with edits that are not saved asks whether to save them.
+compare-help-save = Save, at the start of the result's toolbar, writes the edited result where it lives; the line under the result says whether it is saved.
+
+## Saving an edited result. The second line of the banner says where an
+## edit goes and when; `$name` is a file's name, never a whole path.
+## Save writes over the result's own file, into the row of a text that
+## has no file, or — when nothing has been written for the result yet —
+## as a Clean would, by the Retention page. Never over the original.
+compare-save = Save
+compare-save-to-file = Edits are saved over { $name }, the result's own file — never over the original.
+compare-save-to-row = Edits are saved in this document's row in the list, the result's one home.
+compare-save-as-clean = Nothing has been written for this result yet: saving writes it where Clean would, as { $name }.
+compare-save-as-clean-in-place = Nothing has been written for this result yet: saving writes it over { $name } as Clean would, the original set aside first.
+compare-save-as-clean-row = Nothing has been kept of this result yet: saving keeps it in this document's row in the list, as Clean would.
+compare-save-when-typing = Saving happens a moment after typing stops, and when the window closes.
+compare-save-when-pressed = Saving happens when Save is pressed; closing the window with edits that are not saved asks first.
+compare-save-nowhere = This result is the original file itself, with no original set aside, so Save writes nothing here.
+compare-save-unsaved = There are no edits to save.
+compare-save-reading = The text is still being read.
+compare-save-refused = There is nothing here to save.
+
+## The line under the result: whether it is saved. `$time` is the time
+## of day, already spelled; `$reason` is a whole sentence.
+compare-status-saved = Saved { $time }
+compare-status-saving = Saving…
+compare-status-unsaved = Unsaved changes
+compare-status-not-saved = Not saved: { $reason }
+compare-not-saved-changed = { $name } changed on disk after this window read it.
+compare-not-saved-link = { $name } is a symbolic link, and a save would replace the link rather than the file it points to.
+compare-not-saved-original = It would be written over the original.
+compare-not-saved-gone = The row that held the result is gone.
+compare-not-saved-busy = The document is being cleaned or rewritten.
+compare-not-saved-same = The text is the original's, and a result identical to its original is never written.
+compare-not-saved-unreadable = { $name } could not be read back.
+
+## The question a save asks when the file it would write over moved
+## under it, or when a file is already where a first save would go.
+compare-changed-title = The result changed on disk
+compare-changed-body = { $name } was changed after this window read it — in another window, by another application or from the command line.
+compare-exists-title = A file is already where the result goes
+compare-exists-body = { $name } is already there, and saving would write the result over it.
+compare-changed-choices = Overwrite writes this window's text over the file. Keep theirs puts the file's text in this window and lets the edits here go. Cancel leaves both as they are and saves nothing until Save is pressed again.
+compare-changed-overwrite = Overwrite
+compare-changed-keep = Keep theirs
+compare-changed-cancel = Cancel
+
+## The question closing asks while edits are not saved and nothing saves
+## them as they are typed.
+compare-close-title = Save the edits to the result?
+compare-close-body = The result has edits that are not saved. Closing without saving lets them go.
+compare-close-save = Save
+compare-close-discard = Discard
+compare-close-cancel = Cancel
 
 # The result's toolbar: one label per editor operation, shown as a
 # tooltip beside the shortcut the editor already binds to it, and two
@@ -433,7 +487,7 @@ result-whitespace = Show whitespace
 
 
 settings-compare-title = How a result is compared
-settings-compare-description = What the Compare window marks when a result is put beside its original. A window reads these as it opens; one already open keeps what it was opened with.
+settings-compare-description = What the Compare window marks when a result is put beside its original, and when it saves an edited one. A window reads these as it opens; one already open keeps what it was opened with.
 settings-compare-exact = Every character counts: the comparison never overlooks a space, a line ending or a character that cannot be seen.
 
 settings-compare-grain-title = What is marked
@@ -447,6 +501,9 @@ settings-compare-follow-description = Moving the cursor in the result puts the o
 
 settings-compare-sync-scroll-title = Both sides scroll together
 settings-compare-sync-scroll-description = Scrolling either side — with the wheel, the touchpad, the scroll bar or the keyboard — scrolls the other, so the lines the two sides share stay level. Through a passage that changed, the other side moves in step through its own lines. While the result wraps its lines, the two sides line up only roughly. Off, each side scrolls on its own.
+
+settings-compare-autosave-title = Save edits as they are typed
+settings-compare-autosave-description = A Compare window saves an edited result a moment after typing stops, and again as it closes — over the result's own file, or in its row for a text with no file, and never over the original. Off, a window saves when Save is pressed, and asks before closing with edits that are not saved.
 
 settings-placement-title = Where windows open
 settings-placement-description = Which screen a { -brand-name } window opens on, and where on that screen it lands.
@@ -1764,10 +1821,10 @@ status-rewriting = Rewriting { $current } of { $total } · paragraph { $chunk } 
 status-rewriting-starting = Rewriting { $current } of { $total }
 status-rewrites-held = Rewrites wait for an engine: { $reason }
 status-rewrites-paused = Rewriting is paused · { $count } waiting
-compare-rewritten-banner = The rewrite, as it was delivered — the most changed version that passed every check. Editing it here saves nothing, and closing writes nothing.
+compare-rewritten-banner = The rewrite, as it was delivered or last saved — it began as the most changed version that passed every check.
 compare-rewritten-kept = { $kept } of { $chunks } paragraphs kept their cleaned original: no candidate passed the checks.
 compare-reset-rewritten = Back to the rewritten text
-compare-reset-rewritten-tooltip = Put the rewrite back as it was delivered, and forget the edits.
+compare-reset-rewritten-tooltip = Put the result back as this window opened it — the rewrite as delivered, or as it was last saved — and let the edits go. This is an edit like any other, and is saved as edits are.
 settings-arrival-title = Process what arrives
 settings-arrival-description = What happens to a thing as it lands in the main window. Nothing waits for a button; Clean cleans it at once; Rewrite rewrites it with the engine on duty — and when that engine is not on this machine, each arrival asks before anything is sent.
 settings-arrival-nothing = Nothing — wait for a button

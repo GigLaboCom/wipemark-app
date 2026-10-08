@@ -10,7 +10,12 @@ that arrived as Markdown or HTML is kept any differently.
 The windows write by these rows (E7): the queue's **Clean** and **Clean
 all**, the panel's **Clean** and `--clean=<path>` all go through
 `apps/wipemark-app/src/clean.rs`, which executes rules 1–7 below — see
-"How the windows execute it". The command line writes its result beside
+"How the windows execute it". The Compare window's **Save** (E7-9) writes
+an edited result where the result already lives — over its own file,
+into its row — or, when nothing was written for it yet, as a Clean of
+the edited text by these same rows, through the same line; never over
+the original (`docs/architecture/compare.md`, "Saving an edited
+result"). The command line writes its result beside
 the file by the same `with_infix` rule and never reads these rows, and
 MCP hands its result back and writes nothing; the page's banner says
 both halves in every state it can be in
@@ -297,6 +302,19 @@ end as one result and one refusal, never as two writes:
   removes nothing not shaped like one of ours (`yyyymmddThhmmss-<n>`),
   never follows a link, and removes nothing under "Until removed by
   hand".
+
+**The Compare window's Save** (E7-9, D410, D411) is the one other writer
+in the windows, and adds no road of its own. A result already written is
+saved over in place — `inplace::write_atomically` over the result's own
+file, never over the file it came from, never through a symbolic link,
+and only while the file still holds what the window read, unless the
+person says Overwrite (D413). A result not written yet is a clean:
+`clean::save_one`, in the one line, by the plan taken when it starts,
+with every refusal of `clean_one` — a taken name refused unless the
+person names it, in place only with the original set aside first, an
+edited text identical to its source never written (D262) — and the
+kept copies the plan asks for, made then and not refreshed by a later
+save (D419).
 
 ## What is left open
 
