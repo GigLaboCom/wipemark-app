@@ -595,8 +595,11 @@ impl Queue {
         let vacant = self.vacancy(cx);
         // The consent is the duty as it stands while the person asks — a
         // Rewrite, a Rewrite all whose price said "here" or "sent away", a
-        // drop or a Replace asked about once (D361).
-        let Some(consent) = self.whereto(cx) else {
+        // drop or a Replace asked about once (D361) — or, where the duty
+        // names nobody, the word of the engine on duty itself, the one the
+        // queue checks against (D370). Neither: nowhere was agreed to, and
+        // nothing is pushed (D393).
+        let Some(consent) = self.whereto(cx).or_else(|| work.engine.sends_to()) else {
             return;
         };
         let mut asked = Vec::new();

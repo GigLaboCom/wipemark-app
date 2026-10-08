@@ -272,9 +272,11 @@ the command line and an agent's call refuse a template they are handed.
 where the person agreed the document may go — this machine, or an
 endpoint's origin — as the duty stood when they asked: a row's Rewrite,
 Rewrite all whose price said "here" or "sent away", a drop asked about once
-(В1), a **Replace the existing result** (D393). A window push without a
-consent cannot be built: with nothing on duty there is nowhere the person
-agreed to, and nothing is pushed. Replace of a rewrite refused over a file
+(В1), a **Replace the existing result** (D393) — the duty's destination,
+or, where the duty names nobody, the engine on duty's own word for where it
+sends a document (the slot's, which is what the queue checks against,
+D370). A window push without a consent cannot be built: with nothing on
+duty there is nowhere the person agreed to, and nothing is pushed. Replace of a rewrite refused over a file
 already there is a Rewrite by the same road — greyed, its reason under it,
 when a Rewrite would be (nothing on duty, in the engine handle's words), and
 asked "Send … to …?" first when the document would leave this machine

@@ -50,8 +50,8 @@ CHECKS = [
         REWRITING,
         [
             (
-                "        let Some(consent) = self.whereto(cx) else {\n            return;\n        };",
-                "        let consent = self.whereto(cx).unwrap_or(Whereto::Here);",
+                "        let Some(consent) = self.whereto(cx).or_else(|| work.engine.sends_to()) else {\n            return;\n        };",
+                "        let consent = self\n            .whereto(cx)\n            .or_else(|| work.engine.sends_to())\n            .unwrap_or(Whereto::Here);",
             ),
             (
                 "            if super::why_not_rewrite(&row.status, row.cleanable(), vacant.clone()).is_some() {",
@@ -89,7 +89,7 @@ CHECKS = [
         MAIN,
         [
             (
-                "    open == Some(about) || waiting.iter().any(|other| other.about.as_ref() == Some(about))",
+                "    open == Some(about)\n        || waiting\n            .iter()\n            .any(|other| other.about.as_ref() == Some(about))",
                 "    let _ = (open, waiting, about);\n    false",
             )
         ],

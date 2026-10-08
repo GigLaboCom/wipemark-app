@@ -611,6 +611,12 @@ impl EngineHandle {
         }
     }
 
+    /// Where the engine in the slot sends a document, read off the slot —
+    /// nothing built, no key read (D396).
+    pub fn sends_to(&self) -> Option<Whereto> {
+        self.slot_going().1
+    }
+
     /// Whether a change of duty the host deferred while a job ran has yet
     /// to land (D395).
     pub fn swap_pending(&self) -> bool {
@@ -890,7 +896,7 @@ impl wipemark_queue::EngineSource for EngineHandle {
     /// Where the slot's engine sends a document, read off the slot — no
     /// engine built, no key read (D396).
     fn whereto(&self) -> Option<Whereto> {
-        self.slot_going().1
+        self.sends_to()
     }
 
     /// A deferred change of duty not landed yet (D395).
