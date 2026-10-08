@@ -138,24 +138,29 @@ that say "not in this version". It is also a hard dependency of Layer B:
 the pipeline runs A, then B, then A again (OV §4.2 step 4), and the five
 guards that reject a bad rewrite are E1 code (A §6).
 
-### 2.1 Pull requests and branches — the plan as of 2026-10-06
+### 2.1 Pull requests and branches — the plan as of 2026-10-08
 
 **One pull request is open: #1, `feat/e0-e6-shell` → `main`**
-(<https://github.com/GigLaboCom/wipemark-app/pull/1>). It is 160 commits
-ahead of `main` (last `main` commit 2026-09-07). Today it carries:
+(<https://github.com/GigLaboCom/wipemark-app/pull/1>). Its last
+`main` commit is from 2026-09-07. Today it carries:
 
 - E0–E6;
 - E1 Layer A;
 - E2's engines;
-- E4-1…E4-7 and E4-6a;
+- E4-1…E4-7, E4-6a, and since `9b907bb` E4-6b (the windows rewrite, the journal) and E4-6c (the Rewriting page);
 - E5's CLI;
 - E11-1…E11-3 and E12-1…E12-5 (five host-verified rounds);
-- E7's windows clean (`7621c9f`) and its follow-ups W1–W15 (`2f7ce56`) and X1–X14 (`78fd9e2`);
-- GPUI from the fork `GigLaboCom/zed` with the two X11 fixes (`c3aee8e`, `docs/architecture/gpui-pin.md`).
+- E7's windows clean (`7621c9f`) and its follow-ups W1–W15 (`2f7ce56`), X1–X14 (`78fd9e2`), Y1–Y9 (`bb73dc3`) and Z1–Z3;
+- GPUI `gpui-pre =0.3.8` from crates.io and gpui-kit `next`, nothing carried (`ebd83b4`, `docs/architecture/gpui-pin.md`);
+- the owner's fixes F1–F6, the tray and the shortcut on Linux, and the divergence research's bench additions (`9b907bb`).
 
 Every work branch on `origin` is merged into it: `images/series{,-v2,-v3}`,
-`e7/windows-clean`, `gpui/x11-first-frame`, `e4/headless-rewrite`,
-`e2/llama-prebuilt`, `e11/image-{metadata,surfaces}`, `ci/{github,macos-tests}`.
+`e7/windows-clean`, `gpui/x11-first-frame`, `gpui/bump-pre`, `e4/headless-rewrite`,
+`e2/llama-prebuilt`, `e11/image-{metadata,surfaces}`, `ci/{github,macos-tests}`,
+and through `integrate/2026-10-08` (merged as `9b907bb` on 2026-10-08):
+`fix/owner-2026-10-07`, `e4/windows-rewrite`, `e4/templates-widgets`,
+`e10/linux-tray`, `research/divergence-vs-upstream`, and the fix round
+`fix/integrate-models-tray`, `fix/integrate-e4-6b`, `fix/integrate-e4-6c`.
 
 Merging #1 into `main` is the owner's to do. The coordinator never
 touches `main`. Its CI on GitHub Actions has every job green on code
@@ -166,8 +171,10 @@ red.
 
 **The way of working stays as it is.** Each piece of work is a branch of
 its own, written by an agent from a Watchword task. The host then
-verifies it: the gates, the mutations, and a verifier's own mutations and
-measurements, whose scripts are committed under `scripts/verify/<series>/`.
+verifies it: the gates and a verifier's own probes and measurements,
+whose scripts are committed under `scripts/verify/<series>/` (no mutation
+tables since 2026-10-06; since 2026-10-08 fix branches run targeted checks
+and the full gates run once, on their merge).
 The coordinator merges it into `feat/e0-e6-shell`, updates `CLAUDE.md`
 and this plan, and pushes. A verifier's findings become the next task's
 requirements, never local fixes. Once #1 is merged, each next branch
@@ -184,12 +191,17 @@ opens its own pull request against `main` instead of riding on `feat`.
 | 2 | — (the owner, by hand) | E7's live check in the windows, `docs/plan/reports/E7-windows-clean-live-check.md`: what the windows paint. The disk half is automated (`scripts/verify/e7/live-disk.sh`, 38/38). On this host the D-Bus workaround is no longer needed, and `scripts/verify/e7/clip.py` stands in for `pbcopy`/`pbpaste`. | — | — | waiting for the owner |
 | 3 | `gpui/bump-pre` | GPUI onto `gpui-pre =0.3.8` from crates.io, nothing carried (patch A upstream as #62081, patch B unneeded since #61789 — measured); the component on gpui-kit `next` at `f8429177` (#3359 merged there); toolchain 1.95.0; `check-gpui-pin.sh`; Compare's original read-only; modal priorities | `wipemark-task-gpui-bump-2026-10-07` | D291–D299 | **done**: verified on the host (M1, L1–L4 fixed before the merge), CI green on Linux and macOS, merged as `ebd83b4` on 2026-10-07; the owner's window checklist `docs/plan/reports/gpui-bump-host-check.md` not yet run |
 | 4 | `images/series-v3` (or the next images round) | three doc nits not yet filed: `visible-marks.md` 3439–3441 → 3442; "all 22" against `crying`'s aside; the fixtures README's `.convert("RGB")` | to be filed with the next images task | — | open |
-| 5 | `e4/windows-rewrite` | E4-6b: rewriting from the windows, with the queue (`wipemark-queue`) pushed to | to be written | — | next epic step |
-| 6 | — | E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), E9 licensing, E10 packaging | to be written | — | §7 |
+| 5 | `integrate/2026-10-08` | One integration branch for the day's work, each part on its own branch first: `fix/owner-2026-10-07` (F1–F6 and round 2's H1, L1–L6), `e4/windows-rewrite` (E4-6b: the windows rewrite through the batch queue, the document journal), `e4/templates-widgets` (E4-6c: the Rewriting page), `e10/linux-tray` (the tray and the shortcut on Linux), `research/divergence-vs-upstream` (the bench's additions; no product code), `5a9e525` (templates against the engine's window on the CLI and over MCP); then one host verification of the whole, and its findings fixed on three branches — `fix/integrate-models-tray` (A1–A4, B1), `fix/integrate-e4-6b` (M1–M3, L1–L5), `fix/integrate-e4-6c` (M1, L1–L6) — with targeted checks only, the full gates run once on the merge of the three | `wipemark-task-owner-fixes-2026-10-07`, `wipemark-task-e4-6b-windows-rewrite-2026-10-07`, `wipemark-task-e4-6c-templates-widgets-2026-10-07` | D300–D306, D310–D326, D330–D339, D340–D347, D350–D351, D355–D369 | **done**: gates once on `844aa01` — 1623 passed, 0 failed, 7 ignored; the app with `local-llama` 628/0/2 — CI green; merged into `feat` as `9b907bb` on 2026-10-08. Reports: [owner-fixes](reports/owner-fixes-2026-10-07.md), [E4-6b](reports/E4-6b-2026-10-07.md), [E4-6c](reports/E4-6c-2026-10-07.md), [linux-tray](reports/linux-tray-2026-10-07.md), [divergence](reports/divergence-vs-upstream-2026-10-07.md), [models-tray fixes](reports/integrate-fixes-models-tray-2026-10-08.md), [E4-6b fixes](reports/integrate-fixes-e4-6b-2026-10-08.md), [E4-6c fixes](reports/integrate-fixes-e4-6c-2026-10-08.md). The owner's window checklists in those reports not yet run |
+| 6 | `fix/consent-and-lows` | The verification's open item **M-1** — the queue's consent (D361) is checked against the window's record of where an engine sends (`journal::Going`) rather than against the engine actually handed out — and its remaining Lows | — (the coordinator) | — | **in progress** |
+| 7 | — (to be named) | Compare scrolls both panes together, on by default (§7 E7); no component patch needed | to be written | — | next |
+| 8 | gpui-kit #3416, #3417 (upstream, the owner's) | The scrollbar on the left and the original's gutter on its right in the editor — what Compare's mirrored layout needs (§7 E7) | — | — | **open as drafts** upstream |
+| 9 | — | Saving an edited result with autosave (§7 E7); the keep-voice rule after a four-model bench, and a voice measure in the bench (§7 E4); E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), S7.2, S7.3, S7.5, E9 licensing, E10 packaging (Windows; the Linux tray is done) | to be written | — | §7 |
 
-**Open with the owner** (§5): Q-C1–Q-C4 (E7's defaults: clean on arrival,
-all metadata, Layer A's finer choices, an existing result), Q-C6 (refuse
-what is not a regular file before opening it), Q-V4–Q-V7
+**Open with the owner** (§5): Q-C2–Q-C4 (E7's defaults: all metadata,
+Layer A's finer choices, an existing result; Q-C1 is answered by E4-6b's
+В1), Q-C6 (refuse what is not a regular file before opening it — D356
+does it for the journal's road), D361's consent default, loading the
+user's own GGUF unverified (D302), Q-V4–Q-V7
 and Q-V9, the mn-embed-fleet restart, the Gemma 4 / Qwen3.8 catalogue
 entries, `llama-cpp-prebuilt`'s LICENSE, and the OpenAI/Grok captures.
 
@@ -700,6 +712,66 @@ tell a decision from an accident.
 | **D297** | The pin gate reads the resolved sources for what protects the X11 windows: A (the drain), B (the deferral), C (no button-layout observer); and refuses any patched snapshot crate or zed git source. | GPUI bump, `docs/plan/reports/gpui-bump-2026-10-07.md`; `docs/architecture/gpui-pin.md`. |
 | **D298** | A side's `LineDecorationCollection` is made by its first comparison and reused (`set_provider`) after, never before: as merged, the gutter reserves the marker slot whenever a collection has a provider. | GPUI bump, `docs/plan/reports/gpui-bump-2026-10-07.md`; `docs/architecture/gpui-pin.md`. |
 | **D299** | Our modals are painted over every overlay gpui-component defers — `dialog::MODAL_PRIORITY`, 1000, over its popups (100, a submenu +1), toasts (101) and tooltips (200) — except one that holds a text field: `dialog::FIELD_MODAL_PRIORITY`, 50, under the popups, because off macOS the field's right-click menu is the component's popup and has to show over the dialog it was opened from. Today: the walk-through, the Report and Confirm at 1000; Naming at 50. | GPUI bump, `docs/plan/reports/gpui-bump-2026-10-07.md`; `docs/architecture/gpui-pin.md`. |
+| **D300** | **A placeholder ends a token.** `IdentifierGuard` cuts each whitespace-separated token again at every canonical placeholder (`⟦n⟧`, the format `wipemark_pipeline::placeholder` writes); the pieces are trimmed and shaped as before. Non-canonical brackets (`⟦01⟧`) are text and cut nothing; `placeholder()`'s doc names all three guards that move with it. | F6, the link-only line refused as `identifier-missing` on 2026-10-07; `docs/plan/reports/owner-fixes-2026-10-07.md`; `docs/architecture/layer-a.md`, "The three tokenizers". |
+| **D301** | **What "nothing" is.** `Handed::is_nothing`: an empty text, a text of ASCII white space alone (U+0009, U+000A, U+000C, U+000D, U+0020), bytes of length zero; a path never. A text holding any other space (U+00A0, U+202F, U+3000 …) is something, because Layer A looks for exactly those. Left out by `clipboard::handed_of`, `pasteboard::handed` and `Catcher::land`, whichever road a thing came by. | F5, an empty paste landed a row on Linux; round 2's L2/L3 for the macOS pasteboard; `owner-fixes-2026-10-07.md`; `docs/architecture/queue.md`, "How things get in". |
+| **D302** | **A catalogue file found anywhere is the user's.** When a file is not at `<models>/<id>/<file>`, the walk of the folder is searched — candidates by name and size, the sha256 deciding, the first match in path order — and an entry with no sha256 is never recognised elsewhere. Such a file is `Present`, handed out, never downloaded over and never removed; its card says "Found at …" with no button; `models list` says `found_at`, `models rm` removes nothing. **Amended in round 2 (H1):** the place alone is no longer taken as a download — only a file carrying a download's mark is the product's; a file at the catalogue's own place without it is another tool's (used if its sha256 matches, otherwise `Availability::Foreign`, a fetch refused `Occupied`). Loading the user's own GGUF, unverified, is an owner question. | F2 and H1 (Remove deleted another tool's file in the owner's mirror); `owner-fixes-2026-10-07.md`; `docs/architecture/model-downloads.md`, "Found wherever it is". Amended again by D350, D351. |
+| **D303** | **Verify records live under the data directory.** One record per weight file at `<data dir>/records/<first 32 hex of sha256(path)>-<file name>` (`Layout::records_dir`) holding `size:mtime`, the sha256 the file had, and the path; a record that cannot be written is a warning. `fetch` of an entry already whole writes nothing. An old beside-the-file stamp is not read (the first look hashes once). Round 2 (L1): the fingerprint is the one taken before the hash, so a file changed during its hash is read again. | F4 — stamps and `meta.json` written into the owner's read-only mirror; `owner-fixes-2026-10-07.md`; `model-downloads.md`, "Records under the data directory". |
+| **D304** | **One scan of the models folder at a time.** `look_at_models` asked while a scan runs starts nothing and sets `rescan`; the running one's answer is set aside and one more scan runs after it, so a file is hashed by one task at a time. Round 2 (L4): the scan runs under `catch_unwind`, and moving the folder stops the old store between chunks. A `models verify` in another process is not joined. | F3 — three hashes of one 12 GB file at once; `owner-fixes-2026-10-07.md`; `model-downloads.md`, "Nothing blocks the window". |
+| **D305** | **Load progress.** `RewriteEngine::watch_loads(LoadSink)` (default: ignored); `LocalEngine` tells `Reading(f)` paced by `progress::Pacer` (the first, one per 100 ms, the end, never backwards) and `Ended` however the load ends; a refusal before the load tells nothing. The sink is handed to an engine in `EngineHandle::set`, numbered per engine so an abandoned load's end clears nothing (round 2, L6). The Engine page, the Models card of the model on duty and the status bar draw from `load_progress()`. | F1c (optional, kept); `owner-fixes-2026-10-07.md`; `docs/architecture/local-engine.md`, "A load, as it goes". |
+| **D306** | **A bar while bytes move.** A card draws gpui-component's progress bar (`models::bar`, shared with the walk-through) while a download runs, waits to be resumed, or a file of the entry is hashed; the hash's progress is the store's (`Downloads::watch_hashes`, at most one report per 120 ms, then `Done`). `Availability::Checking` wins over every other state and offers no button. | F1a/F1b, the bar the owner meant (2026-10-07); `owner-fixes-2026-10-07.md`; `model-downloads.md`, "A bar while bytes move". |
+| **D310** | `EngineSource::for_item` is blocking and asked on the queue's thread when an item **starts**; the engine is held by the job and dropped when it ends, so the application's `for_job` counts the item busy for its whole length. | E4-6b R1, `docs/plan/reports/E4-6b-2026-10-07.md`; `docs/architecture/queue.md`, "Rewriting". |
+| **D311** | Nothing on duty, or `Unavailable` (also mid-job), **holds** the queue instead of failing the item; the hold lifts on a duty change (`EngineHandle::when_changed`) or Resume, never by a retry loop — asking an endpoint reads the keychain. | E4-6b R1. |
+| **D312** | A journal row is **metadata**: name, path, kind, format, encoding, size, verdict and counts, where the result went — never the document. The vocabulary (`Origin`, `Action`, `Phase`, `Entry`) lives in `wipemark-store::entry` because two applications write it. | E4-6b R4, В4. |
+| **D313** | An agent's (or the CLI's) queue item is removed the moment its answer goes back (secure delete); the waiting call writes that row's end, the bookkeeper writes every start and a window rewrite's end, and a start heard late never reopens an ended row (`Journal::update_open`). | E4-6b R4. |
+| **D314** | `JournalWriter`: read-write, never creating or migrating, journal-only by type — the CLI's one write to `wipemark.db`. | E4-6b R4, В5. |
+| **D315** | The CLI with no database is silent (a log line); with one it cannot write, one stderr line. A hook running where no application was ever started would otherwise print on every run. | E4-6b R4 (a deviation from the task's wording, said in the report). |
+| **D316** | Rows of another process are noticed by `PRAGMA data_version`, read once a second; in-process writes by a notes channel looked at ten times a second. Polled, not awaited: a GPUI task woken from another thread is not a wake the window's executor scheduled. | E4-6b R4. |
+| **D317** | At launch: a window clean left mid-way waits again, or with no file behind it is forgotten; a waiting no-file row is forgotten; an agent's or the CLI's rewrite still queued is cancelled and its queue row removed; a window's rewrite is left for the queue, and one whose item is gone failed. | E4-6b R4. |
+| **D318** | A row nobody asked to process says **Not started**, its tooltip naming what would process it; "Queued" only for a row in a line; with *Process what arrives* set, a drop goes straight into a line. | The owner, 2026-10-07; E4-6b. |
+| **D319** | `Destination::New` (only where nothing is, `Undelivered::Exists`) beside `Destination::File` (replace); `Destination::beside` is `name.rewritten.ext` as `New`. The item row's `{"new": …}` is additive; `ITEM_VERSION` stays 1. | E4-6b R3, В8. |
+| **D320** | One journal row per document; its action is the last asked (cleaned then rewritten is one row). | E4-6b R4. |
+| **D321** | The CLI's origin, file name, path and size travel in `params._meta` (MCP's own place for what is not an argument); the answer names its row in `result._meta["wipemark/journal"]`; the CLI updates that row with the file it wrote. | E4-6b R4. |
+| **D322** | An agent's call is answered at once when the queue holds or is paused while its item waits, instead of waiting on a line that is not moving; the 60-minute ceiling counts from the item's start. | E4-6b R4, В9. |
+| **D323** | A window's rewrite is an agent's call with no arguments: paraphrase, default intensity, effort by executor, Layer A at its defaults, the saved templates and pivot (`mcp::rewrite::saved_rows`, shared). | E4-6b R2. |
+| **D324** | The status bar: a model's load progress, then the cleans, then the rewrites (or why they wait), then who is on duty. | E4-6b R2. |
+| **D325** | Clean and Rewrite are **buttons on every row** (the Process column), greyed with the menu's own reason; the Actions menu keeps both and the rest. | The owner, 2026-10-07; E4-6b. |
+| **D326** | Every badge reads without its tooltip: *No marks found*, *Queued to clean*, *Partly cleaned*, *Clean failed*, *Rewrite cancelled*, *Marks found*, *In progress…*, beside *Queued for rewrite* / *Waiting for an engine* / *Rewriting…* / *Rewritten* / *Partly rewritten* / *Rewrite failed*. | The owner, 2026-10-07; E4-6b. |
+| **D330** | **One rule, `row::admit`.** Whether an override may be stored is `validate` beside the other turn of its step as it will be used, with the row's own `based_on` and the window when the surface knows it; errors refuse, warnings do not. The page's Save and `lay_over` ask it; `lay_over` passes no window, `lay_over_within` passes one — the MCP tool (the engine on duty's) and the CLI (its own model's) since `5a9e525`. | E4-6c R3, `docs/plan/reports/E4-6c-2026-10-07.md`; `docs/architecture/prompts.md`, "The Prompts page". |
+| **D331** | The pivot is a persisted preference: `rewrite.pivot` in `config::PERSISTED` with `Setting::RewritePivot`; "by the document's language" deletes the row; a value this build cannot use reads as the default and stays. `prompts.*` stay dynamic keys outside it. | E4-6c R2, Г5. |
+| **D332** | **The check runs the whole tactic** over the fixed sample of the language the slot's step writes for, seed 0, the job's default options; Layer A, every guard's verdict, then `job::verdict`; through `Preferences::rewriter` on the background executor, cancellable; it writes nothing. `code` cannot be checked. | E4-6c R4, Г3. |
+| **D333** | **What Save writes.** The shipped text with no row stores nothing; `based_on` keeps its value (only Keep mine moves it); a machine adaptation saved becomes `machine-reviewed`; a hand claim "adapted from L" records L and the hash of L's template as used now; nothing but the slot's row is written. | E4-6c R5. Amended by D366, D368. |
+| **D334** | A reset that would break the step (the other turn's stored override against the shipped text) is refused, saying to reset that turn first. | E4-6c R1. |
+| **D335** | **What Adapt may replace:** only an empty slot or an adaptation; temperature 0.3, seed 0, budget three times the source plus 128 tokens; stored only when admitted. | E4-6c R5, Г2. Looked at twice since D365. |
+| **D336** | **Drift is shown, not merged:** yours against today's shipped text as a line diff; for a stale adaptation the source's change when the old source was the shipped text, otherwise today's source and a sentence. | E4-6c R5, Г6. |
+| **D337** | Four variables in the page's table — `{TEXT}`, `{PREV_CONTEXT}`, `{PROTECTED}`, `{INTENSITY}` — and no variable for a language's name (D64 dropped them). | E4-6c R6. |
+| **D338** | The words of a check live in `prompts.rs` (`reason_line`, `rejection_line`), for E4-6b to reuse. | E4-6c. |
+| **D339** | The sample has three protected spans: the inline command, and a link's markup on either side of its words (`⟦2⟧the runbook⟦3⟧`), as E4-1 prepares a Markdown link. | E4-6c R4, Г3. |
+| **D340** | **The tray has a thread of its own** on Linux: `wipemark-tray` initializes GTK (`disable_setlocale` first), builds the menu and the item and runs `gtk::main` until Quit; the widgets never leave it, changes travel as `tray::Change`s. `tray::install` answers asynchronously on every platform and `tray::when_installed` adopts only `Some`. GTK 3 is a link-time dependency; the `.deb` declares `libgtk-3-0` and `libayatana-appindicator3-1`. | The owner, 2026-10-07; `docs/plan/reports/linux-tray-2026-10-07.md`; `docs/architecture/tray.md`. |
+| **D341** | **An item nobody would see is no item:** the library is `dlopen`ed first (the `-sys` crate panics without it), then GTK, then a StatusNotifier watcher that says a host is registered, then the build; any refusal is `None` and a close button that closes. | Linux tray; `tray.md`. |
+| **D342** | The Linux icon is the template's broom white over a dark outline, derived at run time — readable on a dark GNOME bar and a light KDE panel without guessing the panel's colour. | Linux tray; `tray.md`. |
+| **D343** | **Linux minimizes, and only under X11:** with a tray the close button minimizes the main window and Show sends `_NET_ACTIVE_WINDOW`; under Wayland the compositor refuses that activation, so the close button keeps closing. GPUI's `App::hide` does nothing on Linux. | Linux tray; `tray.md`, "The close button". |
+| **D344** | **Quit is GPUI's quit** on both platforms, so the model is dropped and waited for, Settings saves its rectangle, the tray's thread takes the item down within the 200 ms budget, and the MCP beacon is removed if it names this process (`take_beacon_at_quit`) — before, every Quit left a beacon with a dead pid. | Linux tray; `tray.md`, "Quit". |
+| **D345** | The theme tick is put back after every click: a check item toggles itself, and choosing the chosen theme moved nothing back. | Linux tray; `tray.md`. |
+| **D346** | **The shortcut on Linux is an X11 key grab**, asked only where GPUI draws through X11 and `XDG_SESSION_TYPE` is not `wayland` (XWayland grabs hear only X11 clients); elsewhere the row says *Stored, and not active*. On GNOME the shipped Ctrl+Alt+D is *Show desktop*'s and is refused. | Linux tray; `docs/architecture/hotkeys.md`. |
+| **D347** | One indicator id per process (`wipemark-<pid>`), so a second instance cannot take the first one's icon file away. | Linux tray; `tray.md`. |
+| **D348–D349** | Unused (reserved for the Linux tray, not taken). | — |
+| **D350** | **A download's mark names the file**, not the place: `wipemark download mark 1`, the identity (`size:mtime_ns:dev:ino` on Unix from `symlink_metadata`, `size:mtime_ns:birth_ns` elsewhere, none for a link), the time, the path. A file at the place is ours only while it has that identity; otherwise it is another tool's and the mark is dropped. A mark in the old shape is not a mark; anything at the place, a dangling link included, is occupied unless marked. | The host verification of `integrate/2026-10-08`, A1; `docs/plan/reports/integrate-fixes-models-tray-2026-10-08.md`; `model-downloads.md`, "Found wherever it is (D302)". |
+| **D351** | **A `.part` is ours only when a download opened it:** created with `create_new` and marked at once with an identity that survives appending; only a marked `.part` is resumed, truncated on a 200, or removed; another is `mismatched` (Foreign, `foreign_at`) and a fetch is `Occupied` before any request. | A2; `integrate-fixes-models-tray-2026-10-08.md`. |
+| **D355** | An item taken out of the batch queue before it ended is an end for whoever waits: `Rewriter::wait` answers `Unrun::Removed`, a refusal with `isError`, never an empty report; **Remove** is greyed on a row an agent or the command line waits for while its rewrite is queued or running, and `Queue::remove` refuses the same. | M1; `docs/plan/reports/integrate-fixes-e4-6b-2026-10-08.md`; `queue.md`. |
+| **D356** | Nothing reading the journal back opens a path that is not a regular file: `journal::arrival_of` checks `is_file()` first, `wipemark_intake::of_path` reads no head from a FIFO, terminal, socket or device, and each row's file is looked at in a task of its own. The CLI records a non-regular path, or any name under `/dev` or `/proc`, as no file; a path an MCP client names in `_meta` is `Entry::said_path`, shown and never opened. | M2; `integrate-fixes-e4-6b-2026-10-08.md`. Answers Q-C6 for the journal's road. |
+| **D357** | A rewrite's new-file destination is checked when the row is **pushed**: a file already there makes the row *Rewrite failed* at once, nothing pushed, the journal row `failed`/`exists`, and "Replace the existing result" pushes `Destination::File` for that one file; `write_new` still guards a file that appears during the job. | M3; `integrate-fixes-e4-6b-2026-10-08.md`. |
+| **D358** | A row names its item before the item can start: `Queue::reserve` hands out an id, the writer thread writes the row "queued", and only then `push_reserved`; an agent's call records its row between the same two steps. | L1; `integrate-fixes-e4-6b-2026-10-08.md`. |
+| **D359** | What a window reads on every frame is in memory: the queue handle keeps `paused` as an atomic, and `Queue::states` gives ids and states without cloning a stored report. | L2; `integrate-fixes-e4-6b-2026-10-08.md`. |
+| **D360** | A template refused is not a document's status on any road: the CLI's own road discards its draft (`journal::discard`) as the application refuses before it records. | L3; `integrate-fixes-e4-6b-2026-10-08.md`. |
+| **D361** | **Consent at push, asked again at start** (the coordinator's default, pending the owner): a window push records where the person agreed the document may go (`Whereto::Here` or `Away(origin)`); before such an item starts, the queue asks its source where an engine would now send it (`EngineSource::whereto`), and an endpoint other than the consented one holds the queue and asks once (`QueueEvent::Ask`, with how many items the answer covers); yes is `Queue::agree(now)`. A duty back on this machine asks nothing; an agent's or the CLI's item is never asked. The application's source is `journal::Duty` beside `journal::Going`, which the main window sets from the preferences. Known edge: the two move with one change of preferences but not atomically — the verification's M-1, in progress on `fix/consent-and-lows`. | L4; `integrate-fixes-e4-6b-2026-10-08.md`. |
+| **D362** | The CLI's default `name.rewritten.ext` refuses a file already there, as the windows do (D261): exit 2 before the read, naming `-o` and `--in-place`; the write is `write_new`. `-o` still replaces; `clean`'s `name.cleaned.ext` is unchanged. | L5a; `integrate-fixes-e4-6b-2026-10-08.md`; `docs/architecture/cli.md`. |
+| **D363** | The Arrived column says `YYYY-MM-DD HH:MM` for another day's row and `HH:MM` for today's; the *Not started* tooltip names the row's Clean and Rewrite buttons. | L5b, L5c; `integrate-fixes-e4-6b-2026-10-08.md`. |
+| **D364** | The main window's questions (Rewrite all's price, a drop that would be sent away, the queue's consent) are asked one at a time, in the order they came (`Shell::waiting`). | L5d; `integrate-fixes-e4-6b-2026-10-08.md`. |
+| **D365** | **What Adapt may replace, looked at twice:** D335's rule is checked when the button is pressed and again just before the write, under one writer of template rows per process (`ROW_WRITER`); a row that appeared or changed meanwhile is left and the answer shown, not stored; an unreadable row blocks Adapt; Save is greyed on the slot being adapted. | M1; `docs/plan/reports/integrate-fixes-e4-6c-2026-10-08.md`; `prompts.md`, "Decisions D365–D369". |
+| **D366** | **Save never stores the shipped text, and never replaces an unreadable row:** over a row it writes nothing and points to Reset; only Reset replaces a row this build cannot read. | L1; `integrate-fixes-e4-6c-2026-10-08.md`. |
+| **D367** | **A check and an adaptation belong to their slot:** another slot, or the page let go of, cancels them; a cancelled adaptation writes nothing, even after the answer; an answer for a run let go of is dropped. | L3; `integrate-fixes-e4-6c-2026-10-08.md`. |
+| **D368** | **A source that moved on is acknowledged by asking:** a save keeps the recorded source hash, as it keeps `based_on`; a second Keep mine beside the stale-source warning moves it; D333's "a hand claim records the source's hash" applies to a new or changed claim. | L4; `integrate-fixes-e4-6c-2026-10-08.md`. |
+| **D369** | **No invisible character in a template:** `validate`'s `invisible-character` refuses what Layer A removes at its defaults, in any template (Save, `lay_over`, `render`); `adapt_with` runs Layer A over the model's answer before it is judged; a row stored before the rule is refused by name by the job rather than sent. | L6; `integrate-fixes-e4-6c-2026-10-08.md`. |
 
 ---
 
@@ -735,12 +807,16 @@ answered moves here or to §4.
 | Q-V8 | your own generated pictures as test fixtures | E12 | **Superseded for the Gemini stickers by the owner's request, 2026-10-04**: Watchword `wipemark-gemini-stickers-2026-10-04`; crops of them in `fixtures/image/gemini/` (origin and sha256 in `fixtures/image/README.md`) — [reports/images-real-fixtures-2026-10-04.md](reports/images-real-fixtures-2026-10-04.md). Other vendors' pictures: open. |
 | Q-E47 | after E4-7: very short list items reported as "partial"; a request per list item (+5 %); the language check's rare false refusal (1 in 1 887) | — | **Closed by the owner, 2026-10-04: kept as built** (D111–D117) — short items are asked and reported as kept, a request per item, the language check as it is; [reports/E4-7-2026-10-04.md](reports/E4-7-2026-10-04.md). |
 | Q-D1–Q-D6 | drag-and-drop: paste ⌘V, folders and archives, drop position, size limits, CLI exit on `Disagreed`, UTF-16 without BOM | E7 / E5 | Unchanged by E1. Q-D5 meets E1-6: the CLI reads a file whose name and bytes disagree by its bytes and says so on stderr; the exit code is decided by findings as for any file. |
-| Q-C1 | should a thing be cleaned the moment it is dropped? | — | **Open (owner), from E7.** Not: cleaning happens when it is pressed — Clean on a row, Clean all, the panel's Clean, or `--clean=` at launch. Cleaning on arrival would be a Settings switch, off by default. |
+| Q-C1 | should a thing be cleaned the moment it is dropped? | — | **Answered 2026-10-07 by E4-6b's В1** (the owner took the default): nothing is processed on arrival unless asked — Settings › General › *Process what arrives* (`queue.on_arrival`: nothing, clean or rewrite), **nothing** by default; with rewrite and an endpoint on duty, each arrival asks once. |
 | Q-C2 | should the windows remove all of a picture's metadata (camera, GPS, the rotation) or only what marks it as AI-made? | — | **Open (owner), from E7.** Only AI provenance, as `clean_image`'s default; the CLI removes all with `--all-metadata`. |
 | Q-C3 | should the windows offer cleaning's finer choices — a borrowed letter replaced, normalisation, spaces? | — | **Open (owner), from E7; meets Q-A1.** The windows clean at Layer A's defaults, and the Report says so when it keeps such a letter. |
 | Q-C4 | when a result is already there, refuse or pick a new name (`name.cleaned-2.md`)? | — | **Open (owner), from E7.** Refused and left as it is (D261); "Replace the existing result" writes over it on request (D270). |
 | Q-C5 | *(engineering)* Compare decodes leniently, the preview's way; the queue strictly (`wipemark_intake::text::decode`): a file the queue refuses is still compared | — | **Answered by D282** (follow-up W6, merged as `2f7ce56`): Compare reads through `clean::text_of`, the queue's strict road, and refuses with the queue's sentence; the lenient decode is the preview's alone. |
-| Q-C6 | should a clean refuse what is not a regular file — a FIFO, a socket, a device — before opening it? | — | **Open (owner), from the E7 follow-ups' X2;** the implementer and the host verifier both think it sound hardening. Not built: such a file is opened and read under the limits (D264), and W5's FIFO test is how a file that grows during the read is tested — refusing first would retire that test, and the read-side check would need another (a file appended to by a second thread, which is racy). |
+| Q-C6 | should a clean refuse what is not a regular file — a FIFO, a socket, a device — before opening it? | — | **Open (owner), from the E7 follow-ups' X2;** the implementer and the host verifier both think it sound hardening. Not built: such a file is opened and read under the limits (D264), and W5's FIFO test is how a file that grows during the read is tested — refusing first would retire that test, and the read-side check would need another (a file appended to by a second thread, which is racy). **D356 (2026-10-08) does it for the journal's road**: nothing reading a journal row back opens a path that is not a regular file, and `wipemark_intake::of_path` reads no head from a FIFO, terminal, socket or device; the clean's own read is unchanged. |
+| В1–В10 | E4-6b: what a drop does, Clean and Rewrite, the journal's life, what a row keeps, the CLI's writes, the opt-outs, `inspect`, `name.rewritten.ext`, the agents' order, the panel | — | **Closed 2026-10-07 at their defaults** ("делай по дефолту"): `docs/plan/reports/E4-6b-2026-10-07.md` §2, D310–D326. |
+| Г1–Г7 | E4-6c: the section, adaptations, the sample, which slots, the pivot, drift, fragments | — | **Closed 2026-10-07 at their defaults**: `docs/plan/reports/E4-6c-2026-10-07.md`, D330–D339. |
+| D302's | load the user's own GGUF, one in no catalogue, unverified — and what it costs the "verified" promise | E8 | **Open (owner), from D302.** Listed under "Also in this folder", not loadable. |
+| D361's | the queue's consent: asked again at start when the duty moved away from where the person agreed (D361) | — | **Open (owner)**: the coordinator's default is built (asked once, for every waiting item); the verification's M-1 is being fixed on `fix/consent-and-lows`. |
 
 ---
 
@@ -918,9 +994,51 @@ the gate the overview set, and the open edges.
     the language check, a list item per chunk, `NumbersGuard` and
     placeholders; Qwen3 4B re-measured (D111–D117) — status: done —
     [reports/E4-7-2026-10-04.md](reports/E4-7-2026-10-04.md).
-  - E4-6b — the windows' half: the Settings page for templates and
-    "Check template", the pivot row's widget, the Compare and queue
-    integration (with E7). Not started. **The owner's expectation, 2026-10-07**
+  - **E4-6b — the windows rewrite, and every document has a status —
+    status: done** (D310–D326; the host verification's M1–M3, L1–L5 fixed
+    as D355–D364): Rewrite as a button on every row and in its Actions
+    menu, Rewrite all with its price first, Pause/Resume/Cancel, through
+    the one batch queue every surface pushes to (the windows, an agent's
+    `rewrite`, the CLI through the application), held while nothing is on
+    duty; the plan at push, `name.rewritten.ext`; the document journal
+    (`wipemark-store` schema 3) — a row for every document whoever asked,
+    `--no-record` / `"record": false`, `inspect` only on `--record`;
+    Compare of a rewritten row; the CLI's own journal row without the
+    application; the owner's three notes of 2026-10-07 — *Not started*
+    for a row nobody asked to process (D318), the row's buttons (D325)
+    and every badge reading without its tooltip (D326). В1–В10 closed at their defaults. Merged with
+    `integrate/2026-10-08` as `9b907bb` on 2026-10-08 —
+    [reports/E4-6b-2026-10-07.md](reports/E4-6b-2026-10-07.md),
+    [reports/integrate-fixes-e4-6b-2026-10-08.md](reports/integrate-fixes-e4-6b-2026-10-08.md),
+    `docs/architecture/queue.md` ("Rewriting", "The journal"). Open: the
+    verification's **M-1** — the consent checked against the window's
+    record of where an engine sends (`journal::Going`) rather than the
+    engine actually handed out — **in progress** on `fix/consent-and-lows`;
+    Send away (В1) has no test; Report… of a row read back from the
+    journal is greyed. The merge noted: the `Section`/`Setting` lists are
+    shared with E4-6c, `config::PERSISTED` holds 33 keys, and the
+    catalogue blocks are `## E4-6b`, `## E4-6b — the command line` and
+    `## E4-6c`.
+  - **E4-6c — the templates and the pivot through widgets — status:
+    done** (D330–D339; the host verification's M1, L1–L6 fixed as
+    D365–D369): the Settings section **Rewriting** (`--settings=prompts`)
+    with every template slot and the pivot, Save by the one rule
+    (`row::admit`) MCP and the CLI use, Reset by deleting the row, Check
+    template on a built-in sample through the engine on duty, Adapt on a
+    button; MCP and the CLI lay templates against the engine's window
+    (`lay_over_within`, `5a9e525`); no invisible character in a template
+    (D369). Г1–Г7 closed at their defaults. Merged with
+    `integrate/2026-10-08` as `9b907bb` —
+    [reports/E4-6c-2026-10-07.md](reports/E4-6c-2026-10-07.md),
+    [reports/integrate-fixes-e4-6c-2026-10-08.md](reports/integrate-fixes-e4-6c-2026-10-08.md),
+    `docs/architecture/prompts.md` ("The Prompts page").
+  - *How E4-6b came to be asked for* (kept as written). **Both asks are
+    built — done in E4-6b:** a drop is processed — by the row's Rewrite or
+    Clean button, or on arrival by the General switch *Process what
+    arrives* (D318, D325, В1) — and the owner's rule, every document has a
+    status whoever asked, is the journal (D312–D321, `--no-record` /
+    `"record": false`, `inspect` only on `--record`).
+    **The owner's expectation, 2026-10-07**
     (an article dropped on the main window with Qwen3.8 on duty, and
     nothing happened): a thing dropped on the queue is *processed* — the
     row goes into `wipemark-queue` and is rewritten by whoever is on duty,
@@ -960,11 +1078,12 @@ the gate the overview set, and the open edges.
     Markdown article, paraphrase moderate, GPU 2 × 2, through
     `wipemark-cli rewrite` → the running application; 52 chunks, 110 calls,
     210 s, 50 rewritten, 2 kept, 15 candidates rejected):
-    - **Fix. The identifier guard reads a placeholder as part of a word.**
+    - **Fix. The identifier guard reads a placeholder as part of a word —
+      done** (D300, F6 of `fix/owner-2026-10-07`, merged as `9b907bb`).
       A link-only line (`**→ [host/path](url)**`) was refused as
       `identifier-missing` on the token `⟦1⟧host/path⟦2⟧**`: a placeholder
-      should end a token, as a space does.
-    - **Check. `macOS-only` is an identifier** to the guard (a capital inside
+      now ends a token, as a space does.
+    - **Check (open). `macOS-only` is an identifier** to the guard (a capital inside
       a word), so "only on macOS" is a lost identifier — 3 candidates
       refused, one chunk kept. Decide whether a hyphenated word whose parts
       are dictionary words with a brand's casing is held.
@@ -989,9 +1108,15 @@ the gate the overview set, and the open edges.
       of 41 at the same 23 % pairs left. **Build:** the rule in en/ru/de after
       a four-model `--variant keep-voice` bench; a voice measure (second-person
       retention, word ratio) in the bench report. D111, the 0.2 floor and
-      "moderate" stay.
+      "moderate" stay. **Open**: the research's bench additions
+      (`--variant`, `--temperature`, `--top-p`, `--min-p`, `--base-seed`,
+      the `whole` mode, `bench/variants/keep-voice`) are merged with
+      `integrate/2026-10-08`; the four-model run, the rule in en/ru/de and
+      the voice measure in `bench report` are not done.
     - **Fix. No gate builds the bench example**: `examples/bench/analyse.rs:537`
       fails clippy `-D warnings` (`unnecessary_sort_by`) on 1.95.0 unseen.
+      The lint is fixed (`dfaff29`); the example still needs
+      `local-llama`, which no clippy gate enables — open.
 
 ### E5 — the rest of the CLI
 
@@ -1030,7 +1155,10 @@ the gate the overview set, and the open edges.
 - **Gate.** A 1 k-token stream keeps 30 FPS; a click on a finding
   scrolls to it.
 - **Build. Compare scrolls both panes together** (the owner, 2026-10-07;
-  a Settings row on the Compare page, **on by default**). Like IntelliJ
+  a Settings row on the Compare page, **on by default**) — **open**, next
+  after `fix/consent-and-lows`; the left scrollbar and the right gutter
+  wait on the owner's gpui-kit pull requests **#3416** and **#3417**, open
+  as drafts. Like IntelliJ
   IDEA Community's diff viewer (synchronized scrolling): scrolling either
   pane — wheel, middle button, the scrollbar — scrolls the other so the
   matching lines stay level, through `Diff::original_row_of` and its
@@ -1060,20 +1188,38 @@ the gate the overview set, and the open edges.
   (fork branch `scrollbar-left-side`, and `editor-gutter-right-side` if it
   is small).
 - **Build. A row's action is a button, not only a menu item** (the owner,
-  2026-10-07). Clean — and Rewrite with E4-6b — sit inside the row's Actions
+  2026-10-07) — **done** in E4-6b: Clean and Rewrite are buttons on every
+  row, greyed with the menu's reason (D325), the *Not started* tooltip
+  names them (D363). Clean — and Rewrite with E4-6b — sit inside the row's Actions
   menu ("…"), so a dropped document shows no way forward; the owner looked
   for one. Put the row's next action on the row itself (a button in the
   Status or a column of its own), the menu keeping the rest.
 - **Fix. A paste of empty text lands nothing** (the owner, 2026-10-07,
-  seen on Linux: an empty row `kinds=[Text]` in the queue).
+  seen on Linux: an empty row `kinds=[Text]` in the queue) — **done**,
+  D301 (F5, round 2's L2/L3 on macOS).
   `clipboard::handed_of` turns a `ClipboardEntry::String` holding `""`
   into `Handed::Text("")`, and Paste takes it as a thing that arrived. An
   empty string is no item: the button should read as over an empty
   clipboard (greyed "Paste"), and the press should land no row — on the
   macOS pasteboard road too (`pasteboard.rs`), and a drop of empty text
   likewise.
-- **Open.** Q7, Q-A1, Q-A3, Q-D2; Q-C1…Q-C4 (after E7-1…E7-6), Q-C6
-  (after X1–X14). Q-C5 is answered by D282.
+- **Build. Saving an edited result, with autosave** (the owner,
+  2026-10-08). Compare's result is editable but nothing saves it
+  (`compare-pending`, `compare-rewritten-banner`, `compare-help-close`:
+  "editing saves nothing, closing writes nothing"); closing the window
+  loses the edits. Wanted: Save writes the edited result over its own
+  result file (`name.cleaned.ext` / `name.rewritten.ext`, through
+  `wipemark_intake::inplace` — the original is never touched, the publish
+  atomic), or into its journal row for a paste with no file; an
+  **autosave** row on the Compare page, **on by default**, saving a second
+  or two after the last edit; the banner and help say which is on; Reset
+  ("Back to the cleaned/rewritten text") is then an edit like any other
+  and is saved too, or asks — decide in the step's document. A result
+  whose file changed on disk since the window opened is not saved over
+  without asking.
+- **Open.** Q7, Q-A1, Q-A3, Q-D2; Q-C2…Q-C4 (after E7-1…E7-6), Q-C6
+  (after X1–X14; D356 covers the journal's road). Q-C5 is answered by
+  D282, Q-C1 by E4-6b's В1.
 - **E7-1…E7-6, the windows clean — status: done** (one series for one
   agent in a container, verified on the host once after the final step:
   1432 passed, 0 failed, 6 ignored at `cecfa12`; 41 of 41 of the series'
@@ -1147,10 +1293,11 @@ the gate the overview set, and the open edges.
   `wipemark-mutations-not-needed-2026-10-06`); coverage is measured
   instead, by `.github/workflows/coverage.yml`. Its three Lows are
   **follow-ups Z1–Z3** (Watchword `wipemark-task-e7-followups-4-2026-10-06`),
-  tests only: filed. X2's question —
+  tests only: done, merged squashed on 2026-10-07. X2's question —
   refuse what is not a regular file before opening it — is Q-C6. What
-  remains of E7: S7.2, S7.3, S7.5 above, and rewriting in the windows
-  (E4-6b).
+  remains of E7: S7.2, S7.3, S7.5 above, Compare's synced scroll and the
+  saving of an edited result; rewriting in the windows is done (E4-6b,
+  §7 E4).
 
 ### E8 — models and engine UI (the rest)
 
@@ -1160,13 +1307,16 @@ the gate the overview set, and the open edges.
   needs E2); a RAM/VRAM indicator while a model is loaded. (No non-origin
   warning: D62.)
 - **Build. A progress bar while a model downloads** (the owner, 2026-10-07:
-  the bar they meant). A model not on disk, Download pressed: the card says
+  the bar they meant) — **done**, D306 (F1a and F1b: a bar while a
+  download runs or waits to be resumed, and while a large file is
+  checked). A model not on disk, Download pressed: the card says
   only "{done} of {total}" (`models.rs` `Card::line`) — no bar; and the
   verify of a large file already there ("Checking what is already here…",
   minutes for 12 GB) shows nothing either. Both want a bar with the
   fraction (F1a/F1b of `wipemark-task-owner-fixes-2026-10-07`).
 - **Build. A progress bar while a model loads** (into memory; noted the
-  same day).
+  same day) — **done**, D305 (F1c: the Engine page, the Models card of the
+  model on duty and the status bar).
   A load is seconds to tens of seconds — Qwen3.8 27B 4.6–21 s from the page
   cache (`docs/architecture/local-engine.md`) — and today the Check, a
   resident load and a job's first load show nothing until it ends. llama.cpp
@@ -1175,7 +1325,12 @@ the gate the overview set, and the open edges.
   as an engine event through `EngineHost` to the Engine and Models pages and
   the status bar, like the download's `Progress`.
 - **Build. Models found wherever they are** (the owner, 2026-10-07, on a
-  first launch over `/mnt/data/mnemoria/models`). Today a catalogue model
+  first launch over `/mnt/data/mnemoria/models`) — **done**, D302 (F2),
+  amended by round 2's H1 and by D350, D351: a catalogue file is
+  recognised anywhere under the folder by name, size and sha256, used
+  where it is, and never removed or downloaded over; only a file a
+  download marked is the product's. The open half — loading the user's
+  own GGUF, unverified — is an owner question (§5, D302's). Today a catalogue model
   is found only at `<models.dir>/<id>/<file>` (`Downloads::model_dir`), so
   a folder laid out any other way reads as "not downloaded" and offers
   Download; the walk that already exists (`scan::weights_under`, eight
@@ -1184,13 +1339,14 @@ the gate the overview set, and the open edges.
   path — by file name and size first, the sha256 to confirm — and decide
   what a GGUF that is in no catalogue can be (listed, or loadable as the
   user's own, with what that costs the "verified" promise).
-- **Fix. One hash per file at a time.** `Preferences::look_at_models` is
+- **Fix. One hash per file at a time — done**, D304 (F3). `Preferences::look_at_models` is
   called by the main window, by Settings opening and after every change on
   disk; each call hashes on the background executor and a newer one only
   discards an older one's *answer*, so three ran over the same 12 GB at
   once on that launch (three descriptors on one `.gguf`). Cancel or join
   the running scan instead.
-- **Fix. A verify stamp never written beside the weights.** `stamp_path`
+- **Fix. A verify stamp never written beside the weights — done**, D303
+  (F4: records under `<data dir>/records`). `stamp_path`
   puts `.<file>.ok-<sha256>` next to the file, which writes into a
   folder the user may hold read-only or share with another program (the
   owner's model mirror is), and a verify of a file that was never
@@ -1214,7 +1370,14 @@ the gate the overview set, and the open edges.
   `NOTICE`, the size budget. Gate: on a clean machine, download → open →
   first rewrite in under five minutes.
 - **Build. The tray and the system-wide shortcut on Linux** (the owner looked
-  for the tray on 2026-10-07). `tray::install` and the hotkey registrar are
+  for the tray on 2026-10-07) — **done** (D340–D347, `e10/linux-tray`,
+  merged with `integrate/2026-10-08` as `9b907bb`;
+  [reports/linux-tray-2026-10-07.md](reports/linux-tray-2026-10-07.md),
+  `docs/architecture/tray.md`; registering a shortcut off the GPUI thread,
+  B1, in the fix round). Open: Windows; a host that leaves after launch;
+  left-click activation; Wayland's close button and shortcut; the
+  generated `assets/tray/README.md` still describes the black-or-white
+  choice D342 superseded. `tray::install` and the hotkey registrar are
   macOS-only (`tray.rs:517` logs "no tray on this platform yet — E10" and
   returns `None`), so on Linux there is no menu-bar item, no way to summon
   the panel, and the close button closes. `tray-icon` 0.21 supports Linux
