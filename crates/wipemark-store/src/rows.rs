@@ -106,6 +106,18 @@ impl RowsWriter {
         self.store.settings().set(key, value)
     }
 
+    /// Change one row of the namespace that exists — see
+    /// [`crate::Settings::update`]: never an insert, and nothing written
+    /// over a row another process wrote meanwhile.
+    pub fn update(
+        &self,
+        key: &str,
+        change: impl FnOnce(serde_json::Value) -> Option<serde_json::Value>,
+    ) -> Result<bool> {
+        self.within(key)?;
+        self.store.settings().update(key, change)
+    }
+
     /// Delete one row of the namespace.
     pub fn delete(&self, key: &str) -> Result<()> {
         self.within(key)?;
@@ -198,6 +210,53 @@ mod tests {
             .get::<serde_json::Value>("models.user.user-b")
             .expect("read")
             .is_some());
+    }
+
+    /// D435: an update changes a row that exists and never makes one — a
+    /// row forgotten meanwhile stays forgotten — and leaves a row `change`
+    /// declines as it is. Make it an upsert and the forgotten row is back:
+    /// red.
+    #[test]
+    fn an_update_never_brings_a_row_back() {
+        let dir = tempdir("rows-update");
+        let path = dir.join("wipemark.db");
+        let app = Store::open(&path).expect("the application's database");
+        app.settings()
+            .set(
+                "models.user.user-a",
+                &serde_json::json!({"name": "A", "n": 1}),
+            )
+            .expect("a row");
+        let writer = RowsWriter::open(&path, PREFIX)
+            .expect("opens")
+            .expect("there is a database");
+        let bump = |mut value: serde_json::Value| {
+            value["n"] = serde_json::json!(2);
+            Some(value)
+        };
+        assert!(writer.update("models.user.user-a", bump).expect("update"));
+        assert_eq!(
+            app.settings()
+                .get::<serde_json::Value>("models.user.user-a")
+                .expect("read"),
+            Some(serde_json::json!({"name": "A", "n": 2}))
+        );
+        assert!(!writer
+            .update("models.user.user-a", |_| None)
+            .expect("declined"));
+        assert!(matches!(
+            writer.update("ui.theme", bump),
+            Err(Error::OutOfReach { .. })
+        ));
+        app.settings().delete("models.user.user-a").expect("forget");
+        assert!(!writer.update("models.user.user-a", bump).expect("gone"));
+        assert!(
+            app.settings()
+                .get::<serde_json::Value>("models.user.user-a")
+                .expect("read")
+                .is_none(),
+            "an update brought a forgotten row back"
+        );
     }
 
     /// Only this build's schema: an older file is the application's to

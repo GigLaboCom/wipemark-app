@@ -812,6 +812,17 @@ pub fn write_user_model(store: &Store, model: &UserModel) -> Result<()> {
     Ok(())
 }
 
+/// Write back the identity a full read found for `model`'s file, whose bytes
+/// were the ones added (D401): one field of its row, and only while the row
+/// still exists and still records those bytes (D435). Never an insert — a
+/// model forgotten while its file was read stays forgotten — and never the
+/// whole of `model`, a copy older than the row. Answers whether it wrote.
+pub fn write_back_identity(store: &Store, model: &UserModel, identity: &str) -> Result<bool> {
+    Ok(store.settings().update(&model.key(), |value| {
+        user::with_identity(value, &model.entry.sha256, identity)
+    })?)
+}
+
 /// Forget one model the person added: its row, and nothing else — never
 /// the file, which this product did not download (U2), and not the
 /// `models.rewrite` row, which the caller decides about.
@@ -1869,7 +1880,7 @@ mod tests {
         forget_profile, forget_setup, forget_user_model, open, profile_key, read_active_profile,
         read_close_after_drop, read_comparison, read_engine, read_hotkeys, read_language,
         read_local, read_mcp, read_model, read_models_dir, read_profiles, read_retention,
-        read_setup_done, read_theme, read_user_models, write_active_profile,
+        read_setup_done, read_theme, read_user_models, write_active_profile, write_back_identity,
         write_close_after_drop, write_compare_follow, write_compare_grain,
         write_compare_sync_scroll, write_engine, write_engine_allow_remote, write_engine_base_url,
         write_engine_model, write_engine_provider, write_engine_reasoning,
@@ -2981,6 +2992,40 @@ mod tests {
                 added_at: 1,
             },
         }
+    }
+
+    /// D435 (B-L6): a scan's write-back of a moved identity changes one
+    /// field of a row that still exists and still records the bytes it
+    /// confirmed. A model forgotten while the scan read its file stays
+    /// forgotten; one added again with other bytes meanwhile keeps its new
+    /// row; every other field of the row is the row's. Write the scan's copy
+    /// back whole, as before, and the forgotten model is back: red.
+    #[test]
+    fn a_moved_identity_never_brings_a_forgotten_model_back() {
+        let store = Store::in_memory().expect("memory");
+        let model = added("user-a", "A");
+        write_user_model(&store, &model).expect("write");
+
+        assert!(write_back_identity(&store, &model, "11:9:2:3").expect("written"));
+        let read = read_user_models(&store);
+        assert_eq!(read[0].entry.identity, "11:9:2:3");
+        assert_eq!(read[0].entry.name, "A");
+
+        // Added again with other bytes while the scan read the old ones.
+        let mut again = model.clone();
+        again.entry.sha256 = "1".repeat(64);
+        again.entry.identity = "11:7:2:3".to_owned();
+        write_user_model(&store, &again).expect("write");
+        assert!(!write_back_identity(&store, &model, "11:8:2:3").expect("declined"));
+        assert_eq!(read_user_models(&store)[0].entry.identity, "11:7:2:3");
+
+        // Forgotten while the scan read it.
+        forget_user_model(&store, "user-a").expect("forget");
+        assert!(!write_back_identity(&store, &again, "11:6:2:3").expect("declined"));
+        assert!(
+            read_user_models(&store).is_empty(),
+            "a write-back brought a forgotten model back"
+        );
     }
 
     /// U2: a model the person added is chosen the way a catalogue one is —

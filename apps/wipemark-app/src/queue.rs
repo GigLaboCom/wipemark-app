@@ -767,13 +767,16 @@ pub enum QueueEvent {
     /// the whole window, not inside the table.
     Report(u64),
     /// Rewrite all's price, said before anything is pushed (D61): rows
-    /// `ids`, at `price`. The shell asks; its answer is [`Queue::rewrite`].
+    /// `ids`, at `price`, going where `price.away` says. The shell asks;
+    /// its answer is [`Queue::agreed`] by [`Road::Price`], naming that
+    /// destination (D431).
     Price { ids: Vec<u64>, price: Price },
     /// Rows `ids` arrived with "Process what arrives" set to rewrite, and
     /// the engine on duty is not this machine: the shell asks once before
     /// they are sent to `host` (В1). Or — `replacing` — one row's Replace
-    /// the existing result, asked the same question before it goes (D393);
-    /// yes is [`Queue::replace_agreed`] over that file.
+    /// the existing result, asked the same question before it goes (D393).
+    /// Yes is [`Queue::agreed`] — by [`Road::Arrivals`], or
+    /// [`Road::Replace`] over that file — naming `host` (D431).
     SendAway {
         ids: Vec<u64>,
         host: String,
@@ -794,6 +797,18 @@ pub enum QueueEvent {
     /// person resumed, or its item went: the shell takes its question down
     /// (D394).
     Unasked,
+}
+
+/// The question a yes answered, so that a yes the duty no longer stands
+/// behind can ask it again (D431).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Road {
+    /// Rewrite all's price.
+    Price,
+    /// Rows a drop put in, with "Process what arrives" set to rewrite.
+    Arrivals,
+    /// One row's Replace the existing result, over this file.
+    Replace(PathBuf),
 }
 
 /// When a row arrived, as the Arrived column says it: the time alone for

@@ -125,6 +125,61 @@ impl<'store> Settings<'store> {
             })
     }
 
+    /// Change one row **that exists**: `change` is handed its value and
+    /// answers the new one, or `None` to leave it as it is. Never an
+    /// insert — a row deleted meanwhile stays deleted — and conditioned on
+    /// the row's text being the one `change` was handed, so a write by
+    /// another process in between makes this one write nothing rather than
+    /// write over it. Answers whether the row was written.
+    ///
+    /// What a cache key written back needs (D435): the scan's or the
+    /// command line's copy of a row is older than the row, and an upsert of
+    /// that copy brought a forgotten model back (the follow-ups of E8-1,
+    /// B-L6).
+    pub fn update(
+        &self,
+        key: &str,
+        change: impl FnOnce(serde_json::Value) -> Option<serde_json::Value>,
+    ) -> Result<bool> {
+        let connection = self.store.lock();
+        let stored: Option<String> = connection
+            .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| {
+                row.get(0)
+            })
+            .map(Some)
+            .or_else(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(Error::Read {
+                    key: key.to_owned(),
+                    source: other,
+                }),
+            })?;
+        let Some(text) = stored else {
+            return Ok(false);
+        };
+        let value = serde_json::from_str(&text).map_err(|source| Error::Decode {
+            key: key.to_owned(),
+            source,
+        })?;
+        let Some(changed) = change(value) else {
+            return Ok(false);
+        };
+        let encoded = serde_json::to_string(&changed).map_err(|source| Error::Encode {
+            key: key.to_owned(),
+            source,
+        })?;
+        connection
+            .execute(
+                "UPDATE settings SET value = ?2 WHERE key = ?1 AND value = ?3",
+                (key, &encoded, &text),
+            )
+            .map(|written| written == 1)
+            .map_err(|source| Error::Write {
+                key: key.to_owned(),
+                source,
+            })
+    }
+
     /// Forget one preference. Deleting a key that was never written is
     /// not an error — the caller's intent is "there should be no value
     /// here", and there is not.

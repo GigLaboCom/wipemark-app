@@ -957,6 +957,8 @@ mod tests {
             trained_ctx: Some(262_144),
             kv: None,
             chat: wipemark_engine::ChatSupport::Supported { family: "chatml" },
+            identity: None,
+            key: wipemark_models::user::FileKey::default(),
         }
     }
 

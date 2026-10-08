@@ -872,6 +872,12 @@ pub struct Preferences {
     /// Whether this build writes each added model's chat format, read off
     /// its header by the scan, by id.
     added_chats: BTreeMap<String, ChatSupport>,
+    /// What makes another path each added model's file, read by the scan,
+    /// by id — how a file picked again by another road is known (D436).
+    added_keys: BTreeMap<String, wipemark_models::user::FileKey>,
+    /// The last Remove that was refused, as its sentence: the catalogue
+    /// file it would have deleted is a model the person added (D439).
+    not_removed: Option<String>,
     /// What each file under "Also in this folder" is, read off its header
     /// by the scan, by path.
     offers: BTreeMap<PathBuf, Offering>,
@@ -1083,6 +1089,7 @@ struct Added {
     models: Vec<UserModel>,
     states: BTreeMap<String, UserState>,
     chats: BTreeMap<String, ChatSupport>,
+    keys: BTreeMap<String, wipemark_models::user::FileKey>,
 }
 
 /// Read the added models' rows and look at each one's file (U2): its state,
@@ -1094,15 +1101,26 @@ fn look_at_added(models: &Downloads, rows: &SettingsStore) -> Added {
         models: config::read_user_models(rows),
         states: BTreeMap::new(),
         chats: BTreeMap::new(),
+        keys: BTreeMap::new(),
     };
     for model in &mut added.models {
         let look = models.look_at_user(&model.entry);
         if let Some(identity) = look.identity {
-            model.entry.identity = identity;
-            if let Err(error) = config::write_user_model(rows, model) {
-                tracing::warn!(%error, model = %model.id, "could not record a moved identity");
+            // One field of a row that still exists and still records these
+            // bytes — never this copy written over it: a Forget, or another
+            // add, while the scan read the file stays as it was (D435).
+            match config::write_back_identity(rows, model, &identity) {
+                Ok(true) => model.entry.identity = identity,
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(%error, model = %model.id, "could not record a moved identity");
+                }
             }
         }
+        added.keys.insert(
+            model.id.clone(),
+            wipemark_models::user::FileKey::of(&model.entry.path),
+        );
         if look.state == UserState::Present {
             if let Ok(header) = wipemark_models::gguf::Header::read(&model.entry.path) {
                 added.chats.insert(
@@ -1146,8 +1164,14 @@ fn read_one(
                 name: addition.name.clone(),
                 why,
             };
-            let identified = match store.identify(&addition.facts.path) {
+            // Held to the file whose header the dialog showed (D439).
+            let identified = match store
+                .identify_since(&addition.facts.path, addition.facts.identity.as_deref())
+            {
                 Ok(identified) => identified,
+                Err(wipemark_models::store::StoreError::ChangedWhileRead { .. }) => {
+                    return failed(t(Message::SettingsModelsAddChangedWhileRead))
+                }
                 Err(error) => return failed(error.to_string()),
             };
             // An id is taken when this window knows it, and when the table
@@ -1181,13 +1205,20 @@ fn read_one(
                 };
             };
             let look = store.recheck_user(&model.entry);
-            let model = look.identity.map(|identity| {
-                let mut moved = model.clone();
-                moved.entry.identity = identity;
-                if let Err(error) = config::write_user_model(rows, &moved) {
-                    tracing::warn!(%error, model = %moved.id, "could not record a moved identity");
+            let model = look.identity.and_then(|identity| {
+                // As the scan's: one field of the row, while it exists (D435).
+                match config::write_back_identity(rows, model, &identity) {
+                    Ok(true) => {
+                        let mut moved = model.clone();
+                        moved.entry.identity = identity;
+                        Some(moved)
+                    }
+                    Ok(false) => None,
+                    Err(error) => {
+                        tracing::warn!(%error, model = %model.id, "could not record a moved identity");
+                        None
+                    }
                 }
-                moved
             });
             Read::Rechecked {
                 id: id.clone(),
@@ -1370,6 +1401,8 @@ impl Preferences {
             added,
             added_states: BTreeMap::new(),
             added_chats: BTreeMap::new(),
+            added_keys: BTreeMap::new(),
+            not_removed: None,
             offers: BTreeMap::new(),
             pending: std::collections::VecDeque::new(),
             reading: None,
@@ -2219,6 +2252,7 @@ impl Preferences {
             &self.installed,
             &self.added,
             &self.added_states,
+            &self.added_chats,
         )
     }
 
@@ -2238,9 +2272,24 @@ impl Preferences {
         self.added_chats.get(id).copied()
     }
 
-    /// The added model whose file is `path`, if there is one.
-    pub fn added_at(&self, path: &Path) -> Option<&UserModel> {
-        self.added.iter().find(|model| model.entry.path == path)
+    /// The added model whose file is the one `facts` was read from — by its
+    /// path, or reached another way, through a link, `..` or a second hard
+    /// link (D436) — if there is one. Compares keys the scan and the header
+    /// read already took: nothing is read here, on the thread that draws.
+    pub fn added_at(&self, facts: &models::Facts) -> Option<&UserModel> {
+        self.added.iter().find(|model| {
+            model.entry.path == facts.path
+                || self
+                    .added_keys
+                    .get(&model.id)
+                    .is_some_and(|key| key.same(&facts.key))
+        })
+    }
+
+    /// The last Remove refused because an added model's row names the file,
+    /// as its sentence.
+    pub fn not_removed(&self) -> Option<&str> {
+        self.not_removed.as_deref()
     }
 
     /// What a file under "Also in this folder" is, as its header says.
@@ -2308,6 +2357,7 @@ impl Preferences {
         let forgotten = self.added.remove(at);
         self.added_states.remove(id);
         self.added_chats.remove(id);
+        self.added_keys.remove(id);
         if self.rewrite_model.as_deref() == Some(id) {
             self.select_rewrite_model(None, cx);
         }
@@ -2460,6 +2510,7 @@ impl Preferences {
                 keys: &keys,
                 catalogue: &self.catalogue,
                 added: &self.added,
+                chats: &self.added_chats,
                 chosen: &chosen,
                 on_disk: &on_disk,
                 host: self.host,
@@ -2637,6 +2688,7 @@ impl Preferences {
                     preferences.added = added.models;
                     preferences.added_states = added.states;
                     preferences.added_chats = added.chats;
+                    preferences.added_keys = added.keys;
                     preferences.offers = offers;
                     // The moment the answer stops being provisional:
                     // before the scan lands, "that model is not here"
@@ -2742,20 +2794,47 @@ impl Preferences {
         let Some(entry) = self.catalogue.get(id).cloned() else {
             return;
         };
-        if self.rewrite_model.as_deref() == Some(id) {
-            self.select_rewrite_model(None, cx);
-        }
+        self.not_removed = None;
         let models = self.models.clone();
+        let added = self.added.clone();
+        let id = id.to_owned();
         cx.spawn(async move |preferences, cx| {
-            cx.background_executor()
+            // A file an added model's row names is that model's too, by
+            // whatever road (D439): removing it would take a model the person
+            // added out from under its row. Asked off this thread, with the
+            // remove — a resolve and a stat per file.
+            let refused = cx
+                .background_executor()
                 .spawn(async move {
+                    let files = models.files_of(&entry);
+                    if let Some(model) = wipemark_models::user::naming(&added, &files) {
+                        return Some((entry.display.clone(), model.entry.name.clone()));
+                    }
                     if let Err(error) = models.remove(&entry) {
                         tracing::warn!(%error, model = %entry.id, "could not remove a model");
                     }
+                    None
                 })
                 .await;
             preferences
-                .update(cx, |preferences, cx| preferences.look_at_models(cx))
+                .update(cx, |preferences, cx| {
+                    match refused {
+                        Some((model, added)) => {
+                            tracing::info!(model = %id, "not removed: an added model names its file");
+                            preferences.not_removed = Some(t_args(
+                                Message::SettingsModelsNotRemoved,
+                                &args!("model" => model, "added" => added),
+                            ));
+                        }
+                        // The choice goes with the file, when it named it.
+                        None if preferences.rewrite_model.as_deref() == Some(id.as_str()) => {
+                            preferences.select_rewrite_model(None, cx);
+                        }
+                        None => {}
+                    }
+                    preferences.look_at_models(cx);
+                    cx.notify();
+                })
                 .ok();
         })
         .detach();
@@ -5812,7 +5891,7 @@ impl SettingsView {
             (
                 preferences.host(),
                 preferences
-                    .added_at(&facts.path)
+                    .added_at(&facts)
                     .map(|model| (model.id.clone(), model.entry.name.clone(), model.entry.ctx)),
             )
         };
@@ -6608,6 +6687,15 @@ impl SettingsView {
                     Message::SettingsModelsUserAddFailed,
                     &args!("name" => name.clone(), "reason" => reason.clone()),
                 ));
+                (Tone::Warn, lines)
+            }
+            None => (tone, lines),
+        };
+        // A Remove refused over a file an added model names (D439).
+        let (tone, lines) = match preferences.not_removed() {
+            Some(sentence) => {
+                let mut lines = lines;
+                lines.push(sentence.to_owned());
                 (Tone::Warn, lines)
             }
             None => (tone, lines),
@@ -8163,6 +8251,11 @@ fn vacancy_line(vacancy: &Vacancy) -> (IconName, Tone, String) {
                 _ => Message::SettingsEngineStateAddedModelNotHere,
             }),
         ),
+        Vacancy::AddedModelUnsupported { .. } => (
+            IconName::TriangleExclamation,
+            Tone::Warn,
+            t(Message::SettingsEngineStateAddedModelUnsupported),
+        ),
         Vacancy::ModelGone { id } | Vacancy::ModelDoesNotServe { id } => (
             IconName::TriangleExclamation,
             Tone::Warn,
@@ -9104,6 +9197,7 @@ mod tests {
                 keys: &keys,
                 catalogue: &catalogue,
                 added: &[],
+                chats: &BTreeMap::new(),
                 chosen: &chosen,
                 on_disk: &on_disk,
                 host: None,
@@ -9154,6 +9248,7 @@ mod tests {
                 keys: &keys,
                 catalogue: &catalogue,
                 added: &[],
+                chats: &BTreeMap::new(),
                 chosen: &chosen,
                 on_disk: &on_disk,
                 host: None,
@@ -9226,6 +9321,7 @@ mod tests {
                 keys: &keys,
                 catalogue: &catalogue,
                 added: &[],
+                chats: &BTreeMap::new(),
                 chosen: &chosen,
                 on_disk: &on_disk,
                 host: None,
@@ -10753,7 +10849,7 @@ mod tests {
     }
 
     /// U1, U3: every chat model under the folder is offered, a projector and
-    /// a model with no chat template are not — and say why — and a file once
+    /// a speech model are not — and say why — and a file once
     /// added is no longer a stranger there.
     #[gpui::test]
     fn the_folder_offers_its_chat_models_and_an_added_one_leaves_the_list(
@@ -10793,10 +10889,12 @@ mod tests {
                     wipemark_models::gguf::NotOffered::Projector
                 ))
             );
+            // Speech before "no chat template": the more specific reason
+            // (D437).
             assert_eq!(
                 preferences.offer_for(&vendor.join("asr.gguf")),
                 Some(&crate::models::Offering::Not(
-                    wipemark_models::gguf::NotOffered::NoChatTemplate
+                    wipemark_models::gguf::NotOffered::Speech
                 ))
             );
         });
@@ -10863,6 +10961,155 @@ mod tests {
             assert_eq!(added[0].entry.name, "Second");
             assert_eq!(config::read_user_models(&preferences.store).len(), 1);
         });
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D436 (B-L2): the same file picked again by another road — through a
+    /// link, through `..` — is the model already added: the dialog starts
+    /// from it, and the add writes its row again rather than a second one.
+    /// Match by the exact path alone, as before, and the file is a stranger
+    /// the second time: red.
+    #[gpui::test]
+    fn a_file_added_again_by_another_road_is_the_same_model(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("added-road");
+        let file = root.join("theirs").join("m.gguf");
+        std::fs::write(
+            &file,
+            wipemark_models::gguf::synthetic_chat_model("llama", "M", Some(CHATML)),
+        )
+        .expect("write");
+        let (preferences, cx) = added_bench(cx, &root);
+        let facts = facts_of(&file);
+        preferences.update(cx, |preferences, cx| {
+            preferences.add_model(
+                Addition {
+                    facts,
+                    name: "First".to_owned(),
+                    role: Role::Rewrite,
+                    ctx: 8192,
+                    replacing: None,
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        let around = root.join("models").join("..").join("theirs").join("m.gguf");
+        let mut roads = vec![around];
+        #[cfg(unix)]
+        {
+            let linked = root.join("linked.gguf");
+            std::os::unix::fs::symlink(&file, &linked).expect("a link");
+            roads.push(linked);
+        }
+        for road in roads {
+            let facts = facts_of(&road);
+            preferences.read_with(cx, |preferences, _| {
+                assert_eq!(
+                    preferences.added_at(&facts).map(|model| model.id.as_str()),
+                    Some("user-first"),
+                    "{road:?} was not known as the model added"
+                );
+            });
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D439 (B-L9): the checksum an add records is of the file whose header
+    /// the dialog showed. The file changed after its header was read: the
+    /// add is refused, says why, and writes no row. Hash it as it is now,
+    /// as before, and a row records the checksum of a file nobody looked
+    /// at: red.
+    #[gpui::test]
+    fn a_file_that_changed_after_its_header_is_not_added(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("added-changed");
+        let file = root.join("theirs").join("m.gguf");
+        std::fs::write(
+            &file,
+            wipemark_models::gguf::synthetic_chat_model("llama", "M", Some(CHATML)),
+        )
+        .expect("write");
+        let (preferences, cx) = added_bench(cx, &root);
+        let facts = facts_of(&file);
+        // Another file in its place once the dialog has read the header.
+        let other = root.join("theirs").join("other.gguf");
+        std::fs::write(&other, b"another file's bytes altogether").expect("write");
+        std::fs::rename(&other, &file).expect("swap");
+        preferences.update(cx, |preferences, cx| {
+            preferences.add_model(
+                Addition {
+                    facts,
+                    name: "M".to_owned(),
+                    role: Role::Rewrite,
+                    ctx: 8192,
+                    replacing: None,
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        preferences.read_with(cx, |preferences, _| {
+            assert!(preferences.added_models().is_empty(), "it was added");
+            assert!(config::read_user_models(&preferences.store).is_empty());
+            assert_eq!(
+                preferences.add_failed().map(|(_, why)| why.as_str()),
+                Some(t(Message::SettingsModelsAddChangedWhileRead).as_str())
+            );
+        });
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D439 (B-L10): a Remove of a catalogue entry whose file an added model
+    /// names is refused, says which, and leaves the file and the choice.
+    /// Without the check the remove goes ahead under the added model.
+    #[gpui::test]
+    fn a_remove_never_takes_a_file_an_added_model_names(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("remove-added");
+        let (preferences, cx) = added_bench(cx, &root);
+        let entry = preferences.read_with(cx, |preferences, _| {
+            preferences
+                .catalogue
+                .for_role(Role::Rewrite)
+                .first()
+                .copied()
+                .expect("a rewriter")
+                .clone()
+        });
+        let place = preferences
+            .read_with(cx, |preferences, _| preferences.models.files_of(&entry))
+            .into_iter()
+            .next()
+            .expect("a file");
+        std::fs::create_dir_all(place.parent().expect("a folder")).expect("mkdir");
+        std::fs::write(
+            &place,
+            wipemark_models::gguf::synthetic_chat_model("qwen3", "Q", Some(CHATML)),
+        )
+        .expect("write");
+        let facts = facts_of(&place);
+        preferences.update(cx, |preferences, cx| {
+            preferences.add_model(
+                Addition {
+                    facts,
+                    name: "Mine".to_owned(),
+                    role: Role::Rewrite,
+                    ctx: 8192,
+                    replacing: None,
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        preferences.update(cx, |preferences, cx| {
+            preferences.remove_model(&entry.id, cx)
+        });
+        cx.run_until_parked();
+        preferences.read_with(cx, |preferences, _| {
+            let said = preferences
+                .not_removed()
+                .expect("the Remove was not refused");
+            assert!(said.contains("Mine"), "{said}");
+        });
+        assert!(place.exists(), "the file went");
         std::fs::remove_dir_all(&root).ok();
     }
 

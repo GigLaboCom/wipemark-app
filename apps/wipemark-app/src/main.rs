@@ -105,7 +105,7 @@ use crate::engine_host::{EngineHandle, EngineHost, Loaded};
 use crate::hotkey::Registration;
 use crate::icon::{Icon, IconName};
 use crate::placement::Origin;
-use crate::queue::{Queue, QueueEvent};
+use crate::queue::{Queue, QueueEvent, Road};
 use crate::report::ReportView;
 use crate::settings::{OpenSettings, Preferences, Section};
 use crate::setup::{Setup, SetupEvent};
@@ -284,8 +284,19 @@ impl Shell {
                         Message::RewritePriceTitle,
                         &args!("count" => price.documents),
                     );
+                    let going = price
+                        .away
+                        .clone()
+                        .map_or(wipemark_queue::Whereto::Here, wipemark_queue::Whereto::Away);
                     shell.ask(
-                        Asked::rewrite(title, price.lines(), Message::RewritePriceGo, ids),
+                        Asked::rewrite(
+                            title,
+                            price.lines(),
+                            Message::RewritePriceGo,
+                            ids,
+                            Road::Price,
+                            going,
+                        ),
                         window,
                         cx,
                     );
@@ -303,22 +314,16 @@ impl Shell {
                         &args!("count" => ids.len(), "host" => host.clone()),
                     );
                     let body = vec![t(Message::RewriteSendBody)];
-                    let asked = match (replacing, ids.as_slice()) {
-                        (Some(existing), [id]) => {
-                            let (id, existing) = (*id, existing.clone());
-                            Asked {
-                                title,
-                                body,
-                                go: Message::RewriteSendGo,
-                                yes: Box::new(move |queue, cx| {
-                                    queue.replace_agreed(id, existing, cx)
-                                }),
-                                about: None,
-                            }
-                        }
-                        _ => Asked::rewrite(title, body, Message::RewriteSendGo, ids),
+                    let road = match replacing {
+                        Some(existing) => Road::Replace(existing.clone()),
+                        None => Road::Arrivals,
                     };
-                    shell.ask(asked, window, cx);
+                    let going = wipemark_queue::Whereto::Away(host.clone());
+                    shell.ask(
+                        Asked::rewrite(title, body, Message::RewriteSendGo, ids, road, going),
+                        window,
+                        cx,
+                    );
                 }
                 // The duty moved while rewrites waited: asked again before
                 // any is sent somewhere it was not asked to go (D361). No is
@@ -646,14 +651,23 @@ struct Asked {
 }
 
 impl Asked {
-    /// Yes rewrites rows `ids`.
-    fn rewrite(title: String, body: Vec<String>, go: Message, ids: &[u64]) -> Self {
+    /// Yes rewrites rows `ids` by `road`, agreed to go to `going` — the
+    /// destination this question names, and the one the consent records
+    /// (D431).
+    fn rewrite(
+        title: String,
+        body: Vec<String>,
+        go: Message,
+        ids: &[u64],
+        road: Road,
+        going: wipemark_queue::Whereto,
+    ) -> Self {
         let ids = ids.to_vec();
         Self {
             title,
             body,
             go,
-            yes: Box::new(move |queue, cx| queue.rewrite(&ids, cx)),
+            yes: Box::new(move |queue, cx| queue.agreed(&ids, road, going, cx)),
             about: None,
         }
     }

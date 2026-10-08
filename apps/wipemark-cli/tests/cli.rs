@@ -2457,3 +2457,267 @@ fn rewrite_refuses_an_added_model_whose_file_changed() {
     );
     assert!(!scratch.path("note.rewritten.txt").exists());
 }
+
+// ---------------------------------------------------------------------
+// the follow-ups of E8-1 (B-M3, B-L1, B-L2, B-L10, B-L11)
+// ---------------------------------------------------------------------
+
+/// The identity an added model's row records for its file.
+fn recorded_identity(scratch: &Scratch, id: &str) -> String {
+    let store = wipemark_store::Store::open_read_only(scratch.data().join("wipemark.db"))
+        .expect("opens")
+        .expect("there");
+    let row: serde_json::Value = store
+        .settings()
+        .get(&format!("models.user.{id}"))
+        .expect("read")
+        .expect("the row");
+    row["identity"].as_str().expect("an identity").to_owned()
+}
+
+/// The same bytes a minute later — a `touch`, a restore from a backup.
+fn touch(file: &Path) {
+    let before = std::fs::metadata(file)
+        .and_then(|meta| meta.modified())
+        .expect("an mtime");
+    std::fs::File::options()
+        .write(true)
+        .open(file)
+        .and_then(|f| f.set_modified(before + std::time::Duration::from_secs(60)))
+        .expect("a later time");
+}
+
+/// Other bytes of the same size, the modification time put back — the
+/// marker that tells a look that read the file from one that did not: a
+/// read says "changed", the record vouching for the identity says
+/// "present".
+fn swap_bytes_keeping_the_time(file: &Path) {
+    let before = std::fs::metadata(file)
+        .and_then(|meta| meta.modified())
+        .expect("an mtime");
+    let mut other = std::fs::read(file).expect("read");
+    let last = other.len() - 1;
+    other[last] ^= 0xFF;
+    std::fs::write(file, &other).expect("rewrite in place");
+    std::fs::File::options()
+        .write(true)
+        .open(file)
+        .and_then(|f| f.set_modified(before))
+        .expect("the time put back");
+}
+
+/// D435 (B-M3): a touched file — the same bytes, its identity moved — is
+/// read in full once: the first `models list` confirms its bytes and writes
+/// the identity back to its row, so the second compares and reads nothing
+/// (the marker: bytes swapped under the same identity still read as
+/// present, which only an unread file can). A file whose bytes changed is
+/// never written back. Leave the write-back to the application, as before,
+/// and the second list reads the file again and finds the swap: red.
+#[test]
+fn models_list_writes_a_touched_files_identity_back_and_reads_it_once() {
+    let scratch = Scratch::new("models-write-back");
+    seed(&scratch, &[]);
+    let file = a_chat_model(&scratch, "m.gguf");
+    assert_eq!(
+        code(&scratch.run(&["models", "add", file.to_str().expect("text"), "--name", "M"])),
+        0
+    );
+    let added = recorded_identity(&scratch, "user-m");
+
+    touch(&file);
+    let first = json(&scratch.run(&["models", "list", "--json"]));
+    assert_eq!(model(&first, "user-m")["state"], "present", "{first}");
+    let written = recorded_identity(&scratch, "user-m");
+    assert_ne!(written, added, "the moved identity was not written back");
+
+    swap_bytes_keeping_the_time(&file);
+    let second = json(&scratch.run(&["models", "list", "--json"]));
+    assert_eq!(
+        model(&second, "user-m")["state"],
+        "present",
+        "the second list read the file again: {second}"
+    );
+
+    // Changed bytes, a later time: read, changed, and never written back.
+    // (Another byte than the swap's: flipped twice, it would be the bytes
+    // that were added.)
+    let mut other = std::fs::read(&file).expect("read");
+    other[0] ^= 0xFF;
+    std::fs::write(&file, &other).expect("change it");
+    touch(&file);
+    let changed = json(&scratch.run(&["models", "list", "--json"]));
+    assert_eq!(model(&changed, "user-m")["state"], "changed", "{changed}");
+    assert_eq!(recorded_identity(&scratch, "user-m"), written);
+}
+
+/// D435 (B-M3): the command's own rewrite reads no model file when it will
+/// refuse anyway — an endpoint on duty is the application's to ask. Read
+/// it first, as before, and a touched added model is read in full (and its
+/// identity written back) on the way to the refusal: red.
+#[test]
+fn rewrite_reads_no_model_when_it_will_refuse() {
+    let scratch = Scratch::new("models-rewrite-refuses");
+    seed(&scratch, &[]);
+    let file = a_chat_model(&scratch, "m.gguf");
+    assert_eq!(
+        code(&scratch.run(&["models", "add", file.to_str().expect("text"), "--name", "M"])),
+        0
+    );
+    seed(
+        &scratch,
+        &[("models.rewrite", "user-m"), ("engine.serves", "endpoint")],
+    );
+    scratch.file("note.txt", b"Words.\n");
+    let added = recorded_identity(&scratch, "user-m");
+    touch(&file);
+
+    let output = scratch.run(&["rewrite", "note.txt"]);
+    assert_eq!(code(&output), 2, "{}", stderr(&output));
+    assert_eq!(
+        recorded_identity(&scratch, "user-m"),
+        added,
+        "the model's file was read on the way to a refusal"
+    );
+}
+
+/// D436 (B-L2): the same file added again by another road — through `..`,
+/// through a link — is the model already added: one row, its id, and the
+/// name and context it was added with unless they are given.
+#[test]
+fn models_add_again_by_another_road_keeps_its_row_name_and_context() {
+    let scratch = Scratch::new("models-add-road");
+    seed(&scratch, &[]);
+    let file = a_chat_model(&scratch, "m.gguf");
+    let first = scratch.run(&[
+        "models",
+        "add",
+        file.to_str().expect("text"),
+        "--name",
+        "Mine",
+        "--ctx",
+        "4096",
+    ]);
+    assert_eq!(code(&first), 0, "{}", stderr(&first));
+    std::fs::create_dir_all(scratch.path("elsewhere")).expect("mkdir");
+    let mut roads = vec![scratch.path("elsewhere/../theirs/m.gguf")];
+    #[cfg(unix)]
+    {
+        let linked = scratch.path("linked.gguf");
+        std::os::unix::fs::symlink(&file, &linked).expect("a link");
+        roads.push(linked);
+    }
+    for road in roads {
+        let again = scratch.run(&["models", "add", road.to_str().expect("text")]);
+        assert_eq!(code(&again), 0, "{road:?}: {}", stderr(&again));
+        assert!(
+            stdout(&again).starts_with("user-mine: ") && stdout(&again).contains("added again"),
+            "{road:?}: {}",
+            stdout(&again)
+        );
+        assert_eq!(user_rows(&scratch), ["models.user.user-mine"], "{road:?}");
+        let answer = json(&scratch.run(&["models", "list", "--json"]));
+        let mine = model(&answer, "user-mine");
+        assert_eq!(mine["display"], "Mine", "{road:?}: {answer}");
+        assert_eq!(mine["ctx"], 4096, "{road:?}: {answer}");
+    }
+}
+
+/// D439 (B-L10): `models rm` of a catalogue entry never deletes a file a
+/// model the person added names — here the very file at the entry's place,
+/// added by its path — and says which model. Without the check, rm goes
+/// on as for any file at the entry's place.
+#[test]
+fn models_rm_never_removes_a_file_a_model_you_added_names() {
+    let scratch = Scratch::new("models-rm-added");
+    let folder = scratch.path("weights");
+    let place = folder.join(SMALL).join(SMALL_FILE);
+    std::fs::create_dir_all(place.parent().expect("a folder")).expect("mkdir");
+    std::fs::write(
+        &place,
+        wipemark_models::gguf::synthetic_chat_model("qwen3", "Qwen3 4B", Some(CHATML)),
+    )
+    .expect("write");
+    seed(&scratch, &[("models.dir", folder.to_str().expect("UTF-8"))]);
+    assert_eq!(
+        code(&scratch.run(&[
+            "models",
+            "add",
+            place.to_str().expect("text"),
+            "--name",
+            "Mine"
+        ])),
+        0
+    );
+    let output = scratch.run(&["models", "rm", SMALL]);
+    assert_eq!(code(&output), 2, "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains("user-mine") && stderr(&output).contains("a model you added"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(place.exists(), "the file went");
+}
+
+/// B-L1: `models add` of a pipe says it is not a regular file and never
+/// opens it — the run is bounded, because an open would wait for a writer.
+#[cfg(unix)]
+#[test]
+fn models_add_of_a_pipe_says_so_and_never_waits() {
+    let scratch = Scratch::new("models-add-pipe");
+    seed(&scratch, &[]);
+    std::fs::create_dir_all(scratch.path("theirs")).expect("mkdir");
+    let fifo = scratch.path("theirs/model.gguf");
+    assert!(Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo runs")
+        .success());
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wipemark-cli"))
+        .args(["models", "add", fifo.to_str().expect("text")])
+        .current_dir(&scratch.0)
+        .env("WIPEMARK_DATA_DIR", scratch.data())
+        .env("WIPEMARK_LANG", "en-US")
+        .env_remove("WIPEMARK_LOG")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the binary runs");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while child.try_wait().expect("wait").is_none() {
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+            panic!("models add of a pipe never answered");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let output = child.wait_with_output().expect("the output");
+    assert_eq!(code(&output), 2, "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains("Not a regular file"),
+        "{}",
+        stderr(&output)
+    );
+    assert!(user_rows(&scratch).is_empty());
+}
+
+/// B-L11: the files of the folder that are not the catalogue's are listed,
+/// and the list says any of them can be added with `models add` — no longer
+/// that nothing loads them.
+#[test]
+fn models_list_says_a_stranger_can_be_added() {
+    let scratch = Scratch::new("models-strangers");
+    let folder = scratch.path("weights");
+    std::fs::create_dir_all(folder.join("vendor")).expect("mkdir");
+    std::fs::write(
+        folder.join("vendor").join("chat.gguf"),
+        wipemark_models::gguf::synthetic_chat_model("qwen3", "Q", Some(CHATML)),
+    )
+    .expect("write");
+    seed(&scratch, &[("models.dir", folder.to_str().expect("UTF-8"))]);
+    let prose = stdout(&scratch.run(&["models", "list"]));
+    assert!(prose.contains("chat.gguf"), "{prose}");
+    assert!(prose.contains("models add"), "{prose}");
+    assert!(!prose.contains("nothing loads them"), "{prose}");
+}

@@ -542,6 +542,7 @@ settings-engine-state-model-unusable = The model chosen for rewriting, { $model 
 # E8-1: the model the person added and chose is not the file they added.
 settings-engine-state-added-model-changed = The model you added and chose for rewriting has changed since you added it, so it is not loaded. Add it again on the Models page, or choose another.
 settings-engine-state-added-model-not-here = The model you added and chose for rewriting is not where it was. Put the file back, or choose another on the Models page.
+settings-engine-state-added-model-unsupported = The model you added and chose for rewriting has a chat format this version does not write, so it is not loaded. Choose another on the Models page.
 # $name is the profile that was asked for by name.
 settings-engine-state-no-such-profile = No profile named “{ $name }”. Nothing was substituted for it.
 # The same, for an endpoint that is not this machine. Deliberately a
@@ -950,6 +951,8 @@ settings-models-user-adding = Adding — reading { $done } of { $total } to reco
 # $name is what the person called it; $reason is the store's own words,
 # never localized.
 settings-models-user-add-failed = { $name } was not added: { $reason }
+settings-models-add-changed-while-read = the file changed while it was read, so its header and its checksum would describe two different files. Nothing was written; add it again once it stops changing.
+settings-models-not-removed = { $model } was not removed: its file is also { $added }, a model you added. Forget that one first if you mean to remove the file.
 settings-models-forget = Forget
 settings-models-recheck = Re-check
 settings-models-add-again = Add again…
@@ -1007,8 +1010,10 @@ models-not-offered-projector = A vision or audio projector (mmproj): half of a m
 models-not-offered-adapter = A LoRA adapter: it changes a model and is not one.
 models-not-offered-no-weights = It holds a vocabulary and no weights.
 models-not-offered-not-a-writer = An embedding, encoder or speech model, not one that writes text.
+models-not-offered-speech = A speech or audio model, by its name or tags: it hears or speaks, and does not rewrite text.
 models-not-offered-no-chat-template = It carries no chat template, so it is not a chat model { -brand-name } can ask.
 models-not-offered-not-gguf = Not a GGUF file: the local engine runs GGUF models only.
+models-not-offered-not-a-file = Not a regular file — a pipe, a device or a folder — so it was not opened.
 # $reason is the header reader's own words, never localized.
 models-not-offered-unreadable = Its header could not be read: { $reason }
 
@@ -1577,7 +1582,7 @@ cli-models-fit-tight = fits this machine with little to spare
 cli-models-fit-too-big = needs { $short } MB more memory than this machine has
 cli-models-fit-unknown = whether it fits this machine is unknown
 cli-models-size = { $gigabytes } GB
-cli-models-others-title = Also in this folder, not in the catalogue — listed only, not verified, and nothing loads them:
+cli-models-others-title = Also in this folder, not in the catalogue — listed, not verified and not loaded; any of them can be added with wipemark-cli models add <path>:
 cli-models-folder-unreadable = The models folder { $path } could not be read: { $reason }.
 cli-models-unknown-id = { $id } is not in the catalogue. Its ids are: { $ids }.
 cli-models-pull-present = { $id } is already on this machine and matches the catalogue: { $path }
@@ -1597,6 +1602,7 @@ cli-models-rm-removed = { $id } was removed from { $path }.
 cli-models-rm-absent = { $id } was not on this machine; nothing was removed.
 # $path is the file found where no download put it (D302).
 cli-models-rm-found = { $id } is at { $path }, where { -brand-name } did not download it; nothing was removed.
+cli-models-rm-added = { $id } was not removed: { $path } is also { $added }, a model you added. Run wipemark-cli models forget { $added } first if you mean to remove the file.
 cli-models-rm-found-part = { $id } has a partial file at { $path } that { -brand-name } has no record of; nothing was removed.
 cli-models-rm-chosen = It was the model chosen for rewriting: the application will show no model chosen until another is picked. This command does not change that setting.
 cli-models-rm-failed = { $id } could not be removed from { $path }: { $reason }.
@@ -1621,6 +1627,7 @@ cli-models-add-ctx = { $ctx } tokens is outside what this model takes: between {
 cli-models-add-name = The name is empty, longer than { $max } characters, or has a control character.
 # $reason is the operating system's own words, never localized.
 cli-models-add-hash-failed = { $path } could not be read in full: { $reason }. Nothing was added.
+cli-models-add-changed = { $path } changed while it was read: its header and its checksum would describe two different files. Nothing was added.
 cli-models-add-progress = { $path }: { $done } of { $total } MB read ({ $percent } %)
 cli-models-forget-done = { $id } ({ $name }) is forgotten. The file stays at { $path }: { -brand-name } never deletes a file it did not download.
 cli-models-forget-catalogue = { $id } is a catalogue model, not one you added: rm removes a download of it.
@@ -1894,6 +1901,7 @@ status-rewriting = Rewriting { $current } of { $total } · paragraph { $chunk } 
 status-rewriting-starting = Rewriting { $current } of { $total }
 status-rewrites-held = Rewrites wait for an engine: { $reason }
 status-rewrites-paused = Rewriting is paused · { $count } waiting
+status-rewrites-settling = Rewrites wait for the engine to change
 compare-rewritten-banner = The rewrite, as it was delivered — the most changed version that passed every check. Editing it here saves nothing, and closing writes nothing.
 compare-rewritten-kept = { $kept } of { $chunks } paragraphs kept their cleaned original: no candidate passed the checks.
 compare-reset-rewritten = Back to the rewritten text

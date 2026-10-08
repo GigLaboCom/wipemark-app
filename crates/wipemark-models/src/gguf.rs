@@ -78,9 +78,13 @@ pub const MAX_METADATA: u64 = 256 << 20;
 /// never translated.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum GgufError {
-    /// The operating system's words: not there, not permitted, not a file.
+    /// The operating system's words: not there, not permitted.
     #[error("could not be read: {0}")]
     Io(String),
+    /// Not a regular file — a folder, a pipe, a socket, a device — and never
+    /// opened: opening a pipe waits for a writer that may never come (D356).
+    #[error("not a regular file")]
+    NotAFile,
     /// The first four bytes are not `GGUF`.
     #[error("not a GGUF file")]
     NotGguf,
@@ -176,16 +180,30 @@ pub struct Header {
     pub key_length: Option<u64>,
     /// `<arch>.attention.value_length`.
     pub value_length: Option<u64>,
-    /// `<arch>.pooling_type`: present on a model that makes embeddings.
+    /// `<arch>.pooling_type`: on a model that makes embeddings, how it
+    /// pools them — 0 is *none*, which a model that writes may state too.
     pub pooling_type: Option<u64>,
     /// `<arch>.attention.causal`: `false` on an encoder.
     pub causal: Option<bool>,
+    /// `general.tags`: what the file says it is for — `text-generation`,
+    /// `automatic-speech-recognition`… At most [`MAX_KEPT_TAGS`], each at
+    /// most [`MAX_KEPT_TAG`] bytes; the rest stepped over.
+    pub tags: Vec<String>,
 }
 
+/// How many of `general.tags` are kept.
+pub const MAX_KEPT_TAGS: u64 = 64;
+
+/// The longest tag that is kept; a longer one is stepped over.
+pub const MAX_KEPT_TAG: u64 = 256;
+
 /// The architectures that are not a model that writes text: encoders that
-/// make embeddings, a speech decoder, a vision projector's. Read off
-/// llama.cpp's own list at the pin (`src/llama-arch.cpp`).
-pub const NOT_WRITERS: [&str; 15] = [
+/// make embeddings, a speech decoder, a vision projector's; the diffusion
+/// models, which llama.cpp runs only through its diffusion example and never
+/// a token at a time (`llm_arch_is_diffusion`); and the draft heads of
+/// speculative decoding, which predict for another model and are not one.
+/// Read off llama.cpp's own list at the pin (`src/llama-arch.cpp`).
+pub const NOT_WRITERS: [&str; 21] = [
     "clip",
     "bert",
     "modern-bert",
@@ -201,7 +219,20 @@ pub const NOT_WRITERS: [&str; 15] = [
     "wavtokenizer-dec",
     "qwen3tts",
     "pockettts",
+    // Diffusion (`llm_arch_is_diffusion`).
+    "dream",
+    "llada",
+    "llada-moe",
+    "rnd1",
+    // Draft heads for speculative decoding.
+    "eagle3",
+    "dflash",
 ];
+
+/// Words that make a model's name, type or tags say it hears or speaks
+/// rather than writes (D437) — matched as whole words, case aside, so a
+/// `Speechless` fine-tune is not one.
+pub const SPEECH_WORDS: [&str; 6] = ["asr", "stt", "tts", "speech", "audio", "whisper"];
 
 /// Whether a file can be added as a model that rewrites, and if not, why.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,9 +253,15 @@ pub enum NotOffered {
     Adapter,
     /// No tensors: a vocabulary and nothing to run.
     NoWeights,
-    /// An encoder, an embedding model or a speech model — an architecture in
-    /// [`NOT_WRITERS`], a pooling type, or `attention.causal = false`.
+    /// An encoder, an embedding model, a speech model, a diffusion model or a
+    /// draft head — an architecture in [`NOT_WRITERS`], a pooling type other
+    /// than none, or `attention.causal = false`.
     NotAWriter,
+    /// A model whose name, `general.type` or `general.tags` says it hears or
+    /// speaks — speech recognition, audio — even under an architecture that
+    /// writes text, as Qwen3-ASR's decoder is `qwen3vl` with a ChatML
+    /// template (D437).
+    Speech,
     /// No `tokenizer.chat_template`: nothing says how a conversation is
     /// written for it, so it is not a chat model this product can ask.
     NoChatTemplate,
@@ -235,14 +272,34 @@ impl Header {
     /// for a local file, more over a network volume — call it off the
     /// thread that draws a window.
     pub fn read(path: &Path) -> Result<Header, GgufError> {
-        let file = File::open(path).map_err(|error| GgufError::Io(error.to_string()))?;
-        let meta = file
-            .metadata()
-            .map_err(|error| GgufError::Io(error.to_string()))?;
-        if !meta.is_file() {
-            return Err(GgufError::Io("not a regular file".to_owned()));
+        Ok(Header::read_identified(path)?.0)
+    }
+
+    /// [`Header::read`], and the identity of the file the header was read
+    /// from (`size:mtime_ns:dev:ino` on Unix, [`crate::store::identity_of`])
+    /// — read off the open file, so a hash made after it can be held to the
+    /// same file (D439). `None` where the platform gives no identity.
+    ///
+    /// Only a regular file is opened. The path is asked first — through a
+    /// link, as the open follows one — and anything else, a pipe above all,
+    /// is [`GgufError::NotAFile`] without an open: opening a pipe waits for
+    /// a writer, and a device may answer forever (D356). The open file is
+    /// asked again, for a path that was swapped in between.
+    pub fn read_identified(path: &Path) -> Result<(Header, Option<String>), GgufError> {
+        let io = |error: std::io::Error| GgufError::Io(error.to_string());
+        if !std::fs::metadata(path).map_err(io)?.is_file() {
+            return Err(GgufError::NotAFile);
         }
-        Header::read_from(BufReader::new(file), meta.len())
+        let file = File::open(path).map_err(io)?;
+        let meta = file.metadata().map_err(io)?;
+        if !meta.is_file() {
+            return Err(GgufError::NotAFile);
+        }
+        let identity = crate::store::identity_of(&meta);
+        Ok((
+            Header::read_from(BufReader::new(file), meta.len())?,
+            identity,
+        ))
     }
 
     /// Read a header from `source`, which holds `len` bytes.
@@ -322,10 +379,13 @@ impl Header {
             return Offer::Not(NotOffered::NoWeights);
         }
         if NOT_WRITERS.contains(&architecture)
-            || self.pooling_type.is_some()
+            || self.pooling_type.is_some_and(|pooling| pooling != 0)
             || self.causal == Some(false)
         {
             return Offer::Not(NotOffered::NotAWriter);
+        }
+        if self.says_speech() {
+            return Offer::Not(NotOffered::Speech);
         }
         if self
             .chat_template
@@ -335,6 +395,23 @@ impl Header {
             return Offer::Not(NotOffered::NoChatTemplate);
         }
         Offer::Rewrite
+    }
+}
+
+impl Header {
+    /// Whether the file's name for itself, its type or its tags say it is a
+    /// speech or audio model ([`SPEECH_WORDS`], as whole words).
+    fn says_speech(&self) -> bool {
+        let speaks = |text: &str| {
+            text.split(|c: char| !c.is_alphanumeric()).any(|word| {
+                SPEECH_WORDS
+                    .iter()
+                    .any(|said| word.eq_ignore_ascii_case(said))
+            })
+        };
+        self.name.as_deref().is_some_and(speaks)
+            || self.kind.as_deref().is_some_and(speaks)
+            || self.tags.iter().any(|tag| speaks(tag))
     }
 }
 
@@ -508,9 +585,13 @@ struct Walker<R> {
     key: Vec<u8>,
 }
 
+/// The one string array that is kept.
+const TAGS_KEY: &str = "general.tags";
+
 /// A kept value, before the architecture says which ones are the model's.
 enum Kept {
     Text(String),
+    Texts(Vec<String>),
     Number(u64),
     Flag(bool),
 }
@@ -543,6 +624,7 @@ impl<R: Read + Seek> Walker<R> {
             let key = self.key()?;
             let kind = self.u32()?;
             let wanted = TEXT_KEYS.contains(&key.as_str())
+                || key == TAGS_KEY
                 || key == "general.file_type"
                 || SHAPE_KEYS.iter().any(|suffix| key.ends_with(suffix));
             let value = if wanted {
@@ -564,6 +646,10 @@ impl<R: Read + Seek> Walker<R> {
             }
         }
 
+        let tags = match kept.remove(TAGS_KEY) {
+            Some(Kept::Texts(tags)) => tags,
+            _ => Vec::new(),
+        };
         let text = |kept: &BTreeMap<String, Kept>, key: &str| match kept.get(key) {
             Some(Kept::Text(text)) => Some(text.clone()),
             _ => None,
@@ -594,6 +680,7 @@ impl<R: Read + Seek> Walker<R> {
                 Some(Kept::Flag(flag)) => Some(*flag),
                 _ => None,
             },
+            tags,
             architecture,
         })
     }
@@ -688,6 +775,31 @@ impl<R: Read + Seek> Walker<R> {
             BOOL => Ok(Some(Kept::Flag(self.array::<1>()?[0] != 0))),
             UINT8 | INT8 | UINT16 | INT16 | UINT32 | INT32 | UINT64 | INT64 => {
                 Ok(self.integer(kind)?.map(Kept::Number))
+            }
+            ARRAY if key == TAGS_KEY => {
+                let inner = self.u32()?;
+                let count = self.u64()?;
+                if inner != STRING {
+                    self.skip_array(inner, count)?;
+                    return Ok(None);
+                }
+                if count > MAX_ARRAY {
+                    return Err(GgufError::TooLarge("an array"));
+                }
+                let mut tags = Vec::new();
+                for at in 0..count {
+                    let len = self.u64()?;
+                    if at < MAX_KEPT_TAGS && len <= MAX_KEPT_TAG {
+                        self.claim(len)?;
+                        let mut bytes = vec![0u8; len as usize];
+                        self.source.read_exact(&mut bytes).map_err(read_error)?;
+                        self.at += len;
+                        tags.push(String::from_utf8_lossy(&bytes).into_owned());
+                    } else {
+                        self.skip(len)?;
+                    }
+                }
+                Ok(Some(Kept::Texts(tags)))
             }
             ARRAY => {
                 let inner = self.u32()?;
@@ -1267,10 +1379,162 @@ mod tests {
             Header::read(&path).expect("read").name.as_deref(),
             Some("L")
         );
-        assert!(matches!(Header::read(dir.path()), Err(GgufError::Io(_))));
+        assert!(matches!(Header::read(dir.path()), Err(GgufError::NotAFile)));
         assert!(matches!(
             Header::read(&dir.path().join("absent.gguf")),
             Err(GgufError::Io(_))
         ));
+    }
+
+    /// B-L1: a pipe is refused before it is opened — opening one waits for
+    /// a writer that never comes, and a dialog reading a header off it
+    /// would wait with it (D356). The read is bounded here; open the pipe
+    /// before asking what it is, as the reader did, and it never answers:
+    /// red.
+    #[cfg(unix)]
+    #[test]
+    fn a_pipe_is_refused_before_it_is_opened() {
+        let dir = tempfile::tempdir().expect("a scratch folder");
+        let fifo = dir.path().join("model.gguf");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs");
+        assert!(made.success(), "mkfifo failed");
+        let (told, answer) = std::sync::mpsc::channel();
+        let path = fifo.clone();
+        std::thread::spawn(move || {
+            let _ = told.send(Header::read(&path));
+        });
+        let read = answer.recv_timeout(std::time::Duration::from_secs(5));
+        if read.is_err() {
+            // Let the stuck open go, so the thread does not outlive the test.
+            let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+        }
+        assert_eq!(
+            read.expect("the header read of a pipe never answered"),
+            Err(GgufError::NotAFile)
+        );
+    }
+
+    /// B-L3: a pooling type of 0 is *none*, which a model that writes may
+    /// state; only another pooling marks a model that makes embeddings.
+    #[test]
+    fn a_pooling_type_of_none_is_still_a_model_that_writes() {
+        let stated = synthetic(
+            1,
+            &[
+                ("general.architecture", Meta::Text("qwen3")),
+                ("qwen3.pooling_type", Meta::U32(0)),
+                ("tokenizer.chat_template", Meta::Text(CHATML)),
+            ],
+        );
+        let header = read(&stated).expect("a header");
+        assert_eq!(header.pooling_type, Some(0));
+        assert_eq!(header.offer("m.gguf"), Offer::Rewrite);
+        for pooling in [1, 2, 3, 4] {
+            let embedder = Header {
+                pooling_type: Some(pooling),
+                ..header.clone()
+            };
+            assert_eq!(
+                embedder.offer("m.gguf"),
+                Offer::Not(NotOffered::NotAWriter),
+                "pooling {pooling}"
+            );
+        }
+    }
+
+    /// B-L4 (D437): diffusion models and draft heads are not offered, and
+    /// neither is a model whose name, type or tags say it hears or speaks —
+    /// Qwen3-ASR's decoder is `qwen3vl` with a ChatML template, and was
+    /// offered as a model that rewrites. A word inside another is not one:
+    /// a `Speechless` fine-tune still is a model that writes.
+    #[test]
+    fn diffusion_draft_and_speech_models_are_not_offered() {
+        let chat = read(&synthetic_chat_model("qwen3", "Q", Some(CHATML))).expect("a header");
+        for architecture in ["dream", "llada", "llada-moe", "rnd1", "eagle3", "dflash"] {
+            let header = Header {
+                architecture: Some(architecture.into()),
+                ..chat.clone()
+            };
+            assert_eq!(
+                header.offer("m.gguf"),
+                Offer::Not(NotOffered::NotAWriter),
+                "{architecture}"
+            );
+        }
+        let asr = read(&synthetic_chat_model(
+            "qwen3vl",
+            "Qwen3-ASR-1.7B",
+            Some(CHATML),
+        ))
+        .expect("a header");
+        assert_eq!(
+            asr.offer("Qwen3-ASR-1.7B-Q8_0.gguf"),
+            Offer::Not(NotOffered::Speech)
+        );
+        let tagged = synthetic(
+            1,
+            &[
+                ("general.architecture", Meta::Text("qwen3")),
+                ("general.name", Meta::Text("Q")),
+                (
+                    "general.tags",
+                    Meta::Texts(&["transformers", "automatic-speech-recognition"]),
+                ),
+                ("tokenizer.chat_template", Meta::Text(CHATML)),
+            ],
+        );
+        let tagged = read(&tagged).expect("a header");
+        assert_eq!(
+            tagged.tags,
+            vec![
+                "transformers".to_owned(),
+                "automatic-speech-recognition".to_owned()
+            ]
+        );
+        assert_eq!(tagged.offer("m.gguf"), Offer::Not(NotOffered::Speech));
+        let typed = Header {
+            kind: Some("audio".into()),
+            ..chat.clone()
+        };
+        assert_eq!(typed.offer("m.gguf"), Offer::Not(NotOffered::Speech));
+        // A projector is still said as one: the more specific reason first.
+        let projector = Header {
+            kind: Some("mmproj".into()),
+            name: Some("Qwen3 ASR".into()),
+            ..chat.clone()
+        };
+        assert_eq!(projector.offer("m.gguf"), Offer::Not(NotOffered::Projector));
+        let speechless = Header {
+            name: Some("Speechless Llama2 Hermes".into()),
+            tags: vec!["text-generation".into()],
+            ..chat
+        };
+        assert_eq!(speechless.offer("m.gguf"), Offer::Rewrite);
+    }
+
+    /// The tags are kept within their bounds: past the count, or a tag past
+    /// its length, is stepped over and the walk goes on.
+    #[test]
+    fn tags_past_their_bounds_are_stepped_over() {
+        let long = "x".repeat(super::MAX_KEPT_TAG as usize + 1);
+        let many: Vec<String> = (0..super::MAX_KEPT_TAGS + 3)
+            .map(|n| format!("t{n}"))
+            .collect();
+        let mut tags: Vec<&str> = many.iter().map(String::as_str).collect();
+        tags.insert(0, &long);
+        let bytes = synthetic(
+            1,
+            &[
+                ("general.tags", Meta::Texts(&tags)),
+                ("general.name", Meta::Text("after")),
+            ],
+        );
+        let header = read(&bytes).expect("a header");
+        assert_eq!(header.name.as_deref(), Some("after"));
+        assert_eq!(header.tags.len() as u64, super::MAX_KEPT_TAGS - 1);
+        assert_eq!(header.tags[0], "t0");
     }
 }

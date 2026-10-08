@@ -79,8 +79,8 @@ use std::time::Duration;
 
 use wipemark_core::Vendor;
 use wipemark_engine::{
-    EngineError, EngineInfo, HttpConfig, HttpEngine, HttpProvider, Reasoning, RewriteEngine,
-    Unavailable,
+    ChatRefusal, ChatSupport, EngineError, EngineInfo, HttpConfig, HttpEngine, HttpProvider,
+    Reasoning, RewriteEngine, Unavailable,
 };
 use wipemark_i18n::{t, Message};
 use wipemark_models::host::{fit, fit_mb, Fit, Host};
@@ -253,6 +253,10 @@ pub struct Roster<'a> {
     /// what is on disk for one is in [`Roster::on_disk`] under its id, as a
     /// catalogue entry's is.
     pub added: &'a [UserModel],
+    /// Whether this build writes each added model's chat format, by id, as
+    /// the scan read it off the header (D407). An id missing from it has not
+    /// been read, which is not a refusal.
+    pub chats: &'a BTreeMap<String, ChatSupport>,
     /// Which model answers for which role. One entry per role that has
     /// a choice recorded; a role missing from it has none.
     pub chosen: &'a BTreeMap<Role, String>,
@@ -423,6 +427,11 @@ pub enum Vacancy {
     /// changed or could not be read, `Absent` for one that is gone or not
     /// looked at yet. Its own variant because the fix is not a download.
     AddedModelNotHere { id: String, state: State },
+    /// The chosen model is one the person added, and this build does not
+    /// write its chat format (D407): the load would read the whole file and
+    /// refuse it, on every Check and every rewrite — so it is not on duty,
+    /// as a changed file is not (D438).
+    AddedModelUnsupported { id: String, why: ChatRefusal },
 }
 
 /// The answer.
@@ -645,6 +654,14 @@ fn added_model(roster: &Roster, role: Role, added: &UserModel) -> Result<Perform
             state,
         });
     };
+    // Its file is the one added; its chat format, one this build writes —
+    // or the load reads every byte of it to refuse it (D438).
+    if let Some(ChatSupport::Refused(why)) = roster.chats.get(&added.id) {
+        return Err(Vacancy::AddedModelUnsupported {
+            id: added.id.clone(),
+            why: *why,
+        });
+    }
     let need = added.estimate().total_mb();
     Ok(Performer::Machine(Local {
         id: added.id.clone(),
@@ -896,6 +913,7 @@ mod tests {
         keys: BTreeMap<String, KeyState>,
         catalogue: Manifest,
         added: Vec<UserModel>,
+        chats: BTreeMap<String, ChatSupport>,
         chosen: BTreeMap<Role, String>,
         on_disk: BTreeMap<String, OnDisk>,
         host: Option<Host>,
@@ -912,6 +930,7 @@ mod tests {
                 keys: BTreeMap::new(),
                 catalogue: models::catalogue(),
                 added: Vec::new(),
+                chats: BTreeMap::new(),
                 chosen: BTreeMap::new(),
                 on_disk: BTreeMap::new(),
                 host: None,
@@ -989,6 +1008,7 @@ mod tests {
                 keys: &self.keys,
                 catalogue: &self.catalogue,
                 added: &self.added,
+                chats: &self.chats,
                 chosen: &self.chosen,
                 on_disk: &self.on_disk,
                 host: self.host,
@@ -1074,6 +1094,42 @@ mod tests {
                 id: ADDED.to_owned()
             })
         );
+    }
+
+    /// D438 (B-L5): an added model whose chat format this build does not
+    /// write is not on duty, and says why in its own words — every Check and
+    /// every rewrite would otherwise read its whole file for the load to
+    /// refuse it. One not read yet is not refused for it. Take the verdict out
+    /// of `added_model` and the machine is on duty with it: red.
+    #[test]
+    fn an_added_model_whose_chat_format_is_not_written_is_not_on_duty() {
+        let mut bench = Bench::new()
+            .asking(Serves::MachineOnly)
+            .with_an_added_rewriter(State::Present { bytes: 1 });
+        assert!(
+            on_duty(&bench.roster(), Role::Rewrite, Pick::Live)
+                .performer()
+                .is_some(),
+            "not read yet is not a refusal"
+        );
+        bench.chats.insert(
+            ADDED.to_owned(),
+            ChatSupport::Refused(ChatRefusal::Unrecognised),
+        );
+        assert_eq!(
+            on_duty(&bench.roster(), Role::Rewrite, Pick::Live),
+            Duty::Vacant(Vacancy::AddedModelUnsupported {
+                id: ADDED.to_owned(),
+                why: ChatRefusal::Unrecognised,
+            })
+        );
+        bench.chats.insert(
+            ADDED.to_owned(),
+            ChatSupport::Supported { family: "gemma4" },
+        );
+        assert!(on_duty(&bench.roster(), Role::Rewrite, Pick::Live)
+            .performer()
+            .is_some());
     }
 
     /// U3: an added model becomes a local engine over its file, at its own

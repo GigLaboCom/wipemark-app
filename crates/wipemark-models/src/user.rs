@@ -382,10 +382,27 @@ impl Downloads {
     /// data directory as a verify does (D303). Blocking: the whole file is
     /// read, and the hash tells how far it has got ([`Downloads::watch_hashes`]).
     ///
-    /// The identity is read before the bytes: a file that changes while it
-    /// is read then no longer has it, and the next look reads it again
-    /// rather than trusting a hash of other bytes.
+    /// The identity is read before the bytes and again after them: a file
+    /// that changed while it was read is [`StoreError::ChangedWhileRead`],
+    /// and nothing it said is kept (D439).
     pub fn identify(&self, path: &Path) -> Result<Identified, StoreError> {
+        self.identify_since(path, None)
+    }
+
+    /// [`Downloads::identify`], held to the file a header was read from:
+    /// `read_at` is that file's identity as the header read it
+    /// ([`crate::gguf::Header::read_identified`]). A file that is not that
+    /// file any more — swapped, written or touched between the header and
+    /// the hash — is [`StoreError::ChangedWhileRead`] before a byte is
+    /// hashed: the header and the checksum would describe two files (D439).
+    pub fn identify_since(
+        &self,
+        path: &Path,
+        read_at: Option<&str>,
+    ) -> Result<Identified, StoreError> {
+        let changed = || StoreError::ChangedWhileRead {
+            path: path.to_path_buf(),
+        };
         let identity = match self.followed_identity(path) {
             Ok(Some(identity)) => identity,
             Ok(None) => {
@@ -406,7 +423,15 @@ impl Downloads {
                 })
             }
         };
+        if read_at.is_some_and(|read_at| {
+            self.as_read_here(Some(read_at.to_owned())).as_deref() != Some(identity.as_str())
+        }) {
+            return Err(changed());
+        }
         let sha256 = self.hash_and_record(path)?;
+        if !matches!(self.followed_identity(path), Ok(Some(after)) if after == identity) {
+            return Err(changed());
+        }
         Ok(Identified {
             size_bytes: size_of(&identity).unwrap_or(0),
             sha256,
@@ -463,6 +488,86 @@ impl Downloads {
             Err(error) => UserLook::is(UserState::Unreadable(error.to_string())),
         }
     }
+}
+
+/// What makes two paths one file (D436): the path with every link and `..`
+/// resolved, and — on Unix — the device and inode it names, which a hard
+/// link shares too. Read once, so a list of models is compared against one
+/// path without reading each of them again.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FileKey {
+    canonical: Option<PathBuf>,
+    inode: Option<(u64, u64)>,
+}
+
+impl FileKey {
+    /// The key of the file at `path`, or as much of it as can be read — an
+    /// empty key for a path that names nothing. Blocking: a resolve and a
+    /// `stat`, through a link.
+    #[must_use]
+    pub fn of(path: &Path) -> FileKey {
+        #[cfg(unix)]
+        let inode = {
+            use std::os::unix::fs::MetadataExt as _;
+            std::fs::metadata(path)
+                .ok()
+                .map(|meta| (meta.dev(), meta.ino()))
+        };
+        #[cfg(not(unix))]
+        let inode = None;
+        FileKey {
+            canonical: std::fs::canonicalize(path).ok(),
+            inode,
+        }
+    }
+
+    /// Whether the two keys are one file's: one resolved path, or one
+    /// device and inode. Two keys of nothing are not one file.
+    #[must_use]
+    pub fn same(&self, other: &FileKey) -> bool {
+        (self.canonical.is_some() && self.canonical == other.canonical)
+            || (self.inode.is_some() && self.inode == other.inode)
+    }
+}
+
+/// Whether `a` and `b` name one file — the same path, or one file reached
+/// two ways ([`FileKey`]). Blocking.
+#[must_use]
+pub fn same_file(a: &Path, b: &Path) -> bool {
+    a == b || FileKey::of(a).same(&FileKey::of(b))
+}
+
+/// The model the person added whose file is one of `files`, if any — what a
+/// Remove of a catalogue entry must not delete under it (D439). Blocking.
+#[must_use]
+pub fn naming<'a>(added: &'a [UserModel], files: &[PathBuf]) -> Option<&'a UserModel> {
+    let keys: Vec<FileKey> = files.iter().map(|file| FileKey::of(file)).collect();
+    added.iter().find(|model| {
+        let key = FileKey::of(&model.entry.path);
+        files
+            .iter()
+            .zip(&keys)
+            .any(|(file, file_key)| *file == model.entry.path || key.same(file_key))
+    })
+}
+
+/// A row's value with the identity of its file moved to `identity` — only
+/// while the row still records `sha256`, the bytes a full read has just
+/// confirmed; `None` leaves the row as it is (D401, D435). Every other
+/// field is the row's own, unknown ones included: the write-back changes
+/// one field of one row, never the whole of a copy read before it.
+#[must_use]
+pub fn with_identity(
+    mut value: serde_json::Value,
+    sha256: &str,
+    identity: &str,
+) -> Option<serde_json::Value> {
+    let row = value.as_object_mut()?;
+    if row.get("sha256").and_then(serde_json::Value::as_str) != Some(sha256) {
+        return None;
+    }
+    row.insert("identity".to_owned(), serde_json::Value::from(identity));
+    Some(value)
 }
 
 /// Whether two identities differ in nothing but the device and inode
@@ -958,5 +1063,121 @@ mod tests {
             .collect();
         assert_eq!(beside, ["m.gguf"]);
         assert!(scratch.dir.path().join("records").is_dir());
+    }
+
+    /// D439 (B-L9): the header and the checksum describe one file. A file
+    /// swapped after its header was read is refused before a byte is
+    /// hashed; one swapped while it is hashed is refused after. Take either
+    /// identity check out and the add records the checksum of another file
+    /// than the one whose header the dialog showed: red.
+    #[test]
+    fn a_file_swapped_after_its_header_or_during_its_hash_is_refused() {
+        let scratch = Scratch::new();
+        let path = scratch.put(
+            "m.gguf",
+            &crate::gguf::synthetic_chat_model("qwen3", "Q", Some("x")),
+        );
+        let (_, read_at) = crate::gguf::Header::read_identified(&path).expect("a header");
+        let read_at = read_at.expect("an identity");
+        // Another file put in its place, as a download finishing does.
+        let other = scratch.put("other.gguf", b"another model's bytes, entirely");
+        std::fs::rename(&other, &path).expect("swap");
+        assert!(matches!(
+            scratch.store.identify_since(&path, Some(&read_at)),
+            Err(crate::store::StoreError::ChangedWhileRead { .. })
+        ));
+
+        // During the hash: the hash tells how far it has got on a channel
+        // with no room, so it waits at its first report until it is heard —
+        // and the file is swapped then.
+        let path = scratch.put("n.gguf", &vec![7u8; 1 << 20]);
+        let (sink, heard) = flume::bounded(0);
+        scratch.store.watch_hashes(sink);
+        let store = std::sync::Arc::new(scratch.store);
+        let hashing = {
+            let store = std::sync::Arc::clone(&store);
+            let path = path.clone();
+            std::thread::spawn(move || store.identify(&path))
+        };
+        let _first = heard.recv().expect("the hash's first report");
+        let swapped = scratch.dir.path().join("swapped.gguf");
+        std::fs::write(&swapped, vec![8u8; 1 << 20]).expect("write");
+        std::fs::rename(&swapped, &path).expect("swap");
+        // The rest of its reports heard until it ends — the store keeps the
+        // sink, so the channel never closes on its own.
+        while !hashing.is_finished() {
+            let _ = heard.recv_timeout(std::time::Duration::from_millis(50));
+        }
+        assert!(matches!(
+            hashing.join().expect("the hash ended"),
+            Err(crate::store::StoreError::ChangedWhileRead { .. })
+        ));
+    }
+
+    /// D436 (B-L2): one file reached two ways — through a link, through
+    /// `..`, by a second hard link — is one file; another is not.
+    #[test]
+    fn one_file_by_two_paths_is_one_file() {
+        let scratch = Scratch::new();
+        let path = scratch.put("m.gguf", b"the weights");
+        let other = scratch.put("o.gguf", b"the weights");
+        let folder = scratch.dir.path().join("sub");
+        std::fs::create_dir(&folder).expect("a folder");
+        let round = folder.join("..").join("m.gguf");
+        assert!(super::same_file(&path, &round), "through ..");
+        let hard = scratch.dir.path().join("hard.gguf");
+        std::fs::hard_link(&path, &hard).expect("a hard link");
+        assert!(super::same_file(&path, &hard), "a hard link");
+        #[cfg(unix)]
+        {
+            let linked = scratch.dir.path().join("link.gguf");
+            std::os::unix::fs::symlink(&path, &linked).expect("a link");
+            assert!(super::same_file(&linked, &path), "through a link");
+        }
+        assert!(
+            !super::same_file(&path, &other),
+            "two files with one content"
+        );
+        assert!(!super::same_file(
+            &scratch.dir.path().join("absent-a"),
+            &scratch.dir.path().join("absent-b")
+        ));
+    }
+
+    /// D439 (B-L10): the added model a catalogue entry's files name, by any
+    /// road to the same file.
+    #[test]
+    fn the_added_model_a_file_belongs_to_is_found_by_any_road() {
+        let scratch = Scratch::new();
+        let path = scratch.put("m.gguf", b"the weights");
+        let hard = scratch.dir.path().join("catalogue-place.gguf");
+        std::fs::hard_link(&path, &hard).expect("a hard link");
+        let added = vec![UserModel {
+            id: "user-m".into(),
+            entry: scratch.added(&path),
+        }];
+        assert_eq!(
+            super::naming(&added, &[hard]).map(|model| model.id.as_str()),
+            Some("user-m")
+        );
+        let other = scratch.put("o.gguf", b"other");
+        assert!(super::naming(&added, &[other]).is_none());
+    }
+
+    /// D435: the identity written back is one field of a row that still
+    /// records the confirmed bytes; a row re-added meanwhile with other
+    /// bytes is left as it is.
+    #[test]
+    fn an_identity_is_written_back_only_over_the_bytes_it_confirmed() {
+        let row = serde_json::json!({"sha256": "aa", "identity": "1:2:3:4", "later": true});
+        assert_eq!(
+            super::with_identity(row.clone(), "aa", "1:2:3:5"),
+            Some(serde_json::json!({"sha256": "aa", "identity": "1:2:3:5", "later": true}))
+        );
+        assert_eq!(super::with_identity(row, "bb", "1:2:3:5"), None);
+        assert_eq!(
+            super::with_identity(serde_json::json!("x"), "aa", "i"),
+            None
+        );
     }
 }

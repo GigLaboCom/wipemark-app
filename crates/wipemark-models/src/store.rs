@@ -158,6 +158,11 @@ pub enum StoreError {
     /// exactly as it is (D302).
     #[error("{} is not a file this product downloaded; it is left as it is", .path.display())]
     Occupied { path: PathBuf },
+    /// The file was another file by the time it had been read — swapped,
+    /// written or touched between its header and its hash, or while it was
+    /// hashed — so what was read of it is not one file's (D439).
+    #[error("{} changed while it was read", .path.display())]
+    ChangedWhileRead { path: PathBuf },
 }
 
 impl StoreError {
@@ -1365,6 +1370,28 @@ impl Downloads {
         Ok(self.remounted(read, Identity::Whole))
     }
 
+    /// A whole file's identity read elsewhere — off a file a header was read
+    /// from ([`identity_of`]) — as [`Downloads::followed_identity`] would say
+    /// it: with a test's remount, so the two compare.
+    pub(crate) fn as_read_here(&self, identity: Option<String>) -> Option<String> {
+        self.remounted(identity, Identity::Whole)
+    }
+
+    /// The files [`Downloads::remove`] would delete of `entry` — each at the
+    /// entry's own place, whether or not anything is there.
+    #[must_use]
+    pub fn files_of(&self, entry: &ModelEntry) -> Vec<PathBuf> {
+        let Some(dir) = self.model_dir(&entry.id) else {
+            return Vec::new();
+        };
+        entry
+            .files
+            .iter()
+            .filter_map(|file| file.filename())
+            .map(|name| dir.join(name))
+            .collect()
+    }
+
     /// `read`, with a test's remount added to its device and inode numbers.
     #[cfg_attr(
         not(test),
@@ -1486,6 +1513,16 @@ pub(crate) enum Identity {
 /// neither — and for an identity this platform cannot read. The caller
 /// chooses whether a link is followed: a mark never follows one (the link
 /// is what is at the place), a user entry always does (E8-1).
+/// A whole file's identity — `size:mtime_ns:dev:ino` on Unix — off its
+/// metadata, as a download's mark and an added model's row keep it (D350):
+/// for a caller that has the file open and asks the open file, which no
+/// rename can swap underneath ([`crate::gguf::Header::read_identified`]).
+/// `None` for anything but a regular file.
+#[must_use]
+pub fn identity_of(meta: &std::fs::Metadata) -> Option<String> {
+    identity(meta, Identity::Whole)
+}
+
 fn identity(meta: &std::fs::Metadata, kind: Identity) -> Option<String> {
     if !meta.file_type().is_file() {
         return None;
@@ -1626,8 +1663,6 @@ fn fingerprint(target: &Path) -> Result<String, StoreError> {
     Ok(format!("{}:{}", meta.len(), mtime))
 }
 
-/// The sha256 of `path`, telling `read` the bytes hashed so far and the
-/// file's size: once at zero, once per chunk, and at the end.
 /// One hash under way, which a second asker for the same file waits on.
 #[derive(Default)]
 struct InFlight {
@@ -1691,6 +1726,8 @@ impl Drop for Landing<'_> {
     }
 }
 
+/// The sha256 of `path`, telling `read` the bytes hashed so far and the
+/// file's size: once at zero, once per chunk, and at the end.
 fn hash_file(
     path: &Path,
     stop: &AtomicBool,

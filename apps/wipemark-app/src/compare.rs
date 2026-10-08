@@ -753,8 +753,12 @@ struct Track {
 struct Asked {
     from: f32,
     to: f32,
-    /// Whether a frame has been painted since the ask was made — an
-    /// ask that has had its frame and moved nothing is dropped (D391).
+    /// The horizontal offset asked with it, when one was (a follow puts
+    /// the column back to the start, D383).
+    x: Option<Pixels>,
+    /// Whether a frame has been painted since the ask was made — an ask
+    /// that has had its frame is gone by the end of the next, consumed by
+    /// its landing or dropped (D391, D432).
     painted: bool,
 }
 
@@ -1166,11 +1170,21 @@ impl CompareView {
     /// the original's offset is put back as it stood, which replaces
     /// that scroll before it is drawn: a recompute moves neither pane
     /// (D390).
+    ///
+    /// Put back where the original is *going*, when it is going somewhere:
+    /// an ask of it not landed yet — the result has just led — is a scroll
+    /// the editor holds until its next layout, and putting the old offset
+    /// back over it cancelled that follow (D432).
     fn repaint_original(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let going = self.original_track.asked;
         self.original.update(cx, |original, cx| {
             let stood = original.scroll_offset();
             original.insert("", window, cx);
-            original.set_scroll_offset(stood, cx);
+            let back = match going {
+                Some(asked) => gpui::point(asked.x.unwrap_or(stood.x), px(asked.to)),
+                None => stood,
+            };
+            original.set_scroll_offset(back, cx);
         });
     }
 
@@ -1295,11 +1309,30 @@ impl CompareView {
     /// so whichever pane happened to notify first, the result is asked
     /// first.
     fn look(&mut self, settled: bool, cx: &mut Context<Self>) {
+        // A wrapping result is read only at the end of a frame, so between
+        // frames its move cannot be weighed yet — and once it can, it leads
+        // (D392). Until then the original does not get to lead before it:
+        // the look waits for the end of the frame, where the result is read
+        // first. However the result's position is read, it is looked at
+        // first (D433).
+        if !settled && self.wraps(Side::Result, cx) && self.moved_unseen(Side::Result, cx) {
+            return;
+        }
         if self.scrolled(Side::Result, settled, cx) {
             self.record(Side::Original, settled, cx);
         } else if self.scrolled(Side::Original, settled, cx) {
             self.record(Side::Result, settled, cx);
         }
+    }
+
+    /// Whether `side` has scrolled since the window last looked at it.
+    fn moved_unseen(&self, side: Side, cx: &App) -> bool {
+        let y = f32::from(self.editor(side, cx).read(cx).scroll_offset().y);
+        let seen = match side {
+            Side::Original => self.original_track.seen,
+            Side::Result => self.result_track.seen,
+        };
+        seen != Some(y)
     }
 
     /// Take note of where `side` stands without letting it lead: the
@@ -1314,21 +1347,22 @@ impl CompareView {
     }
 
     /// The end of a frame the panes were painted in: look at both, then
-    /// drop every ask that has had its frame and moved nothing — the
-    /// pane was already where it was asked to go, or at its end. Kept,
-    /// such an ask would take the pane's next real move in its
-    /// direction for its landing; a pane's end moves when lines are
-    /// typed at the bottom, so that next move does come (D391).
+    /// drop every ask that has had its frame — the frame that laid the
+    /// pane out at what was asked. A landing is consumed by the look
+    /// before this; whatever is still here did not land as a landing is
+    /// looked for — the pane was already there, or at its end (D391), or
+    /// its landing was taken note of on another road — and, kept, would
+    /// take the pane's next real move in its direction for its landing:
+    /// one scroll unfollowed (D432).
     fn painted(&mut self, cx: &mut Context<Self>) {
         self.look(true, cx);
         for side in [Side::Result, Side::Original] {
-            let y = f32::from(self.editor(side, cx).read(cx).scroll_offset().y);
             let track = self.track(side);
             if let Some(asked) = track.asked.as_mut() {
-                if !asked.painted {
-                    asked.painted = true;
-                } else if (y - asked.from).abs() < HALF_PIXEL {
+                if asked.painted {
                     track.asked = None;
+                } else {
+                    asked.painted = true;
                 }
             }
         }
@@ -1357,8 +1391,13 @@ impl CompareView {
         };
         let from = f32::from(now.y);
         let track = self.track(side);
+        // An earlier ask that has landed unseen is consumed here, whether
+        // or not a new one is made: a lead that asks nothing — the pane is
+        // already where the other side puts it — left it behind, to take
+        // the pane's next real move for its landing (D432).
         if track.seen != Some(from) && track.asked.is_some_and(|asked| asked.lands(from)) {
             track.seen = Some(from);
+            track.asked = None;
         }
         if x.is_none() && (to - from).abs() < HALF_PIXEL {
             return;
@@ -1366,6 +1405,7 @@ impl CompareView {
         track.asked = Some(Asked {
             from,
             to,
+            x,
             painted: false,
         });
         editor.update(cx, |state, cx| {
@@ -2926,6 +2966,147 @@ mod tests {
             "the panes did not end where the result put them"
         );
         assert_eq!(leads(&view, cx), (0, 1), "the original led too");
+    }
+
+    /// An ask is gone by the end of the frame that lays it out, whatever
+    /// happened on the way (D432, the follow-ups of E7-8, A-L2). Two roads
+    /// that left one behind, each followed by the original's next real
+    /// move — up, inside the stale ask — which must lead:
+    ///
+    /// 1. A lead that asks nothing — the original already stands where the
+    ///    result puts it — when the original's earlier ask has landed and no
+    ///    look has seen it. `drive` takes the landing note and must consume
+    ///    the ask; kept, it took the move for its landing: red.
+    /// 2. An ask whose landing was taken note of without being consumed.
+    ///    Dropped only when it moved nothing (D391's old rule), it outlived
+    ///    its frame and took the move for its landing: red.
+    #[gpui::test]
+    fn an_ask_is_gone_by_the_end_of_the_frame_that_lays_it_out(cx: &mut TestAppContext) {
+        let original = numbered(0, 300);
+        let (view, cx) = window_over(cx, &original, &original, Comparison::default());
+        let height = line_height(&view, cx);
+
+        // 1. The original at row 50, by an ask that landed and that no look
+        // has seen; then a lead that asks nothing.
+        view.update(cx, |view, cx| view.drive(Side::Original, 50.0, None, cx));
+        settle(cx);
+        assert_eq!(offsets(&view, cx).0, -(50.0 * height));
+        view.update(cx, |view, cx| {
+            view.original_track.seen = Some(0.0);
+            view.original_track.asked = Some(Asked {
+                from: 0.0,
+                to: -(50.0 * height),
+                x: None,
+                painted: false,
+            });
+            view.drive(Side::Original, 50.0, None, cx);
+        });
+        let before = leads(&view, cx);
+        wheel(&view, Side::Original, 10.0 * height, cx);
+        assert_eq!(
+            leads(&view, cx).0,
+            before.0 + 1,
+            "the original's move was taken for a landing of an ask left behind"
+        );
+        let (left, right) = offsets(&view, cx);
+        assert_eq!(left, -(40.0 * height));
+        assert_eq!(right, left, "the result did not follow");
+
+        // 2. An ask whose landing was noted and not consumed, then frames.
+        view.update(cx, |view, _| {
+            view.original_track.seen = Some(left);
+            view.original_track.asked = Some(Asked {
+                from: 0.0,
+                to: left,
+                x: None,
+                painted: false,
+            });
+        });
+        for _ in 0..2 {
+            cx.update(|window, _| window.refresh());
+            settle(cx);
+        }
+        let before = leads(&view, cx);
+        wheel(&view, Side::Original, 10.0 * height, cx);
+        assert_eq!(
+            leads(&view, cx).0,
+            before.0 + 1,
+            "an ask outlived its frame and took the original's move"
+        );
+        let (left, right) = offsets(&view, cx);
+        assert_eq!(left, -(30.0 * height));
+        assert_eq!(right, left, "the result did not follow");
+    }
+
+    /// Both panes moved in one frame with the result's lines wrapped: the
+    /// result still wins (D433, A-L3). A wrapped result is read only at the
+    /// end of a frame, so its notification cannot weigh its move; let the
+    /// original's notification lead before it, as it did, and the original
+    /// drags the result away from where it was put: red.
+    #[gpui::test]
+    fn two_panes_moved_in_one_frame_end_where_a_wrapped_result_put_them(cx: &mut TestAppContext) {
+        let original = numbered(0, 300);
+        let result = format!("{}{original}", numbered(1000, 3));
+        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        cx.update(|window, cx| {
+            let pane = view.read(cx).result.clone();
+            pane.update(cx, |pane, cx| {
+                pane.toggle(result::View::SoftWrap, window, cx)
+            });
+        });
+        settle(cx);
+        let height = line_height(&view, cx);
+        let leads_before = leads(&view, cx);
+
+        cx.update(|_, cx| {
+            let view = view.read(cx);
+            let (left, right) = (
+                view.editor(Side::Original, cx),
+                view.editor(Side::Result, cx),
+            );
+            left.update(cx, |editor, cx| {
+                editor.set_scroll_offset(gpui::point(px(0.0), px(-(90.0 * height))), cx)
+            });
+            right.update(cx, |editor, cx| {
+                editor.set_scroll_offset(gpui::point(px(0.0), px(-(40.0 * height))), cx)
+            });
+        });
+        settle(cx);
+        assert_eq!(
+            offsets(&view, cx),
+            (-(37.0 * height), -(40.0 * height)),
+            "the panes did not end where the wrapped result put them"
+        );
+        assert_eq!(
+            leads(&view, cx).0,
+            leads_before.0,
+            "the original led while the wrapped result had moved"
+        );
+    }
+
+    /// A recompute does not cancel a follow on its way (D432, A-L4). The
+    /// result has just led and its ask of the original has not landed —
+    /// the editor holds it until its next layout — when a recompute's empty
+    /// edit puts the original's offset back. Put back as it stood, as
+    /// before, and the follow is lost: the original stays at the top while
+    /// the result is far below: red.
+    #[gpui::test]
+    fn a_recompute_does_not_cancel_a_follow_on_its_way(cx: &mut TestAppContext) {
+        let original = numbered(0, 300);
+        let (view, cx) = window_over(cx, &original, &original, Comparison::default());
+        let height = line_height(&view, cx);
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.drive(Side::Original, 50.0, None, cx);
+                view.repaint_original(window, cx);
+            });
+        });
+        settle(cx);
+        assert_eq!(
+            offsets(&view, cx).0,
+            -(50.0 * height),
+            "the recompute cancelled the follow"
+        );
     }
 
     /// The far side of a wrapped result: rows not laid out are placed

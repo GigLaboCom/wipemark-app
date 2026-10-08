@@ -775,6 +775,13 @@ impl EngineHandle {
         Arc::ptr_eq(&self.shared, &other.shared)
     }
 
+    /// Say a deferred change of duty is pending, or has landed — for a test
+    /// of a surface that reads it (D395).
+    #[cfg(test)]
+    pub fn pending_swap(&self, pending: bool) {
+        self.set_swap_pending(pending);
+    }
+
     /// Say the engine in the slot sends a document to `whereto` — for a
     /// test of a surface whose fake engine stands for an endpoint.
     #[cfg(test)]

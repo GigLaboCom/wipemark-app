@@ -320,14 +320,18 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
 
     // E8-1: each added model's file looked at as the application looks at
     // it — the record trusted while its identity holds — and its fit judged
-    // on its estimate. Read-only: a moved identity is the application's to
-    // write.
+    // on its estimate. A moved identity whose bytes a full read confirmed is
+    // written back, as the application writes it, so the next look is a
+    // comparison and not another read of every byte (D435).
     let added_rows: Vec<(&UserModel, UserState, Fit, bool)> = context
         .place
         .added
         .iter()
         .map(|model| {
             let look = context.downloads.look_at_user(&model.entry);
+            if let Some(identity) = &look.identity {
+                write_back(&context.db, model, identity);
+            }
             let chosen = context.place.chosen.as_deref() == Some(model.id.as_str());
             (
                 model,
@@ -796,6 +800,7 @@ fn kind_of(error: &StoreError) -> &'static str {
         StoreError::NoRoom { .. } => "no room",
         StoreError::Cancelled => "cancelled",
         StoreError::Occupied { .. } => "occupied",
+        StoreError::ChangedWhileRead { .. } => "changed while read",
     }
 }
 
@@ -952,6 +957,28 @@ pub(crate) fn rm(id: &str, io: &mut Io) -> Exit {
         Ok(entry) => entry,
         Err(exit) => return exit,
     };
+    // A file an added model's row names is that model's too, by whatever
+    // road (D439): never removed under it.
+    let files = context.downloads.files_of(&entry);
+    if let Some(model) = user::naming(&context.place.added, &files) {
+        say_err(
+            io,
+            &run::say(
+                Message::CliModelsRmAdded,
+                &args!(
+                    "id" => id,
+                    "path" => model.entry.path.display().to_string(),
+                    "added" => model.id.as_str(),
+                ),
+            ),
+        );
+        tracing::warn!(
+            command = "models rm",
+            exit = 2,
+            "an added model names the file"
+        );
+        return Exit::Usage;
+    }
     let where_ = context
         .downloads
         .model_dir(id)
@@ -1030,7 +1057,11 @@ pub(crate) fn rm(id: &str, io: &mut Io) -> Exit {
 fn verify_added(context: &Context, model: &UserModel, io: &mut Io) -> Exit {
     let id = model.id.as_str();
     let path = model.entry.path.display().to_string();
-    let (message, exit) = match context.downloads.recheck_user(&model.entry).state {
+    let look = context.downloads.recheck_user(&model.entry);
+    if let Some(identity) = &look.identity {
+        write_back(&context.db, model, identity);
+    }
+    let (message, exit) = match look.state {
         UserState::Present => (
             run::say(Message::CliModelsVerifyUserOk, &args!("id" => id)),
             Exit::Clean,
@@ -1085,10 +1116,35 @@ fn not_offered(why: NotOffered) -> String {
             NotOffered::Adapter => Message::ModelsNotOfferedAdapter,
             NotOffered::NoWeights => Message::ModelsNotOfferedNoWeights,
             NotOffered::NotAWriter => Message::ModelsNotOfferedNotAWriter,
+            NotOffered::Speech => Message::ModelsNotOfferedSpeech,
             NotOffered::NoChatTemplate => Message::ModelsNotOfferedNoChatTemplate,
         },
         &FluentArgs::new(),
     )
+}
+
+/// D401's write-back, the command line's own (D435): the identity a full
+/// read found for `model`'s file, whose bytes were the ones recorded, put
+/// into one field of its row — only while that row exists and still records
+/// those bytes, through [`wipemark_store::RowsWriter`], which never creates a
+/// database, never migrates one and reaches no row outside the namespace
+/// (D404). Before, the command line left it to the application, and every
+/// `models list` and every `rewrite` read a touched 12 GB file in full until
+/// the application scanned. Whatever stands in the way — no database,
+/// another schema, the row gone or re-added — writes nothing and refuses
+/// nothing: the look was right, and the next one reads again.
+pub(crate) fn write_back(db: &Path, model: &UserModel, identity: &str) {
+    let Ok(Some(writer)) = wipemark_store::RowsWriter::open(db, user::KEY_PREFIX) else {
+        return;
+    };
+    match writer.update(&model.key(), |value| {
+        user::with_identity(value, &model.entry.sha256, identity)
+    }) {
+        Ok(written) => tracing::info!(model = %model.id, written, "a moved identity, written back"),
+        Err(error) => {
+            tracing::warn!(%error, model = %model.id, "a moved identity was not written back");
+        }
+    }
 }
 
 /// The rows a model the person added is written to (D404) — or the refusal
@@ -1152,19 +1208,24 @@ pub(crate) fn add(
             run::say(Message::CliModelsAddRole, &args!("role" => role)),
         );
     };
-    let header = match Header::read(&path) {
-        Ok(header) => header,
-        Err(GgufError::NotGguf) => {
+    let (header, read_at) = match Header::read_identified(&path) {
+        Ok(read) => read,
+        Err(error @ (GgufError::NotGguf | GgufError::NotAFile)) => {
+            let why = if error == GgufError::NotGguf {
+                Message::ModelsNotOfferedNotGguf
+            } else {
+                Message::ModelsNotOfferedNotAFile
+            };
             return refuse(
                 io,
                 run::say(
                     Message::CliModelsAddNotOffered,
                     &args!(
                         "path" => shown.as_str(),
-                        "why" => run::say(Message::ModelsNotOfferedNotGguf, &FluentArgs::new()),
+                        "why" => run::say(why, &FluentArgs::new()),
                     ),
                 ),
-            )
+            );
         }
         Err(error) => {
             return refuse(
@@ -1189,9 +1250,28 @@ pub(crate) fn add(
             ),
         );
     }
-    let name = match name {
-        Some(name) => name.trim().to_owned(),
-        None => header
+    let writer = match rows_of(&context, io) {
+        Ok(writer) => writer,
+        Err(exit) => return exit,
+    };
+    // One row for one file (D405): a file already added — by this path, or
+    // reached another way, through a link, `..` or a second hard link
+    // (D436) — is added again under its id, and keeps the name and the
+    // context it was added with unless they are given.
+    let known: Vec<UserModel> = writer
+        .all()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(key, value)| UserModel::of_row(&key, value)?.ok())
+        .collect();
+    let this_file = user::FileKey::of(&path);
+    let replacing: Option<&UserModel> = known.iter().find(|model| {
+        model.entry.path == path || user::FileKey::of(&model.entry.path).same(&this_file)
+    });
+    let name = match (name, replacing) {
+        (Some(name), _) => name.trim().to_owned(),
+        (None, Some(model)) => model.entry.name.clone(),
+        (None, None) => header
             .name
             .as_deref()
             .map(str::trim)
@@ -1218,7 +1298,9 @@ pub(crate) fn add(
         );
     }
     let bounds = user::ctx_bounds(header.context_length);
-    let ctx = ctx.unwrap_or_else(|| user::default_ctx(header.context_length));
+    let ctx = ctx
+        .or_else(|| replacing.map(|model| model.entry.ctx))
+        .unwrap_or_else(|| user::default_ctx(header.context_length));
     if !(bounds.0..=bounds.1).contains(&ctx) {
         return refuse(
             io,
@@ -1232,25 +1314,20 @@ pub(crate) fn add(
             ),
         );
     }
-    let writer = match rows_of(&context, io) {
-        Ok(writer) => writer,
-        Err(exit) => return exit,
-    };
-    // One row for one file (D405): a file already added is added again
-    // under its id.
-    let known: Vec<UserModel> = writer
-        .all()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|(key, value)| UserModel::of_row(&key, value)?.ok())
-        .collect();
-    let replacing = known
-        .iter()
-        .find(|model| model.entry.path == path)
-        .map(|model| model.id.clone());
+    let replacing = replacing.map(|model| model.id.clone());
 
-    let identified = match hash_with_meter(&context, &path, io) {
+    // Held to the file whose header was just read (D439).
+    let identified = match hash_with_meter(&context, &path, read_at.as_deref(), io) {
         Ok(identified) => identified,
+        Err(StoreError::ChangedWhileRead { .. }) => {
+            return refuse(
+                io,
+                run::say(
+                    Message::CliModelsAddChanged,
+                    &args!("path" => shown.as_str()),
+                ),
+            )
+        }
         Err(error) => {
             return refuse(
                 io,
@@ -1349,6 +1426,7 @@ pub(crate) fn add(
 fn hash_with_meter(
     context: &Context,
     path: &Path,
+    read_at: Option<&str>,
     io: &mut Io,
 ) -> Result<user::Identified, StoreError> {
     let store = Arc::new(Downloads::new(
@@ -1360,9 +1438,10 @@ fn hash_with_meter(
     let worker = {
         let store = Arc::clone(&store);
         let read = path.to_path_buf();
+        let read_at = read_at.map(str::to_owned);
         std::thread::Builder::new()
             .name("wipemark-cli-add".to_owned())
-            .spawn(move || store.identify(&read))
+            .spawn(move || store.identify_since(&read, read_at.as_deref()))
             .map_err(|source| StoreError::Io {
                 path: path.to_path_buf(),
                 source,

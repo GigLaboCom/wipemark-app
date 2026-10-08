@@ -127,6 +127,13 @@ pub fn chat_support(template: Option<&str>) -> ChatSupport {
     let Some(template) = template.filter(|t| !t.trim().is_empty()) else {
         return ChatSupport::NoTemplate;
     };
+    // A NUL inside: llama.cpp hands the template on as a C string, so the
+    // load would see only what stands before it — another template than the
+    // one the file carries, which is a guess. Refused, as the load is left
+    // to refuse it (the follow-ups of E8-1, B-L7).
+    if template.contains('\0') {
+        return ChatSupport::Unrecognised;
+    }
     if let Some(family) = family_of(template) {
         return ChatSupport::Here(match family {
             Family::Gemma4 { .. } => "gemma4",
@@ -556,6 +563,16 @@ mod tests {
         );
         assert_eq!(chat_support(Some(GEMMA_3)), ChatSupport::LlamaCpp("gemma"));
         assert_eq!(chat_support(None), ChatSupport::NoTemplate);
+        // B-L7: a template with a NUL inside is refused, whatever stands on
+        // either side of it — the load reads only up to the NUL.
+        assert_eq!(
+            chat_support(Some(&format!("{GEMMA_3}\0{GEMMA_4}"))),
+            ChatSupport::Unrecognised
+        );
+        assert_eq!(
+            chat_support(Some(&format!("x\0{QWEN_3_8}"))),
+            ChatSupport::Unrecognised
+        );
         assert_eq!(chat_support(Some("  \n")), ChatSupport::NoTemplate);
         assert_eq!(
             chat_support(Some("{% for m in messages %}{{ m.content }}{% endfor %}")),

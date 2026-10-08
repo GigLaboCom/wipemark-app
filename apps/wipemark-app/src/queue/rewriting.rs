@@ -26,7 +26,7 @@ use wipemark_queue::{
 use wipemark_store::entry::{Action, Entry, Origin, Phase};
 use wipemark_store::JournalRow;
 
-use super::{Look, Price, Queue, QueueEvent, Row, Said, Status};
+use super::{Look, Price, Queue, QueueEvent, Road, Row, Said, Status};
 use crate::clean::{self, Cleanable};
 use crate::drop::Arrival;
 use crate::duty::Performer;
@@ -425,28 +425,54 @@ impl Queue {
         }
     }
 
-    /// Why nothing could rewrite now, in the duty's own words — the
-    /// refusal of the engine handle every rewrite is asked of, which is
-    /// what the duty put there — `None` while something is on duty.
-    fn vacancy(&self, _cx: &gpui::App) -> Option<String> {
+    /// Where a rewrite pushed now would go — this machine, or an endpoint's
+    /// origin — as the person has set the duty; or why nothing would
+    /// rewrite, in the engine handle's words.
+    ///
+    /// The **one fact** a push's consent, the Send-away question and the
+    /// vacancy check are answered from (D430), so the three cannot disagree.
+    /// It is the duty's answer, never the slot's: while a change of duty
+    /// waits for a running job to end (D395) the slot still holds the
+    /// engine leaving, and a consent read off it named an endpoint nobody
+    /// was shown — with the duty turned to nobody, an item went in the line
+    /// agreed to the endpoint just switched away from, to be sent there if it
+    /// was ever put back. The slot speaks only for the duty it was built
+    /// for: a machine this build cannot run refuses there, and that refusal
+    /// is the reason here — but not while a swap is pending, when the slot
+    /// is the engine leaving.
+    fn going(&self, cx: &gpui::App) -> Result<Whereto, String> {
         let Some(work) = &self.work else {
-            return Some(t(Message::StatusIdleNoEngine));
+            return Err(t(Message::StatusIdleNoEngine));
         };
-        work.engine
-            .described()
-            .err()
-            .map(|why| engine_host::refusal_line(&why))
+        let duty = self.preferences.read(cx).duty(Role::Rewrite);
+        let Some(performer) = duty.performer() else {
+            // The sentence the slot will say once the swap to nobody lands.
+            return Err(engine_host::refusal_line(
+                &wipemark_engine::Unavailable::NothingOnDuty,
+            ));
+        };
+        if !work.engine.swap_pending() {
+            if let Err(why) = work.engine.described() {
+                if why != wipemark_engine::Unavailable::NothingOnDuty {
+                    return Err(engine_host::refusal_line(&why));
+                }
+            }
+        }
+        Ok(performer.whereto())
+    }
+
+    /// Why nothing could rewrite now — [`Queue::going`]'s reason — `None`
+    /// while something is on duty.
+    fn vacancy(&self, cx: &gpui::App) -> Option<String> {
+        self.going(cx).err()
     }
 
     /// The endpoint a rewrite would be sent to, when it would leave this
-    /// machine.
+    /// machine — [`Queue::going`]'s destination.
     fn away(&self, cx: &gpui::App) -> Option<String> {
-        let duty = self.preferences.read(cx).duty(Role::Rewrite);
-        match duty.performer()? {
-            Performer::Endpoint(remote) if !duty.performer()?.stays_on_this_machine() => {
-                Some(remote.origin.clone())
-            }
-            _ => None,
+        match self.going(cx) {
+            Ok(Whereto::Away(host)) => Some(host),
+            Ok(Whereto::Here) | Err(_) => None,
         }
     }
 
@@ -458,20 +484,53 @@ impl Queue {
         if self.why_not_rewrite(id, cx).is_some() {
             return;
         }
-        match self.away(cx) {
-            Some(host) => cx.emit(QueueEvent::SendAway {
-                ids: vec![id],
+        self.send_or_push(&[id], Some(existing), cx);
+    }
+
+    /// Rewrite rows `ids` — over `replacing`, for a Replace — where the duty
+    /// sends them now: asked about first when they would leave this machine
+    /// (В1, D393), the question naming where; pushed at once when they stay.
+    fn send_or_push(&mut self, ids: &[u64], replacing: Option<PathBuf>, cx: &mut Context<Self>) {
+        match self.going(cx) {
+            Ok(Whereto::Away(host)) => cx.emit(QueueEvent::SendAway {
+                ids: ids.to_vec(),
                 host,
-                replacing: Some(existing),
+                replacing,
             }),
-            None => self.push_rewrites(&[id], Some(existing), cx),
+            Ok(Whereto::Here) => self.push_rewrites(ids, replacing, Whereto::Here, cx),
+            Err(_) => {}
         }
     }
 
-    /// Yes to a Replace that would send the document away: push it over
-    /// `existing` with the consent of the duty as it stands now.
-    pub fn replace_agreed(&mut self, id: u64, existing: PathBuf, cx: &mut Context<Self>) {
-        self.push_rewrites(&[id], Some(existing), cx);
+    /// Yes to a question the window asked before rewrites went: rows `ids`,
+    /// by `road`, may go to `asked` — the destination the question named.
+    ///
+    /// The consent recorded is that destination and no other (D431). If the
+    /// duty no longer sends a rewrite there — it moved while the question
+    /// was open — the yes answers a question nobody is asking any more: it
+    /// pushes nothing, and the road runs again with the duty as it stands,
+    /// asking again where that road asks (a price, a document leaving this
+    /// machine) and pushing where a fresh press would push without a
+    /// question (a drop or a Replace that now stays here).
+    pub fn agreed(&mut self, ids: &[u64], road: Road, asked: Whereto, cx: &mut Context<Self>) {
+        match self.going(cx) {
+            Ok(now) if now == asked => {
+                let replacing = match &road {
+                    Road::Replace(existing) => Some(existing.clone()),
+                    Road::Price | Road::Arrivals => None,
+                };
+                self.push_rewrites(ids, replacing, asked, cx);
+            }
+            Ok(_) | Err(_) => match road {
+                Road::Price => self.ask_price(ids.to_vec(), cx),
+                Road::Arrivals => self.send_or_push(ids, None, cx),
+                Road::Replace(existing) => {
+                    if let [id] = ids {
+                        self.replace_rewrite(*id, existing, cx);
+                    }
+                }
+            },
+        }
     }
 
     /// Why row `id`'s Rewrite is greyed, or `None`.
@@ -525,14 +584,7 @@ impl Queue {
                 }
                 // A document a drop would send away is asked about once,
                 // per arrival, before it goes (В1).
-                match self.away(cx) {
-                    Some(host) => cx.emit(QueueEvent::SendAway {
-                        ids: rewritable,
-                        host,
-                        replacing: None,
-                    }),
-                    None => self.rewrite(&rewritable, cx),
-                }
+                self.send_or_push(&rewritable, None, cx);
             }
         }
     }
@@ -541,11 +593,16 @@ impl Queue {
     /// thread, and ask the window to say it (D61). Nothing is pushed until
     /// the answer is yes.
     pub fn ask_rewrite_all(&self, cx: &Context<Self>) {
-        let ids = self.rewritable_waiting(cx);
+        self.ask_price(self.rewritable_waiting(cx), cx);
+    }
+
+    /// The price of rewriting rows `ids`, worked out off this thread and
+    /// said as a question naming where they would go (D61, D431).
+    fn ask_price(&self, ids: Vec<u64>, cx: &Context<Self>) {
         let Some(work) = self.work.clone() else {
             return;
         };
-        if ids.is_empty() {
+        if ids.is_empty() || self.vacancy(cx).is_some() {
             return;
         }
         let things: Vec<Arrival> = ids
@@ -566,10 +623,12 @@ impl Queue {
         .detach();
     }
 
-    /// Rewrite rows `ids` — a row's Rewrite, Rewrite all once its price
-    /// was accepted, "Process what arrives".
+    /// Rewrite rows `ids` where the duty sends them now — a row's Rewrite,
+    /// whose button is the consent, its tooltip naming where.
     pub fn rewrite(&mut self, ids: &[u64], cx: &mut Context<Self>) {
-        self.push_rewrites(ids, None, cx);
+        if let Ok(now) = self.going(cx) {
+            self.push_rewrites(ids, None, now, cx);
+        }
     }
 
     /// Push rows `ids` to the batch queue, each with the Retention plan
@@ -577,31 +636,28 @@ impl Queue {
     /// that one named file.
     ///
     /// Every road here is the person's in a window — a row's Rewrite,
-    /// Rewrite all, a drop, Replace — and every one carries where they
-    /// agreed the document may go. With nothing on duty there is no such
-    /// place: nothing is pushed, and the rows stay as they were (D393). A
-    /// replace takes the same road as a Rewrite — the same vacancy check,
-    /// the same question before a document leaves — and differs only in
-    /// where its result goes.
+    /// Rewrite all, a drop, Replace — and every one carries `consent`,
+    /// where they agreed the document may go: the duty's destination when
+    /// they pressed, or the one the question they said yes to named (D361,
+    /// D431). With nothing on duty there is no such place: nothing is
+    /// pushed, and the rows stay as they were (D393, D430). A replace takes
+    /// the same road as a Rewrite — the same vacancy check, the same
+    /// question before a document leaves — and differs only in where its
+    /// result goes.
     pub(super) fn push_rewrites(
         &mut self,
         ids: &[u64],
         replacing: Option<PathBuf>,
+        consent: Whereto,
         cx: &mut Context<Self>,
     ) {
         let Some(work) = self.work.clone() else {
             return;
         };
         let vacant = self.vacancy(cx);
-        // The consent is the duty as it stands while the person asks — a
-        // Rewrite, a Rewrite all whose price said "here" or "sent away", a
-        // drop or a Replace asked about once (D361) — or, where the duty
-        // names nobody, the word of the engine on duty itself, the one the
-        // queue checks against (D370). Neither: nowhere was agreed to, and
-        // nothing is pushed (D393).
-        let Some(consent) = self.whereto(cx).or_else(|| work.engine.sends_to()) else {
+        if vacant.is_some() {
             return;
-        };
+        }
         let mut asked = Vec::new();
         for &id in ids {
             let plan_of = |arrival: &Arrival| self.preferences.read(cx).plan_for(&arrival.intake);
@@ -861,7 +917,14 @@ impl Queue {
                 &args!("count" => open.len()),
             ));
         }
-        let (running, _) = open.iter().find(|(_, state)| *state == State::Running)?;
+        // A change of duty deferred while a job runs (D395): nothing starts
+        // until it lands, and that is said rather than left as a silence
+        // under items that do not move (D434).
+        let running = open.iter().find(|(_, state)| *state == State::Running);
+        if running.is_none() && work.engine.swap_pending() {
+            return Some(t(Message::StatusRewritesSettling));
+        }
+        let (running, _) = running?;
         let current = self.rewrites_done + 1;
         let total = self.rewrites_done + open.len();
         Some(match self.chunks.get(running) {

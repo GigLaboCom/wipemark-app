@@ -84,6 +84,26 @@ fn work(engine: FakeEngine) -> Work {
     work_over(Arc::new(Store::in_memory().expect("memory")), Some(engine))
 }
 
+/// Put an endpoint on this machine on duty, alone: a rewrite stays here.
+/// The engine that answers is the fake in the work's slot — the table's
+/// consent and its vacancy are the duty's (D430), and a test that pushes
+/// needs one, as a person does.
+fn here_on_duty(
+    preferences: &gpui::Entity<crate::settings::Preferences>,
+    cx: &mut VisualTestContext,
+) {
+    preferences.update(cx, |preferences, cx| {
+        preferences.select_serves(crate::duty::Serves::EndpointOnly, cx);
+        preferences.select_provider(crate::engine::Provider::Ollama, cx);
+        preferences.select_endpoint(
+            crate::engine::BaseUrl::parse("http://127.0.0.1:11434").expect("a url"),
+            cx,
+        );
+        preferences.select_model("m".to_owned(), cx);
+    });
+    cx.run_until_parked();
+}
+
 /// Run the window's tasks until `done` says so — the batch queue is a
 /// thread of its own, so this waits for it in real time, at most a minute.
 fn until(cx: &mut VisualTestContext, what: &str, done: impl Fn(&mut VisualTestContext) -> bool) {
@@ -118,7 +138,8 @@ fn a_rows_rewrite_is_one_item_with_its_source_format_and_destination(cx: &mut Te
     let source = scratch.file("article.md", PARAGRAPH.as_bytes());
     let cleaned = scratch.file("article.cleaned.md", b"a clean's result");
     let work = work(swapping());
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
     queue.update(cx, |queue, cx| queue.hand(vec![source.clone()], cx));
     cx.run_until_parked();
     assert_eq!(status(&queue, cx), "waiting");
@@ -181,7 +202,8 @@ fn rewrite_all_prices_first_and_skips_pictures_and_queued_rows(cx: &mut TestAppC
         .expect("a fixture"),
     );
     let work = work(swapping().with_token_delay(Duration::from_millis(20)));
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
     type Asked = Vec<(Vec<u64>, super::Price)>;
     let asked: Arc<std::sync::Mutex<Asked>> = Arc::default();
     let heard = Arc::clone(&asked);
@@ -283,7 +305,8 @@ fn a_kept_chunk_ends_as_partly(cx: &mut TestAppContext) {
         req.prompt[start..stop].to_owned()
     });
     let work = work(echo);
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work));
+    here_on_duty(&preferences, cx);
     queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
     cx.run_until_parked();
     let id = ids(&queue, cx)[0];
@@ -299,7 +322,8 @@ fn cancel_ends_as_cancelled_and_writes_nothing(cx: &mut TestAppContext) {
     let work = work(swapping());
     // Paused, so the item waits and the cancel finds it waiting.
     work.queue.pause();
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
     queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
     cx.run_until_parked();
     let id = ids(&queue, cx)[0];
@@ -318,7 +342,8 @@ fn cancel_ends_as_cancelled_and_writes_nothing(cx: &mut TestAppContext) {
 fn a_paste_is_rewritten_into_its_row_and_nowhere_on_disk(cx: &mut TestAppContext) {
     let scratch = Scratch::new("paste-row");
     let work = work(swapping());
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
     queue.update(cx, |queue, cx| {
         queue.land(vec![Handed::Text(PARAGRAPH.to_owned())], cx)
     });
@@ -370,6 +395,7 @@ fn in_place_sets_the_original_aside(cx: &mut TestAppContext) {
     let source = scratch.file("a.md", PARAGRAPH.as_bytes());
     let work = work(swapping());
     let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
     preferences.update(cx, |preferences, cx| {
         preferences.select_destination(Goes::Replace, cx);
     });
@@ -393,7 +419,8 @@ fn the_row_buttons_run_the_menus_road_and_say_its_reason(cx: &mut TestAppContext
     let source = scratch.file("a.md", PARAGRAPH.as_bytes());
     let work = work(swapping());
     work.queue.pause();
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
     queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
     cx.run_until_parked();
     let id = ids(&queue, cx)[0];
@@ -499,7 +526,8 @@ fn a_restart_reads_the_rows_back(cx: &mut TestAppContext) {
 fn remove_and_clear_finished_take_rows_out_of_the_journal(cx: &mut TestAppContext) {
     let scratch = Scratch::new("remove");
     let work = work(swapping());
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
     queue.update(cx, |queue, cx| {
         queue.land(
             vec![
@@ -541,7 +569,8 @@ fn a_clean_of_a_picture_runs_while_a_rewrite_runs(cx: &mut TestAppContext) {
     );
     // Slow enough that the rewrite is still running when the clean ends.
     let work = work(swapping().with_token_delay(Duration::from_millis(300)));
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
     queue.update(cx, |queue, cx| queue.hand(vec![text, picture], cx));
     cx.run_until_parked();
     let all = ids(&queue, cx);
@@ -566,7 +595,8 @@ fn compare_of_a_rewritten_row_is_the_delivered_text(cx: &mut TestAppContext) {
     let scratch = Scratch::new("compare-rewrite");
     let source = scratch.file("a.md", PARAGRAPH.as_bytes());
     let work = work(swapping());
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work));
+    here_on_duty(&preferences, cx);
     queue.update(cx, |queue, cx| queue.hand(vec![source.clone()], cx));
     cx.run_until_parked();
     let id = ids(&queue, cx)[0];
@@ -658,6 +688,7 @@ fn process_what_arrives_puts_a_drop_straight_in_a_line(cx: &mut TestAppContext) 
     let work = work(swapping());
     work.queue.pause();
     let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
 
     preferences.update(cx, |preferences, cx| {
         preferences.select_on_arrival(super::OnArrival::Clean, cx);
@@ -751,7 +782,8 @@ fn a_rewrite_over_an_existing_result_is_refused_before_it_runs(cx: &mut TestAppC
     let source = scratch.file("article.md", PARAGRAPH.as_bytes());
     let existing = scratch.file("article.rewritten.md", b"somebody's own file");
     let work = work(swapping());
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
     queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
     cx.run_until_parked();
     let id = ids(&queue, cx)[0];
@@ -794,7 +826,8 @@ fn a_rewrite_over_an_existing_result_is_refused_before_it_runs(cx: &mut TestAppC
 fn the_queued_row_is_written_before_its_item_can_end(cx: &mut TestAppContext) {
     let scratch = Scratch::new("queued-first");
     let work = work(swapping());
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
     queue.update(cx, |queue, cx| {
         queue.land(vec![Handed::Text(PARAGRAPH.to_owned())], cx)
     });
@@ -827,7 +860,8 @@ fn a_row_removed_before_its_push_is_never_rewritten(cx: &mut TestAppContext) {
     let scratch = Scratch::new("removed-before-push");
     let source = scratch.file("a.md", PARAGRAPH.as_bytes());
     let work = work(swapping());
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
     queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
     cx.run_until_parked();
     let id = ids(&queue, cx)[0];
@@ -875,7 +909,8 @@ fn a_saved_template_the_rules_refuse_refuses_the_push_by_name(cx: &mut TestAppCo
             &serde_json::from_str::<serde_json::Value>(&saved.to_json()).expect("JSON"),
         )
         .expect("the row is written");
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
     queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
     cx.run_until_parked();
     let id = ids(&queue, cx)[0];
@@ -938,7 +973,8 @@ fn without_a_plan_every_template_on_the_ladder_is_asked() {
 fn the_window_reads_no_row_to_say_the_queue_is_paused(cx: &mut TestAppContext) {
     let scratch = Scratch::new("paused-frame");
     let work = work(swapping());
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
     let events = work.queue.subscribe();
     work.queue.pause();
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -1095,7 +1131,12 @@ fn replace_asks_before_a_document_leaves_the_machine(cx: &mut TestAppContext) {
     assert_eq!(asked[0].2.as_deref(), Some(existing.as_path()));
 
     queue.update(cx, |queue, cx| {
-        queue.replace_agreed(id, existing.clone(), cx)
+        queue.agreed(
+            &[id],
+            super::Road::Replace(existing.clone()),
+            wipemark_queue::Whereto::Away(asked[0].1.clone()),
+            cx,
+        )
     });
     until(cx, "the push", |_| !work.queue.items().is_empty());
     let items = work.queue.items();
@@ -1109,4 +1150,180 @@ fn replace_asks_before_a_document_leaves_the_machine(cx: &mut TestAppContext) {
         items[0].consent
     );
     work.queue.resume();
+}
+
+// ## One fact for consent, and the question's own destination (D430–D434)
+
+/// D430 (A-M1): the queue rewrote on endpoint Y, and the person turned the
+/// duty to nobody while Y's job ran — the swap is deferred (D395), so the
+/// slot still holds Y. A Rewrite now is greyed with the vacancy's reason
+/// and pushes nothing, and neither does a yes to a question that named Y:
+/// no item waits agreed to Y, to be sent there should Y ever be put back.
+/// Let the consent fall back on the slot's word where the duty names
+/// nobody, as it did, and an item is pushed agreed to `Away(Y)`: red.
+#[gpui::test]
+fn a_duty_turned_to_nobody_agrees_to_nothing_while_its_swap_waits(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("consent-pending");
+    let source = scratch.file("article.md", PARAGRAPH.as_bytes());
+    let work = work(swapping());
+    work.queue.pause();
+    let y = wipemark_queue::Whereto::Away("https://y.example.com".to_owned());
+    // The slot: Y's engine, its swap to nobody deferred behind a job.
+    work.engine.sending_to(Some(y.clone()));
+    work.engine.pending_swap(true);
+    // The preferences: nobody on duty, as the person just set it.
+    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+
+    let why = cx.update(|_, cx| queue.read(cx).why_not_rewrite(id, cx));
+    assert!(
+        why.is_some(),
+        "Rewrite is not greyed with nobody on duty and a swap pending"
+    );
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    queue.update(cx, |queue, cx| {
+        queue.agreed(&[id], super::Road::Arrivals, y.clone(), cx)
+    });
+    cx.run_until_parked();
+    std::thread::sleep(Duration::from_millis(100));
+    cx.run_until_parked();
+    let pushed: Vec<_> = work
+        .queue
+        .items()
+        .into_iter()
+        .map(|item| item.consent)
+        .collect();
+    assert!(
+        pushed.is_empty(),
+        "an item was pushed agreed to the endpoint switched away from: {pushed:?}"
+    );
+    assert_eq!(status(&queue, cx), "waiting");
+    work.engine.pending_swap(false);
+    work.queue.resume();
+}
+
+/// D431 (A-L1): a yes records the destination its question named. Asked
+/// whether a Replace may go to Y, the person answers after the duty moved
+/// to Z: the yes pushes nothing, and the question is asked again, naming
+/// Z; a yes to that one pushes, agreed to Z. Record the duty as it stands
+/// at the yes, as before, and the first yes puts the item in the line
+/// agreed to Z, which nobody was asked about: red.
+#[gpui::test]
+fn a_yes_records_where_its_question_said_and_no_other(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("consent-yes");
+    let source = scratch.file("article.md", PARAGRAPH.as_bytes());
+    let existing = scratch.file("article.rewritten.md", b"somebody's own file");
+    let work = work(swapping());
+    work.queue.pause();
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    endpoint_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = refused_over(&queue, &existing, cx);
+
+    let heard: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let hearing = Arc::clone(&heard);
+    cx.update(|_, cx| {
+        cx.subscribe(&queue, move |_, event: &QueueEvent, _| {
+            if let QueueEvent::SendAway { host, .. } = event {
+                hearing.lock().expect("lock").push(host.clone());
+            }
+        })
+        .detach();
+    });
+    queue.update(cx, |queue, cx| queue.replace(id, cx));
+    cx.run_until_parked();
+    let y = heard.lock().expect("lock")[0].clone();
+
+    // The duty moves while the question is open.
+    preferences.update(cx, |preferences, cx| {
+        preferences.select_endpoint(
+            crate::engine::BaseUrl::parse("https://z.example.com").expect("a url"),
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    queue.update(cx, |queue, cx| {
+        queue.agreed(
+            &[id],
+            super::Road::Replace(existing.clone()),
+            wipemark_queue::Whereto::Away(y.clone()),
+            cx,
+        )
+    });
+    cx.run_until_parked();
+    std::thread::sleep(Duration::from_millis(100));
+    cx.run_until_parked();
+    let pushed: Vec<_> = work
+        .queue
+        .items()
+        .into_iter()
+        .map(|item| item.consent)
+        .collect();
+    assert!(
+        pushed.is_empty(),
+        "a yes to {y} pushed an item agreed to where the duty moved: {pushed:?}"
+    );
+    let asked = heard.lock().expect("lock").clone();
+    assert_eq!(
+        asked.len(),
+        2,
+        "the question was not asked again: {asked:?}"
+    );
+    let z = asked[1].clone();
+    assert!(z.contains("z.example.com"), "{asked:?}");
+
+    queue.update(cx, |queue, cx| {
+        queue.agreed(
+            &[id],
+            super::Road::Replace(existing.clone()),
+            wipemark_queue::Whereto::Away(z.clone()),
+            cx,
+        )
+    });
+    until(cx, "the push", |_| !work.queue.items().is_empty());
+    assert_eq!(
+        work.queue.items()[0].consent,
+        Some(wipemark_queue::Whereto::Away(z))
+    );
+    work.queue.resume();
+}
+
+/// D434 (A-L5): while a change of duty waits for a running job (D395)
+/// nothing starts, and the status bar says why — the rewrites wait for the
+/// engine to change — rather than nothing at all over items that do not
+/// move. Take the sentence out of `rewrite_line` and it says nothing: red.
+#[gpui::test]
+fn a_change_of_engine_waited_for_is_said_in_the_status_bar(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("settling-said");
+    let source = scratch.file("article.md", PARAGRAPH.as_bytes());
+    let work = work(swapping());
+    work.engine.pending_swap(true);
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the push", |_| !work.queue.items().is_empty());
+    std::thread::sleep(Duration::from_millis(100));
+    cx.run_until_parked();
+    assert_eq!(
+        status(&queue, cx),
+        "rewrite-queued",
+        "the item started on the engine leaving"
+    );
+    let line = cx.update(|_, cx| queue.read(cx).rewrite_line());
+    assert_eq!(
+        line.as_deref(),
+        Some(t(Message::StatusRewritesSettling).as_str())
+    );
+
+    // The swap lands: the queue is told, as the engine host tells it, and
+    // the item runs.
+    work.engine.pending_swap(false);
+    work.queue.engine_changed();
+    until(cx, "the end", |cx| status(&queue, cx) == "rewritten");
 }

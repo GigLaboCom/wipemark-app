@@ -482,6 +482,9 @@ pub struct Choosable {
     pub id: String,
     /// What the row says.
     pub display: String,
+    /// Why it is listed and cannot be chosen: an added model whose chat
+    /// format this build does not write (D438). `None` for one that can.
+    pub unavailable: Option<String>,
 }
 
 impl From<&ModelEntry> for Choosable {
@@ -489,19 +492,24 @@ impl From<&ModelEntry> for Choosable {
         Choosable {
             id: entry.id.clone(),
             display: entry.display.clone(),
+            unavailable: None,
         }
     }
 }
 
 /// Every model that can be chosen for `role` right now: the catalogue's
 /// entries on this machine, best first, then the models the person added
-/// whose file is the one that was added (U2), by name.
+/// whose file is the one that was added (U2), by name — an added model whose
+/// chat format this build does not write listed and not choosable, its
+/// reason beside it (D438): every Check and every rewrite would read its
+/// whole file to be refused by the load.
 pub fn choosable(
     catalogue: &Manifest,
     role: Role,
     states: &BTreeMap<String, State>,
     added: &[UserModel],
     added_states: &BTreeMap<String, UserState>,
+    added_chats: &BTreeMap<String, ChatSupport>,
 ) -> Vec<Choosable> {
     installed_for(catalogue, role, states)
         .into_iter()
@@ -516,6 +524,10 @@ pub fn choosable(
                 .map(|model| Choosable {
                     id: model.id.clone(),
                     display: model.entry.name.clone(),
+                    unavailable: match added_chats.get(&model.id) {
+                        Some(chat @ ChatSupport::Refused(_)) => Some(chat_line(*chat)),
+                        _ => None,
+                    },
                 }),
         )
         .collect()
@@ -547,6 +559,7 @@ pub fn model_choices(
             SharedString::from(entry.display),
             SharedString::from(entry.id),
         )
+        .unavailable(entry.unavailable)
     }));
     choices
 }
@@ -744,6 +757,12 @@ pub struct Facts {
     pub kv: Option<KvShape>,
     /// Whether this build writes its chat format.
     pub chat: ChatSupport,
+    /// The file's identity when its header was read: the hash that adds it
+    /// is held to the same file (D439).
+    pub identity: Option<String>,
+    /// What makes another path the same file — how a file already added is
+    /// known when it is picked again by another road (D436).
+    pub key: user::FileKey,
 }
 
 impl Facts {
@@ -782,6 +801,8 @@ pub enum Offering {
     Not(NotOffered),
     /// Not a GGUF file.
     NotGguf,
+    /// Not a regular file — a pipe, a device, a folder — and never opened.
+    NotAFile,
     /// Its header could not be read.
     Unreadable(GgufError),
 }
@@ -794,9 +815,10 @@ impl Offering {
         if format_of(path).is_some_and(|format| format != Format::Gguf) {
             return Offering::NotGguf;
         }
-        let header = match Header::read(path) {
-            Ok(header) => header,
+        let (header, identity) = match Header::read_identified(path) {
+            Ok(read) => read,
             Err(GgufError::NotGguf) => return Offering::NotGguf,
+            Err(GgufError::NotAFile) => return Offering::NotAFile,
             Err(error) => return Offering::Unreadable(error),
         };
         let file_name = path
@@ -815,6 +837,8 @@ impl Offering {
                 trained_ctx: header.context_length,
                 kv: header.kv_shape(),
                 chat: wipemark_engine::chat_support(header.chat_template.as_deref()),
+                identity,
+                key: user::FileKey::of(path),
             }),
         }
     }
@@ -825,6 +849,7 @@ impl Offering {
             Offering::Add(_) => return None,
             Offering::Not(why) => not_offered_line(*why),
             Offering::NotGguf => t(Message::ModelsNotOfferedNotGguf),
+            Offering::NotAFile => t(Message::ModelsNotOfferedNotAFile),
             Offering::Unreadable(error) => t_args(
                 Message::ModelsNotOfferedUnreadable,
                 &args!("reason" => error.to_string()),
@@ -840,6 +865,7 @@ pub fn not_offered_line(why: NotOffered) -> String {
         NotOffered::Adapter => Message::ModelsNotOfferedAdapter,
         NotOffered::NoWeights => Message::ModelsNotOfferedNoWeights,
         NotOffered::NotAWriter => Message::ModelsNotOfferedNotAWriter,
+        NotOffered::Speech => Message::ModelsNotOfferedSpeech,
         NotOffered::NoChatTemplate => Message::ModelsNotOfferedNoChatTemplate,
     })
 }
@@ -1133,7 +1159,7 @@ pub fn user_card(
                 .entry
                 .roles
                 .iter()
-                .map(|role| role.id())
+                .map(|role| role_label(*role))
                 .collect::<Vec<_>>()
                 .join(", "),
         ]
@@ -1368,6 +1394,8 @@ mod tests {
             trained_ctx: None,
             kv: None,
             chat: wipemark_engine::ChatSupport::Refused(wipemark_engine::ChatRefusal::Unrecognised),
+            identity: None,
+            key: wipemark_models::user::FileKey::default(),
         };
         let lines = dialog_lines(&facts, 8192, Some(roomy()));
         assert_eq!(lines[0], t(Message::SettingsModelsAddNotCatalogue));
@@ -1408,6 +1436,34 @@ mod tests {
         assert_eq!(ctx_typed("300000", (2048, 262_144)), None);
         assert_eq!(ctx_typed("eight", (2048, 262_144)), None);
         assert_eq!(ctx_typed("", (2048, 262_144)), None);
+    }
+
+    /// B-L8: the card says what the model is for in words — the purpose's
+    /// label from the catalogue, which every language has — never the
+    /// role's id, a format. Put `role.id()` back in `user_card` and the card
+    /// reads "rewrite": red.
+    #[test]
+    fn an_added_models_card_says_its_purpose_in_words() {
+        let model = added("user-a", "A", Path::new("/a.gguf"));
+        let card = user_card(&model, Some(&UserState::Present), Some(roomy()), None, None);
+        let purpose = card.summary.rsplit(" · ").next().expect("a purpose");
+        assert_eq!(purpose, t(Message::SettingsModelsRoleRewrite));
+        assert_ne!(purpose, Role::Rewrite.id());
+        for language in ["en-US", "ru", "de"] {
+            let localizer = wipemark_i18n::Localizer::for_languages(
+                &[language.parse().expect("a language")],
+                wipemark_i18n::Rendering::PlainText,
+            );
+            assert!(
+                localizer.defines(Message::SettingsModelsRoleRewrite),
+                "{language} has no word for the purpose"
+            );
+            assert_ne!(
+                localizer.format(Message::SettingsModelsRoleRewrite),
+                Role::Rewrite.id(),
+                "{language} says the id"
+            );
+        }
     }
 
     /// U2: an added model's card offers Forget and Re-check — never
@@ -1476,13 +1532,107 @@ mod tests {
             &BTreeMap::new(),
             &models,
             &states,
+            &BTreeMap::new(),
         );
         assert_eq!(
             offered.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
             ["user-a"]
         );
         assert_eq!(offered[0].display, "A");
-        assert!(choosable(&catalogue, Role::Embed, &BTreeMap::new(), &models, &states).is_empty());
+        assert!(choosable(
+            &catalogue,
+            Role::Embed,
+            &BTreeMap::new(),
+            &models,
+            &states,
+            &BTreeMap::new()
+        )
+        .is_empty());
+    }
+
+    /// B-L1: a pipe picked as a model is said to be no regular file, and
+    /// never opened — the dialog would wait for a writer. Bounded here.
+    #[cfg(unix)]
+    #[test]
+    fn a_pipe_is_said_to_be_no_file_and_never_opened() {
+        let dir = std::env::temp_dir().join(format!(
+            "wipemark-offer-pipe-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let fifo = dir.join("model.gguf");
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs")
+            .success());
+        let (told, answer) = std::sync::mpsc::channel();
+        let path = fifo.clone();
+        std::thread::spawn(move || {
+            let _ = told.send(Offering::read(&path, 0));
+        });
+        let offered = answer.recv_timeout(std::time::Duration::from_secs(5));
+        if offered.is_err() {
+            let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+        }
+        let offered = offered.expect("reading a pipe's header never answered");
+        assert_eq!(offered, Offering::NotAFile);
+        assert_eq!(offered.line(), Some(t(Message::ModelsNotOfferedNotAFile)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D438 (B-L5): an added model whose chat format this build does not
+    /// write is listed in the selector, greyed with the reason, and cannot be
+    /// chosen — not by its row, and not through the row's value. Take the
+    /// verdict out of `choosable` and it is offered like any other, and every
+    /// Check and rewrite reads its whole file to be refused by the load: red.
+    #[test]
+    fn an_added_model_whose_chat_format_is_not_written_cannot_be_chosen() {
+        let catalogue = catalogue();
+        let models = [
+            added("user-a", "A", Path::new("/a.gguf")),
+            added("user-b", "B", Path::new("/b.gguf")),
+        ];
+        let states: BTreeMap<String, UserState> = ["user-a", "user-b"]
+            .into_iter()
+            .map(|id| (id.to_owned(), UserState::Present))
+            .collect();
+        let mut chats = BTreeMap::new();
+        chats.insert(
+            "user-a".to_owned(),
+            wipemark_engine::ChatSupport::Supported { family: "chatml" },
+        );
+        chats.insert(
+            "user-b".to_owned(),
+            wipemark_engine::ChatSupport::Refused(wipemark_engine::ChatRefusal::Unrecognised),
+        );
+        let offered = choosable(
+            &catalogue,
+            Role::Rewrite,
+            &BTreeMap::new(),
+            &models,
+            &states,
+            &chats,
+        );
+        assert_eq!(offered.len(), 2, "listed, both");
+        assert_eq!(offered[0].unavailable, None);
+        assert_eq!(
+            offered[1].unavailable.as_deref(),
+            Some(t(Message::SettingsModelsAddChatUnrecognised).as_str())
+        );
+        let choices = model_choices(offered);
+        assert!(choices[2].why_unavailable().is_some());
+        assert_eq!(
+            crate::engine::from_value(&choices, &gpui::SharedString::from("user-b")),
+            None,
+            "a greyed row was chosen through its value"
+        );
+        assert_eq!(
+            crate::engine::from_value(&choices, &gpui::SharedString::from("user-a")),
+            Some(Some("user-a".to_owned()))
+        );
     }
 
     /// U2: a model the person added from the folder is no longer a stranger

@@ -1005,6 +1005,28 @@ pub(crate) fn decide(
     }
 }
 
+/// [`decide`], asking `whole` — which reads the chosen model's file, in full
+/// when its identity moved — only when the answer depends on it: an
+/// endpoint on duty is a refusal whatever the file holds, and a refusal
+/// reads nothing (the follow-ups of E8-1, B-M3).
+pub(crate) fn decide_reading(
+    serves: Option<&str>,
+    provider: Option<&str>,
+    chosen: bool,
+    whole: impl FnOnce() -> bool,
+) -> Decision {
+    let configured = matches!(provider, Some("ollama" | "openai-compatible"));
+    let refused_whatever_the_file = match serves.map(str::trim) {
+        Some("endpoint") => true,
+        Some("machine" | "machine-first") => false,
+        _ => configured,
+    };
+    if refused_whatever_the_file {
+        return Decision::NeedsAppForEndpoint;
+    }
+    decide(serves, provider, chosen, whole())
+}
+
 /// The production road to this command's own engine: read the rows,
 /// decide, and load nothing yet — the job's warm-up loads the model.
 fn own_engine(
@@ -1052,20 +1074,32 @@ fn own_engine(
         .and_then(|id| place.added.iter().find(|model| model.id == id))
         .cloned();
     let downloads = Downloads::new(&place.folder, layout.records_dir());
-    let weights = match (&entry, &added) {
-        (Some(entry), _) => matches!(downloads.state(entry), State::Present { .. })
-            .then(|| downloads.weights_path(entry))
-            .flatten(),
-        (None, Some(model)) => (downloads.look_at_user(&model.entry).state
-            == wipemark_models::user::UserState::Present)
-            .then(|| model.entry.path.clone()),
-        (None, None) => None,
-    };
-    let decision = decide(
+    // The chosen model's file is looked at only when the decision turns on
+    // it: an endpoint on duty refuses here whatever it holds, and a refusal
+    // reads nothing — before, it read a touched 12 GB file in full first.
+    let mut weights = None;
+    let decision = decide_reading(
         engine_row("engine.serves").as_deref(),
         engine_row("engine.provider").as_deref(),
         entry.is_some() || added.is_some(),
-        weights.is_some(),
+        || {
+            weights = match (&entry, &added) {
+                (Some(entry), _) => matches!(downloads.state(entry), State::Present { .. })
+                    .then(|| downloads.weights_path(entry))
+                    .flatten(),
+                (None, Some(model)) => {
+                    let look = downloads.look_at_user(&model.entry);
+                    // D401's write-back, the command line's own (D435).
+                    if let Some(identity) = &look.identity {
+                        models::write_back(&layout.db_path(), model, identity);
+                    }
+                    (look.state == wipemark_models::user::UserState::Present)
+                        .then(|| model.entry.path.clone())
+                }
+                (None, None) => None,
+            };
+            weights.is_some()
+        },
     );
     tracing::info!(
         ?decision,
