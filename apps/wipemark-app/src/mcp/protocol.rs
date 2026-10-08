@@ -962,6 +962,9 @@ fn unrun_said(unrun: &Unrun) -> String {
             spelled(&why.to_string())
         ),
         Unrun::Queue(reason) => format!("the queue's item failed ({reason})"),
+        Unrun::Removed => "the document was removed from the application's list before its \
+                           rewrite ended"
+            .to_owned(),
     }
 }
 
@@ -1435,7 +1438,7 @@ fn call(params: &Value, services: &Services, gone: &dyn Fn() -> bool) -> Answer 
                 let row = call.record.then(|| {
                     let entry = Entry {
                         name: asker.name.clone(),
-                        path: asker.path.clone(),
+                        said_path: asker.path.clone(),
                         kind: Some("image".to_owned()),
                         size: asker.size.or(Some(call.bytes.len() as u64)),
                         ..Entry::default()
@@ -1549,7 +1552,7 @@ fn render(response: &Value) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use wipemark_engine::fake::FakeEngine;
 
     use super::*;
@@ -2178,14 +2181,15 @@ mod tests {
     }
 
     /// An English paragraph `lang::detect` reads as English.
-    const PARAGRAPH: &str = "The build takes about twelve minutes on an ordinary laptop, and the \
+    pub(crate) const PARAGRAPH: &str =
+        "The build takes about twelve minutes on an ordinary laptop, and the \
                              second run is much faster because all of the dependencies are \
                              already compiled and kept in the target directory.";
 
     /// The text a request asks to rewrite, every two neighbouring words of
     /// its first half swapped: an answer every guard accepts and the no-op
     /// floor (0.2) does not call a copy.
-    fn swapped(req: &wipemark_engine::ChatRequest) -> String {
+    pub(crate) fn swapped(req: &wipemark_engine::ChatRequest) -> String {
         const BEGIN: &str = "[[[BEGIN TEXT]]]\n";
         const END: &str = "\n[[[END TEXT]]]";
         let start = req.prompt.find(BEGIN).map_or(0, |at| at + BEGIN.len());
@@ -2815,7 +2819,7 @@ mod tests {
     // ## E4-6b — every call a row, every rewrite an item
 
     /// A batch queue and a journal in memory, `engine` on duty.
-    fn working(engine: FakeEngine) -> (Services, crate::journal::Work) {
+    pub(crate) fn working(engine: FakeEngine) -> (Services, crate::journal::Work) {
         let store = std::sync::Arc::new(wipemark_store::Store::in_memory().expect("memory"));
         let (handle, _) = crate::engine_host::EngineHandle::serving(
             std::sync::Arc::new(engine),
@@ -2834,6 +2838,7 @@ mod tests {
             queue: std::sync::Arc::new(queue),
             journal: crate::journal::Journal::new(store),
             engine: handle.clone(),
+            whereto: crate::journal::Going::default(),
         };
         let services = Services {
             rewriter: Some(Rewriter::new(handle, None).with_work(Some(work.clone()))),
@@ -3019,5 +3024,76 @@ mod tests {
             "{started:?}"
         );
         assert_eq!(work.journal.rows().len(), 2, "two agents, two rows");
+    }
+
+    /// D355 (M1): an agent's item taken out of the queue while it waits —
+    /// its row removed from the window — ends the call at once, as a
+    /// refusal that says so, never an empty report and never a call left
+    /// waiting for an end that will not come. Run behind a slow item of
+    /// the window's, so the agent's waits; answered within seconds.
+    #[test]
+    fn a_removed_agent_item_ends_its_call_as_a_refusal() {
+        let slow = FakeEngine::answering(|req, _| swapped(req))
+            .with_token_delay(std::time::Duration::from_millis(20));
+        let (services, work) = working(slow);
+        work.queue
+            .push(wipemark_queue::Request {
+                source: wipemark_queue::Source::Text(PARAGRAPH.repeat(3)),
+                format: wipemark_pipeline::prepare::TextFormat::Plain,
+                destination: wipemark_queue::Destination::Row,
+                options: wipemark_pipeline::Options::for_executor(
+                    wipemark_pipeline::cost::Executor::LocalCpu,
+                ),
+            })
+            .expect("pushed");
+        let (answer, answered) = std::sync::mpsc::channel();
+        let calling = services.clone();
+        std::thread::spawn(move || {
+            let arguments = format!(r#"{{"text":{}}}"#, json!(PARAGRAPH));
+            let _ = answer.send(call_with(&calling, "rewrite", &arguments, ""));
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let agents = loop {
+            // The agent's item, by the row that names it.
+            let named = work.journal.rows().first().and_then(|row| row.item);
+            if let Some(item) = named.map(wipemark_queue::ItemId) {
+                if work.queue.states().iter().any(|(id, _)| *id == item) {
+                    break item;
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the call never queued"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        work.queue.remove(agents);
+        let response = answered
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .expect("the call was left waiting for an item that is gone");
+        let result = &response["result"];
+        assert_eq!(result["isError"], json!(true), "{response}");
+        assert!(result.get("structuredContent").is_none(), "{response}");
+        let said = result["content"][0]["text"].as_str().expect("a sentence");
+        assert!(said.contains("removed"), "{said}");
+        let row = &work.journal.rows()[0];
+        assert_eq!(row.state, "cancelled", "{row:?}");
+    }
+
+    /// D356: the path `_meta` names is kept as a caller's word — shown,
+    /// never a file behind the row the window would open.
+    #[test]
+    fn a_meta_path_is_said_and_never_a_file_behind_the_row() {
+        let (services, work) = working(FakeEngine::answering(|req, _| swapped(req)));
+        call_with(
+            &services,
+            "clean",
+            r#"{"text":"x"}"#,
+            r#","_meta":{"wipemark/origin":"cli","wipemark/name":"notes.md","wipemark/path":"/dev/stdin"}"#,
+        );
+        let entry = wipemark_store::entry::Entry::from_json(&work.journal.rows()[0].entry);
+        assert_eq!(entry.path, None, "{entry:?}");
+        assert_eq!(entry.said_path.as_deref(), Some("/dev/stdin"));
+        assert!(crate::journal::arrival_of(&entry).is_none());
     }
 }

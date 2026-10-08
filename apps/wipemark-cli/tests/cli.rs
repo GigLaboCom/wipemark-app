@@ -702,6 +702,36 @@ fn rewrite_uses_the_running_application() {
     );
 }
 
+/// D362 (L5): `name.rewritten.ext` already there — a window's result, or
+/// anybody's — is refused before anything is read or sent, exit 2 with a
+/// sentence naming `-o` and `--in-place`, the file left byte for byte; `-o`
+/// over it is still the person's word and writes.
+#[test]
+fn a_rewrite_never_writes_over_a_rewritten_file_already_there() {
+    let scratch = Scratch::new("rewritten-exists");
+    scratch.file("note.md", b"First paragraph.\n\nSecond one.\n");
+    scratch.file("note.rewritten.md", b"a window's rewrite");
+    let app = FakeApp::start(rewritten("Paragraph one.\n\nThe second.\n", 0, false));
+    beacon(&scratch, std::process::id(), "127.0.0.1", app.port);
+
+    let output = scratch.run(&["rewrite", "note.md"]);
+    assert_eq!(code(&output), 2, "{}", stderr(&output));
+    let said = stderr(&output);
+    assert!(said.contains("-o") && said.contains("--in-place"), "{said}");
+    assert!(app.calls().is_empty(), "the document was sent anyway");
+    assert_eq!(
+        std::fs::read(scratch.path("note.rewritten.md")).expect("read"),
+        b"a window's rewrite"
+    );
+
+    let output = scratch.run(&["rewrite", "note.md", "-o", "note.rewritten.md"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(
+        std::fs::read_to_string(scratch.path("note.rewritten.md")).expect("read"),
+        "Paragraph one.\n\nThe second.\n"
+    );
+}
+
 /// With the application serving, this command knows no window — the
 /// application's engine is its business, and its MCP tool asks the window
 /// itself (E4-6c, D330) — so a long `--prompts` template is not refused for
@@ -986,6 +1016,9 @@ fn a_rewrite_through_the_application_is_recorded_there() {
     }
     assert_eq!(rows[0].state, "done");
 
+    // The first run's result is somebody's file now: a rewrite never writes
+    // over one (D362).
+    std::fs::remove_file(scratch.path("note.rewritten.txt")).expect("the first result");
     let output = scratch.run(&["rewrite", "note.txt", "--no-record"]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));
     assert_eq!(app.calls()[1]["params"]["arguments"]["record"], false);

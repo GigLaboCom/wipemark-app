@@ -406,7 +406,12 @@ struct Call<'a> {
 /// document's name, path and size, for a file — never its text.
 fn meta_of(source: &Source, bytes: usize) -> Value {
     let mut meta = json!({ "wipemark/origin": "cli", "wipemark/size": bytes });
-    if let Source::File(path) = source {
+    // A path that is not a regular file — `/dev/stdin`, a FIFO — is named
+    // as none (D356), as this command's own row names it.
+    if let Some(path) = match source {
+        Source::File(path) if journal::is_a_file(path) => Some(path),
+        _ => None,
+    } {
         if let Some(name) = path.file_name() {
             meta["wipemark/name"] = json!(name.to_string_lossy());
         }
@@ -587,7 +592,10 @@ fn by_this_command(
     if let Err(refused) =
         row::lay_over_within(&mut overrides, laid.templates, engine.info().ctx_len)
     {
-        journal::note(|draft| draft.failed = Some("templates"));
+        // A template refused is not a document's status on any road: the
+        // application refuses it before it records anything, and so does
+        // this command (D360).
+        journal::discard();
         let line = laid_line(laid.prompts, refused);
         return Err(run::refused(
             io,
@@ -801,7 +809,21 @@ fn deliver(
             Source::File(input) => Some(input.as_path()),
             Source::Stdin => None,
         };
-        if let Err(error) = inplace::write_atomically(file, &bytes, model) {
+        // Beside is a new file only (D362): one that appeared while the
+        // model worked is refused at the publish, as the windows' is.
+        let written = match destination {
+            Destination::Beside(_) => inplace::write_new(file, &bytes, model),
+            _ => inplace::write_atomically(file, &bytes, model),
+        };
+        if let Err(error) = written {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                let line = t_args(
+                    Message::CliRewrittenExists,
+                    &args!("path" => file.display().to_string()),
+                );
+                journal::note(|draft| draft.failed = Some("exists"));
+                return run::refused(io, "rewrite", path, &line, "result exists", Exit::Usage);
+            }
             let line = t_args(
                 Message::CliWriteFailed,
                 &args!(
@@ -1373,12 +1395,19 @@ mod tests {
             interrupted: &interrupted,
             own: &own,
         };
+        // Recorded, as `main` opens it: a template refused leaves no row
+        // here, as it leaves none through the application (D360).
+        crate::journal::begin(wipemark_store::entry::Action::Rewrite, "-");
         let (exit, stdout, stderr) =
             run(PARAGRAPH.as_bytes(), |io| rewrite_with(&flags, io, &roads));
         assert_eq!(exit, Exit::Usage, "{stderr}");
         assert!(stderr.contains("too-long"), "{stderr}");
         assert!(stdout.is_empty(), "{stdout}");
         assert!(asked.asked().is_empty(), "a refused run asked the model");
+        assert!(
+            !crate::journal::drafted(),
+            "a template refusal would be recorded as a failed row"
+        );
 
         let large =
             |_: Option<&Layout>, _: &mut Io| -> Result<(Arc<dyn RewriteEngine>, Executor), Exit> {

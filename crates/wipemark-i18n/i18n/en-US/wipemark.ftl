@@ -1556,7 +1556,7 @@ toolbar-clean-all = Clean all
 toolbar-clean-all-tooltip = Clean every row that is waiting and can be cleaned, one at a time, in the order they arrived. Greyed out while there is none.
 queue-column-status = Status
 queue-status-waiting = Not started
-queue-status-waiting-tooltip = Nothing has been asked of it yet, and nothing will happen until you ask: Clean or Rewrite in its Actions menu, or Clean all and Rewrite all on the toolbar. Settings › General › Process what arrives can do it as things land.
+queue-status-waiting-tooltip = Nothing has been asked of it yet, and nothing will happen until you ask: Clean or Rewrite on its row, or Clean all and Rewrite all on the toolbar. Settings › General › Process what arrives can do it as things land.
 queue-status-unable = Cannot clean
 queue-status-queued = Queued to clean
 queue-status-queued-tooltip = Waiting for the clean ahead of it: one thing is cleaned at a time, in the order asked for.
@@ -1786,6 +1786,27 @@ cli-arg-out-rewrite = Output file, or `-` for standard output. Defaults to `<nam
 cli-journal-too-old = Nothing was recorded in the application's journal: its database at { $path } is from an older version, and the application brings it up to date the next time it starts.
 cli-journal-newer = Nothing was recorded in the application's journal: its database at { $path } was written by a newer version of { -brand-name }.
 cli-journal-unwritable = Nothing was recorded in the application's journal: its database at { $path } could not be written ({ $reason }).
+
+## E4-6b — the host verification's fixes
+##
+## A row a caller waits for is cancelled, not removed; a result already
+## where a rewrite would go is said before anything runs; documents asked
+## for while rewriting stayed here are not sent away without a second yes.
+## $path is a file's path, $host and $was an endpoint's origin, never
+## translated.
+queue-action-remove-waited = An agent or the command line is waiting for this rewrite. Cancel it first: the caller is told, and the row can then be removed.
+queue-said-rewrite-exists = A file is already at { $path }, and a rewrite never writes over a file it did not make. Nothing was rewritten; “Replace the existing result” in the Actions menu writes over that one file.
+rewrite-consent-title = { $count ->
+        [one] Send the waiting document to { $host }?
+       *[other] Send the { $count } waiting documents to { $host }?
+    }
+rewrite-consent-body-here = They were asked for while rewriting stayed on this machine. The engine on duty now is { $host }: each would be sent there to be rewritten.
+rewrite-consent-body-away = They were asked for while rewriting went to { $was }. The engine on duty now is { $host }: each would be sent there instead.
+rewrite-consent-hold = Nothing starts until you answer. Cancel keeps them waiting; Resume on the toolbar asks again, and so does putting another engine on duty.
+rewrite-consent-go = Send them
+status-rewrites-asking = Rewrites wait for your answer: send them to { $host }?
+queue-status-asking-tooltip = Waiting for your answer: the engine on duty would send it to { $host }, which is not where it was asked to go.
+cli-rewritten-exists = { $path } is already there, and a rewrite never writes over a file it did not make. Name another file with -o, or replace the input itself with --in-place, which sets the original aside first. Nothing was rewritten.
 
 ## E4-6c
 ##

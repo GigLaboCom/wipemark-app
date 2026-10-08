@@ -514,9 +514,28 @@ pub(crate) fn destination(
             }
             (Source::Stdin, None) => Destination::Stdout,
             (Source::File(input), None) => match input.file_name() {
-                Some(name) => Destination::Beside(
-                    input.with_file_name(with_infix(&name.to_string_lossy(), infix)),
-                ),
+                Some(name) => {
+                    let beside = input.with_file_name(with_infix(&name.to_string_lossy(), infix));
+                    // A rewrite never writes over a file already there —
+                    // one a window wrote, or anybody's — as the windows
+                    // refuse it (D261, D362): `-o` names another, and
+                    // `--in-place` replaces the input itself.
+                    if command == "rewrite" && std::fs::symlink_metadata(&beside).is_ok() {
+                        let line = t_args(
+                            Message::CliRewrittenExists,
+                            &args!("path" => beside.display().to_string()),
+                        );
+                        return Err(refused(
+                            io,
+                            command,
+                            path,
+                            &line,
+                            "result exists",
+                            Exit::Usage,
+                        ));
+                    }
+                    Destination::Beside(beside)
+                }
                 // No last component — `..`, `/`. Nothing of that shape is a
                 // file, and the read below says what it is instead.
                 None => Destination::Stdout,

@@ -458,9 +458,14 @@ call when it is the application that rewrites.
 **`name.rewritten.ext`** (В8, E4-6b — a format change: until E4-6b a
 rewrite was written to the clean's `name.cleaned.ext`, so a clean and a
 rewrite of one file overwrote each other), `-o`, stdout, or `--in-place`
-through `wipemark_intake::inplace`. A result already at that name is still
-replaced, as `clean` replaces its own — the windows refuse one (D261); the
-command line has not changed that. The human
+through `wipemark_intake::inplace`. A result already at
+`name.rewritten.ext` is **refused**, as the windows refuse one (D261,
+D362): exit 2 before the input is read or anything is sent, with a sentence
+naming `-o` (another file, or that one by name — `-o` is the person's word
+and replaces) and `--in-place`; the existing file is left byte for byte.
+The write itself is `inplace::write_new`, which refuses a file that
+appeared while the model worked (exit 2, the same sentence). `clean` keeps
+replacing its own `name.cleaned.ext`, which the parity table pins. The human
 report says what Layer A found in the input, how many paragraphs were
 rewritten and how many kept their cleaned original, that Layer B is
 best-effort, the seed, where the result went, who rewrote it and the third
@@ -486,7 +491,15 @@ the verdict (`nothing-found`, `cleaned`, `partly`, `not-cleaned`,
 `failed`; `findings` for a look; `rewritten` for a rewrite) with its
 counts, and where the result went (`file`, `caller` for standard output,
 `nowhere`) — never the text. A run refused before its input was read
-records nothing.
+records nothing, and neither does a `rewrite` whose `--prompts` template
+is refused — on this command's own road too, where the `too-long` rule is
+asked after the read (D360): a template refused is not a document's
+status, on any road. A path that is **not a regular file** — a FIFO,
+`<(…)`, a device — or any name under `/dev` or `/proc` (`/dev/stdin` names
+this process's descriptor, a file here and a terminal in the application)
+is recorded as no file, with no name and no path (D356), and the call through the application names none in `_meta`:
+the application would otherwise open it to read the row back, and an open
+of a FIFO nobody writes to never returns.
 
 **The one write, never a create or a migration (В5, D314).** Every other
 open of `wipemark.db` here is read-only; the journal goes through

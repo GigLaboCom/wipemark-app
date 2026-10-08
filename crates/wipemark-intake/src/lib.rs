@@ -379,8 +379,10 @@ pub fn of_path(path: &Path) -> Intake {
 
     // An empty file is a text file with nothing in it — which is what
     // every editor on this machine will say — but only when it really
-    // is empty, rather than unreadable.
-    if head.is_empty() && intake.size == Some(0) && intake.format.is_none() {
+    // is empty, rather than unreadable, and really a file: a FIFO or a
+    // device says a length of nought too, and is not read (D356).
+    let regular = metadata.as_ref().is_some_and(std::fs::Metadata::is_file);
+    if regular && head.is_empty() && intake.size == Some(0) && intake.format.is_none() {
         intake.kind = Kind::Text;
         intake.format = Some(Format::PlainText);
         intake.evidence = Evidence::Content;
@@ -388,8 +390,14 @@ pub fn of_path(path: &Path) -> Intake {
     intake
 }
 
-/// The front of a file, or `None` if it would not open.
+/// The front of a file, or `None` if it would not open — or is not a
+/// regular file: a FIFO with no writer, a terminal or a socket blocks an
+/// open or a read for as long as nobody writes, and whoever asked what a
+/// path is must never wait on that (D356). A device is not read either.
 fn head_of(path: &Path) -> Option<Vec<u8>> {
+    if !std::fs::metadata(path).ok()?.is_file() {
+        return None;
+    }
     let file = std::fs::File::open(path).ok()?;
     let mut head = Vec::with_capacity(HEAD);
     file.take(HEAD as u64).read_to_end(&mut head).ok()?;
@@ -664,5 +672,33 @@ mod tests {
         assert_eq!(intake.kind, Kind::Data);
         // The size is the file's, and it did not come from the read.
         assert_eq!(intake.size, Some(big.len() as u64));
+    }
+
+    /// D356: a FIFO nobody writes to is answered at once — as a path
+    /// with nothing read from it — and never opened: an open for reading
+    /// blocks until a writer comes, and the journal's read of a row the
+    /// command line left (`clean <(…)`, `/dev/stdin`) waited forever on
+    /// it. Asked on a thread of its own, so a regression fails this test
+    /// rather than hanging the suite.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_with_no_writer_is_never_opened() {
+        let scratch = Scratch::new("fifo");
+        let fifo = scratch.0.join("pipe");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs");
+        assert!(made.success());
+        let (answer, answered) = std::sync::mpsc::channel();
+        let asked = fifo.clone();
+        std::thread::spawn(move || {
+            let _ = answer.send(of_path(&asked));
+        });
+        let intake = answered
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the FIFO was opened and waited on");
+        assert_eq!(intake.path.as_deref(), Some(fifo.as_path()));
+        assert_eq!(intake.format, None);
     }
 }

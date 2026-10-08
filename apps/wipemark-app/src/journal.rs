@@ -39,10 +39,10 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use wipemark_intake::{Arrived, Handed, Intake, Kind};
-use wipemark_queue::{End, ItemId, Queue, QueueEvent};
+use wipemark_queue::{End, ItemId, Queue, QueueEvent, Whereto};
 use wipemark_store::entry::{Action, Delivered, Entry, Origin, Outcome, Phase};
 use wipemark_store::{Change, JournalRow, NewRow, Store};
 
@@ -236,10 +236,33 @@ impl Journal {
                                 },
                             );
                         }
+                        Command::Queue { key, row, push } => {
+                            // The row names its item before the item can
+                            // start: an end the bookkeeper writes always
+                            // finds it, and nothing written here can land
+                            // after that end (D358).
+                            if let Some(&id) = ids.get(&key) {
+                                journal.change(
+                                    id,
+                                    &Change {
+                                        action: row.action.as_str(),
+                                        state: row.phase.as_str(),
+                                        item: row.item,
+                                        ended: row.ended,
+                                        entry: &row.entry.to_json(),
+                                    },
+                                );
+                            }
+                            push();
+                        }
                         Command::Forget { key } => {
                             if let Some(id) = ids.remove(&key) {
                                 journal.remove(id);
                             }
+                        }
+                        #[cfg(test)]
+                        Command::Gate(gate) => {
+                            let _ = gate.recv();
                         }
                     }
                 }
@@ -264,10 +287,32 @@ pub struct Written {
 }
 
 enum Command {
-    Record { key: u64, row: Box<Written> },
-    Adopt { key: u64, id: i64 },
-    Change { key: u64, row: Box<Written> },
-    Forget { key: u64 },
+    Record {
+        key: u64,
+        row: Box<Written>,
+    },
+    Adopt {
+        key: u64,
+        id: i64,
+    },
+    Change {
+        key: u64,
+        row: Box<Written>,
+    },
+    /// Write row `key`, then push its item — in that order, on the writer's
+    /// thread (D358).
+    Queue {
+        key: u64,
+        row: Box<Written>,
+        push: Box<dyn FnOnce() + Send>,
+    },
+    Forget {
+        key: u64,
+    },
+    /// Wait for the test to say go: the writer held still, so a test can
+    /// see what lands while it is.
+    #[cfg(test)]
+    Gate(flume::Receiver<()>),
 }
 
 /// The windows' road to the journal: asked from the GPUI thread, written
@@ -299,6 +344,26 @@ impl Writer {
         });
     }
 
+    /// Row `key` is now `row`, which names an item; `push` puts the item in
+    /// the batch queue once the row is written, never before (D358) — so
+    /// an item that ends at once still finds its row, and its end is never
+    /// written over by the "queued" that announced it.
+    pub fn queue(&self, key: u64, row: Written, push: impl FnOnce() + Send + 'static) {
+        let _ = self.commands.send(Command::Queue {
+            key,
+            row: Box::new(row),
+            push: Box::new(push),
+        });
+    }
+
+    /// Hold the writer until the answer is sent (or dropped) — for a test.
+    #[cfg(test)]
+    pub fn gate(&self) -> flume::Sender<()> {
+        let (go, gate) = flume::bounded(1);
+        let _ = self.commands.send(Command::Gate(gate));
+        go
+    }
+
     /// Row `key` is gone.
     pub fn forget(&self, key: u64) {
         let _ = self.commands.send(Command::Forget { key });
@@ -313,6 +378,50 @@ pub struct Work {
     pub journal: Arc<Journal>,
     /// The engine on duty — what a window prices a rewrite by (D61).
     pub engine: crate::engine_host::EngineHandle,
+    /// Where the duty sends a document now, as the main window last worked
+    /// it out from the preferences — what the batch queue checks an item's
+    /// consent against before it starts (D361).
+    pub whereto: Going,
+}
+
+/// Where a rewrite on duty would send a document now: this machine, an
+/// endpoint's origin, or `None` — nothing on duty, or not worked out yet
+/// (D361). Set on the GPUI thread whenever the preferences change, read on
+/// the batch queue's.
+#[derive(Clone, Default)]
+pub struct Going(Arc<Mutex<Option<Whereto>>>);
+
+impl Going {
+    pub fn set(&self, now: Option<Whereto>) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = now;
+    }
+
+    pub fn get(&self) -> Option<Whereto> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+/// The batch queue's engine source in the application: the engine handle,
+/// and where the duty would send a document — so an item consented to stay
+/// here is asked about before it goes to an endpoint (D361).
+pub struct Duty {
+    pub engine: crate::engine_host::EngineHandle,
+    pub going: Going,
+}
+
+impl wipemark_queue::EngineSource for Duty {
+    fn for_item(
+        &self,
+    ) -> Result<Arc<dyn wipemark_engine::RewriteEngine>, wipemark_engine::Unavailable> {
+        wipemark_queue::EngineSource::for_item(&self.engine)
+    }
+
+    fn whereto(&self) -> Option<Whereto> {
+        self.going.get()
+    }
 }
 
 /// The application's work as a GPUI global, for the windows.
@@ -548,6 +657,7 @@ pub fn entry_of(arrival: &Arrival) -> Entry {
                 .filter(|_| intake.arrived == Arrived::AsText)
                 .map(|path| path.to_string_lossy().into_owned()),
         },
+        said_path: None,
         kind: Some(kind_id(intake.kind).to_owned()),
         format: intake.format.map(|format| format.name().to_owned()),
         encoding: intake.encoding.map(|encoding| encoding.name().to_owned()),
@@ -563,10 +673,20 @@ pub fn entry_of(arrival: &Arrival) -> Entry {
 
 /// The thing a row names, read again from its file — what a row from an
 /// earlier session or another surface can still be cleaned or rewritten
-/// from. `None` when the row has no file behind it. Blocking: it reads the
-/// head of the file.
+/// from. `None` when the row has no file behind it — and when its path is
+/// not a regular file (or a folder) any more: a FIFO with no writer, a
+/// terminal's `/dev/stdin`, a device, a socket. Opening one of those to
+/// read its head blocks for as long as nobody writes, and a read of the
+/// journal must never wait on a row (D356). A path a caller only named
+/// (`said_path`) is never looked at. Blocking: it reads the head of the
+/// file.
 pub fn arrival_of(entry: &Entry) -> Option<Arrival> {
     let path = PathBuf::from(entry.path.as_ref()?);
+    // `metadata` follows a link: a link to a regular file is the file.
+    let meta = std::fs::metadata(&path).ok()?;
+    if !(meta.is_file() || meta.is_dir()) {
+        return None;
+    }
     let intake = wipemark_intake::of_path(&path);
     Some(Arrival {
         handed: Handed::Path(path),
