@@ -337,7 +337,10 @@ path below the folder, `/`-separated). Another tool's file at the
 entry's own place with its name and not its contents leaves the entry
 `absent` and adds "another tool's file of its name is at *path*, left as
 it is" (`foreign_at`), and so does a `<file>.part` there that no
-download of ours opened (D351) — it is not `partial`. Then the weight files in the folder the catalogue
+download of ours is known to have opened (D351) — it is not `partial`, and
+the line says "a partial file Wipemark has no record of is at *path*"
+(D375). A download of ours whose device and inode numbers a remount moved
+is still ours (D375; `model-downloads.md`). Then the weight files in the folder the catalogue
 did not put there, from `wipemark_models::scan::weights_under` — listed,
 never verified, never loaded, and the heading says so; the catalogue's
 files, wherever found, and a `foreign_at` file are not among them. A
@@ -355,8 +358,12 @@ Occupied has its own sentence (`cli-models-pull-occupied`, A4): nothing
 was fetched and the file is left as it is, so it says to move the file
 away and run pull again rather than promise a resume a second pull would
 be refused the same way
-(`an_occupied_place_is_not_promised_a_resume`). A file whose download's
-mark no longer names it (D350) is another tool's in the same way.
+(`an_occupied_place_is_not_promised_a_resume`); a `.part` in the way is
+said as a partial file Wipemark has no record of
+(`cli-models-pull-occupied-part`, D375). A file whose download's
+mark no longer names it (D350) is another tool's in the same way. A
+records folder that will not take the `.part`'s mark refuses the pull
+before anything is asked of the server, with no `.part` left (D375).
 Otherwise `Downloads::fetch` on a thread of its own (which resumes a
 `.part`), with the typed `StoreError` sent back so each failure has its
 own sentence. Progress goes to **stderr**: one line redrawn at most twice
@@ -391,7 +398,8 @@ product wrote — a file at its place carrying the download's mark under
 elsewhere, at its place without the mark (a download by a build from
 before the mark included), or another tool's file of its name — is left,
 and the answer is "*id* is at *path*, where Wipemark did not download it;
-nothing was removed" (`models_rm_leaves_another_tools_file_at_the_entrys_place`,
+nothing was removed" — or, for a `.part`, "*id* has a partial file at
+*path* that Wipemark has no record of; nothing was removed" (D375) (`models_rm_leaves_another_tools_file_at_the_entrys_place`,
 and `scripts/verify/owner-fixes/rm-in-a-mirror.sh`, which says KEPT). Removing the chosen model says that the
 application will show no model chosen until another is picked — and
 leaves the row alone.

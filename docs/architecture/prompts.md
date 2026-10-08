@@ -204,7 +204,12 @@ sentence. Errors stop a save; warnings are said.
 | A1 `variables-differ` | an adaptation whose variables are not its source's, counted |
 
 `render` validates every template again before it renders — the shipped
-ones too — so no template reaches a model the validator would refuse.
+ones too — so no template reaches a model the validator would refuse. A
+saved row the validator refuses — one saved before a rule existed, such as
+R9 before D369 — is not left to be found there: the window's Rewrite
+checks the templates the job will use as it builds the item, and refuses
+the row by the template's key and the rule, nothing pushed (D374), as the
+command line and an agent's call refuse a template they are handed.
 
 ### Adaptations (Q-B22)
 
