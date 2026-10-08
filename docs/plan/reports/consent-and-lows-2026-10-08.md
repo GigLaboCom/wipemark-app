@@ -114,4 +114,4 @@ finding; with the absolute path every case is as it should be.
 
 ## CI
 
-CI
+GitHub Actions `gate` run 37768575597 on `9ad3e00` (the branch with every fix, the docs and this report before this section was filled): **gate** (fmt, clippy, test, deps, features) passed in 29m22s; **macos** (clippy, tests, llama-native prebuilt with Metal) passed in 22m47s; **native** (llama.cpp prebuilt + Vulkan, model-free) passed in 1m39s. The commit that fills this section changes this file only.
