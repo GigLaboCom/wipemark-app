@@ -950,7 +950,7 @@ pub(super) fn format_of(found: Option<Format>) -> TextFormat {
 /// What a window asks of the model: a paraphrase at the default intensity,
 /// the effort the engine on duty takes (D61), Layer A at its defaults — the
 /// same as an agent's call with no arguments.
-fn asked(format: TextFormat) -> Asked {
+pub(super) fn asked(format: TextFormat) -> Asked {
     Asked {
         tactic: Tactic::Paraphrase,
         intensity: Intensity::default(),
@@ -989,7 +989,7 @@ fn build(work: &Work, asked_for: Vec<(u64, Arrival, Destination, Option<Whereto>
             let format = format_of(arrival.intake.format);
             let options = asked(format).options(executor, overrides.clone(), pivot);
             let text = clean::text_of(&arrival);
-            let price = match (&text, &options, &info) {
+            let planned = match (&text, &options, &info) {
                 (Ok(text), Ok(options), Some(info)) => plan(
                     &Document {
                         text: text.clone(),
@@ -998,18 +998,42 @@ fn build(work: &Work, asked_for: Vec<(u64, Arrival, Destination, Option<Whereto>
                     options,
                     info,
                 )
-                .ok()
-                .map(|planned| {
+                .ok(),
+                _ => None,
+            };
+            // A saved template this job would use and the validator refuses
+            // — one saved before a rule existed, such as D369's invisible
+            // character — refuses the push by its name, as a template handed
+            // to the command line or an agent's call is refused, rather than
+            // being found out only as the job renders (D374).
+            if let Ok(options) = &options {
+                if let Some((key, rule)) = refused_template(planned.as_ref(), options) {
+                    tracing::warn!(
+                        id,
+                        key = key.as_str(),
+                        rule,
+                        "a rewrite was refused: a saved template it would use breaks a rule"
+                    );
+                    return Built {
+                        id,
+                        request: Err(Unqueued::Refused(format!("template {key}: {rule}"))),
+                        price: None,
+                        consent,
+                    };
+                }
+            }
+            let price = match (&options, planned) {
+                (Ok(options), Some(planned)) => {
                     let cost = planned.cost(options, pace.tokens_per_second);
-                    Price {
+                    Some(Price {
                         documents: 1,
                         calls_expected: u64::from(cost.calls.expected),
                         calls_worst: u64::from(cost.calls.worst),
                         tokens_worst: cost.tokens_out.worst,
                         seconds_expected: cost.seconds.map(|seconds| seconds.expected),
                         away: None,
-                    }
-                }),
+                    })
+                }
                 _ => None,
             };
             let request = match (options, text) {
@@ -1040,6 +1064,42 @@ fn build(work: &Work, asked_for: Vec<(u64, Arrival, Destination, Option<Whereto>
             }
         })
         .collect()
+}
+
+/// The first saved template a job with `options` would use that the
+/// validator refuses — its row key and the rule — or `None` (D374).
+///
+/// With the document planned, the templates are the ones the plan chose for
+/// its language: what it had to fall back from is exactly what the job
+/// would have refused as it rendered. Without a plan — a file that cannot
+/// be read now, no engine to plan for — every saved template of a tactic on
+/// the job's ladder is asked, in any language: refusing a push over a
+/// template it might not have used is the cheaper mistake.
+pub(super) fn refused_template(
+    planned: Option<&wipemark_pipeline::job::Planned>,
+    options: &wipemark_pipeline::Options,
+) -> Option<(String, &'static str)> {
+    use wipemark_pipeline::prompt::row;
+    if let Some(planned) = planned {
+        return planned.fallbacks.first().map(|fallback| {
+            (
+                row::key(fallback.slot),
+                fallback
+                    .problems
+                    .first()
+                    .map_or("invalid", |problem| problem.rule()),
+            )
+        });
+    }
+    options
+        .overrides
+        .iter()
+        .filter(|(slot, _)| options.ladder.contains(&slot.tactic()))
+        .find_map(|(slot, saved)| {
+            row::admit(slot, saved, &options.overrides, None)
+                .first_error()
+                .map(|problem| (row::key(slot), problem.rule()))
+        })
 }
 
 /// What rewriting `things` would cost, summed (D61). Blocking: it reads
