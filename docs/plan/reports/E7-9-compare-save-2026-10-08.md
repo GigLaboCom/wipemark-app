@@ -8,8 +8,16 @@
 - **Branch:** `e7/compare-save`, from `feat/e0-e6-shell` at `4b54f52` + the
   task commit `a0786f5`. `feat/e0-e6-shell` moved to `08a1540` (E7-8, which
   touches `compare.rs`'s scrolling) before the work began; it was merged in
-  first (`52ddcc5`), both sides kept. __BASE_CHECK__
-- **Commits:** __COMMITS__
+  first (`52ddcc5`), both sides kept. It moved again while the work was
+  being finished (E8-1 merged, `3cc86ca`) and was merged in once more
+  before the gates (`7e2f8bf`): two conflicts, both additive — `config.rs`'s
+  test imports (the union) and `dialog.rs`'s tests (both kept).
+- **Commits:** `7dfb94c` (everything: the code, its tests, the docs, the
+  red-check and gates scripts); `7e2f8bf` (the second merge of
+  `feat/e0-e6-shell`); `ba000c2` (clippy, which the first gates run caught
+  after `7e2f8bf` had been pushed: a `type` for the link's function, and
+  four borrows that needed no `mut` — the CI runs on `7e2f8bf` were
+  cancelled); then this report.
 - **Built in a Docker container** with no display and no GPU: no window was
   opened. What only a window shows is in the checklist at the end.
 
@@ -40,7 +48,21 @@ in the encoding the text arrived in.
 
 The red checks are `docs/plan/reports/E7-9-compare-save-2026-10-08-red.py`
 (the shape of the E7-8 script: each edit applied, the named test run, the
-file restored byte for byte). Last run: __RED__.
+file restored byte for byte). **34 of 34 red.** The first full run, over 32
+checks, was 31 of 32: *autosave waits for the quiet, not a moment less* came
+back **green**, because the window test timed its waits off the very
+constant the check shortened. The test now waits a written 1.3 s (nothing
+saved) and then 0.3 s more (saved), and goes red. Two checks were added
+after that run, for the rule that a Save that cleans asks its row first
+(below), and the three were run again: 3 of 3 red.
+
+One gap found while the checks ran, and closed before the commit: a Save
+that cleans, from a window opened on a row the batch queue was rewriting,
+would have written `name.cleaned.ext` beside a file mid-rewrite — the row's
+own Clean is greyed then. The window now asks its row first
+(`Told::Cleans`); a row in the line of cleans, queued or running a rewrite,
+says no, and the line under the result says the document is being cleaned
+or rewritten (`a_save_that_cleans_waits_while_the_row_is_rewritten`).
 
 ## Decisions
 
@@ -134,11 +156,44 @@ file restored byte for byte). Last run: __RED__.
 
 ## Gates
 
-__GATES__
+Once, at the end, on `ba000c2`, all `--locked`, by
+`docs/plan/reports/E7-9-compare-save-2026-10-08-gates.sh` (every log kept):
+
+| gate | exit | counts |
+|---|---|---|
+| `rustup run nightly rustfmt --edition 2021 --check $(find crates apps -name '*.rs')` | 0 | |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | 0 | |
+| `cargo test --workspace --locked` | 0 | 1748 passed, 0 failed, 7 ignored |
+| `scripts/check-dep-direction.sh` | 0 | |
+| `scripts/check-gpui-pin.sh` | 0 | |
+| `cargo check --workspace --no-default-features --locked` | 0 | |
+| `cargo check --workspace --features local-llama --locked` | 0 | |
+| `cargo test -p wipemark-app --features local-llama --locked` | 0 | 700 passed, 0 failed, 2 ignored |
+| `cargo test -p wipemark-engine --features local-llama --locked` (CI's, not in the task's list) | 0 | 40 passed, 0 failed, 1 ignored |
+
+The first run of the same script, on `7e2f8bf`, stopped at clippy (six
+findings in the new code: `type_complexity` twice, `needless_pass_by_ref_mut`
+four times, then two in the tests); fixed in `ba000c2`, and the whole list
+run again from the top. While iterating, only targeted tests were run.
 
 ## CI
 
-__CI__
+On `ba000c2`, both green:
+
+- **gate** — https://github.com/GigLaboCom/wipemark-app/actions/runs/37824175647
+  — `gate (fmt, clippy, test, deps, features)`: success; `macos (clippy,
+  tests, llama-native prebuilt with Metal)`: success; `native (llama.cpp
+  prebuilt + Vulkan, model-free)`: success.
+- **llama-source**, started by hand (`gh workflow run llama-source.yml
+  --ref e7/compare-save`) because its `macos` job lints the workspace and
+  the run the merge started was on `7e2f8bf` —
+  https://github.com/GigLaboCom/wipemark-app/actions/runs/37824216264 —
+  `linux (llama.cpp from source + Vulkan; bindings against the archive's)`:
+  success; `windows (prebuilt, then from source with MSVC)`: success.
+
+The two runs on `7e2f8bf` (37823918885, 37823918725) were cancelled: that
+commit fails clippy. The commit carrying this report changes only this
+file.
 
 ## The window, for the owner (no display here)
 
@@ -176,4 +231,21 @@ __CI__
 
 ## Left open
 
-- __OPEN__
+- **Quitting the application** (⌘Q, the tray's Quit) with an edit typed
+  less than a second and a half ago: GPUI asks no window whether it may
+  close on quit, so that edit is not saved and nothing asks. Closing the
+  window — its button or ⌘W — saves or asks as above.
+- **The changed-on-disk check and the write are two steps**: a file
+  written by another program between them is replaced. Nothing locks a
+  file; the window narrows the gap to one stat and one read.
+- **A Save that cleans which finds a name taken and is answered "Keep
+  theirs"** makes that file the result's home; the row's own status still
+  says its clean was refused for that file (Replace offered), because the
+  row's clean was. The window and the row then disagree about what the
+  result is until the row is cleaned again.
+- **A `--compare=` window's journal row** appears in the main window's
+  table on its first save, as a launch flag's row; it is not a row the
+  window was opened from, and a second `--compare=` of the same file is a
+  second row.
+- Not seen on a screen: every sentence's length in ru and de, the
+  question's buttons, the strip's new first button (see the checklist).
