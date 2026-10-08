@@ -232,10 +232,11 @@ compare-reset-tooltip = Die Änderungen verwerfen; das Ergebnis ist wieder das, 
 compare-help = Was dieses Fenster tut
 compare-help-marks = Eine rote Markierung am Original ist eine Zeile, die das Ergebnis nicht mehr hat; eine grüne am Ergebnis eine Zeile, die das Original nie hatte.
 compare-help-follows = Das Original folgt dem Cursor im Ergebnis, damit beide Seiten im Gleichschritt bleiben.
+compare-help-scrolls = Wird eine Seite gerollt, rollt die andere mit, sodass gemeinsame Zeilen auf gleicher Höhe bleiben.
 compare-help-toolbar = Die Leiste über dem Ergebnis sind die Befehle des Editors selbst, mit den Kurzbefehlen, auf die er ohnehin hört.
 compare-help-words = Innerhalb einer geänderten Passage werden die Wörter, die abweichen, stärker markiert.
 compare-help-characters = Innerhalb einer geänderten Passage werden die Zeichen, die abweichen, stärker markiert.
-compare-help-settings = Was markiert wird und ob das Original folgt, wird auf der Seite „Vergleich“ der Einstellungen gewählt — für das nächste Fenster, das aufgeht.
+compare-help-settings = Was markiert wird, ob das Original folgt und ob beide Seiten zusammen rollen, wird auf der Seite „Vergleich“ der Einstellungen gewählt — für das nächste Fenster, das aufgeht.
 compare-help-close = Wird dieses Fenster geschlossen, wird nichts geschrieben; Änderungen am Ergebnis leben nur hier.
 
 result-undo = Rückgängig
@@ -262,7 +263,10 @@ settings-compare-grain-words = Geänderte Wörter
 settings-compare-grain-characters = Geänderte Zeichen
 
 settings-compare-follow-title = Das Original folgt dem Cursor
-settings-compare-follow-description = Wird der Cursor im Ergebnis bewegt, rollt das Original zu der Zeile, die an derselben Stelle steht, damit beide Seiten im Gleichschritt bleiben. Ausgeschaltet rollt jede Seite für sich.
+settings-compare-follow-description = Wird der Cursor im Ergebnis bewegt, springt der Cursor des Originals auf die Zeile, die an derselben Stelle steht, und sie wird sichtbar. Ausgeschaltet bleibt der Cursor des Originals, wo er war.
+
+settings-compare-sync-scroll-title = Beide Seiten rollen zusammen
+settings-compare-sync-scroll-description = Wird eine Seite gerollt — mit dem Mausrad, dem Touchpad, der Bildlaufleiste oder der Tastatur —, rollt die andere mit, sodass die Zeilen, die beide Seiten gemeinsam haben, auf gleicher Höhe bleiben. Durch eine geänderte Passage bewegt sich die andere Seite im Gleichschritt durch ihre eigenen Zeilen. Solange das Ergebnis Zeilen umbricht, stehen die Seiten nur ungefähr auf gleicher Höhe. Ausgeschaltet rollt jede Seite für sich.
 
 settings-placement-title = Wo Fenster aufgehen
 settings-placement-description = Auf welchem Bildschirm ein { -brand-name }-Fenster aufgeht, und an welcher Stelle dieses Bildschirms.

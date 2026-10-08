@@ -57,22 +57,55 @@
 //! result, where an empty edit is an entry in the user's undo history.
 //! The page says so.
 //!
-//! # The two sides stay in step, by the cursor
+//! # The two sides stay in step: by scrolling, and by the cursor
 //!
-//! The editor has no public way to be scrolled from outside, and this
-//! repository does not patch the library for a convenience. What it
-//! does have is a cursor that can be placed, and an editor that keeps
-//! its cursor in view. So the original *follows the result's cursor*:
-//! whenever the result's caret changes line, the original's is put on
-//! the line that stands where that one does — [`Diff::original_row_of`]
-//! is the map — and the original scrolls to show it. Placing a cursor
-//! focuses the editor it is placed in, which would take the keyboard
-//! out of the result mid-word; the focus is handed straight back in
-//! the same update, and GPUI notices a focus change only at the next
-//! frame, so nothing blurs. One direction only: the result leads,
-//! because it is the side being written in. The Compare page can turn
-//! the following off, for a reader who would rather scroll each side
-//! by hand.
+//! Two mechanisms, each a row on the Compare page, both on by default.
+//!
+//! **Scrolling together.** Scrolling either pane — the wheel, a
+//! touchpad, the scroll bar dragged or clicked, the keyboard paging —
+//! scrolls the other so that the lines the two share stay level, the
+//! way IntelliJ's diff viewer does. Vertically only: each side keeps
+//! its own horizontal scroll. The editor's scroll offset is public
+//! (`scroll_offset`, `set_scroll_offset`), so this needs nothing of the
+//! library it does not already offer. The leading pane's top is a row
+//! and the fraction of it scrolled past; [`Diff::position_across`]
+//! carries it to the other side — line for line, fraction included, in
+//! a stretch the two share, and **in proportion** through a passage
+//! that changed, holding still through lines the other side has none
+//! of (D380, D381) — and the other pane is set to stand there. A scroll
+//! is seen two ways: by the editor's notification, which a wheel and
+//! the scroll bar make at once and the library makes again after a
+//! frame in which a scroll it applied itself (the keyboard's, a caret
+//! brought into view) moved the text; and by a look at both panes once
+//! every frame they are painted in is done, the one moment a pane that
+//! wraps its lines has a layout that agrees with its offset (D386).
+//! The pane that follows notifies too, and must not lead back: the
+//! window remembers what it asked of each pane, and a move in the asked
+//! direction no farther than asked — all of it, or what the pane's own
+//! end let it do — is that ask landing, not a lead (D382). With the
+//! result's lines wrapped the library does not say how many lines each
+//! row became, so a wrapped pane's place is read off its last layout
+//! and estimated where the row is not laid out: the two sides line up
+//! roughly there, and the page says so (D384).
+//!
+//! **The original follows the cursor.** Whenever the result's caret
+//! changes line, the original's is put on the line that stands where
+//! that one does — [`Diff::original_row_of`] is the map. Placing a
+//! cursor focuses the editor it is placed in, which would take the
+//! keyboard out of the result mid-word; the focus is handed straight
+//! back in the same update, and GPUI notices a focus change only at the
+//! next frame, so nothing blurs. One direction only: the result leads,
+//! because it is the side being written in.
+//!
+//! **Which wins.** The result, always (D383). With both on, a follow
+//! places the original's caret but does not let it scroll the original
+//! by itself: the original is set where the result's top puts it, which
+//! replaces the scroll the caret had queued — and the result is never
+//! moved by a follow. Without that, the original would scroll only as
+//! far as its caret and then lead the result back to it, taking the
+//! result's caret out of sight. When both panes moved in one frame, the
+//! result is looked at first. A comparison recomputed after an edit
+//! changes the map for the next scroll and moves neither pane.
 //!
 //! # What it refuses
 //!
@@ -92,9 +125,9 @@ use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    actions, div, px, size, Anchor, AnyElement, AnyWindowHandle, App, Bounds, ClickEvent, Context,
-    Entity, FocusHandle, Focusable, Global, Hsla, KeyBinding, Pixels, Rgba, SharedString, Size,
-    Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    actions, canvas, div, px, size, Anchor, AnyElement, AnyWindowHandle, App, Bounds, ClickEvent,
+    Context, Entity, FocusHandle, Focusable, Global, Hsla, KeyBinding, Pixels, Rgba, SharedString,
+    Size, Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{
@@ -111,7 +144,7 @@ use wipemark_core::Options;
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_intake::{Encoding, Handed, Intake, Kind};
 
-use crate::diff::{Diff, Grain};
+use crate::diff::{Diff, Grain, Side};
 use crate::icon::{Icon, IconName};
 use crate::result::{self, ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
 use crate::screen::{self, Screen};
@@ -159,15 +192,18 @@ pub struct Comparison {
     pub grain: Grain,
     /// Whether the original follows the result's cursor.
     pub follow: bool,
+    /// Whether scrolling either side scrolls the other.
+    pub sync_scroll: bool,
 }
 
 impl Default for Comparison {
-    /// Words, and following: the marks a reader of a rewrite wants,
-    /// and the two sides kept in step.
+    /// Words, following and scrolling together: the marks a reader of
+    /// a rewrite wants, and the two sides kept in step.
     fn default() -> Self {
         Self {
             grain: Grain::Words,
             follow: true,
+            sync_scroll: true,
         }
     }
 }
@@ -516,15 +552,6 @@ fn place(main: AnyWindowHandle, cx: &mut App) -> (Option<Screen>, Bounds<Pixels>
     (Some(screen.clone()), placement::content_of(frame, chrome))
 }
 
-/// Which side a mark is painted on, and therefore what it means.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Side {
-    /// A line the result no longer has.
-    Original,
-    /// A line the original never had.
-    Result,
-}
-
 /// The marks one side paints: the rows to mark, ascending, and which
 /// side they are on.
 ///
@@ -700,6 +727,130 @@ pub fn per_line(text: &str, spans: &[Range<usize>]) -> Vec<lsp_types::Range> {
     out
 }
 
+/// Less than this, in pixels, and two scroll offsets are one.
+const HALF_PIXEL: f32 = 0.5;
+
+/// One pane's scrolling as the window last saw it.
+#[derive(Debug, Default, Clone, Copy)]
+struct Track {
+    /// The vertical offset the pane last reported.
+    seen: Option<f32>,
+    /// An offset the window asked of this pane and has not yet seen
+    /// land.
+    asked: Option<Asked>,
+    /// How many times this pane has led the other — what the tests
+    /// count a feedback loop by.
+    #[cfg(test)]
+    leads: u32,
+}
+
+/// A scroll the window asked of a pane: from where, to where.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Asked {
+    from: f32,
+    to: f32,
+}
+
+impl Asked {
+    /// Whether a pane that moved from `from` to `now` did what was
+    /// asked — all of it, or the part of it the pane's own end let it
+    /// do. A scroll asked past the last line stops at the last line,
+    /// and that is still the asked-for scroll arriving, not a person
+    /// scrolling the follower. A move the other way, or past what was
+    /// asked, is somebody else's (D382).
+    fn lands(self, now: f32) -> bool {
+        let wanted = self.to - self.from;
+        let went = now - self.from;
+        went != 0.0 && went.signum() == wanted.signum() && went.abs() <= wanted.abs() + HALF_PIXEL
+    }
+}
+
+/// Where an editor's viewport stands, as a buffer row and the fraction
+/// of it scrolled past — `None` before the editor has been laid out.
+///
+/// Without wrapping every row is one line high and this is the offset
+/// divided by the line height, to the pixel. With wrapping the library
+/// does not say how many lines a row became, so this is read off the
+/// last layout instead: the first row it showed, and how far the
+/// viewport's top is into that row's height (D384).
+fn top_of(state: &EditorState, wraps: bool) -> Option<f64> {
+    let line_height = f64::from(f32::from(state.line_height()?));
+    if !wraps {
+        return Some((-f64::from(f32::from(state.scroll_offset().y)) / line_height).max(0.0));
+    }
+    let row = state.visible_row_range()?.start;
+    let bounds = state.row_bounds(row)?;
+    let into = f32::from(state.input_bounds().origin.y - bounds.origin.y);
+    let height = f32::from(bounds.size.height).max(1.0);
+    Some(row as f64 + f64::from((into / height).clamp(0.0, 1.0)))
+}
+
+/// The vertical offset that puts `top` — a buffer row and a fraction —
+/// at the top of an editor's viewport; `None` before it has been laid
+/// out. Offsets go negative downwards, the library's way, and the
+/// library clamps whatever it is handed to the text's length.
+///
+/// With wrapping, a row's place is read off the last layout where that
+/// row is in it, and estimated from the rows that are where it is not —
+/// see [`wrapped_offset_for`].
+fn offset_for(state: &EditorState, wraps: bool, top: f64) -> Option<f32> {
+    let top = top.max(0.0);
+    if wraps {
+        return wrapped_offset_for(state, top);
+    }
+    let line_height = f64::from(f32::from(state.line_height()?));
+    Some((-(top * line_height)) as f32)
+}
+
+/// [`offset_for`] over wrapped lines (D384).
+///
+/// Where the row is laid out, its top is known to the pixel: where it
+/// is drawn, less where the viewport is, less how far the text is
+/// scrolled. Where it is not, its top is estimated from the rows that
+/// are — above them, by the average height of every row above the
+/// first one shown (which the offset knows exactly); below them, by
+/// the average height of every row down to the last one shown. The
+/// estimate lands near the row, and the next step of the leading
+/// pane, with the row now laid out, lands on it.
+fn wrapped_offset_for(state: &EditorState, top: f64) -> Option<f32> {
+    let shown = state.visible_row_range()?;
+    let viewport = state.input_bounds().origin.y;
+    let scrolled = f64::from(f32::from(state.scroll_offset().y));
+    // A row's top in the text, from where the last layout drew it.
+    let text_top = |row: usize| {
+        state.row_bounds(row).map(|bounds| {
+            (
+                f64::from(f32::from(bounds.origin.y - viewport)) - scrolled,
+                bounds,
+            )
+        })
+    };
+    let row = top.floor() as usize;
+    let fraction = top - top.floor();
+    let y = if let Some((at, bounds)) = text_top(row) {
+        at + fraction * f64::from(f32::from(bounds.size.height))
+    } else {
+        let (first, _) = text_top(shown.start)?;
+        let last = (shown.start..shown.end)
+            .rev()
+            .find_map(|row| text_top(row).map(|(at, bounds)| (row, at, bounds)))?;
+        let (last_row, last_at, last_bounds) = last;
+        if row < shown.start {
+            let each = if shown.start == 0 {
+                0.0
+            } else {
+                first / shown.start as f64
+            };
+            top * each
+        } else {
+            let below = last_at + f64::from(f32::from(last_bounds.size.height));
+            let each = below / (last_row + 1) as f64;
+            below + (top - (last_row + 1) as f64) * each
+        }
+    };
+    Some((-y.max(0.0)) as f32)
+}
+
 /// Where the window is between being opened and having something to
 /// show.
 enum State {
@@ -754,6 +905,10 @@ struct CompareView {
     generation: u64,
     /// The result's cursor row as last followed.
     followed: u32,
+    /// The original's scrolling, as the window last saw it.
+    original_track: Track,
+    /// The result's scrolling, as the window last saw it.
+    result_track: Track,
     /// Dropped with the view.
     _subscriptions: Vec<Subscription>,
 }
@@ -788,12 +943,20 @@ impl CompareView {
             },
         );
         let result_state = result.read(cx).state().clone();
-        let cursor = cx.observe_in(&result_state, window, |view, state, window, cx| {
+        // Everything the result's editor says: a scroll, which the
+        // original is scrolled after, then a cursor that changed line,
+        // which the original's cursor follows — in that order, so the
+        // follow has the last word on the original (D383).
+        let led_by_result = cx.observe_in(&result_state, window, |view, state, window, cx| {
+            view.scrolled(Side::Result, false, cx);
             let row = state.read(cx).cursor_position().line;
             if row != view.followed {
                 view.followed = row;
                 view.follow(row, window, cx);
             }
+        });
+        let led_by_original = cx.observe_in(&original, window, |view, _, _, cx| {
+            view.scrolled(Side::Original, false, cx);
         });
 
         let mut view = Self {
@@ -812,7 +975,9 @@ impl CompareView {
             diff: Diff::of("", ""),
             generation: 0,
             followed: 0,
-            _subscriptions: vec![changed, cursor],
+            original_track: Track::default(),
+            result_track: Track::default(),
+            _subscriptions: vec![changed, led_by_result, led_by_original],
         };
         view.read(window, cx);
         view
@@ -995,7 +1160,7 @@ impl CompareView {
     /// Put the original's cursor on the line that stands where the
     /// result's row does, so the original scrolls to it — and hand the
     /// keyboard straight back to whoever had it. See the module docs.
-    fn follow(&self, row: u32, window: &mut Window, cx: &mut Context<Self>) {
+    fn follow(&mut self, row: u32, window: &mut Window, cx: &mut Context<Self>) {
         if !matches!(self.state, State::Ready) || !self.comparison.follow {
             return;
         }
@@ -1014,6 +1179,135 @@ impl CompareView {
         if let Some(handle) = had_focus {
             window.focus(&handle, cx);
         }
+        // With the sides scrolling together, the caret just placed does
+        // not get to scroll the original by itself: the original stands
+        // where the result's top puts it, which is where the caret's
+        // line is in view anyway, and the result is never moved by a
+        // follow (D383). The column goes back to the start, where the
+        // caret was put.
+        if self.comparison.sync_scroll {
+            if let Some(top) = self.top_of(Side::Result, cx) {
+                let there = self.diff.position_across(Side::Result, top);
+                self.drive(Side::Original, there, Some(px(0.0)), cx);
+            }
+        }
+    }
+
+    /// The editor on `side`.
+    fn editor(&self, side: Side, cx: &App) -> Entity<EditorState> {
+        match side {
+            Side::Original => self.original.clone(),
+            Side::Result => self.result.read(cx).state().clone(),
+        }
+    }
+
+    /// Whether `side` wraps its lines — the original never does; the
+    /// result does while its toolbar says so.
+    fn wraps(&self, side: Side, cx: &App) -> bool {
+        match side {
+            Side::Original => false,
+            Side::Result => self.result.read(cx).shows(result::View::SoftWrap),
+        }
+    }
+
+    fn track(&mut self, side: Side) -> &mut Track {
+        match side {
+            Side::Original => &mut self.original_track,
+            Side::Result => &mut self.result_track,
+        }
+    }
+
+    /// Where `side`'s viewport stands, as a row and a fraction of the
+    /// next — see [`top_of`].
+    fn top_of(&self, side: Side, cx: &App) -> Option<f64> {
+        top_of(self.editor(side, cx).read(cx), self.wraps(side, cx))
+    }
+
+    /// Whether `side` has scrolled since the window last looked, and if
+    /// it has — and the scroll is not the landing of one this window
+    /// asked for — scroll the other side after it. See the module docs,
+    /// "The two sides stay in step".
+    ///
+    /// Asked from two places. An editor's notification: a wheel and a
+    /// drag on the scroll bar arrive with one at once, and a scroll the
+    /// library applies while it lays the text out — the keyboard's, a
+    /// caret brought into view, the other side's lead landing — with
+    /// the one it makes after a frame in which its text moved. And the
+    /// end of every frame the panes are painted in (`settled`), the one
+    /// moment a *wrapping* pane's layout and offset are known to agree:
+    /// a wheel's notification comes before the frame that lays the
+    /// text out at the new offset, and a wrapped pane's top is read off
+    /// that layout, so a wrapping pane is read only there. For a pane
+    /// that does not wrap, the end of a frame is a second look that
+    /// finds nothing new.
+    fn scrolled(&mut self, side: Side, settled: bool, cx: &mut Context<Self>) {
+        if !settled && self.wraps(side, cx) {
+            return;
+        }
+        let y = f32::from(self.editor(side, cx).read(cx).scroll_offset().y);
+        let track = self.track(side);
+        if track.seen == Some(y) {
+            // A blink, an edit, a selection: anything but a scroll.
+            return;
+        }
+        track.seen = Some(y);
+        if track.asked.take().is_some_and(|asked| asked.lands(y)) {
+            // The other side's lead, arriving: not a lead of its own.
+            return;
+        }
+        if !matches!(self.state, State::Ready) || !self.comparison.sync_scroll {
+            return;
+        }
+        let Some(top) = self.top_of(side, cx) else {
+            return;
+        };
+        #[cfg(test)]
+        {
+            self.track(side).leads += 1;
+        }
+        let there = self.diff.position_across(side, top);
+        self.drive(side.other(), there, None, cx);
+    }
+
+    /// The end of a frame the panes were painted in: look at both.
+    fn painted(&mut self, cx: &mut Context<Self>) {
+        self.scrolled(Side::Result, true, cx);
+        self.scrolled(Side::Original, true, cx);
+    }
+
+    /// Scroll `side` so that `top` — a row and a fraction — stands at
+    /// the top of its viewport, and remember what was asked so that its
+    /// landing is not taken for a lead.
+    ///
+    /// The pane keeps its own horizontal scroll unless `x` is given;
+    /// given, the offset is set even where it would not move, so that
+    /// it replaces whatever scroll the library had already queued for
+    /// the pane — the caret's own, after a follow (D383). A landing of
+    /// an earlier ask that the window has not looked at yet is taken
+    /// as landed first, so the new ask is measured from where the pane
+    /// now is and the old one is not mistaken for the pane's own move.
+    fn drive(&mut self, side: Side, top: f64, x: Option<Pixels>, cx: &mut Context<Self>) {
+        let editor = self.editor(side, cx);
+        let wraps = self.wraps(side, cx);
+        let (now, to) = {
+            let state = editor.read(cx);
+            let Some(to) = offset_for(state, wraps, top) else {
+                return;
+            };
+            (state.scroll_offset(), to)
+        };
+        let from = f32::from(now.y);
+        let track = self.track(side);
+        if track.seen != Some(from) && track.asked.is_some_and(|asked| asked.lands(from)) {
+            track.seen = Some(from);
+        }
+        if x.is_none() && (to - from).abs() < HALF_PIXEL {
+            return;
+        }
+        track.asked = Some(Asked { from, to });
+        editor.update(cx, |state, cx| {
+            state.set_scroll_offset(gpui::point(x.unwrap_or(now.x), px(to)), cx);
+        });
     }
 
     /// The line under the panes: the same text, or how far apart they
@@ -1076,9 +1370,30 @@ impl CompareView {
             .child(Self::caption(Message::CompareResult, cx))
             .child(div().flex_1().min_h(px(0.0)).child(self.result.clone()));
 
-        h_resizable("compare-split")
-            .child(resizable_panel().child(left))
-            .child(resizable_panel().child(right))
+        // Painted after both editors, so what it reads is what they
+        // were just painted at — see `scrolled`. Read once the frame is
+        // done rather than inside it: a scroll asked for while a frame
+        // paints would be forgotten with the frame.
+        let view = cx.entity().downgrade();
+        let after = canvas(
+            |_, _, _| (),
+            move |_, _, _, cx| {
+                cx.defer(move |cx| {
+                    view.update(cx, |view, cx| view.painted(cx)).ok();
+                });
+            },
+        )
+        .absolute()
+        .size_0();
+
+        div()
+            .size_full()
+            .child(
+                h_resizable("compare-split")
+                    .child(resizable_panel().child(left))
+                    .child(resizable_panel().child(right)),
+            )
+            .child(after)
             .into_any_element()
     }
 
@@ -1151,6 +1466,9 @@ fn help(comparison: Comparison, cx: &App) -> impl IntoElement {
     }
     if comparison.follow {
         lines.push(Message::CompareHelpFollows);
+    }
+    if comparison.sync_scroll {
+        lines.push(Message::CompareHelpScrolls);
     }
     lines.extend([
         Message::CompareHelpToolbar,
@@ -1677,7 +1995,7 @@ mod tests {
     fn lines_alone_put_no_provider_on_either_side(cx: &mut TestAppContext) {
         let comparison = Comparison {
             grain: Grain::Lines,
-            follow: true,
+            ..Comparison::default()
         };
         let (view, cx) = window_with(cx, "a\n", comparison);
         cx.update(|_, cx| {
@@ -2050,6 +2368,383 @@ mod tests {
 
         let original = cx.update(|_, cx| view.read(cx).original.read(cx).value().to_string());
         assert_eq!(original, text, "a keystroke changed the original");
+    }
+
+    // -- the two sides scroll together ----------------------------------
+
+    /// `n` numbered lines from `from`, each ending in a newline.
+    fn numbered(from: usize, n: usize) -> String {
+        (from..from + n).map(|i| format!("line {i}\n")).collect()
+    }
+
+    /// A window on `original` whose result has been edited to `result`,
+    /// compared and painted, both panes at the top.
+    fn window_over<'a>(
+        cx: &'a mut TestAppContext,
+        original: &str,
+        result: &str,
+        comparison: Comparison,
+    ) -> (Entity<CompareView>, &'a mut gpui::VisualTestContext) {
+        let (view, cx) = window_with(cx, original, comparison);
+        cx.update(|window, cx| {
+            let pane = view.read(cx).result.clone();
+            pane.update(cx, |pane, cx| pane.set_text(result, window, cx));
+        });
+        settle(cx);
+        (view, cx)
+    }
+
+    /// Each pane's vertical offset, in pixels — `(original, result)`.
+    fn offsets(view: &Entity<CompareView>, cx: &mut gpui::VisualTestContext) -> (f32, f32) {
+        cx.update(|_, cx| {
+            let view = view.read(cx);
+            (
+                f32::from(view.original.read(cx).scroll_offset().y),
+                f32::from(view.result.read(cx).state().read(cx).scroll_offset().y),
+            )
+        })
+    }
+
+    /// How many times each pane has led — `(original, result)`.
+    fn leads(view: &Entity<CompareView>, cx: &mut gpui::VisualTestContext) -> (u32, u32) {
+        cx.update(|_, cx| {
+            let view = view.read(cx);
+            (view.original_track.leads, view.result_track.leads)
+        })
+    }
+
+    /// The line height both panes are laid out at.
+    fn line_height(view: &Entity<CompareView>, cx: &mut gpui::VisualTestContext) -> f32 {
+        cx.update(|_, cx| {
+            let view = view.read(cx);
+            let left = view.original.read(cx).line_height().expect("laid out");
+            let right = view
+                .result
+                .read(cx)
+                .state()
+                .read(cx)
+                .line_height()
+                .expect("laid out");
+            assert_eq!(left, right, "the two panes are not one line height");
+            f32::from(left)
+        })
+    }
+
+    /// Turn the wheel over one pane by `pixels` (negative scrolls down),
+    /// the way a touchpad does, and let every frame it starts finish.
+    fn wheel(
+        view: &Entity<CompareView>,
+        side: Side,
+        pixels: f32,
+        cx: &mut gpui::VisualTestContext,
+    ) {
+        let over = cx.update(|_, cx| {
+            let editor = view.read(cx).editor(side, cx);
+            editor.read(cx).input_bounds().center()
+        });
+        cx.simulate_event(gpui::ScrollWheelEvent {
+            position: over,
+            delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(pixels))),
+            ..Default::default()
+        });
+        settle(cx);
+    }
+
+    /// Scrolling the result scrolls the original to the line that
+    /// stands where the result's top line does — three rows further up,
+    /// past three lines the result put in — and keeps the part of a row
+    /// the result is scrolled into, so the two move by pixels and not a
+    /// row at a time. Take `Side::Result` out of `scrolled`'s callers
+    /// and the original stays at the top: red.
+    #[gpui::test]
+    fn scrolling_the_result_scrolls_the_original(cx: &mut TestAppContext) {
+        let original = numbered(0, 200);
+        let result = format!("{}{original}", numbered(1000, 3));
+        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let height = line_height(&view, cx);
+
+        wheel(&view, Side::Result, -(10.25 * height), cx);
+        let (left, right) = offsets(&view, cx);
+        assert_eq!(
+            right,
+            -(10.25 * height),
+            "the wheel did not scroll the result"
+        );
+        assert_eq!(
+            left,
+            -(7.25 * height),
+            "the original is not level with the result"
+        );
+        assert_eq!(leads(&view, cx), (0, 1));
+    }
+
+    /// And the other way: scrolling the original scrolls the result.
+    /// Take `Side::Original` out of `scrolled`'s callers and the result
+    /// stays at the top: red.
+    #[gpui::test]
+    fn scrolling_the_original_scrolls_the_result(cx: &mut TestAppContext) {
+        let original = numbered(0, 200);
+        let result = format!("{}{original}", numbered(1000, 3));
+        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let height = line_height(&view, cx);
+
+        wheel(&view, Side::Original, -(20.5 * height), cx);
+        let (left, right) = offsets(&view, cx);
+        assert_eq!(
+            left,
+            -(20.5 * height),
+            "the wheel did not scroll the original"
+        );
+        assert_eq!(
+            right,
+            -(23.5 * height),
+            "the result is not level with the original"
+        );
+        assert_eq!(leads(&view, cx), (1, 0));
+    }
+
+    /// A scroll the library applies while it lays the text out — the
+    /// keyboard's, a caret brought into view — arrives after the frame,
+    /// not with the key. Here each side is scrolled the way a key would
+    /// scroll it, by an offset handed to the editor, and the other side
+    /// follows. Take `Side::Original` or `Side::Result` out of
+    /// `scrolled`'s callers and this goes red with the matching test
+    /// above.
+    #[gpui::test]
+    fn a_scroll_the_library_applies_is_followed_too(cx: &mut TestAppContext) {
+        let original = numbered(0, 200);
+        let result = format!("{}{original}", numbered(1000, 3));
+        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let height = line_height(&view, cx);
+
+        for (side, rows, other) in [
+            (Side::Original, 40.0, 43.0),
+            (Side::Result, 80.0, 77.0),
+            (Side::Original, 2.0, 5.0),
+        ] {
+            cx.update(|_, cx| {
+                let editor = view.read(cx).editor(side, cx);
+                editor.update(cx, |editor, cx| {
+                    editor.set_scroll_offset(gpui::point(px(0.0), px(-(rows * height))), cx)
+                });
+            });
+            settle(cx);
+            let (left, right) = offsets(&view, cx);
+            let (led, followed) = match side {
+                Side::Original => (left, right),
+                Side::Result => (right, left),
+            };
+            assert_eq!(led, -(rows * height), "{side:?} was not scrolled");
+            assert_eq!(followed, -(other * height), "{side:?} was not followed");
+        }
+    }
+
+    /// Inside a passage that changed, the result moves in proportion
+    /// through its own lines: forty lines of the original became ten,
+    /// so twenty lines into the forty is five into the ten (D380). Put
+    /// `position_across` back to holding at the passage's first line
+    /// and the result stands five lines short: red.
+    #[gpui::test]
+    fn inside_a_changed_passage_the_other_side_moves_in_proportion(cx: &mut TestAppContext) {
+        let head = numbered(0, 10);
+        let tail = numbered(500, 200);
+        let original = format!("{head}{}{tail}", numbered(100, 40));
+        let result = format!("{head}{}{tail}", numbered(900, 10));
+        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let height = line_height(&view, cx);
+
+        wheel(&view, Side::Original, -(30.0 * height), cx);
+        let (left, right) = offsets(&view, cx);
+        assert_eq!(left, -(30.0 * height));
+        assert_eq!(
+            right,
+            -(15.0 * height),
+            "the result did not move in proportion"
+        );
+
+        // Past the passage the two move line for line again, thirty
+        // lines apart.
+        wheel(&view, Side::Original, -(30.0 * height), cx);
+        let (left, right) = offsets(&view, cx);
+        assert_eq!(left, -(60.0 * height));
+        assert_eq!(right, -(30.0 * height));
+    }
+
+    /// One scroll, one lead. The result has lost every line of the
+    /// original past the hundredth, so a scroll of the original to its
+    /// hundred-and-fiftieth line asks the result for more than it has:
+    /// the result stops at its own end, short of what was asked. That
+    /// is still the ask arriving, not a person scrolling the result —
+    /// take the landing check (`Asked::lands`) out and the result's
+    /// stop is taken for a lead, which drags the original back up to
+    /// where the result's end stands: red.
+    #[gpui::test]
+    fn a_follower_that_stops_short_does_not_lead_back(cx: &mut TestAppContext) {
+        let original = numbered(0, 300);
+        let result = numbered(0, 100);
+        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let height = line_height(&view, cx);
+
+        wheel(&view, Side::Original, -(150.0 * height), cx);
+        let (left, right) = offsets(&view, cx);
+        assert_eq!(left, -(150.0 * height), "the original was dragged back");
+        assert!(
+            right > -(100.0 * height),
+            "the result went past its end: {right}"
+        );
+        assert!(right < 0.0, "the result did not move");
+        assert_eq!(leads(&view, cx), (1, 0), "a follower led back");
+
+        // And a person scrolling the result afterwards still leads it:
+        // the ask that stopped short is not held against the next move.
+        wheel(&view, Side::Result, 10.0 * height, cx);
+        let (left, right) = offsets(&view, cx);
+        assert_eq!(leads(&view, cx), (1, 1));
+        let top = -right / height;
+        assert!(
+            (-left / height - top).abs() < 0.01,
+            "the original is not level with the result: {left} against {right}"
+        );
+    }
+
+    /// The Compare page's row off: each pane scrolls on its own. Take
+    /// the check out of `scrolled` and the original follows: red.
+    #[gpui::test]
+    fn with_the_row_off_each_side_scrolls_alone(cx: &mut TestAppContext) {
+        let original = numbered(0, 200);
+        let comparison = Comparison {
+            sync_scroll: false,
+            ..Comparison::default()
+        };
+        let (view, cx) = window_over(cx, &original, &original, comparison);
+        let height = line_height(&view, cx);
+
+        wheel(&view, Side::Result, -(12.0 * height), cx);
+        assert_eq!(offsets(&view, cx), (0.0, -(12.0 * height)));
+        wheel(&view, Side::Original, -(5.0 * height), cx);
+        assert_eq!(offsets(&view, cx), (-(5.0 * height), -(12.0 * height)));
+        assert_eq!(leads(&view, cx), (0, 0));
+    }
+
+    /// The cursor and the scrolling together (D383). The result's caret
+    /// goes to a line inside thirty lines the result put in; the result
+    /// scrolls to show it, the original's caret goes to the line the
+    /// insertion stands in front of — and the original's scroll is the
+    /// result's, through the map, not the caret's own. Without that,
+    /// the original scrolls only as far as its caret, forty-odd lines
+    /// short of where the result is, and then leads the result back up
+    /// there — the result's caret out of sight: red.
+    #[gpui::test]
+    fn the_cursor_follow_does_not_drag_the_result(cx: &mut TestAppContext) {
+        let original = numbered(0, 300);
+        let result = format!(
+            "{}{}{}",
+            numbered(0, 100),
+            numbered(1000, 30),
+            numbered(100, 200)
+        );
+        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let height = line_height(&view, cx);
+
+        cx.update(|window, cx| {
+            let editor = view.read(cx).editor(Side::Result, cx);
+            editor.update(cx, |editor, cx| {
+                editor.set_cursor_position(Position::new(120, 0), window, cx)
+            });
+        });
+        settle(cx);
+
+        let (shown, caret) = cx.update(|_, cx| {
+            let view = view.read(cx);
+            let original = view.original.read(cx);
+            (
+                view.editor(Side::Result, cx).read(cx).visible_row_range(),
+                original.cursor_position().line,
+            )
+        });
+        let shown = shown.expect("laid out");
+        assert!(
+            shown.contains(&120),
+            "the result's caret is out of sight: {shown:?}"
+        );
+        assert_eq!(caret, 100, "the original's caret did not follow");
+        let (left, right) = offsets(&view, cx);
+        let top = f64::from(-right / height);
+        let expected = cx.update(|_, cx| view.read(cx).diff.position_across(Side::Result, top));
+        assert!(
+            (f64::from(-left / height) - expected).abs() < 0.01,
+            "the original is not where the result's top puts it: {left} for {right}"
+        );
+        assert_eq!(leads(&view, cx).0, 0, "the original led the result");
+    }
+
+    /// With the result's lines wrapped, the two sides line up by the
+    /// rows the last layout showed: approximate, and never a loop. A
+    /// short text that wraps nothing is laid out exactly as an unwrapped
+    /// one, so here the alignment is still exact.
+    #[gpui::test]
+    fn a_wrapped_result_still_leads_and_follows(cx: &mut TestAppContext) {
+        let original = numbered(0, 200);
+        let result = format!("{}{original}", numbered(1000, 3));
+        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        cx.update(|window, cx| {
+            let pane = view.read(cx).result.clone();
+            pane.update(cx, |pane, cx| {
+                pane.toggle(result::View::SoftWrap, window, cx)
+            });
+        });
+        settle(cx);
+        let height = line_height(&view, cx);
+
+        wheel(&view, Side::Original, -(20.0 * height), cx);
+        let (left, right) = offsets(&view, cx);
+        assert_eq!(left, -(20.0 * height));
+        assert_eq!(right, -(23.0 * height), "the wrapped result did not follow");
+
+        wheel(&view, Side::Result, -(10.0 * height), cx);
+        let (left, right) = offsets(&view, cx);
+        assert_eq!(right, -(33.0 * height));
+        assert_eq!(
+            left,
+            -(30.0 * height),
+            "the original did not follow the wrapped result"
+        );
+        assert_eq!(leads(&view, cx), (1, 1));
+    }
+
+    /// The far side of a wrapped result: rows not laid out are placed
+    /// by the average height of the rows that are, and the next step
+    /// lands on the row. A result whose every line wraps once is two
+    /// lines a row; scrolled from the original far past what the
+    /// result has laid out, the result lands near its row, and level
+    /// after the next step.
+    #[gpui::test]
+    fn a_wrapped_result_far_away_is_placed_by_estimate(cx: &mut TestAppContext) {
+        let long = "word ".repeat(250);
+        let original: String = (0..300).map(|i| format!("{i} {long}\n")).collect();
+        let (view, cx) = window_over(cx, &original, &original, Comparison::default());
+        cx.update(|window, cx| {
+            let pane = view.read(cx).result.clone();
+            pane.update(cx, |pane, cx| {
+                pane.toggle(result::View::SoftWrap, window, cx)
+            });
+        });
+        settle(cx);
+        let height = line_height(&view, cx);
+
+        wheel(&view, Side::Original, -(150.0 * height), cx);
+        wheel(&view, Side::Original, -(1.0 * height), cx);
+        let shown = cx.update(|_, cx| {
+            view.read(cx)
+                .editor(Side::Result, cx)
+                .read(cx)
+                .visible_row_range()
+        });
+        let shown = shown.expect("laid out");
+        assert_eq!(
+            shown.start, 151,
+            "the wrapped result is not on the original's row"
+        );
     }
 
     /// The marks answer for the visible rows only, and the rows keep

@@ -290,6 +290,10 @@ pub const COMPARE_GRAIN_KEY: &str = "compare.grain";
 /// Whether the original follows the result's cursor.
 pub const COMPARE_FOLLOW_KEY: &str = "compare.follow";
 
+/// Whether scrolling one side of the Compare window scrolls the other,
+/// so that matching lines stay level.
+pub const COMPARE_SYNC_SCROLL_KEY: &str = "compare.sync_scroll";
+
 // ## E4-6b — the journal and the batch queue's rows.
 
 /// What happens to a thing as it arrives in the main window, as a
@@ -378,7 +382,7 @@ pub fn model_key(role: Role) -> &'static str {
 /// below name their own key — and `-D warnings` fails a bin target on
 /// dead code. Same idiom as `TrayCommand::ALL`.
 #[cfg(test)]
-pub const PERSISTED: [&str; 34] = [
+pub const PERSISTED: [&str; 35] = [
     THEME_KEY,
     LANGUAGE_KEY,
     WINDOW_SCREEN_KEY,
@@ -386,6 +390,7 @@ pub const PERSISTED: [&str; 34] = [
     SETUP_DONE_KEY,
     COMPARE_GRAIN_KEY,
     COMPARE_FOLLOW_KEY,
+    COMPARE_SYNC_SCROLL_KEY,
     RESULTS_DESTINATION_KEY,
     RESULTS_FOLDER_KEY,
     KEEP_ORIGINALS_KEY,
@@ -565,14 +570,15 @@ pub fn write_journal_keep_days(store: &Store, days: u32) -> Result<()> {
     Ok(())
 }
 
-/// Read the Compare page's rows, falling back to marks by word and an
-/// original that follows the cursor.
+/// Read the Compare page's rows, falling back to marks by word, an
+/// original that follows the cursor, and two panes that scroll
+/// together.
 ///
 /// The same bargain every row here keeps: a grain this build does not
 /// spell is read as the default, warned about, and left in the row for
-/// a build that does. An unreadable `follow` is read as following,
-/// because following is the default and an unreadable row has not
-/// asked for anything else.
+/// a build that does. An unreadable `follow` is read as following, and
+/// an unreadable `sync_scroll` as scrolling together, because those are
+/// the defaults and an unreadable row has not asked for anything else.
 pub fn read_comparison(store: &Store) -> Comparison {
     let defaults = Comparison::default();
     let grain = match read_string(store, COMPARE_GRAIN_KEY) {
@@ -588,6 +594,8 @@ pub fn read_comparison(store: &Store) -> Comparison {
     Comparison {
         grain,
         follow: read_json::<bool>(store, COMPARE_FOLLOW_KEY).unwrap_or(defaults.follow),
+        sync_scroll: read_json::<bool>(store, COMPARE_SYNC_SCROLL_KEY)
+            .unwrap_or(defaults.sync_scroll),
     }
 }
 
@@ -600,6 +608,14 @@ pub fn write_compare_grain(store: &Store, grain: Grain) -> Result<()> {
 /// Persist whether the original follows the result's cursor.
 pub fn write_compare_follow(store: &Store, follow: bool) -> Result<()> {
     store.settings().set(COMPARE_FOLLOW_KEY, &follow)?;
+    Ok(())
+}
+
+/// Persist whether the two panes of the Compare window scroll together.
+pub fn write_compare_sync_scroll(store: &Store, sync_scroll: bool) -> Result<()> {
+    store
+        .settings()
+        .set(COMPARE_SYNC_SCROLL_KEY, &sync_scroll)?;
     Ok(())
 }
 
@@ -1773,18 +1789,18 @@ mod tests {
         read_close_after_drop, read_comparison, read_engine, read_hotkeys, read_language,
         read_local, read_mcp, read_models_dir, read_profiles, read_retention, read_setup_done,
         read_theme, write_active_profile, write_close_after_drop, write_compare_follow,
-        write_compare_grain, write_engine, write_engine_allow_remote, write_engine_base_url,
-        write_engine_model, write_engine_provider, write_engine_reasoning,
+        write_compare_grain, write_compare_sync_scroll, write_engine, write_engine_allow_remote,
+        write_engine_base_url, write_engine_model, write_engine_provider, write_engine_reasoning,
         write_engine_temperature, write_engine_timeout, write_hotkey, write_keep_for,
         write_keep_originals, write_keep_results, write_language, write_local_idle,
         write_local_keep, write_local_mlock, write_mcp_bind, write_mcp_enabled, write_mcp_port,
         write_models_dir, write_profile, write_results_destination, write_results_folder,
-        write_setup_done, write_theme, COMPARE_FOLLOW_KEY, COMPARE_GRAIN_KEY, ENGINE_BASE_URL_KEY,
-        ENGINE_LOCAL_IDLE_KEY, ENGINE_LOCAL_KEEP_KEY, ENGINE_LOCAL_MLOCK_KEY,
-        ENGINE_PROFILES_PREFIX, ENGINE_PROVIDER_KEY, ENGINE_TEMPERATURE_KEY, HOTKEY_PANEL_KEY,
-        HOTKEY_SHOW_KEY, KEEP_FOR_KEY, KEEP_ORIGINALS_KEY, LANGUAGE_KEY, MCP_BIND_KEY,
-        MCP_PORT_KEY, MODELS_DIR_KEY, PERSISTED, RESULTS_DESTINATION_KEY, RESULTS_FOLDER_KEY,
-        SETUP_DONE_KEY, THEME_KEY,
+        write_setup_done, write_theme, COMPARE_FOLLOW_KEY, COMPARE_GRAIN_KEY,
+        COMPARE_SYNC_SCROLL_KEY, ENGINE_BASE_URL_KEY, ENGINE_LOCAL_IDLE_KEY, ENGINE_LOCAL_KEEP_KEY,
+        ENGINE_LOCAL_MLOCK_KEY, ENGINE_PROFILES_PREFIX, ENGINE_PROVIDER_KEY,
+        ENGINE_TEMPERATURE_KEY, HOTKEY_PANEL_KEY, HOTKEY_SHOW_KEY, KEEP_FOR_KEY,
+        KEEP_ORIGINALS_KEY, LANGUAGE_KEY, MCP_BIND_KEY, MCP_PORT_KEY, MODELS_DIR_KEY, PERSISTED,
+        RESULTS_DESTINATION_KEY, RESULTS_FOLDER_KEY, SETUP_DONE_KEY, THEME_KEY,
     };
     use crate::compare::Comparison;
     use crate::diff::Grain;
@@ -2303,12 +2319,14 @@ mod tests {
             Comparison {
                 grain: Grain::Words,
                 follow: true,
+                sync_scroll: true,
             },
             "the Compare defaults moved; check what a fresh install now marks"
         );
 
         write_compare_grain(&store, Grain::Characters).expect("grain");
         write_compare_follow(&store, false).expect("follow");
+        write_compare_sync_scroll(&store, false).expect("sync scroll");
         drop(store);
         let store = Store::open(&path).expect("reopen");
         assert_eq!(
@@ -2316,6 +2334,7 @@ mod tests {
             Comparison {
                 grain: Grain::Characters,
                 follow: false,
+                sync_scroll: false,
             }
         );
         // The row spells the grain by its id, not by a number or a
@@ -2419,6 +2438,8 @@ mod tests {
             (COMPARE_GRAIN_KEY, "Words"),
             (COMPARE_GRAIN_KEY, "tokens"),
             (COMPARE_FOLLOW_KEY, "no"),
+            (COMPARE_SYNC_SCROLL_KEY, "no"),
+            (COMPARE_SYNC_SCROLL_KEY, "1"),
         ] {
             store.settings().set(key, spelling).expect("seed");
             assert_eq!(

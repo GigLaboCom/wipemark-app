@@ -344,6 +344,7 @@ pub enum Setting {
     CloseAfterDrop,
     CompareGrain,
     CompareFollow,
+    CompareSyncScroll,
     EngineServes,
     EngineKeep,
     EngineIdle,
@@ -406,7 +407,7 @@ impl Setting {
     ///
     /// The Compare rows put what is *marked* before how the two sides
     /// *move*: a reader opens the window for the marks.
-    pub const ALL: [Setting; 35] = [
+    pub const ALL: [Setting; 36] = [
         Self::Appearance,
         Self::Language,
         Self::ShortcutShow,
@@ -418,6 +419,7 @@ impl Setting {
         Self::CloseAfterDrop,
         Self::CompareGrain,
         Self::CompareFollow,
+        Self::CompareSyncScroll,
         Self::EngineServes,
         Self::EngineKeep,
         Self::EngineIdle,
@@ -455,7 +457,7 @@ impl Setting {
             | Self::ShortcutPanel
             | Self::Setup => Section::General,
             Self::WindowScreen | Self::CloseAfterDrop => Section::Placement,
-            Self::CompareGrain | Self::CompareFollow => Section::Compare,
+            Self::CompareGrain | Self::CompareFollow | Self::CompareSyncScroll => Section::Compare,
             Self::EngineServes
             | Self::EngineKeep
             | Self::EngineIdle
@@ -495,6 +497,7 @@ impl Setting {
             Self::CloseAfterDrop => Message::SettingsPlacementCloseTitle,
             Self::CompareGrain => Message::SettingsCompareGrainTitle,
             Self::CompareFollow => Message::SettingsCompareFollowTitle,
+            Self::CompareSyncScroll => Message::SettingsCompareSyncScrollTitle,
             Self::EngineServes => Message::SettingsEngineServesTitle,
             Self::EngineKeep => Message::SettingsEngineKeepTitle,
             Self::EngineIdle => Message::SettingsEngineIdleTitle,
@@ -545,6 +548,7 @@ impl Setting {
             Self::CloseAfterDrop => Message::SettingsPlacementCloseDescription,
             Self::CompareGrain => Message::SettingsCompareGrainDescription,
             Self::CompareFollow => Message::SettingsCompareFollowDescription,
+            Self::CompareSyncScroll => Message::SettingsCompareSyncScrollDescription,
             Self::EngineServes => Message::SettingsEngineServesDescription,
             Self::EngineKeep => Message::SettingsEngineKeepDescription,
             Self::EngineIdle => Message::SettingsEngineIdleDescription,
@@ -610,6 +614,7 @@ impl Setting {
             Self::CloseAfterDrop => Storage::Row(config::CLOSE_AFTER_DROP_KEY),
             Self::CompareGrain => Storage::Row(config::COMPARE_GRAIN_KEY),
             Self::CompareFollow => Storage::Row(config::COMPARE_FOLLOW_KEY),
+            Self::CompareSyncScroll => Storage::Row(config::COMPARE_SYNC_SCROLL_KEY),
             Self::EngineServes => Storage::Row(config::ENGINE_SERVES_KEY),
             Self::EngineKeep => Storage::Row(config::ENGINE_LOCAL_KEEP_KEY),
             Self::EngineIdle => Storage::Row(config::ENGINE_LOCAL_IDLE_KEY),
@@ -1320,6 +1325,18 @@ impl Preferences {
         self.comparison.follow = follow;
         cx.notify();
         self.persist(cx, move |store| config::write_compare_follow(store, follow));
+    }
+
+    /// Record whether the two panes of a Compare window scroll together.
+    pub fn scroll_together(&mut self, sync_scroll: bool, cx: &mut Context<Self>) {
+        if self.comparison.sync_scroll == sync_scroll {
+            return;
+        }
+        self.comparison.sync_scroll = sync_scroll;
+        cx.notify();
+        self.persist(cx, move |store| {
+            config::write_compare_sync_scroll(store, sync_scroll)
+        });
     }
 
     /// The two default folders — see [`Homes`].
@@ -4206,6 +4223,7 @@ impl SettingsView {
             Setting::CloseAfterDrop => self.close_switch(cx).into_any_element(),
             Setting::CompareGrain => self.grain_choice(cx).into_any_element(),
             Setting::CompareFollow => self.follow_switch(cx).into_any_element(),
+            Setting::CompareSyncScroll => self.sync_scroll_switch(cx).into_any_element(),
             Setting::EngineServes => self.serves_selector().into_any_element(),
             Setting::EngineKeep => self.keep_choice(cx).into_any_element(),
             Setting::EngineIdle => self.idle_selector(cx).into_any_element(),
@@ -4449,6 +4467,20 @@ impl SettingsView {
                 let follow = *follow;
                 view.preferences.update(cx, |preferences, cx| {
                     preferences.follow_cursor(follow, cx);
+                });
+            }))
+    }
+
+    /// The switch that scrolls the two panes of a Compare window
+    /// together.
+    fn sync_scroll_switch(&self, cx: &Context<Self>) -> impl IntoElement {
+        let together = self.preferences.read(cx).comparison().sync_scroll;
+        Switch::new("compare-sync-scroll")
+            .checked(together)
+            .on_click(cx.listener(|view, together: &bool, _, cx| {
+                let together = *together;
+                view.preferences.update(cx, |preferences, cx| {
+                    preferences.scroll_together(together, cx);
                 });
             }))
     }

@@ -141,6 +141,28 @@ pub struct Hunk {
     pub added: Range<usize>,
 }
 
+/// Which of the two texts a row or a position is counted on — and,
+/// for a mark, which side it is painted on and therefore what it means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    /// The text the result was made from; a mark here is a line the
+    /// result no longer has.
+    Original,
+    /// What was made of it; a mark here is a line the original never
+    /// had.
+    Result,
+}
+
+impl Side {
+    /// The side across from this one.
+    pub fn other(self) -> Side {
+        match self {
+            Side::Original => Side::Result,
+            Side::Result => Side::Original,
+        }
+    }
+}
+
 /// What a comparison found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diff {
@@ -243,20 +265,73 @@ impl Diff {
     /// the original follow the result's cursor without the two sides
     /// drifting apart line by line as edits accumulate above.
     pub fn original_row_of(&self, result_row: usize) -> usize {
-        // In every stretch the two texts share, the original's row is
-        // the result's plus whatever the hunks above have taken away
-        // or put in.
+        self.row_across(result_row, Side::Result)
+    }
+
+    /// The row of the result that stands where `original_row` does —
+    /// [`original_row_of`](Self::original_row_of) the other way round.
+    ///
+    /// The same line, when the result kept it; for a line the result
+    /// took out, the row of the result where it would have been. On
+    /// every line the two texts share, the two maps undo each other.
+    /// The window scrolls by [`position_across`](Self::position_across),
+    /// whose whole rows this is; it is kept, and tested, as the plain
+    /// statement of that map the other way round.
+    #[cfg(test)]
+    pub fn result_row_of(&self, original_row: usize) -> usize {
+        self.row_across(original_row, Side::Original)
+    }
+
+    /// The row map, from either side: in every stretch the two texts
+    /// share, the other side's row is this one's plus whatever the
+    /// hunks above have put in or taken away; inside a hunk, the first
+    /// row of the other side's block.
+    fn row_across(&self, row: usize, from: Side) -> usize {
         let mut delta: isize = 0;
         for hunk in &self.hunks {
-            if result_row < hunk.added.start {
+            let (here, there) = hunk.sides(from);
+            if row < here.start {
                 break;
             }
-            if result_row < hunk.added.end {
-                return hunk.removed.start;
+            if row < here.end {
+                return there.start;
             }
-            delta += hunk.removed.len() as isize - hunk.added.len() as isize;
+            delta += there.len() as isize - here.len() as isize;
         }
-        (result_row as isize + delta).max(0) as usize
+        (row as isize + delta).max(0) as usize
+    }
+
+    /// The scrolling map, from either side, over positions rather than
+    /// rows: a whole number is the top of that row, and the fraction is
+    /// how far into it.
+    ///
+    /// In a shared stretch the other side stands as far into the same
+    /// line — the fraction carried across, so two panes scrolled by
+    /// pixels stay level by pixels. Inside a hunk the other side moves
+    /// **in proportion** through its own block: a third of the way
+    /// through five lines here is a third of the way through two lines
+    /// there, and through none — a block this side has and the other
+    /// has not — it holds at the place the block stands in front of.
+    /// The answer is continuous wherever this side has lines, so a pane
+    /// that follows never jumps while the one that leads is scrolled
+    /// smoothly; the one jump is past a block only the *other* side
+    /// has, which this side steps over in no distance at all.
+    pub fn position_across(&self, from: Side, position: f64) -> f64 {
+        let position = position.max(0.0);
+        let mut delta = 0.0;
+        for hunk in &self.hunks {
+            let (here, there) = hunk.sides(from);
+            let (start, end) = (here.start as f64, here.end as f64);
+            if position < start {
+                break;
+            }
+            if position < end {
+                let through = (position - start) / (end - start);
+                return there.start as f64 + through * there.len() as f64;
+            }
+            delta += there.len() as f64 - here.len() as f64;
+        }
+        (position + delta).max(0.0)
     }
 
     /// Whether any passage has lines on both sides — the only kind
@@ -298,6 +373,14 @@ impl Diff {
 }
 
 impl Hunk {
+    /// The hunk's rows on `from`'s side, then on the other.
+    fn sides(&self, from: Side) -> (&Range<usize>, &Range<usize>) {
+        match from {
+            Side::Result => (&self.added, &self.removed),
+            Side::Original => (&self.removed, &self.added),
+        }
+    }
+
     /// Lines on both sides: a passage that changed, as against one
     /// that only came or went.
     fn is_change(&self) -> bool {
@@ -651,6 +734,204 @@ mod tests {
 
         let same = Diff::of("a\nb\n", "a\nb\n");
         assert_eq!(same.original_row_of(7), 7);
+    }
+
+    /// The map the other way, which the original's scrolling leads the
+    /// result by: the same row while nothing above has moved, the row a
+    /// removal would have stood at while inside one, and the shifted
+    /// row past it.
+    #[test]
+    fn a_row_of_the_original_names_a_row_of_the_result() {
+        let diff = Diff::of("0\n1\n2\n3\n4\n", "0\nx\n1\n2\n4\n");
+        assert_eq!(diff.hunks(), &[hunk(1..1, 1..2), hunk(3..4, 4..4)]);
+        assert_eq!(diff.result_row_of(0), 0);
+        assert_eq!(diff.result_row_of(1), 2, "past the addition");
+        assert_eq!(diff.result_row_of(2), 3);
+        assert_eq!(diff.result_row_of(3), 4, "inside the removal");
+        assert_eq!(diff.result_row_of(4), 4, "past the removal");
+        assert_eq!(diff.result_row_of(9), 9, "beyond the text, still shifted");
+
+        // Equal texts: every row is itself.
+        let same = Diff::of("a\nb\n", "a\nb\n");
+        assert_eq!(same.result_row_of(7), 7);
+
+        // A line put in at the top: everything below moves down one.
+        let inserted = Diff::of("a\nb\n", "new\na\nb\n");
+        assert_eq!(
+            (0..3)
+                .map(|r| inserted.result_row_of(r))
+                .collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+
+        // A line taken out: the rows below move up, the row itself
+        // names where it would have been.
+        let deleted = Diff::of("a\ngone\nb\n", "a\nb\n");
+        assert_eq!(
+            (0..3).map(|r| deleted.result_row_of(r)).collect::<Vec<_>>(),
+            [0, 1, 1]
+        );
+
+        // Three lines replaced by one: inside, the one; past, shifted.
+        let replaced = Diff::of("a\nx\ny\nz\nb\n", "a\nq\nb\n");
+        assert_eq!(replaced.hunks(), &[hunk(1..4, 1..2)]);
+        assert_eq!(
+            (0..5)
+                .map(|r| replaced.result_row_of(r))
+                .collect::<Vec<_>>(),
+            [0, 1, 1, 1, 2]
+        );
+        assert_eq!(replaced.original_row_of(2), 4);
+
+        // The end of the text, and the empty sides.
+        let tail = Diff::of("a\n", "a\nb\nc\n");
+        assert_eq!(
+            tail.result_row_of(1),
+            3,
+            "the end of the original is the end of the result"
+        );
+        let from_nothing = Diff::of("", "a\nb\n");
+        assert_eq!(from_nothing.result_row_of(0), 2);
+        let to_nothing = Diff::of("a\nb\n", "");
+        assert_eq!(to_nothing.result_row_of(0), 0);
+        assert_eq!(to_nothing.result_row_of(1), 0);
+        assert_eq!(to_nothing.result_row_of(2), 0);
+    }
+
+    /// A small deterministic generator — the same documents every run,
+    /// so a failure names a seed rather than a fluke.
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn below(&mut self, n: u64) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (self.0 >> 33) % n
+        }
+
+        /// Up to `most` lines over a small alphabet, so two documents
+        /// share some lines and not others.
+        fn document(&mut self, most: u64) -> String {
+            (0..self.below(most + 1))
+                .map(|_| format!("{}\n", (b'a' + self.below(5) as u8) as char))
+                .collect()
+        }
+    }
+
+    /// The rows the two texts share — `(original, result)`, both ways
+    /// of every line no hunk names.
+    fn shared_rows(diff: &Diff, original_len: usize) -> Vec<(usize, usize)> {
+        let mut out = Vec::new();
+        let (mut a, mut b) = (0, 0);
+        for hunk in diff.hunks() {
+            while a < hunk.removed.start {
+                out.push((a, b));
+                a += 1;
+                b += 1;
+            }
+            a = hunk.removed.end;
+            b = hunk.added.end;
+        }
+        while a < original_len {
+            out.push((a, b));
+            a += 1;
+            b += 1;
+        }
+        out
+    }
+
+    /// On every line the two texts share, the two row maps undo each
+    /// other, and the two position maps carry the fraction across.
+    #[test]
+    fn on_every_shared_line_the_maps_undo_each_other() {
+        let mut rng = Lcg(7);
+        for seed in 0..400 {
+            let original = rng.document(12);
+            let result = rng.document(12);
+            let diff = Diff::of(&original, &result);
+            let len = original.split_inclusive('\n').count();
+            for (a, b) in shared_rows(&diff, len) {
+                assert_eq!(
+                    diff.result_row_of(a),
+                    b,
+                    "seed {seed}: {original:?} → {result:?}"
+                );
+                assert_eq!(
+                    diff.original_row_of(b),
+                    a,
+                    "seed {seed}: {original:?} → {result:?}"
+                );
+                for fraction in [0.0, 0.25, 0.75] {
+                    let there = diff.position_across(Side::Original, a as f64 + fraction);
+                    assert!((there - (b as f64 + fraction)).abs() < 1e-9, "seed {seed}");
+                    let back = diff.position_across(Side::Result, there);
+                    assert!((back - (a as f64 + fraction)).abs() < 1e-9, "seed {seed}");
+                }
+            }
+        }
+    }
+
+    /// Inside a hunk the other side moves in proportion through its own
+    /// block, and through a block the other side has not, it holds.
+    #[test]
+    fn inside_a_hunk_the_other_side_moves_in_proportion() {
+        // Original rows 1..5 (four lines) became result rows 1..3 (two).
+        let diff = Diff::of("a\n1\n2\n3\n4\nb\n", "a\nx\ny\nb\n");
+        assert_eq!(diff.hunks(), &[hunk(1..5, 1..3)]);
+        assert_eq!(diff.position_across(Side::Original, 1.0), 1.0);
+        assert_eq!(
+            diff.position_across(Side::Original, 2.0),
+            1.5,
+            "a quarter through four is a quarter through two"
+        );
+        assert_eq!(diff.position_across(Side::Original, 3.0), 2.0);
+        assert_eq!(
+            diff.position_across(Side::Original, 5.0),
+            3.0,
+            "past the hunk, line for line"
+        );
+        assert_eq!(diff.position_across(Side::Original, 5.5), 3.5);
+        assert_eq!(diff.position_across(Side::Result, 1.5), 2.0, "and back");
+        assert_eq!(diff.position_across(Side::Result, 2.0), 3.0);
+        assert_eq!(diff.position_across(Side::Result, 3.25), 5.25);
+
+        // A block only the original has: the result holds at its place.
+        let removed = Diff::of("a\n1\n2\nb\n", "a\nb\n");
+        for position in [1.0, 1.5, 2.0, 2.9] {
+            assert_eq!(
+                removed.position_across(Side::Original, position),
+                1.0,
+                "at {position}"
+            );
+        }
+        assert_eq!(removed.position_across(Side::Original, 3.0), 1.0);
+        assert_eq!(removed.position_across(Side::Original, 3.5), 1.5);
+        // And the result stepping over it: no distance on its side.
+        assert_eq!(removed.position_across(Side::Result, 0.5), 0.5);
+        assert_eq!(removed.position_across(Side::Result, 1.0), 3.0);
+    }
+
+    /// Scrolled smoothly through a pane, the other pane never jumps
+    /// back and never jumps forward while this side has lines under
+    /// it: the position map is monotonic and continuous within a hunk.
+    #[test]
+    fn the_position_map_never_goes_back() {
+        let mut rng = Lcg(11);
+        for seed in 0..200 {
+            let original = rng.document(10);
+            let result = rng.document(10);
+            let diff = Diff::of(&original, &result);
+            for from in [Side::Original, Side::Result] {
+                let mut last = diff.position_across(from, 0.0);
+                for step in 1..=480 {
+                    let here = diff.position_across(from, f64::from(step) / 32.0);
+                    assert!(here >= last, "seed {seed}, {from:?}: went back at {step}");
+                    last = here;
+                }
+            }
+        }
     }
 
     /// The ceiling. Two texts of three thousand lines each that share
