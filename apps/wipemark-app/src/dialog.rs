@@ -376,6 +376,155 @@ impl Render for Confirm {
     }
 }
 
+/// How a [`Choose`] dialog was answered: one of its two choices, or
+/// neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pick {
+    /// The first choice — Overwrite, Save.
+    First,
+    /// The second — Keep theirs, Discard.
+    Second,
+    /// Cancel, Escape, or a click on the backdrop: one answer, as in
+    /// [`Confirm`], and the one that changes nothing.
+    Dismissed,
+}
+
+/// Ask between two things to do and doing neither — the Compare window's
+/// questions (E7-9): a file changed under a save (Overwrite / Keep theirs
+/// / Cancel), and a close with edits that are not saved (Save / Discard /
+/// Cancel). [`Confirm`]'s shape with one more button, and its three walls.
+///
+/// Enter is the choice the caller names as the safe one — Save on a close,
+/// Cancel over a changed file, where the first choice writes over somebody
+/// else's text — because a key pressed out of habit must never be the
+/// destructive answer.
+pub struct Choose {
+    focus: FocusHandle,
+    title: SharedString,
+    body: Vec<SharedString>,
+    first: SharedString,
+    second: SharedString,
+    dismiss: SharedString,
+    /// What Enter answers.
+    enter: Pick,
+    armed: bool,
+}
+
+impl EventEmitter<Pick> for Choose {}
+
+impl Choose {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        title: impl Into<SharedString>,
+        body: Vec<String>,
+        first: impl Into<SharedString>,
+        second: impl Into<SharedString>,
+        dismiss: impl Into<SharedString>,
+        enter: Pick,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let focus = cx.focus_handle();
+        focus.focus(window, cx);
+        Self {
+            focus,
+            title: title.into(),
+            body: body.into_iter().map(SharedString::from).collect(),
+            first: first.into(),
+            second: second.into(),
+            dismiss: dismiss.into(),
+            enter,
+            armed: true,
+        }
+    }
+
+    /// Answer once, and open the trap as it does.
+    pub fn answer(&mut self, pick: Pick, cx: &mut Context<Self>) {
+        if !self.armed {
+            return;
+        }
+        self.armed = false;
+        cx.emit(pick);
+    }
+}
+
+impl Focusable for Choose {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl Render for Choose {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The same walls as `Confirm`'s, for the same reasons — see there.
+        backdrop(cx)
+            .id("choose-backdrop")
+            .on_action(cx.listener(|dialog, _: &Next, window, cx| {
+                cx.stop_propagation();
+                hold(&dialog.focus.clone(), window, cx);
+            }))
+            .on_action(cx.listener(|dialog, _: &Previous, window, cx| {
+                cx.stop_propagation();
+                hold(&dialog.focus.clone(), window, cx);
+            }))
+            .on_action(cx.listener(|dialog, _: &Accept, _, cx| {
+                cx.stop_propagation();
+                let enter = dialog.enter;
+                dialog.answer(enter, cx);
+            }))
+            .on_action(cx.listener(|dialog, _: &Dismiss, _, cx| {
+                cx.stop_propagation();
+                dialog.answer(Pick::Dismissed, cx);
+            }))
+            .on_click(cx.listener(|dialog, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                dialog.answer(Pick::Dismissed, cx);
+            }))
+            .child(
+                panel(&self.focus, cx)
+                    .child(heading(self.title.clone(), cx))
+                    .children(self.body.iter().map(|text| line(text.clone(), cx)))
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .gap_2()
+                            .justify_end()
+                            .pt_1()
+                            .child(
+                                Button::new("choose-dismiss")
+                                    .small()
+                                    .ghost()
+                                    .tab_index(1)
+                                    .label(self.dismiss.clone())
+                                    .on_click(cx.listener(|dialog, _, _, cx| {
+                                        dialog.answer(Pick::Dismissed, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("choose-second")
+                                    .small()
+                                    .outline()
+                                    .tab_index(2)
+                                    .label(self.second.clone())
+                                    .on_click(cx.listener(|dialog, _, _, cx| {
+                                        dialog.answer(Pick::Second, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("choose-first")
+                                    .small()
+                                    .primary()
+                                    .tab_index(3)
+                                    .label(self.first.clone())
+                                    .on_click(cx.listener(|dialog, _, _, cx| {
+                                        dialog.answer(Pick::First, cx);
+                                    })),
+                            ),
+                    ),
+            )
+    }
+}
+
 /// What a [`Naming`] dialog came back with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Chosen {
@@ -944,6 +1093,56 @@ mod tests {
             vec![Answer::Accepted],
             "a dialog answered more than once"
         );
+    }
+
+    /// A three-way question answers once too, and Enter is the choice the
+    /// caller named as the safe one — Cancel over a file that changed on
+    /// disk, never Overwrite (E7-9). Make Enter answer the first choice
+    /// and the changed-file question writes over somebody's text on a key
+    /// pressed out of habit: red.
+    #[gpui::test]
+    fn enter_on_a_three_way_question_is_the_safe_choice(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        for (enter, expected) in [
+            (Pick::Dismissed, Pick::Dismissed),
+            (Pick::First, Pick::First),
+        ] {
+            let slot: Rc<RefCell<Option<Entity<Choose>>>> = Rc::default();
+            let held = slot.clone();
+            let (_, window) = cx.add_window_view(move |window, cx| {
+                let dialog = cx.new(|cx| {
+                    Choose::new(
+                        "Changed",
+                        body(),
+                        "Overwrite",
+                        "Keep theirs",
+                        "Cancel",
+                        enter,
+                        window,
+                        cx,
+                    )
+                });
+                *held.borrow_mut() = Some(dialog.clone());
+                gpui_component::Root::new(dialog, window, cx)
+            });
+            window.run_until_parked();
+            let dialog = slot.take().expect("the window builder ran");
+            let heard = Rc::new(RefCell::new(Vec::new()));
+            let recorder = heard.clone();
+            let subscription = window.update(|_, cx| {
+                cx.subscribe(&dialog, move |_, pick: &Pick, _| {
+                    recorder.borrow_mut().push(*pick);
+                })
+            });
+            window.dispatch_action(Accept);
+            window.run_until_parked();
+            window.update(|_, cx| {
+                dialog.update(cx, |dialog, cx| dialog.answer(Pick::Second, cx));
+            });
+            window.run_until_parked();
+            drop(subscription);
+            assert_eq!(*heard.borrow(), vec![expected], "Enter with {enter:?}");
+        }
     }
 
     fn facts() -> Facts {

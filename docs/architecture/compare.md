@@ -71,11 +71,16 @@ view, so **Back to the cleaned text** puts it back without cleaning
 again — and puts back the cleaned text, not the original. Layer A is
 deterministic, so this is the text the queue's Clean writes for the same
 document (`the_result_is_what_the_queue_writes` goes through
-`clean::clean_one` and compares). The window is a reader and not a
-writer: editing the result saves nothing, closing the window writes
-nothing, and the banner over the panes — the same sentence as the notice
-on the Compare page of Settings — says both. Layer B's rewrite is not
-shown through this same comparison: see below.
+`clean::clean_one` and compares). That is the result of a row nothing has
+been written for yet. Once a clean has put a result somewhere — the file
+it wrote, beside, in the results folder or in place, or the text a
+paste's row holds — the window opens on **that result as it stands**,
+edits saved there before included, and Back to the cleaned text still
+puts back what cleaning makes of the original (D418, below). An edited
+result is saved where the result lives, never over the original: see
+"Saving an edited result". The banner over the panes — its first line
+the same sentence as the notice on the Compare page of Settings — says
+what the result is, and its second line where an edit goes and when.
 
 ### A rewritten row (E4-6b, R5)
 
@@ -88,7 +93,191 @@ text** puts it back without recomputing anything (D273's shape). The
 banner calls it what it is — the most changed version that passed every
 check, not a better one — and says how many paragraphs kept their cleaned
 original. `reset_returns_to_the_rewrite_not_the_clean` is the gate; the
-double click opens the latest result.
+double click opens the latest result. Once an edit has been saved over
+it, the window opens on the rewrite as last saved, and Back to the
+rewritten text returns to what the window opened on (D414).
+
+## Saving an edited result (E7-9)
+
+The result is editable, and an edit is kept (the owner, 2026-10-08).
+**Save** sits at the head of the result's strip and answers ⌘S
+(`secondary-s`, bound in the window's own key context); with the Compare
+page's **Save edits as they are typed** (`compare.autosave`, on by
+default) an edit is also saved on its own a moment after typing stops,
+and as the window closes. `compare/save.rs` is the half of it with no
+window in it — where a save goes, whether the file is still the one the
+window read, the blocking writes, when an edit saves on its own — and is
+tested without one.
+
+### Where Save writes (S1)
+
+`compare::save_target` is the rule, a pure function of what the window
+was opened on (`Made`), what it shows on the left and whether it was
+opened from a row (`where_save_writes_by_what_the_window_was_opened_on`
+walks every row of this table):
+
+| the window was opened on | it opens on | Save writes | Reset returns to |
+|---|---|---|---|
+| a row nothing was written for — waiting, nothing found, refused, failed — or `--compare=<path>` (`Made::Cleaned`) | `clean(original)` | a **Clean of the pane's text** (`Target::Clean`), in the application's one line of cleans, by the plan the row's Clean takes when it starts: beside or in the results folder only where nothing is, in place with the original set aside first, a paste's result into its row | `clean(original)` |
+| a cleaned row whose result is a file (`Made::CleanedTo(File)`) | the file | **over that file** (`Target::File`) | `clean(original)` |
+| a row cleaned in place — the original on the left is the file set aside | the source's name, which holds the result | over the source's name, **never** over the original set aside beside it | `clean(original)` |
+| a cleaned paste (`Made::CleanedTo(Text)`) | the row's text | **its row** (`Target::Row`): Copy the result and the next Compare read it — in memory, as the cleaned text itself is | `clean(original)` |
+| a rewritten row (`Made::Rewritten { File }`) | the rewrite's file | over that file — `name.rewritten.ext`, or the source's name for a rewrite in place | the text the window opened on |
+| a rewritten paste (`Made::Rewritten { Item }`) | the batch queue's row | **that row** (`Target::Item`, `Queue::save_text`), the result's one home | the text the window opened on |
+| a result that *is* the original's own file, nothing set aside (a CLI `--in-place --no-original`) | the file | nowhere (`NoTarget::Original`): Save is greyed and the banner says why | — |
+
+Never the original — by name, and by `inplace::same_file`, so a hard
+link to it is caught. Never through a **symbolic link**: the last name
+is the link's to answer for, as D287 has it for a clean in place — a
+save would replace the link and leave the file it points to as it was.
+The text goes back **in the encoding it arrived in** (the result file's,
+read strictly like a clean's read), UTF-16 with its mark included. A
+file is written by `inplace::write_atomically` — a temporary beside it,
+synced, renamed over — so a save that dies part way leaves the file as
+it was, and a hard link to the old result keeps the old bytes
+(`a_save_writes_over_the_result_and_never_the_original`). Nothing is ever
+written on the thread that draws: a file and the batch queue's row on
+the background executor, a Save that cleans in the line of cleans.
+
+**A Save that cleans** (D411) is `clean::save_one`: everything of
+`clean_one` but the layer's output — the same read, which decides again
+from the bytes and refuses what a clean refuses; the same plan, taken
+when it starts; the same kept copies; a file already where the result
+would go refused and left byte for byte unless the person names it. Its
+result is the pane's text, and Layer A still runs over the source for the
+report, so the Report says what the original held. A text identical to
+its source is not written (D262), and the line under the result says
+so. The line's `Started` and `Finished` reach the row like any clean's,
+so the row's status and its journal entry move as a Clean's do
+(`a_save_that_cleans_moves_the_row_and_marks_its_journal`); from then on
+the window saves over wherever that wrote. Save is offered on an
+unwritten result even unedited — it is a Clean of what the pane holds —
+while autosave saves only an edit. A row whose rewrite delivered a result
+since the window opened says no, as the row's own Clean is greyed then:
+the clean would take the row and its journal entry's item from the
+rewrite, and a paste's rewritten text, whose one home is the batch
+queue's row, would be reachable from nothing
+(`a_save_that_cleans_never_takes_a_row_from_its_rewrite`; the host
+verification, 2026-10-08).
+
+### Changed on disk (D413)
+
+A save over a file asks first whether the file still holds what the
+window last read or wrote there — its size, then its bytes, never its
+modification time alone, which a file system may keep to the second
+(`a_file_is_unchanged_only_while_its_bytes_are`). A file that moved, or
+went, is not written over: the window asks — **Overwrite** (write this
+window's text over it), **Keep theirs** (put the file's text in this
+window, let the edits here go, and autosave as before), **Cancel** (both
+as they are; nothing saves on its own until Save is pressed and asks
+again). Enter is Cancel: Overwrite writes over somebody's text, and a key
+pressed out of habit must never be that
+(`enter_on_a_three_way_question_is_the_safe_choice`). The batch queue's
+row is held to its text the same way. A Save that cleans meets a taken
+name as a clean does, and asks the same question: Overwrite replaces that
+one file (D261's Replace, asked by the person), Keep theirs makes that
+file the result's home. The check and the write are two steps; a write
+landing between them is not caught, and nothing here locks a file.
+
+### Autosave (S3, D415)
+
+`compare::save::Saver` is the rule, pure: an edit numbers itself and
+waits for `QUIET` (a second and a half) of quiet; a quiet that a later
+edit overtook saves nothing; **one save at a time**, and a save asked
+while one runs — by a quiet, by Save, by a close — runs after it with the
+text as it stands then, so the last edit wins
+(`autosave_waits_for_quiet_and_the_last_edit_wins` holds a save in
+flight to see it). A save that fails — a link, a write the system
+refused, a row that is gone — **stops autosave** and says why under the
+result; Save is still tried, and its success resumes it
+(`a_failed_save_stops_autosave_and_says_why`). A question stops it too,
+until it is answered. Closing a window with unsaved edits: with
+autosave, the window saves and then closes, and stays open if the save
+could not write; without, it asks — **Save** (what Enter answers),
+**Discard**, **Cancel** (`closing_saves_with_autosave_and_asks_without`).
+Both the close button and ⌘W go there.
+
+`compare.autosave` is read when a window opens and kept for its life,
+like every row on the Compare page (D385's reason: the page's one
+sentence stays true of every row). It is a preference row with its
+Settings switch; a value this build cannot read is read as on and left
+in the row.
+
+### Reset after a save (D414)
+
+Reset is **an edit like any other**, and is saved as edits are. It goes
+back to what cleaning makes of the original — always recomputable, and
+the text the queue's Clean writes — or, for a rewrite, to the text the
+window opened on, which is the rewrite as delivered or as last saved
+before the window opened (the model's own words are not kept anywhere
+once a save has replaced them). Not to "the last saved text": with
+autosave on, that is the text of a second and a half ago, and Reset would
+undo nothing worth a button. The tooltips say which. Because autosave
+writes it over the result's home a moment later, Reset is one edit **the
+history keeps** (`ResultEditor::replace_text`, the library's
+`replace_all`): Undo brings back what it let go, and that is saved in
+turn (`reset_can_be_undone_and_the_undo_is_saved`; the host
+verification, 2026-10-08).
+
+### The line under the result (S4)
+
+At the right of the window's foot, under the result: **Saving…**, **Not
+saved:** and why (in the warning colour), **Unsaved changes**, or
+**Saved** and the time — and nothing for a result as it was opened.
+From the catalogue, in every language.
+
+### The row, and the journal (D412, D417)
+
+The window still knows nothing of the queue. Whoever opens it from a row
+hands in a `compare::Link`, a function the queue answers
+(`Queue::told_by_compare`): a save over a file or the batch queue's row
+is told as `Told::Saved`, and a cleaned paste's text as `Told::Text` —
+which the row keeps in memory (`Row::edited`) for Copy the result and the
+next Compare, and which a row that holds no text refuses. The row's
+journal entry records **that** the result was edited and when —
+`outcome.edited`, milliseconds since the epoch — never what: set by
+`journal::clean_end` for a Save that cleans, and by `Journal::mark_edited`
+through the window's writer for every later save, which patches that one
+field of the entry as JSON and keeps the rest, a field a newer build
+wrote included. A window opened by `--compare=` has no row: its first
+Save that cleans writes a journal row of its own, as a launch flag's,
+and its later saves mark it.
+
+### The decisions, by number
+
+- **D410** — Save writes where the result lives: over its own file
+  (atomically), into the batch queue's row of a rewritten paste, into the
+  main window's row of a cleaned paste; never the original, never through
+  a symbolic link, in the encoding it arrived in.
+- **D411** — nothing written yet: Save is a Clean of the pane's text, in
+  the one line, by the plan taken when it starts (`clean::save_one`);
+  offered unedited, autosaved only when edited; an edit identical to its
+  source is not written (D262).
+- **D412** — the window tells its row through a `compare::Link` the queue
+  hands in; a paste's saved text lives in the row; a `--compare=` window
+  writes a journal row of its own.
+- **D413** — changed on disk is the size, then the bytes; it asks
+  Overwrite / Keep theirs / Cancel, Enter is Cancel.
+- **D414** — Reset returns to what was made (or, for a rewrite, to what
+  the window opened on), and is saved like an edit — one the history
+  keeps, so Undo takes it back.
+- **D415** — autosave: read at opening, 1.5 s of quiet, one save at a
+  time, the last edit wins, a failure stops it, a close saves or asks.
+- **D416** — Save on the strip is the window's action, offered to it
+  (`result::Offer`), dispatched like ⌘S.
+- **D417** — the journal records `outcome.edited`, when and never what.
+- **D418** — a cleaned row's Compare opens on its result as written; in
+  place, the original on the left is the file set aside.
+- **D419** — what a save does not do (below).
+
+### What a save does not do (D419)
+
+Layer A does not run over an edit: the person's text is written as
+typed, an invisible character typed back in included — the window shows
+the marks, and the person decides. A save does not refresh the copies the
+Retention page keeps under `kept/`: those are what the clean made. A save
+of a cleaned paste lives in the row and nowhere on disk, as the cleaned
+text does; it is gone with the row or the next clean of it.
 
 ## What is real
 
@@ -307,7 +496,9 @@ together off, the original scrolls to show its caret, as before E7-7.
 Settings › Compare is where the choices above are made —
 `compare.grain` (`lines`, `words` or `characters`; words by default),
 `compare.follow` (on by default) and `compare.sync_scroll` (on by
-default, the owner, 2026-10-07) — as rows in `wipemark.db` like
+default, the owner, 2026-10-07) and `compare.autosave` (on by default,
+the owner, 2026-10-08; see "Saving an edited result") — as rows in
+`wipemark.db` like
 every other preference, read into `compare::Comparison` and handed to
 `compare::open` by whoever opens a window. A window keeps what it was
 opened with; the page's own sentence says so, and the reason is the
@@ -373,12 +564,13 @@ that would have worked.
   Placement page places the panel and nothing else.
 * **Not remembered.** No rectangle, no split ratio, no toolbar toggle
   survives the window. What *is* a preference — the grain of the marks,
-  whether the original follows, whether the sides scroll together — is
-  a Settings row, read as the window opens.
-* **Not written.** Closing the window writes nothing, and edits to the
-  result live only there. Writing a result is the queue's Clean, under
-  the Retention page's plan; cleaning and saving from this window is
-  out of scope for E7.
+  whether the original follows, whether the sides scroll together,
+  whether edits save as they are typed — is a Settings row, read as the
+  window opens.
+* **Not a second writer.** A save writes where the result lives — the
+  result's file, a row — or, when nothing was written yet, as the
+  queue's Clean would, through the same line and the same plan. It never
+  writes over the original, and never chooses a destination of its own.
 * **Not closed by Escape.** ⌘W closes it, scoped to its own key
   context. In an editor Escape dismisses the search panel and drops a
   selection, and a window that vanished on it would take a

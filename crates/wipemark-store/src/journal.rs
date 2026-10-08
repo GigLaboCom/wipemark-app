@@ -141,6 +141,35 @@ fn read(row: &rusqlite::Row) -> rusqlite::Result<JournalRow> {
 
 const COLUMNS: &str = "id, origin, action, state, item, arrived, ended, entry";
 
+/// `entry` with `outcome.edited` set to `at`, everything else as it was —
+/// as JSON values rather than as [`crate::entry::Entry`], so that a field a
+/// newer build wrote survives this one's write. An entry that is not a JSON
+/// object is one this build cannot read; it becomes an object saying only
+/// this, which is what reading it already gave (`Entry::from_json`).
+fn edited_at(entry: &str, at: i64) -> String {
+    use serde_json::{Map, Value};
+    let mut value: Value = serde_json::from_str(entry).unwrap_or(Value::Null);
+    if !value.is_object() {
+        value = Value::Object(Map::new());
+    }
+    let outcome = value
+        .as_object_mut()
+        .expect("made an object above")
+        .entry("outcome")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if !outcome.is_object() {
+        *outcome = Value::Object(Map::new());
+    }
+    let outcome = outcome.as_object_mut().expect("made an object above");
+    // An outcome needs its verdict to read back; one written here, for a
+    // row that had none, says it has none yet.
+    outcome
+        .entry("verdict")
+        .or_insert_with(|| Value::String(String::new()));
+    outcome.insert("edited".to_owned(), Value::from(at));
+    value.to_string()
+}
+
 impl<'store> Journal<'store> {
     pub(crate) fn new(store: &'store Store) -> Self {
         Self { store }
@@ -177,6 +206,34 @@ impl<'store> Journal<'store> {
             )
             .map(|changed| changed > 0)
             .map_err(failed("update open"))
+    }
+
+    /// Say in row `id`'s entry that its result was saved edited at `at`
+    /// (milliseconds since the epoch) — `outcome.edited`, and nothing else
+    /// of the entry touched, a field this build does not know included
+    /// (E7-9, D417). `false` when there is no such row. The entry is read
+    /// and written under one lock, so no other write of this store lands
+    /// between the two.
+    pub fn mark_edited(&self, id: i64, at: i64) -> Result<bool> {
+        let connection = self.store.lock();
+        let entry: Option<String> = connection
+            .query_row(
+                "SELECT entry FROM journal WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(failed("mark edited"))?;
+        let Some(entry) = entry else {
+            return Ok(false);
+        };
+        connection
+            .execute(
+                "UPDATE journal SET entry = ?2 WHERE id = ?1",
+                params![id, edited_at(&entry, at)],
+            )
+            .map(|changed| changed > 0)
+            .map_err(failed("mark edited"))
     }
 
     /// Every row, oldest first.
@@ -365,6 +422,62 @@ mod tests {
             ended,
             entry: "{}",
         }
+    }
+
+    /// An edit saved from the Compare window is a mark in the row's
+    /// outcome and nothing more (D417): the rest of the entry — a field
+    /// this build does not know included — reads back as it was, an entry
+    /// with no outcome gets one, and a row that is gone is `false`. Write
+    /// the entry through `Entry` instead of as JSON values and the unknown
+    /// field goes: red.
+    #[test]
+    fn an_edit_is_a_mark_in_the_outcome_and_nothing_else_moves() {
+        use crate::entry::Entry;
+
+        let store = Store::in_memory().expect("open");
+        let journal = store.journal();
+        let entry = r#"{"name":"notes.md","size":12,"future":{"kept":true},"outcome":{"verdict":"cleaned","findings":2},"result":{"to":"file","path":"/d/notes.cleaned.md"}}"#;
+        let id = journal
+            .insert(&NewRow {
+                entry,
+                ..new_row("done", 1, Some(2))
+            })
+            .expect("insert");
+        assert!(journal.mark_edited(id, 77).expect("mark"));
+
+        let written = journal.row(id).expect("row").expect("still there").entry;
+        let value: serde_json::Value = serde_json::from_str(&written).expect("json");
+        assert_eq!(value["outcome"]["edited"], 77);
+        assert_eq!(value["outcome"]["verdict"], "cleaned");
+        assert_eq!(value["outcome"]["findings"], 2);
+        assert_eq!(
+            value["future"]["kept"], true,
+            "a field this build does not know was lost: {written}"
+        );
+        let read = Entry::from_json(&written);
+        assert_eq!(read.outcome.as_ref().and_then(|o| o.edited), Some(77));
+        assert_eq!(read.name.as_deref(), Some("notes.md"));
+        assert!(read.result.is_some(), "the result went: {written}");
+
+        // A later save moves the mark; an entry with no outcome gets one.
+        assert!(journal.mark_edited(id, 78).expect("mark again"));
+        let bare = journal
+            .insert(&new_row("done", 3, Some(4)))
+            .expect("insert");
+        assert!(journal.mark_edited(bare, 5).expect("mark"));
+        let bare = Entry::from_json(&journal.row(bare).expect("row").expect("row").entry);
+        assert_eq!(bare.outcome.and_then(|o| o.edited), Some(5));
+        assert_eq!(
+            Entry::from_json(&journal.row(id).expect("row").expect("row").entry)
+                .outcome
+                .and_then(|o| o.edited),
+            Some(78)
+        );
+
+        assert!(
+            !journal.mark_edited(9_999, 1).expect("no row"),
+            "a row that is gone"
+        );
     }
 
     #[test]

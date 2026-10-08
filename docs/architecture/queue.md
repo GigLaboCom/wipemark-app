@@ -167,6 +167,18 @@ was already there (D261) — **Replace the existing result**, which cleans
 again and writes over that one file (`clean::replace_one`, D270). The
 original is never the file replaced.
 
+**Compare saves into the row** (E7-9). A row's Compare opens on its
+result as it stands once a clean put one somewhere (`cleaned_for`,
+D418), and the window's Save writes back there: over the result's file,
+or — for a paste — into the row itself (`Row::edited`, what Copy the
+result then copies). A Save of a row nothing was written for is a clean
+of the edited text, filed under the row's own id in the same line
+(`Cleaner::ask_with`, `clean::save_one`, D411), so the row moves through
+queued, cleaning and done as for its own Clean. Every save says so to
+the row through the `compare::Link` the table hands the window
+(`Queue::told_by_compare`, D412), and the row's journal entry marks the
+edit — when, never what (`outcome.edited`, D417).
+
 ## The report, and its three shelves
 
 **Report…** opens a dialog the shell paints over the whole window (an

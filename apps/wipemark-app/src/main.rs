@@ -1554,6 +1554,8 @@ fn main() {
                         made: compare::Made::Cleaned,
                     },
                     preferences.read(cx).comparison(),
+                    // No row: a save is a row of the window's own (D412).
+                    None,
                     AnyWindowHandle::from(window),
                     cx,
                 );

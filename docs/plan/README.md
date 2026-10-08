@@ -195,15 +195,17 @@ opens its own pull request against `main` instead of riding on `feat`.
 | 6 | `fix/consent-and-lows` — **merged `72da17d`** | The verification's open item **M-1** — the queue's consent (D361) is checked against the window's record of where an engine sends (`journal::Going`) rather than against the engine actually handed out — and its remaining Lows | — (the coordinator) | D370–D375 | **done**: merged as `72da17d`; its verification's M-A, M-B and lows followed up by E7-8 (`fix/consent-compare-followups`, D390–D397, merged `021a5e8`) |
 | 7 | `e7/compare-synced-scroll` — **merged `9e1eb95`** | Compare scrolls both panes together, on by default (§7 E7), D380–D387 | `docs/plan/E7-7-compare-synced-scroll.md` | [E7-7](reports/E7-7-compare-synced-scroll-2026-10-08.md) | done; M1 and lows open |
 | 7a | `e8/user-models` — **merged `630d409`** | E8-1: a GGUF the catalogue does not have, added by the person — picked, named, given a purpose, held to the sha256 it had when added — and Qwen3.8 27B and Gemma 4 12B in the shipped catalogue (§7 E8) | `wipemark-task-user-models-2026-10-08` | D400–D409, [E8-1](reports/E8-1-user-models-2026-10-08.md) | done; the host verification's M1 and M2 fixed in `baca2eb`, M3 and lows open |
+| 7b | `e7/compare-save` — **merged `c333d0b`** | E7-9: saving an edited Compare result — Save and ⌘S over the result's own file or into its row, never the original, a file changed on disk asked about, an autosave on by default (§7 E7) | `wipemark-task-compare-save-2026-10-08` | D410–D419, [E7-9](reports/E7-9-compare-save-2026-10-08.md) | done; the host verification's M1 and M2 fixed in `cf7cadd`, lows and one owner question open (§7 E7) |
 | 8 | gpui-kit #3416, #3417 (upstream, the owner's) | The scrollbar on the left and the original's gutter on its right in the editor — what Compare's mirrored layout needs (§7 E7) | — | — | **open as drafts** upstream |
-| 9 | — | Saving an edited result with autosave (§7 E7); the keep-voice rule after a four-model bench, and a voice measure in the bench (§7 E4); E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), S7.2, S7.3, S7.5, E9 licensing, E10 packaging (Windows; the Linux tray is done) | to be written | — | §7 |
+| 9 | — | The keep-voice rule after a four-model bench, and a voice measure in the bench (§7 E4); E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), S7.2, S7.3, S7.5, E9 licensing, E10 packaging (Windows; the Linux tray is done) | to be written | — | §7 |
 
 **Open with the owner** (§5): Q-C2–Q-C4 (E7's defaults: all metadata,
 Layer A's finer choices, an existing result; Q-C1 is answered by E4-6b's
 В1), Q-C6 (refuse what is not a regular file before opening it — D356
 does it for the journal's road), D361's consent default, whether the
 command line may write a moved identity back to an added model's row
-(E8-1's M3, §7 E8), Q-V4–Q-V7
+(E8-1's M3, §7 E8), whether a row may say *Cleaned* over an edit
+Compare saved that Layer A never ran over (D419's, §7 E7), Q-V4–Q-V7
 and Q-V9, the mn-embed-fleet restart, `llama-cpp-prebuilt`'s LICENSE, and
 the OpenAI/Grok captures. (Loading the user's own GGUF, D302's, is
 answered by E8-1; the Gemma 4 / Qwen3.8 catalogue entries are D403.)
@@ -807,6 +809,16 @@ tell a decision from an accident.
 | **D407** | **One chat-format verdict, `wipemark_llama::chat_support`**: this crate's families (Gemma 4, ChatML with a thinking switch), then a line-for-line port of llama.cpp's `llm_chat_detect_template` at the pin, then a refusal by name — no template, or one neither recognises. The dialog and the card show it from the header; the local load refuses by it (`Unavailable::ChatFormat`) right after the weights are read; `chat_prompt` refuses by it before llama.cpp is asked; a recognised template still goes to llama.cpp as the model's own string. A model whose format is not written may still be added, and the dialog says its load will be refused. | E8-1; "never a guessed template" needs the verdict before a request and without llama.cpp; the port is held to llama.cpp by `the_port_agrees_with_llama_cpp` (CI's `native` job); `user-models.md`. |
 | **D408** | **Not offered as a model that rewrites**, in this order: a projector (`mmproj` name, `general.type = mmproj`, or `clip`), an adapter, a file with no tensors, an encoder, embedding or speech model (`gguf::NOT_WRITERS`, a pooling type, `attention.causal = false`), a model with no chat template — said in one line under the row and by the CLI's refusal. Only the folder's `.gguf` files are read; a picked file is read by its bytes, unless its name is another weight format's. | E8-1; most specific first, so "a vision projector" is said where "no chat template" would not help; `user-models.md`. |
 | **D409** | **An add and a re-check take the scan's slot (D304)** — one reading at a time, queued behind a scan, through a store of their own whose hashes draw the card's bar; a folder moved meanwhile does not stop them. Forget in the window clears `models.rewrite` when it named the model; `models forget` leaves that row, which the application then reads as nothing chosen. | E8-1; one hash of a file at a time is D304's rule; the command line never writes `models.rewrite`, as `rm` never does; `user-models.md`. |
+| **D410** | **Where Save writes is where the result lives**: over the result's own file — the clean's `name.cleaned.ext` or results-folder file, the rewrite's `name.rewritten.ext`, or the source's name after an in-place clean or rewrite — atomically (`inplace::write_atomically`); into the batch queue's row for a rewritten paste (`Queue::save_text`: only a done item whose stored result holds a text); into the main window's row for a cleaned paste. Never the original (by path, and by `same_file`), never through a symbolic link (D287's rule), in the encoding the result's file is in. A result that *is* the original's file with nothing set aside (the CLI's `--in-place --no-original`) has no target: Save is greyed and says why. | E7-9 (S1); an edit saved anywhere else is a second result nobody opens; `compare/save.rs` `save_target`; `docs/architecture/compare.md`, "Saving an edited result (E7-9)". |
+| **D411** | **Nothing written yet: Save is a Clean of the pane's text.** `clean::save_one` is `clean_one` with the result given — the same read and refusals, the plan taken when it starts, the kept copies, a taken name refused unless named — asked of the one line of cleans under the row's own id (`Cleaner::ask_with`), so the row's status and journal move as a Clean's do, and a Save and a Clean of one row are never two writes. `Cleaned` when the text differs from the source, nothing written when it does not (D262 kept). Offered on an unwritten result even unedited; autosave saves only an edit; a `--compare=` window's number is its own (`clean::number`). A row in a line, being rewritten, or whose rewrite has delivered a result says no (`Told::Cleans`), as its own Clean is greyed then. | E7-9; the task's first option, not "Save only after a Clean": an edit made over a waiting row and the window closed would otherwise be lost, which is what the owner asked to stop. The last clause is the host verification's **M2** (fixed in `cf7cadd`): a window opened before a rewrite still saved as a Clean once it ended, taking the row and its journal item from the rewrite and leaving a rewritten paste's text reachable from nothing (`a_save_that_cleans_never_takes_a_row_from_its_rewrite`). |
+| **D412** | **The window tells the row through a link its owner hands in**: `compare::Link`, a function the queue gives `compare::open` (`link_to`); `compare.rs` still names no queue. `Told::Saved` after a save over a file or the batch queue's row; `Told::Text` with a cleaned paste's text, which the row keeps in memory (`Row::edited`) for Copy the result and the next Compare, gone with the row's next clean, and refused by a row whose result is not a text. A `--compare=` window writes a journal row of its own on its first Save that cleans (origin `launch-flag`, as `--clean=`'s are) and marks it on later saves. | E7-9; the dependency stays one way; every document has a status, whoever asked; `compare.md`. |
+| **D413** | **Changed on disk is the size, then the bytes, and it asks.** A save over a file compares the file with the stamp of what the window last read or wrote there — its length, then a digest of its bytes — never the modification time alone; a file that is gone has changed; a batch queue row is held to its text's digest. A change — and a taken name met by a Save that cleans — is asked in `dialog::Choose`: Overwrite, Keep theirs (the file's text in the window, the edits let go, the file the result's home, autosave on again), Cancel (nothing saves on its own until Save asks again); Enter is Cancel. The check and the write are two steps: a write landing between them is not caught, and nothing locks the file. | E7-9 (S2); a file system may keep a modification time to the second; Enter must never be the answer that writes over somebody else's text; `compare/save.rs` `Stamp`. |
+| **D414** | **Reset goes back to what was made, and is saved like an edit — one edit the history keeps.** For a clean, to `clean(original)` (always recomputable; the text Clean writes); for a rewrite, to the text the window opened on (the rewrite as delivered, or as last saved before — the model's words are not kept once a save replaced them). Not "the last saved text". Reset replaces the text through `ResultEditor::replace_text` (the library's `replace_all`): Undo brings back what it let go, and autosave saves that in turn. The tooltips say which, and that it is saved. | E7-9; with autosave on by default the last saved text is a second and a half old, and Reset would undo nothing worth a button. The undoable edit is the host verification's **M1** (fixed in `cf7cadd`): Reset went through `set_value`, which clears the history, and autosave wrote it 1.5 s later — one click destroyed saved edits with no Undo (`reset_can_be_undone_and_the_undo_is_saved`). |
+| **D415** | **Autosave: read at opening, 1.5 s of quiet, one save at a time.** `compare.autosave`, on by default, is read when a window opens (D385's reason). An edit numbers itself; a quiet a later edit overtook saves nothing; a save asked while one runs (by a quiet, Save, a close) runs after it with the text as it stands then. A save that cannot write stops autosave and says why until a Save succeeds; a question stops it until answered. Closing — the button and ⌘W, one road: with autosave, save then close, staying open if the save could not write; without, ask Save / Discard / Cancel (Enter is Save). | E7-9 (S3); the owner asked for autosave on by default; `compare/save.rs` `Saver`, `QUIET`. |
+| **D416** | **Save on the strip is the window's action, offered.** `result.rs` names no file: the window hands it a `result::Offer` — its own action, the key context it is bound in, the label, and why it is greyed — and pressing it focuses the editor and dispatches that action, the road ⌘S takes. One button, at the head of the strip, apart from the editor's operations. | E7-9; the toolbar's rule — a button is the road a keystroke takes (`the_strip_s_save_is_the_window_s_action`). |
+| **D417** | **The journal records that a result was edited, and when** — `entry.outcome.edited`, milliseconds since the epoch, never what. `journal::clean_end` sets it for a Save that cleans; every later save sets it through the row's writer (`Writer::edited` → `Journal::mark_edited`), which patches that one field as JSON values and keeps the rest of the entry, a field a newer build wrote included. | E7-9; every document has a status; a row is metadata, never the document (D312). |
+| **D418** | **A cleaned row's Compare opens on its result as written**: once a clean put a result somewhere, the window opens on that file or that row's text — so edits saved there before are what it shows, and a second window never overwrites them with a fresh clean — and, in place, the original on the left is the file set aside. A clean the journal recorded in an earlier session, with a file, opens the same way. | E7-9; the old `Made::Cleaned` read the source's name, which after an in-place clean held the result; `Made::CleanedTo`. |
+| **D419** | **What a save does not do**: Layer A does not run over an edit — the person's text is written as typed; a save does not refresh the copies `kept/` holds (those are what the clean made); a cleaned paste's saved text lives in its row and nowhere on disk, as the cleaned text does. | E7-9; the row's *Cleaned* over such a text is an owner question (§5, D419's). |
 
 ---
 
@@ -851,6 +863,7 @@ answered moves here or to §4.
 | В1–В10 | E4-6b: what a drop does, Clean and Rewrite, the journal's life, what a row keeps, the CLI's writes, the opt-outs, `inspect`, `name.rewritten.ext`, the agents' order, the panel | — | **Closed 2026-10-07 at their defaults** ("делай по дефолту"): `docs/plan/reports/E4-6b-2026-10-07.md` §2, D310–D326. |
 | Г1–Г7 | E4-6c: the section, adaptations, the sample, which slots, the pivot, drift, fragments | — | **Closed 2026-10-07 at their defaults**: `docs/plan/reports/E4-6c-2026-10-07.md`, D330–D339. |
 | D302's | load the user's own GGUF, one in no catalogue, unverified — and what it costs the "verified" promise | E8 | **Closed (owner, 2026-10-08, by asking for E8-1):** added by the person, its checksum recorded, refused when it changes, never vouched for — D400–D409, `docs/architecture/user-models.md`. |
+| D419's | a Save that cleans writes the person's edit as typed (D419), and the row's badge says *Cleaned* over it — though Layer A never ran over the edit, which may carry a pasted ZWSP (`clean.rs` `saved_of`) | — | **Open (owner), from E7-9's host verification.** Built as D419: the edit is written as typed and the verdict is `Cleaned` whenever it differs from the source; the Report still says what Layer A found in the source. The alternatives: run Layer A over the edit before it is written, or say on the row that the result was edited after the clean. |
 | D361's | the queue's consent: asked again at start when the duty moved away from where the person agreed (D361) | — | **Open (owner)**: the coordinator's default is built (asked once, for every waiting item); the verification's M-1 is fixed by D370 (`fix/consent-and-lows`, merged `72da17d`), its follow-ups by E7-8 (D390–D397, merged `021a5e8`). |
 
 ---
@@ -1278,19 +1291,51 @@ the gate the overview set, and the open edges.
   result wrapping; **L4** D390 can overwrite a pending ask; **L5** D395 waits
   silently (nothing says why); **L6** a doc comment moved in `store.rs`.
 - **Build. Saving an edited result, with autosave** (the owner,
-  2026-10-08). Compare's result is editable but nothing saves it
-  (`compare-pending`, `compare-rewritten-banner`, `compare-help-close`:
-  "editing saves nothing, closing writes nothing"); closing the window
-  loses the edits. Wanted: Save writes the edited result over its own
-  result file (`name.cleaned.ext` / `name.rewritten.ext`, through
-  `wipemark_intake::inplace` — the original is never touched, the publish
-  atomic), or into its journal row for a paste with no file; an
-  **autosave** row on the Compare page, **on by default**, saving a second
-  or two after the last edit; the banner and help say which is on; Reset
-  ("Back to the cleaned/rewritten text") is then an edit like any other
-  and is saved too, or asks — decide in the step's document. A result
-  whose file changed on disk since the window opened is not saved over
-  without asking.
+  2026-10-08) — **done**: E7-9 (`e7/compare-save`, D410–D419, merged as
+  `c333d0b` on 2026-10-08, report
+  `reports/E7-9-compare-save-2026-10-08.md`; Watchword
+  `wipemark-task-compare-save-2026-10-08` and
+  `wipemark-compare-save-report-2026-10-08`). Compare's result was
+  editable and nothing saved it; closing the window lost the edits. Now
+  Save at the head of the result's strip and ⌘S write the edit where the
+  result lives — over its own file, into a paste's row or the batch
+  queue's, or, when nothing was written yet, a Clean of the pane's text in
+  the one line of cleans — never over the original, never through a
+  symbolic link, in the encoding it arrived in; a file changed on disk is
+  asked about (Overwrite / Keep theirs / Cancel); `compare.autosave`, on
+  by default, saves 1.5 s after typing stops and as the window closes, and
+  with it off a close asks; Reset is an edit and is saved like one; the
+  journal marks the edit, never what (`outcome.edited`). The host
+  verification found two Mediums, fixed in `cf7cadd` before the merge:
+  **M1** Reset cleared the editor's undo history (`set_value`) and
+  autosave wrote it 1.5 s later — one click destroyed saved edits with no
+  Undo; it is now one undoable edit (`ResultEditor::replace_text`, D414);
+  **M2** a Save that cleans, from a window opened before the row was
+  rewritten, took the row and its journal item from its finished rewrite;
+  such a row now says no (D411). Gates once after the fixes: 1750 passed,
+  0 failed, 7 ignored; the app with `local-llama` 702/0/2.
+- **Fix. E7-9's open follow-ups** (its host verification, 2026-10-08):
+  - quitting (⌘Q, the tray's Quit) within 1.5 s of an edit loses it, and
+    nothing asks — GPUI asks no window on quit; flush the pending save on
+    `cx.on_app_quit`;
+  - a stale window: Compare opened on a waiting row, the row then cleaned
+    from the main window, the window saves — refused, "result exists" —
+    and on Cancel the row and its journal say refused though
+    `x.cleaned.md` is good;
+  - **owner question** (§5, D419's): the badge says *Cleaned* over an
+    edited text Layer A did not run over (D419), which may carry a pasted
+    ZWSP (`clean.rs` `saved_of`);
+  - `Told::Saved` marks the row's *current* journal entry, which may be a
+    later rewrite's;
+  - D413's check and write are two steps (declared; nothing locks the
+    file);
+  - `store/journal.rs` `edited_at` replaces an entry that is not a JSON
+    object with one saying only the edit, where a row this build cannot
+    read is otherwise left as it is;
+  - autosave off: Save, then ⌘W while it saves, and the save comes back
+    changed on disk — the close question is silently replaced by that one;
+  - closing a window with nowhere to save (the result is the original's
+    own file, or a paste with no row) drops the edits without asking.
 - **Open.** Q7, Q-A1, Q-A3, Q-D2; Q-C2…Q-C4 (after E7-1…E7-6), Q-C6
   (after X1–X14; D356 covers the journal's road). Q-C5 is answered by
   D282, Q-C1 by E4-6b's В1.
@@ -1369,9 +1414,9 @@ the gate the overview set, and the open edges.
   **follow-ups Z1–Z3** (Watchword `wipemark-task-e7-followups-4-2026-10-06`),
   tests only: done, merged squashed on 2026-10-07. X2's question —
   refuse what is not a regular file before opening it — is Q-C6. What
-  remains of E7: S7.2, S7.3, S7.5 above, Compare's synced scroll and the
-  saving of an edited result; rewriting in the windows is done (E4-6b,
-  §7 E4).
+  remains of E7: S7.2, S7.3, S7.5 above — Compare's synced scroll (E7-7)
+  and the saving of an edited result (E7-9) are done, as is rewriting in
+  the windows (E4-6b, §7 E4).
 
 ### E8 — models and engine UI (the rest)
 

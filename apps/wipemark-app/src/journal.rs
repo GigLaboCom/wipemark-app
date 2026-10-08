@@ -140,6 +140,16 @@ impl Journal {
         })
     }
 
+    /// Mark row `id`'s result as saved, edited, at `at` — `outcome.edited`
+    /// and nothing else of the row (D417). Blocking.
+    pub fn mark_edited(&self, id: i64, at: i64) {
+        match self.store.journal().mark_edited(id, at) {
+            Ok(true) => self.say(Note::Changed),
+            Ok(false) => {}
+            Err(error) => tracing::warn!(%error, id, "the journal could not mark an edit"),
+        }
+    }
+
     /// Forget row `id`. Blocking.
     pub fn remove(&self, id: i64) {
         if self.store.journal().remove(id).is_ok() {
@@ -260,6 +270,11 @@ impl Journal {
                                 journal.remove(id);
                             }
                         }
+                        Command::Edited { key, at } => {
+                            if let Some(&id) = ids.get(&key) {
+                                journal.mark_edited(id, at);
+                            }
+                        }
                         #[cfg(test)]
                         Command::Gate(gate) => {
                             let _ = gate.recv();
@@ -308,6 +323,11 @@ enum Command {
     },
     Forget {
         key: u64,
+    },
+    /// Row `key`'s result was saved, edited, at `at` (D417).
+    Edited {
+        key: u64,
+        at: i64,
     },
     /// Wait for the test to say go: the writer held still, so a test can
     /// see what lands while it is.
@@ -367,6 +387,13 @@ impl Writer {
     /// Row `key` is gone.
     pub fn forget(&self, key: u64) {
         let _ = self.commands.send(Command::Forget { key });
+    }
+
+    /// Row `key`'s result was saved from the Compare window, edited, at
+    /// `at` (milliseconds since the epoch): a mark in its outcome, written
+    /// in its turn after everything asked before it (D417).
+    pub fn edited(&self, key: u64, at: i64) {
+        let _ = self.commands.send(Command::Edited { key, at });
     }
 }
 
@@ -718,6 +745,10 @@ pub fn clean_end(outcome: &clean::Outcome) -> (Phase, Outcome, Delivered) {
             reason: reason.map(str::to_owned),
             findings,
             kept,
+            // A Save from the Compare window that cleaned: the result is
+            // the person's text, and the row says so — when, never what
+            // (D417).
+            edited: outcome.edited.then(now_ms),
             ..Outcome::default()
         },
         delivered,

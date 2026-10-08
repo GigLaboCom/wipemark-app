@@ -306,6 +306,10 @@ pub struct Outcome {
     /// Bytes read, and bytes of the result.
     pub size_in: Option<u64>,
     pub size_out: Option<u64>,
+    /// Whether the result is a text a person edited in the Compare window
+    /// rather than what Layer A made — a Save there that cleans
+    /// ([`save_one`], D411). What the row's journal entry marks as edited.
+    pub edited: bool,
 }
 
 impl Outcome {
@@ -325,6 +329,7 @@ impl Outcome {
             format: None,
             size_in: None,
             size_out: None,
+            edited: false,
         }
     }
 }
@@ -392,6 +397,19 @@ pub fn outcome_of(result: &Cleaning) -> (Verdict, bool) {
     }
 }
 
+/// What a Save that cleans comes to, and whether it is written (D411): the
+/// person's text is the result, so it is `Cleaned` and written whenever it
+/// differs from the source — and, like any clean, never written when it is
+/// the source itself (D262). What Layer A would have found is the report's
+/// to say, not the verdict's. Pure.
+pub fn saved_of(input: &str, edited: &str) -> (Verdict, bool) {
+    if edited == input {
+        (Verdict::NothingFound, false)
+    } else {
+        (Verdict::Cleaned, true)
+    }
+}
+
 fn restored(report: &PictureReport) -> bool {
     matches!(&report.visible, Visible::Examined { report, .. } if !report.restored.is_empty())
 }
@@ -404,7 +422,30 @@ fn restored(report: &PictureReport) -> bool {
 /// the thing came without one, a kept directory — so that both are
 /// deterministic for a given row and clock reading.
 pub fn clean_one(arrival: &Arrival, plan: &Plan, row: u64, now: DateTime<Utc>) -> Outcome {
-    logged(row, run(arrival, plan, row, now, None))
+    logged(row, run(arrival, plan, row, now, None, None))
+}
+
+/// A clean whose result is `edited` — the Compare window's Save of a text
+/// nothing has been written for yet (E7-9, D411). **Blocking.**
+///
+/// Everything of [`clean_one`] but the layer's output: the same read,
+/// which decides again from the bytes and refuses what a clean refuses —
+/// not text, past the limit, not decodable, in place of a symbolic link
+/// (D287) — the same plan and its refusals, a file already where the
+/// result would go included (D261), unless it is the one `replacing`
+/// names, the same kept copies, and the result in the encoding the source
+/// arrived in. Layer A still runs over the source, for the report: what
+/// the original held is what the Report says. A text identical to its
+/// source is not written, as a clean's never is (D262).
+pub fn save_one(
+    arrival: &Arrival,
+    plan: &Plan,
+    row: u64,
+    now: DateTime<Utc>,
+    replacing: Option<&Path>,
+    edited: &str,
+) -> Outcome {
+    logged(row, run(arrival, plan, row, now, replacing, Some(edited)))
 }
 
 /// Clean one thing again, and write its result over `existing` — the one
@@ -421,7 +462,7 @@ pub fn replace_one(
     now: DateTime<Utc>,
     existing: &Path,
 ) -> Outcome {
-    logged(row, run(arrival, plan, row, now, Some(existing)))
+    logged(row, run(arrival, plan, row, now, Some(existing), None))
 }
 
 /// What a clean that panicked comes to (D288): a failure of its own, and
@@ -531,12 +572,19 @@ pub fn inspect_one(arrival: &Arrival, plan: &Plan) -> Findings {
 /// refusal a clean would give: what Compare opens on (D282). A thing whose
 /// bytes turn out to be a picture is refused as one. **Blocking.**
 pub fn text_of(arrival: &Arrival) -> Result<String, Refusal> {
+    text_and_encoding_of(arrival).map(|(text, _)| text)
+}
+
+/// [`text_of`], and the encoding the bytes were in — what a text saved
+/// back to the same file is written in (E7-9). **Blocking.**
+pub fn text_and_encoding_of(arrival: &Arrival) -> Result<(String, Encoding), Refusal> {
     if let Cleanable::No(unable) = cleanable(&arrival.intake) {
         return Err(Refusal::NotCleanable(unable));
     }
     let read = read(arrival)?;
     match read.cleanable {
         Cleanable::Text(encoding) => wipemark_intake::text::decode(&read.bytes, encoding)
+            .map(|text| (text, encoding))
             .map_err(|offset| Refusal::Undecodable { encoding, offset }),
         Cleanable::Picture(format) => Err(Refusal::NotCleanable(Unable::Kind {
             kind: Kind::Image,
@@ -629,12 +677,15 @@ struct Read {
     path: Option<PathBuf>,
 }
 
+/// One clean: read, the layer, the verdict, the write by `plan`. With
+/// `edited`, the result is that text rather than the layer's ([`save_one`]).
 fn run(
     arrival: &Arrival,
     plan: &Plan,
     row: u64,
     now: DateTime<Utc>,
     replacing: Option<&Path>,
+    edited: Option<&str>,
 ) -> Outcome {
     // Decided on the intake first: a folder, a ZIP, a TIFF is refused
     // before a byte is read.
@@ -664,13 +715,28 @@ fn run(
                 }
             };
             let cleaned = wipemark_core::clean(&input, &Options::default());
-            let (verdict, writes) = outcome_of(&Cleaning::Text {
-                input: &input,
-                cleaned: &cleaned,
-            });
-            let bytes = wipemark_intake::text::encode(&cleaned.text, encoding);
+            let (verdict, writes) = match edited {
+                None => outcome_of(&Cleaning::Text {
+                    input: &input,
+                    cleaned: &cleaned,
+                }),
+                Some(edited) => saved_of(&input, edited),
+            };
             let Cleaned { text, report } = cleaned;
+            let text = edited.map_or(text, str::to_owned);
+            let bytes = wipemark_intake::text::encode(&text, encoding);
             (verdict, writes, Report::Text(report), bytes, text)
+        }
+        // A picture has no text to edit: Compare never opens one.
+        Cleanable::Picture(_) if edited.is_some() => {
+            return Outcome {
+                format: read.format,
+                size_in: Some(size_in),
+                ..Outcome::refused(Refusal::NotCleanable(Unable::Kind {
+                    kind: Kind::Image,
+                    format: read.format,
+                }))
+            }
         }
         Cleanable::Picture(_) => {
             let options = PictureOptions {
@@ -710,6 +776,7 @@ fn run(
         format: read.format,
         size_in: Some(size_in),
         size_out: Some(bytes.len() as u64),
+        edited: edited.is_some(),
         ..Outcome::of(Verdict::NothingFound)
     };
     if !writes {
@@ -1455,6 +1522,121 @@ mod tests {
             refused.verdict
         );
         assert_eq!(read(&source), MARKED.as_bytes(), "the source was replaced");
+    }
+
+    // -- a Save that cleans (E7-9) ---------------------------------------
+
+    /// The Compare window's Save of a text nothing was written for is a
+    /// clean whose result is that text (D411): beside the file, in the
+    /// encoding the file arrived in — UTF-16LE with its mark here — never
+    /// over the source, a taken name refused and left byte for byte until
+    /// it is the one named, the outcome marked as edited and the report
+    /// still Layer A's over the source. Put the layer's text back in
+    /// `run` for an edited one and the bytes are the clean's: red.
+    #[test]
+    fn a_save_that_cleans_writes_the_edited_text_by_the_clean_s_plan() {
+        let scratch = Scratch::new("save-beside");
+        let source_text = format!("\u{FEFF}{MARKED}");
+        let source = scratch.file("x.md", &encoded(&source_text, Encoding::Utf16Le));
+        let arrival = arrival(Handed::Path(source.clone()));
+        let plan = planned(&arrival, &Retention::default(), &scratch.homes());
+        let edited = "\u{FEFF}# Notes\n\nEdited by hand — kept as typed.\n";
+
+        let beside = scratch.0.join("x.cleaned.md");
+        let taken = scratch.file("x.cleaned.md", b"somebody's own file");
+        let refused = save_one(&arrival, &plan, 7, now(), None, edited);
+        assert!(
+            matches!(&refused.verdict, Verdict::NotCleaned(Refusal::Exists(path)) if *path == taken),
+            "{:?}",
+            refused.verdict
+        );
+        assert_eq!(
+            read(&taken),
+            b"somebody's own file",
+            "a taken name was written"
+        );
+
+        let saved = save_one(&arrival, &plan, 7, now(), Some(&taken), edited);
+        assert!(
+            matches!(saved.verdict, Verdict::Cleaned),
+            "{:?}",
+            saved.verdict
+        );
+        assert!(saved.edited, "the outcome does not say it was edited");
+        assert!(saved.replaced);
+        assert_eq!(saved.written.as_deref(), Some(beside.as_path()));
+        assert_eq!(
+            read(&beside),
+            encoded(edited, Encoding::Utf16Le),
+            "not the edited text, or not in the source's encoding"
+        );
+        assert_eq!(
+            read(&source),
+            encoded(&source_text, Encoding::Utf16Le),
+            "the source was touched"
+        );
+        match &saved.report {
+            Some(Report::Text(report)) => {
+                assert!(
+                    !report.findings.is_empty(),
+                    "the report is not over the source"
+                )
+            }
+            other => panic!("no text report: {other:?}"),
+        }
+
+        // A clean's outcome is never marked edited.
+        std::fs::remove_file(&beside).expect("remove");
+        let cleaned = clean_one(&arrival, &plan, 7, now());
+        assert!(!cleaned.edited);
+    }
+
+    /// The edited text is the source itself: nothing written, as a clean's
+    /// result identical to its input never is (D262). In place, the
+    /// original is set aside first and the file holds the edit; a paste's
+    /// result goes back as the edited text and nothing lands on disk.
+    #[test]
+    fn a_save_that_cleans_keeps_every_rule_of_a_clean() {
+        let scratch = Scratch::new("save-rules");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let arrival_of_file = arrival(Handed::Path(source.clone()));
+        let plan = planned(&arrival_of_file, &Retention::default(), &scratch.homes());
+        let same = save_one(&arrival_of_file, &plan, 7, now(), None, MARKED);
+        assert!(
+            matches!(same.verdict, Verdict::NothingFound),
+            "{:?}",
+            same.verdict
+        );
+        assert_eq!(same.written, None);
+        assert_eq!(names(&scratch.0), ["x.md"]);
+
+        let over = Retention {
+            destination: Destination::Replace,
+            ..Retention::default()
+        };
+        let plan = planned(&arrival_of_file, &over, &scratch.homes());
+        let saved = save_one(&arrival_of_file, &plan, 7, now(), None, "edited\n");
+        assert!(
+            matches!(saved.verdict, Verdict::Cleaned),
+            "{:?}",
+            saved.verdict
+        );
+        let original = scratch.0.join("x.original.md");
+        assert_eq!(saved.set_aside.as_deref(), Some(original.as_path()));
+        assert_eq!(read(&original), MARKED.as_bytes(), "the original moved");
+        assert_eq!(read(&source), b"edited\n");
+
+        let paste = arrival(Handed::Text(MARKED.to_owned()));
+        let plan = planned(&paste, &Retention::default(), &scratch.homes());
+        let saved = save_one(&paste, &plan, 8, now(), None, "pasted, edited\n");
+        assert!(
+            matches!(saved.verdict, Verdict::Cleaned),
+            "{:?}",
+            saved.verdict
+        );
+        assert_eq!(saved.text.as_deref(), Some("pasted, edited\n"));
+        assert_eq!(saved.written, None);
+        assert_eq!(names(&scratch.0), ["x.md", "x.original.md"]);
     }
 
     /// In place: the original is set aside first, then the file replaced;

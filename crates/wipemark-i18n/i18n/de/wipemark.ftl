@@ -214,7 +214,7 @@ kind-unknown = Nicht erkannt
 compare-title = Vergleich · { $name }
 compare-original = Original
 compare-result = Ergebnis
-compare-pending = Im Vergleichsfenster ist das Ergebnis das, was die Bereinigung aus dem Original macht, und jede Zeile, die abweicht, ist auf beiden Seiten markiert. Änderungen am Ergebnis werden dort nicht gespeichert, und beim Schließen des Fensters wird nichts geschrieben.
+compare-pending = Im Vergleichsfenster ist das Ergebnis das, was die Bereinigung aus dem Original macht, und jede Zeile, die abweicht, ist auf beiden Seiten markiert. Ein bearbeitetes Ergebnis wird dort gespeichert, wo das Ergebnis liegt — nie über dem Original.
 compare-reading = Wird gelesen…
 compare-same = Das Ergebnis ist das Original, Zeile für Zeile.
 compare-changed = { $added ->
@@ -228,7 +228,7 @@ compare-refused-not-text = Das ist kein Text, also gibt es nichts, was sich Zeil
 compare-refused-too-big = Mit { $size } ist es mehr, als dieses Fenster vergleicht; die Grenze liegt bei { $limit }.
 compare-refused-unreadable = Es ließ sich nicht lesen.
 compare-reset = Zurück zum bereinigten Text
-compare-reset-tooltip = Die Änderungen verwerfen; das Ergebnis ist wieder das, was die Bereinigung aus dem Original gemacht hat.
+compare-reset-tooltip = Zurückholen, was die Bereinigung aus dem Original macht, und die Änderungen gehen lassen. Das ist eine Änderung wie jede andere und wird gespeichert wie Änderungen.
 compare-help = Was dieses Fenster tut
 compare-help-marks = Eine rote Markierung am Original ist eine Zeile, die das Ergebnis nicht mehr hat; eine grüne am Ergebnis eine Zeile, die das Original nie hatte.
 compare-help-follows = Das Original folgt dem Cursor im Ergebnis, damit beide Seiten im Gleichschritt bleiben.
@@ -236,8 +236,50 @@ compare-help-scrolls = Wird eine Seite gerollt, rollt die andere mit, sodass gem
 compare-help-toolbar = Die Leiste über dem Ergebnis sind die Befehle des Editors selbst, mit den Kurzbefehlen, auf die er ohnehin hört.
 compare-help-words = Innerhalb einer geänderten Passage werden die Wörter, die abweichen, stärker markiert.
 compare-help-characters = Innerhalb einer geänderten Passage werden die Zeichen, die abweichen, stärker markiert.
-compare-help-settings = Auf der Seite „Vergleich“ der Einstellungen werden drei Dinge für das nächste Fenster gewählt, das aufgeht: was markiert wird, ob das Original dem Cursor folgt und ob beide Seiten zusammen rollen.
-compare-help-close = Wird dieses Fenster geschlossen, wird nichts geschrieben; Änderungen am Ergebnis leben nur hier.
+compare-help-settings = Auf der Seite „Vergleich“ der Einstellungen werden vier Dinge für das nächste Fenster gewählt, das aufgeht: was markiert wird, ob das Original dem Cursor folgt, ob beide Seiten zusammen rollen und ob Änderungen beim Tippen gespeichert werden.
+compare-help-close = Hat das Ergebnis ungespeicherte Änderungen, speichert das Schließen dieses Fensters es zuerst.
+compare-help-close-asks = Hat das Ergebnis ungespeicherte Änderungen, fragt das Schließen dieses Fensters, ob sie gespeichert werden sollen.
+compare-help-save = „Speichern“ am Anfang der Leiste über dem Ergebnis schreibt das bearbeitete Ergebnis dorthin, wo es liegt; die Zeile unter dem Ergebnis sagt, ob es gespeichert ist.
+
+compare-save = Speichern
+compare-save-to-file = Änderungen werden über { $name } gespeichert, die eigene Datei des Ergebnisses — nie über dem Original.
+compare-save-to-row = Änderungen werden in der Zeile dieses Dokuments in der Liste gespeichert, dem einzigen Ort, an dem das Ergebnis liegt.
+compare-save-as-clean = Für dieses Ergebnis ist noch nichts geschrieben: Speichern schreibt es dorthin, wohin die Bereinigung es schreiben würde, als { $name }.
+compare-save-as-clean-in-place = Für dieses Ergebnis ist noch nichts geschrieben: Speichern schreibt es über { $name }, wie die Bereinigung es täte, nachdem das Original beiseitegelegt ist.
+compare-save-as-clean-row = Von diesem Ergebnis ist noch nichts aufbewahrt: Speichern behält es in der Zeile dieses Dokuments in der Liste, wie die Bereinigung es täte.
+compare-save-when-typing = Gespeichert wird einen Moment, nachdem das Tippen aufhört, und beim Schließen des Fensters.
+compare-save-when-pressed = Gespeichert wird, wenn „Speichern“ gedrückt wird; wer das Fenster mit ungespeicherten Änderungen schließt, wird zuerst gefragt.
+compare-save-nowhere = Dieses Ergebnis ist die Originaldatei selbst, ohne beiseitegelegtes Original, deshalb schreibt „Speichern“ hier nichts.
+compare-save-unsaved = Es gibt keine ungespeicherten Änderungen.
+compare-save-reading = Der Text wird noch gelesen.
+compare-save-refused = Hier gibt es nichts zu speichern.
+
+compare-status-saved = Gespeichert um { $time }
+compare-status-saving = Wird gespeichert…
+compare-status-unsaved = Ungespeicherte Änderungen
+compare-status-not-saved = Nicht gespeichert: { $reason }
+compare-not-saved-changed = { $name } wurde auf dem Datenträger geändert, nachdem dieses Fenster es gelesen hatte.
+compare-not-saved-link = { $name } ist ein symbolischer Link, und Speichern würde den Link ersetzen statt der Datei, auf die er zeigt.
+compare-not-saved-original = Es würde über das Original geschrieben.
+compare-not-saved-gone = Die Zeile, die das Ergebnis hielt, ist nicht mehr da.
+compare-not-saved-busy = Das Dokument wird gerade bereinigt oder umgeschrieben, oder es wurde umgeschrieben, nachdem dieses Fenster geöffnet wurde; um die Umschreibung zu bearbeiten, öffnen Sie den Vergleich erneut über seine Zeile.
+compare-not-saved-same = Der Text ist der des Originals, und ein Ergebnis, das seinem Original gleicht, wird nie geschrieben.
+compare-not-saved-unreadable = { $name } ließ sich nicht erneut lesen.
+
+compare-changed-title = Das Ergebnis hat sich auf dem Datenträger geändert
+compare-changed-body = { $name } wurde geändert, nachdem dieses Fenster es gelesen hatte — in einem anderen Fenster, von einem anderen Programm oder auf der Befehlszeile.
+compare-exists-title = Wo das Ergebnis hingehört, liegt schon eine Datei
+compare-exists-body = { $name } ist schon da, und Speichern würde das Ergebnis darüber schreiben.
+compare-changed-choices = „Überschreiben“ schreibt den Text dieses Fensters über die Datei. „Ihre behalten“ holt den Text der Datei in dieses Fenster und lässt die Änderungen hier gehen. „Abbrechen“ lässt beides, wie es ist, und speichert nichts, bis wieder „Speichern“ gedrückt wird.
+compare-changed-overwrite = Überschreiben
+compare-changed-keep = Ihre behalten
+compare-changed-cancel = Abbrechen
+
+compare-close-title = Die Änderungen am Ergebnis speichern?
+compare-close-body = Das Ergebnis hat ungespeicherte Änderungen. Wird ohne Speichern geschlossen, gehen sie verloren.
+compare-close-save = Speichern
+compare-close-discard = Verwerfen
+compare-close-cancel = Abbrechen
 
 result-undo = Rückgängig
 result-redo = Wiederholen
@@ -253,7 +295,7 @@ result-whitespace = Leerzeichen anzeigen
 
 
 settings-compare-title = Wie ein Ergebnis verglichen wird
-settings-compare-description = Was das Vergleichsfenster markiert, wenn ein Ergebnis neben sein Original gestellt wird. Ein Fenster liest diese Einstellungen beim Öffnen; ein bereits offenes behält, womit es geöffnet wurde.
+settings-compare-description = Was das Vergleichsfenster markiert, wenn ein Ergebnis neben sein Original gestellt wird, und wann es ein bearbeitetes speichert. Ein Fenster liest diese Einstellungen beim Öffnen; ein bereits offenes behält, womit es geöffnet wurde.
 settings-compare-exact = Jedes Zeichen zählt: der Vergleich übersieht kein Leerzeichen, kein Zeilenende und kein Zeichen, das man nicht sehen kann.
 
 settings-compare-grain-title = Was markiert wird
@@ -267,6 +309,9 @@ settings-compare-follow-description = Wird der Cursor im Ergebnis bewegt, spring
 
 settings-compare-sync-scroll-title = Beide Seiten rollen zusammen
 settings-compare-sync-scroll-description = Wird eine Seite gerollt — mit dem Mausrad, dem Touchpad, der Bildlaufleiste oder der Tastatur —, rollt die andere mit, sodass die Zeilen, die beide Seiten gemeinsam haben, auf gleicher Höhe bleiben. Durch eine geänderte Passage bewegt sich die andere Seite im Gleichschritt durch ihre eigenen Zeilen. Solange das Ergebnis Zeilen umbricht, stehen die Seiten nur ungefähr auf gleicher Höhe. Ausgeschaltet rollt jede Seite für sich.
+
+settings-compare-autosave-title = Änderungen beim Tippen speichern
+settings-compare-autosave-description = Ein Vergleichsfenster speichert ein bearbeitetes Ergebnis einen Moment, nachdem das Tippen aufhört, und noch einmal beim Schließen — über die eigene Datei des Ergebnisses oder in seiner Zeile, wenn der Text keine Datei hat, und nie über das Original. Ausgeschaltet speichert ein Fenster, wenn „Speichern“ gedrückt wird, und fragt vor dem Schließen mit ungespeicherten Änderungen.
 
 settings-placement-title = Wo Fenster aufgehen
 settings-placement-description = Auf welchem Bildschirm ein { -brand-name }-Fenster aufgeht, und an welcher Stelle dieses Bildschirms.
@@ -1225,10 +1270,10 @@ status-rewriting-starting = Umschreiben { $current } von { $total }
 status-rewrites-held = Umschreiben wartet auf eine Engine: { $reason }
 status-rewrites-paused = Das Umschreiben ist angehalten · { $count } warten
 status-rewrites-settling = Umschreibungen warten auf den Wechsel der Engine
-compare-rewritten-banner = Die Umschreibung, wie sie geliefert wurde — die am stärksten veränderte Fassung, die jede Prüfung bestand. Bearbeiten speichert hier nichts, und Schließen schreibt nichts.
+compare-rewritten-banner = Die Umschreibung, wie sie geliefert oder zuletzt gespeichert wurde — begonnen hat sie als die am stärksten veränderte Fassung, die jede Prüfung bestand.
 compare-rewritten-kept = { $kept } von { $chunks } Absätzen behielten ihr bereinigtes Original: kein Kandidat bestand die Prüfungen.
 compare-reset-rewritten = Zurück zum umgeschriebenen Text
-compare-reset-rewritten-tooltip = Die Umschreibung so zurückholen, wie sie geliefert wurde, und die Änderungen vergessen.
+compare-reset-rewritten-tooltip = Das Ergebnis so zurückholen, wie dieses Fenster es geöffnet hat — die Umschreibung, wie sie geliefert oder zuletzt gespeichert wurde — und die Änderungen gehen lassen. Das ist eine Änderung wie jede andere und wird gespeichert wie Änderungen.
 settings-arrival-title = Eingang verarbeiten
 settings-arrival-description = Was mit etwas geschieht, das im Hauptfenster ankommt. „Nichts“ wartet auf eine Schaltfläche; „Bereinigen“ bereinigt sofort; „Umschreiben“ schreibt mit der Engine im Dienst um — und wenn diese Engine nicht auf diesem Rechner ist, fragt jeder Eingang, bevor etwas gesendet wird.
 settings-arrival-nothing = Nichts — auf eine Schaltfläche warten
