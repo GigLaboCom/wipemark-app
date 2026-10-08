@@ -27,7 +27,7 @@ The task was `docs/plan/E8-1-user-models.md` (Watchword
 | the page's vocabulary: offers, the dialog's lines, the card | `apps/wipemark-app/src/models.rs` (`Offering`, `Facts`, `Addition`, `dialog_lines`, `user_card`, `choosable`, `strangers`) |
 | the dialog | `apps/wipemark-app/src/dialog.rs` (`AddModel`) |
 | state, add, re-check, forget, the scan | `apps/wipemark-app/src/settings.rs` (`Preferences::add_model`, `recheck_model`, `forget_model`, `look_at_models`) |
-| on duty | `apps/wipemark-app/src/duty.rs` (`Roster::added`, `Vacancy::AddedModelNotHere`) |
+| on duty | `apps/wipemark-app/src/duty.rs` (`Roster::added`, `Roster::chats`, `Vacancy::AddedModelNotHere`, `Vacancy::AddedModelUnsupported`) |
 | the command line | `apps/wipemark-cli/src/models.rs` (`add`, `forget`, `list`, `verify`), `rewrite.rs` (`own_engine`) |
 
 ## Adding one (U1)
@@ -60,7 +60,11 @@ offered at `min(trained, 8192)`. **Add** answers once; Cancel, Escape and
 the backdrop write nothing. The file is then read in full — sha256, on the
 background executor, with the card's bar (F1b) — and only then is the row
 written. A file that cannot be read in full writes nothing, and the banner
-says why in the store's words.
+says why in the store's words; a file that is not the one whose header the
+dialog showed — swapped or written since — is refused as "changed while it
+was read" (D439). A pipe, a device or a folder is not a regular file and is
+never opened. A file already added, reached by another road — a link,
+`..`, a second hard link — is the model already added (D436).
 
 ## What an added model is (U2)
 
@@ -94,7 +98,9 @@ Download, no Remove (`an_added_models_card_never_offers_to_remove_the_file`).
 
 **Chosen like a catalogue model.** The selector lists the catalogue's
 models on this machine and then the added ones whose file is the one that
-was added; `models.rewrite` names the id. A row naming an id that no longer
+was added; `models.rewrite` names the id. One whose chat format this build
+does not write is listed greyed, its reason under it, and cannot be chosen
+(D438). A row naming an id that no longer
 exists is read as nothing chosen and **left in the row**
 (`a_chosen_model_the_person_added_reads_back_and_a_forgotten_one_stays_in_its_row`).
 The catalogue's recommendation never picks an added model, and adding is
@@ -113,7 +119,9 @@ machine, its file, **its own context**, a fit judged on its estimate
 (`engine_for_hands_out_a_local_engine_for_an_added_model`, under
 `local-llama`). A file that is not the one added is
 `Vacancy::AddedModelNotHere`, with a sentence of its own (the fix is not a
-download).
+download); one whose chat format this build does not write is
+`Vacancy::AddedModelUnsupported` (D438). The card says what a model is for
+in words — "Rewriting" — never the role's id.
 
 **The memory estimate** is made without llama.cpp, from the header — see
 D402 — and the card and the dialog say it is an estimate. The figure
@@ -127,9 +135,10 @@ template.
 
 **What is not offered** (D408): a multimodal projector (`mmproj-*.gguf`,
 `general.type = mmproj`, or the `clip` architecture), a LoRA adapter, a
-file with no tensors, an encoder, embedding or speech model (an
-architecture in `gguf::NOT_WRITERS`, a pooling type, or
-`attention.causal = false`), and a model with no chat template. Its row in
+file with no tensors, an encoder, embedding, speech or diffusion model or a
+draft head (an architecture in `gguf::NOT_WRITERS`, a pooling type other
+than none, or `attention.causal = false`), a model whose name, type or tags
+say it hears or speaks (D437), and a model with no chat template. Its row in
 "Also in this folder" says why in one line, and the command line refuses
 it with the same sentence.
 
@@ -180,6 +189,12 @@ whose file changed by name. See [cli.md](cli.md).
 | D407 | One chat-format verdict, `wipemark_llama::chat_support`: this crate's families (Gemma 4, ChatML with a thinking switch), then a line-for-line port of llama.cpp's `llm_chat_detect_template` at the pin (`llama_cpp_family`), then a refusal by name — no template, or one neither recognises. The dialog and the card show it from the header; the local load refuses by it (`Unavailable::ChatFormat`) right after the weights are read; `chat_prompt` refuses by it before llama.cpp is asked. A recognised template still goes to llama.cpp as the model's own string. A model whose format is not written may still be added — the dialog says loading it will be refused. | "Never a guessed template" needs the verdict before a request, and the dialog needs it before a load — without llama.cpp. Porting the detection decides only *whether*; the rendering stays llama.cpp's, so nothing changes for a catalogue model. The port is held to llama.cpp by a native, model-free test over one template per family (`the_port_agrees_with_llama_cpp`, CI's `native` job). Adding is recording: a later build that writes the format can load the row as it is. |
 | D408 | Not offered as a model that rewrites, in this order: a projector (`mmproj` name, `general.type = mmproj`, or `clip`), an adapter (`general.type = adapter`), a file with no tensors, an encoder, embedding or speech model (`gguf::NOT_WRITERS`, a pooling type, `attention.causal = false`), a model with no chat template. Said in one line under the row and by the CLI's refusal. Only `.gguf` files of the folder are read; a picked file is read by its bytes, whatever its name — unless the name is another weight format's (`.onnx`), which is said as not a GGUF without a read. | The task's two cases plus the three the header tells apart for free, most specific first: "a vision projector" helps where "no chat template" (also true of one) would not. |
 | D409 | An add and a re-check take the scan's slot (D304) — one reading at a time, queued behind a scan (and the rescan one asked for) and a scan asked meanwhile queued behind them — through a store of their own, whose hashes draw the card's bar; a folder moved meanwhile does not stop them. Forget in the window clears `models.rewrite` when it named the model (as `remove_model` does); `models forget` leaves the row, which the application then reads as nothing chosen. | One hash of a file at a time is D304's rule, and an add's twelve-gigabyte read is exactly the read it exists for. The window owns the choice it shows; the command line never writes `models.rewrite` (as `rm` never does). |
+
+| D435 | A moved identity is written back as **one field of a row that exists and still records the bytes a full read confirmed** — `Settings::update` / `RowsWriter::update`, conditioned on the row's text being the one read, never an insert — by the scan, Re-check, and now the command line itself (`models list`, `verify`, its own `rewrite`), through `RowsWriter` under D404's rule. The command line's own rewrite decides from the rows before it looks at a model file: a refusal an endpoint's row makes reads nothing. | B-M3 and B-L6 of the follow-ups of E8-1. Left to the application, a touched 12 GB file was read in full by every `models list` and every CLI `rewrite` until the application scanned; and the scan's write-back was an upsert of a copy read before the hash, so a Forget made while it hashed wrote the forgotten row back. One field, of a row that still holds those bytes, can do neither (`models_list_writes_a_touched_files_identity_back_and_reads_it_once`, `a_moved_identity_never_brings_a_forgotten_model_back`, `an_update_never_brings_a_row_back`, `rewrite_reads_no_model_when_it_will_refuse`). |
+| D436 | A file is the same file by its path with every link and `..` resolved, **or** by its device and inode (`user::FileKey`) — a second hard link too. A re-add matches the rows that way (D405), in the dialog (keys taken by the scan and the header read, compared in memory on the thread that draws) and in `models add`, which keeps the row's name and context unless `--name` / `--ctx` are given. | B-L2. A re-add matched by its exact `PathBuf` made the file reached through `..` or a link a second row — two models with one identity, against D405 (`a_file_added_again_by_another_road_is_the_same_model`, `models_add_again_by_another_road_keeps_its_row_name_and_context`). |
+| D437 | Not offered, beside D408's: the diffusion architectures (`dream`, `llada`, `llada-moe`, `rnd1` — llama.cpp runs them only through its diffusion example) and the draft heads of speculative decoding (`eagle3`, `dflash`), in `NOT_WRITERS`; and a model whose `general.name`, `general.type` or `general.tags` says it hears or speaks (`asr`, `stt`, `tts`, `speech`, `audio`, `whisper`, as whole words) — `NotOffered::Speech`, after the architecture's reasons and before "no chat template". A pooling type of 0 is *none* and no longer marks an embedding model. | B-L4 and B-L3. Qwen3-ASR's decoder is `qwen3vl` with a ChatML template and was offered as a model that rewrites; its name says what it is, and the more specific reason helps (D408's order). Whole words, so a `Speechless` fine-tune is still a model that writes (`diffusion_draft_and_speech_models_are_not_offered`, `a_pooling_type_of_none_is_still_a_model_that_writes`). |
+| D438 | A model whose chat-format verdict is a refusal (D407) is **listed and not choosable** — greyed in the selector with the verdict's sentence, refused by `from_value` too — and **not on duty**: `Vacancy::AddedModelUnsupported`, said in its own words, as a changed file is. A template with a NUL inside is a refusal: llama.cpp passes the template on as a C string, and the load would see another template than the file carries. | B-L5 and B-L7. The scan had the verdict, yet such a model could be chosen, and every Check and queue start then read its whole file before the load refused (`an_added_model_whose_chat_format_is_not_written_cannot_be_chosen`, `an_added_model_whose_chat_format_is_not_written_is_not_on_duty`). |
+| D439 | An add's checksum is of the file its header was read from: the identity is taken off the open file at the header read (`Header::read_identified`) and compared before the hash and again after it; a file that moved is refused — "changed while it was read" — and nothing is written. A Remove of a catalogue entry (the window's and `models rm`) refuses a file a model the person added names, by any road (`user::naming`), saying which. The header reader refuses anything but a regular file **before** it opens it. | B-L9, B-L10 and B-L1. A file swapped between its header and its hash gave a row the header of one file and the checksum of another; a catalogue Remove could delete a file a model the person added still names; opening a pipe waits for a writer forever (D356) (`a_file_swapped_after_its_header_or_during_its_hash_is_refused`, `a_remove_never_takes_a_file_an_added_model_names`, `a_pipe_is_refused_before_it_is_opened`). |
 
 ## What is deliberately not here
 

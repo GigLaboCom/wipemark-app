@@ -448,10 +448,26 @@ carry `"source": "catalogue"`), with `path`, `ctx`, `estimate_mb`,
 `sha256` and `state` (`present`, `changed`, `missing`, `unreadable` with a
 `reason`), the fit judged on the estimate; in prose, "added by you: *path*".
 A model's state is looked at as the application looks at it — its record
-trusted while its identity holds (D401) — and the command writes nothing,
-not even a moved identity. Its file is not listed again among the folder's
-strangers. `verify` reads its file in full against the sha256 recorded when
-it was added: 0, 1 when it changed or is gone, 3 when it could not be read.
+trusted while its identity holds (D401) — and a moved identity whose bytes
+a full read confirmed is **written back** by the command itself (D435): one
+field of that model's row, through `RowsWriter::update` — never an insert,
+never over a row re-added with other bytes meanwhile, never into a database
+it did not find at this schema (D404). Before, the command left it to the
+application, and every `list` and every `rewrite` read a touched 12 GB file
+in full until the application scanned. Its file is not listed again among
+the folder's strangers. `verify` reads its file in full against the sha256
+recorded when it was added, and writes a moved identity back the same way:
+0, 1 when it changed or is gone, 3 when it could not be read.
+
+**The same file, another road** (D436). `add` of a file already added —
+by its path, or reached through a link, `..` or a second hard link — adds
+it again under its id and keeps the row's name and context unless `--name`
+or `--ctx` is given. A pipe, a device or a folder is "not a regular file"
+and never opened; a file that changed between its header and its hash, or
+while it was hashed, is refused ("changed while it was read") and nothing
+is written (D439). `rm` of a catalogue entry refuses, at 2, a file a model
+you added names, saying which model and `models forget` (D439). The list
+of the folder's strangers says any of them can be added with `models add`.
 
 ## Logs
 
@@ -498,7 +514,11 @@ loaded the same way at its own context while its file is the one that was
 added; a file that changed or is gone is refused at 2 by name, naming
 `models verify` (`rewrite_refuses_an_added_model_whose_file_changed`). A
 model whose chat format this build does not write is refused by name when
-it is loaded (D407).
+it is loaded (D407). The rows decide before any model file is looked at: a
+refusal the endpoint's row makes reads nothing, where it used to read a
+touched added model in full on the way to refusing
+(`rewrite_reads_no_model_when_it_will_refuse`, D435); a look that does read
+writes a moved identity back, as `list` does.
 
 **Arguments.** `--tactic` takes every tactic's id and refuses
 `structural` (a window's, behind a confirmation) and `code` (not built)

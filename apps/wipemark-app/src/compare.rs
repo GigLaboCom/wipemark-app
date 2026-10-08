@@ -4077,12 +4077,17 @@ mod tests {
     }
 
     /// Both panes moved in one frame with the result's lines wrapped: the
-    /// result still wins (D433, A-L3). A wrapped result is read only at the
-    /// end of a frame, so its notification cannot weigh its move; let the
-    /// original's notification lead before it, as it did, and the original
-    /// drags the result away from where it was put: red.
+    /// result still wins (D433, A-L3). The wheel turns over the result and
+    /// then over the original before a frame is drawn, so the editors'
+    /// notifications come first and the end of the frame after them; a
+    /// wrapped result is read only at the end of a frame, so its own
+    /// notification cannot weigh its move. Let the original's look lead
+    /// before it, as it did, and the original drags the result off where
+    /// the wheel put it: red.
     #[gpui::test]
     fn two_panes_moved_in_one_frame_end_where_a_wrapped_result_put_them(cx: &mut TestAppContext) {
+        use gpui::InputEvent as _;
+
         let original = numbered(0, 300);
         let result = format!("{}{original}", numbered(1000, 3));
         let (view, cx) = window_over(cx, &original, &result, Comparison::default());
@@ -4096,23 +4101,29 @@ mod tests {
         let height = line_height(&view, cx);
         let leads_before = leads(&view, cx);
 
-        cx.update(|_, cx| {
-            let view = view.read(cx);
-            let (left, right) = (
-                view.editor(Side::Original, cx),
-                view.editor(Side::Result, cx),
-            );
-            left.update(cx, |editor, cx| {
-                editor.set_scroll_offset(gpui::point(px(0.0), px(-(90.0 * height))), cx)
-            });
-            right.update(cx, |editor, cx| {
-                editor.set_scroll_offset(gpui::point(px(0.0), px(-(40.0 * height))), cx)
-            });
+        let over = |side: Side, cx: &mut gpui::VisualTestContext| {
+            cx.update(|_, cx| {
+                let editor = view.read(cx).editor(side, cx);
+                editor.read(cx).input_bounds().center()
+            })
+        };
+        let (right, left) = (over(Side::Result, cx), over(Side::Original, cx));
+        let turn = |at: gpui::Point<Pixels>, pixels: f32| {
+            gpui::ScrollWheelEvent {
+                position: at,
+                delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(pixels))),
+                ..Default::default()
+            }
+            .to_platform_input()
+        };
+        cx.update(|window, cx| {
+            window.dispatch_event(turn(right, -(20.0 * height)), cx);
+            window.dispatch_event(turn(left, -(50.0 * height)), cx);
         });
         settle(cx);
         assert_eq!(
             offsets(&view, cx),
-            (-(37.0 * height), -(40.0 * height)),
+            (-(17.0 * height), -(20.0 * height)),
             "the panes did not end where the wrapped result put them"
         );
         assert_eq!(

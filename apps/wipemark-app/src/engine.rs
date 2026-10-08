@@ -828,6 +828,7 @@ impl<T: Clone> Choice<T> {
     }
 
     /// Why the row cannot be chosen, when it cannot.
+    #[cfg(test)]
     pub fn why_unavailable(&self) -> Option<&SharedString> {
         self.unavailable.as_ref()
     }

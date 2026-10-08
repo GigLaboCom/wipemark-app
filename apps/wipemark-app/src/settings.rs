@@ -2811,7 +2811,7 @@ impl Preferences {
     /// not instant on every filesystem. Clears the selection if the
     /// removed model was the chosen one — a preference naming a file
     /// that is not there is worse than no preference.
-    pub fn remove_model(&mut self, id: &str, cx: &mut Context<Self>) {
+    pub fn remove_model(&mut self, id: &str, cx: &Context<Self>) {
         let Some(entry) = self.catalogue.get(id).cloned() else {
             return;
         };
@@ -5965,7 +5965,7 @@ impl SettingsView {
                 })
                 .await;
             view.update_in(cx, |view, window, cx| match read {
-                (models::Offering::Add(facts), _) => view.open_add_dialog(facts, window, cx),
+                (models::Offering::Add(facts), _) => view.open_add_dialog(*facts, window, cx),
                 (refused, path) => {
                     let why = match &refused {
                         models::Offering::Unreadable(error) => t_args(
@@ -6632,7 +6632,9 @@ impl SettingsView {
                             // for anything else why not, in one line (U3).
                             let offer = preferences.offer_for(&found.path);
                             let facts = match offer {
-                                Some(models::Offering::Add(facts)) => Some(facts.clone()),
+                                Some(models::Offering::Add(facts)) => {
+                                    Some(models::Facts::clone(facts))
+                                }
                                 _ => None,
                             };
                             let why = offer.and_then(models::Offering::line);
@@ -10724,7 +10726,7 @@ mod tests {
     fn facts_of(path: &std::path::Path) -> crate::models::Facts {
         let size = std::fs::metadata(path).expect("there").len();
         match crate::models::Offering::read(path, size) {
-            crate::models::Offering::Add(facts) => facts,
+            crate::models::Offering::Add(facts) => *facts,
             other => panic!("{path:?} is not offered: {other:?}"),
         }
     }

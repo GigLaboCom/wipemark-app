@@ -173,6 +173,12 @@ CHECKS = {
                 "        }\n", "")],
         CLI + ["models_add_of_a_pipe_says_so_and_never_waits"],
     ),
+    "B-L1-app": (
+        [(GGUF, "        if !std::fs::metadata(path).map_err(io)?.is_file() {\n"
+                "            return Err(GgufError::NotAFile);\n"
+                "        }\n", "")],
+        APP + ["models::tests::a_pipe_is_said_to_be_no_file_and_never_opened"],
+    ),
     # B-L2 (D436): the window knows a file reached another way.
     "B-L2-app": (
         [(SETTINGS, "                    .is_some_and(|key| key.same(&facts.key))\n",

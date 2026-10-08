@@ -443,9 +443,20 @@ patched.
   in its direction for its landing, and that move does come once the
   end itself moves — lines typed at the bottom of the result — so one
   real scroll went unfollowed
-  (`an_ask_that_moved_nothing_does_not_hide_the_next_move`). Before a new ask
-  the window takes an earlier one's unseen landing as landed, so the
-  new one is measured from where the pane now is.
+  (`an_ask_that_moved_nothing_does_not_hide_the_next_move`). And since
+  D432 (the follow-ups of E7-8, A-L2) **every** ask is gone by the end of
+  the frame that lays it out: its landing is consumed by the look at the
+  end of that frame, and whatever is still there then — moved nothing,
+  or its landing noted on another road — is dropped, landed or not. Two
+  roads had left one behind: a lead that asks nothing (the follower
+  already stands where the other side puts it) noted the follower's
+  earlier landing without consuming it, and D391 dropped only an ask
+  that moved nothing; the left-over ask then took the follower's next
+  real move inside it for its landing
+  (`an_ask_is_gone_by_the_end_of_the_frame_that_lays_it_out`). Before a
+  new ask the window takes an earlier one's unseen landing as landed —
+  and consumes it — so the new one is measured from where the pane now
+  is.
   `a_follower_that_stops_short_does_not_lead_back` is the gate: without
   the landing check the result's stop at its end drags the original
   back up to it.
@@ -462,14 +473,25 @@ patched.
   lead of its own (D392): the two end where the result put them, in one
   frame, where before the original's notification came first (it is
   painted first), it led, and the result led back
-  (`two_panes_moved_in_one_frame_end_where_the_result_put_them`). A
+  (`two_panes_moved_in_one_frame_end_where_the_result_put_them`). The
+  order alone did not hold with the result's lines wrapped (D384): a
+  wrapped pane is read only at the end of a frame, so the notification
+  looks skipped it, and the original led before the result's move could
+  be weighed. A look between frames now waits while a wrapping result
+  has moved unseen, and the end of the frame looks at both, the result
+  first — the rule is the same however a position is read (D433, A-L3;
+  `two_panes_moved_in_one_frame_end_where_a_wrapped_result_put_them`). A
   comparison recomputed after an edit changes the map for the next
   scroll and moves neither pane (D390): its empty edit collapses a
   selection in the original to a caret the editor would bring into view
   at the next frame, which with the sides together pulled the result
   away from where the person typed; the original's offset is put back
   as it stood before that frame is drawn, whether or not scrolling
-  together is on (`a_recompute_moves_neither_pane`).
+  together is on (`a_recompute_moves_neither_pane`) — or, when an ask of
+  the original is pending (the result has just led, and the editor holds
+  the scroll until its next layout), where that ask goes: put back as it
+  stood, it cancelled the follow (D432, A-L4;
+  `a_recompute_does_not_cancel_a_follow_on_its_way`).
 * **Wrapping** (D384). With the result's lines wrapped the library does
   not expose how many lines each row became. A wrapped pane's top is
   read off its last layout — the first row shown and how far the

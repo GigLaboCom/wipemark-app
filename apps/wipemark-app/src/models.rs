@@ -795,8 +795,9 @@ impl Facts {
 /// What a file is, as a candidate for adding (U3).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Offering {
-    /// A chat model: offered, with what its header says.
-    Add(Facts),
+    /// A chat model: offered, with what its header says. Boxed: the facts
+    /// are most of the size, and every other answer is a word.
+    Add(Box<Facts>),
     /// Not a model that writes text, and why.
     Not(NotOffered),
     /// Not a GGUF file.
@@ -827,7 +828,7 @@ impl Offering {
             .unwrap_or_default();
         match header.offer(&file_name) {
             Offer::Not(why) => Offering::Not(why),
-            Offer::Rewrite => Offering::Add(Facts {
+            Offer::Rewrite => Offering::Add(Box::new(Facts {
                 path: path.to_path_buf(),
                 size_bytes,
                 name: header.name.clone(),
@@ -839,7 +840,7 @@ impl Offering {
                 chat: wipemark_engine::chat_support(header.chat_template.as_deref()),
                 identity,
                 key: user::FileKey::of(path),
-            }),
+            })),
         }
     }
 

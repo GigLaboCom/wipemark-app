@@ -285,14 +285,14 @@ where the person agreed the document may go — this machine, or an
 endpoint's origin — as the duty stood when they asked: a row's Rewrite,
 Rewrite all whose price said "here" or "sent away", a drop asked about once
 (В1), a **Replace the existing result** (D393) — the duty's destination,
-or, where the duty names nobody, the engine on duty's own word for where it
-sends a document (the slot's, which is what the queue checks against,
-D370). A window push without a consent cannot be built: with nothing on
-duty there is nowhere the person agreed to, and nothing is pushed. Replace of a rewrite refused over a file
+and nothing else (D430, below). A window push without a consent cannot be
+built: with nothing on duty there is nowhere the person agreed to, and
+nothing is pushed. Replace of a rewrite refused over a file
 already there is a Rewrite by the same road — greyed, its reason under it,
 when a Rewrite would be (nothing on duty, in the engine handle's words), and
 asked "Send … to …?" first when the document would leave this machine
-(`QueueEvent::SendAway { replacing }`, yes is `Queue::replace_agreed`); it
+(`QueueEvent::SendAway { replacing }`, yes is `Queue::agreed` by
+`Road::Replace`); it
 differs from a Rewrite only in where its result goes. Before D393 it skipped
 both, and with nothing on duty it pushed an item with no consent — an item
 the queue never asks about — which then went to whatever endpoint was put
@@ -340,6 +340,46 @@ never before (`a_deferred_swap_is_pending_until_it_lands`,
 old endpoint kept starting on it the moment the item before them ended —
 the busy count never reached nought, so the swap never landed — and the
 rest of a switched-away queue went to the endpoint the duty had left.
+
+**One fact for consent** (D430, the follow-ups of E7-8, A-M1). The consent
+a push records, the Send-away question and the vacancy a Rewrite is greyed
+with are answered from one place, `Queue::going`: where the duty, as the
+person has set it, would send a rewrite — this machine or an endpoint's
+origin — or why nothing would, in the engine handle's words. It is the
+duty's answer and never the slot's. Before, a push read the duty first and
+fell back on the slot's word where the duty named nobody (D393's "the
+engine on duty's own word"), and the vacancy was the slot's alone: with the
+queue rewriting on endpoint Y and the duty turned to nobody, the swap
+deferred until Y's job ended (D395), the slot still said Y — so a Rewrite
+was not greyed, and its push recorded `Away(Y)` with no question shown; the
+item waited, and went to Y if Y was ever put back. The slot still speaks for
+the duty it was built for — a machine this build cannot run is refused
+there, and that refusal is the reason — but not while a swap is pending,
+when it holds the engine leaving
+(`a_duty_turned_to_nobody_agrees_to_nothing_while_its_swap_waits`). The
+table tests that pushed through the fallback — a fake engine in the slot,
+nobody in the preferences — put a duty on this machine in their
+preferences, as a person must.
+
+**A yes records the question's destination** (D431, A-L1). Every question
+asked before rewrites go names where they would go — Rewrite all's price
+(`price.away`), a drop's and a Replace's "Send … to …?" — and its yes is
+`Queue::agreed(ids, road, asked)`, the destination it named. That is the
+consent recorded, never the duty as it stands at the yes: a duty moved
+while the question was open made the record name a place nobody was asked
+about. If the duty no longer sends a rewrite to `asked`, the yes pushes
+nothing and the road (`Road::Price`, `Arrivals`, `Replace`) runs again with
+the duty as it stands — asking again where that road asks (a price, a
+document leaving this machine), pushing at once where a fresh press would
+push without a question (a drop or a Replace that now stays here)
+(`a_yes_records_where_its_question_said_and_no_other`).
+
+**A change of engine waited for is said** (D434, A-L5). While a change of
+duty waits for a running job (D395) the queue starts nothing and holds no
+caller; the status bar says so — "Rewrites wait for the engine to change"
+— where it said nothing over items that did not move
+(`a_change_of_engine_waited_for_is_said_in_the_status_bar`). Read from the
+handle's flag, in memory (D359).
 
 **Where first, the key after** (D396, L-2). Before an item's engine is
 built — for an endpoint, before its key is read from the credential store,

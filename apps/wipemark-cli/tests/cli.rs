@@ -2686,8 +2686,10 @@ fn models_add_of_a_pipe_says_so_and_never_waits() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     while child.try_wait().expect("wait").is_none() {
         if std::time::Instant::now() > deadline {
+            // Killed, nothing waits on the pipe any more: opening it now
+            // would wait for a reader that is gone.
             let _ = child.kill();
-            let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+            let _ = child.wait();
             panic!("models add of a pipe never answered");
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
