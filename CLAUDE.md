@@ -962,7 +962,16 @@ Anything that needed more than a rule to explain is in `docs/`;
   `Diff::original_row_of` is the map, `set_cursor_position` is the only
   public way to move an editor, and the focus it steals is handed back
   in the same update, before GPUI compares focus paths at the next
-  frame. The result is **`clean(original)`** at Layer A's defaults (E7-3),
+  frame. And the two panes **scroll together** (`compare.sync_scroll`,
+  on by default, read when a window opens): `Diff::position_across` maps
+  the leading pane's top — a row and a fraction — line for line in a
+  shared stretch and in proportion through a changed passage (D380,
+  D381); a scroll is seen by each editor's notification and by a look
+  after every painted frame (D386), a follower's landing is told from a
+  lead by what was asked (D382), the result leads the cursor follow
+  (D383), and a wrapped result lines up approximately (D384).
+  `a_follower_that_stops_short_does_not_lead_back` is the gate on the
+  loop. The result is **`clean(original)`** at Layer A's defaults (E7-3),
   made by `Subject::read` in the read's own background task and kept by
   the view, so **Back to the cleaned text** puts it back without running
   Layer A on the GPUI thread (D273) and is offered only once the result
@@ -1986,8 +1995,8 @@ windows through the batch queue, and the document journal (D310–D326) —
 the shortcut on Linux** (D340–D347), the divergence research's bench
 additions, and the fix round after one host verification (D350–D351,
 D355–D364, D365–D369); gates once on `844aa01`, 1623/0/7, the app with
-`local-llama` 628/0/2, CI green. What remains: of E7, Compare scrolling
-both panes together (on by default) and saving an edited result (with
+`local-llama` 628/0/2, CI green. Compare scrolls both panes together
+(E7-7, D380–D387, merged `9e1eb95`). What remains: of E7, saving an edited result (with
 autosave), the source editor with its badges (S7.2), the streamed result
 (S7.3) and the Inspector (S7.5); Compare's left scrollbar and the
 original's gutter on its right, which wait on the owner's gpui-kit pull

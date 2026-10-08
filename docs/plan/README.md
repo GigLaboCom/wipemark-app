@@ -193,7 +193,7 @@ opens its own pull request against `main` instead of riding on `feat`.
 | 4 | `images/series-v3` (or the next images round) | three doc nits not yet filed: `visible-marks.md` 3439–3441 → 3442; "all 22" against `crying`'s aside; the fixtures README's `.convert("RGB")` | to be filed with the next images task | — | open |
 | 5 | `integrate/2026-10-08` | One integration branch for the day's work, each part on its own branch first: `fix/owner-2026-10-07` (F1–F6 and round 2's H1, L1–L6), `e4/windows-rewrite` (E4-6b: the windows rewrite through the batch queue, the document journal), `e4/templates-widgets` (E4-6c: the Rewriting page), `e10/linux-tray` (the tray and the shortcut on Linux), `research/divergence-vs-upstream` (the bench's additions; no product code), `5a9e525` (templates against the engine's window on the CLI and over MCP); then one host verification of the whole, and its findings fixed on three branches — `fix/integrate-models-tray` (A1–A4, B1), `fix/integrate-e4-6b` (M1–M3, L1–L5), `fix/integrate-e4-6c` (M1, L1–L6) — with targeted checks only, the full gates run once on the merge of the three | `wipemark-task-owner-fixes-2026-10-07`, `wipemark-task-e4-6b-windows-rewrite-2026-10-07`, `wipemark-task-e4-6c-templates-widgets-2026-10-07` | D300–D306, D310–D326, D330–D339, D340–D347, D350–D351, D355–D369 | **done**: gates once on `844aa01` — 1623 passed, 0 failed, 7 ignored; the app with `local-llama` 628/0/2 — CI green; merged into `feat` as `9b907bb` on 2026-10-08. Reports: [owner-fixes](reports/owner-fixes-2026-10-07.md), [E4-6b](reports/E4-6b-2026-10-07.md), [E4-6c](reports/E4-6c-2026-10-07.md), [linux-tray](reports/linux-tray-2026-10-07.md), [divergence](reports/divergence-vs-upstream-2026-10-07.md), [models-tray fixes](reports/integrate-fixes-models-tray-2026-10-08.md), [E4-6b fixes](reports/integrate-fixes-e4-6b-2026-10-08.md), [E4-6c fixes](reports/integrate-fixes-e4-6c-2026-10-08.md). The owner's window checklists in those reports not yet run |
 | 6 | `fix/consent-and-lows` — **merged `72da17d`** | The verification's open item **M-1** — the queue's consent (D361) is checked against the window's record of where an engine sends (`journal::Going`) rather than against the engine actually handed out — and its remaining Lows | — (the coordinator) | — | **in progress** |
-| 7 | — (to be named) | Compare scrolls both panes together, on by default (§7 E7); no component patch needed | to be written | — | next |
+| 7 | `e7/compare-synced-scroll` — **merged `9e1eb95`** | Compare scrolls both panes together, on by default (§7 E7), D380–D387 | `docs/plan/E7-7-compare-synced-scroll.md` | [E7-7](reports/E7-7-compare-synced-scroll-2026-10-08.md) | done; M1 and lows open |
 | 8 | gpui-kit #3416, #3417 (upstream, the owner's) | The scrollbar on the left and the original's gutter on its right in the editor — what Compare's mirrored layout needs (§7 E7) | — | — | **open as drafts** upstream |
 | 9 | — | Saving an edited result with autosave (§7 E7); the keep-voice rule after a four-model bench, and a voice measure in the bench (§7 E4); E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), S7.2, S7.3, S7.5, E9 licensing, E10 packaging (Windows; the Linux tray is done) | to be written | — | §7 |
 
@@ -772,6 +772,14 @@ tell a decision from an accident.
 | **D367** | **A check and an adaptation belong to their slot:** another slot, or the page let go of, cancels them; a cancelled adaptation writes nothing, even after the answer; an answer for a run let go of is dropped. | L3; `integrate-fixes-e4-6c-2026-10-08.md`. |
 | **D368** | **A source that moved on is acknowledged by asking:** a save keeps the recorded source hash, as it keeps `based_on`; a second Keep mine beside the stale-source warning moves it; D333's "a hand claim records the source's hash" applies to a new or changed claim. | L4; `integrate-fixes-e4-6c-2026-10-08.md`. |
 | **D369** | **No invisible character in a template:** `validate`'s `invisible-character` refuses what Layer A removes at its defaults, in any template (Save, `lay_over`, `render`); `adapt_with` runs Layer A over the model's answer before it is judged; a row stored before the rule is refused by name by the job rather than sent. | L6; `integrate-fixes-e4-6c-2026-10-08.md`. |
+| **D380** | **Inside a changed passage the other side moves in proportion**; through lines only one side has, the other holds where they stand. | E7-7 |
+| **D381** | **The anchor is the viewport's top as a row and a fraction**, carried across a shared stretch so the panes move by pixels; vertical only. | E7-7 |
+| **D382** | **The loop guard is what was asked**: per pane the last offset seen and the last ask; a move toward and no farther than the ask is its landing, anything else the pane's own. | E7-7 |
+| **D383** | **The result leads the cursor follow**: a follow places the original's caret and sets its scroll from the result's top; the result is never moved by a follow. | E7-7 |
+| **D384** | **A wrapped pane is placed off its last layout**, by the laid-out rows' average height where a row is not laid out; approximate, and the page says so. | E7-7 |
+| **D385** | **`compare.sync_scroll` is read when a window opens**, like `compare.grain`. | E7-7 |
+| **D386** | **A scroll is seen two ways**: the editor's notification, and a look deferred to after each painted frame (the only reader of a wrapped pane). | E7-7 |
+| **D387** | **One `Side` enum**, `diff::Side`. | E7-7 |
 
 ---
 
@@ -1167,8 +1175,18 @@ the gate the overview set, and the open edges.
 - **Gate.** A 1 k-token stream keeps 30 FPS; a click on a finding
   scrolls to it.
 - **Build. Compare scrolls both panes together** (the owner, 2026-10-07;
-  a Settings row on the Compare page, **on by default**) — **open**, next
-  after `fix/consent-and-lows`; the left scrollbar and the right gutter
+  a Settings row on the Compare page, **on by default**) — **done**: E7-7
+  (`e7/compare-synced-scroll`, D380–D387, merged `9e1eb95`, built by a
+  cloud agent, report `reports/E7-7-compare-synced-scroll-2026-10-08.md`).
+  Its verification left, for a follow-up: **M1** an edit's recompute
+  (`repaint_original`'s empty insert collapses a selection in the original,
+  whose caret is then brought into view and leads the result away from
+  where the person types — `compare.rs:1139,1154`; the docs say a recompute
+  moves neither pane); **L1** a leftover ask at a pane's end can hide one
+  real scroll once the end moves; **L2** both panes moving in one frame
+  flicker once; **L3** the follow row's "brings it into view" is wrong
+  inside a changed block taller than the window; **L4** `compare-help-settings`
+  wording. Earlier note: the left scrollbar and the right gutter
   wait on the owner's gpui-kit pull requests **#3416** and **#3417**, open
   as drafts. Like IntelliJ
   IDEA Community's diff viewer (synchronized scrolling): scrolling either
