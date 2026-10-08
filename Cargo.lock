@@ -9811,6 +9811,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "ctrlc",
+ "flume 0.11.1",
  "image",
  "image-webp",
  "png 0.18.1",

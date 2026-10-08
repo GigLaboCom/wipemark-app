@@ -239,6 +239,55 @@ pub enum Unavailable {
     /// did, or by something other than the Engine page.
     #[error("the stored key {0}; nothing was sent")]
     KeyUnsendable(http::KeyFault),
+    /// The model's chat format is not one this build writes — no chat
+    /// template, or one neither `wipemark_llama::chat` nor llama.cpp at the
+    /// pin recognises (E8-1). Refused by name when the model is loaded,
+    /// before a request: a conversation written in a guessed format still
+    /// reads as fluent text.
+    #[error("the model's chat format is not one this build writes: {0}")]
+    ChatFormat(ChatRefusal),
+}
+
+/// Why a model's chat format is refused (E8-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ChatRefusal {
+    /// It carries no `tokenizer.chat_template`.
+    #[error("it carries no chat template")]
+    NoTemplate,
+    /// It carries one this build does not recognise.
+    #[error("its chat template is not one this build recognises")]
+    Unrecognised,
+}
+
+/// Whether this build can write a conversation for a model, judged from
+/// its chat template alone — what a surface can say about a GGUF before
+/// anybody loads it (E8-1). The same verdict the local engine's load
+/// refuses by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatSupport {
+    /// Written, in the family of this name.
+    Supported { family: &'static str },
+    /// Refused, and why.
+    Refused(ChatRefusal),
+    /// This build has no local engine, so it writes a conversation for no
+    /// model on this machine — `Unavailable::NotBuilt` at a load.
+    NotBuilt,
+}
+
+/// The verdict for a model whose chat template is `template` (`None` for a
+/// model that carries none). In a build without `local-llama`, always
+/// [`ChatSupport::NotBuilt`].
+#[must_use]
+pub fn chat_support(template: Option<&str>) -> ChatSupport {
+    #[cfg(feature = "local-llama")]
+    {
+        local::chat_verdict(wipemark_llama::chat_support(template))
+    }
+    #[cfg(not(feature = "local-llama"))]
+    {
+        let _ = template;
+        ChatSupport::NotBuilt
+    }
 }
 
 /// The one thing every rewriting backend has to do.
@@ -275,5 +324,19 @@ pub trait RewriteEngine: Send + Sync {
     /// with nothing to load — an endpoint, a fake — ignores it.
     fn watch_loads(&self, sink: LoadSink) {
         let _ = sink;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// A build without the local engine writes a conversation for no model
+    /// on this machine, and says so rather than judging a template it would
+    /// never be asked to write (E8-1).
+    #[cfg(not(feature = "local-llama"))]
+    #[test]
+    fn a_build_without_the_local_engine_judges_no_template() {
+        for template in [None, Some("<start_of_turn>user"), Some("{{ messages }}")] {
+            assert_eq!(super::chat_support(template), super::ChatSupport::NotBuilt);
+        }
     }
 }

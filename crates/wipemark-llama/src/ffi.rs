@@ -658,6 +658,27 @@ extern "C" fn keep_loading(progress: f32, watch: *mut c_void) -> bool {
     !watch.stop.load(Ordering::SeqCst)
 }
 
+/// Whether llama.cpp at the pin recognises `template` as one of its own
+/// families: `llama_chat_apply_template` over one user message, with no
+/// model. The other side of `chat::llama_cpp_family`, for the test that
+/// holds the two together.
+#[cfg(test)]
+pub(crate) fn llama_cpp_renders(template: &str) -> bool {
+    let (Ok(template), Ok(role), Ok(content)) = (
+        CString::new(template),
+        CString::new("user"),
+        CString::new("x"),
+    ) else {
+        return false;
+    };
+    let chat = [sys::llama_chat_message {
+        role: role.as_ptr(),
+        content: content.as_ptr(),
+    }];
+    let mut buf = vec![0_u8; 4096];
+    apply_template(template.as_ptr(), &chat, &mut buf).is_ok_and(|n| n >= 0)
+}
+
 /// One `llama_chat_apply_template` call into `buf`, with the assistant's
 /// opener appended. `template` must be a live NUL-terminated string.
 fn apply_template(
@@ -666,9 +687,10 @@ fn apply_template(
     buf: &mut [u8],
 ) -> Result<i32, LlamaError> {
     let len = int_len(buf.len())?;
-    // SAFETY: the only caller passes the template string owned by a live
-    // model; `chat` borrows C strings that outlive this call; the buffer's
-    // length is passed.
+    // SAFETY: both callers pass a live NUL-terminated template — the string
+    // owned by a live model, or a `CString` held across the call; `chat`
+    // borrows C strings that outlive this call; the buffer's length is
+    // passed.
     Ok(unsafe {
         sys::llama_chat_apply_template(
             template,

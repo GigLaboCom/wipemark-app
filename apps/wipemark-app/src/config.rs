@@ -41,6 +41,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use wipemark_i18n::LanguagePreference;
 use wipemark_models::manifest::{Manifest, Role};
+use wipemark_models::user::{self, UserModel};
 use wipemark_pipeline::lang::Lang;
 use wipemark_pipeline::prompt::row::{self, Override};
 use wipemark_pipeline::prompt::{Overrides, Slot};
@@ -197,6 +198,21 @@ pub const ENGINE_PROFILES_PREFIX: &str = "engine.profiles.";
 /// changes into a red suite rather than into a preference with nowhere
 /// to be changed.
 pub const MODEL_REWRITE_KEY: &str = "models.rewrite";
+
+/// The namespace every model the person added is filed under (E8-1): one
+/// row per model, `models.user.<id>`, its value a
+/// [`wipemark_models::user::UserEntry`] — the shape the command line writes
+/// too, which is why it is that crate's and not this module's.
+///
+/// Deliberately **not** in [`PERSISTED`], for the profiles' reason: a model
+/// the person added is a list entry with a dynamic key, not a preference
+/// with a widget. `a_user_model_row_is_never_a_preference_row` keeps the two
+/// namespaces apart.
+///
+/// `cfg(test)` because that gate is its only reader — the rows are read and
+/// written through `wipemark_models::user` — the idiom [`PERSISTED`] uses.
+#[cfg(test)]
+pub const MODELS_USER_PREFIX: &str = user::KEY_PREFIX;
 
 /// Where the weights live.
 ///
@@ -456,6 +472,8 @@ pub struct Stored {
     /// Where the weights live, when the row names somewhere. `None` is
     /// the platform's folder — see [`read_models_dir`].
     pub models_dir: Option<PathBuf>,
+    /// The models the person added (E8-1) — see [`read_user_models`].
+    pub added: Vec<UserModel>,
     /// Which side answers a rewrite, and in what order.
     pub serves: Serves,
     /// How long the local model is kept, and whether it is locked in RAM.
@@ -513,6 +531,7 @@ pub fn read_all(store: &Store) -> Stored {
         active_profile: read_active_profile(store),
         rewrite_model: read_model(store, Role::Rewrite),
         models_dir: read_models_dir(store),
+        added: read_user_models(store),
         serves: read_engine_serves(store),
         local: read_local(store),
         hotkeys: read_hotkeys(store),
@@ -747,11 +766,72 @@ pub fn write_keep_for(store: &Store, period: Period) -> Result<()> {
 /// follows: a downgrade must not silently discard the choice a later
 /// version made, and a catalogue that drops an entry for one release
 /// and restores it in the next must not cost the user their selection.
+///
+/// An id of a model the person added (E8-1) counts while its row is one
+/// this build reads and it serves `role`; a row that names one since
+/// forgotten reads as `None` and is left, the same rule (U2).
 pub fn read_model(store: &Store, role: Role) -> Option<String> {
     let chosen: String = store.settings().get(model_key(role)).ok().flatten()?;
+    if chosen.starts_with(user::ID_PREFIX) {
+        let row = read_json::<serde_json::Value>(store, &user::key_of(&chosen))?;
+        let added = UserModel::read(&chosen, row).ok()?;
+        return added.serves(role).then_some(chosen);
+    }
     let catalogue = Manifest::embedded().ok()?;
     let entry = catalogue.get(&chosen)?;
     entry.serves(role).then_some(chosen)
+}
+
+/// Every model the person added, by name and then id.
+///
+/// One scan of the table. A row this build cannot read whole is skipped,
+/// logged by its key and its reason — never its value, which names a path
+/// on somebody's disk — and **left where it is**, the bargain every row
+/// here makes: a newer build that wrote it may read it again.
+pub fn read_user_models(store: &Store) -> Vec<UserModel> {
+    let rows = match store.settings().all() {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::warn!(%error, "could not read the models added by hand; none will be listed");
+            return Vec::new();
+        }
+    };
+    let mut added: Vec<UserModel> = rows
+        .into_iter()
+        .filter_map(|(key, value)| match UserModel::of_row(&key, value)? {
+            Ok(model) => Some(model),
+            Err(why) => {
+                tracing::warn!(
+                    key,
+                    why,
+                    "a model added by hand was skipped: not a row this build reads"
+                );
+                None
+            }
+        })
+        .collect();
+    added.sort_by(|a, b| {
+        a.entry
+            .name
+            .to_lowercase()
+            .cmp(&b.entry.name.to_lowercase())
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    added
+}
+
+/// Persist one model the person added, leaving every other row alone.
+pub fn write_user_model(store: &Store, model: &UserModel) -> Result<()> {
+    store.settings().set(&model.key(), &model.entry)?;
+    Ok(())
+}
+
+/// Forget one model the person added: its row, and nothing else — never
+/// the file, which this product did not download (U2), and not the
+/// `models.rewrite` row, which the caller decides about.
+pub fn forget_user_model(store: &Store, id: &str) -> Result<()> {
+    store.settings().delete(&user::key_of(id))?;
+    Ok(())
 }
 
 /// Persist the model chosen for `role`.
@@ -1796,26 +1876,28 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use wipemark_i18n::LanguagePreference;
+    use wipemark_models::manifest::Role;
     use wipemark_store::Store;
 
     use super::{
-        forget_profile, forget_setup, open, profile_key, read_active_profile,
+        forget_profile, forget_setup, forget_user_model, open, profile_key, read_active_profile,
         read_close_after_drop, read_comparison, read_engine, read_hotkeys, read_language,
-        read_local, read_mcp, read_models_dir, read_profiles, read_retention, read_setup_done,
-        read_theme, write_active_profile, write_close_after_drop, write_compare_autosave,
-        write_compare_follow, write_compare_grain, write_compare_sync_scroll, write_engine,
-        write_engine_allow_remote, write_engine_base_url, write_engine_model,
-        write_engine_provider, write_engine_reasoning, write_engine_temperature,
-        write_engine_timeout, write_hotkey, write_keep_for, write_keep_originals,
-        write_keep_results, write_language, write_local_idle, write_local_keep, write_local_mlock,
-        write_mcp_bind, write_mcp_enabled, write_mcp_port, write_models_dir, write_profile,
-        write_results_destination, write_results_folder, write_setup_done, write_theme,
+        read_local, read_mcp, read_model, read_models_dir, read_profiles, read_retention,
+        read_setup_done, read_theme, read_user_models, write_active_profile,
+        write_close_after_drop, write_compare_autosave, write_compare_follow, write_compare_grain,
+        write_compare_sync_scroll, write_engine, write_engine_allow_remote, write_engine_base_url,
+        write_engine_model, write_engine_provider, write_engine_reasoning,
+        write_engine_temperature, write_engine_timeout, write_hotkey, write_keep_for,
+        write_keep_originals, write_keep_results, write_language, write_local_idle,
+        write_local_keep, write_local_mlock, write_mcp_bind, write_mcp_enabled, write_mcp_port,
+        write_model, write_models_dir, write_profile, write_results_destination,
+        write_results_folder, write_setup_done, write_theme, write_user_model,
         COMPARE_AUTOSAVE_KEY, COMPARE_FOLLOW_KEY, COMPARE_GRAIN_KEY, COMPARE_SYNC_SCROLL_KEY,
         ENGINE_BASE_URL_KEY, ENGINE_LOCAL_IDLE_KEY, ENGINE_LOCAL_KEEP_KEY, ENGINE_LOCAL_MLOCK_KEY,
         ENGINE_PROFILES_PREFIX, ENGINE_PROVIDER_KEY, ENGINE_TEMPERATURE_KEY, HOTKEY_PANEL_KEY,
         HOTKEY_SHOW_KEY, KEEP_FOR_KEY, KEEP_ORIGINALS_KEY, LANGUAGE_KEY, MCP_BIND_KEY,
-        MCP_PORT_KEY, MODELS_DIR_KEY, PERSISTED, RESULTS_DESTINATION_KEY, RESULTS_FOLDER_KEY,
-        SETUP_DONE_KEY, THEME_KEY,
+        MCP_PORT_KEY, MODELS_DIR_KEY, MODELS_USER_PREFIX, MODEL_REWRITE_KEY, PERSISTED,
+        RESULTS_DESTINATION_KEY, RESULTS_FOLDER_KEY, SETUP_DONE_KEY, THEME_KEY,
     };
     use crate::compare::Comparison;
     use crate::diff::Grain;
@@ -2879,6 +2961,113 @@ mod tests {
     /// a key nobody typed, and a profile named in a way that produced one
     /// of the first would be a preference silently replaced by a list
     /// entry.
+    /// E8-1: a model the person added is a list entry with a dynamic key,
+    /// never a preference with a widget — whatever it is called.
+    #[test]
+    fn a_user_model_row_is_never_a_preference_row() {
+        for key in PERSISTED {
+            assert!(
+                !key.starts_with(MODELS_USER_PREFIX),
+                "the preference {key} lives inside the added models' namespace"
+            );
+        }
+        for name in ["rewrite", "dir", "models", "theme", "Gemma 4 12B"] {
+            let key =
+                wipemark_models::user::key_of(&wipemark_models::user::id_for(name, |_| false));
+            assert!(
+                !PERSISTED.contains(&key.as_str()),
+                "a model called {name} would file itself under the preference {key}"
+            );
+            assert!(key.starts_with(MODELS_USER_PREFIX));
+        }
+    }
+
+    fn added(id: &str, name: &str) -> wipemark_models::user::UserModel {
+        wipemark_models::user::UserModel {
+            id: id.to_owned(),
+            entry: wipemark_models::user::UserEntry {
+                name: name.to_owned(),
+                roles: vec![Role::Rewrite],
+                ctx: 8192,
+                path: std::path::PathBuf::from("/models/theirs/m.gguf"),
+                size_bytes: 11,
+                sha256: "0".repeat(64),
+                identity: "11:1:2:3".to_owned(),
+                architecture: Some("llama".to_owned()),
+                parameters: None,
+                quant: None,
+                trained_ctx: None,
+                kv: None,
+                added_at: 1,
+            },
+        }
+    }
+
+    /// U2: a model the person added is chosen the way a catalogue one is —
+    /// the row names its id — and a row naming one since forgotten reads as
+    /// nothing chosen and is left where it is.
+    #[test]
+    fn a_chosen_model_the_person_added_reads_back_and_a_forgotten_one_stays_in_its_row() {
+        let store = Store::in_memory().expect("store");
+        let model = added("user-b", "B");
+        write_user_model(&store, &model).expect("write");
+        write_user_model(&store, &added("user-a", "a")).expect("write");
+        write_model(&store, Role::Rewrite, Some("user-b")).expect("choose");
+        assert_eq!(read_model(&store, Role::Rewrite).as_deref(), Some("user-b"));
+        assert_eq!(
+            read_model(&store, Role::Embed),
+            None,
+            "it serves rewrite alone"
+        );
+        assert_eq!(
+            read_user_models(&store)
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            ["user-a", "user-b"],
+            "by name, whatever the case"
+        );
+
+        forget_user_model(&store, "user-b").expect("forget");
+        assert_eq!(read_model(&store, Role::Rewrite), None);
+        assert_eq!(
+            store
+                .settings()
+                .get::<String>(MODEL_REWRITE_KEY)
+                .expect("read")
+                .as_deref(),
+            Some("user-b"),
+            "the row was corrected rather than left"
+        );
+        assert_eq!(read_user_models(&store).len(), 1);
+    }
+
+    /// A row this build cannot read is skipped and left exactly where it is.
+    #[test]
+    fn a_user_model_this_build_cannot_read_is_left_in_its_row() {
+        let store = Store::in_memory().expect("store");
+        let unreadable = serde_json::json!({"name": "X", "path": "relative.gguf"});
+        store
+            .settings()
+            .set("models.user.user-x", &unreadable)
+            .expect("write");
+        write_user_model(&store, &added("user-y", "Y")).expect("write");
+        assert_eq!(
+            read_user_models(&store)
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            ["user-y"]
+        );
+        assert_eq!(
+            store
+                .settings()
+                .get::<serde_json::Value>("models.user.user-x")
+                .expect("read"),
+            Some(unreadable)
+        );
+    }
+
     #[test]
     fn a_profile_row_is_never_a_preference_row() {
         for key in PERSISTED {

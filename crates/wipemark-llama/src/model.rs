@@ -132,10 +132,14 @@ impl KvShape {
         value_length: 128,
     };
 
+    /// Saturating: every factor is the header's word, and a header naming
+    /// four of them at their largest overflows a `u64` — reachable since a
+    /// person can add a GGUF the catalogue does not have (the host
+    /// verification of E8-1, 2026-10-08).
     fn elements_per_token(&self) -> u64 {
         u64::from(self.n_layer)
-            * u64::from(self.n_head_kv)
-            * (u64::from(self.key_length) + u64::from(self.value_length))
+            .saturating_mul(u64::from(self.n_head_kv))
+            .saturating_mul(u64::from(self.key_length) + u64::from(self.value_length))
     }
 }
 
@@ -151,14 +155,16 @@ const MIB: u64 = 1024 * 1024;
 pub fn kv_bytes_per_token(shape: &KvShape, kv: KvQuant) -> u64 {
     let elements = shape.elements_per_token();
     match kv {
-        KvQuant::F16 => elements * 2,
-        KvQuant::Q8_0 => (elements * 34).div_ceil(32),
+        KvQuant::F16 => elements.saturating_mul(2),
+        KvQuant::Q8_0 => elements.saturating_mul(34).div_ceil(32),
     }
 }
 
 /// The KV cache for `n_ctx` tokens of one sequence, in MiB, rounded up.
 pub fn kv_cache_mb(shape: &KvShape, n_ctx: u32, kv: KvQuant) -> u64 {
-    (u64::from(n_ctx) * kv_bytes_per_token(shape, kv)).div_ceil(MIB)
+    u64::from(n_ctx)
+        .saturating_mul(kv_bytes_per_token(shape, kv))
+        .div_ceil(MIB)
 }
 
 /// What a load is expected to need, in MiB, before it is made.
@@ -177,7 +183,7 @@ impl MemEstimate {
     /// Weights and cache together. llama.cpp's compute buffers come on top
     /// (a few hundred MiB for a small model) and are not estimated.
     pub fn total_mb(&self) -> u64 {
-        self.weights_mb + self.kv_cache_mb
+        self.weights_mb.saturating_add(self.kv_cache_mb)
     }
 }
 
@@ -316,18 +322,28 @@ impl Model {
         self.session.n_ctx_train()
     }
 
+    /// Whether a conversation can be written for this model — the verdict
+    /// [`crate::chat_support`] gives the chat template it carries.
+    pub fn chat_support(&self) -> crate::ChatSupport {
+        crate::chat_support(self.session.chat_template().as_deref())
+    }
+
     /// Render one system message (when given) and one user message with the
     /// chat template the GGUF carries, ending with the assistant's opener so
     /// generation continues as the assistant — with thinking off, where the
     /// template has a switch for it. Gemma 4 and ChatML-with-a-switch are
     /// rendered by this crate (`chat`), everything else by
     /// `llama_chat_apply_template`. A model whose template neither
-    /// recognises is refused rather than formatted with a guess: a wrong
-    /// template still produces fluent text.
+    /// recognises is refused by name ([`LlamaError::ChatFormat`]) rather
+    /// than formatted with a guess: a wrong template still produces fluent
+    /// text.
     pub fn chat_prompt(&self, system: Option<&str>, user: &str) -> Result<String, LlamaError> {
-        let template = self.session.chat_template().ok_or_else(|| {
-            LlamaError::Inference("the model carries no chat template".to_owned())
-        })?;
+        let template = self.session.chat_template();
+        let support = crate::chat_support(template.as_deref());
+        if let Some(refused) = support.refusal() {
+            return Err(LlamaError::ChatFormat(refused));
+        }
+        let template = template.unwrap_or_default();
         if let Some(family) = crate::chat::family_of(&template) {
             return Ok(crate::chat::render(family, system, user));
         }
@@ -484,6 +500,10 @@ impl Model {
         match self.never {}
     }
 
+    pub fn chat_support(&self) -> crate::ChatSupport {
+        match self.never {}
+    }
+
     pub fn chat_prompt(&self, system: Option<&str>, user: &str) -> Result<String, LlamaError> {
         let _ = (system, user);
         match self.never {}
@@ -546,6 +566,26 @@ mod tests {
             kv_cache_mb(&KvShape::COARSE, 8192, KvQuant::Q8_0)
                 < kv_cache_mb(&KvShape::COARSE, 8192, KvQuant::F16)
         );
+    }
+
+    /// A header's largest numbers are an estimate no machine has room for,
+    /// never an overflow (a panic in a debug build, a wrapped figure that
+    /// fits in a release one). The host verification of E8-1, 2026-10-08.
+    #[test]
+    fn a_shape_no_model_has_is_estimated_without_overflowing() {
+        let hostile = KvShape {
+            n_layer: u32::MAX,
+            n_head_kv: u32::MAX,
+            key_length: u32::MAX,
+            value_length: u32::MAX,
+        };
+        for kv in [KvQuant::F16, KvQuant::Q8_0] {
+            let cache = kv_cache_mb(&hostile, u32::MAX, kv);
+            assert!(cache > 1 << 30, "{cache}");
+            let need = estimate(u64::MAX, cache).total_mb();
+            assert_eq!(need, u64::MAX);
+            assert!(refusal(&estimate(u64::MAX, cache), 65_536).is_some());
+        }
     }
 
     #[test]

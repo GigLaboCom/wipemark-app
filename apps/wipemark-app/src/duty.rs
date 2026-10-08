@@ -83,9 +83,10 @@ use wipemark_engine::{
     Unavailable,
 };
 use wipemark_i18n::{t, Message};
-use wipemark_models::host::{fit, Fit, Host};
+use wipemark_models::host::{fit, fit_mb, Fit, Host};
 use wipemark_models::manifest::{Format, Manifest, Role};
 use wipemark_models::store::State;
+use wipemark_models::user::UserModel;
 use wipemark_secret::Secret;
 
 use crate::engine::{
@@ -247,6 +248,11 @@ pub struct Roster<'a> {
     pub keys: &'a BTreeMap<String, KeyState>,
     /// The catalogue this build ships.
     pub catalogue: &'a Manifest,
+    /// The models the person added (E8-1). A chosen id the catalogue does
+    /// not have is looked for here — the two never share an id (D400) — and
+    /// what is on disk for one is in [`Roster::on_disk`] under its id, as a
+    /// catalogue entry's is.
+    pub added: &'a [UserModel],
     /// Which model answers for which role. One entry per role that has
     /// a choice recorded; a role missing from it has none.
     pub chosen: &'a BTreeMap<Role, String>,
@@ -412,6 +418,11 @@ pub enum Vacancy {
     /// match the catalogue" it is, because the three have three
     /// different fixes.
     ModelNotHere { id: String, state: State },
+    /// The chosen model is one the person added (E8-1), and its file is
+    /// not the one that was added: `state` is `Corrupt` for a file that
+    /// changed or could not be read, `Absent` for one that is gone or not
+    /// looked at yet. Its own variant because the fix is not a download.
+    AddedModelNotHere { id: String, state: State },
 }
 
 /// The answer.
@@ -573,6 +584,9 @@ fn this_machine(roster: &Roster, role: Role) -> Result<Performer, Vacancy> {
     let Some(id) = roster.chosen.get(&role) else {
         return Err(Vacancy::NoModelChosen);
     };
+    if let Some(added) = roster.added.iter().find(|model| model.id == *id) {
+        return added_model(roster, role, added);
+    }
     let Some(entry) = roster.catalogue.get(id) else {
         return Err(Vacancy::ModelGone { id: id.clone() });
     };
@@ -606,6 +620,43 @@ fn this_machine(roster: &Roster, role: Role) -> Result<Performer, Vacancy> {
         fit: roster
             .host
             .map_or(Fit::Unknown, |machine| fit(entry, machine)),
+    }))
+}
+
+/// A model the person added, chosen for `role` (E8-1): handed out exactly
+/// as a catalogue entry is — built over its file, at its own context —
+/// while its file is the one that was added, with a fit judged on its
+/// estimate.
+fn added_model(roster: &Roster, role: Role, added: &UserModel) -> Result<Performer, Vacancy> {
+    if !added.serves(role) {
+        return Err(Vacancy::ModelDoesNotServe {
+            id: added.id.clone(),
+        });
+    }
+    let found = roster.on_disk.get(&added.id);
+    let state = found.map_or(State::Absent, |on_disk| on_disk.state.clone());
+    let whole = matches!(state, State::Present { .. });
+    let Some(weights) = found
+        .and_then(|on_disk| on_disk.weights.clone())
+        .filter(|_| whole)
+    else {
+        return Err(Vacancy::AddedModelNotHere {
+            id: added.id.clone(),
+            state,
+        });
+    };
+    let need = added.estimate().total_mb();
+    Ok(Performer::Machine(Local {
+        id: added.id.clone(),
+        display: added.entry.name.clone(),
+        weights,
+        format: Format::Gguf,
+        ctx: added.entry.ctx,
+        // A GGUF run on this machine: an open-weight model, whoever made it.
+        vendor: Vendor::OpenLlm,
+        fit: roster
+            .host
+            .map_or(Fit::Unknown, |machine| fit_mb(need, machine)),
     }))
 }
 
@@ -833,6 +884,8 @@ mod tests {
     /// so that these gates also say the shipped entry is one the duty
     /// layer can put to work.
     const REWRITER: &str = "qwen3-4b-instruct-2507-ud-q4";
+    /// A model the person added (E8-1).
+    const ADDED: &str = "user-gemma-4-12b-my-copy";
 
     /// Everything a roster borrows, owned in one place so a test can
     /// state the two facts it is about and inherit the rest.
@@ -842,6 +895,7 @@ mod tests {
         active: Option<String>,
         keys: BTreeMap<String, KeyState>,
         catalogue: Manifest,
+        added: Vec<UserModel>,
         chosen: BTreeMap<Role, String>,
         on_disk: BTreeMap<String, OnDisk>,
         host: Option<Host>,
@@ -857,6 +911,7 @@ mod tests {
                 active: None,
                 keys: BTreeMap::new(),
                 catalogue: models::catalogue(),
+                added: Vec::new(),
                 chosen: BTreeMap::new(),
                 on_disk: BTreeMap::new(),
                 host: None,
@@ -874,6 +929,40 @@ mod tests {
                         bytes: 2_546_340_960,
                     },
                     weights: Some(PathBuf::from("/models/qwen/weights.gguf")),
+                },
+            );
+            self
+        }
+
+        /// A model the person added, chosen for the role, its file in
+        /// `state` (E8-1).
+        fn with_an_added_rewriter(mut self, state: State) -> Self {
+            self.added.push(UserModel {
+                id: ADDED.to_owned(),
+                entry: wipemark_models::user::UserEntry {
+                    name: "Gemma 4 12B, my copy".to_owned(),
+                    roles: vec![Role::Rewrite],
+                    ctx: 16_384,
+                    path: PathBuf::from("/elsewhere/gemma-4-12b.gguf"),
+                    size_bytes: 6_716_355_328,
+                    sha256: "0".repeat(64),
+                    identity: "1:2:3:4".to_owned(),
+                    architecture: Some("gemma4".to_owned()),
+                    parameters: Some("12B".to_owned()),
+                    quant: Some("UD-Q4_K_XL".to_owned()),
+                    trained_ctx: Some(262_144),
+                    kv: None,
+                    added_at: 1,
+                },
+            });
+            self.chosen.insert(Role::Rewrite, ADDED.to_owned());
+            // A path beside every state: a path under any state but
+            // `Present` is one the duty must not hand out.
+            self.on_disk.insert(
+                ADDED.to_owned(),
+                OnDisk {
+                    state,
+                    weights: Some(PathBuf::from("/elsewhere/gemma-4-12b.gguf")),
                 },
             );
             self
@@ -899,6 +988,7 @@ mod tests {
                 active: self.active.as_deref(),
                 keys: &self.keys,
                 catalogue: &self.catalogue,
+                added: &self.added,
                 chosen: &self.chosen,
                 on_disk: &self.on_disk,
                 host: self.host,
@@ -919,6 +1009,92 @@ mod tests {
             Some(Performer::Endpoint(remote)) => remote,
             _ => panic!("expected an endpoint to be on duty, got {duty:?}"),
         }
+    }
+
+    /// U2, U3: a model the person added and chose is on duty exactly as a
+    /// catalogue entry is — this machine, its file, its own context — and a
+    /// fit judged on its estimate.
+    #[test]
+    fn a_model_the_person_added_is_on_duty_at_its_own_context() {
+        let mut bench = Bench::new()
+            .asking(Serves::MachineOnly)
+            .with_an_added_rewriter(State::Present {
+                bytes: 6_716_355_328,
+            });
+        bench.host = Some(Host {
+            total_ram_mb: 4096,
+            available_ram_mb: 2048,
+            vram_mb: None,
+            unified_memory: false,
+        });
+        let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
+        let served = local(&duty);
+        assert_eq!(served.id, ADDED);
+        assert_eq!(served.display, "Gemma 4 12B, my copy");
+        assert_eq!(served.weights, PathBuf::from("/elsewhere/gemma-4-12b.gguf"));
+        assert_eq!(
+            served.ctx, 16_384,
+            "the catalogue's default, not the entry's own"
+        );
+        assert!(matches!(served.fit, Fit::TooBig { .. }), "{:?}", served.fit);
+        let info = duty.performer().expect("assigned").info();
+        assert_eq!(info.model_id, ADDED);
+        assert_eq!(info.ctx_len, Some(16_384));
+        assert!(duty.performer().expect("assigned").stays_on_this_machine());
+    }
+
+    /// U2: a model the person added whose file changed, or is gone, is not
+    /// on duty — and says so in its own words, not a download's.
+    #[test]
+    fn an_added_model_whose_file_is_not_the_one_added_is_not_on_duty() {
+        for state in [
+            State::Corrupt {
+                reason: "changed".to_owned(),
+            },
+            State::Absent,
+        ] {
+            let bench = Bench::new()
+                .asking(Serves::MachineOnly)
+                .with_an_added_rewriter(state.clone());
+            let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
+            assert_eq!(
+                duty,
+                Duty::Vacant(Vacancy::AddedModelNotHere {
+                    id: ADDED.to_owned(),
+                    state,
+                })
+            );
+        }
+        // Forgotten: the row names an id nobody has, which is a model gone.
+        let mut bench = Bench::new().asking(Serves::MachineOnly);
+        bench.chosen.insert(Role::Rewrite, ADDED.to_owned());
+        assert_eq!(
+            on_duty(&bench.roster(), Role::Rewrite, Pick::Live),
+            Duty::Vacant(Vacancy::ModelGone {
+                id: ADDED.to_owned()
+            })
+        );
+    }
+
+    /// U3: an added model becomes a local engine over its file, at its own
+    /// context — built, not loaded, and never a fake.
+    #[cfg(feature = "local-llama")]
+    #[test]
+    fn engine_for_hands_out_a_local_engine_for_an_added_model() {
+        let bench = Bench::new()
+            .asking(Serves::MachineOnly)
+            .with_an_added_rewriter(State::Present { bytes: 1 });
+        let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
+        let engine = engine_for(
+            duty.performer().expect("assigned"),
+            &LocalOptions::default(),
+            None,
+        )
+        .expect("a build with the local engine hands one out");
+        let info = engine.info();
+        assert!(info.local);
+        assert_eq!(info.model_id, ADDED);
+        assert_eq!(info.ctx_len, Some(16_384));
     }
 
     #[test]

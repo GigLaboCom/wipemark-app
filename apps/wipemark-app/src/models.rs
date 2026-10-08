@@ -38,17 +38,35 @@
 //! catalogue has no checksum for them, so nothing here can verify one,
 //! and nothing loads a model yet — the sentence over the list says
 //! both.
+//!
+//! # A model the person adds (E8-1)
+//!
+//! Every GGUF in that list that is a chat model is offered **Add as a
+//! model…**, and the page offers **Add a model file…** for one anywhere
+//! else. Both open one dialog that shows what the file's header says —
+//! [`Facts`], read by [`Offering::read`] — and asks only what cannot be
+//! read: a name, a purpose ([`ADDABLE_ROLES`]) and a context. What is not
+//! a model that writes text — a projector, an adapter, an encoder, a file
+//! with no chat template — is [`Offering::Not`], and its row says why in
+//! one line instead of offering anything. An added model is a [`UserCard`]
+//! among the catalogue's: "Added by you", its path, its fit on an
+//! **estimate** made from its header, and Forget and Re-check — never
+//! Download, never Remove: the product did not download the file and never
+//! deletes it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use gpui::SharedString;
 use gpui_component::Sizable as _;
+use wipemark_engine::{ChatRefusal, ChatSupport};
 use wipemark_i18n::{args, t, t_args, Message};
-use wipemark_models::host::{default_for_role, fit, Fit, Host};
-use wipemark_models::manifest::{Manifest, ModelEntry, Role};
-use wipemark_models::scan::Found;
+use wipemark_models::gguf::{GgufError, Header, KvShape, NotOffered, Offer};
+use wipemark_models::host::{default_for_role, fit, fit_mb, Fit, Host};
+use wipemark_models::manifest::{Format, Manifest, ModelEntry, Role};
+use wipemark_models::scan::{format_of, Found};
 use wipemark_models::store::{Progress, State};
+use wipemark_models::user::{self, UserModel, UserState};
 
 use crate::engine::Choice;
 
@@ -456,6 +474,53 @@ pub fn installed_for<'a>(
         .collect()
 }
 
+/// One row a model selector may offer: a model that is on this machine,
+/// whole — the catalogue's, or one the person added (E8-1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Choosable {
+    /// The id the role's row names.
+    pub id: String,
+    /// What the row says.
+    pub display: String,
+}
+
+impl From<&ModelEntry> for Choosable {
+    fn from(entry: &ModelEntry) -> Self {
+        Choosable {
+            id: entry.id.clone(),
+            display: entry.display.clone(),
+        }
+    }
+}
+
+/// Every model that can be chosen for `role` right now: the catalogue's
+/// entries on this machine, best first, then the models the person added
+/// whose file is the one that was added (U2), by name.
+pub fn choosable(
+    catalogue: &Manifest,
+    role: Role,
+    states: &BTreeMap<String, State>,
+    added: &[UserModel],
+    added_states: &BTreeMap<String, UserState>,
+) -> Vec<Choosable> {
+    installed_for(catalogue, role, states)
+        .into_iter()
+        .map(Choosable::from)
+        .chain(
+            added
+                .iter()
+                .filter(|model| {
+                    model.serves(role)
+                        && matches!(added_states.get(&model.id), Some(UserState::Present))
+                })
+                .map(|model| Choosable {
+                    id: model.id.clone(),
+                    display: model.entry.name.clone(),
+                }),
+        )
+        .collect()
+}
+
 /// The rows of the "model for rewriting" selector: nothing, then every
 /// entry that is actually on this machine.
 ///
@@ -463,8 +528,8 @@ pub fn installed_for<'a>(
 /// downloaded is choosing a file that does not exist — the card below
 /// is where a model is obtained, and the selector is where one that has
 /// been obtained is put to work.
-pub fn model_choices<'a>(
-    installed: impl IntoIterator<Item = &'a ModelEntry>,
+pub fn model_choices(
+    installed: impl IntoIterator<Item = Choosable>,
 ) -> Vec<Choice<Option<String>>> {
     // `NONE` is a value, not a label: the Select hands the value back on
     // a click, and a translated one would stop matching after a
@@ -479,8 +544,8 @@ pub fn model_choices<'a>(
     choices.extend(installed.into_iter().map(|entry| {
         Choice::new(
             Some(entry.id.clone()),
-            SharedString::from(entry.display.clone()),
-            SharedString::from(entry.id.clone()),
+            SharedString::from(entry.display),
+            SharedString::from(entry.id),
         )
     }));
     choices
@@ -644,21 +709,816 @@ pub fn bytes_label(bytes: u64) -> String {
     format!("{value:.1} {}", UNITS[unit])
 }
 
+// ## E8-1: models the person adds
+
+/// The purposes a model may be added for: the roles this build offers a
+/// choice for that a GGUF chat model serves. One today; the list is
+/// [`Role`], and `the_roles_a_model_is_added_for_are_the_roles_with_a_row`
+/// keeps it from offering a purpose nobody can choose a model for.
+pub const ADDABLE_ROLES: [Role; 1] = [Role::Rewrite];
+
+/// What a purpose is called on screen.
+pub fn role_label(role: Role) -> String {
+    match role {
+        Role::Rewrite => t(Message::SettingsModelsRoleRewrite),
+        // No row offers another; the id is the honest fallback.
+        other => other.id().to_owned(),
+    }
+}
+
+/// What a file's header says, for adding it (U1). Read once, off the
+/// background executor, and shown in the dialog without reading again.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Facts {
+    /// The file, absolute.
+    pub path: PathBuf,
+    pub size_bytes: u64,
+    /// `general.name`, when the header says.
+    pub name: Option<String>,
+    pub architecture: Option<String>,
+    pub parameters: Option<String>,
+    pub quant: Option<String>,
+    /// The window it was trained with.
+    pub trained_ctx: Option<u64>,
+    /// The cache's shape, for the memory estimate.
+    pub kv: Option<KvShape>,
+    /// Whether this build writes its chat format.
+    pub chat: ChatSupport,
+}
+
+impl Facts {
+    /// The name the dialog starts with: the header's `general.name`, or the
+    /// file's name without `.gguf`.
+    pub fn default_name(&self) -> String {
+        let named = self
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty() && user::typeable_name(name));
+        match named {
+            Some(name) => name.to_owned(),
+            None => {
+                let file = self
+                    .path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let stem = file
+                    .rsplit_once('.')
+                    .filter(|(_, ext)| ext.eq_ignore_ascii_case("gguf"))
+                    .map_or(file.as_str(), |(stem, _)| stem);
+                stem.chars().take(user::LONGEST_NAME).collect()
+            }
+        }
+    }
+}
+
+/// What a file is, as a candidate for adding (U3).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Offering {
+    /// A chat model: offered, with what its header says.
+    Add(Facts),
+    /// Not a model that writes text, and why.
+    Not(NotOffered),
+    /// Not a GGUF file.
+    NotGguf,
+    /// Its header could not be read.
+    Unreadable(GgufError),
+}
+
+impl Offering {
+    /// Read the file at `path` (`size_bytes` long) and say what it is.
+    /// Blocking: the header is read — never a tensor. Call it off the
+    /// thread that draws a window.
+    pub fn read(path: &Path, size_bytes: u64) -> Offering {
+        if format_of(path).is_some_and(|format| format != Format::Gguf) {
+            return Offering::NotGguf;
+        }
+        let header = match Header::read(path) {
+            Ok(header) => header,
+            Err(GgufError::NotGguf) => return Offering::NotGguf,
+            Err(error) => return Offering::Unreadable(error),
+        };
+        let file_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        match header.offer(&file_name) {
+            Offer::Not(why) => Offering::Not(why),
+            Offer::Rewrite => Offering::Add(Facts {
+                path: path.to_path_buf(),
+                size_bytes,
+                name: header.name.clone(),
+                architecture: header.architecture.clone(),
+                parameters: header.parameters(&file_name),
+                quant: header.quant(&file_name),
+                trained_ctx: header.context_length,
+                kv: header.kv_shape(),
+                chat: wipemark_engine::chat_support(header.chat_template.as_deref()),
+            }),
+        }
+    }
+
+    /// Why it is not offered, in one line — `None` when it is.
+    pub fn line(&self) -> Option<String> {
+        Some(match self {
+            Offering::Add(_) => return None,
+            Offering::Not(why) => not_offered_line(*why),
+            Offering::NotGguf => t(Message::ModelsNotOfferedNotGguf),
+            Offering::Unreadable(error) => t_args(
+                Message::ModelsNotOfferedUnreadable,
+                &args!("reason" => error.to_string()),
+            ),
+        })
+    }
+}
+
+/// Why a file is not offered, as a sentence.
+pub fn not_offered_line(why: NotOffered) -> String {
+    t(match why {
+        NotOffered::Projector => Message::ModelsNotOfferedProjector,
+        NotOffered::Adapter => Message::ModelsNotOfferedAdapter,
+        NotOffered::NoWeights => Message::ModelsNotOfferedNoWeights,
+        NotOffered::NotAWriter => Message::ModelsNotOfferedNotAWriter,
+        NotOffered::NoChatTemplate => Message::ModelsNotOfferedNoChatTemplate,
+    })
+}
+
+/// What the dialog says about a chat format (U3).
+pub fn chat_line(chat: ChatSupport) -> String {
+    match chat {
+        ChatSupport::Supported { family } => t_args(
+            Message::SettingsModelsAddChatSupported,
+            &args!("family" => family),
+        ),
+        ChatSupport::Refused(ChatRefusal::NoTemplate) => {
+            t(Message::SettingsModelsAddChatNoTemplate)
+        }
+        ChatSupport::Refused(ChatRefusal::Unrecognised) => {
+            t(Message::SettingsModelsAddChatUnrecognised)
+        }
+        ChatSupport::NotBuilt => t(Message::SettingsModelsAddChatNotBuilt),
+    }
+}
+
+/// What a model of `size_bytes` with the cache `kv` would need at `ctx`,
+/// said as an estimate — and, when the header did not describe its cache,
+/// that a typical one was assumed (U3, D402).
+pub fn memory_lines(size_bytes: u64, kv: Option<KvShape>, ctx: u32) -> Vec<String> {
+    let estimate = user::estimate(size_bytes, kv, ctx);
+    let mib = |mb: u64| bytes_label(mb.saturating_mul(1_048_576));
+    let mut lines = vec![t_args(
+        Message::SettingsModelsAddMemory,
+        &args!(
+            "total" => mib(estimate.total_mb()),
+            "weights" => mib(estimate.weights_mb),
+            "cache" => mib(estimate.kv_mb),
+            "overhead" => mib(estimate.overhead_mb),
+        ),
+    )];
+    if !estimate.shape_known {
+        lines.push(t(Message::SettingsModelsAddMemoryCoarse));
+    }
+    lines
+}
+
+/// Every read-only line the dialog shows about the file, in order, at the
+/// context `ctx` on `host` (U1): that it is not the catalogue's, the file
+/// and its size, the architecture, the parameters and the quantization,
+/// the training window, the chat format, the memory, and the fit.
+pub fn dialog_lines(facts: &Facts, ctx: u32, host: Option<Host>) -> Vec<String> {
+    let stated = |value: Option<&str>| {
+        value
+            .map(str::to_owned)
+            .unwrap_or_else(|| t(Message::SettingsModelsAddNotStated))
+    };
+    let mut lines = vec![
+        t(Message::SettingsModelsAddNotCatalogue),
+        t_args(
+            Message::SettingsModelsAddFileLine,
+            &args!(
+                "path" => facts.path.display().to_string(),
+                "size" => bytes_label(facts.size_bytes),
+            ),
+        ),
+        t_args(
+            Message::SettingsModelsAddArchitecture,
+            &args!("arch" => stated(facts.architecture.as_deref())),
+        ),
+        t_args(
+            Message::SettingsModelsAddWeights,
+            &args!(
+                "params" => stated(facts.parameters.as_deref()),
+                "quant" => stated(facts.quant.as_deref()),
+            ),
+        ),
+        match facts.trained_ctx {
+            Some(tokens) => t_args(
+                Message::SettingsModelsAddTrained,
+                &args!("tokens" => tokens.to_string()),
+            ),
+            None => t(Message::SettingsModelsAddTrainedUnknown),
+        },
+        chat_line(facts.chat),
+    ];
+    lines.extend(memory_lines(facts.size_bytes, facts.kv, ctx));
+    let need = user::estimate(facts.size_bytes, facts.kv, ctx).total_mb();
+    lines.push(fit_line(
+        host.map_or(Fit::Unknown, |host| fit_mb(need, host)),
+    ));
+    lines
+}
+
+/// What the dialog answered with: the file's facts, and what the person
+/// said about it (U1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Addition {
+    pub facts: Facts,
+    pub name: String,
+    pub role: Role,
+    pub ctx: u32,
+    /// The id of the model this file is already added as, when it is: the
+    /// row is written again under that id (D405), never a second one for
+    /// the same file.
+    pub replacing: Option<String>,
+}
+
+impl Addition {
+    /// The model this addition becomes once its file has been read in full:
+    /// under the id it replaces, or one derived once from its name, unique
+    /// among `taken` (D400).
+    pub fn model(
+        &self,
+        identified: &wipemark_models::user::Identified,
+        taken: impl Fn(&str) -> bool,
+    ) -> UserModel {
+        let id = self
+            .replacing
+            .clone()
+            .unwrap_or_else(|| user::id_for(&self.name, taken));
+        UserModel {
+            id,
+            entry: wipemark_models::user::UserEntry {
+                name: self.name.trim().to_owned(),
+                roles: vec![self.role],
+                ctx: self.ctx,
+                path: self.facts.path.clone(),
+                size_bytes: identified.size_bytes,
+                sha256: identified.sha256.clone(),
+                identity: identified.identity.clone(),
+                architecture: self.facts.architecture.clone(),
+                parameters: self.facts.parameters.clone(),
+                quant: self.facts.quant.clone(),
+                trained_ctx: self.facts.trained_ctx,
+                kv: self.facts.kv,
+                added_at: user::now(),
+            },
+        }
+    }
+}
+
+/// A typed context, if it is one the dialog accepts.
+pub fn ctx_typed(text: &str, bounds: (u32, u32)) -> Option<u32> {
+    let ctx: u32 = text.trim().parse().ok()?;
+    (bounds.0..=bounds.1).contains(&ctx).then_some(ctx)
+}
+
+/// What is on disk for one added model, as its card shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Standing {
+    /// No scan has looked at it yet.
+    Unread,
+    /// The file is the one that was added.
+    Present,
+    /// Not the bytes that were added.
+    Changed,
+    /// Not at its path.
+    Missing,
+    /// It could not be read: the operating system's words.
+    Unreadable(String),
+    /// Its file is being read now: bytes so far, size.
+    Checking { done_bytes: u64, total_bytes: u64 },
+}
+
+/// What a card of an added model offers. Never Download and never Remove:
+/// nothing was downloaded, and the file is never deleted (U2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserAction {
+    /// Forget the entry; the file stays.
+    Forget,
+    /// Read the file in full against its recorded checksum.
+    Recheck,
+    /// Open the dialog on the same file, to record it as it is now.
+    AddAgain,
+}
+
+impl UserAction {
+    pub fn label(self) -> Message {
+        match self {
+            UserAction::Forget => Message::SettingsModelsForget,
+            UserAction::Recheck => Message::SettingsModelsRecheck,
+            UserAction::AddAgain => Message::SettingsModelsAddAgain,
+        }
+    }
+}
+
+/// One model the person added, as the page shows it (U2).
+#[derive(Debug, Clone, PartialEq)]
+pub struct UserCard {
+    pub id: String,
+    pub display: String,
+    pub path: String,
+    /// "Needs about 4608 MB (an estimate) · Context 8192 tokens · rewrite".
+    pub summary: String,
+    pub fit: Fit,
+    pub standing: Standing,
+    /// Whether this build writes its chat format, when its header was read.
+    pub chat: Option<ChatSupport>,
+}
+
+impl UserCard {
+    /// The sentence under its name: how far a read has got, what is wrong
+    /// with the file, that its chat format would be refused, or its fit.
+    pub fn line(&self) -> String {
+        match &self.standing {
+            Standing::Checking {
+                done_bytes,
+                total_bytes,
+            } => t_args(
+                Message::SettingsModelsChecking,
+                &args!(
+                    "done" => bytes_label(*done_bytes),
+                    "total" => bytes_label(*total_bytes),
+                ),
+            ),
+            Standing::Changed => t(Message::SettingsModelsUserChanged),
+            Standing::Missing => t(Message::SettingsModelsUserMissing),
+            Standing::Unreadable(reason) => t_args(
+                Message::SettingsModelsUserUnreadable,
+                &args!("reason" => reason.clone()),
+            ),
+            Standing::Present | Standing::Unread => match self.chat {
+                Some(ChatSupport::Refused(_)) => t(Message::SettingsModelsUserChatRefused),
+                _ => fit_line(self.fit),
+            },
+        }
+    }
+
+    /// The buttons, in order. Nothing while its file is read; Add again
+    /// only once the file is not the one that was added.
+    pub fn actions(&self) -> Vec<UserAction> {
+        match self.standing {
+            Standing::Checking { .. } => Vec::new(),
+            Standing::Changed => vec![
+                UserAction::AddAgain,
+                UserAction::Recheck,
+                UserAction::Forget,
+            ],
+            Standing::Present | Standing::Unread | Standing::Missing | Standing::Unreadable(_) => {
+                vec![UserAction::Recheck, UserAction::Forget]
+            }
+        }
+    }
+
+    /// The bar, 0 to 100, while its file is read.
+    pub fn bar(&self) -> Option<f32> {
+        match self.standing {
+            Standing::Checking {
+                done_bytes,
+                total_bytes,
+            } => Some(if total_bytes == 0 {
+                0.0
+            } else {
+                (done_bytes as f64 / total_bytes as f64 * 100.0).clamp(0.0, 100.0) as f32
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// Build one added model's card. Pure.
+pub fn user_card(
+    model: &UserModel,
+    state: Option<&UserState>,
+    host: Option<Host>,
+    chat: Option<ChatSupport>,
+    checking: Option<(u64, u64)>,
+) -> UserCard {
+    let estimate = model.estimate();
+    let standing = match (checking, state) {
+        (Some((done_bytes, total_bytes)), _) => Standing::Checking {
+            done_bytes,
+            total_bytes,
+        },
+        (None, None) => Standing::Unread,
+        (None, Some(UserState::Present)) => Standing::Present,
+        (None, Some(UserState::Changed)) => Standing::Changed,
+        (None, Some(UserState::Missing)) => Standing::Missing,
+        (None, Some(UserState::Unreadable(reason))) => Standing::Unreadable(reason.clone()),
+    };
+    UserCard {
+        id: model.id.clone(),
+        display: model.entry.name.clone(),
+        path: model.entry.path.display().to_string(),
+        summary: [
+            t_args(
+                Message::SettingsModelsUserNeeds,
+                &args!("ram" => estimate.total_mb().to_string()),
+            ),
+            t_args(
+                Message::SettingsModelsUserContext,
+                &args!("context" => model.entry.ctx.to_string()),
+            ),
+            model
+                .entry
+                .roles
+                .iter()
+                .map(|role| role.id())
+                .collect::<Vec<_>>()
+                .join(", "),
+        ]
+        .join(" · "),
+        fit: host.map_or(Fit::Unknown, |host| fit_mb(estimate.total_mb(), host)),
+        standing,
+        chat,
+    }
+}
+
+/// The files of the folder that are neither the catalogue's nor a model the
+/// person added (U2: an added file is no longer a stranger). `added` holds
+/// the added models' files as the walk would name them — and, through a
+/// link, as the file they name: `canonical` says what a path resolves to.
+pub fn strangers<'a>(
+    others: &'a [Found],
+    added: &[PathBuf],
+    canonical: impl Fn(&Path) -> Option<PathBuf>,
+) -> Vec<&'a Found> {
+    let added: Vec<PathBuf> = added
+        .iter()
+        .map(|path| canonical(path).unwrap_or_else(|| path.clone()))
+        .collect();
+    others
+        .iter()
+        .filter(|found| {
+            let resolved = canonical(&found.path).unwrap_or_else(|| found.path.clone());
+            !added.contains(&resolved)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
 
-    use wipemark_i18n::{args, t_args, Message};
-    use wipemark_models::host::Host;
+    use wipemark_i18n::{args, t, t_args, Message};
+    use wipemark_models::gguf::{synthetic, synthetic_chat_model, Meta, NotOffered};
+    use wipemark_models::host::{Fit, Host};
     use wipemark_models::manifest::Role;
     use wipemark_models::scan::Found;
     use wipemark_models::store::{Progress, State};
+    use wipemark_models::user::{UserEntry, UserModel, UserState};
 
     use super::{
-        adopted, bytes_label, card, catalogue, folder_line, folder_typed, found_row, installed_for,
-        model_choices, recommended, Availability, Folder, Typed, SHIPPED_ROLES,
+        adopted, bytes_label, card, catalogue, choosable, ctx_typed, dialog_lines, folder_line,
+        folder_typed, found_row, installed_for, memory_lines, model_choices, recommended,
+        strangers, user_card, Availability, Folder, Offering, Standing, Typed, UserAction,
+        ADDABLE_ROLES, SHIPPED_ROLES,
     };
+
+    const CHATML: &str =
+        "{% for m in messages %}<|im_start|>{{ m.role }}\n{{ m.content }}<|im_end|>\n{% endfor %}";
+
+    /// A scratch folder of its own under the system's temporary one,
+    /// removed when dropped.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new() -> Self {
+            use std::sync::atomic::{AtomicU32, Ordering};
+            static COUNTER: AtomicU32 = AtomicU32::new(0);
+            let dir = std::env::temp_dir().join(format!(
+                "wipemark-models-{}-{}",
+                std::process::id(),
+                COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&dir).expect("a scratch folder");
+            Self(dir)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn file_at(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).expect("write");
+        path
+    }
+
+    fn added(id: &str, name: &str, path: &Path) -> UserModel {
+        UserModel {
+            id: id.to_owned(),
+            entry: UserEntry {
+                name: name.to_owned(),
+                roles: vec![Role::Rewrite],
+                ctx: 8192,
+                path: path.to_path_buf(),
+                size_bytes: 2_546_340_960,
+                sha256: "0".repeat(64),
+                identity: "1:2:3:4".into(),
+                architecture: Some("qwen3".into()),
+                parameters: Some("4.0B".into()),
+                quant: Some("UD-Q4_K_XL".into()),
+                trained_ctx: Some(262_144),
+                kv: Some(wipemark_models::gguf::KvShape {
+                    layers: 36,
+                    heads_kv: 8,
+                    key_length: 128,
+                    value_length: 128,
+                }),
+                added_at: 1,
+            },
+        }
+    }
+
+    /// U1: the purposes a model is added for are the purposes the page
+    /// offers a choice for — a model added for a purpose nobody can choose
+    /// a model for is a row with nowhere to go.
+    #[test]
+    fn the_roles_a_model_is_added_for_are_the_roles_with_a_row() {
+        for role in ADDABLE_ROLES {
+            assert!(SHIPPED_ROLES.contains(&role), "{role:?} has no row");
+            assert!(role.is_text());
+        }
+        assert!(!ADDABLE_ROLES.is_empty());
+    }
+
+    /// U1, U4: a chat model's file is offered with what its header says,
+    /// and the name the dialog starts with is the one the file gives
+    /// itself — or its name without `.gguf`.
+    #[test]
+    fn a_chat_models_file_is_offered_with_what_its_header_says() {
+        let dir = Scratch::new();
+        let bytes = synthetic_chat_model("qwen3", "Qwen3 4B Instruct", Some(CHATML));
+        let path = file_at(dir.path(), "Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf", &bytes);
+        let Offering::Add(facts) = Offering::read(&path, 2_546_340_960) else {
+            panic!("a chat model is offered");
+        };
+        assert_eq!(facts.default_name(), "Qwen3 4B Instruct");
+        assert_eq!(facts.architecture.as_deref(), Some("qwen3"));
+        assert_eq!(facts.parameters.as_deref(), Some("4.0B"));
+        assert_eq!(facts.quant.as_deref(), Some("UD-Q4_K_XL"));
+        assert_eq!(facts.trained_ctx, Some(262_144));
+        assert!(facts.kv.is_some());
+        assert_eq!(facts.chat, wipemark_engine::chat_support(Some(CHATML)));
+        assert_eq!(Offering::Add(facts.clone()).line(), None);
+
+        let unnamed = synthetic(
+            3,
+            &[
+                ("general.architecture", Meta::Text("llama")),
+                ("tokenizer.chat_template", Meta::Text(CHATML)),
+            ],
+        );
+        let path = file_at(dir.path(), "my-own-finetune.Q8_0.gguf", &unnamed);
+        let Offering::Add(facts) = Offering::read(&path, 10) else {
+            panic!("offered");
+        };
+        assert_eq!(facts.default_name(), "my-own-finetune.Q8_0");
+        assert_eq!(facts.quant.as_deref(), Some("Q8_0"));
+    }
+
+    /// U3: what is not a model that writes text is not offered, and its row
+    /// says why in one line.
+    #[test]
+    fn what_is_not_a_model_that_writes_text_says_why_in_one_line() {
+        let dir = Scratch::new();
+        let chat = synthetic_chat_model("qwen3", "Q", Some(CHATML));
+        let projector = file_at(dir.path(), "mmproj-model-f16.gguf", &chat);
+        let no_template = file_at(
+            dir.path(),
+            "whisper.gguf",
+            &synthetic_chat_model("whisper", "W", None),
+        );
+        let encoder = file_at(
+            dir.path(),
+            "embed.gguf",
+            &synthetic(
+                10,
+                &[
+                    ("general.architecture", Meta::Text("nomic-bert")),
+                    ("tokenizer.chat_template", Meta::Text(CHATML)),
+                ],
+            ),
+        );
+        let onnx = file_at(dir.path(), "model.onnx", b"onnx bytes");
+        let garbage = file_at(dir.path(), "broken.gguf", b"GGUF\x03\x00\x00\x00");
+        let not_gguf = file_at(dir.path(), "renamed.gguf", b"\x89PNG....");
+
+        assert_eq!(
+            Offering::read(&projector, 1),
+            Offering::Not(NotOffered::Projector)
+        );
+        assert_eq!(
+            Offering::read(&no_template, 1),
+            Offering::Not(NotOffered::NoChatTemplate)
+        );
+        assert_eq!(
+            Offering::read(&encoder, 1),
+            Offering::Not(NotOffered::NotAWriter)
+        );
+        assert_eq!(Offering::read(&onnx, 1), Offering::NotGguf);
+        assert_eq!(Offering::read(&not_gguf, 1), Offering::NotGguf);
+        assert!(matches!(
+            Offering::read(&garbage, 1),
+            Offering::Unreadable(wipemark_models::gguf::GgufError::Truncated)
+        ));
+        for (path, said) in [
+            (&projector, Message::ModelsNotOfferedProjector),
+            (&no_template, Message::ModelsNotOfferedNoChatTemplate),
+            (&encoder, Message::ModelsNotOfferedNotAWriter),
+            (&onnx, Message::ModelsNotOfferedNotGguf),
+        ] {
+            assert_eq!(Offering::read(path, 1).line(), Some(t(said)), "{path:?}");
+        }
+        let unreadable = Offering::read(&garbage, 1).line().expect("a line");
+        assert!(unreadable.contains("cut short"), "{unreadable}");
+    }
+
+    /// U1: the dialog says, before anything is asked, that the model is not
+    /// the catalogue's, and what was read off the file — "not stated" for
+    /// what the header does not say, never a guess.
+    #[test]
+    fn the_dialog_says_the_model_is_not_the_catalogues_and_what_it_read() {
+        let facts = super::Facts {
+            path: PathBuf::from("/m/theirs/x.gguf"),
+            size_bytes: 2_546_340_960,
+            name: None,
+            architecture: Some("qwen3".into()),
+            parameters: None,
+            quant: Some("Q4_K_M".into()),
+            trained_ctx: None,
+            kv: None,
+            chat: wipemark_engine::ChatSupport::Refused(wipemark_engine::ChatRefusal::Unrecognised),
+        };
+        let lines = dialog_lines(&facts, 8192, Some(roomy()));
+        assert_eq!(lines[0], t(Message::SettingsModelsAddNotCatalogue));
+        assert!(lines[1].contains("/m/theirs/x.gguf") && lines[1].contains("2.5 GB"));
+        assert!(lines[2].contains("qwen3"));
+        assert!(lines[3].contains(&t(Message::SettingsModelsAddNotStated)));
+        assert!(lines[3].contains("Q4_K_M"));
+        assert_eq!(lines[4], t(Message::SettingsModelsAddTrainedUnknown));
+        assert_eq!(lines[5], t(Message::SettingsModelsAddChatUnrecognised));
+        assert!(
+            lines.contains(&t(Message::SettingsModelsAddMemoryCoarse)),
+            "an unstated cache is said to be assumed"
+        );
+        assert_eq!(lines.last(), Some(&t(Message::SettingsModelsFitRoomy)));
+    }
+
+    /// D402: the memory line is an estimate that moves with the context.
+    #[test]
+    fn the_memory_line_moves_with_the_context() {
+        let shape = Some(wipemark_models::gguf::KvShape {
+            layers: 36,
+            heads_kv: 8,
+            key_length: 128,
+            value_length: 128,
+        });
+        let at_8k = memory_lines(2_546_340_960, shape, 8192);
+        let at_32k = memory_lines(2_546_340_960, shape, 32_768);
+        assert_eq!(at_8k.len(), 1, "a stated cache needs no second line");
+        assert_ne!(at_8k, at_32k);
+        assert!(at_8k[0].contains("4.8 GB"), "{}", at_8k[0]);
+    }
+
+    #[test]
+    fn a_typed_context_is_held_to_its_bounds() {
+        assert_eq!(ctx_typed("8192", (2048, 262_144)), Some(8192));
+        assert_eq!(ctx_typed(" 4096 ", (2048, 262_144)), Some(4096));
+        assert_eq!(ctx_typed("1024", (2048, 262_144)), None);
+        assert_eq!(ctx_typed("300000", (2048, 262_144)), None);
+        assert_eq!(ctx_typed("eight", (2048, 262_144)), None);
+        assert_eq!(ctx_typed("", (2048, 262_144)), None);
+    }
+
+    /// U2: an added model's card offers Forget and Re-check — never
+    /// Download and never Remove — Add again once its file changed, and
+    /// nothing while its file is read; its line says what is wrong.
+    #[test]
+    fn an_added_models_card_never_offers_to_remove_the_file() {
+        let model = added("user-q", "Q", Path::new("/m/q.gguf"));
+        let present = user_card(&model, Some(&UserState::Present), Some(roomy()), None, None);
+        assert_eq!(present.standing, Standing::Present);
+        assert_eq!(present.actions(), [UserAction::Recheck, UserAction::Forget]);
+        assert_eq!(present.line(), t(Message::SettingsModelsFitRoomy));
+        assert!(present.summary.contains("4608"), "{}", present.summary);
+        assert!(present.summary.contains("8192"));
+        assert_eq!(present.path, "/m/q.gguf");
+
+        let changed = user_card(&model, Some(&UserState::Changed), Some(roomy()), None, None);
+        assert_eq!(
+            changed.actions(),
+            [
+                UserAction::AddAgain,
+                UserAction::Recheck,
+                UserAction::Forget
+            ]
+        );
+        assert_eq!(changed.line(), t(Message::SettingsModelsUserChanged));
+        let missing = user_card(&model, Some(&UserState::Missing), None, None, None);
+        assert_eq!(missing.line(), t(Message::SettingsModelsUserMissing));
+        assert_eq!(missing.fit, Fit::Unknown);
+        let checking = user_card(&model, None, None, None, Some((1, 4)));
+        assert!(checking.actions().is_empty());
+        assert_eq!(checking.bar(), Some(25.0));
+        let refused = user_card(
+            &model,
+            Some(&UserState::Present),
+            Some(roomy()),
+            Some(wipemark_engine::ChatSupport::Refused(
+                wipemark_engine::ChatRefusal::NoTemplate,
+            )),
+            None,
+        );
+        assert_eq!(refused.line(), t(Message::SettingsModelsUserChatRefused));
+        for card in [&present, &changed, &missing, &checking, &refused] {
+            for action in card.actions() {
+                assert_ne!(t(action.label()), t(Message::SettingsModelsRemove));
+                assert_ne!(t(action.label()), t(Message::SettingsModelsDownload));
+            }
+        }
+    }
+
+    /// U2: an added model is chosen like a catalogue one — while its file is
+    /// the one that was added.
+    #[test]
+    fn a_present_model_the_person_added_can_be_chosen_and_a_changed_one_cannot() {
+        let catalogue = catalogue();
+        let models = [
+            added("user-a", "A", Path::new("/a.gguf")),
+            added("user-b", "B", Path::new("/b.gguf")),
+        ];
+        let mut states = BTreeMap::new();
+        states.insert("user-a".to_owned(), UserState::Present);
+        states.insert("user-b".to_owned(), UserState::Changed);
+        let offered = choosable(
+            &catalogue,
+            Role::Rewrite,
+            &BTreeMap::new(),
+            &models,
+            &states,
+        );
+        assert_eq!(
+            offered.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            ["user-a"]
+        );
+        assert_eq!(offered[0].display, "A");
+        assert!(choosable(&catalogue, Role::Embed, &BTreeMap::new(), &models, &states).is_empty());
+    }
+
+    /// U2: a model the person added from the folder is no longer a stranger
+    /// there, by its path or through a link.
+    #[test]
+    fn a_file_the_person_added_is_no_longer_a_stranger() {
+        let found = |path: &str| Found {
+            path: PathBuf::from(path),
+            bytes: 1,
+            format: wipemark_models::manifest::Format::Gguf,
+        };
+        let others = [
+            found("/m/a.gguf"),
+            found("/m/b.gguf"),
+            found("/m/link.gguf"),
+        ];
+        let canonical = |path: &Path| {
+            Some(if path == Path::new("/m/link.gguf") {
+                PathBuf::from("/elsewhere/c.gguf")
+            } else {
+                path.to_path_buf()
+            })
+        };
+        let left = strangers(
+            &others,
+            &[
+                PathBuf::from("/m/a.gguf"),
+                PathBuf::from("/elsewhere/c.gguf"),
+            ],
+            canonical,
+        );
+        assert_eq!(
+            left.iter().map(|f| f.path.clone()).collect::<Vec<_>>(),
+            [PathBuf::from("/m/b.gguf")]
+        );
+    }
 
     fn a_rewriter() -> wipemark_models::manifest::ModelEntry {
         catalogue()
@@ -1152,7 +2012,7 @@ mod tests {
 
         let catalogue = catalogue();
         let installed: Vec<_> = catalogue.for_role(Role::Rewrite).into_iter().collect();
-        let choices = model_choices(installed.iter().copied());
+        let choices = model_choices(installed.iter().map(|entry| super::Choosable::from(*entry)));
         assert_eq!(choices.len(), installed.len() + 1);
 
         let values: Vec<_> = choices.iter().map(|c| c.value().to_string()).collect();

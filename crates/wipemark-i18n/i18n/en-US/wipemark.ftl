@@ -596,6 +596,9 @@ settings-engine-state-model-not-here = The model chosen for rewriting is not on 
 # $model is the stored id, because the entry it names is not in this
 # build's catalogue and so has no display name to show.
 settings-engine-state-model-unusable = The model chosen for rewriting, { $model }, is not one this version can use for it. Choose another on the Models page.
+# E8-1: the model the person added and chose is not the file they added.
+settings-engine-state-added-model-changed = The model you added and chose for rewriting has changed since you added it, so it is not loaded. Add it again on the Models page, or choose another.
+settings-engine-state-added-model-not-here = The model you added and chose for rewriting is not where it was. Put the file back, or choose another on the Models page.
 # $name is the profile that was asked for by name.
 settings-engine-state-no-such-profile = No profile named “{ $name }”. Nothing was substituted for it.
 # The same, for an endpoint that is not this machine. Deliberately a
@@ -748,6 +751,10 @@ engine-refusal-key-unsendable-empty = The key stored for this endpoint is empty,
 engine-refusal-key-unsendable-not-ascii = The key stored for this endpoint has a character that is not plain ASCII, which a request cannot carry, and nothing was sent. Save the key again on the Engine page.
 engine-refusal-key-unsendable-control = The key stored for this endpoint has a control character in it, which a request cannot carry, and nothing was sent. Save the key again on the Engine page.
 engine-refusal-key-unsendable-space = The key stored for this endpoint has a space inside it, which a request cannot carry, and nothing was sent. Save the key again on the Engine page.
+# E8-1: a model whose chat format this build does not write is refused by
+# name when it is loaded, never written with a guessed template.
+engine-refusal-chat-format-no-template = This model carries no chat template, so { -brand-name } cannot write a conversation for it. Choose another model.
+engine-refusal-chat-format-unrecognised = This model's chat format is not supported yet: { -brand-name } does not recognise its chat template, and does not guess one. Choose another model.
 
 ## The rows, and the first of them is the one that sets all the others.
 ##
@@ -914,7 +921,7 @@ settings-models-folder-read = Models folder: { $path } — { $installed ->
     }.
 
 settings-models-rewrite-title = Model for rewriting
-settings-models-rewrite-description = Which downloaded model a rewrite would use. Only models already on this machine are listed; a model is chosen for a purpose, and rewriting is the only purpose this build ships weights for.
+settings-models-rewrite-description = Which model on this machine a rewrite would use — downloaded from the catalogue, or added by you. Only models already on this machine are listed; a model is chosen for a purpose, and rewriting is the only purpose this build ships weights for.
 settings-models-rewrite-none = No local model
 
 ## Everything else the look through the folder turned up: model files
@@ -924,7 +931,7 @@ settings-models-rewrite-none = No local model
 ## nothing loads one yet.
 
 settings-models-found-title = Also in this folder
-settings-models-found-description = Model files found by looking through the folder and every folder under it. They are not in this version's catalogue, so nothing here can verify them, and nothing puts them to work yet.
+settings-models-found-description = Model files found by looking through the folder and every folder under it that { -brand-name }'s catalogue does not have. Add one as a model to use it: { -brand-name } records its checksum then, and cannot vouch for what it is.
 
 ## One card per catalogue entry: what it is, what it costs, and the one
 ## thing you can do with it right now.
@@ -975,6 +982,92 @@ settings-models-loading = Loading into memory — { $percent } % read…
 # $reason is the store's own words, never localized.
 settings-models-failed = The download stopped: { $reason }
 settings-models-stopped = Stopped. What was downloaded is kept, and the next attempt carries on from it.
+## Models the person added (E8-1): a GGUF the catalogue does not have,
+## picked from the disk or from "Also in this folder", named, given a
+## purpose, and kept as a row. Its checksum is recorded when it is added
+## and the file is refused later if it changes; nobody vouches for what
+## the model is, and every surface that shows one says so.
+
+settings-models-add-file = Add a model file…
+settings-models-add-file-description = A GGUF anywhere on this machine that the catalogue does not have. { -brand-name } records its checksum when you add it, and cannot vouch for what it is.
+settings-models-add-as = Add as a model…
+settings-models-added-by-you = Added by you
+# $ram is whole megabytes, estimated from the file's header.
+settings-models-user-needs = Needs about { $ram } MB (an estimate)
+# $context is a token count.
+settings-models-user-context = Context { $context } tokens
+settings-models-user-changed = Changed since you added it: the file is not the one whose checksum was recorded, so it is not loaded. Add it again to use it as it is now, or forget it.
+settings-models-user-missing = The file is not there any more, so it is not loaded. Put it back and re-check, or forget it.
+# $reason is the operating system's own words, never localized.
+settings-models-user-unreadable = The file could not be read: { $reason }
+settings-models-user-chat-refused = Its chat format is not supported yet, so loading it will be refused.
+# A model being added: its file is read in full once. $done and $total
+# are human-readable byte counts.
+settings-models-user-adding = Adding — reading { $done } of { $total } to record its checksum…
+# $name is what the person called it; $reason is the store's own words,
+# never localized.
+settings-models-user-add-failed = { $name } was not added: { $reason }
+settings-models-forget = Forget
+settings-models-recheck = Re-check
+settings-models-add-again = Add again…
+# $name is what the person called the model.
+settings-models-forget-title = Forget { $name }?
+settings-models-forget-body = The file stays where it is: { -brand-name } never deletes a file it did not download. The model stops being listed and used, and adding it again reads it in full.
+settings-models-forget-confirm = Forget
+
+## The dialog that adds a model: what can be read off the file is shown,
+## and only what cannot be is asked.
+
+settings-models-add-title = Add a model
+settings-models-add-not-catalogue = This model is not from { -brand-name }'s catalogue. { -brand-name } records the file's checksum now and refuses the file later if it changes, but it cannot vouch for what the model is.
+# $path is the file, in full; $size a human-readable byte count.
+settings-models-add-file-line = { $path } · { $size }
+# $arch is the header's own word (llama, qwen3, gemma4…), never translated.
+settings-models-add-architecture = Architecture: { $arch }
+# $params and $quant are labels from the header or the file's name
+# (27B, UD-IQ3_S), never translated.
+settings-models-add-weights = Parameters: { $params } · quantization: { $quant }
+settings-models-add-not-stated = not stated
+# $tokens is a token count.
+settings-models-add-trained = Trained with a context of { $tokens } tokens.
+settings-models-add-trained-unknown = The header does not say what context it was trained with.
+# $family is a chat template family's own name (chatml, gemma4, llama3…),
+# never translated.
+settings-models-add-chat-supported = Chat format: supported ({ $family }).
+settings-models-add-chat-no-template = Chat format: not supported — the file carries no chat template. Loading it will be refused.
+settings-models-add-chat-unrecognised = Chat format: not supported yet — { -brand-name } does not recognise its chat template, and does not guess one. Loading it will be refused.
+settings-models-add-chat-not-built = Chat format: not judged — this build cannot run a model on this machine.
+# $total, $weights, $cache and $overhead are human-readable sizes.
+settings-models-add-memory = Memory: about { $total } at this context — an estimate from the file's header: { $weights } of weights, { $cache } of context cache and { $overhead } to work in. What a load takes is measured after it.
+settings-models-add-memory-coarse = The header does not describe its context cache, so a typical one is assumed.
+settings-models-add-name = Name
+settings-models-add-purpose = Purpose
+settings-models-add-context = Context, in tokens
+# $min and $max are token counts.
+settings-models-add-context-bounds = Between { $min } and { $max } tokens.
+# $name is what the file was added as before.
+settings-models-add-again-note = This file is already added as { $name }. Adding it again reads it in full and records its checksum as it is now.
+settings-models-add-confirm = Add
+settings-models-add-cancel = Cancel
+settings-models-add-reading = Reading the file's header…
+# $path is the file; $reason is the header reader's own words, never
+# localized.
+settings-models-add-unreadable = { $path } could not be added: its header could not be read ({ $reason }).
+# $path is the file; $why is one of the models-not-offered sentences.
+settings-models-add-not-offered = { $path } is not offered as a model. { $why }
+settings-models-role-rewrite = Rewriting
+
+## Why a file is not offered as a model that rewrites — under its row in
+## "Also in this folder", and from the command line.
+
+models-not-offered-projector = A vision or audio projector (mmproj): half of a multimodal model, and not a model on its own.
+models-not-offered-adapter = A LoRA adapter: it changes a model and is not one.
+models-not-offered-no-weights = It holds a vocabulary and no weights.
+models-not-offered-not-a-writer = An embedding, encoder or speech model, not one that writes text.
+models-not-offered-no-chat-template = It carries no chat template, so it is not a chat model { -brand-name } can ask.
+models-not-offered-not-gguf = Not a GGUF file: the local engine runs GGUF models only.
+# $reason is the header reader's own words, never localized.
+models-not-offered-unreadable = Its header could not be read: { $reason }
 
 ## The Retention section — what is written, where, and what is kept.
 ##
@@ -1215,11 +1308,13 @@ cli-command-help = Print this message, or the help of the given subcommand.
 cli-command-inspect = Report what is in a document, or in a PNG, JPEG or WebP image — its metadata, and any visible mark a known profile describes in its pixels — without changing it. Invisible marks in the pixels are not searched for.
 cli-command-clean = { -layer-a } only: deterministic, verifiable, no model involved. A PNG, JPEG or WebP image loses its AI provenance metadata; when that is all it carries, its image data is kept byte for byte. A visible mark that is proved is removed, and the picture is then written again — a JPEG at quality 95, a lossy WebP as lossless. Invisible marks in the pixels remain.
 cli-command-rewrite = { -layer-a }, then a model rewrite, then { -layer-a } again.
-cli-command-models = Manage downloaded weights.
+cli-command-models = Manage the models on this machine: the catalogue's downloads, and the ones you add.
 cli-command-models-list = List every model in the catalogue, what is on this machine for it, and whether it fits.
 cli-command-models-pull = Download a model by id, resuming if a partial file exists.
-cli-command-models-verify = Re-hash an installed model in full against the catalogue. Exit 1 when it does not match or is not there.
+cli-command-models-verify = Re-hash a model in full: a catalogue model against the catalogue, one you added against the checksum recorded when you added it. Exit 1 when it does not match or is not there.
 cli-command-models-rm = Delete an installed model.
+cli-command-models-add = Add a GGUF the catalogue does not have: read its header, hash it once and record it under an id. The file is never moved or copied.
+cli-command-models-forget = Forget a model you added. The file is never deleted.
 cli-command-audit = Walk a folder and report every text file in it that carries findings, and every PNG, JPEG or WebP whose metadata carries AI provenance or whose pixels carry a visible mark, for pre-commit hooks and CI. Invisible marks in the pixels are not searched for. Exit 3 when any file could not be read — even if others had findings: a scan with a hole in it is not complete.
 
 cli-arg-path-or-stdin = File to read, or `-` for stdin.
@@ -1235,7 +1330,11 @@ cli-arg-intensity = How far a paraphrase or humanize may move from the wording: 
 cli-arg-format = What the text is: plain, markdown or html. Without it, what the file turns out to be; plain for anything else. In markdown and html only the prose is rewritten.
 cli-arg-prompts = A JSON file of template rows, laid over the ones the application saved — each a row's key and either its saved value or the template's text. A template that breaks a rule stops the run before anything is sent.
 cli-arg-seed = The base seed. Without it every run gets a new one, so running again gives a different rewrite; the seed a report names, given back, repeats a run on a model on this machine.
-cli-arg-id = Manifest model id.
+cli-arg-id = A model's id: the catalogue's, or one you added (user-…).
+cli-arg-model-path = The GGUF file to add.
+cli-arg-name = What to call it. By default, the name the file gives itself.
+cli-arg-role = What it is for: rewrite, the only purpose this version adds a model for.
+cli-arg-ctx = The context window it is loaded with, in tokens.
 cli-arg-dir = Directory to walk.
 cli-arg-sarif = SARIF output, for code scanning dashboards.
 cli-arg-in-place = Replace the file with its cleaned text or image. The original is first set aside beside it as `<name>.original.<ext>`, and an original already there is never overwritten: the run refuses instead. Nothing is touched when nothing needs changing.
@@ -1558,6 +1657,36 @@ cli-models-rm-found = { $id } is at { $path }, where { -brand-name } did not dow
 cli-models-rm-found-part = { $id } has a partial file at { $path } that { -brand-name } has no record of; nothing was removed.
 cli-models-rm-chosen = It was the model chosen for rewriting: the application will show no model chosen until another is picked. This command does not change that setting.
 cli-models-rm-failed = { $id } could not be removed from { $path }: { $reason }.
+# E8-1: models the person added, on the command line.
+cli-models-user-entry = { $id } · { $name } · { $roles } · { $size } · { $state } · { $fit } · added by you: { $path }
+cli-models-state-user-present = on this machine, matches the checksum recorded when it was added
+cli-models-state-user-changed = changed since it was added, not loaded until it is added again
+cli-models-state-user-missing = not at its path any more
+# $reason is the operating system's own words, never localized.
+cli-models-state-user-unreadable = could not be read: { $reason }
+cli-models-add-done = { $id }: { $path } was added as { $name }. Its checksum is recorded; { -brand-name } cannot vouch for what the model is.
+cli-models-add-again = { $id }: { $path } was added again as { $name }; its checksum is recorded as the file is now.
+# $reason is the header reader's own words, never localized.
+cli-models-add-unreadable = { $path } could not be added: its header could not be read ({ $reason }).
+# $why is one of the models-not-offered sentences.
+cli-models-add-not-offered = { $path } was not added: { $why }
+cli-models-add-no-database = There is no { -brand-name } database at { $path } yet: open the application once, then run this again. Nothing was added.
+# $reason is the database's own words, never localized.
+cli-models-add-database = The application's database at { $path } cannot take this command's rows: { $reason }. Open the application once, then run this again. Nothing was added.
+cli-models-add-role = { $role } is not a purpose this version adds a model for; it adds models for rewrite.
+cli-models-add-ctx = { $ctx } tokens is outside what this model takes: between { $min } and { $max }.
+cli-models-add-name = The name is empty, longer than { $max } characters, or has a control character.
+# $reason is the operating system's own words, never localized.
+cli-models-add-hash-failed = { $path } could not be read in full: { $reason }. Nothing was added.
+cli-models-add-progress = { $path }: { $done } of { $total } MB read ({ $percent } %)
+cli-models-forget-done = { $id } ({ $name }) is forgotten. The file stays at { $path }: { -brand-name } never deletes a file it did not download.
+cli-models-forget-catalogue = { $id } is a catalogue model, not one you added: rm removes a download of it.
+cli-models-user-not-downloadable = { $id } is a model you added from { $path }: there is nothing to download or remove. Forget it to stop using it.
+cli-models-unknown-model = { $id } is neither in the catalogue nor a model you added. The ids are: { $ids }.
+cli-models-verify-user-ok = { $id } matches the checksum recorded when it was added: the file was hashed in full.
+cli-models-verify-user-changed = { $id }: { $path } is not the file that was added — its checksum differs. Add it again to use it as it is now.
+cli-models-verify-user-missing = { $id }: { $path } is not there any more.
+cli-models-verify-user-unreadable = { $id }: { $path } could not be read: { $reason }. Not read is not verified.
 
 # $requested is what the user typed, $available a comma-separated list.
 cli-unknown-language = unknown language `{ $requested }`, falling back. Available: { $available }
@@ -1573,6 +1702,7 @@ cli-rewrite-needs-app-endpoint = Rewriting is set to use an endpoint, and the co
 cli-rewrite-needs-app-fallback = The model chosen for rewriting is not on this machine, and the endpoint set to answer instead is reached only through the running { -brand-name } application. Download the model, or start the application and run this again. Nothing was rewritten.
 cli-rewrite-no-model = No model on this machine is chosen for rewriting. Download one with wipemark-cli models pull and choose it on the application's Models page, or start the application with an endpoint on duty. Nothing was rewritten.
 cli-rewrite-model-not-here = The model chosen for rewriting, { $id }, is not on this machine whole; wipemark-cli models pull { $id } fetches it. Nothing was rewritten.
+cli-rewrite-added-model-not-here = The model chosen for rewriting, { $id }, is one you added, and its file has changed or is gone; wipemark-cli models verify { $id } says which. Nothing was rewritten.
 cli-rewrite-unavailable = Nothing was rewritten: { $reason }
 cli-rewrite-failed = Nothing was rewritten: the job failed ({ $reason }).
 cli-rewrite-cancelled = Cancelled. Nothing was written.

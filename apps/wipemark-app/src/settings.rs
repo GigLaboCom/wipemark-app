@@ -86,16 +86,17 @@ use gpui_component::{
     StyledExt as _,
 };
 use wipemark_engine::http::KeyFault;
-use wipemark_engine::Unavailable;
+use wipemark_engine::{ChatSupport, Unavailable};
 use wipemark_i18n::{args, t, t_args, LanguagePreference, Message};
 use wipemark_models::host::Host;
 use wipemark_models::manifest::{Manifest, ModelEntry, Role};
 use wipemark_models::store::{Cancel, Downloads, Event, Hashing, Progress, State};
+use wipemark_models::user::{UserModel, UserState};
 use wipemark_secret::{Secret, Vault};
 
 use crate::compare::Comparison;
 use crate::config::{self, SettingsStore};
-use crate::dialog::{Answer, Chosen, Confirm, Naming};
+use crate::dialog::{AddModel, Adding, Answer, Chosen, Confirm, Naming};
 use crate::diff::Grain;
 use crate::duty::{self, Duty, LocalOptions, OnDisk, Performer, Roster, Serves, Vacancy};
 use crate::engine::{
@@ -109,7 +110,7 @@ use crate::icon::{Icon, IconName};
 use crate::language::{self, LanguageChoice};
 use crate::mcp::server::{self, Supervisor};
 use crate::mcp::{self, BindAddress, Client, Endpoint};
-use crate::models::Folder;
+use crate::models::{Addition, Folder, Offering};
 // `Answer` is deliberately not imported: `dialog::Answer` is a
 // dialog's yes or no, and two words that short would read as one.
 use crate::placement::{self, Onto, Origin, Spot, Zone};
@@ -870,6 +871,29 @@ pub struct Preferences {
     /// Which downloaded model answers for rewriting. A manifest id, or
     /// `None`.
     rewrite_model: Option<String>,
+    // ## E8-1: models the person added
+    /// The models the person added, as their rows say — read at launch,
+    /// and again by every scan, so one the command line added appears at
+    /// the next look.
+    added: Vec<UserModel>,
+    /// What the last scan found of each added model's file, by id.
+    added_states: BTreeMap<String, UserState>,
+    /// Whether this build writes each added model's chat format, read off
+    /// its header by the scan, by id.
+    added_chats: BTreeMap<String, ChatSupport>,
+    /// What each file under "Also in this folder" is, read off its header
+    /// by the scan, by path.
+    offers: BTreeMap<PathBuf, Offering>,
+    /// The work that reads a model's file in full and is not a scan — an
+    /// add, a re-check — in the order it was asked for. It takes the
+    /// scan's slot, one at a time (D304), so a file is never hashed by two
+    /// tasks side by side.
+    pending: std::collections::VecDeque<Reading>,
+    /// What runs in the slot now, when it is not a scan.
+    reading: Option<Reading>,
+    /// The last add that did not land — what it was called, and why in the
+    /// store's or the header reader's own words — for the banner.
+    add_failed: Option<(String, String)>,
     /// The folder the platform gives for the weights — `<data
     /// dir>/models` — which is where they go when the row says nothing.
     /// Kept beside the row so "Default" has something to put back and
@@ -1032,6 +1056,166 @@ pub struct Preferences {
     rewriter: EngineHandle,
 }
 
+/// What is on disk for an added model, as the duty reads a catalogue
+/// entry's: whole while its file is the one that was added, its path the
+/// weights; `Corrupt` when the file changed or could not be read; `Absent`
+/// when it is gone or not looked at yet.
+fn added_on_disk(model: &UserModel, state: Option<&UserState>) -> OnDisk {
+    match state {
+        Some(UserState::Present) => OnDisk {
+            state: State::Present {
+                bytes: model.entry.size_bytes,
+            },
+            weights: Some(model.entry.path.clone()),
+        },
+        Some(UserState::Changed) => OnDisk {
+            state: State::Corrupt {
+                reason: "changed since it was added".to_owned(),
+            },
+            weights: None,
+        },
+        Some(UserState::Unreadable(reason)) => OnDisk {
+            state: State::Corrupt {
+                reason: reason.clone(),
+            },
+            weights: None,
+        },
+        Some(UserState::Missing) | None => OnDisk {
+            state: State::Absent,
+            weights: None,
+        },
+    }
+}
+
+/// What a scan found of the models the person added.
+struct Added {
+    models: Vec<UserModel>,
+    states: BTreeMap<String, UserState>,
+    chats: BTreeMap<String, ChatSupport>,
+}
+
+/// Read the added models' rows and look at each one's file (U2): its state,
+/// its identity written back when it moved and its bytes did not (D401),
+/// and — for a file that is there — whether this build writes its chat
+/// format, read off its header (U3). Blocking; the scan's.
+fn look_at_added(models: &Downloads, rows: &SettingsStore) -> Added {
+    let mut added = Added {
+        models: config::read_user_models(rows),
+        states: BTreeMap::new(),
+        chats: BTreeMap::new(),
+    };
+    for model in &mut added.models {
+        let look = models.look_at_user(&model.entry);
+        if let Some(identity) = look.identity {
+            model.entry.identity = identity;
+            if let Err(error) = config::write_user_model(rows, model) {
+                tracing::warn!(%error, model = %model.id, "could not record a moved identity");
+            }
+        }
+        if look.state == UserState::Present {
+            if let Ok(header) = wipemark_models::gguf::Header::read(&model.entry.path) {
+                added.chats.insert(
+                    model.id.clone(),
+                    wipemark_engine::chat_support(header.chat_template.as_deref()),
+                );
+            }
+        }
+        added.states.insert(model.id.clone(), look.state);
+    }
+    added
+}
+
+/// What one [`Reading`] came to.
+#[derive(Debug)]
+enum Read {
+    /// The model's row was written.
+    Added(UserModel),
+    /// A re-check's verdict, and the model as its row now says when its
+    /// identity was written again.
+    Rechecked {
+        id: String,
+        state: UserState,
+        model: Option<UserModel>,
+    },
+    /// Nothing was written: what it was called, and why.
+    Failed { name: String, why: String },
+}
+
+/// Do one reading. Blocking: the file is read in full.
+fn read_one(
+    store: &Downloads,
+    rows: &SettingsStore,
+    reading: &Reading,
+    entry: Option<&UserModel>,
+    taken: &[String],
+) -> Read {
+    match reading {
+        Reading::Add(addition) => {
+            let failed = |why: String| Read::Failed {
+                name: addition.name.clone(),
+                why,
+            };
+            let identified = match store.identify(&addition.facts.path) {
+                Ok(identified) => identified,
+                Err(error) => return failed(error.to_string()),
+            };
+            // An id is taken when this window knows it, and when the table
+            // files *anything* under it — asked now, after the read, not
+            // from the list the page holds: the command line may have added
+            // a model meanwhile, and a row this build cannot read is a model
+            // a newer build added, which the list never holds (D400; the host
+            // verification of E8-1). A row that cannot be asked about counts
+            // as taken: an id is never written over another model's row.
+            let model = addition.model(&identified, |id| {
+                taken.iter().any(|known| known == id)
+                    || !matches!(
+                        rows.settings()
+                            .get::<serde_json::Value>(&wipemark_models::user::key_of(id)),
+                        Ok(None)
+                    )
+            });
+            if let Err(why) = model.entry.check() {
+                return failed(why);
+            }
+            match config::write_user_model(rows, &model) {
+                Ok(()) => Read::Added(model),
+                Err(error) => failed(error.to_string()),
+            }
+        }
+        Reading::Recheck(id) => {
+            let Some(model) = entry else {
+                return Read::Failed {
+                    name: id.clone(),
+                    why: "forgotten before it was read".to_owned(),
+                };
+            };
+            let look = store.recheck_user(&model.entry);
+            let model = look.identity.map(|identity| {
+                let mut moved = model.clone();
+                moved.entry.identity = identity;
+                if let Err(error) = config::write_user_model(rows, &moved) {
+                    tracing::warn!(%error, model = %moved.id, "could not record a moved identity");
+                }
+                moved
+            });
+            Read::Rechecked {
+                id: id.clone(),
+                state: look.state,
+                model,
+            }
+        }
+    }
+}
+
+/// Work that reads one model's file in full and is not a scan (E8-1).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Reading {
+    /// Add a model: read the file, record its checksum, write its row.
+    Add(Box<Addition>),
+    /// Read an added model's file in full against its recorded checksum.
+    Recheck(String),
+}
+
 /// A download in flight.
 ///
 /// The cancel flag lives here rather than beside the thread, because
@@ -1081,6 +1265,7 @@ impl Preferences {
             active_profile,
             rewrite_model,
             models_dir,
+            added,
             serves,
             local,
             hotkeys,
@@ -1191,6 +1376,13 @@ impl Preferences {
             download_said: None,
             download_error: None,
             rewrite_model,
+            added,
+            added_states: BTreeMap::new(),
+            added_chats: BTreeMap::new(),
+            offers: BTreeMap::new(),
+            pending: std::collections::VecDeque::new(),
+            reading: None,
+            add_failed: None,
             models,
             records_dir,
             models_default,
@@ -2014,6 +2206,7 @@ impl Preferences {
         self.weights.clear();
         self.found.clear();
         self.foreign.clear();
+        self.offers.clear();
         self.folder = Folder::Unread;
         self.download_said = None;
         self.download_error = None;
@@ -2037,9 +2230,209 @@ impl Preferences {
         self.rewrite_model.as_deref()
     }
 
-    /// Every catalogue entry that is on this machine and serves `role`.
-    pub fn installed_for(&self, role: Role) -> Vec<&ModelEntry> {
-        models::installed_for(&self.catalogue, role, &self.installed)
+    /// Every model that can be chosen for `role` now: the catalogue's on
+    /// this machine, then the ones the person added whose file is the one
+    /// that was added (E8-1).
+    pub fn choosable_for(&self, role: Role) -> Vec<models::Choosable> {
+        models::choosable(
+            &self.catalogue,
+            role,
+            &self.installed,
+            &self.added,
+            &self.added_states,
+        )
+    }
+
+    /// The models the person added, by name.
+    pub fn added_models(&self) -> &[UserModel] {
+        &self.added
+    }
+
+    /// What the last scan found of one added model's file.
+    pub fn added_state(&self, id: &str) -> Option<&UserState> {
+        self.added_states.get(id)
+    }
+
+    /// Whether this build writes one added model's chat format, when its
+    /// header has been read.
+    pub fn added_chat(&self, id: &str) -> Option<ChatSupport> {
+        self.added_chats.get(id).copied()
+    }
+
+    /// The added model whose file is `path`, if there is one.
+    pub fn added_at(&self, path: &Path) -> Option<&UserModel> {
+        self.added.iter().find(|model| model.entry.path == path)
+    }
+
+    /// What a file under "Also in this folder" is, as its header says.
+    pub fn offer_for(&self, path: &Path) -> Option<&Offering> {
+        self.offers.get(path)
+    }
+
+    /// The add running now, if one is.
+    pub fn adding(&self) -> Option<&Addition> {
+        match &self.reading {
+            Some(Reading::Add(addition)) => Some(&**addition),
+            _ => None,
+        }
+    }
+
+    /// Adds asked for and still waiting their turn.
+    pub fn adds_waiting(&self) -> impl Iterator<Item = &Addition> {
+        self.pending.iter().filter_map(|reading| match reading {
+            Reading::Add(addition) => Some(&**addition),
+            Reading::Recheck(_) => None,
+        })
+    }
+
+    /// The last add that did not land: its name, and why.
+    pub fn add_failed(&self) -> Option<&(String, String)> {
+        self.add_failed.as_ref()
+    }
+
+    /// How far the hash of `path` has got — bytes read, size — while one
+    /// is read.
+    pub fn checking_path(&self, path: &Path) -> Option<(u64, u64)> {
+        let (checked, done, total) = self.checking.as_ref()?;
+        (checked == path).then_some((*done, *total))
+    }
+
+    /// Add a model (U1): read its file in full once, record its checksum,
+    /// write its row. In the scan's slot, after whatever holds it (D304).
+    pub fn add_model(&mut self, addition: Addition, cx: &mut Context<Self>) {
+        self.add_failed = None;
+        self.read_in_turn(Reading::Add(Box::new(addition)), cx);
+    }
+
+    /// Read an added model's file in full against the checksum recorded
+    /// when it was added — Re-check (U2).
+    pub fn recheck_model(&mut self, id: &str, cx: &mut Context<Self>) {
+        if self.added.iter().any(|model| model.id == id) {
+            self.read_in_turn(Reading::Recheck(id.to_owned()), cx);
+        }
+    }
+
+    /// Say that a file the page was asked to add could not be (U1): its
+    /// name, and why — the header reader's words, or a sentence of ours.
+    pub fn not_added(&mut self, name: String, why: String, cx: &mut Context<Self>) {
+        self.add_failed = Some((name, why));
+        cx.notify();
+    }
+
+    /// Forget an added model (U2): its row goes, and the file never does —
+    /// the product did not download it. The choice goes with it when it
+    /// named this model, as `remove_model`'s does.
+    pub fn forget_model(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(at) = self.added.iter().position(|model| model.id == id) else {
+            return;
+        };
+        let forgotten = self.added.remove(at);
+        self.added_states.remove(id);
+        self.added_chats.remove(id);
+        if self.rewrite_model.as_deref() == Some(id) {
+            self.select_rewrite_model(None, cx);
+        }
+        tracing::info!(model = %forgotten.id, "forgot a model added by hand; its file is left where it is");
+        let id = forgotten.id.clone();
+        self.persist(cx, move |store| config::forget_user_model(store, &id));
+        // Its file, if it is in the folder, is a stranger there again.
+        self.look_at_models(cx);
+        cx.notify();
+    }
+
+    /// Run `reading` now if the slot is free, or when it is.
+    fn read_in_turn(&mut self, reading: Reading, cx: &mut Context<Self>) {
+        if self.scanning || self.reading.is_some() {
+            self.pending.push_back(reading);
+            cx.notify();
+            return;
+        }
+        self.read_now(reading, cx);
+    }
+
+    /// The next waiting reading, if there is one and the slot is free.
+    fn read_next(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.scanning || self.reading.is_some() {
+            return false;
+        }
+        match self.pending.pop_front() {
+            Some(reading) => {
+                self.read_now(reading, cx);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Read one model's file in full, on the background executor, through a
+    /// store of its own — a folder moved meanwhile does not stop it — whose
+    /// hashes the cards draw a bar from (F1b).
+    fn read_now(&mut self, reading: Reading, cx: &mut Context<Self>) {
+        let store = Arc::new(Downloads::new(
+            self.models.models_dir().to_path_buf(),
+            self.records_dir.clone(),
+        ));
+        Self::listen_to_hashes(&store, cx);
+        let rows = self.store.clone();
+        let taken: Vec<String> = self.added.iter().map(|model| model.id.clone()).collect();
+        let entry = match &reading {
+            Reading::Recheck(id) => self.added.iter().find(|model| model.id == *id).cloned(),
+            Reading::Add(_) => None,
+        };
+        self.reading = Some(reading.clone());
+        cx.notify();
+        cx.spawn(async move |preferences, cx| {
+            let landed = cx
+                .background_executor()
+                .spawn(async move {
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        read_one(&store, &rows, &reading, entry.as_ref(), &taken)
+                    }))
+                    .unwrap_or_else(|_| Read::Failed {
+                        name: String::new(),
+                        why: "the read panicked".to_owned(),
+                    })
+                })
+                .await;
+            preferences
+                .update(cx, |preferences, cx| preferences.read_landed(landed, cx))
+                .ok();
+        })
+        .detach();
+    }
+
+    /// What a reading came to.
+    fn read_landed(&mut self, landed: Read, cx: &mut Context<Self>) {
+        self.reading = None;
+        match landed {
+            Read::Added(model) => {
+                tracing::info!(model = %model.id, "added a model by hand");
+                self.added_states
+                    .insert(model.id.clone(), UserState::Present);
+                match self.added.iter_mut().find(|known| known.id == model.id) {
+                    Some(known) => *known = model,
+                    None => self.added.push(model),
+                }
+            }
+            Read::Rechecked { id, state, model } => {
+                self.added_states.insert(id.clone(), state);
+                if let Some(model) = model {
+                    if let Some(known) = self.added.iter_mut().find(|known| known.id == id) {
+                        *known = model;
+                    }
+                }
+            }
+            Read::Failed { name, why } => {
+                tracing::warn!(why, "a model could not be added");
+                self.add_failed = Some((name, why));
+            }
+        }
+        if !self.read_next(cx) {
+            // What it wrote is what the next look reads back: the rows, the
+            // folder without the file it added, the duty.
+            self.look_at_models(cx);
+        }
+        cx.notify();
     }
 
     /// Who serves `role` right now, and how.
@@ -2054,7 +2447,7 @@ impl Preferences {
         if let Some(id) = &self.rewrite_model {
             chosen.insert(Role::Rewrite, id.clone());
         }
-        let on_disk: BTreeMap<String, OnDisk> = self
+        let mut on_disk: BTreeMap<String, OnDisk> = self
             .installed
             .iter()
             .map(|(id, state)| {
@@ -2067,6 +2460,14 @@ impl Preferences {
                 )
             })
             .collect();
+        // A model the person added, under its own id (D400): present while
+        // its file is the one that was added, its path the weights.
+        for model in &self.added {
+            on_disk.insert(
+                model.id.clone(),
+                added_on_disk(model, self.added_states.get(&model.id)),
+            );
+        }
         // The one account this window has asked about. An endpoint it
         // has not looked under is missing rather than empty, which
         // `duty` reads as "not yet known" and not as "no key".
@@ -2079,6 +2480,7 @@ impl Preferences {
                 active: self.active_profile.as_deref(),
                 keys: &keys,
                 catalogue: &self.catalogue,
+                added: &self.added,
                 chosen: &chosen,
                 on_disk: &on_disk,
                 host: self.host,
@@ -2112,13 +2514,14 @@ impl Preferences {
     /// time, and the second scan finds the first one's record instead of
     /// hashing the file again.
     pub fn look_at_models(&mut self, cx: &Context<Self>) {
-        if self.scanning {
+        if self.scanning || self.reading.is_some() {
             self.rescan = true;
             return;
         }
         self.scanning = true;
         let models = self.models.clone();
         let entries: Vec<ModelEntry> = self.catalogue.models.clone();
+        let rows = self.store.clone();
         #[cfg(test)]
         let panics = self.scan_panics;
 
@@ -2187,7 +2590,40 @@ impl Preferences {
                         let folder = Folder::from_listing(survey.listing, |path| {
                             ours.iter().any(|o| o == path)
                         });
-                        (host, gpu, states, weights, found, foreign, folder)
+                        // E8-1: the models the person added, as their rows
+                        // say now — the command line may have added one — and
+                        // each one's file looked at; a file in the folder that
+                        // is one of them is no longer a stranger there, and
+                        // every stranger left is read for what it is.
+                        let added = look_at_added(&models, &rows);
+                        let folder = match folder {
+                            Folder::Read { others } => {
+                                let paths: Vec<PathBuf> = added
+                                    .models
+                                    .iter()
+                                    .map(|model| model.entry.path.clone())
+                                    .collect();
+                                Folder::Read {
+                                    others: models::strangers(&others, &paths, |path| {
+                                        std::fs::canonicalize(path).ok()
+                                    })
+                                    .into_iter()
+                                    .cloned()
+                                    .collect(),
+                                }
+                            }
+                            other => other,
+                        };
+                        let offers: BTreeMap<PathBuf, Offering> = folder
+                            .others()
+                            .iter()
+                            .map(|found| {
+                                (found.path.clone(), Offering::read(&found.path, found.bytes))
+                            })
+                            .collect();
+                        (
+                            host, gpu, states, weights, found, foreign, folder, added, offers,
+                        )
                     }))
                     .ok()
                 })
@@ -2208,9 +2644,10 @@ impl Preferences {
                         tracing::error!(
                             "the scan of the models folder panicked; nothing it found is used"
                         );
+                        preferences.read_next(cx);
                         return;
                     };
-                    let (host, gpu, states, weights, found, foreign, folder) = found;
+                    let (host, gpu, states, weights, found, foreign, folder, added, offers) = found;
                     preferences.host = Some(host);
                     preferences.gpu = gpu;
                     preferences.installed = states;
@@ -2218,10 +2655,16 @@ impl Preferences {
                     preferences.found = found;
                     preferences.foreign = foreign;
                     preferences.folder = folder;
+                    preferences.added = added.models;
+                    preferences.added_states = added.states;
+                    preferences.added_chats = added.chats;
+                    preferences.offers = offers;
                     // The moment the answer stops being provisional:
                     // before the scan lands, "that model is not here"
                     // is a sentence about a directory nobody has read.
                     preferences.log_the_duty();
+                    // An add or a re-check asked while it ran goes now.
+                    preferences.read_next(cx);
                     cx.notify();
                 })
                 .ok();
@@ -3095,6 +3538,7 @@ fn gpu_backend() -> Option<bool> {
 enum Overlay {
     Naming(Entity<Naming>),
     Confirm(Entity<Confirm>),
+    AddModel(Entity<AddModel>),
 }
 
 /// Everything writing the geometry down needs, owned.
@@ -3562,7 +4006,7 @@ impl SettingsView {
                 let Some(value) = value else {
                     return;
                 };
-                let installed = view.preferences.read(cx).installed_for(Role::Rewrite);
+                let installed = view.preferences.read(cx).choosable_for(Role::Rewrite);
                 let choices = models::model_choices(installed);
                 // Back through the row's own value, so the dropdown can
                 // only ask for a model it actually offered — which is
@@ -5389,6 +5833,186 @@ impl SettingsView {
         cx.notify();
     }
 
+    /// Open the dialog that adds a model (E8-1, U1) over `facts`. A file
+    /// already added is added again under its id (D405): the dialog says
+    /// so, and starts from the name and context it was added with.
+    fn open_add_dialog(
+        &mut self,
+        facts: models::Facts,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (host, known) = {
+            let preferences = self.preferences.read(cx);
+            (
+                preferences.host(),
+                preferences
+                    .added_at(&facts.path)
+                    .map(|model| (model.id.clone(), model.entry.name.clone(), model.entry.ctx)),
+            )
+        };
+        let (name, ctx) = match &known {
+            Some((_, name, ctx)) => (name.clone(), *ctx),
+            None => (
+                facts.default_name(),
+                wipemark_models::user::default_ctx(facts.trained_ctx),
+            ),
+        };
+        let replacing = known.map(|(id, name, _)| (id, name));
+        let dialog = cx.new(|cx| AddModel::new(facts, host, replacing, name, ctx, window, cx));
+        let watched = cx.subscribe_in(&dialog, window, |view, _, adding: &Adding, window, cx| {
+            if let Adding::Add(addition) = adding {
+                let addition = Addition::clone(addition);
+                view.preferences.update(cx, |preferences, cx| {
+                    preferences.add_model(addition, cx);
+                });
+            }
+            view.close_the_dialog(window, cx);
+        });
+        self.overlay = Some(Overlay::AddModel(dialog));
+        self.answered = Some(watched);
+        cx.notify();
+    }
+
+    /// What the file at `path` is, read off the background executor, then
+    /// the dialog — or, for a file that is not offered, why, on the page.
+    fn offer_file(path: PathBuf, window: &Window, cx: &Context<Self>) {
+        cx.spawn_in(window, async move |view, cx| {
+            let read = cx
+                .background_executor()
+                .spawn(async move {
+                    let size = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+                    (models::Offering::read(&path, size), path)
+                })
+                .await;
+            view.update_in(cx, |view, window, cx| match read {
+                (models::Offering::Add(facts), _) => view.open_add_dialog(facts, window, cx),
+                (refused, path) => {
+                    let why = match &refused {
+                        models::Offering::Unreadable(error) => t_args(
+                            Message::SettingsModelsAddUnreadable,
+                            &args!(
+                                "path" => path.display().to_string(),
+                                "reason" => error.to_string(),
+                            ),
+                        ),
+                        other => t_args(
+                            Message::SettingsModelsAddNotOffered,
+                            &args!(
+                                "path" => path.display().to_string(),
+                                "why" => other.line().unwrap_or_default(),
+                            ),
+                        ),
+                    };
+                    let name = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    view.preferences.update(cx, |preferences, cx| {
+                        preferences.not_added(name, why, cx);
+                    });
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Add a model file… — the platform's file picker, a GGUF anywhere.
+    fn add_a_model_file(window: &Window, cx: &Context<Self>) {
+        let picked = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(SharedString::from(t(Message::SettingsModelsAddFile))),
+        });
+        cx.spawn_in(window, async move |view, cx| {
+            let picked = match picked.await {
+                Ok(Ok(Some(paths))) => paths.into_iter().next(),
+                Ok(Err(error)) => {
+                    tracing::warn!(%error, "the file picker could not open");
+                    None
+                }
+                _ => None,
+            };
+            let Some(path) = picked else {
+                return;
+            };
+            view.update_in(cx, |_, window, cx| Self::offer_file(path, window, cx))
+                .ok();
+        })
+        .detach();
+    }
+
+    /// Ask before forgetting an added model (U2): what goes, and that the
+    /// file stays.
+    fn confirm_forgetting(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = self
+            .preferences
+            .read(cx)
+            .added_models()
+            .iter()
+            .find(|model| model.id == id)
+            .map(|model| model.entry.name.clone())
+        else {
+            return;
+        };
+        let dialog = cx.new(|cx| {
+            Confirm::new(
+                t_args(Message::SettingsModelsForgetTitle, &args!("name" => name)),
+                vec![t(Message::SettingsModelsForgetBody)],
+                t(Message::SettingsModelsForgetConfirm),
+                t(Message::SettingsModelsAddCancel),
+                window,
+                cx,
+            )
+        });
+        let watched = cx.subscribe_in(
+            &dialog,
+            window,
+            move |view, _, answer: &Answer, window, cx| {
+                if *answer == Answer::Accepted {
+                    let id = id.clone();
+                    view.preferences.update(cx, |preferences, cx| {
+                        preferences.forget_model(&id, cx);
+                    });
+                }
+                view.close_the_dialog(window, cx);
+            },
+        );
+        self.overlay = Some(Overlay::Confirm(dialog));
+        self.answered = Some(watched);
+        cx.notify();
+    }
+
+    /// One added model's button.
+    fn act_on_added(
+        &mut self,
+        id: &str,
+        action: models::UserAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            models::UserAction::Forget => self.confirm_forgetting(id.to_owned(), window, cx),
+            models::UserAction::Recheck => self
+                .preferences
+                .update(cx, |preferences, cx| preferences.recheck_model(id, cx)),
+            models::UserAction::AddAgain => {
+                let path = self
+                    .preferences
+                    .read(cx)
+                    .added_models()
+                    .iter()
+                    .find(|model| model.id == id)
+                    .map(|model| model.entry.path.clone());
+                if let Some(path) = path {
+                    Self::offer_file(path, window, cx);
+                }
+            }
+        }
+    }
+
     /// Take the dialog down and hand the keyboard back.
     ///
     /// The order matters. The dialog holds focus while it is open — that
@@ -5427,6 +6051,11 @@ impl SettingsView {
             Overlay::Confirm(dialog) => (
                 dialog.clone().into_any_element(),
                 crate::dialog::MODAL_PRIORITY,
+            ),
+            // Two text fields: under the popups, for Naming's reason.
+            Overlay::AddModel(dialog) => (
+                dialog.clone().into_any_element(),
+                crate::dialog::FIELD_MODAL_PRIORITY,
             ),
         };
         Some(deferred(dialog).with_priority(priority).into_any_element())
@@ -5604,23 +6233,23 @@ impl SettingsView {
     /// notification would shut the list under the pointer of whoever
     /// was choosing from it.
     fn refresh_model_choices(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (installed, chosen) = {
+        let (entries, chosen) = {
             let preferences = self.preferences.read(cx);
             (
-                preferences
-                    .installed_for(Role::Rewrite)
-                    .into_iter()
-                    .map(|entry| entry.id.clone())
-                    .collect::<Vec<_>>(),
+                preferences.choosable_for(Role::Rewrite),
                 preferences.rewrite_model().map(str::to_owned),
             )
         };
+        // The ids and the names: renaming an added model is a new row.
+        let installed: Vec<String> = entries
+            .iter()
+            .map(|entry| format!("{}\u{0}{}", entry.id, entry.display))
+            .collect();
         if installed == self.offered {
             return;
         }
         self.offered.clone_from(&installed);
 
-        let entries = self.preferences.read(cx).installed_for(Role::Rewrite);
         let choices = models::model_choices(entries);
         let row = engine::row_of(&choices, &chosen).map(IndexPath::new);
         self.model_select.update(cx, |select, cx| {
@@ -5642,16 +6271,244 @@ impl SettingsView {
             .child(self.state_of_the_shelf(cx))
             .child(self.rows(Section::Models, cx))
             .child(
-                v_flex().gap_2().children(
-                    self.preferences
-                        .read(cx)
-                        .catalogue()
-                        .models
-                        .iter()
-                        .map(|entry| self.model_card(entry, cx)),
-                ),
+                v_flex()
+                    .gap_2()
+                    .children(
+                        self.preferences
+                            .read(cx)
+                            .catalogue()
+                            .models
+                            .iter()
+                            .map(|entry| self.model_card(entry, cx)),
+                    )
+                    // E8-1: the models the person added, among the
+                    // catalogue's, then any being added now.
+                    .children(
+                        self.preferences
+                            .read(cx)
+                            .added_models()
+                            .iter()
+                            .map(|model| self.added_card(model, cx)),
+                    )
+                    .children(self.adding_cards(cx)),
             )
+            .child(Self::add_file_row(cx))
             .children(self.also_in_the_folder(cx))
+    }
+
+    /// One model the person added (U2): "Added by you", its path, its
+    /// estimate and fit, and Forget and Re-check — Add again once its file
+    /// changed — never Download and never Remove.
+    fn added_card(&self, model: &UserModel, cx: &Context<Self>) -> impl IntoElement {
+        let preferences = self.preferences.read(cx);
+        let card = models::user_card(
+            model,
+            preferences.added_state(&model.id),
+            preferences.host(),
+            preferences.added_chat(&model.id),
+            preferences.checking_path(&model.entry.path),
+        );
+        let chosen = preferences.rewrite_model() == Some(model.id.as_str());
+        let on_duty = matches!(
+            preferences.duty(Role::Rewrite).performer(),
+            Some(Performer::Machine(local)) if local.id == model.id
+        );
+        let reading = on_duty
+            .then(|| engine_host::hosted(cx).and_then(|host| host.read(cx).load_progress()))
+            .flatten()
+            .and_then(|progress| load_shown(None, Some(progress)));
+        let theme = cx.theme();
+        let muted = theme.muted_foreground;
+        let id = model.id.clone();
+
+        let selector = format!("added-{}", model.id);
+        v_flex()
+            .id(SharedString::from(selector.clone()))
+            .debug_selector(move || selector.clone())
+            .gap_1()
+            .p_3()
+            .rounded(theme.radius)
+            .border_1()
+            .border_color(theme.border)
+            .child(
+                h_flex()
+                    .gap_4()
+                    .items_center()
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .gap_1()
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .font_medium()
+                                            .child(SharedString::from(card.display.clone())),
+                                    )
+                                    .when(chosen, |row| {
+                                        row.child(Icon::new(IconName::CircleCheck).small())
+                                    })
+                                    .child(tag(Message::SettingsModelsAddedByYou, cx)),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(SharedString::from(card.path.clone())),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(SharedString::from(card.summary.clone())),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .flex_none()
+                            .gap_1()
+                            .children(card.actions().into_iter().map(|action| {
+                                let id = id.clone();
+                                Button::new(SharedString::from(format!(
+                                    "added-{}-{action:?}",
+                                    model.id
+                                )))
+                                .small()
+                                .outline()
+                                .label(SharedString::from(t(action.label())))
+                                .on_click(cx.listener(
+                                    move |view, _, window, cx| {
+                                        view.act_on_added(&id, action, window, cx);
+                                    },
+                                ))
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(match &reading {
+                        Some((_, line)) => line.clone(),
+                        None => card.line(),
+                    })),
+            )
+            .children(
+                reading
+                    .is_none()
+                    .then(|| card.bar())
+                    .flatten()
+                    .map(|value| {
+                        gpui_component::progress::Progress::new(SharedString::from(format!(
+                            "check-{}",
+                            model.id
+                        )))
+                        .small()
+                        .value(value)
+                    }),
+            )
+            .children(reading.map(|(value, _)| {
+                gpui_component::progress::Progress::new(SharedString::from(format!(
+                    "load-{}",
+                    model.id
+                )))
+                .small()
+                .value(value)
+            }))
+    }
+
+    /// A card for each model being added and not written yet: its name, its
+    /// file, and how far the read that records its checksum has got (U1).
+    fn adding_cards(&self, cx: &Context<Self>) -> Vec<AnyElement> {
+        let preferences = self.preferences.read(cx);
+        let theme = cx.theme();
+        let muted = theme.muted_foreground;
+        preferences
+            .adding()
+            .into_iter()
+            .chain(preferences.adds_waiting())
+            .enumerate()
+            .map(|(index, addition)| {
+                let (done, total) = preferences
+                    .checking_path(&addition.facts.path)
+                    .unwrap_or((0, addition.facts.size_bytes));
+                v_flex()
+                    .gap_1()
+                    .p_3()
+                    .rounded(theme.radius)
+                    .border_1()
+                    .border_color(theme.border)
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_medium()
+                                    .child(SharedString::from(addition.name.clone())),
+                            )
+                            .child(tag(Message::SettingsModelsAddedByYou, cx)),
+                    )
+                    .child(div().text_xs().text_color(muted).child(SharedString::from(
+                        addition.facts.path.display().to_string(),
+                    )))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(t_args(
+                                Message::SettingsModelsUserAdding,
+                                &args!(
+                                    "done" => models::bytes_label(done),
+                                    "total" => models::bytes_label(total),
+                                ),
+                            ))),
+                    )
+                    .child(
+                        gpui_component::progress::Progress::new(SharedString::from(format!(
+                            "adding-{index}"
+                        )))
+                        .small()
+                        .value(if total == 0 {
+                            0.0
+                        } else {
+                            (done as f64 / total as f64 * 100.0).clamp(0.0, 100.0) as f32
+                        }),
+                    )
+                    .into_any_element()
+            })
+            .collect()
+    }
+
+    /// Add a model file… — and what it means, in one line under it.
+    fn add_file_row(cx: &Context<Self>) -> impl IntoElement {
+        let muted = cx.theme().muted_foreground;
+        h_flex()
+            .gap_3()
+            .items_center()
+            .child(
+                Button::new("models-add-file")
+                    .small()
+                    .outline()
+                    .icon(IconName::FolderOpen)
+                    .label(SharedString::from(t(Message::SettingsModelsAddFile)))
+                    .on_click(cx.listener(|_, _, window, cx| Self::add_a_model_file(window, cx))),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(0.0))
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(t(
+                        Message::SettingsModelsAddFileDescription,
+                    ))),
+            )
     }
 
     /// Everything the look through the folder turned up that the
@@ -5692,25 +6549,63 @@ impl SettingsView {
                         .border_color(border)
                         .children(others.iter().enumerate().map(|(index, found)| {
                             let (at, size) = models::found_row(found, root);
-                            h_flex()
-                                .gap_4()
-                                .items_center()
+                            // E8-1: Add as a model… for a chat model, and
+                            // for anything else why not, in one line (U3).
+                            let offer = preferences.offer_for(&found.path);
+                            let facts = match offer {
+                                Some(models::Offering::Add(facts)) => Some(facts.clone()),
+                                _ => None,
+                            };
+                            let why = offer.and_then(models::Offering::line);
+                            v_flex()
                                 .px_3()
                                 .py_2()
+                                .gap_1()
                                 .when(index > 0, |row| row.border_t_1().border_color(border))
                                 .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w(px(0.0))
-                                        .text_sm()
-                                        .child(SharedString::from(at)),
+                                    h_flex()
+                                        .gap_4()
+                                        .items_center()
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_w(px(0.0))
+                                                .text_sm()
+                                                .child(SharedString::from(at)),
+                                        )
+                                        .child(div().flex_none().text_xs().text_color(muted).child(
+                                            SharedString::from(format!(
+                                                "{size} · {}",
+                                                found.format.extension()
+                                            )),
+                                        ))
+                                        .children(facts.map(|facts| {
+                                            Button::new(("models-add-as", index))
+                                                .debug_selector(move || {
+                                                    format!("models-add-as-{index}")
+                                                })
+                                                .xsmall()
+                                                .outline()
+                                                .label(SharedString::from(t(
+                                                    Message::SettingsModelsAddAs,
+                                                )))
+                                                .on_click(cx.listener(
+                                                    move |view, _, window, cx| {
+                                                        view.open_add_dialog(
+                                                            facts.clone(),
+                                                            window,
+                                                            cx,
+                                                        );
+                                                    },
+                                                ))
+                                        })),
                                 )
-                                .child(div().flex_none().text_xs().text_color(muted).child(
-                                    SharedString::from(format!(
-                                        "{size} · {}",
-                                        found.format.extension()
-                                    )),
-                                ))
+                                .children(why.map(|why| {
+                                    div()
+                                        .text_xs()
+                                        .text_color(muted)
+                                        .child(SharedString::from(why))
+                                }))
                         })),
                 ),
         )
@@ -5739,6 +6634,19 @@ impl SettingsView {
             said,
             why,
         );
+        // E8-1: an add that did not land, in the store's or the header
+        // reader's words.
+        let (tone, lines) = match preferences.add_failed() {
+            Some((name, reason)) => {
+                let mut lines = lines;
+                lines.push(t_args(
+                    Message::SettingsModelsUserAddFailed,
+                    &args!("name" => name.clone(), "reason" => reason.clone()),
+                ));
+                (Tone::Warn, lines)
+            }
+            None => (tone, lines),
+        };
         notice(IconName::HardDrive, tone.colour(cx), lines, cx)
     }
 
@@ -7280,6 +8188,16 @@ fn vacancy_line(vacancy: &Vacancy) -> (IconName, Tone, String) {
             Tone::Quiet,
             t(Message::SettingsEngineStateModelNotHere),
         ),
+        // E8-1: a model the person added — its fix is theirs, never a
+        // download.
+        Vacancy::AddedModelNotHere { state, .. } => (
+            IconName::TriangleExclamation,
+            Tone::Warn,
+            t(match state {
+                State::Corrupt { .. } => Message::SettingsEngineStateAddedModelChanged,
+                _ => Message::SettingsEngineStateAddedModelNotHere,
+            }),
+        ),
         Vacancy::ModelGone { id } | Vacancy::ModelDoesNotServe { id } => (
             IconName::TriangleExclamation,
             Tone::Warn,
@@ -8220,6 +9138,7 @@ mod tests {
                 active: None,
                 keys: &keys,
                 catalogue: &catalogue,
+                added: &[],
                 chosen: &chosen,
                 on_disk: &on_disk,
                 host: None,
@@ -8269,6 +9188,7 @@ mod tests {
                 active: None,
                 keys: &keys,
                 catalogue: &catalogue,
+                added: &[],
                 chosen: &chosen,
                 on_disk: &on_disk,
                 host: None,
@@ -8340,6 +9260,7 @@ mod tests {
                 active: None,
                 keys: &keys,
                 catalogue: &catalogue,
+                added: &[],
                 chosen: &chosen,
                 on_disk: &on_disk,
                 host: None,
@@ -9649,6 +10570,451 @@ mod tests {
             );
         });
         assert_eq!(store.hashes(), 1, "the file was hashed more than once");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    // ## E8-1: models the person added
+
+    /// A Preferences entity in a window, over a store that forgets, its
+    /// models folder `root/models`.
+    fn added_bench<'a>(
+        cx: &'a mut gpui::TestAppContext,
+        root: &std::path::Path,
+    ) -> (Entity<Preferences>, &'a mut gpui::VisualTestContext) {
+        let homes = Homes {
+            results: root.join("results"),
+            kept: root.join("kept"),
+        };
+        struct Holder(#[allow(dead_code)] Entity<Preferences>);
+        impl Render for Holder {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        let slot: std::rc::Rc<std::cell::RefCell<Option<Entity<Preferences>>>> =
+            std::rc::Rc::default();
+        let held = slot.clone();
+        let (_, cx) = cx.add_window_view(move |_, cx| {
+            let preferences = cx.new(|cx| Preferences::for_tests(homes, cx));
+            *held.borrow_mut() = Some(preferences.clone());
+            Holder(preferences)
+        });
+        let preferences = slot.take().expect("the window builder ran");
+        let models_dir = root.join("models");
+        let records = root.join("records");
+        preferences.update(cx, |preferences, cx| {
+            preferences.records_dir = records;
+            assert!(preferences.select_models_dir(Some(models_dir), cx));
+        });
+        cx.run_until_parked();
+        (preferences, cx)
+    }
+
+    fn scratch_root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "wipemark-{name}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("models")).expect("mkdir");
+        std::fs::create_dir_all(root.join("theirs")).expect("mkdir");
+        root
+    }
+
+    const CHATML: &str =
+        "{% for m in messages %}<|im_start|>{{ m.role }}\n{{ m.content }}<|im_end|>\n{% endfor %}";
+
+    fn facts_of(path: &std::path::Path) -> crate::models::Facts {
+        let size = std::fs::metadata(path).expect("there").len();
+        match crate::models::Offering::read(path, size) {
+            crate::models::Offering::Add(facts) => facts,
+            other => panic!("{path:?} is not offered: {other:?}"),
+        }
+    }
+
+    /// U1, U2: a model added from a file anywhere is read once, kept as a
+    /// row, listed, chosen and handed out like a catalogue one — at its own
+    /// context — and Forget takes the row and leaves the file, byte for byte,
+    /// with nothing written beside it.
+    #[gpui::test]
+    fn a_model_is_added_chosen_and_forgotten_and_its_file_is_left(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("added-forgotten");
+        let bytes = wipemark_models::gguf::synthetic_chat_model("qwen3", "Qwen3 4B", Some(CHATML));
+        let file = root.join("theirs").join("Qwen3-4B-UD-Q4_K_XL.gguf");
+        std::fs::write(&file, &bytes).expect("write");
+        let (preferences, cx) = added_bench(cx, &root);
+
+        let facts = facts_of(&file);
+        preferences.update(cx, |preferences, cx| {
+            preferences.add_model(
+                Addition {
+                    facts,
+                    name: "Mine".to_owned(),
+                    role: Role::Rewrite,
+                    ctx: 4096,
+                    replacing: None,
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+
+        let id = preferences.read_with(cx, |preferences, _| {
+            assert_eq!(preferences.add_failed(), None);
+            // D406: adding is not choosing.
+            assert_eq!(preferences.rewrite_model(), None, "an add chose the model");
+            let added = preferences.added_models();
+            assert_eq!(added.len(), 1, "{added:?}");
+            assert_eq!(added[0].id, "user-mine");
+            assert_eq!(added[0].entry.ctx, 4096);
+            assert_eq!(
+                preferences.added_state("user-mine"),
+                Some(&UserState::Present)
+            );
+            let rows = config::read_user_models(&preferences.store);
+            assert_eq!(rows.len(), 1, "the row was not written");
+            assert!(preferences
+                .choosable_for(Role::Rewrite)
+                .iter()
+                .any(|choice| choice.id == "user-mine"));
+            added[0].id.clone()
+        });
+
+        preferences.update(cx, |preferences, cx| {
+            preferences.select_rewrite_model(Some(id.clone()), cx);
+            preferences.select_serves(Serves::MachineOnly, cx);
+            match preferences.duty(Role::Rewrite).performer() {
+                Some(Performer::Machine(local)) => {
+                    assert_eq!(local.id, id);
+                    assert_eq!(local.weights, file);
+                    assert_eq!(local.ctx, 4096);
+                }
+                other => panic!("the added model is not on duty: {other:?}"),
+            }
+            preferences.forget_model(&id, cx);
+        });
+        cx.run_until_parked();
+
+        preferences.read_with(cx, |preferences, _| {
+            assert!(preferences.added_models().is_empty());
+            assert!(config::read_user_models(&preferences.store).is_empty());
+            assert_eq!(preferences.rewrite_model(), None);
+        });
+        assert_eq!(
+            std::fs::read(&file).expect("the file is still there"),
+            bytes
+        );
+        let beside: Vec<_> = std::fs::read_dir(root.join("theirs"))
+            .expect("list")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect();
+        assert_eq!(
+            beside,
+            ["Qwen3-4B-UD-Q4_K_XL.gguf"],
+            "something was written beside it"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// U2: a file that changes after it was added reads as changed and is
+    /// not handed out; Re-check finds it again once its bytes are back.
+    #[gpui::test]
+    fn a_file_that_changed_since_it_was_added_is_not_on_duty(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("added-changed");
+        let bytes = wipemark_models::gguf::synthetic_chat_model("qwen3", "Q", Some(CHATML));
+        let file = root.join("theirs").join("q.gguf");
+        std::fs::write(&file, &bytes).expect("write");
+        let (preferences, cx) = added_bench(cx, &root);
+        let facts = facts_of(&file);
+        preferences.update(cx, |preferences, cx| {
+            preferences.add_model(
+                Addition {
+                    facts,
+                    name: "Q".to_owned(),
+                    role: Role::Rewrite,
+                    ctx: 8192,
+                    replacing: None,
+                },
+                cx,
+            );
+            preferences.select_serves(Serves::MachineOnly, cx);
+        });
+        cx.run_until_parked();
+        preferences.update(cx, |preferences, cx| {
+            preferences.select_rewrite_model(Some("user-q".to_owned()), cx);
+        });
+
+        // Other bytes of the same size, a minute later.
+        let rewrite = |content: &[u8]| {
+            let before = std::fs::metadata(&file)
+                .and_then(|m| m.modified())
+                .expect("mtime");
+            std::fs::write(&file, content).expect("rewrite");
+            std::fs::File::options()
+                .write(true)
+                .open(&file)
+                .and_then(|f| f.set_modified(before + Duration::from_secs(60)))
+                .expect("touch");
+        };
+        let mut other = bytes.clone();
+        let last = other.len() - 1;
+        other[last] ^= 0xFF;
+        rewrite(&other);
+        preferences.update(cx, |preferences, cx| preferences.look_at_models(cx));
+        cx.run_until_parked();
+        preferences.read_with(cx, |preferences, _| {
+            assert_eq!(preferences.added_state("user-q"), Some(&UserState::Changed));
+            assert!(matches!(
+                preferences.duty(Role::Rewrite),
+                Duty::Vacant(Vacancy::AddedModelNotHere { .. })
+            ));
+            assert!(preferences.choosable_for(Role::Rewrite).is_empty());
+        });
+
+        rewrite(&bytes);
+        preferences.update(cx, |preferences, cx| {
+            preferences.recheck_model("user-q", cx)
+        });
+        cx.run_until_parked();
+        preferences.read_with(cx, |preferences, _| {
+            assert_eq!(preferences.added_state("user-q"), Some(&UserState::Present));
+            assert!(matches!(
+                preferences.duty(Role::Rewrite).performer(),
+                Some(Performer::Machine(_))
+            ));
+        });
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// U1, U3: every chat model under the folder is offered, a projector and
+    /// a model with no chat template are not — and say why — and a file once
+    /// added is no longer a stranger there.
+    #[gpui::test]
+    fn the_folder_offers_its_chat_models_and_an_added_one_leaves_the_list(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let root = scratch_root("added-folder");
+        let vendor = root.join("models").join("vendor");
+        std::fs::create_dir_all(&vendor).expect("mkdir");
+        let chat = vendor.join("chat.gguf");
+        std::fs::write(
+            &chat,
+            wipemark_models::gguf::synthetic_chat_model("llama", "Chat", Some(CHATML)),
+        )
+        .expect("write");
+        std::fs::write(
+            vendor.join("mmproj-chat-f16.gguf"),
+            wipemark_models::gguf::synthetic_chat_model("clip", "Projector", None),
+        )
+        .expect("write");
+        std::fs::write(
+            vendor.join("asr.gguf"),
+            wipemark_models::gguf::synthetic_chat_model("whisper", "ASR", None),
+        )
+        .expect("write");
+        let (preferences, cx) = added_bench(cx, &root);
+
+        preferences.read_with(cx, |preferences, _| {
+            let others = preferences.folder().others();
+            assert_eq!(others.len(), 3, "{others:?}");
+            assert!(matches!(
+                preferences.offer_for(&chat),
+                Some(crate::models::Offering::Add(_))
+            ));
+            assert_eq!(
+                preferences.offer_for(&vendor.join("mmproj-chat-f16.gguf")),
+                Some(&crate::models::Offering::Not(
+                    wipemark_models::gguf::NotOffered::Projector
+                ))
+            );
+            assert_eq!(
+                preferences.offer_for(&vendor.join("asr.gguf")),
+                Some(&crate::models::Offering::Not(
+                    wipemark_models::gguf::NotOffered::NoChatTemplate
+                ))
+            );
+        });
+
+        let facts = facts_of(&chat);
+        preferences.update(cx, |preferences, cx| {
+            preferences.add_model(
+                Addition {
+                    facts,
+                    name: "Chat".to_owned(),
+                    role: Role::Rewrite,
+                    ctx: 8192,
+                    replacing: None,
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        preferences.read_with(cx, |preferences, _| {
+            let others: Vec<_> = preferences
+                .folder()
+                .others()
+                .iter()
+                .map(|found| found.path.clone())
+                .collect();
+            assert_eq!(others.len(), 2, "{others:?}");
+            assert!(!others.contains(&chat), "an added file is still a stranger");
+        });
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Adding a file already added writes its row again under its id (D405)
+    /// — one row for one file.
+    #[gpui::test]
+    fn a_file_added_twice_is_one_model(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("added-twice");
+        let file = root.join("theirs").join("m.gguf");
+        std::fs::write(
+            &file,
+            wipemark_models::gguf::synthetic_chat_model("llama", "M", Some(CHATML)),
+        )
+        .expect("write");
+        let (preferences, cx) = added_bench(cx, &root);
+        for (name, replacing) in [("First", None), ("Second", Some("user-first".to_owned()))] {
+            let facts = facts_of(&file);
+            preferences.update(cx, |preferences, cx| {
+                preferences.add_model(
+                    Addition {
+                        facts,
+                        name: name.to_owned(),
+                        role: Role::Rewrite,
+                        ctx: 8192,
+                        replacing,
+                    },
+                    cx,
+                );
+            });
+            cx.run_until_parked();
+        }
+        preferences.read_with(cx, |preferences, _| {
+            let added = preferences.added_models();
+            assert_eq!(added.len(), 1, "{added:?}");
+            assert_eq!(added[0].id, "user-first", "the id was derived again");
+            assert_eq!(added[0].entry.name, "Second");
+            assert_eq!(config::read_user_models(&preferences.store).len(), 1);
+        });
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D400: an add never takes an id the table already files a model
+    /// under — one the command line added after the page last looked, or one
+    /// a newer build wrote that this build cannot read (the list the page
+    /// holds has neither). The row is left as it was, and the new model is
+    /// numbered past it. The host verification of E8-1, 2026-10-08.
+    #[gpui::test]
+    fn an_add_never_writes_over_a_row_the_page_does_not_hold(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("added-over");
+        let file = root.join("theirs").join("m.gguf");
+        std::fs::write(
+            &file,
+            wipemark_models::gguf::synthetic_chat_model("llama", "M", Some(CHATML)),
+        )
+        .expect("write");
+        let (preferences, cx) = added_bench(cx, &root);
+        let newer = serde_json::json!({"name": "Mine", "from": "a newer build"});
+        preferences.read_with(cx, |preferences, _| {
+            preferences
+                .store
+                .settings()
+                .set("models.user.user-mine", &newer)
+                .expect("a row the page does not hold");
+        });
+        let facts = facts_of(&file);
+        preferences.update(cx, |preferences, cx| {
+            preferences.add_model(
+                Addition {
+                    facts,
+                    name: "Mine".to_owned(),
+                    role: Role::Rewrite,
+                    ctx: 8192,
+                    replacing: None,
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        preferences.read_with(cx, |preferences, _| {
+            assert_eq!(
+                preferences
+                    .store
+                    .settings()
+                    .get::<serde_json::Value>("models.user.user-mine")
+                    .expect("read"),
+                Some(newer.clone()),
+                "another model's row was written over"
+            );
+            let added = preferences.added_models();
+            assert_eq!(added.len(), 1, "{added:?}");
+            assert_eq!(added[0].id, "user-mine-2");
+        });
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// U2: the Models page paints an added model's card among the
+    /// catalogue's, and "Add as a model…" on a chat model of the folder.
+    #[gpui::test]
+    fn the_models_page_paints_an_added_card_and_the_offer(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("added-page");
+        let file = root.join("theirs").join("m.gguf");
+        std::fs::write(
+            &file,
+            wipemark_models::gguf::synthetic_chat_model("llama", "M", Some(CHATML)),
+        )
+        .expect("write");
+        std::fs::write(
+            root.join("models").join("other.gguf"),
+            wipemark_models::gguf::synthetic_chat_model("llama", "Other", Some(CHATML)),
+        )
+        .expect("write");
+        cx.update(gpui_component::init);
+        cx.update(crate::dialog::init);
+        let (preferences, vcx) = added_bench(cx, &root);
+        let facts = facts_of(&file);
+        preferences.update(vcx, |preferences, cx| {
+            preferences.add_model(
+                Addition {
+                    facts,
+                    name: "M".to_owned(),
+                    role: Role::Rewrite,
+                    ctx: 8192,
+                    replacing: None,
+                },
+                cx,
+            );
+        });
+        vcx.run_until_parked();
+
+        let (view, page) = cx.add_window_view(move |window, cx| {
+            SettingsView::new(preferences, None, Some(Section::Models), window, cx)
+        });
+        page.run_until_parked();
+        let card = page
+            .debug_bounds("added-user-m")
+            .expect("the added model's card");
+        assert!(card.size.height > px(0.0));
+        assert!(
+            page.debug_bounds("models-add-as-0").is_some(),
+            "no Add as a model… on the folder's chat model"
+        );
+        // The dialog over the page, painted, on the file already added: it
+        // starts from the name it was added with.
+        let facts = facts_of(&file);
+        page.update(|window, cx| {
+            view.update(cx, |view, cx| view.open_add_dialog(facts, window, cx));
+        });
+        page.run_until_parked();
+        page.update(|_, cx| match &view.read(cx).overlay {
+            Some(Overlay::AddModel(dialog)) => {
+                assert_eq!(dialog.read(cx).typed_name(cx), "M");
+                assert_eq!(dialog.read(cx).typed_ctx(cx), Some(8192));
+            }
+            _ => panic!("the dialog did not open"),
+        });
         std::fs::remove_dir_all(&root).ok();
     }
 }
