@@ -12,7 +12,7 @@ use common::{end_of, engine, file_request, reference, text_request, wait_for, Sc
 use wipemark_engine::fake::FakeEngine;
 use wipemark_engine::{RewriteEngine, Unavailable};
 use wipemark_queue::{
-    Destination, Durability, End, EngineSource, Failure, Queue, QueueEvent, Undelivered,
+    Destination, Durability, End, EngineSource, Failure, Queue, QueueEvent, Undelivered, Whereto,
 };
 use wipemark_store::Store;
 
@@ -199,4 +199,163 @@ fn a_new_file_never_replaces_one_already_there() {
         reference(&common::document())
     );
     assert!(!scratch.path("note.cleaned.md").exists());
+}
+
+/// D359: whether the queue is paused is answered from memory — a window
+/// asks on every frame, and a query there is a query a frame. The row
+/// changed behind the queue's back is not what it says; a restart reads
+/// the row.
+#[test]
+fn paused_is_answered_from_memory_never_from_the_row() {
+    let store = Arc::new(Store::in_memory().expect("memory"));
+    let queue = Queue::on(
+        Arc::clone(&store),
+        Durability::Memory { detail: None },
+        Arc::new(engine(None)),
+    )
+    .expect("opens");
+    let events = queue.events();
+    assert!(!queue.paused());
+    queue.pause();
+    wait_for(&events, |event| matches!(event, QueueEvent::Paused));
+    assert!(queue.paused());
+    store.queue().set_paused(false).expect("written");
+    assert!(queue.paused(), "the row was read, not the queue's own word");
+    queue.resume();
+    wait_for(&events, |event| matches!(event, QueueEvent::Resumed));
+    assert!(!queue.paused());
+}
+
+/// A source that says where an engine would send a document now, which a
+/// test moves (D361).
+struct Going {
+    engine: Arc<dyn RewriteEngine>,
+    now: Mutex<Option<Whereto>>,
+}
+
+impl Going {
+    fn new(now: Whereto) -> Arc<Going> {
+        Arc::new(Going {
+            engine: Arc::new(engine(None)),
+            now: Mutex::new(Some(now)),
+        })
+    }
+
+    fn go(&self, now: Whereto) {
+        *self.now.lock().expect("lock") = Some(now);
+    }
+}
+
+impl EngineSource for Going {
+    fn for_item(&self) -> Result<Arc<dyn RewriteEngine>, Unavailable> {
+        Ok(Arc::clone(&self.engine))
+    }
+
+    fn whereto(&self) -> Option<Whereto> {
+        self.now.lock().expect("lock").clone()
+    }
+}
+
+fn queue_going(source: &Arc<Going>) -> Queue {
+    Queue::with_source(
+        Arc::new(Store::in_memory().expect("memory")),
+        Durability::Memory { detail: None },
+        Arc::clone(source) as Arc<dyn EngineSource>,
+    )
+    .expect("opens")
+}
+
+/// No `Started` for `wait`.
+fn nothing_starts(events: &flume::Receiver<QueueEvent>, wait: Duration) {
+    let deadline = std::time::Instant::now() + wait;
+    while let Ok(event) = events.recv_deadline(deadline) {
+        assert!(
+            !matches!(event, QueueEvent::Started { .. }),
+            "started while it should not: {event:?}"
+        );
+    }
+}
+
+/// D361 (L4): an item pushed while rewriting stayed here is not sent to an
+/// endpoint the duty moved to while it waited. The queue holds and asks
+/// once; nothing starts on no answer; yes to that endpoint runs it — and
+/// the item behind it, consented alike, without a second question.
+#[test]
+fn a_consent_to_stay_here_holds_the_queue_until_the_person_says_yes() {
+    let source = Going::new(Whereto::Here);
+    let queue = queue_going(&source);
+    let events = queue.events();
+    queue.pause();
+    wait_for(&events, |event| matches!(event, QueueEvent::Paused));
+    let text = format!("{}\n", common::PARAGRAPHS[0]);
+    let push = |text: &str| {
+        let request = text_request(text);
+        let id = queue.reserve(&request).expect("reserved");
+        queue
+            .push_reserved(id, request, Some(Whereto::Here))
+            .expect("pushed")
+    };
+    let first = push(&text);
+    let second = push(&text);
+    let away = Whereto::Away("https://api.example.com".to_owned());
+    source.go(away.clone());
+    queue.resume();
+
+    let seen = wait_for(&events, |event| matches!(event, QueueEvent::Ask { .. }));
+    assert!(
+        seen.iter().any(|event| matches!(
+            event,
+            QueueEvent::Ask { item, now, was: Whereto::Here, count: 2 }
+                if *item == first && *now == away
+        )),
+        "{seen:?}"
+    );
+    assert!(queue.asking().is_some());
+    nothing_starts(&events, Duration::from_millis(400));
+
+    // An answer about somewhere else is not this question's answer.
+    queue.agree(Whereto::Away("https://other.example.com".to_owned()));
+    nothing_starts(&events, Duration::from_millis(300));
+
+    queue.agree(away);
+    done_text(end_of(&events, first));
+    done_text(end_of(&events, second));
+    assert!(queue.asking().is_none());
+}
+
+/// D361: an item its caller asked for (no consent recorded — an agent's,
+/// the command line's) and one consented to the endpoint on duty both run
+/// without a question; so does one consented away while the duty came
+/// back to this machine.
+#[test]
+fn a_callers_item_and_one_consented_there_are_never_asked_about() {
+    let away = Whereto::Away("https://api.example.com".to_owned());
+    let source = Going::new(away.clone());
+    let queue = queue_going(&source);
+    let events = queue.events();
+    let text = format!("{}\n", common::PARAGRAPHS[0]);
+    let callers = queue.push(text_request(&text)).expect("pushed");
+    done_text(end_of(&events, callers));
+    let request = text_request(&text);
+    let id = queue.reserve(&request).expect("reserved");
+    let there = queue
+        .push_reserved(id, request, Some(away.clone()))
+        .expect("pushed");
+    done_text(end_of(&events, there));
+    source.go(Whereto::Here);
+    let request = text_request(&text);
+    let id = queue.reserve(&request).expect("reserved");
+    let back = queue
+        .push_reserved(id, request, Some(away))
+        .expect("pushed");
+    let seen = wait_for(
+        &events,
+        |event| matches!(event, QueueEvent::Ended { item, .. } if *item == back),
+    );
+    assert!(
+        !seen
+            .iter()
+            .any(|event| matches!(event, QueueEvent::Ask { .. })),
+        "{seen:?}"
+    );
 }

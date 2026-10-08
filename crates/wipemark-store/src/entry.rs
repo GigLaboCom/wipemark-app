@@ -148,6 +148,13 @@ pub struct Entry {
     /// one, D266).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// A path a caller **named** — an MCP client's `_meta["wipemark/path"]`
+    /// — and nothing more: shown beside the row, never opened, never read
+    /// to clean or rewrite the row again (D356). Whoever can reach the
+    /// server can put any string here; only a path this machine's own
+    /// surfaces recorded is a file behind a row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub said_path: Option<String>,
     /// What it is, by intake's word: `text`, `image`, … A format.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
@@ -257,6 +264,7 @@ mod tests {
         let entry = Entry {
             name: Some("article.md".to_owned()),
             path: Some("/notes/article.md".to_owned()),
+            said_path: None,
             kind: Some("text".to_owned()),
             format: Some("Markdown".to_owned()),
             encoding: Some("UTF-8".to_owned()),

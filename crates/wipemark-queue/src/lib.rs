@@ -69,7 +69,7 @@ mod source;
 mod worker;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 
@@ -77,7 +77,7 @@ pub use deliver::{Undelivered, Written};
 pub use item::{Destination, ItemId, Refused, Request, Source, State, Unusable, ITEM_VERSION};
 pub use read::Unread;
 use serde_json::Value;
-pub use source::{EngineSource, Fixed};
+pub use source::{EngineSource, Fixed, Whereto};
 use wipemark_engine::{RewriteEngine, Unavailable};
 pub use wipemark_intake::inplace::Keep;
 use wipemark_pipeline::{Event, JobReport, PipelineError};
@@ -144,6 +144,19 @@ pub enum QueueEvent {
     },
     /// The hold is lifted; the next item is asked for again.
     Unheld,
+    /// The queue is holding to ask (D361): item `item` was consented to go
+    /// `was` when it was pushed, and the engine on duty now would send it
+    /// `now`, away. Nothing starts until [`Queue::agree`] says yes to `now`;
+    /// `count` items wait on the same answer. Said once per question.
+    Ask {
+        item: ItemId,
+        now: Whereto,
+        was: Whereto,
+        count: usize,
+    },
+    /// The question is gone — answered, or no longer asked because the
+    /// engine on duty changed, the person resumed, or its item went.
+    Unasked,
     /// A write to the database failed. The queue goes on; what it could
     /// not write will not survive a restart. `what` names the statement.
     Unsaved {
@@ -222,6 +235,21 @@ pub struct ItemView {
     /// The stored result without its text — the report, what was written,
     /// the failure — once the item ended. A format, for a surface to word.
     pub result: Option<Value>,
+    /// Where whoever pushed it agreed the document may go (D361); `None`
+    /// for an item its caller asked for, which is never asked about again.
+    pub consent: Option<Whereto>,
+}
+
+/// What the queue is asking, while it holds to ask (D361).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Asking {
+    pub item: ItemId,
+    /// Where the engine on duty would send the document now.
+    pub now: Whereto,
+    /// Where it was agreed to go when it was pushed.
+    pub was: Whereto,
+    /// How many waiting items the answer is for.
+    pub count: usize,
 }
 
 /// The source as a list shows it: a path, or how much text.
@@ -243,6 +271,12 @@ pub struct Queue {
     subscribers: worker::Subscribers,
     /// What the queue is holding for, while it holds.
     held: Arc<Mutex<Option<Unavailable>>>,
+    /// What the queue asks, while it holds to ask (D361).
+    asking: Arc<Mutex<Option<Asking>>>,
+    /// Whether the person paused it — kept here as the thread changes it,
+    /// so asking is a load and never a query (D359): a window asks on
+    /// every frame.
+    paused: Arc<AtomicBool>,
     items: Arc<Mutex<Vec<ItemView>>>,
     next: Arc<AtomicI64>,
     store: Arc<Store>,
@@ -337,6 +371,8 @@ impl Queue {
         let items = Arc::new(Mutex::new(Vec::new()));
         let subscribers = worker::Subscribers::default();
         let held = Arc::new(Mutex::new(None));
+        let asking = Arc::new(Mutex::new(None));
+        let paused = Arc::new(AtomicBool::new(false));
         let loaded = worker::Worker::load(
             Arc::clone(&store),
             source,
@@ -345,7 +381,11 @@ impl Queue {
                 others: subscribers.clone(),
             },
             Arc::clone(&items),
-            Arc::clone(&held),
+            worker::Shared {
+                held: Arc::clone(&held),
+                asking: Arc::clone(&asking),
+                paused: Arc::clone(&paused),
+            },
         )?;
         let next = Arc::new(AtomicI64::new(loaded.last_id() + 1));
         let thread = std::thread::Builder::new()
@@ -360,6 +400,8 @@ impl Queue {
             events,
             subscribers,
             held,
+            asking,
+            paused,
             items,
             next,
             store,
@@ -400,6 +442,23 @@ impl Queue {
         let _ = self.commands.send(worker::Command::Retry);
     }
 
+    /// What the queue asks before it goes on, while it holds to ask
+    /// (D361), or `None`.
+    pub fn asking(&self) -> Option<Asking> {
+        self.asking
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Yes to the question [`QueueEvent::Ask`] put: the waiting items may go
+    /// `now`, and the queue goes on. An answer to a question no longer asked
+    /// — the engine on duty moved again — is not taken: the next item is
+    /// asked about afresh.
+    pub fn agree(&self, now: Whereto) {
+        let _ = self.commands.send(worker::Command::Agree(now));
+    }
+
     /// Every item, oldest first, as the queue's thread last saw it.
     pub fn items(&self) -> Vec<ItemView> {
         self.items
@@ -408,17 +467,47 @@ impl Queue {
             .clone()
     }
 
+    /// Every item's id and state, oldest first — [`Queue::items`] without
+    /// the stored results, for a surface that counts on every frame (D359).
+    pub fn states(&self) -> Vec<(ItemId, State)> {
+        self.items
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|view| (view.id, view.state))
+            .collect()
+    }
+
     /// Add a document at the end. Returns at once with its id; the row is
     /// written on the queue's thread, and [`QueueEvent::Added`] follows.
     pub fn push(&self, request: Request) -> Result<ItemId, Refused> {
+        let id = self.reserve(&request)?;
+        self.push_reserved(id, request, None)
+    }
+
+    /// Check `request` and take the id it will be pushed under, pushing
+    /// nothing yet — so a surface can write its own row naming the item
+    /// **before** the item can start, and never after its end (D358).
+    pub fn reserve(&self, request: &Request) -> Result<ItemId, Refused> {
+        item::check(request)?;
+        Ok(ItemId(self.next.fetch_add(1, Ordering::SeqCst)))
+    }
+
+    /// Push `request` under an id [`Queue::reserve`] gave, with where whoever
+    /// pushed it agreed the document may go — `None` for a caller who asked
+    /// for this item and is never asked about it again (D361).
+    pub fn push_reserved(
+        &self,
+        id: ItemId,
+        request: Request,
+        consent: Option<Whereto>,
+    ) -> Result<ItemId, Refused> {
         item::check(&request)?;
-        let id = ItemId(self.next.fetch_add(1, Ordering::SeqCst));
-        worker::show(
-            &self.items,
-            worker::view_of(id, State::Queued, Some(&request)),
-        );
+        let mut view = worker::view_of(id, State::Queued, Some(&request));
+        view.consent = consent.clone();
+        worker::show(&self.items, view);
         self.commands
-            .send(worker::Command::Push(id, Box::new(request)))
+            .send(worker::Command::Push(id, Box::new(request), consent))
             .map_err(|_| Refused::Stopped)?;
         Ok(id)
     }
@@ -435,9 +524,10 @@ impl Queue {
         let _ = self.commands.send(worker::Command::Resume);
     }
 
-    /// Whether the person paused the queue, as its thread last saw it.
+    /// Whether the person paused the queue, as its thread last saw it — a
+    /// load, never a query (D359).
     pub fn paused(&self) -> bool {
-        self.store.queue().paused().unwrap_or(false)
+        self.paused.load(Ordering::SeqCst)
     }
 
     /// End an item as cancelled: a running job is stopped, a waiting one
