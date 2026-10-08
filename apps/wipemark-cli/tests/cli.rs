@@ -1960,8 +1960,15 @@ fn models_rm_leaves_another_tools_file_at_the_entrys_place() {
         format!("{LARGE}/{LARGE_FILE}.part"),
         "{answer}"
     );
+    let said = stdout(&scratch.run(&["models", "list"]));
+    assert!(said.contains("a partial file"), "{said}");
     let output = scratch.run(&["models", "rm", LARGE]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));
+    // D375: said as a partial file with no record, never as a file
+    // Wipemark "did not download".
+    let said = stdout(&output);
+    assert!(said.contains("partial file"), "{said}");
+    assert!(said.contains("no record"), "{said}");
     assert_eq!(
         std::fs::read(&in_flight).expect("still there"),
         b"theirs, in flight"

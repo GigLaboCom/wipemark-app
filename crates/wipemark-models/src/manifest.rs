@@ -524,6 +524,23 @@ mod tests {
         }
     }
 
+    /// D375: no catalogue file is named like a download's working name —
+    /// a path in the way is said as a partial file by its `.part` alone.
+    #[test]
+    fn no_shipped_file_is_named_like_a_partial_download() {
+        let manifest = Manifest::embedded().expect("embedded manifest");
+        for model in &manifest.models {
+            for file in &model.files {
+                let name = file.filename().expect("a file name");
+                assert!(
+                    !crate::store::partial(std::path::Path::new(name)),
+                    "{} ships {name}, which reads as a partial download",
+                    model.id
+                );
+            }
+        }
+    }
+
     /// Every entry is reachable through the role it claims to serve.
     #[test]
     fn the_catalogue_offers_a_rewriter() {
