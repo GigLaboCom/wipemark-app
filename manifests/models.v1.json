@@ -24,6 +24,28 @@
       "notes": "Quantization-aware training, not a post-hoc quantization: the damage is trained around rather than measured after. Estimated memory is 7089 MiB of weights, about 832 MiB of KV cache at 8192 tokens (Gemma 3 interleaves five 1024-token local layers per global one, so long contexts cost far less than the layer count suggests), and roughly 1.3 GiB of compute buffer and runtime overhead. Weights are the ungated unsloth mirror because google/gemma-3-12b-it-qat-q4_0-gguf is gated 'manual' on Hugging Face and a downloader with no account cannot fetch it. Gemma is Google's open-weight family, run locally under the user's control."
     },
     {
+      "id": "gemma-4-12b-it-qat-ud-q4",
+      "display": "Gemma 4 12B Instruct (QAT, UD-Q4_K_XL)",
+      "roles": ["rewrite"],
+      "format": "gguf",
+      "status": "stable",
+      "files": [
+        {
+          "url": "hf://unsloth/gemma-4-12B-it-qat-GGUF@f18012b8f690e563b7f872cb764b4cb3de90b14a/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "sha256": "cc9ff072e0a8203429ed854e6662c17a6c2bc1e5dca5b475dd4736caaacbc165",
+          "size_bytes": 6716355328
+        }
+      ],
+      "mem": { "min_ram_mb": 8704, "min_vram_mb": 8704 },
+      "ctx_default": 8192,
+      "quant": "UD-Q4_K_XL",
+      "quality_tier": 9,
+      "license": "gemma",
+      "langs": ["multi"],
+      "vendor": "open-llm",
+      "notes": "Pinned to commit f18012b8, the last whose file is the one the local engine was measured on (E2-4: all 48 layers offloaded, 57 tokens a second); the repository's later re-upload carries an updated chat template that has not been checked against the renderer. Gemma 4's chat format is rendered by wipemark_llama::chat with thinking off (D181), because llama.cpp's built-in list does not know it. Memory: 6405 MiB of weights, about 832 MiB of context cache at 8192 tokens (Gemma 4 keeps Gemma 3's sliding 1024-token layers, so the cache is taken as Gemma 3 12B's) and about 1.3 GiB of compute buffer and overhead, rounded up to 8704 MiB. The header-based estimate over-states this model's cache several times over (its sliding layers are counted as full), which is why the figure is set here rather than computed; the resident memory measured after a load (D55) is the number to check it against."
+    },
+    {
       "id": "qwen3-4b-instruct-2507-ud-q4",
       "display": "Qwen3 4B Instruct 2507 (UD-Q4_K_XL)",
       "roles": ["rewrite"],
@@ -44,6 +66,28 @@
       "langs": ["multi"],
       "vendor": "open-llm",
       "notes": "4.0B parameters, 3.6B of them outside the embeddings. The 2507 Instruct build and not the hybrid Qwen3-4B on purpose: the hybrid reasons before it answers, and the measurement recorded in docs/sdd/layer-b-rewrite-reference.md is 9894 completion tokens against 12 for the same rewrite. A rewriter that thinks out loud is paying for tokens nobody reads. Estimated memory is 2429 MiB of weights, 1152 MiB of KV cache at 8192 tokens, and about 1 GiB of compute buffer and overhead."
+    },
+    {
+      "id": "qwen3.8-27b-ud-iq3s",
+      "display": "Qwen3.8 27B (UD-IQ3_S)",
+      "roles": ["rewrite"],
+      "format": "gguf",
+      "status": "stable",
+      "files": [
+        {
+          "url": "hf://unsloth/Qwen3.8-27B-GGUF@4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ3_S.gguf",
+          "sha256": "d847e2c1e4aa276e4b7b8e9ad7628050e61e165d49ab995407bc36677a6f3864",
+          "size_bytes": 12040883104
+        }
+      ],
+      "mem": { "min_ram_mb": 14336, "min_vram_mb": 14336 },
+      "ctx_default": 8192,
+      "quant": "UD-IQ3_S",
+      "quality_tier": 10,
+      "license": "apache-2.0",
+      "langs": ["multi"],
+      "vendor": "open-llm",
+      "notes": "27B parameters at unsloth's dynamic IQ3_S, about 3.6 bits a weight. A hybrid model whose chat template has a thinking switch: wipemark_llama::chat renders it with thinking off (D182), because llama.cpp's built-in ChatML opener is the template's thinking-on. Memory: 11 483 MiB of weights, and the rest of 14 GiB for the context cache at 8192 tokens, the compute buffer and the process around them. Measured in E2-4 on a 16 GB card: 62 of its 65 layers fitted beside another process, at 10.9 tokens a second; the application asks llama.cpp for every layer on the GPU, so a card that cannot hold the whole model refuses the load (LoadFailed) rather than splitting it."
     }
   ]
 }
