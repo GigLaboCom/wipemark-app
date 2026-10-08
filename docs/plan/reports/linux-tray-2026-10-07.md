@@ -156,7 +156,17 @@ is not triggered by these paths.
 
 ## CI
 
-CI_PLACEHOLDER
+GitHub Actions on `e10/linux-tray`: `gate` at `8ae6208` (run 37672139388)
+**succeeded** in all three jobs — gate (fmt, clippy, test, deps,
+features), native (llama.cpp prebuilt + Vulkan, model-free) and macos
+(clippy, tests, llama-native prebuilt with Metal). The run before it, at
+`bf13443` (run 37668825134), failed only in the macos job's clippy step —
+`Tray::leave`'s `self` unused under `cfg(target_os = "macos")`, a lint no
+Linux gate sees — which `8ae6208` fixed; its gate and native jobs passed.
+`llama-source`, dispatched by hand on `bf13443` (run 37670450423), was
+**cancelled**: its windows job passed, its linux job was cancelled before
+it finished; it was not run again, since nothing under the llama crates
+changed on this branch.
 
 ## For the owner: the checklist in the running window
 
