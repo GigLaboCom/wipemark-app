@@ -49,8 +49,9 @@ struct Built {
     request: Result<Request, Unqueued>,
     price: Option<Price>,
     /// Where the person agreed the document may go, as the duty stood when
-    /// it was asked for (D361).
-    consent: Option<Whereto>,
+    /// it was asked for (D361). Never absent on a window's push: a push
+    /// with nothing on duty is not built at all (D393).
+    consent: Whereto,
 }
 
 /// Why a row's rewrite was not put in the line.
@@ -355,13 +356,13 @@ impl Queue {
                     });
                 }
             }
+            BatchEvent::Unasked => cx.emit(QueueEvent::Unasked),
             BatchEvent::Added { .. }
             | BatchEvent::Removed { .. }
             | BatchEvent::Paused
             | BatchEvent::Resumed
             | BatchEvent::Held { .. }
             | BatchEvent::Unheld
-            | BatchEvent::Unasked
             | BatchEvent::Unsaved { .. } => {}
         }
         if self.open_rewrites() == 0 {
@@ -449,6 +450,30 @@ impl Queue {
         }
     }
 
+    /// "Replace the existing result" of a rewrite refused over a file
+    /// already there: a Rewrite of row `id` over that one file, by the
+    /// Rewrite's own road — greyed when a Rewrite would be, and asked
+    /// about first when the document would leave this machine (D393).
+    pub(super) fn replace_rewrite(&mut self, id: u64, existing: PathBuf, cx: &mut Context<Self>) {
+        if self.why_not_rewrite(id, cx).is_some() {
+            return;
+        }
+        match self.away(cx) {
+            Some(host) => cx.emit(QueueEvent::SendAway {
+                ids: vec![id],
+                host,
+                replacing: Some(existing),
+            }),
+            None => self.push_rewrites(&[id], Some(existing), cx),
+        }
+    }
+
+    /// Yes to a Replace that would send the document away: push it over
+    /// `existing` with the consent of the duty as it stands now.
+    pub fn replace_agreed(&mut self, id: u64, existing: PathBuf, cx: &mut Context<Self>) {
+        self.push_rewrites(&[id], Some(existing), cx);
+    }
+
     /// Why row `id`'s Rewrite is greyed, or `None`.
     pub(super) fn why_not_rewrite(&self, id: u64, cx: &gpui::App) -> Option<String> {
         let row = self.rows.iter().find(|row| row.id == id)?;
@@ -504,6 +529,7 @@ impl Queue {
                     Some(host) => cx.emit(QueueEvent::SendAway {
                         ids: rewritable,
                         host,
+                        replacing: None,
                     }),
                     None => self.rewrite(&rewritable, cx),
                 }
@@ -549,6 +575,14 @@ impl Queue {
     /// Push rows `ids` to the batch queue, each with the Retention plan
     /// taken **now** (D91) — or, for "Replace the existing result", over
     /// that one named file.
+    ///
+    /// Every road here is the person's in a window — a row's Rewrite,
+    /// Rewrite all, a drop, Replace — and every one carries where they
+    /// agreed the document may go. With nothing on duty there is no such
+    /// place: nothing is pushed, and the rows stay as they were (D393). A
+    /// replace takes the same road as a Rewrite — the same vacancy check,
+    /// the same question before a document leaves — and differs only in
+    /// where its result goes.
     pub(super) fn push_rewrites(
         &mut self,
         ids: &[u64],
@@ -561,18 +595,22 @@ impl Queue {
         let vacant = self.vacancy(cx);
         // The consent is the duty as it stands while the person asks — a
         // Rewrite, a Rewrite all whose price said "here" or "sent away", a
-        // drop asked about once (D361).
-        let consent = self.whereto(cx);
+        // drop or a Replace asked about once (D361) — or, where the duty
+        // names nobody, the word of the engine on duty itself, the one the
+        // queue checks against (D370). Neither: nowhere was agreed to, and
+        // nothing is pushed (D393).
+        let Some(consent) = self.whereto(cx).or_else(|| work.engine.sends_to()) else {
+            return;
+        };
         let mut asked = Vec::new();
         for &id in ids {
             let plan_of = |arrival: &Arrival| self.preferences.read(cx).plan_for(&arrival.intake);
             let Some(row) = self.rows.iter().find(|row| row.id == id) else {
                 continue;
             };
-            // "Replace" asks again of a row whose rewrite ended refused.
-            let allowed = replacing.is_some()
-                || super::why_not_rewrite(&row.status, row.cleanable(), vacant.clone()).is_none();
-            if !allowed {
+            // "Replace" asks again of a row whose rewrite ended refused, and
+            // is held to every rule a Rewrite is (D393).
+            if super::why_not_rewrite(&row.status, row.cleanable(), vacant.clone()).is_some() {
                 continue;
             }
             let Some(arrival) = row.arrival.clone() else {
@@ -638,7 +676,7 @@ impl Queue {
                     row.price = price;
                     let queue = std::sync::Arc::clone(&work.queue);
                     let push = move || {
-                        if let Err(refused) = queue.push_reserved(item, request, consent) {
+                        if let Err(refused) = queue.push_reserved(item, request, Some(consent)) {
                             tracing::warn!(%refused, item = item.0, "a rewrite could not be queued");
                         }
                     };
@@ -965,7 +1003,7 @@ pub(super) fn asked(format: TextFormat) -> Asked {
 
 /// The rows' rewrites, built: the template rows read, a text with no file
 /// read and decoded, each one priced. Blocking.
-fn build(work: &Work, asked_for: Vec<(u64, Arrival, Destination, Option<Whereto>)>) -> Vec<Built> {
+fn build(work: &Work, asked_for: Vec<(u64, Arrival, Destination, Whereto)>) -> Vec<Built> {
     let (overrides, pivot) = crate::mcp::rewrite::saved_rows(work.journal.store());
     let pace = work.engine.pace();
     let executor = pace.executor.unwrap_or(Executor::LocalCpu);

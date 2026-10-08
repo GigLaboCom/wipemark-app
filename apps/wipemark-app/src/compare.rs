@@ -104,8 +104,12 @@
 //! moved by a follow. Without that, the original would scroll only as
 //! far as its caret and then lead the result back to it, taking the
 //! result's caret out of sight. When both panes moved in one frame, the
-//! result is looked at first. A comparison recomputed after an edit
-//! changes the map for the next scroll and moves neither pane.
+//! result is looked at first and the original's own move is only noted
+//! (D392). A comparison recomputed after an edit changes the map for the
+//! next scroll and moves neither pane: its empty edit in the original
+//! puts the original's offset back as it stood (D390). An ask that moved
+//! nothing is dropped after its frame, so it cannot swallow a later move
+//! (D391).
 //!
 //! # What it refuses
 //!
@@ -749,6 +753,9 @@ struct Track {
 struct Asked {
     from: f32,
     to: f32,
+    /// Whether a frame has been painted since the ask was made — an
+    /// ask that has had its frame and moved nothing is dropped (D391).
+    painted: bool,
 }
 
 impl Asked {
@@ -948,7 +955,7 @@ impl CompareView {
         // which the original's cursor follows — in that order, so the
         // follow has the last word on the original (D383).
         let led_by_result = cx.observe_in(&result_state, window, |view, state, window, cx| {
-            view.scrolled(Side::Result, false, cx);
+            view.look(false, cx);
             let row = state.read(cx).cursor_position().line;
             if row != view.followed {
                 view.followed = row;
@@ -956,7 +963,7 @@ impl CompareView {
             }
         });
         let led_by_original = cx.observe_in(&original, window, |view, _, _, cx| {
-            view.scrolled(Side::Original, false, cx);
+            view.look(false, cx);
         });
 
         let mut view = Self {
@@ -1151,9 +1158,19 @@ impl CompareView {
     /// and nothing listens to its changes, and what it costs is a
     /// selection in the original, which collapses to its end. See the
     /// module docs, and `the_original_is_asked_again_when_the_marks_move`.
+    ///
+    /// The collapsed selection is a caret the editor would bring into
+    /// view at the next frame — a scroll nobody asked for, which would
+    /// pull the original away and, with the sides scrolling together,
+    /// the result after it, out from under the person typing there. So
+    /// the original's offset is put back as it stood, which replaces
+    /// that scroll before it is drawn: a recompute moves neither pane
+    /// (D390).
     fn repaint_original(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.original.update(cx, |original, cx| {
+            let stood = original.scroll_offset();
             original.insert("", window, cx);
+            original.set_scroll_offset(stood, cx);
         });
     }
 
@@ -1240,26 +1257,26 @@ impl CompareView {
     /// that layout, so a wrapping pane is read only there. For a pane
     /// that does not wrap, the end of a frame is a second look that
     /// finds nothing new.
-    fn scrolled(&mut self, side: Side, settled: bool, cx: &mut Context<Self>) {
+    fn scrolled(&mut self, side: Side, settled: bool, cx: &mut Context<Self>) -> bool {
         if !settled && self.wraps(side, cx) {
-            return;
+            return false;
         }
         let y = f32::from(self.editor(side, cx).read(cx).scroll_offset().y);
         let track = self.track(side);
         if track.seen == Some(y) {
             // A blink, an edit, a selection: anything but a scroll.
-            return;
+            return false;
         }
         track.seen = Some(y);
         if track.asked.take().is_some_and(|asked| asked.lands(y)) {
             // The other side's lead, arriving: not a lead of its own.
-            return;
+            return false;
         }
         if !matches!(self.state, State::Ready) || !self.comparison.sync_scroll {
-            return;
+            return false;
         }
         let Some(top) = self.top_of(side, cx) else {
-            return;
+            return false;
         };
         #[cfg(test)]
         {
@@ -1267,12 +1284,54 @@ impl CompareView {
         }
         let there = self.diff.position_across(side, top);
         self.drive(side.other(), there, None, cx);
+        true
     }
 
-    /// The end of a frame the panes were painted in: look at both.
+    /// Look at both panes, the result first: if the result led, the
+    /// original's own move in the same look is only recorded, never a
+    /// lead of its own — two panes that moved in one frame end where
+    /// the result put them, at once and without a flicker (D383, D392).
+    /// The editors' notifications and the end of a frame all come here,
+    /// so whichever pane happened to notify first, the result is asked
+    /// first.
+    fn look(&mut self, settled: bool, cx: &mut Context<Self>) {
+        if self.scrolled(Side::Result, settled, cx) {
+            self.record(Side::Original, settled, cx);
+        } else if self.scrolled(Side::Original, settled, cx) {
+            self.record(Side::Result, settled, cx);
+        }
+    }
+
+    /// Take note of where `side` stands without letting it lead: the
+    /// side the other one has just led. Its new ask stays, to be
+    /// matched when it lands.
+    fn record(&mut self, side: Side, settled: bool, cx: &App) {
+        if !settled && self.wraps(side, cx) {
+            return;
+        }
+        let y = f32::from(self.editor(side, cx).read(cx).scroll_offset().y);
+        self.track(side).seen = Some(y);
+    }
+
+    /// The end of a frame the panes were painted in: look at both, then
+    /// drop every ask that has had its frame and moved nothing — the
+    /// pane was already where it was asked to go, or at its end. Kept,
+    /// such an ask would take the pane's next real move in its
+    /// direction for its landing; a pane's end moves when lines are
+    /// typed at the bottom, so that next move does come (D391).
     fn painted(&mut self, cx: &mut Context<Self>) {
-        self.scrolled(Side::Result, true, cx);
-        self.scrolled(Side::Original, true, cx);
+        self.look(true, cx);
+        for side in [Side::Result, Side::Original] {
+            let y = f32::from(self.editor(side, cx).read(cx).scroll_offset().y);
+            let track = self.track(side);
+            if let Some(asked) = track.asked.as_mut() {
+                if !asked.painted {
+                    asked.painted = true;
+                } else if (y - asked.from).abs() < HALF_PIXEL {
+                    track.asked = None;
+                }
+            }
+        }
     }
 
     /// Scroll `side` so that `top` — a row and a fraction — stands at
@@ -1304,7 +1363,11 @@ impl CompareView {
         if x.is_none() && (to - from).abs() < HALF_PIXEL {
             return;
         }
-        track.asked = Some(Asked { from, to });
+        track.asked = Some(Asked {
+            from,
+            to,
+            painted: false,
+        });
         editor.update(cx, |state, cx| {
             state.set_scroll_offset(gpui::point(x.unwrap_or(now.x), px(to)), cx);
         });
@@ -2710,6 +2773,159 @@ mod tests {
             "the original did not follow the wrapped result"
         );
         assert_eq!(leads(&view, cx), (1, 1));
+    }
+
+    /// A recompute moves neither pane (D390). A selection in the
+    /// original near the top, the result scrolled far below it, then an
+    /// edit on the line the result's caret already stood on — no follow
+    /// runs — and the recompute's empty edit collapses that selection
+    /// to a caret the editor would bring into view. Take out the offset
+    /// `repaint_original` puts back and the original jumps to the
+    /// caret and pulls the result after it: red.
+    #[gpui::test]
+    fn a_recompute_moves_neither_pane(cx: &mut TestAppContext) {
+        let original = numbered(0, 400);
+        let result = original.replacen("line 5\n", "line five\n", 1);
+        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let height = line_height(&view, cx);
+
+        // The result's caret on row 300, the result scrolled so that
+        // row is in view; the original follows.
+        cx.update(|window, cx| {
+            let editor = view.read(cx).editor(Side::Result, cx);
+            editor.update(cx, |editor, cx| {
+                editor.set_cursor_position(Position::new(300, 0), window, cx)
+            });
+        });
+        settle(cx);
+        let before = offsets(&view, cx);
+        assert!(
+            before.1 < -(200.0 * height),
+            "the result did not scroll: {before:?}"
+        );
+        // Then a selection in the original near row 10, far above what
+        // either pane shows; neither pane moves for it.
+        cx.update(|_, cx| {
+            let original = view.read(cx).original.clone();
+            original.update(cx, |original, cx| {
+                let text = original.value();
+                let start = text.match_indices('\n').nth(9).expect("ten lines").0 + 1;
+                original.set_selected_range(start..start + 4, cx);
+            });
+        });
+        settle(cx);
+        // Selecting brought the selection into view; the wheel takes the
+        // result back down to its caret, and the original follows,
+        // keeping its selection off screen.
+        let selected = offsets(&view, cx).1;
+        wheel(&view, Side::Result, before.1 - selected, cx);
+        assert_eq!(
+            offsets(&view, cx),
+            before,
+            "the panes are not back at the caret"
+        );
+
+        // The keystroke's own frame first — the editor keeps its caret
+        // in view as it types, and the original follows that — then
+        // the settle and the recompute, which must move nothing.
+        cx.update(|window, cx| {
+            let editor = view.read(cx).editor(Side::Result, cx);
+            editor.update(cx, |editor, cx| editor.insert("x", window, cx));
+        });
+        cx.run_until_parked();
+        let typed = offsets(&view, cx);
+        assert!(typed.1 < -(200.0 * height), "{typed:?}");
+        settle(cx);
+        assert_eq!(offsets(&view, cx), typed, "a recompute moved a pane");
+    }
+
+    /// An ask that had its frame and moved nothing is dropped (D391).
+    /// The result, shorter than the original, stands at its end; the
+    /// original scrolls on, and the ask it makes of the result moves
+    /// nothing. Lines typed at the result's bottom then move its end and
+    /// its caret down: that move is the result's own and leads the
+    /// original. Kept, the old ask would take it for its landing and
+    /// the original would stay where it was: red.
+    #[gpui::test]
+    fn an_ask_that_moved_nothing_does_not_hide_the_next_move(cx: &mut TestAppContext) {
+        let original = numbered(0, 300);
+        let result = numbered(0, 100);
+        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let height = line_height(&view, cx);
+
+        wheel(&view, Side::Original, -(150.0 * height), cx);
+        let at_end = offsets(&view, cx).1;
+        wheel(&view, Side::Original, -(10.0 * height), cx);
+        assert_eq!(
+            offsets(&view, cx).1,
+            at_end,
+            "the result was not at its end"
+        );
+
+        // Sixty lines put in at the result's bottom, the way a paste
+        // lands but without moving the view: the result's end moves
+        // down and the result stays where it stood.
+        cx.update(|window, cx| {
+            let editor = view.read(cx).editor(Side::Result, cx);
+            editor.update(cx, |editor, cx| {
+                let end = editor.value().len();
+                editor.set_selected_range(end..end, cx);
+                editor.insert("more\n".repeat(60), window, cx);
+            });
+        });
+        settle(cx);
+        let (left_before, right_before) = offsets(&view, cx);
+        assert_eq!(right_before, at_end, "putting lines in moved the result");
+        let leads_before = leads(&view, cx);
+
+        // One real scroll of the result, down, the old ask's way.
+        wheel(&view, Side::Result, -(5.0 * height), cx);
+        let (left, right) = offsets(&view, cx);
+        assert_eq!(
+            right,
+            right_before - 5.0 * height,
+            "the wheel did not scroll the result"
+        );
+        assert_eq!(
+            leads(&view, cx),
+            (leads_before.0, leads_before.1 + 1),
+            "the result's own move did not lead"
+        );
+        assert!(left != left_before, "the original did not follow: {left}");
+    }
+
+    /// Both panes moved in one frame: the result wins, at once (D383,
+    /// D392). Each is handed an offset in the same update; the original
+    /// paints first and notifies first. Look at the original first, as
+    /// its own notification did before, and it leads the result away
+    /// from where it was put: red.
+    #[gpui::test]
+    fn two_panes_moved_in_one_frame_end_where_the_result_put_them(cx: &mut TestAppContext) {
+        let original = numbered(0, 300);
+        let result = format!("{}{original}", numbered(1000, 3));
+        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let height = line_height(&view, cx);
+
+        cx.update(|_, cx| {
+            let view = view.read(cx);
+            let (left, right) = (
+                view.editor(Side::Original, cx),
+                view.editor(Side::Result, cx),
+            );
+            left.update(cx, |editor, cx| {
+                editor.set_scroll_offset(gpui::point(px(0.0), px(-(90.0 * height))), cx)
+            });
+            right.update(cx, |editor, cx| {
+                editor.set_scroll_offset(gpui::point(px(0.0), px(-(40.0 * height))), cx)
+            });
+        });
+        settle(cx);
+        assert_eq!(
+            offsets(&view, cx),
+            (-(37.0 * height), -(40.0 * height)),
+            "the panes did not end where the result put them"
+        );
+        assert_eq!(leads(&view, cx), (0, 1), "the original led too");
     }
 
     /// The far side of a wrapped result: rows not laid out are placed

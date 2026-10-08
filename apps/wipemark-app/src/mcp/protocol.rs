@@ -3148,7 +3148,64 @@ pub(crate) mod tests {
         );
     }
 
-    /// D356: the path `_meta` names is kept as a caller's word — shown,
+    /// D394 (M-B): a question the queue withdraws within its grace — the
+    /// engine swap it was waiting for landed — refuses nobody. The caller's
+    /// call waits behind the window's item the queue stops to ask about;
+    /// the slot then turns out to send here after all, the queue withdraws
+    /// the question and runs both, and the call is answered with its text.
+    /// Refused on the first Ask, as it was, the call ends "answer it there"
+    /// over a window with nothing to answer: red.
+    #[test]
+    fn a_question_withdrawn_within_its_grace_refuses_nobody() {
+        let slow = FakeEngine::answering(|req, _| swapped(req))
+            .with_token_delay(std::time::Duration::from_millis(20));
+        let (services, work) = working(slow);
+        let away = wipemark_queue::Whereto::Away("https://y.example.com".to_owned());
+        work.engine.sending_to(Some(away));
+        let request = |text: String| wipemark_queue::Request {
+            source: wipemark_queue::Source::Text(text),
+            format: wipemark_pipeline::prepare::TextFormat::Plain,
+            destination: wipemark_queue::Destination::Row,
+            options: wipemark_pipeline::Options::for_executor(
+                wipemark_pipeline::cost::Executor::LocalCpu,
+            ),
+        };
+        work.queue
+            .push(request(PARAGRAPH.repeat(3)))
+            .expect("pushed");
+        let consented = request(PARAGRAPH.to_owned());
+        let id = work.queue.reserve(&consented).expect("reserved");
+        work.queue
+            .push_reserved(id, consented, Some(wipemark_queue::Whereto::Here))
+            .expect("pushed");
+
+        let (answer, answered) = std::sync::mpsc::channel();
+        let calling = services.clone();
+        std::thread::spawn(move || {
+            let arguments = format!(r#"{{"text":{}}}"#, json!(PARAGRAPH));
+            let _ = answer.send(call_with(&calling, "rewrite", &arguments, ""));
+        });
+        // The question is put; the swap lands a moment later.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while work.queue.asking().is_none() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the queue never asked"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        work.engine.sending_to(Some(wipemark_queue::Whereto::Here));
+        work.queue.engine_changed();
+
+        let response = answered
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .expect("the call was never answered");
+        let result = &response["result"];
+        assert_ne!(result["isError"], json!(true), "{response}");
+        assert!(work.queue.asking().is_none());
+    }
+
     /// never a file behind the row the window would open.
     #[test]
     fn a_meta_path_is_said_and_never_a_file_behind_the_row() {
