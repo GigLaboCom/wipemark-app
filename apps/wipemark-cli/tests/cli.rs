@@ -702,6 +702,35 @@ fn rewrite_uses_the_running_application() {
     );
 }
 
+/// With the application serving, this command knows no window — the
+/// application's engine is its business, and its MCP tool asks the window
+/// itself (E4-6c, D330) — so a long `--prompts` template is not refused for
+/// length here: it is handed over whole.
+#[test]
+fn a_long_template_goes_to_the_application_unrefused() {
+    let scratch = Scratch::new("app-long-template");
+    scratch.file("note.txt", b"Words.\n");
+    let long = format!("{}\n{{TEXT}}", "word ".repeat(400));
+    scratch.file(
+        "prompts.json",
+        serde_json::json!({ "prompts.en.paraphrase.1.user": long })
+            .to_string()
+            .as_bytes(),
+    );
+    let app = FakeApp::start(rewritten("Other words.\n", 0, false));
+    beacon(&scratch, std::process::id(), "127.0.0.1", app.port);
+
+    let output = scratch.run(&["rewrite", "note.txt", "--prompts", "prompts.json"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert!(!stderr(&output).contains("too-long"), "{}", stderr(&output));
+    let calls = app.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert_eq!(
+        calls[0]["params"]["arguments"]["templates"]["prompts.en.paraphrase.1.user"],
+        serde_json::json!(long)
+    );
+}
+
 /// `--json` is the report, where the result went and who rewrote it.
 #[test]
 fn rewrite_json_is_the_report_and_where_it_went() {

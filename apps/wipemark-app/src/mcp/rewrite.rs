@@ -249,7 +249,13 @@ impl Rewriter {
     /// [`LOOK`] while the job is quiet.
     pub fn run(&self, call: Call, asker: &Asker, gone: &dyn Fn() -> bool) -> Result<Done, Unrun> {
         let (mut overrides, pivot) = self.rows();
-        row::lay_over(&mut overrides, &call.templates).map_err(Unrun::Templates)?;
+        // Against the window of the engine on duty (E4-6c, D330): a
+        // template over a tenth of it is `too-long`, as the Settings page
+        // refuses it. An endpoint's window is the server's business —
+        // `None`, never guessed — and so is nothing on duty: then that rule
+        // is not asked, and every other one is.
+        let window = self.engine.described().ok().and_then(|info| info.ctx_len);
+        row::lay_over_within(&mut overrides, &call.templates, window).map_err(Unrun::Templates)?;
         let document = Document {
             text: call.text,
             format: call.asked.format,

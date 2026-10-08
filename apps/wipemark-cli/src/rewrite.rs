@@ -193,26 +193,13 @@ pub(crate) fn rewrite_with(flags: &Flags, io: &mut Io, roads: &Roads) -> Exit {
             }
         },
     };
+    // No window yet: who serves is not known until the application is
+    // asked. Every rule but `too-long` is asked here; that one is asked by
+    // whoever runs the job — this command against its own model's window
+    // (`by_this_command`), the application against its engine's.
     let (mut overrides, pivot) = saved_rows(roads.layout);
     if let Err(laid) = row::lay_over(&mut overrides, &templates) {
-        let file = flags
-            .prompts
-            .map(|file| file.display().to_string())
-            .unwrap_or_default();
-        let line = match laid {
-            Laid::UnknownRow { key } => t_args(
-                Message::CliPromptsUnknownRow,
-                &args!("path" => file, "key" => key),
-            ),
-            Laid::Unreadable { key } => t_args(
-                Message::CliPromptsNotRows,
-                &args!("path" => file, "reason" => key),
-            ),
-            Laid::Breaks { key, rule } => t_args(
-                Message::CliPromptsInvalid,
-                &args!("path" => file, "key" => key, "rule" => rule),
-            ),
-        };
+        let line = laid_line(flags.prompts, laid);
         return run::refused(io, "rewrite", path, &line, "template refused", Exit::Usage);
     }
 
@@ -261,17 +248,24 @@ pub(crate) fn rewrite_with(flags: &Flags, io: &mut Io, roads: &Roads) -> Exit {
         record: flags.record,
         meta: meta_of(&source, read.text.len()),
     };
+    let laid = Laying {
+        templates: &templates,
+        prompts: flags.prompts,
+        path,
+    };
     let rewritten = match roads.layout.and_then(app::find) {
         Some(found) => match by_the_application(found, &call, roads, io) {
             Ok(rewritten) => rewritten,
             // Nobody took the call: nothing was sent, so this side may run it.
-            Err(None) => match by_this_command(&read.text, &asked, overrides, pivot, roads, io) {
-                Ok(rewritten) => rewritten,
-                Err(exit) => return exit,
-            },
+            Err(None) => {
+                match by_this_command(&read.text, &asked, overrides, pivot, &laid, roads, io) {
+                    Ok(rewritten) => rewritten,
+                    Err(exit) => return exit,
+                }
+            }
             Err(Some(exit)) => return exit,
         },
-        None => match by_this_command(&read.text, &asked, overrides, pivot, roads, io) {
+        None => match by_this_command(&read.text, &asked, overrides, pivot, &laid, roads, io) {
             Ok(rewritten) => rewritten,
             Err(exit) => return exit,
         },
@@ -319,6 +313,36 @@ fn format_of(found: Option<wipemark_intake::Format>) -> TextFormat {
         Some(wipemark_intake::Format::Html) => TextFormat::Html,
         _ => TextFormat::Plain,
     }
+}
+
+/// The sentence that refuses a `--prompts` file's template.
+fn laid_line(prompts: Option<&Path>, laid: Laid) -> String {
+    let file = prompts
+        .map(|file| file.display().to_string())
+        .unwrap_or_default();
+    match laid {
+        Laid::UnknownRow { key } => t_args(
+            Message::CliPromptsUnknownRow,
+            &args!("path" => file, "key" => key),
+        ),
+        Laid::Unreadable { key } => t_args(
+            Message::CliPromptsNotRows,
+            &args!("path" => file, "reason" => key),
+        ),
+        Laid::Breaks { key, rule } => t_args(
+            Message::CliPromptsInvalid,
+            &args!("path" => file, "key" => key, "rule" => rule),
+        ),
+    }
+}
+
+/// The caller's templates as this command's own road needs them again:
+/// laid once more against its model's window, and refused in the words
+/// the first lay refuses in.
+struct Laying<'a> {
+    templates: &'a Map<String, Value>,
+    prompts: Option<&'a Path>,
+    path: &'a str,
 }
 
 /// `--prompts`: the file's rows, or the sentence that refuses it.
@@ -546,14 +570,34 @@ fn say_price(io: &mut Io, calls: Option<u64>, expected: Option<u64>, tokens: Opt
 fn by_this_command(
     text: &str,
     asked: &Asked,
-    overrides: Overrides,
+    mut overrides: Overrides,
     pivot: Option<Lang>,
+    laid: &Laying,
     roads: &Roads,
     io: &mut Io,
 ) -> Result<Rewritten, Exit> {
     let (engine, executor) = (roads.own)(roads.layout, io).inspect_err(|_| {
         journal::note(|draft| draft.failed = Some("engine"));
     })?;
+    // The caller's templates against the window this engine will load
+    // with — the catalogue's `ctx` for the chosen model (E4-6c, D330): a
+    // template over a tenth of it is `too-long`, as the Settings page and
+    // the application's MCP tool refuse it. Laid again over rows that
+    // already hold them, so nothing but the window is asked anew.
+    if let Err(refused) =
+        row::lay_over_within(&mut overrides, laid.templates, engine.info().ctx_len)
+    {
+        journal::note(|draft| draft.failed = Some("templates"));
+        let line = laid_line(laid.prompts, refused);
+        return Err(run::refused(
+            io,
+            "rewrite",
+            laid.path,
+            &line,
+            "template refused",
+            Exit::Usage,
+        ));
+    }
     let document = Document {
         text: text.to_owned(),
         format: asked.format,
@@ -1291,6 +1335,69 @@ mod tests {
         );
         let kept = t_args(Message::CliRewriteKept, &args!("kept" => 1_u64));
         assert!(stderr.contains(&kept), "{stderr}");
+    }
+
+    /// The command's own model is asked with its window (E4-6c, D330, the
+    /// owner's default): a `--prompts` template over a tenth of the window
+    /// the model loads with — the catalogue's `ctx` — is refused as
+    /// `too-long`, exit 2, nothing asked and nothing written; the same
+    /// template under a window ten times its size runs.
+    #[test]
+    fn a_template_over_a_tenth_of_this_commands_window_is_refused() {
+        let dir =
+            std::env::temp_dir().join(format!("wipemark-cli-too-long-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a scratch folder");
+        let file = dir.join("prompts.json");
+        let long = format!("{}\n{{TEXT}}", "word ".repeat(400));
+        std::fs::write(
+            &file,
+            json!({ "prompts.en.paraphrase.1.user": long }).to_string(),
+        )
+        .expect("a prompts file");
+        let flags = Flags {
+            prompts: Some(&file),
+            ..flags(false)
+        };
+        let interrupted = AtomicBool::new(false);
+
+        let small = FakeEngine::with_model("fake-4k", 4096);
+        let asked = small.clone();
+        let own = move |_: Option<&Layout>,
+                        _: &mut Io|
+              -> Result<(Arc<dyn RewriteEngine>, Executor), Exit> {
+            Ok((Arc::new(small.clone()), Executor::LocalCpu))
+        };
+        let roads = Roads {
+            layout: None,
+            terminal: false,
+            interrupted: &interrupted,
+            own: &own,
+        };
+        let (exit, stdout, stderr) =
+            run(PARAGRAPH.as_bytes(), |io| rewrite_with(&flags, io, &roads));
+        assert_eq!(exit, Exit::Usage, "{stderr}");
+        assert!(stderr.contains("too-long"), "{stderr}");
+        assert!(stdout.is_empty(), "{stdout}");
+        assert!(asked.asked().is_empty(), "a refused run asked the model");
+
+        let large =
+            |_: Option<&Layout>, _: &mut Io| -> Result<(Arc<dyn RewriteEngine>, Executor), Exit> {
+                Ok((
+                    Arc::new(FakeEngine::with_model("fake-100k", 100_000)),
+                    Executor::LocalCpu,
+                ))
+            };
+        let roads = Roads {
+            own: &large,
+            ..roads
+        };
+        let (exit, stdout, stderr) =
+            run(PARAGRAPH.as_bytes(), |io| rewrite_with(&flags, io, &roads));
+        assert_ne!(exit, Exit::Usage, "{stderr}");
+        assert!(!stderr.contains("too-long"), "{stderr}");
+        assert!(!stdout.is_empty(), "{stderr}");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

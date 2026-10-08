@@ -2357,6 +2357,79 @@ mod tests {
         assert!(inbox.is_empty(), "a refused call started a job");
     }
 
+    /// A `FakeEngine` that does not say its window — an endpoint's, which
+    /// is the server's business (`EngineInfo::ctx_len`).
+    struct Unsaid(FakeEngine);
+
+    #[wipemark_engine::async_trait]
+    impl wipemark_engine::RewriteEngine for Unsaid {
+        fn info(&self) -> wipemark_engine::EngineInfo {
+            wipemark_engine::EngineInfo {
+                local: false,
+                ctx_len: None,
+                ..self.0.info()
+            }
+        }
+
+        async fn complete(
+            &self,
+            req: wipemark_engine::ChatRequest,
+            sink: wipemark_engine::TokenSink,
+            cancel: wipemark_engine::CancellationToken,
+        ) -> Result<wipemark_engine::Completion, wipemark_engine::EngineError> {
+            self.0.complete(req, sink, cancel).await
+        }
+
+        async fn warmup(&self) -> Result<(), wipemark_engine::EngineError> {
+            self.0.warmup().await
+        }
+
+        async fn unload(&self) {
+            self.0.unload().await;
+        }
+    }
+
+    /// The window of the engine on duty is asked of a caller's templates
+    /// (E4-6c, D330, the owner's default): a template over a tenth of it is
+    /// refused as `too-long`, as the Settings page refuses it — and an
+    /// engine whose window is unknown, an endpoint's, is not refused for
+    /// length, because a window nobody said is never guessed.
+    #[test]
+    fn a_template_over_a_tenth_of_the_window_is_refused_and_an_unknown_window_is_not() {
+        let long = format!("{}\n{{TEXT}}", "word ".repeat(400));
+        let arguments = json!({
+            "text": PARAGRAPH,
+            "templates": { "prompts.en.paraphrase.1.user": long },
+        })
+        .to_string();
+
+        // The machine's model, a 4096-token window: refused, nothing asked.
+        let windowed = FakeEngine::with_model("fake-4k", 4096);
+        let (services, inbox) = serving(windowed.clone());
+        let text = refusal_text(&rewritten(&services, &arguments, &|| false));
+        assert!(text.contains("breaks the rule `too-long`"), "{text}");
+        assert!(inbox.is_empty(), "a refused call started a job");
+        assert!(
+            windowed.asked().is_empty(),
+            "a refused call asked the model"
+        );
+
+        // An endpoint, its window unknown: the same templates run.
+        let (handle, _) = crate::engine_host::EngineHandle::serving(
+            std::sync::Arc::new(Unsaid(FakeEngine::answering(|req, _| swapped(req)))),
+            crate::engine_host::Pace {
+                executor: Some(wipemark_pipeline::cost::Executor::Endpoint),
+                tokens_per_second: None,
+            },
+        );
+        let endpoint = Services {
+            rewriter: Some(Rewriter::new(handle, None)),
+            work: None,
+        };
+        let response = rewritten(&endpoint, &arguments, &|| false);
+        assert_eq!(response["result"]["isError"], json!(false), "{response}");
+    }
+
     /// A call waits for its job — and a client that hangs up, or a ceiling
     /// that passes, cancels it rather than leaving a model writing for
     /// nobody.
