@@ -771,8 +771,14 @@ pub enum QueueEvent {
     Price { ids: Vec<u64>, price: Price },
     /// Rows `ids` arrived with "Process what arrives" set to rewrite, and
     /// the engine on duty is not this machine: the shell asks once before
-    /// they are sent to `host` (В1).
-    SendAway { ids: Vec<u64>, host: String },
+    /// they are sent to `host` (В1). Or — `replacing` — one row's Replace
+    /// the existing result, asked the same question before it goes (D393);
+    /// yes is [`Queue::replace_agreed`] over that file.
+    SendAway {
+        ids: Vec<u64>,
+        host: String,
+        replacing: Option<PathBuf>,
+    },
     /// The batch queue holds to ask (D361): `count` waiting rewrites were
     /// asked for while rewriting stayed here (`was` `None`) or went to
     /// `was`, and the engine on duty now would send them to `host`. The
@@ -784,6 +790,10 @@ pub enum QueueEvent {
         was: Option<String>,
         count: usize,
     },
+    /// The batch queue no longer asks — answered, the duty moved, the
+    /// person resumed, or its item went: the shell takes its question down
+    /// (D394).
+    Unasked,
 }
 
 /// When a row arrived, as the Arrived column says it: the time alone for
@@ -1287,7 +1297,7 @@ impl Queue {
         // A rewrite refused over an existing result is replaced by the
         // batch queue, writing over that one named file.
         if let Some(existing) = row.existing.clone() {
-            self.push_rewrites(&[id], Some(existing), cx);
+            self.replace_rewrite(id, existing, cx);
             return;
         }
         let Some(existing) = row.outcome().and_then(existing_result) else {
@@ -1912,8 +1922,12 @@ struct Actions {
     written: Option<PathBuf>,
     /// Whether there is a cleaned text to copy.
     text: bool,
-    /// Whether the clean was refused over an existing result.
+    /// Whether the clean or the rewrite was refused over an existing
+    /// result — Replace is offered.
     replace: bool,
+    /// Why Replace is greyed although offered: a rewrite's Replace is a
+    /// Rewrite, and greyed when one would be (D393).
+    replace_why: Option<String>,
     /// Whether there is a finished clean to report.
     report: bool,
 }
@@ -2074,12 +2088,33 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
                         }),
                 )
                 .item(
-                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionReplace)))
-                        .icon(IconName::Replace)
-                        .disabled(!actions.replace)
-                        .on_click(move |_, _, cx| {
-                            replacing.update(cx, |queue, cx| queue.replace(id, cx));
-                        }),
+                    match actions.replace_why.clone().filter(|_| actions.replace) {
+                        None => {
+                            PopupMenuItem::new(SharedString::from(t(Message::QueueActionReplace)))
+                                .icon(IconName::Replace)
+                                .disabled(!actions.replace)
+                                .on_click(move |_, _, cx| {
+                                    replacing.update(cx, |queue, cx| queue.replace(id, cx));
+                                })
+                        }
+                        // Greyed with its reason under it, as Rewrite is (D269, D393).
+                        Some(why) => {
+                            let why = SharedString::from(why);
+                            PopupMenuItem::element(move |_, cx| {
+                                v_flex()
+                                    .max_w(px(280.0))
+                                    .child(SharedString::from(t(Message::QueueActionReplace)))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(why.clone()),
+                                    )
+                            })
+                            .icon(IconName::Replace)
+                            .disabled(true)
+                        }
+                    },
                 )
                 .separator()
                 .item(match actions.remove.clone() {
@@ -2379,6 +2414,10 @@ impl Queue {
                             || row.rewritten(self.work.as_ref()).is_some(),
                         replace: row.outcome().and_then(existing_result).is_some()
                             || row.existing.is_some(),
+                        replace_why: row
+                            .existing
+                            .as_ref()
+                            .and_then(|_| self.why_not_rewrite(row.id, cx)),
                         report: row.outcome().is_some() && row.arrival.is_some(),
                     },
                     cx.entity(),

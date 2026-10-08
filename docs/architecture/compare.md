@@ -248,9 +248,13 @@ patched.
   a move in the asked direction no farther than asked is that ask
   landing — exactly, or stopped short by the pane's own end, which is
   what a follower with fewer lines does at the bottom — and anything
-  else is the pane's own. An ask that changed nothing (the pane was
-  already at its end) is never mistaken for a later move, because a
-  person can then scroll that pane only the other way. Before a new ask
+  else is the pane's own. An ask that has had its frame and moved
+  nothing — the pane was already there, or at its end — is **dropped**
+  at the end of that frame (D391): kept, it took the pane's next move
+  in its direction for its landing, and that move does come once the
+  end itself moves — lines typed at the bottom of the result — so one
+  real scroll went unfollowed
+  (`an_ask_that_moved_nothing_does_not_hide_the_next_move`). Before a new ask
   the window takes an earlier one's unseen landing as landed, so the
   new one is measured from where the pane now is.
   `a_follower_that_stops_short_does_not_lead_back` is the gate: without
@@ -263,9 +267,20 @@ patched.
   that, the original scrolls only as far as its caret and then leads
   the result back there, the result's caret out of sight
   (`the_cursor_follow_does_not_drag_the_result`). When both panes moved
-  in one frame the result is looked at first. A comparison recomputed
-  after an edit changes the map for the next scroll and moves neither
-  pane.
+  in one frame the result is looked at first, by every look — an
+  editor's notification and the end of a frame alike — and once it has
+  led, the original's own move in that look is only recorded, never a
+  lead of its own (D392): the two end where the result put them, in one
+  frame, where before the original's notification came first (it is
+  painted first), it led, and the result led back
+  (`two_panes_moved_in_one_frame_end_where_the_result_put_them`). A
+  comparison recomputed after an edit changes the map for the next
+  scroll and moves neither pane (D390): its empty edit collapses a
+  selection in the original to a caret the editor would bring into view
+  at the next frame, which with the sides together pulled the result
+  away from where the person typed; the original's offset is put back
+  as it stood before that frame is drawn, whether or not scrolling
+  together is on (`a_recompute_moves_neither_pane`).
 * **Wrapping** (D384). With the result's lines wrapped the library does
   not expose how many lines each row became. A wrapped pane's top is
   read off its last layout — the first row shown and how far the

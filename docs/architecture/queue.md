@@ -272,7 +272,18 @@ the command line and an agent's call refuse a template they are handed.
 where the person agreed the document may go — this machine, or an
 endpoint's origin — as the duty stood when they asked: a row's Rewrite,
 Rewrite all whose price said "here" or "sent away", a drop asked about once
-(В1). The engine is bound when each item starts, so the duty can move while
+(В1), a **Replace the existing result** (D393). A window push without a
+consent cannot be built: with nothing on duty there is nowhere the person
+agreed to, and nothing is pushed. Replace of a rewrite refused over a file
+already there is a Rewrite by the same road — greyed, its reason under it,
+when a Rewrite would be (nothing on duty, in the engine handle's words), and
+asked "Send … to …?" first when the document would leave this machine
+(`QueueEvent::SendAway { replacing }`, yes is `Queue::replace_agreed`); it
+differs from a Rewrite only in where its result goes. Before D393 it skipped
+both, and with nothing on duty it pushed an item with no consent — an item
+the queue never asks about — which then went to whatever endpoint was put
+on duty later (`replace_with_nothing_on_duty_pushes_nothing`,
+`replace_asks_before_a_document_leaves_the_machine`). The engine is bound when each item starts, so the duty can move while
 items wait. Before an item starts on an endpoint other than the one it was
 consented to (here → away, or one origin → another), the queue **holds and
 asks once** (`QueueEvent::Ask`, the window's Confirm "Send the waiting
@@ -304,6 +315,27 @@ at once, so the host sees nothing busy and the deferred swap can land; the
 swap then wakes the queue, the question is withdrawn, and the item is
 asked about afresh — on this machine, nothing to ask.
 
+**No item starts on the engine leaving** (D395, L-1). A change of duty the
+engine host defers while a job runs is said on the handle
+(`EngineHandle::swap_pending`, `EngineSource::settling`) from the moment
+it is deferred until the job ends and the swap has run; while it is, the
+queue starts nothing — silently, not a hold, so no caller is refused for
+it — and the end of it wakes the queue as a swap does, after the swap and
+never before (`a_deferred_swap_is_pending_until_it_lands`,
+`no_item_starts_on_the_engine_leaving`). Before, items consented to the
+old endpoint kept starting on it the moment the item before them ended —
+the busy count never reached nought, so the swap never landed — and the
+rest of a switched-away queue went to the endpoint the duty had left.
+
+**Where first, the key after** (D396, L-2). Before an item's engine is
+built — for an endpoint, before its key is read from the credential store,
+which on macOS can put a keychain prompt on screen — the queue asks the
+source where that engine would send the document (`EngineSource::whereto`,
+the slot's word, nothing built), and an item that would only be asked about
+is asked about there. The engine actually handed out is checked again
+after, and that is still the check that decides (D370)
+(`an_item_asked_about_costs_no_engine_build`).
+
 **A yes covers the items it was asked for** (D372, L-b): the waiting items
 consented to somewhere else when the person said yes — the ones the
 question counted. An item pushed afterwards, consented by its own push,
@@ -329,10 +361,27 @@ ends the item and the caller is told. Should an item go anyway — removed
 by any road — the waiting call ends at once, as a refusal that says the
 document was removed, never a call left open until its ceiling. An
 agent's or the command line's call whose item waits behind a consent
-question (D361) is refused as soon as the question is put — or at once,
-when one stands as it is made — with a sentence saying the application's
-rewrites wait for an answer in its window (D373, L-d): its ceiling counts
-from its start, which a question nobody answers never gives it.
+question (D361) is refused once the question has **stood for two seconds**
+(`QUESTION_GRACE`, D394) — looked at every quarter second while it waits,
+and before it is queued — with a sentence saying the application's rewrites
+wait for an answer in its window (D373, L-d): its ceiling counts from its
+start, which a question nobody answers never gives it. The grace is for the
+question the queue withdraws on its own: put as an item starts on an engine
+a swap is about to replace and gone as the swap lands, it used to refuse
+every caller waiting behind it, "answer it there", over a window with
+nothing to answer (`a_question_withdrawn_within_its_grace_refuses_nobody`).
+A question that stands two seconds is one a person has to answer.
+
+**A withdrawn question is taken down** (D394, M-B). The queue says
+`Unasked` when its question goes — answered, the duty moved, the person
+resumed, the item gone — and the window takes the question off the screen
+if it is the one open, and drops every copy waiting its turn; the next
+question that is not it is asked. The same question is never stacked: one
+already open or waiting is not queued again when the queue asks it anew
+(`a_withdrawn_question_is_taken_down_and_no_other`,
+`the_same_question_is_not_stacked`). A yes given to a question already
+withdrawn — a dialog answered in the moment it was being taken down —
+covers nobody (`a_yes_to_a_withdrawn_question_changes_nothing`).
 
 The Price, Send-away and consent questions are asked **one at a time, in
 the order they came** (D364): one that arrives while another is open waits

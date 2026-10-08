@@ -74,6 +74,15 @@ pub const CEILING: Duration = Duration::from_secs(60 * 60);
 /// job is quiet.
 const LOOK: Duration = Duration::from_millis(250);
 
+/// How long the queue's question must stand before a caller waiting
+/// behind it is refused (D394). The queue asks, and withdraws, on its own
+/// as an engine swap lands: a question put while the engine host finishes
+/// swapping is gone again within a step or two, and refusing every caller
+/// on it — "answer it there and call again" over a window with nothing to
+/// answer — was the failure. A question that is still there after this is
+/// one a person has to answer.
+const QUESTION_GRACE: Duration = Duration::from_secs(2);
+
 /// Job ids for this server's jobs: unique in the process, which is all a
 /// `JobId` promises outside the persisted queue.
 static NEXT_JOB: AtomicU64 = AtomicU64::new(1);
@@ -202,6 +211,19 @@ impl Unrun {
             other => Unrun::Engine(other),
         }
     }
+}
+
+/// Whether the queue's question still stands after `grace` — looked at
+/// every [`LOOK`], and `false` the moment it is withdrawn (D394).
+fn question_stands(work: &Work, grace: Duration) -> bool {
+    let until = Instant::now() + grace;
+    while work.queue.asking().is_some() {
+        if Instant::now() >= until {
+            return true;
+        }
+        std::thread::sleep(LOOK.min(grace));
+    }
+    false
 }
 
 /// The road from a call to the engine on duty.
@@ -366,9 +388,11 @@ impl Rewriter {
         if work.queue.paused() {
             return Err(Unrun::Paused);
         }
-        // A question already open holds the queue as a pause does: said at
-        // once, rather than a call queued behind it with no ceiling (D373).
-        if work.queue.asking().is_some() {
+        // A question that stands holds the queue as a pause does: said
+        // rather than a call queued behind it with no ceiling (D373) — once
+        // it has stood its grace, so a question the queue is about to
+        // withdraw refuses nobody (D394).
+        if question_stands(work, QUESTION_GRACE) {
             return Err(Unrun::Asking);
         }
         let bytes = document.text.len();
@@ -514,6 +538,8 @@ impl Rewriter {
         let mut started: Option<Instant> = None;
         let mut said: Option<Unrun> = None;
         let mut position = None;
+        // Since when the queue's question has stood while this item waits.
+        let mut asked_since: Option<Instant> = None;
         loop {
             match events.recv_timeout(LOOK) {
                 Ok(QueueEvent::Started { item: of }) if of == item => {
@@ -539,15 +565,24 @@ impl Rewriter {
                     said = Some(Unrun::Paused);
                     work.queue.cancel(item);
                 }
-                // The queue holds to ask the person (D361): nothing starts
-                // until it is answered, and the ceiling counts from a start
-                // that may never come (D373).
-                Ok(QueueEvent::Ask { .. }) if started.is_none() && said.is_none() => {
-                    said = Some(Unrun::Asking);
-                    work.queue.cancel(item);
-                }
                 Ok(_) | Err(flume::RecvTimeoutError::Timeout) => {}
                 Err(flume::RecvTimeoutError::Disconnected) => return (None, Some(Unrun::Lost)),
+            }
+            // The queue holds to ask the person (D361): nothing starts until
+            // it is answered, and the ceiling counts from a start that may
+            // never come (D373). Refused once the question has stood its
+            // grace; one withdrawn sooner — an engine swap landing — was
+            // never the caller's to answer (D394).
+            if started.is_none() && said.is_none() {
+                if work.queue.asking().is_some() {
+                    let since = *asked_since.get_or_insert_with(Instant::now);
+                    if since.elapsed() >= QUESTION_GRACE {
+                        said = Some(Unrun::Asking);
+                        work.queue.cancel(item);
+                    }
+                } else {
+                    asked_since = None;
+                }
             }
             if said.is_none() {
                 let stop = if gone() {
