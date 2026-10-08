@@ -1,5 +1,8 @@
-//! `models list | pull <id> | verify <id> | rm <id>`: the catalogue and
-//! the downloader of `wipemark-models`, without the window.
+//! `models list | pull <id> | verify <id> | rm <id> | add <path> | forget
+//! <id>`: the catalogue and the downloader of `wipemark-models`, without the
+//! window — and the models the person added (E8-1, U5), as the application
+//! keeps them: rows `models.user.<id>`, each held to the sha256 its file
+//! had when it was added (`wipemark_models::user`).
 //!
 //! # Which folder, and which model is chosen
 //!
@@ -10,8 +13,16 @@
 //! it serves `rewrite`. The rules are `apps/wipemark-app/src/config.rs`'s
 //! (`read_models_dir`, `read_model`), restated here because the CLI may
 //! not depend on the application; the keys are formats and are spelled
-//! the same. No row is ever written: `rm` of the chosen model says what
-//! the application will show and leaves the choice to it.
+//! the same. `rm` of the chosen model says what the application will show
+//! and leaves the choice to it, and so does `forget`.
+//!
+//! # The one write: a model the person added (D404)
+//!
+//! `add` and `forget` write the rows `models.user.<id>` and nothing else,
+//! through `wipemark_store::RowsWriter` — a database that is not there is
+//! not created, and one at another schema than this build's is not
+//! migrated: either is a refusal (exit 2) naming the application, which
+//! creates and migrates its own database. Every other subcommand reads.
 //!
 //! # Exit codes
 //!
@@ -20,7 +31,14 @@
 //! | `list` | listed | — | — | the folder exists and could not be read |
 //! | `pull` | on this machine and verified | — | unknown id; no room; a mismatch (thrown away); cancelled; any failure | — |
 //! | `verify` | every file hashed in full and matching | absent, or not matching | unknown id | a file that could not be read |
-//! | `rm` | removed, or there was nothing | — | unknown id; could not remove | — |
+//! | `rm` | removed, or there was nothing | — | unknown id; a model you added; could not remove | — |
+//! | `add` | read in full and recorded; the id printed | — | not a GGUF; not a model that writes text; a name, purpose or context refused; no database, or not this build's schema; the file could not be read | — |
+//! | `forget` | the row removed; the file never | — | unknown id; a catalogue id; no database, or not this build's schema | — |
+//!
+//! `verify` of a model you added hashes its file in full against the sha256
+//! recorded when it was added: 0 when it matches, 1 when it is gone or its
+//! bytes are other ones, 3 when it could not be read. `pull` of one is
+//! refused (exit 2): there is nothing to download.
 //!
 //! `verify` exits 1 the way `inspect` does: the answer is a finding — the
 //! file on disk is not the file the catalogue promised — and "not there"
@@ -32,9 +50,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use wipemark_i18n::{args, FluentArgs, Message};
+use wipemark_models::gguf::{GgufError, Header, NotOffered, Offer};
 use wipemark_models::layout::Layout;
+use wipemark_models::user::{self, UserModel, UserState};
 use wipemark_models::{
-    fit, Cancel, Downloads, Fit, Host, Manifest, ModelEntry, Progress, Role, State, StoreError,
+    fit, fit_mb, Cancel, Downloads, Fit, Host, Manifest, ModelEntry, Progress, Role, State,
+    StoreError,
 };
 
 use crate::audit::ascii;
@@ -53,8 +74,30 @@ const REDRAW_EVERY: Duration = Duration::from_millis(500);
 pub(crate) struct Place {
     pub(crate) folder: PathBuf,
     /// The model chosen for `rewrite`, when the row names one the
-    /// catalogue has.
+    /// catalogue has, or one the person added that serves it (E8-1).
     pub(crate) chosen: Option<String>,
+    /// The models the person added, as their rows say.
+    pub(crate) added: Vec<UserModel>,
+}
+
+/// The models the person added, from the rows of `store` — a row this build
+/// cannot read is skipped, as the application skips it, and left.
+fn read_added(store: Option<&wipemark_store::Store>) -> Vec<UserModel> {
+    let Some(rows) = store.and_then(|store| store.settings().all().ok()) else {
+        return Vec::new();
+    };
+    let mut added: Vec<UserModel> = rows
+        .into_iter()
+        .filter_map(|(key, value)| UserModel::of_row(&key, value)?.ok())
+        .collect();
+    added.sort_by(|a, b| {
+        a.entry
+            .name
+            .to_lowercase()
+            .cmp(&b.entry.name.to_lowercase())
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    added
 }
 
 impl Place {
@@ -74,12 +117,20 @@ impl Place {
             .map(PathBuf::from)
             .filter(|path| path.is_absolute())
             .unwrap_or_else(|| layout.models_dir());
+        let added = read_added(store.as_ref());
         let chosen = row(MODEL_REWRITE_KEY).filter(|id| {
             catalogue
                 .get(id)
                 .is_some_and(|entry| entry.serves(Role::Rewrite))
+                || added
+                    .iter()
+                    .any(|model| model.id == *id && model.serves(Role::Rewrite))
         });
-        Self { folder, chosen }
+        Self {
+            folder,
+            chosen,
+            added,
+        }
     }
 }
 
@@ -88,6 +139,8 @@ struct Context {
     catalogue: Manifest,
     place: Place,
     downloads: Downloads,
+    /// Where the application's database is: what `add` and `forget` write.
+    db: PathBuf,
 }
 
 impl Context {
@@ -120,13 +173,61 @@ impl Context {
             catalogue,
             place,
             downloads,
+            db: layout.db_path(),
         })
     }
 
-    /// The entry for `id`, or the refusal that names it and lists the ids.
+    /// The model the person added under `id`, if there is one.
+    fn added(&self, id: &str) -> Option<&UserModel> {
+        self.place.added.iter().find(|model| model.id == id)
+    }
+
+    /// The refusal of an id that is neither the catalogue's nor added, which
+    /// lists both kinds' ids.
+    fn unknown(&self, id: &str, io: &mut Io) -> Exit {
+        let ids = self
+            .catalogue
+            .models
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .chain(self.place.added.iter().map(|model| model.id.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        say_err(
+            io,
+            &run::say(
+                Message::CliModelsUnknownModel,
+                &args!("id" => id, "ids" => ids),
+            ),
+        );
+        tracing::warn!(command = "models", exit = 2, "unknown id");
+        Exit::Usage
+    }
+
+    /// The refusal of `pull` or `rm` of a model the person added: there is
+    /// nothing to download and nothing this product may delete.
+    fn not_downloadable(&self, id: &str, io: &mut Io) -> Option<Exit> {
+        let added = self.added(id)?;
+        say_err(
+            io,
+            &run::say(
+                Message::CliModelsUserNotDownloadable,
+                &args!("id" => id, "path" => added.entry.path.display().to_string()),
+            ),
+        );
+        tracing::warn!(command = "models", exit = 2, "a model added by hand");
+        Some(Exit::Usage)
+    }
+
+    /// The entry for `id`, or the refusal that names it and lists the ids —
+    /// the catalogue's alone while nobody has added a model, both kinds'
+    /// once somebody has.
     fn entry(&self, id: &str, io: &mut Io) -> Result<ModelEntry, Exit> {
         if let Some(entry) = self.catalogue.get(id) {
             return Ok(entry.clone());
+        }
+        if !self.place.added.is_empty() || id.starts_with(user::ID_PREFIX) {
+            return Err(self.unknown(id, io));
         }
         let ids = self
             .catalogue
@@ -193,12 +294,23 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
         .values()
         .flat_map(|located| located.files.iter().chain(&located.mismatched).cloned())
         .collect();
+    // A model the person added is not a stranger in the folder (U2), by its
+    // path or through a link — the application's rule.
+    let canonical =
+        |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let added_paths: Vec<PathBuf> = context
+        .place
+        .added
+        .iter()
+        .map(|model| canonical(&model.entry.path))
+        .collect();
     let (others, unreadable) = match survey.listing {
         Ok(found) => (
             found
                 .into_iter()
                 .filter(|found| !ours.contains(&found.path))
-                .collect(),
+                .filter(|found| !added_paths.contains(&canonical(&found.path)))
+                .collect::<Vec<_>>(),
             None,
         ),
         // A fresh install: created by the first download.
@@ -206,6 +318,25 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
         Err(error) => (Vec::new(), Some(error)),
     };
 
+    // E8-1: each added model's file looked at as the application looks at
+    // it — the record trusted while its identity holds — and its fit judged
+    // on its estimate. Read-only: a moved identity is the application's to
+    // write.
+    let added_rows: Vec<(&UserModel, UserState, Fit, bool)> = context
+        .place
+        .added
+        .iter()
+        .map(|model| {
+            let look = context.downloads.look_at_user(&model.entry);
+            let chosen = context.place.chosen.as_deref() == Some(model.id.as_str());
+            (
+                model,
+                look.state,
+                fit_mb(model.estimate().total_mb(), host),
+                chosen,
+            )
+        })
+        .collect();
     let rows: Vec<(&ModelEntry, State, Fit, bool)> = context
         .catalogue
         .models
@@ -245,6 +376,7 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                 let mut value = serde_json::json!({
                     "id": entry.id,
                     "display": entry.display,
+                    "source": "catalogue",
                     "roles": entry.roles.iter().map(|role| role.id()).collect::<Vec<_>>(),
                     "size_bytes": entry.total_bytes(),
                     "chosen": chosen,
@@ -274,17 +406,34 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                         value["reason"] = reason.as_str().into();
                     }
                 }
-                match fit {
-                    Fit::Fits => value["fit"] = "fits".into(),
-                    Fit::Tight => value["fit"] = "tight".into(),
-                    Fit::TooBig { short_by_mb } => {
-                        value["fit"] = "too-big".into();
-                        value["short_by_mb"] = (*short_by_mb).into();
-                    }
-                    Fit::Unknown => value["fit"] = "unknown".into(),
-                }
+                fit_json(*fit, &mut value);
                 value
             })
+            .chain(added_rows.iter().map(|(model, state, fit, chosen)| {
+                let mut value = serde_json::json!({
+                    "id": model.id,
+                    "display": model.entry.name,
+                    "source": "user",
+                    "roles": model.entry.roles.iter().map(|role| role.id()).collect::<Vec<_>>(),
+                    "size_bytes": model.entry.size_bytes,
+                    "chosen": chosen,
+                    "path": model.entry.path.to_string_lossy(),
+                    "ctx": model.entry.ctx,
+                    "estimate_mb": model.estimate().total_mb(),
+                    "sha256": model.entry.sha256,
+                });
+                match state {
+                    UserState::Present => value["state"] = "present".into(),
+                    UserState::Changed => value["state"] = "changed".into(),
+                    UserState::Missing => value["state"] = "missing".into(),
+                    UserState::Unreadable(reason) => {
+                        value["state"] = "unreadable".into();
+                        value["reason"] = reason.as_str().into();
+                    }
+                }
+                fit_json(*fit, &mut value);
+                value
+            }))
             .collect();
         let others: Vec<serde_json::Value> = others
             .iter()
@@ -324,15 +473,7 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                 State::Present { .. } => say(Message::CliModelsStatePresent, &FluentArgs::new()),
                 State::Corrupt { .. } => say(Message::CliModelsStateMismatch, &FluentArgs::new()),
             };
-            let fit = match fit {
-                Fit::Fits => say(Message::CliModelsFitFits, &FluentArgs::new()),
-                Fit::Tight => say(Message::CliModelsFitTight, &FluentArgs::new()),
-                Fit::TooBig { short_by_mb } => say(
-                    Message::CliModelsFitTooBig,
-                    &args!("short" => short_by_mb.to_string()),
-                ),
-                Fit::Unknown => say(Message::CliModelsFitUnknown, &FluentArgs::new()),
-            };
+            let fit = fit_said(*fit);
             let mut line = say(
                 Message::CliModelsEntry,
                 &args!(
@@ -362,6 +503,37 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                 };
                 line.push_str(&say(message, &args!("path" => at)));
             }
+            if *chosen {
+                line.push_str(" · ");
+                line.push_str(&say(Message::CliModelsChosen, &FluentArgs::new()));
+            }
+            lines.push(line);
+        }
+        for (model, state, fit, chosen) in &added_rows {
+            let state = match state {
+                UserState::Present => say(Message::CliModelsStateUserPresent, &FluentArgs::new()),
+                UserState::Changed => say(Message::CliModelsStateUserChanged, &FluentArgs::new()),
+                UserState::Missing => say(Message::CliModelsStateUserMissing, &FluentArgs::new()),
+                UserState::Unreadable(reason) => say(
+                    Message::CliModelsStateUserUnreadable,
+                    &args!("reason" => reason.as_str()),
+                ),
+            };
+            let mut line = say(
+                Message::CliModelsUserEntry,
+                &args!(
+                    "id" => model.id.as_str(),
+                    "name" => model.entry.name.as_str(),
+                    "roles" => model.entry.roles.iter().map(|role| role.id()).collect::<Vec<_>>().join(", "),
+                    "size" => say(
+                        Message::CliModelsSize,
+                        &args!("gigabytes" => gigabytes(model.entry.size_bytes)),
+                    ),
+                    "state" => state,
+                    "fit" => fit_said(*fit),
+                    "path" => model.entry.path.display().to_string(),
+                ),
+            );
             if *chosen {
                 line.push_str(" · ");
                 line.push_str(&say(Message::CliModelsChosen, &FluentArgs::new()));
@@ -403,11 +575,38 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
     tracing::info!(
         command = "models list",
         entries = rows.len(),
+        added = added_rows.len(),
         others = others.len(),
         exit = exit as u8,
         "done"
     );
     exit
+}
+
+/// A fit verdict in the JSON's words.
+fn fit_json(fit: Fit, value: &mut serde_json::Value) {
+    match fit {
+        Fit::Fits => value["fit"] = "fits".into(),
+        Fit::Tight => value["fit"] = "tight".into(),
+        Fit::TooBig { short_by_mb } => {
+            value["fit"] = "too-big".into();
+            value["short_by_mb"] = short_by_mb.into();
+        }
+        Fit::Unknown => value["fit"] = "unknown".into(),
+    }
+}
+
+/// A fit verdict in the reader's language.
+fn fit_said(fit: Fit) -> String {
+    match fit {
+        Fit::Fits => run::say(Message::CliModelsFitFits, &FluentArgs::new()),
+        Fit::Tight => run::say(Message::CliModelsFitTight, &FluentArgs::new()),
+        Fit::TooBig { short_by_mb } => run::say(
+            Message::CliModelsFitTooBig,
+            &args!("short" => short_by_mb.to_string()),
+        ),
+        Fit::Unknown => run::say(Message::CliModelsFitUnknown, &FluentArgs::new()),
+    }
 }
 
 /// What the download thread sends back.
@@ -422,6 +621,9 @@ pub(crate) fn pull(id: &str, io: &mut Io) -> Exit {
         Ok(context) => context,
         Err(exit) => return exit,
     };
+    if let Some(exit) = context.not_downloadable(id, io) {
+        return exit;
+    }
     let entry = match context.entry(id, io) {
         Ok(entry) => entry,
         Err(exit) => return exit,
@@ -603,6 +805,8 @@ fn kind_of(error: &StoreError) -> &'static str {
 /// nobody scrolls.
 struct Meter<'a> {
     id: &'a str,
+    /// The line it draws: a download's, or an add's hash.
+    message: Message,
     terminal: bool,
     drawn: Option<Instant>,
     quarter: Option<u64>,
@@ -617,6 +821,7 @@ impl<'a> Meter<'a> {
     fn new(id: &'a str, terminal: bool) -> Self {
         Self {
             id,
+            message: Message::CliModelsPullProgress,
             terminal,
             drawn: None,
             quarter: None,
@@ -632,9 +837,10 @@ impl<'a> Meter<'a> {
         let percent = percent(progress.done_bytes, progress.total_bytes);
         let line = || {
             run::say(
-                Message::CliModelsPullProgress,
+                self.message,
                 &args!(
                     "id" => self.id,
+                    "path" => self.id,
                     "done" => megabytes(progress.done_bytes),
                     "total" => megabytes(progress.total_bytes),
                     "percent" => percent.to_string(),
@@ -669,12 +875,16 @@ impl<'a> Meter<'a> {
     }
 }
 
-/// `models verify <id>`: every file hashed in full.
+/// `models verify <id>`: every file hashed in full — a model the person
+/// added against the sha256 recorded when it was added.
 pub(crate) fn verify(id: &str, io: &mut Io) -> Exit {
     let context = match Context::open(io) {
         Ok(context) => context,
         Err(exit) => return exit,
     };
+    if let Some(model) = context.added(id).cloned() {
+        return verify_added(&context, &model, io);
+    }
     let entry = match context.entry(id, io) {
         Ok(entry) => entry,
         Err(exit) => return exit,
@@ -735,6 +945,9 @@ pub(crate) fn rm(id: &str, io: &mut Io) -> Exit {
         Ok(context) => context,
         Err(exit) => return exit,
     };
+    if let Some(exit) = context.not_downloadable(id, io) {
+        return exit;
+    }
     let entry = match context.entry(id, io) {
         Ok(entry) => entry,
         Err(exit) => return exit,
@@ -810,6 +1023,414 @@ pub(crate) fn rm(id: &str, io: &mut Io) -> Exit {
             Exit::Usage
         }
     }
+}
+
+/// `models verify <id>` of a model the person added (U5): its file read in
+/// full against the sha256 recorded when it was added.
+fn verify_added(context: &Context, model: &UserModel, io: &mut Io) -> Exit {
+    let id = model.id.as_str();
+    let path = model.entry.path.display().to_string();
+    let (message, exit) = match context.downloads.recheck_user(&model.entry).state {
+        UserState::Present => (
+            run::say(Message::CliModelsVerifyUserOk, &args!("id" => id)),
+            Exit::Clean,
+        ),
+        UserState::Changed => (
+            run::say(
+                Message::CliModelsVerifyUserChanged,
+                &args!("id" => id, "path" => path),
+            ),
+            Exit::Findings,
+        ),
+        UserState::Missing => (
+            run::say(
+                Message::CliModelsVerifyUserMissing,
+                &args!("id" => id, "path" => path),
+            ),
+            Exit::Findings,
+        ),
+        // Not read is not verified.
+        UserState::Unreadable(reason) => {
+            say_err(
+                io,
+                &run::say(
+                    Message::CliModelsVerifyUserUnreadable,
+                    &args!("id" => id, "path" => path, "reason" => reason),
+                ),
+            );
+            tracing::warn!(
+                command = "models verify",
+                added = true,
+                exit = 3,
+                "not done"
+            );
+            return Exit::Partial;
+        }
+    };
+    tracing::info!(
+        command = "models verify",
+        added = true,
+        exit = exit as u8,
+        "done"
+    );
+    say_out(io, &message).map_or_else(|exit| exit, |()| exit)
+}
+
+/// Why a file is not offered, in the reader's language — the window's
+/// sentences, shared.
+fn not_offered(why: NotOffered) -> String {
+    run::say(
+        match why {
+            NotOffered::Projector => Message::ModelsNotOfferedProjector,
+            NotOffered::Adapter => Message::ModelsNotOfferedAdapter,
+            NotOffered::NoWeights => Message::ModelsNotOfferedNoWeights,
+            NotOffered::NotAWriter => Message::ModelsNotOfferedNotAWriter,
+            NotOffered::NoChatTemplate => Message::ModelsNotOfferedNoChatTemplate,
+        },
+        &FluentArgs::new(),
+    )
+}
+
+/// The rows a model the person added is written to (D404) — or the refusal
+/// that names the application: no database is not created, and one at
+/// another schema is not migrated.
+fn rows_of(context: &Context, io: &mut Io) -> Result<wipemark_store::RowsWriter, Exit> {
+    let path = context.db.display().to_string();
+    match wipemark_store::RowsWriter::open(&context.db, user::KEY_PREFIX) {
+        Ok(Some(writer)) => Ok(writer),
+        Ok(None) => {
+            say_err(
+                io,
+                &run::say(Message::CliModelsAddNoDatabase, &args!("path" => path)),
+            );
+            tracing::warn!(command = "models", exit = 2, "no database");
+            Err(Exit::Usage)
+        }
+        Err(error) => {
+            say_err(
+                io,
+                &run::say(
+                    Message::CliModelsAddDatabase,
+                    &args!("path" => path, "reason" => error.to_string()),
+                ),
+            );
+            tracing::warn!(
+                command = "models",
+                exit = 2,
+                "the database is not this build's"
+            );
+            Err(Exit::Usage)
+        }
+    }
+}
+
+/// `models add <path> [--name] [--role] [--ctx]` (U5): the header read, the
+/// name, purpose and context checked, the file hashed once and its row
+/// written — the id printed. Every refusal is exit 2 and writes nothing.
+pub(crate) fn add(
+    path: &Path,
+    name: Option<&str>,
+    role: &str,
+    ctx: Option<u32>,
+    io: &mut Io,
+) -> Exit {
+    let context = match Context::open(io) {
+        Ok(context) => context,
+        Err(exit) => return exit,
+    };
+    let refuse = |io: &mut Io, line: String| {
+        say_err(io, &line);
+        tracing::warn!(command = "models add", exit = 2, "refused");
+        Exit::Usage
+    };
+    let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let shown = path.display().to_string();
+
+    let Some(role) = Role::parse(role).filter(|role| *role == Role::Rewrite) else {
+        return refuse(
+            io,
+            run::say(Message::CliModelsAddRole, &args!("role" => role)),
+        );
+    };
+    let header = match Header::read(&path) {
+        Ok(header) => header,
+        Err(GgufError::NotGguf) => {
+            return refuse(
+                io,
+                run::say(
+                    Message::CliModelsAddNotOffered,
+                    &args!(
+                        "path" => shown.as_str(),
+                        "why" => run::say(Message::ModelsNotOfferedNotGguf, &FluentArgs::new()),
+                    ),
+                ),
+            )
+        }
+        Err(error) => {
+            return refuse(
+                io,
+                run::say(
+                    Message::CliModelsAddUnreadable,
+                    &args!("path" => shown.as_str(), "reason" => error.to_string()),
+                ),
+            )
+        }
+    };
+    let file_name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if let Offer::Not(why) = header.offer(&file_name) {
+        return refuse(
+            io,
+            run::say(
+                Message::CliModelsAddNotOffered,
+                &args!("path" => shown.as_str(), "why" => not_offered(why)),
+            ),
+        );
+    }
+    let name = match name {
+        Some(name) => name.trim().to_owned(),
+        None => header
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty() && user::typeable_name(name))
+            .map_or_else(
+                || {
+                    file_name
+                        .strip_suffix(".gguf")
+                        .unwrap_or(&file_name)
+                        .chars()
+                        .take(user::LONGEST_NAME)
+                        .collect()
+                },
+                str::to_owned,
+            ),
+    };
+    if name.is_empty() || !user::typeable_name(&name) {
+        return refuse(
+            io,
+            run::say(
+                Message::CliModelsAddName,
+                &args!("max" => user::LONGEST_NAME.to_string()),
+            ),
+        );
+    }
+    let bounds = user::ctx_bounds(header.context_length);
+    let ctx = ctx.unwrap_or_else(|| user::default_ctx(header.context_length));
+    if !(bounds.0..=bounds.1).contains(&ctx) {
+        return refuse(
+            io,
+            run::say(
+                Message::CliModelsAddCtx,
+                &args!(
+                    "ctx" => ctx.to_string(),
+                    "min" => bounds.0.to_string(),
+                    "max" => bounds.1.to_string(),
+                ),
+            ),
+        );
+    }
+    let writer = match rows_of(&context, io) {
+        Ok(writer) => writer,
+        Err(exit) => return exit,
+    };
+    // One row for one file (D405): a file already added is added again
+    // under its id.
+    let known: Vec<UserModel> = writer
+        .all()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(key, value)| UserModel::of_row(&key, value)?.ok())
+        .collect();
+    let replacing = known
+        .iter()
+        .find(|model| model.entry.path == path)
+        .map(|model| model.id.clone());
+
+    let identified = match hash_with_meter(&context, &path, io) {
+        Ok(identified) => identified,
+        Err(error) => {
+            return refuse(
+                io,
+                run::say(
+                    Message::CliModelsAddHashFailed,
+                    &args!("path" => shown.as_str(), "reason" => error.to_string()),
+                ),
+            )
+        }
+    };
+    let id = replacing
+        .clone()
+        .unwrap_or_else(|| user::id_for(&name, |id| known.iter().any(|model| model.id == id)));
+    let model = UserModel {
+        id: id.clone(),
+        entry: user::UserEntry {
+            name: name.clone(),
+            roles: vec![role],
+            ctx,
+            path: path.clone(),
+            size_bytes: identified.size_bytes,
+            sha256: identified.sha256,
+            identity: identified.identity,
+            architecture: header.architecture.clone(),
+            parameters: header.parameters(&file_name),
+            quant: header.quant(&file_name),
+            trained_ctx: header.context_length,
+            kv: header.kv_shape(),
+            added_at: user::now(),
+        },
+    };
+    if let Err(why) = model.entry.check() {
+        return refuse(
+            io,
+            run::say(
+                Message::CliModelsAddHashFailed,
+                &args!("path" => shown.as_str(), "reason" => why),
+            ),
+        );
+    }
+    if let Err(error) = writer.set(&model.key(), &model.entry) {
+        return refuse(
+            io,
+            run::say(
+                Message::CliModelsAddDatabase,
+                &args!("path" => context.db.display().to_string(), "reason" => error.to_string()),
+            ),
+        );
+    }
+    tracing::info!(
+        command = "models add",
+        again = replacing.is_some(),
+        exit = 0,
+        "done"
+    );
+    let line = run::say(
+        if replacing.is_some() {
+            Message::CliModelsAddAgain
+        } else {
+            Message::CliModelsAddDone
+        },
+        &args!("id" => id.as_str(), "path" => shown.as_str(), "name" => name.as_str()),
+    );
+    let chat = match wipemark_engine::chat_support(header.chat_template.as_deref()) {
+        wipemark_engine::ChatSupport::Supported { family } => run::say(
+            Message::SettingsModelsAddChatSupported,
+            &args!("family" => family),
+        ),
+        wipemark_engine::ChatSupport::Refused(wipemark_engine::ChatRefusal::NoTemplate) => {
+            run::say(Message::SettingsModelsAddChatNoTemplate, &FluentArgs::new())
+        }
+        wipemark_engine::ChatSupport::Refused(wipemark_engine::ChatRefusal::Unrecognised) => {
+            run::say(
+                Message::SettingsModelsAddChatUnrecognised,
+                &FluentArgs::new(),
+            )
+        }
+        wipemark_engine::ChatSupport::NotBuilt => {
+            run::say(Message::SettingsModelsAddChatNotBuilt, &FluentArgs::new())
+        }
+    };
+    say_err(io, &chat);
+    say_out(io, &line).map_or_else(|exit| exit, |()| Exit::Clean)
+}
+
+/// Hash `path` in full on a thread of its own, the progress on stderr the
+/// way `pull` shows a download's.
+fn hash_with_meter(
+    context: &Context,
+    path: &Path,
+    io: &mut Io,
+) -> Result<user::Identified, StoreError> {
+    let store = Arc::new(Downloads::new(
+        &context.place.folder,
+        context.downloads.records_dir(),
+    ));
+    let (sink, heard) = flume::unbounded();
+    store.watch_hashes(sink);
+    let worker = {
+        let store = Arc::clone(&store);
+        let read = path.to_path_buf();
+        std::thread::Builder::new()
+            .name("wipemark-cli-add".to_owned())
+            .spawn(move || store.identify(&read))
+            .map_err(|source| StoreError::Io {
+                path: path.to_path_buf(),
+                source,
+            })?
+    };
+    let shown = path.display().to_string();
+    let mut meter = Meter::new(&shown, std::io::stderr().is_terminal());
+    meter.message = Message::CliModelsAddProgress;
+    while !worker.is_finished() {
+        if let Ok(wipemark_models::Hashing::Progress {
+            done_bytes,
+            total_bytes,
+            ..
+        }) = heard.recv_timeout(Duration::from_millis(200))
+        {
+            meter.show(
+                &Progress {
+                    file: String::new(),
+                    done_bytes,
+                    total_bytes,
+                    file_index: 1,
+                    file_count: 1,
+                },
+                &mut io.stderr,
+            );
+        }
+    }
+    meter.finish(&mut io.stderr);
+    worker.join().unwrap_or(Err(StoreError::Cancelled))
+}
+
+/// `models forget <id>` (U5): the row of a model the person added, and
+/// never its file.
+pub(crate) fn forget(id: &str, io: &mut Io) -> Exit {
+    let context = match Context::open(io) {
+        Ok(context) => context,
+        Err(exit) => return exit,
+    };
+    if context.catalogue.get(id).is_some() {
+        say_err(
+            io,
+            &run::say(Message::CliModelsForgetCatalogue, &args!("id" => id)),
+        );
+        tracing::warn!(command = "models forget", exit = 2, "a catalogue id");
+        return Exit::Usage;
+    }
+    let Some(model) = context.added(id).cloned() else {
+        return context.unknown(id, io);
+    };
+    let writer = match rows_of(&context, io) {
+        Ok(writer) => writer,
+        Err(exit) => return exit,
+    };
+    if let Err(error) = writer.delete(&model.key()) {
+        say_err(
+            io,
+            &run::say(
+                Message::CliModelsAddDatabase,
+                &args!("path" => context.db.display().to_string(), "reason" => error.to_string()),
+            ),
+        );
+        return Exit::Usage;
+    }
+    let mut lines = vec![run::say(
+        Message::CliModelsForgetDone,
+        &args!(
+            "id" => id,
+            "name" => model.entry.name.as_str(),
+            "path" => model.entry.path.display().to_string(),
+        ),
+    )];
+    if context.place.chosen.as_deref() == Some(id) {
+        lines.push(run::say(Message::CliModelsRmChosen, &FluentArgs::new()));
+    }
+    tracing::info!(command = "models forget", exit = 0, "done");
+    say_out(io, &lines.join("\n")).map_or_else(|exit| exit, |()| Exit::Clean)
 }
 
 #[cfg(test)]

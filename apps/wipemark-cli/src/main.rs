@@ -231,6 +231,18 @@ enum ModelsAction {
     Rm {
         id: String,
     },
+    Add {
+        model_path: PathBuf,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, default_value = "rewrite")]
+        role: String,
+        #[arg(long)]
+        ctx: Option<u32>,
+    },
+    Forget {
+        id: String,
+    },
 }
 
 /// The tactics' ids, as `--tactic` takes them — every one of
@@ -254,7 +266,7 @@ const TACTICS: [&str; 5] = [
 /// is set per subcommand: `inspect`, `clean` and `rewrite` take `-` for
 /// stdin and `audit` takes a folder, and help that offered it everywhere
 /// would be help that lies.
-const ARGUMENT_HELP: [(&str, Message); 20] = [
+const ARGUMENT_HELP: [(&str, Message); 24] = [
     ("path", Message::CliArgPath),
     ("out", Message::CliArgOut),
     ("in_place", Message::CliArgInPlace),
@@ -275,6 +287,10 @@ const ARGUMENT_HELP: [(&str, Message); 20] = [
     ("sarif", Message::CliArgSarif),
     ("record", Message::CliArgRecord),
     ("no_record", Message::CliArgNoRecord),
+    ("model_path", Message::CliArgModelPath),
+    ("name", Message::CliArgName),
+    ("role", Message::CliArgRole),
+    ("ctx", Message::CliArgCtx),
 ];
 
 /// Put one command's own description, its arguments' help and the frame
@@ -413,6 +429,8 @@ fn command() -> Command {
                 .mut_subcommand("pull", |c| localized(c, Message::CliCommandModelsPull))
                 .mut_subcommand("verify", |c| localized(c, Message::CliCommandModelsVerify))
                 .mut_subcommand("rm", |c| localized(c, Message::CliCommandModelsRm))
+                .mut_subcommand("add", |c| localized(c, Message::CliCommandModelsAdd))
+                .mut_subcommand("forget", |c| localized(c, Message::CliCommandModelsForget))
         })
 }
 
@@ -594,6 +612,13 @@ fn main() -> ExitCode {
         Action::Models(ModelsAction::Pull { id }) => models::pull(id, io),
         Action::Models(ModelsAction::Verify { id }) => models::verify(id, io),
         Action::Models(ModelsAction::Rm { id }) => models::rm(id, io),
+        Action::Models(ModelsAction::Add {
+            model_path,
+            name,
+            role,
+            ctx,
+        }) => models::add(model_path, name.as_deref(), role, *ctx, io),
+        Action::Models(ModelsAction::Forget { id }) => models::forget(id, io),
         Action::Rewrite {
             path,
             out,

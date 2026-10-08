@@ -43,8 +43,11 @@ it in E7). Layer A itself is `docs/architecture/layer-a.md`.
 | `audit --json` / `--sarif` | as above | one JSON value / one SARIF 2.1.0 log | refusal |
 | `models list [--json]` | 0 · 3 (the folder exists and cannot be read) | the catalogue and the folder | the folder's error |
 | `models pull <id>` | 0 (present, or downloaded and verified) · 2 (unknown id, no room, mismatch, cancelled, any failure) | where the weights are | progress, refusal |
-| `models verify <id>` | 0 (every byte hashed and matching) · **1** (absent or not matching) · 2 (unknown id) · 3 (could not be read) | the verdict | refusal |
-| `models rm <id>` | 0 (removed, or nothing to remove) · 2 (unknown id, could not remove) | what was removed, and what the application will show | refusal |
+| `models verify <id>` | 0 (every byte hashed and matching — a model you added against the sha256 recorded when it was added) · **1** (absent or not matching) · 2 (unknown id) · 3 (could not be read) | the verdict | refusal |
+| `models pull <id>` of a model you added | 2 (nothing to download) | — | refusal |
+| `models rm <id>` | 0 (removed, or nothing to remove) · 2 (unknown id, a model you added, could not remove) | what was removed, and what the application will show | refusal |
+| `models add <path> [--name] [--role] [--ctx]` | 0 (read in full and recorded) · 2 (not a GGUF, not a model that writes text, a name, purpose or context refused, no database or not this build's schema, the file could not be read) | `<id>: …` — the id, the file, the name | the chat-format verdict, progress, refusal |
+| `models forget <id>` | 0 (the row removed; the file never) · 2 (unknown id, a catalogue id, no database or not this build's schema) | what was forgotten, and what the application will show | refusal |
 | `rewrite <path\|->` | 0 (every paragraph rewritten, no Layer A findings in the input) · 1 (every paragraph rewritten, findings in the input — cleaned, D31) · 2 (no engine that may answer, a tactic not run here, a template that breaks a rule, a job that failed, was cancelled or lost its connection; nothing written) · **3 when any paragraph kept its cleaned original, findings or not** — and when the result could not be written | the report (the text with `-o -` or stdin) | price and progress on a terminal, who rewrote it, refusal |
 | `rewrite --json` | as above | `{"report","written"\|"text","served_by"}` | who rewrote it, refusal |
 
@@ -309,7 +312,7 @@ typed.
   rendered with `PlainText`. A rule description that changed with the
   locale of the CI runner would be a rule nobody could match.
 
-## `models list | pull <id> | verify <id> | rm <id>`
+## `models list | pull <id> | verify <id> | rm <id> | add <path> | forget <id>`
 
 The catalogue (`manifests/models.v1.json`, compiled in) and the
 downloader of `wipemark-models`, without the window.
@@ -321,8 +324,13 @@ downloader of `wipemark-models`, without the window.
 left in the row — and `models.rewrite`, which counts only while the
 catalogue has the id and it serves `rewrite`. The rules are
 `apps/wipemark-app/src/config.rs`'s, restated because the CLI may not
-depend on the application; the keys are formats. The CLI writes no row,
-ever.
+depend on the application; the keys are formats. The CLI writes no row
+but the models the person adds — below, and D404.
+
+**Models you added (E8-1, [user-models.md](user-models.md)).** The rows
+`models.user.<id>` are read with the others. `models.rewrite` also counts
+when it names one of them that serves `rewrite`; a row naming one since
+forgotten reads as nothing chosen.
 
 **`list [--json]`.** Every entry: id, name, roles, size, the state on
 this machine (`present` — every file matches, **wherever under the folder
@@ -405,7 +413,45 @@ application will show no model chosen until another is picked — and
 leaves the row alone.
 
 An id not in the catalogue is refused at 2 by name, with the ids it has,
-for every subcommand that takes one.
+for every subcommand that takes one — the catalogue's and, once somebody
+has added a model, those too.
+
+**`add <path> [--name <s>] [--role rewrite] [--ctx <n>]`** (U5). The
+file's GGUF header is read — never a tensor — and what is not a model that
+writes text is refused at 2 with the window's own one-line reason (a
+projector, an adapter, no weights, an encoder or speech model, no chat
+template, not a GGUF). The name is `--name`, or the file's own
+`general.name`, or its name without `.gguf`; the purpose is `rewrite`, the
+only one this version adds for; the context is `--ctx`, or the smaller of
+the trained window and 8192, and must lie between 2048 (or the window) and
+the window. Then the **database**: the rows are written through
+`wipemark_store::RowsWriter`, which never creates and never migrates one —
+no `wipemark.db` yet, or one at another schema than this build's, is exit 2
+with a sentence that names the application (D404). The file is hashed in
+full on a thread of its own, the progress on stderr as `pull`'s is, and the
+row written; stdout says `<id>: <path> was added as <name>…` and that
+Wipemark cannot vouch for what the model is, stderr the chat-format
+verdict (supported, or why loading it would be refused). A file already
+added is added **again** under its id (D405), and says so. Nothing is
+written beside the file, and the file is never moved or copied.
+
+**`forget <id>`.** The row of a model you added goes; the file never does
+(Wipemark did not download it). A catalogue id is refused at 2 ("rm removes
+a download of it"); forgetting the chosen model says what the application
+will show and leaves `models.rewrite` alone, as `rm` does. `pull` and `rm`
+of a model you added are refused at 2: there is nothing to download and
+nothing Wipemark may delete.
+
+**`list` and `verify` of a model you added.** `list` adds each one after
+the catalogue's — `"source": "user"` in `--json` (the catalogue's entries
+carry `"source": "catalogue"`), with `path`, `ctx`, `estimate_mb`,
+`sha256` and `state` (`present`, `changed`, `missing`, `unreadable` with a
+`reason`), the fit judged on the estimate; in prose, "added by you: *path*".
+A model's state is looked at as the application looks at it — its record
+trusted while its identity holds (D401) — and the command writes nothing,
+not even a moved identity. Its file is not listed again among the folder's
+strangers. `verify` reads its file in full against the sha256 recorded when
+it was added: 0, 1 when it changed or is gone, 3 when it could not be read.
 
 ## Logs
 
@@ -447,7 +493,12 @@ application — the endpoint's road (`duty`, profiles, the default-deny of
 `engine::refusal`, the key) lives in the application crate. Otherwise the
 model `models.rewrite` names, verified whole, is loaded by `LocalEngine`
 — in a build with `local-llama`; without it the refusal is "this build
-has no local engine". Never `FakeEngine`.
+has no local engine". Never `FakeEngine`. A model you added (E8-1) is
+loaded the same way at its own context while its file is the one that was
+added; a file that changed or is gone is refused at 2 by name, naming
+`models verify` (`rewrite_refuses_an_added_model_whose_file_changed`). A
+model whose chat format this build does not write is refused by name when
+it is loaded (D407).
 
 **Arguments.** `--tactic` takes every tactic's id and refuses
 `structural` (a window's, behind a confirmation) and `code` (not built)

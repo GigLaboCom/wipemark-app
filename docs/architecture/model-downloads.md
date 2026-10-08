@@ -16,12 +16,29 @@ state it can be in.
 
 ## What ships, and why those two
 
-| entry | download | needs | license |
-|---|---|---|---|
-| `gemma-3-12b-it-qat-ud-q4` | 7.4 GB | ~9216 MB | gemma |
-| `qwen3-4b-instruct-2507-ud-q4` | 2.5 GB | ~4608 MB | apache-2.0 |
+| entry | download | needs | license | tier |
+|---|---|---|---|---|
+| `qwen3.8-27b-ud-iq3s` | 12.0 GB | ~14336 MB | apache-2.0 | 10 |
+| `gemma-4-12b-it-qat-ud-q4` | 6.7 GB | ~8704 MB | gemma | 9 |
+| `gemma-3-12b-it-qat-ud-q4` | 7.4 GB | ~9216 MB | gemma | 8 |
+| `qwen3-4b-instruct-2507-ud-q4` | 2.5 GB | ~4608 MB | apache-2.0 | 5 |
 
-Two, not one, and not six. The point of the pair is that a 12 GB
+Since E8-1 (U6, D403) the catalogue also carries the two models the owner
+runs: **Qwen3.8 27B UD-IQ3_S** and **Gemma 4 12B it QAT UD-Q4_K_XL**,
+from the figures E2-4 measured (`docs/plan/reports/E2-4-2026-10-04.md`,
+"Catalogue entries the coordinator would need"), their sha256 and sizes
+re-read off Hugging Face's metadata at the pinned commits — Gemma 4 at
+`f18012b8`, the owner's file, not the later re-upload. Gemma 4 12B's
+memory is chosen rather than computed (the header-based estimate counts its
+sliding layers at the full window); its `notes` say how. With Qwen3.8 at
+the top, "the best entry this machine has room for" is no longer the
+catalogue's best on every roomy machine: an 18 GB Mac holds Qwen3.8 only
+tightly and is offered Gemma 4 12B, a 64 GB box is offered Qwen3.8
+(`a_constrained_machine_is_offered_the_small_model`, restated). A model the
+catalogue does not have can be **added** by the person —
+[user-models.md](user-models.md).
+
+The two original entries were two, not one, and not six. The point of the pair is that a 12 GB
 machine and a workstation are each offered something they can run,
 rather than the same thing with a warning beside it — the smaller one is
 chosen because the larger does not fit, never because it is better.
@@ -501,12 +518,14 @@ any file: recognition is by extension, and the list says so. The
 catalogue's own downloads are found by the same walk and subtracted
 (`Folder::from_listing`), whatever state they are in — a damaged
 download is still the catalogue's and belongs on its card, not in the
-list of strangers. What is left is **listed and nothing more**, under
-"Also in this folder": where under the folder, how big, and the
-sentence that nothing here can verify a file the catalogue has no
-checksum for and nothing loads one yet. There is no button, because
-there is nothing this build can do with one, and a card with no action
-looks broken. The banner carries the folder and the count in every
+list of strangers; so are the models the person added (E8-1), which have
+cards of their own. What is left is listed under "Also in this folder":
+where under the folder and how big — and, since E8-1, each GGUF's header
+read for what it is: a chat model offers **Add as a model…**, and anything
+else says in one line why it is not offered (a projector, an adapter, no
+weights, an encoder or speech model, no chat template — D408). Nothing
+here verifies or loads a file until it is added; see
+[user-models.md](user-models.md). The banner carries the folder and the count in every
 state once the scan has answered
 (`the_banner_names_the_folder_once_it_has_been_read`), so an empty
 folder is described rather than silently missing a section.

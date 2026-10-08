@@ -39,6 +39,13 @@ rather than an error — see the note on `Manifest::parse`.
 }
 ```
 
+### `id` — a plain name, and never `user-…`
+
+A plain directory name (no `/`, no `..`, no leading dot). It never begins
+with `user-`: that prefix names a model the person added from a file
+(E8-1, D400), and `models.rewrite` must name exactly one of the two —
+`Manifest::parse` refuses it (`a_catalogue_id_never_reads_as_a_model_the_person_added`).
+
 ### `roles` — the purpose classification
 
 A model serves a *purpose*, and some models serve two, so this is a list
