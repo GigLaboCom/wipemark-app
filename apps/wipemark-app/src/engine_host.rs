@@ -741,6 +741,22 @@ impl EngineHandle {
         Arc::ptr_eq(&self.shared, &other.shared)
     }
 
+    /// Say the engine in the slot sends a document to `whereto` — for a
+    /// test of a surface whose fake engine stands for an endpoint.
+    #[cfg(test)]
+    pub fn sending_to(&self, whereto: Option<Whereto>) {
+        let _slot = self
+            .shared
+            .slot
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        *self
+            .shared
+            .whereto
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = whereto;
+    }
+
     /// A handle with `engine` on duty and no host behind it, and what it
     /// would tell a host — for a test of a surface that only needs
     /// something to ask.

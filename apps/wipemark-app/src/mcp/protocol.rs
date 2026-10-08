@@ -957,6 +957,9 @@ fn unrun_said(unrun: &Unrun) -> String {
         Unrun::Paused => "the application's rewrites are paused; resume them in its window \
                           and call again"
             .to_owned(),
+        Unrun::Asking => "the application's rewrites wait for an answer in its window about \
+                          where a waiting document may be sent; answer it there and call again"
+            .to_owned(),
         Unrun::Pushed(why) => format!(
             "the application's queue would not take it: {}",
             spelled(&why.to_string())
@@ -3078,6 +3081,71 @@ pub(crate) mod tests {
         assert!(said.contains("removed"), "{said}");
         let row = &work.journal.rows()[0];
         assert_eq!(row.state, "cancelled", "{row:?}");
+    }
+
+    /// D373 (L-d): an agent's call queued behind a window item the queue
+    /// stops to ask about (D361) is refused as soon as the question is put —
+    /// never left waiting on a person, with a ceiling that counts from a
+    /// start that may never come. A call made while the question stands is
+    /// refused before anything is queued.
+    #[test]
+    fn a_call_behind_a_question_is_refused_rather_than_left_waiting() {
+        let slow = FakeEngine::answering(|req, _| swapped(req))
+            .with_token_delay(std::time::Duration::from_millis(20));
+        let (services, work) = working(slow);
+        let away = wipemark_queue::Whereto::Away("https://y.example.com".to_owned());
+        work.engine.sending_to(Some(away.clone()));
+        let request = |text: String| wipemark_queue::Request {
+            source: wipemark_queue::Source::Text(text),
+            format: wipemark_pipeline::prepare::TextFormat::Plain,
+            destination: wipemark_queue::Destination::Row,
+            options: wipemark_pipeline::Options::for_executor(
+                wipemark_pipeline::cost::Executor::LocalCpu,
+            ),
+        };
+        // The window's: one running a while, and one consented to stay on
+        // this machine behind it, which the queue will stop to ask about.
+        work.queue
+            .push(request(PARAGRAPH.repeat(3)))
+            .expect("pushed");
+        let consented = request(PARAGRAPH.to_owned());
+        let id = work.queue.reserve(&consented).expect("reserved");
+        work.queue
+            .push_reserved(id, consented, Some(wipemark_queue::Whereto::Here))
+            .expect("pushed");
+
+        let call = |services: &Services| {
+            let (answer, answered) = std::sync::mpsc::channel();
+            let calling = services.clone();
+            std::thread::spawn(move || {
+                let arguments = format!(r#"{{"text":{}}}"#, json!(PARAGRAPH));
+                let _ = answer.send(call_with(&calling, "rewrite", &arguments, ""));
+            });
+            answered
+        };
+        let refused = |response: Value| {
+            let result = &response["result"];
+            assert_eq!(result["isError"], json!(true), "{response}");
+            let said = result["content"][0]["text"].as_str().expect("a sentence");
+            assert!(said.contains("answer it there"), "{said}");
+        };
+        let behind = call(&services);
+        refused(
+            behind
+                .recv_timeout(std::time::Duration::from_secs(30))
+                .expect("the call was left waiting behind a question"),
+        );
+        assert_eq!(
+            work.queue.asking().map(|asking| asking.now),
+            Some(away),
+            "the question is the window's to answer"
+        );
+        let while_asked = call(&services);
+        refused(
+            while_asked
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("a call made while the question stands was left waiting"),
+        );
     }
 
     /// D356: the path `_meta` names is kept as a caller's word — shown,
