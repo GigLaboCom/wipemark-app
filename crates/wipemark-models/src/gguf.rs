@@ -1006,10 +1006,21 @@ mod tests {
     #[test]
     fn a_header_cut_short_anywhere_is_refused() {
         let whole = synthetic_chat_model("qwen3", "Q", Some(CHATML));
-        assert!(read(&whole).is_ok());
-        for cut in 8..whole.len() {
-            let error = read(&whole[..cut]).expect_err("a cut header");
-            assert_eq!(error, GgufError::Truncated, "cut at {cut}");
+        // And one whose last value is one the reader steps over rather
+        // than reads: a step past the end is a cut too, never a header.
+        let stepped = synthetic(
+            1,
+            &[
+                ("general.architecture", Meta::Text("llama")),
+                ("general.description", Meta::Text("a value nobody keeps")),
+            ],
+        );
+        for whole in [whole, stepped] {
+            assert!(read(&whole).is_ok());
+            for cut in 8..whole.len() {
+                let error = read(&whole[..cut]).expect_err("a cut header");
+                assert_eq!(error, GgufError::Truncated, "cut at {cut}");
+            }
         }
     }
 

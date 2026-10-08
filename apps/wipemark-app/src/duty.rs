@@ -956,12 +956,13 @@ mod tests {
                 },
             });
             self.chosen.insert(Role::Rewrite, ADDED.to_owned());
-            let whole = matches!(state, State::Present { .. });
+            // A path beside every state: a path under any state but
+            // `Present` is one the duty must not hand out.
             self.on_disk.insert(
                 ADDED.to_owned(),
                 OnDisk {
                     state,
-                    weights: whole.then(|| PathBuf::from("/elsewhere/gemma-4-12b.gguf")),
+                    weights: Some(PathBuf::from("/elsewhere/gemma-4-12b.gguf")),
                 },
             );
             self

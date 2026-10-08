@@ -10613,6 +10613,8 @@ mod tests {
 
         let id = preferences.read_with(cx, |preferences, _| {
             assert_eq!(preferences.add_failed(), None);
+            // D406: adding is not choosing.
+            assert_eq!(preferences.rewrite_model(), None, "an add chose the model");
             let added = preferences.added_models();
             assert_eq!(added.len(), 1, "{added:?}");
             assert_eq!(added[0].id, "user-mine");
