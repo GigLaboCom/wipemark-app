@@ -483,6 +483,26 @@ thread. The handle (`push`, `pause`, `resume`, `cancel`, `remove`,
 `items`, `events`, `result`, `shutdown`) sends commands and returns: every
 statement, file read and write is on that thread. The constructors and
 `result` read rows, so a window calls them off its foreground thread.
+`paused`, `held`, `asking` and `states` answer from memory — the thread
+keeps them as it changes them — so a window may ask on every frame (D359).
+
+- **Reserve, then push** (D358). `reserve` checks a request and hands out
+  its id without pushing it; `push_reserved` pushes it under that id. A
+  surface that writes its own row naming the item does so between the two,
+  so nothing the item says can end before the row names it. `push` is the
+  two at once.
+- **Consent** (D361). `push_reserved` takes where the pusher agreed the
+  document may go (`Whereto::Here` or `Whereto::Away(origin)`; `None` for a
+  caller's item), stored beside the request as the item row's `consent`
+  key. Before an item with one starts, the queue asks its `EngineSource`
+  where an engine handed out now would send it (`EngineSource::whereto`,
+  `None` by default — never asks); an endpoint other than the consented one
+  holds the queue with `QueueEvent::Ask`, once per question, until
+  `agree(now)`. A duty change (`engine_changed`), Resume, or the item's
+  cancel or removal drops the question, and the next item is asked afresh.
+- **Removed is an end for whoever waits** (D355). `QueueEvent::Removed`
+  is the last word of an item taken away before it ended; the MCP call
+  that waits for one answers on it.
 
 - **One at a time, oldest first.** Ids come from `AUTOINCREMENT` and are
   never reused; the handle allocates them so `push` returns at once.

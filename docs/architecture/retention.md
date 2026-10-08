@@ -238,7 +238,12 @@ after a restart too. Beside the file a rewrite is `name.rewritten.ext`
 same name there; in place with the original set aside; a paste's rewrite
 stays in the queue's row. `retention::rewrite_destination` is the map, and
 `every_plan_is_a_rewrite_destination` its gate. The page's banner says
-both rules.
+both rules. A new file's name already taken is found when the rewrite is
+pushed, not after the job (D357): the row is refused at once and Replace
+the existing result offered, as a clean's is (D261, D270); the publish's
+own refusal (D284) still covers a file that appears while the job runs.
+The command line's default `name.rewritten.ext` refuses one the same way
+(D362).
 
 `clean::clean_one` is the one road from a plan to the disk, run on the
 background executor, one clean at a time across the application: the

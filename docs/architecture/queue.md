@@ -248,7 +248,31 @@ the same name in the results folder — each a *new* file, refused where one
 is already (`Destination::New`, D261, D319), with Replace the existing
 result for that one file — in place with the original set aside, or, for a
 thing with no file behind it, the queue's row (`Destination::Row`), shown
-and copied from there until the row is removed. That is the deliberate
+and copied from there until the row is removed. A file already where the
+result would go is found **when the row is pushed** (D357), off the GPUI
+thread with the rest of the build: the row is *Rewrite failed* at once, its
+tooltip naming the file, nothing is pushed and nothing runs, and Replace the
+existing result pushes `Destination::File` for that one file. The publish
+still refuses a file that appears while the job runs (D284); that rewrite's
+text is not kept for a later Replace — the check at push makes the race a
+moment wide, and Replace runs the job again.
+
+**Consent at push, asked again at start** (D361). Every window push records
+where the person agreed the document may go — this machine, or an
+endpoint's origin — as the duty stood when they asked: a row's Rewrite,
+Rewrite all whose price said "here" or "sent away", a drop asked about once
+(В1). The engine is bound when each item starts, so the duty can move while
+items wait. Before an item starts on an endpoint other than the one it was
+consented to (here → away, or one origin → another), the queue **holds and
+asks once** (`QueueEvent::Ask`, the window's Confirm "Send the waiting
+documents to …?"): yes (`Queue::agree`) lets every waiting item go there;
+no leaves the queue holding — Resume, or another engine on duty, asks
+again. A duty that came back here asks nothing. An agent's or the command
+line's item carries no consent of the window's — its caller asked for it —
+and is never asked about. Where the duty would send a document is the main
+window's word, worked out from the preferences whenever they change
+(`journal::Going`), and the queue's engine source in the application
+(`journal::Duty`) says it. That is the deliberate
 asymmetry with a clean, whose plan is taken when it starts (D283): the
 queue executes what was stored, after a restart too.
 
@@ -258,7 +282,21 @@ rewritten* (a paragraph kept its cleaned original — the CLI's exit 3),
 *Rewrite failed*, *Rewrite cancelled*; the status bar says "Rewriting 2 of
 5 · paragraph 7 of 52", or why the line waits, after a model's load and a
 clean (D324). **Pause** and **Resume** are on the toolbar while anything
-is in the line — every surface's.
+is in the line — every surface's. What the toolbar and the status bar read
+on every frame is in memory (D359): whether the queue is paused is the
+queue handle's own flag, set by its thread, never a query on the shared
+connection, and the count of open items is `Queue::states` — ids and
+states, no stored report cloned.
+
+**Remove** on a row an agent or the command line is waiting for is greyed
+while its rewrite is queued or running, its reason under it (D355): Cancel
+ends the item and the caller is told. Should an item go anyway — removed
+by any road — the waiting call ends at once, as a refusal that says the
+document was removed, never a call left open until its ceiling.
+
+The Price, Send-away and consent questions are asked **one at a time, in
+the order they came** (D364): one that arrives while another is open waits
+its turn, and is never put in its place.
 
 ### "Process what arrives" (В1)
 
@@ -301,6 +339,20 @@ own number stays the element id (two id spaces). A row says who asked
   another thread is a wake the window's executor did not schedule.
 * **One row per document** (D320): cleaned and then rewritten is one row,
   whose action is the last asked.
+* **A row names its item before the item can start** (D358): a window's
+  rewrite is reserved an id (`Queue::reserve`), its row is written "queued"
+  with that id on the writer's thread, and only then is the item pushed
+  (`Queue::push_reserved`); an agent's call records its row between the
+  same two steps. Pushed first, an item that ended before the "queued"
+  landed lost its end and stayed queued for ever.
+* **A row is read back without waiting on its file** (D356). The journal's
+  rows are read by themselves; each new row's file is then looked at in a
+  task of its own, so a file that will not answer holds nothing else up
+  and the read always ends. A path that is not a regular file or a folder
+  — a FIFO, a terminal's `/dev/stdin`, a device — is never opened: the row
+  has nothing behind it. The command line records such a path as no file,
+  and a path an MCP client names in `_meta` is the row's `said_path`,
+  shown and never opened.
 * **It survives a restart** (В3). At launch (D317) a window clean left
   mid-way waits again — or, with no file behind it, goes, its text never
   having been kept — an agent's or the command line's rewrite still queued
@@ -308,7 +360,8 @@ own number stays the element id (two id spaces). A row says who asked
   window's rewrite is left for the queue to take up. **Remove** on a row,
   **Clear finished** on the toolbar, and **Keep finished rows** on the
   Retention page (`journal.keep_days`, a week by default) take rows away —
-  with the queue row of a result whose only home was the row.
+  with the queue row of a result whose only home was the row. The Arrived
+  column says the date before the time for a row from another day (D363).
 * **An agent's text** goes back to the agent and its queue row is removed
   the moment it has (D313).
 
