@@ -146,12 +146,13 @@ took: a chord the OS refused is invisible from the preference alone,
 and a user who has recorded one deserves to know before they press it
 from another application and nothing happens.
 
-`main::install_hotkeys` owns the registrar. It registers what is
-stored, observes `Preferences` and re-registers only when a chord has
+`main::install_hotkeys` owns the registrar. It asks for what is
+stored, observes `Preferences` and asks again only when a chord has
 actually moved (the old chord is released *first*, whatever the new one
 turns out to be — a change of mind that left the previous chord
-registered would fire on a key the row no longer shows), and writes the
-answer back with `Preferences::shortcut_registered`. A press comes back
+registered would fire on a key the row no longer shows), and writes
+each answer back with `Preferences::shortcut_registered` as it comes —
+on Linux from the registrar's own thread (below, B1). A press comes back
 over a `flume` channel and is performed on the GPUI side, the same
 arrangement as the tray and for the same reason: the callback the
 desktop calls has no `&mut App` in scope.
@@ -222,8 +223,23 @@ panel chord, Ctrl+Alt+D, is one of the keys bound to *Show desktop*
 (`org.gnome.desktop.wm.keybindings show-desktop`), so expect it to be
 refused there and record another — the ordinary case the line under
 the field exists for. A registration waits on the grab thread, which
-looks at its inbox every 50 ms, so assigning a chord can hold the GPUI
-thread for up to that long, at launch and when a chord is recorded.
+looks at its inbox every 50 ms, and then on the X server's round trips —
+so it is never asked from the GPUI thread (B1, 2026-10-08). On Linux
+the manager moves into a registrar thread of ours (`wipemark-hotkeys`,
+`Registrar::threaded`), fed by a `flume` channel: `Registrar::ask`
+returns at once, the thread performs the requests one at a time in the
+order they were asked — so the old chord is still released before the
+new one is asked for — and each answer comes back over
+`Registrar::answers`, which `main::install_hotkeys` polls from
+`cx.spawn` and writes to the page with
+`Preferences::shortcut_registered`. Until an answer comes the row keeps
+the one before it. macOS keeps asking on the main thread
+(`Road::Here`): Carbon's `RegisterEventHotKey` answers at once and
+belongs there, and its manager is not `Send`; its answers take the same
+channel, so `main` has one road for both. The ordering and the refusal
+are tested over a desktop double that holds every request
+(`asking_for_a_shortcut_never_waits_for_the_desktop`,
+`the_registrar_releases_the_old_chord_first_and_answers_in_order`).
 
 Windows wants a message loop on the registering thread (E10), and a
 Wayland session has no API this build uses; there `hotkey::install`

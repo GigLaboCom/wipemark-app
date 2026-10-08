@@ -870,6 +870,7 @@ cli-models-pull-cancelled = { $id }: abgebrochen. Das Heruntergeladene bleibt er
 cli-models-pull-mismatch = { $id }: { $file } entspricht nicht dem Katalog (erwartet sha256 { $expected }, erhalten { $actual }), wurde also verworfen, die Teildatei mit ihm. Nichts wurde installiert.
 cli-models-pull-no-room = { $id } braucht { $need } MB auf dem Volume mit { $path }, und { $free } MB sind frei. Nichts wurde heruntergeladen.
 cli-models-pull-failed = { $id } konnte nicht heruntergeladen werden: { $reason }. Das bisher Heruntergeladene bleibt erhalten; pull erneut ausführen, um fortzusetzen.
+cli-models-pull-occupied = { $id } wurde nicht heruntergeladen: { $path } ist keine Datei, die { -brand-name } heruntergeladen hat; sie bleibt, wie sie ist, und nichts wurde geholt. Verschieben Sie sie und führen Sie pull erneut aus.
 cli-models-verify-ok = { $id } entspricht dem Katalog: Jede Datei wurde vollständig gehasht.
 cli-models-verify-absent = { $id } liegt nicht auf diesem Rechner ({ $file } fehlt), entspricht also nicht dem Katalog.
 cli-models-verify-mismatch = { $id }: { $file } entspricht nicht dem Katalog (erwartet sha256 { $expected }, erhalten { $actual }). pull lädt die Datei erneut herunter.

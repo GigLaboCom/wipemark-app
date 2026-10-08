@@ -1482,6 +1482,7 @@ cli-models-pull-cancelled = { $id }: cancelled. What was downloaded is kept; run
 cli-models-pull-mismatch = { $id }: { $file } does not match the catalogue (expected sha256 { $expected }, got { $actual }), so it was thrown away, the partial file with it. Nothing was installed.
 cli-models-pull-no-room = { $id } needs { $need } MB on the volume holding { $path }, and { $free } MB is free. Nothing was downloaded.
 cli-models-pull-failed = { $id } could not be downloaded: { $reason }. What was downloaded so far is kept; run pull again to resume.
+cli-models-pull-occupied = { $id } was not downloaded: { $path } is not a file { -brand-name } downloaded, so it is left as it is and nothing was fetched. Move it away, then run pull again.
 cli-models-verify-ok = { $id } matches the catalogue: every file was hashed in full.
 cli-models-verify-absent = { $id } is not on this machine ({ $file } is missing), so it does not match the catalogue.
 cli-models-verify-mismatch = { $id }: { $file } does not match the catalogue (expected sha256 { $expected }, got { $actual }). pull downloads it again.

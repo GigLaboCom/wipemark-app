@@ -963,6 +963,7 @@ impl EngineHost {
             // stops the worker and waits for it to free the model, so the
             // process never reaches `exit` under a free (D96, E2-4).
             host.handle.set(Slot::Nothing);
+            host.loading = None;
             host.idle = None;
             async {}
         });
@@ -1210,6 +1211,11 @@ impl EngineHost {
         self.model = model;
         self.loaded = Loaded::No;
         self.loaded_at = None;
+        // The engine let go of takes its load with it: what it read says
+        // nothing about the next one's, and since L6 its later reports —
+        // the end included — are dropped, so nothing else would clear the
+        // bar (A3).
+        self.loading = None;
         // A finished check spoke for the engine just replaced; under
         // another endpoint or model it would be a result nobody asked
         // this one for. A running one ends on its own and says so.
@@ -2454,6 +2460,38 @@ mod tests {
         );
 
         release_second.send(()).expect("the second double waits");
+        cx.run_until_parked();
+        assert_eq!(host.read_with(cx, |host, _| host.load_progress()), None);
+    }
+
+    /// A3: a swap lets go of the engine whose load was under way, and its
+    /// bar goes with it — the swapped-in engine is not loading, and the old
+    /// one's end, dropped since L6, can no longer clear it. Red with
+    /// `self.loading = None` deleted from `swap`.
+    #[gpui::test]
+    fn a_swap_takes_the_old_engines_bar_with_it(cx: &mut gpui::TestAppContext) {
+        let (release, gate) = flume::unbounded();
+        let loader = Arc::new(Loader {
+            sink: Mutex::new(None),
+            gate,
+        });
+        let host = host_over(loader, Keeping::OnDemand, cx);
+        host.update(cx, |host, cx| host.load(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            host.read_with(cx, |host, _| host.load_progress()),
+            Some(0.5)
+        );
+
+        // Another model on duty, and nothing asked to load it.
+        host.update(cx, |host, _| host.swap());
+        assert_eq!(
+            host.read_with(cx, |host, _| host.load_progress()),
+            None,
+            "the old engine's bar stayed over the new one"
+        );
+
+        release.send(()).expect("the double waits");
         cx.run_until_parked();
         assert_eq!(host.read_with(cx, |host, _| host.load_progress()), None);
     }

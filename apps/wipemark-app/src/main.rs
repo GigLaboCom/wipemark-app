@@ -1441,7 +1441,9 @@ fn show_main_window(window: WindowHandle<Root>, cx: &mut App) {
 /// Three jobs, and the arrangement is the tray's. The registrar is
 /// asked for whatever the rows hold at launch; every change to a row
 /// is followed — the old chord released first, the new one asked for,
-/// and the desktop's answer written back so the page can show it; and a
+/// and the desktop's answer written back so the page can show it, when
+/// it comes: on X11 the asking happens on the registrar's own thread,
+/// because each request waits on the X server (B1); and a
 /// press comes back over a channel and is performed here, on the GPUI
 /// side, because the callback the desktop calls has no `&mut App` in
 /// scope and no way to be given one.
@@ -1461,6 +1463,7 @@ fn install_hotkeys(window: WindowHandle<Root>, preferences: Entity<Preferences>,
         return;
     };
     let presses = registrar.presses();
+    let answers = registrar.answers();
 
     // What the registrar has been asked for so far, so the observer
     // below can tell a chord that moved from a repaint: `Preferences`
@@ -1473,6 +1476,20 @@ fn install_hotkeys(window: WindowHandle<Root>, preferences: Entity<Preferences>,
     following.follow(&preferences, cx);
     cx.observe(&preferences, move |preferences, cx| {
         following.follow(&preferences, cx);
+    })
+    .detach();
+
+    // The desktop's answers, in the order they were asked: the last one
+    // for an action is the one the page keeps.
+    let told = preferences.clone();
+    cx.spawn(async move |cx| {
+        while let Ok((action, answer)) = answers.recv_async().await {
+            cx.update(|cx| {
+                told.update(cx, |preferences, cx| {
+                    preferences.shortcut_registered(action, answer, cx);
+                });
+            });
+        }
     })
     .detach();
 
@@ -1503,19 +1520,17 @@ struct Following {
 }
 
 impl Following {
-    /// Bring the registrations into line with the rows, touching only
-    /// the ones that moved, and report each answer back.
-    fn follow(&mut self, preferences: &Entity<Preferences>, cx: &mut App) {
+    /// Bring the registrations into line with the rows, asking only for
+    /// the ones that moved. The answers come back on the registrar's own
+    /// channel, never by waiting here (B1).
+    fn follow(&mut self, preferences: &Entity<Preferences>, cx: &App) {
         for action in hotkey::Action::ALL {
             let wanted = preferences.read(cx).shortcut(action);
             if self.asked.get(&action) == Some(&wanted) {
                 continue;
             }
-            let answer = self.registrar.assign(action, wanted);
+            self.registrar.ask(action, wanted);
             self.asked.insert(action, wanted);
-            preferences.update(cx, |preferences, cx| {
-                preferences.shortcut_registered(action, answer, cx);
-            });
         }
     }
 }
