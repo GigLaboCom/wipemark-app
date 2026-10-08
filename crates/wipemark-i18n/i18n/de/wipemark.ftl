@@ -262,7 +262,7 @@ compare-not-saved-changed = { $name } wurde auf dem Datenträger geändert, nach
 compare-not-saved-link = { $name } ist ein symbolischer Link, und Speichern würde den Link ersetzen statt der Datei, auf die er zeigt.
 compare-not-saved-original = Es würde über das Original geschrieben.
 compare-not-saved-gone = Die Zeile, die das Ergebnis hielt, ist nicht mehr da.
-compare-not-saved-busy = Das Dokument wird gerade bereinigt oder umgeschrieben.
+compare-not-saved-busy = Das Dokument wird gerade bereinigt oder umgeschrieben, oder es wurde umgeschrieben, nachdem dieses Fenster geöffnet wurde; um die Umschreibung zu bearbeiten, öffnen Sie den Vergleich erneut über seine Zeile.
 compare-not-saved-same = Der Text ist der des Originals, und ein Ergebnis, das seinem Original gleicht, wird nie geschrieben.
 compare-not-saved-unreadable = { $name } ließ sich nicht erneut lesen.
 

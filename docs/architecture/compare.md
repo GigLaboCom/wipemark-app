@@ -152,7 +152,13 @@ so the row's status and its journal entry move as a Clean's do
 (`a_save_that_cleans_moves_the_row_and_marks_its_journal`); from then on
 the window saves over wherever that wrote. Save is offered on an
 unwritten result even unedited — it is a Clean of what the pane holds —
-while autosave saves only an edit.
+while autosave saves only an edit. A row whose rewrite delivered a result
+since the window opened says no, as the row's own Clean is greyed then:
+the clean would take the row and its journal entry's item from the
+rewrite, and a paste's rewritten text, whose one home is the batch
+queue's row, would be reachable from nothing
+(`a_save_that_cleans_never_takes_a_row_from_its_rewrite`; the host
+verification, 2026-10-08).
 
 ### Changed on disk (D413)
 
@@ -206,7 +212,12 @@ window opened on, which is the rewrite as delivered or as last saved
 before the window opened (the model's own words are not kept anywhere
 once a save has replaced them). Not to "the last saved text": with
 autosave on, that is the text of a second and a half ago, and Reset would
-undo nothing worth a button. The tooltips say which.
+undo nothing worth a button. The tooltips say which. Because autosave
+writes it over the result's home a moment later, Reset is one edit **the
+history keeps** (`ResultEditor::replace_text`, the library's
+`replace_all`): Undo brings back what it let go, and that is saved in
+turn (`reset_can_be_undone_and_the_undo_is_saved`; the host
+verification, 2026-10-08).
 
 ### The line under the result (S4)
 
@@ -248,7 +259,8 @@ and its later saves mark it.
 - **D413** — changed on disk is the size, then the bytes; it asks
   Overwrite / Keep theirs / Cancel, Enter is Cancel.
 - **D414** — Reset returns to what was made (or, for a rewrite, to what
-  the window opened on), and is saved like an edit.
+  the window opened on), and is saved like an edit — one the history
+  keeps, so Undo takes it back.
 - **D415** — autosave: read at opening, 1.5 s of quiet, one save at a
   time, the last edit wins, a failure stops it, a close saves or asks.
 - **D416** — Save on the strip is the window's action, offered to it

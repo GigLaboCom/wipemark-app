@@ -1361,14 +1361,15 @@ impl CompareView {
 
     /// Put the result back to what cleaning made of the original — the
     /// text kept from the read, so nothing is cleaned here, on the
-    /// thread that draws — or a rewrite as the window opened it. The
-    /// editor forgets its history with it: this is a new document, not an
-    /// undoable edit. It is an edit all the same, and is saved as edits
-    /// are: by autosave, or by Save (D414).
+    /// thread that draws — or a rewrite as the window opened it. It is an
+    /// edit like any other, saved as edits are — by autosave a moment
+    /// later, or by Save (D414) — and so one the history keeps: Undo
+    /// brings back what it replaced, which by then may be gone from the
+    /// result's file (`reset_can_be_undone_and_the_undo_is_saved`).
     fn reset(&self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.cleaned_text.to_string();
         self.result.update(cx, |result, cx| {
-            result.set_text(&text, window, cx);
+            result.replace_text(&text, window, cx);
             result.focus(window, cx);
         });
     }
@@ -4235,6 +4236,77 @@ mod tests {
             std::fs::read(&result).expect("result"),
             wipemark_intake::text::encode(&cleaned, Encoding::Utf16Le),
             "Reset was not saved"
+        );
+    }
+
+    /// Reset is saved like any edit (D414) — so with autosave on, the
+    /// edits it let go are gone from the result's file a moment after one
+    /// click. They are one Undo away instead: Undo brings the typed text
+    /// back into the pane, and autosave writes it over the file again.
+    /// Put `set_text`, which forgets the history, back into `reset` and
+    /// Undo brings nothing back: red.
+    #[gpui::test]
+    fn reset_can_be_undone_and_the_undo_is_saved(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("reset-undo");
+        let source = scratch.file("notes.md", MARKED.as_bytes());
+        let result = cleaned_beside(&source, &homes_of(&scratch));
+        let (link, _) = listening(true);
+        let subject = Subject {
+            handed: Handed::Path(source.clone()),
+            intake: None,
+            made: Made::CleanedTo(CleanedTo::File(result.clone())),
+        };
+        let (view, _, cx) = saving_window(
+            cx,
+            &scratch,
+            subject,
+            Comparison::default(),
+            Some(7),
+            Some(link),
+        );
+        let cleaned = wipemark_core::clean(MARKED, &Options::default()).text;
+
+        // Typed, not set: an edit the editor's history holds.
+        cx.update(|window, cx| {
+            let pane = view.read(cx).result.clone();
+            pane.update(cx, |pane, cx| pane.focus(window, cx));
+        });
+        cx.simulate_input("Typed by hand. ");
+        cx.run_until_parked();
+        quiet(cx);
+        let typed = panes_of(&view, cx).1;
+        assert_ne!(typed, cleaned, "nothing was typed");
+        assert_eq!(
+            std::fs::read_to_string(&result).expect("result"),
+            typed,
+            "the typing was not saved"
+        );
+
+        cx.update(|window, cx| view.update(cx, |view, cx| view.reset(window, cx)));
+        quiet(cx);
+        assert_eq!(
+            std::fs::read_to_string(&result).expect("result"),
+            cleaned,
+            "Reset was not saved"
+        );
+
+        cx.dispatch_action(gpui_component::input::Undo);
+        cx.run_until_parked();
+        assert_eq!(
+            panes_of(&view, cx).1,
+            typed,
+            "Undo did not bring back what Reset let go"
+        );
+        quiet(cx);
+        assert_eq!(
+            std::fs::read_to_string(&result).expect("result"),
+            typed,
+            "the undone Reset was not saved"
+        );
+        assert_eq!(
+            std::fs::read(&source).expect("source"),
+            MARKED.as_bytes(),
+            "the original moved"
         );
     }
 

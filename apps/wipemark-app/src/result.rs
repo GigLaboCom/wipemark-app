@@ -328,6 +328,18 @@ impl ResultEditor {
         cx.notify();
     }
 
+    /// Replace the whole text as **one edit the history keeps** — the
+    /// window's Reset, which autosave writes over the result's home a
+    /// moment later: the text it let go is one Undo away rather than gone
+    /// from the file and the editor both (D414). The library announces the
+    /// change itself, and the window hears it as `Changed`.
+    pub fn replace_text(&self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, cx| {
+            state.replace_all(text.to_owned(), window, cx);
+        });
+        cx.notify();
+    }
+
     /// Marks to paint beside the lines — the window's business, handed
     /// in as the library's own provider so this component need not know
     /// what a mark means. `None` clears them. The first provider makes

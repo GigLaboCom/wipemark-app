@@ -1409,6 +1409,12 @@ impl Queue {
             // A Save in Compare that cleans keeps the row's own Clean's
             // rule: not while it waits or runs in a line, not while it is
             // rewritten (D411).
+            // Nor over a rewrite's result: a window opened before the row
+            // was rewritten still saves as a Clean, and that clean would
+            // take the row — and its journal entry's item — from the
+            // rewrite, a paste's rewritten text then reachable from
+            // nothing (its one home is the batch queue's row). The row's
+            // own Clean is greyed then too.
             Told::Cleans => {
                 return !matches!(
                     &row.status,
@@ -1416,7 +1422,16 @@ impl Queue {
                         | Status::Cleaning
                         | Status::RewriteQueued
                         | Status::Rewriting(_)
-                ) && !matches!(&row.status, Status::Recorded(said) if !said.phase.is_end());
+                ) && !matches!(&row.status, Status::Recorded(said) if !said.phase.is_end())
+                    && !matches!(
+                        &row.status,
+                        Status::Recorded(said)
+                            if said.action == Action::Rewrite
+                                && matches!(
+                                    said.result,
+                                    Some(Delivered::File { .. } | Delivered::Row)
+                                )
+                    );
             }
             Told::Text(text) => {
                 // Only a paste whose clean handed its result back as text.

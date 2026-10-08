@@ -447,7 +447,7 @@ compare-not-saved-changed = { $name } changed on disk after this window read it.
 compare-not-saved-link = { $name } is a symbolic link, and a save would replace the link rather than the file it points to.
 compare-not-saved-original = It would be written over the original.
 compare-not-saved-gone = The row that held the result is gone.
-compare-not-saved-busy = The document is being cleaned or rewritten.
+compare-not-saved-busy = The document is being cleaned or rewritten, or was rewritten after this window opened; to edit the rewrite, open Compare again from its row.
 compare-not-saved-same = The text is the original's, and a result identical to its original is never written.
 compare-not-saved-unreadable = { $name } could not be read back.
 

@@ -194,8 +194,10 @@ pub enum NotSaved {
     Gone,
     /// The file could not be read back to be compared.
     Unreadable,
-    /// The document is in the line of cleans already, or being rewritten:
-    /// a Save that cleans waits for nothing it did not ask for.
+    /// The document is in the line of cleans already, or being rewritten,
+    /// or was rewritten since the window opened: a Save that cleans waits
+    /// for nothing it did not ask for, and never takes a row from its
+    /// rewrite.
     Busy,
     /// The write failed — the operating system's sentence, for the person
     /// and never for a log.

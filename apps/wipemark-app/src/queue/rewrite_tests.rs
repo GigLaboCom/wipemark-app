@@ -1273,3 +1273,52 @@ fn a_save_that_cleans_moves_the_row_and_marks_its_journal(cx: &mut TestAppContex
         edited(&work).is_some_and(|at| at > first)
     });
 }
+
+/// A Compare window opened on a paste before it was rewritten still saves
+/// as a Clean (D411) — and that clean would take the row, and its journal
+/// entry's item, from the rewrite, whose text has no home but the batch
+/// queue's row: reachable from nothing after. So a row whose rewrite
+/// delivered a result says no to a Save that cleans, as its own Clean is
+/// greyed then, and Compare still opens on the rewrite. Take the rewrite's
+/// arm out of `told_by_compare`'s `Cleans` and the row says yes: red.
+#[gpui::test]
+fn a_save_that_cleans_never_takes_a_row_from_its_rewrite(cx: &mut TestAppContext) {
+    use crate::compare::{Made, RewriteFrom, Told};
+
+    let scratch = Scratch::new("save-after-rewrite");
+    let work = work(swapping());
+    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    queue.update(cx, |queue, cx| {
+        queue.land(vec![Handed::Text(PARAGRAPH.to_owned())], cx)
+    });
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    let cleans = |queue: &gpui::Entity<Queue>, cx: &mut VisualTestContext| {
+        queue.update(cx, |queue, cx| queue.told_by_compare(id, Told::Cleans, cx))
+    };
+    assert!(
+        cleans(&queue, cx),
+        "a waiting paste may be cleaned by a save"
+    );
+
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the end", |cx| status(&queue, cx) == "rewritten");
+    assert!(
+        !cleans(&queue, cx),
+        "a Save that cleans may take the row from its rewrite"
+    );
+    let subject = cx
+        .update(|_, cx| queue.read(cx).subject_of(id))
+        .expect("a subject");
+    assert!(
+        matches!(
+            subject.made,
+            Made::Rewritten {
+                from: RewriteFrom::Item(..),
+                ..
+            }
+        ),
+        "Compare no longer opens on the rewrite: {:?}",
+        subject.made
+    );
+}
