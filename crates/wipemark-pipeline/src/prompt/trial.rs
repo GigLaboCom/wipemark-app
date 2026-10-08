@@ -15,7 +15,7 @@
 //!   every guard (each one's verdict, not only the first refusal), then
 //!   [`crate::job::verdict`] — D117's one verdict.
 //! * [`adapt_with`] — [`super::adaptation_request`] for a source template,
-//!   the answer through [`super::clean_response`], then
+//!   the answer through [`super::clean_response`] and Layer A (D369), then
 //!   [`super::row::admit_adaptation`]: the rule a Save asks, plus exactly
 //!   the source's variables. The caller stores the row only when it is
 //!   admitted, and only because a person pressed a button: nothing here is
@@ -428,7 +428,13 @@ pub async fn adapt_with(
         FinishReason::Stop => {}
     }
     let cleaned = clean_response(&completion.text, source_text);
-    let text = cleaned.text.trim().to_owned();
+    // Layer A over the answer before it is judged (D369), as the loop runs
+    // it over every candidate: a zero-width character or a bidi control a
+    // model slips into a template would otherwise be stored, unseen in the
+    // field, and sent with every rewrite. What it removes is gone; what is
+    // left is judged by the rule, which refuses such a character anyway.
+    let scrubbed = wipemark_core::clean(&cleaned.text, &wipemark_core::Options::default()).text;
+    let text = scrubbed.trim().to_owned();
     if text.is_empty() {
         return AdaptEnd::Empty;
     }
@@ -690,5 +696,45 @@ mod tests {
         assert_eq!(from.lang, Lang::En);
         assert_eq!(from.hash, hash(source_text));
         assert_eq!(engine.asked().len(), 1);
+    }
+
+    /// D369: the model's adaptation goes through Layer A before it is
+    /// judged — a zero-width space and a bidi override it slipped in are
+    /// gone from the row, and the row is admitted.
+    #[test]
+    fn layer_a_runs_over_an_adaptation_before_it_is_judged() {
+        let source = slot(Lang::En, Tactic::Paraphrase, 1, Role::User);
+        let target = slot(Lang::Ru, Tactic::Paraphrase, 1, Role::User);
+        let source_text = shipped::template(source).expect("shipped");
+        let faithful = source_text
+            .lines()
+            .map(|line| {
+                if line.contains('{') {
+                    line.to_owned()
+                } else {
+                    "Пере\u{200B}пиши этот \u{202E}текст другими словами.".to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let engine = FakeEngine::answering(move |_, _| faithful.clone());
+        let AdaptEnd::Answered { row, admission, .. } = block_on(adapt_with(
+            &engine,
+            source,
+            source_text,
+            target,
+            &Overrides::new(),
+            None,
+            &CancellationToken::new(),
+        )) else {
+            panic!("the model answered");
+        };
+        assert!(
+            !row.text.contains(['\u{200B}', '\u{202E}']),
+            "an invisible character reached the row: {:?}",
+            row.text
+        );
+        assert!(row.text.contains("Перепиши этот текст"), "{:?}", row.text);
+        assert!(admission.admitted(), "{:?}", admission.problems);
     }
 }

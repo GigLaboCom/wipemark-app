@@ -101,6 +101,17 @@ pub enum Problem {
     /// R8. Over a tenth of the model's window, estimated at three bytes a
     /// token — the template would eat the chunk's budget.
     TooLong { estimated_tokens: u32, limit: u32 },
+    /// R9. A character Layer A removes at its defaults — a zero-width
+    /// character, a bidi control, a tag, a variation selector out of
+    /// place, a soft hyphen, a private-use or default-ignorable code point
+    /// (D369). A template carrying one would hand the model the very marks
+    /// this product removes, unseen in the field. One problem per code
+    /// point: `at` is its first byte offset, `count` how often it occurs.
+    InvisibleCharacter {
+        codepoint: char,
+        at: usize,
+        count: u32,
+    },
     /// W1. The template's letters are mostly not in its set's script, so a
     /// model will lean towards answering in another language (Q-B1).
     /// Shares are fractions 0.0–1.0 of the template's letters, variables
@@ -140,6 +151,7 @@ impl Problem {
             | Problem::ReservedBracket { .. }
             | Problem::Empty
             | Problem::TooLong { .. }
+            | Problem::InvisibleCharacter { .. }
             | Problem::VariablesDiffer { .. } => Severity::Error,
             Problem::ScriptMismatch { .. }
             | Problem::NothingButText
@@ -160,6 +172,7 @@ impl Problem {
             Problem::ReservedBracket { .. } => "reserved-bracket",
             Problem::Empty => "empty",
             Problem::TooLong { .. } => "too-long",
+            Problem::InvisibleCharacter { .. } => "invisible-character",
             Problem::ScriptMismatch { .. } => "script-mismatch",
             Problem::NothingButText => "nothing-but-text",
             Problem::NoIntensity { .. } => "no-intensity",
@@ -293,6 +306,16 @@ pub fn validate(slot: Slot, text: &str, context: &ValidationContext<'_>) -> Vec<
         if c == '\u{27E6}' || c == '\u{27E7}' {
             problems.push(Problem::ReservedBracket { at });
         }
+    }
+
+    // R9: what Layer A would remove at its defaults — the same decision,
+    // context included (a joiner inside an emoji is kept there and here).
+    for finding in wipemark_core::inspect(text, &wipemark_core::Options::default()).findings {
+        problems.push(Problem::InvisibleCharacter {
+            codepoint: finding.codepoint,
+            at: finding.positions.first().copied().unwrap_or(0),
+            count: finding.count,
+        });
     }
 
     // R8.
@@ -591,6 +614,44 @@ mod tests {
         assert_eq!(rules(&user("Keep ⟦n⟧.\n{TEXT}")).len(), 2);
     }
 
+    /// R9 (D369): a character Layer A removes is refused in any template —
+    /// typed by hand or written by a model — at its first place, once per
+    /// code point; what Layer A keeps by context is not one, and neither is
+    /// ordinary typography (a no-break space, „quotes“, a dash).
+    #[test]
+    fn an_invisible_character_is_an_error() {
+        let problems = user("Re\u{200B}write\u{200B} this.\n{TEXT}");
+        assert_eq!(
+            problems,
+            vec![Problem::InvisibleCharacter {
+                codepoint: '\u{200B}',
+                at: 2,
+                count: 2,
+            }]
+        );
+        assert_eq!(problems[0].severity(), Severity::Error);
+        for c in [
+            '\u{202E}',
+            '\u{2066}',
+            '\u{200D}',
+            '\u{00AD}',
+            '\u{E0041}',
+            '\u{FEFF}',
+        ] {
+            let text = format!("Rewrite{c} this.\n{{TEXT}}");
+            assert_eq!(
+                rules(&user(&text)),
+                vec!["invisible-character"],
+                "U+{:04X}",
+                u32::from(c)
+            );
+        }
+        assert_eq!(
+            user("Rewrite\u{00A0}it — „so“ … 👍🏽 ❤\u{FE0F}.\n{TEXT}"),
+            vec![]
+        );
+    }
+
     #[test]
     fn an_empty_template_is_an_error() {
         assert_eq!(user(""), vec![Problem::Empty]);
@@ -733,6 +794,11 @@ mod tests {
             Problem::TooLong {
                 estimated_tokens: 0,
                 limit: 0,
+            },
+            Problem::InvisibleCharacter {
+                codepoint: '\u{200B}',
+                at: 0,
+                count: 1,
             },
             Problem::ScriptMismatch {
                 expected: Script::Latin,
