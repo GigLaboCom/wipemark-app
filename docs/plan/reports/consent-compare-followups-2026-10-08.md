@@ -133,7 +133,11 @@ did not name (the fallback in D393 is the fix); targeted runs had not
 included them. No llama crate and no `local.rs` changed, so the native
 gates were not due.
 
-CI: CI_RUN
+CI on `f7bc1cf`: `gate` run 182,
+<https://github.com/GigLaboCom/wipemark-app/actions/runs/37791646575> —
+**success** in all three jobs: `gate (fmt, clippy, test, deps, features)`
+success, `native (llama.cpp prebuilt + Vulkan, model-free)` success,
+`macos (clippy, tests, llama-native prebuilt with Metal)` success.
 
 ## For the owner, in a window (≤ 8 lines)
 
