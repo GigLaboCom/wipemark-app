@@ -16,6 +16,11 @@
 //! * [`beacon`] — the file the running application's MCP server leaves
 //!   under the data directory, so `wipemark-cli` can reach its loaded
 //!   model rather than load a second copy (D52).
+//! * [`gguf`] — what a GGUF file's header says it is, read without a
+//!   tensor and without llama.cpp (E8-1).
+//! * [`user`] — a model the catalogue does not have, added by the person
+//!   from a file: its row, its id, its memory estimate, and its file held
+//!   to the sha256 it had when it was added (E8-1).
 //!
 //! This crate does not depend on `wipemark-engine` and must not start
 //! to. A manifest entry describes a file; loading that file into a
@@ -24,17 +29,21 @@
 #![forbid(unsafe_code)]
 
 pub mod beacon;
+pub mod gguf;
 pub mod host;
 pub mod layout;
 pub mod manifest;
 pub mod scan;
 pub mod store;
+pub mod user;
 
 pub use beacon::Beacon;
-pub use host::{default_for_role, fit, Fit, Host};
+pub use gguf::{GgufError, Header, KvShape, NotOffered, Offer};
+pub use host::{default_for_role, fit, fit_mb, Fit, Host};
 pub use layout::{data_dir, model_dir, models_dir, Layout, LayoutError, BUNDLE_ID};
 pub use manifest::{FileSpec, Format, Manifest, ManifestError, MemSpec, ModelEntry, Role, Status};
 pub use scan::{weights_under, Found};
 pub use store::{
     partial, Cancel, Downloads, Event, Hashing, Located, Progress, State, StoreError, Survey,
 };
+pub use user::{Estimate, UserEntry, UserLook, UserModel, UserState};

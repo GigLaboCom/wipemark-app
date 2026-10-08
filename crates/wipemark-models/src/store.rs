@@ -1118,7 +1118,7 @@ impl Downloads {
     /// it had **before** the read (L1): a file that changed while it was
     /// being read then no longer matches its record, and is read again on
     /// the next look rather than trusted with a hash of other bytes.
-    fn hash_and_record(&self, path: &Path) -> Result<String, StoreError> {
+    pub(crate) fn hash_and_record(&self, path: &Path) -> Result<String, StoreError> {
         let (actual, before) = self.hash(path)?;
         self.record(path, &actual, &before);
         Ok(actual)
@@ -1229,7 +1229,7 @@ impl Downloads {
     /// hash is then read once, not on every look. And a manifest that
     /// changes a file's expected hash is compared against the recorded
     /// one, so it cannot be fooled by a stale "ok".
-    fn recorded(&self, target: &Path) -> Option<String> {
+    pub(crate) fn recorded(&self, target: &Path) -> Option<String> {
         let body = std::fs::read_to_string(self.record_path(target)).ok()?;
         let mut lines = body.lines();
         let (fingerprint_then, sha) = (lines.next()?, lines.next()?);
@@ -1348,7 +1348,24 @@ impl Downloads {
     }
 
     /// What a mark of `kind` holds of the file at `path` — [`identity`],
-    /// with a test's remount added to the device and inode numbers.
+    /// never through a link, with a test's remount added to the device and
+    /// inode numbers.
+    fn identity(&self, path: &Path, kind: Identity) -> std::io::Result<Option<String>> {
+        let read = identity(&std::fs::symlink_metadata(path)?, kind);
+        Ok(self.remounted(read, kind))
+    }
+
+    /// What a user entry's row holds of the file at `path` (E8-1): a whole
+    /// file's identity, the one a download's mark holds (D350) — but read
+    /// **through** a link, because a model added from a file is the file the
+    /// link names, and a link is how one file is shared between two tools.
+    /// `None` for a path that is not a regular file once followed.
+    pub(crate) fn followed_identity(&self, path: &Path) -> std::io::Result<Option<String>> {
+        let read = identity(&std::fs::metadata(path)?, Identity::Whole);
+        Ok(self.remounted(read, Identity::Whole))
+    }
+
+    /// `read`, with a test's remount added to its device and inode numbers.
     #[cfg_attr(
         not(test),
         allow(
@@ -1356,16 +1373,24 @@ impl Downloads {
             reason = "the store is the seam a test's remount goes through"
         )
     )]
-    fn identity(&self, path: &Path, kind: Identity) -> std::io::Result<Option<String>> {
-        let read = identity(path, kind)?;
+    fn remounted(&self, read: Option<String>, kind: Identity) -> Option<String> {
         #[cfg(test)]
         {
             let shift = self.remount.load(Ordering::SeqCst);
             if shift > 0 {
-                return Ok(read.map(|identity| renumbered(kind, &identity, shift)));
+                return read.map(|identity| renumbered(kind, &identity, shift));
             }
         }
-        Ok(read)
+        #[cfg(not(test))]
+        let _ = kind;
+        read
+    }
+
+    /// A test's remount: every device and inode number this store reads
+    /// from now on has `shift` added to it (D375).
+    #[cfg(test)]
+    pub(crate) fn remount_by(&self, shift: u64) {
+        self.remount.store(shift, Ordering::SeqCst);
     }
 
     /// Mark `target` as downloaded by this product.
@@ -1445,7 +1470,7 @@ const LAST: &str = "last ";
 
 /// Which identity a mark holds (D350, D351).
 #[derive(Debug, Clone, Copy)]
-enum Identity {
+pub(crate) enum Identity {
     /// A finished file: `size:mtime_ns:dev:ino` on Unix — what changes
     /// when it is rewritten, and what a file put in its place does not
     /// share — and `size:mtime_ns:birth_ns` elsewhere.
@@ -1456,14 +1481,14 @@ enum Identity {
     Part,
 }
 
-/// What a mark of `kind` holds of the file at `path`: `None` for a path
-/// that is a symbolic link or not a regular file — a download writes
-/// neither — and for an identity this platform cannot read. Never follows
-/// a link: the link is what is at the place.
-fn identity(path: &Path, kind: Identity) -> std::io::Result<Option<String>> {
-    let meta = std::fs::symlink_metadata(path)?;
+/// What a mark of `kind` holds of the file `meta` describes: `None` for a
+/// symbolic link or anything but a regular file — a download writes
+/// neither — and for an identity this platform cannot read. The caller
+/// chooses whether a link is followed: a mark never follows one (the link
+/// is what is at the place), a user entry always does (E8-1).
+fn identity(meta: &std::fs::Metadata, kind: Identity) -> Option<String> {
     if !meta.file_type().is_file() {
-        return Ok(None);
+        return None;
     }
     let nanos = |time: std::io::Result<std::time::SystemTime>| {
         time.ok()
@@ -1474,7 +1499,7 @@ fn identity(path: &Path, kind: Identity) -> std::io::Result<Option<String>> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt as _;
-        Ok(match kind {
+        match kind {
             Identity::Whole => nanos(meta.modified())
                 .map(|mtime| format!("{}:{mtime}:{}:{}", meta.len(), meta.dev(), meta.ino())),
             Identity::Part => Some(format!(
@@ -1483,16 +1508,16 @@ fn identity(path: &Path, kind: Identity) -> std::io::Result<Option<String>> {
                 meta.ino(),
                 born.map_or_else(|| "-".to_owned(), |born| born.to_string())
             )),
-        })
+        }
     }
     #[cfg(not(unix))]
     {
-        Ok(match kind {
+        match kind {
             Identity::Whole => nanos(meta.modified())
                 .zip(born)
                 .map(|(mtime, born)| format!("{}:{mtime}:{born}", meta.len())),
             Identity::Part => born.map(|born| born.to_string()),
-        })
+        }
     }
 }
 
@@ -1550,7 +1575,7 @@ fn same_file(path: &Path, open: &std::fs::File) -> bool {
 /// do not survive one changes, and all it changes. Unix only: elsewhere an
 /// identity has no such numbers, and two that differ are two files. For a
 /// `.part`, a birth time either side does not know does not disagree.
-fn same_but_numbers(kind: Identity, marked: &str, now: &str) -> bool {
+pub(crate) fn same_but_numbers(kind: Identity, marked: &str, now: &str) -> bool {
     if !cfg!(unix) {
         return false;
     }

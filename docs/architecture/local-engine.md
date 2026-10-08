@@ -254,8 +254,21 @@ opener. Two roads, and a refusal:
      `enable_thinking = false`.
 2. **`llama_chat_apply_template`** for everything else — Qwen3 4B Instruct
    (plain ChatML, no switch), Gemma 3 (`gemma`).
-3. A template neither recognises is refused (`LlamaError::Inference`, a
-   `Protocol` error at the engine), never formatted with a guess.
+3. A template neither recognises is refused **by name**, never formatted
+   with a guess (E8-1, D407): `wipemark_llama::chat_support` is the one
+   verdict — the two families above, then `llama_cpp_family`, a
+   line-for-line port of llama.cpp's own `llm_chat_detect_template` at
+   the pin, then `NoTemplate` or `Unrecognised`. `chat_prompt` refuses by
+   it before llama.cpp is asked (`LlamaError::ChatFormat`), and
+   `LocalEngine` refuses a model by it right after the weights are read,
+   before any request (`Unavailable::ChatFormat`, a sentence of its own on
+   every surface). It is pure, so the Models page says it from a GGUF's
+   header before the model is added (`wipemark_engine::chat_support`,
+   `NotBuilt` without `local-llama`). The port decides only *whether*: a
+   template llama.cpp recognises still goes to it as the model's own
+   string. `the_port_agrees_with_llama_cpp` — native and model-free, in CI's
+   `native` job — holds the port to `llama_chat_apply_template` over one
+   template of every family.
 
 **Thinking is always off** on the local engine (D182): a rewrite is not a
 reasoning task, and E4-5 measured Qwen3.8 with `reasoning_effort: "none"`,

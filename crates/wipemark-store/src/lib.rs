@@ -71,10 +71,12 @@ use rusqlite::{Connection, OpenFlags};
 pub mod entry;
 mod journal;
 mod queue;
+mod rows;
 mod settings;
 
 pub use journal::{Change, Journal, JournalRow, JournalWriter, NewRow, JOURNAL_SINCE};
 pub use queue::{Queue, QueueRow};
+pub use rows::RowsWriter;
 pub use settings::Settings;
 
 /// How long a write waits for another process to finish before it gives
@@ -215,11 +217,12 @@ pub enum Error {
         source: rusqlite::Error,
     },
 
-    /// A database the application has not migrated to the journal yet.
-    /// Only the application migrates; a [`JournalWriter`] says this and
-    /// writes nothing.
+    /// A database the application has not migrated far enough yet — to
+    /// the journal, for a [`JournalWriter`]; to this build's schema, for a
+    /// [`RowsWriter`]. Only the application migrates; either writer says
+    /// this and writes nothing.
     #[error(
-        "the database at {path} is at schema version {found}; the journal needs {needs}, which \
+        "the database at {path} is at schema version {found}; this needs {needs}, which \
          the application brings it to when it next starts"
     )]
     TooOld {
@@ -227,6 +230,11 @@ pub enum Error {
         found: i64,
         needs: i64,
     },
+
+    /// A [`RowsWriter`] asked for a key outside the one namespace it was
+    /// opened for. Refused before any statement runs.
+    #[error("setting `{key}` is outside `{prefix}`, the only rows this writer reaches")]
+    OutOfReach { key: String, prefix: String },
 
     /// The stored text is not the JSON this build expected. Kept
     /// separate from [`Error::Read`] because the callers treat it

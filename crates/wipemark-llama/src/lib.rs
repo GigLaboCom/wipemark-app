@@ -56,6 +56,7 @@ mod ffi;
 
 use std::path::PathBuf;
 
+pub use chat::{chat_support, llama_cpp_family, ChatSupport};
 pub use generate::{Finish, Generated, Sampling, Stitcher};
 pub use model::{
     estimate, kv_bytes_per_token, kv_cache_mb, refusal, KvQuant, KvShape, LoadParams, MemEstimate,
@@ -96,6 +97,33 @@ pub enum LlamaError {
     /// llama.cpp failed while tokenizing, rendering or decoding.
     #[error("llama.cpp failed during inference: {0}")]
     Inference(String),
+    /// The model's chat format is not one this build writes — it carries no
+    /// chat template, or one neither this crate nor llama.cpp recognises
+    /// (E8-1). Refused rather than written with a guess: a wrong template
+    /// still produces fluent text.
+    #[error("the model's chat format is not one this build writes: {0}")]
+    ChatFormat(ChatRefusal),
+}
+
+/// Why a model's chat format was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ChatRefusal {
+    #[error("it carries no chat template")]
+    NoTemplate,
+    #[error("its chat template is not one this build recognises")]
+    Unrecognised,
+}
+
+impl ChatSupport {
+    /// Why this verdict refuses, when it does.
+    #[must_use]
+    pub fn refusal(self) -> Option<ChatRefusal> {
+        match self {
+            ChatSupport::NoTemplate => Some(ChatRefusal::NoTemplate),
+            ChatSupport::Unrecognised => Some(ChatRefusal::Unrecognised),
+            ChatSupport::Here(_) | ChatSupport::LlamaCpp(_) => None,
+        }
+    }
 }
 
 #[cfg(test)]

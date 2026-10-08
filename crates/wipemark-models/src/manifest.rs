@@ -61,6 +61,11 @@ pub enum ManifestError {
     DuplicateId(String),
     #[error("model id {0:?} is not a plain directory name")]
     UnusableId(String),
+    /// An id that begins as a model the person added does (E8-1, D400):
+    /// `models.rewrite` names one or the other, and the two must never be
+    /// spelled alike.
+    #[error("model id {0:?} begins with {prefix:?}, which names a model the person added", prefix = crate::user::ID_PREFIX)]
+    ReservedId(String),
     #[error("model {id:?} declares an unknown vendor {vendor:?}")]
     UnknownVendor { id: String, vendor: String },
     #[error("model {0:?} declares no role")]
@@ -356,6 +361,9 @@ impl Manifest {
             if !is_plain_name(id) {
                 return Err(ManifestError::UnusableId(entry.id.clone()));
             }
+            if id.starts_with(crate::user::ID_PREFIX) {
+                return Err(ManifestError::ReservedId(entry.id.clone()));
+            }
             if entry.vendor().is_none() {
                 return Err(ManifestError::UnknownVendor {
                     id: entry.id.clone(),
@@ -425,7 +433,7 @@ impl Manifest {
 /// A single path segment that is safe to join onto a directory: no
 /// separator, no `..`, no leading dot, not empty.
 #[must_use]
-fn is_plain_name(name: &str) -> bool {
+pub(crate) fn is_plain_name(name: &str) -> bool {
     !name.is_empty()
         && !name.starts_with('.')
         && !name.contains('/')
@@ -610,6 +618,19 @@ mod tests {
                 "{id:?} was accepted as a directory name"
             );
         }
+    }
+
+    /// D400: a catalogue id never reads as a model the person added, so a
+    /// `models.rewrite` row names exactly one of the two.
+    #[test]
+    fn a_catalogue_id_never_reads_as_a_model_the_person_added() {
+        let err = catalogue(&[entry("user-gemma")]).unwrap_err();
+        assert!(matches!(err, ManifestError::ReservedId(id) if id == "user-gemma"));
+        let manifest = Manifest::embedded().expect("embedded manifest");
+        assert!(manifest
+            .models
+            .iter()
+            .all(|model| !model.id.starts_with(crate::user::ID_PREFIX)));
     }
 
     /// Two files that flatten to one basename would overwrite each other

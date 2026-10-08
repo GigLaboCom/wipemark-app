@@ -171,10 +171,17 @@ impl Fit {
 /// function does not claim to predict speed.
 #[must_use]
 pub fn fit(entry: &ModelEntry, host: Host) -> Fit {
+    fit_mb(entry.mem.min_ram_mb, host)
+}
+
+/// [`fit`] for a model that needs `need` MiB — a model the person added,
+/// whose figure is an estimate made from its header (E8-1) rather than
+/// the catalogue's. The same rule, the same verdicts.
+#[must_use]
+pub fn fit_mb(need: u64, host: Host) -> Fit {
     if host.total_ram_mb == 0 {
         return Fit::Unknown;
     }
-    let need = entry.mem.min_ram_mb;
     if need > host.total_ram_mb {
         return Fit::TooBig {
             short_by_mb: need - host.total_ram_mb,
@@ -496,20 +503,48 @@ mod tests {
             );
         }
         // And the next configuration up on each side is not constrained
-        // and gets the catalogue's best.
+        // and gets the best entry it has room for — what `default_for_role`
+        // means. Since E8-1 that is not the catalogue's best on both: an
+        // 18 GB Mac holds Qwen3.8 27B only tightly, and is offered the best
+        // entry below it; a box with 64 GB beside its 16 GB card holds it
+        // comfortably. Either way something larger than the entry shipped
+        // for the constrained machines.
+        for host in [mac(18_432), pc(65_536, Some(16_376))] {
+            assert!(!host.is_constrained(), "{host:?} is the roomy case");
+            let roomiest = manifest
+                .for_role(Role::Rewrite)
+                .into_iter()
+                .find(|entry| fit(entry, host).is_comfortable())
+                .expect("an entry this machine has room for");
+            let offered = default_for_role(&manifest, Role::Rewrite, host).expect("a default");
+            assert_eq!(
+                offered.id, roomiest.id,
+                "{host:?} should be offered the best entry it has room for"
+            );
+            assert_ne!(
+                offered.id, smallest.id,
+                "{host:?} was handed the entry shipped for the constrained machines"
+            );
+        }
         let best = manifest
             .for_role(Role::Rewrite)
             .into_iter()
             .max_by_key(|entry| entry.quality_tier)
             .expect("a rewriter");
-        for host in [mac(18_432), pc(65_536, Some(16_376))] {
-            assert!(!host.is_constrained(), "{host:?} is the roomy case");
-            let offered = default_for_role(&manifest, Role::Rewrite, host).expect("a default");
-            assert_eq!(
-                offered.id, best.id,
-                "{host:?} should be offered the best entry"
-            );
-        }
+        assert_eq!(
+            default_for_role(&manifest, Role::Rewrite, pc(65_536, Some(16_376)))
+                .expect("a default")
+                .id,
+            best.id,
+            "a machine with room for everything is offered the catalogue's best"
+        );
+        assert_ne!(
+            default_for_role(&manifest, Role::Rewrite, mac(18_432))
+                .expect("a default")
+                .id,
+            best.id,
+            "an 18 GB Mac holds the best entry only tightly"
+        );
     }
 
     /// No entry serves it, so nothing is invented for it.
