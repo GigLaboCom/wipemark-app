@@ -562,6 +562,45 @@ impl Queue {
             .and_then(|result| serde_json::from_str(&result).ok()))
     }
 
+    /// Put `text` in place of a finished item's result text — the Compare
+    /// window's Save of a rewritten paste, whose one home is this row
+    /// (E7-9, D410). Only an item that is done and whose stored result
+    /// *holds* a text: `Ok(false)` for any other, and for an item that is
+    /// gone. Nothing else of the result moves, its report included, and
+    /// the item is not started again. Blocking: it reads and writes a row.
+    ///
+    /// Not through the queue's thread: an item that has ended is no longer
+    /// that thread's — it writes an item's row while it runs and when it
+    /// ends, and an ended item only ever again by [`Queue::remove`], whose
+    /// delete makes this write `false`.
+    pub fn save_text(&self, item: ItemId, text: &str) -> Result<bool, wipemark_store::Error> {
+        let Some(row) = self
+            .store
+            .queue()
+            .rows()?
+            .into_iter()
+            .find(|row| row.id == item.0)
+        else {
+            return Ok(false);
+        };
+        if row.state != State::Done.as_str() {
+            return Ok(false);
+        }
+        let Some(mut result) = row
+            .result
+            .and_then(|result| serde_json::from_str::<Value>(&result).ok())
+        else {
+            return Ok(false);
+        };
+        if !result["text"].is_string() {
+            return Ok(false);
+        }
+        result["text"] = Value::String(text.to_owned());
+        self.store
+            .queue()
+            .set_result(item.0, State::Done.as_str(), Some(&result.to_string()))
+    }
+
     /// Stop the queue and wait for its thread. A running item goes back to
     /// waiting with its decided chunks, and the next open takes it up.
     pub fn shutdown(mut self) {

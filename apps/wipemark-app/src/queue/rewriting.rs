@@ -239,6 +239,7 @@ impl Queue {
                 item: record.item.map(ItemId),
                 price: None,
                 existing: None,
+                edited: None,
                 keyword: None,
                 // Filled in by the look below, once the file answers.
                 arrival: None,

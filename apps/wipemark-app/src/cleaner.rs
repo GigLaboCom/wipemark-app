@@ -46,10 +46,11 @@ use crate::drop::Arrival;
 use crate::retention::Plan;
 use crate::settings::Preferences;
 
-/// What runs one clean: [`clean::clean_one`], or [`clean::replace_one`]
-/// when there is a result to replace. A field of the [`Cleaner`] so that a
-/// test can hand it one that panics.
-type Run = fn(&Arrival, &Plan, u64, DateTime<Utc>, Option<&Path>) -> Outcome;
+/// What runs one clean: [`clean::clean_one`], [`clean::replace_one`]
+/// when there is a result to replace, or [`clean::save_one`] when the
+/// result is a text edited in the Compare window (D411). A field of the
+/// [`Cleaner`] so that a test can hand it one that panics.
+type Run = fn(&Arrival, &Plan, u64, DateTime<Utc>, Option<&Path>, Option<&str>) -> Outcome;
 
 /// What takes a clean's plan: [`Preferences::plan_for`]. A field of the
 /// [`Cleaner`] for the reason [`Run`] is.
@@ -61,21 +62,25 @@ fn run(
     id: u64,
     now: DateTime<Utc>,
     replacing: Option<&Path>,
+    edited: Option<&str>,
 ) -> Outcome {
-    match replacing {
-        Some(existing) => clean::replace_one(arrival, plan, id, now, existing),
-        None => clean::clean_one(arrival, plan, id, now),
+    match (edited, replacing) {
+        (Some(edited), _) => clean::save_one(arrival, plan, id, now, replacing, edited),
+        (None, Some(existing)) => clean::replace_one(arrival, plan, id, now, existing),
+        (None, None) => clean::clean_one(arrival, plan, id, now),
     }
 }
 
 /// One clean asked for: the number it is filed under — a queue row's id, a
-/// panel clean's number, both from [`clean::number`] — and the one existing
+/// panel clean's number, both from [`clean::number`] — the one existing
 /// result it may write over when it was asked for by "Replace the existing
-/// result".
+/// result", and, for the Compare window's Save of a text nothing was
+/// written for yet, that text as the result (D411).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
     pub id: u64,
     pub replacing: Option<PathBuf>,
+    pub edited: Option<Arc<str>>,
 }
 
 /// The cleans asked for and not yet finished: **one runs at a time**, and
@@ -187,14 +192,54 @@ impl Cleaner {
         replacing: Option<PathBuf>,
         cx: &mut Context<Self>,
     ) -> bool {
+        self.ask_with(id, arrival, replacing, None, cx)
+    }
+
+    /// [`Cleaner::ask`], with the result given: `edited`, the Compare
+    /// window's text, written by the plan taken when it starts as a clean's
+    /// would be (D411). The window and the row hear its `Started` and
+    /// `Finished` like any other clean's.
+    pub fn ask_with(
+        &mut self,
+        id: u64,
+        arrival: Arrival,
+        replacing: Option<PathBuf>,
+        edited: Option<Arc<str>>,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if self.line.holds(id) {
             return false;
         }
         self.things.insert(id, arrival);
-        self.line.push(Job { id, replacing });
+        self.line.push(Job {
+            id,
+            replacing,
+            edited,
+        });
         self.next(cx);
         cx.notify();
         true
+    }
+
+    /// The application's line, if a window has made it — what a Compare
+    /// window asks a Save that cleans of (D411).
+    pub fn existing(cx: &App) -> Option<Entity<Self>> {
+        cx.try_global::<Shared>()
+            .map(|Shared(cleaner)| cleaner.clone())
+    }
+
+    /// The plan a clean of `intake` would take now — what a Compare window
+    /// says a Save that cleans would write (D411). The clean takes it again
+    /// when it starts.
+    pub fn plan_of(&self, intake: &wipemark_intake::Intake, cx: &App) -> Plan {
+        (self.plan)(self.preferences.read(cx), intake)
+    }
+
+    /// The preferences the line takes its plans from — for a test that
+    /// opens a second window over the same ones.
+    #[cfg(test)]
+    pub fn preferences(&self) -> &Entity<Preferences> {
+        &self.preferences
     }
 
     /// Which clean of how many is running — the status bar's "Cleaning 2
@@ -241,7 +286,14 @@ impl Cleaner {
                         let now = Utc::now();
                         // Caught here, so that the line hears of it (D288).
                         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            run(&arrival, &plan, id, now, job.replacing.as_deref())
+                            run(
+                                &arrival,
+                                &plan,
+                                id,
+                                now,
+                                job.replacing.as_deref(),
+                                job.edited.as_deref(),
+                            )
                         }))
                         .unwrap_or_else(|_| clean::panicked(id))
                     })
@@ -282,6 +334,7 @@ mod tests {
         let job = |id| Job {
             id,
             replacing: None,
+            edited: None,
         };
         let mut line = Line::default();
         assert_eq!(line.start(), None, "an empty line starts nothing");
@@ -391,12 +444,13 @@ mod tests {
         id: u64,
         now: DateTime<Utc>,
         replacing: Option<&Path>,
+        edited: Option<&str>,
     ) -> Outcome {
         let named = arrival.intake.path.as_deref().and_then(Path::file_name);
         if named.is_some_and(|name| name == "panics.md") {
             panic!("a fault in this version, on purpose");
         }
-        run(arrival, plan, id, now, replacing)
+        run(arrival, plan, id, now, replacing, edited)
     }
 
     /// A clean that panics finishes as a failure of its own, and the clean

@@ -215,6 +215,12 @@ pub struct Outcome {
     /// The model that rewrote it, by its own name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// When the result was last saved from the Compare window, edited by
+    /// hand — milliseconds since the epoch, UTC (E7-9, D417). `None` for a
+    /// result as the clean or the rewrite made it. That it was edited, and
+    /// when: never what the edit said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited: Option<i64>,
 }
 
 /// Where a result went.

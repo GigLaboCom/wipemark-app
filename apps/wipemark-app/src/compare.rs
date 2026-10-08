@@ -7,9 +7,9 @@
 //! original for a line the result no longer has, a green one on the
 //! result for a line the original never had. It is opened from a row of
 //! the queue's Actions menu and from `--compare=<path>`, one window per
-//! thing, and it belongs to nothing: closing it writes nothing, and
-//! nothing else in the application reads what is in it. The result it
-//! opens with is the cleaned text; see "What the result is today".
+//! thing. The result it opens with is the cleaned text, or the result as
+//! it was written; see "What the result is today". An edited result is
+//! saved where the result lives — never over the original; see "Saving".
 //!
 //! # Three things, kept apart
 //!
@@ -28,11 +28,32 @@
 //! on the thread that draws the window. Layer A is deterministic, so it
 //! is the very text the queue's Clean writes for the same document
 //! (`the_result_is_what_the_queue_writes`). Back to the cleaned text
-//! puts that result back, not the original. The window is a reader and
-//! not a writer: editing the result saves nothing and closing the
-//! window writes nothing, and the banner says both. Layer B's rewrite
-//! is not shown here yet; when it is, it is shown through this same
-//! comparison.
+//! puts that result back, not the original. Once a clean has put a
+//! result somewhere — a file, a paste's row — the window opens on that
+//! result as it stands, edits saved there before included (D418), and
+//! Back to the cleaned text still puts back what cleaning makes. A
+//! rewritten row opens on the rewrite as it was delivered or last saved.
+//!
+//! # Saving (E7-9)
+//!
+//! The result is editable, and an edit is kept: **Save** at the head of
+//! the result's strip, or ⌘S, and — with the Compare page's
+//! `compare.autosave`, on by default — on its own a moment after typing
+//! stops and as the window closes (D415). Where it goes is [`save`]'s
+//! table: over the result's own file, into the row of a text with no
+//! file, or — when nothing was written for the result yet — as a Clean of
+//! the pane's text would write it, through the application's one line of
+//! cleans (D410, D411). Never over the original; never through a
+//! symbolic link; in the encoding the text arrived in. A file that
+//! changed on disk since the window read it is asked about — Overwrite,
+//! Keep theirs, Cancel — and never written over unasked (D413). Reset is
+//! an edit like any other, and is saved as edits are (D414). The line
+//! under the result says Saved, Saving…, Unsaved changes or Not saved and
+//! why; a save that could not write stops autosave until Save succeeds,
+//! and keeps a closing window open. The row the window was opened from
+//! is told through a [`Link`] its owner hands in, so this module still
+//! knows nothing of the queue (D412), and the row's journal entry marks
+//! the edit — when, never what (D417).
 //!
 //! # Finer than a line, through the library's own road
 //!
@@ -129,9 +150,9 @@ use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    actions, canvas, div, px, size, Anchor, AnyElement, AnyWindowHandle, App, Bounds, ClickEvent,
-    Context, Entity, FocusHandle, Focusable, Global, Hsla, KeyBinding, Pixels, Rgba, SharedString,
-    Size, Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    actions, canvas, deferred, div, px, size, Anchor, AnyElement, AnyWindowHandle, App, Bounds,
+    ClickEvent, Context, Entity, FocusHandle, Focusable, Global, Hsla, KeyBinding, Pixels, Rgba,
+    SharedString, Size, Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{
@@ -148,14 +169,20 @@ use wipemark_core::Options;
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_intake::{Encoding, Handed, Intake, Kind};
 
+use crate::cleaner::{self, Cleaner};
 use crate::diff::{Diff, Grain, Side};
 use crate::icon::{Icon, IconName};
-use crate::result::{self, ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
+use crate::result::{self, Offer, ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
 use crate::screen::{self, Screen};
 use crate::title::{self, Title};
-use crate::{clean, drop, placement, wording};
+use crate::{clean, dialog, drop, journal, placement, wording};
 
-actions!(wipemark, [CloseCompare]);
+mod save;
+
+pub use save::{save_target, NoTarget, Target};
+use save::{NotSaved, Saver, Stamp};
+
+actions!(wipemark, [CloseCompare, SaveCompare]);
 
 /// Key context of the window, so ⌘W means *this* window. Escape is
 /// deliberately not bound here: in an editor it dismisses the search
@@ -198,16 +225,22 @@ pub struct Comparison {
     pub follow: bool,
     /// Whether scrolling either side scrolls the other.
     pub sync_scroll: bool,
+    /// Whether an edited result is saved a moment after typing stops and
+    /// as the window closes, or only by Save (E7-9, D415).
+    pub autosave: bool,
 }
 
 impl Default for Comparison {
     /// Words, following and scrolling together: the marks a reader of
-    /// a rewrite wants, and the two sides kept in step.
+    /// a rewrite wants, and the two sides kept in step — and edits saved
+    /// as they are typed, so closing a window never loses them (the
+    /// owner, 2026-10-08).
     fn default() -> Self {
         Self {
             grain: Grain::Words,
             follow: true,
             sync_scroll: true,
+            autosave: true,
         }
     }
 }
@@ -233,10 +266,41 @@ struct Opened(HashMap<u64, AnyWindowHandle>);
 
 impl Global for Opened {}
 
-/// Bind ⌘W inside the window. Called once from `main`, after
+/// Bind ⌘W and ⌘S inside the window. Called once from `main`, after
 /// `gpui_component::init`.
 pub fn init(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new("secondary-w", CloseCompare, Some(CONTEXT))]);
+    cx.bind_keys([
+        KeyBinding::new("secondary-w", CloseCompare, Some(CONTEXT)),
+        KeyBinding::new("secondary-s", SaveCompare, Some(CONTEXT)),
+    ]);
+}
+
+/// The main window's row a Compare window was opened from, as the window
+/// reaches it after a save that writes outside the line of cleans (E7-9).
+///
+/// A function the row's owner hands in, so that this module still knows
+/// nothing of the queue: the window says what it saved, and the queue
+/// decides what that means for the row — its journal mark, a paste's text
+/// (D412). `false` when the row cannot take it: gone, or moved on.
+#[derive(Clone)]
+pub struct Link {
+    pub told: Tell,
+}
+
+/// The function a [`Link`] is: what the row answers to being told.
+pub type Tell = Rc<dyn Fn(Told, &mut App) -> bool>;
+
+/// What a window tells the row it was opened from — or asks it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Told {
+    /// The result's file, or the batch queue's row, now holds an edit.
+    Saved,
+    /// The row's own text — a cleaned paste's — is now this.
+    Text(String),
+    /// A Save that cleans is about to ask the line: may the row be cleaned
+    /// now? Not while it is in the line already or being rewritten — the
+    /// rule the row's own Clean keeps (D411).
+    Cleans,
 }
 
 /// What a window is opened on: the thing, and what it was established
@@ -255,8 +319,14 @@ pub struct Subject {
 #[derive(Clone)]
 pub enum Made {
     /// `clean(original)` at Layer A's defaults — the text the queue's Clean
-    /// writes for the same document.
+    /// writes for the same document — with nothing written for it yet:
+    /// Save is a Clean of the pane's text (D411).
     Cleaned,
+    /// A clean's result, read back from where it went (E7-9): the file
+    /// the clean wrote, or the text a paste's row holds. The pane opens on
+    /// it — the person's last saved edits included — and Reset puts back
+    /// `clean(original)`.
+    CleanedTo(CleanedTo),
     /// A rewrite's result, as it was delivered: the file it was written
     /// to, or the batch queue's row that holds it. `kept` is how many of
     /// how many paragraphs kept their cleaned original, when known.
@@ -264,6 +334,17 @@ pub enum Made {
         from: RewriteFrom,
         kept: Option<(u32, u32)>,
     },
+}
+
+/// Where a clean's result is, for a row whose clean put one somewhere.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CleanedTo {
+    /// The file the clean wrote — beside, into the results folder, or in
+    /// place, where it holds the source's name.
+    File(std::path::PathBuf),
+    /// A paste's result, handed back as text and held by its row: as
+    /// cleaned, or as last saved here.
+    Text(String),
 }
 
 /// Where a rewrite's result is.
@@ -279,6 +360,10 @@ impl std::fmt::Debug for Made {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Made::Cleaned => f.write_str("Cleaned"),
+            Made::CleanedTo(CleanedTo::File(path)) => {
+                f.debug_tuple("CleanedTo").field(path).finish()
+            }
+            Made::CleanedTo(CleanedTo::Text(_)) => f.write_str("CleanedTo(text)"),
             Made::Rewritten { kept, .. } => f
                 .debug_struct("Rewritten")
                 .field("kept", kept)
@@ -370,13 +455,37 @@ pub struct Loaded {
     pub name: String,
     /// The original, as it was decoded.
     pub text: String,
-    /// The result the window opens with and Reset returns to:
-    /// `wipemark_core::clean(text, &Options::default()).text`, the text
-    /// the queue's Clean writes for the same document — or a rewrite's
-    /// result as it was delivered.
+    /// What the result pane opens with: `clean(text)` when nothing was
+    /// written for it, or the result as it stands where it was written.
+    pub opened: String,
+    /// What Reset returns to: `wipemark_core::clean(text,
+    /// &Options::default()).text`, the text the queue's Clean writes for
+    /// the same document — or a rewrite's result as the window opened it
+    /// (D414).
     pub cleaned: String,
     /// Which of the two `cleaned` is.
     pub kind: MadeKind,
+    /// The original as it arrived, and what it was established to be —
+    /// what a Save that cleans cleans as (D411).
+    pub arrival: drop::Arrival,
+    /// The encoding the result's file is in, or the original's when there
+    /// is no file yet — what a save writes in.
+    pub encoding: Encoding,
+    /// What the result's home held as it was read (D413).
+    pub seen: Seen,
+}
+
+/// What a result's home held when the window last read or wrote it — what
+/// a save checks before writing over it (D413).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Seen {
+    /// Nothing to compare against: nothing is written yet, or the home is
+    /// the main window's row, which only this window writes.
+    Nothing,
+    /// A file, by its length and bytes.
+    File(Stamp),
+    /// The batch queue's row, by its text's digest.
+    Item(u64),
 }
 
 impl Subject {
@@ -394,7 +503,8 @@ impl Subject {
     /// Clean's, `clean::text_of` — strict, the limit checked on the size
     /// before the read — so Compare opens exactly what the queue would
     /// clean and refuses what it would refuse (D282); the lenient decode
-    /// is the preview's alone.
+    /// is the preview's alone. A result already written somewhere is read
+    /// back the same way, and stamped with what its home held (D413).
     pub fn read(self) -> Result<Loaded, Refusal> {
         let intake = self
             .intake
@@ -413,39 +523,84 @@ impl Subject {
             intake,
             handed: self.handed,
         };
-        let text = clean::text_of(&arrival).map_err(Refusal::of)?;
-        let (cleaned, kind) = match self.made {
-            // Layer A at its defaults, as the queue's Clean and the CLI run
-            // it: deterministic, so this is the text they write.
-            Made::Cleaned => (
-                wipemark_core::clean(&text, &Options::default()).text,
-                MadeKind::Cleaned,
-            ),
+        let (text, encoding) = clean::text_and_encoding_of(&arrival).map_err(Refusal::of)?;
+        // Layer A at its defaults, as the queue's Clean and the CLI run
+        // it: deterministic, so this is the text they write.
+        let clean = || wipemark_core::clean(&text, &Options::default()).text;
+        let (opened, cleaned, kind, encoding, seen) = match self.made {
+            Made::Cleaned => {
+                let cleaned = clean();
+                (
+                    cleaned.clone(),
+                    cleaned,
+                    MadeKind::Cleaned,
+                    encoding,
+                    Seen::Nothing,
+                )
+            }
+            // The clean's result as it stands where it went — edits saved
+            // here included — and Reset to what cleaning makes (D414).
+            Made::CleanedTo(CleanedTo::File(path)) => {
+                let (opened, encoding, stamp) = file_text(&path)?;
+                (
+                    opened,
+                    clean(),
+                    MadeKind::Cleaned,
+                    encoding,
+                    Seen::File(stamp),
+                )
+            }
+            Made::CleanedTo(CleanedTo::Text(opened)) => {
+                (opened, clean(), MadeKind::Cleaned, encoding, Seen::Nothing)
+            }
             // The rewrite as it was delivered, read back — nothing is
             // rewritten here, and nothing is recomputed (D273's shape).
             Made::Rewritten { from, kept } => {
-                (rewritten_text(&from)?, MadeKind::Rewritten { kept })
+                let kind = MadeKind::Rewritten { kept };
+                match &from {
+                    RewriteFrom::File(path) => {
+                        let (opened, encoding, stamp) = file_text(path)?;
+                        (opened.clone(), opened, kind, encoding, Seen::File(stamp))
+                    }
+                    RewriteFrom::Item(..) => {
+                        let opened = rewritten_text(&from)?;
+                        let seen = Seen::Item(save::digest_of(&opened));
+                        (opened.clone(), opened, kind, encoding, seen)
+                    }
+                }
             }
         };
         Ok(Loaded {
             name,
             text,
+            opened,
             cleaned,
             kind,
+            arrival,
+            encoding,
+            seen,
         })
     }
+}
+
+/// A result's file, read as the queue's Clean reads a text: its text, the
+/// encoding it is in, and the stamp of its bytes — the bytes decoded
+/// strictly are the bytes encoded again, so the stamp is of what is on
+/// disk without reading it twice. Blocking.
+fn file_text(path: &std::path::Path) -> Result<(String, Encoding, Stamp), Refusal> {
+    let arrival = drop::Arrival {
+        intake: wipemark_intake::of_path(path),
+        handed: Handed::Path(path.to_owned()),
+    };
+    let (text, encoding) = clean::text_and_encoding_of(&arrival).map_err(Refusal::of)?;
+    let stamp = Stamp::of(&wipemark_intake::text::encode(&text, encoding));
+    Ok((text, encoding, stamp))
 }
 
 /// A rewrite's result, read from where it was delivered. Blocking.
 pub fn rewritten_text(from: &RewriteFrom) -> Result<String, Refusal> {
     match from {
-        RewriteFrom::File(path) => {
-            let arrival = drop::Arrival {
-                intake: wipemark_intake::of_path(path),
-                handed: Handed::Path(path.clone()),
-            };
-            clean::text_of(&arrival).map_err(Refusal::of)
-        }
+        RewriteFrom::File(path) => file_text(path).map(|(text, ..)| text),
         RewriteFrom::Item(queue, item) => queue
             .result(*item)
             .ok()
@@ -460,15 +615,19 @@ pub fn rewritten_text(from: &RewriteFrom) -> Result<String, Refusal> {
 ///
 /// `key` is whatever the caller tells its subjects apart by — a queue
 /// row's id — and `None` is a window nobody will ask for again, which
-/// is what the command line opens. `comparison` is the Compare page's
-/// rows as they stand, which the window keeps. `main` is what the new
-/// window is centred over, handed in rather than looked up for the
-/// reason `settings::open` gives: from inside the main window's own
-/// update it would come back "not found". Every caller defers to here.
+/// is what the command line opens. A row's id is also the number a Save
+/// that cleans is filed under in the application's line, so the row hears
+/// it like any clean of its own (D411); `link` is how the window tells the
+/// row of any other save (D412). `comparison` is the Compare page's rows
+/// as they stand, which the window keeps. `main` is what the new window is
+/// centred over, handed in rather than looked up for the reason
+/// `settings::open` gives: from inside the main window's own update it
+/// would come back "not found". Every caller defers to here.
 pub fn open(
     key: Option<u64>,
     subject: Subject,
     comparison: Comparison,
+    link: Option<Link>,
     main: AnyWindowHandle,
     cx: &mut App,
 ) {
@@ -505,7 +664,7 @@ pub fn open(
             ..Default::default()
         },
         move |window, cx| {
-            let view = cx.new(|cx| CompareView::new(subject, comparison, window, cx));
+            let view = cx.new(|cx| CompareView::new(subject, comparison, key, link, window, cx));
             cx.new(|cx| Root::new(view, window, cx))
         },
     );
@@ -880,12 +1039,17 @@ struct CompareView {
     /// against. Shared with the background task that compares.
     original_text: Arc<str>,
     /// What Layer A made of the original, cleaned with the read on the
-    /// background executor: what the result opens with and what Reset
-    /// puts back, so neither cleans on the thread that draws.
+    /// background executor — or a rewrite as the window opened it: what
+    /// Reset puts back, so it never cleans on the thread that draws.
     cleaned_text: Arc<str>,
     /// Whether the result has been edited away from `cleaned_text`, as
     /// of the latest comparison — what Reset is offered on.
     edited: bool,
+    /// Where Save writes (S1) — worked out from what the window was opened
+    /// on, and moved by a Save that cleans to wherever that wrote.
+    target: Result<Target, NoTarget>,
+    /// The saving, as this window keeps it.
+    saving: Saving,
     /// Whether the result is a clean's or a rewrite's — what the banner
     /// and Reset say.
     kind: MadeKind,
@@ -920,15 +1084,100 @@ struct CompareView {
     _subscriptions: Vec<Subscription>,
 }
 
+/// What a window keeps about saving its result (E7-9).
+struct Saving {
+    /// The row the window was opened from, and the number a Save that
+    /// cleans is filed under — the row's id, or this window's own for one
+    /// opened by `--compare=`.
+    key: u64,
+    link: Option<Link>,
+    /// What a Save that cleans cleans as: the original, as it arrived.
+    arrival: Option<drop::Arrival>,
+    /// The original's own file, which a save never writes over.
+    original: Option<std::path::PathBuf>,
+    /// What a save writes in.
+    encoding: Encoding,
+    /// What the result's home held when the window last read or wrote it.
+    seen: Seen,
+    /// The text the window opened on, and then the text it last saved —
+    /// what "unsaved" is measured against.
+    saved: Arc<str>,
+    /// Whether the result's home holds `saved` — `false` until a Save that
+    /// cleans has written it.
+    written: bool,
+    /// Whether the pane differs from `saved` now.
+    dirty: bool,
+    /// When this window last saved.
+    saved_at: Option<chrono::DateTime<chrono::Local>>,
+    saver: Saver,
+    /// Why the last save wrote nothing, as the line under the result says.
+    not_saved: Option<String>,
+    /// The text the save under way is writing.
+    writing: Option<Arc<str>>,
+    /// Whether the save under way is a Save that cleans, waiting in the
+    /// application's line — whose `Finished` for this window's number is
+    /// then this window's, and no one else's.
+    in_line: bool,
+    /// The question a save or a close waits on.
+    question: Option<(Entity<dialog::Choose>, Subscription)>,
+    /// A close is waiting for the save under way, or the one it asked.
+    closing: bool,
+    /// "Discard": the next close is not asked about.
+    discarded: bool,
+    /// A window opened by `--compare=` has no row of the main window's to
+    /// tell: it writes its own journal row, once it has saved (D412).
+    writer: Option<journal::Writer>,
+    recorded: bool,
+    /// A test holds a write here until it says go — the one way to see a
+    /// save still under way while another is asked for.
+    #[cfg(test)]
+    gate: Option<flume::Receiver<()>>,
+}
+
+impl Saving {
+    fn new(key: Option<u64>, link: Option<Link>, autosave: bool, cx: &App) -> Self {
+        Self {
+            key: key.unwrap_or_else(clean::number),
+            writer: key
+                .is_none()
+                .then(|| journal::working(cx).map(|work| work.journal.writer()))
+                .flatten(),
+            link,
+            arrival: None,
+            original: None,
+            encoding: Encoding::Utf8,
+            seen: Seen::Nothing,
+            saved: Arc::from(""),
+            written: false,
+            dirty: false,
+            saved_at: None,
+            saver: Saver::new(autosave),
+            not_saved: None,
+            writing: None,
+            in_line: false,
+            question: None,
+            closing: false,
+            discarded: false,
+            recorded: false,
+            #[cfg(test)]
+            gate: None,
+        }
+    }
+}
+
 impl CompareView {
     fn new(
         subject: Subject,
         comparison: Comparison,
+        key: Option<u64>,
+        link: Option<Link>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
+        let target = save_target(&subject.made, &subject.handed, link.is_some());
+        let saving = Saving::new(key, link, comparison.autosave, cx);
 
         let original = cx.new(|cx| {
             // The same editor as the result's, for the same reasons —
@@ -947,6 +1196,7 @@ impl CompareView {
             |view, _, event: &ResultEvent, window, cx| {
                 let ResultEvent::Changed = event;
                 view.recompute(window, cx);
+                view.typed(window, cx);
             },
         );
         let result_state = result.read(cx).state().clone();
@@ -964,6 +1214,29 @@ impl CompareView {
         });
         let led_by_original = cx.observe_in(&original, window, |view, _, _, cx| {
             view.look(false, cx);
+        });
+        let mut subscriptions = vec![changed, led_by_result, led_by_original];
+        // A Save that cleans waits in the application's line like any
+        // clean, and ends there (D411).
+        if let Some(line) = Cleaner::existing(cx) {
+            subscriptions.push(cx.subscribe_in(
+                &line,
+                window,
+                |view, _, event: &cleaner::Event, window, cx| {
+                    if let cleaner::Event::Finished(id, outcome) = event {
+                        if *id == view.saving.key && view.saving.saver.running() {
+                            view.cleaned(outcome, window, cx);
+                        }
+                    }
+                },
+            ));
+        }
+        // The window's own close button: closing with unsaved edits saves
+        // them or asks, as ⌘W does (S3).
+        let this = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |window, cx| {
+            this.update(cx, |view, cx| view.may_close(window, cx))
+                .unwrap_or(true)
         });
 
         let mut view = Self {
@@ -984,7 +1257,9 @@ impl CompareView {
             followed: 0,
             original_track: Track::default(),
             result_track: Track::default(),
-            _subscriptions: vec![changed, led_by_result, led_by_original],
+            target,
+            saving,
+            _subscriptions: subscriptions,
         };
         view.read(window, cx);
         view
@@ -1018,14 +1293,27 @@ impl CompareView {
             Ok(Loaded {
                 name,
                 text,
+                opened,
                 cleaned,
                 kind,
+                arrival,
+                encoding,
+                seen,
             }) => {
                 self.kind = kind;
                 window.set_window_title(&Title::Compare { name: &name }.text());
                 self.name = name;
                 self.original_text = Arc::from(text.as_str());
                 self.cleaned_text = Arc::from(cleaned.as_str());
+                self.saving.original = match &arrival.handed {
+                    Handed::Path(path) => Some(path.clone()),
+                    _ => None,
+                };
+                self.saving.arrival = Some(arrival);
+                self.saving.encoding = encoding;
+                self.saving.seen = seen;
+                self.saving.saved = Arc::from(opened.as_str());
+                self.saving.written = !matches!(self.target, Ok(Target::Clean));
                 // The finer marks, if the page asks for any — installed
                 // before the texts go in, so the first question the
                 // library puts (it puts one when a text is set) already
@@ -1051,10 +1339,11 @@ impl CompareView {
                 self.original.update(cx, |original, cx| {
                     original.set_value(text, window, cx);
                 });
-                // The cleaned text, not a copy of the original. Announces
+                // The cleaned text, not a copy of the original — or the
+                // result as it stands where it was written. Announces
                 // `Changed`, which is what recomputes the marks.
                 self.result.update(cx, |result, cx| {
-                    result.set_text(&cleaned, window, cx);
+                    result.set_text(&opened, window, cx);
                 });
                 self.state = State::Ready;
                 // The keyboard goes to the side being written in.
@@ -1066,17 +1355,21 @@ impl CompareView {
                 self.state = State::Refused(refusal);
             }
         }
+        self.offer_save(cx);
         cx.notify();
     }
 
     /// Put the result back to what cleaning made of the original — the
     /// text kept from the read, so nothing is cleaned here, on the
-    /// thread that draws. The editor forgets its history with it: this
-    /// is a new document, not an edit.
+    /// thread that draws — or a rewrite as the window opened it. It is an
+    /// edit like any other, saved as edits are — by autosave a moment
+    /// later, or by Save (D414) — and so one the history keeps: Undo
+    /// brings back what it replaced, which by then may be gone from the
+    /// result's file (`reset_can_be_undone_and_the_undo_is_saved`).
     fn reset(&self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.cleaned_text.to_string();
         self.result.update(cx, |result, cx| {
-            result.set_text(&text, window, cx);
+            result.replace_text(&text, window, cx);
             result.focus(window, cx);
         });
     }
@@ -1496,6 +1789,710 @@ impl CompareView {
     }
 }
 
+/// Saving an edited result (E7-9): what an edit does, what Save does, what
+/// the answer to a question does, and what closing does. See the module
+/// docs, "Saving", and `save` for where a save goes.
+impl CompareView {
+    /// The pane's text now.
+    fn current(&self, cx: &App) -> Arc<str> {
+        Arc::from(self.result.read(cx).text(cx).as_ref())
+    }
+
+    /// The text changed: whether it differs from what was last saved — and,
+    /// while this window autosaves, a save once typing has been quiet for
+    /// [`save::QUIET`] (S3, D415). Every road in is an edit: typing, a
+    /// paste, Undo, Reset.
+    fn typed(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if !matches!(self.state, State::Ready) {
+            return;
+        }
+        let dirty = *self.current(cx) != *self.saving.saved;
+        if dirty != self.saving.dirty {
+            self.saving.dirty = dirty;
+            if dirty {
+                // An edit after a refusal is a new try; the line under the
+                // result says what is true now.
+                self.saving.not_saved = None;
+            }
+            self.offer_save(cx);
+            cx.notify();
+        }
+        if !dirty {
+            return;
+        }
+        let Some(edit) = self.saving.saver.edited() else {
+            return;
+        };
+        cx.spawn_in(window, async move |view, cx| {
+            cx.background_executor().timer(save::QUIET).await;
+            view.update_in(cx, |view, window, cx| {
+                if view.saving.dirty && view.saving.saver.quiet(edit) {
+                    view.begin(None, window, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Save, or ⌘S (S2): a save now, or after the one under way.
+    fn save_pressed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.save_unavailable().is_some() || self.saving.question.is_some() {
+            return;
+        }
+        if self.saving.saver.ask() {
+            self.begin(None, window, cx);
+        }
+        cx.notify();
+    }
+
+    /// Start the save the saver has just started: the pane's text, to the
+    /// target, on the background executor or through the line of cleans —
+    /// never a write on the thread that draws.
+    fn begin(&mut self, force: Option<save::Force>, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.current(cx);
+        let target = match &self.target {
+            Ok(target) => target.clone(),
+            Err(_) => {
+                self.after_save(true, window, cx);
+                return;
+            }
+        };
+        // Nothing to write: the home holds this text already.
+        if self.saving.written && *text == *self.saving.saved && force.is_none() {
+            self.after_save(true, window, cx);
+            return;
+        }
+        self.saving.writing = Some(text.clone());
+        self.saving.not_saved = None;
+        self.offer_save(cx);
+        cx.notify();
+        match target {
+            Target::File(path) => {
+                let original = self.saving.original.clone();
+                let encoding = self.saving.encoding;
+                let seen = match (&force, self.saving.seen) {
+                    (None, Seen::File(stamp)) => Some(stamp),
+                    _ => None,
+                };
+                #[cfg(test)]
+                let gate = self.saving.gate.clone();
+                cx.spawn_in(window, async move |view, cx| {
+                    #[cfg(test)]
+                    if let Some(gate) = gate {
+                        let _ = gate.recv_async().await;
+                    }
+                    let saved = cx
+                        .background_executor()
+                        .spawn(async move {
+                            save::save_file(
+                                &path,
+                                original.as_deref(),
+                                encoding,
+                                &text,
+                                seen.as_ref(),
+                            )
+                            .map(Seen::File)
+                        })
+                        .await;
+                    view.update_in(cx, |view, window, cx| view.saved(saved, window, cx))
+                        .ok();
+                })
+                .detach();
+            }
+            Target::Item(queue, item) => {
+                let seen = match (&force, self.saving.seen) {
+                    (None, Seen::Item(digest)) => Some(digest),
+                    _ => None,
+                };
+                cx.spawn_in(window, async move |view, cx| {
+                    let saved =
+                        cx.background_executor()
+                            .spawn(async move {
+                                save::save_item(&queue, item, &text, seen).map(Seen::Item)
+                            })
+                            .await;
+                    view.update_in(cx, |view, window, cx| view.saved(saved, window, cx))
+                        .ok();
+                })
+                .detach();
+            }
+            // The main window's row, in memory: the row's owner takes it,
+            // on this thread, at once.
+            Target::Row => {
+                let took = self
+                    .saving
+                    .link
+                    .clone()
+                    .is_some_and(|link| (link.told)(Told::Text(text.to_string()), cx));
+                let saved = if took {
+                    Ok(Seen::Nothing)
+                } else {
+                    Err(NotSaved::Gone)
+                };
+                self.saved(saved, window, cx);
+            }
+            // A clean of this text, in the application's one line, by the
+            // plan taken when it starts (D411); its end comes back as the
+            // line's `Finished` for this window's number.
+            Target::Clean => {
+                let replacing = match force {
+                    Some(save::Force::Replacing(path)) => Some(path),
+                    _ => None,
+                };
+                // The row's own Clean is greyed while it is rewritten; a
+                // Save that cleans keeps the same rule.
+                let may = self
+                    .saving
+                    .link
+                    .clone()
+                    .is_none_or(|link| (link.told)(Told::Cleans, cx));
+                if !may {
+                    self.saved(Err(NotSaved::Busy), window, cx);
+                    return;
+                }
+                let asked = match (Cleaner::existing(cx), self.saving.arrival.clone()) {
+                    (Some(line), Some(arrival)) => line.update(cx, |line, cx| {
+                        line.ask_with(self.saving.key, arrival, replacing, Some(text), cx)
+                    }),
+                    _ => false,
+                };
+                if asked {
+                    self.saving.in_line = true;
+                } else {
+                    self.saved(Err(NotSaved::Busy), window, cx);
+                }
+            }
+        }
+    }
+
+    /// A save over a file, or into a row, ended.
+    fn saved(
+        &mut self,
+        saved: Result<Seen, NotSaved>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(text) = self.saving.writing.take() else {
+            return;
+        };
+        match saved {
+            Ok(seen) => {
+                self.wrote(text, seen, cx);
+                self.tell_saved(cx);
+                self.after_save(true, window, cx);
+            }
+            Err(NotSaved::Changed) => self.ask_changed(None, window, cx),
+            Err(why) => {
+                let sentence = self.why(&why);
+                self.saving.not_saved = Some(sentence);
+                self.after_save(false, window, cx);
+            }
+        }
+    }
+
+    /// A Save that cleaned ended in the line (D411) — what the row heard
+    /// too, and wrote in its journal.
+    fn cleaned(&mut self, outcome: &clean::Outcome, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.saving.in_line {
+            return;
+        }
+        self.saving.in_line = false;
+        let Some(text) = self.saving.writing.take() else {
+            return;
+        };
+        self.record_clean(outcome);
+        use clean::{Refusal as Refused, Verdict};
+        match &outcome.verdict {
+            Verdict::Cleaned | Verdict::Partly(_) => {
+                // Where it went is where the next save goes: over that
+                // file, or into the row that holds a paste's result.
+                let seen = match &outcome.written {
+                    Some(path) => {
+                        self.target = Ok(Target::File(path.clone()));
+                        if let Some(aside) = &outcome.set_aside {
+                            self.saving.original = Some(aside.clone());
+                        }
+                        Seen::File(Stamp::of(&wipemark_intake::text::encode(
+                            &text,
+                            self.saving.encoding,
+                        )))
+                    }
+                    None => {
+                        self.target = if self.saving.link.is_some() {
+                            Ok(Target::Row)
+                        } else {
+                            Err(NoTarget::NoRow)
+                        };
+                        Seen::Nothing
+                    }
+                };
+                self.wrote(text, seen, cx);
+                self.after_save(true, window, cx);
+            }
+            // The text is the original's: a result identical to its
+            // original is never written (D262). Not a failure — the next
+            // edit is saved as ever.
+            Verdict::NothingFound => {
+                self.saving.not_saved = Some(t(Message::CompareNotSavedSame));
+                self.after_save(true, window, cx);
+            }
+            Verdict::NotCleaned(Refused::Exists(path)) => {
+                self.ask_changed(Some(path.clone()), window, cx)
+            }
+            Verdict::NotCleaned(refusal) => {
+                self.saving.not_saved = Some(wording::refused_in(&wording::window, refusal));
+                self.after_save(false, window, cx);
+            }
+            Verdict::Failed(failure) => {
+                self.saving.not_saved = Some(wording::failed_in(&wording::window, failure));
+                self.after_save(false, window, cx);
+            }
+        }
+    }
+
+    /// The result's home holds `text` now, as `seen`.
+    fn wrote(&mut self, text: Arc<str>, seen: Seen, cx: &App) {
+        let dirty = *self.current(cx) != *text;
+        let saving = &mut self.saving;
+        saving.seen = seen;
+        saving.saved = text;
+        saving.written = true;
+        saving.saved_at = Some(chrono::Local::now());
+        saving.not_saved = None;
+        saving.dirty = dirty;
+    }
+
+    /// Tell whoever keeps the row that its result was saved, edited: the
+    /// main window's row, through the link, or this window's own journal
+    /// row (D412, D417). A Save that cleans is told by the line instead.
+    fn tell_saved(&self, cx: &mut App) {
+        if matches!(self.target, Ok(Target::Row)) {
+            // The row took the text itself, and marked it.
+            return;
+        }
+        if let Some(link) = self.saving.link.clone() {
+            (link.told)(Told::Saved, cx);
+        } else if let (true, Some(writer)) = (self.saving.recorded, &self.saving.writer) {
+            writer.edited(self.saving.key, journal::now_ms());
+        }
+    }
+
+    /// A window opened by `--compare=` has no row of the main window's: its
+    /// Save that cleans is a row of its own in the journal, as a launch
+    /// flag's — every document has a status, whoever asked (D412).
+    fn record_clean(&mut self, outcome: &clean::Outcome) {
+        if self.saving.link.is_some() {
+            return;
+        }
+        let (Some(writer), Some(arrival)) = (&self.saving.writer, &self.saving.arrival) else {
+            return;
+        };
+        let (phase, recorded, delivered) = journal::clean_end(outcome);
+        let mut entry = journal::entry_of(arrival);
+        entry.outcome = Some(recorded);
+        entry.result = Some(delivered);
+        let now = journal::now_ms();
+        let row = journal::Written {
+            origin: wipemark_store::entry::Origin::LaunchFlag,
+            action: journal::clean_action(&arrival.intake),
+            phase,
+            item: None,
+            arrived: now,
+            ended: Some(now),
+            entry,
+        };
+        if self.saving.recorded {
+            writer.change(self.saving.key, row);
+        } else {
+            writer.record(self.saving.key, row);
+            self.saving.recorded = true;
+        }
+    }
+
+    /// Whatever a save came to: the save asked meanwhile, a close that
+    /// waited for it, and the strip and the line under the result.
+    fn after_save(&mut self, ok: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.saving.dirty = *self.current(cx) != *self.saving.saved;
+        if self.saving.saver.ended(ok) {
+            if self.saving.dirty && self.target.is_ok() {
+                self.begin(None, window, cx);
+                return;
+            }
+            self.saving.saver.ended(true);
+        }
+        if !ok {
+            // A close waits for a save that wrote; one that did not keeps
+            // the window open, its reason under the result.
+            self.saving.closing = false;
+        }
+        if self.saving.closing && !self.saving.dirty && !self.saving.saver.running() {
+            window.remove_window();
+            return;
+        }
+        self.offer_save(cx);
+        cx.notify();
+    }
+
+    /// The sentence for why a save wrote nothing.
+    fn why(&self, why: &NotSaved) -> String {
+        let name = || self.home_name();
+        match why {
+            NotSaved::Changed => t_args(Message::CompareNotSavedChanged, &args!("name" => name())),
+            NotSaved::Link => t_args(Message::CompareNotSavedLink, &args!("name" => name())),
+            NotSaved::Original => t(Message::CompareNotSavedOriginal),
+            NotSaved::Gone => t(Message::CompareNotSavedGone),
+            NotSaved::Busy => t(Message::CompareNotSavedBusy),
+            NotSaved::Unreadable => {
+                t_args(Message::CompareNotSavedUnreadable, &args!("name" => name()))
+            }
+            // The operating system's own sentence, as the queue's row
+            // says a failed write.
+            NotSaved::Write { message, .. } => message.clone(),
+        }
+    }
+
+    /// The name of the file a save writes over — never a whole path.
+    fn home_name(&self) -> String {
+        match &self.target {
+            Ok(Target::File(path)) => file_name(path),
+            _ => self.name.clone(),
+        }
+    }
+
+    /// Ask what to do about a file that changed under a save — or, for a
+    /// Save that cleans, one already where the result goes (D413). Until it
+    /// is answered nothing is saved on its own.
+    fn ask_changed(
+        &mut self,
+        exists: Option<std::path::PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // The save asked a question rather than writing: autosave waits for
+        // the answer, and a close waiting for the save waits no longer.
+        self.saving.saver.ended(false);
+        self.saving.closing = false;
+        let name = exists
+            .as_deref()
+            .map_or_else(|| self.home_name(), file_name);
+        let (title, body) = if exists.is_some() {
+            (Message::CompareExistsTitle, Message::CompareExistsBody)
+        } else {
+            (Message::CompareChangedTitle, Message::CompareChangedBody)
+        };
+        self.saving.not_saved = Some(match &exists {
+            Some(path) => {
+                wording::refused_in(&wording::window, &clean::Refusal::Exists(path.clone()))
+            }
+            None => t_args(
+                Message::CompareNotSavedChanged,
+                &args!("name" => name.clone()),
+            ),
+        });
+        let dialog = cx.new(|cx| {
+            dialog::Choose::new(
+                t(title),
+                vec![
+                    t_args(body, &args!("name" => name)),
+                    t(Message::CompareChangedChoices),
+                ],
+                t(Message::CompareChangedOverwrite),
+                t(Message::CompareChangedKeep),
+                t(Message::CompareChangedCancel),
+                // Enter is Cancel: Overwrite writes over somebody's text.
+                dialog::Pick::Dismissed,
+                window,
+                cx,
+            )
+        });
+        let answered = cx.subscribe_in(
+            &dialog,
+            window,
+            move |view, _, pick: &dialog::Pick, window, cx| {
+                view.saving.question = None;
+                match pick {
+                    dialog::Pick::First => {
+                        let force = match &exists {
+                            Some(path) => save::Force::Replacing(path.clone()),
+                            None => save::Force::Overwrite,
+                        };
+                        if view.saving.saver.ask() {
+                            view.begin(Some(force), window, cx);
+                        }
+                    }
+                    dialog::Pick::Second => view.keep_theirs(exists.clone(), window, cx),
+                    // Both as they are; the line says why nothing was
+                    // saved, and Save asks again.
+                    dialog::Pick::Dismissed => {}
+                }
+                view.focus_result(window, cx);
+                view.offer_save(cx);
+                cx.notify();
+            },
+        );
+        self.saving.question = Some((dialog, answered));
+        self.offer_save(cx);
+        cx.notify();
+    }
+
+    /// "Keep theirs": the file's text — or the row's — in this window, the
+    /// edits here let go, and autosave as before (D413). For a file that
+    /// was already where a Save that cleans would go, that file is the
+    /// result's home from now on.
+    fn keep_theirs(&self, exists: Option<std::path::PathBuf>, window: &Window, cx: &Context<Self>) {
+        let from = match (&exists, &self.target) {
+            (Some(path), _) | (None, Ok(Target::File(path))) => RewriteFrom::File(path.clone()),
+            (None, Ok(Target::Item(queue, item))) => RewriteFrom::Item(Arc::clone(queue), *item),
+            _ => return,
+        };
+        let encoding = self.saving.encoding;
+        cx.spawn_in(window, async move |view, cx| {
+            let read = cx
+                .background_executor()
+                .spawn(async move {
+                    match &from {
+                        RewriteFrom::File(path) => file_text(path)
+                            .map(|(text, encoding, stamp)| (text, encoding, Seen::File(stamp))),
+                        RewriteFrom::Item(..) => rewritten_text(&from).map(|text| {
+                            let seen = Seen::Item(save::digest_of(&text));
+                            (text, encoding, seen)
+                        }),
+                    }
+                })
+                .await;
+            view.update_in(cx, |view, window, cx| {
+                match read {
+                    Ok((text, encoding, seen)) => {
+                        if let Some(path) = exists {
+                            view.target = Ok(Target::File(path));
+                        }
+                        view.saving.encoding = encoding;
+                        view.saving.seen = seen;
+                        view.saving.saved = Arc::from(text.as_str());
+                        view.saving.written = true;
+                        view.saving.not_saved = None;
+                        view.saving.saver.resume();
+                        view.result
+                            .update(cx, |result, cx| result.set_text(&text, window, cx));
+                    }
+                    Err(_) => {
+                        let name = view.home_name();
+                        view.saving.not_saved = Some(t_args(
+                            Message::CompareNotSavedUnreadable,
+                            &args!("name" => name),
+                        ));
+                    }
+                }
+                view.offer_save(cx);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Whether the window may close now (S3). With nothing unsaved, yes.
+    /// While this window autosaves, it saves first and closes once that
+    /// save has written; otherwise it asks — Save, Discard, Cancel. A save
+    /// that could not write keeps the window open, the reason under the
+    /// result, because closing would lose what it could not keep.
+    fn may_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.saving.discarded || !matches!(self.state, State::Ready) || self.target.is_err() {
+            return true;
+        }
+        let dirty = *self.current(cx) != *self.saving.saved;
+        if !dirty && !self.saving.saver.running() {
+            return true;
+        }
+        if self.saving.question.is_some() {
+            return false;
+        }
+        if self.saving.saver.autosaves() && !self.saving.saver.stopped() {
+            self.saving.closing = true;
+            if self.saving.saver.ask() {
+                self.begin(None, window, cx);
+            }
+            return false;
+        }
+        self.ask_close(window, cx);
+        false
+    }
+
+    /// Ask before closing with edits nothing saved: Save (what Enter
+    /// answers), Discard, Cancel.
+    fn ask_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let dialog = cx.new(|cx| {
+            dialog::Choose::new(
+                t(Message::CompareCloseTitle),
+                vec![t(Message::CompareCloseBody)],
+                t(Message::CompareCloseSave),
+                t(Message::CompareCloseDiscard),
+                t(Message::CompareCloseCancel),
+                dialog::Pick::First,
+                window,
+                cx,
+            )
+        });
+        let answered = cx.subscribe_in(
+            &dialog,
+            window,
+            |view, _, pick: &dialog::Pick, window, cx| {
+                view.saving.question = None;
+                match pick {
+                    dialog::Pick::First => {
+                        view.saving.closing = true;
+                        if view.saving.saver.ask() {
+                            view.begin(None, window, cx);
+                        }
+                    }
+                    dialog::Pick::Second => {
+                        view.saving.discarded = true;
+                        window.remove_window();
+                        return;
+                    }
+                    dialog::Pick::Dismissed => {}
+                }
+                view.focus_result(window, cx);
+                view.offer_save(cx);
+                cx.notify();
+            },
+        );
+        self.saving.question = Some((dialog, answered));
+        cx.notify();
+    }
+
+    /// Give the keyboard back to the result once a question is answered.
+    fn focus_result(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if matches!(self.state, State::Ready) {
+            self.result
+                .update(cx, |result, cx| result.focus(window, cx));
+        }
+    }
+
+    /// Why Save does nothing now, or `None` when it does something.
+    fn save_unavailable(&self) -> Option<String> {
+        match &self.state {
+            State::Reading => return Some(t(Message::CompareSaveReading)),
+            State::Refused(_) => return Some(t(Message::CompareSaveRefused)),
+            State::Ready => {}
+        }
+        match &self.target {
+            Err(NoTarget::Original) => return Some(t(Message::CompareSaveNowhere)),
+            Err(NoTarget::NoRow) => return Some(t(Message::CompareSaveRefused)),
+            Ok(_) => {}
+        }
+        if self.saving.writing.is_some() {
+            return Some(t(Message::CompareStatusSaving));
+        }
+        // Nothing has been written for the result yet: Save is a Clean of
+        // the pane's text, edited or not (D411).
+        if self.saving.written && !self.saving.dirty && self.saving.not_saved.is_none() {
+            return Some(t(Message::CompareSaveUnsaved));
+        }
+        None
+    }
+
+    /// Hand the result's strip the window's Save, greyed with its reason
+    /// when it would do nothing.
+    fn offer_save(&self, cx: &mut Context<Self>) {
+        let offer = Offer {
+            action: Box::new(SaveCompare),
+            context: CONTEXT,
+            label: SharedString::from(t(Message::CompareSave)),
+            unavailable: self.save_unavailable().map(SharedString::from),
+        };
+        self.result
+            .update(cx, |result, cx| result.offer(Some(offer), cx));
+    }
+
+    /// The line under the result (S4): saving, not saved and why, unsaved
+    /// changes, or when it was saved — and nothing for a result as it was
+    /// opened.
+    fn save_status(&self) -> Option<String> {
+        if !matches!(self.state, State::Ready) || self.target.is_err() {
+            return None;
+        }
+        if self.saving.writing.is_some() {
+            return Some(t(Message::CompareStatusSaving));
+        }
+        if let Some(why) = &self.saving.not_saved {
+            return Some(t_args(
+                Message::CompareStatusNotSaved,
+                &args!("reason" => why.clone()),
+            ));
+        }
+        if self.saving.dirty {
+            return Some(t(Message::CompareStatusUnsaved));
+        }
+        self.saving.saved_at.map(|at| {
+            t_args(
+                Message::CompareStatusSaved,
+                &args!("time" => at.format("%H:%M").to_string()),
+            )
+        })
+    }
+
+    /// The banner's second line: where an edit is saved, and when (S3).
+    fn where_saved(&self, cx: &App) -> Option<String> {
+        if !matches!(self.state, State::Ready) {
+            return None;
+        }
+        let place = match &self.target {
+            Err(NoTarget::Original) => return Some(t(Message::CompareSaveNowhere)),
+            Err(NoTarget::NoRow) => return None,
+            Ok(Target::File(path)) => t_args(
+                Message::CompareSaveToFile,
+                &args!("name" => file_name(path)),
+            ),
+            Ok(Target::Item(..) | Target::Row) => t(Message::CompareSaveToRow),
+            Ok(Target::Clean) => self.where_a_clean_goes(cx)?,
+        };
+        let when = if self.saving.saver.autosaves() {
+            t(Message::CompareSaveWhenTyping)
+        } else {
+            t(Message::CompareSaveWhenPressed)
+        };
+        Some(format!("{place} {when}"))
+    }
+
+    /// Where a Save that cleans would write, by the plan the Retention page
+    /// gives now — taken again when it starts, so a change made meanwhile
+    /// applies, as it does to a clean (D279).
+    fn where_a_clean_goes(&self, cx: &App) -> Option<String> {
+        use crate::retention::{Plan, Written};
+        let arrival = self.saving.arrival.as_ref()?;
+        let plan = Cleaner::existing(cx)?.read(cx).plan_of(&arrival.intake, cx);
+        Some(match plan {
+            Plan::File(Written::Beside(path)) => t_args(
+                Message::CompareSaveAsClean,
+                &args!("name" => file_name(&path)),
+            ),
+            Plan::File(Written::Into { folder, name })
+            | Plan::Loose {
+                result: Written::Into { folder, name },
+                ..
+            } => {
+                let name = name.unwrap_or_else(|| file_name(&folder));
+                t_args(Message::CompareSaveAsClean, &args!("name" => name))
+            }
+            Plan::File(Written::Over { file, .. }) => t_args(
+                Message::CompareSaveAsCleanInPlace,
+                &args!("name" => file_name(&file)),
+            ),
+            Plan::File(Written::AsText) | Plan::Loose { .. } => t(Message::CompareSaveAsCleanRow),
+            Plan::EachFileIn(_) => return None,
+        })
+    }
+}
+
+/// A path's last name, for a sentence — never the whole path.
+fn file_name(path: &std::path::Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_string_lossy().into_owned())
+}
+
 /// What this window does, since two panes of text do not say — as it
 /// was opened, so a line about following is there only while the
 /// original follows.
@@ -1535,8 +2532,13 @@ fn help(comparison: Comparison, cx: &App) -> impl IntoElement {
     }
     lines.extend([
         Message::CompareHelpToolbar,
+        Message::CompareHelpSave,
         Message::CompareHelpSettings,
-        Message::CompareHelpClose,
+        if comparison.autosave {
+            Message::CompareHelpClose
+        } else {
+            Message::CompareHelpCloseAsks
+        },
     ]);
     v_flex()
         .w(px(300.0))
@@ -1563,13 +2565,26 @@ impl Render for CompareView {
         let ready = matches!(self.state, State::Ready);
         let comparison = self.comparison;
 
+        let mut banner = banner_lines(self.kind);
+        banner.extend(self.where_saved(cx));
+        let status = self.save_status();
+        let failed = self.saving.not_saved.is_some();
+
         v_flex()
             .id("compare")
             .track_focus(&self.focus)
             .key_context(CONTEXT)
-            .on_action(cx.listener(|_, _: &CloseCompare, window, _| {
-                window.remove_window();
+            // ⌘W is the close button's road: closing with unsaved edits
+            // saves them or asks (S3).
+            .on_action(cx.listener(|view, _: &CloseCompare, window, cx| {
+                if view.may_close(window, cx) {
+                    window.remove_window();
+                }
             }))
+            .on_action(cx.listener(|view, _: &SaveCompare, window, cx| {
+                view.save_pressed(window, cx);
+            }))
+            .relative()
             .size_full()
             .bg(theme.background)
             .text_color(theme.foreground)
@@ -1592,7 +2607,7 @@ impl Render for CompareView {
                             .flex_1()
                             .text_xs()
                             .text_color(muted)
-                            .children(banner_lines(self.kind).into_iter().map(SharedString::from)),
+                            .children(banner.into_iter().map(SharedString::from)),
                     )
                     .child(
                         Button::new("compare-reset")
@@ -1647,8 +2662,18 @@ impl Render for CompareView {
                         self.summary()
                     } else {
                         String::new()
+                    }))
+                    // Under the result: whether it is saved (S4).
+                    .child(div().flex_1())
+                    .children(status.map(|status| {
+                        div()
+                            .when(failed, |line| line.text_color(theme.warning))
+                            .child(SharedString::from(status))
                     })),
             )
+            .children(self.saving.question.as_ref().map(|(question, _)| {
+                deferred(question.clone()).with_priority(dialog::MODAL_PRIORITY)
+            }))
     }
 }
 
@@ -1658,7 +2683,7 @@ mod tests {
     use std::path::PathBuf;
 
     use gpui::TestAppContext;
-    use wipemark_intake::{Format, Kind};
+    use wipemark_intake::{Encoding, Format, Kind};
 
     use super::*;
 
@@ -1853,11 +2878,23 @@ mod tests {
         subject: Subject,
         comparison: Comparison,
     ) -> (Entity<CompareView>, &mut gpui::VisualTestContext) {
+        window_keyed(cx, subject, comparison, None, None)
+    }
+
+    /// [`window_on`], opened from row `key` with `link` back to it — or,
+    /// with neither, as `--compare=` opens one.
+    fn window_keyed(
+        cx: &mut TestAppContext,
+        subject: Subject,
+        comparison: Comparison,
+        key: Option<u64>,
+        link: Option<Link>,
+    ) -> (Entity<CompareView>, &mut gpui::VisualTestContext) {
         cx.update(gpui_component::init);
         let slot: Rc<std::cell::RefCell<Option<Entity<CompareView>>>> = Rc::default();
         let held = slot.clone();
         let (_, cx) = cx.add_window_view(move |window, cx| {
-            let view = cx.new(|cx| CompareView::new(subject, comparison, window, cx));
+            let view = cx.new(|cx| CompareView::new(subject, comparison, key, link, window, cx));
             *held.borrow_mut() = Some(view.clone());
             Root::new(view, window, cx)
         });
@@ -2268,8 +3305,9 @@ mod tests {
             let held = slot.clone();
             let subject = of(Handed::Path(source));
             let (_, window) = cx.add_window_view(move |window, cx| {
-                let view =
-                    cx.new(|cx| CompareView::new(subject, Comparison::default(), window, cx));
+                let view = cx.new(|cx| {
+                    CompareView::new(subject, Comparison::default(), None, None, window, cx)
+                });
                 *held.borrow_mut() = Some(view.clone());
                 Root::new(view, window, cx)
             });
@@ -2961,6 +3999,834 @@ mod tests {
             shown.start, 151,
             "the wrapped result is not on the original's row"
         );
+    }
+
+    // -- saving an edited result (E7-9) ---------------------------------
+
+    use crate::retention::{Destination, Homes};
+    use crate::settings::Preferences;
+
+    /// A window on `subject` that can save: the application's line of
+    /// cleans over preferences whose folders are `scratch`'s — made before
+    /// the window, as `main` makes it before any window opens — and the
+    /// window opened as row `key`'s with `link` back to it, or, with
+    /// neither, as `--compare=` opens one.
+    fn saving_window<'a>(
+        cx: &'a mut TestAppContext,
+        scratch: &Scratch,
+        subject: Subject,
+        comparison: Comparison,
+        key: Option<u64>,
+        link: Option<Link>,
+    ) -> (
+        Entity<CompareView>,
+        Entity<Preferences>,
+        &'a mut gpui::VisualTestContext,
+    ) {
+        cx.update(gpui_component::init);
+        cx.update(init);
+        cx.update(dialog::init);
+        let homes = Homes {
+            results: scratch.0.join("results"),
+            kept: scratch.0.join("kept"),
+        };
+        type Held = (Entity<CompareView>, Entity<Preferences>);
+        let slot: Rc<std::cell::RefCell<Option<Held>>> = Rc::default();
+        let held = slot.clone();
+        let (_, cx) = cx.add_window_view(move |window, cx| {
+            // One set of preferences and one line for every window of a
+            // test, as the application has: a second set would start a
+            // second MCP supervisor, and dropping it would wake this
+            // thread from that one.
+            let preferences = match Cleaner::existing(cx) {
+                Some(line) => line.read(cx).preferences().clone(),
+                None => {
+                    let preferences = cx.new(|cx| Preferences::for_tests(homes, cx));
+                    Cleaner::shared(&preferences, cx);
+                    preferences
+                }
+            };
+            let view = cx.new(|cx| CompareView::new(subject, comparison, key, link, window, cx));
+            *held.borrow_mut() = Some((view.clone(), preferences));
+            Root::new(view, window, cx)
+        });
+        cx.run_until_parked();
+        let (view, preferences) = slot.take().expect("the window builder ran");
+        assert!(
+            cx.update(|_, cx| matches!(view.read(cx).state, State::Ready)),
+            "the text was not read"
+        );
+        (view, preferences, cx)
+    }
+
+    /// A link that remembers what it was told, and answers `took` — and
+    /// lets a Save that cleans go ahead without remembering the question.
+    fn listening(took: bool) -> (Link, Rc<std::cell::RefCell<Vec<Told>>>) {
+        let heard: Rc<std::cell::RefCell<Vec<Told>>> = Rc::default();
+        let recorder = heard.clone();
+        let link = Link {
+            told: Rc::new(move |told, _| {
+                if told == Told::Cleans {
+                    return true;
+                }
+                recorder.borrow_mut().push(told);
+                took
+            }),
+        };
+        (link, heard)
+    }
+
+    /// A row being rewritten — or in the line already — is not cleaned by
+    /// a Save in its Compare window, as its own Clean is greyed then
+    /// (D411): nothing is written, and the line under the result says
+    /// why. Take the question out of `begin` and the edit lands beside
+    /// the file mid-rewrite: red.
+    #[gpui::test]
+    fn a_save_that_cleans_waits_while_the_row_is_rewritten(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("save-busy");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let link = Link {
+            told: Rc::new(|told, _| told != Told::Cleans),
+        };
+        let (view, _, cx) = saving_window(
+            cx,
+            &scratch,
+            of(Handed::Path(source)),
+            Comparison::default(),
+            Some(13),
+            Some(link),
+        );
+        type_in(&view, "mine\n", cx);
+        quiet(cx);
+        assert!(
+            !scratch.0.join("x.cleaned.md").exists(),
+            "a Save cleaned a row being rewritten"
+        );
+        assert_eq!(
+            line_under_the_result(&view, cx),
+            t_args(
+                Message::CompareStatusNotSaved,
+                &args!("reason" => t(Message::CompareNotSavedBusy))
+            )
+        );
+    }
+
+    /// Put `text` in the result, as typing it would.
+    fn type_in(view: &Entity<CompareView>, text: &str, cx: &mut gpui::VisualTestContext) {
+        cx.update(|window, cx| {
+            let pane = view.read(cx).result.clone();
+            pane.update(cx, |pane, cx| pane.set_text(text, window, cx));
+        });
+        cx.run_until_parked();
+    }
+
+    /// Let typing be quiet for `by`, and everything that starts run.
+    fn wait(cx: &gpui::VisualTestContext, by: Duration) {
+        cx.executor().advance_clock(by);
+        cx.run_until_parked();
+    }
+
+    /// Long enough for autosave to fire.
+    fn quiet(cx: &gpui::VisualTestContext) {
+        wait(cx, save::QUIET + Duration::from_millis(100));
+    }
+
+    /// Clean `source` beside itself as the queue would, and its result.
+    fn cleaned_beside(source: &std::path::Path, homes: &Homes) -> PathBuf {
+        use crate::clean::{clean_one, Verdict};
+        use crate::retention::{self, Retention, Source};
+        let handed = Handed::Path(source.to_owned());
+        let arrival = drop::Arrival {
+            intake: wipemark_intake::of(&handed),
+            handed,
+        };
+        let plan = retention::plan(&Source::of(&arrival.intake), &Retention::default(), homes);
+        let outcome = clean_one(&arrival, &plan, 1, chrono::Utc::now());
+        assert!(
+            matches!(outcome.verdict, Verdict::Cleaned),
+            "{:?}",
+            outcome.verdict
+        );
+        outcome.written.expect("written beside")
+    }
+
+    fn homes_of(scratch: &Scratch) -> Homes {
+        Homes {
+            results: scratch.0.join("results"),
+            kept: scratch.0.join("kept"),
+        }
+    }
+
+    fn line_under_the_result(
+        view: &Entity<CompareView>,
+        cx: &mut gpui::VisualTestContext,
+    ) -> String {
+        cx.update(|_, cx| view.read(cx).save_status())
+            .unwrap_or_default()
+    }
+
+    /// A cleaned row opens on its result as it stands, and an edit is saved
+    /// over that file a moment after typing stops (S1, S3): in the encoding
+    /// it arrived in — UTF-16LE with its mark here — the original
+    /// untouched, the row told so it marks its journal entry, and the line
+    /// under the result saying when. Reset is an edit like any other and
+    /// is saved too (D414). Point `saved` at the original, or drop the
+    /// encoding, and the bytes here are red.
+    #[gpui::test]
+    fn a_cleaned_file_is_saved_over_its_result_in_its_encoding(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("save-cleaned");
+        let marked = format!("\u{FEFF}{MARKED}");
+        let source_bytes = wipemark_intake::text::encode(&marked, Encoding::Utf16Le);
+        let source = scratch.file("notes.md", &source_bytes);
+        let result = cleaned_beside(&source, &homes_of(&scratch));
+        let (link, heard) = listening(true);
+        let subject = Subject {
+            handed: Handed::Path(source.clone()),
+            intake: None,
+            made: Made::CleanedTo(CleanedTo::File(result.clone())),
+        };
+        let (view, _, cx) = saving_window(
+            cx,
+            &scratch,
+            subject,
+            Comparison::default(),
+            Some(7),
+            Some(link),
+        );
+        let cleaned = wipemark_core::clean(&marked, &Options::default()).text;
+        assert_eq!(panes_of(&view, cx).1, cleaned, "not opened on the result");
+        assert_eq!(
+            line_under_the_result(&view, cx),
+            "",
+            "a fresh window said something"
+        );
+
+        let edited = "\u{FEFF}# Notes\n\nEdited by hand.\n";
+        type_in(&view, edited, cx);
+        assert_eq!(
+            line_under_the_result(&view, cx),
+            t(Message::CompareStatusUnsaved)
+        );
+        quiet(cx);
+        assert_eq!(
+            std::fs::read(&result).expect("result"),
+            wipemark_intake::text::encode(edited, Encoding::Utf16Le),
+            "the edit is not over the result, in its encoding"
+        );
+        assert_eq!(
+            std::fs::read(&source).expect("source"),
+            source_bytes,
+            "the original moved"
+        );
+        assert_eq!(*heard.borrow(), vec![Told::Saved], "the row was not told");
+        assert!(
+            line_under_the_result(&view, cx).starts_with(
+                &t_args(Message::CompareStatusSaved, &args!("time" => ""))
+                    .trim_end()
+                    .to_owned()
+            ),
+            "{}",
+            line_under_the_result(&view, cx)
+        );
+
+        // Reset: back to what cleaning makes, and saved like any edit.
+        cx.update(|window, cx| view.update(cx, |view, cx| view.reset(window, cx)));
+        quiet(cx);
+        assert_eq!(
+            std::fs::read(&result).expect("result"),
+            wipemark_intake::text::encode(&cleaned, Encoding::Utf16Le),
+            "Reset was not saved"
+        );
+    }
+
+    /// Reset is saved like any edit (D414) — so with autosave on, the
+    /// edits it let go are gone from the result's file a moment after one
+    /// click. They are one Undo away instead: Undo brings the typed text
+    /// back into the pane, and autosave writes it over the file again.
+    /// Put `set_text`, which forgets the history, back into `reset` and
+    /// Undo brings nothing back: red.
+    #[gpui::test]
+    fn reset_can_be_undone_and_the_undo_is_saved(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("reset-undo");
+        let source = scratch.file("notes.md", MARKED.as_bytes());
+        let result = cleaned_beside(&source, &homes_of(&scratch));
+        let (link, _) = listening(true);
+        let subject = Subject {
+            handed: Handed::Path(source.clone()),
+            intake: None,
+            made: Made::CleanedTo(CleanedTo::File(result.clone())),
+        };
+        let (view, _, cx) = saving_window(
+            cx,
+            &scratch,
+            subject,
+            Comparison::default(),
+            Some(7),
+            Some(link),
+        );
+        let cleaned = wipemark_core::clean(MARKED, &Options::default()).text;
+
+        // Typed, not set: an edit the editor's history holds.
+        cx.update(|window, cx| {
+            let pane = view.read(cx).result.clone();
+            pane.update(cx, |pane, cx| pane.focus(window, cx));
+        });
+        cx.simulate_input("Typed by hand. ");
+        cx.run_until_parked();
+        quiet(cx);
+        let typed = panes_of(&view, cx).1;
+        assert_ne!(typed, cleaned, "nothing was typed");
+        assert_eq!(
+            std::fs::read_to_string(&result).expect("result"),
+            typed,
+            "the typing was not saved"
+        );
+
+        cx.update(|window, cx| view.update(cx, |view, cx| view.reset(window, cx)));
+        quiet(cx);
+        assert_eq!(
+            std::fs::read_to_string(&result).expect("result"),
+            cleaned,
+            "Reset was not saved"
+        );
+
+        cx.dispatch_action(gpui_component::input::Undo);
+        cx.run_until_parked();
+        assert_eq!(
+            panes_of(&view, cx).1,
+            typed,
+            "Undo did not bring back what Reset let go"
+        );
+        quiet(cx);
+        assert_eq!(
+            std::fs::read_to_string(&result).expect("result"),
+            typed,
+            "the undone Reset was not saved"
+        );
+        assert_eq!(
+            std::fs::read(&source).expect("source"),
+            MARKED.as_bytes(),
+            "the original moved"
+        );
+    }
+
+    /// Nothing written yet: Save is a Clean of the pane's text, by the
+    /// plan the row's Clean takes when it starts (D411). A file already
+    /// where the result goes is asked about and left byte for byte;
+    /// Overwrite replaces that one file, and from then on Save writes over
+    /// it. The original is never written. Ask the line without the text
+    /// and the result is the clean's, not the edit: red.
+    #[gpui::test]
+    fn an_unwritten_row_saves_as_a_clean_would(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("save-unwritten");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let taken = scratch.file("x.cleaned.md", b"somebody's own file");
+        let (link, heard) = listening(true);
+        let (view, _, cx) = saving_window(
+            cx,
+            &scratch,
+            of(Handed::Path(source.clone())),
+            Comparison::default(),
+            Some(11),
+            Some(link),
+        );
+        assert_eq!(
+            cx.update(|_, cx| view.read(cx).target.clone()),
+            Ok(Target::Clean)
+        );
+        // Save is offered on what cleaning made, untouched: it is a Clean.
+        let offered = cx.update(|_, cx| view.read(cx).result.read(cx).offered());
+        assert_eq!(
+            offered,
+            Some(true),
+            "Save was not offered on an unwritten result"
+        );
+
+        type_in(&view, "# Notes\n\nMine.\n", cx);
+        quiet(cx);
+        assert_eq!(
+            std::fs::read(&taken).expect("taken"),
+            b"somebody's own file"
+        );
+        assert!(
+            cx.update(|_, cx| view.read(cx).saving.question.is_some()),
+            "a taken name was not asked about"
+        );
+        assert!(line_under_the_result(&view, cx).starts_with(
+            &t_args(Message::CompareStatusNotSaved, &args!("reason" => ""))
+                .trim_end()
+                .to_owned()
+        ));
+
+        // Overwrite: that one file, replaced with the edit.
+        answer(&view, dialog::Pick::First, cx);
+        assert_eq!(std::fs::read(&taken).expect("taken"), b"# Notes\n\nMine.\n");
+        assert_eq!(std::fs::read(&source).expect("source"), MARKED.as_bytes());
+        assert_eq!(
+            cx.update(|_, cx| view.read(cx).target.clone()),
+            Ok(Target::File(taken.clone())),
+            "the next save does not go where this one went"
+        );
+        assert!(
+            heard.borrow().is_empty(),
+            "a Save that cleans is the line's to tell"
+        );
+
+        // From now on, over that file — told to the row.
+        type_in(&view, "# Notes\n\nMine, again.\n", cx);
+        quiet(cx);
+        assert_eq!(
+            std::fs::read(&taken).expect("taken"),
+            b"# Notes\n\nMine, again.\n"
+        );
+        assert_eq!(*heard.borrow(), vec![Told::Saved]);
+        assert_eq!(std::fs::read(&source).expect("source"), MARKED.as_bytes());
+    }
+
+    /// Answer the question the window is asking.
+    fn answer(view: &Entity<CompareView>, pick: dialog::Pick, cx: &mut gpui::VisualTestContext) {
+        let question = cx.update(|_, cx| {
+            view.read(cx)
+                .saving
+                .question
+                .as_ref()
+                .map(|(question, _)| question.clone())
+                .expect("a question")
+        });
+        cx.update(|_, cx| question.update(cx, |question, cx| question.answer(pick, cx)));
+        cx.run_until_parked();
+    }
+
+    /// In place: Save that cleans sets the original aside first, and the
+    /// next save writes over the source's name — never over the original
+    /// beside it, which is what the window shows on the left.
+    #[gpui::test]
+    fn in_place_a_save_never_reaches_the_original(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("save-in-place");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let (view, preferences, cx) = saving_window(
+            cx,
+            &scratch,
+            of(Handed::Path(source.clone())),
+            Comparison::default(),
+            Some(12),
+            None,
+        );
+        preferences.update(cx, |preferences, cx| {
+            preferences.select_destination(Destination::Replace, cx)
+        });
+        type_in(&view, "first\n", cx);
+        quiet(cx);
+        let aside = scratch.0.join("x.original.md");
+        assert_eq!(std::fs::read(&aside).expect("set aside"), MARKED.as_bytes());
+        assert_eq!(std::fs::read(&source).expect("source"), b"first\n");
+
+        type_in(&view, "second\n", cx);
+        quiet(cx);
+        assert_eq!(std::fs::read(&source).expect("source"), b"second\n");
+        assert_eq!(
+            std::fs::read(&aside).expect("set aside"),
+            MARKED.as_bytes(),
+            "a save reached the original"
+        );
+    }
+
+    /// A file somebody changed after the window read it is asked about,
+    /// never written over unasked (D413): Cancel leaves both and stops
+    /// autosave — an edit after it saves nothing — and Keep theirs puts
+    /// their text in the window and autosaves again from there. Take the
+    /// check out of `save_file` and their text is overwritten: red.
+    #[gpui::test]
+    fn a_file_changed_on_disk_is_asked_about_not_overwritten(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("save-changed");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let result = cleaned_beside(&source, &homes_of(&scratch));
+        let subject = Subject {
+            handed: Handed::Path(source.clone()),
+            intake: None,
+            made: Made::CleanedTo(CleanedTo::File(result.clone())),
+        };
+        let (view, _, cx) =
+            saving_window(cx, &scratch, subject, Comparison::default(), Some(3), None);
+        std::fs::write(&result, b"theirs\n").expect("theirs");
+
+        type_in(&view, "mine\n", cx);
+        quiet(cx);
+        assert_eq!(
+            std::fs::read(&result).expect("result"),
+            b"theirs\n",
+            "overwritten unasked"
+        );
+        assert!(
+            cx.update(|_, cx| view.read(cx).saving.question.is_some()),
+            "not asked"
+        );
+
+        answer(&view, dialog::Pick::Dismissed, cx);
+        type_in(&view, "mine, more\n", cx);
+        quiet(cx);
+        assert_eq!(
+            std::fs::read(&result).expect("result"),
+            b"theirs\n",
+            "autosaved past a Cancel"
+        );
+
+        // Save asks again; Keep theirs puts their text here.
+        cx.update(|window, cx| view.update(cx, |view, cx| view.save_pressed(window, cx)));
+        cx.run_until_parked();
+        answer(&view, dialog::Pick::Second, cx);
+        assert_eq!(
+            panes_of(&view, cx).1,
+            "theirs\n",
+            "their text is not in the window"
+        );
+        type_in(&view, "theirs, and mine\n", cx);
+        quiet(cx);
+        assert_eq!(
+            std::fs::read(&result).expect("result"),
+            b"theirs, and mine\n",
+            "autosave did not resume after Keep theirs"
+        );
+    }
+
+    /// Autosave waits for typing to be quiet, and not a moment less; one
+    /// save at a time, and an edit typed while one is under way is saved
+    /// after it — the last edit wins (S3, D415). Drop `again` from the
+    /// saver and the second edit is never written: red.
+    #[gpui::test]
+    fn autosave_waits_for_quiet_and_the_last_edit_wins(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("save-quiet");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let result = cleaned_beside(&source, &homes_of(&scratch));
+        let before = std::fs::read(&result).expect("result");
+        let subject = Subject {
+            handed: Handed::Path(source),
+            intake: None,
+            made: Made::CleanedTo(CleanedTo::File(result.clone())),
+        };
+        let (view, _, cx) =
+            saving_window(cx, &scratch, subject, Comparison::default(), Some(4), None);
+        let (go, gate) = flume::unbounded();
+        cx.update(|_, cx| view.update(cx, |view, _| view.saving.gate = Some(gate)));
+
+        // The owner's "a second or two", held here as written numbers so
+        // the constant cannot move without this test saying so.
+        type_in(&view, "one\n", cx);
+        wait(cx, Duration::from_millis(1300));
+        assert!(
+            cx.update(|_, cx| view.read(cx).saving.writing.is_none()),
+            "saved before typing was quiet"
+        );
+        wait(cx, Duration::from_millis(300));
+        assert_eq!(
+            cx.update(|_, cx| view.read(cx).saving.writing.as_deref().map(str::to_owned)),
+            Some("one\n".to_owned()),
+            "not saving once typing was quiet"
+        );
+        assert_eq!(
+            line_under_the_result(&view, cx),
+            t(Message::CompareStatusSaving)
+        );
+
+        // Typed while that save is held: a second is asked, not started.
+        type_in(&view, "two\n", cx);
+        quiet(cx);
+        assert_eq!(std::fs::read(&result).expect("result"), before);
+        go.send(()).expect("go");
+        cx.run_until_parked();
+        assert_eq!(std::fs::read(&result).expect("result"), b"one\n");
+        assert_eq!(
+            cx.update(|_, cx| view.read(cx).saving.writing.as_deref().map(str::to_owned)),
+            Some("two\n".to_owned()),
+            "the edit typed meanwhile was not saved after"
+        );
+        go.send(()).expect("go");
+        cx.run_until_parked();
+        assert_eq!(std::fs::read(&result).expect("result"), b"two\n");
+        assert!(!line_under_the_result(&view, cx).is_empty());
+        assert!(!cx.update(|_, cx| view.read(cx).saving.dirty));
+    }
+
+    /// A save that fails stops autosave and says why, under the result
+    /// (S3): a result that became a symbolic link is refused (D287), an
+    /// edit after it saves nothing on its own, and a Save that succeeds
+    /// resumes. Make `ended` keep autosaving after a failure and the edit
+    /// after it is written through: red.
+    #[cfg(unix)]
+    #[gpui::test]
+    fn a_failed_save_stops_autosave_and_says_why(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("save-fails");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let result = cleaned_beside(&source, &homes_of(&scratch));
+        let cleaned = std::fs::read(&result).expect("result");
+        let subject = Subject {
+            handed: Handed::Path(source),
+            intake: None,
+            made: Made::CleanedTo(CleanedTo::File(result.clone())),
+        };
+        let (view, _, cx) =
+            saving_window(cx, &scratch, subject, Comparison::default(), Some(5), None);
+        // The result becomes a link to a file with the same bytes.
+        let elsewhere = scratch.file("elsewhere.md", &cleaned);
+        std::fs::remove_file(&result).expect("remove");
+        std::os::unix::fs::symlink(&elsewhere, &result).expect("link");
+
+        type_in(&view, "edited\n", cx);
+        quiet(cx);
+        let line = line_under_the_result(&view, cx);
+        let why = t_args(
+            Message::CompareNotSavedLink,
+            &args!("name" => "x.cleaned.md"),
+        );
+        assert_eq!(
+            line,
+            t_args(Message::CompareStatusNotSaved, &args!("reason" => why)),
+            "the line does not say why"
+        );
+        assert!(cx.update(|_, cx| view.read(cx).saving.saver.stopped()));
+        type_in(&view, "edited, more\n", cx);
+        quiet(cx);
+        assert_eq!(
+            std::fs::read(&elsewhere).expect("elsewhere"),
+            cleaned,
+            "written through a link"
+        );
+        assert!(std::fs::symlink_metadata(&result)
+            .expect("link")
+            .file_type()
+            .is_symlink());
+
+        // Put the file back as it was read: Save writes, and autosave is back.
+        std::fs::remove_file(&result).expect("unlink");
+        std::fs::write(&result, &cleaned).expect("restore");
+        cx.update(|window, cx| view.update(cx, |view, cx| view.save_pressed(window, cx)));
+        cx.run_until_parked();
+        assert_eq!(std::fs::read(&result).expect("result"), b"edited, more\n");
+        assert!(!cx.update(|_, cx| view.read(cx).saving.saver.stopped()));
+        type_in(&view, "after\n", cx);
+        quiet(cx);
+        assert_eq!(std::fs::read(&result).expect("result"), b"after\n");
+    }
+
+    /// Save on the strip and ⌘S are one road: the strip dispatches the
+    /// window's action, which the window answers (S2). With autosave off
+    /// an edit is not saved until then, and Save is greyed with its reason
+    /// while there is nothing to save. Take the window's `SaveCompare`
+    /// listener out and neither saves: red.
+    #[gpui::test]
+    fn the_strip_s_save_is_the_window_s_action(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("save-strip");
+        let rewrite = scratch.file("x.rewritten.md", b"rewritten\n");
+        let subject = Subject {
+            handed: Handed::Text(MARKED.to_owned()),
+            intake: None,
+            made: Made::Rewritten {
+                from: RewriteFrom::File(rewrite.clone()),
+                kept: None,
+            },
+        };
+        let manual = Comparison {
+            autosave: false,
+            ..Comparison::default()
+        };
+        let (view, _, cx) = saving_window(cx, &scratch, subject, manual, Some(6), None);
+        let strip = cx.update(|_, cx| view.read(cx).result.clone());
+        assert_eq!(
+            cx.update(|_, cx| strip.read(cx).offered()),
+            Some(false),
+            "nothing to save"
+        );
+
+        type_in(&view, "rewritten, edited\n", cx);
+        quiet(cx);
+        assert_eq!(
+            std::fs::read(&rewrite).expect("rewrite"),
+            b"rewritten\n",
+            "autosaved while off"
+        );
+        assert_eq!(cx.update(|_, cx| strip.read(cx).offered()), Some(true));
+        cx.update(|window, cx| strip.update(cx, |strip, cx| strip.press_offer(window, cx)));
+        cx.run_until_parked();
+        assert_eq!(
+            std::fs::read(&rewrite).expect("rewrite"),
+            b"rewritten, edited\n"
+        );
+
+        type_in(&view, "by the key\n", cx);
+        cx.dispatch_action(SaveCompare);
+        cx.run_until_parked();
+        assert_eq!(std::fs::read(&rewrite).expect("rewrite"), b"by the key\n");
+    }
+
+    /// Closing with autosave saves first and then closes; without it,
+    /// closing asks — Save, Discard, Cancel (S3). Make `may_close` say yes
+    /// with edits unsaved and the edit is lost: red.
+    #[gpui::test]
+    fn closing_saves_with_autosave_and_asks_without(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("save-close");
+        let rewrite = scratch.file("x.rewritten.md", b"rewritten\n");
+        let subject = || Subject {
+            handed: Handed::Text(MARKED.to_owned()),
+            intake: None,
+            made: Made::Rewritten {
+                from: RewriteFrom::File(rewrite.clone()),
+                kept: None,
+            },
+        };
+
+        let (view, _, window) =
+            saving_window(cx, &scratch, subject(), Comparison::default(), None, None);
+        type_in(&view, "closing\n", window);
+        assert!(!window.simulate_close(), "closed with an edit unsaved");
+        window.run_until_parked();
+        assert_eq!(std::fs::read(&rewrite).expect("rewrite"), b"closing\n");
+        let handle = window.window_handle();
+        assert!(
+            !cx.windows().contains(&handle),
+            "the window stayed open after its save"
+        );
+
+        let manual = Comparison {
+            autosave: false,
+            ..Comparison::default()
+        };
+        let (view, _, window) = saving_window(cx, &scratch, subject(), manual, None, None);
+        type_in(&view, "discarded\n", window);
+        assert!(!window.simulate_close(), "closed without asking");
+        window.run_until_parked();
+        answer(&view, dialog::Pick::Second, window);
+        assert_eq!(
+            std::fs::read(&rewrite).expect("rewrite"),
+            b"closing\n",
+            "Discard saved"
+        );
+        let handle = window.window_handle();
+        assert!(!cx.windows().contains(&handle), "Discard did not close");
+
+        let (view, _, window) = saving_window(cx, &scratch, subject(), manual, None, None);
+        type_in(&view, "kept\n", window);
+        assert!(!window.simulate_close());
+        window.run_until_parked();
+        answer(&view, dialog::Pick::First, window);
+        assert_eq!(std::fs::read(&rewrite).expect("rewrite"), b"kept\n");
+        let handle = window.window_handle();
+        assert!(!cx.windows().contains(&handle), "Save did not close");
+    }
+
+    /// A rewritten paste is saved into the batch queue's row that is its
+    /// one home (S1, D410), and a row that changed since it was read is
+    /// asked about like a file.
+    #[gpui::test]
+    fn a_rewritten_paste_is_saved_into_its_row(cx: &mut TestAppContext) {
+        use wipemark_pipeline::cost::Executor;
+        let scratch = Scratch::new("save-item");
+        let queue = Arc::new(
+            wipemark_queue::Queue::on(
+                Arc::new(wipemark_store::Store::in_memory().expect("memory")),
+                wipemark_queue::Durability::Memory { detail: None },
+                Arc::new(wipemark_engine::fake::FakeEngine::new()),
+            )
+            .expect("opens"),
+        );
+        let events = queue.events();
+        let item = queue
+            .push(wipemark_queue::Request {
+                source: wipemark_queue::Source::Text(MARKED.to_owned()),
+                format: wipemark_pipeline::prepare::TextFormat::Plain,
+                destination: wipemark_queue::Destination::Row,
+                options: wipemark_pipeline::Options::for_executor(Executor::LocalCpu),
+            })
+            .expect("pushed");
+        loop {
+            match events
+                .recv_timeout(Duration::from_secs(60))
+                .expect("an event")
+            {
+                wipemark_queue::QueueEvent::Ended { item: ended, .. } if ended == item => break,
+                _ => {}
+            }
+        }
+        let delivered = queue.result(item).expect("reads").expect("a result")["text"]
+            .as_str()
+            .expect("a text")
+            .to_owned();
+        let (link, heard) = listening(true);
+        let subject = Subject {
+            handed: Handed::Text(MARKED.to_owned()),
+            intake: None,
+            made: Made::Rewritten {
+                from: RewriteFrom::Item(Arc::clone(&queue), item),
+                kept: None,
+            },
+        };
+        let (view, _, cx) = saving_window(
+            cx,
+            &scratch,
+            subject,
+            Comparison::default(),
+            Some(8),
+            Some(link),
+        );
+        assert_eq!(panes_of(&view, cx).1, delivered);
+
+        type_in(&view, "edited in the row\n", cx);
+        quiet(cx);
+        let stored = queue.result(item).expect("reads").expect("a result");
+        assert_eq!(stored["text"].as_str(), Some("edited in the row\n"));
+        assert_eq!(*heard.borrow(), vec![Told::Saved]);
+
+        // Somebody else's save in the row since: asked, not overwritten.
+        assert!(queue.save_text(item, "theirs\n").expect("saves"));
+        type_in(&view, "mine\n", cx);
+        quiet(cx);
+        assert_eq!(
+            queue.result(item).expect("reads").expect("a result")["text"].as_str(),
+            Some("theirs\n")
+        );
+        assert!(cx.update(|_, cx| view.read(cx).saving.question.is_some()));
+    }
+
+    /// A cleaned paste's home is its row in the main window: the save goes
+    /// there through the link, and a row that will not take it is a reason
+    /// under the result, not a save said done.
+    #[gpui::test]
+    fn a_cleaned_paste_is_saved_into_its_row(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("save-row");
+        for took in [true, false] {
+            let (link, heard) = listening(took);
+            let subject = Subject {
+                handed: Handed::Text(MARKED.to_owned()),
+                intake: None,
+                made: Made::CleanedTo(CleanedTo::Text("cleaned\n".to_owned())),
+            };
+            let (view, _, window) = saving_window(
+                cx,
+                &scratch,
+                subject,
+                Comparison::default(),
+                Some(9),
+                Some(link),
+            );
+            assert_eq!(panes_of(&view, window).1, "cleaned\n");
+            type_in(&view, "pasted, edited\n", window);
+            quiet(window);
+            assert_eq!(
+                *heard.borrow(),
+                vec![Told::Text("pasted, edited\n".to_owned())]
+            );
+            let line = line_under_the_result(&view, window);
+            if took {
+                assert!(!window.update(|_, cx| view.read(cx).saving.dirty), "{line}");
+            } else {
+                assert_eq!(
+                    line,
+                    t_args(
+                        Message::CompareStatusNotSaved,
+                        &args!("reason" => t(Message::CompareNotSavedGone))
+                    )
+                );
+            }
+        }
     }
 
     /// The marks answer for the visible rows only, and the rows keep

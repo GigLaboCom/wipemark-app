@@ -34,6 +34,19 @@
 //! are ways of *looking* at the text, toggled through the editor's own
 //! setters — and they sit apart from the operations for that reason.
 //!
+//! # One button is the window's
+//!
+//! **Save** (E7-9) is not an editor operation: where a result is saved is
+//! the window's business, and this component still names no file. The
+//! window *offers* it — an [`Offer`]: its own action, the key context that
+//! action is bound in, and why it is greyed when it is — and the strip
+//! puts it first, apart from the editor's operations. Pressing it does
+//! what pressing an operation does: it focuses the editor and dispatches
+//! the window's action, which climbs from the editor to the window like
+//! the keystroke bound to it (`secondary-s`). So the button and the key
+//! cannot mean two different things here either
+//! (`the_strip_s_save_is_the_window_s_action`).
+//!
 //! # What is available, and what is always on
 //!
 //! Cut and Copy are greyed while nothing is selected and Paste while
@@ -214,6 +227,20 @@ impl View {
     }
 }
 
+/// A command of the window's, offered to the strip — Save. See the
+/// module docs, "One button is the window's".
+pub struct Offer {
+    /// What pressing it dispatches.
+    pub action: Box<dyn Action>,
+    /// The key context `action` is bound in, so that the tooltip shows the
+    /// shortcut that fires there.
+    pub context: &'static str,
+    pub label: SharedString,
+    /// Why it does nothing now — the tooltip of a greyed button — or
+    /// `None` when it is offered.
+    pub unavailable: Option<SharedString>,
+}
+
 /// Something happened to the text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResultEvent {
@@ -232,6 +259,8 @@ pub struct ResultEditor {
     marks: Option<LineDecorationCollection>,
     soft_wrap: bool,
     whitespace: bool,
+    /// The window's command at the head of the strip, when it offers one.
+    offer: Option<Offer>,
     /// Dropped with the view: every change to the text is re-announced
     /// as a [`ResultEvent`], so a reader need not know there is an
     /// `EditorState` underneath.
@@ -272,6 +301,7 @@ impl ResultEditor {
             marks: None,
             soft_wrap: false,
             whitespace: false,
+            offer: None,
             _changed: changed,
             _repaint: repaint,
         }
@@ -295,6 +325,18 @@ impl ResultEditor {
             state.set_value(text.to_owned(), window, cx);
         });
         cx.emit(ResultEvent::Changed);
+        cx.notify();
+    }
+
+    /// Replace the whole text as **one edit the history keeps** — the
+    /// window's Reset, which autosave writes over the result's home a
+    /// moment later: the text it let go is one Undo away rather than gone
+    /// from the file and the editor both (D414). The library announces the
+    /// change itself, and the window hears it as `Changed`.
+    pub fn replace_text(&self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, cx| {
+            state.replace_all(text.to_owned(), window, cx);
+        });
         cx.notify();
     }
 
@@ -344,6 +386,34 @@ impl ResultEditor {
             state.lsp_mut().document_color_provider = provider;
             cx.notify();
         });
+    }
+
+    /// Put the window's command at the head of the strip — or take it
+    /// away with `None`. Asked again whenever the window's answer to
+    /// "can it run now, and if not, why" moves.
+    pub fn offer(&mut self, offer: Option<Offer>, cx: &mut Context<Self>) {
+        self.offer = offer;
+        cx.notify();
+    }
+
+    /// Whether the window's command is on the strip and can run now.
+    #[cfg(test)]
+    pub(crate) fn offered(&self) -> Option<bool> {
+        self.offer.as_ref().map(|offer| offer.unavailable.is_none())
+    }
+
+    /// Press the window's command: focus the editor, and dispatch the
+    /// window's action from there — the road its keystroke takes.
+    pub fn press_offer(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(offer) = &self.offer else {
+            return;
+        };
+        if offer.unavailable.is_some() {
+            return;
+        }
+        let action = offer.action.boxed_clone();
+        self.focus(window, cx);
+        window.dispatch_action(action, cx);
     }
 
     /// Put the keyboard in the editor.
@@ -416,6 +486,28 @@ impl ResultEditor {
             .px_1()
             .border_b_1()
             .border_color(theme.border);
+
+        // The window's own command first, apart from the editor's.
+        if let Some(offer) = &self.offer {
+            let button = Button::new("result-offer")
+                .ghost()
+                .xsmall()
+                .icon(IconName::Save)
+                .disabled(offer.unavailable.is_some())
+                .on_click(cx.listener(|editor, _: &ClickEvent, window, cx| {
+                    editor.press_offer(window, cx);
+                }));
+            let button = match &offer.unavailable {
+                // A greyed button says why, not what it would have done.
+                Some(why) => button.tooltip(why.clone()),
+                None => button.tooltip_with_action(
+                    offer.label.clone(),
+                    offer.action.as_ref(),
+                    Some(offer.context),
+                ),
+            };
+            strip = strip.child(button).child(separator(cx));
+        }
 
         let mut previous: Option<Group> = None;
         for command in Command::ALL {
