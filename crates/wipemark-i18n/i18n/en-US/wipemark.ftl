@@ -409,10 +409,11 @@ compare-reset-tooltip = Throw the edits away; the result is what cleaning made o
 compare-help = What this window does
 compare-help-marks = A red mark on the original is a line the result no longer has; a green one on the result is a line the original never had.
 compare-help-follows = The original follows the result's cursor, so the two sides stay in step.
+compare-help-scrolls = Scrolling either side scrolls the other, so the lines the two sides share stay level.
 compare-help-toolbar = The toolbar over the result is the editor's own operations, with the shortcuts it already answers to.
 compare-help-words = Within a passage that changed, the words that differ are marked more strongly.
 compare-help-characters = Within a passage that changed, the characters that differ are marked more strongly.
-compare-help-settings = What is marked, and whether the original follows, is chosen on the Compare page of Settings — for the next window opened.
+compare-help-settings = What is marked, whether the original follows and whether the sides scroll together is chosen on the Compare page of Settings — for the next window opened.
 compare-help-close = Closing this window writes nothing; edits to the result live only here.
 
 # The result's toolbar: one label per editor operation, shown as a
@@ -442,7 +443,10 @@ settings-compare-grain-words = Changed words
 settings-compare-grain-characters = Changed characters
 
 settings-compare-follow-title = The original follows the cursor
-settings-compare-follow-description = Moving the cursor in the result scrolls the original to the line that stands where that one does, so the two sides stay in step. Off, each side scrolls on its own.
+settings-compare-follow-description = Moving the cursor in the result puts the original's cursor on the line that stands where that one does, and brings it into view. Off, the original's cursor stays where it was.
+
+settings-compare-sync-scroll-title = Both sides scroll together
+settings-compare-sync-scroll-description = Scrolling either side — with the wheel, the touchpad, the scroll bar or the keyboard — scrolls the other, so the lines the two sides share stay level. Through a passage that changed, the other side moves in step through its own lines. While the result wraps its lines, the two sides line up only roughly. Off, each side scrolls on its own.
 
 settings-placement-title = Where windows open
 settings-placement-description = Which screen a { -brand-name } window opens on, and where on that screen it lands.

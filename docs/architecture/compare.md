@@ -203,31 +203,103 @@ nor focused by a click nor scrolled by its bar.
 `.disabled(true)` back), and `typing_into_the_original_changes_nothing`
 the gate on the other half.
 
-**Following.** The editor has no public way to be scrolled from
-outside, and this repository does not patch the library for a
-convenience. What it does have is a cursor that can be placed and an
-editor that keeps its cursor in view. So the original *follows the
-result's cursor*: whenever the result's caret changes line, the
+**Scrolling together** (E7-7, D380–D387). Scrolling either pane — the
+wheel, a touchpad, the scroll bar dragged or clicked, the keyboard
+paging — scrolls the other so that the lines the two share stay level,
+the way IntelliJ IDEA's diff viewer does. Vertically only, as there:
+each side keeps its own horizontal scroll. The editor's offset is
+public (`EditorState::scroll_offset`, `set_scroll_offset`,
+`line_height`, `visible_row_range`, `row_bounds`), so nothing is
+patched.
+
+* **The map** is `Diff::position_across(from, position)`: a position
+  is a row and the fraction of it scrolled past, measured at the top
+  of the viewport (D381). In a stretch the two texts share the other
+  side stands as far into the same line, so two panes scrolled by
+  pixels stay level by pixels. Inside a hunk the other side moves **in
+  proportion** through its own block — a third of the way through five
+  lines here is a third of the way through two lines there — and
+  through a block it has none of, it holds at the place the block
+  stands in front of (D380). Proportion rather than holding at the
+  hunk's start, because a pane that held and then caught up would jump
+  by the size of the block at its end; this way the follower moves
+  continuously wherever the leader has lines, and the one jump left is
+  past a block only the *other* side has, which the leader crosses in
+  no distance at all. `Diff::result_row_of` is the whole-row map the
+  other way round, the mirror of `original_row_of`; on every shared
+  line the two undo each other
+  (`on_every_shared_line_the_maps_undo_each_other`). `diff::Side` names
+  the side a row is counted on, and is the side a mark is painted on
+  too — the enum `compare` had for its marks moved there (D387).
+* **Seeing a scroll** (D386). A wheel and the scroll bar notify the
+  editor's entity at once; a scroll the library applies while it lays
+  the text out — the keyboard's, a caret brought into view, a
+  `set_scroll_offset` landing — is applied silently in the frame and
+  noticed by the library's own notification after a frame in which the
+  text moved. Both reach the window's `observe` on each editor. A
+  zero-sized `canvas` painted after both panes adds a look at the end
+  of every frame (read after the frame, because a scroll asked while a
+  frame paints is forgotten with it): it is the one moment a pane that
+  wraps its lines has a layout that agrees with its offset, so a
+  wrapped pane is read only there.
+* **The guard** (D382). A pane that is scrolled to follow notifies like
+  any other, and must not lead back. The window remembers, per pane,
+  the offset it last saw and what it last asked (`Asked { from, to }`);
+  a move in the asked direction no farther than asked is that ask
+  landing — exactly, or stopped short by the pane's own end, which is
+  what a follower with fewer lines does at the bottom — and anything
+  else is the pane's own. An ask that changed nothing (the pane was
+  already at its end) is never mistaken for a later move, because a
+  person can then scroll that pane only the other way. Before a new ask
+  the window takes an earlier one's unseen landing as landed, so the
+  new one is measured from where the pane now is.
+  `a_follower_that_stops_short_does_not_lead_back` is the gate: without
+  the landing check the result's stop at its end drags the original
+  back up to it.
+* **Which wins** (D383). The cursor follow stays, and the result leads
+  it: with both rows on, a follow places the original's caret and sets
+  the original's scroll where the result's top puts it, replacing the
+  scroll the caret had queued, and never moves the result. Without
+  that, the original scrolls only as far as its caret and then leads
+  the result back there, the result's caret out of sight
+  (`the_cursor_follow_does_not_drag_the_result`). When both panes moved
+  in one frame the result is looked at first. A comparison recomputed
+  after an edit changes the map for the next scroll and moves neither
+  pane.
+* **Wrapping** (D384). With the result's lines wrapped the library does
+  not expose how many lines each row became. A wrapped pane's top is
+  read off its last layout — the first row shown and how far the
+  viewport is into it — and a wrapped pane is placed on a row by where
+  the last layout drew it, or, for a row not laid out, by the average
+  height of the rows that are; the next step of the leading pane, the
+  row now laid out, lands on it
+  (`a_wrapped_result_far_away_is_placed_by_estimate`). Approximate, and
+  the page says so. The original never wraps.
+
+**Following.** The original also *follows the result's cursor*: whenever the result's caret changes line, the
 original's is put on the line that stands where that one does —
 `Diff::original_row_of` is the map: the same row while nothing above
 has moved, the row an insertion sits in front of while inside one, the
-shifted row past it — and the original scrolls to show it. Placing a
-cursor focuses the editor it is placed in, which would take the
-keyboard out of the result mid-word; the focus is handed straight back
-in the same update, and GPUI notices a focus change only at the next
-frame, so nothing blurs. One direction: the result leads, because it
-is the side being written in. The Compare page can turn the following
-off, for a reader who would rather scroll each side by hand.
+shifted row past it. Placing a cursor focuses the editor it is placed
+in, which would take the keyboard out of the result mid-word; the focus
+is handed straight back in the same update, and GPUI notices a focus
+change only at the next frame, so nothing blurs. One direction: the
+result leads, because it is the side being written in. With scrolling
+together off, the original scrolls to show its caret, as before E7-7.
 
 ## The Compare page
 
-Settings › Compare is where the two choices above are made —
-`compare.grain` (`lines`, `words` or `characters`; words by default)
-and `compare.follow` (on by default) — as rows in `wipemark.db` like
+Settings › Compare is where the choices above are made —
+`compare.grain` (`lines`, `words` or `characters`; words by default),
+`compare.follow` (on by default) and `compare.sync_scroll` (on by
+default, the owner, 2026-10-07) — as rows in `wipemark.db` like
 every other preference, read into `compare::Comparison` and handed to
 `compare::open` by whoever opens a window. A window keeps what it was
 opened with; the page's own sentence says so, and the reason is the
-catch above. What the page deliberately does not offer is a way to
+catch above. Scrolling together could be read live — turning it on in
+an open window would cost no undo entry and no jump — and is read at
+the opening all the same (D385), so that the page's one sentence stays
+true of every row on it. What the page deliberately does not offer is a way to
 *ignore* anything — whitespace, case, line endings — and its banner
 says why: this product exists to notice characters people cannot see,
 and a comparison that overlooked some of them would be the wrong
@@ -286,8 +358,8 @@ that would have worked.
   Placement page places the panel and nothing else.
 * **Not remembered.** No rectangle, no split ratio, no toolbar toggle
   survives the window. What *is* a preference — the grain of the marks,
-  whether the original follows — is a Settings row, read as the window
-  opens.
+  whether the original follows, whether the sides scroll together — is
+  a Settings row, read as the window opens.
 * **Not written.** Closing the window writes nothing, and edits to the
   result live only there. Writing a result is the queue's Clean, under
   the Retention page's plan; cleaning and saving from this window is
@@ -305,8 +377,11 @@ built by `result::pane` in the interface font so both panes read as
 prose, as they did under `Input`), the `LineDecorationProvider` patch to
 paint per-line glyphs and tints (upstream since gpui-kit #3359), `DiffAdded` / `DiffRemoved` as the vocabulary, and the research
 in its `docs/research/zed-two-panel-diff.md` on what Zed does — two
-editors with a shared scroll anchor and companion display maps. What
-was not taken is the scroll sync, because that needs a scroll setter
-the library does not expose, and the cursor-follow above is the honest
-version of it on the public API. Amuse-merge's own diff crate is still
+editors with a shared scroll anchor and companion display maps. The
+scroll sync was not taken from there: when the window was first built
+the library exposed no scroll setter, and the cursor-follow was the
+honest version on the public API. gpui-kit `next` exposes one now, and
+scrolling together (above) is built on it without a shared anchor or a
+companion map — the map is the diff's own, and the wrapped case is an
+estimate rather than the display map Zed shares. Amuse-merge's own diff crate is still
 a placeholder; the arithmetic here is ours, at every grain.
