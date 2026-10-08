@@ -1747,6 +1747,50 @@ fn seed(scratch: &Scratch, rows: &[(&str, &str)]) {
     }
 }
 
+/// The mark a download of the product leaves on the `.part` it opened
+/// (D351), in the shape `wipemark_models::store` reads:
+/// `<data dir>/records/<key>-<name>.downloaded`, the key the first 32 hex
+/// of sha256(canonical folder / name), the identity `dev:ino:birth_ns` on
+/// Unix (`birth_ns` elsewhere). Without it a `.part` a test seeds is
+/// another tool's, and neither partial nor removable.
+fn mark_part(scratch: &Scratch, part: &Path) {
+    use sha2::{Digest, Sha256};
+    let meta = std::fs::symlink_metadata(part).expect("the .part");
+    let born = meta
+        .created()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or_else(|| "-".to_owned(), |d| d.as_nanos().to_string());
+    #[cfg(unix)]
+    let identity = {
+        use std::os::unix::fs::MetadataExt as _;
+        format!("{}:{}:{born}", meta.dev(), meta.ino())
+    };
+    #[cfg(not(unix))]
+    let identity = born;
+    let folder = std::fs::canonicalize(part.parent().expect("a folder")).expect("canonical");
+    let name = part
+        .file_name()
+        .expect("a name")
+        .to_string_lossy()
+        .into_owned();
+    let key: String = Sha256::digest(folder.join(&name).as_os_str().as_encoded_bytes())
+        .iter()
+        .take(16)
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let records = scratch.data().join("records");
+    std::fs::create_dir_all(&records).expect("the records");
+    std::fs::write(
+        records.join(format!("{key}-{name}.downloaded")),
+        format!(
+            "wipemark download mark 1\n{identity}\n0\n{}\n",
+            part.display()
+        ),
+    )
+    .expect("a mark");
+}
+
 /// A model's size is said in the language's decimals — "7,4 GB" in German,
 /// "7,4 ГБ" in Russian — and with a point in English; the JSON keeps its
 /// bytes.
@@ -1793,6 +1837,10 @@ fn models_list_names_every_catalogue_entry_and_its_state() {
         vec![0u8; 1000],
     )
     .expect("a partial download");
+    mark_part(
+        &scratch,
+        &models.join(SMALL).join(format!("{SMALL_FILE}.part")),
+    );
     std::fs::create_dir_all(models.join(LARGE)).expect("mkdir");
     std::fs::write(models.join(LARGE).join(LARGE_FILE), b"not the weights").expect("a stray file");
     std::fs::create_dir_all(models.join("lmstudio/vendor")).expect("mkdir");
@@ -1866,6 +1914,25 @@ fn models_rm_leaves_another_tools_file_at_the_entrys_place() {
         std::fs::read(&theirs).expect("still there"),
         b"another tool put me here"
     );
+
+    // A2 (D351): another tool's download in progress under the working
+    // name a download of ours would use — not partial, said, and left.
+    let in_flight = mirror.join(LARGE).join(format!("{LARGE_FILE}.part"));
+    std::fs::create_dir_all(in_flight.parent().expect("a folder")).expect("mkdir");
+    std::fs::write(&in_flight, b"theirs, in flight").expect("their part");
+    let answer = json(&scratch.run(&["models", "list", "--json"]));
+    assert_eq!(model(&answer, LARGE)["state"], "absent", "{answer}");
+    assert_eq!(
+        model(&answer, LARGE)["foreign_at"],
+        format!("{LARGE}/{LARGE_FILE}.part"),
+        "{answer}"
+    );
+    let output = scratch.run(&["models", "rm", LARGE]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(
+        std::fs::read(&in_flight).expect("still there"),
+        b"theirs, in flight"
+    );
 }
 
 /// The models folder and the chosen model are the app's rows, read and
@@ -1881,6 +1948,10 @@ fn models_read_the_folder_and_the_choice_the_app_saved() {
         b"xx",
     )
     .expect("part");
+    mark_part(
+        &scratch,
+        &elsewhere.join(SMALL).join(format!("{SMALL_FILE}.part")),
+    );
     seed(
         &scratch,
         &[
@@ -1967,6 +2038,7 @@ fn models_rm_of_an_absent_model_says_so_and_exits_zero() {
     let folder = scratch.data().join("models").join(SMALL);
     std::fs::create_dir_all(&folder).expect("mkdir");
     std::fs::write(folder.join(format!("{SMALL_FILE}.part")), b"xx").expect("write");
+    mark_part(&scratch, &folder.join(format!("{SMALL_FILE}.part")));
     seed(&scratch, &[("models.rewrite", SMALL)]);
     let output = scratch.run(&["models", "rm", SMALL]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));

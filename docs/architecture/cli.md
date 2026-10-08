@@ -336,7 +336,8 @@ anywhere else, or at its own `<id>/<file>` place with no download's mark
 path below the folder, `/`-separated). Another tool's file at the
 entry's own place with its name and not its contents leaves the entry
 `absent` and adds "another tool's file of its name is at *path*, left as
-it is" (`foreign_at`). Then the weight files in the folder the catalogue
+it is" (`foreign_at`), and so does a `<file>.part` there that no
+download of ours opened (D351) — it is not `partial`. Then the weight files in the folder the catalogue
 did not put there, from `wipemark_models::scan::weights_under` — listed,
 never verified, never loaded, and the heading says so; the catalogue's
 files, wherever found, and a `foreign_at` file are not among them. A
@@ -348,7 +349,14 @@ with no window to freeze.
 so and where, exits 0, no network, and writes nothing. A file at the
 entry's own place that this product did not download and that is not the
 catalogue's is never downloaded over: `StoreError::Occupied`, exit 2,
-the file untouched.
+the file untouched — and so is a `<file>.part` no download of ours opened
+(D351), another tool's download in progress, which is never resumed into.
+Occupied has its own sentence (`cli-models-pull-occupied`, A4): nothing
+was fetched and the file is left as it is, so it says to move the file
+away and run pull again rather than promise a resume a second pull would
+be refused the same way
+(`an_occupied_place_is_not_promised_a_resume`). A file whose download's
+mark no longer names it (D350) is another tool's in the same way.
 Otherwise `Downloads::fetch` on a thread of its own (which resumes a
 `.part`), with the typed `StoreError` sent back so each failure has its
 own sentence. Progress goes to **stderr**: one line redrawn at most twice

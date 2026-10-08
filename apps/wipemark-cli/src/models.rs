@@ -508,41 +508,7 @@ pub(crate) fn pull(id: &str, io: &mut Io) -> Exit {
             say_out(io, &line).map_or_else(|exit| exit, |()| Exit::Clean)
         }
         Err(error) => {
-            let line = match &error {
-                StoreError::Cancelled => {
-                    run::say(Message::CliModelsPullCancelled, &args!("id" => id))
-                }
-                StoreError::Corrupt {
-                    file,
-                    expected,
-                    actual,
-                } => run::say(
-                    Message::CliModelsPullMismatch,
-                    &args!(
-                        "id" => id,
-                        "file" => file.as_str(),
-                        "expected" => expected.as_str(),
-                        "actual" => actual.as_str(),
-                    ),
-                ),
-                StoreError::NoRoom {
-                    path,
-                    need_mb,
-                    free_mb,
-                } => run::say(
-                    Message::CliModelsPullNoRoom,
-                    &args!(
-                        "id" => id,
-                        "path" => path.display().to_string(),
-                        "need" => need_mb.to_string(),
-                        "free" => free_mb.to_string(),
-                    ),
-                ),
-                other => run::say(
-                    Message::CliModelsPullFailed,
-                    &args!("id" => id, "reason" => other.to_string()),
-                ),
-            };
+            let line = pull_failed(id, &error, run::say);
             say_err(io, &line);
             tracing::warn!(
                 command = "models pull",
@@ -552,6 +518,54 @@ pub(crate) fn pull(id: &str, io: &mut Io) -> Exit {
             );
             Exit::Usage
         }
+    }
+}
+
+/// The sentence a pull that failed ends with, said by `say`. Only a
+/// failure that may have left a `.part` behind promises a resume: another
+/// tool's file at the place (Occupied) stopped the pull before a byte, and
+/// a second pull would be refused the same way until it is moved (A4).
+fn pull_failed(
+    id: &str,
+    error: &StoreError,
+    say: impl Fn(Message, &FluentArgs) -> String,
+) -> String {
+    match error {
+        StoreError::Cancelled => say(Message::CliModelsPullCancelled, &args!("id" => id)),
+        StoreError::Corrupt {
+            file,
+            expected,
+            actual,
+        } => say(
+            Message::CliModelsPullMismatch,
+            &args!(
+                "id" => id,
+                "file" => file.as_str(),
+                "expected" => expected.as_str(),
+                "actual" => actual.as_str(),
+            ),
+        ),
+        StoreError::NoRoom {
+            path,
+            need_mb,
+            free_mb,
+        } => say(
+            Message::CliModelsPullNoRoom,
+            &args!(
+                "id" => id,
+                "path" => path.display().to_string(),
+                "need" => need_mb.to_string(),
+                "free" => free_mb.to_string(),
+            ),
+        ),
+        StoreError::Occupied { path } => say(
+            Message::CliModelsPullOccupied,
+            &args!("id" => id, "path" => path.display().to_string()),
+        ),
+        other => say(
+            Message::CliModelsPullFailed,
+            &args!("id" => id, "reason" => other.to_string()),
+        ),
     }
 }
 
@@ -786,7 +800,48 @@ pub(crate) fn rm(id: &str, io: &mut Io) -> Exit {
 
 #[cfg(test)]
 mod tests {
-    use super::{gigabytes, percent};
+    use super::{gigabytes, percent, pull_failed};
+
+    /// A4: a pull refused because another tool's file holds the place says
+    /// so, in every language, and does not promise that running pull again
+    /// resumes anything — nothing was downloaded, and a second pull is
+    /// refused the same way. Red with the `Occupied` arm deleted.
+    #[test]
+    fn an_occupied_place_is_not_promised_a_resume() {
+        use wipemark_i18n::{Localizer, Message, Rendering};
+        let path = std::path::PathBuf::from("/m/qwen/qwen.gguf.part");
+        let occupied = wipemark_models::store::StoreError::Occupied { path: path.clone() };
+        let transport = wipemark_models::store::StoreError::Transport {
+            url: "https://example.com/qwen.gguf".into(),
+            reason: "timed out".into(),
+        };
+        for (language, resume) in [
+            ("en-US", "run pull again to resume"),
+            ("ru", "чтобы докачать"),
+            ("de", "um fortzusetzen"),
+        ] {
+            let localizer = Localizer::for_languages(
+                &[language.parse().expect("a language")],
+                Rendering::PlainText,
+            );
+            assert!(
+                localizer.defines(Message::CliModelsPullOccupied),
+                "{language}"
+            );
+            // The failure that may have kept a `.part` still promises one.
+            assert!(
+                pull_failed("qwen", &transport, |m, a| localizer.format_args(m, a))
+                    .contains(resume),
+                "{language}"
+            );
+            let line = pull_failed("qwen", &occupied, |m, a| localizer.format_args(m, a));
+            assert!(!line.contains(resume), "{language}: {line}");
+            assert!(
+                line.contains(&path.display().to_string()),
+                "{language}: {line}"
+            );
+        }
+    }
 
     #[test]
     fn sizes_and_shares_are_rounded_to_what_is_said() {
