@@ -52,6 +52,7 @@ use crate::hotkey::{Action, Hotkey};
 use crate::mcp::{self, BindAddress, Endpoint};
 use crate::placement::{self, Onto, Spot};
 use crate::profile::{self, Profile, Row};
+use crate::queue::OnArrival;
 use crate::retention::{Destination, Period, Retention};
 use crate::theme::ThemePreference;
 
@@ -286,6 +287,24 @@ pub const COMPARE_GRAIN_KEY: &str = "compare.grain";
 /// Whether the original follows the result's cursor.
 pub const COMPARE_FOLLOW_KEY: &str = "compare.follow";
 
+// ## E4-6b — the journal and the batch queue's rows.
+
+/// What happens to a thing as it arrives in the main window, as a
+/// `queue::OnArrival` id: `nothing` (the default — a button asks), `clean`
+/// or `rewrite` (В1).
+pub const ON_ARRIVAL_KEY: &str = "queue.on_arrival";
+
+/// How many days a finished row stays in the document journal (В3) — a
+/// whole number from [`JOURNAL_DAYS`]; 7 by default.
+pub const JOURNAL_KEEP_DAYS_KEY: &str = "journal.keep_days";
+
+/// The keep periods the Retention page offers for the journal, in days.
+pub const JOURNAL_DAYS: [u32; 4] = [1, 7, 30, 90];
+
+/// A week, as `keep.for` defaults to: long enough to come back to a
+/// batch, short enough that the journal is not an archive.
+pub const JOURNAL_KEEP_DAYS_DEFAULT: u32 = 7;
+
 /// The settings key holding the chord for `action`.
 ///
 /// A **format**, like [`model_key`]: a row name, never localized and
@@ -337,7 +356,7 @@ pub fn model_key(role: Role) -> &'static str {
 /// below name their own key — and `-D warnings` fails a bin target on
 /// dead code. Same idiom as `TrayCommand::ALL`.
 #[cfg(test)]
-pub const PERSISTED: [&str; 31] = [
+pub const PERSISTED: [&str; 33] = [
     THEME_KEY,
     LANGUAGE_KEY,
     WINDOW_SCREEN_KEY,
@@ -369,6 +388,9 @@ pub const PERSISTED: [&str; 31] = [
     ENGINE_LOCAL_MLOCK_KEY,
     MODEL_REWRITE_KEY,
     MODELS_DIR_KEY,
+    // ## E4-6b
+    ON_ARRIVAL_KEY,
+    JOURNAL_KEEP_DAYS_KEY,
 ];
 
 /// Everything one launch reads before there is a window to show it in.
@@ -422,6 +444,11 @@ pub struct Stored {
     pub retention: Retention,
     /// How a result is shown beside its original — the Compare page.
     pub comparison: Comparison,
+    // ## E4-6b
+    /// What happens to a thing as it arrives in the main window.
+    pub on_arrival: OnArrival,
+    /// How many days a finished journal row is kept.
+    pub journal_keep_days: u32,
 }
 
 /// Read every preference this build starts from.
@@ -463,7 +490,55 @@ pub fn read_all(store: &Store) -> Stored {
         setup_done: read_setup_done(store),
         retention: read_retention(store),
         comparison: read_comparison(store),
+        on_arrival: read_on_arrival(store),
+        journal_keep_days: read_journal_keep_days(store),
     }
+}
+
+// ## E4-6b — the journal and the batch queue's rows.
+
+/// Read what happens to a thing as it arrives: nothing, unless a row says
+/// otherwise. A value this build does not spell is the default, warned
+/// about and left in the row.
+pub fn read_on_arrival(store: &Store) -> OnArrival {
+    match read_string(store, ON_ARRIVAL_KEY) {
+        None => OnArrival::default(),
+        Some(value) => OnArrival::parse(&value).unwrap_or_else(|| {
+            tracing::warn!(
+                value,
+                "unknown {ON_ARRIVAL_KEY}, expected nothing, clean or rewrite"
+            );
+            OnArrival::default()
+        }),
+    }
+}
+
+/// Persist what happens to a thing as it arrives.
+pub fn write_on_arrival(store: &Store, on_arrival: OnArrival) -> Result<()> {
+    store.settings().set(ON_ARRIVAL_KEY, on_arrival.id())?;
+    Ok(())
+}
+
+/// Read how many days a finished row is kept: a week unless a row names
+/// one of [`JOURNAL_DAYS`]. Anything else is the default, left in the row.
+pub fn read_journal_keep_days(store: &Store) -> u32 {
+    match read_json::<u32>(store, JOURNAL_KEEP_DAYS_KEY) {
+        None => JOURNAL_KEEP_DAYS_DEFAULT,
+        Some(days) if JOURNAL_DAYS.contains(&days) => days,
+        Some(days) => {
+            tracing::warn!(
+                days,
+                "unusable {JOURNAL_KEEP_DAYS_KEY}, expected one of {JOURNAL_DAYS:?}"
+            );
+            JOURNAL_KEEP_DAYS_DEFAULT
+        }
+    }
+}
+
+/// Persist how many days a finished row is kept.
+pub fn write_journal_keep_days(store: &Store, days: u32) -> Result<()> {
+    store.settings().set(JOURNAL_KEEP_DAYS_KEY, &days)?;
+    Ok(())
 }
 
 /// Read the Compare page's rows, falling back to marks by word and an

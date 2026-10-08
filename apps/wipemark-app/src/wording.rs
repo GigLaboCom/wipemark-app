@@ -19,6 +19,7 @@ use wipemark_i18n::{args, t, t_args, t_args_plain, FluentArgs, Message};
 use wipemark_image::ImageError;
 use wipemark_intake::{Arrived, Evidence, Intake, Kind};
 use wipemark_picture::{NotExamined, PictureError};
+use wipemark_store::entry::{Action, Delivered, Origin, Outcome as Recorded, Phase};
 
 use crate::clean::{Failure, Findings, Left, Outcome, Refusal, Report, Unable, Verdict};
 use crate::drop::size_label;
@@ -443,6 +444,150 @@ fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())
+}
+
+// ## E4-6b — a row whose status is the journal's
+
+/// The badge a row wears when its status is what the journal says — a
+/// rewrite's end, an earlier session's row, another surface's — and its
+/// word. Over the journal's ids, so a row the command line wrote reads the
+/// same as one this window wrote.
+pub fn recorded_badge(
+    action: Action,
+    phase: Phase,
+    outcome: Option<&Recorded>,
+) -> (Message, Badge) {
+    let verdict = outcome.map_or("", |outcome| outcome.verdict.as_str());
+    match phase {
+        Phase::Waiting => (Message::QueueStatusWaiting, Badge::Muted),
+        Phase::Queued | Phase::Running => (Message::QueueStatusWorking, Badge::Muted),
+        Phase::Cancelled => (Message::QueueStatusCancelled, Badge::Muted),
+        Phase::Failed if action == Action::Rewrite => {
+            (Message::QueueStatusRewriteFailed, Badge::Danger)
+        }
+        Phase::Failed => (Message::QueueStatusFailed, Badge::Danger),
+        Phase::Done => match (action, verdict) {
+            (Action::Rewrite, "partly") => (Message::QueueStatusPartlyRewritten, Badge::Warning),
+            (Action::Rewrite, _) => (Message::QueueStatusRewritten, Badge::Success),
+            (Action::Inspect, "findings") => (Message::QueueStatusFindings, Badge::Warning),
+            (_, "cleaned") => (Message::QueueStatusCleaned, Badge::Success),
+            (_, "partly") => (Message::QueueStatusPartly, Badge::Warning),
+            (_, "not-cleaned") => (Message::QueueStatusNotCleaned, Badge::Warning),
+            (_, "failed") => (Message::QueueStatusFailed, Badge::Danger),
+            _ => (Message::QueueStatusNothingFound, Badge::Muted),
+        },
+    }
+}
+
+/// The sentence behind a recorded badge, in the window's words.
+pub fn recorded_said(action: Action, phase: Phase, outcome: Option<&Recorded>) -> String {
+    recorded_said_in(&window, action, phase, outcome)
+}
+
+/// The sentence behind a recorded badge, in `say`'s words.
+pub fn recorded_said_in(
+    say: Say,
+    action: Action,
+    phase: Phase,
+    outcome: Option<&Recorded>,
+) -> String {
+    let count = |value: Option<u32>| i64::from(value.unwrap_or(0));
+    let reason = || {
+        outcome
+            .and_then(|outcome| outcome.reason.clone())
+            .unwrap_or_else(|| "-".to_owned())
+    };
+    match phase {
+        Phase::Waiting => say(Message::QueueStatusWaitingTooltip, &FluentArgs::new()),
+        Phase::Queued | Phase::Running => say(Message::QueueSaidWorking, &FluentArgs::new()),
+        Phase::Cancelled => say(Message::QueueSaidCancelled, &FluentArgs::new()),
+        Phase::Failed if action == Action::Rewrite => say(
+            Message::QueueSaidRewriteFailed,
+            &args!("reason" => reason()),
+        ),
+        Phase::Failed => say(
+            Message::QueueSaidRecordedFailed,
+            &args!("reason" => reason()),
+        ),
+        Phase::Done => match (action, outcome) {
+            (Action::Rewrite, Some(outcome)) if outcome.verdict == "partly" => say(
+                Message::QueueSaidPartlyRewritten,
+                &args!(
+                    "kept" => count(outcome.kept_source),
+                    "chunks" => count(outcome.chunks),
+                ),
+            ),
+            (Action::Rewrite, Some(outcome)) => say(
+                Message::QueueSaidRewritten,
+                &args!(
+                    "model" => outcome.model.clone().unwrap_or_else(|| "-".to_owned()),
+                    "chunks" => count(outcome.chunks),
+                ),
+            ),
+            (_, Some(outcome)) if outcome.reason.is_some() => say(
+                Message::QueueSaidRecordedRefused,
+                &args!("reason" => reason()),
+            ),
+            (_, Some(outcome)) if outcome.findings.is_some() => say(
+                Message::QueueSaidRecordedFound,
+                &args!(
+                    "findings" => outcome.findings.unwrap_or(0) as i64,
+                    "kept" => outcome.kept.unwrap_or(0) as i64,
+                ),
+            ),
+            _ => say(Message::QueueSaidRecorded, &FluentArgs::new()),
+        },
+    }
+}
+
+/// Where a recorded result went, in the window's words.
+pub fn delivered_went(result: Option<&Delivered>) -> Vec<String> {
+    delivered_went_in(&window, result)
+}
+
+/// Where a recorded result went, in `say`'s words.
+pub fn delivered_went_in(say: Say, result: Option<&Delivered>) -> Vec<String> {
+    match result {
+        None => Vec::new(),
+        Some(Delivered::File {
+            path,
+            original,
+            replaced,
+        }) => {
+            let path = Path::new(path);
+            let mut lines = vec![match (original, replaced) {
+                (Some(_), _) => say(Message::QueueWentInPlace, &FluentArgs::new()),
+                (None, true) => say(
+                    Message::QueueWentReplaced,
+                    &args!("name" => file_name(path)),
+                ),
+                (None, false) => say(Message::QueueWentWritten, &args!("name" => file_name(path))),
+            }];
+            if let Some(original) = original {
+                lines.push(say(
+                    Message::QueueWentSetAside,
+                    &args!("name" => file_name(Path::new(original))),
+                ));
+            }
+            lines
+        }
+        Some(Delivered::Caller) => vec![say(Message::QueueWentCaller, &FluentArgs::new())],
+        Some(Delivered::Row) => vec![say(Message::QueueWentRow, &FluentArgs::new())],
+        Some(Delivered::Nowhere) => vec![say(Message::QueueWentNothing, &FluentArgs::new())],
+    }
+}
+
+/// Who handed it over, when it was not this window: the line under a row's
+/// name (R4 — "a row says who asked").
+pub fn origin_line(origin: Origin) -> Option<String> {
+    let message = match origin {
+        Origin::Window => return None,
+        Origin::Panel => Message::QueueOriginPanel,
+        Origin::LaunchFlag => Message::QueueOriginLaunch,
+        Origin::Cli => Message::QueueOriginCli,
+        Origin::Agent => Message::QueueOriginAgent,
+    };
+    Some(t(message))
 }
 
 #[cfg(test)]

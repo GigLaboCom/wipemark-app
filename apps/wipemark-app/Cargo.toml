@@ -28,6 +28,10 @@ wipemark-models.workspace = true
 wipemark-pipeline.workspace = true
 wipemark-license.workspace = true
 wipemark-store.workspace = true
+# The batch queue (E4-6b): every rewrite — a window's, an agent's, the
+# command line's through the application — is one of its items, one at a
+# time, persisted per chunk, on the engine on duty when the item starts.
+wipemark-queue.workspace = true
 # What was dropped, and what it turns out to be. A leaf with no
 # dependencies of its own — see crates/wipemark-intake: the panel, the
 # main window, the CLI and the MCP server all ask the same question, and

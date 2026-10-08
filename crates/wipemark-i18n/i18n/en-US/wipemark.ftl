@@ -63,7 +63,7 @@ toolbar-help = Help
 toolbar-help-tooltip = What this window does
 toolbar-help-drop = Drop text, an image or files anywhere on this window, press Import to choose them, or Paste what is on the clipboard.
 toolbar-help-preview = Rest the pointer on a preview to see it larger. The Actions menu at the end of a row opens a file with the app the system would.
-toolbar-help-pending = Clean, in a row's Actions menu, cleans that row, and Clean all cleans every waiting one; the result goes where the Retention page says. Rewriting with a model is not in this version's windows yet: it runs from the command line (wipemark-cli rewrite) and, for an agent, over MCP.
+toolbar-help-pending = Clean and Rewrite are on every row, and in its Actions menu; Clean all and Rewrite all take every row not started. A clean runs at once with { -layer-a }; a rewrite waits its turn in the one line of rewrites — this window's, an agent's and the command line's — on the engine on duty, and Rewrite all says the price first. Results go where the Retention page says.
 toolbar-help-elsewhere = The quick-scrub panel is in the menu bar; the preferences are behind the gear at the bottom right.
 
 ## The queue — the main window's table.
@@ -90,7 +90,7 @@ queue-count = { $count ->
         [one] { $count } item
        *[other] { $count } items
     }
-queue-pending = Rewriting with a model is not in this version's windows yet: this list cleans, and a rewrite runs from the command line (wipemark-cli rewrite) and over MCP.
+queue-pending = This list cleans and rewrites — one rewrite at a time, with the engine on duty, whoever asked: this window, an agent or the command line, and a row says who. Finished rows stay until removed or past the period on the Retention page.
 queue-preview-pending = Reading…
 queue-preview-cut = The first { $count } characters; the rest is not shown here.
 queue-actions = Actions
@@ -121,20 +121,20 @@ status-idle-no-engine = Idle · no engine configured · { -layer-a } only
 # Somebody is on duty and nothing would leave: local weights, or an
 # endpoint on this machine. $model is the model's own name, never
 # translated.
-status-idle-here = Idle · { $model } · nothing leaves this machine · { -layer-a } only
+status-idle-here = Idle · { $model } · nothing leaves this machine
 # $host is scheme, host and port — the machine the document would go to.
-status-idle-away = Idle · { $model } at { $host } · the document would leave this machine · { -layer-a } only
+status-idle-away = Idle · { $model } at { $host } · the document would leave this machine
 # The model on this machine, while it loads, once it is in memory, and
 # when it could not be. $model is the catalogue's display name, never
 # translated; $ram is the memory the whole process holds, measured after
 # the load (e.g. "4.2 GB") — not an estimate, and absent when it could not
 # be read. Every one still ends in "cleaning only": a loaded model is a
 # fact about memory, not a claim that rewriting works.
-status-local-loading = Loading { $model } · nothing leaves this machine · { -layer-a } only
+status-local-loading = Loading { $model } · nothing leaves this machine
 # While the model is read into memory (F1): how far, as a whole percent.
-status-local-loading-progress = Loading { $model } — { $percent } % · nothing leaves this machine · { -layer-a } only
-status-local-loaded = { $model } loaded · { -brand-name } holds { $ram } · nothing leaves this machine · { -layer-a } only
-status-local-loaded-unmeasured = { $model } loaded · nothing leaves this machine · { -layer-a } only
+status-local-loading-progress = Loading { $model } — { $percent } % · nothing leaves this machine
+status-local-loaded = { $model } loaded · { -brand-name } holds { $ram } · nothing leaves this machine
+status-local-loaded-unmeasured = { $model } loaded · nothing leaves this machine
 # $reason is one of the engine-refusal-* sentences.
 status-local-failed = { $model } could not be loaded: { $reason } · { -layer-a } only
 
@@ -201,7 +201,7 @@ setup-step-model = The model
 setup-step-endpoint = The endpoint
 setup-step-done = Done
 
-setup-welcome-body = { -brand-name } strips AI provenance marks from your own content in two layers: { -layer-a }, which removes the invisible characters and is deterministic, and { -layer-b }, which asks a language model for a paraphrase. In this version { -layer-a } runs from these windows — Clean in the main window and in the panel — as well as from the command line and for an agent over MCP; { -layer-b } runs from the command line and over MCP, and not from these windows yet. What these steps settle is what { -layer-b } needs: who rewrites, and what that takes.
+setup-welcome-body = { -brand-name } strips AI provenance marks from your own content in two layers: { -layer-a }, which removes the invisible characters and is deterministic, and { -layer-b }, which asks a language model for a paraphrase. Both run from these windows — Clean and Rewrite in the main window, Clean in the panel — as well as from the command line and for an agent over MCP. What these steps settle is what { -layer-b } needs: who rewrites, and what that takes.
 setup-welcome-again = Everything here can be changed later under Settings, and this walk-through can be run again from its General page.
 
 # Step 2. $model is the catalogue entry's display name, $ram what it
@@ -318,7 +318,7 @@ settings-section-retention = Retention
 ## The panel — the window you summon.
 
 panel-title = Quick scrub
-panel-pending = Rewriting with a model is not in this version's windows yet: it runs from the command line (wipemark-cli rewrite) and over MCP.
+panel-pending = This window cleans; rewriting is in the main window — Rewrite on a row there, or Rewrite all.
 panel-dismiss = Escape sends it away.
 
 # The panel has no titlebar, no traffic lights and no menu of its own,
@@ -514,7 +514,7 @@ settings-engine-description = Rewriting sends the document to a model and scores
 # The honest half, and it stays until the windows rewrite (E7): the Check
 # sends a fixed sentence, never a document; an agent and the command line
 # do send documents, to whatever this page puts on duty.
-settings-engine-pending = These windows rewrite nothing yet. An agent can, through the MCP server's rewrite tool, and so can wipemark-cli rewrite while this application runs — and then the document goes to whatever this page puts on duty, here or to the endpoint. The one request this page itself makes is the Check below, and it sends a fixed sentence.
+settings-engine-pending = Rewrite in the main window, an agent's rewrite through the MCP server and wipemark-cli rewrite while this application runs all go to whatever this page puts on duty, here or to the endpoint, one at a time. The one request this page itself makes is the Check below, and it sends a fixed sentence.
 
 ## The banner at the top of the page: what this configuration would do,
 ## or the first thing standing in the way of it doing anything. One at
@@ -950,7 +950,7 @@ settings-retention-keeps-originals = The original of a paste or a drag is kept i
 settings-retention-keeps-results = The result of a paste or a drag is kept in { $folder } { $period }; originals are not.
 settings-retention-keeps-both = The original and the result of a paste or a drag are kept in { $folder } { $period } when cleaning it changed something.
 # The last line, in every state.
-settings-retention-pending = The windows clean by these rules: what they write, and what they keep, follows this page. The command line and agents read none of them — the command line is told where a result goes on each run, and an agent gets its result back.
+settings-retention-pending = The windows follow these rules: a clean takes them when it starts, a rewrite when it is queued — it is written where they said then, after a restart too. The command line and agents read none of them — the command line is told where a result goes on each run, and an agent gets its result back.
 
 settings-retention-destination-title = Where results go
 settings-retention-destination-description = Beside the file writes name.cleaned.ext next to it and leaves the file as it is. The results folder is the one below. In place of the file replaces it — after the original has been set aside as name.original.ext, and never over an original already there.
@@ -1000,7 +1000,7 @@ settings-mcp-description = Let an agent run { -layer-a } over its own output, an
 
 # The MCP banner's last line, in every state of the server: what the two
 # tools do, and that nothing rewrites.
-settings-mcp-tools = Five tools run: inspect lists what { -layer-a } would change in a text, clean makes those changes and reports each one with its position, inspect_image and clean_image do the same for a PNG, JPEG or WebP — its metadata, and the visible marks this version knows in its pixels, which clean_image removes when it can prove them; marks no eye sees are neither looked for nor removed — and rewrite has the engine on duty rewrite the text between two passes of { -layer-a } — the document goes wherever the Engine page sends it. A rewrite is best-effort, and its report says what it does not establish.
+settings-mcp-tools = Five tools run: inspect lists what { -layer-a } would change in a text, clean makes those changes and reports each one with its position, inspect_image and clean_image do the same for a PNG, JPEG or WebP — its metadata, and the visible marks this version knows in its pixels, which clean_image removes when it can prove them; marks no eye sees are neither looked for nor removed — and rewrite has the engine on duty rewrite the text between two passes of { -layer-a }, in the same line as the main window's rewrites — the document goes wherever the Engine page sends it. A rewrite is best-effort, and its report says what it does not establish. Every clean and rewrite is a row in the main window's list unless the call says record: false.
 
 ## What the server is doing right now, in the banner at the top of the
 ## page. Read from the server itself rather than from the switch — the
@@ -1554,18 +1554,18 @@ cli-prompts-invalid = The template { $key } in { $path } breaks the rule { $rule
 toolbar-clean-all = Clean all
 toolbar-clean-all-tooltip = Clean every row that is waiting and can be cleaned, one at a time, in the order they arrived. Greyed out while there is none.
 queue-column-status = Status
-queue-status-waiting = Waiting
-queue-status-waiting-tooltip = Not cleaned yet. Clean it from the Actions menu, or press Clean all.
+queue-status-waiting = Not started
+queue-status-waiting-tooltip = Nothing has been asked of it yet, and nothing will happen until you ask: Clean or Rewrite in its Actions menu, or Clean all and Rewrite all on the toolbar. Settings › General › Process what arrives can do it as things land.
 queue-status-unable = Cannot clean
-queue-status-queued = Queued
+queue-status-queued = Queued to clean
 queue-status-queued-tooltip = Waiting for the clean ahead of it: one thing is cleaned at a time, in the order asked for.
 queue-status-cleaning = Cleaning…
 queue-status-cleaning-tooltip = Being cleaned now. Nothing is written until it is done.
-queue-status-nothing-found = Nothing found
+queue-status-nothing-found = No marks found
 queue-status-cleaned = Cleaned
-queue-status-partly = Partly
+queue-status-partly = Partly cleaned
 queue-status-not-cleaned = Not cleaned
-queue-status-failed = Failed
+queue-status-failed = Clean failed
 queue-action-clean = Clean
 queue-action-clean-done = It has been cleaned already.
 queue-action-clean-busy = It is already in line to be cleaned.
@@ -1581,7 +1581,7 @@ queue-went-kept = Kept in { $folder }
 queue-went-as-text = The cleaned text is ready: Copy the result is in the Actions menu.
 queue-went-nothing = Nothing was written.
 status-cleaning = Cleaning { $current } of { $total }
-clean-said-nothing-found = Nothing to remove was found, so nothing was written.
+clean-said-nothing-found = Cleaned: no invisible marks or AI provenance were found, so there was nothing to remove and no result was written. The file itself was found and read.
 clean-said-cleaned-text = { $count ->
         [one] One character was removed or replaced.
        *[other] { $count } characters were removed or replaced.
@@ -1670,3 +1670,118 @@ panel-found-not-examined = { $metadata ->
 panel-clean = Clean
 panel-clean-tooltip = Clean what was dropped here, one thing at a time; each result goes where the Retention page says. Greyed out while a clean runs, or when nothing here is left to clean.
 panel-cleaning = Cleaning…
+
+## E4-6b
+##
+## The windows rewrite. A row's Rewrite and the toolbar's Rewrite all push
+## to the application's one line of rewrites — the window's, an agent's and
+## the command line's — on the engine on duty; Rewrite all says the price
+## first. The table is the journal: every document handed over, by the
+## window, the panel, the command line or an agent, is a row with its state,
+## and rows survive a restart. $reason is an id or an engine's words, never
+## translated; $model is a model's own name; $host an endpoint's origin.
+queue-column-process = Process
+queue-action-rewrite = Rewrite
+queue-action-rewrite-busy = Already in the line of rewrites, or being rewritten.
+queue-action-rewrite-cleaning = Being cleaned; rewrite it once the clean is done.
+queue-action-rewrite-not-text = Only text is rewritten; a picture is cleaned.
+queue-action-clean-rewriting = Being rewritten; a clean now would race the rewrite over the same file.
+queue-action-not-kept = It arrived with no file behind it and its text was not kept, so it cannot be processed again.
+queue-action-cancel = Cancel the rewrite
+queue-action-remove = Remove from the list
+queue-status-rewrite-queued = Queued for rewrite
+queue-status-rewrite-queued-tooltip = Waiting its turn: one document is rewritten at a time, in the order asked, whoever asked.
+queue-status-held = Waiting for an engine
+queue-status-held-tooltip = No engine can take it now: { $reason }. It starts by itself once one can.
+queue-status-paused-tooltip = Rewriting is paused; Resume on the toolbar goes on.
+queue-status-rewriting = Rewriting…
+queue-status-rewriting-chunk = Paragraph { $chunk } of { $chunks } is being rewritten.
+queue-status-rewriting-tooltip = Being rewritten by the engine on duty.
+queue-status-working = In progress…
+queue-status-rewritten = Rewritten
+queue-status-partly-rewritten = Partly rewritten
+queue-status-rewrite-failed = Rewrite failed
+queue-status-cancelled = Rewrite cancelled
+queue-status-findings = Marks found
+queue-said-working = Being worked on.
+queue-said-cancelled = Cancelled; nothing was written.
+queue-said-rewrite-failed = The rewrite did not finish ({ $reason }); nothing was written over the original.
+queue-said-recorded-failed = It did not finish ({ $reason }).
+queue-said-rewritten = Rewritten by { $model }, { $chunks ->
+        [one] { $chunks } paragraph
+       *[other] { $chunks } paragraphs
+    }. The result is the most changed version that passed every check — not a judgement that it reads better.
+queue-said-partly-rewritten = { $kept } of { $chunks ->
+        [one] { $chunks } paragraph
+       *[other] { $chunks } paragraphs
+    } kept their cleaned original: no candidate passed the checks.
+queue-said-recorded-refused = Not done ({ $reason }); nothing was touched.
+queue-said-recorded-found = { -layer-a } found { $findings } and kept { $kept }.
+queue-said-recorded = As the journal recorded it.
+queue-went-caller = Handed back to whoever asked, and kept nowhere.
+queue-went-row = Kept in this list until the row is removed: Copy the result is in the Actions menu.
+queue-origin-panel = From the panel
+queue-origin-launch = Named on the application's command line
+queue-origin-cli = From the command line
+queue-origin-agent = From an agent
+queue-price = About { $calls } calls to the model, up to { $tokens } tokens written.
+toolbar-rewrite-all = Rewrite all
+toolbar-rewrite-all-tooltip = Rewrite every waiting text with the engine on duty, one at a time — the price is said first, and nothing starts until you agree. Greyed out while there is none, or nothing is on duty.
+toolbar-pause = Pause
+toolbar-pause-tooltip = Pause the line of rewrites — every window's, every agent's. The document being rewritten goes back to waiting with the paragraphs already done.
+toolbar-resume = Resume
+toolbar-resume-tooltip = Go on with the line of rewrites, from where it stopped.
+toolbar-clear-finished = Clear finished
+toolbar-clear-finished-tooltip = Take every finished row off the list and out of the journal. Results already written stay where they are.
+rewrite-price-title = Rewrite { $count ->
+        [one] { $count } document
+       *[other] { $count } documents
+    }?
+rewrite-price-calls = About { $expected } calls to the model, { $worst } at most.
+rewrite-price-tokens = Up to { $tokens } tokens written.
+rewrite-price-time = About { $minutes } min at the rate the last Check measured.
+rewrite-price-time-unknown = How long is unknown: run Check on the Engine page to measure this engine's rate.
+rewrite-price-here = Nothing leaves this machine.
+rewrite-price-away = Every document is sent to { $host }.
+rewrite-price-go = Rewrite
+rewrite-cancel = Cancel
+rewrite-send-title = Send { $count ->
+        [one] { $count } document
+       *[other] { $count } documents
+    } to { $host }?
+rewrite-send-body = "Process what arrives" is set to rewrite, and the engine on duty is not on this machine: what just arrived would be sent there to be rewritten.
+rewrite-send-go = Send and rewrite
+status-rewriting = Rewriting { $current } of { $total } · paragraph { $chunk } of { $chunks }
+status-rewriting-starting = Rewriting { $current } of { $total }
+status-rewrites-held = Rewrites wait for an engine: { $reason }
+status-rewrites-paused = Rewriting is paused · { $count } waiting
+compare-rewritten-banner = The rewrite, as it was delivered — the most changed version that passed every check. Editing it here saves nothing, and closing writes nothing.
+compare-rewritten-kept = { $kept } of { $chunks } paragraphs kept their cleaned original: no candidate passed the checks.
+compare-reset-rewritten = Back to the rewritten text
+compare-reset-rewritten-tooltip = Put the rewrite back as it was delivered, and forget the edits.
+settings-arrival-title = Process what arrives
+settings-arrival-description = What happens to a thing as it lands in the main window. Nothing waits for a button; Clean cleans it at once; Rewrite rewrites it with the engine on duty — and when that engine is not on this machine, each arrival asks before anything is sent.
+settings-arrival-nothing = Nothing — wait for a button
+settings-arrival-clean = Clean it
+settings-arrival-rewrite = Rewrite it
+settings-journal-keep-title = Keep finished rows
+settings-journal-keep-description = How long a finished row stays in the main window's list — whoever asked for it, the command line and agents included. A row keeps what happened and where the result went, never the text. Results already written are never removed by this.
+settings-journal-days = { $days ->
+        [one] { $days } day
+       *[other] { $days } days
+    }
+
+## E4-6b — the command line
+##
+## Every run of `clean`, `rewrite` and `inspect --record` leaves a row in
+## the application's journal, which its main window lists, unless
+## --no-record says not to. The command line never creates or migrates the
+## application's database: a database that cannot take the row is said in
+## one line, and the run is otherwise what it would have been. $path is the
+## database's path and $reason the store's own words, never translated.
+cli-arg-record = Leave a row for this look in the application's journal, which its main window lists. A look changes nothing and is not recorded without this.
+cli-arg-no-record = Leave no row for this run in the application's journal. Without it, the run is listed in the application's main window, from the command line.
+cli-arg-out-rewrite = Output file, or `-` for standard output. Defaults to `<name>.rewritten.<ext>` beside the input — a clean's `<name>.cleaned.<ext>` is another result — and to standard output when the input is standard input; in-place needs an explicit flag, never a default.
+cli-journal-too-old = Nothing was recorded in the application's journal: its database at { $path } is from an older version, and the application brings it up to date the next time it starts.
+cli-journal-newer = Nothing was recorded in the application's journal: its database at { $path } was written by a newer version of { -brand-name }.
+cli-journal-unwritable = Nothing was recorded in the application's journal: its database at { $path } could not be written ({ $reason }).

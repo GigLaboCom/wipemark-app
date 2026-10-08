@@ -12,7 +12,9 @@ codes; `input.rs` reads and decodes a path or stdin through
 two on a picture (E11-2, "Images" below); `report.rs` the
 human report; `audit.rs` the walk and its three renderings; `models.rs` the catalogue
 and the downloader; `rewrite.rs` the rewrite flow and the command's own
-engine; `app.rs` the road to the running application. Every write to disk — `-o`, beside the input, and
+engine; `app.rs` the road to the running application; `journal.rs` the
+run's row in the application's document journal (E4-6b, "The journal"
+below). Every write to disk — `-o`, beside the input, and
 `--in-place` — is `wipemark_intake::inplace` (moved there from the CLI's
 own `inplace.rs` in tails-1, behaviour unchanged, so the windows can share
 it in E7). Layer A itself is `docs/architecture/layer-a.md`.
@@ -408,6 +410,7 @@ wipemark-cli rewrite <path|-> [-o <out>|-o -|--in-place [--no-original]]
     [--tactic paraphrase|humanize|back_translate] [--intensity light|moderate|strong]
     [--candidates N] [--rounds N] [--format plain|markdown|html]
     [--aggressive] [--nfkc] [--prompts <file.json>] [--seed N] [--json]
+    [--no-record]
 ```
 
 **Two roads, never both.** When the application runs, its MCP server
@@ -443,14 +446,51 @@ saved; a template that breaks a rule exits 2 naming the row and the rule,
 before anything is read or sent — and goes to the application with the
 call when it is the application that rewrites.
 
-**Output** is `clean`'s: beside the input as `name.cleaned.ext`, `-o`,
-stdout, or `--in-place` through `wipemark_intake::inplace`. The human
+**Output** is `clean`'s shape with its own name: beside the input as
+**`name.rewritten.ext`** (В8, E4-6b — a format change: until E4-6b a
+rewrite was written to the clean's `name.cleaned.ext`, so a clean and a
+rewrite of one file overwrote each other), `-o`, stdout, or `--in-place`
+through `wipemark_intake::inplace`. A result already at that name is still
+replaced, as `clean` replaces its own — the windows refuse one (D261); the
+command line has not changed that. The human
 report says what Layer A found in the input, how many paragraphs were
 rewritten and how many kept their cleaned original, that Layer B is
 best-effort, the seed, where the result went, who rewrote it and the third
 shelf. Price and progress go to stderr on a terminal only.
 
+## The journal (E4-6b)
+
+Every document has a status, whoever asked: the application's main window
+lists one row per document from its `journal` table (`wipemark-store`,
+schema 3), and the command line's runs are among them.
+
+| run | recorded | by whom |
+|---|---|---|
+| `clean` (text: `clean`, picture: `clean_image`) | unless `--no-record` | this command |
+| `inspect` | only with `--record` (a look changes nothing, В7) | this command |
+| `rewrite`, served by this command | unless `--no-record` | this command |
+| `rewrite`, served by the running application | unless `--no-record` | the application — the call carries `"record"` and, in the params' `_meta`, `wipemark/origin: cli` with the file's name, path and size; when the answer names its row (`result._meta["wipemark/journal"]`) and this command wrote a file, it tells that row where |
+| `audit`, `models` | never | — |
+
+A row holds metadata only (D312): origin `cli`, the action, done or
+failed, the file's name, absolute path, kind, format, encoding and size,
+the verdict (`nothing-found`, `cleaned`, `partly`, `not-cleaned`,
+`failed`; `findings` for a look; `rewritten` for a rewrite) with its
+counts, and where the result went (`file`, `caller` for standard output,
+`nowhere`) — never the text. A run refused before its input was read
+records nothing.
+
+**The one write, never a create or a migration (В5, D314).** Every other
+open of `wipemark.db` here is read-only; the journal goes through
+`wipemark_store::JournalWriter`, which opens an existing database
+read-write and offers the journal and nothing else. No database — no
+application has run on this machine — is no row and **nothing said**
+(D315: a line on every hook run would be noise). A database that cannot
+take the row — older than the journal (the application migrates it when it
+next starts), written by a newer build, or not writable — is no row and
+**one** line on stderr; the exit code and standard output are unchanged.
+
 ## Not here
 
 * Reading `.gitignore` in `audit`.
-* Writing any Retention row, or a history.
+* Writing any Retention row. The journal row above is the one write.

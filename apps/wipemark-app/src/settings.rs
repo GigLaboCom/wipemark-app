@@ -354,6 +354,9 @@ pub enum Setting {
     ServeOverMcp,
     McpBind,
     McpPort,
+    // ## E4-6b
+    ProcessArrivals,
+    JournalKeep,
 }
 
 impl Setting {
@@ -388,12 +391,14 @@ impl Setting {
     ///
     /// The Compare rows put what is *marked* before how the two sides
     /// *move*: a reader opens the window for the marks.
-    pub const ALL: [Setting; 32] = [
+    pub const ALL: [Setting; 34] = [
         Self::Appearance,
         Self::Language,
         Self::ShortcutShow,
         Self::ShortcutPanel,
         Self::Setup,
+        // ## E4-6b
+        Self::ProcessArrivals,
         Self::WindowScreen,
         Self::CloseAfterDrop,
         Self::CompareGrain,
@@ -418,6 +423,8 @@ impl Setting {
         Self::KeepOriginals,
         Self::KeepResults,
         Self::KeepFor,
+        // ## E4-6b
+        Self::JournalKeep,
         Self::ServeOverMcp,
         Self::McpBind,
         Self::McpPort,
@@ -453,6 +460,9 @@ impl Setting {
             | Self::KeepResults
             | Self::KeepFor => Section::Retention,
             Self::ServeOverMcp | Self::McpBind | Self::McpPort => Section::Mcp,
+            // ## E4-6b
+            Self::ProcessArrivals => Section::General,
+            Self::JournalKeep => Section::Retention,
         }
     }
 
@@ -491,6 +501,9 @@ impl Setting {
             Self::ServeOverMcp => Message::SettingsMcpEnabledTitle,
             Self::McpBind => Message::SettingsMcpBindTitle,
             Self::McpPort => Message::SettingsMcpPortTitle,
+            // ## E4-6b
+            Self::ProcessArrivals => Message::SettingsArrivalTitle,
+            Self::JournalKeep => Message::SettingsJournalKeepTitle,
         }
     }
 
@@ -537,6 +550,9 @@ impl Setting {
             Self::ServeOverMcp => Message::SettingsMcpEnabledDescription,
             Self::McpBind => Message::SettingsMcpBindDescription,
             Self::McpPort => Message::SettingsMcpPortDescription,
+            // ## E4-6b
+            Self::ProcessArrivals => Message::SettingsArrivalDescription,
+            Self::JournalKeep => Message::SettingsJournalKeepDescription,
         }
     }
 
@@ -595,6 +611,9 @@ impl Setting {
             Self::KeepOriginals => Storage::Row(config::KEEP_ORIGINALS_KEY),
             Self::KeepResults => Storage::Row(config::KEEP_RESULTS_KEY),
             Self::KeepFor => Storage::Row(config::KEEP_FOR_KEY),
+            // ## E4-6b
+            Self::ProcessArrivals => Storage::Row(config::ON_ARRIVAL_KEY),
+            Self::JournalKeep => Storage::Row(config::JOURNAL_KEEP_DAYS_KEY),
             Self::ServeOverMcp => Storage::Row(config::MCP_ENABLED_KEY),
             Self::McpBind => Storage::Row(config::MCP_BIND_KEY),
             Self::McpPort => Storage::Row(config::MCP_PORT_KEY),
@@ -969,6 +988,11 @@ pub struct Preferences {
     /// the platform's Downloads folder, and `<data dir>/kept`. Gathered
     /// by `main` once, for the reason `models_default` is.
     homes: Homes,
+    // ## E4-6b
+    /// What happens to a thing as it arrives in the main window (В1).
+    on_arrival: crate::queue::OnArrival,
+    /// How many days a finished journal row is kept (В3).
+    journal_keep_days: u32,
 }
 
 /// A download in flight.
@@ -1029,6 +1053,8 @@ impl Preferences {
             setup_done,
             retention,
             comparison,
+            on_arrival,
+            journal_keep_days,
         } = stored;
         let (events, heard) = flume::unbounded();
         // The server holds a way to the engine from the start (D56): its
@@ -1166,6 +1192,8 @@ impl Preferences {
             retention,
             comparison,
             homes,
+            on_arrival,
+            journal_keep_days,
         }
     }
 
@@ -1195,6 +1223,44 @@ impl Preferences {
     /// The Retention page's rows.
     pub fn retention(&self) -> &Retention {
         &self.retention
+    }
+
+    // ## E4-6b
+
+    /// What happens to a thing as it arrives in the main window.
+    pub fn on_arrival(&self) -> crate::queue::OnArrival {
+        self.on_arrival
+    }
+
+    /// Record what happens to a thing as it arrives.
+    pub fn select_on_arrival(
+        &mut self,
+        on_arrival: crate::queue::OnArrival,
+        cx: &mut Context<Self>,
+    ) {
+        if self.on_arrival == on_arrival {
+            return;
+        }
+        self.on_arrival = on_arrival;
+        cx.notify();
+        self.persist(cx, move |store| config::write_on_arrival(store, on_arrival));
+    }
+
+    /// How many days a finished journal row is kept.
+    pub fn journal_keep_days(&self) -> u32 {
+        self.journal_keep_days
+    }
+
+    /// Record how many days a finished journal row is kept.
+    pub fn select_journal_keep_days(&mut self, days: u32, cx: &mut Context<Self>) {
+        if self.journal_keep_days == days {
+            return;
+        }
+        self.journal_keep_days = days;
+        cx.notify();
+        self.persist(cx, move |store| {
+            config::write_journal_keep_days(store, days)
+        });
     }
 
     /// The Compare page's rows.
@@ -3111,6 +3177,11 @@ struct SettingsView {
     results_shown: PathBuf,
     /// How long a kept copy stays. A dropdown of five fixed spans.
     period_select: Entity<SelectState<Vec<Choice<Period>>>>,
+    // ## E4-6b
+    /// What happens to a thing as it arrives in the main window.
+    arrival_select: Entity<SelectState<Vec<Choice<crate::queue::OnArrival>>>>,
+    /// How many days a finished journal row stays.
+    journal_select: Entity<SelectState<Vec<Choice<u32>>>>,
     /// How many idle minutes unload an on-demand model. Five fixed spans.
     idle_select: Entity<SelectState<Vec<Choice<u32>>>>,
     /// The engine host, for the Engine page's local-model block — `None`
@@ -3152,6 +3223,9 @@ struct SettingsView {
     _timeout: Subscription,
     _results_folder: Subscription,
     _period: Subscription,
+    // ## E4-6b
+    _arrival: Subscription,
+    _journal: Subscription,
     _idle: Subscription,
     /// Repaints the page when the model loads, unloads or is checked.
     _host: Option<Subscription>,
@@ -3619,6 +3693,48 @@ impl SettingsView {
             SelectState::new(choices, row, window, cx)
         });
 
+        // ## E4-6b — "Process what arrives" and "Keep finished rows".
+        let arrival_select = cx.new(|cx| {
+            let choices = arrival_choices();
+            let on_arrival = preferences.read(cx).on_arrival();
+            let row = engine::row_of(&choices, &on_arrival).map(IndexPath::new);
+            SelectState::new(choices, row, window, cx)
+        });
+        let chose_arrival = cx.subscribe_in(
+            &arrival_select,
+            window,
+            |view, _, event: &SelectEvent<Vec<Choice<crate::queue::OnArrival>>>, _, cx| {
+                let SelectEvent::Confirm(Some(value)) = event else {
+                    return;
+                };
+                if let Some(on_arrival) = engine::from_value(&arrival_choices(), value) {
+                    view.preferences.update(cx, |preferences, cx| {
+                        preferences.select_on_arrival(on_arrival, cx);
+                    });
+                }
+            },
+        );
+        let journal_select = cx.new(|cx| {
+            let choices = journal_choices();
+            let days = preferences.read(cx).journal_keep_days();
+            let row = engine::row_of(&choices, &days).map(IndexPath::new);
+            SelectState::new(choices, row, window, cx)
+        });
+        let chose_journal = cx.subscribe_in(
+            &journal_select,
+            window,
+            |view, _, event: &SelectEvent<Vec<Choice<u32>>>, _, cx| {
+                let SelectEvent::Confirm(Some(value)) = event else {
+                    return;
+                };
+                if let Some(days) = engine::from_value(&journal_choices(), value) {
+                    view.preferences.update(cx, |preferences, cx| {
+                        preferences.select_journal_keep_days(days, cx);
+                    });
+                }
+            },
+        );
+
         let chose_period = cx.subscribe_in(
             &period_select,
             window,
@@ -3776,6 +3892,8 @@ impl SettingsView {
             results_folder: results_field,
             results_shown,
             period_select,
+            arrival_select,
+            journal_select,
             idle_select,
             host,
             section: at.unwrap_or(Section::General),
@@ -3800,6 +3918,8 @@ impl SettingsView {
             _timeout: typed_timeout,
             _results_folder: typed_results,
             _period: chose_period,
+            _arrival: chose_arrival,
+            _journal: chose_journal,
             _idle: chose_idle,
             _host: watched_host,
             _preferences: observed,
@@ -3883,6 +4003,22 @@ impl SettingsView {
         let choices = retention::period_choices();
         let row = engine::row_of(&choices, &period).map(IndexPath::new);
         self.period_select.update(cx, |select, cx| {
+            select.set_items(choices, window, cx);
+            select.set_selected_index(row, window, cx);
+        });
+
+        // ## E4-6b
+        let on_arrival = self.preferences.read(cx).on_arrival();
+        let choices = arrival_choices();
+        let row = engine::row_of(&choices, &on_arrival).map(IndexPath::new);
+        self.arrival_select.update(cx, |select, cx| {
+            select.set_items(choices, window, cx);
+            select.set_selected_index(row, window, cx);
+        });
+        let days = self.preferences.read(cx).journal_keep_days();
+        let choices = journal_choices();
+        let row = engine::row_of(&choices, &days).map(IndexPath::new);
+        self.journal_select.update(cx, |select, cx| {
             select.set_items(choices, window, cx);
             select.set_selected_index(row, window, cx);
         });
@@ -4043,6 +4179,15 @@ impl SettingsView {
             Setting::KeepOriginals => self.keep_originals_switch(cx).into_any_element(),
             Setting::KeepResults => self.keep_results_switch(cx).into_any_element(),
             Setting::KeepFor => self.period_selector().into_any_element(),
+            // ## E4-6b
+            Setting::ProcessArrivals => Select::new(&self.arrival_select)
+                .small()
+                .menu_width(CONTROL_COLUMN)
+                .into_any_element(),
+            Setting::JournalKeep => Select::new(&self.journal_select)
+                .small()
+                .menu_width(CONTROL_COLUMN)
+                .into_any_element(),
             Setting::ServeOverMcp => self.serve_switch(cx).into_any_element(),
             Setting::McpBind => self.bind_control(cx).into_any_element(),
             Setting::McpPort => self.port_field().into_any_element(),
@@ -7692,6 +7837,30 @@ fn place(
     (Some(screen.clone()), placement::content_of(frame, chrome))
 }
 
+// ## E4-6b
+
+/// "Process what arrives", as a selector's rows.
+fn arrival_choices() -> Vec<Choice<crate::queue::OnArrival>> {
+    crate::queue::OnArrival::ALL
+        .into_iter()
+        .map(|choice| Choice::new(choice, t(choice.label()), choice.id()))
+        .collect()
+}
+
+/// "Keep finished rows", as a selector's rows: [`config::JOURNAL_DAYS`].
+fn journal_choices() -> Vec<Choice<u32>> {
+    config::JOURNAL_DAYS
+        .into_iter()
+        .map(|days| {
+            Choice::new(
+                days,
+                t_args(Message::SettingsJournalDays, &args!("days" => days)),
+                days.to_string(),
+            )
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -7763,7 +7932,7 @@ mod tests {
     /// A profile is a row in a file people back up, sync and attach to
     /// bug reports, and the reason that is safe is that it holds no
     /// credential. Checked over the *messages* rather than the rendered
-    /// text, for the reason `the_engine_banner_always_says_a_rewrite_is_not_here_yet`
+    /// text, for the reason `the_engine_banner_always_says_where_a_rewrite_goes`
     /// checks an epic name: another test in this binary moves the
     /// process-wide language while this one runs.
     ///
@@ -8085,7 +8254,7 @@ mod tests {
     /// that an agent's rewrite sends the document where this page says.
     /// Every state has to say both.
     #[test]
-    fn the_engine_banner_always_says_a_rewrite_is_not_here_yet() {
+    fn the_engine_banner_always_says_where_a_rewrite_goes() {
         for (settings, key) in every_engine_state() {
             let (_, _, lines) = banner_for(&settings, &key);
             assert_eq!(
@@ -8106,6 +8275,14 @@ mod tests {
             for line in &lines {
                 assert!(!line.is_empty(), "{settings:?} produced an empty line");
             }
+            // The windows rewrite now (R6): the line says so, and no
+            // longer that they rewrite nothing.
+            assert!(
+                lines[1].contains("Rewrite in the main window"),
+                "{}",
+                lines[1]
+            );
+            assert!(!lines[1].contains("rewrite nothing yet"), "{}", lines[1]);
         }
     }
 
@@ -8778,7 +8955,8 @@ mod tests {
                 "{retention:?} stopped saying who follows these rows: {lines:?}"
             );
             assert!(
-                lines[2].contains("The windows clean by these rules")
+                lines[2].contains("The windows follow these rules")
+                    && lines[2].contains("a rewrite when it is queued")
                     && lines[2].contains("command line")
                     && lines[2].contains("read none of them"),
                 "{retention:?}: {}",
@@ -8846,14 +9024,14 @@ mod tests {
         }
     }
 
-    /// The first-launch walk-through says that cleaning runs from these
-    /// windows and rewriting does not — in every language, and never
-    /// the old "neither runs from these windows".
+    /// The first-launch walk-through says that both layers run from these
+    /// windows (R6) — in every language, and never the old "neither runs
+    /// from these windows" nor "not from these windows yet".
     #[test]
-    fn the_welcome_says_the_windows_clean_and_do_not_rewrite() {
+    fn the_welcome_says_the_windows_clean_and_rewrite() {
         let line = t(Message::SetupWelcomeBody);
-        assert!(line.contains("cleaning runs from these windows"), "{line}");
-        assert!(line.contains("not from these windows yet"), "{line}");
+        assert!(line.contains("Both run from these windows"), "{line}");
+        assert!(line.contains("Clean and Rewrite"), "{line}");
         for language in wipemark_i18n::available_languages() {
             let localizer = wipemark_i18n::Localizer::for_languages(
                 std::slice::from_ref(&language.id),
@@ -8864,6 +9042,9 @@ mod tests {
                 "neither runs from these windows",
                 "оба работают из командной строки",
                 "laufen beide über die Kommandozeile",
+                "not from these windows yet",
+                "ещё не из этих окон",
+                "noch nicht aus diesen Fenstern",
             ] {
                 assert!(
                     !line.contains(old),

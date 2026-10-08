@@ -70,6 +70,17 @@
 //! move — and a result that would still carry AI provenance, for which no
 //! image comes back. No path argument: see [`super::image`].
 //!
+//! # A status for every call (E4-6b, R4)
+//!
+//! `clean`, `clean_image` and `rewrite` are each a row in the application's
+//! document journal unless the call says `"record": false`; `inspect` and
+//! `inspect_image`, which change nothing, only with `"record": true` (В6,
+//! В7). A row says who asked — an agent, or the command line when the
+//! call's `params._meta["wipemark/origin"]` is `cli` — and carries no text.
+//! An answer that made a row says which, as `result._meta["wipemark/journal"]`.
+//! A `rewrite` is an item of the application's batch queue: see
+//! [`super::rewrite`].
+//!
 //! # What is said back
 //!
 //! Three answers quote something the client sent — an unknown method, an
@@ -102,8 +113,11 @@ use serde_json::{json, Map, Value};
 use wipemark_pipeline::asked::{self, Asked, NotOffered};
 use wipemark_pipeline::prompt::row::Laid;
 use wipemark_pipeline::prompt::{Intensity, Tactic};
+use wipemark_store::entry::{Action, Delivered, Entry, Origin, Outcome, Phase};
+use wipemark_store::NewRow;
 
-use super::rewrite::{self, Done, Rewriter, Stop, Unrun};
+use super::rewrite::{self, Asker, Done, Rewriter, Stop, Unrun};
+use crate::journal::{self, Work};
 
 /// The revision of the MCP specification this server implements.
 ///
@@ -128,11 +142,13 @@ const INVALID_PARAMS: i64 = -32602;
 const INTERNAL_ERROR: i64 = -32603;
 
 /// What the server reaches beyond Layer A: the road to the engine on
-/// duty, for `rewrite`. Empty, `rewrite` refuses — the arrangement of a
-/// test that is not about the engine.
+/// duty, for `rewrite`, and the batch queue and journal every call is
+/// recorded in. Empty, `rewrite` refuses and nothing is recorded — the
+/// arrangement of a test that is not about either.
 #[derive(Clone, Default)]
 pub struct Services {
     pub rewriter: Option<Rewriter>,
+    pub work: Option<Work>,
 }
 
 /// The work this server will offer, one variant per tool.
@@ -411,6 +427,7 @@ impl Tool {
                 }),
             );
         }
+        properties.insert("record".to_owned(), self.record_schema());
         if self != Self::Inspect {
             properties.insert(
                 "nfkc".to_owned(),
@@ -431,6 +448,27 @@ impl Tool {
             "properties": Value::Object(properties),
             "required": [self.required()],
             "additionalProperties": false,
+        })
+    }
+
+    /// Whether a call of this tool is a row in the journal unless it says.
+    fn records_by_default(self) -> bool {
+        !matches!(self, Self::Inspect | Self::InspectImage)
+    }
+
+    /// `record`: whether the call is a row in the application's journal.
+    fn record_schema(self) -> Value {
+        let default = self.records_by_default();
+        json!({
+            "type": "boolean",
+            "default": default,
+            "description": if default {
+                "Whether the call is listed in the application's journal of documents - who \
+                 asked, what came of it, never the text. Default true; false leaves no row."
+            } else {
+                "Whether the call is listed in the application's journal of documents - who \
+                 asked, what it found, never the text. Default false: a look changes nothing."
+            },
         })
     }
 
@@ -456,6 +494,7 @@ impl Tool {
                 }),
             );
         }
+        properties.insert("record".to_owned(), self.record_schema());
         json!({
             "type": "object",
             "properties": Value::Object(properties),
@@ -467,10 +506,10 @@ impl Tool {
     /// The arguments this tool takes, in the order a refusal lists them.
     fn arguments(self) -> &'static [&'static str] {
         match self {
-            Self::InspectImage => &["data"],
-            Self::CleanImage => &["data", "scope"],
-            Self::Inspect => &["text", "aggressive"],
-            Self::Clean => &["text", "aggressive", "nfkc"],
+            Self::InspectImage => &["data", "record"],
+            Self::CleanImage => &["data", "scope", "record"],
+            Self::Inspect => &["text", "aggressive", "record"],
+            Self::Clean => &["text", "aggressive", "nfkc", "record"],
             Self::Rewrite => &[
                 "text",
                 "tactic",
@@ -483,6 +522,7 @@ impl Tool {
                 "seed",
                 "templates",
                 "dry_run",
+                "record",
             ],
         }
     }
@@ -490,20 +530,23 @@ impl Tool {
     /// The same list, spelled for a sentence.
     fn argument_list(self) -> &'static str {
         match self {
-            Self::InspectImage => "`data` (an image as base64, required)",
+            Self::InspectImage => "`data` (an image as base64, required), `record` (true or false)",
             Self::CleanImage => {
-                "`data` (an image as base64, required), `scope` (ai-provenance or all-metadata)"
+                "`data` (an image as base64, required), `scope` (ai-provenance or all-metadata), \
+                 `record` (true or false)"
             }
-            Self::Inspect => "`text` (a string, required), `aggressive` (true or false)",
+            Self::Inspect => {
+                "`text` (a string, required), `aggressive` and `record` (true or false)"
+            }
             Self::Clean => {
-                "`text` (a string, required), `aggressive` (true or false), `nfkc` (true or \
-                 false)"
+                "`text` (a string, required), `aggressive`, `nfkc` and `record` (true or false)"
             }
             Self::Rewrite => {
                 "`text` (a string, required), `tactic` (paraphrase, humanize or back_translate), \
                  `intensity` (light, moderate or strong), `candidates` and `rounds` (1 to 8), \
-                 `format` (plain, markdown or html), `aggressive`, `nfkc` and `dry_run` (true or \
-                 false), `seed` (a whole number), `templates` (an object of template rows)"
+                 `format` (plain, markdown or html), `aggressive`, `nfkc`, `dry_run` and `record` \
+                 (true or false), `seed` (a whole number), `templates` (an object of template \
+                 rows)"
             }
         }
     }
@@ -527,8 +570,8 @@ impl Tool {
     ///
     /// On the connection thread: Layer A is O(n), a body is at most a
     /// megabyte, and nothing here is near the GPUI thread.
-    fn run(self, call: &Call) -> Answer {
-        let (json, findings, kept) = match self {
+    fn run(self, call: &Call) -> (Answer, Option<Outcome>) {
+        let (json, findings, kept, verdict) = match self {
             // `call` reads and runs a rewrite apart; nothing reaches here
             // with one. Said at the protocol level rather than panicking on
             // a connection's thread, should that ever change.
@@ -537,24 +580,46 @@ impl Tool {
                     tool = self.name(),
                     "MCP: a tool reached the scrubber's road"
                 );
-                return Answer::Error {
-                    code: INTERNAL_ERROR,
-                    message: format!("{} is not a scrubber call", self.name()),
-                };
+                return (
+                    Answer::Error {
+                        code: INTERNAL_ERROR,
+                        message: format!("{} is not a scrubber call", self.name()),
+                    },
+                    None,
+                );
             }
             Self::Inspect => {
                 let report = wipemark_core::inspect(&call.text, &call.options);
-                (report.to_json(), report.findings.len(), report.kept.len())
+                let verdict = if report.suspicious {
+                    "findings"
+                } else {
+                    "nothing-found"
+                };
+                (
+                    report.to_json(),
+                    report.findings.len(),
+                    report.kept.len(),
+                    verdict,
+                )
             }
             Self::Clean => {
                 let cleaned = wipemark_core::clean(&call.text, &call.options);
                 // `to_string` of a `&str` cannot fail; the report goes in
                 // verbatim so the text block keeps §7.1's key order.
                 let text = serde_json::to_string(&cleaned.text).unwrap_or_default();
+                // The window's verdict for the same text (D263): changed is
+                // cleaned, unchanged and suspicious is partly, the rest
+                // nothing found.
+                let verdict = match (cleaned.text != call.text, cleaned.report.suspicious) {
+                    (true, _) => "cleaned",
+                    (false, true) => "partly",
+                    (false, false) => "nothing-found",
+                };
                 (
                     format!(r#"{{"text":{text},"report":{}}}"#, cleaned.report.to_json()),
                     cleaned.report.findings.len(),
                     cleaned.report.kept.len(),
+                    verdict,
                 )
             }
         };
@@ -567,7 +632,13 @@ impl Tool {
             kept,
             "MCP: tools/call answered"
         );
-        answered(json)
+        let outcome = Outcome {
+            verdict: verdict.to_owned(),
+            findings: Some(findings as u64),
+            kept: Some(kept as u64),
+            ..Outcome::default()
+        };
+        (answered(json), Some(outcome))
     }
 
     /// A rewrite that was read and did not happen: a result carrying
@@ -622,6 +693,7 @@ impl Tool {
 struct ImageCall {
     bytes: Vec<u8>,
     scope: wipemark_image::Scope,
+    record: bool,
 }
 
 /// A picture that was read and could not be inspected or cleaned: a result
@@ -699,6 +771,13 @@ fn read_image(tool: Tool, arguments: &Map<String, Value>) -> Result<ImageCall, V
         }
     };
 
+    let record = read_flag(
+        arguments,
+        &mut problems,
+        "record",
+        tool.records_by_default(),
+    );
+
     let mut extra: Vec<&String> = arguments
         .keys()
         .filter(|key| !tool.arguments().contains(&key.as_str()))
@@ -707,21 +786,50 @@ fn read_image(tool: Tool, arguments: &Map<String, Value>) -> Result<ImageCall, V
     problems.extend(extra.into_iter().map(|key| Problem::NotTaken(spelled(key))));
 
     match bytes {
-        Some(bytes) if problems.is_empty() => Ok(ImageCall { bytes, scope }),
+        Some(bytes) if problems.is_empty() => Ok(ImageCall {
+            bytes,
+            scope,
+            record,
+        }),
         _ => Err(problems),
     }
 }
 
-/// Run a picture tool over a call that was read, and answer.
-fn image_answer(tool: Tool, call: &ImageCall) -> Answer {
+/// Run a picture tool over a call that was read, and answer — with what
+/// came of it, for the journal.
+fn image_answer(tool: Tool, call: &ImageCall) -> (Answer, Outcome) {
     let ran = if tool == Tool::CleanImage {
         super::image::clean(&call.bytes, call.scope)
     } else {
         super::image::inspect(&call.bytes)
     };
     match ran {
-        Ok(json) => answered(json),
-        Err(refusal) => Answer::Result(image_refused(tool, &refusal)),
+        Ok(json) => {
+            let marks_left = serde_json::from_str::<Value>(&json)
+                .ok()
+                .and_then(|value| value["marks_left"].as_bool())
+                .unwrap_or(false);
+            let verdict = match (tool, marks_left) {
+                (Tool::CleanImage, true) => "partly",
+                (Tool::CleanImage, false) => "cleaned",
+                _ => "inspected",
+            };
+            (
+                answered(json),
+                Outcome {
+                    verdict: verdict.to_owned(),
+                    ..Outcome::default()
+                },
+            )
+        }
+        Err(refusal) => (
+            Answer::Result(image_refused(tool, &refusal)),
+            Outcome {
+                verdict: "not-cleaned".to_owned(),
+                reason: Some(refusal.kind().replace(' ', "-")),
+                ..Outcome::default()
+            },
+        ),
     }
 }
 
@@ -731,6 +839,29 @@ struct Call {
     /// `aggressive` and `nfkc` from the call; `normalize_spaces` and
     /// `keep_soft_hyphen` stay off on every surface in E1 (A §7.4, Q-A1).
     options: wipemark_core::Options,
+    /// Whether the call is a row in the journal.
+    record: bool,
+}
+
+/// A boolean argument, or `default` when it is absent; anything else is a
+/// problem named.
+fn read_flag(
+    arguments: &Map<String, Value>,
+    problems: &mut Vec<Problem>,
+    name: &'static str,
+    default: bool,
+) -> bool {
+    match arguments.get(name) {
+        None => default,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => {
+            problems.push(Problem::WrongType {
+                name,
+                wants: "true or false",
+            });
+            default
+        }
+    }
 }
 
 /// What is wrong with a call, in the order the refusal says it.
@@ -823,6 +954,14 @@ fn unrun_said(unrun: &Unrun) -> String {
         ),
         Unrun::Stopped(None) => "the job was cancelled".to_owned(),
         Unrun::Lost => "the job stopped without an answer".to_owned(),
+        Unrun::Paused => "the application's rewrites are paused; resume them in its window \
+                          and call again"
+            .to_owned(),
+        Unrun::Pushed(why) => format!(
+            "the application's queue would not take it: {}",
+            spelled(&why.to_string())
+        ),
+        Unrun::Queue(reason) => format!("the queue's item failed ({reason})"),
     }
 }
 
@@ -949,6 +1088,7 @@ fn read_rewrite(arguments: &Map<String, Value>) -> Result<rewrite::Call, Vec<Pro
     let aggressive = flag("aggressive");
     let nfkc = flag("nfkc");
     let dry_run = flag("dry_run");
+    let record = read_flag(arguments, &mut problems, "record", true);
 
     let templates = match arguments.get("templates") {
         None => Map::new(),
@@ -984,6 +1124,7 @@ fn read_rewrite(arguments: &Map<String, Value>) -> Result<rewrite::Call, Vec<Pro
             },
             templates,
             dry_run,
+            record,
         }),
         _ => Err(problems),
     }
@@ -991,16 +1132,28 @@ fn read_rewrite(arguments: &Map<String, Value>) -> Result<rewrite::Call, Vec<Pro
 
 /// Run a rewrite that was read, and answer — the text and its report, the
 /// price, or why nothing was rewritten.
-fn rewrite_answer(call: rewrite::Call, services: &Services, gone: &dyn Fn() -> bool) -> Answer {
+fn rewrite_answer(
+    call: rewrite::Call,
+    asker: &Asker,
+    services: &Services,
+    gone: &dyn Fn() -> bool,
+) -> Answer {
     let Some(rewriter) = &services.rewriter else {
         return Answer::Result(Tool::Rewrite.unrun(&Unrun::Nobody));
     };
-    match rewriter.run(call, gone) {
+    match rewriter.run(call, asker, gone) {
         // The report goes in verbatim, as `clean`'s does, so the text
         // block is the bytes `JobReport::to_json` wrote.
-        Ok(Done::Rewritten { text, report }) => {
+        Ok(Done::Rewritten {
+            text,
+            report,
+            journal,
+        }) => {
             let text = serde_json::to_string(&text).unwrap_or_default();
-            answered(format!(r#"{{"text":{text},"report":{report}}}"#))
+            with_row(
+                answered(format!(r#"{{"text":{text},"report":{report}}}"#)),
+                journal,
+            )
         }
         Ok(Done::Priced(price)) => answered(price.to_string()),
         Err(unrun) => Answer::Result(Tool::Rewrite.unrun(&unrun)),
@@ -1044,6 +1197,12 @@ fn read_call(tool: Tool, arguments: &Map<String, Value>) -> Result<Call, Vec<Pro
     };
     let aggressive = flag("aggressive");
     let nfkc = tool.arguments().contains(&"nfkc") && flag("nfkc");
+    let record = read_flag(
+        arguments,
+        &mut problems,
+        "record",
+        tool.records_by_default(),
+    );
 
     // Sorted, so the sentence does not depend on whether `serde_json`
     // was built with `preserve_order` in this particular build.
@@ -1062,6 +1221,7 @@ fn read_call(tool: Tool, arguments: &Map<String, Value>) -> Result<Call, Vec<Pro
                 nfkc,
                 ..wipemark_core::Options::default()
             },
+            record,
         }),
         _ => Err(problems),
     }
@@ -1247,21 +1407,111 @@ fn call(params: &Value, services: &Services, gone: &dyn Fn() -> bool) -> Answer 
             };
         }
     };
+    let asker = asker_of(params);
     // Refusals are reported as results so the model reads them, not as
-    // transport errors the client swallows on its way past.
+    // transport errors the client swallows on its way past — and are never
+    // a row: a call that did not run is not a document handed over.
     match tool {
         Tool::Rewrite => match read_rewrite(arguments) {
-            Ok(call) => rewrite_answer(call, services, gone),
+            Ok(call) => rewrite_answer(call, &asker, services, gone),
             Err(problems) => Answer::Result(tool.refuse(&problems)),
         },
         Tool::Inspect | Tool::Clean => match read_call(tool, arguments) {
-            Ok(call) => tool.run(&call),
+            Ok(call) => {
+                let (answer, outcome) = tool.run(&call);
+                let row = match (call.record, outcome) {
+                    (true, Some(outcome)) => {
+                        record(services, &asker, tool, asker.entry(&call.text), outcome)
+                    }
+                    _ => None,
+                };
+                with_row(answer, row)
+            }
             Err(problems) => Answer::Result(tool.refuse(&problems)),
         },
         Tool::InspectImage | Tool::CleanImage => match read_image(tool, arguments) {
-            Ok(call) => image_answer(tool, &call),
+            Ok(call) => {
+                let (answer, outcome) = image_answer(tool, &call);
+                let row = call.record.then(|| {
+                    let entry = Entry {
+                        name: asker.name.clone(),
+                        path: asker.path.clone(),
+                        kind: Some("image".to_owned()),
+                        size: asker.size.or(Some(call.bytes.len() as u64)),
+                        ..Entry::default()
+                    };
+                    record(services, &asker, tool, entry, outcome)
+                });
+                with_row(answer, row.flatten())
+            }
             Err(problems) => Answer::Result(tool.refuse(&problems)),
         },
+    }
+}
+
+/// Who is asking: an agent, unless `_meta` says the command line — which
+/// may also name its file. `_meta` is MCP's own place for what is not an
+/// argument; a value that is not a string or a number is ignored.
+fn asker_of(params: &Value) -> Asker {
+    let meta = &params["_meta"];
+    let text = |key: &str| meta[key].as_str().map(str::to_owned);
+    Asker {
+        origin: match meta["wipemark/origin"].as_str() {
+            Some("cli") => Origin::Cli,
+            _ => Origin::Agent,
+        },
+        name: text("wipemark/name"),
+        path: text("wipemark/path"),
+        size: meta["wipemark/size"].as_u64(),
+    }
+}
+
+/// A finished Layer A or picture call, as a row; its id. Nothing when the
+/// server has no journal.
+fn record(
+    services: &Services,
+    asker: &Asker,
+    tool: Tool,
+    entry: Entry,
+    outcome: Outcome,
+) -> Option<i64> {
+    let work = services.work.as_ref()?;
+    let action = match tool {
+        Tool::Inspect | Tool::InspectImage => Action::Inspect,
+        Tool::Clean => Action::Clean,
+        Tool::CleanImage => Action::CleanImage,
+        Tool::Rewrite => Action::Rewrite,
+    };
+    let result = match (tool, outcome.verdict.as_str()) {
+        (Tool::Clean | Tool::CleanImage, "cleaned" | "partly") => Delivered::Caller,
+        _ => Delivered::Nowhere,
+    };
+    let now = journal::now_ms();
+    let entry = Entry {
+        outcome: Some(outcome),
+        result: Some(result),
+        ..entry
+    };
+    work.journal.record(&NewRow {
+        origin: asker.origin.as_str(),
+        action: action.as_str(),
+        state: Phase::Done.as_str(),
+        item: None,
+        arrived: now,
+        ended: Some(now),
+        entry: &entry.to_json(),
+    })
+}
+
+/// The answer, with the journal row it made named in `result._meta` — MCP's
+/// place for what is about the call rather than its content.
+fn with_row(answer: Answer, row: Option<i64>) -> Answer {
+    match (answer, row) {
+        (Answer::Result(mut result), Some(id)) => {
+            result["_meta"] = json!({ "wipemark/journal": id });
+            Answer::Result(result)
+        }
+        (answer, _) => answer,
     }
 }
 
@@ -1963,6 +2213,7 @@ mod tests {
         (
             Services {
                 rewriter: Some(Rewriter::new(handle, None)),
+                work: None,
             },
             inbox,
         )
@@ -2057,6 +2308,7 @@ mod tests {
         unrun(
             &Services {
                 rewriter: Some(Rewriter::new(nobody, None)),
+                work: None,
             },
             "nothing is on duty",
         );
@@ -2126,6 +2378,7 @@ mod tests {
         );
         let impatient = Services {
             rewriter: Some(Rewriter::new(handle, None).with_ceiling(std::time::Duration::ZERO)),
+            work: None,
         };
         let text = refusal_text(&rewritten(&impatient, &call, &|| false));
         assert!(text.contains("minutes and was cancelled"), "{text}");
@@ -2484,5 +2737,214 @@ mod tests {
                 "{tool:?}: {description:?}"
             );
         }
+    }
+
+    // ## E4-6b — every call a row, every rewrite an item
+
+    /// A batch queue and a journal in memory, `engine` on duty.
+    fn working(engine: FakeEngine) -> (Services, crate::journal::Work) {
+        let store = std::sync::Arc::new(wipemark_store::Store::in_memory().expect("memory"));
+        let (handle, _) = crate::engine_host::EngineHandle::serving(
+            std::sync::Arc::new(engine),
+            crate::engine_host::Pace {
+                executor: Some(wipemark_pipeline::cost::Executor::LocalCpu),
+                tokens_per_second: None,
+            },
+        );
+        let queue = wipemark_queue::Queue::with_source(
+            std::sync::Arc::clone(&store),
+            wipemark_queue::Durability::Memory { detail: None },
+            std::sync::Arc::new(handle.clone()),
+        )
+        .expect("opens");
+        let work = crate::journal::Work {
+            queue: std::sync::Arc::new(queue),
+            journal: crate::journal::Journal::new(store),
+            engine: handle.clone(),
+        };
+        let services = Services {
+            rewriter: Some(Rewriter::new(handle, None).with_work(Some(work.clone()))),
+            work: Some(work.clone()),
+        };
+        (services, work)
+    }
+
+    fn call_with(services: &Services, tool: &str, arguments: &str, meta: &str) -> Value {
+        let body = respond_with(
+            &format!(
+                r#"{{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{{"name":"{tool}","arguments":{arguments}{meta}}}}}"#
+            ),
+            services,
+            &|| false,
+        )
+        .expect("an answer");
+        serde_json::from_str(&body).expect("JSON")
+    }
+
+    /// R4, В6, В7: `clean` is a row unless the call says `record: false`;
+    /// `inspect` only with `record: true`; the answer names its row; the
+    /// command line's `_meta` makes it its row, with its file's name; and a
+    /// row never carries the text.
+    #[test]
+    fn a_call_is_a_row_unless_it_says_not() {
+        let (services, work) = working(FakeEngine::answering(|req, _| swapped(req)));
+        let rows = || work.journal.rows();
+
+        let cleaned = call_with(&services, "clean", r#"{"text":"a se\u200Bcret"}"#, "");
+        let id = cleaned["result"]["_meta"]["wipemark/journal"]
+            .as_i64()
+            .expect("the answer names its row");
+        assert_eq!(rows().len(), 1);
+        assert_eq!(rows()[0].id, id);
+        assert_eq!(rows()[0].origin, "agent");
+        assert_eq!(rows()[0].action, "clean");
+        assert_eq!(rows()[0].state, "done");
+        assert!(!rows()[0].entry.contains("cret"), "the row kept the text");
+        assert!(
+            rows()[0].entry.contains(r#""verdict":"cleaned""#),
+            "{}",
+            rows()[0].entry
+        );
+
+        let unrecorded = call_with(
+            &services,
+            "clean",
+            r#"{"text":"a se\u200Bcret","record":false}"#,
+            "",
+        );
+        assert!(unrecorded["result"]["_meta"].is_null());
+        assert_eq!(rows().len(), 1, "record: false made a row");
+
+        call_with(&services, "inspect", r#"{"text":"plain"}"#, "");
+        assert_eq!(rows().len(), 1, "a look made a row unasked");
+        call_with(
+            &services,
+            "inspect",
+            r#"{"text":"plain","record":true}"#,
+            "",
+        );
+        assert_eq!(rows().len(), 2);
+        assert_eq!(rows()[1].action, "inspect");
+
+        call_with(
+            &services,
+            "clean",
+            r#"{"text":"x"}"#,
+            r#","_meta":{"wipemark/origin":"cli","wipemark/name":"notes.md"}"#,
+        );
+        assert_eq!(rows()[2].origin, "cli");
+        assert!(rows()[2].entry.contains("notes.md"));
+
+        let refused = call_with(&services, "clean", r#"{"text":"x","record":"no"}"#, "");
+        assert_eq!(refused["result"]["isError"], json!(true));
+        assert_eq!(rows().len(), 3, "a refused call made a row");
+    }
+
+    /// R4, R7, В9: an agent's `rewrite` is an item of the batch queue and a
+    /// row; the answer is the item's text and report; and the item is gone
+    /// once the answer is (D313).
+    #[test]
+    fn an_agents_rewrite_is_a_queue_item_and_a_row() {
+        let (services, work) = working(FakeEngine::answering(|req, _| swapped(req)));
+        let events = work.queue.subscribe();
+        let arguments = format!(r#"{{"text":{},"seed":3}}"#, json!(PARAGRAPH));
+        let response = call_with(&services, "rewrite", &arguments, "");
+        let result = &response["result"];
+        assert_eq!(result["isError"], json!(false), "{response}");
+        let text = result["structuredContent"]["text"].as_str().expect("text");
+        assert!(text.starts_with("build The about takes"), "{text}");
+        assert_eq!(
+            result["structuredContent"]["report"]["best_effort"]["base_seed"],
+            json!(3)
+        );
+        let seen: Vec<wipemark_queue::QueueEvent> = events.try_iter().collect();
+        let added = seen
+            .iter()
+            .find_map(|event| match event {
+                wipemark_queue::QueueEvent::Added { item } => Some(*item),
+                _ => None,
+            })
+            .expect("the call was not a queue item");
+        let rows = work.journal.rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].item, Some(added.0));
+        assert_eq!(rows[0].action, "rewrite");
+        assert_eq!(rows[0].state, "done");
+        assert!(
+            rows[0].entry.contains(r#""to":"caller""#),
+            "{}",
+            rows[0].entry
+        );
+        assert!(!rows[0].entry.contains("twelve"), "the row kept the text");
+        assert_eq!(
+            result["_meta"]["wipemark/journal"].as_i64(),
+            Some(rows[0].id)
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while work.queue.items().iter().any(|view| view.id == added) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the item outlived the answer"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    /// R7, В9: a window's row and two agents' calls run one at a time, in
+    /// the order they were pushed — never two at once.
+    #[test]
+    fn two_agent_calls_and_a_window_row_run_one_at_a_time_in_push_order() {
+        let slow = FakeEngine::answering(|req, _| swapped(req))
+            .with_token_delay(std::time::Duration::from_millis(3));
+        let (services, work) = working(slow);
+        let events = work.queue.subscribe();
+        let window = work
+            .queue
+            .push(wipemark_queue::Request {
+                source: wipemark_queue::Source::Text(PARAGRAPH.to_owned()),
+                format: wipemark_pipeline::prepare::TextFormat::Plain,
+                destination: wipemark_queue::Destination::Row,
+                options: wipemark_pipeline::Options::for_executor(
+                    wipemark_pipeline::cost::Executor::LocalCpu,
+                ),
+            })
+            .expect("pushed");
+        let callers: Vec<_> = (0..2)
+            .map(|_| {
+                let services = services.clone();
+                std::thread::spawn(move || {
+                    let arguments = format!(r#"{{"text":{}}}"#, json!(PARAGRAPH));
+                    call_with(&services, "rewrite", &arguments, "")
+                })
+            })
+            .collect();
+        for caller in callers {
+            let response = caller.join().expect("a caller");
+            assert_eq!(response["result"]["isError"], json!(false), "{response}");
+        }
+        let mut running = None;
+        let mut started = Vec::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while started.len() < 3 || running.is_some() {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            match events.recv_timeout(left).expect("an event") {
+                wipemark_queue::QueueEvent::Started { item } => {
+                    assert_eq!(running, None, "two items ran at once");
+                    running = Some(item);
+                    started.push(item);
+                }
+                wipemark_queue::QueueEvent::Ended { item, .. } => {
+                    assert_eq!(running, Some(item));
+                    running = None;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(started[0], window, "the window's row was pushed first");
+        assert!(
+            started.windows(2).all(|pair| pair[0] < pair[1]),
+            "{started:?}"
+        );
+        assert_eq!(work.journal.rows().len(), 2, "two agents, two rows");
     }
 }

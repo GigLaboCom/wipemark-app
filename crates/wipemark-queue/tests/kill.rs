@@ -146,7 +146,7 @@ fn the_queue_survives_kill_9() {
         "the kill landed after the document: {decided:?}"
     );
     assert_eq!(state.as_deref(), Some("running"), "{at_kill:?}");
-    assert!(!scratch.path("notes.cleaned.txt").exists());
+    assert!(!scratch.path("notes.rewritten.txt").exists());
 
     // Open it again, as the next launch would.
     let fresh = engine(None);
@@ -167,7 +167,7 @@ fn the_queue_survives_kill_9() {
     let expected = reference(&document());
     assert_eq!(done.text, expected);
     assert_eq!(
-        std::fs::read_to_string(scratch.path("notes.cleaned.txt")).expect("beside"),
+        std::fs::read_to_string(scratch.path("notes.rewritten.txt")).expect("beside"),
         expected
     );
     assert_eq!(

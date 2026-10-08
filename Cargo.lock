@@ -9818,6 +9818,7 @@ dependencies = [
  "wipemark-picture",
  "wipemark-pipeline",
  "wipemark-pixels",
+ "wipemark-queue",
  "wipemark-secret",
  "wipemark-store",
 ]

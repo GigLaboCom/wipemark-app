@@ -220,7 +220,7 @@ that ships — somebody adds a state, writes a cheerful first line for it,
 and a user reads "Configured, and the document would stay on this
 machine" as a promise that clicking Rewrite will do something:
 
-* `the_engine_banner_always_says_a_rewrite_is_not_here_yet` walks every
+* `the_engine_banner_always_says_where_a_rewrite_goes` walks every
   combination of provider, endpoint, model, permission and key state and
   checks that the second line still names the epic. It checks for the
   string `E2` rather than the whole sentence, because the suite runs

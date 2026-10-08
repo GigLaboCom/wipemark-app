@@ -30,7 +30,7 @@ toolbar-help = Hilfe
 toolbar-help-tooltip = Was dieses Fenster tut
 toolbar-help-drop = Text, ein Bild oder Dateien irgendwo in diesem Fenster ablegen, mit Importieren auswählen – oder aus der Zwischenablage einfügen.
 toolbar-help-preview = Den Zeiger auf einer Vorschau ruhen lassen, um sie größer zu sehen. Das Aktionen-Menü am Ende einer Zeile öffnet eine Datei mit der App, die das System nehmen würde.
-toolbar-help-pending = „Bereinigen“ im Menü „Aktionen“ bereinigt eine Zeile, „Alles bereinigen“ jede wartende; das Ergebnis kommt dorthin, wo die Seite „Aufbewahrung“ es sagt. Umschreiben mit einem Modell gibt es in den Fenstern dieser Version noch nicht: Es läuft über die Kommandozeile (wipemark-cli rewrite) und, für einen Agenten, über MCP.
+toolbar-help-pending = „Bereinigen“ und „Umschreiben“ stehen in jeder Zeile und in ihrem Menü „Aktionen“; „Alles bereinigen“ und „Alle umschreiben“ nehmen jede nicht begonnene Zeile. Eine Bereinigung läuft sofort mit der { -layer-a }; eine Umschreibung wartet in der einen Umschreib-Warteschlange — der dieses Fensters, eines Agenten und der Kommandozeile — auf die Engine im Dienst, und „Alle umschreiben“ nennt zuerst den Preis. Ergebnisse kommen dorthin, wo die Seite „Aufbewahrung“ es sagt.
 toolbar-help-elsewhere = Das Schnellreinigungs-Panel sitzt in der Menüleiste; die Einstellungen liegen hinter dem Zahnrad unten rechts.
 
 queue-column-preview = Vorschau
@@ -48,7 +48,7 @@ queue-count = { $count ->
         [one] { $count } Eintrag
        *[other] { $count } Einträge
     }
-queue-pending = Umschreiben mit einem Modell gibt es in den Fenstern dieser Version noch nicht: Diese Liste bereinigt, und eine Umschreibung läuft über die Kommandozeile (wipemark-cli rewrite) und über MCP.
+queue-pending = Diese Liste bereinigt und schreibt um — eine Umschreibung nach der anderen, mit der Engine im Dienst, wer auch immer fragte: dieses Fenster, ein Agent oder die Kommandozeile, und eine Zeile sagt, wer. Fertige Zeilen bleiben, bis sie entfernt werden oder die Frist der Seite „Aufbewahrung“ abläuft.
 queue-preview-pending = Wird gelesen…
 queue-preview-cut = Die ersten { $count } Zeichen; der Rest wird hier nicht gezeigt.
 queue-actions = Aktionen
@@ -73,12 +73,12 @@ queue-next = Weiter
 ## Statuszeile
 
 status-idle-no-engine = Bereit · keine Engine konfiguriert · nur { -layer-a }
-status-idle-here = Bereit · { $model } · nichts verlässt diesen Rechner · nur { -layer-a }
-status-idle-away = Bereit · { $model } auf { $host } · das Dokument verließe diesen Rechner · nur { -layer-a }
-status-local-loading = { $model } wird geladen · nichts verlässt diesen Rechner · nur { -layer-a }
-status-local-loading-progress = { $model } wird geladen — { $percent } % · nichts verlässt diesen Rechner · nur { -layer-a }
-status-local-loaded = { $model } geladen · { -brand-name } belegt { $ram } · nichts verlässt diesen Rechner · nur { -layer-a }
-status-local-loaded-unmeasured = { $model } geladen · nichts verlässt diesen Rechner · nur { -layer-a }
+status-idle-here = Bereit · { $model } · nichts verlässt diesen Rechner
+status-idle-away = Bereit · { $model } auf { $host } · das Dokument verließe diesen Rechner
+status-local-loading = { $model } wird geladen · nichts verlässt diesen Rechner
+status-local-loading-progress = { $model } wird geladen — { $percent } % · nichts verlässt diesen Rechner
+status-local-loaded = { $model } geladen · { -brand-name } belegt { $ram } · nichts verlässt diesen Rechner
+status-local-loaded-unmeasured = { $model } geladen · nichts verlässt diesen Rechner
 status-local-failed = { $model } konnte nicht geladen werden: { $reason } · nur { -layer-a }
 
 ## Einstellungen
@@ -111,7 +111,7 @@ setup-step-model = Das Modell
 setup-step-endpoint = Die Adresse
 setup-step-done = Fertig
 
-setup-welcome-body = { -brand-name } entfernt KI-Herkunftsspuren aus Ihren eigenen Inhalten in zwei Schichten: { -layer-a }, die die unsichtbaren Zeichen entfernt und deterministisch ist, und { -layer-b }, das ein Sprachmodell um eine Umformulierung bittet. In dieser Version läuft die { -layer-a } aus diesen Fenstern — mit „Bereinigen“ im Hauptfenster und im Panel — sowie über die Kommandozeile und für einen Agenten über MCP; { -layer-b } läuft über die Kommandozeile und über MCP, aber noch nicht aus diesen Fenstern. Diese Schritte klären, was das Umschreiben braucht: wer umschreibt, und was dafür nötig ist.
+setup-welcome-body = { -brand-name } entfernt KI-Herkunftsspuren aus Ihren eigenen Inhalten in zwei Schichten: { -layer-a }, die die unsichtbaren Zeichen entfernt und deterministisch ist, und { -layer-b }, das ein Sprachmodell um eine Umformulierung bittet. Beide laufen aus diesen Fenstern — „Bereinigen“ und „Umschreiben“ im Hauptfenster, „Bereinigen“ im Panel — sowie über die Kommandozeile und für einen Agenten über MCP. Diese Schritte klären, was das Umschreiben braucht: wer umschreibt, und was dafür nötig ist.
 setup-welcome-again = Alles hier lässt sich später in den Einstellungen ändern, und dieser Rundgang lässt sich von deren Seite „Allgemein“ aus wiederholen.
 
 setup-machine-reading = Lese diesen Rechner…
@@ -168,7 +168,7 @@ settings-section-retention = Aufbewahrung
 ## Das Panel — das Fenster, das man ruft.
 
 panel-title = Schnelle Reinigung
-panel-pending = Umschreiben mit einem Modell gibt es in den Fenstern dieser Version noch nicht: Es läuft über die Kommandozeile (wipemark-cli rewrite) und über MCP.
+panel-pending = Dieses Fenster bereinigt; umgeschrieben wird im Hauptfenster — „Umschreiben“ in einer Zeile dort, oder „Alle umschreiben“.
 panel-dismiss = Escape schickt es wieder weg.
 
 panel-help = Was hier möglich ist
@@ -304,7 +304,7 @@ settings-placement-zone-bottom-right = unten rechts
 settings-engine-title = Umschreib-Engine
 settings-engine-description = Umschreiben schickt das Dokument an ein Modell und bewertet, was zurückkommt. Die Bereinigung braucht dafür nie eine Engine und wird auch nie hinter einer verriegelt.
 
-settings-engine-pending = Diese Fenster schreiben noch nichts um. Ein Agent kann es, über das Werkzeug rewrite des MCP-Servers, und wipemark-cli rewrite ebenso, solange diese Anwendung läuft — dann geht das Dokument dorthin, wen diese Seite zuständig macht: hierher oder an den Endpunkt. Die einzige Anfrage dieser Seite selbst ist die Prüfung unten, und sie schickt einen festen Satz.
+settings-engine-pending = „Umschreiben“ im Hauptfenster, die Umschreibung eines Agenten über den MCP-Server und wipemark-cli rewrite, solange diese Anwendung läuft, gehen alle dorthin, wen diese Seite zuständig macht: hierher oder an den Endpunkt, eine nach der anderen. Die einzige Anfrage dieser Seite selbst ist die Prüfung unten, und sie schickt einen festen Satz.
 
 settings-engine-state-off = Keine Engine. { -brand-name } bereinigt nur, was für sich genommen deterministisch und vollständig ist.
 settings-engine-state-ready-local = Konfiguriert, und das Dokument bliebe auf diesem Rechner: { $endpoint }
@@ -527,7 +527,7 @@ settings-retention-keeps-nothing = Was ohne Datei ankommt — Eingefügtes, aus 
 settings-retention-keeps-originals = Das Original von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten, wenn das Bereinigen daran etwas geändert hat; Ergebnisse nicht.
 settings-retention-keeps-results = Das Ergebnis von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten; Originale nicht.
 settings-retention-keeps-both = Original und Ergebnis von Eingefügtem oder Gezogenem bleiben in { $folder } { $period } erhalten, wenn das Bereinigen daran etwas geändert hat.
-settings-retention-pending = Die Fenster bereinigen nach diesen Regeln: Was sie schreiben und was sie aufbewahren, legt diese Seite fest. Die Kommandozeile und Agenten lesen keine davon — der Kommandozeile wird bei jedem Aufruf gesagt, wohin ihr Ergebnis geht, und ein Agent bekommt sein Ergebnis zurück.
+settings-retention-pending = Die Fenster folgen diesen Regeln: eine Bereinigung nimmt sie, wenn sie beginnt, eine Umschreibung, wenn sie eingereiht wird — geschrieben wird, wohin sie damals sagten, auch nach einem Neustart. Die Kommandozeile und Agenten lesen keine davon — der Kommandozeile wird bei jedem Aufruf gesagt, wohin ihr Ergebnis geht, und ein Agent bekommt sein Ergebnis zurück.
 
 settings-retention-destination-title = Wohin Ergebnisse gehen
 settings-retention-destination-description = „Neben die Datei“ schreibt name.cleaned.ext daneben und lässt die Datei, wie sie ist. Der Ergebnisordner ist der unten. „Anstelle der Datei“ ersetzt sie — nachdem das Original als name.original.ext beiseitegelegt wurde, und nie über ein bereits vorhandenes Original.
@@ -559,7 +559,7 @@ settings-retention-span-forever = bis zum Löschen von Hand
 
 settings-mcp-title = MCP-Server
 settings-mcp-description = Ein Agent kann { -layer-a } über das Model Context Protocol auf seine eigene Ausgabe anwenden und mit der zuständigen Engine umschreiben.
-settings-mcp-tools = Fünf Werkzeuge arbeiten: inspect zeigt, was die { -layer-a } an einem Text ändern würde, clean nimmt diese Änderungen vor und meldet jede mit ihrer Position, inspect_image und clean_image tun dasselbe mit einem PNG, JPEG oder WebP — mit seinen Metadaten und mit den sichtbaren Markierungen in seinen Pixeln, die diese Version kennt und die clean_image entfernt, wenn es sie belegen kann; Markierungen, die kein Auge sieht, werden weder gesucht noch entfernt —, und rewrite lässt die zuständige Engine den Text zwischen zwei Durchgängen der { -layer-a } umschreiben — das Dokument geht dorthin, wohin die Seite „Engine“ es schickt. Umschreiben geschieht nach bestem Bemühen, und sein Bericht sagt, was es nicht feststellt.
+settings-mcp-tools = Fünf Werkzeuge arbeiten: inspect zeigt, was die { -layer-a } an einem Text ändern würde, clean nimmt diese Änderungen vor und meldet jede mit ihrer Position, inspect_image und clean_image tun dasselbe mit einem PNG, JPEG oder WebP — mit seinen Metadaten und mit den sichtbaren Markierungen in seinen Pixeln, die diese Version kennt und die clean_image entfernt, wenn es sie belegen kann; Markierungen, die kein Auge sieht, werden weder gesucht noch entfernt —, und rewrite lässt die zuständige Engine den Text zwischen zwei Durchgängen der { -layer-a } umschreiben, in derselben Warteschlange wie die Umschreibungen des Hauptfensters — das Dokument geht dorthin, wohin die Seite „Engine“ es schickt. Umschreiben geschieht nach bestem Bemühen, und sein Bericht sagt, was es nicht feststellt. Jede Bereinigung und Umschreibung ist eine Zeile in der Liste des Hauptfensters, es sei denn, der Aufruf sagt record: false.
 
 settings-mcp-status-off = Läuft nicht.
 settings-mcp-status-starting = Startet…
@@ -925,18 +925,18 @@ cli-prompts-invalid = Die Vorlage { $key } in { $path } bricht die Regel { $rule
 toolbar-clean-all = Alles bereinigen
 toolbar-clean-all-tooltip = Jede wartende Zeile bereinigen, die sich bereinigen lässt – eine nach der anderen, in der Reihenfolge ihres Eintreffens. Ausgegraut, solange es keine gibt.
 queue-column-status = Status
-queue-status-waiting = Wartet
-queue-status-waiting-tooltip = Noch nicht bereinigt. Über das Menü „Aktionen“ bereinigen oder „Alles bereinigen“ drücken.
+queue-status-waiting = Nicht begonnen
+queue-status-waiting-tooltip = Noch wurde nichts damit angefragt, und nichts geschieht, bis Sie es anfragen: „Bereinigen“ oder „Umschreiben“ im Menü „Aktionen“, oder „Alles bereinigen“ und „Alle umschreiben“ in der Werkzeugleiste. „Einstellungen › Allgemein › Eingang verarbeiten“ kann es beim Eintreffen tun.
 queue-status-unable = Nicht bereinigbar
-queue-status-queued = Eingereiht
+queue-status-queued = Zum Bereinigen eingereiht
 queue-status-queued-tooltip = Wartet auf die Bereinigung davor: Es wird immer eines nach dem anderen bereinigt, in der verlangten Reihenfolge.
 queue-status-cleaning = Wird bereinigt…
 queue-status-cleaning-tooltip = Wird gerade bereinigt. Geschrieben wird erst, wenn es fertig ist.
-queue-status-nothing-found = Nichts gefunden
+queue-status-nothing-found = Keine Markierungen gefunden
 queue-status-cleaned = Bereinigt
-queue-status-partly = Teilweise
+queue-status-partly = Teilweise bereinigt
 queue-status-not-cleaned = Nicht bereinigt
-queue-status-failed = Fehlgeschlagen
+queue-status-failed = Bereinigen fehlgeschlagen
 queue-action-clean = Bereinigen
 queue-action-clean-done = Das wurde schon bereinigt.
 queue-action-clean-busy = Das steht schon zur Bereinigung an.
@@ -952,7 +952,7 @@ queue-went-kept = Aufbewahrt in { $folder }
 queue-went-as-text = Der bereinigte Text liegt bereit: „Ergebnis kopieren“ steht im Menü „Aktionen“.
 queue-went-nothing = Nichts wurde geschrieben.
 status-cleaning = Bereinige { $current } von { $total }
-clean-said-nothing-found = Es wurde nichts zum Entfernen gefunden, also wurde nichts geschrieben.
+clean-said-nothing-found = Geprüft: keine unsichtbaren Markierungen und keine KI-Herkunftsangaben gefunden, also gab es nichts zu entfernen, und kein Ergebnis wurde geschrieben. Die Datei selbst wurde gefunden und gelesen.
 clean-said-cleaned-text = { $count ->
         [one] Ein Zeichen wurde entfernt oder ersetzt.
        *[other] { $count } Zeichen wurden entfernt oder ersetzt.
@@ -1037,3 +1037,112 @@ panel-found-not-examined = { $metadata ->
 panel-clean = Bereinigen
 panel-clean-tooltip = Bereinigen, was hier abgelegt wurde, eins nach dem anderen; jedes Ergebnis kommt dorthin, wo die Seite „Aufbewahrung“ es sagt. Ausgegraut, solange eine Bereinigung läuft oder hier nichts mehr zu bereinigen ist.
 panel-cleaning = Wird bereinigt…
+
+## E4-6b
+##
+## Die Fenster schreiben um. „Umschreiben“ in einer Zeile und „Alle
+## umschreiben“ in der Werkzeugleiste stellen ein Dokument in die eine
+## Umschreib-Warteschlange der Anwendung — die der Fenster, eines Agenten
+## und der Befehlszeile — mit der Engine im Dienst; „Alle umschreiben“
+## nennt zuerst den Preis. Die Tabelle ist das Journal: jedes übergebene
+## Dokument ist eine Zeile mit ihrem Zustand, und die Zeilen überstehen
+## einen Neustart. $reason ist eine Kennung oder die Worte einer Engine,
+## nie übersetzt; $model der eigene Name eines Modells; $host ein Server.
+queue-column-process = Bearbeiten
+queue-action-rewrite = Umschreiben
+queue-action-rewrite-busy = Schon in der Umschreib-Warteschlange oder wird umgeschrieben.
+queue-action-rewrite-cleaning = Wird gerade bereinigt; danach umschreiben.
+queue-action-rewrite-not-text = Nur Text wird umgeschrieben; ein Bild wird bereinigt.
+queue-action-clean-rewriting = Wird gerade umgeschrieben; eine Bereinigung jetzt würde mit dem Umschreiben um dieselbe Datei konkurrieren.
+queue-action-not-kept = Kam ohne Datei, und der Text wurde nicht behalten — es lässt sich nicht noch einmal bearbeiten.
+queue-action-cancel = Umschreiben abbrechen
+queue-action-remove = Aus der Liste entfernen
+queue-status-rewrite-queued = Zum Umschreiben eingereiht
+queue-status-rewrite-queued-tooltip = Wartet, bis es an der Reihe ist: ein Dokument nach dem anderen, in der Reihenfolge der Anfragen, wer auch immer fragte.
+queue-status-held = Wartet auf eine Engine
+queue-status-held-tooltip = Gerade kann keine Engine es übernehmen: { $reason }. Es beginnt von selbst, sobald eine kann.
+queue-status-paused-tooltip = Das Umschreiben ist angehalten; „Fortsetzen“ in der Werkzeugleiste setzt es fort.
+queue-status-rewriting = Wird umgeschrieben…
+queue-status-rewriting-chunk = Absatz { $chunk } von { $chunks } wird umgeschrieben.
+queue-status-rewriting-tooltip = Wird von der Engine im Dienst umgeschrieben.
+queue-status-working = In Bearbeitung…
+queue-status-rewritten = Umgeschrieben
+queue-status-partly-rewritten = Teilweise umgeschrieben
+queue-status-rewrite-failed = Umschreiben fehlgeschlagen
+queue-status-cancelled = Umschreiben abgebrochen
+queue-status-findings = Markierungen gefunden
+queue-said-working = In Arbeit.
+queue-said-cancelled = Abgebrochen; nichts wurde geschrieben.
+queue-said-rewrite-failed = Das Umschreiben wurde nicht fertig ({ $reason }); über das Original wurde nichts geschrieben.
+queue-said-recorded-failed = Nicht fertig geworden ({ $reason }).
+queue-said-rewritten = Umgeschrieben von { $model }, { $chunks ->
+        [one] { $chunks } Absatz
+       *[other] { $chunks } Absätze
+    }. Das Ergebnis ist die am stärksten veränderte Fassung, die jede Prüfung bestand — kein Urteil, dass sie sich besser liest.
+queue-said-partly-rewritten = { $kept } von { $chunks ->
+        [one] { $chunks } Absatz
+       *[other] { $chunks } Absätzen
+    } behielten ihr bereinigtes Original: kein Kandidat bestand die Prüfungen.
+queue-said-recorded-refused = Nicht erledigt ({ $reason }); nichts wurde angerührt.
+queue-said-recorded-found = { -layer-a } fand { $findings } und behielt { $kept }.
+queue-said-recorded = So, wie das Journal es festhielt.
+queue-went-caller = An den Anfragenden zurückgegeben und nirgends behalten.
+queue-went-row = In dieser Liste behalten, bis die Zeile entfernt wird: „Ergebnis kopieren“ steht im Menü „Aktionen“.
+queue-origin-panel = Aus dem Panel
+queue-origin-launch = In der Befehlszeile der Anwendung genannt
+queue-origin-cli = Aus der Befehlszeile
+queue-origin-agent = Von einem Agenten
+queue-price = Etwa { $calls } Aufrufe des Modells, bis zu { $tokens } geschriebene Tokens.
+toolbar-rewrite-all = Alle umschreiben
+toolbar-rewrite-all-tooltip = Jeden wartenden Text mit der Engine im Dienst umschreiben, einen nach dem anderen — zuerst wird der Preis genannt, und nichts beginnt ohne Ihre Zustimmung. Ausgegraut, solange es keinen gibt oder niemand im Dienst ist.
+toolbar-pause = Anhalten
+toolbar-pause-tooltip = Die Umschreib-Warteschlange anhalten — die jedes Fensters und jedes Agenten. Das Dokument, das gerade umgeschrieben wird, wartet wieder, mit den schon fertigen Absätzen.
+toolbar-resume = Fortsetzen
+toolbar-resume-tooltip = Die Umschreib-Warteschlange dort fortsetzen, wo sie angehalten wurde.
+toolbar-clear-finished = Fertige entfernen
+toolbar-clear-finished-tooltip = Jede fertige Zeile aus der Liste und aus dem Journal nehmen. Schon geschriebene Ergebnisse bleiben, wo sie sind.
+rewrite-price-title = { $count ->
+        [one] { $count } Dokument
+       *[other] { $count } Dokumente
+    } umschreiben?
+rewrite-price-calls = Etwa { $expected } Aufrufe des Modells, höchstens { $worst }.
+rewrite-price-tokens = Bis zu { $tokens } geschriebene Tokens.
+rewrite-price-time = Etwa { $minutes } Min. bei der Rate, die die letzte Prüfung maß.
+rewrite-price-time-unknown = Wie lange, ist unbekannt: „Prüfen“ auf der Seite „Engine“ misst die Rate dieser Engine.
+rewrite-price-here = Nichts verlässt diesen Rechner.
+rewrite-price-away = Jedes Dokument wird an { $host } gesendet.
+rewrite-price-go = Umschreiben
+rewrite-cancel = Abbrechen
+rewrite-send-title = { $count ->
+        [one] { $count } Dokument
+       *[other] { $count } Dokumente
+    } an { $host } senden?
+rewrite-send-body = „Eingang verarbeiten“ steht auf Umschreiben, und die Engine im Dienst ist nicht auf diesem Rechner: Was gerade ankam, würde zum Umschreiben dorthin gesendet.
+rewrite-send-go = Senden und umschreiben
+status-rewriting = Umschreiben { $current } von { $total } · Absatz { $chunk } von { $chunks }
+status-rewriting-starting = Umschreiben { $current } von { $total }
+status-rewrites-held = Umschreiben wartet auf eine Engine: { $reason }
+status-rewrites-paused = Das Umschreiben ist angehalten · { $count } warten
+compare-rewritten-banner = Die Umschreibung, wie sie geliefert wurde — die am stärksten veränderte Fassung, die jede Prüfung bestand. Bearbeiten speichert hier nichts, und Schließen schreibt nichts.
+compare-rewritten-kept = { $kept } von { $chunks } Absätzen behielten ihr bereinigtes Original: kein Kandidat bestand die Prüfungen.
+compare-reset-rewritten = Zurück zum umgeschriebenen Text
+compare-reset-rewritten-tooltip = Die Umschreibung so zurückholen, wie sie geliefert wurde, und die Änderungen vergessen.
+settings-arrival-title = Eingang verarbeiten
+settings-arrival-description = Was mit etwas geschieht, das im Hauptfenster ankommt. „Nichts“ wartet auf eine Schaltfläche; „Bereinigen“ bereinigt sofort; „Umschreiben“ schreibt mit der Engine im Dienst um — und wenn diese Engine nicht auf diesem Rechner ist, fragt jeder Eingang, bevor etwas gesendet wird.
+settings-arrival-nothing = Nichts — auf eine Schaltfläche warten
+settings-arrival-clean = Bereinigen
+settings-arrival-rewrite = Umschreiben
+settings-journal-keep-title = Fertige Zeilen behalten
+settings-journal-keep-description = Wie lange eine fertige Zeile in der Liste des Hauptfensters bleibt — wer auch immer sie anfragte, Befehlszeile und Agenten eingeschlossen. Eine Zeile behält, was geschah und wohin das Ergebnis ging, nie den Text. Schon geschriebene Ergebnisse werden dadurch nie entfernt.
+settings-journal-days = { $days ->
+        [one] { $days } Tag
+       *[other] { $days } Tage
+    }
+
+## E4-6b — the command line
+cli-arg-record = Für diese Ansicht eine Zeile im Journal der Anwendung hinterlassen, das ihr Hauptfenster zeigt. Eine Ansicht ändert nichts und wird ohne dieses Flag nicht festgehalten.
+cli-arg-no-record = Für diesen Lauf keine Zeile im Journal der Anwendung hinterlassen. Ohne das Flag erscheint der Lauf im Hauptfenster der Anwendung, als von der Befehlszeile gekommen.
+cli-arg-out-rewrite = Ausgabedatei, oder `-` für die Standardausgabe. Standard ist `<name>.rewritten.<ext>` neben der Eingabe — das `<name>.cleaned.<ext>` einer Bereinigung ist ein anderes Ergebnis —, und die Standardausgabe, wenn die Eingabe die Standardeingabe ist; direktes Überschreiben braucht ein ausdrückliches Flag und ist nie der Standard.
+cli-journal-too-old = Im Journal der Anwendung wurde nichts festgehalten: ihre Datenbank unter { $path } stammt von einer älteren Version, und die Anwendung bringt sie beim nächsten Start auf den neuesten Stand.
+cli-journal-newer = Im Journal der Anwendung wurde nichts festgehalten: ihre Datenbank unter { $path } wurde von einer neueren Version von { -brand-name } geschrieben.
+cli-journal-unwritable = Im Journal der Anwendung wurde nichts festgehalten: in ihre Datenbank unter { $path } konnte nicht geschrieben werden ({ $reason }).

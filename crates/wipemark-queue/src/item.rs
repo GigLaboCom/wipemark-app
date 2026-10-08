@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 use wipemark_intake::inplace::Keep;
-use wipemark_intake::name::{with_infix, RESULT_INFIX};
+use wipemark_intake::name::{with_infix, REWRITTEN_INFIX};
 use wipemark_pipeline::prepare::TextFormat;
 use wipemark_pipeline::Options;
 
@@ -39,9 +39,17 @@ pub enum Destination {
     /// removed. The only destination text with no file behind it can have
     /// short of a path somebody chose.
     Row,
-    /// A new file at this path, never the source itself — beside it by
-    /// [`Destination::beside`], or in a folder.
+    /// A file at this path, never the source itself, **replacing** what is
+    /// there — a path somebody chose for this run, or the one result a
+    /// window was asked by name to replace ("Replace the existing result",
+    /// D270).
     File(PathBuf),
+    /// A **new** file at this path — beside the source by
+    /// [`Destination::beside`], or in a folder — and only where nothing is:
+    /// a file already there is somebody's and is refused
+    /// ([`crate::Undelivered::Exists`], D261), the way a window's clean
+    /// refuses one. Never the source itself.
+    New(PathBuf),
     /// Over the source, the original set aside first unless
     /// [`Keep::Nothing`]. A per-run flag, never a preference (Retention
     /// rule 2): a surface passes it only when the person asked for this
@@ -50,13 +58,22 @@ pub enum Destination {
 }
 
 impl Destination {
-    /// `name.cleaned.ext` beside `path` — Retention rule 1, spelled by the
-    /// one `with_infix` every surface uses. `None` for a path with no name.
+    /// `name.rewritten.ext` beside `path`, as a new file — Retention rule
+    /// 1 for a rewrite (В8), spelled by the one `with_infix` every surface
+    /// uses. `None` for a path with no name.
     pub fn beside(path: &Path) -> Option<Destination> {
         let name = path.file_name()?.to_str()?;
-        Some(Destination::File(
-            path.with_file_name(with_infix(name, RESULT_INFIX)),
+        Some(Destination::New(
+            path.with_file_name(with_infix(name, REWRITTEN_INFIX)),
         ))
+    }
+
+    /// The file a result goes to, for a destination that names one.
+    pub fn file(&self) -> Option<&Path> {
+        match self {
+            Destination::File(path) | Destination::New(path) => Some(path),
+            Destination::Row | Destination::InPlace(_) => None,
+        }
     }
 }
 
@@ -147,7 +164,7 @@ pub(crate) fn check(request: &Request) -> Result<(), Refused> {
     }
     match (&request.source, &request.destination) {
         (Source::Text(_), Destination::InPlace(_)) => Err(Refused::NoFileToReplace),
-        (Source::File(source), Destination::File(destination)) => {
+        (Source::File(source), Destination::File(destination) | Destination::New(destination)) => {
             unicode(destination)?;
             if source == destination {
                 Err(Refused::OverTheSource)
@@ -155,7 +172,7 @@ pub(crate) fn check(request: &Request) -> Result<(), Refused> {
                 Ok(())
             }
         }
-        (_, Destination::File(destination)) => unicode(destination),
+        (_, Destination::File(destination) | Destination::New(destination)) => unicode(destination),
         _ => Ok(()),
     }
 }
@@ -202,6 +219,7 @@ pub(crate) fn to_row(request: &Request) -> String {
     let destination = match &request.destination {
         Destination::Row => json!("row"),
         Destination::File(path) => json!({ "file": path_text(path) }),
+        Destination::New(path) => json!({ "new": path_text(path) }),
         Destination::InPlace(keep) => json!({ "in_place": keep_id(*keep) }),
     };
     let options: Value = serde_json::from_str(&request.options.to_json()).unwrap_or(Value::Null);
@@ -244,15 +262,24 @@ pub(crate) fn from_row(text: &str) -> Result<Request, Unusable> {
         .ok_or(field("format"))?;
     let destination = match value.get("destination").ok_or(field("destination"))? {
         Value::String(row) if row == "row" => Destination::Row,
-        Value::Object(object) => match (object.get("file"), object.get("in_place")) {
-            (Some(Value::String(path)), None) => Destination::File(PathBuf::from(path)),
-            (None, Some(Value::String(keep))) => Destination::InPlace(match keep.as_str() {
-                "original" => Keep::Original,
-                "nothing" => Keep::Nothing,
+        Value::Object(object) if object.len() == 1 => {
+            match (
+                object.get("file"),
+                object.get("new"),
+                object.get("in_place"),
+            ) {
+                (Some(Value::String(path)), None, None) => Destination::File(PathBuf::from(path)),
+                (None, Some(Value::String(path)), None) => Destination::New(PathBuf::from(path)),
+                (None, None, Some(Value::String(keep))) => {
+                    Destination::InPlace(match keep.as_str() {
+                        "original" => Keep::Original,
+                        "nothing" => Keep::Nothing,
+                        _ => return Err(field("destination")),
+                    })
+                }
                 _ => return Err(field("destination")),
-            }),
-            _ => return Err(field("destination")),
-        },
+            }
+        }
         _ => return Err(field("destination")),
     };
     let options = value.get("options").ok_or(field("options"))?;
@@ -297,6 +324,10 @@ mod tests {
                 Source::File(PathBuf::from("/notes/a.md")),
                 Destination::beside(Path::new("/notes/a.md")).expect("a name"),
             ),
+            (
+                Source::File(PathBuf::from("/notes/a.md")),
+                Destination::File(PathBuf::from("/out/a.md")),
+            ),
         ] {
             let request = request(source, destination);
             assert_eq!(from_row(&to_row(&request)), Ok(request));
@@ -306,11 +337,20 @@ mod tests {
         }
     }
 
+    /// A rewrite beside its file is `name.rewritten.ext` (В8) — never the
+    /// clean's `name.cleaned.ext`, never the file — and a new file, which a
+    /// file already there refuses.
     #[test]
-    fn beside_is_the_cleaned_infix_and_never_the_file() {
+    fn beside_is_the_rewritten_infix_and_never_the_file() {
         assert_eq!(
-            Destination::beside(Path::new("/n/x.cleaned.md")),
-            Some(Destination::File(PathBuf::from("/n/x.cleaned.cleaned.md")))
+            Destination::beside(Path::new("/n/x.rewritten.md")),
+            Some(Destination::New(PathBuf::from(
+                "/n/x.rewritten.rewritten.md"
+            )))
+        );
+        assert_eq!(
+            Destination::beside(Path::new("/n/x.md")),
+            Some(Destination::New(PathBuf::from("/n/x.rewritten.md")))
         );
         assert_eq!(Destination::beside(Path::new("/")), None);
     }

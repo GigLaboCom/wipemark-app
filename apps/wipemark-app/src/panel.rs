@@ -357,6 +357,10 @@ struct PanelView {
     /// the drop and the thing in it each is a clean of. Still waiting or
     /// running in the line is what "Cleaning…" reads.
     asked: HashMap<u64, (Arc<[Arrival]>, usize)>,
+    /// The journal's writer: every clean asked here is a row in the main
+    /// window's list, from the panel (E4-6b, R4). `None` where no journal
+    /// was built — a test.
+    writer: Option<crate::journal::Writer>,
     /// Dropped with the view: the line says what each clean did.
     _cleaned: Subscription,
     /// Dropped with the view: a change on the Retention page plans the held
@@ -521,6 +525,7 @@ impl PanelView {
             held: None,
             cleaner,
             asked: HashMap::new(),
+            writer: crate::journal::working(cx).map(|work| work.journal.writer()),
             _cleaned: cleaned,
             _replanned: replanned,
         }
@@ -650,11 +655,28 @@ impl PanelView {
         for index in to_clean(&states) {
             let number = clean::number();
             let thing = arrivals[index].clone();
+            let row = self.writer.as_ref().map(|writer| {
+                (
+                    writer.clone(),
+                    crate::journal::Written {
+                        origin: wipemark_store::entry::Origin::Panel,
+                        action: crate::journal::clean_action(&thing.intake),
+                        phase: wipemark_store::entry::Phase::Queued,
+                        item: None,
+                        arrived: crate::journal::now_ms(),
+                        ended: None,
+                        entry: crate::journal::entry_of(&thing),
+                    },
+                )
+            });
             if self
                 .cleaner
                 .update(cx, |cleaner, cx| cleaner.ask(number, thing, None, cx))
             {
                 self.asked.insert(number, (arrivals.clone(), index));
+                if let Some((writer, row)) = row {
+                    writer.record(number, row);
+                }
             }
         }
         cx.notify();
@@ -676,6 +698,24 @@ impl PanelView {
                 let Some((arrivals, index)) = self.asked.remove(number) else {
                     return;
                 };
+                if let (Some(writer), Some(thing)) = (&self.writer, arrivals.get(index)) {
+                    let (phase, recorded, delivered) = crate::journal::clean_end(outcome);
+                    let mut entry = crate::journal::entry_of(thing);
+                    entry.outcome = Some(recorded);
+                    entry.result = Some(delivered);
+                    writer.change(
+                        *number,
+                        crate::journal::Written {
+                            origin: wipemark_store::entry::Origin::Panel,
+                            action: crate::journal::clean_action(&thing.intake),
+                            phase,
+                            item: None,
+                            arrived: 0,
+                            ended: Some(crate::journal::now_ms()),
+                            entry,
+                        },
+                    );
+                }
                 if let Some(held) = self.held_for(&arrivals) {
                     held.done[index] = Some(outcome.clone());
                 }
@@ -1216,14 +1256,15 @@ mod tests {
         assert!(!clean_offered(false, &[]));
     }
 
-    /// The invitation says only that rewriting is not here — in every
-    /// language, with no epic number and nothing saying the panel does not
-    /// clean.
+    /// The invitation says the panel cleans and rewriting is in the main
+    /// window (В10) — in every language, with no epic number and nothing
+    /// saying rewriting is not here.
     #[test]
-    fn the_panel_says_only_rewriting_is_not_here() {
+    fn the_panel_says_rewriting_is_in_the_main_window() {
         let line = t(Message::PanelPending);
-        assert!(line.contains("Rewriting"), "{line}");
-        assert!(line.contains("not in this version"), "{line}");
+        assert!(line.contains("main window"), "{line}");
+        assert!(line.contains("Rewrite"), "{line}");
+        assert!(!line.contains("not in this version"), "{line}");
         for language in available_languages() {
             let localizer =
                 Localizer::for_languages(std::slice::from_ref(&language.id), Rendering::PlainText);
@@ -1232,6 +1273,9 @@ mod tests {
                 "Cleaning from this window is not",
                 "Очистки из этого окна",
                 "Bereinigen aus diesem Fenster",
+                "not in this version",
+                "пока нет",
+                "noch nicht",
             ] {
                 assert!(
                     !line.contains(old),

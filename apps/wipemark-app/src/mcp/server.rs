@@ -511,8 +511,14 @@ pub struct Tools {
 impl Tools {
     /// What every connection is answered with.
     fn services(&self) -> Services {
+        // The application's batch queue and journal, installed at startup
+        // before any server could be asked for anything (E4-6b).
+        let work = crate::journal::installed();
         Services {
-            rewriter: Some(Rewriter::new(self.engine.clone(), self.store.clone())),
+            rewriter: Some(
+                Rewriter::new(self.engine.clone(), self.store.clone()).with_work(work.clone()),
+            ),
+            work,
         }
     }
 }
