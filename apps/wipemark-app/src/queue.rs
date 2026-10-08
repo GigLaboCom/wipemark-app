@@ -2668,9 +2668,6 @@ mod tests {
         );
     }
 
-    /// Every kind has a glyph for the row with no picture and a badge
-    /// for the Kind column; a match with a wildcard would let a new
-    /// kind through with neither.
     /// D355: Remove is greyed while an agent or the command line waits for
     /// the row's rewrite — Cancel ends it and tells the caller — and while
     /// a clean holds the row; a window's own rewrite, and anything that
@@ -2735,6 +2732,9 @@ mod tests {
         assert!(said.contains("on its row"), "{said}");
     }
 
+    /// Every kind has a glyph for the row with no picture and a badge
+    /// for the Kind column; a match with a wildcard would let a new
+    /// kind through with neither.
     #[test]
     fn every_kind_has_a_glyph_and_a_badge() {
         for kind in [

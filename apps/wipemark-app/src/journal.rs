@@ -379,15 +379,16 @@ pub struct Work {
     /// The engine on duty — what a window prices a rewrite by (D61).
     pub engine: crate::engine_host::EngineHandle,
     /// Where the duty sends a document now, as the main window last worked
-    /// it out from the preferences — what the batch queue checks an item's
-    /// consent against before it starts (D361).
+    /// it out from the preferences — what a push records as its consent
+    /// (D361). Never what the consent is checked against: the queue asks
+    /// the engine it is handed where that engine sends a document (D370).
     pub whereto: Going,
 }
 
 /// Where a rewrite on duty would send a document now: this machine, an
 /// endpoint's origin, or `None` — nothing on duty, or not worked out yet
-/// (D361). Set on the GPUI thread whenever the preferences change, read on
-/// the batch queue's.
+/// (D361). Set on the GPUI thread whenever the preferences change, and
+/// read there: it words the window and tells it when to wake the queue.
 #[derive(Clone, Default)]
 pub struct Going(Arc<Mutex<Option<Whereto>>>);
 
@@ -401,26 +402,6 @@ impl Going {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
-    }
-}
-
-/// The batch queue's engine source in the application: the engine handle,
-/// and where the duty would send a document — so an item consented to stay
-/// here is asked about before it goes to an endpoint (D361).
-pub struct Duty {
-    pub engine: crate::engine_host::EngineHandle,
-    pub going: Going,
-}
-
-impl wipemark_queue::EngineSource for Duty {
-    fn for_item(
-        &self,
-    ) -> Result<Arc<dyn wipemark_engine::RewriteEngine>, wipemark_engine::Unavailable> {
-        wipemark_queue::EngineSource::for_item(&self.engine)
-    }
-
-    fn whereto(&self) -> Option<Whereto> {
-        self.going.get()
     }
 }
 

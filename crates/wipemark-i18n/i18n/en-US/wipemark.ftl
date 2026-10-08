@@ -912,6 +912,7 @@ settings-models-found-at = Found at { $path }. { -brand-name } did not download 
 # Another tool's file at this model's own place, with its name but not
 # its contents (D302, amended). Nothing to press. $path is below the folder.
 settings-models-foreign = A file at { $path } has this model's name but not its contents. { -brand-name } did not download it, so it neither uses nor removes it; move it away to download this model here.
+settings-models-foreign-part = A partial file at { $path } is one { -brand-name } has no record of — another tool's download in progress, or one whose record no longer matches it — so it neither resumes nor removes it; move it away to download this model here.
 # The card of the model on duty while it is read into memory (F1).
 settings-models-loading = Loading into memory — { $percent } % read…
 # $reason is the store's own words, never localized.
@@ -1467,6 +1468,7 @@ cli-models-found-at = found at { $path }
 # Another tool's file at the entry's own place, with its name but not its
 # contents (D302, amended): left alone. $path is below the folder.
 cli-models-foreign-at = another tool's file of its name is at { $path }, left as it is
+cli-models-foreign-part-at = a partial file { -brand-name } has no record of is at { $path }, left as it is
 cli-models-state-present = on this machine, matches the catalogue
 cli-models-state-absent = not downloaded
 cli-models-state-partial = partly downloaded ({ $percent } %), pull resumes it
@@ -1487,6 +1489,7 @@ cli-models-pull-mismatch = { $id }: { $file } does not match the catalogue (expe
 cli-models-pull-no-room = { $id } needs { $need } MB on the volume holding { $path }, and { $free } MB is free. Nothing was downloaded.
 cli-models-pull-failed = { $id } could not be downloaded: { $reason }. What was downloaded so far is kept; run pull again to resume.
 cli-models-pull-occupied = { $id } was not downloaded: { $path } is not a file { -brand-name } downloaded, so it is left as it is and nothing was fetched. Move it away, then run pull again.
+cli-models-pull-occupied-part = { $id } was not downloaded: { $path } is a partial file { -brand-name } has no record of, so it is left as it is and nothing was fetched. Move it away, then run pull again.
 cli-models-verify-ok = { $id } matches the catalogue: every file was hashed in full.
 cli-models-verify-absent = { $id } is not on this machine ({ $file } is missing), so it does not match the catalogue.
 cli-models-verify-mismatch = { $id }: { $file } does not match the catalogue (expected sha256 { $expected }, got { $actual }). pull downloads it again.
@@ -1495,6 +1498,7 @@ cli-models-rm-removed = { $id } was removed from { $path }.
 cli-models-rm-absent = { $id } was not on this machine; nothing was removed.
 # $path is the file found where no download put it (D302).
 cli-models-rm-found = { $id } is at { $path }, where { -brand-name } did not download it; nothing was removed.
+cli-models-rm-found-part = { $id } has a partial file at { $path } that { -brand-name } has no record of; nothing was removed.
 cli-models-rm-chosen = It was the model chosen for rewriting: the application will show no model chosen until another is picked. This command does not change that setting.
 cli-models-rm-failed = { $id } could not be removed from { $path }: { $reason }.
 

@@ -490,16 +490,21 @@ keeps them as it changes them — so a window may ask on every frame (D359).
   its id without pushing it; `push_reserved` pushes it under that id. A
   surface that writes its own row naming the item does so between the two,
   so nothing the item says can end before the row names it. `push` is the
-  two at once.
+  two at once. A `cancel` or `remove` of a reserved id that arrives before
+  its push is kept for it: the push then ends the item as cancelled, or
+  drops it and says `Removed` (D371).
 - **Consent** (D361). `push_reserved` takes where the pusher agreed the
   document may go (`Whereto::Here` or `Whereto::Away(origin)`; `None` for a
   caller's item), stored beside the request as the item row's `consent`
-  key. Before an item with one starts, the queue asks its `EngineSource`
-  where an engine handed out now would send it (`EngineSource::whereto`,
-  `None` by default — never asks); an endpoint other than the consented one
+  key. When an item with one starts, `EngineSource::for_item` hands out
+  the engine **with** where that engine sends a document (`Handed`, D370;
+  `None` for a source that cannot say, such as `Fixed` — never asks); an
+  endpoint other than the consented one lets the engine go at once and
   holds the queue with `QueueEvent::Ask`, once per question, until
-  `agree(now)`. A duty change (`engine_changed`), Resume, or the item's
-  cancel or removal drops the question, and the next item is asked afresh.
+  `agree(now)`. A yes covers the items the question was for — those
+  waiting then, consented elsewhere — and no item pushed later (D372). A
+  duty change (`engine_changed`), Resume, or the item's cancel or removal
+  drops the question, and the next item is asked afresh.
 - **Removed is an end for whoever waits** (D355). `QueueEvent::Removed`
   is the last word of an item taken away before it ended; the MCP call
   that waits for one answers on it.

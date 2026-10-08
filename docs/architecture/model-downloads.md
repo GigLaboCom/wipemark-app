@@ -237,8 +237,12 @@ said DELETED). Now **a download leaves a mark a look never writes**: when
 **A download made by a build from before the mark has none**, so it now
 reads as "Found at …" and cannot be removed from the page; that is the
 safe side. To have it removable again, delete it by hand and download it
-anew. A mark that cannot be written is a warning: the file then reads as
-another tool's, the same safe side.
+anew. The mark a finished file gets as it is renamed into place is a
+warning when it cannot be written: the file then reads as another tool's,
+the same safe side. The `.part`'s mark cannot fail that way (D375): it is
+written before anything is asked of the server, and a records folder that
+will not take it refuses the download there, the empty `.part` going with
+it.
 
 **A mark names the file, not the place (D350, after the host
 verification of 2026-10-08, A1).** The first mark held a time and a path
@@ -264,9 +268,11 @@ that identity; anything else — written over in place (the mtime moves),
 renamed over (a new inode), a symbolic link put there (never a regular
 file), or a mark in the old shape with no identity — reads as another
 tool's file (Found when it matches, Foreign when it does not; never
-removed, never downloaded over), and the mark is dropped, as it is when
-its file is found absent. A mark that names another file can never be
-right again. The cost is on the safe side: a download of ours whose mtime
+removed, never downloaded over). A mark whose file is found absent is
+dropped; one that names another file than the one there now is **kept**
+and the file is only not ours now (D375) — the file put there can never
+match it, and a remount that gives back what moved gives the file back.
+The cost is on the safe side: a download of ours whose mtime
 something else touched is "Found at …" from then on, not Installed with
 Remove (`a_mark_names_the_file_and_not_the_place`,
 `a_mark_whose_file_is_gone_is_dropped`,
@@ -291,6 +297,44 @@ fetch refuses with `StoreError::Occupied` before any request
 `a_download_marks_its_own_part`). A `.part` left by a build before D351
 has no mark and reads the same way: move it away, and the download
 starts over.
+
+**A file system that renumbers is not another tool (D375, the host
+verification's L-c).** The device number is not stable on a btrfs
+subvolume, NFS or FUSE across a remount, and vfat and exFAT make inode
+numbers up at mount time. Keyed on them alone, our own finished download
+read as another tool's after a remount — and the mark was deleted on that
+passing mismatch, so for good — and an interrupted `.part` became another
+tool's: Occupied for ever, the card saying Wipemark "did not download it".
+Now, on Unix, an identity that differs **only** in the device and inode
+numbers is looked at further rather than refused:
+
+- a **finished file** is still ours when its size and mtime (to the
+  nanosecond) are the ones marked and its sha256, **read in full** — never
+  off the record, which is keyed by the very size and mtime another file
+  put there would share — is the catalogue's. It is the catalogue's file
+  either way; the one thing the rule can get wrong is a byte-identical copy
+  another tool put at the place with the mtime preserved to the
+  nanosecond, and the worst that does is a Remove of a file the catalogue
+  can fetch again. Confirmed, it is marked again under its numbers now, so
+  the next look is a comparison, not a read of every byte;
+- a **`.part`** is still ours when its size and mtime are where its last
+  download stopped — every download that stops writing it (finished,
+  cancelled, refused) tells the mark so, on a `last <size>:<mtime_ns>`
+  line, while the file at the place is still the one it holds open — and
+  its birth time does not disagree (a `-` either side does not). A
+  download a crash stopped has no such line; after a remount it reads as
+  the next item says.
+
+A mismatch never drops the mark. A `.part` that is not known for ours is
+said as **a partial file Wipemark has no record of** — on the card
+(`settings-models-foreign-part`), in `models list`, `models pull` and
+`models rm` — never as a file of the model's name Wipemark "did not
+download". The tests read the identities through a seam that adds a
+remount to every device and inode number
+(`a_renumbered_download_is_still_ours_and_a_mismatch_keeps_the_mark`,
+`a_renumbered_part_is_resumed_where_it_stopped`,
+`a_stopped_download_stamps_its_part`,
+`a_download_that_cannot_mark_its_part_is_refused_up_front`).
 
 Loading a GGUF that is in no catalogue — the user's own model,
 unverified — is an owner question, not this rule.

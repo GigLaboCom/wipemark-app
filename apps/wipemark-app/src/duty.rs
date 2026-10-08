@@ -368,6 +368,20 @@ impl Performer {
             Performer::Endpoint(remote) => remote.on_this_machine,
         }
     }
+
+    /// Where this performer sends a document, as an item's consent names it
+    /// (D361): this machine — local weights, or an endpoint on loopback —
+    /// or away, to the endpoint's origin. One rule for the window that
+    /// records a consent and the engine host that says where the engine it
+    /// hands out sends one (D370).
+    pub fn whereto(&self) -> wipemark_queue::Whereto {
+        match self {
+            Performer::Endpoint(remote) if !self.stays_on_this_machine() => {
+                wipemark_queue::Whereto::Away(remote.origin.clone())
+            }
+            Performer::Machine(_) | Performer::Endpoint(_) => wipemark_queue::Whereto::Here,
+        }
+    }
 }
 
 /// Why nobody is on duty.

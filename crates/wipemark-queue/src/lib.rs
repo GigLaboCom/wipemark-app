@@ -77,7 +77,7 @@ pub use deliver::{Undelivered, Written};
 pub use item::{Destination, ItemId, Refused, Request, Source, State, Unusable, ITEM_VERSION};
 pub use read::Unread;
 use serde_json::Value;
-pub use source::{EngineSource, Fixed, Whereto};
+pub use source::{EngineSource, Fixed, Handed, Whereto};
 use wipemark_engine::{RewriteEngine, Unavailable};
 pub use wipemark_intake::inplace::Keep;
 use wipemark_pipeline::{Event, JobReport, PipelineError};
@@ -488,9 +488,18 @@ impl Queue {
     /// Check `request` and take the id it will be pushed under, pushing
     /// nothing yet — so a surface can write its own row naming the item
     /// **before** the item can start, and never after its end (D358).
+    ///
+    /// The id is the queue's from here on: a [`Queue::cancel`] or a
+    /// [`Queue::remove`] of it that arrives before its push is kept, and the
+    /// push then ends the item as cancelled, or drops it, rather than run it
+    /// (D371).
     pub fn reserve(&self, request: &Request) -> Result<ItemId, Refused> {
         item::check(request)?;
-        Ok(ItemId(self.next.fetch_add(1, Ordering::SeqCst)))
+        let id = ItemId(self.next.fetch_add(1, Ordering::SeqCst));
+        self.commands
+            .send(worker::Command::Reserve(id))
+            .map_err(|_| Refused::Stopped)?;
+        Ok(id)
     }
 
     /// Push `request` under an id [`Queue::reserve`] gave, with where whoever

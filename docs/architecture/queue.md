@@ -257,6 +257,17 @@ still refuses a file that appears while the job runs (D284); that rewrite's
 text is not kept for a later Replace — the check at push makes the race a
 moment wide, and Replace runs the job again.
 
+**A saved template the rules refuse refuses the push** (D374, L-h). The
+templates the job will use are checked as the row is built: with the
+document planned, the plan's own fallbacks — exactly the overrides the job
+would have dropped as it rendered; with no plan (a file that cannot be read
+now), every saved template of a tactic on the job's ladder, in any
+language, by `row::admit`. One that breaks a rule — a template saved
+before D369 holding an invisible character — makes the row *Rewrite
+failed* with the template's row key and the rule as its reason (`template
+prompts.en.paraphrase.1.user: invisible-character`), nothing pushed, as
+the command line and an agent's call refuse a template they are handed.
+
 **Consent at push, asked again at start** (D361). Every window push records
 where the person agreed the document may go — this machine, or an
 endpoint's origin — as the duty stood when they asked: a row's Rewrite,
@@ -269,12 +280,36 @@ documents to …?"): yes (`Queue::agree`) lets every waiting item go there;
 no leaves the queue holding — Resume, or another engine on duty, asks
 again. A duty that came back here asks nothing. An agent's or the command
 line's item carries no consent of the window's — its caller asked for it —
-and is never asked about. Where the duty would send a document is the main
-window's word, worked out from the preferences whenever they change
-(`journal::Going`), and the queue's engine source in the application
-(`journal::Duty`) says it. That is the deliberate
+and is never asked about. That is the deliberate
 asymmetry with a clean, whose plan is taken when it starts (D283): the
 queue executes what was stored, after a restart too.
+
+**A consent is checked against the engine the item is handed** (D370, the
+host verification's M-1). The queue's engine source in the application is
+the engine handle itself: `EngineSource::for_item` hands out the engine
+**and where that engine sends a document** (`Handed`), read together from
+the handle's slot, which the engine host fills with the engine and the
+performer's destination (`Performer::whereto`, the one rule the window's
+consent uses too). The check runs after the engine is taken and before
+anything is read. The window's record of where the duty is meant to be
+(`journal::Going`, worked out from the preferences whenever they change)
+only words the window and wakes the queue; it is never what an item is
+checked against — because the two move at different times: `Going` the
+moment a preference changes, the slot only when the host's swap runs, and
+the host defers a swap while anything is busy. Checked against `Going`, an
+item consented to stay here started on the endpoint's engine a deferred
+swap had left in the slot, and every item after it did too, the host
+seeing the queue's own item as busy. On a question the engine is let go of
+at once, so the host sees nothing busy and the deferred swap can land; the
+swap then wakes the queue, the question is withdrawn, and the item is
+asked about afresh — on this machine, nothing to ask.
+
+**A yes covers the items it was asked for** (D372, L-b): the waiting items
+consented to somewhere else when the person said yes — the ones the
+question counted. An item pushed afterwards, consented by its own push,
+is asked about on its own: a yes to endpoint Y given for B, the duty moved
+here, C pushed to stay here and the duty moved back to Y, asks about C
+rather than send it on B's answer.
 
 The Status column says *Queued for rewrite*, *Waiting for an engine*,
 *Rewriting…* (paragraph k of n in the tooltip), *Rewritten*, *Partly
@@ -292,7 +327,12 @@ states, no stored report cloned.
 while its rewrite is queued or running, its reason under it (D355): Cancel
 ends the item and the caller is told. Should an item go anyway — removed
 by any road — the waiting call ends at once, as a refusal that says the
-document was removed, never a call left open until its ceiling.
+document was removed, never a call left open until its ceiling. An
+agent's or the command line's call whose item waits behind a consent
+question (D361) is refused as soon as the question is put — or at once,
+when one stands as it is made — with a sentence saying the application's
+rewrites wait for an answer in its window (D373, L-d): its ceiling counts
+from its start, which a question nobody answers never gives it.
 
 The Price, Send-away and consent questions are asked **one at a time, in
 the order they came** (D364): one that arrives while another is open waits
@@ -344,7 +384,13 @@ own number stays the element id (two id spaces). A row says who asked
   with that id on the writer's thread, and only then is the item pushed
   (`Queue::push_reserved`); an agent's call records its row between the
   same two steps. Pushed first, an item that ended before the "queued"
-  landed lost its end and stayed queued for ever.
+  landed lost its end and stayed queued for ever. The reserved id is the
+  queue's from `reserve` on (D371, L-a): the row has its id as soon as it
+  is reserved, while the push runs later on the writer's thread, so a
+  Cancel or a Remove pressed in between reaches the queue first — the
+  queue keeps it for that id, and the push then ends the item as
+  cancelled, or drops it. Lost, a removed row's document was rewritten and
+  `name.rewritten.ext` written for a row that was gone.
 * **A row is read back without waiting on its file** (D356). The journal's
   rows are read by themselves; each new row's file is then looked at in a
   task of its own, so a file that will not answer holds nothing else up
