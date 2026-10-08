@@ -125,7 +125,9 @@ pub fn label(held: &[Held]) -> (Message, usize) {
 }
 
 /// GPUI's clipboard entries as the pasteboard policy reads them: files
-/// beat an image, an image beats a string.
+/// beat an image, an image beats a string. An empty string, or one of
+/// ASCII white space alone, is nothing and is not handed over at all
+/// (D301), so the button over it is the greyed "Paste".
 ///
 /// The road off macOS, kept compiled everywhere so its tests run where
 /// the tests run.
@@ -143,15 +145,23 @@ pub fn handed_of(item: &ClipboardItem) -> Vec<Handed> {
                 paths.extend(external.paths().iter().cloned().map(Handed::Path));
             }
             ClipboardEntry::Image(picture) => {
-                image.get_or_insert_with(|| Handed::Bytes {
+                let handed = Handed::Bytes {
                     // The name the macOS side invents for the same
                     // thing, so the intake crate hears one story.
                     name: Some(format!("image.{}", extension_of(picture.format))),
                     bytes: picture.bytes.clone(),
-                });
+                };
+                if !handed.is_nothing() {
+                    image.get_or_insert(handed);
+                }
             }
             ClipboardEntry::String(string) => {
-                text.get_or_insert_with(|| Handed::Text(string.text().clone()));
+                let handed = Handed::Text(string.text().clone());
+                // An empty string is no item (D301): it neither lands nor
+                // stands in for a caption an image would have beaten.
+                if !handed.is_nothing() {
+                    text.get_or_insert(handed);
+                }
             }
         }
     }
@@ -337,5 +347,34 @@ mod tests {
             vec![Handed::Text("hello, paste".to_owned())]
         );
         assert!(handed_of(&item(Vec::new())).is_empty());
+    }
+
+    /// D301: a string with nothing in it is no item — the paste hands
+    /// over nothing and the label is the bare, greyed verb — on its own
+    /// and beside an image whose caption it would have been.
+    #[test]
+    fn an_empty_string_on_the_clipboard_is_nothing() {
+        for empty in ["", "\n", "  \r\n"] {
+            let nothing = item(vec![ClipboardEntry::String(ClipboardString::new(
+                empty.to_owned(),
+            ))]);
+            assert!(handed_of(&nothing).is_empty(), "{empty:?}");
+            assert!(held_of(&nothing).is_empty(), "{empty:?}");
+            assert_eq!(label(&held_of(&nothing)), (Message::ToolbarPaste, 0));
+        }
+        let png = b"\x89PNG\r\n\x1a\n".to_vec();
+        let shot = item(vec![
+            ClipboardEntry::String(ClipboardString::new(String::new())),
+            ClipboardEntry::Image(Image::from_bytes(ImageFormat::Png, png)),
+        ]);
+        assert_eq!(held_of(&shot), vec![Held::Image]);
+        let spaced = item(vec![ClipboardEntry::String(ClipboardString::new(
+            "\u{202F}".to_owned(),
+        ))]);
+        assert_eq!(
+            handed_of(&spaced),
+            vec![Handed::Text("\u{202F}".to_owned())],
+            "a space Layer A looks for is something"
+        );
     }
 }

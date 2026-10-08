@@ -131,6 +131,8 @@ status-idle-away = Idle · { $model } at { $host } · the document would leave t
 # be read. Every one still ends in "cleaning only": a loaded model is a
 # fact about memory, not a claim that rewriting works.
 status-local-loading = Loading { $model } · nothing leaves this machine · { -layer-a } only
+# While the model is read into memory (F1): how far, as a whole percent.
+status-local-loading-progress = Loading { $model } — { $percent } % · nothing leaves this machine · { -layer-a } only
 status-local-loaded = { $model } loaded · { -brand-name } holds { $ram } · nothing leaves this machine · { -layer-a } only
 status-local-loaded-unmeasured = { $model } loaded · nothing leaves this machine · { -layer-a } only
 # $reason is one of the engine-refusal-* sentences.
@@ -595,6 +597,9 @@ settings-engine-local-not-here = Nothing on duty runs on this machine, so there 
 settings-engine-local-not-loaded = { $model } is not loaded.
 settings-engine-local-resident-again = “{ settings-engine-keep-resident }” is still chosen, so it loads again the next time { -brand-name } starts.
 settings-engine-local-loading = Loading { $model }…
+# The Engine page while the model is read into memory, beside a bar (F1).
+# $percent is a whole number.
+settings-engine-local-loading-progress = Loading { $model } — { $percent } % read…
 # $ram is the memory the whole process holds, measured after the load;
 # $since is the time it was loaded, e.g. "14:05".
 settings-engine-local-loaded = { $model } is loaded. { -brand-name } holds { $ram } of memory, measured. Loaded at { $since }.
@@ -875,6 +880,9 @@ settings-models-installed = On this machine
 # $done and $total are human-readable byte counts.
 settings-models-progress = { $done } of { $total }
 settings-models-verifying = Checking what is already here…
+# A file of the model being hashed against the catalogue's checksum,
+# beside a bar (F1b). $done and $total are human-readable byte counts.
+settings-models-checking = Checking { $done } of { $total } against the catalogue…
 
 ## What this machine can hold. `unknown` is not `no`: there is no
 ## portable way to ask a graphics card its size without linking a
@@ -893,6 +901,15 @@ settings-models-fit-unknown = Not judged: this machine's memory could not be rea
 # Present on disk, but the bytes are not the bytes the catalogue
 # describes. Never repaired silently — the user is told and asked.
 settings-models-damaged = On this machine, but not what the catalogue describes. Remove it and download it again.
+# A catalogue model found somewhere in the folder other than where a
+# download puts it (D302). The user's file: used where it is, never
+# removed. $path is where, below the folder.
+settings-models-found-at = Found at { $path }. { -brand-name } did not download this file, so it uses it where it is and never removes it.
+# Another tool's file at this model's own place, with its name but not
+# its contents (D302, amended). Nothing to press. $path is below the folder.
+settings-models-foreign = A file at { $path } has this model's name but not its contents. { -brand-name } did not download it, so it neither uses nor removes it; move it away to download this model here.
+# The card of the model on duty while it is read into memory (F1).
+settings-models-loading = Loading into memory — { $percent } % read…
 # $reason is the store's own words, never localized.
 settings-models-failed = The download stopped: { $reason }
 settings-models-stopped = Stopped. What was downloaded is kept, and the next attempt carries on from it.
@@ -1440,6 +1457,12 @@ image-defect-inflate-limit = a compressed text decompresses past the limit this 
 cli-models-folder = Models folder: { $path }
 cli-models-entry = { $id } · { $name } · { $roles } · { $size } · { $state } · { $fit }
 cli-models-chosen = chosen for rewriting
+# A catalogue model found in the folder other than where a download
+# puts it (D302). $path is below the folder.
+cli-models-found-at = found at { $path }
+# Another tool's file at the entry's own place, with its name but not its
+# contents (D302, amended): left alone. $path is below the folder.
+cli-models-foreign-at = another tool's file of its name is at { $path }, left as it is
 cli-models-state-present = on this machine, matches the catalogue
 cli-models-state-absent = not downloaded
 cli-models-state-partial = partly downloaded ({ $percent } %), pull resumes it
@@ -1465,6 +1488,8 @@ cli-models-verify-mismatch = { $id }: { $file } does not match the catalogue (ex
 cli-models-verify-unreadable = { $id }: { $file } could not be read: { $reason }. Not read is not verified.
 cli-models-rm-removed = { $id } was removed from { $path }.
 cli-models-rm-absent = { $id } was not on this machine; nothing was removed.
+# $path is the file found where no download put it (D302).
+cli-models-rm-found = { $id } is at { $path }, where { -brand-name } did not download it; nothing was removed.
 cli-models-rm-chosen = It was the model chosen for rewriting: the application will show no model chosen until another is picked. This command does not change that setting.
 cli-models-rm-failed = { $id } could not be removed from { $path }: { $reason }.
 

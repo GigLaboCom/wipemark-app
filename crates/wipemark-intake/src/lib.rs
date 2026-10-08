@@ -116,6 +116,26 @@ pub enum Handed {
     Path(PathBuf),
 }
 
+impl Handed {
+    /// Whether this is nothing at all — no item for a queue or a panel
+    /// to list (D301).
+    ///
+    /// Text is nothing when it holds no character but ASCII white space
+    /// (U+0009, U+000A, U+000C, U+000D, U+0020): Layer A finds nothing in
+    /// those, and a row for a stray newline is a row nobody asked for.
+    /// Any other character makes it something — a no-break or a narrow
+    /// no-break space included, because those are exactly what Layer A
+    /// looks for. Bytes are nothing when there are none. A path is never
+    /// nothing: an empty file is still a file somebody chose.
+    pub fn is_nothing(&self) -> bool {
+        match self {
+            Handed::Text(text) => text.trim_ascii().is_empty(),
+            Handed::Bytes { bytes, .. } => bytes.is_empty(),
+            Handed::Path(_) => false,
+        }
+    }
+}
+
 /// How it reached us — which is a different question from what it is.
 ///
 /// A path that arrived as text is still a path, and a surface that says
@@ -380,7 +400,33 @@ fn head_of(path: &Path) -> Option<Vec<u8>> {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{identify, of_bytes, of_path, of_text, Arrived, Encoding, Evidence, Format, Kind};
+    use super::{
+        identify, of_bytes, of_path, of_text, Arrived, Encoding, Evidence, Format, Handed, Kind,
+    };
+
+    /// D301: empty text, ASCII white space alone and no bytes are
+    /// nothing; a space Layer A looks for, one character and any path
+    /// are something.
+    #[test]
+    fn nothing_is_empty_text_ascii_white_space_or_no_bytes() {
+        for text in ["", " ", "\n", "\r\n", " \t\x0C\n "] {
+            assert!(Handed::Text(text.to_owned()).is_nothing(), "{text:?}");
+        }
+        for text in ["a", "\u{A0}", "\u{202F}", "\u{200B}", " .\n", "\x0B"] {
+            assert!(!Handed::Text(text.to_owned()).is_nothing(), "{text:?}");
+        }
+        assert!(Handed::Bytes {
+            name: Some("image.png".to_owned()),
+            bytes: Vec::new()
+        }
+        .is_nothing());
+        assert!(!Handed::Bytes {
+            name: None,
+            bytes: vec![0]
+        }
+        .is_nothing());
+        assert!(!Handed::Path(PathBuf::new()).is_nothing());
+    }
 
     /// A scratch directory that takes its own files away with it.
     struct Scratch(PathBuf);

@@ -1584,7 +1584,14 @@ fn models_list_names_every_catalogue_entry_and_its_state() {
     let answer = json(&output);
     assert_eq!(model(&answer, SMALL)["state"], "partial", "{answer}");
     assert_eq!(model(&answer, SMALL)["done_bytes"], 1000, "{answer}");
-    assert_eq!(model(&answer, LARGE)["state"], "mismatch", "{answer}");
+    // Not "mismatch": no download of this product wrote that file, so it
+    // is another tool's, said and left alone (D302, amended).
+    assert_eq!(model(&answer, LARGE)["state"], "absent", "{answer}");
+    assert_eq!(
+        model(&answer, LARGE)["foreign_at"],
+        format!("{LARGE}/{LARGE_FILE}"),
+        "{answer}"
+    );
     for id in [SMALL, LARGE] {
         let entry = model(&answer, id);
         assert!(entry["size_bytes"]
@@ -1605,9 +1612,41 @@ fn models_list_names_every_catalogue_entry_and_its_state() {
 
     let text = stdout(&scratch.run(&["models", "list"]));
     assert!(text.contains("partly downloaded"), "{text}");
-    assert!(text.contains("does not match the catalogue"), "{text}");
+    assert!(text.contains("another tool's file of its name"), "{text}");
     assert!(text.contains("lmstudio/vendor/other.gguf"), "{text}");
     assert!(text.contains("not verified"), "{text}");
+}
+
+/// H1 (D302, amended), through the binary: a file at an entry's own
+/// place that no download of this product wrote — another tool's, in a
+/// mirror laid out `<id>/<file>` — is listed as left alone, and `models
+/// rm` says nothing was removed and removes nothing.
+#[test]
+fn models_rm_leaves_another_tools_file_at_the_entrys_place() {
+    let scratch = Scratch::new("models-rm-mirror");
+    let mirror = scratch.path("mirror");
+    let theirs = mirror.join(SMALL).join(SMALL_FILE);
+    std::fs::create_dir_all(theirs.parent().expect("a folder")).expect("mkdir");
+    std::fs::write(&theirs, b"another tool put me here").expect("theirs");
+    seed(&scratch, &[("models.dir", mirror.to_str().expect("UTF-8"))]);
+
+    let answer = json(&scratch.run(&["models", "list", "--json"]));
+    assert_eq!(model(&answer, SMALL)["state"], "absent", "{answer}");
+    assert_eq!(
+        model(&answer, SMALL)["foreign_at"],
+        format!("{SMALL}/{SMALL_FILE}"),
+        "{answer}"
+    );
+
+    let output = scratch.run(&["models", "rm", SMALL]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let said = stdout(&output);
+    assert!(said.contains("nothing was removed"), "{said}");
+    assert!(said.contains(SMALL_FILE), "{said}");
+    assert_eq!(
+        std::fs::read(&theirs).expect("still there"),
+        b"another tool put me here"
+    );
 }
 
 /// The models folder and the chosen model are the app's rows, read and

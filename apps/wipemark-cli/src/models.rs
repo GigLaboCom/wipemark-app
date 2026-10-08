@@ -27,15 +27,14 @@
 //! is the same finding, because a missing model does not match either.
 
 use std::io::{IsTerminal as _, Write as _};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use wipemark_i18n::{args, FluentArgs, Message};
 use wipemark_models::layout::Layout;
 use wipemark_models::{
-    fit, weights_under, Cancel, Downloads, Fit, Host, Manifest, ModelEntry, Progress, Role, State,
-    StoreError,
+    fit, Cancel, Downloads, Fit, Host, Manifest, ModelEntry, Progress, Role, State, StoreError,
 };
 
 use crate::audit::ascii;
@@ -114,7 +113,9 @@ impl Context {
             Exit::Usage
         })?;
         let place = Place::read(&layout, &catalogue);
-        let downloads = Downloads::new(&place.folder);
+        // Verify records under the data directory, never beside the
+        // weights (D303).
+        let downloads = Downloads::new(&place.folder, layout.records_dir());
         Ok(Self {
             catalogue,
             place,
@@ -182,19 +183,17 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
     let host = Host::probe();
     let folder = &context.place.folder;
 
-    // Weight files the catalogue did not put there.
-    let ours: Vec<PathBuf> = context
-        .catalogue
-        .models
-        .iter()
-        .flat_map(|entry| {
-            entry
-                .files
-                .iter()
-                .filter_map(|file| Some(folder.join(&entry.id).join(file.filename()?)))
-        })
+    // One walk: where every catalogue entry is (D302), and what else is
+    // there. A catalogue file is the catalogue's wherever it was found.
+    let survey = context.downloads.survey(&context.catalogue.models);
+    // Another tool's file at an entry's own place is said on that entry's
+    // line (D302, amended), not again among the strangers.
+    let ours: Vec<PathBuf> = survey
+        .located
+        .values()
+        .flat_map(|located| located.files.iter().chain(&located.mismatched).cloned())
         .collect();
-    let (others, unreadable) = match weights_under(folder) {
+    let (others, unreadable) = match survey.listing {
         Ok(found) => (
             found
                 .into_iter()
@@ -212,11 +211,32 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
         .models
         .iter()
         .map(|entry| {
-            let state = context.downloads.state(entry);
+            let state = survey
+                .located
+                .get(&entry.id)
+                .map_or(State::Absent, |located| located.state.clone());
             let chosen = context.place.chosen.as_deref() == Some(entry.id.as_str());
             (entry, state, fit(entry, host), chosen)
         })
         .collect();
+    // Where an entry was found, when that is not where a download puts
+    // it — the folder-relative path, `/`-separated.
+    let below = |path: &Path| -> String {
+        path.strip_prefix(folder)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    let found_at = |entry: &ModelEntry| -> Option<String> {
+        let located = survey.located.get(&entry.id)?;
+        let weights = located.weights.as_ref().filter(|_| located.theirs)?;
+        Some(below(weights))
+    };
+    // Another tool's file at the entry's own place that is not it.
+    let foreign_at = |entry: &ModelEntry| -> Option<String> {
+        let located = survey.located.get(&entry.id)?;
+        located.mismatched.as_deref().map(below)
+    };
 
     let text = if json {
         let models: Vec<serde_json::Value> = rows
@@ -229,6 +249,12 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                     "size_bytes": entry.total_bytes(),
                     "chosen": chosen,
                 });
+                if let Some(at) = found_at(entry) {
+                    value["found_at"] = at.into();
+                }
+                if let Some(at) = foreign_at(entry) {
+                    value["foreign_at"] = at.into();
+                }
                 match state {
                     State::Absent => value["state"] = "absent".into(),
                     State::Partial {
@@ -321,6 +347,14 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                     "fit" => fit,
                 ),
             );
+            if let Some(at) = found_at(entry) {
+                line.push_str(" · ");
+                line.push_str(&say(Message::CliModelsFoundAt, &args!("path" => at)));
+            }
+            if let Some(at) = foreign_at(entry) {
+                line.push_str(" · ");
+                line.push_str(&say(Message::CliModelsForeignAt, &args!("path" => at)));
+            }
             if *chosen {
                 line.push_str(" · ");
                 line.push_str(&say(Message::CliModelsChosen, &FluentArgs::new()));
@@ -414,7 +448,10 @@ pub(crate) fn pull(id: &str, io: &mut Io) -> Exit {
         tracing::warn!(%error, "no Ctrl-C handler; an interrupt ends the run without a word");
     }
 
-    let downloads = Arc::new(Downloads::new(&context.place.folder));
+    let downloads = Arc::new(Downloads::new(
+        &context.place.folder,
+        context.downloads.records_dir(),
+    ));
     let (tell, heard) = std::sync::mpsc::channel();
     let worker = {
         let downloads = Arc::clone(&downloads);
@@ -531,6 +568,7 @@ fn kind_of(error: &StoreError) -> &'static str {
         StoreError::Missing { .. } => "missing",
         StoreError::NoRoom { .. } => "no room",
         StoreError::Cancelled => "cancelled",
+        StoreError::Occupied { .. } => "occupied",
     }
 }
 
@@ -680,7 +718,33 @@ pub(crate) fn rm(id: &str, io: &mut Io) -> Exit {
         .downloads
         .model_dir(id)
         .unwrap_or_else(|| context.place.folder.clone());
+    // A file this product did not download — found elsewhere under the
+    // folder, or at the entry's own place with no download's mark, whether
+    // or not it matches — is the user's (D302, amended): rm removes what a
+    // download wrote and says what it left.
+    let theirs = {
+        let located = context.downloads.locate(&entry);
+        located
+            .weights
+            .filter(|_| located.theirs)
+            .or(located.mismatched)
+    };
     match context.downloads.remove(&entry) {
+        Ok(false) if theirs.is_some() => {
+            tracing::info!(
+                command = "models rm",
+                removed = false,
+                found_elsewhere = true,
+                exit = 0,
+                "done"
+            );
+            let path = theirs.unwrap_or_default().display().to_string();
+            let line = run::say(
+                Message::CliModelsRmFound,
+                &args!("id" => id, "path" => path),
+            );
+            say_out(io, &line).map_or_else(|exit| exit, |()| Exit::Clean)
+        }
         Ok(true) => {
             let mut lines = vec![run::say(
                 Message::CliModelsRmRemoved,

@@ -471,14 +471,43 @@ fn is_white_space(c: char) -> bool {
 
 /// The identifier-shaped tokens of `text`, trimmed, in source order.
 ///
-/// A token is a maximal run of non-whitespace with [`TRIM`] taken off
-/// both ends; it is an identifier when it has any of five shapes (A §6):
-/// a URL, an e-mail, a path, a snake_case or a CamelCase name.
+/// A token is a maximal run of non-whitespace containing no placeholder,
+/// with [`TRIM`] taken off both ends; it is an identifier when it has any
+/// of five shapes (A §6): a URL, an e-mail, a path, a snake_case or a
+/// CamelCase name.
+///
+/// A placeholder ends a token as a space does (D300). It stands for a
+/// protected span — a link's brackets, a code span — that the model never
+/// sees, so the prose glued to it is a word of its own: a link-only line
+/// `⟦1⟧host/path⟦2⟧**` holds the identifier `host/path`, and a candidate
+/// that drops the bold after `⟦2⟧` has not lost it. What is a placeholder
+/// is [`placeholder_at`]'s definition, the one the other guards read.
 fn identifiers(text: &str) -> Vec<&str> {
     text.split(is_white_space)
+        .flat_map(between_placeholders)
         .map(|token| token.trim_matches(|c| TRIM.contains(&c)))
         .filter(|token| !token.is_empty() && is_identifier(token))
         .collect()
+}
+
+/// `token` cut at every canonical placeholder, the placeholders dropped.
+fn between_placeholders(token: &str) -> Vec<&str> {
+    let mut pieces = Vec::new();
+    let mut start = 0;
+    let mut at = 0;
+    while let Some(c) = token[at..].chars().next() {
+        if c == OPEN {
+            if let Some((_, len)) = placeholder_at(&token[at..]) {
+                pieces.push(&token[start..at]);
+                at += len;
+                start = at;
+                continue;
+            }
+        }
+        at += c.len_utf8();
+    }
+    pieces.push(&token[start..]);
+    pieces
 }
 
 fn is_identifier(token: &str) -> bool {
@@ -888,10 +917,48 @@ ops@example.com.";
             ("user\u{2019}s_file", &["user\u{2019}s_file"]),
             // U+200B is not whitespace, so it does not split a token.
             ("foo_bar\u{200B}baz", &["foo_bar\u{200B}baz"]),
+            // D300: a placeholder ends a token as a space does…
+            (
+                "\u{27E6}1\u{27E7}heretic.giglabo.com/applications/lazy-shot\u{27E6}2\u{27E7}**",
+                &["heretic.giglabo.com/applications/lazy-shot"],
+            ),
+            ("foo_bar\u{27E6}0\u{27E7}baz_qux", &["foo_bar", "baz_qux"]),
+            // …and brackets that are not a canonical placeholder do not.
+            ("\u{27E6}01\u{27E7}foo_bar", &["\u{27E6}01\u{27E7}foo_bar"]),
         ];
         for (text, want) in table {
             assert_eq!(identifiers(text), *want, "{text:?}");
         }
+    }
+
+    /// The link-only line of the 2026-10-07 run (D300): every candidate
+    /// was refused as `identifier-missing` on the token
+    /// `⟦1⟧heretic.giglabo.com/applications/lazy-shot⟦2⟧**`, because the
+    /// placeholders were read as part of the word.
+    #[test]
+    fn a_placeholder_ends_an_identifier() {
+        let source = "**\u{2192} \u{27E6}1\u{27E7}heretic.giglabo.com/applications/lazy-shot\u{27E6}2\u{27E7}**";
+        for candidate in [
+            // The bold moved off the link…
+            "\u{2192} **\u{27E6}1\u{27E7}heretic.giglabo.com/applications/lazy-shot\u{27E6}2\u{27E7}**",
+            // …dropped, or the arrow put into words.
+            "\u{2192} \u{27E6}1\u{27E7}heretic.giglabo.com/applications/lazy-shot\u{27E6}2\u{27E7}",
+            "**See \u{27E6}1\u{27E7}heretic.giglabo.com/applications/lazy-shot\u{27E6}2\u{27E7}.**",
+        ] {
+            assert_eq!(
+                IdentifierGuard.check(source, candidate),
+                GuardOutcome::Pass,
+                "{candidate:?}"
+            );
+        }
+        // A candidate that really loses the identifier is still refused.
+        let lost = "**\u{2192} \u{27E6}1\u{27E7}the lazy-shot page\u{27E6}2\u{27E7}**";
+        assert_eq!(
+            IdentifierGuard.check(source, lost),
+            reject(RejectReason::IdentifierMissing {
+                token: "heretic.giglabo.com/applications/lazy-shot".into()
+            })
+        );
     }
 
     #[test]

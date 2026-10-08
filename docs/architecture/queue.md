@@ -67,6 +67,21 @@ image against its caption identically. Off macOS the road is GPUI's own
 order by `clipboard::handed_of`; those desktops have no change count, so
 the label is refreshed on window activation and after a paste (E10).
 
+**Nothing is no item** (D301, the owner's empty row of 2026-10-07).
+`Handed::is_nothing` (`wipemark-intake`) is an empty text, a text of
+ASCII white space alone (U+0009, U+000A, U+000C, U+000D, U+0020), or
+bytes of length zero; a path never is. Such a thing is left out by
+`clipboard::handed_of`, by `pasteboard::handed` (the macOS paste *and*
+drop road — the peek reads an item's text, only when the change count
+moved, because only its characters can say it is empty), and once more
+by `Catcher::land`, whichever road it came by. So an empty clipboard
+string greys the button to "Paste", and a paste or a drop of it lands no
+row. Whitespace is decided by what Layer A can find: nothing in ASCII
+white space, so a stray newline is nothing; a no-break or a narrow
+no-break space is what Layer A looks for (`ExoticSpace`), so a text of
+those is something. `a_paste_or_a_drop_of_empty_text_lands_nothing` and
+`an_empty_string_on_the_clipboard_is_nothing` are the gates.
+
 That event is `Landed`, and it carries **its own drop**. The panel reads
 `Catcher::caught` — the last drop, overtaken by the next the way a
 screen is — and the queue reads the event, because a second drop while

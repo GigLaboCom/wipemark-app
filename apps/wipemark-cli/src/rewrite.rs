@@ -911,7 +911,7 @@ fn own_engine(
         .as_deref()
         .and_then(|id| catalogue.get(id))
         .cloned();
-    let downloads = Downloads::new(&place.folder);
+    let downloads = Downloads::new(&place.folder, layout.records_dir());
     let weights = entry.as_ref().and_then(|entry| {
         matches!(downloads.state(entry), State::Present { .. })
             .then(|| downloads.weights_path(entry))

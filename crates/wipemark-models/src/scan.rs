@@ -7,7 +7,9 @@
 //! folder of `.gguf` files sorted whichever way that tool sorts them,
 //! and a user who points the models folder at it expects the page to
 //! say what it found rather than to report an empty shelf over ten
-//! gigabytes of weights.
+//! gigabytes of weights. The same walk is where a catalogue file that is
+//! not at its place is looked for (D302, `Downloads::locate`): by name and
+//! size here, by sha256 there.
 //!
 //! # What is walked, and what is not
 //!
@@ -18,8 +20,8 @@
 //!   cap is what keeps a folder pointed at `/` or at a home directory
 //!   from being a walk of the whole disk on every scan.
 //! * **Not a hidden entry.** A `.cache` or a `.git` under the folder is
-//!   somebody else's, and the one this crate writes (`.<file>.ok-<sha>`)
-//!   is not a model.
+//!   somebody else's, and the stamp older builds of this crate wrote
+//!   beside a file (`.<file>.ok-<sha>`) is not a model.
 //! * **Not a directory reached through a symlink.** A link to a parent
 //!   is a loop, and a link to another volume is a walk of that volume;
 //!   a *file* reached through a symlink is fine and is listed, because

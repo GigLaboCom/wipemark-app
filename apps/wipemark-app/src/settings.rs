@@ -90,7 +90,7 @@ use wipemark_engine::Unavailable;
 use wipemark_i18n::{args, t, t_args, LanguagePreference, Message};
 use wipemark_models::host::Host;
 use wipemark_models::manifest::{Manifest, ModelEntry, Role};
-use wipemark_models::store::{Cancel, Downloads, Event, Progress, State};
+use wipemark_models::store::{Cancel, Downloads, Event, Hashing, Progress, State};
 use wipemark_secret::{Secret, Vault};
 
 use crate::compare::Comparison;
@@ -789,6 +789,16 @@ pub struct Preferences {
     /// pair `duty::on_duty` refuses: a path to a `.part` is a path to a
     /// file no runtime can open.
     weights: BTreeMap<String, PathBuf>,
+    /// The file being hashed now and how far — bytes read, size — while a
+    /// look, a verify or a download's own check reads one (F1b).
+    checking: Option<(PathBuf, u64, u64)>,
+    /// The entries whose weights were found somewhere in the folder other
+    /// than where a download puts them (D302), and where — the user's
+    /// files, used where they are and never removed.
+    found: BTreeMap<String, PathBuf>,
+    /// The entries whose own place holds another tool's file of their
+    /// name that is not the catalogue's (D302, amended), and where.
+    foreign: BTreeMap<String, PathBuf>,
     /// The one download in flight, if there is one.
     ///
     /// One at a time on purpose: two seven-gigabyte downloads over one
@@ -821,17 +831,28 @@ pub struct Preferences {
     /// flight keeps the old one, which is why the row cannot move while
     /// one runs.
     models: Arc<Downloads>,
+    /// Where verify records go — `<data dir>/records`, never the models
+    /// folder (D303). Kept to build the next `Downloads` when the folder
+    /// moves.
+    records_dir: PathBuf,
     /// What the last scan found in the folder beyond the catalogue's
     /// own files — see `models::Folder`. `Unread` until the first scan
     /// answers, and again the moment the folder moves.
     folder: Folder,
-    /// Which scan of the models directory is the current one.
-    ///
-    /// The same counter `key_lookups` is, for the same reason: a scan
-    /// hashes files, so a slow one can outlive the download that
-    /// invalidated it, and the last answer to arrive must not win over
-    /// the last one asked for.
-    scans: u64,
+    /// A scan is running now. At most one does (D304): a scan hashes
+    /// every file whose record moved, and three asked at once — the main
+    /// window, Settings opening, a download landing — were three tasks
+    /// reading one twelve-gigabyte file side by side.
+    scanning: bool,
+    /// A scan was asked for while one ran. The running one's answer may
+    /// describe a disk that has since changed, so it is set aside and
+    /// one more scan runs when it lands — after the first, so whatever
+    /// it hashed is a record by then and is not hashed again.
+    rescan: bool,
+    /// Makes the next scan panic, for the test that a panicking scan does
+    /// not leave `scanning` set.
+    #[cfg(test)]
+    scan_panics: bool,
     /// Held as an `Arc` because the write happens on a background
     /// thread, and what crosses that boundary has to own itself. Never
     /// `None` — a store that could not be opened is an in-memory one
@@ -982,6 +1003,7 @@ impl Preferences {
         store: SettingsStore,
         vault: Arc<Vault>,
         models_default: PathBuf,
+        records_dir: PathBuf,
         homes: Homes,
         pinned: Option<String>,
         engine_handle: EngineHandle,
@@ -1050,6 +1072,17 @@ impl Preferences {
             preferences.screens_changed(screens, cx);
         });
 
+        // Where the weights go. A path and a client, and nothing else:
+        // constructing this touches no disk, so a machine that never
+        // downloads a model never gets a `models/` directory. Its hashes
+        // are heard from the start, so a look at a large file shows a bar
+        // (F1b).
+        let models = Arc::new(Downloads::new(
+            models_dir.clone().unwrap_or_else(|| models_default.clone()),
+            records_dir.clone(),
+        ));
+        Self::listen_to_hashes(&models, cx);
+
         Self {
             theme,
             language,
@@ -1087,21 +1120,22 @@ impl Preferences {
             host: None,
             installed: BTreeMap::new(),
             weights: BTreeMap::new(),
+            found: BTreeMap::new(),
+            foreign: BTreeMap::new(),
+            checking: None,
             download: None,
             download_said: None,
             download_error: None,
             rewrite_model,
-            // Where the weights go. A path and a client, and nothing
-            // else: constructing this touches no disk, so a machine
-            // that never downloads a model never gets a `models/`
-            // directory.
-            models: Arc::new(Downloads::new(
-                models_dir.clone().unwrap_or_else(|| models_default.clone()),
-            )),
+            models,
+            records_dir,
             models_default,
             models_dir,
             folder: Folder::Unread,
-            scans: 0,
+            scanning: false,
+            rescan: false,
+            #[cfg(test)]
+            scan_panics: false,
             store,
             serves,
             local,
@@ -1149,6 +1183,7 @@ impl Preferences {
             store,
             Arc::new(Vault::in_memory("com.GigLabo.wipemark.test")),
             std::env::temp_dir().join("wipemark-test-models"),
+            std::env::temp_dir().join("wipemark-test-records"),
             homes,
             None,
             engine,
@@ -1674,6 +1709,84 @@ impl Preferences {
         self.installed.get(id).cloned().unwrap_or(State::Absent)
     }
 
+    /// Where `id`'s weights were found, below the folder, when that is
+    /// not where a download puts them (D302).
+    pub fn model_found_at(&self, id: &str) -> Option<String> {
+        let path = self.found.get(id)?;
+        Some(
+            path.strip_prefix(self.models.models_dir())
+                .unwrap_or(path)
+                .display()
+                .to_string(),
+        )
+    }
+
+    /// Where `id`'s own place holds another tool's file of its name that
+    /// is not the catalogue's (D302, amended), below the folder.
+    pub fn model_foreign_at(&self, id: &str) -> Option<String> {
+        let path = self.foreign.get(id)?;
+        Some(
+            path.strip_prefix(self.models.models_dir())
+                .unwrap_or(path)
+                .display()
+                .to_string(),
+        )
+    }
+
+    /// How far the hash of one of `entry`'s files has got — bytes read and
+    /// the file's size — while one is read (F1b). A download's own check
+    /// reads its `.part`, which is the same file under a working name.
+    pub fn checking_for(&self, entry: &ModelEntry) -> Option<(u64, u64)> {
+        let (path, done, total) = self.checking.as_ref()?;
+        let name = path.file_name()?.to_str()?;
+        let name = name.strip_suffix(".part").unwrap_or(name);
+        entry
+            .files
+            .iter()
+            .any(|file| file.filename() == Some(name))
+            .then_some((*done, *total))
+    }
+
+    /// Hear every hash `models` makes (F1b): what the cards draw a bar
+    /// from. The task ends when `models` is dropped — the folder moved —
+    /// because its sender goes with it.
+    fn listen_to_hashes(models: &Downloads, cx: &Context<Self>) {
+        let (sink, heard) = flume::unbounded();
+        models.watch_hashes(sink);
+        cx.spawn(async move |preferences, cx| {
+            while let Ok(told) = heard.recv_async().await {
+                if preferences
+                    .update(cx, |preferences, cx| preferences.hash_said(told, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// One report of a hash. Already paced by the store.
+    fn hash_said(&mut self, told: Hashing, cx: &mut Context<Self>) {
+        match told {
+            Hashing::Progress {
+                path,
+                done_bytes,
+                total_bytes,
+            } => self.checking = Some((path, done_bytes, total_bytes)),
+            Hashing::Done { path } => {
+                if self
+                    .checking
+                    .as_ref()
+                    .is_some_and(|(checked, ..)| *checked == path)
+                {
+                    self.checking = None;
+                }
+            }
+        }
+        cx.notify();
+    }
+
     /// The download in flight, if it is `id`'s.
     pub fn downloading(&self, id: &str) -> Option<&Progress> {
         let running = self.download.as_ref()?;
@@ -1751,10 +1864,18 @@ impl Preferences {
         }
         let effective = dir.clone().unwrap_or_else(|| self.models_default.clone());
         tracing::info!(folder = %effective.display(), "models folder moved");
-        self.models = Arc::new(Downloads::new(effective));
+        // The scan of the old folder stops reading: nobody will see its
+        // answer (L4). A scan asked now waits for it to give up, which is
+        // one chunk, and then reads the new folder.
+        self.models.stop();
+        self.models = Arc::new(Downloads::new(effective, self.records_dir.clone()));
+        Self::listen_to_hashes(&self.models, cx);
+        self.checking = None;
         self.models_dir = dir;
         self.installed.clear();
         self.weights.clear();
+        self.found.clear();
+        self.foreign.clear();
         self.folder = Folder::Unread;
         self.download_said = None;
         self.download_error = None;
@@ -1846,55 +1967,118 @@ impl Preferences {
     ///
     /// Called once the main window exists, again when the Settings
     /// window opens, and after anything that changes what is on disk.
+    ///
+    /// **One at a time** (D304). Asked while a scan runs, it starts
+    /// nothing: the running scan's answer is set aside when it lands and
+    /// one more scan runs then — so a file is hashed by one task at a
+    /// time, and the second scan finds the first one's record instead of
+    /// hashing the file again.
     pub fn look_at_models(&mut self, cx: &Context<Self>) {
-        self.scans += 1;
-        let mine = self.scans;
+        if self.scanning {
+            self.rescan = true;
+            return;
+        }
+        self.scanning = true;
         let models = self.models.clone();
         let entries: Vec<ModelEntry> = self.catalogue.models.clone();
+        #[cfg(test)]
+        let panics = self.scan_panics;
 
         cx.spawn(async move |preferences, cx| {
+            // A scan that panics is caught here (L4): otherwise `scanning`
+            // would stay set and no scan would ever run again.
             let found = cx
                 .background_executor()
                 .spawn(async move {
-                    let host = Host::probe();
-                    let gpu = gpu_backend();
-                    let states: BTreeMap<String, State> = entries
-                        .iter()
-                        .map(|entry| (entry.id.clone(), models.state(entry)))
-                        .collect();
-                    // The path an engine is handed, gathered here so
-                    // that answering "who rewrites" later costs no I/O.
-                    let weights: BTreeMap<String, PathBuf> = entries
-                        .iter()
-                        .filter_map(|entry| {
-                            models.weights_path(entry).map(|at| (entry.id.clone(), at))
-                        })
-                        .collect();
-                    // Everything else in the folder, however deep. The
-                    // catalogue's own files are the ones above,
-                    // whatever state they are in — a damaged download
-                    // is still the catalogue's, and belongs on its card
-                    // rather than in the list of strangers.
-                    let folder = Folder::from_listing(
-                        wipemark_models::scan::weights_under(models.models_dir()),
-                        |path| weights.values().any(|ours| ours == path),
-                    );
-                    (host, gpu, states, weights, folder)
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        #[cfg(test)]
+                        if panics {
+                            panic!("a scan that panics, for a test");
+                        }
+                        let host = Host::probe();
+                        let gpu = gpu_backend();
+                        // One walk of the folder, and every catalogue entry
+                        // looked for in it — at its place, or anywhere under
+                        // the folder by name, size and sha256 (D302).
+                        let survey = models.survey(&entries);
+                        let states: BTreeMap<String, State> = survey
+                            .located
+                            .iter()
+                            .map(|(id, located)| (id.clone(), located.state.clone()))
+                            .collect();
+                        // The path an engine is handed, gathered here so
+                        // that answering "who rewrites" later costs no I/O.
+                        let weights: BTreeMap<String, PathBuf> = survey
+                            .located
+                            .iter()
+                            .filter_map(|(id, located)| {
+                                located.weights.clone().map(|at| (id.clone(), at))
+                            })
+                            .collect();
+                        let found: BTreeMap<String, PathBuf> = survey
+                            .located
+                            .iter()
+                            .filter(|(_, located)| located.theirs)
+                            .filter_map(|(id, located)| {
+                                located.weights.clone().map(|at| (id.clone(), at))
+                            })
+                            .collect();
+                        // Another tool's file at an entry's own place that is
+                        // not the catalogue's (D302, amended): said on the
+                        // card, never removed.
+                        let foreign: BTreeMap<String, PathBuf> = survey
+                            .located
+                            .iter()
+                            .filter_map(|(id, located)| {
+                                located.mismatched.clone().map(|at| (id.clone(), at))
+                            })
+                            .collect();
+                        // Everything else in the folder, however deep. The
+                        // catalogue's own files are the ones above,
+                        // wherever they were found and whatever state they
+                        // are in — a damaged download is still the
+                        // catalogue's, and belongs on its card rather than
+                        // in the list of strangers.
+                        let ours: Vec<PathBuf> = survey
+                            .located
+                            .values()
+                            .flat_map(|located| {
+                                located.files.iter().chain(&located.mismatched).cloned()
+                            })
+                            .collect();
+                        let folder = Folder::from_listing(survey.listing, |path| {
+                            ours.iter().any(|o| o == path)
+                        });
+                        (host, gpu, states, weights, found, foreign, folder)
+                    }))
+                    .ok()
                 })
                 .await;
 
             preferences
                 .update(cx, |preferences, cx| {
-                    // A newer scan was asked for while this one hashed.
-                    // Its answer is the one that describes the disk.
-                    if preferences.scans != mine {
+                    preferences.scanning = false;
+                    // Asked for again while this one ran: what it found
+                    // may already be out of date, so it is set aside and
+                    // the next one runs now — after this one, never
+                    // beside it.
+                    if std::mem::take(&mut preferences.rescan) {
+                        preferences.look_at_models(cx);
                         return;
                     }
-                    let (host, gpu, states, weights, folder) = found;
+                    let Some(found) = found else {
+                        tracing::error!(
+                            "the scan of the models folder panicked; nothing it found is used"
+                        );
+                        return;
+                    };
+                    let (host, gpu, states, weights, found, foreign, folder) = found;
                     preferences.host = Some(host);
                     preferences.gpu = gpu;
                     preferences.installed = states;
                     preferences.weights = weights;
+                    preferences.found = found;
+                    preferences.foreign = foreign;
                     preferences.folder = folder;
                     // The moment the answer stops being provisional:
                     // before the scan lands, "that model is not here"
@@ -4502,6 +4686,17 @@ impl SettingsView {
         let can_check = duty.performer().is_some() && state.can_check() && !running;
         let tray = cx.try_global::<Tray>().is_some();
         let machine = endpoint.is_none();
+        // F1: while the weights are read, the bar and how far — in place of
+        // what `Loaded` says, since a Check's or a job's load is not the
+        // policy's and would otherwise read as "not loaded".
+        let reading = machine
+            .then(|| state.model().zip(state.load_progress()))
+            .flatten()
+            .and_then(|(model, progress)| load_shown(Some(model), Some(progress)));
+        let (tone, lines) = match &reading {
+            Some((_, line)) => (Tone::Quiet, vec![line.clone()]),
+            None => (tone, lines),
+        };
 
         let unloading = host.clone();
         let checking = host.clone();
@@ -4524,6 +4719,11 @@ impl SettingsView {
                             .child(SharedString::from(line))
                     })),
             )
+            .children(reading.map(|(value, _)| {
+                gpui_component::progress::Progress::new("engine-load")
+                    .small()
+                    .value(value)
+            }))
             .child(
                 h_flex()
                     .gap_2()
@@ -5267,14 +5467,27 @@ impl SettingsView {
     /// One catalogue entry.
     fn model_card(&self, entry: &ModelEntry, cx: &Context<Self>) -> impl IntoElement {
         let preferences = self.preferences.read(cx);
+        let found_at = preferences.model_found_at(&entry.id);
         let card = models::card(
             entry,
             preferences.host(),
             &preferences.model_state(&entry.id),
             preferences.downloading(&entry.id),
-        );
+            found_at.as_deref(),
+        )
+        .foreign(preferences.model_foreign_at(&entry.id).as_deref())
+        .checking(preferences.checking_for(entry));
         let elsewhere = preferences.any_download_running() && !card.availability.is_running();
         let chosen = preferences.rewrite_model() == Some(entry.id.as_str());
+        // F1: the card of the model on duty, while it is read into memory.
+        let on_duty = matches!(
+            preferences.duty(Role::Rewrite).performer(),
+            Some(Performer::Machine(local)) if local.id == entry.id
+        );
+        let reading = on_duty
+            .then(|| engine_host::hosted(cx).and_then(|host| host.read(cx).load_progress()))
+            .flatten()
+            .and_then(|progress| load_shown(None, Some(progress)));
         // The catalogue's own answer to "which of these", shown only
         // while the question is still open — see `models::recommended`.
         let suggested = models::recommended(
@@ -5354,32 +5567,68 @@ impl SettingsView {
                                     ))),
                             ),
                     )
-                    .child(div().flex().flex_none().justify_end().child({
-                        let label = card.availability.action();
-                        Button::new(id.clone())
-                            .small()
-                            .outline()
-                            .label(SharedString::from(t(label)))
-                            // Every other card's button is off
-                            // while one download runs: the
-                            // free-space check that let this
-                            // one start was made for one file.
-                            .disabled(elsewhere)
-                            .on_click(cx.listener({
-                                let id = entry.id.clone();
-                                let availability = card.availability.clone();
-                                move |view, _, _, cx| {
-                                    view.act_on_model(&id, &availability, cx);
+                    .child(
+                        div().flex().flex_none().justify_end().child(
+                            match card.availability.action() {
+                                Some(label) => Button::new(id.clone())
+                                    .small()
+                                    .outline()
+                                    .label(SharedString::from(t(label)))
+                                    // Every other card's button is off
+                                    // while one download runs: the
+                                    // free-space check that let this
+                                    // one start was made for one file.
+                                    .disabled(elsewhere)
+                                    .on_click(cx.listener({
+                                        let id = entry.id.clone();
+                                        let availability = card.availability.clone();
+                                        move |view, _, _, cx| {
+                                            view.act_on_model(&id, &availability, cx);
+                                        }
+                                    }))
+                                    .into_any_element(),
+                                // Being hashed: nothing to press until it is
+                                // read (F1b). Another tool's file in the way:
+                                // nothing this product may do about it.
+                                None if matches!(
+                                    card.availability,
+                                    models::Availability::Checking { .. }
+                                        | models::Availability::Foreign { .. }
+                                ) =>
+                                {
+                                    div().into_any_element()
                                 }
-                            }))
-                    })),
+                                // Found where no download put it (D302):
+                                // nothing to fetch, and nothing to remove.
+                                None => div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .child(SharedString::from(t(Message::SettingsModelsInstalled)))
+                                    .into_any_element(),
+                            },
+                        ),
+                    ),
             )
             .child(
                 div()
                     .text_xs()
                     .text_color(muted)
-                    .child(SharedString::from(card.line())),
+                    .child(SharedString::from(match &reading {
+                        Some((_, line)) => line.clone(),
+                        None => card.line(),
+                    })),
             )
+            // The download's bar, or the check's (F1a, F1b) — the text
+            // above keeps the bytes beside it.
+            .children(reading.is_none().then(|| models::bar(&card)).flatten())
+            .children(reading.map(|(value, _)| {
+                gpui_component::progress::Progress::new(SharedString::from(format!(
+                    "load-{}",
+                    entry.id
+                )))
+                .small()
+                .value(value)
+            }))
     }
 
     /// The one thing this card's button does.
@@ -5398,6 +5647,10 @@ impl SettingsView {
                 models::Availability::Installed | models::Availability::Damaged => {
                     preferences.remove_model(id, cx);
                 }
+                // No button is drawn for it; the arm says why.
+                models::Availability::Found { .. }
+                | models::Availability::Foreign { .. }
+                | models::Availability::Checking { .. } => {}
             });
     }
 
@@ -6904,6 +7157,26 @@ fn local_status(
             (Tone::Warn, lines)
         }
     }
+}
+
+/// What a page draws while the model on this machine is read into memory
+/// (F1): the bar's value, 0 to 100, and the sentence beside it — the Engine
+/// page's, naming the model, or the Models card's, which sits under the
+/// model's own name. `None` when nothing is being read, so the bar goes the
+/// moment the load is over.
+fn load_shown(model: Option<&str>, progress: Option<f32>) -> Option<(f32, String)> {
+    let percent = engine_host::percent(progress?);
+    let line = match model {
+        Some(model) => t_args(
+            Message::SettingsEngineLocalLoadingProgress,
+            &args!("model" => model.to_owned(), "percent" => percent.to_string()),
+        ),
+        None => t_args(
+            Message::SettingsModelsLoading,
+            &args!("percent" => percent.to_string()),
+        ),
+    };
+    Some((percent as f32, line))
 }
 
 /// The endpoint block's state, as values: where a check goes, or why the
@@ -8823,5 +9096,244 @@ mod tests {
             beside >= CONTROL_COLUMN.as_f32() * 2.0,
             "at the minimum width the control column would take {beside} points of the section"
         );
+    }
+
+    /// F1: while the weights are read a page draws a bar and says how far
+    /// — the Engine page naming the model, the Models card not — and the
+    /// moment the load is over it draws neither.
+    #[test]
+    fn a_bar_is_drawn_while_a_model_loads_and_none_after() {
+        let (value, line) = load_shown(Some("Qwen3 4B"), Some(0.5)).expect("a bar while loading");
+        assert_eq!(value, 50.0);
+        assert!(line.contains("Qwen3 4B") && line.contains("50"), "{line}");
+        let (value, line) = load_shown(None, Some(0.999)).expect("a bar on the card");
+        assert_eq!(value, 99.0);
+        assert!(line.contains("99"), "{line}");
+        assert_eq!(
+            load_shown(Some("Qwen3 4B"), None),
+            None,
+            "a bar after the load"
+        );
+    }
+
+    /// F1b: a look at a file whose record is missing hashes it, and the
+    /// hash's progress reaches the preferences through the store the
+    /// folder row built — so the card of that model is a "checking" bar
+    /// while it is read, and nothing once it is done. Red with the
+    /// listener not attached to the new store.
+    #[gpui::test]
+    fn a_hash_in_progress_reaches_the_card(cx: &mut gpui::TestAppContext) {
+        const SIZE: usize = 3 * 1_048_576 + 17;
+        const SHA: &str = "78dcae8b38b1abefc434d7cd8a36ee32a38493e2ad22d3e16a80bc3bc676b661";
+        let root = std::env::temp_dir().join(format!(
+            "wipemark-hash-bar-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let models_dir = root.join("models");
+        std::fs::create_dir_all(models_dir.join("vendor")).expect("mkdir");
+        std::fs::write(models_dir.join("vendor").join("big.gguf"), vec![7u8; SIZE]).expect("write");
+        let mut entry = crate::models::catalogue().models[0].clone();
+        entry.id = "big".into();
+        entry.files = vec![wipemark_models::manifest::FileSpec {
+            url: "https://example.com/big.gguf".into(),
+            sha256: Some(SHA.into()),
+            size_bytes: SIZE as u64,
+            variant: None,
+        }];
+        let homes = Homes {
+            results: root.join("results"),
+            kept: root.join("kept"),
+        };
+        struct Holder(#[allow(dead_code)] Entity<Preferences>);
+        impl Render for Holder {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        let slot: std::rc::Rc<std::cell::RefCell<Option<Entity<Preferences>>>> =
+            std::rc::Rc::default();
+        let held = slot.clone();
+        let (_, cx) = cx.add_window_view(move |_, cx| {
+            let preferences = cx.new(|cx| Preferences::for_tests(homes, cx));
+            *held.borrow_mut() = Some(preferences.clone());
+            Holder(preferences)
+        });
+        let preferences = slot.take().expect("the window builder ran");
+
+        // Every moment the card would have drawn a checking bar.
+        let bars: std::rc::Rc<std::cell::RefCell<Vec<f32>>> = std::rc::Rc::default();
+        let seen = bars.clone();
+        let watched = entry.clone();
+        let _watch = cx.update(|_, cx| {
+            cx.observe(&preferences, move |preferences, cx| {
+                let preferences = preferences.read(cx);
+                let card = crate::models::card(
+                    &watched,
+                    None,
+                    &preferences.model_state("big"),
+                    None,
+                    None,
+                )
+                .checking(preferences.checking_for(&watched));
+                if let crate::models::Availability::Checking { .. } = card.availability {
+                    seen.borrow_mut().extend(card.availability.bar());
+                }
+            })
+        });
+        preferences.update(cx, |preferences, cx| {
+            preferences.catalogue = Manifest {
+                schema: wipemark_models::manifest::SCHEMA_VERSION,
+                models: vec![entry],
+            };
+            assert!(preferences.select_models_dir(Some(models_dir.clone()), cx));
+        });
+        cx.run_until_parked();
+
+        let bars = bars.borrow().clone();
+        assert!(!bars.is_empty(), "no checking bar was ever drawn");
+        assert_eq!(bars.first(), Some(&0.0), "{bars:?}");
+        assert_eq!(bars.last(), Some(&100.0), "{bars:?}");
+        preferences.read_with(cx, |preferences, _| {
+            assert!(preferences.checking.is_none(), "the bar outlived the hash");
+            assert!(matches!(
+                preferences.model_state("big"),
+                State::Present { .. }
+            ));
+        });
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// L4: a scan that panics does not leave `scanning` set — the next
+    /// scan runs and answers.
+    #[gpui::test]
+    fn a_scan_that_panics_does_not_stop_the_next(cx: &mut gpui::TestAppContext) {
+        let root = std::env::temp_dir().join(format!(
+            "wipemark-scan-panics-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let homes = Homes {
+            results: root.join("results"),
+            kept: root.join("kept"),
+        };
+        struct Holder(#[allow(dead_code)] Entity<Preferences>);
+        impl Render for Holder {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        let slot: std::rc::Rc<std::cell::RefCell<Option<Entity<Preferences>>>> =
+            std::rc::Rc::default();
+        let held = slot.clone();
+        let (_, cx) = cx.add_window_view(move |_, cx| {
+            let preferences = cx.new(|cx| Preferences::for_tests(homes, cx));
+            *held.borrow_mut() = Some(preferences.clone());
+            Holder(preferences)
+        });
+        let preferences = slot.take().expect("the window builder ran");
+
+        preferences.update(cx, |preferences, cx| {
+            preferences.models =
+                Arc::new(Downloads::new(root.join("models"), root.join("records")));
+            preferences.scan_panics = true;
+            preferences.look_at_models(cx);
+        });
+        cx.run_until_parked();
+        preferences.update(cx, |preferences, cx| {
+            assert!(!preferences.scanning, "a panicked scan left the flag set");
+            assert!(!preferences.models_scanned());
+            preferences.scan_panics = false;
+            preferences.look_at_models(cx);
+        });
+        cx.run_until_parked();
+        preferences.read_with(cx, |preferences, _| {
+            assert!(!preferences.scanning);
+            assert!(preferences.models_scanned(), "the next scan never answered");
+        });
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D304 (F3): two scans of the models folder asked back to back run
+    /// one after the other and never side by side — the second waits
+    /// for the first and then finds its record — so the one catalogue
+    /// file under the folder is hashed once. On 2026-10-07 three ran at
+    /// once over one twelve-gigabyte file. The file sits two folders
+    /// down under another tool's naming, so the scan is also D302's.
+    #[gpui::test]
+    fn two_scans_asked_back_to_back_hash_a_file_once(cx: &mut gpui::TestAppContext) {
+        const BYTES: &[u8] = b"weights for one scan";
+        const SHA: &str = "0352f0d048e4ebde7dd99dcd2a64670f260cdd9b09482a953eef3d62bb71d5c6";
+        let root = std::env::temp_dir().join(format!(
+            "wipemark-one-scan-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let models_dir = root.join("models");
+        std::fs::create_dir_all(models_dir.join("vendor")).expect("mkdir");
+        std::fs::write(models_dir.join("vendor").join("one.gguf"), BYTES).expect("write");
+        let mut entry = crate::models::catalogue().models[0].clone();
+        entry.id = "one".into();
+        entry.files = vec![wipemark_models::manifest::FileSpec {
+            url: "https://example.com/one.gguf".into(),
+            sha256: Some(SHA.into()),
+            size_bytes: BYTES.len() as u64,
+            variant: None,
+        }];
+        let store = Arc::new(Downloads::new(&models_dir, root.join("records")));
+        let homes = Homes {
+            results: root.join("results"),
+            kept: root.join("kept"),
+        };
+        // Held by a window, as the application holds it: the server's
+        // thread then outlives the test rather than waking it on the way
+        // out.
+        struct Holder(#[allow(dead_code)] Entity<Preferences>);
+        impl Render for Holder {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        let slot: std::rc::Rc<std::cell::RefCell<Option<Entity<Preferences>>>> =
+            std::rc::Rc::default();
+        let held = slot.clone();
+        let (_, cx) = cx.add_window_view(move |_, cx| {
+            let preferences = cx.new(|cx| Preferences::for_tests(homes, cx));
+            *held.borrow_mut() = Some(preferences.clone());
+            Holder(preferences)
+        });
+        let preferences = slot.take().expect("the window builder ran");
+
+        preferences.update(cx, |preferences, cx| {
+            preferences.catalogue = Manifest {
+                schema: wipemark_models::manifest::SCHEMA_VERSION,
+                models: vec![entry],
+            };
+            preferences.models = store.clone();
+            preferences.look_at_models(cx);
+            preferences.look_at_models(cx);
+            assert!(
+                preferences.scanning && preferences.rescan,
+                "the second scan did not wait for the first"
+            );
+        });
+        cx.run_until_parked();
+
+        preferences.read_with(cx, |preferences, _| {
+            assert!(!preferences.scanning && !preferences.rescan);
+            assert!(
+                matches!(preferences.model_state("one"), State::Present { .. }),
+                "{:?}",
+                preferences.model_state("one")
+            );
+            assert_eq!(
+                preferences.model_found_at("one"),
+                Some(Path::new("vendor").join("one.gguf").display().to_string())
+            );
+        });
+        assert_eq!(store.hashes(), 1, "the file was hashed more than once");
+        std::fs::remove_dir_all(&root).ok();
     }
 }

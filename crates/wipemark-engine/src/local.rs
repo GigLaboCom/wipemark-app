@@ -29,22 +29,32 @@
 //! stops at the next piece and a load at the next tensor, and queued jobs
 //! are answered without being run.
 //!
+//! A load tells how far it has got (F1): llama.cpp's per-tensor fraction,
+//! paced to ten reports a second ([`crate::progress::Pacer`]), goes to the
+//! sink [`RewriteEngine::watch_loads`] was given, and the load's end —
+//! loaded, refused or stopped — is told as [`LoadProgress::Ended`].
+//!
 //! Nothing here logs a prompt or a completion — only their lengths.
 
 use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 use wipemark_core::Vendor;
 use wipemark_llama::{estimate, refusal, Finish, LlamaError, LoadParams, Model, Runtime, Sampling};
 
+use crate::progress::Pacer;
 use crate::{
-    ChatRequest, Completion, EngineError, EngineInfo, FinishReason, RewriteEngine, SamplingParams,
-    TokenSink, Unavailable,
+    ChatRequest, Completion, EngineError, EngineInfo, FinishReason, LoadProgress, LoadSink,
+    RewriteEngine, SamplingParams, TokenSink, Unavailable,
 };
+
+/// Where the worker tells how a load is going — set by
+/// [`RewriteEngine::watch_loads`], read by the worker when a load starts.
+type Loads = Arc<Mutex<Option<LoadSink>>>;
 
 /// top-k for every local request. Not a knob yet: `SamplingParams` has no
 /// field for it, and 40 is what the engine this one was carried over from
@@ -96,6 +106,8 @@ pub struct LocalEngine {
     stop: Arc<AtomicBool>,
     /// Joined by `Drop`, so the model is freed before the engine is gone.
     worker: Option<std::thread::JoinHandle<()>>,
+    /// Where loads are told, shared with the worker.
+    loads: Loads,
 }
 
 impl LocalEngine {
@@ -115,9 +127,11 @@ impl LocalEngine {
         let (jobs, inbox) = flume::unbounded::<Job>();
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
+        let loads: Loads = Arc::default();
+        let worker_loads = Arc::clone(&loads);
         let spawned = std::thread::Builder::new()
             .name("wipemark-llama".to_owned())
-            .spawn(move || Worker::new(config, worker_stop).run(&inbox));
+            .spawn(move || Worker::new(config, worker_stop, worker_loads).run(&inbox));
         let worker = match spawned {
             Ok(worker) => Some(worker),
             Err(e) => {
@@ -133,6 +147,7 @@ impl LocalEngine {
             jobs: Some(jobs),
             stop,
             worker,
+            loads,
         }
     }
 
@@ -257,6 +272,11 @@ impl RewriteEngine for LocalEngine {
             let _ = answer.recv_async().await;
         }
     }
+
+    /// Every load from now on tells `sink` how far it has got.
+    fn watch_loads(&self, sink: LoadSink) {
+        *self.loads.lock().unwrap_or_else(PoisonError::into_inner) = Some(sink);
+    }
 }
 
 /// What the worker thread owns.
@@ -265,14 +285,17 @@ struct Worker {
     model: Option<Model>,
     /// The engine's: set when it is dropped.
     stop: Arc<AtomicBool>,
+    /// The engine's: where a load is told.
+    loads: Loads,
 }
 
 impl Worker {
-    fn new(config: LocalConfig, stop: Arc<AtomicBool>) -> Self {
+    fn new(config: LocalConfig, stop: Arc<AtomicBool>, loads: Loads) -> Self {
         Self {
             config,
             model: None,
             stop,
+            loads,
         }
     }
 
@@ -327,7 +350,12 @@ impl Worker {
     /// The model, loading it first if it is not — after the refusals.
     fn loaded(&mut self) -> Result<&mut Model, EngineError> {
         if self.model.is_none() {
-            self.model = Some(load(&self.config, &self.stop)?);
+            let sink = self
+                .loads
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            self.model = Some(load(&self.config, &self.stop, sink.as_ref())?);
         }
         self.model.as_mut().ok_or_else(stopped)
     }
@@ -385,8 +413,13 @@ impl Worker {
 }
 
 /// The refusals, in order, then the load: the file, the memory (when the
-/// caller knows it), the build. `stop` abandons a load under way.
-fn load(config: &LocalConfig, stop: &AtomicBool) -> Result<Model, EngineError> {
+/// caller knows it), the build. `stop` abandons a load under way; `sink`,
+/// when there is one, is told the fraction read, paced, and the end.
+fn load(
+    config: &LocalConfig,
+    stop: &AtomicBool,
+    sink: Option<&LoadSink>,
+) -> Result<Model, EngineError> {
     if !config.weights.is_file() {
         return Err(engine_error(LlamaError::NoSuchFile(config.weights.clone())));
     }
@@ -402,7 +435,26 @@ fn load(config: &LocalConfig, stop: &AtomicBool) -> Result<Model, EngineError> {
             return Err(engine_error(refused));
         }
     }
-    Model::load_unless(&config.weights, config.load.clone(), stop).map_err(engine_error)
+    let Some(sink) = sink else {
+        return Model::load_unless(&config.weights, config.load.clone(), stop)
+            .map_err(engine_error);
+    };
+    let pacer = Mutex::new(Pacer::new());
+    let tell = |fraction: f32| {
+        let admitted = pacer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .admit(std::time::Instant::now(), fraction);
+        if let Some(fraction) = admitted {
+            let _ = sink.send(LoadProgress::Reading(fraction));
+        }
+    };
+    tell(0.0);
+    let loaded = Model::load_watched(&config.weights, config.load.clone(), stop, &tell);
+    // However it ended, it is over: a bar left on screen over a refused or
+    // stopped load would say something is still being read.
+    let _ = sink.send(LoadProgress::Ended);
+    loaded.map_err(engine_error)
 }
 
 /// A request's sampling, as the local engine runs it.
@@ -497,6 +549,31 @@ mod tests {
             Err(EngineError::Unavailable(Unavailable::NotBuilt)) => {}
             other => panic!("a shim warmup must refuse, got {other:?}"),
         }
+    }
+
+    /// F1: a load tells the sink it was given that it started and that it
+    /// is over — here a shim's load, refused for the build, so the bar a
+    /// window shows does not stay up over a load that never read a byte.
+    /// A file that is not there is refused before any load is told.
+    #[cfg(not(feature = "llama-native"))]
+    #[tokio::test]
+    async fn a_load_tells_its_start_and_its_end_even_when_refused() {
+        use crate::LoadProgress;
+        let weights = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let engine = LocalEngine::new(config(weights));
+        let (sink, told) = flume::unbounded();
+        engine.watch_loads(crate::LoadSink::new(sink, 7));
+        assert!(engine.warmup().await.is_err());
+        assert_eq!(
+            told.drain().collect::<Vec<_>>(),
+            [(7, LoadProgress::Reading(0.0)), (7, LoadProgress::Ended)]
+        );
+
+        let missing = LocalEngine::new(config(PathBuf::from("/nonexistent/m.gguf")));
+        let (sink, told) = flume::unbounded();
+        missing.watch_loads(crate::LoadSink::new(sink, 8));
+        assert!(missing.warmup().await.is_err());
+        assert!(told.is_empty(), "a refusal before the load told a load");
     }
 
     #[tokio::test]
