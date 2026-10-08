@@ -5,7 +5,7 @@
 //! table's rules are stated in the parent's module docs ("Rewriting", "The
 //! journal").
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use chrono::TimeZone as _;
@@ -20,7 +20,8 @@ use wipemark_pipeline::prepare::TextFormat;
 use wipemark_pipeline::prompt::{Intensity, Tactic};
 use wipemark_pipeline::{Document, Event, Stage};
 use wipemark_queue::{
-    Destination, End, Failure, ItemId, QueueEvent as BatchEvent, Request, Source, Undelivered,
+    Destination, End, Failure, ItemId, QueueEvent as BatchEvent, Request, Source, State,
+    Undelivered, Whereto,
 };
 use wipemark_store::entry::{Action, Entry, Origin, Phase};
 use wipemark_store::JournalRow;
@@ -45,8 +46,21 @@ const POLL_EVERY: u32 = 10;
 /// One row's rewrite, built off the GPUI thread.
 struct Built {
     id: u64,
-    request: Result<Request, String>,
+    request: Result<Request, Unqueued>,
     price: Option<Price>,
+    /// Where the person agreed the document may go, as the duty stood when
+    /// it was asked for (D361).
+    consent: Option<Whereto>,
+}
+
+/// Why a row's rewrite was not put in the line.
+enum Unqueued {
+    /// A file is already where the result would go — said at once, with
+    /// "Replace the existing result" offered, rather than after the whole
+    /// job (D357).
+    Exists(PathBuf),
+    /// Anything else, by its id.
+    Refused(String),
 }
 
 impl Queue {
@@ -97,15 +111,17 @@ impl Queue {
         })
         .detach();
 
-        // The rows a restart left, read once, as the table opens.
+        // The rows a restart left, read once, as the table opens. The
+        // read is the database's alone; each row's file is looked at after,
+        // on its own (D356).
         let journal = std::sync::Arc::clone(&work.journal);
         cx.spawn(async move |queue, cx| {
-            let (rows, arrivals) = cx
+            let rows = cx
                 .background_executor()
-                .spawn(async move { read(&journal, &HashSet::new()) })
+                .spawn(async move { journal.rows() })
                 .await;
             queue
-                .update(cx, |queue, cx| queue.merge(rows, arrivals, true, cx))
+                .update(cx, |queue, cx| queue.merge(rows, true, cx))
                 .ok();
         })
         .detach();
@@ -149,16 +165,20 @@ impl Queue {
         }
         self.reading = true;
         let journal = std::sync::Arc::clone(&work.journal);
-        let known: HashSet<i64> = self.rows.iter().filter_map(|row| row.entry).collect();
+        // The rows only — a statement on a connection the application
+        // holds, which always returns. The files the new rows name are
+        // looked at afterwards, one task each, so a row whose file will not
+        // answer never holds this read, nor `reading`, nor any other row
+        // (D356).
         cx.spawn(async move |queue, cx| {
-            let (rows, arrivals) = cx
+            let rows = cx
                 .background_executor()
-                .spawn(async move { read(&journal, &known) })
+                .spawn(async move { journal.rows() })
                 .await;
             queue
                 .update(cx, |queue, cx| {
                     queue.reading = false;
-                    queue.merge(rows, arrivals, false, cx);
+                    queue.merge(rows, false, cx);
                     if std::mem::take(&mut queue.read_again) {
                         queue.read_journal(cx);
                     }
@@ -173,13 +193,7 @@ impl Queue {
     /// added — at launch every row, afterwards only another surface's,
     /// because a row of this window's that the writer has not named yet is
     /// on its way already; a row the journal no longer has is gone.
-    fn merge(
-        &mut self,
-        rows: Vec<JournalRow>,
-        mut arrivals: HashMap<i64, Arrival>,
-        initial: bool,
-        cx: &mut Context<Self>,
-    ) {
+    fn merge(&mut self, rows: Vec<JournalRow>, initial: bool, cx: &mut Context<Self>) {
         let present: HashSet<i64> = rows.iter().map(|row| row.id).collect();
         self.rows
             .retain(|row| row.entry.is_none_or(|id| present.contains(&id)));
@@ -209,12 +223,13 @@ impl Queue {
             if let Some(writer) = &self.writer {
                 writer.adopt(id, record.id);
             }
-            let arrival = arrivals.remove(&record.id);
             let arrived_at = chrono::Local
                 .timestamp_millis_opt(record.arrived)
                 .single()
                 .unwrap_or_else(chrono::Local::now);
-            added.push((id, arrival.clone()));
+            if entry.path.is_some() {
+                added.push((id, entry.clone()));
+            }
             self.rows.push(Row {
                 id,
                 entry: Some(record.id),
@@ -224,50 +239,56 @@ impl Queue {
                 price: None,
                 existing: None,
                 keyword: None,
-                arrival,
+                // Filled in by the look below, once the file answers.
+                arrival: None,
                 preview: Preview::None,
                 arrived_at,
                 status: status_of(action, phase, &entry),
             });
         }
-        // The previews of the rows read back with a file behind them, off
-        // this thread, as a drop's are.
-        let pending: Vec<(u64, Arrival)> = added
-            .into_iter()
-            .filter_map(|(id, arrival)| Some((id, arrival?)))
-            .collect();
-        if !pending.is_empty() {
-            for (id, _) in &pending {
-                if let Some(row) = self.rows.iter_mut().find(|row| row.id == *id) {
-                    row.preview = Preview::Pending;
-                }
-            }
-            cx.spawn(async move |queue, cx| {
-                let previews: Vec<(u64, Preview)> = cx
-                    .background_executor()
-                    .spawn(async move {
-                        pending
-                            .iter()
-                            .map(|(id, arrival)| {
-                                (*id, Preview::of(&arrival.handed, &arrival.intake))
-                            })
-                            .collect()
-                    })
-                    .await;
-                queue
-                    .update(cx, |queue, cx| {
-                        for (id, preview) in previews {
-                            if let Some(row) = queue.rows.iter_mut().find(|row| row.id == id) {
-                                row.preview = preview;
-                            }
-                        }
-                        cx.notify();
-                    })
-                    .ok();
-            })
-            .detach();
+        // The files of the rows read back with one behind them, each looked
+        // at on its own, off this thread, as a drop's are: what it is, and
+        // its preview.
+        for (id, entry) in added {
+            self.look_up(id, entry, cx);
         }
         cx.notify();
+    }
+
+    /// Look at the file row `id`'s journal entry names — what it is now and
+    /// its preview — off this thread, as a task of its own (D356). A row
+    /// whose path is gone, or not a regular file, is a row with nothing
+    /// behind it; one whose look never answers stays so, and holds nothing
+    /// else up.
+    fn look_up(&mut self, id: u64, entry: Entry, cx: &Context<Self>) {
+        if let Some(row) = self.rows.iter_mut().find(|row| row.id == id) {
+            row.preview = Preview::Pending;
+        }
+        cx.spawn(async move |queue, cx| {
+            let looked: Option<(Arrival, Preview)> = cx
+                .background_executor()
+                .spawn(async move {
+                    let arrival = journal::arrival_of(&entry)?;
+                    let preview = Preview::of(&arrival.handed, &arrival.intake);
+                    Some((arrival, preview))
+                })
+                .await;
+            queue
+                .update(cx, |queue, cx| {
+                    if let Some(row) = queue.rows.iter_mut().find(|row| row.id == id) {
+                        match looked {
+                            Some((arrival, preview)) => {
+                                row.arrival = Some(arrival);
+                                row.preview = preview;
+                            }
+                            None => row.preview = Preview::None,
+                        }
+                    }
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
     }
 
     /// The batch queue said something.
@@ -318,12 +339,29 @@ impl Queue {
                     }));
                 }
             }
+            // The queue holds to ask (D361): the window asks the person, once.
+            BatchEvent::Ask {
+                now, was, count, ..
+            } => {
+                if let Whereto::Away(host) = &now {
+                    cx.emit(QueueEvent::Consent {
+                        now: now.clone(),
+                        host: host.clone(),
+                        was: match was {
+                            Whereto::Here => None,
+                            Whereto::Away(origin) => Some(origin),
+                        },
+                        count,
+                    });
+                }
+            }
             BatchEvent::Added { .. }
             | BatchEvent::Removed { .. }
             | BatchEvent::Paused
             | BatchEvent::Resumed
             | BatchEvent::Held { .. }
             | BatchEvent::Unheld
+            | BatchEvent::Unasked
             | BatchEvent::Unsaved { .. } => {}
         }
         if self.open_rewrites() == 0 {
@@ -339,14 +377,49 @@ impl Queue {
     }
 
     /// Items in the batch queue that have not ended — every surface's.
+    /// Counted over ids and states alone, no stored result cloned: the
+    /// toolbar asks on every frame (D359).
     fn open_rewrites(&self) -> usize {
         self.work.as_ref().map_or(0, |work| {
             work.queue
-                .items()
+                .states()
                 .iter()
-                .filter(|view| !view.state.is_end())
+                .filter(|(_, state)| !state.is_end())
                 .count()
         })
+    }
+
+    /// Where the duty would send a rewrite now, as an item's consent names
+    /// it (D361): this machine, or the endpoint's origin; `None` with
+    /// nothing on duty.
+    fn whereto(&self, cx: &gpui::App) -> Option<Whereto> {
+        self.preferences.read(cx).duty(Role::Rewrite).performer()?;
+        Some(match self.away(cx) {
+            Some(host) => Whereto::Away(host),
+            None => Whereto::Here,
+        })
+    }
+
+    /// Tell the batch queue where a rewrite would go now, when that moved —
+    /// and ask it to look again, so a question no longer true is dropped
+    /// and a new one is asked (D361).
+    pub(super) fn tell_where(&self, cx: &gpui::App) {
+        let Some(work) = &self.work else {
+            return;
+        };
+        let now = self.whereto(cx);
+        if work.whereto.get() != now {
+            work.whereto.set(now);
+            work.queue.engine_changed();
+        }
+    }
+
+    /// Yes to the question the queue put: the waiting rewrites may go
+    /// `now` (D361).
+    pub fn agree(&self, now: Whereto) {
+        if let Some(work) = &self.work {
+            work.queue.agree(now);
+        }
     }
 
     /// Why nothing could rewrite now, in the duty's own words — the
@@ -484,6 +557,10 @@ impl Queue {
             return;
         };
         let vacant = self.vacancy(cx);
+        // The consent is the duty as it stands while the person asks — a
+        // Rewrite, a Rewrite all whose price said "here" or "sent away", a
+        // drop asked about once (D361).
+        let consent = self.whereto(cx);
         let mut asked = Vec::new();
         for &id in ids {
             let plan_of = |arrival: &Arrival| self.preferences.read(cx).plan_for(&arrival.intake);
@@ -510,9 +587,9 @@ impl Queue {
             let Some(destination) = destination else {
                 continue;
             };
-            asked.push((id, arrival, destination));
+            asked.push((id, arrival, destination, consent.clone()));
         }
-        for (id, _, _) in &asked {
+        for (id, _, _, _) in &asked {
             if let Some(row) = self.rows.iter_mut().find(|row| row.id == *id) {
                 row.status = Status::RewriteQueued;
                 row.existing = None;
@@ -537,21 +614,38 @@ impl Queue {
         let Some(work) = self.work.clone() else {
             return;
         };
-        for Built { id, request, price } in built {
+        for Built {
+            id,
+            request,
+            price,
+            consent,
+        } in built
+        {
             let Some(row) = self.rows.iter_mut().find(|row| row.id == id) else {
                 continue;
             };
-            let pushed = request.and_then(|request| {
+            let reserved = request.and_then(|request| {
                 work.queue
-                    .push(request)
-                    .map_err(|refused| refused.to_string())
+                    .reserve(&request)
+                    .map(|item| (item, request))
+                    .map_err(|refused| Unqueued::Refused(refused.to_string()))
             });
-            match pushed {
-                Ok(item) => {
+            match reserved {
+                Ok((item, request)) => {
                     row.item = Some(item);
                     row.price = price;
-                    if let (Some(writer), Some(arrival)) = (&self.writer, &row.arrival) {
-                        writer.change(
+                    let queue = std::sync::Arc::clone(&work.queue);
+                    let push = move || {
+                        if let Err(refused) = queue.push_reserved(item, request, consent) {
+                            tracing::warn!(%refused, item = item.0, "a rewrite could not be queued");
+                        }
+                    };
+                    // The row says "queued" with its item **before** the item
+                    // is pushed, on the writer's thread, in order: an item
+                    // that ends at once is never set back to queued with no
+                    // end (D358).
+                    match (&self.writer, &row.arrival) {
+                        (Some(writer), Some(arrival)) => writer.queue(
                             id,
                             Written {
                                 origin: row.origin,
@@ -562,10 +656,45 @@ impl Queue {
                                 ended: None,
                                 entry: journal::entry_of(arrival),
                             },
-                        );
+                            push,
+                        ),
+                        _ => push(),
                     }
                 }
-                Err(reason) => {
+                Err(Unqueued::Exists(path)) => {
+                    // Refused at once, as the windows' clean refuses one
+                    // (D261, D357): nothing ran, and Replace is offered.
+                    let outcome = wipemark_store::entry::Outcome {
+                        verdict: "failed".to_owned(),
+                        reason: Some("exists".to_owned()),
+                        ..Default::default()
+                    };
+                    if let (Some(writer), Some(arrival)) = (&self.writer, &row.arrival) {
+                        let mut entry = journal::entry_of(arrival);
+                        entry.outcome = Some(outcome.clone());
+                        entry.result = Some(wipemark_store::entry::Delivered::Nowhere);
+                        writer.change(
+                            id,
+                            Written {
+                                origin: row.origin,
+                                action: Action::Rewrite,
+                                phase: Phase::Failed,
+                                item: None,
+                                arrived: 0,
+                                ended: Some(journal::now_ms()),
+                                entry,
+                            },
+                        );
+                    }
+                    row.existing = Some(path);
+                    row.status = Status::Recorded(Box::new(Said {
+                        action: Action::Rewrite,
+                        phase: Phase::Failed,
+                        outcome: Some(outcome),
+                        result: None,
+                    }));
+                }
+                Err(Unqueued::Refused(reason)) => {
                     tracing::warn!(id, "a rewrite could not be queued");
                     row.status = Status::Recorded(Box::new(Said {
                         action: Action::Rewrite,
@@ -594,7 +723,8 @@ impl Queue {
         }
     }
 
-    /// Whether the person paused the batch queue.
+    /// Whether the person paused the batch queue — the queue's own word,
+    /// kept in memory, never a query (D359).
     pub fn rewrites_paused(&self) -> bool {
         self.work.as_ref().is_some_and(|work| work.queue.paused())
     }
@@ -621,12 +751,15 @@ impl Queue {
 
     /// Remove row `id` from the list and the journal — and its batch queue
     /// item with it, which cancels a rewrite still running and takes a
-    /// result whose only home was the row (В3, В4).
+    /// result whose only home was the row (В3, В4). Not while a clean holds
+    /// it, nor while an agent or the command line waits for its rewrite
+    /// (D355): Cancel ends that, and the caller is told.
     pub fn remove(&mut self, id: u64, cx: &mut Context<Self>) {
         let Some(at) = self.rows.iter().position(|row| row.id == id) else {
             return;
         };
-        if matches!(self.rows[at].status, Status::Queued | Status::Cleaning) {
+        let row = &self.rows[at];
+        if super::why_not_remove(&row.status, row.origin).is_some() {
             return;
         }
         let row = self.rows.remove(at);
@@ -664,10 +797,17 @@ impl Queue {
     /// of how many, and which paragraph of how many — or why it waits.
     pub fn rewrite_line(&self) -> Option<String> {
         let work = self.work.as_ref()?;
-        let items = work.queue.items();
-        let open: Vec<_> = items.iter().filter(|view| !view.state.is_end()).collect();
+        // Ids and states only — this is read on every frame (D359).
+        let states = work.queue.states();
+        let open: Vec<_> = states.iter().filter(|(_, state)| !state.is_end()).collect();
         if open.is_empty() {
             return None;
+        }
+        if let Some(Whereto::Away(host)) = work.queue.asking().map(|asking| asking.now) {
+            return Some(t_args(
+                Message::StatusRewritesAsking,
+                &args!("host" => host),
+            ));
         }
         if let Some(reason) = work.queue.held() {
             return Some(t_args(
@@ -681,12 +821,10 @@ impl Queue {
                 &args!("count" => open.len()),
             ));
         }
-        let running = open
-            .iter()
-            .find(|view| view.state == wipemark_queue::State::Running)?;
+        let (running, _) = open.iter().find(|(_, state)| *state == State::Running)?;
         let current = self.rewrites_done + 1;
         let total = self.rewrites_done + open.len();
-        Some(match self.chunks.get(&running.id) {
+        Some(match self.chunks.get(running) {
             Some((chunk, chunks)) => t_args(
                 Message::StatusRewriting,
                 &args!(
@@ -716,6 +854,13 @@ impl Queue {
                     ));
                 } else if work.queue.paused() {
                     lines.push(t(Message::QueueStatusPausedTooltip));
+                } else if let Some(Whereto::Away(host)) =
+                    work.queue.asking().map(|asking| asking.now)
+                {
+                    lines.push(t_args(
+                        Message::QueueStatusAskingTooltip,
+                        &args!("host" => host),
+                    ));
                 }
             }
         }
@@ -790,24 +935,6 @@ fn refreshed(current: &Status, action: Action, phase: Phase, entry: &Entry) -> O
     }
 }
 
-/// The journal's rows, and the things the new ones name, read again from
-/// their files. Blocking: it reads each new file's head.
-fn read(
-    journal: &journal::Journal,
-    known: &HashSet<i64>,
-) -> (Vec<JournalRow>, HashMap<i64, Arrival>) {
-    let rows = journal.rows();
-    let arrivals = rows
-        .iter()
-        .filter(|row| !known.contains(&row.id))
-        .filter_map(|row| {
-            let entry = Entry::from_json(&row.entry);
-            Some((row.id, journal::arrival_of(&entry)?))
-        })
-        .collect();
-    (rows, arrivals)
-}
-
 /// The format a document is prepared as: Markdown and HTML when intake
 /// says so, plain text for anything else — the CLI's rule.
 pub(super) fn format_of(found: Option<Format>) -> TextFormat {
@@ -836,14 +963,27 @@ fn asked(format: TextFormat) -> Asked {
 
 /// The rows' rewrites, built: the template rows read, a text with no file
 /// read and decoded, each one priced. Blocking.
-fn build(work: &Work, asked_for: Vec<(u64, Arrival, Destination)>) -> Vec<Built> {
+fn build(work: &Work, asked_for: Vec<(u64, Arrival, Destination, Option<Whereto>)>) -> Vec<Built> {
     let (overrides, pivot) = crate::mcp::rewrite::saved_rows(work.journal.store());
     let pace = work.engine.pace();
     let executor = pace.executor.unwrap_or(Executor::LocalCpu);
     let info = work.engine.described().ok();
     asked_for
         .into_iter()
-        .map(|(id, arrival, destination)| {
+        .map(|(id, arrival, destination, consent)| {
+            // A new file where one already is: refused now, before anything
+            // is read or run (D357). The publish still refuses a file that
+            // appears while the job runs (D284).
+            if let Destination::New(path) = &destination {
+                if std::fs::symlink_metadata(path).is_ok() {
+                    return Built {
+                        id,
+                        request: Err(Unqueued::Exists(path.clone())),
+                        price: None,
+                        consent,
+                    };
+                }
+            }
             let format = format_of(arrival.intake.format);
             let options = asked(format).options(executor, overrides.clone(), pivot);
             let text = clean::text_of(&arrival);
@@ -871,9 +1011,9 @@ fn build(work: &Work, asked_for: Vec<(u64, Arrival, Destination)>) -> Vec<Built>
                 _ => None,
             };
             let request = match (options, text) {
-                (Err(_), _) => Err("tactic not offered".to_owned()),
+                (Err(_), _) => Err(Unqueued::Refused("tactic not offered".to_owned())),
                 (Ok(_), Err(_)) if !matches!(arrival.handed, Handed::Path(_)) => {
-                    Err("unreadable".to_owned())
+                    Err(Unqueued::Refused("unreadable".to_owned()))
                 }
                 (Ok(options), text) => Ok(Request {
                     source: match &arrival.handed {
@@ -890,7 +1030,12 @@ fn build(work: &Work, asked_for: Vec<(u64, Arrival, Destination)>) -> Vec<Built>
                     options,
                 }),
             };
-            Built { id, request, price }
+            Built {
+                id,
+                request,
+                price,
+                consent,
+            }
         })
         .collect()
 }

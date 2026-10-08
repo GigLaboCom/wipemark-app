@@ -1317,4 +1317,94 @@ mod tests {
         assert!(text.contains("Connection: close\r\n"));
         assert!(text.ends_with(r#"{"ok":true}"#));
     }
+
+    /// D355 (M1), the command line's road: `wipemark-cli rewrite` through
+    /// the application is a POST that waits for its item. Its row removed
+    /// from the window while it waits, the POST is answered — a refusal
+    /// with `isError`, which the command line says and exits 2 on — rather
+    /// than left open until the client gives up.
+    #[test]
+    fn the_command_lines_call_returns_when_its_row_is_removed() {
+        use crate::mcp::protocol::tests::{swapped, working, PARAGRAPH};
+        let slow = wipemark_engine::fake::FakeEngine::answering(|req, _| swapped(req))
+            .with_token_delay(Duration::from_millis(20));
+        let (services, work) = working(slow);
+        work.queue
+            .push(wipemark_queue::Request {
+                source: wipemark_queue::Source::Text(PARAGRAPH.repeat(3)),
+                format: wipemark_pipeline::prepare::TextFormat::Plain,
+                destination: wipemark_queue::Destination::Row,
+                options: wipemark_pipeline::Options::for_executor(
+                    wipemark_pipeline::cost::Executor::LocalCpu,
+                ),
+            })
+            .expect("pushed");
+        let port = a_port_with_a_free_neighbour();
+        let (server, _) = start_with(
+            Endpoint {
+                bind: BindAddress::LOOPBACK,
+                port,
+            },
+            services,
+        )
+        .expect("a free port");
+
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {
+                "name": "rewrite",
+                "arguments": {"text": PARAGRAPH},
+                "_meta": {"wipemark/origin": "cli", "wipemark/name": "note.md"},
+            },
+        })
+        .to_string();
+        let (answer, answered) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut stream =
+                TcpStream::connect(("127.0.0.1", port)).expect("the server is listening");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(30)))
+                .expect("a deadline");
+            stream
+                .write_all(post(&body, "").as_bytes())
+                .expect("the request went out");
+            let mut reply = String::new();
+            let _ = stream.read_to_string(&mut reply);
+            let _ = answer.send(reply);
+        });
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        let item = loop {
+            let row = work
+                .journal
+                .rows()
+                .into_iter()
+                .find(|row| row.origin == "cli");
+            if let Some(item) = row.and_then(|row| row.item).map(wipemark_queue::ItemId) {
+                if work.queue.states().iter().any(|(id, _)| *id == item) {
+                    break item;
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the call never queued"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        work.queue.remove(item);
+        let reply = answered
+            .recv_timeout(Duration::from_secs(25))
+            .expect("the command line's call was never answered");
+        assert!(reply.starts_with("HTTP/1.1 200 OK"), "{reply}");
+        let json = reply.split_once("\r\n\r\n").expect("a body").1;
+        let response: serde_json::Value = serde_json::from_str(json).expect("JSON");
+        assert_eq!(
+            response["result"]["isError"],
+            serde_json::json!(true),
+            "{response}"
+        );
+        server.stop();
+    }
 }

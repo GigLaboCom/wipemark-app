@@ -926,7 +926,7 @@ toolbar-clean-all = Alles bereinigen
 toolbar-clean-all-tooltip = Jede wartende Zeile bereinigen, die sich bereinigen lässt – eine nach der anderen, in der Reihenfolge ihres Eintreffens. Ausgegraut, solange es keine gibt.
 queue-column-status = Status
 queue-status-waiting = Nicht begonnen
-queue-status-waiting-tooltip = Noch wurde nichts damit angefragt, und nichts geschieht, bis Sie es anfragen: „Bereinigen“ oder „Umschreiben“ im Menü „Aktionen“, oder „Alles bereinigen“ und „Alle umschreiben“ in der Werkzeugleiste. „Einstellungen › Allgemein › Eingang verarbeiten“ kann es beim Eintreffen tun.
+queue-status-waiting-tooltip = Noch wurde nichts damit angefragt, und nichts geschieht, bis Sie es anfragen: „Bereinigen“ oder „Umschreiben“ in seiner Zeile, oder „Alles bereinigen“ und „Alle umschreiben“ in der Werkzeugleiste. „Einstellungen › Allgemein › Eingang verarbeiten“ kann es beim Eintreffen tun.
 queue-status-unable = Nicht bereinigbar
 queue-status-queued = Zum Bereinigen eingereiht
 queue-status-queued-tooltip = Wartet auf die Bereinigung davor: Es wird immer eines nach dem anderen bereinigt, in der verlangten Reihenfolge.
@@ -1146,6 +1146,21 @@ cli-arg-out-rewrite = Ausgabedatei, oder `-` für die Standardausgabe. Standard 
 cli-journal-too-old = Im Journal der Anwendung wurde nichts festgehalten: ihre Datenbank unter { $path } stammt von einer älteren Version, und die Anwendung bringt sie beim nächsten Start auf den neuesten Stand.
 cli-journal-newer = Im Journal der Anwendung wurde nichts festgehalten: ihre Datenbank unter { $path } wurde von einer neueren Version von { -brand-name } geschrieben.
 cli-journal-unwritable = Im Journal der Anwendung wurde nichts festgehalten: in ihre Datenbank unter { $path } konnte nicht geschrieben werden ({ $reason }).
+
+## E4-6b — the host verification's fixes
+queue-action-remove-waited = Ein Agent oder die Kommandozeile wartet auf diese Umschreibung. Brechen Sie sie zuerst ab: Der Aufrufer erfährt es, und danach lässt sich die Zeile entfernen.
+queue-said-rewrite-exists = Unter { $path } liegt schon eine Datei, und eine Umschreibung schreibt nie über eine Datei, die sie nicht selbst angelegt hat. Nichts wurde umgeschrieben; „Vorhandenes Ergebnis ersetzen“ im Menü „Aktionen“ schreibt über genau diese Datei.
+rewrite-consent-title = { $count ->
+        [one] Das wartende Dokument an { $host } senden?
+       *[other] Die { $count } wartenden Dokumente an { $host } senden?
+    }
+rewrite-consent-body-here = Sie wurden angefragt, als das Umschreiben auf diesem Rechner blieb. Zuständig ist jetzt { $host }: Jedes würde zum Umschreiben dorthin gesendet.
+rewrite-consent-body-away = Sie wurden angefragt, als das Umschreiben an { $was } ging. Zuständig ist jetzt { $host }: Jedes würde stattdessen dorthin gesendet.
+rewrite-consent-hold = Nichts beginnt, bevor Sie antworten. „Abbrechen“ lässt sie warten; „Fortsetzen“ in der Werkzeugleiste fragt erneut, ebenso eine andere zuständige Engine.
+rewrite-consent-go = Senden
+status-rewrites-asking = Umschreibungen warten auf Ihre Antwort: an { $host } senden?
+queue-status-asking-tooltip = Wartet auf Ihre Antwort: Die zuständige Engine würde es an { $host } senden, und dorthin sollte es nicht.
+cli-rewritten-exists = { $path } gibt es schon, und eine Umschreibung schreibt nie über eine Datei, die sie nicht selbst angelegt hat. Nennen Sie mit -o eine andere Datei, oder ersetzen Sie die Eingabe selbst mit --in-place, das das Original vorher beiseitelegt. Nichts wurde umgeschrieben.
 
 ## E4-6c
 ##

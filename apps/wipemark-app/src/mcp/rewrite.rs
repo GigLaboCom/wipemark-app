@@ -101,6 +101,7 @@ pub struct Call {
 pub struct Asker {
     pub origin: Origin,
     pub name: Option<String>,
+    /// The path `_meta` named — shown, never opened (D356).
     pub path: Option<String>,
     pub size: Option<u64>,
 }
@@ -121,7 +122,9 @@ impl Asker {
     pub fn entry(&self, text: &str) -> Entry {
         Entry {
             name: self.name.clone(),
-            path: self.path.clone(),
+            // A caller's word, not a file this application recorded: shown
+            // beside the row and never opened (D356).
+            said_path: self.path.clone(),
             kind: Some("text".to_owned()),
             size: self.size.or(Some(text.len() as u64)),
             ..Entry::default()
@@ -181,6 +184,9 @@ pub enum Unrun {
     Pushed(wipemark_queue::Refused),
     /// The item ended as failed for a reason the queue names.
     Queue(&'static str),
+    /// The item was taken out of the queue — its row removed from the
+    /// application's list — before it ended (D355). Nothing was rewritten.
+    Removed,
 }
 
 impl Unrun {
@@ -360,15 +366,16 @@ impl Rewriter {
         // Heard from before the push, so the item's own events are never
         // missed.
         let events = work.queue.subscribe();
-        let item = work
-            .queue
-            .push(Request {
-                source: Source::Text(document.text),
-                format: document.format,
-                destination: Destination::Row,
-                options,
-            })
-            .map_err(Unrun::Pushed)?;
+        let request = Request {
+            source: Source::Text(document.text),
+            format: document.format,
+            destination: Destination::Row,
+            options,
+        };
+        // The item's id first, its row next, the push last: the row names
+        // the item before the item can start, so nothing the bookkeeper
+        // writes of it can land on a row that does not name it yet (D358).
+        let item = work.queue.reserve(&request).map_err(Unrun::Pushed)?;
         let row = if record {
             work.journal.record(&NewRow {
                 origin: asker.origin.as_str(),
@@ -382,6 +389,14 @@ impl Rewriter {
         } else {
             None
         };
+        // The caller asked for this item: it carries no consent of the
+        // window's, and is never asked about again (D361).
+        if let Err(refused) = work.queue.push_reserved(item, request, None) {
+            if let Some(id) = row {
+                work.journal.remove(id);
+            }
+            return Err(Unrun::Pushed(refused));
+        }
         // A hold that was already there says nothing new: ask again, and a
         // refusal that still stands is said afresh.
         if work.queue.held().is_some() {
@@ -399,6 +414,29 @@ impl Rewriter {
         // The answer goes back, and the text with it: the item's row is
         // removed — secure delete — and nothing of the agent's text stays.
         work.queue.remove(item);
+        // Removed before it ended: the row, if the removal left it, ends as
+        // cancelled — never left open for a launch to settle.
+        if let (Some(id), None, Some(Unrun::Removed)) = (row, end.as_ref(), said.as_ref()) {
+            let entry = Entry {
+                outcome: Some(wipemark_store::entry::Outcome {
+                    verdict: "cancelled".to_owned(),
+                    reason: Some("removed".to_owned()),
+                    ..wipemark_store::entry::Outcome::default()
+                }),
+                result: Some(Delivered::Nowhere),
+                ..entry.clone()
+            };
+            work.journal.change_open(
+                id,
+                &Change {
+                    action: Action::Rewrite.as_str(),
+                    state: Phase::Cancelled.as_str(),
+                    item: Some(item.0),
+                    ended: Some(journal::now_ms()),
+                    entry: &entry.to_json(),
+                },
+            );
+        }
         if let (Some(id), Some(end)) = (row, end.as_ref()) {
             let (outcome, delivered) = journal::rewrite_end(end, true);
             let phase = match end {
@@ -472,6 +510,14 @@ impl Rewriter {
                     started.get_or_insert_with(Instant::now);
                 }
                 Ok(QueueEvent::Ended { item: of, end }) if of == item => return (Some(end), said),
+                // The item is gone without an end — its row removed from the
+                // application's list (D355). Nothing more will be said of it:
+                // the call ends here, and says so, rather than waiting for an
+                // end that will never come.
+                Ok(QueueEvent::Removed { item: of }) if of == item => {
+                    tracing::info!(tool = "rewrite", item = item.0, "MCP: the item was removed");
+                    return (None, said.or(Some(Unrun::Removed)));
+                }
                 // Back to waiting — the engine refused part way, and a
                 // hold follows: the item has not started any more.
                 Ok(QueueEvent::Interrupted { item: of }) if of == item => started = None,
@@ -508,9 +554,9 @@ impl Rewriter {
             if started.is_none() {
                 let ahead = work
                     .queue
-                    .items()
+                    .states()
                     .iter()
-                    .filter(|view| view.id < item && !view.state.is_end())
+                    .filter(|(id, state)| *id < item && !state.is_end())
                     .count();
                 if position != Some(ahead) {
                     position = Some(ahead);

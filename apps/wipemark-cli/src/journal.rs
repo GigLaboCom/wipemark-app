@@ -77,10 +77,14 @@ pub(crate) fn now_ms() -> i64 {
 }
 
 /// Open the draft of a run that is to be recorded. `path` is the argument
-/// as typed: `-` is standard input, which has no name and no path.
+/// as typed: `-` is standard input, which has no name and no path — and so
+/// is a path that is not a regular file (D356): `/dev/stdin`, a FIFO, a
+/// `<(…)`, a device. Recorded as a file, the application would open it to
+/// look at the row again, and an open of a FIFO nobody writes to never
+/// returns.
 pub(crate) fn begin(action: Action, path: &str) {
     let mut entry = Entry::default();
-    if path != "-" {
+    if path != "-" && is_a_file(Path::new(path)) {
         let typed = Path::new(path);
         entry.name = typed
             .file_name()
@@ -99,6 +103,32 @@ pub(crate) fn begin(action: Action, path: &str) {
         served_by_app: None,
     };
     DRAFT.with(|slot| *slot.borrow_mut() = Some(draft));
+}
+
+/// Whether `path` names a document's file: a regular file — following a
+/// link, as the read does — and not one of the system's names for a stream
+/// (`/dev/stdin`, `/dev/fd/N`, `/proc/self/fd/N`). Those name *this*
+/// process's descriptors: `/dev/stdin` redirected from a file is a regular
+/// file here and a terminal in the application that reads the row back
+/// (D356).
+pub(crate) fn is_a_file(path: &Path) -> bool {
+    let typed = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    if typed.starts_with("/dev") || typed.starts_with("/proc") {
+        return false;
+    }
+    std::fs::metadata(path).is_ok_and(|meta| meta.is_file())
+}
+
+/// Forget the open draft: the run is not a document's status — a template
+/// refused before anything was sent, on any road (D360).
+pub(crate) fn discard() {
+    DRAFT.with(|slot| slot.borrow_mut().take());
+}
+
+/// Whether a draft is open — what a run that ends now would record.
+#[cfg(test)]
+pub(crate) fn drafted() -> bool {
+    DRAFT.with(|slot| slot.borrow().is_some())
 }
 
 /// Change the open draft — nothing, when the run is not recorded.
@@ -315,7 +345,7 @@ pub(crate) fn rewrite_outcome(report: &serde_json::Value, exit: Exit) -> Outcome
 mod tests {
     use wipemark_store::entry::{Action, Delivered, Phase};
 
-    use super::{begin, closed, note, verdict, Draft, DRAFT};
+    use super::{begin, closed, discard, note, verdict, Draft, DRAFT};
     use crate::Exit;
 
     fn take() -> Draft {
@@ -350,5 +380,49 @@ mod tests {
         assert_eq!(outcome.verdict, "not-cleaned");
         assert_eq!(outcome.reason.as_deref(), Some("write"));
         assert_eq!(entry.result, Some(Delivered::Nowhere));
+    }
+
+    /// D356: a path that is not a regular file is recorded as no file — a
+    /// device here, a FIFO below, `/dev/stdin` the same — so the
+    /// application never opens it to read the row back. A regular file
+    /// keeps its name and its absolute path.
+    #[test]
+    fn a_path_that_is_not_a_regular_file_is_recorded_as_no_file() {
+        begin(Action::Clean, "/dev/null");
+        let draft = take();
+        assert!(draft.entry.path.is_none(), "{:?}", draft.entry);
+        assert!(draft.entry.name.is_none(), "{:?}", draft.entry);
+        // Whatever this process's standard input is — a file under
+        // `cargo test < file` — it is no file of the application's.
+        begin(Action::Clean, "/dev/stdin");
+        assert!(take().entry.path.is_none());
+
+        let dir = std::env::temp_dir().join(format!("wipemark-cli-fifo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let fifo = dir.join("pipe");
+        let _ = std::fs::remove_file(&fifo);
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs");
+        assert!(made.success());
+        begin(Action::Clean, fifo.to_str().expect("utf-8"));
+        assert!(take().entry.path.is_none());
+
+        let file = dir.join("note.md");
+        std::fs::write(&file, "words").expect("write");
+        begin(Action::Clean, file.to_str().expect("utf-8"));
+        let entry = take().entry;
+        assert_eq!(entry.name.as_deref(), Some("note.md"));
+        assert_eq!(entry.path.as_deref(), file.to_str());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D360: a discarded draft is no row.
+    #[test]
+    fn a_discarded_draft_is_gone() {
+        begin(Action::Rewrite, "-");
+        discard();
+        assert!(DRAFT.with(|slot| slot.borrow().is_none()));
     }
 }

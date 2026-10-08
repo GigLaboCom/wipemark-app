@@ -381,7 +381,8 @@ impl Column {
             Column::Process => Some(px(176.0)),
             Column::Format => Some(px(112.0)),
             Column::Size => Some(px(88.0)),
-            Column::Arrived => Some(px(96.0)),
+            // Wide enough for a date before the time (D363).
+            Column::Arrived => Some(px(128.0)),
             Column::Actions => Some(px(64.0)),
         }
     }
@@ -531,6 +532,28 @@ pub fn why_not_rewrite(
     }
 }
 
+/// Why a row's Remove is greyed, or `None` when it is not: a clean holds
+/// the row while it is queued or running, and an agent's or the command
+/// line's rewrite in flight has a caller waiting for it (D355) — Cancel
+/// ends that one and tells the caller; a removal would take the item from
+/// under a call that is still waiting. Pure.
+pub fn why_not_remove(status: &Status, origin: Origin) -> Option<String> {
+    match status {
+        Status::Queued | Status::Cleaning => Some(t(Message::QueueActionCleanBusy)),
+        Status::RewriteQueued | Status::Rewriting(_)
+            if matches!(origin, Origin::Agent | Origin::Cli) =>
+        {
+            Some(t(Message::QueueActionRemoveWaited))
+        }
+        Status::Recorded(said)
+            if !said.phase.is_end() && matches!(origin, Origin::Agent | Origin::Cli) =>
+        {
+            Some(t(Message::QueueActionRemoveWaited))
+        }
+        _ => None,
+    }
+}
+
 /// What a row shows of the thing: from intake for what arrived this
 /// session, from the journal for a row read back.
 #[derive(Debug, Clone, PartialEq)]
@@ -566,7 +589,13 @@ impl Look {
 
     fn of_entry(entry: &Entry) -> Self {
         let kind = journal::kind_of(entry.kind.as_deref());
-        let path = entry.path.as_deref().map(std::path::Path::new);
+        // A path a caller named is shown as a file's would be (D356); it
+        // is only never opened.
+        let path = entry
+            .path
+            .as_deref()
+            .or(entry.said_path.as_deref())
+            .map(std::path::Path::new);
         Self {
             title: entry
                 .name
@@ -744,6 +773,29 @@ pub enum QueueEvent {
     /// the engine on duty is not this machine: the shell asks once before
     /// they are sent to `host` (В1).
     SendAway { ids: Vec<u64>, host: String },
+    /// The batch queue holds to ask (D361): `count` waiting rewrites were
+    /// asked for while rewriting stayed here (`was` `None`) or went to
+    /// `was`, and the engine on duty now would send them to `host`. The
+    /// shell asks once; yes is [`Queue::agree`] with `now`, and anything
+    /// else leaves the queue holding.
+    Consent {
+        now: wipemark_queue::Whereto,
+        host: String,
+        was: Option<String>,
+        count: usize,
+    },
+}
+
+/// When a row arrived, as the Arrived column says it: the time alone for
+/// today, the date before it for any other day — rows live for days
+/// (`journal.keep_days`), and "09:14" of last Tuesday read as this morning
+/// (D363). Pure, over the two instants.
+pub fn arrived_label(at: DateTime<Local>, now: DateTime<Local>) -> String {
+    if at.date_naive() == now.date_naive() {
+        at.format("%H:%M").to_string()
+    } else {
+        at.format("%Y-%m-%d %H:%M").to_string()
+    }
 }
 
 /// The rows, and the drop target that fills them.
@@ -801,6 +853,9 @@ pub struct Queue {
     _cleaned: Subscription,
     /// Dropped with the view: what is typed into the filter bar.
     _typed: [Subscription; 2],
+    /// Dropped with the view: a change of duty tells the batch queue where
+    /// a rewrite would go now (D361).
+    _duty: Subscription,
 }
 
 impl Queue {
@@ -873,7 +928,11 @@ impl Queue {
             },
         );
 
-        Self {
+        // Where a rewrite would go is the preferences' word; the batch queue
+        // checks each waiting item's consent against it (D361).
+        let duty = cx.observe(&preferences, |queue: &mut Self, _, cx| queue.tell_where(cx));
+
+        let queue = Self {
             rows: Vec::new(),
             catcher,
             preferences,
@@ -897,7 +956,10 @@ impl Queue {
             _landed: landed,
             _cleaned: cleaned,
             _typed: [typed_id, typed_keyword],
-        }
+            _duty: duty,
+        };
+        queue.tell_where(cx);
+        queue
     }
 
     /// Hand paths down the road a drop takes — the command line's way
@@ -1644,11 +1706,16 @@ fn status_cell(row: &Row, notes: Vec<String>, held: bool) -> AnyElement {
         Status::Recorded(said) => {
             let (word, badge) =
                 wording::recorded_badge(said.action, said.phase, said.outcome.as_ref());
-            (
-                tag_of(badge),
-                t(word),
-                wording::recorded_said(said.action, said.phase, said.outcome.as_ref()),
-            )
+            let sentence = match &row.existing {
+                // A result already there: which file, and the one way over
+                // it (D357).
+                Some(existing) if said.action == Action::Rewrite => t_args(
+                    Message::QueueSaidRewriteExists,
+                    &args!("path" => existing.display().to_string()),
+                ),
+                _ => wording::recorded_said(said.action, said.phase, said.outcome.as_ref()),
+            };
+            (tag_of(badge), t(word), sentence)
         }
         Status::Queued => (
             Tag::info(),
@@ -1838,8 +1905,9 @@ struct Actions {
     rewrite: Option<String>,
     /// Whether a rewrite is queued or running, to cancel.
     cancel: bool,
-    /// Whether the row can be removed: not while a clean holds it.
-    remove: bool,
+    /// `None` when the row can be removed; otherwise why not — a clean
+    /// holds it, or a caller waits for its rewrite (D355).
+    remove: Option<String>,
     /// The result on disk, for Open the result and Show it in its folder.
     written: Option<PathBuf>,
     /// Whether there is a cleaned text to copy.
@@ -2014,14 +2082,30 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
                         }),
                 )
                 .separator()
-                .item(
-                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionRemove)))
+                .item(match actions.remove.clone() {
+                    None => PopupMenuItem::new(SharedString::from(t(Message::QueueActionRemove)))
                         .icon(IconName::Trash)
-                        .disabled(!actions.remove)
                         .on_click(move |_, _, cx| {
                             removing.update(cx, |queue, cx| queue.remove(id, cx));
                         }),
-                )
+                    // Greyed with its reason under it, as Clean is (D269).
+                    Some(why) => {
+                        let why = SharedString::from(why);
+                        PopupMenuItem::element(move |_, cx| {
+                            v_flex()
+                                .max_w(px(280.0))
+                                .child(SharedString::from(t(Message::QueueActionRemove)))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(why.clone()),
+                                )
+                        })
+                        .icon(IconName::Trash)
+                        .disabled(true)
+                    }
+                })
         })
         .into_any_element()
 }
@@ -2271,9 +2355,10 @@ impl Queue {
                     .cell()
                     .text_sm()
                     .text_color(theme.muted_foreground)
-                    .child(SharedString::from(
-                        row.arrived_at.format("%H:%M").to_string(),
-                    )),
+                    .child(SharedString::from(arrived_label(
+                        row.arrived_at,
+                        Local::now(),
+                    ))),
             )
             .child(
                 Column::Actions.cell().child(actions_cell(
@@ -2288,7 +2373,7 @@ impl Queue {
                         rewrite: self.why_not_rewrite(row.id, cx),
                         cancel: matches!(row.status, Status::RewriteQueued | Status::Rewriting(_))
                             && row.item.is_some(),
-                        remove: !matches!(row.status, Status::Queued | Status::Cleaning),
+                        remove: why_not_remove(&row.status, row.origin),
                         written: row.written(),
                         text: row.outcome().is_some_and(|outcome| outcome.text.is_some())
                             || row.rewritten(self.work.as_ref()).is_some(),
@@ -2479,6 +2564,7 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
+    use chrono::Local;
     use gpui::prelude::*;
     use gpui::{
         div, point, px, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, TestAppContext,
@@ -2486,11 +2572,12 @@ mod tests {
     };
     use wipemark_i18n::{args, t, Message};
     use wipemark_intake::{Handed, Kind};
-    use wipemark_store::entry::Phase;
+    use wipemark_store::entry::{Action, Origin, Phase};
 
     use super::{
-        copy_result, kind_glyph, kind_tag, page_range, pages, row_frame, shown, why_not_clean,
-        Cleanable, Column, Filter, Order, Queue, Status, PAGE_SIZES, ROW,
+        arrived_label, copy_result, kind_glyph, kind_tag, page_range, pages, row_frame, shown,
+        why_not_clean, why_not_remove, Cleanable, Column, Filter, Order, Queue, Said, Status,
+        PAGE_SIZES, ROW,
     };
     use crate::clean::Verdict;
     use crate::retention::{Destination, Homes};
@@ -2584,6 +2671,70 @@ mod tests {
     /// Every kind has a glyph for the row with no picture and a badge
     /// for the Kind column; a match with a wildcard would let a new
     /// kind through with neither.
+    /// D355: Remove is greyed while an agent or the command line waits for
+    /// the row's rewrite — Cancel ends it and tells the caller — and while
+    /// a clean holds the row; a window's own rewrite, and anything that
+    /// ended, can be removed.
+    #[test]
+    fn remove_is_greyed_while_a_caller_waits_for_the_rewrite() {
+        for origin in [Origin::Agent, Origin::Cli] {
+            for status in [
+                Status::RewriteQueued,
+                Status::Rewriting(Some((1, 3))),
+                Status::Recorded(Box::new(Said {
+                    action: Action::Rewrite,
+                    phase: Phase::Running,
+                    outcome: None,
+                    result: None,
+                })),
+            ] {
+                assert_eq!(
+                    why_not_remove(&status, origin),
+                    Some(t(Message::QueueActionRemoveWaited)),
+                    "{origin:?} {status:?}"
+                );
+            }
+        }
+        assert!(why_not_remove(&Status::RewriteQueued, Origin::Window).is_none());
+        assert!(why_not_remove(&Status::Cleaning, Origin::Window).is_some());
+        let ended = Status::Recorded(Box::new(Said {
+            action: Action::Rewrite,
+            phase: Phase::Done,
+            outcome: None,
+            result: None,
+        }));
+        assert!(why_not_remove(&ended, Origin::Agent).is_none());
+    }
+
+    /// D363: today's rows say the time; any other day's say the date too.
+    #[test]
+    fn a_row_from_another_day_says_its_date() {
+        use chrono::TimeZone as _;
+        let now = Local
+            .with_ymd_and_hms(2026, 10, 8, 18, 0, 0)
+            .single()
+            .expect("a time");
+        let morning = Local
+            .with_ymd_and_hms(2026, 10, 8, 9, 14, 0)
+            .single()
+            .expect("a time");
+        let last_week = Local
+            .with_ymd_and_hms(2026, 10, 1, 9, 14, 0)
+            .single()
+            .expect("a time");
+        assert_eq!(arrived_label(morning, now), "09:14");
+        assert_eq!(arrived_label(last_week, now), "2026-10-01 09:14");
+    }
+
+    /// D363: the waiting row's tooltip points at the row's own buttons,
+    /// which are where Clean and Rewrite are first.
+    #[test]
+    fn the_not_started_tooltip_points_at_the_rows_buttons() {
+        let said = t(Message::QueueStatusWaitingTooltip);
+        assert!(!said.contains("Actions menu"), "{said}");
+        assert!(said.contains("on its row"), "{said}");
+    }
+
     #[test]
     fn every_kind_has_a_glyph_and_a_badge() {
         for kind in [

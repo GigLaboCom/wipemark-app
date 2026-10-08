@@ -134,8 +134,12 @@ struct Shell {
     /// A row's Report dialog, while it is open, and its subscription —
     /// an element in this view's own tree, like the walk-through.
     report: Option<(Entity<ReportView>, Subscription)>,
-    /// Rewrite all's price, or "send these away?", while it asks (E4-6b).
+    /// Rewrite all's price, "send these away?", or the queue's question
+    /// about where the waiting rewrites go, while it asks (E4-6b).
     asking: Option<(Entity<dialog::Confirm>, Subscription)>,
+    /// The questions that arrived while one was open, asked in turn after
+    /// it — never one silently put in place of another (D364).
+    waiting: std::collections::VecDeque<Asked>,
     /// Dropped with the view: a change on the clipboard repaints the
     /// toolbar, and the window coming forward looks at it again.
     _clipboard: [Subscription; 2],
@@ -277,10 +281,7 @@ impl Shell {
                         &args!("count" => price.documents),
                     );
                     shell.ask(
-                        title,
-                        price.lines(),
-                        Message::RewritePriceGo,
-                        ids.clone(),
+                        Asked::rewrite(title, price.lines(), Message::RewritePriceGo, ids),
                         window,
                         cx,
                     );
@@ -292,7 +293,49 @@ impl Shell {
                         &args!("count" => ids.len(), "host" => host.clone()),
                     );
                     let body = vec![t(Message::RewriteSendBody)];
-                    shell.ask(title, body, Message::RewriteSendGo, ids.clone(), window, cx);
+                    shell.ask(
+                        Asked::rewrite(title, body, Message::RewriteSendGo, ids),
+                        window,
+                        cx,
+                    );
+                }
+                // The duty moved while rewrites waited: asked again before
+                // any is sent somewhere it was not asked to go (D361). No is
+                // nothing — the queue keeps holding.
+                QueueEvent::Consent {
+                    now,
+                    host,
+                    was,
+                    count,
+                } => {
+                    let title = t_args(
+                        Message::RewriteConsentTitle,
+                        &args!("count" => *count, "host" => host.clone()),
+                    );
+                    let body = vec![
+                        match was {
+                            None => t_args(
+                                Message::RewriteConsentBodyHere,
+                                &args!("host" => host.clone()),
+                            ),
+                            Some(was) => t_args(
+                                Message::RewriteConsentBodyAway,
+                                &args!("host" => host.clone(), "was" => was.clone()),
+                            ),
+                        },
+                        t(Message::RewriteConsentHold),
+                    ];
+                    let now = now.clone();
+                    shell.ask(
+                        Asked {
+                            title,
+                            body,
+                            go: Message::RewriteConsentGo,
+                            yes: Box::new(move |queue, _| queue.agree(now)),
+                        },
+                        window,
+                        cx,
+                    );
                 }
             },
         );
@@ -305,6 +348,7 @@ impl Shell {
             _queue: [working, asked],
             report: None,
             asking: None,
+            waiting: std::collections::VecDeque::new(),
             host,
             _host: loaded,
             preferences,
@@ -341,28 +385,43 @@ impl Shell {
         cx.notify();
     }
 
-    /// Ask before rows `ids` are rewritten — Rewrite all's price, or a drop
-    /// that would be sent away. Yes pushes them; anything else, nothing.
-    fn ask(
-        &mut self,
-        title: String,
-        body: Vec<String>,
-        go: Message,
-        ids: Vec<u64>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// Ask before rows are rewritten — Rewrite all's price, a drop that
+    /// would be sent away, the queue's question about where the waiting
+    /// rewrites go. Yes runs the question's own answer; anything else,
+    /// nothing. A question asked while another is open waits its turn and
+    /// is asked after it (D364).
+    fn ask(&mut self, asked: Asked, window: &mut Window, cx: &mut Context<Self>) {
+        if self.asking.is_some() {
+            self.waiting.push_back(asked);
+            return;
+        }
+        let Asked {
+            title,
+            body,
+            go,
+            yes,
+        } = asked;
         let view = cx.new(|cx| {
             dialog::Confirm::new(title, body, t(go), t(Message::RewriteCancel), window, cx)
         });
         let queue = self.queue.clone();
-        let answered = cx.subscribe(&view, move |shell, _, answer: &dialog::Answer, cx| {
-            if *answer == dialog::Answer::Accepted {
-                queue.update(cx, |queue, cx| queue.rewrite(&ids, cx));
-            }
-            shell.asking = None;
-            cx.notify();
-        });
+        let mut yes = Some(yes);
+        let answered = cx.subscribe_in(
+            &view,
+            window,
+            move |shell, _, answer: &dialog::Answer, window, cx| {
+                if *answer == dialog::Answer::Accepted {
+                    if let Some(yes) = yes.take() {
+                        queue.update(cx, |queue, cx| yes(queue, cx));
+                    }
+                }
+                shell.asking = None;
+                if let Some(next) = shell.waiting.pop_front() {
+                    shell.ask(next, window, cx);
+                }
+                cx.notify();
+            },
+        );
         self.asking = Some((view, answered));
         cx.notify();
     }
@@ -519,6 +578,31 @@ impl Shell {
             return line;
         }
         status_now(&duty, host.loaded(), host.load_progress())
+    }
+}
+
+/// What yes to a question does, to the table.
+type Yes = Box<dyn FnOnce(&mut Queue, &mut Context<Queue>)>;
+
+/// A question the main window asks before rewrites go: its words, and what
+/// yes does (D364).
+struct Asked {
+    title: String,
+    body: Vec<String>,
+    go: Message,
+    yes: Yes,
+}
+
+impl Asked {
+    /// Yes rewrites rows `ids`.
+    fn rewrite(title: String, body: Vec<String>, go: Message, ids: &[u64]) -> Self {
+        let ids = ids.to_vec();
+        Self {
+            title,
+            body,
+            go,
+            yes: Box::new(move |queue, cx| queue.rewrite(&ids, cx)),
+        }
     }
 }
 
@@ -1077,7 +1161,14 @@ fn open_work(
     } else {
         Durability::File(store.path().to_path_buf())
     };
-    let source: Arc<dyn wipemark_queue::EngineSource> = Arc::new(engine.clone());
+    // Where the duty would send a document, as the main window works it
+    // out from the preferences: an item consented to stay here is asked
+    // about before it goes anywhere else (D361).
+    let whereto = journal::Going::default();
+    let source: Arc<dyn wipemark_queue::EngineSource> = Arc::new(journal::Duty {
+        engine: engine.clone(),
+        going: whereto.clone(),
+    });
     let queue = match Queue::with_source(store.clone(), durability, Arc::clone(&source)) {
         Ok(queue) => queue,
         Err(error) => {
@@ -1102,6 +1193,7 @@ fn open_work(
         queue,
         journal: journal::Journal::new(store.clone()),
         engine: engine.clone(),
+        whereto,
     };
     journal::settle_at_launch(&work);
     for item in work.journal.sweep(keep_days, journal::now_ms()) {

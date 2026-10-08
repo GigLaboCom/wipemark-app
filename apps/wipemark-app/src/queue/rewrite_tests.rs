@@ -74,6 +74,7 @@ fn work_over(store: Arc<Store>, engine: Option<FakeEngine>) -> Work {
         queue: Arc::new(queue),
         journal: Journal::new(store),
         engine: handle,
+        whereto: journal::Going::default(),
     };
     journal::keep_books(&work);
     work
@@ -671,5 +672,192 @@ fn process_what_arrives_puts_a_drop_straight_in_a_line(cx: &mut TestAppContext) 
     queue.update(cx, |queue, cx| queue.hand(vec![second], cx));
     until(cx, "the push", |_| !work.queue.items().is_empty());
     assert_eq!(statuses(&queue, cx)[1], "rewrite-queued");
+    work.queue.resume();
+}
+
+// ## The host verification's fixes (D355–D364)
+
+/// D356 (M2): a journal row naming a FIFO — what `clean /dev/stdin` or
+/// `clean <(…)` once left — never blocks the read: it comes back as a row
+/// with nothing behind it, and the row beside it, with a real file, is read
+/// again from its file. Without the check the look opens the FIFO and waits
+/// for a writer that never comes — the read, and this test, hang.
+#[cfg(unix)]
+#[gpui::test]
+fn a_journal_row_naming_a_fifo_never_blocks_the_read(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("fifo-row");
+    let source = scratch.file("a.md", PARAGRAPH.as_bytes());
+    let fifo = scratch.0.join("pipe");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo runs");
+    assert!(made.success());
+    let store = Arc::new(Store::in_memory().expect("memory"));
+    let journal = Journal::new(Arc::clone(&store));
+    for path in [&fifo, &source] {
+        journal.record(&wipemark_store::NewRow {
+            origin: Origin::Cli.as_str(),
+            action: "clean",
+            state: Phase::Done.as_str(),
+            item: None,
+            arrived: 1,
+            ended: Some(journal::now_ms()),
+            entry: &Entry {
+                path: Some(path.to_string_lossy().into_owned()),
+                kind: Some("text".to_owned()),
+                ..Entry::default()
+            }
+            .to_json(),
+        });
+    }
+    let work = work_over(store, Some(swapping()));
+    let (queue, _, cx) = queue_with(cx, &scratch, Some(work));
+    until(cx, "both rows, looked at", |cx| {
+        cx.update(|_, cx| {
+            let queue = queue.read(cx);
+            queue.rows.len() == 2
+                && queue
+                    .rows
+                    .iter()
+                    .all(|row| !matches!(row.preview, crate::preview::Preview::Pending))
+        })
+    });
+    let behind: Vec<bool> = cx.update(|_, cx| {
+        queue
+            .read(cx)
+            .rows
+            .iter()
+            .map(|row| row.arrival.is_some())
+            .collect()
+    });
+    assert_eq!(
+        behind,
+        vec![false, true],
+        "the FIFO is no file; the file is"
+    );
+    assert!(
+        !cx.update(|_, cx| queue.read(cx).reading),
+        "the read never ended"
+    );
+}
+
+/// D357 (M3): Rewrite of a row whose `name.rewritten.ext` is already there
+/// is refused at once — nothing pushed, nothing run — with Replace offered;
+/// Replace then rewrites over that one file.
+#[gpui::test]
+fn a_rewrite_over_an_existing_result_is_refused_before_it_runs(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("rewrite-exists");
+    let source = scratch.file("article.md", PARAGRAPH.as_bytes());
+    let existing = scratch.file("article.rewritten.md", b"somebody's own file");
+    let work = work(swapping());
+    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the refusal", |cx| {
+        status(&queue, cx) == "rewrite-failed"
+    });
+    assert!(work.queue.states().is_empty(), "an item was pushed and run");
+    assert_eq!(
+        cx.update(|_, cx| queue.read(cx).rows[0].existing.clone()),
+        Some(existing.clone())
+    );
+    assert_eq!(
+        std::fs::read(&existing).expect("read"),
+        b"somebody's own file"
+    );
+
+    queue.update(cx, |queue, cx| queue.replace(id, cx));
+    until(cx, "the replacement", |cx| {
+        status(&queue, cx) == "rewritten"
+    });
+    let items = work.queue.items();
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].destination,
+        Some(Destination::File(existing.clone()))
+    );
+    assert_ne!(
+        std::fs::read(&existing).expect("read"),
+        b"somebody's own file"
+    );
+}
+
+/// D358 (L1): the row says "queued" before its item is pushed — with the
+/// journal's writer held still, nothing runs; let go, the item runs and its
+/// end is the row's last word. Pushed before the row was written, the item
+/// ran and ended while the writer was held, the bookkeeper found no row
+/// naming it, and "queued" landed after: a row queued for ever.
+#[gpui::test]
+fn the_queued_row_is_written_before_its_item_can_end(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("queued-first");
+    let work = work(swapping());
+    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    queue.update(cx, |queue, cx| {
+        queue.land(vec![Handed::Text(PARAGRAPH.to_owned())], cx)
+    });
+    until(cx, "the row", |_| work.journal.rows().len() == 1);
+    let id = ids(&queue, cx)[0];
+    let go = cx.update(|_, cx| queue.read(cx).writer.as_ref().expect("a writer").gate());
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    // Long enough for an item pushed at once to have run and ended.
+    let held_until = Instant::now() + Duration::from_millis(1500);
+    while Instant::now() < held_until {
+        cx.executor().advance_clock(super::rewriting::TICK);
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    go.send(()).expect("the writer waits");
+    until(cx, "the row's end", |_| {
+        work.journal.rows()[0].state == Phase::Done.as_str()
+    });
+    // And it stays ended.
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(work.journal.rows()[0].state, Phase::Done.as_str());
+}
+
+/// D359 (L2): what the toolbar and the status bar read on every frame is
+/// the queue's own word, not a query — the paused row changed behind the
+/// queue's back is not what the window says.
+#[gpui::test]
+fn the_window_reads_no_row_to_say_the_queue_is_paused(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("paused-frame");
+    let work = work(swapping());
+    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    let events = work.queue.subscribe();
+    work.queue.pause();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !matches!(
+        events.recv_deadline(deadline).expect("paused"),
+        BatchEvent::Paused
+    ) {}
+    queue.update(cx, |queue, cx| {
+        queue.land(vec![Handed::Text(PARAGRAPH.to_owned())], cx)
+    });
+    until(cx, "the row", |_| work.journal.rows().len() == 1);
+    let id = ids(&queue, cx)[0];
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the item", |_| !work.queue.states().is_empty());
+    let paused_line = |cx: &mut VisualTestContext| {
+        cx.update(|_, cx| {
+            let queue = queue.read(cx);
+            (queue.rewrites_paused(), queue.rewrite_line())
+        })
+    };
+    let (paused, line) = paused_line(cx);
+    assert!(paused);
+    let line = line.expect("a line");
+    work.journal
+        .store()
+        .queue()
+        .set_paused(false)
+        .expect("written behind the queue's back");
+    assert_eq!(
+        paused_line(cx),
+        (true, Some(line)),
+        "the window queried the row"
+    );
     work.queue.resume();
 }
