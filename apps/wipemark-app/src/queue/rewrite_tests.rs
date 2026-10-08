@@ -818,6 +818,40 @@ fn the_queued_row_is_written_before_its_item_can_end(cx: &mut TestAppContext) {
     assert_eq!(work.journal.rows()[0].state, Phase::Done.as_str());
 }
 
+/// D371 (L-a): a row removed after its item's id was reserved and before
+/// the push — which runs later, on the journal writer's thread, here held
+/// still — is never rewritten: the push finds the remove waiting for it, and
+/// no `name.rewritten.ext` is written for a row that is gone.
+#[gpui::test]
+fn a_row_removed_before_its_push_is_never_rewritten(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("removed-before-push");
+    let source = scratch.file("a.md", PARAGRAPH.as_bytes());
+    let work = work(swapping());
+    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    let go = cx.update(|_, cx| queue.read(cx).writer.as_ref().expect("a writer").gate());
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the reserve", |cx| {
+        cx.update(|_, cx| queue.read(cx).rows[0].item.is_some())
+    });
+    queue.update(cx, |queue, cx| queue.remove(id, cx));
+    go.send(()).expect("the writer waits");
+    // Long enough for an item pushed and run to have written its result.
+    let waited_until = Instant::now() + Duration::from_millis(1500);
+    while Instant::now() < waited_until {
+        cx.executor().advance_clock(super::rewriting::TICK);
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        !scratch.0.join("a.rewritten.md").exists(),
+        "a removed row's document was rewritten"
+    );
+    assert!(work.queue.states().is_empty(), "{:?}", work.queue.states());
+}
+
 /// D359 (L2): what the toolbar and the status bar read on every frame is
 /// the queue's own word, not a query — the paused row changed behind the
 /// queue's back is not what the window says.

@@ -98,6 +98,7 @@ use wipemark_engine::{
 use wipemark_i18n::{args, t_args, Message};
 use wipemark_models::manifest::Role;
 use wipemark_pipeline::cost::Executor;
+use wipemark_queue::Whereto;
 use wipemark_secret::Vault;
 
 use crate::duty::{self, LocalOptions, Performer, Remote};
@@ -430,6 +431,10 @@ enum Slot {
 
 struct Shared {
     slot: Mutex<Slot>,
+    /// Where the engine in the slot sends a document (D370) — written with
+    /// the slot, under its lock, and read with it, so an engine handed out
+    /// and the destination said of it are always one slot's.
+    whereto: Mutex<Option<Whereto>>,
     /// Jobs and checks running now, through any handle or the page.
     busy: AtomicUsize,
     events: flume::Sender<Event>,
@@ -529,6 +534,7 @@ impl EngineHandle {
             EngineHandle {
                 shared: Arc::new(Shared {
                     slot: Mutex::new(Slot::Nothing),
+                    whereto: Mutex::new(None),
                     busy: AtomicUsize::new(0),
                     events,
                     loads,
@@ -555,19 +561,41 @@ impl EngineHandle {
             .clone()
     }
 
-    /// Put `slot` in the slot. An engine entering it is told where its
-    /// loads are reported (F1) — here, so that no road into the slot can
-    /// forget to.
+    /// Put `slot` in the slot, where it sends a document said as its own
+    /// engine says it: an endpoint by its remote, a built engine by whether
+    /// it runs on this machine — for a test that puts an engine there by
+    /// hand; [`EngineHost::swap`] says it from the performer.
+    #[cfg(test)]
     fn set(&self, slot: Slot) {
+        let whereto = match &slot {
+            Slot::Keyed { remote, .. } => Some(Performer::Endpoint(remote.clone()).whereto()),
+            Slot::Engine(engine) if engine.info().local => Some(Whereto::Here),
+            Slot::Engine(_) | Slot::Nothing | Slot::Refused(_) => None,
+        };
+        self.set_to(slot, whereto);
+    }
+
+    /// Put `slot` in the slot, with where its engine sends a document. An
+    /// engine entering it is told where its loads are reported (F1) — here,
+    /// so that no road into the slot can forget to.
+    fn set_to(&self, slot: Slot, whereto: Option<Whereto>) {
         let of = self.shared.engines.fetch_add(1, Ordering::SeqCst) + 1;
         if let Slot::Engine(engine) = &slot {
             engine.watch_loads(LoadSink::new(self.shared.loads.clone(), of));
         }
-        *self
-            .shared
-            .slot
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = slot;
+        {
+            let mut held = self
+                .shared
+                .slot
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            *held = slot;
+            *self
+                .shared
+                .whereto
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = whereto;
+        }
         for watcher in self
             .shared
             .watchers
@@ -618,10 +646,34 @@ impl EngineHandle {
     /// the read is not kept — the next check asks the store again, which
     /// is what a keychain unlocked in the meantime needs.
     async fn engine(&self) -> Result<Arc<dyn RewriteEngine>, EngineError> {
-        match self.slot() {
-            Slot::Engine(engine) => Ok(engine),
-            Slot::Refused(why) => Err(EngineError::Unavailable(why)),
-            Slot::Nothing => Err(EngineError::Unavailable(Unavailable::NothingOnDuty)),
+        Ok(self.engine_going().await?.0)
+    }
+
+    /// The slot and where its engine sends a document, read together.
+    fn slot_going(&self) -> (Slot, Option<Whereto>) {
+        let slot = self
+            .shared
+            .slot
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let whereto = self
+            .shared
+            .whereto
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        (slot.clone(), whereto)
+    }
+
+    /// [`EngineHandle::engine`], and where **that** engine sends a
+    /// document — said by the slot it came from, never by what the duty is
+    /// meant to be by now (D370).
+    async fn engine_going(&self) -> Result<(Arc<dyn RewriteEngine>, Option<Whereto>), EngineError> {
+        let (slot, whereto) = self.slot_going();
+        let engine = match slot {
+            Slot::Engine(engine) => engine,
+            Slot::Refused(why) => return Err(EngineError::Unavailable(why)),
+            Slot::Nothing => return Err(EngineError::Unavailable(Unavailable::NothingOnDuty)),
             Slot::Keyed {
                 remote,
                 vault,
@@ -638,9 +690,12 @@ impl EngineHandle {
                     engine.watch_loads(LoadSink::new(self.shared.loads.clone(), of));
                     *slot = Slot::Engine(Arc::clone(&engine));
                 }
-                Ok(engine)
+                // Built for the remote read with `whereto`, whatever the
+                // slot holds by now.
+                engine
             }
-        }
+        };
+        Ok((engine, whereto))
     }
 
     /// Whether there is anything to ask — an engine, or an endpoint whose
@@ -670,11 +725,12 @@ impl EngineHandle {
     /// counted. Otherwise the job is counted busy and announced until the
     /// [`JobEngine`] is dropped, which is when the job's thread ends.
     pub async fn for_job(&self) -> Result<JobEngine, EngineError> {
-        let engine = self.engine().await?;
+        let (engine, whereto) = self.engine_going().await?;
         let info = engine.info();
         Ok(JobEngine {
             engine,
             info,
+            whereto,
             _held: Held::enter(Arc::clone(&self.shared)),
         })
     }
@@ -712,7 +768,18 @@ impl EngineHandle {
 pub struct JobEngine {
     engine: Arc<dyn RewriteEngine>,
     info: EngineInfo,
+    /// Where this engine sends a document — the slot's word when the job
+    /// took it (D370).
+    whereto: Option<Whereto>,
     _held: Held,
+}
+
+impl JobEngine {
+    /// Where this engine sends a document: this machine, or an endpoint's
+    /// origin — `None` only for an engine a test put in the slot by hand.
+    pub fn whereto(&self) -> Option<&Whereto> {
+        self.whereto.as_ref()
+    }
 }
 
 impl std::fmt::Debug for JobEngine {
@@ -758,9 +825,15 @@ impl RewriteEngine for JobEngine {
 /// on the queue's own thread, which may block on a key read; nothing on
 /// duty, or a refusal, is the queue's hold rather than the item's failure.
 impl wipemark_queue::EngineSource for EngineHandle {
-    fn for_item(&self) -> Result<Arc<dyn RewriteEngine>, Unavailable> {
+    /// The engine, and where **it** sends a document (D370): what the
+    /// queue checks an item's consent against — so an engine a deferred
+    /// swap left in the slot is said as what it is.
+    fn for_item(&self) -> Result<wipemark_queue::Handed, Unavailable> {
         match wipemark_pipeline::block_on(self.for_job()) {
-            Ok(job) => Ok(Arc::new(job)),
+            Ok(job) => Ok(wipemark_queue::Handed {
+                whereto: job.whereto().cloned(),
+                engine: Arc::new(job),
+            }),
             Err(EngineError::Unavailable(why)) => Err(why),
             // `for_job` refuses only with `Unavailable` today; anything else
             // is still "no engine for this item", said in the engine's words.
@@ -962,7 +1035,7 @@ impl EngineHost {
             // The engine goes with the slot. The last reference's drop
             // stops the worker and waits for it to free the model, so the
             // process never reaches `exit` under a free (D96, E2-4).
-            host.handle.set(Slot::Nothing);
+            host.handle.set_to(Slot::Nothing, None);
             host.loading = None;
             host.idle = None;
             async {}
@@ -1202,7 +1275,10 @@ impl EngineHost {
                 (built(performer, &reading.options), model)
             }
         };
-        self.handle.set(slot);
+        // Where the engine sends a document is the performer's, put in the
+        // slot with it (D370).
+        let whereto = reading.performer.as_ref().map(Performer::whereto);
+        self.handle.set_to(slot, whereto);
         // Another engine: a rate measured on the last one says nothing
         // about this one.
         self.handle.set_pace(|pace| pace.tokens_per_second = None);
@@ -2028,6 +2104,158 @@ mod tests {
             assert!(Instant::now() < deadline, "the item never let go");
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    /// D370 (M-1): the batch queue checks an item's consent against where
+    /// the engine **it is handed** sends a document, as the handle says it
+    /// from the slot. Endpoint Y's engine is still in the slot — the host
+    /// deferred the swap to this machine while a job was busy — and the
+    /// window's record (`Going`) already says "here": an item consented to
+    /// stay here is asked about, never sent to Y, and the engine is let go
+    /// of so the busy count is back where it was and the deferred swap can
+    /// land. Once this machine's engine is in the slot, the item runs on it.
+    #[test]
+    fn a_consent_is_checked_against_the_engine_the_queue_is_handed() {
+        use std::sync::atomic::AtomicBool;
+
+        use wipemark_queue::{Destination, Durability, Queue, QueueEvent, Request, Source};
+
+        use crate::mcp::protocol::tests::{swapped, PARAGRAPH};
+
+        let telling = |asked: &Arc<AtomicBool>| -> Arc<dyn RewriteEngine> {
+            let asked = Arc::clone(asked);
+            Arc::new(wipemark_engine::fake::FakeEngine::answering(
+                move |req, _| {
+                    asked.store(true, Ordering::SeqCst);
+                    swapped(req)
+                },
+            ))
+        };
+        let y = Whereto::Away("https://y.example.com".to_owned());
+        let y_asked = Arc::new(AtomicBool::new(false));
+        let here_asked = Arc::new(AtomicBool::new(false));
+        let (handle, _inbox) = EngineHandle::new();
+        handle.set_to(Slot::Engine(telling(&y_asked)), Some(y.clone()));
+        // A job on Y still running: the swap to this machine is deferred.
+        let running = block_on(handle.for_job()).expect("Y's engine");
+        assert_eq!(running.whereto(), Some(&y));
+        // The window already says "here".
+        let going = crate::journal::Going::default();
+        going.set(Some(Whereto::Here));
+
+        let queue = Queue::with_source(
+            Arc::new(wipemark_store::Store::in_memory().expect("memory")),
+            Durability::Memory { detail: None },
+            Arc::new(handle.clone()),
+        )
+        .expect("opens");
+        let events = queue.events();
+        let request = Request {
+            source: Source::Text(format!("{PARAGRAPH}\n")),
+            format: wipemark_pipeline::prepare::TextFormat::Plain,
+            destination: Destination::Row,
+            options: wipemark_pipeline::Options::for_executor(Executor::LocalCpu),
+        };
+        let id = queue.reserve(&request).expect("reserved");
+        let item = queue
+            .push_reserved(id, request, going.get())
+            .expect("pushed");
+        let next = || {
+            events
+                .recv_timeout(Duration::from_secs(30))
+                .expect("an event")
+        };
+        loop {
+            match next() {
+                QueueEvent::Ask {
+                    item: asked,
+                    now,
+                    was,
+                    ..
+                } => {
+                    assert_eq!((asked, &now, &was), (item, &y, &Whereto::Here));
+                    break;
+                }
+                QueueEvent::Started { .. } => {
+                    panic!("an item consented to stay here started on the endpoint's engine")
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(
+            handle.busy(),
+            1,
+            "the item kept the engine it was asked about"
+        );
+        assert!(!y_asked.load(Ordering::SeqCst));
+
+        // The job on Y ends and the deferred swap lands.
+        drop(running);
+        handle.set_to(Slot::Engine(telling(&here_asked)), Some(Whereto::Here));
+        queue.engine_changed();
+        loop {
+            if let QueueEvent::Ended { item: ended, .. } = next() {
+                assert_eq!(ended, item);
+                break;
+            }
+        }
+        assert!(here_asked.load(Ordering::SeqCst));
+        assert!(
+            !y_asked.load(Ordering::SeqCst),
+            "a document consented to stay here went to the endpoint"
+        );
+    }
+
+    /// D370: the slot says where its engine sends a document as the
+    /// performer the host built it for — away to an endpoint's origin, here
+    /// for an endpoint on loopback — and says it again with the next swap.
+    #[gpui::test]
+    fn the_slot_says_where_its_engine_sends_a_document(cx: &mut gpui::TestAppContext) {
+        let endpoint = |origin: &str, on_this_machine: bool| Reading {
+            performer: Some(Performer::Endpoint(Remote {
+                profile: None,
+                provider: crate::engine::Provider::OpenAiCompatible,
+                endpoint: format!("{origin}/v1/chat/completions"),
+                origin: origin.to_owned(),
+                model: "m".to_owned(),
+                temperature: 0.9,
+                reasoning: crate::engine::ReasoningEffort::None,
+                timeout: 120,
+                account: Some(origin.to_owned()),
+                on_this_machine,
+            })),
+            options: LocalOptions::default(),
+            policy: LocalPolicy::default(),
+            known: true,
+            key_saves: 0,
+        };
+        let vault = Arc::new(Vault::in_memory("com.GigLabo.wipemark.test"));
+        let (handle, inbox) = EngineHandle::new();
+        let host = cx.new(|cx| EngineHost::listening(handle.clone(), inbox, vault, cx));
+        host.update(cx, |host, cx| {
+            host.preferences_moved(endpoint("https://api.example.com", false), cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            handle.slot_going().1,
+            Some(Whereto::Away("https://api.example.com".to_owned()))
+        );
+        host.update(cx, |host, cx| {
+            host.preferences_moved(endpoint("http://127.0.0.1:11434", true), cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(handle.slot_going().1, Some(Whereto::Here));
+        host.update(cx, |host, cx| {
+            host.preferences_moved(
+                Reading {
+                    performer: None,
+                    ..endpoint("https://api.example.com", false)
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        assert_eq!(handle.slot_going().1, None);
     }
 
     /// Every refusal, and a match that stops compiling the day a variant

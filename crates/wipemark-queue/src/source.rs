@@ -17,15 +17,40 @@ use wipemark_engine::{RewriteEngine, Unavailable};
 /// An `Err` is not a failure of the item: the queue holds with the reason
 /// and waits for [`crate::Queue::engine_changed`].
 pub trait EngineSource: Send + Sync {
-    fn for_item(&self) -> Result<Arc<dyn RewriteEngine>, Unavailable>;
+    /// The engine for the item starting now, and where **that engine**
+    /// sends a document — read together, from the one place the engine
+    /// comes from, so what an item's consent is checked against is the
+    /// engine's own destination and never a record of where the duty was
+    /// meant to be by then (D361, D370).
+    fn for_item(&self) -> Result<Handed, Unavailable>;
+}
 
-    /// Where an engine handed out **now** would send a document — this
-    /// machine, or an endpoint's origin — without building one, reading a
-    /// key or loading anything; `None` when the source cannot say (nothing
-    /// on duty, or a source that never sends anything away). What an item's
-    /// consent is checked against before it starts (D361). Never blocks.
-    fn whereto(&self) -> Option<Whereto> {
-        None
+/// An engine handed out for one item, with where it sends a document.
+pub struct Handed {
+    pub engine: Arc<dyn RewriteEngine>,
+    /// Where this engine sends a document: this machine, or an endpoint's
+    /// origin. `None` when the source cannot say — one engine a caller
+    /// chose ([`Fixed`]) — and then nothing is asked about: whoever built
+    /// the queue on it chose where a document goes.
+    pub whereto: Option<Whereto>,
+}
+
+impl Handed {
+    /// An engine whose destination the source does not say.
+    pub fn unsaid(engine: Arc<dyn RewriteEngine>) -> Handed {
+        Handed {
+            engine,
+            whereto: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for Handed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Handed")
+            .field("whereto", &self.whereto)
+            .finish_non_exhaustive()
     }
 }
 
@@ -68,7 +93,7 @@ impl Whereto {
 pub struct Fixed(pub Arc<dyn RewriteEngine>);
 
 impl EngineSource for Fixed {
-    fn for_item(&self) -> Result<Arc<dyn RewriteEngine>, Unavailable> {
-        Ok(Arc::clone(&self.0))
+    fn for_item(&self) -> Result<Handed, Unavailable> {
+        Ok(Handed::unsaid(Arc::clone(&self.0)))
     }
 }

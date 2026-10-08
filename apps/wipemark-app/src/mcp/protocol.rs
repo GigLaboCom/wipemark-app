@@ -1552,7 +1552,7 @@ fn render(response: &Value) -> String {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+pub(crate) mod tests {
     use wipemark_engine::fake::FakeEngine;
 
     use super::*;

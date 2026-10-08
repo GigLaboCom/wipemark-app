@@ -7,7 +7,7 @@
 //! whichever speaks. Every decided chunk is a row the moment its event
 //! arrives, which is the whole of surviving a `kill -9`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -24,7 +24,7 @@ use wipemark_store::Store;
 use crate::deliver::{self, Undelivered, Written};
 use crate::item::{self, Destination, ItemId, Request, Source, State, Unusable};
 use crate::read::{self, Unread};
-use crate::source::{EngineSource, Whereto};
+use crate::source::{EngineSource, Handed, Whereto};
 use crate::{Asking, Done, End, Failure, ItemView, QueueEvent, Shown};
 
 /// How long a shut-down waits for the running job to say it stopped. A
@@ -34,6 +34,9 @@ const WIND_DOWN: Duration = Duration::from_secs(30);
 
 /// What the handle asks.
 pub(crate) enum Command {
+    /// An id was handed out by `Queue::reserve`: a Cancel or a Remove that
+    /// reaches the thread before its Push is kept for it (D371).
+    Reserve(ItemId),
     Push(ItemId, Box<Request>, Option<Whereto>),
     Pause,
     Resume,
@@ -97,6 +100,12 @@ enum Stop {
     Shutdown,
 }
 
+/// A yes to a question (D361), and what it covered (D372).
+struct Agreed {
+    now: Whereto,
+    items: BTreeSet<ItemId>,
+}
+
 struct Current {
     item: ItemId,
     handle: JobHandle,
@@ -119,9 +128,13 @@ pub(crate) struct Worker {
     /// Where each item's pusher agreed its document may go (D361); an item
     /// absent here was asked for by its caller and is never asked about.
     consents: BTreeMap<ItemId, Whereto>,
-    /// Where the person said yes to, last asked — items consented to
-    /// anything else may go there too.
-    agreed: Option<Whereto>,
+    /// Where the person said yes to, last asked, and the items the answer
+    /// was for — those waiting then on the same question (D372). An item
+    /// pushed afterwards is not covered by it.
+    agreed: Option<Agreed>,
+    /// Ids reserved and not pushed yet, with a Cancel or a Remove that
+    /// arrived for one before its Push (D371).
+    reserved: BTreeMap<ItemId, Option<Stop>>,
     paused: bool,
     last: i64,
     current: Option<Current>,
@@ -186,6 +199,7 @@ impl Worker {
             requests,
             consents,
             agreed: None,
+            reserved: BTreeMap::new(),
             paused,
             last,
             current: None,
@@ -234,7 +248,31 @@ impl Worker {
 
     fn command(&mut self, command: Command) {
         match command {
-            Command::Push(id, request, consent) => self.push(id, *request, consent),
+            Command::Reserve(id) => {
+                self.reserved.insert(id, None);
+            }
+            Command::Push(id, request, consent) => match self.reserved.remove(&id).flatten() {
+                // Removed between its reserve and its push: it never runs,
+                // and the view the handle showed goes (D371).
+                Some(Stop::Remove) => {
+                    self.shown
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .retain(|view| view.id != id);
+                    tracing::info!(
+                        item = id.0,
+                        "an item removed before it was pushed is dropped"
+                    );
+                    self.say(QueueEvent::Removed { item: id });
+                }
+                // Cancelled between the two: stored, and ended as cancelled
+                // before it can start (D371).
+                Some(Stop::Cancel) => {
+                    self.push(id, *request, consent);
+                    self.end(id, End::Cancelled, &json!({"end": "cancelled"}));
+                }
+                _ => self.push(id, *request, consent),
+            },
             Command::Pause => {
                 if self.paused {
                     return;
@@ -264,6 +302,12 @@ impl Worker {
                 self.say(QueueEvent::Resumed);
             }
             Command::Cancel(id) => {
+                if let Some(stop) = self.reserved.get_mut(&id) {
+                    if *stop != Some(Stop::Remove) {
+                        *stop = Some(Stop::Cancel);
+                    }
+                    return;
+                }
                 self.unask_about(id);
                 if let Some(current) = self.current.as_mut().filter(|c| c.item == id) {
                     current.stop = Some(Stop::Cancel);
@@ -273,6 +317,10 @@ impl Worker {
                 }
             }
             Command::Remove(id) => {
+                if let Some(stop) = self.reserved.get_mut(&id) {
+                    *stop = Some(Stop::Remove);
+                    return;
+                }
                 self.unask_about(id);
                 if let Some(current) = self.current.as_mut().filter(|c| c.item == id) {
                     current.stop = Some(Stop::Remove);
@@ -299,7 +347,11 @@ impl Worker {
                     tracing::info!(
                         "the waiting rewrites may go where the engine on duty sends them"
                     );
-                    self.agreed = Some(now);
+                    // The items the question was for, and no others: one
+                    // pushed later was consented to somewhere by its own
+                    // push, and is asked about on its own (D372).
+                    let items = self.asked_about(&now);
+                    self.agreed = Some(Agreed { now, items });
                     self.unask();
                 }
             }
@@ -362,19 +414,25 @@ impl Worker {
             }
             None => return,
         };
-        // Where it would go, before anything else: an item consented to stay
-        // here, or to go to another endpoint, is not sent away on the
-        // strength of a consent given to something else (D361). Asked once;
-        // the queue holds until the answer.
-        if let Some(asking) = self.question_for(id) {
-            return self.ask(asking);
-        }
         // The engine first, before the source is read: an item that cannot
         // run waits with the queue held, and a file is read once it can.
-        let engine = match self.source.for_item() {
-            Ok(engine) => engine,
+        let Handed { engine, whereto } = match self.source.for_item() {
+            Ok(handed) => handed,
             Err(reason) => return self.hold(reason),
         };
+        // Where **this engine** would send it, before anything is read or
+        // sent: an item consented to stay here, or to go to another
+        // endpoint, is not sent away on the strength of a consent given to
+        // something else (D361) — and the destination is the engine's own,
+        // never what the duty was meant to be by now: a swap the engine
+        // host deferred leaves the old engine in the slot (D370). On a
+        // question the engine is let go of at once, so the host sees nothing
+        // running and the deferred swap can land; asked once, the queue
+        // holds until the answer.
+        if let Some(asking) = self.question_for(id, whereto.as_ref()) {
+            drop(engine);
+            return self.ask(asking);
+        }
         let (text, encoding) = match &request.source {
             Source::File(path) => match read::file(path) {
                 Ok(read) => (read.text, read.encoding),
@@ -692,28 +750,41 @@ impl Worker {
             .is_some()
     }
 
-    /// The question item `id` raises before it starts, if any: it was
-    /// consented to go somewhere, the engine on duty would send it away to
-    /// somewhere else, and the person has not said yes to that.
-    fn question_for(&self, id: ItemId) -> Option<Asking> {
+    /// The question item `id` raises before it starts on an engine that
+    /// sends a document to `now`, if any: it was consented to go somewhere,
+    /// the engine would send it away to somewhere else, and the person has
+    /// not said yes to that for this item.
+    fn question_for(&self, id: ItemId, now: Option<&Whereto>) -> Option<Asking> {
         let was = self.consents.get(&id)?;
-        let now = self.source.whereto()?;
-        if now == Whereto::Here || &now == was || self.agreed.as_ref() == Some(&now) {
+        let now = now?;
+        if *now == Whereto::Here || now == was {
             return None;
         }
-        let count = self
-            .consents
-            .iter()
-            .filter(|(item, consent)| {
-                *consent != &now && self.state_of(**item) == Some(State::Queued)
-            })
-            .count();
+        let agreed = self
+            .agreed
+            .as_ref()
+            .is_some_and(|agreed| &agreed.now == now && agreed.items.contains(&id));
+        if agreed {
+            return None;
+        }
         Some(Asking {
             item: id,
-            now,
+            now: now.clone(),
             was: was.clone(),
-            count,
+            count: self.asked_about(now).len(),
         })
+    }
+
+    /// The waiting items a question about `now` is for: every one consented
+    /// to somewhere else.
+    fn asked_about(&self, now: &Whereto) -> BTreeSet<ItemId> {
+        self.consents
+            .iter()
+            .filter(|(item, consent)| {
+                *consent != now && self.state_of(**item) == Some(State::Queued)
+            })
+            .map(|(item, _)| *item)
+            .collect()
     }
 
     /// Hold the queue to ask — said once per question.

@@ -393,16 +393,18 @@ impl Queue {
     /// it (D361): this machine, or the endpoint's origin; `None` with
     /// nothing on duty.
     fn whereto(&self, cx: &gpui::App) -> Option<Whereto> {
-        self.preferences.read(cx).duty(Role::Rewrite).performer()?;
-        Some(match self.away(cx) {
-            Some(host) => Whereto::Away(host),
-            None => Whereto::Here,
-        })
+        self.preferences
+            .read(cx)
+            .duty(Role::Rewrite)
+            .performer()
+            .map(Performer::whereto)
     }
 
     /// Tell the batch queue where a rewrite would go now, when that moved —
     /// and ask it to look again, so a question no longer true is dropped
-    /// and a new one is asked (D361).
+    /// and a new one is asked (D361). What the queue checks a consent
+    /// against is the engine it is handed, never this record (D370): this
+    /// only words the window and wakes the queue.
     pub(super) fn tell_where(&self, cx: &gpui::App) {
         let Some(work) = &self.work else {
             return;
