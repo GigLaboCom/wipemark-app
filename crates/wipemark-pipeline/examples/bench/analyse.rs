@@ -534,7 +534,7 @@ pub fn main(args: &Args) {
             }
         }
         let mut sorted: Vec<_> = reasons.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted.sort_by_key(|entry| std::cmp::Reverse(entry.1));
         for (reason, n) in sorted {
             let _ = writeln!(md, "| {model} | {reason} | {n} | {} |", pct(n, rs.len()));
             reasons_out.push(json!({"model": model, "reason": reason, "n": n, "of": rs.len()}));

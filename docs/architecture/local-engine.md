@@ -558,6 +558,52 @@ the whole process (the window included), and it says so ("Wipemark holds
 …"). VRAM is not shown: no backend this build links reports it, and an
 unknown is not a number.
 
+### A load, as it goes (D305)
+
+A load is seconds to tens of seconds — Qwen3.8 27B 4.6–21 s from the
+page cache — and until 2026-10-07 the Check, a resident load and a job's
+first load showed nothing until it ended. llama.cpp reports the fraction
+read once per tensor through `progress_callback`; that callback
+(`wipemark_llama::ffi::keep_loading`) now hands it to a closure as well
+as reading the stop flag — `Model::load_watched`, with `load_unless` the
+same call with nothing listening — and catches a panic in the closure,
+because unwinding out of an `extern "C"` function aborts. Up from there:
+
+* `LocalEngine` tells a `LoadSink` (`RewriteEngine::watch_loads`, a
+  `flume` sender of `LoadProgress`) **every** load it makes — a warmup,
+  or the one the first request makes. `Reading(0.0)` before llama.cpp is
+  called, the fractions through `progress::Pacer` — the first, one per
+  100 ms, the end of the read, never one that goes backwards — and
+  `Ended` when the load is over, loaded, refused or stopped, so a bar
+  never stays up over a load that failed. A refusal before the load (no
+  file, too big) tells nothing. Cancelling works as before: the stop
+  flag is still read between tensors, and a stopped load ends with
+  `Ended`.
+* `EngineHandle::set` hands the host's sink to whatever engine enters
+  the slot — the one road in, so no swap can forget it — and the host
+  keeps `load_progress()`, repainting only when the whole percent moves.
+  It does not depend on `Loaded`: a Check's or a job's load is not the
+  policy's (`Loaded` may say "not loaded" while it reads), and the bar
+  says what is happening. Every engine that enters the slot is numbered
+  and its `LoadSink` carries the number; a report from an engine the slot
+  has let go of — an abandoned load's late `Ended` — is ignored, so it
+  cannot clear the next engine's bar (the host verification's L6,
+  `an_abandoned_loads_end_does_not_clear_the_next_ones_bar`).
+* The **Engine page** puts a bar and "Loading *model* — *n* % read…" in
+  place of the state line while it reads; the **Models** card of the
+  model on duty does the same under its name; the **status bar** says
+  "Loading *model* — *n* %". The sentences are the catalogue's in every
+  language (`settings-engine-local-loading-progress`,
+  `settings-models-loading`, `status-local-loading-progress`).
+
+The gates: `a_report_per_tensor_is_paced` (the pacer),
+`a_load_tells_its_start_and_its_end_even_when_refused` (the shim's load,
+under `local-llama`), `a_load_tells_the_host_how_far_it_has_got` (a test
+double's load through `EngineHandle::set` to the host — red with the
+forwarding deleted), `a_bar_is_drawn_while_a_model_loads_and_none_after`
+and the status bar's test. A real load's fractions are seen only with a
+model: the live gate does not assert them.
+
 ### Deferred
 
 * **Memory-pressure unloading** (D51's last clause): a macOS dispatch

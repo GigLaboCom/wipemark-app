@@ -612,74 +612,82 @@ pub enum Registration {
     Unset,
     /// The desktop delivers it.
     #[cfg_attr(
-        not(target_os = "macos"),
+        not(any(target_os = "macos", target_os = "linux")),
         allow(
             dead_code,
-            reason = "only the macOS registrar asks the desktop; elsewhere every \
+            reason = "only the macOS and Linux registrars ask the desktop; elsewhere every \
                       answer is `Unset` or `Unavailable` (E10)"
         )
     )]
     Registered,
     /// The desktop refused, in its own words.
     #[cfg_attr(
-        not(target_os = "macos"),
+        not(any(target_os = "macos", target_os = "linux")),
         allow(
             dead_code,
-            reason = "only the macOS registrar asks the desktop; elsewhere every \
+            reason = "only the macOS and Linux registrars ask the desktop; elsewhere every \
                       answer is `Unset` or `Unavailable` (E10)"
         )
     )]
     Refused(String),
-    /// This build cannot register one on this platform. E10.
+    /// This build cannot register one here: Windows (E10), or a Linux session that is not X11 (D346).
     Unavailable,
 }
 
-/// The live registrations, and the channel a press comes back on.
-///
-/// Owned by `main`, which registers what is stored, follows every
-/// change to the preference, and performs the [`Action`] a press names
-/// — the same arrangement as the tray, for the same reason: the
-/// callback the desktop calls has no `&mut App` in scope and no way to
-/// be given one, so it sends, and the acting happens on the GPUI side.
-#[cfg(target_os = "macos")]
-pub struct Registrar {
-    manager: global_hotkey::GlobalHotKeyManager,
-    /// What is registered now, per action, so a change can unregister
-    /// the old chord before the new one goes in.
-    live: std::collections::BTreeMap<Action, global_hotkey::hotkey::HotKey>,
-    /// Which action a registration id belongs to, shared with the
-    /// event handler, which knows nothing but the id.
-    ids: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, Action>>>,
-    presses: flume::Receiver<Action>,
+/// One registration asked for, and one answer.
+pub type Answer = (Action, Registration);
+
+/// What a registrar asks of the desktop: `global-hotkey`'s manager, or a
+/// test's double.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub trait Desktop {
+    /// Grab `hotkey`, or say why not.
+    fn register(&self, hotkey: global_hotkey::hotkey::HotKey) -> Result<(), String>;
+    /// Let `hotkey` go, or say why not.
+    fn unregister(&self, hotkey: global_hotkey::hotkey::HotKey) -> Result<(), String>;
 }
 
-/// There is no registrar on this platform, and the type says so:
-/// [`install`] returns `None`, nothing constructs one, and the call
-/// sites in `main` still compile.
-#[cfg(not(target_os = "macos"))]
-pub enum Registrar {}
-
-#[cfg(target_os = "macos")]
-impl Registrar {
-    /// A receiver for the presses. Cheap to clone; `main` takes one and
-    /// polls it from `cx.spawn`.
-    pub fn presses(&self) -> flume::Receiver<Action> {
-        self.presses.clone()
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+impl Desktop for global_hotkey::GlobalHotKeyManager {
+    fn register(&self, hotkey: global_hotkey::hotkey::HotKey) -> Result<(), String> {
+        global_hotkey::GlobalHotKeyManager::register(self, hotkey).map_err(|e| e.to_string())
     }
 
+    fn unregister(&self, hotkey: global_hotkey::hotkey::HotKey) -> Result<(), String> {
+        global_hotkey::GlobalHotKeyManager::unregister(self, hotkey).map_err(|e| e.to_string())
+    }
+}
+
+/// Which action a registration id belongs to, shared with the event
+/// handler, which knows nothing but the id.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+type Ids = std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, Action>>>;
+
+/// The registrations themselves, over a [`Desktop`]: what is registered
+/// now per action, so a change can release the old chord before the new
+/// one goes in.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+struct Assigner<D> {
+    desktop: D,
+    live: std::collections::BTreeMap<Action, global_hotkey::hotkey::HotKey>,
+    ids: Ids,
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+impl<D: Desktop> Assigner<D> {
     /// Ask the desktop for `chord` on behalf of `action`, releasing
     /// whatever the action held before, and say what happened.
     ///
     /// The old chord goes first, whatever the new one turns out to be:
     /// a change of mind that leaves the previous chord registered is a
     /// shortcut that fires on a key the row no longer shows.
-    pub fn assign(&mut self, action: Action, chord: Option<Hotkey>) -> Registration {
+    fn assign(&mut self, action: Action, chord: Option<Hotkey>) -> Registration {
         if let Some(previous) = self.live.remove(&action) {
             self.ids
                 .lock()
                 .expect("registration ids")
                 .remove(&previous.id());
-            if let Err(error) = self.manager.unregister(previous) {
+            if let Err(error) = self.desktop.unregister(previous) {
                 tracing::warn!(?action, %error, "could not release the previous shortcut");
             }
         }
@@ -696,7 +704,7 @@ impl Registrar {
                 // is green. Reported rather than panicked on, because
                 // the row that got here is a row on disk.
                 tracing::error!(?action, chord = %spelled, %error, "a stored shortcut the registrar cannot read");
-                return Registration::Refused(error.to_string());
+                return Registration::Refused(format!("{error}"));
             }
         };
 
@@ -704,7 +712,7 @@ impl Registrar {
             .lock()
             .expect("registration ids")
             .insert(parsed.id(), action);
-        match self.manager.register(parsed) {
+        match self.desktop.register(parsed) {
             Ok(()) => {
                 self.live.insert(action, parsed);
                 tracing::info!(?action, chord = %spelled, "shortcut registered");
@@ -716,23 +724,158 @@ impl Registrar {
                     .expect("registration ids")
                     .remove(&parsed.id());
                 tracing::warn!(?action, chord = %spelled, %error, "the desktop refused the shortcut");
-                Registration::Refused(error.to_string())
+                Registration::Refused(error)
             }
         }
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+/// How a request reaches the desktop.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+enum Road {
+    /// A thread of the registrar's own, fed by a channel (B1). On X11
+    /// `register` and `unregister` hand the request to `global-hotkey`'s
+    /// thread and wait for its answer — up to a 50 ms poll plus the X
+    /// round trips — and the GPUI thread must not be the one waiting.
+    /// One thread, one queue: requests are performed in the order they
+    /// were asked, so a chord is still released before its replacement
+    /// is asked for.
+    #[cfg_attr(
+        target_os = "macos",
+        allow(
+            dead_code,
+            reason = "macOS asks on the main thread (`Road::Here`); its tests drive this road"
+        )
+    )]
+    Thread(flume::Sender<(Action, Option<Hotkey>)>),
+    /// On the calling thread. macOS's registrar is Carbon's
+    /// `RegisterEventHotKey`, which answers at once and belongs on the
+    /// main thread, where `global-hotkey` made the manager — and the
+    /// manager is not `Send`.
+    #[cfg(target_os = "macos")]
+    Here(
+        Assigner<global_hotkey::GlobalHotKeyManager>,
+        flume::Sender<Answer>,
+    ),
+}
+
+/// The live registrations, the channel a press comes back on, and the
+/// one the desktop's answers come back on.
+///
+/// Owned by `main`, which asks for what is stored, follows every change
+/// to the preference, writes each answer back to the page, and performs
+/// the [`Action`] a press names — the same arrangement as the tray, for
+/// the same reason: the callback the desktop calls has no `&mut App` in
+/// scope and no way to be given one, so it sends, and the acting happens
+/// on the GPUI side.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub struct Registrar {
+    road: Road,
+    answers: flume::Receiver<Answer>,
+    presses: flume::Receiver<Action>,
+}
+
+/// There is no registrar on this platform, and the type says so:
+/// [`install`] returns `None`, nothing constructs one, and the call
+/// sites in `main` still compile.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub enum Registrar {}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+impl Registrar {
+    /// A registrar whose desktop is asked on a thread of its own (B1):
+    /// [`Registrar::ask`] returns at once, and the answer comes back on
+    /// [`Registrar::answers`].
+    #[cfg_attr(
+        target_os = "macos",
+        allow(
+            dead_code,
+            reason = "macOS asks on the main thread (`Road::Here`); its tests drive this road"
+        )
+    )]
+    fn threaded<D: Desktop + Send + 'static>(
+        desktop: D,
+        ids: Ids,
+        presses: flume::Receiver<Action>,
+    ) -> Registrar {
+        let (requests, asked) = flume::unbounded::<(Action, Option<Hotkey>)>();
+        let (answer, answers) = flume::unbounded();
+        let spawned = std::thread::Builder::new()
+            .name("wipemark-hotkeys".to_owned())
+            .spawn(move || {
+                let mut assigner = Assigner {
+                    desktop,
+                    live: std::collections::BTreeMap::new(),
+                    ids,
+                };
+                // Ends when the registrar is dropped; the desktop's
+                // grabs go with the manager, on this thread.
+                while let Ok((action, chord)) = asked.recv() {
+                    let registration = assigner.assign(action, chord);
+                    if answer.send((action, registration)).is_err() {
+                        break;
+                    }
+                }
+            });
+        if let Err(error) = spawned {
+            // The requests then go nowhere and no answer comes: the page
+            // keeps saying the shortcut is not active yet, which is true.
+            tracing::warn!(%error, "no thread for the shortcut registrar");
+        }
+        Registrar {
+            road: Road::Thread(requests),
+            answers,
+            presses,
+        }
+    }
+
+    /// A receiver for the presses. Cheap to clone; `main` takes one and
+    /// polls it from `cx.spawn`.
+    pub fn presses(&self) -> flume::Receiver<Action> {
+        self.presses.clone()
+    }
+
+    /// A receiver for the desktop's answers, one per [`Registrar::ask`],
+    /// in the order they were asked. `main` polls it from `cx.spawn` and
+    /// writes each to the page.
+    pub fn answers(&self) -> flume::Receiver<Answer> {
+        self.answers.clone()
+    }
+
+    /// Ask the desktop for `chord` on behalf of `action`, releasing
+    /// whatever the action held before. Never waits for the desktop on
+    /// X11 (B1); the answer arrives on [`Registrar::answers`].
+    pub fn ask(&mut self, action: Action, chord: Option<Hotkey>) {
+        match &mut self.road {
+            Road::Thread(requests) => {
+                if requests.send((action, chord)).is_err() {
+                    tracing::warn!(?action, "the shortcut registrar's thread is gone");
+                }
+            }
+            #[cfg(target_os = "macos")]
+            Road::Here(assigner, answer) => {
+                let registration = assigner.assign(action, chord);
+                let _ = answer.send((action, registration));
+            }
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 impl Registrar {
     pub fn presses(&self) -> flume::Receiver<Action> {
         match *self {}
     }
 
+    pub fn answers(&self) -> flume::Receiver<Answer> {
+        match *self {}
+    }
+
     #[allow(
         clippy::needless_pass_by_ref_mut,
-        reason = "the signature is the macOS registrar's, which does mutate"
+        reason = "the signature is the macOS and Linux registrar's, which does mutate"
     )]
-    pub fn assign(&mut self, _action: Action, _chord: Option<Hotkey>) -> Registration {
+    pub fn ask(&mut self, _action: Action, _chord: Option<Hotkey>) {
         match *self {}
     }
 }
@@ -743,14 +886,35 @@ impl Registrar {
 /// rows say so — the same judgement as the tray: an affordance that
 /// failed to install is not a reason to fail a launch.
 ///
+/// `compositor` is `App::compositor_name` — what GPUI draws through. On
+/// Linux the registrar is an X11 key grab on a thread `global-hotkey`
+/// starts, so it is asked for only where [`x11_session`] says the
+/// keyboard is X11's (D346).
+///
 /// Must be called on the main thread, from inside
 /// `gpui_platform::application().run(…)`, and only once: `global-hotkey`
 /// keeps exactly one event handler for the process (a `OnceCell`), so a
 /// second call would build a registrar whose presses are delivered to
 /// the first call's channel.
-#[cfg(target_os = "macos")]
-pub fn install() -> Option<Registrar> {
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+pub fn install(compositor: &str) -> Option<Registrar> {
     use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
+
+    // Asked before the manager exists: on Linux `new` starts a thread
+    // that connects to X11 and dies quietly when it cannot, after which
+    // every `register` answers Ok — a chord the row would call active
+    // and nothing would deliver.
+    #[cfg(target_os = "linux")]
+    if !x11_session(compositor, std::env::var_os("XDG_SESSION_TYPE").as_deref()) {
+        tracing::info!(
+            compositor,
+            "system-wide shortcuts skipped: not an X11 session, and an X11 key grab \
+             is all this build has"
+        );
+        return None;
+    }
+    #[cfg(target_os = "macos")]
+    let _ = compositor;
 
     let manager = match GlobalHotKeyManager::new() {
         Ok(manager) => manager,
@@ -760,8 +924,7 @@ pub fn install() -> Option<Registrar> {
         }
     };
 
-    let ids: std::sync::Arc<std::sync::Mutex<std::collections::BTreeMap<u32, Action>>> =
-        std::sync::Arc::default();
+    let ids: Ids = std::sync::Arc::default();
     let (sender, presses) = flume::unbounded();
     let table = ids.clone();
     GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
@@ -785,18 +948,50 @@ pub fn install() -> Option<Registrar> {
         }
     }));
 
-    Some(Registrar {
-        manager,
-        live: std::collections::BTreeMap::new(),
-        ids,
-        presses,
-    })
+    // On X11 every request waits for `global-hotkey`'s own thread, so it
+    // is made from a thread of ours and never from GPUI's (B1).
+    #[cfg(target_os = "linux")]
+    let registrar = Registrar::threaded(manager, ids, presses);
+    #[cfg(target_os = "macos")]
+    let registrar = {
+        let (answer, answers) = flume::unbounded();
+        Registrar {
+            road: Road::Here(
+                Assigner {
+                    desktop: manager,
+                    live: std::collections::BTreeMap::new(),
+                    ids,
+                },
+                answer,
+            ),
+            answers,
+            presses,
+        }
+    };
+    Some(registrar)
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn install() -> Option<Registrar> {
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn install(_compositor: &str) -> Option<Registrar> {
     tracing::debug!("no system-wide shortcuts on this platform yet — E10");
     None
+}
+
+/// Whether a system-wide X11 key grab would hear the keyboard (D346).
+///
+/// Two answers have to agree: GPUI draws through X11 (`compositor`, from
+/// `App::compositor_name`), and the session is not a Wayland one. The
+/// second matters because GPUI on X11 inside a Wayland session is
+/// XWayland, where a grab on the root window hears only the keys typed
+/// into other X11 clients — a shortcut that works in one terminal and
+/// nowhere else is worse than one the row says is not active. A session
+/// type nobody set (`startx`, a bare window manager) is X11's.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(dead_code, reason = "only Linux asks; tested everywhere")
+)]
+pub fn x11_session(compositor: &str, session_type: Option<&std::ffi::OsStr>) -> bool {
+    compositor == "X11" && session_type.is_none_or(|kind| kind != "wayland")
 }
 
 #[cfg(test)]
@@ -1037,7 +1232,7 @@ mod tests {
     /// platform that has a registrar, because that is where the crate
     /// is built — a chord the recorder accepts and the desktop cannot
     /// be asked for would otherwise be a row that fails at launch.
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     fn every_stored_spelling_is_one_the_registrar_parses() {
         use global_hotkey::hotkey::{HotKey, Modifiers as Mods};
@@ -1047,10 +1242,17 @@ mod tests {
         keys.extend((1..=24).map(Key::Function));
         keys.extend(Named::ALL.map(Key::Named));
 
+        // ⌃ is a modifier of its own only on macOS; elsewhere the
+        // recorder never sets it and `CmdOrCtrl` is Ctrl.
+        let (control, expected) = if cfg!(target_os = "macos") {
+            (true, Mods::SUPER | Mods::CONTROL | Mods::ALT | Mods::SHIFT)
+        } else {
+            (false, Mods::CONTROL | Mods::ALT | Mods::SHIFT)
+        };
         for key in keys {
             let stored = Hotkey {
                 command: true,
-                control: true,
+                control,
                 alt: true,
                 shift: true,
                 key,
@@ -1059,11 +1261,164 @@ mod tests {
             let parsed: HotKey = text
                 .parse()
                 .unwrap_or_else(|error| panic!("{text}: {error}"));
-            assert_eq!(
-                parsed.mods,
-                Mods::SUPER | Mods::CONTROL | Mods::ALT | Mods::SHIFT,
-                "{text}"
-            );
+            assert_eq!(parsed.mods, expected, "{text}");
         }
+    }
+
+    /// D346: on Linux a shortcut is asked for only in an X11 session —
+    /// GPUI on X11, and not XWayland inside a Wayland session, where a
+    /// grab hears only other X11 clients.
+    #[test]
+    fn a_shortcut_is_asked_for_only_where_an_x11_grab_hears_the_keyboard() {
+        use std::ffi::OsStr;
+
+        assert!(x11_session("X11", Some(OsStr::new("x11"))));
+        assert!(x11_session("X11", None), "startx sets no session type");
+        assert!(!x11_session("X11", Some(OsStr::new("wayland"))), "XWayland");
+        assert!(!x11_session("Wayland", Some(OsStr::new("wayland"))));
+        assert!(!x11_session("Wayland", None));
+        assert!(!x11_session("headless", Some(OsStr::new("x11"))));
+    }
+
+    /// A desktop that writes down what it was asked, holds every request
+    /// until the test lets it go — X11's wait, made as long as a test
+    /// wants — and refuses one chord.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    struct Slow {
+        calls: std::sync::Arc<std::sync::Mutex<Vec<(&'static str, u32)>>>,
+        gate: flume::Receiver<()>,
+        refuses: Option<u32>,
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    impl Desktop for Slow {
+        fn register(&self, hotkey: global_hotkey::hotkey::HotKey) -> Result<(), String> {
+            let _ = self.gate.recv();
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(("register", hotkey.id()));
+            if self.refuses == Some(hotkey.id()) {
+                return Err("taken by another application".to_owned());
+            }
+            Ok(())
+        }
+
+        fn unregister(&self, hotkey: global_hotkey::hotkey::HotKey) -> Result<(), String> {
+            let _ = self.gate.recv();
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(("unregister", hotkey.id()));
+            Ok(())
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn id_of(text: &str) -> u32 {
+        chord(text)
+            .to_string()
+            .parse::<global_hotkey::hotkey::HotKey>()
+            .expect("a chord the registrar reads")
+            .id()
+    }
+
+    /// B1: asking for a shortcut never waits for the desktop — on X11 a
+    /// request waits on `global-hotkey`'s thread and the X server, and the
+    /// asking is done from GPUI's thread. The answer comes back on the
+    /// channel once the desktop gives it. Red with `ask` waiting for the
+    /// answer before it returns.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn asking_for_a_shortcut_never_waits_for_the_desktop() {
+        let (release, gate) = flume::unbounded();
+        let mut registrar = Registrar::threaded(
+            Slow {
+                calls: std::sync::Arc::default(),
+                gate,
+                refuses: None,
+            },
+            Ids::default(),
+            flume::unbounded().1,
+        );
+        let answers = registrar.answers();
+        let (returned, back) = flume::bounded(1);
+        let asker = std::thread::spawn(move || {
+            registrar.ask(Action::Panel, Some(chord("CmdOrCtrl+Alt+D")));
+            let _ = returned.send(());
+            registrar
+        });
+        let came_back = back.recv_timeout(std::time::Duration::from_secs(2)).is_ok();
+        assert!(answers.is_empty(), "an answer before the desktop gave one");
+        release.send(()).expect("the desktop waits");
+        let _registrar = asker.join().expect("the asker ends");
+        assert!(came_back, "asking waited for the desktop");
+        assert_eq!(
+            answers.recv_timeout(std::time::Duration::from_secs(5)),
+            Ok((Action::Panel, Registration::Registered))
+        );
+    }
+
+    /// B1: off the GPUI thread, the order holds — the old chord is
+    /// released before the new one is asked for, a chord taken away is
+    /// released and answered `Unset`, a refusal is said in the desktop's
+    /// words, and the answers come back in the order they were asked.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn the_registrar_releases_the_old_chord_first_and_answers_in_order() {
+        let (release, gate) = flume::unbounded();
+        for _ in 0..16 {
+            release.send(()).expect("open");
+        }
+        let calls: std::sync::Arc<std::sync::Mutex<Vec<(&'static str, u32)>>> =
+            std::sync::Arc::default();
+        let ids = Ids::default();
+        let mut registrar = Registrar::threaded(
+            Slow {
+                calls: calls.clone(),
+                gate,
+                refuses: Some(id_of("CmdOrCtrl+Alt+K")),
+            },
+            ids.clone(),
+            flume::unbounded().1,
+        );
+        let answers = registrar.answers();
+        registrar.ask(Action::Panel, Some(chord("CmdOrCtrl+Alt+D")));
+        registrar.ask(Action::Panel, Some(chord("CmdOrCtrl+Alt+P")));
+        registrar.ask(Action::Show, Some(chord("CmdOrCtrl+Alt+K")));
+        registrar.ask(Action::Panel, None);
+        let heard: Vec<Answer> = (0..4)
+            .map(|_| {
+                answers
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .expect("an answer")
+            })
+            .collect();
+        assert_eq!(
+            heard,
+            [
+                (Action::Panel, Registration::Registered),
+                (Action::Panel, Registration::Registered),
+                (
+                    Action::Show,
+                    Registration::Refused("taken by another application".to_owned())
+                ),
+                (Action::Panel, Registration::Unset),
+            ]
+        );
+        assert_eq!(
+            *calls.lock().expect("calls"),
+            [
+                ("register", id_of("CmdOrCtrl+Alt+D")),
+                ("unregister", id_of("CmdOrCtrl+Alt+D")),
+                ("register", id_of("CmdOrCtrl+Alt+P")),
+                ("register", id_of("CmdOrCtrl+Alt+K")),
+                ("unregister", id_of("CmdOrCtrl+Alt+P")),
+            ]
+        );
+        assert!(
+            ids.lock().expect("ids").is_empty(),
+            "a released or refused chord still names an action"
+        );
     }
 }

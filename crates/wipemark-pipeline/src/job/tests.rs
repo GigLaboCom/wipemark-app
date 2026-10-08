@@ -652,6 +652,35 @@ fn an_invisible_character_the_model_adds_is_gone_and_counted() {
     assert_eq!(layer_a.removed, [(UnicodeClass::ZeroWidth, 1)]);
 }
 
+/// The link-only line of the 2026-10-07 run (D300), through the
+/// preparation and the loop's own verdict: the placeholders around the
+/// link's text end the identifier, so moving the bold loses nothing, and
+/// dropping the link's text is still refused.
+#[test]
+fn a_link_only_line_keeps_its_identifier_through_the_placeholders() {
+    let line = "**\u{2192} [heretic.giglabo.com/applications/lazy-shot](https://heretic.giglabo.com/applications/lazy-shot)**\n";
+    let prepared = crate::prepare::prepare(line, TextFormat::Markdown, Budget::DEFAULT);
+    let chunk = &prepared.chunks()[0];
+    assert_eq!(
+        chunk.text,
+        "**\u{2192} \u{27E6}1\u{27E7}heretic.giglabo.com/applications/lazy-shot\u{27E6}2\u{27E7}**",
+        "the chunk the run saw"
+    );
+    let options = options(1, 1);
+    let faithful =
+        "Read more at \u{27E6}1\u{27E7}heretic.giglabo.com/applications/lazy-shot\u{27E6}2\u{27E7}.";
+    let passed = super::verdict(&options, chunk, faithful);
+    assert!(passed.is_ok(), "{passed:?}");
+    let lost = "Read more at \u{27E6}1\u{27E7}the lazy-shot page\u{27E6}2\u{27E7}.";
+    match super::verdict(&options, chunk, lost) {
+        Err(Rejection::Guard {
+            guard: "identifier",
+            reason: RejectReason::IdentifierMissing { token },
+        }) => assert_eq!(token, "heretic.giglabo.com/applications/lazy-shot"),
+        other => panic!("not refused for the identifier: {other:?}"),
+    }
+}
+
 #[test]
 fn layer_a_runs_before_the_guards_so_a_zwsp_in_an_identifier_costs_nothing() {
     let engine = FakeEngine::answering(|req, _| {

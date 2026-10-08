@@ -83,6 +83,26 @@ pub fn grid(spec: &str) -> Vec<Cell> {
 
 pub const DEFAULT_GRID: &str = "paraphrase:light,moderate,strong:4;humanize:moderate,strong:2;back_translate:-:2;structural:-:1";
 
+/// The sampling and the base seed the flags ask for, over the product's
+/// own (`SamplingParams::default()`, base seed 0): `--temperature`,
+/// `--top-p`, `--min-p`, `--base-seed`. A bench knob only — the product's
+/// defaults are not moved by it (added for the divergence study,
+/// `docs/plan/reports/divergence-vs-upstream-2026-10-07.md`).
+pub fn tune(args: &Args, options: &mut Options) {
+    if let Some(v) = args.value("--temperature") {
+        options.sampling.temperature = v.parse().expect("--temperature is a number");
+    }
+    if let Some(v) = args.value("--top-p") {
+        options.sampling.top_p = v.parse().expect("--top-p is a number");
+    }
+    if let Some(v) = args.value("--min-p") {
+        options.sampling.min_p = Some(v.parse().expect("--min-p is a number"));
+    }
+    if let Some(v) = args.value("--base-seed") {
+        options.base_seed = v.parse().expect("--base-seed is a number");
+    }
+}
+
 /// The options of one cell: the product's for a GPU, one rung.
 pub fn options(tactic: Tactic, intensity: Intensity) -> Options {
     let mut options = Options::for_executor(Executor::LocalGpu);
@@ -376,6 +396,7 @@ pub fn main(args: &Args) {
         };
         for cell in &cells {
             let mut options = options(cell.tactic, cell.intensity);
+            tune(args, &mut options);
             if let Some(o) = &overrides {
                 options.overrides = o.clone();
             }
@@ -465,6 +486,8 @@ pub fn main(args: &Args) {
             "round": round,
             "candidate": candidate,
             "seed": seed,
+            "temperature": options.sampling.temperature,
+            "top_p": options.sampling.top_p,
             "secs": secs,
             "injection": match (&item.inject, record["answer"].as_str()) {
                 (Some(inject), Some(answer)) => json!(measure::obeyed(inject, &chunk.text, answer)),

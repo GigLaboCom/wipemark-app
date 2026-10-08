@@ -12,7 +12,9 @@ codes; `input.rs` reads and decodes a path or stdin through
 two on a picture (E11-2, "Images" below); `report.rs` the
 human report; `audit.rs` the walk and its three renderings; `models.rs` the catalogue
 and the downloader; `rewrite.rs` the rewrite flow and the command's own
-engine; `app.rs` the road to the running application. Every write to disk — `-o`, beside the input, and
+engine; `app.rs` the road to the running application; `journal.rs` the
+run's row in the application's document journal (E4-6b, "The journal"
+below). Every write to disk — `-o`, beside the input, and
 `--in-place` — is `wipemark_intake::inplace` (moved there from the CLI's
 own `inplace.rs` in tails-1, behaviour unchanged, so the windows can share
 it in E7). Layer A itself is `docs/architecture/layer-a.md`.
@@ -323,17 +325,38 @@ depend on the application; the keys are formats. The CLI writes no row,
 ever.
 
 **`list [--json]`.** Every entry: id, name, roles, size, the state on
-this machine (`present` — every file matches; `absent`; `partial` with
-how far, which `pull` resumes; `mismatch` — on disk and not the
-catalogue's), whether it is the model chosen for rewriting, and
-`host::fit` for this machine, probed once (`None` is "unknown", never
-"no"). Then the weight files in the folder the catalogue did not put
-there, from `wipemark_models::scan::weights_under` — listed, never
-verified, never loaded, and the heading says so. A state may re-hash a
-file whose size or mtime moved since its stamp; that is a CLI with no
-window to freeze.
+this machine (`present` — every file matches, **wherever under the folder
+it was found** (D302); `absent`; `partial` with how far, which `pull`
+resumes; `mismatch` — a download of this product at its place that is no
+longer the catalogue's), whether it is the model chosen for rewriting,
+and `host::fit` for this machine, probed once (`None` is "unknown", never
+"no"). A model whose file this product did not download — found
+anywhere else, or at its own `<id>/<file>` place with no download's mark
+(D302, amended) — adds "found at *path*" (`found_at` in `--json`, the
+path below the folder, `/`-separated). Another tool's file at the
+entry's own place with its name and not its contents leaves the entry
+`absent` and adds "another tool's file of its name is at *path*, left as
+it is" (`foreign_at`), and so does a `<file>.part` there that no
+download of ours opened (D351) — it is not `partial`. Then the weight files in the folder the catalogue
+did not put there, from `wipemark_models::scan::weights_under` — listed,
+never verified, never loaded, and the heading says so; the catalogue's
+files, wherever found, and a `foreign_at` file are not among them. A
+state may re-hash a file whose size or mtime moved since its record
+(`<data dir>/records`, D303 — never beside the weights); that is a CLI
+with no window to freeze.
 
-**`pull <id>`.** Present and verified: says so, exits 0, no network.
+**`pull <id>`.** Present and verified — wherever it was found — says
+so and where, exits 0, no network, and writes nothing. A file at the
+entry's own place that this product did not download and that is not the
+catalogue's is never downloaded over: `StoreError::Occupied`, exit 2,
+the file untouched — and so is a `<file>.part` no download of ours opened
+(D351), another tool's download in progress, which is never resumed into.
+Occupied has its own sentence (`cli-models-pull-occupied`, A4): nothing
+was fetched and the file is left as it is, so it says to move the file
+away and run pull again rather than promise a resume a second pull would
+be refused the same way
+(`an_occupied_place_is_not_promised_a_resume`). A file whose download's
+mark no longer names it (D350) is another tool's in the same way.
 Otherwise `Downloads::fetch` on a thread of its own (which resumes a
 `.part`), with the typed `StoreError` sent back so each failure has its
 own sentence. Progress goes to **stderr**: one line redrawn at most twice
@@ -351,16 +374,25 @@ words and the `.part` kept. The log line records where the download
 resumed from, how far it got, and how long it took.
 
 **`verify <id>`.** `Downloads::rehash`: every file hashed in full,
-whatever the stamp says — the stamp is a cache of the last verify, enough
+whatever the record says (`<data dir>/records`, D303) — the record is a
+cache of the last verify, enough
 to notice a file that was replaced and not a byte changed in place, and
 a command asked to verify is not asked to consult a cache
-(`a_full_rehash_does_not_trust_the_stamp`). A match refreshes the stamp.
+(`a_full_rehash_does_not_trust_the_stamp`). A match refreshes the record.
+A file found elsewhere under the folder is verified where it is.
 Exit **1** when the file does not match *or is not there* — the same
 finding, the file on disk is not the file the catalogue promised — and 3
 when it could not be read.
 
 **`rm <id>`.** `Downloads::remove`; exit 0 whether or not there was
-anything (and says which). Removing the chosen model says that the
+anything (and says which). It removes only what a download of this
+product wrote — a file at its place carrying the download's mark under
+`<data dir>/records` (D302, amended). A file it did not download — found
+elsewhere, at its place without the mark (a download by a build from
+before the mark included), or another tool's file of its name — is left,
+and the answer is "*id* is at *path*, where Wipemark did not download it;
+nothing was removed" (`models_rm_leaves_another_tools_file_at_the_entrys_place`,
+and `scripts/verify/owner-fixes/rm-in-a-mirror.sh`, which says KEPT). Removing the chosen model says that the
 application will show no model chosen until another is picked — and
 leaves the row alone.
 
@@ -386,6 +418,7 @@ wipemark-cli rewrite <path|-> [-o <out>|-o -|--in-place [--no-original]]
     [--tactic paraphrase|humanize|back_translate] [--intensity light|moderate|strong]
     [--candidates N] [--rounds N] [--format plain|markdown|html]
     [--aggressive] [--nfkc] [--prompts <file.json>] [--seed N] [--json]
+    [--no-record]
 ```
 
 **Two roads, never both.** When the application runs, its MCP server
@@ -421,14 +454,64 @@ saved; a template that breaks a rule exits 2 naming the row and the rule,
 before anything is read or sent — and goes to the application with the
 call when it is the application that rewrites.
 
-**Output** is `clean`'s: beside the input as `name.cleaned.ext`, `-o`,
-stdout, or `--in-place` through `wipemark_intake::inplace`. The human
+**Output** is `clean`'s shape with its own name: beside the input as
+**`name.rewritten.ext`** (В8, E4-6b — a format change: until E4-6b a
+rewrite was written to the clean's `name.cleaned.ext`, so a clean and a
+rewrite of one file overwrote each other), `-o`, stdout, or `--in-place`
+through `wipemark_intake::inplace`. A result already at
+`name.rewritten.ext` is **refused**, as the windows refuse one (D261,
+D362): exit 2 before the input is read or anything is sent, with a sentence
+naming `-o` (another file, or that one by name — `-o` is the person's word
+and replaces) and `--in-place`; the existing file is left byte for byte.
+The write itself is `inplace::write_new`, which refuses a file that
+appeared while the model worked (exit 2, the same sentence). `clean` keeps
+replacing its own `name.cleaned.ext`, which the parity table pins. The human
 report says what Layer A found in the input, how many paragraphs were
 rewritten and how many kept their cleaned original, that Layer B is
 best-effort, the seed, where the result went, who rewrote it and the third
 shelf. Price and progress go to stderr on a terminal only.
 
+## The journal (E4-6b)
+
+Every document has a status, whoever asked: the application's main window
+lists one row per document from its `journal` table (`wipemark-store`,
+schema 3), and the command line's runs are among them.
+
+| run | recorded | by whom |
+|---|---|---|
+| `clean` (text: `clean`, picture: `clean_image`) | unless `--no-record` | this command |
+| `inspect` | only with `--record` (a look changes nothing, В7) | this command |
+| `rewrite`, served by this command | unless `--no-record` | this command |
+| `rewrite`, served by the running application | unless `--no-record` | the application — the call carries `"record"` and, in the params' `_meta`, `wipemark/origin: cli` with the file's name, path and size; when the answer names its row (`result._meta["wipemark/journal"]`) and this command wrote a file, it tells that row where |
+| `audit`, `models` | never | — |
+
+A row holds metadata only (D312): origin `cli`, the action, done or
+failed, the file's name, absolute path, kind, format, encoding and size,
+the verdict (`nothing-found`, `cleaned`, `partly`, `not-cleaned`,
+`failed`; `findings` for a look; `rewritten` for a rewrite) with its
+counts, and where the result went (`file`, `caller` for standard output,
+`nowhere`) — never the text. A run refused before its input was read
+records nothing, and neither does a `rewrite` whose `--prompts` template
+is refused — on this command's own road too, where the `too-long` rule is
+asked after the read (D360): a template refused is not a document's
+status, on any road. A path that is **not a regular file** — a FIFO,
+`<(…)`, a device — or any name under `/dev` or `/proc` (`/dev/stdin` names
+this process's descriptor, a file here and a terminal in the application)
+is recorded as no file, with no name and no path (D356), and the call through the application names none in `_meta`:
+the application would otherwise open it to read the row back, and an open
+of a FIFO nobody writes to never returns.
+
+**The one write, never a create or a migration (В5, D314).** Every other
+open of `wipemark.db` here is read-only; the journal goes through
+`wipemark_store::JournalWriter`, which opens an existing database
+read-write and offers the journal and nothing else. No database — no
+application has run on this machine — is no row and **nothing said**
+(D315: a line on every hook run would be noise). A database that cannot
+take the row — older than the journal (the application migrates it when it
+next starts), written by a newer build, or not writable — is no row and
+**one** line on stderr; the exit code and standard output are unchanged.
+
 ## Not here
 
 * Reading `.gitignore` in `audit`.
-* Writing any Retention row, or a history.
+* Writing any Retention row. The journal row above is the one write.

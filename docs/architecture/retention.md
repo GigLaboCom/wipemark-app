@@ -231,6 +231,20 @@ never one already writing.
 
 ## How the windows execute it
 
+**A rewrite takes the plan when it is queued** (E4-6b, R3, D91), a clean
+when it starts (D283): the batch queue executes the destination it stored,
+after a restart too. Beside the file a rewrite is `name.rewritten.ext`
+(В8), never the clean's `name.cleaned.ext`; into the results folder the
+same name there; in place with the original set aside; a paste's rewrite
+stays in the queue's row. `retention::rewrite_destination` is the map, and
+`every_plan_is_a_rewrite_destination` its gate. The page's banner says
+both rules. A new file's name already taken is found when the rewrite is
+pushed, not after the job (D357): the row is refused at once and Replace
+the existing result offered, as a clean's is (D261, D270); the publish's
+own refusal (D284) still covers a file that appears while the job runs.
+The command line's default `name.rewritten.ext` refuses one the same way
+(D362).
+
 `clean::clean_one` is the one road from a plan to the disk, run on the
 background executor, one clean at a time across the application: the
 queue's cleans and the panel's wait in one line, `cleaner::Cleaner`

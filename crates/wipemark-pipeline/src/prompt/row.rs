@@ -17,7 +17,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::{
-    shipped, validate, Intensity, Overrides, Role, Severity, Slot, Tactic, ValidationContext,
+    check_adaptation, shipped, validate, Intensity, Overrides, Problem, Role, Severity, Slot,
+    Tactic, ValidationContext,
 };
 use crate::lang::Lang;
 
@@ -27,9 +28,10 @@ pub const PREFIX: &str = "prompts";
 /// The pivot row of `back_translate` (D60): a language id as a JSON
 /// string, `"de"`. No row is the default pivot ([`super::pivot_for`]); a
 /// value this build cannot read is the default too, and the row stays.
-/// Outside the application's `config::PERSISTED`, like the overrides —
-/// its widget is the Settings page's (E4-6b); the surfaces without a
-/// window read it already.
+/// Since E4-6c a preference with a widget on the Settings window's
+/// Prompts section, and so in the application's `config::PERSISTED`
+/// (D331); the overrides stay dynamic keys outside it. The surfaces
+/// without a window read it as they did.
 pub const PIVOT_KEY: &str = "rewrite.pivot";
 
 /// The pivot a row's value names, or `None` — no row, or one this build
@@ -209,6 +211,85 @@ pub enum Laid {
     Breaks { key: String, rule: &'static str },
 }
 
+/// What the one rule says about an override before it is stored or laid
+/// over the saved ones (E4-6c R3, D330): every [`Problem`] [`validate`]
+/// finds — errors and warnings, in rule order — checked beside the other
+/// turn of its step **as it will be used**.
+///
+/// The Settings page's Save and [`lay_over`] (the CLI's `--prompts`, the
+/// MCP tool's `templates`) both ask [`admit`], so a template the page
+/// stores is one the CLI runs, and the other way round. Errors refuse;
+/// warnings are said and do not.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Admission {
+    /// Every problem, errors and warnings, in [`validate`]'s order.
+    pub problems: Vec<Problem>,
+}
+
+impl Admission {
+    /// Whether the override may be stored (or laid over): no error.
+    pub fn admitted(&self) -> bool {
+        self.first_error().is_none()
+    }
+
+    /// The first error, in rule order — the one [`Laid::Breaks`] names.
+    pub fn first_error(&self) -> Option<&Problem> {
+        self.problems
+            .iter()
+            .find(|problem| problem.severity() == Severity::Error)
+    }
+}
+
+/// The context [`admit`] checks `row` in: the step's other turn as it will
+/// be used (its override in `beside`, else the shipped text), the model's
+/// window when the surface knows it, moderate intensity (a template is
+/// stored for every intensity), and the row's own `based_on`, so a stale
+/// override is warned about.
+fn context_for<'a>(
+    slot: Slot,
+    row: &'a Override,
+    beside: &'a Overrides,
+    ctx_len: Option<u32>,
+) -> ValidationContext<'a> {
+    ValidationContext {
+        other_role: beside.effective(slot.other_role()).unwrap_or_default(),
+        ctx_len,
+        intensity: Intensity::Moderate,
+        based_on: Some(row.based_on.as_str()),
+    }
+}
+
+/// The one rule that decides whether `row` may be stored as `slot`'s
+/// override, beside the overrides in `beside` (D330).
+///
+/// `ctx_len` is the window of the model on duty, when the surface knows
+/// it: a template over a tenth of it is refused (`too-long`). `None` skips
+/// that rule — an endpoint that does not say, or a surface with no engine
+/// in sight — and every other rule is the same either way.
+pub fn admit(slot: Slot, row: &Override, beside: &Overrides, ctx_len: Option<u32>) -> Admission {
+    let context = context_for(slot, row, beside, ctx_len);
+    Admission {
+        problems: validate(slot, &row.text, &context),
+    }
+}
+
+/// [`admit`] for an adaptation of `source_text` (the same tactic, step and
+/// turn in another language): the same rule, plus exactly the source's
+/// variables ([`check_adaptation`]) — the main risk of a machine
+/// adaptation is `{TEXT}` coming back as `{ТЕКСТ}`.
+pub fn admit_adaptation(
+    slot: Slot,
+    row: &Override,
+    source_text: &str,
+    beside: &Overrides,
+    ctx_len: Option<u32>,
+) -> Admission {
+    let context = context_for(slot, row, beside, ctx_len);
+    Admission {
+        problems: check_adaptation(slot, source_text, &row.text, &context),
+    }
+}
+
 /// Lay `rows` — a caller's own templates, each a row key and either the
 /// template's text or D74's object — over `overrides`, strictly.
 ///
@@ -218,14 +299,29 @@ pub enum Laid {
 /// over, keeping the row — a template handed in for this run and wrong is
 /// a refusal: the caller asked for it by name, and a run on the shipped
 /// template instead would be a different job reported as theirs. Each is
-/// checked beside the other turn of its step **as it will be used** (the
-/// other laid row, the saved override or the shipped text), because
-/// `{PROTECTED}` is required once per step and neither turn can be judged
-/// alone. Warnings do not refuse — a template the page would save is one
-/// this runs.
+/// checked by [`admit`] — beside the other turn of its step **as it will
+/// be used** (the other laid row, the saved override or the shipped text),
+/// because `{PROTECTED}` is required once per step and neither turn can be
+/// judged alone. Warnings do not refuse — a template the page would save
+/// is one this runs.
+///
+/// No window is known here, so `too-long` is not asked: this is
+/// [`lay_over_within`] with `None`, which refuses exactly what `lay_over`
+/// refused before E4-6c.
 pub fn lay_over(
     overrides: &mut Overrides,
     rows: &serde_json::Map<String, Value>,
+) -> Result<(), Laid> {
+    lay_over_within(overrides, rows, None)
+}
+
+/// [`lay_over`] for a surface that knows the window of the model on duty
+/// (D330): a laid template over a tenth of `ctx_len` is refused as
+/// `too-long`, as the Settings page refuses it.
+pub fn lay_over_within(
+    overrides: &mut Overrides,
+    rows: &serde_json::Map<String, Value>,
+    ctx_len: Option<u32>,
 ) -> Result<(), Laid> {
     let mut laid = Vec::with_capacity(rows.len());
     for (key, value) in rows {
@@ -240,20 +336,10 @@ pub fn lay_over(
         laid.push((key, slot));
     }
     for (key, slot) in laid {
-        let text = overrides
-            .get(slot)
-            .map(|row| row.text.as_str())
-            .unwrap_or_default();
-        let context = ValidationContext {
-            other_role: overrides.effective(slot.other_role()).unwrap_or_default(),
-            ctx_len: None,
-            intensity: Intensity::Moderate,
-            based_on: None,
+        let Some(row) = overrides.get(slot) else {
+            continue;
         };
-        if let Some(problem) = validate(slot, text, &context)
-            .into_iter()
-            .find(|problem| problem.severity() == Severity::Error)
-        {
+        if let Some(problem) = admit(slot, row, overrides, ctx_len).first_error() {
             return Err(Laid::Breaks {
                 key: key.clone(),
                 rule: problem.rule(),
@@ -528,5 +614,65 @@ mod tests {
                 "{value}"
             );
         }
+    }
+
+    /// The one rule (D330): errors refuse, warnings are said and do not,
+    /// the other turn is read as it will be used, and the window is asked
+    /// only by a surface that knows it — `lay_over` knows none, so it
+    /// refuses what it refused before.
+    #[test]
+    fn the_one_rule_refuses_errors_and_says_warnings() {
+        use serde_json::{json, Value};
+
+        use super::{admit, lay_over, lay_over_within, Laid};
+        use crate::prompt::Overrides;
+
+        let user = Slot::new(Lang::En, Tactic::Paraphrase, 1, Role::User).expect("a slot");
+        let system = user.other_role();
+
+        // A warning (nothing but the text) is admitted and said.
+        let bare = Override::by_hand(user, "{TEXT}");
+        let admission = admit(user, &bare, &Overrides::new(), None);
+        assert!(admission.admitted());
+        assert_eq!(
+            admission
+                .problems
+                .iter()
+                .map(|problem| problem.rule())
+                .collect::<Vec<_>>(),
+            ["nothing-but-text"]
+        );
+
+        // The other turn as it will be used: a saved system turn without
+        // {PROTECTED} makes a user turn without it an error.
+        let mut saved = Overrides::new();
+        saved.insert(system, Override::by_hand(system, "Keep every fact."));
+        let plain = Override::by_hand(user, "Say it again.\n{TEXT}");
+        assert!(admit(user, &plain, &Overrides::new(), None).admitted());
+        assert_eq!(
+            admit(user, &plain, &saved, None)
+                .first_error()
+                .map(|problem| problem.rule()),
+            Some("missing-variable")
+        );
+
+        // The window: refused within it, run without one.
+        let long = format!("{}\n{{TEXT}}", "word ".repeat(400));
+        let rows: serde_json::Map<String, Value> = json!({ key(user): long })
+            .as_object()
+            .expect("an object")
+            .clone();
+        assert_eq!(lay_over(&mut Overrides::new(), &rows), Ok(()));
+        assert_eq!(
+            lay_over_within(&mut Overrides::new(), &rows, Some(4096)),
+            Err(Laid::Breaks {
+                key: key(user),
+                rule: "too-long"
+            })
+        );
+        assert_eq!(
+            lay_over_within(&mut Overrides::new(), &rows, Some(100_000)),
+            Ok(())
+        );
     }
 }

@@ -104,10 +104,18 @@ channel — the shape every long operation in this product has, because
 the GPUI executor and tokio cannot await each other's futures.
 
 ```text
-<models folder>/<id>/<file>            the weights
+<models folder>/<id>/<file>            the weights, where a download puts them
 <models folder>/<id>/<file>.part       a download in progress
-<models folder>/<id>/.<file>.ok-<sha>  size:mtime at the last verify
-<models folder>/<id>/meta.json         what was fetched, and when
+<models folder>/<id>/meta.json         what was fetched, and when — written
+                                       by a download, never by a verify
+<models folder>/…/<file>               a catalogue file found anywhere else
+                                       under the folder (D302)
+<data dir>/records/<key>-<file>        size:mtime and sha256 at the last
+                                       hash, keyed by the file's path (D303)
+<data dir>/records/<key>-<file>.downloaded       a download's mark, with the
+                                       identity of the file it marks (D302, D350)
+<data dir>/records/<key>-<file>.part.downloaded  the same for the `.part` a
+                                       download opened (D351)
 ```
 
 `<models folder>` is `<data dir>/models` unless the `models.dir` row
@@ -130,10 +138,162 @@ What is checked, and when:
   it would keep a resume point that can only ever produce the same wrong
   file again.
 * **On every later look** — the size and mtime recorded at the last
-  verify. They match and the file is trusted without re-reading seven
-  gigabytes; they do not and it is hashed again. The stamp is not a
-  security check — the sha256 is — and anything that moves the file
-  re-hashes it.
+  hash, beside the sha256 the file had then. They match and the recorded
+  hash is the answer without re-reading seven gigabytes; they do not and
+  it is hashed again. The record is not a security check — the sha256
+  is — and anything that moves the file re-hashes it.
+
+### Records under the data directory, never beside the weights (D303)
+
+Until 2026-10-07 a verify left `.<file>.ok-<sha256>` beside the file,
+and a fetch of an entry that was already whole wrote `meta.json` (with
+`fetched_at_unix`) beside weights it had not fetched — both seen on the
+owner's model mirror, a folder shared with another program. Now:
+
+* What a verify learned is a **record** under `<data dir>/records/`
+  (`Layout::records_dir`), one per weight file, named
+  `<first 32 hex of sha256(path)>-<file name>` — the path is the folder
+  made absolute (`canonicalize`) joined with the file name, so a file
+  reached as `/var/…` and `/private/var/…` is one record. It holds
+  `size:mtime`, the sha256 the file *had*, and the path. Recording the
+  hash rather than "it matched" is what lets a file with a catalogue
+  file's name and size and another hash be read once rather than on
+  every look, and lets a manifest that changes an expected hash be
+  compared against what the file is rather than a stale "ok".
+* A record that cannot be written is a warning: the next look hashes
+  again, and the verify still answers.
+* `fetch` of an entry already whole — at its place or found elsewhere —
+  downloads nothing and writes nothing. `meta.json` is written only
+  after a download, in the entry's own `<models>/<id>/`.
+* A stamp the old layout left beside a file is not read and not
+  removed (it is hidden, so the walk never lists it; `remove` deletes
+  the one beside a download of ours). The first look after the move
+  hashes each file once and records it
+  (`a_stamp_beside_the_file_is_not_needed`).
+
+A folder held read-only verifies and loads with nothing written in it
+(`a_read_only_folder_verifies_with_nothing_written_in_it`, which also
+holds that the record saves the second look its hash).
+
+### Found wherever it is (D302)
+
+A catalogue model is not only where a download puts it. When a file of
+an entry is not at `<models>/<id>/<file>`, the walk of the folder
+(`scan::weights_under`, eight levels) is searched for it: every file of
+its **name and size** is a candidate, its **sha256** decides, and the
+first that matches in path order is used. A same-name file of another
+size is not even hashed; one of the right size and another hash is not
+used, stays under "Also in this folder", and is read once (its record
+remembers the hash it had). An entry with no sha256 is never recognised
+elsewhere — a name and a size are not a confirmation.
+
+A file found that way is **the user's**:
+
+* it is `Present`, and `Downloads::weights_path` hands it to the engine;
+* the card says where it was found and offers no button — no Download,
+  because nothing needs fetching, and no Remove
+  (`Availability::Found`, `settings-models-found-at`;
+  `a_model_found_elsewhere_offers_no_remove`);
+* `remove` deletes only what a download of this product wrote — a file
+  at its place carrying the download's mark (amended below) — and never a
+  found file, nor anything else a person put in `<models>/<id>/`
+  (`delete_leaves_a_file_found_elsewhere_alone`,
+  `a_file_at_its_place_that_no_download_wrote_is_never_removed`);
+  `wipemark-cli models rm` says where the file is and that nothing was
+  removed (`cli-models-rm-found`), and `models list` adds "found at"
+  (and `found_at` in `--json`).
+
+One walk serves the whole page: `Downloads::survey` walks once and
+locates every entry in it, and the same listing, less every file of
+every entry wherever it was found, is "Also in this folder".
+`Downloads::locate` (and `state`, `weights_path`) walk only when a file
+is not at its place.
+
+**Amended after the host verification (H1, 2026-10-07).** The first
+version took a file at `<models>/<id>/<file>` as the product's own,
+whoever put it there — and the owner's mirror is laid out exactly
+`<id>/<file>`, so its Qwen card read Installed with a Remove that deleted
+12 GB another tool had put there (`scripts/verify/owner-fixes/rm-in-a-mirror.sh`
+said DELETED). Now **a download leaves a mark a look never writes**: when
+`fetch_one` renames a verified `.part` into place it writes
+`<data dir>/records/<key>-<file>.downloaded` beside the file's record
+(`Downloads::mark`), and only a file with that mark is the product's:
+
+* a file at its place **with** the mark is a download of ours — Installed
+  with Remove, Damaged with Remove when it no longer matches, and the
+  only file `remove` deletes or `fetch_one` replaces;
+* a file at its place **without** the mark is another tool's: when its
+  sha256 is the catalogue's it is used where it is and the card says
+  "Found at …" with no button, like one found elsewhere; when it is not,
+  the entry stays absent, the card says "A file at … has this model's name
+  but not its contents … move it away to download this model here"
+  (`Availability::Foreign`, `settings-models-foreign`) and offers
+  **nothing** — no Download, which would have to write over it, and no
+  Remove; `fetch` refuses with `StoreError::Occupied`, the file untouched;
+* `remove` deletes, at the entry's place, only marked files, their old
+  stamp, the `.part` (the download's own working name) and — only when a
+  marked file went — `meta.json`; the directory only if that empties it.
+
+**A download made by a build from before the mark has none**, so it now
+reads as "Found at …" and cannot be removed from the page; that is the
+safe side. To have it removable again, delete it by hand and download it
+anew. A mark that cannot be written is a warning: the file then reads as
+another tool's, the same safe side.
+
+**A mark names the file, not the place (D350, after the host
+verification of 2026-10-08, A1).** The first mark held a time and a path
+and nothing about the file, and was never dropped: a download deleted by
+hand, or replaced at the same path by another tool — a `models.dir` that
+is the owner's mirror, laid out `<id>/<file>` — left a mark that made the
+new file "ours", so Remove deleted it, a fetch removed it and downloaded
+over it, and the card read Damaged with Remove
+(`scripts/verify/owner-fixes/rm-through-a-link.sh`, case `stale`, said
+DELETED). Now the mark is
+
+```text
+wipemark download mark 1
+<identity>
+<fetched at, unix seconds>
+<path>
+```
+
+and the identity is what the file was when it was marked, read without
+following a link: `size:mtime_ns:dev:ino` on Unix, `size:mtime_ns:birth_ns`
+elsewhere. A file at the place is a download of ours only while it has
+that identity; anything else — written over in place (the mtime moves),
+renamed over (a new inode), a symbolic link put there (never a regular
+file), or a mark in the old shape with no identity — reads as another
+tool's file (Found when it matches, Foreign when it does not; never
+removed, never downloaded over), and the mark is dropped, as it is when
+its file is found absent. A mark that names another file can never be
+right again. The cost is on the safe side: a download of ours whose mtime
+something else touched is "Found at …" from then on, not Installed with
+Remove (`a_mark_names_the_file_and_not_the_place`,
+`a_mark_whose_file_is_gone_is_dropped`,
+`a_link_at_a_marked_place_is_not_the_download`).
+
+**A `.part` is ours only when a download opened it (D351, A2).** Remove
+deleted `<id>/<file>.part` unconditionally, a look read any `.part` as a
+resumable download, Resume appended HTTP bytes into it, and a mismatch
+deleted it — so another tool's download in progress under the same name
+(case `dirlink`: `<models>/<id>` a link into a mirror) was lost. Now a
+download creates its `.part` with `create_new` and marks it at once,
+before the first byte, with an identity that survives appending:
+`dev:ino:birth_ns` on Unix (`-` where the file system keeps no birth
+time), `birth_ns` elsewhere. Only a marked `.part` is a resume point, is
+truncated when a server ignores the range, and is removed (by Remove, or
+on a mismatch); its mark goes when it is renamed into place or thrown
+away. An unmarked `.part` is another tool's: the entry is not Partial,
+the card says it is there as it would another tool's file
+(`Located::mismatched`, `Availability::Foreign`), Remove leaves it, and a
+fetch refuses with `StoreError::Occupied` before any request
+(`a_part_nobody_marked_is_never_resumed_or_removed`,
+`a_download_marks_its_own_part`). A `.part` left by a build before D351
+has no mark and reads the same way: move it away, and the download
+starts over.
+
+Loading a GGUF that is in no catalogue — the user's own model,
+unverified — is an owner question, not this rule.
 
 ### Resume, and the 200 that ruins it
 
@@ -307,14 +467,58 @@ state once the scan has answered
 (`the_banner_names_the_folder_once_it_has_been_read`), so an empty
 folder is described rather than silently missing a section.
 
+### A bar while bytes move (D306)
+
+The owner's 2026-10-07 session: a download said only "3.1 GB of 12.0
+GB", and the look at a 12 GB file already on the disk said "Checking what
+is already here…" for minutes with nothing moving. Now a card draws
+gpui-component's own progress bar (`models::bar`, one place for the
+Models page and the walk-through's model step) whenever bytes move:
+
+* **while a download runs**, and **while one waits to be resumed**, at
+  its fraction, with "*done* of *total*" kept in the line above it;
+* **while a file of the entry is hashed** — a look at a file whose record
+  moved, a verify, the check of a download that just finished (its `.part`
+  read under its working name) — as `Availability::Checking`, "Checking
+  *done* of *total* against the catalogue…", with no button: nothing can
+  be pressed until the file is read, and the state wins over every other
+  (a download being checked is no longer downloading; a model on the disk
+  is not known to be whole until it is read).
+
+The hash's progress is the store's: `Downloads::watch_hashes` takes a
+`flume` sender of `Hashing` — `Progress { path, done_bytes, total_bytes }`
+from zero, at most one per 120 ms (`REPORT_EVERY`, the download's own
+pace) and at the whole file, then `Done { path }` however the hash ended.
+`Preferences` attaches a listener to every `Downloads` it builds (at
+startup and when the folder moves), keeps the file being hashed and how
+far, and `Preferences::checking_for(entry)` is what a card reads. With
+D304 there is one scan at a time, so one file is read and one bar moves.
+Gates: `store::tests::a_hash_tells_how_far_it_has_got`,
+`models::tests::a_card_has_a_bar_while_bytes_move_and_none_when_installed`,
+`models::tests::the_bar_is_painted_mid_download_and_not_when_installed`
+(painted, with a height, and not over an installed model),
+`settings::tests::a_hash_in_progress_reaches_the_card` (a real 3 MB look
+through the folder row's store: the card's bar went 0 → 100 and is gone).
+
 ### Nothing blocks the window
 
 The probe may spawn a process and the scan may re-hash gigabytes, so
 both run on the background executor and both happen when the Settings
 window opens — not at startup, for the same reason the API key is not
-read at startup. A generation counter (`scans`) means a slow scan that
-outlived the download which invalidated it does not win over the answer
-that was asked for later.
+read at startup.
+
+**One scan at a time (D304).** `Preferences::look_at_models` is asked
+by the main window, by Settings opening and after every change on disk;
+on 2026-10-07 three scans ran at once over one twelve-gigabyte file
+(three descriptors on one `.gguf`). Now a scan asked while one runs
+starts nothing and sets `rescan`; when the running one lands its answer
+is set aside — it may describe a disk that has since changed — and one
+more scan runs, after it, never beside it. Whatever the first one hashed
+is a record by then, so the second reads the record instead of the file
+(`two_scans_asked_back_to_back_hash_a_file_once`, over
+`Downloads::hashes`, the count of full hashes a store has made). A
+`wipemark-cli models verify` in another process is not joined: it is
+the one command asked to hash in full.
 
 ## What is deliberately not here
 

@@ -116,6 +116,26 @@ pub enum Handed {
     Path(PathBuf),
 }
 
+impl Handed {
+    /// Whether this is nothing at all — no item for a queue or a panel
+    /// to list (D301).
+    ///
+    /// Text is nothing when it holds no character but ASCII white space
+    /// (U+0009, U+000A, U+000C, U+000D, U+0020): Layer A finds nothing in
+    /// those, and a row for a stray newline is a row nobody asked for.
+    /// Any other character makes it something — a no-break or a narrow
+    /// no-break space included, because those are exactly what Layer A
+    /// looks for. Bytes are nothing when there are none. A path is never
+    /// nothing: an empty file is still a file somebody chose.
+    pub fn is_nothing(&self) -> bool {
+        match self {
+            Handed::Text(text) => text.trim_ascii().is_empty(),
+            Handed::Bytes { bytes, .. } => bytes.is_empty(),
+            Handed::Path(_) => false,
+        }
+    }
+}
+
 /// How it reached us — which is a different question from what it is.
 ///
 /// A path that arrived as text is still a path, and a surface that says
@@ -359,8 +379,10 @@ pub fn of_path(path: &Path) -> Intake {
 
     // An empty file is a text file with nothing in it — which is what
     // every editor on this machine will say — but only when it really
-    // is empty, rather than unreadable.
-    if head.is_empty() && intake.size == Some(0) && intake.format.is_none() {
+    // is empty, rather than unreadable, and really a file: a FIFO or a
+    // device says a length of nought too, and is not read (D356).
+    let regular = metadata.as_ref().is_some_and(std::fs::Metadata::is_file);
+    if regular && head.is_empty() && intake.size == Some(0) && intake.format.is_none() {
         intake.kind = Kind::Text;
         intake.format = Some(Format::PlainText);
         intake.evidence = Evidence::Content;
@@ -368,8 +390,14 @@ pub fn of_path(path: &Path) -> Intake {
     intake
 }
 
-/// The front of a file, or `None` if it would not open.
+/// The front of a file, or `None` if it would not open — or is not a
+/// regular file: a FIFO with no writer, a terminal or a socket blocks an
+/// open or a read for as long as nobody writes, and whoever asked what a
+/// path is must never wait on that (D356). A device is not read either.
 fn head_of(path: &Path) -> Option<Vec<u8>> {
+    if !std::fs::metadata(path).ok()?.is_file() {
+        return None;
+    }
     let file = std::fs::File::open(path).ok()?;
     let mut head = Vec::with_capacity(HEAD);
     file.take(HEAD as u64).read_to_end(&mut head).ok()?;
@@ -380,7 +408,33 @@ fn head_of(path: &Path) -> Option<Vec<u8>> {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{identify, of_bytes, of_path, of_text, Arrived, Encoding, Evidence, Format, Kind};
+    use super::{
+        identify, of_bytes, of_path, of_text, Arrived, Encoding, Evidence, Format, Handed, Kind,
+    };
+
+    /// D301: empty text, ASCII white space alone and no bytes are
+    /// nothing; a space Layer A looks for, one character and any path
+    /// are something.
+    #[test]
+    fn nothing_is_empty_text_ascii_white_space_or_no_bytes() {
+        for text in ["", " ", "\n", "\r\n", " \t\x0C\n "] {
+            assert!(Handed::Text(text.to_owned()).is_nothing(), "{text:?}");
+        }
+        for text in ["a", "\u{A0}", "\u{202F}", "\u{200B}", " .\n", "\x0B"] {
+            assert!(!Handed::Text(text.to_owned()).is_nothing(), "{text:?}");
+        }
+        assert!(Handed::Bytes {
+            name: Some("image.png".to_owned()),
+            bytes: Vec::new()
+        }
+        .is_nothing());
+        assert!(!Handed::Bytes {
+            name: None,
+            bytes: vec![0]
+        }
+        .is_nothing());
+        assert!(!Handed::Path(PathBuf::new()).is_nothing());
+    }
 
     /// A scratch directory that takes its own files away with it.
     struct Scratch(PathBuf);
@@ -618,5 +672,33 @@ mod tests {
         assert_eq!(intake.kind, Kind::Data);
         // The size is the file's, and it did not come from the read.
         assert_eq!(intake.size, Some(big.len() as u64));
+    }
+
+    /// D356: a FIFO nobody writes to is answered at once — as a path
+    /// with nothing read from it — and never opened: an open for reading
+    /// blocks until a writer comes, and the journal's read of a row the
+    /// command line left (`clean <(…)`, `/dev/stdin`) waited forever on
+    /// it. Asked on a thread of its own, so a regression fails this test
+    /// rather than hanging the suite.
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_with_no_writer_is_never_opened() {
+        let scratch = Scratch::new("fifo");
+        let fifo = scratch.0.join("pipe");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs");
+        assert!(made.success());
+        let (answer, answered) = std::sync::mpsc::channel();
+        let asked = fifo.clone();
+        std::thread::spawn(move || {
+            let _ = answer.send(of_path(&asked));
+        });
+        let intake = answered
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the FIFO was opened and waited on");
+        assert_eq!(intake.path.as_deref(), Some(fifo.as_path()));
+        assert_eq!(intake.format, None);
     }
 }

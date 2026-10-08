@@ -183,7 +183,16 @@ impl Catcher {
     /// and it goes down this same road one step later — so "Import" and
     /// a drop cannot recognise a file two different ways, and a surface
     /// listening for [`Landed`] hears both.
+    ///
+    /// Nothing is no item (D301): an empty text, or one of ASCII white
+    /// space alone, is left out here, whichever road it came by — so a
+    /// drop of it lands as a drop that carried nothing, and the queue
+    /// lists no row for it.
     pub fn land(&mut self, handed: Vec<Handed>, cx: &mut Context<Self>) {
+        let handed: Vec<Handed> = handed
+            .into_iter()
+            .filter(|handed| !handed.is_nothing())
+            .collect();
         self.hovering(false, cx);
         self.reads += 1;
         let mine = self.reads;

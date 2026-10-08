@@ -50,6 +50,7 @@ mod engine;
 mod engine_host;
 mod hotkey;
 mod icon;
+mod journal;
 mod keys;
 mod language;
 mod mcp;
@@ -63,6 +64,8 @@ mod pasteboard;
 mod placement;
 mod preview;
 mod profile;
+// E4-6c: the Prompts section of the Settings window.
+mod prompts;
 mod queue;
 mod recorder;
 mod report;
@@ -131,6 +134,12 @@ struct Shell {
     /// A row's Report dialog, while it is open, and its subscription —
     /// an element in this view's own tree, like the walk-through.
     report: Option<(Entity<ReportView>, Subscription)>,
+    /// Rewrite all's price, "send these away?", or the queue's question
+    /// about where the waiting rewrites go, while it asks (E4-6b).
+    asking: Option<(Entity<dialog::Confirm>, Subscription)>,
+    /// The questions that arrived while one was open, asked in turn after
+    /// it — never one silently put in place of another (D364).
+    waiting: std::collections::VecDeque<Asked>,
     /// Dropped with the view: a change on the clipboard repaints the
     /// toolbar, and the window coming forward looks at it again.
     _clipboard: [Subscription; 2],
@@ -246,7 +255,7 @@ impl Shell {
         // Clean, for a check that should not start by driving a menu.
         let Startup { import, clean } = arguments;
         if !import.is_empty() {
-            queue.update(cx, |queue, cx| queue.hand(import, cx));
+            queue.update(cx, |queue, cx| queue.hand_from_launch(import, cx));
         }
         if !clean.is_empty() {
             queue.update(cx, |queue, cx| queue.hand_to_clean(clean, cx));
@@ -258,12 +267,75 @@ impl Shell {
         let asked = cx.subscribe_in(
             &queue,
             window,
-            |shell, queue, event: &QueueEvent, window, cx| match *event {
+            |shell, queue, event: &QueueEvent, window, cx| match event {
                 QueueEvent::Report(id) => {
-                    let Some((intake, outcome)) = queue.read(cx).report_of(id) else {
+                    let Some((intake, outcome)) = queue.read(cx).report_of(*id) else {
                         return;
                     };
                     shell.open_report(&intake, &outcome, window, cx);
+                }
+                // The price first (D61), and nothing pushed until yes.
+                QueueEvent::Price { ids, price } => {
+                    let title = t_args(
+                        Message::RewritePriceTitle,
+                        &args!("count" => price.documents),
+                    );
+                    shell.ask(
+                        Asked::rewrite(title, price.lines(), Message::RewritePriceGo, ids),
+                        window,
+                        cx,
+                    );
+                }
+                // A drop the switch would send away is asked about once (В1).
+                QueueEvent::SendAway { ids, host } => {
+                    let title = t_args(
+                        Message::RewriteSendTitle,
+                        &args!("count" => ids.len(), "host" => host.clone()),
+                    );
+                    let body = vec![t(Message::RewriteSendBody)];
+                    shell.ask(
+                        Asked::rewrite(title, body, Message::RewriteSendGo, ids),
+                        window,
+                        cx,
+                    );
+                }
+                // The duty moved while rewrites waited: asked again before
+                // any is sent somewhere it was not asked to go (D361). No is
+                // nothing — the queue keeps holding.
+                QueueEvent::Consent {
+                    now,
+                    host,
+                    was,
+                    count,
+                } => {
+                    let title = t_args(
+                        Message::RewriteConsentTitle,
+                        &args!("count" => *count, "host" => host.clone()),
+                    );
+                    let body = vec![
+                        match was {
+                            None => t_args(
+                                Message::RewriteConsentBodyHere,
+                                &args!("host" => host.clone()),
+                            ),
+                            Some(was) => t_args(
+                                Message::RewriteConsentBodyAway,
+                                &args!("host" => host.clone(), "was" => was.clone()),
+                            ),
+                        },
+                        t(Message::RewriteConsentHold),
+                    ];
+                    let now = now.clone();
+                    shell.ask(
+                        Asked {
+                            title,
+                            body,
+                            go: Message::RewriteConsentGo,
+                            yes: Box::new(move |queue, _| queue.agree(now)),
+                        },
+                        window,
+                        cx,
+                    );
                 }
             },
         );
@@ -275,6 +347,8 @@ impl Shell {
             _clipboard: [watched, activated],
             _queue: [working, asked],
             report: None,
+            asking: None,
+            waiting: std::collections::VecDeque::new(),
             host,
             _host: loaded,
             preferences,
@@ -308,6 +382,47 @@ impl Shell {
             cx.notify();
         });
         self.report = Some((view, closed));
+        cx.notify();
+    }
+
+    /// Ask before rows are rewritten — Rewrite all's price, a drop that
+    /// would be sent away, the queue's question about where the waiting
+    /// rewrites go. Yes runs the question's own answer; anything else,
+    /// nothing. A question asked while another is open waits its turn and
+    /// is asked after it (D364).
+    fn ask(&mut self, asked: Asked, window: &mut Window, cx: &mut Context<Self>) {
+        if self.asking.is_some() {
+            self.waiting.push_back(asked);
+            return;
+        }
+        let Asked {
+            title,
+            body,
+            go,
+            yes,
+        } = asked;
+        let view = cx.new(|cx| {
+            dialog::Confirm::new(title, body, t(go), t(Message::RewriteCancel), window, cx)
+        });
+        let queue = self.queue.clone();
+        let mut yes = Some(yes);
+        let answered = cx.subscribe_in(
+            &view,
+            window,
+            move |shell, _, answer: &dialog::Answer, window, cx| {
+                if *answer == dialog::Answer::Accepted {
+                    if let Some(yes) = yes.take() {
+                        queue.update(cx, |queue, cx| yes(queue, cx));
+                    }
+                }
+                shell.asking = None;
+                if let Some(next) = shell.waiting.pop_front() {
+                    shell.ask(next, window, cx);
+                }
+                cx.notify();
+            },
+        );
+        self.asking = Some((view, answered));
         cx.notify();
     }
 
@@ -359,6 +474,22 @@ impl Shell {
         self.setup_heard = Some(heard);
         cx.notify();
     }
+}
+
+/// [`status_line`], unless the model on this machine is being read into
+/// memory: then how far, as a whole percent (F1). Whoever asked for the
+/// load — the keep policy, a Check, a job — it is the same sentence.
+fn status_now(duty: &Duty, loaded: &Loaded, progress: Option<f32>) -> String {
+    if let (Some(Performer::Machine(local)), Some(fraction)) = (duty.performer(), progress) {
+        return t_args(
+            Message::StatusLocalLoadingProgress,
+            &args!(
+                "model" => local.display.clone(),
+                "percent" => engine_host::percent(fraction).to_string(),
+            ),
+        );
+    }
+    status_line(duty, loaded)
 }
 
 /// The status bar's sentence: who is on duty, whether the document
@@ -428,6 +559,53 @@ fn status_line(duty: &Duty, loaded: &Loaded) -> String {
     }
 }
 
+impl Shell {
+    /// The status bar's one sentence: what the application is doing. A
+    /// model loading says how far (F1); then the cleans, which are quick
+    /// and the person's own clicks; then the batch queue's rewrites — which
+    /// of how many, which paragraph, or why it waits; then who is on duty.
+    fn status(&self, cx: &App) -> String {
+        let duty = self.preferences.read(cx).duty(Role::Rewrite);
+        let host = self.host.read(cx);
+        if let (Some(Performer::Machine(_)), Some(_)) = (duty.performer(), host.load_progress()) {
+            return status_now(&duty, host.loaded(), host.load_progress());
+        }
+        let queue = self.queue.read(cx);
+        if let Some((current, total)) = queue.progress(cx) {
+            return cleaning_line(current, total);
+        }
+        if let Some(line) = queue.rewrite_line() {
+            return line;
+        }
+        status_now(&duty, host.loaded(), host.load_progress())
+    }
+}
+
+/// What yes to a question does, to the table.
+type Yes = Box<dyn FnOnce(&mut Queue, &mut Context<Queue>)>;
+
+/// A question the main window asks before rewrites go: its words, and what
+/// yes does (D364).
+struct Asked {
+    title: String,
+    body: Vec<String>,
+    go: Message,
+    yes: Yes,
+}
+
+impl Asked {
+    /// Yes rewrites rows `ids`.
+    fn rewrite(title: String, body: Vec<String>, go: Message, ids: &[u64]) -> Self {
+        let ids = ids.to_vec();
+        Self {
+            title,
+            body,
+            go,
+            yes: Box::new(move |queue, cx| queue.rewrite(&ids, cx)),
+        }
+    }
+}
+
 /// The status bar's sentence while the queue cleans: which of how many.
 fn cleaning_line(current: usize, total: usize) -> String {
     t_args(
@@ -484,6 +662,12 @@ impl Shell {
         let (paste_label, count) = clipboard::label(self.clipboard.read(cx).held());
         let cleaning = self.queue.clone();
         let waiting = self.queue.read(cx).cleanable_waiting().len();
+        let (rewriting, pausing, clearing) =
+            (self.queue.clone(), self.queue.clone(), self.queue.clone());
+        let rewritable = self.queue.read(cx).rewritable_waiting(cx).len();
+        let open = self.queue.read(cx).rewrites_open();
+        let paused = self.queue.read(cx).rewrites_paused();
+        let finished = self.queue.read(cx).any_finished();
         h_flex()
             .w_full()
             .flex_shrink_0()
@@ -537,6 +721,55 @@ impl Shell {
                         cleaning.update(cx, |queue, cx| queue.clean_all(cx));
                     }),
             )
+            .child(
+                Button::new("rewrite-all")
+                    .small()
+                    .outline()
+                    .icon(IconName::Pen)
+                    .label(SharedString::from(t(Message::ToolbarRewriteAll)))
+                    .tooltip(SharedString::from(t(Message::ToolbarRewriteAllTooltip)))
+                    .disabled(rewritable == 0)
+                    .on_click(move |_: &ClickEvent, _, cx| {
+                        rewriting.update(cx, |queue, cx| queue.ask_rewrite_all(cx));
+                    }),
+            )
+            // While anything is in the batch queue — every surface's.
+            .when(open || paused, |bar| {
+                bar.child(
+                    Button::new("pause-rewrites")
+                        .small()
+                        .ghost()
+                        .label(SharedString::from(t(if paused {
+                            Message::ToolbarResume
+                        } else {
+                            Message::ToolbarPause
+                        })))
+                        .tooltip(SharedString::from(t(if paused {
+                            Message::ToolbarResumeTooltip
+                        } else {
+                            Message::ToolbarPauseTooltip
+                        })))
+                        .on_click(move |_: &ClickEvent, _, cx| {
+                            pausing.update(cx, |queue, cx| {
+                                queue.pause_rewrites(!paused);
+                                cx.notify();
+                            });
+                        }),
+                )
+            })
+            .when(finished, |bar| {
+                bar.child(
+                    Button::new("clear-finished")
+                        .small()
+                        .ghost()
+                        .icon(IconName::Trash)
+                        .label(SharedString::from(t(Message::ToolbarClearFinished)))
+                        .tooltip(SharedString::from(t(Message::ToolbarClearFinishedTooltip)))
+                        .on_click(move |_: &ClickEvent, _, cx| {
+                            clearing.update(cx, |queue, cx| queue.clear_finished(cx));
+                        }),
+                )
+            })
             .child(div().flex_1())
             .child(
                 Popover::new("help")
@@ -607,15 +840,7 @@ impl Render for Shell {
                     // still ends in "Layer A only": nothing in this
                     // build sends a request.
                     .child(Icon::new(IconName::CircleInfo).small().color(muted))
-                    .child(SharedString::from(match self.queue.read(cx).progress(cx) {
-                        // While the queue works, that is what the
-                        // application is doing.
-                        Some((current, total)) => cleaning_line(current, total),
-                        None => status_line(
-                            &self.preferences.read(cx).duty(Role::Rewrite),
-                            self.host.read(cx).loaded(),
-                        ),
-                    }))
+                    .child(SharedString::from(self.status(cx)))
                     .child(div().flex_1())
                     // The far end of the status bar, which is where a
                     // desktop application has put its preferences for
@@ -650,6 +875,11 @@ impl Render for Shell {
             // or a tooltip of the library's that would have to show over
             // it. See the note on `SettingsView::dialog` for why tree
             // order alone is not enough to make an overlay modal.
+            .children(self.asking.as_ref().map(|(asking, _)| {
+                deferred(asking.clone())
+                    .with_priority(dialog::MODAL_PRIORITY)
+                    .into_any_element()
+            }))
             .children(self.report.as_ref().map(|(report, _)| {
                 deferred(report.clone())
                     .with_priority(dialog::MODAL_PRIORITY)
@@ -908,6 +1138,72 @@ fn init_logging(layout: Option<&Layout>) {
     }
 }
 
+/// Open the batch queue over the application's database, and the journal
+/// beside it; settle what an earlier run left mid-way, sweep the rows past
+/// their keep period, start the bookkeeper, and install both for the MCP
+/// server (E4-6b, R1, R4).
+///
+/// The queue asks `engine` for an engine as each item starts, and is told
+/// whenever the duty changes, so a hold for want of an engine lifts by
+/// itself. A database that would not open is the store's in-memory
+/// stand-in, and the queue says so as its `Durability`.
+fn open_work(
+    store: &config::SettingsStore,
+    engine: &EngineHandle,
+    keep_days: u32,
+) -> journal::Work {
+    use wipemark_queue::{Durability, Queue};
+
+    let durability = if store.path() == std::path::Path::new(":memory:") {
+        Durability::Memory {
+            detail: Some("the preferences database would not open".to_owned()),
+        }
+    } else {
+        Durability::File(store.path().to_path_buf())
+    };
+    // Where the duty would send a document, as the main window works it
+    // out from the preferences: an item consented to stay here is asked
+    // about before it goes anywhere else (D361).
+    let whereto = journal::Going::default();
+    let source: Arc<dyn wipemark_queue::EngineSource> = Arc::new(journal::Duty {
+        engine: engine.clone(),
+        going: whereto.clone(),
+    });
+    let queue = match Queue::with_source(store.clone(), durability, Arc::clone(&source)) {
+        Ok(queue) => queue,
+        Err(error) => {
+            tracing::warn!(%error, "the batch queue's rows would not read; it runs in memory");
+            let memory = Arc::new(
+                wipemark_store::Store::in_memory().expect("an in-memory database always opens"),
+            );
+            Queue::with_source(
+                memory,
+                Durability::Memory {
+                    detail: Some(error.to_string()),
+                },
+                source,
+            )
+            .expect("an empty in-memory queue always reads")
+        }
+    };
+    let queue = Arc::new(queue);
+    let told = Arc::clone(&queue);
+    engine.when_changed(move || told.engine_changed());
+    let work = journal::Work {
+        queue,
+        journal: journal::Journal::new(store.clone()),
+        engine: engine.clone(),
+        whereto,
+    };
+    journal::settle_at_launch(&work);
+    for item in work.journal.sweep(keep_days, journal::now_ms()) {
+        work.queue.remove(item);
+    }
+    journal::keep_books(&work);
+    journal::install(work.clone());
+    work
+}
+
 fn main() {
     // Resolved here and not inside `init_logging` so that the block
     // below can reuse it rather than asking the platform twice.
@@ -944,6 +1240,17 @@ fn main() {
     // `config::read_all`.
     let stored = config::read_all(&store);
     let preference = stored.theme;
+
+    // The road to the engine on duty, built before anything that holds
+    // one: the batch queue asks it for an engine as each item starts, the
+    // MCP server takes it when `Preferences` starts it, and the host that
+    // serves it is built over `Preferences` once the window exists.
+    let (engine_handle, engine_inbox) = EngineHandle::new();
+    // The batch queue and the document journal (E4-6b), over the same
+    // database as the preferences — before the window and before the MCP
+    // server, both of which push to it. Opening it reads its rows, which
+    // blocks the way `config::open` does, and once, here.
+    let work = open_work(&store, &engine_handle, stored.journal_keep_days);
     let language = stored.language.clone();
 
     // The credential store, for the one setting that is not a row in
@@ -966,6 +1273,12 @@ fn main() {
     let models_default = match &layout {
         Ok(layout) => layout.models_dir(),
         Err(_) => std::env::temp_dir().join("wipemark-models"),
+    };
+    // What a verify learned about each weight file, under the data
+    // directory and never beside the weights (D303).
+    let records_dir = match &layout {
+        Ok(layout) => layout.records_dir(),
+        Err(_) => std::env::temp_dir().join("wipemark-records"),
     };
     // And the two folders the Retention page names: where a result
     // with no file to sit beside goes, and where kept copies go. Asked
@@ -1015,16 +1328,15 @@ fn main() {
             let preferences_slot: Rc<RefCell<Option<Entity<Preferences>>>> = Rc::default();
             let slot = preferences_slot.clone();
 
-            // The road to the engine on duty, built before anything that
-            // holds one: the MCP server takes it when `Preferences` starts
-            // it, and the host that serves it is built over `Preferences`
-            // just after.
-            let (engine_handle, engine_inbox) = EngineHandle::new();
+            // The windows reach the queue and the journal through a
+            // global; the MCP server through `journal::installed`.
+            cx.set_global(journal::Working(work.clone()));
 
             // What the sweep below needs, before the window builder
             // takes the rest.
             let kept_home = homes.kept.clone();
             let keep_for = stored.retention.keep_for;
+            let beacon_at_quit = beacon.clone();
             let opened = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -1052,6 +1364,7 @@ fn main() {
                             store.clone(),
                             vault.clone(),
                             models_default.clone(),
+                            records_dir.clone(),
                             homes.clone(),
                             launch.profile.clone(),
                             engine_handle.clone(),
@@ -1115,6 +1428,7 @@ fn main() {
             install_shortcut(window, preferences.clone(), cx);
             install_tray(preference, window, preferences.clone(), cx);
             install_hotkeys(window, preferences.clone(), cx);
+            take_beacon_at_quit(beacon_at_quit, cx);
 
             // Kept copies past their period go once a launch, by the
             // time in their own names — off this thread, because a
@@ -1143,6 +1457,7 @@ fn main() {
                     compare::Subject {
                         handed: wipemark_intake::Handed::Path(path.clone()),
                         intake: None,
+                        made: compare::Made::Cleaned,
                     },
                     preferences.read(cx).comparison(),
                     AnyWindowHandle::from(window),
@@ -1218,17 +1533,20 @@ fn show_main_window(window: WindowHandle<Root>, cx: &mut App) {
 /// Three jobs, and the arrangement is the tray's. The registrar is
 /// asked for whatever the rows hold at launch; every change to a row
 /// is followed — the old chord released first, the new one asked for,
-/// and the desktop's answer written back so the page can show it; and a
+/// and the desktop's answer written back so the page can show it, when
+/// it comes: on X11 the asking happens on the registrar's own thread,
+/// because each request waits on the X server (B1); and a
 /// press comes back over a channel and is performed here, on the GPUI
 /// side, because the callback the desktop calls has no `&mut App` in
 /// scope and no way to be given one.
 ///
-/// Without a registrar — every platform but macOS today, or a desktop
-/// that refused one — the rows are told so and nothing else changes: a
+/// Without a registrar — Windows today, a Linux session that is not X11
+/// (D346), or a desktop that refused one — the rows are told so and
+/// nothing else changes: a
 /// chord is still recorded and stored, and the page says it is not
 /// active. A preference that silently did nothing would be worse.
 fn install_hotkeys(window: WindowHandle<Root>, preferences: Entity<Preferences>, cx: &mut App) {
-    let Some(registrar) = hotkey::install() else {
+    let Some(registrar) = hotkey::install(cx.compositor_name()) else {
         preferences.update(cx, |preferences, cx| {
             for action in hotkey::Action::ALL {
                 preferences.shortcut_registered(action, Registration::Unavailable, cx);
@@ -1237,6 +1555,7 @@ fn install_hotkeys(window: WindowHandle<Root>, preferences: Entity<Preferences>,
         return;
     };
     let presses = registrar.presses();
+    let answers = registrar.answers();
 
     // What the registrar has been asked for so far, so the observer
     // below can tell a chord that moved from a repaint: `Preferences`
@@ -1249,6 +1568,20 @@ fn install_hotkeys(window: WindowHandle<Root>, preferences: Entity<Preferences>,
     following.follow(&preferences, cx);
     cx.observe(&preferences, move |preferences, cx| {
         following.follow(&preferences, cx);
+    })
+    .detach();
+
+    // The desktop's answers, in the order they were asked: the last one
+    // for an action is the one the page keeps.
+    let told = preferences.clone();
+    cx.spawn(async move |cx| {
+        while let Ok((action, answer)) = answers.recv_async().await {
+            cx.update(|cx| {
+                told.update(cx, |preferences, cx| {
+                    preferences.shortcut_registered(action, answer, cx);
+                });
+            });
+        }
     })
     .detach();
 
@@ -1279,37 +1612,67 @@ struct Following {
 }
 
 impl Following {
-    /// Bring the registrations into line with the rows, touching only
-    /// the ones that moved, and report each answer back.
-    fn follow(&mut self, preferences: &Entity<Preferences>, cx: &mut App) {
+    /// Bring the registrations into line with the rows, asking only for
+    /// the ones that moved. The answers come back on the registrar's own
+    /// channel, never by waiting here (B1).
+    fn follow(&mut self, preferences: &Entity<Preferences>, cx: &App) {
         for action in hotkey::Action::ALL {
             let wanted = preferences.read(cx).shortcut(action);
             if self.asked.get(&action) == Some(&wanted) {
                 continue;
             }
-            let answer = self.registrar.assign(action, wanted);
+            self.registrar.ask(action, wanted);
             self.asked.insert(action, wanted);
-            preferences.update(cx, |preferences, cx| {
-                preferences.shortcut_registered(action, answer, cx);
-            });
         }
     }
+}
+
+/// Take the MCP server's beacon away as the application quits.
+///
+/// The supervisor takes it when its command channel closes, but a quit
+/// ends the process right after GPUI's quit handlers, before that
+/// thread is ever scheduled — so a Quit from the menu bar left a beacon
+/// naming a dead pid, which the CLI then had to see through (D344). The
+/// listener itself goes with the process. Only a beacon naming this
+/// process is removed.
+fn take_beacon_at_quit(beacon: Option<PathBuf>, cx: &App) {
+    cx.on_app_quit(move |_| {
+        if let Some(path) = &beacon {
+            if wipemark_models::beacon::Beacon::remove_if_ours(path, std::process::id()) {
+                tracing::info!("MCP: beacon taken away at quit");
+            }
+        }
+        async {}
+    })
+    .detach();
 }
 
 /// Put Wipemark in the menu bar and start listening to it.
 ///
 /// Nothing here is required for the window to work: [`tray::install`]
-/// returns `None` on a platform without a tray, and this function then
-/// does nothing at all — including leaving the close button alone.
+/// answers `None` on a platform without a tray — or, on Linux, on a
+/// desktop where nothing would draw one — and then nothing below runs at
+/// all, the close button included. The answer comes from the tray's own
+/// thread on Linux, so it is awaited rather than waited for.
 fn install_tray(
     current: ThemePreference,
     window: WindowHandle<Root>,
     preferences: Entity<Preferences>,
+    cx: &App,
+) {
+    let pending = tray::install(current);
+    tray::when_installed(pending, cx, move |tray, cx| {
+        adopt_tray(tray, window, preferences, cx);
+    });
+}
+
+/// Everything that exists only because the tray does.
+fn adopt_tray(
+    tray: tray::Tray,
+    window: WindowHandle<Root>,
+    preferences: Entity<Preferences>,
     cx: &mut App,
 ) {
-    let Some(tray) = tray::install(current) else {
-        return;
-    };
     let commands = tray.commands();
     let handle = AnyWindowHandle::from(window);
     // A global rather than a field on the view: the icon leaves the menu
@@ -1336,16 +1699,28 @@ fn install_tray(
     // application instead of ending it — the same bargain lazy-shot
     // makes, and only defensible because "Show Wipemark" is now a click
     // away. Registered here, inside the `Some`, so that a platform or a
-    // launch without a tray keeps a close button that closes.
-    let closed = window.update(cx, |_, window, cx| {
-        window.on_window_should_close(cx, |_, cx| {
-            cx.hide();
-            false
-        });
-    });
-    if let Err(error) = closed {
+    // launch without a tray keeps a close button that closes. How it
+    // hides is the platform's: the application on macOS, the main
+    // window minimized on Linux under X11, and not at all under Wayland
+    // (D343, `tray::close_button`).
+    let button = tray::close_button(tray::Platform::THIS, cx.compositor_name());
+    if let Err(error) = tray::keep_open_on_close(AnyWindowHandle::from(window), button, cx) {
         tracing::warn!(%error, "the close button will end the app rather than hide it");
     }
+
+    // Quit takes the item down on the way out: on Linux it lives on a
+    // thread of its own, whose GTK loop and icon file would otherwise
+    // outlast nothing but be cut off mid-flight (D344). Inside GPUI's
+    // quit budget, like the engine's drop.
+    cx.on_app_quit(|cx| {
+        let left = cx.try_global::<tray::Tray>().map(tray::Tray::leave);
+        async move {
+            if let Some(left) = left {
+                let _ = left.recv_async().await;
+            }
+        }
+    })
+    .detach();
 
     // The receiving end of the arrangement `tray` describes: the `muda`
     // callback has no `&mut App` to act with and no way to acquire one,
@@ -1370,6 +1745,14 @@ fn install_tray(
                     });
                     if let Err(error) = applied {
                         tracing::warn!(%error, "could not apply the theme chosen in the menu bar");
+                    }
+                    // A check item ticks and unticks itself when clicked,
+                    // and choosing the theme already chosen changes
+                    // nothing that would move the tick back — so it is
+                    // put on `choice`, which the preference now is
+                    // either way (D345).
+                    if let Some(tray) = cx.try_global::<tray::Tray>() {
+                        tray.show_theme(choice);
                     }
                 }
                 TrayCommand::UnloadModel => {
@@ -1643,6 +2026,18 @@ mod tests {
             reads_as(&loading, Message::StatusLocalLoading),
             "{loading:?}"
         );
+        // F1: while the weights are read, how far — whatever `Loaded` says,
+        // since a Check's or a job's load is not the policy's — and the
+        // ordinary sentence the moment it is over.
+        let reading = status_now(&machine, &Loaded::No, Some(0.42));
+        assert!(
+            reading.contains("Qwen3 4B Instruct") && reading.contains("42"),
+            "{reading:?}"
+        );
+        for other in all {
+            assert_ne!(&reading, other, "a load under way reads as another state");
+        }
+        assert_eq!(status_now(&machine, &Loaded::No, None), idle);
         // The measured figure, in the Models page's units.
         assert!(
             measured.contains(&engine_host::memory_label(4_000)),

@@ -41,6 +41,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use wipemark_i18n::LanguagePreference;
 use wipemark_models::manifest::{Manifest, Role};
+use wipemark_pipeline::lang::Lang;
+use wipemark_pipeline::prompt::row::{self, Override};
+use wipemark_pipeline::prompt::{Overrides, Slot};
 use wipemark_store::Store;
 
 use crate::compare::Comparison;
@@ -52,6 +55,7 @@ use crate::hotkey::{Action, Hotkey};
 use crate::mcp::{self, BindAddress, Endpoint};
 use crate::placement::{self, Onto, Spot};
 use crate::profile::{self, Profile, Row};
+use crate::queue::OnArrival;
 use crate::retention::{Destination, Period, Retention};
 use crate::theme::ThemePreference;
 
@@ -286,6 +290,43 @@ pub const COMPARE_GRAIN_KEY: &str = "compare.grain";
 /// Whether the original follows the result's cursor.
 pub const COMPARE_FOLLOW_KEY: &str = "compare.follow";
 
+// ## E4-6b — the journal and the batch queue's rows.
+
+/// What happens to a thing as it arrives in the main window, as a
+/// `queue::OnArrival` id: `nothing` (the default — a button asks), `clean`
+/// or `rewrite` (В1).
+pub const ON_ARRIVAL_KEY: &str = "queue.on_arrival";
+
+/// How many days a finished row stays in the document journal (В3) — a
+/// whole number from [`JOURNAL_DAYS`]; 7 by default.
+pub const JOURNAL_KEEP_DAYS_KEY: &str = "journal.keep_days";
+
+/// The keep periods the Retention page offers for the journal, in days.
+pub const JOURNAL_DAYS: [u32; 4] = [1, 7, 30, 90];
+
+/// A week, as `keep.for` defaults to: long enough to come back to a
+/// batch, short enough that the journal is not an archive.
+pub const JOURNAL_KEEP_DAYS_DEFAULT: u32 = 7;
+
+// ## E4-6c — the Prompts section's key.
+
+/// The pivot of `back_translate` (D60): a language id as a JSON string,
+/// or no row for "by the document's language". The pipeline owns the
+/// spelling — the CLI and the MCP server read it there — and it is a
+/// preference with a widget since E4-6c, so it is in [`PERSISTED`]
+/// (D331). The template overrides beside it, `prompts.<…>`, are not:
+/// see [`PROMPTS_PREFIX`].
+pub const REWRITE_PIVOT_KEY: &str = wipemark_pipeline::prompt::row::PIVOT_KEY;
+
+/// The first segment of every template override's key,
+/// `prompts.<lang>.<tactic>.<step>.<role>` — dynamic keys like
+/// [`ENGINE_PROFILES_PREFIX`], deliberately **not** in [`PERSISTED`]:
+/// the Prompts page lists every slot the pipeline has, and
+/// `every_template_slot_has_a_row` is their walk-test, as
+/// `a_prompt_row_is_never_a_preference_row` keeps the namespaces apart.
+#[cfg(test)]
+pub const PROMPTS_PREFIX: &str = "prompts.";
+
 /// The settings key holding the chord for `action`.
 ///
 /// A **format**, like [`model_key`]: a row name, never localized and
@@ -337,7 +378,7 @@ pub fn model_key(role: Role) -> &'static str {
 /// below name their own key — and `-D warnings` fails a bin target on
 /// dead code. Same idiom as `TrayCommand::ALL`.
 #[cfg(test)]
-pub const PERSISTED: [&str; 31] = [
+pub const PERSISTED: [&str; 34] = [
     THEME_KEY,
     LANGUAGE_KEY,
     WINDOW_SCREEN_KEY,
@@ -369,6 +410,11 @@ pub const PERSISTED: [&str; 31] = [
     ENGINE_LOCAL_MLOCK_KEY,
     MODEL_REWRITE_KEY,
     MODELS_DIR_KEY,
+    // ## E4-6b
+    ON_ARRIVAL_KEY,
+    JOURNAL_KEEP_DAYS_KEY,
+    // E4-6c
+    REWRITE_PIVOT_KEY,
 ];
 
 /// Everything one launch reads before there is a window to show it in.
@@ -422,6 +468,11 @@ pub struct Stored {
     pub retention: Retention,
     /// How a result is shown beside its original — the Compare page.
     pub comparison: Comparison,
+    // ## E4-6b
+    /// What happens to a thing as it arrives in the main window.
+    pub on_arrival: OnArrival,
+    /// How many days a finished journal row is kept.
+    pub journal_keep_days: u32,
 }
 
 /// Read every preference this build starts from.
@@ -463,7 +514,55 @@ pub fn read_all(store: &Store) -> Stored {
         setup_done: read_setup_done(store),
         retention: read_retention(store),
         comparison: read_comparison(store),
+        on_arrival: read_on_arrival(store),
+        journal_keep_days: read_journal_keep_days(store),
     }
+}
+
+// ## E4-6b — the journal and the batch queue's rows.
+
+/// Read what happens to a thing as it arrives: nothing, unless a row says
+/// otherwise. A value this build does not spell is the default, warned
+/// about and left in the row.
+pub fn read_on_arrival(store: &Store) -> OnArrival {
+    match read_string(store, ON_ARRIVAL_KEY) {
+        None => OnArrival::default(),
+        Some(value) => OnArrival::parse(&value).unwrap_or_else(|| {
+            tracing::warn!(
+                value,
+                "unknown {ON_ARRIVAL_KEY}, expected nothing, clean or rewrite"
+            );
+            OnArrival::default()
+        }),
+    }
+}
+
+/// Persist what happens to a thing as it arrives.
+pub fn write_on_arrival(store: &Store, on_arrival: OnArrival) -> Result<()> {
+    store.settings().set(ON_ARRIVAL_KEY, on_arrival.id())?;
+    Ok(())
+}
+
+/// Read how many days a finished row is kept: a week unless a row names
+/// one of [`JOURNAL_DAYS`]. Anything else is the default, left in the row.
+pub fn read_journal_keep_days(store: &Store) -> u32 {
+    match read_json::<u32>(store, JOURNAL_KEEP_DAYS_KEY) {
+        None => JOURNAL_KEEP_DAYS_DEFAULT,
+        Some(days) if JOURNAL_DAYS.contains(&days) => days,
+        Some(days) => {
+            tracing::warn!(
+                days,
+                "unusable {JOURNAL_KEEP_DAYS_KEY}, expected one of {JOURNAL_DAYS:?}"
+            );
+            JOURNAL_KEEP_DAYS_DEFAULT
+        }
+    }
+}
+
+/// Persist how many days a finished row is kept.
+pub fn write_journal_keep_days(store: &Store, days: u32) -> Result<()> {
+    store.settings().set(JOURNAL_KEEP_DAYS_KEY, &days)?;
+    Ok(())
 }
 
 /// Read the Compare page's rows, falling back to marks by word and an
@@ -1402,6 +1501,261 @@ fn import_legacy_config(store: &Store, db_path: &Path) {
             ),
             Err(error) => tracing::warn!(key, %error, "could not import a preference"),
         }
+    }
+}
+
+// ## E4-6c — the Prompts section's rows: the pivot and the overrides.
+
+/// The pivot row as the Prompts page shows it.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PivotRow {
+    /// The pivot it names, when this build can use it. `None` is "by the
+    /// document's language" (D60).
+    pub chosen: Option<Lang>,
+    /// A row this build cannot read — its JSON as stored — which reads as
+    /// the default and is **left in the row**. `None` with no row or a
+    /// readable one.
+    pub unread: Option<String>,
+}
+
+/// Read the pivot row through the reader the CLI and the MCP server use
+/// (`row::pivot_of`), so the page and they cannot disagree about it.
+pub fn read_pivot(store: &Store) -> PivotRow {
+    match store.settings().get::<serde_json::Value>(REWRITE_PIVOT_KEY) {
+        Ok(None) => PivotRow::default(),
+        Ok(Some(value)) => match row::pivot_of(Some(&value)) {
+            Some(lang) => PivotRow {
+                chosen: Some(lang),
+                unread: None,
+            },
+            None => {
+                tracing::warn!(
+                    key = REWRITE_PIVOT_KEY,
+                    "a pivot this build cannot use; the default applies and the row is left"
+                );
+                PivotRow {
+                    chosen: None,
+                    unread: Some(value.to_string()),
+                }
+            }
+        },
+        Err(error) => {
+            tracing::warn!(key = REWRITE_PIVOT_KEY, %error, "an unreadable pivot row; the default applies and the row is left");
+            PivotRow {
+                chosen: None,
+                unread: Some(String::new()),
+            }
+        }
+    }
+}
+
+/// Persist the pivot. `None` — "by the document's language" — **deletes**
+/// the row rather than writing an empty one: no row is what D60 and every
+/// reader of it call the default, and a value of `""` would be a row a
+/// later build might read as something.
+pub fn write_pivot(store: &Store, pivot: Option<Lang>) -> Result<()> {
+    match pivot {
+        Some(lang) => store.settings().set(REWRITE_PIVOT_KEY, lang.as_str())?,
+        None => store.settings().delete(REWRITE_PIVOT_KEY)?,
+    }
+    Ok(())
+}
+
+/// One slot's row, as far as this build can read it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PromptRow {
+    /// An override this build reads.
+    Read(Override),
+    /// A row under the slot's key that does not parse: what it holds, as
+    /// stored JSON — `None` when it is not JSON at all. Shown, and
+    /// **left in the database** (D74): the slot uses the shipped template.
+    Unread(Option<String>),
+}
+
+/// Every slot's row, read one key at a time so that a row which is not
+/// JSON at all — passed over by a bulk read — is still seen and shown.
+/// Readable rows go through `row::overrides_from`, the reader the CLI and
+/// the MCP server use.
+pub fn read_prompt_rows(store: &Store) -> BTreeMap<Slot, PromptRow> {
+    let mut rows = BTreeMap::new();
+    for slot in Slot::all() {
+        let key = row::key(slot);
+        match store.settings().get::<serde_json::Value>(&key) {
+            Ok(None) => {}
+            Ok(Some(value)) => {
+                let (overrides, _) = row::overrides_from([(key.as_str(), &value)]);
+                match overrides.get(slot) {
+                    Some(read) => {
+                        rows.insert(slot, PromptRow::Read(read.clone()));
+                    }
+                    None => {
+                        tracing::warn!(
+                            key,
+                            "a template row this build cannot read; the shipped template is used and the row is left"
+                        );
+                        rows.insert(slot, PromptRow::Unread(Some(value.to_string())));
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(key, %error, "a template row that is not JSON; the shipped template is used and the row is left");
+                rows.insert(slot, PromptRow::Unread(None));
+            }
+        }
+    }
+    rows
+}
+
+/// The overrides among `rows` that this build reads.
+pub fn overrides_of(rows: &BTreeMap<Slot, PromptRow>) -> Overrides {
+    let mut overrides = Overrides::new();
+    for (slot, row) in rows {
+        if let PromptRow::Read(read) = row {
+            overrides.insert(*slot, read.clone());
+        }
+    }
+    overrides
+}
+
+/// Store one slot's override as D74's object, leaving every other row
+/// alone. Only after [`row::admit`] said yes — `prompts::save` is the
+/// caller that asks.
+pub fn write_prompt(store: &Store, slot: Slot, value: &Override) -> Result<()> {
+    let object: serde_json::Value = serde_json::from_str(&value.to_json())?;
+    store.settings().set(&row::key(slot), &object)?;
+    Ok(())
+}
+
+/// "Reset to shipped": delete the slot's row. Never writes the shipped
+/// text into one — no row *is* the shipped template.
+pub fn forget_prompt(store: &Store, slot: Slot) -> Result<()> {
+    store.settings().delete(&row::key(slot))?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod prompt_rows_tests {
+    use serde_json::json;
+    use wipemark_pipeline::lang::Lang;
+    use wipemark_pipeline::prompt::row::{self, Override};
+    use wipemark_pipeline::prompt::{Role, Slot, Tactic};
+    use wipemark_store::Store;
+
+    use super::{
+        forget_prompt, read_pivot, read_prompt_rows, write_pivot, write_prompt, PromptRow,
+        ENGINE_PROFILES_PREFIX, PERSISTED, PROMPTS_PREFIX, REWRITE_PIVOT_KEY,
+    };
+
+    fn store() -> Store {
+        Store::in_memory().expect("a scratch database")
+    }
+
+    /// R2: the pivot round-trips through what the widget writes, "by the
+    /// document's language" deletes the row, and a value this build
+    /// cannot use reads as the default and stays.
+    #[test]
+    fn the_pivot_row_round_trips_and_the_default_is_no_row() {
+        let store = store();
+        assert_eq!(read_pivot(&store).chosen, None);
+        for lang in Lang::ALL {
+            write_pivot(&store, Some(lang)).expect("write");
+            assert_eq!(read_pivot(&store).chosen, Some(lang));
+            assert_eq!(
+                row::pivot_of(store.settings().all().expect("rows").get(REWRITE_PIVOT_KEY)),
+                Some(lang),
+                "the CLI's and the MCP server's reader agree"
+            );
+        }
+        write_pivot(&store, None).expect("by the document");
+        assert_eq!(
+            store
+                .settings()
+                .get::<serde_json::Value>(REWRITE_PIVOT_KEY)
+                .expect("read"),
+            None,
+            "the default is no row"
+        );
+
+        store
+            .settings()
+            .set(REWRITE_PIVOT_KEY, "fr")
+            .expect("a row from elsewhere");
+        let read = read_pivot(&store);
+        assert_eq!(read.chosen, None);
+        assert_eq!(read.unread.as_deref(), Some("\"fr\""));
+        assert_eq!(
+            store
+                .settings()
+                .get::<String>(REWRITE_PIVOT_KEY)
+                .expect("read")
+                .as_deref(),
+            Some("fr"),
+            "left in the row"
+        );
+    }
+
+    /// The overrides are dynamic keys and never preferences: no prompt
+    /// key is in `PERSISTED`, and no `PERSISTED` key is a prompt's — the
+    /// pivot is `rewrite.pivot`, outside the prefix.
+    #[test]
+    fn a_prompt_row_is_never_a_preference_row() {
+        for key in PERSISTED {
+            assert!(
+                !key.starts_with(PROMPTS_PREFIX),
+                "the preference {key} lives inside the template namespace"
+            );
+        }
+        for slot in Slot::all() {
+            let key = row::key(slot);
+            assert!(key.starts_with(PROMPTS_PREFIX), "{key}");
+            assert!(!PERSISTED.contains(&key.as_str()), "{key} is a preference");
+            assert!(!key.starts_with(ENGINE_PROFILES_PREFIX));
+        }
+        assert!(PERSISTED.contains(&REWRITE_PIVOT_KEY), "D331");
+    }
+
+    /// A row this build cannot read is seen — JSON or not — and left in
+    /// the database byte for byte; a readable one is read; reset deletes.
+    #[test]
+    fn an_unreadable_template_row_is_shown_and_left() {
+        let store = store();
+        let ru = Slot::new(Lang::Ru, Tactic::Paraphrase, 1, Role::User).expect("a slot");
+        let de = Slot::new(Lang::De, Tactic::Humanize, 1, Role::System).expect("a slot");
+        let en = Slot::new(Lang::En, Tactic::Paraphrase, 1, Role::User).expect("a slot");
+        store
+            .settings()
+            .set(&row::key(ru), &json!({"text": "no origin"}))
+            .expect("a row from elsewhere");
+        let good = Override::by_hand(en, "Say it again.\n{TEXT}");
+        write_prompt(&store, en, &good).expect("write");
+        store
+            .settings()
+            .set(&row::key(de), &json!(7))
+            .expect("a row from elsewhere");
+
+        let rows = read_prompt_rows(&store);
+        assert_eq!(rows.get(&en), Some(&PromptRow::Read(good)));
+        assert_eq!(
+            rows.get(&ru),
+            Some(&PromptRow::Unread(Some(
+                r#"{"text":"no origin"}"#.to_owned()
+            )))
+        );
+        assert_eq!(
+            rows.get(&de),
+            Some(&PromptRow::Unread(Some("7".to_owned())))
+        );
+        assert_eq!(
+            store
+                .settings()
+                .get::<serde_json::Value>(&row::key(ru))
+                .expect("read"),
+            Some(json!({"text": "no origin"})),
+            "left"
+        );
+
+        forget_prompt(&store, ru).expect("reset");
+        assert_eq!(read_prompt_rows(&store).get(&ru), None);
     }
 }
 

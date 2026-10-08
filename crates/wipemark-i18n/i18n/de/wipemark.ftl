@@ -30,7 +30,7 @@ toolbar-help = Hilfe
 toolbar-help-tooltip = Was dieses Fenster tut
 toolbar-help-drop = Text, ein Bild oder Dateien irgendwo in diesem Fenster ablegen, mit Importieren auswählen – oder aus der Zwischenablage einfügen.
 toolbar-help-preview = Den Zeiger auf einer Vorschau ruhen lassen, um sie größer zu sehen. Das Aktionen-Menü am Ende einer Zeile öffnet eine Datei mit der App, die das System nehmen würde.
-toolbar-help-pending = „Bereinigen“ im Menü „Aktionen“ bereinigt eine Zeile, „Alles bereinigen“ jede wartende; das Ergebnis kommt dorthin, wo die Seite „Aufbewahrung“ es sagt. Umschreiben mit einem Modell gibt es in den Fenstern dieser Version noch nicht: Es läuft über die Kommandozeile (wipemark-cli rewrite) und, für einen Agenten, über MCP.
+toolbar-help-pending = „Bereinigen“ und „Umschreiben“ stehen in jeder Zeile und in ihrem Menü „Aktionen“; „Alles bereinigen“ und „Alle umschreiben“ nehmen jede nicht begonnene Zeile. Eine Bereinigung läuft sofort mit der { -layer-a }; eine Umschreibung wartet in der einen Umschreib-Warteschlange — der dieses Fensters, eines Agenten und der Kommandozeile — auf die Engine im Dienst, und „Alle umschreiben“ nennt zuerst den Preis. Ergebnisse kommen dorthin, wo die Seite „Aufbewahrung“ es sagt.
 toolbar-help-elsewhere = Das Schnellreinigungs-Panel sitzt in der Menüleiste; die Einstellungen liegen hinter dem Zahnrad unten rechts.
 
 queue-column-preview = Vorschau
@@ -48,7 +48,7 @@ queue-count = { $count ->
         [one] { $count } Eintrag
        *[other] { $count } Einträge
     }
-queue-pending = Umschreiben mit einem Modell gibt es in den Fenstern dieser Version noch nicht: Diese Liste bereinigt, und eine Umschreibung läuft über die Kommandozeile (wipemark-cli rewrite) und über MCP.
+queue-pending = Diese Liste bereinigt und schreibt um — eine Umschreibung nach der anderen, mit der Engine im Dienst, wer auch immer fragte: dieses Fenster, ein Agent oder die Kommandozeile, und eine Zeile sagt, wer. Fertige Zeilen bleiben, bis sie entfernt werden oder die Frist der Seite „Aufbewahrung“ abläuft.
 queue-preview-pending = Wird gelesen…
 queue-preview-cut = Die ersten { $count } Zeichen; der Rest wird hier nicht gezeigt.
 queue-actions = Aktionen
@@ -73,11 +73,12 @@ queue-next = Weiter
 ## Statuszeile
 
 status-idle-no-engine = Bereit · keine Engine konfiguriert · nur { -layer-a }
-status-idle-here = Bereit · { $model } · nichts verlässt diesen Rechner · nur { -layer-a }
-status-idle-away = Bereit · { $model } auf { $host } · das Dokument verließe diesen Rechner · nur { -layer-a }
-status-local-loading = { $model } wird geladen · nichts verlässt diesen Rechner · nur { -layer-a }
-status-local-loaded = { $model } geladen · { -brand-name } belegt { $ram } · nichts verlässt diesen Rechner · nur { -layer-a }
-status-local-loaded-unmeasured = { $model } geladen · nichts verlässt diesen Rechner · nur { -layer-a }
+status-idle-here = Bereit · { $model } · nichts verlässt diesen Rechner
+status-idle-away = Bereit · { $model } auf { $host } · das Dokument verließe diesen Rechner
+status-local-loading = { $model } wird geladen · nichts verlässt diesen Rechner
+status-local-loading-progress = { $model } wird geladen — { $percent } % · nichts verlässt diesen Rechner
+status-local-loaded = { $model } geladen · { -brand-name } belegt { $ram } · nichts verlässt diesen Rechner
+status-local-loaded-unmeasured = { $model } geladen · nichts verlässt diesen Rechner
 status-local-failed = { $model } konnte nicht geladen werden: { $reason } · nur { -layer-a }
 
 ## Einstellungen
@@ -110,7 +111,7 @@ setup-step-model = Das Modell
 setup-step-endpoint = Die Adresse
 setup-step-done = Fertig
 
-setup-welcome-body = { -brand-name } entfernt KI-Herkunftsspuren aus Ihren eigenen Inhalten in zwei Schichten: { -layer-a }, die die unsichtbaren Zeichen entfernt und deterministisch ist, und { -layer-b }, das ein Sprachmodell um eine Umformulierung bittet. In dieser Version läuft die { -layer-a } aus diesen Fenstern — mit „Bereinigen“ im Hauptfenster und im Panel — sowie über die Kommandozeile und für einen Agenten über MCP; { -layer-b } läuft über die Kommandozeile und über MCP, aber noch nicht aus diesen Fenstern. Diese Schritte klären, was das Umschreiben braucht: wer umschreibt, und was dafür nötig ist.
+setup-welcome-body = { -brand-name } entfernt KI-Herkunftsspuren aus Ihren eigenen Inhalten in zwei Schichten: { -layer-a }, die die unsichtbaren Zeichen entfernt und deterministisch ist, und { -layer-b }, das ein Sprachmodell um eine Umformulierung bittet. Beide laufen aus diesen Fenstern — „Bereinigen“ und „Umschreiben“ im Hauptfenster, „Bereinigen“ im Panel — sowie über die Kommandozeile und für einen Agenten über MCP. Diese Schritte klären, was das Umschreiben braucht: wer umschreibt, und was dafür nötig ist.
 setup-welcome-again = Alles hier lässt sich später in den Einstellungen ändern, und dieser Rundgang lässt sich von deren Seite „Allgemein“ aus wiederholen.
 
 setup-machine-reading = Lese diesen Rechner…
@@ -167,7 +168,7 @@ settings-section-retention = Aufbewahrung
 ## Das Panel — das Fenster, das man ruft.
 
 panel-title = Schnelle Reinigung
-panel-pending = Umschreiben mit einem Modell gibt es in den Fenstern dieser Version noch nicht: Es läuft über die Kommandozeile (wipemark-cli rewrite) und über MCP.
+panel-pending = Dieses Fenster bereinigt; umgeschrieben wird im Hauptfenster — „Umschreiben“ in einer Zeile dort, oder „Alle umschreiben“.
 panel-dismiss = Escape schickt es wieder weg.
 
 panel-help = Was hier möglich ist
@@ -303,7 +304,7 @@ settings-placement-zone-bottom-right = unten rechts
 settings-engine-title = Umschreib-Engine
 settings-engine-description = Umschreiben schickt das Dokument an ein Modell und bewertet, was zurückkommt. Die Bereinigung braucht dafür nie eine Engine und wird auch nie hinter einer verriegelt.
 
-settings-engine-pending = Diese Fenster schreiben noch nichts um. Ein Agent kann es, über das Werkzeug rewrite des MCP-Servers, und wipemark-cli rewrite ebenso, solange diese Anwendung läuft — dann geht das Dokument dorthin, wen diese Seite zuständig macht: hierher oder an den Endpunkt. Die einzige Anfrage dieser Seite selbst ist die Prüfung unten, und sie schickt einen festen Satz.
+settings-engine-pending = „Umschreiben“ im Hauptfenster, die Umschreibung eines Agenten über den MCP-Server und wipemark-cli rewrite, solange diese Anwendung läuft, gehen alle dorthin, wen diese Seite zuständig macht: hierher oder an den Endpunkt, eine nach der anderen. Die einzige Anfrage dieser Seite selbst ist die Prüfung unten, und sie schickt einen festen Satz.
 
 settings-engine-state-off = Keine Engine. { -brand-name } bereinigt nur, was für sich genommen deterministisch und vollständig ist.
 settings-engine-state-ready-local = Konfiguriert, und das Dokument bliebe auf diesem Rechner: { $endpoint }
@@ -349,6 +350,7 @@ settings-engine-local-not-here = Was gerade zuständig ist, läuft nicht auf die
 settings-engine-local-not-loaded = { $model } ist nicht geladen.
 settings-engine-local-resident-again = „{ settings-engine-keep-resident }“ ist weiterhin gewählt, also wird es beim nächsten Start von { -brand-name } wieder geladen.
 settings-engine-local-loading = { $model } wird geladen…
+settings-engine-local-loading-progress = { $model } wird geladen — { $percent } % gelesen…
 settings-engine-local-loaded = { $model } ist geladen. { -brand-name } belegt { $ram } Speicher, gemessen. Geladen um { $since }.
 settings-engine-local-loaded-unmeasured = { $model } ist geladen, seit { $since }. Wie viel Speicher es belegt, ließ sich nicht lesen.
 settings-engine-local-file = Die Modelldatei belegt { $size } auf der Platte.
@@ -500,6 +502,7 @@ settings-models-remove = Entfernen
 settings-models-installed = Auf diesem Gerät
 settings-models-progress = { $done } von { $total }
 settings-models-verifying = Prüfe, was schon da ist …
+settings-models-checking = Prüfe { $done } von { $total } gegen den Katalog …
 settings-models-host = Dieses Gerät meldet { $ram } MB Arbeitsspeicher.
 settings-models-host-unknown = Der Arbeitsspeicher dieses Geräts war nicht lesbar, daher wird unten nichts daran gemessen.
 settings-models-fit-roomy = Dafür ist Platz, und der Rest des Geräts bleibt benutzbar.
@@ -508,6 +511,9 @@ settings-models-fit-tight = Würde passen, mit wenig Rest für alles andere.
 settings-models-fit-too-big = { $short } MB mehr Arbeitsspeicher, als dieses Gerät hat.
 settings-models-fit-unknown = Nicht beurteilt: Der Arbeitsspeicher dieses Geräts war nicht lesbar.
 settings-models-damaged = Auf diesem Gerät, aber nicht das, was der Katalog beschreibt. Entfernen und neu laden.
+settings-models-found-at = Gefunden unter { $path }. { -brand-name } hat diese Datei nicht heruntergeladen; sie wird dort verwendet, wo sie liegt, und nie entfernt.
+settings-models-foreign = Eine Datei unter { $path } trägt den Namen dieses Modells, aber nicht seinen Inhalt. { -brand-name } hat sie nicht heruntergeladen und benutzt oder entfernt sie daher nicht; verschieben Sie sie, um dieses Modell hier herunterzuladen.
+settings-models-loading = Wird in den Speicher geladen — { $percent } % gelesen…
 settings-models-failed = Der Download wurde beendet: { $reason }
 settings-models-stopped = Angehalten. Das bereits Geladene bleibt erhalten, der nächste Versuch setzt darauf auf.
 
@@ -521,7 +527,7 @@ settings-retention-keeps-nothing = Was ohne Datei ankommt — Eingefügtes, aus 
 settings-retention-keeps-originals = Das Original von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten, wenn das Bereinigen daran etwas geändert hat; Ergebnisse nicht.
 settings-retention-keeps-results = Das Ergebnis von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten; Originale nicht.
 settings-retention-keeps-both = Original und Ergebnis von Eingefügtem oder Gezogenem bleiben in { $folder } { $period } erhalten, wenn das Bereinigen daran etwas geändert hat.
-settings-retention-pending = Die Fenster bereinigen nach diesen Regeln: Was sie schreiben und was sie aufbewahren, legt diese Seite fest. Die Kommandozeile und Agenten lesen keine davon — der Kommandozeile wird bei jedem Aufruf gesagt, wohin ihr Ergebnis geht, und ein Agent bekommt sein Ergebnis zurück.
+settings-retention-pending = Die Fenster folgen diesen Regeln: eine Bereinigung nimmt sie, wenn sie beginnt, eine Umschreibung, wenn sie eingereiht wird — geschrieben wird, wohin sie damals sagten, auch nach einem Neustart. Die Kommandozeile und Agenten lesen keine davon — der Kommandozeile wird bei jedem Aufruf gesagt, wohin ihr Ergebnis geht, und ein Agent bekommt sein Ergebnis zurück.
 
 settings-retention-destination-title = Wohin Ergebnisse gehen
 settings-retention-destination-description = „Neben die Datei“ schreibt name.cleaned.ext daneben und lässt die Datei, wie sie ist. Der Ergebnisordner ist der unten. „Anstelle der Datei“ ersetzt sie — nachdem das Original als name.original.ext beiseitegelegt wurde, und nie über ein bereits vorhandenes Original.
@@ -553,7 +559,7 @@ settings-retention-span-forever = bis zum Löschen von Hand
 
 settings-mcp-title = MCP-Server
 settings-mcp-description = Ein Agent kann { -layer-a } über das Model Context Protocol auf seine eigene Ausgabe anwenden und mit der zuständigen Engine umschreiben.
-settings-mcp-tools = Fünf Werkzeuge arbeiten: inspect zeigt, was die { -layer-a } an einem Text ändern würde, clean nimmt diese Änderungen vor und meldet jede mit ihrer Position, inspect_image und clean_image tun dasselbe mit einem PNG, JPEG oder WebP — mit seinen Metadaten und mit den sichtbaren Markierungen in seinen Pixeln, die diese Version kennt und die clean_image entfernt, wenn es sie belegen kann; Markierungen, die kein Auge sieht, werden weder gesucht noch entfernt —, und rewrite lässt die zuständige Engine den Text zwischen zwei Durchgängen der { -layer-a } umschreiben — das Dokument geht dorthin, wohin die Seite „Engine“ es schickt. Umschreiben geschieht nach bestem Bemühen, und sein Bericht sagt, was es nicht feststellt.
+settings-mcp-tools = Fünf Werkzeuge arbeiten: inspect zeigt, was die { -layer-a } an einem Text ändern würde, clean nimmt diese Änderungen vor und meldet jede mit ihrer Position, inspect_image und clean_image tun dasselbe mit einem PNG, JPEG oder WebP — mit seinen Metadaten und mit den sichtbaren Markierungen in seinen Pixeln, die diese Version kennt und die clean_image entfernt, wenn es sie belegen kann; Markierungen, die kein Auge sieht, werden weder gesucht noch entfernt —, und rewrite lässt die zuständige Engine den Text zwischen zwei Durchgängen der { -layer-a } umschreiben, in derselben Warteschlange wie die Umschreibungen des Hauptfensters — das Dokument geht dorthin, wohin die Seite „Engine“ es schickt. Umschreiben geschieht nach bestem Bemühen, und sein Bericht sagt, was es nicht feststellt. Jede Bereinigung und Umschreibung ist eine Zeile in der Liste des Hauptfensters, es sei denn, der Aufruf sagt record: false.
 
 settings-mcp-status-off = Läuft nicht.
 settings-mcp-status-starting = Startet…
@@ -843,6 +849,8 @@ image-defect-inflate-limit = ein komprimierter Text wird beim Entpacken größer
 cli-models-folder = Modellordner: { $path }
 cli-models-entry = { $id } · { $name } · { $roles } · { $size } · { $state } · { $fit }
 cli-models-chosen = zum Umschreiben gewählt
+cli-models-found-at = gefunden unter { $path }
+cli-models-foreign-at = unter { $path } liegt eine fremde Datei dieses Namens, sie bleibt, wie sie ist
 cli-models-state-present = auf diesem Rechner, entspricht dem Katalog
 cli-models-state-absent = nicht heruntergeladen
 cli-models-state-partial = teilweise heruntergeladen ({ $percent } %), pull setzt fort
@@ -862,12 +870,14 @@ cli-models-pull-cancelled = { $id }: abgebrochen. Das Heruntergeladene bleibt er
 cli-models-pull-mismatch = { $id }: { $file } entspricht nicht dem Katalog (erwartet sha256 { $expected }, erhalten { $actual }), wurde also verworfen, die Teildatei mit ihm. Nichts wurde installiert.
 cli-models-pull-no-room = { $id } braucht { $need } MB auf dem Volume mit { $path }, und { $free } MB sind frei. Nichts wurde heruntergeladen.
 cli-models-pull-failed = { $id } konnte nicht heruntergeladen werden: { $reason }. Das bisher Heruntergeladene bleibt erhalten; pull erneut ausführen, um fortzusetzen.
+cli-models-pull-occupied = { $id } wurde nicht heruntergeladen: { $path } ist keine Datei, die { -brand-name } heruntergeladen hat; sie bleibt, wie sie ist, und nichts wurde geholt. Verschieben Sie sie und führen Sie pull erneut aus.
 cli-models-verify-ok = { $id } entspricht dem Katalog: Jede Datei wurde vollständig gehasht.
 cli-models-verify-absent = { $id } liegt nicht auf diesem Rechner ({ $file } fehlt), entspricht also nicht dem Katalog.
 cli-models-verify-mismatch = { $id }: { $file } entspricht nicht dem Katalog (erwartet sha256 { $expected }, erhalten { $actual }). pull lädt die Datei erneut herunter.
 cli-models-verify-unreadable = { $id }: { $file } konnte nicht gelesen werden: { $reason }. Nicht gelesen ist nicht geprüft.
 cli-models-rm-removed = { $id } wurde aus { $path } entfernt.
 cli-models-rm-absent = { $id } lag nicht auf diesem Rechner; nichts wurde entfernt.
+cli-models-rm-found = { $id } liegt unter { $path }, wohin { -brand-name } es nicht heruntergeladen hat; nichts wurde entfernt.
 cli-models-rm-chosen = Es war das zum Umschreiben gewählte Modell: Die Anwendung zeigt kein gewähltes Modell, bis ein anderes ausgewählt wird. Dieser Befehl ändert diese Einstellung nicht.
 cli-models-rm-failed = { $id } konnte nicht aus { $path } entfernt werden: { $reason }.
 
@@ -916,18 +926,18 @@ cli-prompts-invalid = Die Vorlage { $key } in { $path } bricht die Regel { $rule
 toolbar-clean-all = Alles bereinigen
 toolbar-clean-all-tooltip = Jede wartende Zeile bereinigen, die sich bereinigen lässt – eine nach der anderen, in der Reihenfolge ihres Eintreffens. Ausgegraut, solange es keine gibt.
 queue-column-status = Status
-queue-status-waiting = Wartet
-queue-status-waiting-tooltip = Noch nicht bereinigt. Über das Menü „Aktionen“ bereinigen oder „Alles bereinigen“ drücken.
+queue-status-waiting = Nicht begonnen
+queue-status-waiting-tooltip = Noch wurde nichts damit angefragt, und nichts geschieht, bis Sie es anfragen: „Bereinigen“ oder „Umschreiben“ in seiner Zeile, oder „Alles bereinigen“ und „Alle umschreiben“ in der Werkzeugleiste. „Einstellungen › Allgemein › Eingang verarbeiten“ kann es beim Eintreffen tun.
 queue-status-unable = Nicht bereinigbar
-queue-status-queued = Eingereiht
+queue-status-queued = Zum Bereinigen eingereiht
 queue-status-queued-tooltip = Wartet auf die Bereinigung davor: Es wird immer eines nach dem anderen bereinigt, in der verlangten Reihenfolge.
 queue-status-cleaning = Wird bereinigt…
 queue-status-cleaning-tooltip = Wird gerade bereinigt. Geschrieben wird erst, wenn es fertig ist.
-queue-status-nothing-found = Nichts gefunden
+queue-status-nothing-found = Keine Markierungen gefunden
 queue-status-cleaned = Bereinigt
-queue-status-partly = Teilweise
+queue-status-partly = Teilweise bereinigt
 queue-status-not-cleaned = Nicht bereinigt
-queue-status-failed = Fehlgeschlagen
+queue-status-failed = Bereinigen fehlgeschlagen
 queue-action-clean = Bereinigen
 queue-action-clean-done = Das wurde schon bereinigt.
 queue-action-clean-busy = Das steht schon zur Bereinigung an.
@@ -943,7 +953,7 @@ queue-went-kept = Aufbewahrt in { $folder }
 queue-went-as-text = Der bereinigte Text liegt bereit: „Ergebnis kopieren“ steht im Menü „Aktionen“.
 queue-went-nothing = Nichts wurde geschrieben.
 status-cleaning = Bereinige { $current } von { $total }
-clean-said-nothing-found = Es wurde nichts zum Entfernen gefunden, also wurde nichts geschrieben.
+clean-said-nothing-found = Geprüft: keine unsichtbaren Markierungen und keine KI-Herkunftsangaben gefunden, also gab es nichts zu entfernen, und kein Ergebnis wurde geschrieben. Die Datei selbst wurde gefunden und gelesen.
 clean-said-cleaned-text = { $count ->
         [one] Ein Zeichen wurde entfernt oder ersetzt.
        *[other] { $count } Zeichen wurden entfernt oder ersetzt.
@@ -1028,3 +1038,294 @@ panel-found-not-examined = { $metadata ->
 panel-clean = Bereinigen
 panel-clean-tooltip = Bereinigen, was hier abgelegt wurde, eins nach dem anderen; jedes Ergebnis kommt dorthin, wo die Seite „Aufbewahrung“ es sagt. Ausgegraut, solange eine Bereinigung läuft oder hier nichts mehr zu bereinigen ist.
 panel-cleaning = Wird bereinigt…
+
+## E4-6b
+##
+## Die Fenster schreiben um. „Umschreiben“ in einer Zeile und „Alle
+## umschreiben“ in der Werkzeugleiste stellen ein Dokument in die eine
+## Umschreib-Warteschlange der Anwendung — die der Fenster, eines Agenten
+## und der Befehlszeile — mit der Engine im Dienst; „Alle umschreiben“
+## nennt zuerst den Preis. Die Tabelle ist das Journal: jedes übergebene
+## Dokument ist eine Zeile mit ihrem Zustand, und die Zeilen überstehen
+## einen Neustart. $reason ist eine Kennung oder die Worte einer Engine,
+## nie übersetzt; $model der eigene Name eines Modells; $host ein Server.
+queue-column-process = Bearbeiten
+queue-action-rewrite = Umschreiben
+queue-action-rewrite-busy = Schon in der Umschreib-Warteschlange oder wird umgeschrieben.
+queue-action-rewrite-cleaning = Wird gerade bereinigt; danach umschreiben.
+queue-action-rewrite-not-text = Nur Text wird umgeschrieben; ein Bild wird bereinigt.
+queue-action-clean-rewriting = Wird gerade umgeschrieben; eine Bereinigung jetzt würde mit dem Umschreiben um dieselbe Datei konkurrieren.
+queue-action-not-kept = Kam ohne Datei, und der Text wurde nicht behalten — es lässt sich nicht noch einmal bearbeiten.
+queue-action-cancel = Umschreiben abbrechen
+queue-action-remove = Aus der Liste entfernen
+queue-status-rewrite-queued = Zum Umschreiben eingereiht
+queue-status-rewrite-queued-tooltip = Wartet, bis es an der Reihe ist: ein Dokument nach dem anderen, in der Reihenfolge der Anfragen, wer auch immer fragte.
+queue-status-held = Wartet auf eine Engine
+queue-status-held-tooltip = Gerade kann keine Engine es übernehmen: { $reason }. Es beginnt von selbst, sobald eine kann.
+queue-status-paused-tooltip = Das Umschreiben ist angehalten; „Fortsetzen“ in der Werkzeugleiste setzt es fort.
+queue-status-rewriting = Wird umgeschrieben…
+queue-status-rewriting-chunk = Absatz { $chunk } von { $chunks } wird umgeschrieben.
+queue-status-rewriting-tooltip = Wird von der Engine im Dienst umgeschrieben.
+queue-status-working = In Bearbeitung…
+queue-status-rewritten = Umgeschrieben
+queue-status-partly-rewritten = Teilweise umgeschrieben
+queue-status-rewrite-failed = Umschreiben fehlgeschlagen
+queue-status-cancelled = Umschreiben abgebrochen
+queue-status-findings = Markierungen gefunden
+queue-said-working = In Arbeit.
+queue-said-cancelled = Abgebrochen; nichts wurde geschrieben.
+queue-said-rewrite-failed = Das Umschreiben wurde nicht fertig ({ $reason }); über das Original wurde nichts geschrieben.
+queue-said-recorded-failed = Nicht fertig geworden ({ $reason }).
+queue-said-rewritten = Umgeschrieben von { $model }, { $chunks ->
+        [one] { $chunks } Absatz
+       *[other] { $chunks } Absätze
+    }. Das Ergebnis ist die am stärksten veränderte Fassung, die jede Prüfung bestand — kein Urteil, dass sie sich besser liest.
+queue-said-partly-rewritten = { $kept } von { $chunks ->
+        [one] { $chunks } Absatz
+       *[other] { $chunks } Absätzen
+    } behielten ihr bereinigtes Original: kein Kandidat bestand die Prüfungen.
+queue-said-recorded-refused = Nicht erledigt ({ $reason }); nichts wurde angerührt.
+queue-said-recorded-found = { -layer-a } fand { $findings } und behielt { $kept }.
+queue-said-recorded = So, wie das Journal es festhielt.
+queue-went-caller = An den Anfragenden zurückgegeben und nirgends behalten.
+queue-went-row = In dieser Liste behalten, bis die Zeile entfernt wird: „Ergebnis kopieren“ steht im Menü „Aktionen“.
+queue-origin-panel = Aus dem Panel
+queue-origin-launch = In der Befehlszeile der Anwendung genannt
+queue-origin-cli = Aus der Befehlszeile
+queue-origin-agent = Von einem Agenten
+queue-price = Etwa { $calls } Aufrufe des Modells, bis zu { $tokens } geschriebene Tokens.
+toolbar-rewrite-all = Alle umschreiben
+toolbar-rewrite-all-tooltip = Jeden wartenden Text mit der Engine im Dienst umschreiben, einen nach dem anderen — zuerst wird der Preis genannt, und nichts beginnt ohne Ihre Zustimmung. Ausgegraut, solange es keinen gibt oder niemand im Dienst ist.
+toolbar-pause = Anhalten
+toolbar-pause-tooltip = Die Umschreib-Warteschlange anhalten — die jedes Fensters und jedes Agenten. Das Dokument, das gerade umgeschrieben wird, wartet wieder, mit den schon fertigen Absätzen.
+toolbar-resume = Fortsetzen
+toolbar-resume-tooltip = Die Umschreib-Warteschlange dort fortsetzen, wo sie angehalten wurde.
+toolbar-clear-finished = Fertige entfernen
+toolbar-clear-finished-tooltip = Jede fertige Zeile aus der Liste und aus dem Journal nehmen. Schon geschriebene Ergebnisse bleiben, wo sie sind.
+rewrite-price-title = { $count ->
+        [one] { $count } Dokument
+       *[other] { $count } Dokumente
+    } umschreiben?
+rewrite-price-calls = Etwa { $expected } Aufrufe des Modells, höchstens { $worst }.
+rewrite-price-tokens = Bis zu { $tokens } geschriebene Tokens.
+rewrite-price-time = Etwa { $minutes } Min. bei der Rate, die die letzte Prüfung maß.
+rewrite-price-time-unknown = Wie lange, ist unbekannt: „Prüfen“ auf der Seite „Engine“ misst die Rate dieser Engine.
+rewrite-price-here = Nichts verlässt diesen Rechner.
+rewrite-price-away = Jedes Dokument wird an { $host } gesendet.
+rewrite-price-go = Umschreiben
+rewrite-cancel = Abbrechen
+rewrite-send-title = { $count ->
+        [one] { $count } Dokument
+       *[other] { $count } Dokumente
+    } an { $host } senden?
+rewrite-send-body = „Eingang verarbeiten“ steht auf Umschreiben, und die Engine im Dienst ist nicht auf diesem Rechner: Was gerade ankam, würde zum Umschreiben dorthin gesendet.
+rewrite-send-go = Senden und umschreiben
+status-rewriting = Umschreiben { $current } von { $total } · Absatz { $chunk } von { $chunks }
+status-rewriting-starting = Umschreiben { $current } von { $total }
+status-rewrites-held = Umschreiben wartet auf eine Engine: { $reason }
+status-rewrites-paused = Das Umschreiben ist angehalten · { $count } warten
+compare-rewritten-banner = Die Umschreibung, wie sie geliefert wurde — die am stärksten veränderte Fassung, die jede Prüfung bestand. Bearbeiten speichert hier nichts, und Schließen schreibt nichts.
+compare-rewritten-kept = { $kept } von { $chunks } Absätzen behielten ihr bereinigtes Original: kein Kandidat bestand die Prüfungen.
+compare-reset-rewritten = Zurück zum umgeschriebenen Text
+compare-reset-rewritten-tooltip = Die Umschreibung so zurückholen, wie sie geliefert wurde, und die Änderungen vergessen.
+settings-arrival-title = Eingang verarbeiten
+settings-arrival-description = Was mit etwas geschieht, das im Hauptfenster ankommt. „Nichts“ wartet auf eine Schaltfläche; „Bereinigen“ bereinigt sofort; „Umschreiben“ schreibt mit der Engine im Dienst um — und wenn diese Engine nicht auf diesem Rechner ist, fragt jeder Eingang, bevor etwas gesendet wird.
+settings-arrival-nothing = Nichts — auf eine Schaltfläche warten
+settings-arrival-clean = Bereinigen
+settings-arrival-rewrite = Umschreiben
+settings-journal-keep-title = Fertige Zeilen behalten
+settings-journal-keep-description = Wie lange eine fertige Zeile in der Liste des Hauptfensters bleibt — wer auch immer sie anfragte, Befehlszeile und Agenten eingeschlossen. Eine Zeile behält, was geschah und wohin das Ergebnis ging, nie den Text. Schon geschriebene Ergebnisse werden dadurch nie entfernt.
+settings-journal-days = { $days ->
+        [one] { $days } Tag
+       *[other] { $days } Tage
+    }
+
+## E4-6b — the command line
+cli-arg-record = Für diese Ansicht eine Zeile im Journal der Anwendung hinterlassen, das ihr Hauptfenster zeigt. Eine Ansicht ändert nichts und wird ohne dieses Flag nicht festgehalten.
+cli-arg-no-record = Für diesen Lauf keine Zeile im Journal der Anwendung hinterlassen. Ohne das Flag erscheint der Lauf im Hauptfenster der Anwendung, als von der Befehlszeile gekommen.
+cli-arg-out-rewrite = Ausgabedatei, oder `-` für die Standardausgabe. Standard ist `<name>.rewritten.<ext>` neben der Eingabe — das `<name>.cleaned.<ext>` einer Bereinigung ist ein anderes Ergebnis —, und die Standardausgabe, wenn die Eingabe die Standardeingabe ist; direktes Überschreiben braucht ein ausdrückliches Flag und ist nie der Standard.
+cli-journal-too-old = Im Journal der Anwendung wurde nichts festgehalten: ihre Datenbank unter { $path } stammt von einer älteren Version, und die Anwendung bringt sie beim nächsten Start auf den neuesten Stand.
+cli-journal-newer = Im Journal der Anwendung wurde nichts festgehalten: ihre Datenbank unter { $path } wurde von einer neueren Version von { -brand-name } geschrieben.
+cli-journal-unwritable = Im Journal der Anwendung wurde nichts festgehalten: in ihre Datenbank unter { $path } konnte nicht geschrieben werden ({ $reason }).
+
+## E4-6b — the host verification's fixes
+queue-action-remove-waited = Ein Agent oder die Kommandozeile wartet auf diese Umschreibung. Brechen Sie sie zuerst ab: Der Aufrufer erfährt es, und danach lässt sich die Zeile entfernen.
+queue-said-rewrite-exists = Unter { $path } liegt schon eine Datei, und eine Umschreibung schreibt nie über eine Datei, die sie nicht selbst angelegt hat. Nichts wurde umgeschrieben; „Vorhandenes Ergebnis ersetzen“ im Menü „Aktionen“ schreibt über genau diese Datei.
+rewrite-consent-title = { $count ->
+        [one] Das wartende Dokument an { $host } senden?
+       *[other] Die { $count } wartenden Dokumente an { $host } senden?
+    }
+rewrite-consent-body-here = Sie wurden angefragt, als das Umschreiben auf diesem Rechner blieb. Zuständig ist jetzt { $host }: Jedes würde zum Umschreiben dorthin gesendet.
+rewrite-consent-body-away = Sie wurden angefragt, als das Umschreiben an { $was } ging. Zuständig ist jetzt { $host }: Jedes würde stattdessen dorthin gesendet.
+rewrite-consent-hold = Nichts beginnt, bevor Sie antworten. „Abbrechen“ lässt sie warten; „Fortsetzen“ in der Werkzeugleiste fragt erneut, ebenso eine andere zuständige Engine.
+rewrite-consent-go = Senden
+status-rewrites-asking = Umschreibungen warten auf Ihre Antwort: an { $host } senden?
+queue-status-asking-tooltip = Wartet auf Ihre Antwort: Die zuständige Engine würde es an { $host } senden, und dorthin sollte es nicht.
+cli-rewritten-exists = { $path } gibt es schon, und eine Umschreibung schreibt nie über eine Datei, die sie nicht selbst angelegt hat. Nennen Sie mit -o eine andere Datei, oder ersetzen Sie die Eingabe selbst mit --in-place, das das Original vorher beiseitelegt. Nichts wurde umgeschrieben.
+
+## E4-6c
+##
+## Der Bereich „Umschreiben“ der Einstellungen: die Vorlagen, die ein Modell
+## bekommt, die Mittlersprache der Rückübersetzung, die Prüfung einer
+## Vorlage an einem eingebauten Beispiel und die Anpassung in eine andere
+## Sprache durch das Modell. $key, $rule, $tactic, $guard, $marker,
+## $placeholder, $variable, $name und $suggestion sind Formate und werden
+## nicht übersetzt. Sprachnamen kommen aus `prompts-lang-*`.
+
+settings-section-prompts = Umschreiben
+settings-prompts-title = Umschreiben
+settings-prompts-description = Wie ein Modell zum Umschreiben aufgefordert wird: die Vorlagen, die es bekommt, in jeder Sprache, und die Sprache, über die die Rückübersetzung läuft.
+settings-prompts-pivot-title = Rückübersetzung über
+settings-prompts-pivot-description = Die Sprache, in die back_translate einen Absatz übersetzt und aus der es ihn zurückübersetzt. Ist es die Sprache des Dokuments selbst, gilt für dieses Dokument die Voreinstellung, denn Englisch ins Englische ist keine Übersetzung.
+prompts-pivot-by-document = Nach der Sprache des Dokuments
+prompts-pivot-unread = Die Zeile der Mittlersprache enthält { $value }, das diese Version nicht verwenden kann: Es gilt die Voreinstellung, und die Zeile bleibt, wie sie ist, bis eine Auswahl hier sie ersetzt.
+prompts-lang-en = Englisch
+prompts-lang-ru = Russisch
+prompts-lang-de = Deutsch
+prompts-turn-system = system
+prompts-turn-user = user
+prompts-banner-what = Eine Vorlage ist das, was ein Modell bekommt, um einen Absatz umzuschreiben: ein system-Zug mit den Regeln und ein user-Zug mit der Aufgabe. Gespeichert werden nur Ihre Änderungen; „Auf Auslieferung zurücksetzen“ löscht Ihre.
+prompts-banner-markers = Die Markierungen um den Absatz und seinen Kontext und die Platzhalter ⟦n⟧ schreibt das Produkt selbst; von Hand lassen sie sich nicht schreiben.
+prompts-banner-protected = { $variable } ist einmal pro Schritt nötig, in einem der beiden Züge: Ohne die Regel zu den Platzhaltern wird jeder Absatz mit Code oder einem Link verworfen.
+prompts-banner-same-rows = Die Befehlszeile und Agenten über MCP schreiben mit denselben Vorlagen um. Eine --prompts-Datei der Befehlszeile oder das Argument templates eines Agenten legt für einen Lauf eigene darüber und ändert hier nichts.
+prompts-banner-away = Ein Umschreiben schickt den zusammengesetzten Prompt mit dem Dokument an { $origin }.
+prompts-variables-title = Variablen
+prompts-var-text = Der Absatz zwischen den Markierungen. Nur im user-Zug, genau einmal im user-Zug jedes Schritts.
+prompts-var-prev-context = Das Ende des vorigen Absatzes zwischen eigenen Markierungen, mit dem Satz, ihn nicht umzuschreiben; beim ersten Absatz nichts. Nur im user-Zug, höchstens einmal. Ohne sie wird kein Kontext gesendet.
+prompts-var-protected = Der Satz zu den Platzhaltern ⟦n⟧; nichts, wenn der Absatz keine hat. In einem der beiden Züge, mindestens einmal pro Schritt.
+prompts-var-intensity = Der Satz zur Intensität; bei mittlerer nichts. Nur im user-Zug, freiwillig: Ohne sie bewirkt die Intensität nichts.
+prompts-var-no-names = Für den Namen einer Sprache gibt es keine Variable: Eine Vorlage nennt ihre eigene Sprache selbst, in eigenen Worten.
+prompts-slots-title = Vorlagen
+prompts-tactic-structural-note = Wird nur nach einer Bestätigung verwendet.
+prompts-tactic-code-note = Nicht in dieser Version: bearbeitbar, aber noch von nichts verwendet.
+prompts-tag-hand = Ihre
+prompts-tag-machine = angepasst, nicht durchgesehen
+prompts-tag-machine-reviewed = angepasst, durchgesehen
+prompts-tag-unreadable = unlesbare Zeile
+prompts-tag-stale = veraltet
+prompts-slot-heading = { $language } · { $tactic } · Schritt { $step } · Zug { $turn }
+prompts-reading = Die Vorlagen werden gelesen …
+prompts-origin-shipped = Die ausgelieferte Vorlage ist in Gebrauch.
+prompts-origin-hand = Ihre Vorlage ist in Gebrauch, von Hand geschrieben.
+prompts-origin-hand-adapted = Ihre Vorlage ist in Gebrauch, von Hand angepasst aus der Sprache { $source }.
+prompts-origin-machine = In Gebrauch: vom Modell angepasst aus der Sprache { $source }, nicht durchgesehen. Einmal gespeichert, gilt sie als durchgesehen.
+prompts-origin-machine-reviewed = In Gebrauch: vom Modell angepasst aus der Sprache { $source }, durchgesehen.
+prompts-unread = Diese Version kann die Zeile nicht lesen, daher ist die ausgelieferte Vorlage in Gebrauch. Die Zeile bleibt, wie sie ist, bis „Auf Auslieferung zurücksetzen“ sie löscht: { $value }
+prompts-unread-not-json = Die Zeile ist kein JSON, daher ist die ausgelieferte Vorlage in Gebrauch. Die Zeile bleibt, wie sie ist, bis „Auf Auslieferung zurücksetzen“ sie löscht.
+prompts-coverage-here = Diese Änderung gilt nur für Dokumente in der Sprache { $here }; für Dokumente in anderen Sprachen ({ $others }) gilt die ausgelieferte Vorlage.
+prompts-coverage-elsewhere = Ihre Änderungen an dieser Vorlage ({ $changed }) gelten hier nicht: Für Dokumente in der Sprache { $here } gilt die ausgelieferte.
+prompts-stale-shipped = Die ausgelieferte Vorlage hat sich geändert, nachdem Ihre daraus gemacht wurde. Ihre ist weiter in Gebrauch, und nichts wird zusammengeführt.
+prompts-keep-mine = Meine behalten
+prompts-kept = Behalten: Ihre gilt jetzt als aus der heutigen ausgelieferten Vorlage gemacht.
+prompts-stale-source = Die Quelle ({ $source }) hat sich geändert, nachdem diese Anpassung ({ $target }) daraus gemacht wurde. Die Anpassung ist weiter in Gebrauch.
+prompts-stale-source-was-shipped = Sie wurde aus der ausgelieferten Vorlage gemacht; darunter, was sich seitdem an der Quelle geändert hat.
+prompts-stale-source-unknown = Die frühere Quelle wird nicht aufbewahrt, daher wird nur die heutige gezeigt.
+prompts-diff-legend-shipped = − nur in der heutigen ausgelieferten · + nur in Ihrer
+prompts-diff-legend-before-after = − vorher · + jetzt
+prompts-unsaved = Ungespeicherte Änderungen. Wenn Sie eine andere Vorlage wählen, gehen sie verloren.
+prompts-adapted-from-label = Von Hand angepasst aus:
+prompts-adapted-from-own = In dieser Sprache geschrieben
+prompts-save = Speichern
+prompts-undo-edits = Änderungen verwerfen
+prompts-reset = Auf Auslieferung zurücksetzen
+prompts-saved = Gespeichert.
+prompts-saved-warnings = Gespeichert, mit den Warnungen oben.
+prompts-saved-reviewed = Gespeichert und als durchgesehen markiert.
+prompts-unchanged = Nichts zu speichern: Das ist die ausgelieferte Vorlage.
+prompts-refused = Nicht gespeichert: Die Vorlage verletzt eine Regel oben. Nichts wurde geschrieben.
+prompts-reset-done = Zurückgesetzt: Die ausgelieferte Vorlage ist in Gebrauch.
+prompts-reset-refused = Nicht zurückgesetzt: Der Zug { $turn } dieses Schritts verlässt sich bei { $variable } auf diesen ({ $rule }). Setzen Sie zuerst jenen Zug zurück oder fügen Sie ihm { $variable } hinzu.
+prompts-write-failed = Die Zeile konnte nicht geschrieben werden: { $reason }
+prompts-problem-error = Fehler
+prompts-problem-warning = Warnung
+prompts-problem-at = (Zeile { $line }, Spalte { $column })
+prompts-problem-unknown-variable = { $name } ist keine Variable.
+prompts-problem-unknown-variable-suggest = { $name } ist keine Variable; meinten Sie { $suggestion }?
+prompts-problem-unclosed-open = Diese öffnende Klammer hat in ihrer Zeile keine schließende. Eine wörtliche Klammer wird doppelt geschrieben.
+prompts-problem-unclosed-close = Diese schließende Klammer hat in ihrer Zeile keine öffnende. Eine wörtliche Klammer wird doppelt geschrieben.
+prompts-problem-missing-text = { $variable } fehlt: Der user-Zug enthält sie genau einmal.
+prompts-problem-missing-protected = { $variable } steht in keinem Zug dieses Schritts; einer von beiden muss sie enthalten.
+prompts-problem-missing-other = { $variable } fehlt.
+prompts-problem-repeated = { $variable } kommt { $count }-mal vor; erlaubt ist einmal.
+prompts-problem-misplaced = { $variable } gehört in den user-Zug, nicht in den system-Zug.
+prompts-problem-marker = { $marker } schreibt das Produkt, nie eine Vorlage.
+prompts-problem-bracket = Die Klammern ⟦ und ⟧ sind die Platzhalter des Dokuments; eine Vorlage darf sie nicht schreiben.
+prompts-problem-empty = Die Vorlage ist leer. Um die ausgelieferte zu verwenden, setzen Sie auf Auslieferung zurück.
+prompts-problem-too-long = Etwa { $tokens } Tokens: mehr als ein Zehntel des Modellfensters ({ $limit } Tokens), sodass einem Absatz zu wenig Platz bliebe.
+prompts-problem-script = Die meisten Buchstaben dieser Vorlage sind nicht { $script }, die Schrift ihres Satzes: Ein Modell neigt dazu, in der Sprache seiner Anweisungen zu antworten.
+prompts-script-latin = lateinisch
+prompts-script-cyrillic = kyrillisch
+prompts-problem-nothing-but-text = Der user-Zug hat keine Anweisung um seine Variablen, daher ist unklar, was das Modell tun soll.
+prompts-problem-no-intensity = Eine Intensität ist eingestellt, und diese Vorlage hat kein { $variable }, daher bewirkt die Intensität nichts.
+prompts-problem-stale = Die ausgelieferte Vorlage hat sich geändert, nachdem diese daraus gemacht wurde.
+prompts-problem-variables-differ = Die Variablen der Anpassung sind nicht die ihrer Quelle. Fehlend: { $missing }. Überzählig: { $extra }.
+prompts-none = keine
+prompts-check = Vorlage prüfen
+prompts-stop = Anhalten
+prompts-check-note = Eine Prüfung der Vorlage, kein Umschreiben eines Dokuments: Ein eingebauter Beispielabsatz ({ $language }) wird mit der Vorlage umgeschrieben, so wie sie im Feld steht, gespeichert oder nicht.
+prompts-check-whole-tactic = Beide Schritte von { $tactic } laufen, sodass das Urteil über den Text fällt, der zurückkommt.
+prompts-sent-to = Die Prüfung schickt das Beispiel und die Vorlagen, eine Anpassung die Quellvorlage an { $origin }. Sonst verlässt nichts diesen Rechner.
+prompts-check-errors = Eine Vorlage mit Fehlern lässt sich nicht prüfen.
+prompts-check-code = code ist nicht in dieser Version, daher gibt es nichts, woran es sich prüfen ließe.
+prompts-check-other-broken = Die gespeicherte Vorlage { $key } verletzt eine Regel, daher ließe sich der Schritt nicht zusammensetzen. Korrigieren oder zurücksetzen Sie sie zuerst.
+prompts-checking = Prüfe …
+prompts-check-loading = Das Modell wird geladen: { $percent } %
+prompts-check-step = Schritt { $step }, auf { $language }: { $tokens } Tokens in { $seconds } s. Die Antwort des Modells:
+prompts-check-stripped = Die Bereinigung hat entfernt: { $what }
+prompts-check-guard-passed = { $guard }: bestanden
+prompts-check-guard-rejected = { $guard }: verworfen. { $reason }
+prompts-check-passed = Urteil: Das wäre ein Kandidat. Abweichung { $divergence }, Länge { $ratio } des Beispiels.
+prompts-check-rejected = Urteil: Das würde verworfen. { $why }
+prompts-check-time = Insgesamt { $tokens } Tokens in { $seconds } s.
+prompts-check-cancelled = Die Prüfung wurde angehalten.
+prompts-check-failed = Die Prüfung konnte nicht laufen: { $reason }
+prompts-stripped-think = die Überlegungen des Modells
+prompts-stripped-marker = { $marker }, { $count }-mal
+prompts-stripped-fence = ein Codeblock um die Antwort
+prompts-stripped-quotes = die Anführungszeichen { $open } { $close } um die Antwort
+prompts-reason-placeholder-missing = { $placeholder } kam nicht zurück.
+prompts-reason-placeholder-duplicated = { $placeholder } kam { $count }-mal zurück.
+prompts-reason-placeholder-invented = { $placeholder } stand nicht im Text.
+prompts-reason-number-missing = Die Zahl { $value } fehlt.
+prompts-reason-length-drift = Die Länge liegt bei { $ratio } des Originals, außerhalb von { $min } bis { $max }.
+prompts-reason-script-drift = Der Anteil der Buchstaben der Schrift { $script } hat sich um { $points } Prozentpunkte verschoben.
+prompts-reason-identifier-missing = { $token } fehlt.
+prompts-reason-item-broken = Ein Listenpunkt kam auf mehrere Zeilen verteilt zurück.
+prompts-failure-overflow = die Anfrage brauchte { $used } von { $limit } Tokens
+prompts-rejected-engine = Schritt { $step }: Die Engine ist gescheitert. { $reason }
+prompts-rejected-truncated = Schritt { $step } wurde an seinem Token-Budget abgeschnitten.
+prompts-rejected-empty = Schritt { $step } hat nichts geantwortet.
+prompts-rejected-guard = Der Guard { $guard } hat es verworfen: { $reason }
+prompts-rejected-language = Es ist nicht { $expected }: Es liest sich als { $found }.
+prompts-rejected-language-unknown = Es ist nicht { $expected }: Es liest sich als keine Sprache, die diese Version kennt.
+prompts-rejected-restore = Es lässt sich nicht ins Dokument zurücksetzen: { $reason }
+prompts-rejected-no-op = Es ist das Beispiel bis auf die Zeichensetzung: Abweichung { $divergence }, unter { $floor }.
+prompts-rejected-marker = Die Antwort auf Schritt { $step } enthielt { $marker }, daher ließ sich der nächste Schritt nicht stellen.
+prompts-adapt-from = Mit dem Modell anpassen aus: { $language }
+prompts-adapt-note = Schickt die Vorlage ({ $source }), kein Dokument, an die zuständige Engine, die eine Fassung in der Sprache { $target } schreibt. Sie wird nur gespeichert, wenn sie dieselben Regeln besteht, und als nicht durchgesehen markiert.
+prompts-adapt-own-template = Diese Vorlage wurde in ihrer eigenen Sprache geschrieben; eine Anpassung durch das Modell würde sie ersetzen. Setzen Sie zuerst auf Auslieferung zurück, um mit dem Modell anzupassen.
+prompts-adapt-no-such-slot = diese Vorlage hat keine Fassung in jener Sprache
+prompts-adapting = Passe an …
+prompts-adapt-saved = Angepasst und gespeichert, als nicht durchgesehen markiert. Lesen Sie sie und speichern Sie sie einmal, um sie als durchgesehen zu markieren.
+prompts-adapt-refused = Die Anpassung des Modells verletzt eine Regel unten, daher wurde nichts gespeichert. Was es geschrieben hat:
+prompts-adapt-failed = Die Anpassung konnte nicht laufen: { $reason }
+prompts-adapt-truncated = Die Antwort des Modells wurde abgeschnitten, daher wurde nichts gespeichert.
+prompts-adapt-empty = Das Modell hat nichts geantwortet, daher wurde nichts gespeichert.
+prompts-adapt-cancelled = Die Anpassung wurde angehalten; nichts wurde gespeichert.
+prompts-shipped-show = Ausgelieferte Vorlage zeigen
+prompts-shipped-hide = Ausgelieferte Vorlage ausblenden
+prompts-fragments-title = Sätze, die das Produkt hier hinzufügt. In dieser Version sind sie nicht bearbeitbar.
+prompts-fragment-protected = Was aus der Platzhalter-Variable wird, wenn der Absatz Platzhalter hat:
+prompts-fragment-context = Was auf den Kontext folgt:
+prompts-fragment-light = Was aus der Intensitäts-Variable bei leicht wird:
+prompts-fragment-strong = Was aus der Intensitäts-Variable bei stark wird:
+prompts-fragment-fallback = Was dem englischen Satz für ein Dokument hinzugefügt wird, dessen Sprache nicht erkannt wurde:
+prompts-problem-invisible = { $character } ist ein unsichtbares Zeichen, das die Bereinigung entfernt; eine Vorlage darf es daher nicht enthalten (insgesamt { $count }).
+prompts-save-shipped-text = Das ist die ausgelieferte Vorlage, und gespeichert werden nur Ihre Änderungen, daher wurde nichts geschrieben. Um die ausgelieferte Vorlage zu verwenden, setzen Sie auf Auslieferung zurück.
+prompts-save-unreadable = Diese Version kann die gespeicherte Zeile nicht lesen, und Speichern würde sie ersetzen, daher wurde nichts geschrieben. „Auf Auslieferung zurücksetzen“ löscht die Zeile; danach speichern Sie Ihre.
+prompts-save-while-adapting = Speichern wartet, während das Modell diese Vorlage anpasst. Halten Sie die Anpassung an oder warten Sie sie ab.
+prompts-adapt-unreadable = Diese Version kann die gespeicherte Zeile nicht lesen, und die Anpassung durch das Modell würde sie ersetzen. Setzen Sie zuerst auf Auslieferung zurück.
+prompts-adapt-overtaken = Die Vorlage hat sich geändert, während das Modell sie anpasste, daher wurde die Anpassung nicht darüber gespeichert.
+prompts-adapt-not-stored = Nichts wurde gespeichert. Was das Modell geschrieben hat:
+prompts-stale-source-keep = Speichern lässt diese Warnung stehen. „Meine behalten“ markiert Ihre als aus der heutigen Vorlage ({ $source }) angepasst.
+prompts-kept-source = Behalten: Ihre gilt jetzt als aus der heutigen Quelle angepasst.

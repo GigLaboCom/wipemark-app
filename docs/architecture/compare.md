@@ -75,7 +75,20 @@ document (`the_result_is_what_the_queue_writes` goes through
 writer: editing the result saves nothing, closing the window writes
 nothing, and the banner over the panes — the same sentence as the notice
 on the Compare page of Settings — says both. Layer B's rewrite is not
-shown here yet; it will be shown through this same comparison.
+shown through this same comparison: see below.
+
+### A rewritten row (E4-6b, R5)
+
+Compare of a row whose last action was a rewrite opens on **the rewrite
+as it was delivered** — the file the queue wrote, or the queue's row for a
+text with no file (`compare::Made::Rewritten`, `RewriteFrom`) — beside the
+original (for an in-place rewrite, the original set aside). It is read on
+the background executor and kept by the view, so **Back to the rewritten
+text** puts it back without recomputing anything (D273's shape). The
+banner calls it what it is — the most changed version that passed every
+check, not a better one — and says how many paragraphs kept their cleaned
+original. `reset_returns_to_the_rewrite_not_the_clean` is the gate; the
+double click opens the latest result.
 
 ## What is real
 

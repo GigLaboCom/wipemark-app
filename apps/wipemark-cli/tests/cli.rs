@@ -523,7 +523,7 @@ fn rewrite_no_longer_refuses() {
         "{said}"
     );
     assert!(output.stdout.is_empty());
-    assert!(!scratch.path("x.cleaned.md").exists());
+    assert!(!scratch.path("x.rewritten.md").exists());
 
     for arguments in [
         &["models", "list"][..],
@@ -676,7 +676,7 @@ fn rewrite_uses_the_running_application() {
     let output = scratch.run(&["rewrite", "note.md", "--tactic", "humanize", "--seed", "7"]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));
     assert_eq!(
-        std::fs::read_to_string(scratch.path("note.cleaned.md")).expect("the result"),
+        std::fs::read_to_string(scratch.path("note.rewritten.md")).expect("the result"),
         "Paragraph one.\n\nThe second.\n"
     );
     assert_eq!(
@@ -702,6 +702,65 @@ fn rewrite_uses_the_running_application() {
     );
 }
 
+/// D362 (L5): `name.rewritten.ext` already there — a window's result, or
+/// anybody's — is refused before anything is read or sent, exit 2 with a
+/// sentence naming `-o` and `--in-place`, the file left byte for byte; `-o`
+/// over it is still the person's word and writes.
+#[test]
+fn a_rewrite_never_writes_over_a_rewritten_file_already_there() {
+    let scratch = Scratch::new("rewritten-exists");
+    scratch.file("note.md", b"First paragraph.\n\nSecond one.\n");
+    scratch.file("note.rewritten.md", b"a window's rewrite");
+    let app = FakeApp::start(rewritten("Paragraph one.\n\nThe second.\n", 0, false));
+    beacon(&scratch, std::process::id(), "127.0.0.1", app.port);
+
+    let output = scratch.run(&["rewrite", "note.md"]);
+    assert_eq!(code(&output), 2, "{}", stderr(&output));
+    let said = stderr(&output);
+    assert!(said.contains("-o") && said.contains("--in-place"), "{said}");
+    assert!(app.calls().is_empty(), "the document was sent anyway");
+    assert_eq!(
+        std::fs::read(scratch.path("note.rewritten.md")).expect("read"),
+        b"a window's rewrite"
+    );
+
+    let output = scratch.run(&["rewrite", "note.md", "-o", "note.rewritten.md"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(
+        std::fs::read_to_string(scratch.path("note.rewritten.md")).expect("read"),
+        "Paragraph one.\n\nThe second.\n"
+    );
+}
+
+/// With the application serving, this command knows no window — the
+/// application's engine is its business, and its MCP tool asks the window
+/// itself (E4-6c, D330) — so a long `--prompts` template is not refused for
+/// length here: it is handed over whole.
+#[test]
+fn a_long_template_goes_to_the_application_unrefused() {
+    let scratch = Scratch::new("app-long-template");
+    scratch.file("note.txt", b"Words.\n");
+    let long = format!("{}\n{{TEXT}}", "word ".repeat(400));
+    scratch.file(
+        "prompts.json",
+        serde_json::json!({ "prompts.en.paraphrase.1.user": long })
+            .to_string()
+            .as_bytes(),
+    );
+    let app = FakeApp::start(rewritten("Other words.\n", 0, false));
+    beacon(&scratch, std::process::id(), "127.0.0.1", app.port);
+
+    let output = scratch.run(&["rewrite", "note.txt", "--prompts", "prompts.json"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert!(!stderr(&output).contains("too-long"), "{}", stderr(&output));
+    let calls = app.calls();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert_eq!(
+        calls[0]["params"]["arguments"]["templates"]["prompts.en.paraphrase.1.user"],
+        serde_json::json!(long)
+    );
+}
+
 /// `--json` is the report, where the result went and who rewrote it.
 #[test]
 fn rewrite_json_is_the_report_and_where_it_went() {
@@ -721,7 +780,7 @@ fn rewrite_json_is_the_report_and_where_it_went() {
     assert_eq!(answer["served_by"], "application");
     assert!(answer["written"]
         .as_str()
-        .is_some_and(|path| path.ends_with("note.cleaned.txt")));
+        .is_some_and(|path| path.ends_with("note.rewritten.txt")));
     let shelf = answer["report"]["not_established"]
         .as_array()
         .expect("the third shelf");
@@ -750,7 +809,7 @@ fn a_chunk_that_kept_its_source_exits_three() {
         stdout(&output)
     );
     // The result is written all the same: the kept paragraph is the cleaned one.
-    assert!(scratch.path("note.cleaned.txt").exists());
+    assert!(scratch.path("note.rewritten.txt").exists());
 }
 
 /// `--in-place` sets the original aside first, as `clean` does.
@@ -773,6 +832,199 @@ fn rewrite_in_place_sets_the_original_aside() {
     );
 }
 
+// ─── The journal (E4-6b, R4) ─────────────────────────────────────────────
+
+/// The application's database in the scratch data directory, made the way
+/// the application makes it (schema 3), with one setting in it.
+fn application_database(scratch: &Scratch) -> wipemark_store::Store {
+    std::fs::create_dir_all(scratch.data()).expect("the data directory");
+    let store =
+        wipemark_store::Store::open(scratch.data().join("wipemark.db")).expect("a database");
+    store
+        .settings()
+        .set("ui.theme", &"dark")
+        .expect("a setting");
+    store
+}
+
+fn journal_rows(store: &wipemark_store::Store) -> Vec<wipemark_store::JournalRow> {
+    store.journal().rows().expect("the journal")
+}
+
+/// В5: a `clean` with no application running leaves one row in the
+/// application's journal — who asked, what, the outcome and where the
+/// result went, and never the text — and touches nothing else there;
+/// `--no-record` leaves none.
+#[test]
+fn a_clean_leaves_one_row_in_the_journal_and_nothing_else() {
+    let scratch = Scratch::new("journal-clean");
+    scratch.file("note.md", "Hello\u{200B}world\n".as_bytes());
+    let store = application_database(&scratch);
+    let settings = store.settings().all().expect("settings");
+
+    let output = scratch.run(&["clean", "note.md"]);
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    assert!(
+        !stderr(&output).contains("Nothing was recorded"),
+        "{}",
+        stderr(&output)
+    );
+    let rows = journal_rows(&store);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    let row = &rows[0];
+    assert_eq!(
+        (row.origin.as_str(), row.action.as_str(), row.state.as_str()),
+        ("cli", "clean", "done")
+    );
+    assert!(row.ended.is_some_and(|ended| ended >= row.arrived));
+    let entry = wipemark_store::entry::Entry::from_json(&row.entry);
+    assert_eq!(entry.name.as_deref(), Some("note.md"));
+    assert_eq!(entry.kind.as_deref(), Some("text"));
+    let outcome = entry.outcome.expect("an outcome");
+    assert_eq!(outcome.verdict, "cleaned");
+    assert_eq!(outcome.findings, Some(1));
+    match entry.result {
+        Some(wipemark_store::entry::Delivered::File { path, .. }) => {
+            assert!(path.ends_with("note.cleaned.md"), "{path}");
+        }
+        other => panic!("not a file: {other:?}"),
+    }
+    assert!(!row.entry.contains("Hello"), "the text reached the row");
+    assert_eq!(store.settings().all().expect("settings"), settings);
+
+    let output = scratch.run(&["clean", "note.md", "--no-record"]);
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    assert_eq!(journal_rows(&store).len(), 1, "--no-record recorded");
+}
+
+/// D315: no database is no row, nothing created and nothing said — a hook
+/// on a machine where the application never ran is not told about a
+/// journal it has no window to show.
+#[test]
+fn with_no_database_a_clean_creates_nothing_and_says_nothing() {
+    let scratch = Scratch::new("journal-none");
+    scratch.file("note.md", "Hello\u{200B}world\n".as_bytes());
+    let output = scratch.run(&["clean", "note.md"]);
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    assert!(
+        !scratch.data().join("wipemark.db").exists(),
+        "the command line created a database"
+    );
+    assert!(
+        !stderr(&output).contains("Nothing was recorded"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+/// A database the application has not brought to the journal yet is left
+/// as it is — never migrated by the command line — and the run says so in
+/// one line, with its exit code and its result as they would have been.
+#[test]
+fn a_database_older_than_the_journal_is_left_alone_and_said() {
+    let scratch = Scratch::new("journal-old");
+    scratch.file("note.md", "Hello\u{200B}world\n".as_bytes());
+    drop(application_database(&scratch));
+    // Schema 2, as the build before the journal left it: SQLite keeps
+    // `user_version` as four big-endian bytes at offset 60 of the header,
+    // and the connection above closed, folding its log back in.
+    let db = scratch.data().join("wipemark.db");
+    let mut bytes = std::fs::read(&db).expect("the database");
+    bytes[60..64].copy_from_slice(&2_u32.to_be_bytes());
+    std::fs::write(&db, &bytes).expect("schema 2");
+
+    let output = scratch.run(&["clean", "note.md"]);
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    assert!(scratch.path("note.cleaned.md").exists());
+    let said = stderr(&output);
+    assert_eq!(said.matches("Nothing was recorded").count(), 1, "{said}");
+    assert!(said.contains("older version"), "{said}");
+    let version = u32::from_be_bytes(
+        std::fs::read(&db).expect("the database")[60..64]
+            .try_into()
+            .expect("four bytes"),
+    );
+    assert_eq!(version, 2, "the command line migrated the database");
+}
+
+/// В7: a look is recorded only when asked.
+#[test]
+fn inspect_records_nothing_unless_asked() {
+    let scratch = Scratch::new("journal-inspect");
+    scratch.file("note.md", "Hello\u{200B}world\n".as_bytes());
+    let store = application_database(&scratch);
+    assert_eq!(code(&scratch.run(&["inspect", "note.md"])), 1);
+    assert!(journal_rows(&store).is_empty(), "a look was recorded");
+    assert_eq!(code(&scratch.run(&["inspect", "note.md", "--record"])), 1);
+    let rows = journal_rows(&store);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].action, "inspect");
+    let entry = wipemark_store::entry::Entry::from_json(&rows[0].entry);
+    assert_eq!(entry.outcome.expect("an outcome").verdict, "findings");
+    assert_eq!(
+        entry.result,
+        Some(wipemark_store::entry::Delivered::Nowhere)
+    );
+}
+
+/// Through the application, the application records the run: the call
+/// says `record` and that the command line asks (`_meta`), `--no-record`
+/// says `false` — and this command writes no row of its own, only tells
+/// the application's row where it wrote the file.
+#[test]
+fn a_rewrite_through_the_application_is_recorded_there() {
+    let scratch = Scratch::new("journal-app");
+    scratch.file("note.txt", b"Words.\n");
+    let store = application_database(&scratch);
+    let id = store
+        .journal()
+        .insert(&wipemark_store::NewRow {
+            origin: "cli",
+            action: "rewrite",
+            state: "done",
+            item: Some(1),
+            arrived: 1,
+            ended: Some(2),
+            entry: r#"{"name":"note.txt","result":{"to":"caller"}}"#,
+        })
+        .expect("the application's row");
+    let mut answer = rewritten("Other words.\n", 0, false);
+    answer["_meta"] = serde_json::json!({ "wipemark/journal": id });
+    let app = FakeApp::start(answer);
+    beacon(&scratch, std::process::id(), "127.0.0.1", app.port);
+
+    let output = scratch.run(&["rewrite", "note.txt"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let calls = app.calls();
+    assert_eq!(calls[0]["params"]["arguments"]["record"], true);
+    let meta = &calls[0]["params"]["_meta"];
+    assert_eq!(meta["wipemark/origin"], "cli");
+    assert_eq!(meta["wipemark/name"], "note.txt");
+    assert!(meta.get("text").is_none());
+    let rows = journal_rows(&store);
+    assert_eq!(
+        rows.len(),
+        1,
+        "the command line wrote a row of its own: {rows:?}"
+    );
+    let entry = wipemark_store::entry::Entry::from_json(&rows[0].entry);
+    match entry.result {
+        Some(wipemark_store::entry::Delivered::File { path, .. }) => {
+            assert!(path.ends_with("note.rewritten.txt"), "{path}");
+        }
+        other => panic!("the row was not told where the file went: {other:?}"),
+    }
+    assert_eq!(rows[0].state, "done");
+
+    // The first run's result is somebody's file now: a rewrite never writes
+    // over one (D362).
+    std::fs::remove_file(scratch.path("note.rewritten.txt")).expect("the first result");
+    let output = scratch.run(&["rewrite", "note.txt", "--no-record"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(app.calls()[1]["params"]["arguments"]["record"], false);
+    assert_eq!(journal_rows(&store).len(), 1);
+}
+
 /// A beacon whose process is gone is never dialled: the command loads its
 /// own engine instead — here, none is chosen, so it refuses.
 #[test]
@@ -785,7 +1037,7 @@ fn a_stale_beacon_is_never_dialled() {
     let output = scratch.run(&["rewrite", "note.txt"]);
     assert_eq!(code(&output), 2, "{}", stderr(&output));
     assert_eq!(app.connections(), 0, "a dead process's port was dialled");
-    assert!(!scratch.path("note.cleaned.txt").exists());
+    assert!(!scratch.path("note.rewritten.txt").exists());
 }
 
 /// A beacon that names anything but loopback is never dialled — not even
@@ -835,7 +1087,7 @@ fn an_endpoint_duty_without_the_application_refuses() {
             "{rows:?}: {}",
             stderr(&output)
         );
-        assert!(!scratch.path("note.cleaned.txt").exists());
+        assert!(!scratch.path("note.rewritten.txt").exists());
     }
 }
 
@@ -1528,6 +1780,50 @@ fn seed(scratch: &Scratch, rows: &[(&str, &str)]) {
     }
 }
 
+/// The mark a download of the product leaves on the `.part` it opened
+/// (D351), in the shape `wipemark_models::store` reads:
+/// `<data dir>/records/<key>-<name>.downloaded`, the key the first 32 hex
+/// of sha256(canonical folder / name), the identity `dev:ino:birth_ns` on
+/// Unix (`birth_ns` elsewhere). Without it a `.part` a test seeds is
+/// another tool's, and neither partial nor removable.
+fn mark_part(scratch: &Scratch, part: &Path) {
+    use sha2::{Digest, Sha256};
+    let meta = std::fs::symlink_metadata(part).expect("the .part");
+    let born = meta
+        .created()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or_else(|| "-".to_owned(), |d| d.as_nanos().to_string());
+    #[cfg(unix)]
+    let identity = {
+        use std::os::unix::fs::MetadataExt as _;
+        format!("{}:{}:{born}", meta.dev(), meta.ino())
+    };
+    #[cfg(not(unix))]
+    let identity = born;
+    let folder = std::fs::canonicalize(part.parent().expect("a folder")).expect("canonical");
+    let name = part
+        .file_name()
+        .expect("a name")
+        .to_string_lossy()
+        .into_owned();
+    let key: String = Sha256::digest(folder.join(&name).as_os_str().as_encoded_bytes())
+        .iter()
+        .take(16)
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let records = scratch.data().join("records");
+    std::fs::create_dir_all(&records).expect("the records");
+    std::fs::write(
+        records.join(format!("{key}-{name}.downloaded")),
+        format!(
+            "wipemark download mark 1\n{identity}\n0\n{}\n",
+            part.display()
+        ),
+    )
+    .expect("a mark");
+}
+
 /// A model's size is said in the language's decimals — "7,4 GB" in German,
 /// "7,4 ГБ" in Russian — and with a point in English; the JSON keeps its
 /// bytes.
@@ -1574,6 +1870,10 @@ fn models_list_names_every_catalogue_entry_and_its_state() {
         vec![0u8; 1000],
     )
     .expect("a partial download");
+    mark_part(
+        &scratch,
+        &models.join(SMALL).join(format!("{SMALL_FILE}.part")),
+    );
     std::fs::create_dir_all(models.join(LARGE)).expect("mkdir");
     std::fs::write(models.join(LARGE).join(LARGE_FILE), b"not the weights").expect("a stray file");
     std::fs::create_dir_all(models.join("lmstudio/vendor")).expect("mkdir");
@@ -1584,7 +1884,14 @@ fn models_list_names_every_catalogue_entry_and_its_state() {
     let answer = json(&output);
     assert_eq!(model(&answer, SMALL)["state"], "partial", "{answer}");
     assert_eq!(model(&answer, SMALL)["done_bytes"], 1000, "{answer}");
-    assert_eq!(model(&answer, LARGE)["state"], "mismatch", "{answer}");
+    // Not "mismatch": no download of this product wrote that file, so it
+    // is another tool's, said and left alone (D302, amended).
+    assert_eq!(model(&answer, LARGE)["state"], "absent", "{answer}");
+    assert_eq!(
+        model(&answer, LARGE)["foreign_at"],
+        format!("{LARGE}/{LARGE_FILE}"),
+        "{answer}"
+    );
     for id in [SMALL, LARGE] {
         let entry = model(&answer, id);
         assert!(entry["size_bytes"]
@@ -1605,9 +1912,60 @@ fn models_list_names_every_catalogue_entry_and_its_state() {
 
     let text = stdout(&scratch.run(&["models", "list"]));
     assert!(text.contains("partly downloaded"), "{text}");
-    assert!(text.contains("does not match the catalogue"), "{text}");
+    assert!(text.contains("another tool's file of its name"), "{text}");
     assert!(text.contains("lmstudio/vendor/other.gguf"), "{text}");
     assert!(text.contains("not verified"), "{text}");
+}
+
+/// H1 (D302, amended), through the binary: a file at an entry's own
+/// place that no download of this product wrote — another tool's, in a
+/// mirror laid out `<id>/<file>` — is listed as left alone, and `models
+/// rm` says nothing was removed and removes nothing.
+#[test]
+fn models_rm_leaves_another_tools_file_at_the_entrys_place() {
+    let scratch = Scratch::new("models-rm-mirror");
+    let mirror = scratch.path("mirror");
+    let theirs = mirror.join(SMALL).join(SMALL_FILE);
+    std::fs::create_dir_all(theirs.parent().expect("a folder")).expect("mkdir");
+    std::fs::write(&theirs, b"another tool put me here").expect("theirs");
+    seed(&scratch, &[("models.dir", mirror.to_str().expect("UTF-8"))]);
+
+    let answer = json(&scratch.run(&["models", "list", "--json"]));
+    assert_eq!(model(&answer, SMALL)["state"], "absent", "{answer}");
+    assert_eq!(
+        model(&answer, SMALL)["foreign_at"],
+        format!("{SMALL}/{SMALL_FILE}"),
+        "{answer}"
+    );
+
+    let output = scratch.run(&["models", "rm", SMALL]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let said = stdout(&output);
+    assert!(said.contains("nothing was removed"), "{said}");
+    assert!(said.contains(SMALL_FILE), "{said}");
+    assert_eq!(
+        std::fs::read(&theirs).expect("still there"),
+        b"another tool put me here"
+    );
+
+    // A2 (D351): another tool's download in progress under the working
+    // name a download of ours would use — not partial, said, and left.
+    let in_flight = mirror.join(LARGE).join(format!("{LARGE_FILE}.part"));
+    std::fs::create_dir_all(in_flight.parent().expect("a folder")).expect("mkdir");
+    std::fs::write(&in_flight, b"theirs, in flight").expect("their part");
+    let answer = json(&scratch.run(&["models", "list", "--json"]));
+    assert_eq!(model(&answer, LARGE)["state"], "absent", "{answer}");
+    assert_eq!(
+        model(&answer, LARGE)["foreign_at"],
+        format!("{LARGE}/{LARGE_FILE}.part"),
+        "{answer}"
+    );
+    let output = scratch.run(&["models", "rm", LARGE]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(
+        std::fs::read(&in_flight).expect("still there"),
+        b"theirs, in flight"
+    );
 }
 
 /// The models folder and the chosen model are the app's rows, read and
@@ -1623,6 +1981,10 @@ fn models_read_the_folder_and_the_choice_the_app_saved() {
         b"xx",
     )
     .expect("part");
+    mark_part(
+        &scratch,
+        &elsewhere.join(SMALL).join(format!("{SMALL_FILE}.part")),
+    );
     seed(
         &scratch,
         &[
@@ -1709,6 +2071,7 @@ fn models_rm_of_an_absent_model_says_so_and_exits_zero() {
     let folder = scratch.data().join("models").join(SMALL);
     std::fs::create_dir_all(&folder).expect("mkdir");
     std::fs::write(folder.join(format!("{SMALL_FILE}.part")), b"xx").expect("write");
+    mark_part(&scratch, &folder.join(format!("{SMALL_FILE}.part")));
     seed(&scratch, &[("models.rewrite", SMALL)]);
     let output = scratch.run(&["models", "rm", SMALL]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));

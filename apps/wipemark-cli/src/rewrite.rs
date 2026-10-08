@@ -59,7 +59,7 @@ use wipemark_pipeline::{Document, Ending, Event, JobId, PipelineError, Stage};
 use crate::app::{self, Unheard};
 use crate::input::{self, Source};
 use crate::run::{self, Destination, Io};
-use crate::{audit, models, report, Exit};
+use crate::{audit, journal, models, report, Exit};
 
 /// The command line, as `main` parsed it.
 #[derive(Debug, Clone, Copy)]
@@ -78,6 +78,10 @@ pub(crate) struct Flags<'a> {
     pub prompts: Option<&'a Path>,
     pub seed: Option<u64>,
     pub json: bool,
+    /// Whether the run leaves a row in the application's journal — `false`
+    /// for `--no-record` (В6). Said to the application when it serves the
+    /// call; this command's own row is `main`'s.
+    pub record: bool,
 }
 
 /// Who rewrote it: what `--json`'s `served_by` names and stderr says.
@@ -189,26 +193,13 @@ pub(crate) fn rewrite_with(flags: &Flags, io: &mut Io, roads: &Roads) -> Exit {
             }
         },
     };
+    // No window yet: who serves is not known until the application is
+    // asked. Every rule but `too-long` is asked here; that one is asked by
+    // whoever runs the job — this command against its own model's window
+    // (`by_this_command`), the application against its engine's.
     let (mut overrides, pivot) = saved_rows(roads.layout);
     if let Err(laid) = row::lay_over(&mut overrides, &templates) {
-        let file = flags
-            .prompts
-            .map(|file| file.display().to_string())
-            .unwrap_or_default();
-        let line = match laid {
-            Laid::UnknownRow { key } => t_args(
-                Message::CliPromptsUnknownRow,
-                &args!("path" => file, "key" => key),
-            ),
-            Laid::Unreadable { key } => t_args(
-                Message::CliPromptsNotRows,
-                &args!("path" => file, "reason" => key),
-            ),
-            Laid::Breaks { key, rule } => t_args(
-                Message::CliPromptsInvalid,
-                &args!("path" => file, "key" => key, "rule" => rule),
-            ),
-        };
+        let line = laid_line(flags.prompts, laid);
         return run::refused(io, "rewrite", path, &line, "template refused", Exit::Usage);
     }
 
@@ -231,6 +222,7 @@ pub(crate) fn rewrite_with(flags: &Flags, io: &mut Io, roads: &Roads) -> Exit {
         Err(unread) => return run::refuse_unread("rewrite", path, &label, &unread, io),
     };
     run::say_note(&read, &label, io);
+    run::text_read(&read);
 
     let asked = Asked {
         tactic,
@@ -249,17 +241,31 @@ pub(crate) fn rewrite_with(flags: &Flags, io: &mut Io, roads: &Roads) -> Exit {
         seed: flags.seed,
     };
 
+    let call = Call {
+        text: &read.text,
+        asked: &asked,
+        templates: &templates,
+        record: flags.record,
+        meta: meta_of(&source, read.text.len()),
+    };
+    let laid = Laying {
+        templates: &templates,
+        prompts: flags.prompts,
+        path,
+    };
     let rewritten = match roads.layout.and_then(app::find) {
-        Some(found) => match by_the_application(found, &read.text, &asked, &templates, roads, io) {
+        Some(found) => match by_the_application(found, &call, roads, io) {
             Ok(rewritten) => rewritten,
             // Nobody took the call: nothing was sent, so this side may run it.
-            Err(None) => match by_this_command(&read.text, &asked, overrides, pivot, roads, io) {
-                Ok(rewritten) => rewritten,
-                Err(exit) => return exit,
-            },
+            Err(None) => {
+                match by_this_command(&read.text, &asked, overrides, pivot, &laid, roads, io) {
+                    Ok(rewritten) => rewritten,
+                    Err(exit) => return exit,
+                }
+            }
             Err(Some(exit)) => return exit,
         },
-        None => match by_this_command(&read.text, &asked, overrides, pivot, roads, io) {
+        None => match by_this_command(&read.text, &asked, overrides, pivot, &laid, roads, io) {
             Ok(rewritten) => rewritten,
             Err(exit) => return exit,
         },
@@ -267,8 +273,12 @@ pub(crate) fn rewrite_with(flags: &Flags, io: &mut Io, roads: &Roads) -> Exit {
 
     let Some(exit) = exit_of(&rewritten.report) else {
         tracing::warn!("a report with no totals or no Layer A pass came back");
+        journal::note(|draft| draft.failed = Some("report"));
         return run::failed("rewrite", path, "unreadable report", None, Exit::Partial);
     };
+    journal::note(|draft| {
+        draft.entry.outcome = Some(journal::rewrite_outcome(&rewritten.report, exit));
+    });
     deliver(
         flags,
         &source,
@@ -303,6 +313,36 @@ fn format_of(found: Option<wipemark_intake::Format>) -> TextFormat {
         Some(wipemark_intake::Format::Html) => TextFormat::Html,
         _ => TextFormat::Plain,
     }
+}
+
+/// The sentence that refuses a `--prompts` file's template.
+fn laid_line(prompts: Option<&Path>, laid: Laid) -> String {
+    let file = prompts
+        .map(|file| file.display().to_string())
+        .unwrap_or_default();
+    match laid {
+        Laid::UnknownRow { key } => t_args(
+            Message::CliPromptsUnknownRow,
+            &args!("path" => file, "key" => key),
+        ),
+        Laid::Unreadable { key } => t_args(
+            Message::CliPromptsNotRows,
+            &args!("path" => file, "reason" => key),
+        ),
+        Laid::Breaks { key, rule } => t_args(
+            Message::CliPromptsInvalid,
+            &args!("path" => file, "key" => key, "rule" => rule),
+        ),
+    }
+}
+
+/// The caller's templates as this command's own road needs them again:
+/// laid once more against its model's window, and refused in the words
+/// the first lay refuses in.
+struct Laying<'a> {
+    templates: &'a Map<String, Value>,
+    prompts: Option<&'a Path>,
+    path: &'a str,
 }
 
 /// `--prompts`: the file's rows, or the sentence that refuses it.
@@ -350,10 +390,48 @@ fn saved_rows(layout: Option<&Layout>) -> (Overrides, Option<Lang>) {
     (overrides, row::pivot_of(rows.get(row::PIVOT_KEY)))
 }
 
+/// What one run asks the application.
+struct Call<'a> {
+    text: &'a str,
+    asked: &'a Asked,
+    templates: &'a Map<String, Value>,
+    /// `--no-record` is `false` (В6): the application keeps no row.
+    record: bool,
+    /// The `tools/call` params' `_meta`: who asks and what the document is
+    /// called, for the application's row — `wipemark/origin` is `cli`.
+    meta: Value,
+}
+
+/// The `_meta` a call carries: this command is the origin, and the
+/// document's name, path and size, for a file — never its text.
+fn meta_of(source: &Source, bytes: usize) -> Value {
+    let mut meta = json!({ "wipemark/origin": "cli", "wipemark/size": bytes });
+    // A path that is not a regular file — `/dev/stdin`, a FIFO — is named
+    // as none (D356), as this command's own row names it.
+    if let Some(path) = match source {
+        Source::File(path) if journal::is_a_file(path) => Some(path),
+        _ => None,
+    } {
+        if let Some(name) = path.file_name() {
+            meta["wipemark/name"] = json!(name.to_string_lossy());
+        }
+        if let Ok(absolute) = std::path::absolute(path) {
+            meta["wipemark/path"] = json!(absolute.to_string_lossy());
+        }
+    }
+    meta
+}
+
 /// The arguments of the MCP call that asks the application for `asked`.
-fn call_arguments(text: &str, asked: &Asked, templates: &Map<String, Value>) -> Value {
+fn call_arguments(
+    text: &str,
+    asked: &Asked,
+    templates: &Map<String, Value>,
+    record: bool,
+) -> Value {
     let mut arguments = json!({
         "text": text,
+        "record": record,
         "tactic": asked.tactic.as_str(),
         "intensity": asked.intensity.as_str(),
         "format": asked::format_id(asked.format),
@@ -380,19 +458,19 @@ fn call_arguments(text: &str, asked: &Asked, templates: &Map<String, Value>) -> 
 /// stderr, and the run ends.
 fn by_the_application(
     found: app::App,
-    text: &str,
-    asked: &Asked,
-    templates: &Map<String, Value>,
+    call: &Call,
     roads: &Roads,
     io: &mut Io,
 ) -> Result<Rewritten, Option<Exit>> {
-    let arguments = call_arguments(text, asked, templates);
+    let arguments = call_arguments(call.text, call.asked, call.templates, call.record);
     if roads.terminal {
         // The price before the run (D61), asked of the application — which
-        // knows its engine and the rate its last Check measured.
+        // knows its engine and the rate its last Check measured. A price is
+        // not a document's status: never recorded.
         let mut priced = arguments.clone();
         priced["dry_run"] = json!(true);
-        if let Ok(result) = app::rewrite(found, &priced, roads.interrupted) {
+        priced["record"] = json!(false);
+        if let Ok(result) = app::rewrite(found, &priced, &call.meta, roads.interrupted) {
             let cost = &result["structuredContent"]["cost"];
             say_price(
                 io,
@@ -405,7 +483,19 @@ fn by_the_application(
     let say = |io: &mut Io, line: String| {
         let _ = writeln!(io.stderr, "wipemark-cli: {line}");
     };
-    match app::rewrite(found, &arguments, roads.interrupted) {
+    let answer = app::rewrite(found, &arguments, &call.meta, roads.interrupted);
+    match &answer {
+        // Nobody took the call: this command may run it, and records it.
+        Err(Unheard::Unreachable(_)) => {}
+        // The application saw the call: its row, if it kept one, is the
+        // run's — this command writes none of its own.
+        Ok(result) => {
+            let recorded = result["_meta"]["wipemark/journal"].as_i64();
+            journal::note(|draft| draft.served_by_app = Some(recorded));
+        }
+        Err(_) => journal::note(|draft| draft.served_by_app = Some(None)),
+    }
+    match answer {
         Ok(result) if result["isError"].as_bool().unwrap_or(false) => {
             let reason = result["content"][0]["text"]
                 .as_str()
@@ -485,12 +575,37 @@ fn say_price(io: &mut Io, calls: Option<u64>, expected: Option<u64>, tokens: Opt
 fn by_this_command(
     text: &str,
     asked: &Asked,
-    overrides: Overrides,
+    mut overrides: Overrides,
     pivot: Option<Lang>,
+    laid: &Laying,
     roads: &Roads,
     io: &mut Io,
 ) -> Result<Rewritten, Exit> {
-    let (engine, executor) = (roads.own)(roads.layout, io)?;
+    let (engine, executor) = (roads.own)(roads.layout, io).inspect_err(|_| {
+        journal::note(|draft| draft.failed = Some("engine"));
+    })?;
+    // The caller's templates against the window this engine will load
+    // with — the catalogue's `ctx` for the chosen model (E4-6c, D330): a
+    // template over a tenth of it is `too-long`, as the Settings page and
+    // the application's MCP tool refuse it. Laid again over rows that
+    // already hold them, so nothing but the window is asked anew.
+    if let Err(refused) =
+        row::lay_over_within(&mut overrides, laid.templates, engine.info().ctx_len)
+    {
+        // A template refused is not a document's status on any road: the
+        // application refuses it before it records anything, and so does
+        // this command (D360).
+        journal::discard();
+        let line = laid_line(laid.prompts, refused);
+        return Err(run::refused(
+            io,
+            "rewrite",
+            laid.path,
+            &line,
+            "template refused",
+            Exit::Usage,
+        ));
+    }
     let document = Document {
         text: text.to_owned(),
         format: asked.format,
@@ -506,7 +621,8 @@ fn by_this_command(
         },
         roads,
         io,
-    )?;
+    )
+    .inspect_err(|_| journal::note(|draft| draft.failed = Some("job")))?;
     Ok(Rewritten {
         text,
         report,
@@ -681,7 +797,8 @@ fn deliver(
             match inplace::replace(file, &bytes, *keep) {
                 Ok(done) => replaced = Some(done),
                 Err(failure) => {
-                    return run::refuse_replacement(io, "rewrite", path, file, &failure)
+                    journal::note(|draft| draft.failed = Some("in-place"));
+                    return run::refuse_replacement(io, "rewrite", path, file, &failure);
                 }
             }
         }
@@ -692,7 +809,21 @@ fn deliver(
             Source::File(input) => Some(input.as_path()),
             Source::Stdin => None,
         };
-        if let Err(error) = inplace::write_atomically(file, &bytes, model) {
+        // Beside is a new file only (D362): one that appeared while the
+        // model worked is refused at the publish, as the windows' is.
+        let written = match destination {
+            Destination::Beside(_) => inplace::write_new(file, &bytes, model),
+            _ => inplace::write_atomically(file, &bytes, model),
+        };
+        if let Err(error) = written {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                let line = t_args(
+                    Message::CliRewrittenExists,
+                    &args!("path" => file.display().to_string()),
+                );
+                journal::note(|draft| draft.failed = Some("exists"));
+                return run::refused(io, "rewrite", path, &line, "result exists", Exit::Usage);
+            }
             let line = t_args(
                 Message::CliWriteFailed,
                 &args!(
@@ -701,6 +832,7 @@ fn deliver(
                 ),
             );
             let _ = writeln!(io.stderr, "wipemark-cli: {line}");
+            journal::note(|draft| draft.failed = Some("write"));
             return run::failed(
                 "rewrite",
                 path,
@@ -731,6 +863,7 @@ fn deliver(
         (_, _, Some(path)) => report::Written::File { path, from_file },
         (_, _, None) => report::Written::Stdout { from_file },
     };
+    journal::went(&written);
     let human = || {
         run::joined(report::rewrite_lines(
             &run::say,
@@ -911,7 +1044,7 @@ fn own_engine(
         .as_deref()
         .and_then(|id| catalogue.get(id))
         .cloned();
-    let downloads = Downloads::new(&place.folder);
+    let downloads = Downloads::new(&place.folder, layout.records_dir());
     let weights = entry.as_ref().and_then(|entry| {
         matches!(downloads.state(entry), State::Present { .. })
             .then(|| downloads.weights_path(entry))
@@ -1139,6 +1272,7 @@ mod tests {
             prompts: None,
             seed: Some(11),
             json,
+            record: true,
         }
     }
 
@@ -1223,6 +1357,76 @@ mod tests {
         );
         let kept = t_args(Message::CliRewriteKept, &args!("kept" => 1_u64));
         assert!(stderr.contains(&kept), "{stderr}");
+    }
+
+    /// The command's own model is asked with its window (E4-6c, D330, the
+    /// owner's default): a `--prompts` template over a tenth of the window
+    /// the model loads with — the catalogue's `ctx` — is refused as
+    /// `too-long`, exit 2, nothing asked and nothing written; the same
+    /// template under a window ten times its size runs.
+    #[test]
+    fn a_template_over_a_tenth_of_this_commands_window_is_refused() {
+        let dir =
+            std::env::temp_dir().join(format!("wipemark-cli-too-long-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a scratch folder");
+        let file = dir.join("prompts.json");
+        let long = format!("{}\n{{TEXT}}", "word ".repeat(400));
+        std::fs::write(
+            &file,
+            json!({ "prompts.en.paraphrase.1.user": long }).to_string(),
+        )
+        .expect("a prompts file");
+        let flags = Flags {
+            prompts: Some(&file),
+            ..flags(false)
+        };
+        let interrupted = AtomicBool::new(false);
+
+        let small = FakeEngine::with_model("fake-4k", 4096);
+        let asked = small.clone();
+        let own = move |_: Option<&Layout>,
+                        _: &mut Io|
+              -> Result<(Arc<dyn RewriteEngine>, Executor), Exit> {
+            Ok((Arc::new(small.clone()), Executor::LocalCpu))
+        };
+        let roads = Roads {
+            layout: None,
+            terminal: false,
+            interrupted: &interrupted,
+            own: &own,
+        };
+        // Recorded, as `main` opens it: a template refused leaves no row
+        // here, as it leaves none through the application (D360).
+        crate::journal::begin(wipemark_store::entry::Action::Rewrite, "-");
+        let (exit, stdout, stderr) =
+            run(PARAGRAPH.as_bytes(), |io| rewrite_with(&flags, io, &roads));
+        assert_eq!(exit, Exit::Usage, "{stderr}");
+        assert!(stderr.contains("too-long"), "{stderr}");
+        assert!(stdout.is_empty(), "{stdout}");
+        assert!(asked.asked().is_empty(), "a refused run asked the model");
+        assert!(
+            !crate::journal::drafted(),
+            "a template refusal would be recorded as a failed row"
+        );
+
+        let large =
+            |_: Option<&Layout>, _: &mut Io| -> Result<(Arc<dyn RewriteEngine>, Executor), Exit> {
+                Ok((
+                    Arc::new(FakeEngine::with_model("fake-100k", 100_000)),
+                    Executor::LocalCpu,
+                ))
+            };
+        let roads = Roads {
+            own: &large,
+            ..roads
+        };
+        let (exit, stdout, stderr) =
+            run(PARAGRAPH.as_bytes(), |io| rewrite_with(&flags, io, &roads));
+        assert_ne!(exit, Exit::Usage, "{stderr}");
+        assert!(!stderr.contains("too-long"), "{stderr}");
+        assert!(!stdout.is_empty(), "{stderr}");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

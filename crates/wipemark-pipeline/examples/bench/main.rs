@@ -21,6 +21,7 @@ mod judge;
 mod measure;
 mod run;
 mod verify;
+mod whole;
 
 pub const USAGE: &str = "\
 usage: bench <mode> [--flag value]...
@@ -28,7 +29,11 @@ usage: bench <mode> [--flag value]...
   run     --local <gguf> | --endpoint <base URL> [--reasoning none|off]
           --name <model id> --out <records.jsonl>
           [--grid <spec>] [--langs en,ru] [--items en-pd-01,...] [--every n] [--ctx 8192]
-          [--gpu-layers n]
+          [--gpu-layers n] [--corpus <dir>] [--variant <dir>]
+          [--temperature t] [--top-p p] [--min-p p] [--base-seed n]
+  whole   --local <gguf> | --endpoint <URL>  --name <model id>
+          --doc <file> --prompt <instruction file> --out <records.jsonl>
+          [--samples n] [--temperature t] [--top-p p] [--base-seed n] [--ctx 12288]
   judge   --local <gguf> | --endpoint <URL>  --name <judge id>
           --in <records.jsonl,...> --out <judgements.jsonl>
   verify  --local <gguf> | --endpoint <URL>  --name <model id>
@@ -45,6 +50,7 @@ fn main() {
         "run" => run::main(&args),
         "judge" => judge::main(&args),
         "verify" => verify::main(&args),
+        "whole" => whole::main(&args),
         "report" => analyse::main(&args),
         other => {
             eprintln!("unknown mode {other:?}\n\n{USAGE}");

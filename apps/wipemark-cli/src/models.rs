@@ -27,15 +27,14 @@
 //! is the same finding, because a missing model does not match either.
 
 use std::io::{IsTerminal as _, Write as _};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use wipemark_i18n::{args, FluentArgs, Message};
 use wipemark_models::layout::Layout;
 use wipemark_models::{
-    fit, weights_under, Cancel, Downloads, Fit, Host, Manifest, ModelEntry, Progress, Role, State,
-    StoreError,
+    fit, Cancel, Downloads, Fit, Host, Manifest, ModelEntry, Progress, Role, State, StoreError,
 };
 
 use crate::audit::ascii;
@@ -114,7 +113,9 @@ impl Context {
             Exit::Usage
         })?;
         let place = Place::read(&layout, &catalogue);
-        let downloads = Downloads::new(&place.folder);
+        // Verify records under the data directory, never beside the
+        // weights (D303).
+        let downloads = Downloads::new(&place.folder, layout.records_dir());
         Ok(Self {
             catalogue,
             place,
@@ -182,19 +183,17 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
     let host = Host::probe();
     let folder = &context.place.folder;
 
-    // Weight files the catalogue did not put there.
-    let ours: Vec<PathBuf> = context
-        .catalogue
-        .models
-        .iter()
-        .flat_map(|entry| {
-            entry
-                .files
-                .iter()
-                .filter_map(|file| Some(folder.join(&entry.id).join(file.filename()?)))
-        })
+    // One walk: where every catalogue entry is (D302), and what else is
+    // there. A catalogue file is the catalogue's wherever it was found.
+    let survey = context.downloads.survey(&context.catalogue.models);
+    // Another tool's file at an entry's own place is said on that entry's
+    // line (D302, amended), not again among the strangers.
+    let ours: Vec<PathBuf> = survey
+        .located
+        .values()
+        .flat_map(|located| located.files.iter().chain(&located.mismatched).cloned())
         .collect();
-    let (others, unreadable) = match weights_under(folder) {
+    let (others, unreadable) = match survey.listing {
         Ok(found) => (
             found
                 .into_iter()
@@ -212,11 +211,32 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
         .models
         .iter()
         .map(|entry| {
-            let state = context.downloads.state(entry);
+            let state = survey
+                .located
+                .get(&entry.id)
+                .map_or(State::Absent, |located| located.state.clone());
             let chosen = context.place.chosen.as_deref() == Some(entry.id.as_str());
             (entry, state, fit(entry, host), chosen)
         })
         .collect();
+    // Where an entry was found, when that is not where a download puts
+    // it — the folder-relative path, `/`-separated.
+    let below = |path: &Path| -> String {
+        path.strip_prefix(folder)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    let found_at = |entry: &ModelEntry| -> Option<String> {
+        let located = survey.located.get(&entry.id)?;
+        let weights = located.weights.as_ref().filter(|_| located.theirs)?;
+        Some(below(weights))
+    };
+    // Another tool's file at the entry's own place that is not it.
+    let foreign_at = |entry: &ModelEntry| -> Option<String> {
+        let located = survey.located.get(&entry.id)?;
+        located.mismatched.as_deref().map(below)
+    };
 
     let text = if json {
         let models: Vec<serde_json::Value> = rows
@@ -229,6 +249,12 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                     "size_bytes": entry.total_bytes(),
                     "chosen": chosen,
                 });
+                if let Some(at) = found_at(entry) {
+                    value["found_at"] = at.into();
+                }
+                if let Some(at) = foreign_at(entry) {
+                    value["foreign_at"] = at.into();
+                }
                 match state {
                     State::Absent => value["state"] = "absent".into(),
                     State::Partial {
@@ -321,6 +347,14 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                     "fit" => fit,
                 ),
             );
+            if let Some(at) = found_at(entry) {
+                line.push_str(" · ");
+                line.push_str(&say(Message::CliModelsFoundAt, &args!("path" => at)));
+            }
+            if let Some(at) = foreign_at(entry) {
+                line.push_str(" · ");
+                line.push_str(&say(Message::CliModelsForeignAt, &args!("path" => at)));
+            }
             if *chosen {
                 line.push_str(" · ");
                 line.push_str(&say(Message::CliModelsChosen, &FluentArgs::new()));
@@ -414,7 +448,10 @@ pub(crate) fn pull(id: &str, io: &mut Io) -> Exit {
         tracing::warn!(%error, "no Ctrl-C handler; an interrupt ends the run without a word");
     }
 
-    let downloads = Arc::new(Downloads::new(&context.place.folder));
+    let downloads = Arc::new(Downloads::new(
+        &context.place.folder,
+        context.downloads.records_dir(),
+    ));
     let (tell, heard) = std::sync::mpsc::channel();
     let worker = {
         let downloads = Arc::clone(&downloads);
@@ -471,41 +508,7 @@ pub(crate) fn pull(id: &str, io: &mut Io) -> Exit {
             say_out(io, &line).map_or_else(|exit| exit, |()| Exit::Clean)
         }
         Err(error) => {
-            let line = match &error {
-                StoreError::Cancelled => {
-                    run::say(Message::CliModelsPullCancelled, &args!("id" => id))
-                }
-                StoreError::Corrupt {
-                    file,
-                    expected,
-                    actual,
-                } => run::say(
-                    Message::CliModelsPullMismatch,
-                    &args!(
-                        "id" => id,
-                        "file" => file.as_str(),
-                        "expected" => expected.as_str(),
-                        "actual" => actual.as_str(),
-                    ),
-                ),
-                StoreError::NoRoom {
-                    path,
-                    need_mb,
-                    free_mb,
-                } => run::say(
-                    Message::CliModelsPullNoRoom,
-                    &args!(
-                        "id" => id,
-                        "path" => path.display().to_string(),
-                        "need" => need_mb.to_string(),
-                        "free" => free_mb.to_string(),
-                    ),
-                ),
-                other => run::say(
-                    Message::CliModelsPullFailed,
-                    &args!("id" => id, "reason" => other.to_string()),
-                ),
-            };
+            let line = pull_failed(id, &error, run::say);
             say_err(io, &line);
             tracing::warn!(
                 command = "models pull",
@@ -515,6 +518,54 @@ pub(crate) fn pull(id: &str, io: &mut Io) -> Exit {
             );
             Exit::Usage
         }
+    }
+}
+
+/// The sentence a pull that failed ends with, said by `say`. Only a
+/// failure that may have left a `.part` behind promises a resume: another
+/// tool's file at the place (Occupied) stopped the pull before a byte, and
+/// a second pull would be refused the same way until it is moved (A4).
+fn pull_failed(
+    id: &str,
+    error: &StoreError,
+    say: impl Fn(Message, &FluentArgs) -> String,
+) -> String {
+    match error {
+        StoreError::Cancelled => say(Message::CliModelsPullCancelled, &args!("id" => id)),
+        StoreError::Corrupt {
+            file,
+            expected,
+            actual,
+        } => say(
+            Message::CliModelsPullMismatch,
+            &args!(
+                "id" => id,
+                "file" => file.as_str(),
+                "expected" => expected.as_str(),
+                "actual" => actual.as_str(),
+            ),
+        ),
+        StoreError::NoRoom {
+            path,
+            need_mb,
+            free_mb,
+        } => say(
+            Message::CliModelsPullNoRoom,
+            &args!(
+                "id" => id,
+                "path" => path.display().to_string(),
+                "need" => need_mb.to_string(),
+                "free" => free_mb.to_string(),
+            ),
+        ),
+        StoreError::Occupied { path } => say(
+            Message::CliModelsPullOccupied,
+            &args!("id" => id, "path" => path.display().to_string()),
+        ),
+        other => say(
+            Message::CliModelsPullFailed,
+            &args!("id" => id, "reason" => other.to_string()),
+        ),
     }
 }
 
@@ -531,6 +582,7 @@ fn kind_of(error: &StoreError) -> &'static str {
         StoreError::Missing { .. } => "missing",
         StoreError::NoRoom { .. } => "no room",
         StoreError::Cancelled => "cancelled",
+        StoreError::Occupied { .. } => "occupied",
     }
 }
 
@@ -680,7 +732,33 @@ pub(crate) fn rm(id: &str, io: &mut Io) -> Exit {
         .downloads
         .model_dir(id)
         .unwrap_or_else(|| context.place.folder.clone());
+    // A file this product did not download — found elsewhere under the
+    // folder, or at the entry's own place with no download's mark, whether
+    // or not it matches — is the user's (D302, amended): rm removes what a
+    // download wrote and says what it left.
+    let theirs = {
+        let located = context.downloads.locate(&entry);
+        located
+            .weights
+            .filter(|_| located.theirs)
+            .or(located.mismatched)
+    };
     match context.downloads.remove(&entry) {
+        Ok(false) if theirs.is_some() => {
+            tracing::info!(
+                command = "models rm",
+                removed = false,
+                found_elsewhere = true,
+                exit = 0,
+                "done"
+            );
+            let path = theirs.unwrap_or_default().display().to_string();
+            let line = run::say(
+                Message::CliModelsRmFound,
+                &args!("id" => id, "path" => path),
+            );
+            say_out(io, &line).map_or_else(|exit| exit, |()| Exit::Clean)
+        }
         Ok(true) => {
             let mut lines = vec![run::say(
                 Message::CliModelsRmRemoved,
@@ -722,7 +800,48 @@ pub(crate) fn rm(id: &str, io: &mut Io) -> Exit {
 
 #[cfg(test)]
 mod tests {
-    use super::{gigabytes, percent};
+    use super::{gigabytes, percent, pull_failed};
+
+    /// A4: a pull refused because another tool's file holds the place says
+    /// so, in every language, and does not promise that running pull again
+    /// resumes anything — nothing was downloaded, and a second pull is
+    /// refused the same way. Red with the `Occupied` arm deleted.
+    #[test]
+    fn an_occupied_place_is_not_promised_a_resume() {
+        use wipemark_i18n::{Localizer, Message, Rendering};
+        let path = std::path::PathBuf::from("/m/qwen/qwen.gguf.part");
+        let occupied = wipemark_models::store::StoreError::Occupied { path: path.clone() };
+        let transport = wipemark_models::store::StoreError::Transport {
+            url: "https://example.com/qwen.gguf".into(),
+            reason: "timed out".into(),
+        };
+        for (language, resume) in [
+            ("en-US", "run pull again to resume"),
+            ("ru", "чтобы докачать"),
+            ("de", "um fortzusetzen"),
+        ] {
+            let localizer = Localizer::for_languages(
+                &[language.parse().expect("a language")],
+                Rendering::PlainText,
+            );
+            assert!(
+                localizer.defines(Message::CliModelsPullOccupied),
+                "{language}"
+            );
+            // The failure that may have kept a `.part` still promises one.
+            assert!(
+                pull_failed("qwen", &transport, |m, a| localizer.format_args(m, a))
+                    .contains(resume),
+                "{language}"
+            );
+            let line = pull_failed("qwen", &occupied, |m, a| localizer.format_args(m, a));
+            assert!(!line.contains(resume), "{language}: {line}");
+            assert!(
+                line.contains(&path.display().to_string()),
+                "{language}: {line}"
+            );
+        }
+    }
 
     #[test]
     fn sizes_and_shares_are_rounded_to_what_is_said() {

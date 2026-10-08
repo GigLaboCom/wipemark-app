@@ -146,12 +146,13 @@ took: a chord the OS refused is invisible from the preference alone,
 and a user who has recorded one deserves to know before they press it
 from another application and nothing happens.
 
-`main::install_hotkeys` owns the registrar. It registers what is
-stored, observes `Preferences` and re-registers only when a chord has
+`main::install_hotkeys` owns the registrar. It asks for what is
+stored, observes `Preferences` and asks again only when a chord has
 actually moved (the old chord is released *first*, whatever the new one
 turns out to be — a change of mind that left the previous chord
-registered would fire on a key the row no longer shows), and writes the
-answer back with `Preferences::shortcut_registered`. A press comes back
+registered would fire on a key the row no longer shows), and writes
+each answer back with `Preferences::shortcut_registered` as it comes —
+on Linux from the registrar's own thread (below, B1). A press comes back
 over a `flume` channel and is performed on the GPUI side, the same
 arrangement as the tray and for the same reason: the callback the
 desktop calls has no `&mut App` in scope.
@@ -198,14 +199,50 @@ before anybody can record it.
 
 ## Platforms
 
-macOS today, through `global-hotkey` 0.7 — the crate Tauri's own
-plugin is built on, a sibling of the `muda` the tray uses, and a
-macOS-only dependency for the same reason `tray-icon` is one. It
-registers through Carbon's `RegisterEventHotKey`, which needs no
+macOS and Linux under X11, through `global-hotkey` 0.7 — the crate
+Tauri's own plugin is built on, a sibling of the `muda` the tray uses,
+and a dependency on exactly the platforms `tray-icon` is one. On macOS
+it registers through Carbon's `RegisterEventHotKey`, which needs no
 Accessibility permission (lazy-shot's CGEventTap path exists for
-chords Carbon cannot express; nothing here needs it). Linux wants an
-X11 connection and Windows a message loop on the registering thread;
-both are E10 work beside the tray's. Until then `hotkey::install`
+chords Carbon cannot express; nothing here needs it).
+
+**D346 — Linux: an X11 key grab, asked only in an X11 session.** On
+Linux `global-hotkey` starts a thread with its own X11 connection and
+grabs the chord on the root window (with and without NumLock and
+CapsLock). `hotkey::install(compositor)` asks for it only when
+`hotkey::x11_session` says so: GPUI draws through X11
+(`App::compositor_name() == "X11"`) *and* `XDG_SESSION_TYPE` is not
+`wayland`. The second half is XWayland — a grab there hears only the
+keys typed into other X11 clients, a shortcut that works in one
+terminal and nowhere else. And it is asked *before* the manager exists
+because the crate's thread dies quietly when it cannot connect, after
+which every `register` answers Ok: a chord the row would call active
+and nothing would deliver. A grab another client holds is refused by
+the X server (`BadAccess`), and the row shows it. On GNOME the shipped
+panel chord, Ctrl+Alt+D, is one of the keys bound to *Show desktop*
+(`org.gnome.desktop.wm.keybindings show-desktop`), so expect it to be
+refused there and record another — the ordinary case the line under
+the field exists for. A registration waits on the grab thread, which
+looks at its inbox every 50 ms, and then on the X server's round trips —
+so it is never asked from the GPUI thread (B1, 2026-10-08). On Linux
+the manager moves into a registrar thread of ours (`wipemark-hotkeys`,
+`Registrar::threaded`), fed by a `flume` channel: `Registrar::ask`
+returns at once, the thread performs the requests one at a time in the
+order they were asked — so the old chord is still released before the
+new one is asked for — and each answer comes back over
+`Registrar::answers`, which `main::install_hotkeys` polls from
+`cx.spawn` and writes to the page with
+`Preferences::shortcut_registered`. Until an answer comes the row keeps
+the one before it. macOS keeps asking on the main thread
+(`Road::Here`): Carbon's `RegisterEventHotKey` answers at once and
+belongs there, and its manager is not `Send`; its answers take the same
+channel, so `main` has one road for both. The ordering and the refusal
+are tested over a desktop double that holds every request
+(`asking_for_a_shortcut_never_waits_for_the_desktop`,
+`the_registrar_releases_the_old_chord_first_and_answers_in_order`).
+
+Windows wants a message loop on the registering thread (E10), and a
+Wayland session has no API this build uses; there `hotkey::install`
 returns `None` and every row says the shortcut is stored and not
 registered (`hotkey-unavailable`), because a preference that silently
 did nothing would be worse than one that says so.

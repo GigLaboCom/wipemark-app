@@ -43,6 +43,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use gpui::SharedString;
+use gpui_component::Sizable as _;
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_models::host::{default_for_role, fit, Fit, Host};
 use wipemark_models::manifest::{Manifest, ModelEntry, Role};
@@ -96,11 +97,27 @@ pub enum Availability {
     Downloading { done_bytes: u64, total_bytes: u64 },
     /// Present and matching the catalogue.
     Installed,
+    /// Present and matching the catalogue, found somewhere in the folder
+    /// other than where a download puts it (D302) — `at` is where, below
+    /// the folder. The user's file: it is used where it is and offers no
+    /// Remove, because nothing deletes a file this product did not
+    /// download.
+    Found { at: String },
     /// Present and *not* matching the catalogue. Never repaired
     /// silently: the bytes on disk are not the bytes that were
     /// promised, and the user is told which model that is before
     /// anything is deleted.
     Damaged,
+    /// Not on this machine, and its own place, `<models>/<id>/<file>`,
+    /// holds another tool's file of its name that is not the catalogue's
+    /// (D302, amended) — `at` is where, below the folder. Nothing to
+    /// press: a download would have to write over that file, and nothing
+    /// deletes a file this product did not download. The line says so.
+    Foreign { at: String },
+    /// A file of it is being hashed now — a look at what is already on
+    /// the disk, or the check of a download that just finished (F1b).
+    /// Minutes for a large model; nothing to press meanwhile.
+    Checking { done_bytes: u64, total_bytes: u64 },
 }
 
 impl Availability {
@@ -109,12 +126,47 @@ impl Availability {
     /// Every state has exactly one, which is the point: a card with a
     /// Download *and* a Remove on it is a card that has to explain
     /// which one applies.
-    pub fn action(&self) -> Message {
+    ///
+    /// `None` for a model found where no download put it: there is
+    /// nothing to fetch and nothing this product may delete.
+    pub fn action(&self) -> Option<Message> {
         match self {
-            Availability::Absent => Message::SettingsModelsDownload,
-            Availability::Resumable { .. } => Message::SettingsModelsResume,
-            Availability::Downloading { .. } => Message::SettingsModelsCancel,
-            Availability::Installed | Availability::Damaged => Message::SettingsModelsRemove,
+            Availability::Absent => Some(Message::SettingsModelsDownload),
+            Availability::Resumable { .. } => Some(Message::SettingsModelsResume),
+            Availability::Downloading { .. } => Some(Message::SettingsModelsCancel),
+            Availability::Installed | Availability::Damaged => Some(Message::SettingsModelsRemove),
+            Availability::Found { .. }
+            | Availability::Foreign { .. }
+            | Availability::Checking { .. } => None,
+        }
+    }
+
+    /// The bar a card draws, 0 to 100: while a download runs, while one
+    /// waits to be resumed, and while a file is hashed (F1a, F1b). `None`
+    /// in every other state — no bar over a model that is simply there.
+    pub fn bar(&self) -> Option<f32> {
+        match self {
+            Availability::Downloading {
+                done_bytes,
+                total_bytes,
+            }
+            | Availability::Resumable {
+                done_bytes,
+                total_bytes,
+            }
+            | Availability::Checking {
+                done_bytes,
+                total_bytes,
+            } => Some(if *total_bytes == 0 {
+                0.0
+            } else {
+                (*done_bytes as f64 / *total_bytes as f64 * 100.0).clamp(0.0, 100.0) as f32
+            }),
+            Availability::Absent
+            | Availability::Installed
+            | Availability::Found { .. }
+            | Availability::Foreign { .. }
+            | Availability::Damaged => None,
         }
     }
 
@@ -167,9 +219,67 @@ impl Card {
                 ),
             ),
             Availability::Damaged => t(Message::SettingsModelsDamaged),
+            Availability::Checking {
+                done_bytes,
+                total_bytes,
+            } => t_args(
+                Message::SettingsModelsChecking,
+                &args!(
+                    "done" => bytes_label(*done_bytes),
+                    "total" => bytes_label(*total_bytes),
+                ),
+            ),
+            Availability::Foreign { at } => t_args(
+                Message::SettingsModelsForeign,
+                &args!("path" => at.as_str()),
+            ),
+            Availability::Found { at } => t_args(
+                Message::SettingsModelsFoundAt,
+                &args!("path" => at.as_str()),
+            ),
             Availability::Installed | Availability::Absent => fit_line(self.fit),
         }
     }
+}
+
+impl Card {
+    /// This card when its own place holds another tool's file of its name
+    /// that is not the catalogue's (D302, amended): `at` is where. Only a
+    /// card with nothing better to say — absent — says it.
+    #[must_use]
+    pub fn foreign(mut self, at: Option<&str>) -> Card {
+        if let (Some(at), Availability::Absent) = (at, &self.availability) {
+            self.availability = Availability::Foreign { at: at.to_owned() };
+        }
+        self
+    }
+
+    /// This card while one of its files is hashed (F1b): `checking` is
+    /// the bytes read so far and the file's size, and wins over every
+    /// other state — a download being checked is no longer downloading,
+    /// and a model on the disk is not known to be whole until it is read.
+    #[must_use]
+    pub fn checking(mut self, checking: Option<(u64, u64)>) -> Card {
+        if let Some((done_bytes, total_bytes)) = checking {
+            self.availability = Availability::Checking {
+                done_bytes,
+                total_bytes,
+            };
+        }
+        self
+    }
+}
+
+/// The card's bar, as an element: gpui-component's own progress bar at
+/// the card's fraction, or nothing (F1a). One place for the Models page
+/// and the walk-through, so the two cannot draw a download differently.
+pub fn bar(card: &Card) -> Option<gpui_component::progress::Progress> {
+    let value = card.availability.bar()?;
+    Some(
+        gpui_component::progress::Progress::new(SharedString::from(format!("bar-{}", card.id)))
+            .small()
+            .value(value),
+    )
 }
 
 /// What a fit verdict says out loud.
@@ -208,19 +318,24 @@ pub fn host_line(host: Option<Host>) -> String {
 /// `running` is the download in flight, if it is this entry's — the
 /// caller passes `None` for every other card, because only one download
 /// runs at a time and a second progress bar would be describing a
-/// different file.
+/// different file. `found_at` is where below the folder the entry's
+/// weights were found, when that is not where a download puts them.
 pub fn card(
     entry: &ModelEntry,
     host: Option<Host>,
     state: &State,
     running: Option<&Progress>,
+    found_at: Option<&str>,
 ) -> Card {
     let availability = match (running, state) {
         (Some(progress), _) => Availability::Downloading {
             done_bytes: progress.done_bytes,
             total_bytes: progress.total_bytes,
         },
-        (None, State::Present { .. }) => Availability::Installed,
+        (None, State::Present { .. }) => match found_at {
+            Some(at) => Availability::Found { at: at.to_owned() },
+            None => Availability::Installed,
+        },
         (None, State::Corrupt { .. }) => Availability::Damaged,
         (
             None,
@@ -679,7 +794,7 @@ mod tests {
     #[test]
     fn every_state_offers_one_thing_and_it_is_never_start_over() {
         let entry = a_rewriter();
-        let absent = card(&entry, Some(roomy()), &State::Absent, None);
+        let absent = card(&entry, Some(roomy()), &State::Absent, None, None);
         assert_eq!(absent.availability, Availability::Absent);
 
         let partial = card(
@@ -689,6 +804,7 @@ mod tests {
                 done_bytes: 40,
                 total_bytes: 100,
             },
+            None,
             None,
         );
         assert!(
@@ -701,7 +817,13 @@ mod tests {
             "resuming and starting must not read as the same button"
         );
 
-        let present = card(&entry, Some(roomy()), &State::Present { bytes: 100 }, None);
+        let present = card(
+            &entry,
+            Some(roomy()),
+            &State::Present { bytes: 100 },
+            None,
+            None,
+        );
         assert_eq!(present.availability, Availability::Installed);
         let damaged = card(
             &entry,
@@ -709,6 +831,7 @@ mod tests {
             &State::Corrupt {
                 reason: "mismatch".into(),
             },
+            None,
             None,
         );
         assert_eq!(damaged.availability, Availability::Damaged);
@@ -723,6 +846,194 @@ mod tests {
         );
     }
 
+    fn downloading(done: u64, total: u64) -> Progress {
+        Progress {
+            file: "m.gguf".into(),
+            done_bytes: done,
+            total_bytes: total,
+            file_index: 1,
+            file_count: 1,
+        }
+    }
+
+    /// F1a, F1b: a card draws a bar at the download's fraction, at a
+    /// resumable download's, and at a check's — with the bytes still said
+    /// in its line — and none over a model that is simply there.
+    #[test]
+    fn a_card_has_a_bar_while_bytes_move_and_none_when_installed() {
+        let entry = a_rewriter();
+        let host = Some(roomy());
+        let running = card(
+            &entry,
+            host,
+            &State::Absent,
+            Some(&downloading(25, 100)),
+            None,
+        );
+        assert_eq!(running.availability.bar(), Some(25.0));
+        let resumable = card(
+            &entry,
+            host,
+            &State::Partial {
+                done_bytes: 40,
+                total_bytes: 100,
+            },
+            None,
+            None,
+        );
+        assert_eq!(resumable.availability.bar(), Some(40.0));
+        let checking = card(&entry, host, &State::Absent, None, None)
+            .checking(Some((3_000_000_000, 12_000_000_000)));
+        assert_eq!(checking.availability.bar(), Some(25.0));
+        assert_eq!(
+            checking.availability.action(),
+            None,
+            "a check offers a button"
+        );
+        let line = checking.line();
+        assert!(
+            line.contains("3.0 GB") && line.contains("12.0 GB"),
+            "{line}"
+        );
+        let installed = card(&entry, host, &State::Present { bytes: 100 }, None, None);
+        assert_eq!(installed.availability.bar(), None);
+        assert!(super::bar(&installed).is_none());
+        let found = card(
+            &entry,
+            host,
+            &State::Present { bytes: 100 },
+            None,
+            Some("x/m.gguf"),
+        );
+        assert_eq!(found.availability.bar(), None);
+        // Nothing checked: the card is what it was.
+        assert_eq!(
+            card(&entry, host, &State::Present { bytes: 100 }, None, None)
+                .checking(None)
+                .availability,
+            Availability::Installed
+        );
+    }
+
+    /// F1a: the bar is painted — gpui-component's progress bar, with a
+    /// height — mid-download, and nothing is painted for an installed
+    /// model. Red with `bar` answering nothing.
+    #[gpui::test]
+    fn the_bar_is_painted_mid_download_and_not_when_installed(cx: &mut gpui::TestAppContext) {
+        use gpui::{
+            div, px, Context, InteractiveElement as _, IntoElement, ParentElement as _, Render,
+            Styled as _, Window,
+        };
+        // gpui-component's bar animates its value, which asks for the view
+        // being rendered: it is drawn inside one, as a page draws it.
+        struct Bars(super::Card, super::Card);
+        impl Render for Bars {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+                    .flex()
+                    .flex_col()
+                    .w(px(300.0))
+                    .child(
+                        div()
+                            .debug_selector(|| "running".into())
+                            .children(super::bar(&self.0)),
+                    )
+                    .child(
+                        div()
+                            .debug_selector(|| "installed".into())
+                            .children(super::bar(&self.1)),
+                    )
+            }
+        }
+        cx.update(gpui_component::init);
+        let entry = a_rewriter();
+        let running = card(
+            &entry,
+            Some(roomy()),
+            &State::Absent,
+            Some(&downloading(1, 2)),
+            None,
+        );
+        let installed = card(
+            &entry,
+            Some(roomy()),
+            &State::Present { bytes: 2 },
+            None,
+            None,
+        );
+        let (_, cx) = cx.add_window_view(move |_, _| Bars(running, installed));
+        cx.run_until_parked();
+        let painted = cx.debug_bounds("running").expect("the running card's slot");
+        assert!(
+            painted.size.height > px(0.0),
+            "no bar was painted: {painted:?}"
+        );
+        if let Some(none) = cx.debug_bounds("installed") {
+            assert_eq!(none.size.height, px(0.0), "a bar over an installed model");
+        }
+    }
+
+    /// H1 (D302, amended): another tool's file at the model's own place,
+    /// with its name and not its contents, is said on the card and offers
+    /// nothing — no Download over it, no Remove of it. A card that has
+    /// something better to say keeps saying it.
+    #[test]
+    fn another_tools_file_in_the_way_offers_nothing() {
+        let entry = a_rewriter();
+        let foreign =
+            card(&entry, Some(roomy()), &State::Absent, None, None).foreign(Some("qwen/m.gguf"));
+        assert_eq!(
+            foreign.availability,
+            Availability::Foreign {
+                at: "qwen/m.gguf".into()
+            }
+        );
+        assert_eq!(foreign.availability.action(), None);
+        assert_eq!(foreign.availability.bar(), None);
+        assert!(foreign.line().contains("qwen/m.gguf"), "{}", foreign.line());
+        let installed = card(
+            &entry,
+            Some(roomy()),
+            &State::Present { bytes: 1 },
+            None,
+            None,
+        )
+        .foreign(Some("qwen/m.gguf"));
+        assert_eq!(installed.availability, Availability::Installed);
+    }
+
+    /// D302: a model found where no download put it is on this machine
+    /// and offers nothing — no Download, and no Remove of a file this
+    /// product did not download — and its line says where it is.
+    #[test]
+    fn a_model_found_elsewhere_offers_no_remove() {
+        let entry = a_rewriter();
+        let found = card(
+            &entry,
+            Some(roomy()),
+            &State::Present { bytes: 100 },
+            None,
+            Some("Vendor/m.gguf"),
+        );
+        assert_eq!(
+            found.availability,
+            Availability::Found {
+                at: "Vendor/m.gguf".into()
+            }
+        );
+        assert_eq!(found.availability.action(), None);
+        assert!(found.line().contains("Vendor/m.gguf"), "{}", found.line());
+        // Found elsewhere is only a present model's story.
+        let absent = card(
+            &entry,
+            Some(roomy()),
+            &State::Absent,
+            None,
+            Some("x/m.gguf"),
+        );
+        assert_eq!(absent.availability, Availability::Absent);
+    }
+
     /// A download in flight is described by the download, whatever is
     /// on disk — and it is the only state that offers to stop.
     #[test]
@@ -735,7 +1046,7 @@ mod tests {
             file_index: 1,
             file_count: 1,
         };
-        let running = card(&entry, Some(roomy()), &State::Absent, Some(&progress));
+        let running = card(&entry, Some(roomy()), &State::Absent, Some(&progress), None);
         assert!(running.availability.is_running());
         let line = running.line();
         assert!(line.contains("500.0 MB"), "{line}");
@@ -747,7 +1058,7 @@ mod tests {
     #[test]
     fn an_unmeasured_machine_is_not_told_no() {
         let entry = a_rewriter();
-        let unknown = card(&entry, None, &State::Absent, None);
+        let unknown = card(&entry, None, &State::Absent, None, None);
         assert_eq!(unknown.fit, wipemark_models::host::Fit::Unknown);
         let tiny = Host {
             total_ram_mb: 512,
@@ -755,7 +1066,7 @@ mod tests {
             vram_mb: None,
             unified_memory: false,
         };
-        let refused = card(&entry, Some(tiny), &State::Absent, None);
+        let refused = card(&entry, Some(tiny), &State::Absent, None, None);
         assert!(matches!(
             refused.fit,
             wipemark_models::host::Fit::TooBig { .. }

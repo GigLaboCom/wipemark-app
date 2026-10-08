@@ -35,6 +35,9 @@ pub enum Undelivered {
     OriginalExists(PathBuf),
     /// The source has no name to put an infix into.
     Unnamed,
+    /// A file is already where a new one was to go: somebody's, and left
+    /// byte for byte (D261). A surface offers to replace it.
+    Exists(PathBuf),
     /// The write failed; the source is where it was.
     Write { kind: io::ErrorKind },
     /// The write failed and the original could not be put back: it is at
@@ -49,6 +52,7 @@ impl Undelivered {
             Undelivered::OverTheSource => "over-the-source",
             Undelivered::OriginalExists(_) => "original-exists",
             Undelivered::Unnamed => "unnamed",
+            Undelivered::Exists(_) => "exists",
             Undelivered::Write { .. } => "write",
             Undelivered::Stranded { .. } => "stranded",
         }
@@ -84,6 +88,30 @@ pub(crate) fn deliver(
                 original: None,
             }))
         }
+        Destination::New(path) => {
+            let model = match source {
+                Source::File(source) => {
+                    if inplace::same_file(source, path) {
+                        return Err(Undelivered::OverTheSource);
+                    }
+                    Some(source.as_path())
+                }
+                Source::Text(_) => None,
+            };
+            // The publish refuses a taken name itself (D284): a file that
+            // appeared a moment ago is refused as surely as one that was
+            // always there.
+            match inplace::write_new(path, &bytes, model) {
+                Ok(()) => Ok(Some(Written {
+                    path: path.clone(),
+                    original: None,
+                })),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    Err(Undelivered::Exists(path.clone()))
+                }
+                Err(error) => Err(Undelivered::Write { kind: error.kind() }),
+            }
+        }
         Destination::InPlace(keep) => {
             let Source::File(path) = source else {
                 // Refused at push; a row edited by hand is not obeyed.
@@ -117,6 +145,21 @@ pub(crate) fn redeliver(
     text: &str,
     encoding: Encoding,
 ) -> Result<Option<Written>, Undelivered> {
+    // A new file the crash fell after: already there with the result's
+    // bytes is finished; anything else there is somebody's.
+    if let Destination::New(path) = destination {
+        let bytes = wipemark_intake::text::encode(text, encoding);
+        if let Ok(current) = std::fs::read(path) {
+            return if current == bytes {
+                Ok(Some(Written {
+                    path: path.clone(),
+                    original: None,
+                }))
+            } else {
+                Err(Undelivered::Exists(path.clone()))
+            };
+        }
+    }
     if let (Source::File(path), Destination::InPlace(Keep::Original)) = (source, destination) {
         let original = inplace::original_beside(path).ok_or(Undelivered::Unnamed)?;
         if std::fs::symlink_metadata(&original).is_ok() {

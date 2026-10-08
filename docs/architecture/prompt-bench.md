@@ -158,6 +158,12 @@ $B run --local … --name qwen3-4b --variant crates/wipemark-pipeline/bench/vari
        --grid "paraphrase:moderate:4;humanize:moderate:2" --out runs/v-numbers-qwen3-4b.jsonl
 $B report --in "qwen3-4b=runs/qwen3-4b.jsonl,qwen3-4b+numbers=runs/v-numbers-qwen3-4b.jsonl"
 
+# Sampling and seeds other than the product's, a corpus of your own (<dir>/{en,ru,de}.txt),
+# and one whole document in one request the way upstream sends it
+# (docs/plan/reports/divergence-vs-upstream-2026-10-07.md):
+$B run … --corpus tmp/divergence/corpus --temperature 0.7 --top-p 0.8 --base-seed 7 --out runs/t07.jsonl
+$B whole --local … --name qwen38-whole --doc article.md --prompt instruction.txt --samples 3 --ctx 12288 --out runs/whole.jsonl
+
 $B verify --local /path/Qwen3-4B….gguf --name qwen3-4b --in runs/qwen3-4b.jsonl --items en-pd-01,ru-md-01,de-mx-03
 $B judge  --local /path/gemma-3-12b….gguf --name gemma3-12b-judge --in runs/a.jsonl,runs/b.jsonl --out runs/judge.jsonl
 $B report --in runs/a.jsonl,runs/b.jsonl --judge runs/judge.jsonl \

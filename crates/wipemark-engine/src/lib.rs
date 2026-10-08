@@ -42,6 +42,7 @@ pub mod fake;
 pub mod http;
 #[cfg(feature = "local-llama")]
 pub mod local;
+pub mod progress;
 
 use std::path::PathBuf;
 
@@ -52,6 +53,7 @@ pub use async_trait::async_trait;
 pub use http::{HttpConfig, HttpEngine, HttpProvider, Reasoning};
 #[cfg(feature = "local-llama")]
 pub use local::{has_gpu_backend, LocalConfig, LocalEngine};
+pub use progress::{LoadProgress, LoadSink};
 /// The cancellation every call takes, re-exported so a caller names the
 /// type the trait names.
 pub use tokio_util::sync::CancellationToken;
@@ -264,4 +266,14 @@ pub trait RewriteEngine: Send + Sync {
     /// holds gigabytes that the user did not agree to lend us
     /// indefinitely.
     async fn unload(&self);
+
+    /// Where to tell how a load of weights is going (F1): every load this
+    /// engine makes from now on — a warmup's, or the one the first request
+    /// makes — sends [`LoadProgress::Reading`] as the weights are read,
+    /// paced ([`progress::Pacer`]), and [`LoadProgress::Ended`] when it is
+    /// over, however it ended. A later call replaces the sink. An engine
+    /// with nothing to load — an endpoint, a fake — ignores it.
+    fn watch_loads(&self, sink: LoadSink) {
+        let _ = sink;
+    }
 }
