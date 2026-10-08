@@ -1244,6 +1244,7 @@ fn main() {
             // takes the rest.
             let kept_home = homes.kept.clone();
             let keep_for = stored.retention.keep_for;
+            let beacon_at_quit = beacon.clone();
             let opened = cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -1335,6 +1336,7 @@ fn main() {
             install_shortcut(window, preferences.clone(), cx);
             install_tray(preference, window, preferences.clone(), cx);
             install_hotkeys(window, preferences.clone(), cx);
+            take_beacon_at_quit(beacon_at_quit, cx);
 
             // Kept copies past their period go once a launch, by the
             // time in their own names — off this thread, because a
@@ -1444,12 +1446,13 @@ fn show_main_window(window: WindowHandle<Root>, cx: &mut App) {
 /// side, because the callback the desktop calls has no `&mut App` in
 /// scope and no way to be given one.
 ///
-/// Without a registrar — every platform but macOS today, or a desktop
-/// that refused one — the rows are told so and nothing else changes: a
+/// Without a registrar — Windows today, a Linux session that is not X11
+/// (D346), or a desktop that refused one — the rows are told so and
+/// nothing else changes: a
 /// chord is still recorded and stored, and the page says it is not
 /// active. A preference that silently did nothing would be worse.
 fn install_hotkeys(window: WindowHandle<Root>, preferences: Entity<Preferences>, cx: &mut App) {
-    let Some(registrar) = hotkey::install() else {
+    let Some(registrar) = hotkey::install(cx.compositor_name()) else {
         preferences.update(cx, |preferences, cx| {
             for action in hotkey::Action::ALL {
                 preferences.shortcut_registered(action, Registration::Unavailable, cx);
@@ -1517,20 +1520,52 @@ impl Following {
     }
 }
 
+/// Take the MCP server's beacon away as the application quits.
+///
+/// The supervisor takes it when its command channel closes, but a quit
+/// ends the process right after GPUI's quit handlers, before that
+/// thread is ever scheduled — so a Quit from the menu bar left a beacon
+/// naming a dead pid, which the CLI then had to see through (D344). The
+/// listener itself goes with the process. Only a beacon naming this
+/// process is removed.
+fn take_beacon_at_quit(beacon: Option<PathBuf>, cx: &App) {
+    cx.on_app_quit(move |_| {
+        if let Some(path) = &beacon {
+            if wipemark_models::beacon::Beacon::remove_if_ours(path, std::process::id()) {
+                tracing::info!("MCP: beacon taken away at quit");
+            }
+        }
+        async {}
+    })
+    .detach();
+}
+
 /// Put Wipemark in the menu bar and start listening to it.
 ///
 /// Nothing here is required for the window to work: [`tray::install`]
-/// returns `None` on a platform without a tray, and this function then
-/// does nothing at all — including leaving the close button alone.
+/// answers `None` on a platform without a tray — or, on Linux, on a
+/// desktop where nothing would draw one — and then nothing below runs at
+/// all, the close button included. The answer comes from the tray's own
+/// thread on Linux, so it is awaited rather than waited for.
 fn install_tray(
     current: ThemePreference,
     window: WindowHandle<Root>,
     preferences: Entity<Preferences>,
+    cx: &App,
+) {
+    let pending = tray::install(current);
+    tray::when_installed(pending, cx, move |tray, cx| {
+        adopt_tray(tray, window, preferences, cx);
+    });
+}
+
+/// Everything that exists only because the tray does.
+fn adopt_tray(
+    tray: tray::Tray,
+    window: WindowHandle<Root>,
+    preferences: Entity<Preferences>,
     cx: &mut App,
 ) {
-    let Some(tray) = tray::install(current) else {
-        return;
-    };
     let commands = tray.commands();
     let handle = AnyWindowHandle::from(window);
     // A global rather than a field on the view: the icon leaves the menu
@@ -1557,16 +1592,28 @@ fn install_tray(
     // application instead of ending it — the same bargain lazy-shot
     // makes, and only defensible because "Show Wipemark" is now a click
     // away. Registered here, inside the `Some`, so that a platform or a
-    // launch without a tray keeps a close button that closes.
-    let closed = window.update(cx, |_, window, cx| {
-        window.on_window_should_close(cx, |_, cx| {
-            cx.hide();
-            false
-        });
-    });
-    if let Err(error) = closed {
+    // launch without a tray keeps a close button that closes. How it
+    // hides is the platform's: the application on macOS, the main
+    // window minimized on Linux under X11, and not at all under Wayland
+    // (D343, `tray::close_button`).
+    let button = tray::close_button(tray::Platform::THIS, cx.compositor_name());
+    if let Err(error) = tray::keep_open_on_close(AnyWindowHandle::from(window), button, cx) {
         tracing::warn!(%error, "the close button will end the app rather than hide it");
     }
+
+    // Quit takes the item down on the way out: on Linux it lives on a
+    // thread of its own, whose GTK loop and icon file would otherwise
+    // outlast nothing but be cut off mid-flight (D344). Inside GPUI's
+    // quit budget, like the engine's drop.
+    cx.on_app_quit(|cx| {
+        let left = cx.try_global::<tray::Tray>().map(tray::Tray::leave);
+        async move {
+            if let Some(left) = left {
+                let _ = left.recv_async().await;
+            }
+        }
+    })
+    .detach();
 
     // The receiving end of the arrangement `tray` describes: the `muda`
     // callback has no `&mut App` to act with and no way to acquire one,
@@ -1591,6 +1638,14 @@ fn install_tray(
                     });
                     if let Err(error) = applied {
                         tracing::warn!(%error, "could not apply the theme chosen in the menu bar");
+                    }
+                    // A check item ticks and unticks itself when clicked,
+                    // and choosing the theme already chosen changes
+                    // nothing that would move the tick back — so it is
+                    // put on `choice`, which the preference now is
+                    // either way (D345).
+                    if let Some(tray) = cx.try_global::<tray::Tray>() {
+                        tray.show_theme(choice);
                     }
                 }
                 TrayCommand::UnloadModel => {

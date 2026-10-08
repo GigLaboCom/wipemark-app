@@ -109,17 +109,11 @@ gpui = { workspace = true, features = ["test-support"] }
 # gpui-component, at the same path.
 gpui-base.workspace = true
 
-# macOS-only, and both of these are affordances rather than features:
-# the Dock icon of an unbundled dev build (src/dock_icon.rs) and the
-# menu-bar item (src/tray.rs). gpui already pulls the objc2 crates in at
-# these exact versions, so they cost no build time; `tray-icon` is the
-# crate Tauri's own tray is built on, which is what heretic-lazy-shot
-# uses one layer up. It brings `muda` for the menu, re-exported as
-# `tray_icon::menu` — depending on it twice is how the two drift.
-#
-# Linux needs a GTK main loop for the same crate and Windows a win32
-# message pump, neither of which a GPUI process runs, so the dependency
-# is not merely unused off macOS — it would not work. E10.
+# macOS-only, and these are affordances rather than features: the Dock
+# icon of an unbundled dev build (src/dock_icon.rs), the window moves and
+# the drop target. gpui already pulls the objc2 crates in at these exact
+# versions, so they cost no build time. The tray and the shortcut are in
+# the table after this one, shared with Linux.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 # `NSScreen` and `NSEvent` answer which display the pointer is on and
@@ -150,15 +144,38 @@ objc2-foundation = { version = "0.3", features = ["NSData", "NSGeometry", "NSStr
 # hands out. See `screen::translate`. Already in the tree via gpui, at
 # the version gpui itself pins.
 raw-window-handle = "0.6"
-tray-icon = "0.21"
+
+# The menu-bar item (src/tray.rs) and the system-wide shortcut
+# (src/hotkey.rs), on macOS and on Linux. Windows wants a win32 message
+# pump on the registering thread, which a GPUI process does not run
+# there yet — E10.
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+# The crate Tauri's own tray is built on, which is what heretic-lazy-shot
+# uses one layer up. It brings `muda` for the menu, re-exported as
+# `tray_icon::menu` — depending on it twice is how the two drift. On
+# Linux it is libayatana-appindicator over GTK 3, on a thread of its own
+# running its own GTK main loop (D340). No default features: the one
+# default, `libxdo`, serves muda's predefined Copy/Cut/Paste items, which
+# this menu does not have, and would add a system library to link.
+tray-icon = { version = "0.21", default-features = false }
 # System-wide shortcuts (src/hotkey.rs). The crate Tauri's own
 # global-shortcut plugin is built on and a sibling of `muda`, so the
-# event-handler-into-a-channel shape is the tray's. It registers through
-# Carbon's `RegisterEventHotKey`, which needs no Accessibility
-# permission; Linux wants X11 and Windows a message loop on the
-# registering thread, which is E10 alongside the tray. Its
-# `keyboard-types` is the one `muda` already pulls.
+# event-handler-into-a-channel shape is the tray's. On macOS it registers
+# through Carbon's `RegisterEventHotKey`, which needs no Accessibility
+# permission; on Linux through an X11 key grab on a thread of its own,
+# asked only in an X11 session (D346). Its `keyboard-types` is the one
+# `muda` already pulls.
 global-hotkey = "0.7"
+
+# Linux only: the GTK thread the tray lives on (src/tray.rs, D340).
+# `gtk` is the version `muda` already builds its menus with, so this is
+# one GTK, not two; its `gio` asks the session bus whether anything will
+# draw the item (D341). `libloading` is the version `libappindicator-sys`
+# loads the indicator library with — asked here first, because that
+# crate panics when the library is missing (D341).
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+libloading = "0.7"
 
 [features]
 default = []
