@@ -129,12 +129,16 @@ impl KvShape {
     };
 
     /// Bytes per token of context at F16: every layer's K and V.
+    ///
+    /// Saturating: every factor is a header's `u32`, and a header is the
+    /// file's word — four of them at their largest overflow a `u64` (the
+    /// host verification of E8-1, 2026-10-08).
     #[must_use]
     pub fn bytes_per_token(&self) -> u64 {
         u64::from(self.layers)
-            * u64::from(self.heads_kv)
-            * (u64::from(self.key_length) + u64::from(self.value_length))
-            * 2
+            .saturating_mul(u64::from(self.heads_kv))
+            .saturating_mul(u64::from(self.key_length) + u64::from(self.value_length))
+            .saturating_mul(2)
     }
 }
 

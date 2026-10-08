@@ -1261,9 +1261,17 @@ pub(crate) fn add(
             )
         }
     };
-    let id = replacing
-        .clone()
-        .unwrap_or_else(|| user::id_for(&name, |id| known.iter().any(|model| model.id == id)));
+    // An id is taken when the table files anything under it — asked now,
+    // after the read, which may have taken minutes: a row this build cannot
+    // read is a model a newer build added, and another add may have landed
+    // meanwhile (D400; the host verification of E8-1). A row that cannot be
+    // asked about counts as taken: never written over.
+    let id = replacing.clone().unwrap_or_else(|| {
+        user::id_for(&name, |id| {
+            known.iter().any(|model| model.id == id)
+                || !matches!(writer.get::<serde_json::Value>(&user::key_of(id)), Ok(None))
+        })
+    });
     let model = UserModel {
         id: id.clone(),
         entry: user::UserEntry {

@@ -311,7 +311,11 @@ impl Estimate {
     /// the one a fit is judged on.
     #[must_use]
     pub fn total_mb(&self) -> u64 {
-        (self.weights_mb + self.kv_mb + self.overhead_mb).div_ceil(ROUND_MB) * ROUND_MB
+        self.weights_mb
+            .saturating_add(self.kv_mb)
+            .saturating_add(self.overhead_mb)
+            .div_ceil(ROUND_MB)
+            .saturating_mul(ROUND_MB)
     }
 }
 
@@ -322,7 +326,9 @@ pub fn estimate(file_bytes: u64, shape: Option<KvShape>, ctx: u32) -> Estimate {
     let used = shape.unwrap_or(KvShape::COARSE);
     Estimate {
         weights_mb: file_bytes.div_ceil(MIB),
-        kv_mb: (u64::from(ctx) * used.bytes_per_token()).div_ceil(MIB),
+        kv_mb: u64::from(ctx)
+            .saturating_mul(used.bytes_per_token())
+            .div_ceil(MIB),
         overhead_mb: OVERHEAD_MB,
         shape_known: shape.is_some(),
     }
@@ -721,6 +727,34 @@ mod tests {
             unknown.kv_mb > 0,
             "an unknown shape is the coarse one, never none"
         );
+    }
+
+    /// A header is the file's word: a cache shape at the largest numbers it
+    /// can state — or a row edited by hand — is an estimate too big for any
+    /// machine, never an overflow (a panic in a debug build, a wrapped
+    /// figure that fits in a release one). The host verification of E8-1.
+    #[test]
+    fn a_shape_no_model_has_is_estimated_without_overflowing() {
+        let hostile = KvShape {
+            layers: u32::MAX,
+            heads_kv: u32::MAX,
+            key_length: u32::MAX,
+            value_length: u32::MAX,
+        };
+        assert_eq!(hostile.bytes_per_token(), u64::MAX);
+        let said = estimate(u64::MAX, Some(hostile), u32::MAX);
+        assert_eq!(said.kv_mb, u64::MAX.div_ceil(1_048_576));
+        assert!(said.total_mb() >= said.kv_mb + said.weights_mb);
+        let host = crate::host::Host {
+            total_ram_mb: 65_536,
+            available_ram_mb: 65_536,
+            vram_mb: None,
+            unified_memory: false,
+        };
+        assert!(matches!(
+            crate::host::fit_mb(said.total_mb(), host),
+            crate::host::Fit::TooBig { .. }
+        ));
     }
 
     #[test]

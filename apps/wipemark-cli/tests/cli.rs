@@ -2248,6 +2248,51 @@ fn models_add_refuses_without_the_applications_database() {
     );
 }
 
+/// D400: `models add` never takes an id the table already files a model
+/// under, even a row this build cannot read (a newer build's): the row is
+/// left as it was and the new model is numbered past it. The host
+/// verification of E8-1, 2026-10-08.
+#[test]
+fn models_add_never_writes_over_a_row_it_cannot_read() {
+    let scratch = Scratch::new("models-add-over");
+    let newer = r#"{"name":"Mine","from":"a newer build"}"#;
+    seed(&scratch, &[]);
+    {
+        let store =
+            wipemark_store::Store::open(scratch.data().join("wipemark.db")).expect("a database");
+        let value: serde_json::Value = serde_json::from_str(newer).expect("json");
+        store
+            .settings()
+            .set("models.user.user-mine", &value)
+            .expect("a row");
+    }
+    let file = a_chat_model(&scratch, "Qwen3-4B-UD-Q4_K_XL.gguf");
+    let output = scratch.run(&[
+        "models",
+        "add",
+        file.to_str().expect("text"),
+        "--name",
+        "Mine",
+    ]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert!(
+        stdout(&output).starts_with("user-mine-2: "),
+        "{}",
+        stdout(&output)
+    );
+    let store = wipemark_store::Store::open_read_only(scratch.data().join("wipemark.db"))
+        .expect("opens")
+        .expect("there");
+    assert_eq!(
+        store
+            .settings()
+            .get::<serde_json::Value>("models.user.user-mine")
+            .expect("read"),
+        Some(serde_json::from_str(newer).expect("json")),
+        "another model's row was written over"
+    );
+}
+
 /// U3, U5: what is not a model that writes text, a purpose this version
 /// does not add for and a context outside the model's are each refused
 /// with a sentence, exit 2, and nothing is written.

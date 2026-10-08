@@ -1150,7 +1150,21 @@ fn read_one(
                 Ok(identified) => identified,
                 Err(error) => return failed(error.to_string()),
             };
-            let model = addition.model(&identified, |id| taken.iter().any(|known| known == id));
+            // An id is taken when this window knows it, and when the table
+            // files *anything* under it — asked now, after the read, not
+            // from the list the page holds: the command line may have added
+            // a model meanwhile, and a row this build cannot read is a model
+            // a newer build added, which the list never holds (D400; the host
+            // verification of E8-1). A row that cannot be asked about counts
+            // as taken: an id is never written over another model's row.
+            let model = addition.model(&identified, |id| {
+                taken.iter().any(|known| known == id)
+                    || !matches!(
+                        rows.settings()
+                            .get::<serde_json::Value>(&wipemark_models::user::key_of(id)),
+                        Ok(None)
+                    )
+            });
             if let Err(why) = model.entry.check() {
                 return failed(why);
             }
@@ -10848,6 +10862,60 @@ mod tests {
             assert_eq!(added[0].id, "user-first", "the id was derived again");
             assert_eq!(added[0].entry.name, "Second");
             assert_eq!(config::read_user_models(&preferences.store).len(), 1);
+        });
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D400: an add never takes an id the table already files a model
+    /// under — one the command line added after the page last looked, or one
+    /// a newer build wrote that this build cannot read (the list the page
+    /// holds has neither). The row is left as it was, and the new model is
+    /// numbered past it. The host verification of E8-1, 2026-10-08.
+    #[gpui::test]
+    fn an_add_never_writes_over_a_row_the_page_does_not_hold(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("added-over");
+        let file = root.join("theirs").join("m.gguf");
+        std::fs::write(
+            &file,
+            wipemark_models::gguf::synthetic_chat_model("llama", "M", Some(CHATML)),
+        )
+        .expect("write");
+        let (preferences, cx) = added_bench(cx, &root);
+        let newer = serde_json::json!({"name": "Mine", "from": "a newer build"});
+        preferences.read_with(cx, |preferences, _| {
+            preferences
+                .store
+                .settings()
+                .set("models.user.user-mine", &newer)
+                .expect("a row the page does not hold");
+        });
+        let facts = facts_of(&file);
+        preferences.update(cx, |preferences, cx| {
+            preferences.add_model(
+                Addition {
+                    facts,
+                    name: "Mine".to_owned(),
+                    role: Role::Rewrite,
+                    ctx: 8192,
+                    replacing: None,
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        preferences.read_with(cx, |preferences, _| {
+            assert_eq!(
+                preferences
+                    .store
+                    .settings()
+                    .get::<serde_json::Value>("models.user.user-mine")
+                    .expect("read"),
+                Some(newer.clone()),
+                "another model's row was written over"
+            );
+            let added = preferences.added_models();
+            assert_eq!(added.len(), 1, "{added:?}");
+            assert_eq!(added[0].id, "user-mine-2");
         });
         std::fs::remove_dir_all(&root).ok();
     }
