@@ -1162,13 +1162,11 @@ fn open_work(
         Durability::File(store.path().to_path_buf())
     };
     // Where the duty would send a document, as the main window works it
-    // out from the preferences: an item consented to stay here is asked
-    // about before it goes anywhere else (D361).
+    // out from the preferences — what a push records as its consent (D361).
+    // The queue checks a consent against the engine handle's own word on
+    // the engine it hands out, never against this (D370).
     let whereto = journal::Going::default();
-    let source: Arc<dyn wipemark_queue::EngineSource> = Arc::new(journal::Duty {
-        engine: engine.clone(),
-        going: whereto.clone(),
-    });
+    let source: Arc<dyn wipemark_queue::EngineSource> = Arc::new(engine.clone());
     let queue = match Queue::with_source(store.clone(), durability, Arc::clone(&source)) {
         Ok(queue) => queue,
         Err(error) => {

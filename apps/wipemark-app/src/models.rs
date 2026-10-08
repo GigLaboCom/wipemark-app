@@ -229,8 +229,14 @@ impl Card {
                     "total" => bytes_label(*total_bytes),
                 ),
             ),
+            // A `.part` in the way is a partial file with no record of
+            // ours, not a file of the model's name (D375).
             Availability::Foreign { at } => t_args(
-                Message::SettingsModelsForeign,
+                if wipemark_models::partial(Path::new(at)) {
+                    Message::SettingsModelsForeignPart
+                } else {
+                    Message::SettingsModelsForeign
+                },
                 &args!("path" => at.as_str()),
             ),
             Availability::Found { at } => t_args(
@@ -643,6 +649,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
 
+    use wipemark_i18n::{args, t_args, Message};
     use wipemark_models::host::Host;
     use wipemark_models::manifest::Role;
     use wipemark_models::scan::Found;
@@ -991,6 +998,25 @@ mod tests {
         assert_eq!(foreign.availability.action(), None);
         assert_eq!(foreign.availability.bar(), None);
         assert!(foreign.line().contains("qwen/m.gguf"), "{}", foreign.line());
+        assert_eq!(
+            foreign.line(),
+            t_args(
+                Message::SettingsModelsForeign,
+                &args!("path" => "qwen/m.gguf")
+            )
+        );
+        // D375: a `.part` in the way is said as a partial file with no
+        // record, never as a file of the model's name Wipemark "did not
+        // download".
+        let part = card(&entry, Some(roomy()), &State::Absent, None, None)
+            .foreign(Some("qwen/m.gguf.part"));
+        assert_eq!(
+            part.line(),
+            t_args(
+                Message::SettingsModelsForeignPart,
+                &args!("path" => "qwen/m.gguf.part")
+            )
+        );
         let installed = card(
             &entry,
             Some(roomy()),

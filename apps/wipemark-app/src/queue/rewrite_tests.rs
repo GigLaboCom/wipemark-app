@@ -818,6 +818,119 @@ fn the_queued_row_is_written_before_its_item_can_end(cx: &mut TestAppContext) {
     assert_eq!(work.journal.rows()[0].state, Phase::Done.as_str());
 }
 
+/// D371 (L-a): a row removed after its item's id was reserved and before
+/// the push — which runs later, on the journal writer's thread, here held
+/// still — is never rewritten: the push finds the remove waiting for it, and
+/// no `name.rewritten.ext` is written for a row that is gone.
+#[gpui::test]
+fn a_row_removed_before_its_push_is_never_rewritten(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("removed-before-push");
+    let source = scratch.file("a.md", PARAGRAPH.as_bytes());
+    let work = work(swapping());
+    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    let go = cx.update(|_, cx| queue.read(cx).writer.as_ref().expect("a writer").gate());
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the reserve", |cx| {
+        cx.update(|_, cx| queue.read(cx).rows[0].item.is_some())
+    });
+    queue.update(cx, |queue, cx| queue.remove(id, cx));
+    go.send(()).expect("the writer waits");
+    // Long enough for an item pushed and run to have written its result.
+    let waited_until = Instant::now() + Duration::from_millis(1500);
+    while Instant::now() < waited_until {
+        cx.executor().advance_clock(super::rewriting::TICK);
+        cx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        !scratch.0.join("a.rewritten.md").exists(),
+        "a removed row's document was rewritten"
+    );
+    assert!(work.queue.states().is_empty(), "{:?}", work.queue.states());
+}
+
+/// D374 (L-h): a template saved before D369 that holds an invisible
+/// character — written straight to its row here, as an older build wrote it
+/// — refuses the row's Rewrite at the push, naming the template and the
+/// rule, rather than being found out as the job renders: nothing is pushed
+/// and nothing is written.
+#[gpui::test]
+fn a_saved_template_the_rules_refuse_refuses_the_push_by_name(cx: &mut TestAppContext) {
+    use wipemark_pipeline::lang::Lang;
+    use wipemark_pipeline::prompt::{row, Override, Role as PromptRole, Slot, Tactic};
+
+    let scratch = Scratch::new("template-refused");
+    let source = scratch.file("a.md", PARAGRAPH.as_bytes());
+    let work = work(swapping());
+    let user = Slot::new(Lang::En, Tactic::Paraphrase, 1, PromptRole::User).expect("a slot");
+    let saved = Override::by_hand(user, "Say it\u{200B} again.\n{PROTECTED}\n{TEXT}");
+    work.journal
+        .store()
+        .settings()
+        .set(
+            &row::key(user),
+            &serde_json::from_str::<serde_json::Value>(&saved.to_json()).expect("JSON"),
+        )
+        .expect("the row is written");
+    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the refusal", |cx| {
+        status(&queue, cx) == "rewrite-failed"
+    });
+    assert!(work.queue.states().is_empty(), "an item was pushed");
+    let said = cx.update(|_, cx| match &queue.read(cx).rows[0].status {
+        Status::Recorded(said) => said
+            .outcome
+            .as_ref()
+            .and_then(|outcome| outcome.reason.clone())
+            .unwrap_or_default(),
+        other => panic!("not refused: {other:?}"),
+    });
+    assert!(said.contains(&row::key(user)), "{said}");
+    assert!(said.contains("invisible-character"), "{said}");
+    assert!(!scratch.0.join("a.rewritten.md").exists());
+}
+
+/// D374: with no plan to read the chosen templates off — a file that cannot
+/// be read now — every saved template of a tactic on the job's ladder is
+/// asked, in any language; one of a tactic the job does not climb is not.
+#[test]
+fn without_a_plan_every_template_on_the_ladder_is_asked() {
+    use wipemark_pipeline::lang::Lang;
+    use wipemark_pipeline::prompt::{row, Override, Overrides, Role as PromptRole, Slot, Tactic};
+
+    let bad = |tactic| {
+        let slot = Slot::new(Lang::De, tactic, 1, PromptRole::User).expect("a slot");
+        (
+            slot,
+            Override::by_hand(slot, "Sag es\u{200B} anders.\n{PROTECTED}\n{TEXT}"),
+        )
+    };
+    let options_with = |slot, saved| {
+        let mut overrides = Overrides::new();
+        overrides.insert(slot, saved);
+        super::rewriting::asked(wipemark_pipeline::prepare::TextFormat::Plain)
+            .options(Executor::LocalCpu, overrides, None)
+            .expect("offered")
+    };
+    let (slot, saved) = bad(Tactic::Paraphrase);
+    assert_eq!(
+        super::rewriting::refused_template(None, &options_with(slot, saved)),
+        Some((row::key(slot), "invisible-character"))
+    );
+    let (slot, saved) = bad(Tactic::Humanize);
+    assert_eq!(
+        super::rewriting::refused_template(None, &options_with(slot, saved)),
+        None
+    );
+}
+
 /// D359 (L2): what the toolbar and the status bar read on every frame is
 /// the queue's own word, not a query — the paused row changed behind the
 /// queue's back is not what the window says.

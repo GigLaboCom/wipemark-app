@@ -180,6 +180,11 @@ pub enum Unrun {
     /// The person paused the application's rewrites, and this call's item
     /// had not started.
     Paused,
+    /// The application's queue holds on a question it asks in its window —
+    /// where a waiting document of the window's may go (D361) — and this
+    /// call's item had not started: nothing starts until it is answered, and
+    /// the call is not left waiting on a person who may not be there (D373).
+    Asking,
     /// The queue would not take the item.
     Pushed(wipemark_queue::Refused),
     /// The item ended as failed for a reason the queue names.
@@ -361,6 +366,11 @@ impl Rewriter {
         if work.queue.paused() {
             return Err(Unrun::Paused);
         }
+        // A question already open holds the queue as a pause does: said at
+        // once, rather than a call queued behind it with no ceiling (D373).
+        if work.queue.asking().is_some() {
+            return Err(Unrun::Asking);
+        }
         let bytes = document.text.len();
         let entry = asker.entry(&document.text);
         // Heard from before the push, so the item's own events are never
@@ -491,8 +501,8 @@ impl Rewriter {
     }
 
     /// Wait for `item` to end, cancelling it for a client that hung up, a
-    /// ceiling passed since it **started**, or a queue that holds or is
-    /// paused while it has not started. The end, and what to answer
+    /// ceiling passed since it **started**, or a queue that holds, asks
+    /// (D373) or is paused while it has not started. The end, and what to answer
     /// instead of its text when something cancelled it.
     fn wait(
         &self,
@@ -527,6 +537,13 @@ impl Rewriter {
                 }
                 Ok(QueueEvent::Paused) if started.is_none() && said.is_none() => {
                     said = Some(Unrun::Paused);
+                    work.queue.cancel(item);
+                }
+                // The queue holds to ask the person (D361): nothing starts
+                // until it is answered, and the ceiling counts from a start
+                // that may never come (D373).
+                Ok(QueueEvent::Ask { .. }) if started.is_none() && said.is_none() => {
+                    said = Some(Unrun::Asking);
                     work.queue.cancel(item);
                 }
                 Ok(_) | Err(flume::RecvTimeoutError::Timeout) => {}

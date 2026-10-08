@@ -353,7 +353,14 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
             }
             if let Some(at) = foreign_at(entry) {
                 line.push_str(" · ");
-                line.push_str(&say(Message::CliModelsForeignAt, &args!("path" => at)));
+                // A `.part` in the way is a partial file with no record of
+                // ours, not a file of the entry's name (D375).
+                let message = if wipemark_models::partial(Path::new(&at)) {
+                    Message::CliModelsForeignPartAt
+                } else {
+                    Message::CliModelsForeignAt
+                };
+                line.push_str(&say(message, &args!("path" => at)));
             }
             if *chosen {
                 line.push_str(" · ");
@@ -559,7 +566,11 @@ fn pull_failed(
             ),
         ),
         StoreError::Occupied { path } => say(
-            Message::CliModelsPullOccupied,
+            if wipemark_models::partial(path) {
+                Message::CliModelsPullOccupiedPart
+            } else {
+                Message::CliModelsPullOccupied
+            },
             &args!("id" => id, "path" => path.display().to_string()),
         ),
         other => say(
@@ -752,11 +763,14 @@ pub(crate) fn rm(id: &str, io: &mut Io) -> Exit {
                 exit = 0,
                 "done"
             );
-            let path = theirs.unwrap_or_default().display().to_string();
-            let line = run::say(
-                Message::CliModelsRmFound,
-                &args!("id" => id, "path" => path),
-            );
+            let theirs = theirs.unwrap_or_default();
+            let message = if wipemark_models::partial(&theirs) {
+                Message::CliModelsRmFoundPart
+            } else {
+                Message::CliModelsRmFound
+            };
+            let path = theirs.display().to_string();
+            let line = run::say(message, &args!("id" => id, "path" => path));
             say_out(io, &line).map_or_else(|exit| exit, |()| Exit::Clean)
         }
         Ok(true) => {
@@ -839,6 +853,30 @@ mod tests {
             assert!(
                 line.contains(&path.display().to_string()),
                 "{language}: {line}"
+            );
+            // D375: a `.part` in the way is a partial file with no record,
+            // never a file Wipemark "did not download".
+            assert_eq!(
+                line,
+                localizer.format_args(
+                    Message::CliModelsPullOccupiedPart,
+                    &wipemark_i18n::args!("id" => "qwen", "path" => path.display().to_string())
+                ),
+                "{language}"
+            );
+            let whole = wipemark_models::store::StoreError::Occupied {
+                path: path.with_extension(""),
+            };
+            assert_eq!(
+                pull_failed("qwen", &whole, |m, a| localizer.format_args(m, a)),
+                localizer.format_args(
+                    Message::CliModelsPullOccupied,
+                    &wipemark_i18n::args!(
+                        "id" => "qwen",
+                        "path" => path.with_extension("").display().to_string()
+                    )
+                ),
+                "{language}"
             );
         }
     }

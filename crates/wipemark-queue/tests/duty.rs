@@ -5,6 +5,7 @@
 
 mod common;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -12,7 +13,8 @@ use common::{end_of, engine, file_request, reference, text_request, wait_for, Sc
 use wipemark_engine::fake::FakeEngine;
 use wipemark_engine::{RewriteEngine, Unavailable};
 use wipemark_queue::{
-    Destination, Durability, End, EngineSource, Failure, Queue, QueueEvent, Undelivered, Whereto,
+    Destination, Durability, End, EngineSource, Failure, Handed, Queue, QueueEvent, Undelivered,
+    Whereto,
 };
 use wipemark_store::Store;
 
@@ -31,12 +33,13 @@ impl OnDuty {
 }
 
 impl EngineSource for OnDuty {
-    fn for_item(&self) -> Result<Arc<dyn RewriteEngine>, Unavailable> {
+    fn for_item(&self) -> Result<Handed, Unavailable> {
         *self.asked.lock().expect("lock") += 1;
         self.engine
             .lock()
             .expect("lock")
             .clone()
+            .map(Handed::unsaid)
             .ok_or(Unavailable::NothingOnDuty)
     }
 }
@@ -247,12 +250,11 @@ impl Going {
 }
 
 impl EngineSource for Going {
-    fn for_item(&self) -> Result<Arc<dyn RewriteEngine>, Unavailable> {
-        Ok(Arc::clone(&self.engine))
-    }
-
-    fn whereto(&self) -> Option<Whereto> {
-        self.now.lock().expect("lock").clone()
+    fn for_item(&self) -> Result<Handed, Unavailable> {
+        Ok(Handed {
+            engine: Arc::clone(&self.engine),
+            whereto: self.now.lock().expect("lock").clone(),
+        })
     }
 }
 
@@ -358,4 +360,216 @@ fn a_callers_item_and_one_consented_there_are_never_asked_about() {
             .any(|event| matches!(event, QueueEvent::Ask { .. })),
         "{seen:?}"
     );
+}
+
+/// A source like the application's engine handle: the engine in its slot
+/// and where **that engine** sends a document, changed together — and
+/// nothing else. What a window recorded about the duty is not here at all.
+struct Slotted {
+    slot: Mutex<(Arc<dyn RewriteEngine>, Option<Whereto>)>,
+}
+
+impl Slotted {
+    fn holding(engine: Arc<dyn RewriteEngine>, whereto: Whereto) -> Arc<Slotted> {
+        Arc::new(Slotted {
+            slot: Mutex::new((engine, Some(whereto))),
+        })
+    }
+
+    fn swap(&self, engine: Arc<dyn RewriteEngine>, whereto: Whereto) {
+        *self.slot.lock().expect("lock") = (engine, Some(whereto));
+    }
+}
+
+impl EngineSource for Slotted {
+    fn for_item(&self) -> Result<Handed, Unavailable> {
+        let slot = self.slot.lock().expect("lock");
+        Ok(Handed {
+            engine: Arc::clone(&slot.0),
+            whereto: slot.1.clone(),
+        })
+    }
+}
+
+fn queue_slotted(source: &Arc<Slotted>) -> Queue {
+    Queue::with_source(
+        Arc::new(Store::in_memory().expect("memory")),
+        Durability::Memory { detail: None },
+        Arc::clone(source) as Arc<dyn EngineSource>,
+    )
+    .expect("opens")
+}
+
+/// An engine that says, when asked, that it was.
+fn telling(asked: &Arc<AtomicBool>) -> Arc<dyn RewriteEngine> {
+    let asked = Arc::clone(asked);
+    Arc::new(FakeEngine::answering(move |req, _| {
+        asked.store(true, Ordering::SeqCst);
+        common::swap(&common::text_of(req))
+    }))
+}
+
+/// D370 (M-1): an item consented to stay here is checked against the engine
+/// the queue is **handed**, not against where the duty was meant to be by
+/// then. The slot still holds endpoint Y's engine — the engine host
+/// deferred the swap to this machine while a job was busy — and the window
+/// already says "here": the queue asks rather than send the item to Y,
+/// lets go of Y's engine at once (so the host sees nothing busy and its
+/// swap can land), and runs the item on this machine once it has.
+#[test]
+fn the_consent_is_checked_against_the_engine_handed_out() {
+    let y = Whereto::Away("https://y.example.com".to_owned());
+    let y_asked = Arc::new(AtomicBool::new(false));
+    let here_asked = Arc::new(AtomicBool::new(false));
+    let y_engine = telling(&y_asked);
+    let source = Slotted::holding(Arc::clone(&y_engine), y.clone());
+    let queue = queue_slotted(&source);
+    let events = queue.events();
+    let text = format!("{}\n", common::PARAGRAPHS[0]);
+    let request = text_request(&text);
+    let id = queue.reserve(&request).expect("reserved");
+    let item = queue
+        .push_reserved(id, request, Some(Whereto::Here))
+        .expect("pushed");
+
+    let seen = wait_for(&events, |event| {
+        matches!(event, QueueEvent::Ask { .. } | QueueEvent::Started { .. })
+    });
+    assert!(
+        matches!(
+            seen.last(),
+            Some(QueueEvent::Ask { item: asked, now, was: Whereto::Here, .. })
+                if *asked == item && *now == y
+        ),
+        "{:?}",
+        common::summary(&seen)
+    );
+    // Let go of before the question was put: only the slot and this test
+    // hold it.
+    assert_eq!(Arc::strong_count(&y_engine), 2);
+    nothing_starts(&events, Duration::from_millis(300));
+
+    // The deferred swap lands: this machine's engine is in the slot.
+    source.swap(telling(&here_asked), Whereto::Here);
+    queue.engine_changed();
+    done_text(end_of(&events, item));
+    assert!(here_asked.load(Ordering::SeqCst));
+    assert!(
+        !y_asked.load(Ordering::SeqCst),
+        "a document consented to stay here went to the endpoint"
+    );
+}
+
+/// D371 (L-a): a Cancel or a Remove that reaches the queue between an id's
+/// reserve and its push is not lost — the window sets the id on its row
+/// first, and the push runs later, on the journal writer's thread.
+/// Cancelled, the item is stored and ends as cancelled; removed, it is
+/// dropped. Neither starts.
+#[test]
+fn a_cancel_or_a_remove_before_the_push_is_kept_for_it() {
+    let source = Going::new(Whereto::Here);
+    let queue = queue_going(&source);
+    let events = queue.events();
+    let text = format!("{}\n", common::PARAGRAPHS[0]);
+
+    let request = text_request(&text);
+    let cancelled = queue.reserve(&request).expect("reserved");
+    queue.cancel(cancelled);
+    queue
+        .push_reserved(cancelled, request, Some(Whereto::Here))
+        .expect("pushed");
+    let seen = wait_for(
+        &events,
+        |event| matches!(event, QueueEvent::Ended { item, .. } if *item == cancelled),
+    );
+    assert!(
+        matches!(
+            seen.last(),
+            Some(QueueEvent::Ended {
+                end: End::Cancelled,
+                ..
+            })
+        ),
+        "{:?}",
+        common::summary(&seen)
+    );
+    assert!(
+        !seen
+            .iter()
+            .any(|event| matches!(event, QueueEvent::Started { .. })),
+        "{:?}",
+        common::summary(&seen)
+    );
+
+    let request = text_request(&text);
+    let removed = queue.reserve(&request).expect("reserved");
+    queue.remove(removed);
+    queue
+        .push_reserved(removed, request, Some(Whereto::Here))
+        .expect("pushed");
+    let seen = wait_for(
+        &events,
+        |event| matches!(event, QueueEvent::Removed { item } if *item == removed),
+    );
+    assert!(
+        !seen
+            .iter()
+            .any(|event| matches!(event, QueueEvent::Started { .. })),
+        "{:?}",
+        common::summary(&seen)
+    );
+    nothing_starts(&events, Duration::from_millis(300));
+    assert!(
+        queue.items().iter().all(|view| view.id != removed),
+        "{:?}",
+        queue.items()
+    );
+}
+
+/// D372 (L-b): a yes covers the items it was asked for and no other. Yes
+/// to endpoint Y for B; the duty goes to this machine, C is pushed
+/// consented to stay here, and the duty comes back to Y: C is asked about
+/// rather than sent to Y on B's answer.
+#[test]
+fn a_yes_covers_the_items_it_was_asked_for_and_no_later_one() {
+    let y = Whereto::Away("https://y.example.com".to_owned());
+    let source = Going::new(y.clone());
+    let queue = queue_going(&source);
+    let events = queue.events();
+    let text = format!("{}\n", common::PARAGRAPHS[0]);
+    let push = |text: &str| {
+        let request = text_request(text);
+        let id = queue.reserve(&request).expect("reserved");
+        queue
+            .push_reserved(id, request, Some(Whereto::Here))
+            .expect("pushed")
+    };
+    let b = push(&text);
+    wait_for(
+        &events,
+        |event| matches!(event, QueueEvent::Ask { item, .. } if *item == b),
+    );
+    queue.agree(y.clone());
+    done_text(end_of(&events, b));
+
+    queue.pause();
+    wait_for(&events, |event| matches!(event, QueueEvent::Paused));
+    source.go(Whereto::Here);
+    queue.engine_changed();
+    let c = push(&text);
+    source.go(y.clone());
+    queue.engine_changed();
+    queue.resume();
+    let seen = wait_for(&events, |event| {
+        matches!(event, QueueEvent::Ask { .. } | QueueEvent::Started { .. })
+    });
+    assert!(
+        matches!(
+            seen.last(),
+            Some(QueueEvent::Ask { item, now, .. }) if *item == c && *now == y
+        ),
+        "{:?}",
+        common::summary(&seen)
+    );
+    nothing_starts(&events, Duration::from_millis(300));
 }

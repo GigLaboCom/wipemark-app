@@ -289,6 +289,16 @@ pub struct Located {
     pub mismatched: Option<PathBuf>,
 }
 
+/// Whether `path` is a download's working name, `<file>.part` — what
+/// [`Located::mismatched`] and [`StoreError::Occupied`] name when the file
+/// in the way is a partial file no download of ours is known to have
+/// opened, rather than a file of the entry's name. The catalogue's own
+/// files are weights (`.gguf`), never `.part` (D375).
+pub fn partial(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension == "part")
+}
+
 /// One walk of the models folder and what it says about every entry of
 /// a catalogue — [`Downloads::survey`].
 #[derive(Debug)]
@@ -333,6 +343,10 @@ pub struct Downloads {
     /// Set by [`Downloads::stop`]: every hash under way gives up at its
     /// next chunk, and none starts.
     stopped: AtomicBool,
+    /// What a test adds to every device and inode number this store reads
+    /// — a remount, a file system whose numbers do not survive one (D375).
+    #[cfg(test)]
+    remount: std::sync::atomic::AtomicU64,
 }
 
 impl Downloads {
@@ -355,6 +369,8 @@ impl Downloads {
             hashed: AtomicUsize::new(0),
             hash_watch: std::sync::Mutex::new(None),
             stopped: AtomicBool::new(false),
+            #[cfg(test)]
+            remount: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -474,7 +490,7 @@ impl Downloads {
             // alone and said — never ours to call damaged and remove.
             // Asked whether or not a file is there: a mark whose file is
             // gone is dropped by asking (D350).
-            let ours = self.downloaded(&target);
+            let ours = self.downloaded(&target, file.sha256.as_deref());
             if target.is_file() && !ours {
                 let matches = match file.sha256.as_deref() {
                     Some(expected) => self.verified(&target, Some(expected)) == Ok(true),
@@ -689,7 +705,7 @@ impl Downloads {
                 doomed.push(part.clone());
                 marked.push(part);
             }
-            if !self.downloaded(&target) {
+            if !self.downloaded(&target, file.sha256.as_deref()) {
                 continue;
             }
             ours = true;
@@ -799,7 +815,7 @@ impl Downloads {
         // not: a download never wrote one.
         let there = std::fs::symlink_metadata(&target).is_ok();
 
-        if there && !self.downloaded(&target) {
+        if there && !self.downloaded(&target, file.sha256.as_deref()) {
             // Another tool's file at our place (D302, amended), or one put
             // where ours was (D350): used as it is when it matches, and
             // otherwise refused — never removed, and never downloaded over.
@@ -827,8 +843,25 @@ impl Downloads {
         let part = dir.join(format!("{name}.part"));
         if std::fs::symlink_metadata(&part).is_ok() && !self.ours_part(&part) {
             // Another tool's download in progress under our working name
-            // (D351): not resumed into, not truncated, not removed.
+            // (D351), or one this store has no record of: not resumed
+            // into, not truncated, not removed.
             return Err(StoreError::Occupied { path: part });
+        }
+        if std::fs::symlink_metadata(&part).is_err() {
+            // Opened and marked before anything is asked of the server: a
+            // mark that cannot be written — a records folder that is not
+            // writable — refuses the download here, and the empty `.part`
+            // this call just made goes with it, rather than a download
+            // leaving a `.part` no later one could take for its own (D375).
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&part)
+                .map_err(StoreError::io(&part))?;
+            if let Err(error) = self.write_mark(&part, Identity::Part) {
+                let _ = std::fs::remove_file(&part);
+                return Err(error);
+            }
         }
         self.download(file, &name, &part, index, count, cancel, report)?;
 
@@ -851,8 +884,11 @@ impl Downloads {
         std::fs::rename(&part, &target).map_err(StoreError::io(&target))?;
         // The mark is what makes this file ours to remove or replace
         // later; without it the file reads as another tool's — the safe
-        // side, so a mark that cannot be written is a warning.
-        self.mark(&target);
+        // side, so a mark that cannot be written now, after the `.part`'s
+        // was, is a warning.
+        if let Err(error) = self.write_mark(&target, Identity::Whole) {
+            tracing::warn!(%error, "could not mark a download; it will read as another tool's file");
+        }
         self.unmark(&part);
         if let Some(expected) = file.sha256.as_deref() {
             if let Ok(now) = fingerprint(&target) {
@@ -912,26 +948,16 @@ impl Downloads {
         let resuming = status == 206 && already > 0;
         let mut done = if resuming { already } else { 0 };
 
-        // The caller lets a `.part` through only when it is absent or a
-        // download of ours opened it (D351). Resumed, it is appended to;
-        // otherwise ours is truncated where it is — the same file, so the
-        // same mark — and an absent one is created, never over anything
-        // that appeared since, and marked before a byte goes into it.
-        let existed = std::fs::symlink_metadata(part).is_ok();
+        // The caller hands over a `.part` a download of ours opened and
+        // marked (D351) — one that was there, or one it made and marked
+        // before the request (D375). Resumed, it is appended to; otherwise
+        // it is truncated where it is — the same file, so the same mark.
         let mut sink = if resuming {
             std::fs::OpenOptions::new().append(true).open(part)
-        } else if existed {
-            std::fs::File::create(part)
         } else {
-            std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(part)
+            std::fs::File::create(part)
         }
         .map_err(StoreError::io(part))?;
-        if !existed {
-            self.mark_part(part);
-        }
 
         let total = file.size_bytes.max(done);
         let mut reader = response.into_body().into_reader();
@@ -944,36 +970,45 @@ impl Downloads {
             file_index: index,
             file_count: count,
         });
-        loop {
-            if cancel.is_cancelled() {
-                // The `.part` stays. The next attempt resumes from it.
-                let _ = sink.flush();
-                return Err(StoreError::Cancelled);
+        // Wherever the writing stops — finished, cancelled, refused — the
+        // `.part`'s mark is told the size and mtime it stopped at, so a
+        // `.part` whose device and inode numbers did not survive a remount
+        // is still known for ours (D375).
+        let written = (|| -> Result<(), StoreError> {
+            loop {
+                if cancel.is_cancelled() {
+                    // The `.part` stays. The next attempt resumes from it.
+                    let _ = sink.flush();
+                    return Err(StoreError::Cancelled);
+                }
+                let read = reader
+                    .read(&mut buffer)
+                    .map_err(|err| StoreError::Transport {
+                        url: url.clone(),
+                        reason: err.to_string(),
+                    })?;
+                if read == 0 {
+                    break;
+                }
+                sink.write_all(&buffer[..read])
+                    .map_err(StoreError::io(part))?;
+                done += read as u64;
+                if last_report.elapsed() >= REPORT_EVERY {
+                    last_report = Instant::now();
+                    report(Progress {
+                        file: name.to_string(),
+                        done_bytes: done,
+                        total_bytes: total.max(done),
+                        file_index: index,
+                        file_count: count,
+                    });
+                }
             }
-            let read = reader
-                .read(&mut buffer)
-                .map_err(|err| StoreError::Transport {
-                    url: url.clone(),
-                    reason: err.to_string(),
-                })?;
-            if read == 0 {
-                break;
-            }
-            sink.write_all(&buffer[..read])
-                .map_err(StoreError::io(part))?;
-            done += read as u64;
-            if last_report.elapsed() >= REPORT_EVERY {
-                last_report = Instant::now();
-                report(Progress {
-                    file: name.to_string(),
-                    done_bytes: done,
-                    total_bytes: total.max(done),
-                    file_index: index,
-                    file_count: count,
-                });
-            }
-        }
-        sink.flush().map_err(StoreError::io(part))?;
+            sink.flush().map_err(StoreError::io(part))?;
+            Ok(())
+        })();
+        self.stamp_part(part, &sink);
+        written?;
         report(Progress {
             file: name.to_string(),
             done_bytes: done,
@@ -1191,30 +1226,41 @@ impl Downloads {
     }
 
     /// Whether a download of this product wrote `target`, and it is still
-    /// the file that was written (D350).
-    fn downloaded(&self, target: &Path) -> bool {
-        self.owns(target, Identity::Whole)
+    /// the file that was written (D350) — or, where the device and inode
+    /// numbers did not survive a remount, a file of the size and the mtime
+    /// it was written with whose sha256 is `sha256`, the catalogue's
+    /// (D375).
+    fn downloaded(&self, target: &Path, sha256: Option<&str>) -> bool {
+        self.owns(target, Identity::Whole, sha256)
     }
 
     /// Whether a download of this product opened the `.part` at `part`
     /// (D351).
     fn ours_part(&self, part: &Path) -> bool {
-        self.owns(part, Identity::Part)
+        self.owns(part, Identity::Part, None)
     }
 
     /// Whether `path` carries a mark naming the file that is there now.
     ///
-    /// A mark whose file is gone, or that names another file than the one
-    /// there now — rewritten, replaced, a link put in its place, or a mark
-    /// an older build wrote with no identity in it — can never be right
-    /// again, and is dropped. A file that cannot be read keeps its mark and
-    /// is only not taken for ours.
-    fn owns(&self, path: &Path, kind: Identity) -> bool {
+    /// A mark whose file is gone is dropped: nothing at the place can be
+    /// the file it named. A mark that names another file than the one
+    /// there now — rewritten, replaced, a link put in its place, a mark an
+    /// older build wrote with no identity in it, or the same file whose
+    /// device or inode number moved — is **not ours now**, and is kept
+    /// (D375): a remount that gives the numbers back gives the file back,
+    /// and a file put in its place can never match it. Where only the
+    /// device and inode differ, the file is still ours when the rest of
+    /// what was marked holds — a whole file's size and mtime and its
+    /// sha256 being `sha256`, the catalogue's; a `.part`'s size and mtime
+    /// where its last download stopped, its birth time not disagreeing. A
+    /// file that cannot be read keeps its mark and is only not taken for
+    /// ours.
+    fn owns(&self, path: &Path, kind: Identity, sha256: Option<&str>) -> bool {
         let mark = self.mark_path(path);
         let Ok(body) = std::fs::read_to_string(&mark) else {
             return false;
         };
-        let now = match identity(path, kind) {
+        let now = match self.identity(path, kind) {
             Ok(now) => now,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let _ = std::fs::remove_file(&mark);
@@ -1222,28 +1268,92 @@ impl Downloads {
             }
             Err(_) => return false,
         };
-        if now.is_some() && marked_identity(&body) == now.as_deref() {
+        let Some(now) = now else {
+            return false;
+        };
+        let Some(marked) = marked_identity(&body) else {
+            return false;
+        };
+        if marked == now {
             return true;
         }
-        tracing::info!("a download's mark names another file than the one now there; dropped");
-        let _ = std::fs::remove_file(&mark);
+        // The sha256 read in full, never off the record: a record is kept
+        // by size and mtime, which are what another file put there under
+        // them would share.
+        let renumbered = same_but_numbers(kind, marked, &now)
+            && match kind {
+                Identity::Whole => sha256.is_some_and(|sha| {
+                    self.hash_and_record(path).is_ok_and(|actual| actual == sha)
+                }),
+                Identity::Part => {
+                    marked_last(&body).is_some_and(|last| Some(last) == last_of(path).as_deref())
+                }
+            };
+        if renumbered {
+            tracing::info!(
+                "a download's file is the one that was marked, under other device and inode numbers"
+            );
+            // Marked again under the numbers it has now, so the next look
+            // is a comparison rather than another read of every byte.
+            if let Err(error) = self.write_mark(path, kind) {
+                tracing::warn!(%error, "could not mark a download again");
+            }
+            return true;
+        }
+        tracing::info!("a download's mark names another file than the one now there; not ours now");
         false
     }
 
+    /// What a mark of `kind` holds of the file at `path` — [`identity`],
+    /// with a test's remount added to the device and inode numbers.
+    #[cfg_attr(
+        not(test),
+        allow(
+            clippy::unused_self,
+            reason = "the store is the seam a test's remount goes through"
+        )
+    )]
+    fn identity(&self, path: &Path, kind: Identity) -> std::io::Result<Option<String>> {
+        let read = identity(path, kind)?;
+        #[cfg(test)]
+        {
+            let shift = self.remount.load(Ordering::SeqCst);
+            if shift > 0 {
+                return Ok(read.map(|identity| renumbered(kind, &identity, shift)));
+            }
+        }
+        Ok(read)
+    }
+
     /// Mark `target` as downloaded by this product.
+    #[cfg(test)]
     fn mark(&self, target: &Path) {
-        self.write_mark(target, Identity::Whole);
+        let _ = self.write_mark(target, Identity::Whole);
     }
 
     /// Mark the `.part` at `part` as opened by a download of this product.
+    #[cfg(test)]
     fn mark_part(&self, part: &Path) {
-        self.write_mark(part, Identity::Part);
+        let _ = self.write_mark(part, Identity::Part);
+    }
+
+    /// Tell the mark of the `.part` at `part`, which `sink` writes, the size
+    /// and mtime its download stopped at (D375) — only while the file at
+    /// the place is still the one `sink` holds open.
+    fn stamp_part(&self, part: &Path, sink: &std::fs::File) {
+        if !same_file(part, sink) {
+            return;
+        }
+        if let Err(error) = self.write_mark(part, Identity::Part) {
+            tracing::warn!(%error, "could not mark where a download stopped");
+        }
     }
 
     /// The mark: [`MARK_HEADER`], the identity of the file at `path` as
-    /// `kind` reads it, when it was written, and the path.
-    fn write_mark(&self, path: &Path, kind: Identity) {
-        let identity = match identity(path, kind) {
+    /// `kind` reads it, when it was written, the path — and, for a `.part`,
+    /// its size and mtime as they are now (D375).
+    fn write_mark(&self, path: &Path, kind: Identity) -> Result<(), StoreError> {
+        let identity = match self.identity(path, kind) {
             Ok(Some(identity)) => Ok(identity),
             Ok(None) => Err(std::io::Error::other(
                 "not a regular file, or no identity this platform can read",
@@ -1263,15 +1373,16 @@ impl Downloads {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                let body = format!(
+                let mut body = format!(
                     "{MARK_HEADER}\n{identity}\n{fetched_at}\n{}\n",
                     path.display()
                 );
+                if let (Identity::Part, Some(last)) = (kind, last_of(path)) {
+                    body.push_str(&format!("{LAST}{last}\n"));
+                }
                 std::fs::write(&mark, body).map_err(StoreError::io(&mark))
             });
-        if let Err(error) = written {
-            tracing::warn!(%error, "could not mark a download; it will read as another tool's file");
-        }
+        written
     }
 
     /// Drop the download mark of `target`.
@@ -1283,6 +1394,11 @@ impl Downloads {
 /// The first line of a download's mark (D350). A mark without it was
 /// written by a build that put no identity in it, and is not a mark.
 const MARK_HEADER: &str = "wipemark download mark 1";
+
+/// What starts the line of a `.part`'s mark that holds the size and mtime
+/// its download stopped at (D375). A mark without it — a build before it,
+/// or a download that never stopped cleanly — holds none.
+const LAST: &str = "last ";
 
 /// Which identity a mark holds (D350, D351).
 #[derive(Debug, Clone, Copy)]
@@ -1345,6 +1461,87 @@ fn marked_identity(body: &str) -> Option<&str> {
         return None;
     }
     lines.next().filter(|identity| !identity.is_empty())
+}
+
+/// The size and mtime a `.part`'s mark says its download stopped at.
+fn marked_last(body: &str) -> Option<&str> {
+    marked_identity(body)?;
+    body.lines()
+        .skip(2)
+        .find_map(|line| line.strip_prefix(LAST))
+        .filter(|last| !last.is_empty())
+}
+
+/// `size:mtime_ns` of the file at `path`, never through a link.
+fn last_of(path: &Path) -> Option<String> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    let mtime = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    Some(format!("{}:{mtime}", meta.len()))
+}
+
+/// Whether the file at `path` is the one `open` holds — on Unix, the same
+/// device and inode; elsewhere it cannot be told, and is taken to be.
+fn same_file(path: &Path, open: &std::fs::File) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        match (std::fs::symlink_metadata(path), open.metadata()) {
+            (Ok(there), Ok(held)) => there.dev() == held.dev() && there.ino() == held.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, open);
+        true
+    }
+}
+
+/// Whether two identities of `kind` differ in nothing but the device and
+/// inode numbers (D375) — what a remount of a file system whose numbers
+/// do not survive one changes, and all it changes. Unix only: elsewhere an
+/// identity has no such numbers, and two that differ are two files. For a
+/// `.part`, a birth time either side does not know does not disagree.
+fn same_but_numbers(kind: Identity, marked: &str, now: &str) -> bool {
+    if !cfg!(unix) {
+        return false;
+    }
+    let marked: Vec<&str> = marked.split(':').collect();
+    let now: Vec<&str> = now.split(':').collect();
+    match kind {
+        // size:mtime:dev:ino
+        Identity::Whole => marked.len() == 4 && now.len() == 4 && marked[..2] == now[..2],
+        // dev:ino:birth
+        Identity::Part => {
+            marked.len() == 3
+                && now.len() == 3
+                && (marked[2] == now[2] || marked[2] == "-" || now[2] == "-")
+        }
+    }
+}
+
+/// `identity` with `shift` added to its device and inode numbers — a test's
+/// remount.
+#[cfg(test)]
+fn renumbered(kind: Identity, identity: &str, shift: u64) -> String {
+    let mut fields: Vec<String> = identity.split(':').map(str::to_owned).collect();
+    let numbers = match kind {
+        Identity::Whole => 2..4,
+        Identity::Part => 0..2,
+    };
+    for at in numbers {
+        if let Some(field) = fields.get_mut(at) {
+            if let Ok(number) = field.parse::<u64>() {
+                *field = number.wrapping_add(shift).to_string();
+            }
+        }
+    }
+    fields.join(":")
 }
 
 /// `size:mtime`. Cheap, and enough to notice a file that was replaced —
@@ -1523,14 +1720,15 @@ mod tests {
     /// D350 (A1): a download's mark names the file, not the path. A file
     /// put at a marked place afterwards — by a rename over it, or written
     /// over it in place — is another tool's: said, not removed, not
-    /// downloaded over; and the stale mark is dropped.
+    /// downloaded over. The mark is kept (D375) — it can never match the
+    /// file put there, and it is still not ours on the next look.
     #[test]
     fn a_mark_names_the_file_and_not_the_place() {
         let mirror = Mirror::new();
         let ours = mirror.put("qwen/qwen-q4.gguf", &mirror.bytes);
         let store = mirror.store();
         store.mark(&ours);
-        assert!(store.downloaded(&ours), "a fresh mark is not ours");
+        assert!(store.downloaded(&ours, None), "a fresh mark is not ours");
         assert!(matches!(store.state(&mirror.entry), State::Present { .. }));
         assert!(!store.locate(&mirror.entry).theirs);
 
@@ -1548,15 +1746,20 @@ mod tests {
         }
         assert_eq!(std::fs::read(&ours).expect("still there"), other);
         assert!(
-            !store.mark_path(&ours).exists(),
-            "a mark naming another file was kept"
+            store.mark_path(&ours).exists(),
+            "a mismatch dropped the mark"
         );
+        assert!(
+            !store.downloaded(&ours, None),
+            "the next look took it for ours"
+        );
+        assert!(!store.remove(&mirror.entry).expect("nothing of ours"));
 
         // Marked again, then written over in place: the same inode, and
         // still not the file that was marked.
         std::fs::write(&ours, &mirror.bytes).expect("put back");
         store.mark(&ours);
-        assert!(store.downloaded(&ours));
+        assert!(store.downloaded(&ours, None));
         std::fs::write(&ours, &other).expect("written over in place");
         assert!(!store.remove(&mirror.entry).expect("nothing of ours"));
         assert_eq!(std::fs::read(&ours).expect("still there"), other);
@@ -1586,7 +1789,10 @@ mod tests {
             format!("1759900000\n{}\n", theirs.display()),
         )
         .expect("an old mark");
-        assert!(!store.downloaded(&theirs), "a mark without an identity");
+        assert!(
+            !store.downloaded(&theirs, None),
+            "a mark without an identity"
+        );
         assert!(!store.remove(&mirror.entry).expect("nothing of ours"));
         assert!(theirs.exists());
     }
@@ -1604,13 +1810,200 @@ mod tests {
         std::fs::write(&elsewhere, b"another tool's file").expect("theirs");
         std::fs::remove_file(&ours).expect("unlink");
         std::os::unix::fs::symlink(&elsewhere, &ours).expect("link");
-        assert!(!store.downloaded(&ours));
+        assert!(!store.downloaded(&ours, None));
         assert!(!store.remove(&mirror.entry).expect("nothing of ours"));
         assert!(std::fs::symlink_metadata(&ours).is_ok(), "the link went");
         assert_eq!(
             std::fs::read(&elsewhere).expect("still there"),
             b"another tool's file"
         );
+    }
+
+    /// D375 (L-c): a file system whose device and inode numbers do not
+    /// survive a remount — a btrfs subvolume, NFS, FUSE, vfat, exFAT — does
+    /// not turn a finished download into another tool's file. Renumbered,
+    /// it is still ours while its size and mtime are the ones marked and
+    /// its sha256 is the catalogue's: not "theirs", and Remove removes it.
+    /// A mismatch never drops the mark: renumbered with no sha256 to
+    /// confirm it, it is not ours now, and the numbers given back give it
+    /// back. A file of another hash put there under the marked size and
+    /// mtime is not taken for it.
+    #[cfg(unix)]
+    #[test]
+    fn a_renumbered_download_is_still_ours_and_a_mismatch_keeps_the_mark() {
+        let mirror = Mirror::new();
+        let ours = mirror.put("qwen/qwen-q4.gguf", &mirror.bytes);
+        let store = mirror.store();
+        store.mark(&ours);
+        let sha = sha_of(&mirror.bytes);
+
+        store.remount.store(7, std::sync::atomic::Ordering::SeqCst);
+        assert!(
+            !store.downloaded(&ours, None),
+            "renumbered, with nothing to confirm it"
+        );
+        assert!(
+            store.mark_path(&ours).exists(),
+            "a mismatch dropped the mark"
+        );
+        store.remount.store(0, std::sync::atomic::Ordering::SeqCst);
+        assert!(store.downloaded(&ours, None), "the numbers given back");
+
+        store.remount.store(7, std::sync::atomic::Ordering::SeqCst);
+        let located = store.locate(&mirror.entry);
+        assert!(
+            matches!(located.state, State::Present { .. }),
+            "{located:?}"
+        );
+        assert!(!located.theirs, "our own download read as another tool's");
+        // Confirmed, and marked again under its numbers now.
+        assert!(store.downloaded(&ours, None), "not marked again");
+        store.remount.store(0, std::sync::atomic::Ordering::SeqCst);
+        assert!(
+            store.downloaded(&ours, Some(&sha)),
+            "renumbered back and confirmed"
+        );
+
+        // Another file under the marked size and mtime, by a rename: a new
+        // inode, renumbered, and not the catalogue's bytes.
+        let mtime = std::fs::metadata(&ours)
+            .and_then(|meta| meta.modified())
+            .expect("an mtime");
+        let mut other = mirror.bytes.clone();
+        other[0] ^= 0xff;
+        let staged = mirror.put("staging.bin", &other);
+        std::fs::File::options()
+            .write(true)
+            .open(&staged)
+            .and_then(|file| file.set_modified(mtime))
+            .expect("the marked mtime");
+        std::fs::rename(&staged, &ours).expect("rename over");
+        store.remount.store(7, std::sync::atomic::Ordering::SeqCst);
+        assert!(
+            !store.downloaded(&ours, Some(&sha)),
+            "another file taken for ours"
+        );
+        assert!(!store.remove(&mirror.entry).expect("nothing of ours"));
+        assert_eq!(std::fs::read(&ours).expect("still there"), other);
+
+        store.remount.store(0, std::sync::atomic::Ordering::SeqCst);
+        std::fs::write(&ours, &mirror.bytes).expect("put back");
+        store.mark(&ours);
+        store.remount.store(7, std::sync::atomic::Ordering::SeqCst);
+        assert!(
+            store.remove(&mirror.entry).expect("ours"),
+            "Remove left our download"
+        );
+        assert!(!ours.exists());
+    }
+
+    /// D375 (L-c): an interrupted `.part` whose device and inode numbers
+    /// moved is still ours while its size and mtime are where its download
+    /// stopped — resumed from there, never "another tool's" for good. One
+    /// that grew since is not.
+    #[cfg(unix)]
+    #[test]
+    fn a_renumbered_part_is_resumed_where_it_stopped() {
+        let server = Server::serving(BODY, true, 1);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Downloads::new(dir.path(), dir.path().join(".records"));
+        let entry = entry(
+            "m",
+            vec![file(
+                &server.url("m.gguf"),
+                Some(&sha_of(BODY)),
+                BODY.len() as u64,
+            )],
+        );
+        let model_dir = store.model_dir("m").expect("model dir");
+        std::fs::create_dir_all(&model_dir).expect("mkdir");
+        let part = model_dir.join("m.gguf.part");
+        std::fs::write(&part, &BODY[..11]).expect("seed");
+        store.mark_part(&part);
+
+        store.remount.store(3, std::sync::atomic::Ordering::SeqCst);
+        let located = store.locate(&entry);
+        assert_eq!(located.mismatched, None, "{located:?}");
+        assert!(matches!(
+            located.state,
+            State::Partial { done_bytes: 11, .. }
+        ));
+        store
+            .fetch(&entry, &Cancel::new(), &|_| {})
+            .expect("resumed");
+        assert_eq!(server.ranges(), vec!["11"]);
+        assert_eq!(std::fs::read(model_dir.join("m.gguf")).expect("read"), BODY);
+
+        // A `.part` that grew after its download stopped, renumbered: not
+        // known for ours, and said as a partial file with no record.
+        let other = model_dir.join("n.part");
+        std::fs::write(&other, b"0123").expect("seed");
+        store.remount.store(0, std::sync::atomic::Ordering::SeqCst);
+        store.mark_part(&other);
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&other)
+            .and_then(|mut file| std::io::Write::write_all(&mut file, b"4567"))
+            .expect("grown");
+        store.remount.store(3, std::sync::atomic::Ordering::SeqCst);
+        assert!(!store.ours_part(&other));
+        assert!(
+            store.mark_path(&other).exists(),
+            "a mismatch dropped the mark"
+        );
+    }
+
+    /// D375 (L-c): where the download stops writing, the `.part`'s mark is
+    /// told the size and mtime it stopped at — so a stopped download is
+    /// known by them after a remount.
+    #[cfg(unix)]
+    #[test]
+    fn a_stopped_download_stamps_its_part() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Downloads::new(dir.path(), dir.path().join(".records"));
+        let part = dir.path().join("m.gguf.part");
+        std::fs::write(&part, b"0123").expect("seed");
+        store.mark_part(&part);
+        let mut sink = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&part)
+            .expect("open");
+        std::io::Write::write_all(&mut sink, b"4567").expect("more");
+        store.remount.store(3, std::sync::atomic::Ordering::SeqCst);
+        assert!(!store.ours_part(&part), "grown past its mark");
+        store.stamp_part(&part, &sink);
+        assert!(
+            store.ours_part(&part),
+            "the stamp did not follow the download"
+        );
+    }
+
+    /// D375 (L-c): a mark that cannot be written — the records folder is
+    /// not one — refuses the download before anything is asked of the
+    /// server, and the `.part` it would have opened is not left behind
+    /// unmarked.
+    #[test]
+    fn a_download_that_cannot_mark_its_part_is_refused_up_front() {
+        let server = Server::serving(BODY, true, 1);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let records = dir.path().join(".records");
+        std::fs::write(&records, b"a file where the folder would be").expect("blocker");
+        let store = Downloads::new(dir.path(), &records);
+        let entry = entry(
+            "m",
+            vec![file(
+                &server.url("m.gguf"),
+                Some(&sha_of(BODY)),
+                BODY.len() as u64,
+            )],
+        );
+        let part = store.model_dir("m").expect("model dir").join("m.gguf.part");
+        match store.fetch(&entry, &Cancel::new(), &|_| {}) {
+            Err(StoreError::Io { .. }) => {}
+            other => panic!("a download with no mark: {other:?}"),
+        }
+        assert!(!part.exists(), "an unmarked .part was left");
+        assert!(server.ranges().is_empty(), "a request went out");
     }
 
     /// D351 (A2): a `.part` no download of ours opened is another tool's
@@ -1677,7 +2070,7 @@ mod tests {
             !seen.is_empty() && seen.iter().all(|ours| *ours),
             "{seen:?}"
         );
-        assert!(store.downloaded(&model_dir.join("m.gguf")));
+        assert!(store.downloaded(&model_dir.join("m.gguf"), None));
         assert!(
             !store.mark_path(&part).exists(),
             "the .part's mark outlived it"
@@ -1904,7 +2297,10 @@ mod tests {
         mirror.put("qwen/meta.json", b"{}");
         assert!(store.remove(&mirror.entry).expect("ours"));
         assert!(!ours.exists());
-        assert!(!store.downloaded(&ours), "the mark outlived the download");
+        assert!(
+            !store.downloaded(&ours, None),
+            "the mark outlived the download"
+        );
         assert!(note.exists(), "a file nobody downloaded was deleted");
         assert!(theirs.exists());
         assert_eq!(store.weights_path(&mirror.entry), Some(theirs));
