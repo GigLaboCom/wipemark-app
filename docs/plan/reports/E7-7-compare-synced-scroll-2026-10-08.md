@@ -120,7 +120,33 @@ On `12d02aa` (then the report commit, docs only), all `--locked`, through
 No llama crate and no `local.rs` changed, so the native gates were not
 due.
 
-CI: CI_RUN
+CI on `d799231` (E7-7 alone, before the merge below): `gate` run 169,
+<https://github.com/GigLaboCom/wipemark-app/actions/runs/37769229207> —
+**success** in all three jobs: `gate (fmt, clippy, test, deps, features)`
+success, `native (llama.cpp prebuilt + Vulkan, model-free)` success,
+`macos (clippy, tests, llama-native prebuilt with Metal)` success.
+
+## Everything of the last two days in this branch
+
+At the owner's request (2026-10-08), `e7/compare-synced-scroll` now holds
+everything pushed in the last two days. Every branch on `origin` with a
+commit dated 2026-10-07 or later was already an ancestor except one,
+`fix/consent-and-lows` (the queue's consent checked against the engine
+handed out, and its Lows, D370–D375), which is merged in as `6ff95e2`:
+no conflicts, and it does not touch Compare. Contained after the merge,
+checked with `git merge-base --is-ancestor`: `fix/consent-and-lows`,
+`docs/after-integrate-2026-10-08`, `feat/e0-e6-shell`,
+`integrate/2026-10-08`, `fix/integrate-e4-6b`, `fix/integrate-models-tray`,
+`fix/integrate-e4-6c`, `e4/windows-rewrite`, `fix/owner-2026-10-07`,
+`e10/linux-tray`, `e4/templates-widgets`, `research/divergence-vs-upstream`,
+`e7/windows-clean`. Not merged: `origin/main`, which is GitHub's
+`Initial commit` of 2026-09-07 (a two-line README, unrelated history).
+
+The gates again on the merged tree (`6ff95e2`, `gates.sh`): every one
+exit 0; `cargo test --workspace` **1650 passed, 0 failed, 7 ignored**;
+`cargo test -p wipemark-app --features local-llama` **647 passed, 0
+failed, 2 ignored**. The CI run for the merged head is the one after
+the push of this report.
 
 ## For the owner, in a window (≤ 8 lines)
 
