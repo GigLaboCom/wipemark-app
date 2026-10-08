@@ -437,7 +437,10 @@ mod tests {
         let queue = queue();
         let item = ItemId(4);
 
-        let rows: Vec<(&str, Made, &Handed, bool, Result<Target, NoTarget>)> = vec![
+        // What the window was opened on, what it shows on the left, whether
+        // it came from a row — and where Save writes.
+        type Row<'a> = (&'a str, Made, &'a Handed, bool, Result<Target, NoTarget>);
+        let rows: Vec<Row> = vec![
             (
                 "a row nothing was written for: a Clean of the pane",
                 Made::Cleaned,

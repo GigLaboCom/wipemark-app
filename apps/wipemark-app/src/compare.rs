@@ -284,8 +284,11 @@ pub fn init(cx: &mut App) {
 /// (D412). `false` when the row cannot take it: gone, or moved on.
 #[derive(Clone)]
 pub struct Link {
-    pub told: Rc<dyn Fn(Told, &mut App) -> bool>,
+    pub told: Tell,
 }
+
+/// The function a [`Link`] is: what the row answers to being told.
+pub type Tell = Rc<dyn Fn(Told, &mut App) -> bool>;
 
 /// What a window tells the row it was opened from — or asks it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1798,7 +1801,7 @@ impl CompareView {
     /// while this window autosaves, a save once typing has been quiet for
     /// [`save::QUIET`] (S3, D415). Every road in is an edit: typing, a
     /// paste, Undo, Reset.
-    fn typed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn typed(&mut self, window: &Window, cx: &mut Context<Self>) {
         if !matches!(self.state, State::Ready) {
             return;
         }
@@ -2062,7 +2065,7 @@ impl CompareView {
     /// Tell whoever keeps the row that its result was saved, edited: the
     /// main window's row, through the link, or this window's own journal
     /// row (D412, D417). A Save that cleans is told by the line instead.
-    fn tell_saved(&mut self, cx: &mut App) {
+    fn tell_saved(&self, cx: &mut App) {
         if matches!(self.target, Ok(Target::Row)) {
             // The row took the text itself, and marked it.
             return;
@@ -2236,12 +2239,7 @@ impl CompareView {
     /// edits here let go, and autosave as before (D413). For a file that
     /// was already where a Save that cleans would go, that file is the
     /// result's home from now on.
-    fn keep_theirs(
-        &mut self,
-        exists: Option<std::path::PathBuf>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn keep_theirs(&self, exists: Option<std::path::PathBuf>, window: &Window, cx: &Context<Self>) {
         let from = match (&exists, &self.target) {
             (Some(path), _) | (None, Ok(Target::File(path))) => RewriteFrom::File(path.clone()),
             (None, Ok(Target::Item(queue, item))) => RewriteFrom::Item(Arc::clone(queue), *item),
@@ -4122,13 +4120,13 @@ mod tests {
     }
 
     /// Let typing be quiet for `by`, and everything that starts run.
-    fn wait(cx: &mut gpui::VisualTestContext, by: Duration) {
+    fn wait(cx: &gpui::VisualTestContext, by: Duration) {
         cx.executor().advance_clock(by);
         cx.run_until_parked();
     }
 
     /// Long enough for autosave to fire.
-    fn quiet(cx: &mut gpui::VisualTestContext) {
+    fn quiet(cx: &gpui::VisualTestContext) {
         wait(cx, save::QUIET + Duration::from_millis(100));
     }
 
@@ -4473,7 +4471,7 @@ mod tests {
         go.send(()).expect("go");
         cx.run_until_parked();
         assert_eq!(std::fs::read(&result).expect("result"), b"two\n");
-        assert_eq!(line_under_the_result(&view, cx).is_empty(), false);
+        assert!(!line_under_the_result(&view, cx).is_empty());
         assert!(!cx.update(|_, cx| view.read(cx).saving.dirty));
     }
 
