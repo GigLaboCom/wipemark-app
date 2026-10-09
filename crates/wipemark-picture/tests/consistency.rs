@@ -48,11 +48,17 @@ fn an_exact_inverse_is_consistent_to_rounding() {
                 r.consistency_px, r.consistency_excluded, r.clamped, r.holes, r.lossy
             );
             assert!(r.consistency_px <= 1.0, "{name}: {r:?}");
-            assert_eq!(
-                r.consistency_excluded,
-                r.clamped + 3 * r.holes,
-                "{name}: {r:?}"
-            );
+            // In RGB every clamped sample and the three of every hole are
+            // left out. The planar path (E12-R6, `planar-preview` only)
+            // leaves out Y pixels and chroma blocks instead, which no
+            // count of RGB samples states.
+            if r.planar.is_none() {
+                assert_eq!(
+                    r.consistency_excluded,
+                    r.clamped + 3 * r.holes,
+                    "{name}: {r:?}"
+                );
+            }
             assert_eq!(r.consistency_dct, None, "{name}");
             restored += 1;
             lossy += usize::from(r.lossy);
