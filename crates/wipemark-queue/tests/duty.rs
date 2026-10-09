@@ -645,6 +645,8 @@ impl EngineSource for Settling {
 /// endpoint: the duty has moved, and the item is checked against the
 /// engine that is coming. Told the engine moved, the queue starts it on the
 /// new one. Start items whatever the source says, and it goes to Y: red.
+/// Told while the swap is still on its way — the application tells as the
+/// swap is deferred too (D454) — the queue looks again and still waits.
 #[test]
 fn no_item_starts_on_the_engine_leaving() {
     let y = Whereto::Away("https://y.example.com".to_owned());
@@ -665,6 +667,10 @@ fn no_item_starts_on_the_engine_leaving() {
     let request = text_request(&text);
     let id = queue.reserve(&request).expect("reserved");
     let item = queue.push_reserved(id, request, Some(y)).expect("pushed");
+    nothing_starts(&events, Duration::from_millis(300));
+    assert!(!y_asked.load(Ordering::SeqCst));
+    // Told while the swap is still on its way: look again, and wait.
+    queue.engine_changed();
     nothing_starts(&events, Duration::from_millis(300));
     assert!(!y_asked.load(Ordering::SeqCst));
 

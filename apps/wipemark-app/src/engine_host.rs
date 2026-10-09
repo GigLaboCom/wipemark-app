@@ -623,12 +623,15 @@ impl EngineHandle {
         self.shared.swap_pending.load(Ordering::SeqCst)
     }
 
-    /// Say a deferred change of duty is pending, or no longer is. Its end
-    /// tells whoever watches the slot, as a swap does — a queue that waited
-    /// for it looks again, whether or not the slot moved.
+    /// Say a deferred change of duty is pending, or no longer is. Every
+    /// change of the flag tells whoever watches the slot, as a swap does
+    /// (D454): its start, so a queue holding or asking about the engine
+    /// leaving looks again — and, finding the swap on its way, still waits
+    /// (D395) — and its end, so a queue that waited looks again whether or
+    /// not the slot moved.
     fn set_swap_pending(&self, pending: bool) {
         let was = self.shared.swap_pending.swap(pending, Ordering::SeqCst);
-        if was && !pending {
+        if was != pending {
             for watcher in self
                 .shared
                 .watchers
@@ -2294,7 +2297,9 @@ mod tests {
     /// watches the slot, told as the flag clears, finds the new engine
     /// there. Never raise the flag and the queue starts the next item on
     /// endpoint Y: red; clear it before the deferred swap runs and the
-    /// queue is told while Y is still in the slot: red.
+    /// queue is told while Y is still in the slot: red. And told when it
+    /// starts and when it lands (D454): `(true, Y)` before the job ends,
+    /// `(false, Z)` after.
     #[gpui::test]
     fn a_deferred_swap_is_pending_until_it_lands(cx: &mut gpui::TestAppContext) {
         let endpoint = |origin: &str| Reading {
@@ -2348,6 +2353,15 @@ mod tests {
             handle.slot_going().1,
             Some(y.clone()),
             "the swap landed under the job"
+        );
+        // M5 (D454): told as the swap is deferred, not only as it lands —
+        // pending, with the engine leaving still in the slot. Tell watchers
+        // only as the flag clears and nobody hears of it until the job
+        // ends: red.
+        assert_eq!(
+            told.lock().expect("lock").as_slice(),
+            [(true, Some(y.clone()))],
+            "the deferral was not told"
         );
 
         drop(job);
