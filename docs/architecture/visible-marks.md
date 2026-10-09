@@ -395,8 +395,9 @@ traces; the proof here is stricter and the map and the logo are measured.
   second. Both sets are what the code takes, as it is, and neither is
   the obvious one. *The pixels it changed* are those of the template
   with `α` in [0.002, 0.95) — 3 868 on V1's large row, against the
-  3 439–3 441 a restoration reports as changed (the fifth host
-  verification's count): the faint ones under half a level
+  3 441–3 442 a restoration reports as changed (the host verifications'
+  count: `scripts/verify/images/round3-1a22a54/batch.py`, and
+  `images-followups-2-2026-10-04.md`'s S2): the faint ones under half a level
   are counted though the inverse rounds them back to themselves. *Around*
   is every pixel of the square under `α` 0.002 and of a ring four pixels
   out — and the square's own, at the mark's corners, are the ones the
@@ -408,7 +409,8 @@ traces; the proof here is stricter and the map and the logo are measured.
   (around them 1.18–1.88); at JPEG 4:4:4 95, 8.59–9.22 against
   3.05–3.36; at 4:2:0 95, 10.25–10.90. The bound sits where an eye stops finding it, on a
   scale of the same pictures at 4:4:4: 6.12–6.51 at 97 is plain at ×6
-  and traceable at ×3, 4.88–5.22 at 98 (all 22, cut to 1040) is barely
+  and traceable at ×3, 4.88–5.22 at 98 (the 21 besides `crying`, which
+  is 5.60 and said; the 2048 files and their 1040 cuts alike) is barely
   found at ×6 and practically nothing at ×3, 3.5 at 99 is nothing. The
   margin is therefore **5 %** over the roughest at 98 (`10_this_is_fine`,
   5.22, `fine-1040-q98-444.jpg`: not said, and said at a bound of 5.0)
