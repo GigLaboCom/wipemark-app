@@ -265,7 +265,9 @@ def main() -> None:
     calib = {}
     if (runs / "judge.jsonl").exists():
         for j in load(runs / "judge.jsonl"):
-            if "of" in j:
+            # Since E4-8 a judge file also holds the voice question's lines
+            # (`voice`, no `verdict`); this report reads the meaning only.
+            if "of" in j and "verdict" in j:
                 judge[j["of"]] = j["verdict"]
             elif "calib" in j:
                 c = calib.setdefault(j["calib"], [0, 0])

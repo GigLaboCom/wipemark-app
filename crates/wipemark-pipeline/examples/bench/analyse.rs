@@ -12,10 +12,11 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 
 use serde_json::{json, Map, Value};
+use wipemark_pipeline::lang::Lang;
 
 use crate::args::Args;
 use crate::judge;
-use crate::measure::{kept_bigrams, percentile};
+use crate::measure::{kept_bigrams, percentile, Voice};
 
 const GUARDS: [&str; 5] = [
     "placeholder",
@@ -36,6 +37,19 @@ pub struct Policy {
 pub const E4_3: Policy = POLICIES[0];
 /// The loop's policy since E4-7 (D95): the most diverged, floor 0.2.
 pub const E4_7: Policy = POLICIES[2];
+/// The cells the policy tables simulate, in their order.
+const CELLS: [(&str, &str); 6] = [
+    ("paraphrase", "light"),
+    ("paraphrase", "moderate"),
+    ("paraphrase", "strong"),
+    ("humanize", "moderate"),
+    ("humanize", "strong"),
+    ("back_translate", "moderate"),
+];
+
+/// The least diverged at E4-7's floor — the research's "cheap middle"
+/// (`divergence-vs-upstream-2026-10-07.md`), beside E4-7 in the voice table.
+pub const VOICE_BESIDE: Policy = POLICIES[3];
 
 pub const POLICIES: [Policy; 8] = [
     Policy {
@@ -98,6 +112,84 @@ pub fn basic(r: &Value) -> bool {
 
 fn kept(r: &Value) -> f64 {
     f64::from(kept_bigrams(s(r, "chunk_text"), s(r, "answer")))
+}
+
+/// The language a record's voice is measured in: the item's — its id's
+/// prefix in the bench's corpus, else the `lang` the run wrote (a corpus of
+/// one's own names its items freely).
+fn lang_of(r: &Value) -> Option<Lang> {
+    Lang::parse(s(r, "item").split('-').next().unwrap_or("")).or_else(|| Lang::parse(s(r, "lang")))
+}
+
+/// The voice of an answered record, recomputed from its texts as the
+/// preface and the trailer are (D422): a record made before E4-8 has one
+/// too, and a changed register list needs no rerun of the models.
+fn voice_of(r: &Value) -> Option<Voice> {
+    Some(Voice::of(
+        lang_of(r)?,
+        s(r, "chunk_text"),
+        r["answer"].as_str()?,
+    ))
+}
+
+fn round3(v: f64) -> f64 {
+    (v * 1000.0).round() / 1000.0
+}
+
+/// The median and the quartiles: the voice measures' spread (E4-8). The
+/// older measures keep their p10–p90.
+fn quartiles(values: &[f64]) -> Value {
+    let p = |q| percentile(values, q).map(round3);
+    json!({"n": values.len(), "q1": p(25.0), "median": p(50.0), "q3": p(75.0)})
+}
+
+fn quart_md(d: &Value) -> String {
+    match (d["q1"].as_f64(), d["median"].as_f64(), d["q3"].as_f64()) {
+        (Some(a), Some(m), Some(b)) => format!("{m:.2} [{a:.2}–{b:.2}]"),
+        _ => "–".into(),
+    }
+}
+
+/// What a set of rewrites did to the voice — one [`Voice`] per chunk (or
+/// per attempt): the second person kept by count over every chunk that had
+/// one and per chunk, the chunks that lost any or all of it, the ru/de
+/// chunks addressed one way and answered the other, the first person, the
+/// length in words and the register proxy (D420, D421).
+fn voice_summary(voices: &[Voice]) -> Value {
+    let with_second = voices.iter().filter(|v| v.source.second > 0).count();
+    let second: (u32, u32) = voices.iter().fold((0, 0), |(s, k), v| {
+        (
+            s + v.source.second,
+            k + v.answer.second.min(v.source.second),
+        )
+    });
+    let first: (u32, u32) = voices.iter().fold((0, 0), |(s, k), v| {
+        (s + v.source.first, k + v.answer.first.min(v.source.first))
+    });
+    let words: (u32, u32) = voices
+        .iter()
+        .fold((0, 0), |(s, a), v| (s + v.words.0, a + v.words.1));
+    let count = |p: &dyn Fn(&Voice) -> bool| voices.iter().filter(|v| p(v)).count();
+    let shifts: Vec<f64> = voices.iter().filter_map(Voice::register_shift).collect();
+    json!({
+        "n": voices.len(),
+        "with_second": with_second,
+        "second": [second.0, second.1],
+        "second_kept_all": ratio(second.1 as usize, second.0 as usize),
+        "second_kept_per_chunk": quartiles(&voices.iter().filter_map(Voice::second_kept).collect::<Vec<_>>()),
+        "lost_any": ratio(count(&|v| v.lost_second() == Some(true)), with_second),
+        "lost_all": ratio(count(&|v| v.lost_all_second() == Some(true)), with_second),
+        "address": count(&|v| v.switched.is_some()),
+        "switched": count(&|v| v.switched == Some(true)),
+        "first": [first.0, first.1],
+        "first_kept_all": ratio(first.1 as usize, first.0 as usize),
+        "first_kept_per_chunk": quartiles(&voices.iter().filter_map(Voice::first_kept).collect::<Vec<_>>()),
+        "words": [words.0, words.1],
+        "words_ratio_all": ratio(words.1 as usize, words.0 as usize),
+        "words_ratio": quartiles(&voices.iter().filter_map(Voice::words_ratio).collect::<Vec<_>>()),
+        "register_shift": quartiles(&shifts),
+        "register_shift_mean": if shifts.is_empty() { Value::Null } else { json!(round3(shifts.iter().sum::<f64>() / shifts.len() as f64)) },
+    })
 }
 
 fn pct(n: usize, d: usize) -> String {
@@ -193,6 +285,7 @@ fn metrics(rs: &[&Value]) -> Value {
         "tokens_per_call": if n == 0 { Value::Null } else { json!((tokens as f64 / n as f64).round()) },
         "secs_per_attempt": if n == 0 { Value::Null } else { json!((secs / n as f64 * 100.0).round() / 100.0) },
         "tokens_per_second": if secs == 0.0 { Value::Null } else { json!((tokens as f64 / secs * 10.0).round() / 10.0) },
+        "voice": voice_summary(&answered.iter().filter_map(|r| voice_of(r)).collect::<Vec<_>>()),
     })
 }
 
@@ -203,6 +296,8 @@ struct Pick<'a> {
     winner: Option<&'a Value>,
     /// The chunk's text, as the model saw it.
     source: &'a str,
+    /// The item's language, for the voice measures.
+    lang: Option<Lang>,
     calls: usize,
     secs: f64,
 }
@@ -227,6 +322,7 @@ fn simulate<'a>(group: &Group<'a>, policy: Policy, gpu: bool) -> Option<Pick<'a>
         return None;
     }
     let source = group.values().next().map_or("", |r| s(r, "chunk_text"));
+    let lang = group.values().next().and_then(|r| lang_of(r));
     let mut calls = 0;
     let mut secs = 0.0;
     for round in rounds {
@@ -252,6 +348,7 @@ fn simulate<'a>(group: &Group<'a>, policy: Policy, gpu: bool) -> Option<Pick<'a>
             return Some(Pick {
                 winner,
                 source,
+                lang,
                 calls,
                 secs,
             });
@@ -260,6 +357,7 @@ fn simulate<'a>(group: &Group<'a>, policy: Policy, gpu: bool) -> Option<Pick<'a>
     Some(Pick {
         winner: None,
         source,
+        lang,
         calls,
         secs,
     })
@@ -270,6 +368,7 @@ fn policy_row(
     policy: Policy,
     gpu: bool,
     verdicts: &HashMap<String, String>,
+    voices: &HashMap<String, String>,
 ) -> Value {
     let picks: Vec<Pick> = groups
         .iter()
@@ -314,6 +413,26 @@ fn policy_row(
             json!((part / whole * 1000.0).round() / 1000.0)
         }
     };
+    // The voice of what the policy ships: each chunk's winner, or its
+    // source where nothing qualified (a kept chunk keeps its voice whole).
+    let shipped: Vec<Voice> = picks
+        .iter()
+        .filter_map(|p| {
+            let lang = p.lang?;
+            Some(Voice::of(
+                lang,
+                p.source,
+                p.winner.map_or(p.source, |w| s(w, "answer")),
+            ))
+        })
+        .collect();
+    let mut voice = voice_summary(&shipped);
+    let judged_voice: Vec<&String> = winners
+        .iter()
+        .filter_map(|w| voices.get(s(w, "key")))
+        .collect();
+    let said = |answer: &str| judged_voice.iter().filter(|v| v.as_str() == answer).count();
+    voice["judged"] = json!({"n": judged_voice.len(), "yes": said("YES"), "partly": said("PARTLY"), "no": said("NO")});
     json!({
         "policy": policy.name,
         "executor": if gpu { "gpu-2x2" } else { "cpu-1x2" },
@@ -329,6 +448,7 @@ fn policy_row(
         "changed": ratio(changed, judged.len()),
         "calls_per_chunk": if n == 0 { Value::Null } else { json!((picks.iter().map(|p| p.calls).sum::<usize>() as f64 / n as f64 * 100.0).round() / 100.0) },
         "secs_per_chunk": if n == 0 { Value::Null } else { json!((picks.iter().map(|p| p.secs).sum::<f64>() / n as f64 * 10.0).round() / 10.0) },
+        "voice": voice,
     })
 }
 
@@ -352,9 +472,30 @@ pub fn main(args: &Args) {
             records.push(r);
         }
     }
+    let judgements = judge::records(&args.list("--judge"));
+    let examples = args.value("--examples").map(|n| n.parse().unwrap_or(3));
+    let (md, summary) = tables(records, &judgements, examples);
+    if let Some(path) = args.value("--summary") {
+        std::fs::write(&path, summary_text(&summary)).unwrap_or_else(|e| panic!("{path}: {e}"));
+        eprintln!("wrote {path}");
+    }
+    print!("{md}");
+}
+
+/// `report` without its files: the Markdown tables of `records` judged by
+/// `judgements` — and, with `examples`, that many before/after examples per
+/// model and language — and the summary. Records made before a measure
+/// existed still report: what can be recomputed from the texts is (the
+/// preface, the trailer, the voice), and what cannot (a judge's voice
+/// answer) is shown as "–".
+pub fn tables(
+    mut records: Vec<Value>,
+    judgements: &[Value],
+    examples: Option<usize>,
+) -> (String, Map<String, Value>) {
     for r in &mut records {
-        // `lang` on a record is the detection over the answer; the
-        // document's language is the item's (its id's prefix).
+        // The document's language is the item's (its id's prefix);
+        // `lang_answer` is the detection over the answer.
         r["lang_doc"] = json!(s(r, "item").split('-').next().unwrap_or(""));
         r["lang_chunk"] = json!(crate::measure::detect(s(r, "chunk_text")).map(|l| l.as_str()));
         // Recomputed from the texts, so a better detector needs no rerun.
@@ -364,16 +505,15 @@ pub fn main(args: &Args) {
             r["trailer"] = json!(crate::measure::trailer(&source, &answer));
         }
     }
-    let judgements = judge::records(&args.list("--judge"));
-    let verdicts: HashMap<String, String> = judgements
-        .iter()
-        .filter_map(|j| {
-            Some((
-                j["of"].as_str()?.to_owned(),
-                j["verdict"].as_str()?.to_owned(),
-            ))
-        })
-        .collect();
+    let answers = |field: &str| -> HashMap<String, String> {
+        judgements
+            .iter()
+            .filter_map(|j| Some((j["of"].as_str()?.to_owned(), j[field].as_str()?.to_owned())))
+            .collect()
+    };
+    let verdicts = answers(judge::Question::Meaning.field());
+    // E4-8: the judge's voice answer, a line of its own beside the meaning's.
+    let voices = answers(judge::Question::Voice.field());
 
     let mut models: Vec<String> = Vec::new();
     for r in &records {
@@ -657,21 +797,14 @@ pub fn main(args: &Args) {
             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
         );
         for (m, model) in models.iter().enumerate() {
-            for (tactic, intensity) in [
-                ("paraphrase", "light"),
-                ("paraphrase", "moderate"),
-                ("paraphrase", "strong"),
-                ("humanize", "moderate"),
-                ("humanize", "strong"),
-                ("back_translate", "moderate"),
-            ] {
+            for (tactic, intensity) in CELLS {
                 let these: Vec<&Group> = groups
                     .iter()
                     .filter(|((gm, t, i, _, _, _), _)| *gm == m && t == tactic && i == intensity)
                     .map(|(_, g)| g)
                     .collect();
                 for policy in POLICIES {
-                    let mut row = policy_row(&these, policy, gpu, &verdicts);
+                    let mut row = policy_row(&these, policy, gpu, &verdicts, &voices);
                     if row["chunks"] == 0 {
                         continue;
                     }
@@ -697,7 +830,7 @@ pub fn main(args: &Args) {
                     pol.push(row);
                     // Per language, for the summary and the per-language
                     // table: the GPU's, for the policies the report weighs.
-                    let weighed = [E4_3.name, E4_7.name, "min ≥ 0.6"];
+                    let weighed = [E4_3.name, E4_7.name, VOICE_BESIDE.name, "min ≥ 0.6"];
                     if !gpu || !weighed.contains(&policy.name) {
                         continue;
                     }
@@ -709,7 +842,7 @@ pub fn main(args: &Args) {
                             })
                             .map(|(_, g)| g)
                             .collect();
-                        let mut row = policy_row(&per, policy, gpu, &verdicts);
+                        let mut row = policy_row(&per, policy, gpu, &verdicts, &voices);
                         row["model"] = json!(model);
                         row["tactic"] = json!(tactic);
                         row["intensity"] = json!(intensity);
@@ -821,6 +954,69 @@ pub fn main(args: &Args) {
                 },
             );
         }
+    }
+    // E4-8: the voice of what the loop ships, beside the least-diverged
+    // pick on the same candidates — D111 re-read against it.
+    let _ = writeln!(
+        md,
+        "\n### Voice — the loop's pick (E4-7) beside the least diverged; every language\n"
+    );
+    let _ = writeln!(md, "GPU 2 × 2 where the run made four candidates a chunk, CPU 1 × 2 where it made two. Second and first person are pronouns counted, kept by count; a chunk kept as it was keeps its voice. The register shift is a proxy: the share of the answer's words that a list of formal words and suffixes matches and the source has no word for (`docs/architecture/prompt-bench.md`, \"Voice\").\n");
+    let _ = writeln!(md, "| model | tactic | intensity | executor | policy | chunks | with 2nd person | 2nd person kept, by count | per chunk, med [q1–q3] | lost any / lost all | ты↔вы, du↔Sie switched | 1st person kept | words ×, all · per chunk med [q1–q3] | register shift med [q1–q3] · mean | voice judged YES / PARTLY / NO |");
+    let _ = writeln!(
+        md,
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+    );
+    let mut voice_rows: Vec<&Value> = Vec::new();
+    for model in &models {
+        for (tactic, intensity) in CELLS {
+            for policy in [E4_7, VOICE_BESIDE] {
+                let row = |executor: &str| {
+                    pol.iter().find(|r| {
+                        s(r, "model") == model
+                            && s(r, "tactic") == tactic
+                            && s(r, "intensity") == intensity
+                            && s(r, "policy") == policy.name
+                            && s(r, "executor") == executor
+                            && r["lang"] == "all"
+                    })
+                };
+                voice_rows.extend(row("gpu-2x2").or_else(|| row("cpu-1x2")));
+            }
+        }
+    }
+    for row in voice_rows {
+        let v = &row["voice"];
+        let judged = &v["judged"];
+        let n_judged = judged["n"].as_u64().unwrap_or(0) as usize;
+        let share = |field: &str| pct(judged[field].as_u64().unwrap_or(0) as usize, n_judged);
+        let _ = writeln!(
+            md,
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} / {} | {} of {} | {} | {} · {} | {} · {} | {} |",
+            s(row, "model"),
+            s(row, "tactic"),
+            s(row, "intensity"),
+            if row["executor"] == "gpu-2x2" { "GPU 2 × 2" } else { "CPU 1 × 2" },
+            s(row, "policy"),
+            row["chunks"],
+            v["with_second"],
+            fmt_ratio(&v["second_kept_all"]),
+            quart_md(&v["second_kept_per_chunk"]),
+            fmt_ratio(&v["lost_any"]),
+            fmt_ratio(&v["lost_all"]),
+            v["switched"],
+            v["address"],
+            fmt_ratio(&v["first_kept_all"]),
+            v["words_ratio_all"].as_f64().map_or("–".into(), |x| format!("{x:.2}")),
+            quart_md(&v["words_ratio"]),
+            quart_md(&v["register_shift"]),
+            v["register_shift_mean"].as_f64().map_or("–".into(), |x| format!("{x:.3}")),
+            if n_judged == 0 {
+                "–".to_owned()
+            } else {
+                format!("{} / {} / {} of {n_judged}", share("yes"), share("partly"), share("no"))
+            },
+        );
     }
     summary.insert("policies".into(), Value::Array(pol));
 
@@ -994,13 +1190,30 @@ pub fn main(args: &Args) {
             );
             cal.push(json!({"judge": judge_name, "case": case, "n": js.len(), "as_expected": ok}));
         }
+        // E4-8: the voice question's calibration — a text keeps its own
+        // voice. Judgements made before E4-8 have none.
+        let js: Vec<&Value> = judgements
+            .iter()
+            .filter(|j| j["judge"] == judge_name && j["voice_calib"] == "same")
+            .collect();
+        if !js.is_empty() {
+            let ok = js.iter().filter(|j| j["voice"] == "YES").count();
+            let _ = writeln!(
+                md,
+                "| {judge_name} | same (voice) | YES | {} | {} |",
+                js.len(),
+                pct(ok, js.len())
+            );
+            cal.push(json!({"judge": judge_name, "case": "same-voice", "n": js.len(), "as_expected": ok}));
+        }
         let other = judgements
             .iter()
             .filter(|j| {
                 j["judge"] == judge_name
-                    && j["verdict"]
-                        .as_str()
-                        .is_some_and(|v| v.starts_with("other"))
+                    && [j["verdict"].as_str(), j["voice"].as_str()]
+                        .into_iter()
+                        .flatten()
+                        .any(|v| v.starts_with("other"))
             })
             .count();
         let _ = writeln!(
@@ -1010,36 +1223,30 @@ pub fn main(args: &Args) {
     }
     summary.insert("judge_calibration".into(), Value::Array(cal));
 
-    if let Some(path) = args.value("--summary") {
-        // One row per line: small, and a rerun diffs row by row.
-        let mut text = String::from("{\n");
-        let sections: Vec<_> = summary.iter().collect();
-        for (i, (key, value)) in sections.iter().enumerate() {
-            let _ = writeln!(text, "  {}: [", json!(key));
-            let rows = value.as_array().cloned().unwrap_or_default();
-            for (j, row) in rows.iter().enumerate() {
-                let comma = if j + 1 < rows.len() { "," } else { "" };
-                let _ = writeln!(text, "    {row}{comma}");
-            }
-            let comma = if i + 1 < sections.len() { "," } else { "" };
-            let _ = writeln!(text, "  ]{comma}");
-        }
-        text.push_str("}\n");
-        serde_json::from_str::<Value>(&text).expect("the summary is JSON");
-        std::fs::write(&path, text).unwrap_or_else(|e| panic!("{path}: {e}"));
-        eprintln!("wrote {path}");
+    if let Some(n) = examples {
+        write_examples(&mut md, &groups, &models, &verdicts, n);
     }
-    print!("{md}");
+    (md, summary)
+}
 
-    if let Some(n) = args.value("--examples") {
-        examples(
-            &records,
-            &groups,
-            &models,
-            &verdicts,
-            n.parse().unwrap_or(3),
-        );
+/// The summary as `summary.json` holds it: one row per line — small, and a
+/// rerun diffs row by row.
+fn summary_text(summary: &Map<String, Value>) -> String {
+    let mut text = String::from("{\n");
+    let sections: Vec<_> = summary.iter().collect();
+    for (i, (key, value)) in sections.iter().enumerate() {
+        let _ = writeln!(text, "  {}: [", json!(key));
+        let rows = value.as_array().cloned().unwrap_or_default();
+        for (j, row) in rows.iter().enumerate() {
+            let comma = if j + 1 < rows.len() { "," } else { "" };
+            let _ = writeln!(text, "    {row}{comma}");
+        }
+        let comma = if i + 1 < sections.len() { "," } else { "" };
+        let _ = writeln!(text, "  ]{comma}");
     }
+    text.push_str("}\n");
+    serde_json::from_str::<Value>(&text).expect("the summary is JSON");
+    text
 }
 
 fn fmt_ratio(v: &Value) -> String {
@@ -1049,15 +1256,14 @@ fn fmt_ratio(v: &Value) -> String {
 
 /// Before/after, per language and model: the source, and the winners of
 /// E4-3's policy, of `min ≥ 0.6` and of E4-7's — GPU, `paraphrase`.
-fn examples(
-    records: &[Value],
+fn write_examples(
+    md: &mut String,
     groups: &BTreeMap<(usize, String, String, String, String, u64), Group>,
     models: &[String],
     verdicts: &HashMap<String, String>,
     per_lang: usize,
 ) {
-    let _ = records;
-    println!("\n## Examples\n");
+    let _ = writeln!(md, "\n## Examples\n");
     for (m, model) in models.iter().enumerate() {
         for lang in ["en", "ru", "de"] {
             let mut shown = 0;
@@ -1087,25 +1293,230 @@ fn examples(
                 }
                 shown += 1;
                 let source = group.values().next().map_or("", |r| s(r, "chunk_text"));
-                println!(
+                let _ = writeln!(
+                    md,
                     "### {model} · {lang} · {item} chunk {chunk}\n\n**Source**\n\n> {}\n",
                     source.trim().replace('\n', "\n> ")
                 );
                 for (name, winner) in picks {
-                    match winner {
-                        Some(w) => println!(
+                    let _ = match winner {
+                        Some(w) => writeln!(
+                            md,
                             "**{name}** — divergence {:.2}, word change {:.2}, judge {}\n\n> {}\n",
                             f(w, "divergence").unwrap_or(0.0),
                             f(w, "word_change").unwrap_or(0.0),
                             verdicts.get(s(w, "key")).map_or("–", String::as_str),
                             s(w, "answer").trim().replace('\n', "\n> ")
                         ),
-                        None => println!(
+                        None => writeln!(
+                            md,
                             "**{name}** — nothing qualified: the paragraph is kept as it was\n"
                         ),
-                    }
+                    };
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One attempt of `paraphrase` moderate as `run` writes it — without
+    /// the `voice` field, as every record made before E4-8 is.
+    fn record(item: &str, k: u64, source: &str, answer: Option<&str>, divergence: f64) -> Value {
+        json!({
+            "key": format!("m|{item}|0|paraphrase|moderate|{k}"),
+            "model": "m",
+            "item": item,
+            "lang": item.split('-').next(),
+            "kind": "machine",
+            "chunk": 0,
+            "tactic": "paraphrase",
+            "intensity": "moderate",
+            "k": k,
+            "chunk_text": source,
+            "answer": answer,
+            "verdict": if answer.is_some() { "passed" } else { "guard" },
+            "divergence": answer.map(|_| divergence),
+            "word_change": 0.5,
+            "length_ratio": 1.0,
+            "steps": [{"step": 1, "tokens_out": 10, "secs": 1.0}],
+            "secs": 1.0,
+            "guards": {},
+            "restore": null,
+            "placeholders": 0,
+            "placeholders_kept": 0,
+            "injection": null,
+        })
+    }
+
+    const SOURCE: &str = "You can fix it, and your team can help you.";
+
+    /// k2 is the most diverged of round 1 and keeps every "you"; k1, the
+    /// least, keeps none.
+    fn english() -> Vec<Value> {
+        vec![
+            record(
+                "en-mx-01",
+                1,
+                SOURCE,
+                Some("One can fix it, and the team can help."),
+                0.5,
+            ),
+            record(
+                "en-mx-01",
+                2,
+                SOURCE,
+                Some("You can fix it; your team helps you too."),
+                0.7,
+            ),
+            record(
+                "en-mx-01",
+                3,
+                SOURCE,
+                Some("You fix it, your team helps you."),
+                0.6,
+            ),
+            record(
+                "en-mx-01",
+                4,
+                SOURCE,
+                Some("You fix it, your team helps you."),
+                0.6,
+            ),
+        ]
+    }
+
+    /// The voice table's row for `policy`.
+    fn voice_row(md: &str, policy: &str) -> String {
+        let table = md
+            .split("\n### ")
+            .find(|section| section.starts_with("Voice"))
+            .expect("the voice table");
+        let start = format!("| m | paraphrase | moderate | GPU 2 × 2 | {policy} |");
+        table
+            .lines()
+            .find(|line| line.starts_with(&start))
+            .unwrap_or_else(|| panic!("no row for {policy} in\n{table}"))
+            .to_owned()
+    }
+
+    #[test]
+    fn records_made_before_the_voice_measures_still_report_them() {
+        let (md, summary) = tables(english(), &[], None);
+        assert_eq!(
+            voice_row(&md, "max ≥ 0.2 (E4-7)"),
+            "| m | paraphrase | moderate | GPU 2 × 2 | max ≥ 0.2 (E4-7) | 1 | 1 | 100% | 1.00 [1.00–1.00] \
+             | 0% / 0% | 0 of 0 | – | 0.90 · 0.90 [0.90–0.90] | 0.00 [0.00–0.00] · 0.000 | – |"
+        );
+        assert_eq!(
+            voice_row(&md, "min ≥ 0.2"),
+            "| m | paraphrase | moderate | GPU 2 × 2 | min ≥ 0.2 | 1 | 1 | 0% | 0.00 [0.00–0.00] \
+             | 100% / 100% | 0 of 0 | – | 0.90 · 0.90 [0.90–0.90] | 0.00 [0.00–0.00] · 0.000 | – |"
+        );
+        let e4_7 = summary["policies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["policy"] == E4_7.name && r["executor"] == "gpu-2x2" && r["lang"] == "all")
+            .expect("the loop's row");
+        assert_eq!(e4_7["voice"]["second"], json!([3, 3]));
+        assert_eq!(e4_7["voice"]["judged"]["n"], 0);
+        let attempts = &summary["attempts"][0]["voice"];
+        assert_eq!(attempts["n"], 4, "every answered attempt, measured");
+        assert_eq!(attempts["lost_all"], json!(0.25));
+    }
+
+    #[test]
+    fn the_judges_voice_answer_is_read_beside_the_meaning() {
+        let judgements = vec![
+            json!({"key": "judge|J|m|en-mx-01|0|paraphrase|moderate|2", "of": "m|en-mx-01|0|paraphrase|moderate|2", "judge": "J", "verdict": "EQUIVALENT"}),
+            json!({"key": "voice|J|m|en-mx-01|0|paraphrase|moderate|2", "of": "m|en-mx-01|0|paraphrase|moderate|2", "judge": "J", "voice": "YES"}),
+            json!({"key": "voice|J|m|en-mx-01|0|paraphrase|moderate|1", "of": "m|en-mx-01|0|paraphrase|moderate|1", "judge": "J", "voice": "NO"}),
+            json!({"key": "calib-voice|J|en-mx-01#0|same", "voice_calib": "same", "item": "en-mx-01#0", "judge": "J", "voice": "YES"}),
+        ];
+        let (md, _) = tables(english(), &judgements, None);
+        assert!(voice_row(&md, "max ≥ 0.2 (E4-7)").ends_with("| 100% / 0% / 0% of 1 |"));
+        assert!(voice_row(&md, "min ≥ 0.2").ends_with("| 0% / 0% / 100% of 1 |"));
+        assert!(md.contains("| J | same (voice) | YES | 1 | 100% |"));
+        // The meaning's own columns read the meaning lines only.
+        assert!(md.contains("| J | same | EQUIVALENT | 0 | – |"));
+    }
+
+    #[test]
+    fn a_chunk_kept_as_it_was_keeps_its_voice() {
+        let refused: Vec<Value> = (1..=4)
+            .map(|k| record("en-mx-01", k, SOURCE, None, 0.0))
+            .collect();
+        let (md, _) = tables(refused, &[], None);
+        assert_eq!(
+            voice_row(&md, "max ≥ 0.2 (E4-7)"),
+            "| m | paraphrase | moderate | GPU 2 × 2 | max ≥ 0.2 (E4-7) | 1 | 1 | 100% | 1.00 [1.00–1.00] \
+             | 0% / 0% | 0 of 0 | – | 1.00 · 1.00 [1.00–1.00] | 0.00 [0.00–0.00] · 0.000 | – |"
+        );
+    }
+
+    #[test]
+    fn a_cell_with_two_candidates_shows_the_cpu_pick() {
+        // `humanize` at two candidates a chunk (the voice run's grid): no
+        // GPU 2 × 2 to simulate, so the voice table shows CPU 1 × 2 —
+        // k1 alone, k2 only when k1 did not qualify.
+        let records: Vec<Value> = english()
+            .into_iter()
+            .take(2)
+            .map(|mut r| {
+                r["tactic"] = json!("humanize");
+                r["key"] = json!(s(&r, "key").replace("paraphrase", "humanize"));
+                r
+            })
+            .collect();
+        let (md, _) = tables(records, &[], None);
+        let table = md
+            .split("\n### ")
+            .find(|section| section.starts_with("Voice"))
+            .unwrap();
+        let rows: Vec<&str> = table
+            .lines()
+            .filter(|line| line.starts_with("| m |"))
+            .collect();
+        assert_eq!(rows.len(), 2, "{table}");
+        assert!(rows[0].starts_with(
+            "| m | humanize | moderate | CPU 1 × 2 | max ≥ 0.2 (E4-7) | 1 | 1 | 0% |"
+        ));
+    }
+
+    #[test]
+    fn a_rewrite_that_moves_from_du_to_sie_is_counted_as_switched() {
+        let source = "Hast du Fragen? Schreib uns.";
+        let records = vec![
+            record(
+                "de-mx-01",
+                1,
+                source,
+                Some("Hast du noch Fragen? Schreib uns."),
+                0.3,
+            ),
+            record(
+                "de-mx-01",
+                2,
+                source,
+                Some("Haben Sie Fragen? Schreiben Sie uns."),
+                0.8,
+            ),
+            record("de-mx-01", 3, source, Some("Fragen? Schreib uns."), 0.5),
+            record("de-mx-01", 4, source, Some("Fragen? Schreib uns."), 0.5),
+        ];
+        let (md, _) = tables(records, &[], None);
+        let cells = |row: String| row.split(" | ").nth(10).map(str::to_owned);
+        assert_eq!(
+            cells(voice_row(&md, "max ≥ 0.2 (E4-7)")).as_deref(),
+            Some("1 of 1")
+        );
+        assert_eq!(
+            cells(voice_row(&md, "min ≥ 0.2")).as_deref(),
+            Some("0 of 1")
+        );
     }
 }

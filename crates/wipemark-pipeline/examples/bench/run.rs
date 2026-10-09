@@ -20,11 +20,9 @@ use wipemark_core::GuardOutcome;
 use wipemark_engine::{EngineError, FinishReason, RewriteEngine};
 use wipemark_pipeline::cost::{Effort, Executor};
 use wipemark_pipeline::job::{plan, verdict, Rung};
-use wipemark_pipeline::lang::Lang;
 use wipemark_pipeline::prepare::{estimate_tokens, Chunk, TextFormat};
 use wipemark_pipeline::prompt::{
-    clean_response, hash, render, shipped, validate, Input, Intensity, Origin, Override, Overrides,
-    RenderError, Role, Severity, Slot, Stripped, Tactic, ValidationContext,
+    clean_response, render, Input, Intensity, RenderError, Slot, Stripped, Tactic,
 };
 use wipemark_pipeline::report::{rejection_value, EngineFailure, Rejection};
 use wipemark_pipeline::select::{self, Scorer};
@@ -32,7 +30,7 @@ use wipemark_pipeline::{seed_for, Document, Options};
 
 use crate::args::Args;
 use crate::corpus::{self, Item};
-use crate::{engine, measure};
+use crate::{engine, measure, variant};
 
 /// The effort whose seeds the bench reproduces: a GPU's 2 × 2 (D61), so
 /// candidate `k` is the attempt the job would make there — round
@@ -110,69 +108,6 @@ pub fn options(tactic: Tactic, intensity: Intensity) -> Options {
     options.intensity = intensity;
     options.structural_confirmed = tactic == Tactic::Structural;
     options
-}
-
-/// A template variant to try without rebuilding: every
-/// `<dir>/<lang>/<tactic>.<step>.<role>.txt` becomes an override of that
-/// slot — the road a user's edited template takes (D74), so a variant is
-/// planned, validated and rendered exactly as an edit would be.
-pub fn variant(dir: &Path) -> Overrides {
-    let mut overrides = Overrides::new();
-    for lang in Lang::ALL {
-        let Ok(entries) = std::fs::read_dir(dir.join(lang.as_str())) else {
-            continue;
-        };
-        for entry in entries.map_while(Result::ok) {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let parts: Vec<&str> = name.split('.').collect();
-            let [tactic, step, role, "txt"] = parts[..] else {
-                panic!("{name}: <tactic>.<step>.<role>.txt");
-            };
-            let slot = Slot::new(
-                lang,
-                Tactic::parse(tactic).expect("a tactic"),
-                step.parse().expect("a step"),
-                Role::parse(role).expect("a role"),
-            )
-            .unwrap_or_else(|| panic!("{name}: no such slot"));
-            let text = std::fs::read_to_string(entry.path()).expect("the variant reads");
-            // Judged as an edit in Settings would be: an error refuses the
-            // variant, so a variant that wins can be shipped as it is.
-            let other = std::fs::read_to_string(dir.join(lang.as_str()).join(format!(
-                "{tactic}.{step}.{}.txt",
-                slot.other_role().role().as_str()
-            )))
-            .ok();
-            let other = other
-                .as_deref()
-                .or_else(|| shipped::template(slot.other_role()))
-                .expect("the other role");
-            let context = ValidationContext {
-                other_role: other,
-                ctx_len: Some(8192),
-                intensity: Intensity::Moderate,
-                based_on: None,
-            };
-            let problems = validate(slot, &text, &context);
-            for problem in &problems {
-                eprintln!("variant {name}: {problem:?} ({:?})", problem.severity());
-            }
-            assert!(
-                problems.iter().all(|p| p.severity() != Severity::Error),
-                "{name} does not validate"
-            );
-            overrides.insert(
-                slot,
-                Override {
-                    text,
-                    based_on: hash(shipped::template(slot).expect("a shipped template")),
-                    adapted_from: None,
-                    origin: Origin::Hand,
-                },
-            );
-        }
-    }
-    overrides
 }
 
 pub fn key(model: &str, item: &str, chunk: usize, tactic: &str, intensity: &str, k: u8) -> String {
@@ -363,6 +298,22 @@ pub fn selected(items: Vec<Item>, args: &Args) -> Vec<Item> {
 }
 
 pub fn main(args: &Args) {
+    attempts(args, false);
+}
+
+/// `plan --of run`: what [`main`] would make with the same flags — one line,
+/// `attempts=<n> calls=<n> done=<n>` — and nothing loaded. `calls` counts
+/// every step of every attempt (an attempt that fails early makes fewer);
+/// `bench/run-voice.sh` multiplies it by a measured time per call.
+pub fn plan_only(args: &Args) {
+    if let Some((attempts, calls, done)) = attempts(args, true) {
+        println!("attempts={attempts} calls={calls} done={done}");
+    }
+}
+
+/// Plan the run `args` asks for; with `plan_only`, return what it would
+/// make — attempts, calls, records already done — and load nothing.
+fn attempts(args: &Args, plan_only: bool) -> Option<(usize, usize, usize)> {
     let corpus = Path::new(
         &args
             .value("--corpus")
@@ -379,7 +330,14 @@ pub fn main(args: &Args) {
     let (model, engine) = engine::from_args(args);
     let info = engine.info();
     let done = done(&out);
-    let overrides = args.value("--variant").map(|dir| variant(Path::new(&dir)));
+    let overrides = args.value("--variant").map(|dir| {
+        let (overrides, warnings) = variant::load(Path::new(&dir), info.ctx_len)
+            .unwrap_or_else(|refused| panic!("--variant {dir}: {refused}"));
+        for warning in warnings {
+            eprintln!("variant {warning}");
+        }
+        overrides
+    });
     if let Some(o) = &overrides {
         eprintln!(
             "variant: {} template(s) overridden",
@@ -443,8 +401,12 @@ pub fn main(args: &Args) {
         done.len(),
         out.display()
     );
+    if plan_only {
+        let calls: usize = work.iter().map(|w| w.3.plan.steps.len()).sum();
+        return Some((work.len(), calls, done.len()));
+    }
     if work.is_empty() {
-        return;
+        return None;
     }
 
     let started = Instant::now();
@@ -494,6 +456,12 @@ pub fn main(args: &Args) {
                 (Some(_), None) => json!(false),
                 (None, _) => Value::Null,
             },
+            // E4-8: who the answer speaks to and as, its length in words
+            // and the register proxy (D420, D421). `report` recomputes them
+            // from the texts; the record carries them so it reads alone.
+            "voice": record["answer"].as_str().map_or(Value::Null, |answer| {
+                measure::Voice::of(item.lang, &chunk.text, answer).to_json()
+            }),
         });
         for (field, value) in meta.as_object().expect("an object") {
             record[field] = value.clone();
@@ -516,4 +484,28 @@ pub fn main(args: &Args) {
         "done: {total} attempts, {tokens} tokens out in {:.1} min",
         run_started.elapsed().as_secs_f64() / 60.0
     );
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plan_counts_every_step_of_every_attempt_and_loads_nothing() {
+        // A model file that does not exist: over the shim a load would be
+        // refused and `attempts` would panic, so a count here loaded nothing.
+        let args = Args::of(
+            "plan",
+            &[
+                ("--local", "/nowhere/model.gguf"),
+                ("--name", "m"),
+                ("--out", "/nowhere/records.jsonl"),
+                ("--items", "en-mx-01"),
+                ("--grid", "paraphrase:moderate:4;back_translate:-:2"),
+            ],
+        );
+        // en-mx-01 is one paragraph: one chunk; back_translate is two steps.
+        assert_eq!(attempts(&args, true), Some((4 + 2, 4 + 2 * 2, 0)));
+    }
 }

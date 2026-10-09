@@ -10,6 +10,16 @@
 //! sentence of another item appended (both must be `CHANGED`). A proxy, and
 //! reported as one: it is a model's opinion, and it also judges its own
 //! answers.
+//!
+//! Since E4-8 it asks a second, separate question of the same attempts —
+//! does the rewrite keep the source's **voice** (who it speaks to and as,
+//! its tone and register)? `YES`, `PARTLY` or `NO` (D423). The meaning
+//! question is not touched: its prompt, its keys and its lines are what
+//! they were, so its calibration and every earlier judgement stand. The
+//! voice answer is a line of its own beside the meaning's (`voice|…`,
+//! `"of"` the same attempt), so a file judged before E4-8 gets its voice
+//! lines by being judged again; its calibration is the chunk against
+//! itself (must be `YES`).
 
 use std::collections::HashSet;
 use std::io::{BufRead, Write};
@@ -36,11 +46,81 @@ fn prompt(source: &str, answer: &str) -> String {
     )
 }
 
-/// `EQUIVALENT`, `CHANGED`, or what came back when it was neither.
-pub fn ask(engine: &dyn RewriteEngine, source: &str, answer: &str) -> (String, f64) {
+const VOICE_SYSTEM: &str =
+    "You compare the voice of two texts. You answer with exactly one word: YES, PARTLY or NO.";
+
+fn voice_prompt(source: &str, answer: &str) -> String {
+    format!(
+        "Text A is an original. Text B is a rewrite of it. Marks like \u{27E6}1\u{27E7} stand for protected content such as code or links.\n\n\
+         A:\n<<<\n{}\n>>>\n\nB:\n<<<\n{}\n>>>\n\n\
+         Does B keep the voice of A: does it speak to the reader the way A does (the same person, such as \"you\", \"I\" or \"we\", and the same informal or formal address), \
+         in the same tone and register, with words no more formal or elaborate than A's? \
+         Differences in wording, word order and sentence boundaries do not matter, and neither do the facts. Answer YES, PARTLY or NO.",
+        source.trim(),
+        answer.trim()
+    )
+}
+
+/// The two questions the judge asks of an attempt, each a request and a
+/// line of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Question {
+    /// Same facts? `EQUIVALENT` or `CHANGED` — the bench's question since
+    /// E4-5, unchanged.
+    Meaning,
+    /// Same voice? `YES`, `PARTLY` or `NO` (E4-8).
+    Voice,
+}
+
+impl Question {
+    fn answers(self) -> &'static [&'static str] {
+        match self {
+            Question::Meaning => &["EQUIVALENT", "CHANGED"],
+            Question::Voice => &["YES", "PARTLY", "NO"],
+        }
+    }
+
+    /// The field of the judgement's line the answer goes in.
+    pub fn field(self) -> &'static str {
+        match self {
+            Question::Meaning => "verdict",
+            Question::Voice => "voice",
+        }
+    }
+}
+
+/// The answer's first word if it is one `question` takes, else
+/// `other:<what came back>`.
+pub fn parse(question: Question, reply: &str) -> String {
+    let word: String = reply
+        .trim()
+        .trim_start_matches(|c: char| !c.is_alphabetic())
+        .chars()
+        .take_while(|c| c.is_alphabetic())
+        .collect::<String>()
+        .to_uppercase();
+    if question.answers().contains(&word.as_str()) {
+        word
+    } else {
+        format!("other:{}", reply.trim())
+    }
+}
+
+/// One question about `answer` against `source`, at temperature 0: its
+/// answer as [`parse`] reads it.
+pub fn ask(
+    engine: &dyn RewriteEngine,
+    question: Question,
+    source: &str,
+    answer: &str,
+) -> (String, f64) {
+    let (system, prompt) = match question {
+        Question::Meaning => (SYSTEM, prompt(source, answer)),
+        Question::Voice => (VOICE_SYSTEM, voice_prompt(source, answer)),
+    };
     let request = ChatRequest {
-        system: Some(SYSTEM.to_owned()),
-        prompt: prompt(source, answer),
+        system: Some(system.to_owned()),
+        prompt,
         params: SamplingParams {
             temperature: 0.0,
             top_p: 1.0,
@@ -53,18 +133,7 @@ pub fn ask(engine: &dyn RewriteEngine, source: &str, answer: &str) -> (String, f
     let reply = engine::complete(engine, request)
         .map(|c| c.text)
         .unwrap_or_else(|e| format!("error: {e:?}"));
-    let word: String = reply
-        .trim()
-        .trim_start_matches(|c: char| !c.is_alphabetic())
-        .chars()
-        .take_while(|c| c.is_alphabetic())
-        .collect::<String>()
-        .to_uppercase();
-    let verdict = match word.as_str() {
-        "EQUIVALENT" | "CHANGED" => word,
-        _ => format!("other:{}", reply.trim()),
-    };
-    (verdict, started.elapsed().as_secs_f64())
+    (parse(question, &reply), started.elapsed().as_secs_f64())
 }
 
 /// The attempts worth judging: an answer that passed every guard but the
@@ -118,14 +187,16 @@ fn sentences(text: &str) -> Vec<&str> {
     out
 }
 
-pub fn main(args: &Args) {
-    let inputs = args.list("--in");
-    let out = PathBuf::from(args.required("--out"));
-    let (judge, engine) = engine::from_args(args);
-    let done = run::done(&out);
-    let records = read(&inputs);
+/// One judgement to make: its key, the two texts, the line's fields, and
+/// the question.
+type Work = Vec<(String, String, String, Value, Question)>;
 
-    let mut work: Vec<(String, String, String, Value)> = Vec::new();
+/// Every judgement `--in` asks for that `--out` does not hold yet, in the
+/// order they are made: the calibration, then each attempt's meaning and
+/// voice.
+fn work(args: &Args, judge: &str, done: &HashSet<String>) -> Work {
+    let records = read(&args.list("--in"));
+    let mut work: Work = Vec::new();
     // Calibration first: one triple per distinct plain chunk of two or more
     // sentences, from the first model's records.
     let mut seen = HashSet::new();
@@ -151,21 +222,64 @@ pub fn main(args: &Args) {
         ] {
             let key = format!("calib|{judge}|{id}|{case}");
             if !done.contains(&key) {
-                work.push((key, text.clone(), b, json!({"calib": case, "item": id})));
+                work.push((
+                    key,
+                    text.clone(),
+                    b,
+                    json!({"calib": case, "item": id}),
+                    Question::Meaning,
+                ));
             }
         }
-    }
-    for r in records.iter().filter(|r| judgeable(r)) {
-        let key = format!("judge|{judge}|{}", r["key"].as_str().unwrap_or(""));
+        // The voice question's calibration: a text keeps its own voice.
+        let key = format!("calib-voice|{judge}|{id}|same");
         if !done.contains(&key) {
             work.push((
                 key,
-                r["chunk_text"].as_str().unwrap_or("").to_owned(),
-                r["answer"].as_str().unwrap_or("").to_owned(),
-                json!({"of": r["key"]}),
+                text.clone(),
+                text.clone(),
+                json!({"voice_calib": "same", "item": id}),
+                Question::Voice,
             ));
         }
     }
+    for r in records.iter().filter(|r| judgeable(r)) {
+        let of = r["key"].as_str().unwrap_or("");
+        for (prefix, question) in [("judge", Question::Meaning), ("voice", Question::Voice)] {
+            let key = format!("{prefix}|{judge}|{of}");
+            if !done.contains(&key) {
+                work.push((
+                    key,
+                    r["chunk_text"].as_str().unwrap_or("").to_owned(),
+                    r["answer"].as_str().unwrap_or("").to_owned(),
+                    json!({"of": r["key"]}),
+                    question,
+                ));
+            }
+        }
+    }
+    work
+}
+
+/// `plan --of judge`: what [`main`] would ask with the same flags, one
+/// line, and no model loaded — every judgement is one call.
+pub fn plan_only(args: &Args) {
+    let judge = args.required("--name");
+    let done = run::done(&PathBuf::from(args.required("--out")));
+    let work = work(args, &judge, &done);
+    let attempts = work.iter().filter(|w| w.3["of"].is_string()).count() / 2;
+    println!(
+        "attempts={attempts} calls={} done={}",
+        work.len(),
+        done.len()
+    );
+}
+
+pub fn main(args: &Args) {
+    let out = PathBuf::from(args.required("--out"));
+    let (judge, engine) = engine::from_args(args);
+    let done = run::done(&out);
+    let work = work(args, &judge, &done);
     eprintln!("{} judgements to make", work.len());
     if work.is_empty() {
         return;
@@ -177,15 +291,99 @@ pub fn main(args: &Args) {
         .open(&out)
         .expect("the output opens");
     let total = work.len();
-    for (n, (key, a, b, mut meta)) in work.into_iter().enumerate() {
-        let (verdict, secs) = ask(engine.as_ref(), &a, &b);
+    for (n, (key, a, b, mut meta, question)) in work.into_iter().enumerate() {
+        let (answer, secs) = ask(engine.as_ref(), question, &a, &b);
         meta["key"] = json!(key);
         meta["judge"] = json!(judge);
-        meta["verdict"] = json!(verdict);
+        meta[question.field()] = json!(answer);
         meta["secs"] = json!(secs);
         writeln!(file, "{meta}").expect("written");
-        if n % 50 == 0 || verdict.starts_with("other") {
-            eprintln!("[{}/{total}] {key}: {verdict} ({secs:.2}s)", n + 1);
+        if n % 50 == 0 || answer.starts_with("other") {
+            eprintln!("[{}/{total}] {key}: {answer} ({secs:.2}s)", n + 1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_question_takes_only_its_own_answers() {
+        assert_eq!(parse(Question::Meaning, " Equivalent."), "EQUIVALENT");
+        assert_eq!(
+            parse(Question::Voice, "**Partly** — the register"),
+            "PARTLY"
+        );
+        assert_eq!(parse(Question::Voice, "no"), "NO");
+        assert_eq!(parse(Question::Voice, "CHANGED"), "other:CHANGED");
+        assert_eq!(parse(Question::Meaning, "YES"), "other:YES");
+    }
+
+    #[test]
+    fn every_judged_attempt_is_asked_both_questions_and_an_old_file_only_the_new_one() {
+        let path = std::env::temp_dir().join(format!(
+            "wipemark-judge-work-{}-{:?}.jsonl",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let record = |k: u64| {
+            json!({
+                "key": format!("m|en-mx-01|0|paraphrase|moderate|{k}"),
+                "item": "en-mx-01", "chunk": 0, "tactic": "paraphrase",
+                "intensity": "moderate", "k": k, "placeholders": 0,
+                "chunk_text": "You can fix it. Your team can help.",
+                "answer": "One can fix it. The team can help.",
+                "verdict": "passed", "guards": {}, "restore": null,
+            })
+        };
+        std::fs::write(&path, format!("{}\n{}\n", record(1), record(2))).unwrap();
+        let args = Args::of("judge", &[("--in", path.to_str().unwrap())]);
+
+        let fresh = work(&args, "J", &HashSet::new());
+        let questions = |w: &Work, q: Question| w.iter().filter(|x| x.4 == q).count();
+        assert_eq!(
+            questions(&fresh, Question::Meaning),
+            3 + 2,
+            "calibration and each attempt"
+        );
+        assert_eq!(
+            questions(&fresh, Question::Voice),
+            1 + 2,
+            "its calibration and each attempt"
+        );
+        assert!(fresh
+            .iter()
+            .any(|w| w.0 == "voice|J|m|en-mx-01|0|paraphrase|moderate|1"
+                && w.3["of"] == "m|en-mx-01|0|paraphrase|moderate|1"));
+
+        // A file judged before E4-8: every meaning line there, no voice line.
+        let before: HashSet<String> = fresh
+            .iter()
+            .filter(|w| w.4 == Question::Meaning)
+            .map(|w| w.0.clone())
+            .collect();
+        let again = work(&args, "J", &before);
+        assert_eq!(
+            questions(&again, Question::Meaning),
+            0,
+            "the meaning is never asked twice"
+        );
+        assert_eq!(questions(&again, Question::Voice), 3);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn the_meaning_question_is_the_one_e4_5_asked() {
+        // A judgement made before E4-8 and one made after are the same
+        // question: the voice question is asked beside it, never in it.
+        let asked = prompt("A one.", "B one.");
+        assert!(asked.ends_with(
+            "Does B state the same facts, claims, numbers and names as A, with nothing added, \
+             nothing left out and nothing changed in meaning? Differences in wording, word order, \
+             style and sentence boundaries do not matter. Answer EQUIVALENT or CHANGED."
+        ));
+        assert!(!asked.contains("voice"));
+        assert!(voice_prompt("A one.", "B one.").contains("informal or formal address"));
     }
 }

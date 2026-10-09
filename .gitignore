@@ -49,6 +49,13 @@ Thumbs.db
 *.gguf
 *.partial
 
+# The prompt bench's raw records and judgements (texts included) under a
+# run's results directory — e.g. bench/run-voice.sh's voice-<date>/. A
+# run's tables.md and summary.json are what may be committed
+# (docs/architecture/prompt-bench.md).
+/crates/wipemark-pipeline/bench/results/*/runs/
+/crates/wipemark-pipeline/bench/results/*/judge.jsonl
+
 # Config / queue / history written by the app or CLI during development.
 *.log
 /config.toml

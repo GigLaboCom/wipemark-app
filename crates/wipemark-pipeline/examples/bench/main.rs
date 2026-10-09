@@ -20,6 +20,7 @@ mod engine;
 mod judge;
 mod measure;
 mod run;
+mod variant;
 mod verify;
 mod whole;
 
@@ -40,6 +41,8 @@ usage: bench <mode> [--flag value]...
           --in <records.jsonl> --items <ids>
   report  --in <records.jsonl,...> [--judge <judgements.jsonl,...>]
           [--summary bench/results/summary.json] [--examples 3]
+  plan    --of run|judge  and that mode's flags: prints
+          `attempts=<n> calls=<n> done=<n>` and loads no model
 
 grid: tactic:intensities:k;...  default
   paraphrase:light,moderate,strong:4;humanize:moderate,strong:2;back_translate:-:2;structural:-:1";
@@ -52,6 +55,14 @@ fn main() {
         "verify" => verify::main(&args),
         "whole" => whole::main(&args),
         "report" => analyse::main(&args),
+        "plan" => match args.required("--of").as_str() {
+            "run" => run::plan_only(&args),
+            "judge" => judge::plan_only(&args),
+            other => {
+                eprintln!("plan --of {other:?}: run or judge\n\n{USAGE}");
+                std::process::exit(2);
+            }
+        },
         other => {
             eprintln!("unknown mode {other:?}\n\n{USAGE}");
             std::process::exit(2);

@@ -23,6 +23,18 @@ impl Args {
         Args { mode, pairs }
     }
 
+    /// `mode` and its `--flag value` pairs, as a test hands them.
+    #[cfg(test)]
+    pub fn of(mode: &str, pairs: &[(&str, &str)]) -> Args {
+        Args {
+            mode: mode.to_owned(),
+            pairs: pairs
+                .iter()
+                .map(|(flag, value)| (flag.to_string(), value.to_string()))
+                .collect(),
+        }
+    }
+
     pub fn value(&self, flag: &str) -> Option<String> {
         self.pairs
             .iter()

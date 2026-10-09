@@ -257,6 +257,427 @@ pub fn obeyed(inject: &Inject, source: &str, answer: &str) -> bool {
     }
 }
 
+// ── Voice (E4-8) ─────────────────────────────────────────────────────
+//
+// The bench measured how much of the source a rewrite carried and whether
+// it kept the meaning; it could not see that a rewrite spoke to the reader
+// differently, or more formally (docs/plan/reports/divergence-vs-upstream-
+// 2026-10-07.md: "Your agent is smart" → "Your agent possesses
+// intelligence"). These are its measures of voice: who the text speaks to
+// and as (person words), how long it grew (in words), and a proxy for the
+// register (D420, D421).
+
+/// The pronouns of one language the voice measures count — a closed class,
+/// so it is code; the register's lists are a judgement, and are data.
+struct PersonWords {
+    /// Second person, informal: en every "you" (English has no other),
+    /// ru «ты», de «du» and the plural «euch/euer».
+    informal: &'static [&'static str],
+    /// Second person, formal: ru «вы» (the plural too — in a text that
+    /// speaks to its reader it is the polite address), de «Sie» written with
+    /// a capital. Matched **as written** in German, lower-cased in Russian.
+    formal: &'static [&'static str],
+    /// First person, singular and plural.
+    first: &'static [&'static str],
+}
+
+const EN_PERSONS: PersonWords = PersonWords {
+    informal: &["you", "your", "yours", "yourself", "yourselves"],
+    formal: &[],
+    // "I" is matched as written (a lower-case "i" is "i.e."), and "US" in
+    // capitals is a country — both in `persons`.
+    first: &[
+        "me",
+        "my",
+        "mine",
+        "myself",
+        "we",
+        "us",
+        "our",
+        "ours",
+        "ourselves",
+    ],
+};
+
+const RU_PERSONS: PersonWords = PersonWords {
+    informal: &[
+        "ты",
+        "тебя",
+        "тебе",
+        "тобой",
+        "тобою",
+        "твой",
+        "твоя",
+        "твоё",
+        "твое",
+        "твои",
+        "твоего",
+        "твоей",
+        "твоему",
+        "твоим",
+        "твоих",
+        "твоими",
+        "твою",
+        "твоею",
+    ],
+    formal: &[
+        "вы",
+        "вас",
+        "вам",
+        "вами",
+        "ваш",
+        "ваша",
+        "ваше",
+        "ваши",
+        "вашего",
+        "вашей",
+        "вашему",
+        "вашим",
+        "ваших",
+        "вашими",
+        "вашу",
+        "вашею",
+    ],
+    first: &[
+        "я",
+        "меня",
+        "мне",
+        "мной",
+        "мною",
+        "мой",
+        "моя",
+        "моё",
+        "мое",
+        "мои",
+        "моего",
+        "моей",
+        "моему",
+        "моим",
+        "моих",
+        "моими",
+        "мою",
+        "моею",
+        "мы",
+        "нас",
+        "нам",
+        "нами",
+        "наш",
+        "наша",
+        "наше",
+        "наши",
+        "нашего",
+        "нашей",
+        "нашему",
+        "нашим",
+        "наших",
+        "нашими",
+        "нашу",
+        "нашею",
+    ],
+};
+
+/// German's bare "ihr" is left out: in prose it is far more often "her" or
+/// "their" than the plural "you", which `euch/euer…` carry unambiguously.
+const DE_PERSONS: PersonWords = PersonWords {
+    informal: &[
+        "du", "dich", "dir", "dein", "deine", "deinen", "deinem", "deiner", "deines", "euch",
+        "euer", "eure", "euren", "eurem", "eurer", "eures",
+    ],
+    formal: &[
+        "Sie", "Ihnen", "Ihr", "Ihre", "Ihren", "Ihrem", "Ihrer", "Ihres",
+    ],
+    first: &[
+        "ich", "mich", "mir", "mein", "meine", "meinen", "meinem", "meiner", "meines", "wir",
+        "uns", "unser", "unsere", "unseren", "unserem", "unserer", "unseres", "unsre", "unsren",
+        "unsrem", "unsrer", "unsres",
+    ],
+};
+
+fn person_words(lang: Lang) -> &'static PersonWords {
+    match lang {
+        Lang::En => &EN_PERSONS,
+        Lang::Ru => &RU_PERSONS,
+        Lang::De => &DE_PERSONS,
+    }
+}
+
+/// The length of the placeholder `⟦n⟧` at the start of `rest`, if one is.
+fn placeholder_at(rest: &str) -> Option<usize> {
+    let after = rest.strip_prefix('\u{27E6}')?;
+    let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+    (digits > 0 && after[digits..].starts_with('\u{27E7}'))
+        .then(|| '\u{27E6}'.len_utf8() + digits + '\u{27E7}'.len_utf8())
+}
+
+/// `text`'s words **as written** — the runs of letters and digits outside
+/// its placeholders — each with whether it opens a sentence: the first
+/// word, or the first after `.`, `!`, `?`, `…`, `:` or a line break.
+fn cased(text: &str) -> Vec<(&str, bool)> {
+    let mut out = Vec::new();
+    let mut start: Option<usize> = None;
+    let mut boundary = true;
+    let mut at = 0;
+    while at < text.len() {
+        if let Some(len) = placeholder_at(&text[at..]) {
+            if let Some(from) = start.take() {
+                out.push((&text[from..at], std::mem::take(&mut boundary)));
+            }
+            at += len;
+            continue;
+        }
+        let c = text[at..].chars().next().expect("inside the text");
+        if c.is_alphanumeric() {
+            start.get_or_insert(at);
+        } else {
+            if let Some(from) = start.take() {
+                out.push((&text[from..at], std::mem::take(&mut boundary)));
+            }
+            if matches!(c, '.' | '!' | '?' | '…' | ':' | '\n') {
+                boundary = true;
+            }
+        }
+        at += c.len_utf8();
+    }
+    if let Some(from) = start {
+        out.push((&text[from..], boundary));
+    }
+    out
+}
+
+/// Whether `text` addresses the reader formally beyond doubt — German only:
+/// a capitalised «Sie», «Ihnen» or «Ihr…» inside a sentence. At a
+/// sentence's start the capital says nothing ("Sie" is "she" and "they"
+/// too), so there it counts only when the pair has such a form (D420).
+fn plainly_formal(lang: Lang, text: &str) -> bool {
+    lang == Lang::De
+        && cased(text)
+            .iter()
+            .any(|(word, opens)| !opens && DE_PERSONS.formal.contains(word))
+}
+
+/// Who one text speaks to and as: its person words, counted.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Persons {
+    /// Second person, every form (informal and formal together).
+    pub second: u32,
+    /// Of `second`, the formal address (ru «вы», de «Sie»); 0 in English.
+    pub formal: u32,
+    /// First person, singular and plural.
+    pub first: u32,
+}
+
+impl Persons {
+    pub fn informal(self) -> u32 {
+        self.second - self.formal
+    }
+}
+
+/// [`Persons`] of `text`. `formal_here` says whether a German
+/// sentence-initial «Sie/Ihnen/Ihr…» is the formal address — see
+/// [`plainly_formal`].
+fn persons(lang: Lang, text: &str, formal_here: bool) -> Persons {
+    let words = person_words(lang);
+    let mut out = Persons::default();
+    for (word, opens) in cased(text) {
+        if lang == Lang::De && words.formal.contains(&word) {
+            if !opens || formal_here {
+                out.second += 1;
+                out.formal += 1;
+            }
+            continue;
+        }
+        if lang == Lang::En && (word == "I" || word == "US") {
+            out.first += u32::from(word == "I");
+            continue;
+        }
+        let lower = word.to_lowercase();
+        if words.informal.contains(&lower.as_str()) {
+            out.second += 1;
+        } else if lang == Lang::Ru && words.formal.contains(&lower.as_str()) {
+            out.second += 1;
+            out.formal += 1;
+        } else if words.first.contains(&lower.as_str()) {
+            out.first += 1;
+        }
+    }
+    out
+}
+
+/// One entry of a register list: `word`, `stem*` or `-suffix`.
+enum Entry {
+    Word(String),
+    Stem(String),
+    Suffix(String),
+}
+
+impl Entry {
+    fn matches(&self, word: &str) -> bool {
+        match self {
+            Entry::Word(w) => word == w,
+            Entry::Stem(stem) => word.starts_with(stem.as_str()),
+            Entry::Suffix(suffix) => {
+                word.ends_with(suffix.as_str())
+                    && word.chars().count() >= suffix.chars().count() + 3
+            }
+        }
+    }
+}
+
+/// The register lists (`bench/register/<lang>.txt`): data, so a list is
+/// changed without touching code, and `report` recomputes from the texts —
+/// a changed list needs no rerun of the models.
+pub const REGISTER_LISTS: [(Lang, &str); 3] = [
+    (Lang::En, include_str!("../../bench/register/en.txt")),
+    (Lang::Ru, include_str!("../../bench/register/ru.txt")),
+    (Lang::De, include_str!("../../bench/register/de.txt")),
+];
+
+fn entries(list: &str) -> Vec<Entry> {
+    list.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            if let Some(suffix) = line.strip_prefix('-') {
+                Entry::Suffix(suffix.to_owned())
+            } else if let Some(stem) = line.strip_suffix('*') {
+                Entry::Stem(stem.to_owned())
+            } else {
+                Entry::Word(line.to_owned())
+            }
+        })
+        .collect()
+}
+
+fn register(lang: Lang) -> &'static [Entry] {
+    use std::sync::OnceLock;
+    static LISTS: OnceLock<Vec<(Lang, Vec<Entry>)>> = OnceLock::new();
+    let lists = LISTS.get_or_init(|| {
+        REGISTER_LISTS
+            .iter()
+            .map(|(lang, list)| (*lang, entries(list)))
+            .collect()
+    });
+    lists
+        .iter()
+        .find(|(l, _)| *l == lang)
+        .map(|(_, e)| e.as_slice())
+        .expect("a register list for every language")
+}
+
+/// The crude stem the register proxy compares by: the first five letters.
+fn stem(word: &str) -> &str {
+    word.char_indices()
+        .nth(5)
+        .map_or(word, |(at, _)| &word[..at])
+}
+
+/// `words` without the placeholders.
+fn prose_words(text: &str) -> Vec<String> {
+    words(text)
+        .into_iter()
+        .filter(|w| !w.starts_with('\u{27E6}'))
+        .collect()
+}
+
+/// The voice of a rewrite against its source (D420, D421).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Voice {
+    pub source: Persons,
+    pub answer: Persons,
+    /// ru/de: the source addresses the reader in one register only, and
+    /// the answer uses the other (ты↔вы, du↔Sie) — any form of it. `None`
+    /// in English, and where the source addresses nobody or both ways.
+    pub switched: Option<bool>,
+    /// Words outside placeholders: the source's and the answer's.
+    pub words: (u32, u32),
+    /// The register proxy: the answer's words a register list matches
+    /// whose stem no word of the source has.
+    pub register_new: u32,
+}
+
+impl Voice {
+    pub fn of(lang: Lang, source: &str, answer: &str) -> Voice {
+        let formal_here = plainly_formal(lang, source) || plainly_formal(lang, answer);
+        let (s, a) = (
+            persons(lang, source, formal_here),
+            persons(lang, answer, formal_here),
+        );
+        let switched = match (lang, s.informal() > 0, s.formal > 0) {
+            (Lang::En, _, _) => None,
+            (_, true, false) => Some(a.formal > 0),
+            (_, false, true) => Some(a.informal() > 0),
+            _ => None,
+        };
+        let (source_words, answer_words) = (prose_words(source), prose_words(answer));
+        let stems: std::collections::HashSet<&str> = source_words.iter().map(|w| stem(w)).collect();
+        let list = register(lang);
+        let register_new = answer_words
+            .iter()
+            .filter(|w| !stems.contains(stem(w)) && list.iter().any(|e| e.matches(w)))
+            .count();
+        Voice {
+            source: s,
+            answer: a,
+            switched,
+            words: (source_words.len() as u32, answer_words.len() as u32),
+            register_new: register_new as u32,
+        }
+    }
+
+    /// The share of the source's second-person words the answer has — by
+    /// count, at most 1; `None` when the source has none.
+    pub fn second_kept(&self) -> Option<f64> {
+        kept(self.source.second, self.answer.second)
+    }
+
+    pub fn first_kept(&self) -> Option<f64> {
+        kept(self.source.first, self.answer.first)
+    }
+
+    /// Whether the answer has fewer second-person words than the source;
+    /// `None` when the source has none.
+    pub fn lost_second(&self) -> Option<bool> {
+        (self.source.second > 0).then_some(self.answer.second < self.source.second)
+    }
+
+    /// Whether the answer has none of the source's second person; `None`
+    /// when the source has none.
+    pub fn lost_all_second(&self) -> Option<bool> {
+        (self.source.second > 0).then_some(self.answer.second == 0)
+    }
+
+    /// Words of the answer over words of the source; `None` for a source
+    /// with no word.
+    pub fn words_ratio(&self) -> Option<f64> {
+        (self.words.0 > 0).then(|| f64::from(self.words.1) / f64::from(self.words.0))
+    }
+
+    /// The register proxy as a share of the answer's words; `None` for an
+    /// answer with no word.
+    pub fn register_shift(&self) -> Option<f64> {
+        (self.words.1 > 0).then(|| f64::from(self.register_new) / f64::from(self.words.1))
+    }
+
+    /// The record's `voice` field: the counts as `[source, answer]`, and
+    /// the two ratios.
+    pub fn to_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "second": [self.source.second, self.answer.second],
+            "formal": [self.source.formal, self.answer.formal],
+            "first": [self.source.first, self.answer.first],
+            "switched": self.switched,
+            "words": [self.words.0, self.words.1],
+            "register_new": self.register_new,
+            "words_ratio": self.words_ratio(),
+            "register_shift": self.register_shift(),
+        })
+    }
+}
+
+fn kept(source: u32, answer: u32) -> Option<f64> {
+    (source > 0).then(|| f64::from(answer.min(source)) / f64::from(source))
+}
+
 /// `p`-th percentile (0–100) of `values`, nearest rank; `None` when empty.
 pub fn percentile(values: &[f64], p: f64) -> Option<f64> {
     if values.is_empty() {
@@ -297,5 +718,236 @@ mod tests {
         let canary = Inject::Canary("ZEBRAFISH".into());
         assert!(obeyed(&canary, source, "ZEBRAFISH"));
         assert!(!obeyed(&canary, source, source));
+    }
+
+    fn counts(p: Persons) -> (u32, u32, u32) {
+        (p.second, p.formal, p.first)
+    }
+
+    #[test]
+    fn english_counts_you_and_i_but_not_the_country_or_i_e() {
+        let v = Voice::of(
+            Lang::En,
+            "You and your team know what I mean, i.e. we ship it to the US.",
+            "One knows what is meant: it ships to the US.",
+        );
+        assert_eq!(counts(v.source), (2, 0, 2), "you, your; I, we");
+        assert_eq!(counts(v.answer), (0, 0, 0));
+        assert_eq!(v.second_kept(), Some(0.0));
+        assert_eq!(v.first_kept(), Some(0.0));
+        assert_eq!(v.lost_second(), Some(true));
+        assert_eq!(v.lost_all_second(), Some(true));
+        assert_eq!(
+            v.switched, None,
+            "English has no formal address to switch to"
+        );
+
+        let you = Voice::of(Lang::En, "You'll see.", "You will see it, you know.");
+        assert_eq!(you.second_kept(), Some(1.0), "kept is at most all of it");
+        assert_eq!(you.lost_second(), Some(false));
+    }
+
+    #[test]
+    fn russian_counts_ty_and_vy_and_a_switch_between_them() {
+        let switched = Voice::of(
+            Lang::Ru,
+            "Ты знаешь, что твой код работает. Мы проверили.",
+            "Вы знаете, что ваш код работает. Мы проверили.",
+        );
+        assert_eq!(counts(switched.source), (2, 0, 1), "ты, твой; мы");
+        assert_eq!(counts(switched.answer), (2, 2, 1), "вы, ваш; мы");
+        assert_eq!(switched.switched, Some(true));
+        assert_eq!(
+            switched.second_kept(),
+            Some(1.0),
+            "the count is kept — the switch is its own figure"
+        );
+
+        let kept = Voice::of(
+            Lang::Ru,
+            "ТЫ знаешь, что ТВОЙ код работает.",
+            "Ты знаешь: код работает.",
+        );
+        assert_eq!(kept.switched, Some(false));
+        assert_eq!(kept.second_kept(), Some(0.5));
+        assert_eq!(kept.lost_second(), Some(true));
+        assert_eq!(kept.lost_all_second(), Some(false));
+
+        let both = Voice::of(Lang::Ru, "Ты и вы.", "Ты.");
+        assert_eq!(
+            both.switched, None,
+            "a source in both registers has none to keep"
+        );
+    }
+
+    #[test]
+    fn german_sie_inside_a_sentence_is_formal_and_at_its_start_needs_the_pair_to_say_so() {
+        let she = Voice::of(Lang::De, "Sie arbeitet als Ärztin.", "Sie ist Ärztin.");
+        assert_eq!(counts(she.source), (0, 0, 0), "she, at a sentence's start");
+        assert_eq!(counts(she.answer), (0, 0, 0));
+
+        let formal = Voice::of(
+            Lang::De,
+            "Wir senden Ihnen die Unterlagen. Sie erhalten sie morgen.",
+            "Die Unterlagen kommen morgen.",
+        );
+        assert_eq!(
+            counts(formal.source),
+            (2, 2, 1),
+            "Ihnen inside the sentence settles the Sie that opens the next; lower-case sie is them"
+        );
+        assert_eq!(formal.lost_all_second(), Some(true));
+        assert_eq!(formal.switched, Some(false));
+
+        let from_the_answer = Voice::of(
+            Lang::De,
+            "Sie können das Formular online ausfüllen.",
+            "Das Formular können Sie online ausfüllen.",
+        );
+        assert_eq!(counts(from_the_answer.source), (1, 1, 0));
+        assert_eq!(counts(from_the_answer.answer), (1, 1, 0));
+        assert_eq!(from_the_answer.second_kept(), Some(1.0));
+
+        let du_to_sie = Voice::of(
+            Lang::De,
+            "Hast du Fragen? Schreib uns, wir helfen dir.",
+            "Haben Sie Fragen? Schreiben Sie uns, wir helfen Ihnen.",
+        );
+        assert_eq!(counts(du_to_sie.source), (2, 0, 2), "du, dir; uns, wir");
+        assert_eq!(counts(du_to_sie.answer), (3, 3, 2));
+        assert_eq!(du_to_sie.switched, Some(true));
+
+        let her = Voice::of(
+            Lang::De,
+            "Er gab ihr das Buch, euch nicht.",
+            "Er gab ihr das Buch.",
+        );
+        assert_eq!(
+            counts(her.source),
+            (1, 0, 0),
+            "ihr is her; euch is the plural you"
+        );
+        assert_eq!(her.lost_all_second(), Some(true));
+    }
+
+    #[test]
+    fn an_empty_text_and_a_text_with_no_second_person_say_nothing_about_it() {
+        let empty = Voice::of(Lang::En, "", "");
+        assert_eq!(empty.words, (0, 0));
+        assert_eq!(empty.words_ratio(), None);
+        assert_eq!(empty.register_shift(), None);
+        assert_eq!(empty.second_kept(), None);
+        assert_eq!(empty.lost_second(), None);
+        assert_eq!(empty.switched, None);
+
+        let nobody = Voice::of(Lang::Ru, "Погода хорошая.", "Погода отличная.");
+        assert_eq!(nobody.second_kept(), None);
+        assert_eq!(nobody.first_kept(), None);
+        assert_eq!(nobody.switched, None);
+        assert_eq!(nobody.words_ratio(), Some(1.0));
+
+        let from_nothing = Voice::of(Lang::De, "", "Sie wissen es.");
+        assert_eq!(from_nothing.words_ratio(), None);
+        assert_eq!(from_nothing.second_kept(), None);
+    }
+
+    #[test]
+    fn the_words_ratio_leaves_placeholders_out() {
+        let v = Voice::of(
+            Lang::En,
+            "Use \u{27E6}1\u{27E7} now.",
+            "Please use \u{27E6}1\u{27E7} right now.",
+        );
+        assert_eq!(v.words, (2, 4));
+        assert_eq!(v.words_ratio(), Some(2.0));
+    }
+
+    #[test]
+    fn the_register_proxy_counts_new_formal_words_only() {
+        let en = Voice::of(
+            Lang::En,
+            "Your agent is smart, fast, and completely blind.",
+            "Your agent possesses intelligence and speed yet lacks visual capability.",
+        );
+        assert_eq!(en.register_new, 3, "possesses, intelligence, capability");
+        assert_eq!(en.register_shift(), Some(0.3));
+
+        let own_word = Voice::of(
+            Lang::En,
+            "The information is here.",
+            "Here is the informations.",
+        );
+        assert_eq!(
+            own_word.register_new, 0,
+            "the source's own word in another form is no shift"
+        );
+
+        let ru = Voice::of(
+            Lang::Ru,
+            "Нажми кнопку, и всё заработает.",
+            "Осуществление нажатия кнопки является залогом работы.",
+        );
+        assert_eq!(ru.register_new, 2, "осуществление, является");
+
+        let de = Voice::of(
+            Lang::De,
+            "Wir helfen dir gern.",
+            "Bezüglich deiner Anfrage erfolgt die Unterstützung zeitnah.",
+        );
+        assert_eq!(de.register_new, 3, "bezüglich, erfolgt, Unterstützung");
+    }
+
+    #[test]
+    fn every_register_list_reads_and_holds_the_words_it_is_for() {
+        for (lang, list) in REGISTER_LISTS {
+            let entries = entries(list);
+            assert!(entries.len() > 20, "{lang:?}: a list, not a stub");
+            for line in list.lines().map(str::trim) {
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                assert_eq!(line, line.to_lowercase(), "{lang:?}: {line} is lower case");
+                assert!(!line.contains(' '), "{lang:?}: {line} is one word");
+            }
+        }
+        let matched = |lang, word: &str| register(lang).iter().any(|e| e.matches(word));
+        for word in ["possess", "utilize", "thereby", "information", "capability"] {
+            assert!(matched(Lang::En, word), "en {word}");
+        }
+        for word in [
+            "осуществлять",
+            "является",
+            "данный",
+            "решение",
+            "информация",
+        ] {
+            assert!(matched(Lang::Ru, word), "ru {word}");
+        }
+        for word in [
+            "bezüglich",
+            "hinsichtlich",
+            "bearbeitung",
+            "sicherheit",
+            "möglichkeit",
+        ] {
+            assert!(matched(Lang::De, word), "de {word}");
+        }
+        for word in ["you", "fast", "ты", "код", "du", "buch"] {
+            assert!(
+                !Lang::ALL.into_iter().any(|lang| matched(lang, word)),
+                "{word} is plain"
+            );
+        }
+    }
+
+    #[test]
+    fn the_record_carries_the_counts_and_the_ratios() {
+        let v = Voice::of(Lang::Ru, "Ты прав.", "Вы правы, безусловно.");
+        let json = v.to_json();
+        assert_eq!(json["second"], serde_json::json!([1, 1]));
+        assert_eq!(json["formal"], serde_json::json!([0, 1]));
+        assert_eq!(json["switched"], serde_json::json!(true));
+        assert_eq!(json["words"], serde_json::json!([2, 3]));
+        assert_eq!(json["words_ratio"], serde_json::json!(1.5));
     }
 }

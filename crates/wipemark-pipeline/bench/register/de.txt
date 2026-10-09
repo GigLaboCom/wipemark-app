@@ -1,0 +1,67 @@
+# Die Liste des Registerproxys für Deutsch — was `bench report` als Wort der
+# gehobenen, amtlichen Stilebene zählt, wenn eine Überarbeitung es einführt
+# und die Quelle es nicht hatte (examples/bench/measure.rs, `register_new`;
+# docs/architecture/prompt-bench.md, "Voice"). Ein Proxy, kein Urteil: ein
+# Wort hier kann im Zusammenhang schlicht sein, und ein Text kann mit Wörtern
+# förmlicher werden, die hier fehlen. Verglichen wird nur zwischen Läufen auf
+# demselben Korpus.
+#
+# Ein Eintrag je Zeile, kleingeschrieben:
+#   wort      das Wort selbst
+#   stamm*    jedes Wort, das mit dem Stamm beginnt
+#   -endung   jedes Wort, das auf die Endung ausgeht und davor mindestens
+#             drei Buchstaben hat
+# Ein Wort zählt, wenn es passt und kein Wort der Quelle mit denselben fünf
+# Buchstaben beginnt (mit dem ganzen Wort, wenn es kürzer ist) — ein grober
+# Stamm, damit das eigene Wort der Quelle in anderer Form keine Verschiebung
+# ist.
+
+# Präpositionen, Konnektoren und Verben der Amtssprache.
+bezüglich
+hinsichtlich
+diesbezüglich
+seitens
+mittels
+zwecks
+aufgrund
+infolge*
+gemäß
+entsprechend*
+demzufolge
+folglich
+somit
+ferner
+desweiteren
+nachfolgend*
+vorstehend*
+vorliegend*
+obig*
+derartig*
+selbige*
+beinhalt*
+befindlich*
+erfolgt
+erfolgen
+erfolgte
+erfolgten
+durchzuführen
+gewährleist*
+bereitstell*
+verfüg*
+ermöglich*
+benötig*
+darstell*
+sowie
+jedoch
+dementsprechend
+anderweitig*
+
+# Nominalisierungen (Nominalstil).
+-ung
+-ungen
+-heit
+-heiten
+-keit
+-keiten
+-tion
+-tionen
