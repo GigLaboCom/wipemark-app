@@ -23,6 +23,25 @@ pub trait EngineSource: Send + Sync {
     /// engine's own destination and never a record of where the duty was
     /// meant to be by then (D361, D370).
     fn for_item(&self) -> Result<Handed, Unavailable>;
+
+    /// Where the engine [`for_item`](Self::for_item) would hand out now
+    /// sends a document, said **without** building it or reading a key —
+    /// so an item that would only be asked about costs no credential-store
+    /// read, which on macOS can put a keychain prompt on screen (D396).
+    /// `None` when the source cannot say without building; then only the
+    /// engine handed out is checked.
+    fn whereto(&self) -> Option<Whereto> {
+        None
+    }
+
+    /// Whether the source is about to hand out another engine — a swap it
+    /// deferred while a job ran, landing as the job ends. An item does not
+    /// start on the engine that is on its way out: the queue waits, and is
+    /// told by [`crate::Queue::engine_changed`] when it may look again
+    /// (D395). Never `true` for longer than the swap takes.
+    fn settling(&self) -> bool {
+        false
+    }
 }
 
 /// An engine handed out for one item, with where it sends a document.

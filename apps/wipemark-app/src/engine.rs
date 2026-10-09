@@ -786,6 +786,9 @@ pub struct Choice<T: Clone> {
     item: T,
     label: SharedString,
     value: SharedString,
+    /// Why the row is shown and cannot be chosen — greyed, the reason under
+    /// its label — or `None` for a row that can.
+    unavailable: Option<SharedString>,
 }
 
 impl<T: Clone> Choice<T> {
@@ -812,7 +815,22 @@ impl<T: Clone> Choice<T> {
             item,
             label: label.into(),
             value: value.into(),
+            unavailable: None,
         }
+    }
+
+    /// Shown, greyed, with `why` under its label, and never chosen — not by a
+    /// click, which the list refuses, and not through [`from_value`].
+    #[must_use]
+    pub fn unavailable(mut self, why: Option<String>) -> Self {
+        self.unavailable = why.map(SharedString::from);
+        self
+    }
+
+    /// Why the row cannot be chosen, when it cannot.
+    #[cfg(test)]
+    pub fn why_unavailable(&self) -> Option<&SharedString> {
+        self.unavailable.as_ref()
     }
 }
 
@@ -826,17 +844,26 @@ impl<T: Clone> SelectItem for Choice<T> {
     fn value(&self) -> &Self::Value {
         &self.value
     }
+
+    fn disabled(&self) -> bool {
+        self.unavailable.is_some()
+    }
+
+    fn render(&self, _: &mut gpui::Window, _: &mut gpui::App) -> impl gpui::IntoElement {
+        use gpui::{div, ParentElement as _, Styled as _};
+        let row = div().child(self.label.clone());
+        match &self.unavailable {
+            Some(why) => row.child(div().text_xs().child(why.clone())),
+            None => row,
+        }
+    }
 }
 
 /// The provider selector's rows.
 pub fn provider_choices() -> Vec<Choice<Provider>> {
     Provider::ALL
         .into_iter()
-        .map(|provider| Choice {
-            item: provider,
-            label: provider.label().into(),
-            value: provider.id().into(),
-        })
+        .map(|provider| Choice::new(provider, provider.label(), provider.id()))
         .collect()
 }
 
@@ -844,11 +871,7 @@ pub fn provider_choices() -> Vec<Choice<Provider>> {
 pub fn reasoning_choices() -> Vec<Choice<ReasoningEffort>> {
     ReasoningEffort::ALL
         .into_iter()
-        .map(|effort| Choice {
-            item: effort,
-            label: effort.label().into(),
-            value: effort.id().into(),
-        })
+        .map(|effort| Choice::new(effort, effort.label(), effort.id()))
         .collect()
 }
 
@@ -862,7 +885,7 @@ pub fn row_of<T: Clone + PartialEq>(choices: &[Choice<T>], item: &T) -> Option<u
 pub fn from_value<T: Clone>(choices: &[Choice<T>], value: &SharedString) -> Option<T> {
     choices
         .iter()
-        .find(|choice| choice.value == *value)
+        .find(|choice| choice.value == *value && choice.unavailable.is_none())
         .map(|choice| choice.item.clone())
 }
 

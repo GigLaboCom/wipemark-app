@@ -21,9 +21,13 @@ and its four gates, the GPUI shell and its Settings window, preferences as
 rows in SQLite, the API key in the OS credential store, the model
 catalogue and its verifying downloader — which recognises a catalogue
 file anywhere under the models folder and removes only what it downloaded
-itself (D302, D350) — the MCP server, the rule that decides who rewrites,
+itself (D302, D350) — and models the person adds from a GGUF the
+catalogue does not have, held to the sha256 they had when added (E8-1,
+`docs/architecture/user-models.md`), the MCP server, the rule that decides who rewrites,
 the panel that takes a drop, says what it found and cleans it, the report
-with its three shelves, the menu-bar item on macOS and on Linux (D340),
+with its three shelves, the Compare window, which saves an edited result
+where the result lives — on Save, and by default as it is typed (E7-9,
+D410–D419) — the menu-bar item on macOS and on Linux (D340),
 the **document journal** — a row for every document somebody handed over,
 whoever asked: a window, the panel, a launch flag, an agent, the command
 line (`wipemark-store` schema 3, `apps/wipemark-app/src/journal.rs`,
@@ -286,13 +290,13 @@ it sits.
 | crate | what it owns | today |
 |---|---|---|
 | `wipemark-core` | Layer A: the UCD tables, the Unicode taxonomy, the classifier and scrubber, NFKC, homoglyphs, the guards, the report and its JSON — each report carrying its third shelf as a field, which the JSON writes (D289) | real; the guards are the loop's (E4) |
-| `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP); the load-progress sink (`watch_loads`, `LoadProgress`, `progress::Pacer`, D305) | both engines real, handed out by `duty::engine_for`, asked by the Check and by every rewrite |
+| `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP); the load-progress sink (`watch_loads`, `LoadProgress`, `progress::Pacer`, D305); `ChatSupport`, and `Unavailable::ChatFormat` for a chat format this build does not write (D407) | both engines real, handed out by `duty::engine_for`, asked by the Check and by every rewrite |
 | `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`, `src/pin.rs`) | real under `native` — the prebuilt release by default, cmake with `WIPEMARK_LLAMA_SOURCE=1`; an empty shim without it |
-| `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends | real under `native`; refuses every load without it |
+| `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends; the chat-format verdict, `chat_support` — this crate's families, then a port of llama.cpp's detection at the pin, then a refusal by name (D407) | real under `native`; refuses every load without it |
 | `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) and the one rule a stored template is held to — `row::admit`, which the Prompts page, `lay_over` and `lay_over_within` all ask (D330), with no invisible character in any template (`invisible-character`, D369); `prompt::trial`, a template checked on a built-in sample or adapted by the model (D332, D335) | preparation, prompts and the loop real (E4-1…E4-3), the resumable job the queue drives (E4-4), the prompt bench (`examples/bench`, `bench/`, E4-5 — `docs/architecture/prompt-bench.md`, with `--variant`, the sampling flags and a `whole` mode since the divergence research) and its recommendations built (E4-7); the windows rewrite through it (E4-6b) and edit its templates (E4-6c) |
-| `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; a catalogue file found anywhere under the folder by name, size and sha256 (D302); what a verify learned as a record under `<data dir>/records`, never beside the weights (D303); a download's **mark** naming the file by its identity, and a `.part` that is ours only when a download opened it (D350, D351); hash progress (`watch_hashes`, D306); the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
-| `wipemark-store` | the SQLite file, the `settings` table, the queue's tables and, since schema 3, the document **journal** (`journal`, its vocabulary in `entry` — `Origin`, `Action`, `Phase`, `Entry` — because two applications write it, D312) and `JournalWriter`, the CLI's read-write handle that never creates or migrates (D314) | real |
-| `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination — an in-place delivery a crash cut short after the set-aside finished, not failed (D286); `EngineSource`, asked for an engine as each item starts (D310), a hold rather than a failure while there is none (D311), `reserve`/`push_reserved` so a row names its item before it can end (D358), the consent asked again at start (`whereto`, `QueueEvent::Ask`, `agree`, D361), `paused` and `states` from memory (D359) | real; the application runs it — the windows' Rewrite, an agent's `rewrite`, the CLI's rewrite through the application (E4-6b); the windows' clean has a line of its own |
+| `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; a catalogue file found anywhere under the folder by name, size and sha256 (D302); what a verify learned as a record under `<data dir>/records`, never beside the weights (D303); a download's **mark** naming the file by its identity, and a `.part` that is ours only when a download opened it (D350, D351); hash progress (`watch_hashes`, D306); the GGUF header, read without a tensor (`gguf`); models the person adds as rows, their ids, estimate and checks (`user`, D400–D402); `fit_mb`; the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
+| `wipemark-store` | the SQLite file, the `settings` table, the queue's tables and, since schema 3, the document **journal** (`journal`, its vocabulary in `entry` — `Origin`, `Action`, `Phase`, `Entry` — because two applications write it, D312) and `JournalWriter`, the CLI's read-write handle that never creates or migrates (D314); `RowsWriter`, the CLI's write of one namespace of settings rows (`models.user.`), never created or migrated (D404); `Journal::mark_edited`, which says in a row's entry that its result was saved edited, and when — `outcome.edited`, that one field patched and the rest of the entry kept, never what (D417) | real |
+| `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination — an in-place delivery a crash cut short after the set-aside finished, not failed (D286); `EngineSource`, asked for an engine as each item starts (D310), a hold rather than a failure while there is none (D311), `reserve`/`push_reserved` so a row names its item before it can end (D358), the consent asked again at start (`whereto`, `QueueEvent::Ask`, `agree`, D361), `paused` and `states` from memory (D359); `save_text`, an edited result saved into a done item's stored text — a rewritten paste's one home — held to the text's digest (D410, D413) | real; the application runs it — the windows' Rewrite, an agent's `rewrite`, the CLI's rewrite through the application (E4-6b); the windows' clean has a line of its own |
 | `wipemark-secret` | the OS credential store, and `Secret` | real |
 | `wipemark-log` | the rotating file, the panic hook, `Elided` | real |
 | `wipemark-i18n` | the Fluent catalogues and the `Message` enum `build.rs` generates from them | real |
@@ -312,28 +316,29 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 |---|---|
 | `main.rs` | the window, the toolbar, the status bar (a load's percent, then the cleans, then the rewrites or why they wait, then who is on duty — D324), the command line, startup order; `open_work`, the batch queue and the journal over the application's own `wipemark.db`; the main window's questions — Rewrite all's price, a drop that would be sent away, the queue's consent — one at a time, in the order they came (D364); `install_tray`/`adopt_tray`, and `take_beacon_at_quit` (D344) |
 | `clipboard.rs` | the clipboard, watched: what the Paste button says it would paste, and what it takes when pressed — an empty or ASCII-white-space text is nothing, the button greyed (D301) |
-| `settings.rs` | the Settings window: sections, rows, and the `Preferences` entity every page reads; `look_at_models`, one scan of the models folder at a time (D304), a scan that panics not stopping the next |
+| `settings.rs` | the Settings window: sections, rows, and the `Preferences` entity every page reads; `look_at_models`, one scan of the models folder at a time (D304), a scan that panics not stopping the next; the added models' state from every scan; an add and a re-check in the scan's slot (D304, D409); Forget |
 | `prompts.rs` | the Settings window's **Rewriting** section (`Section::Prompts`, `--settings=prompts`): every template slot and the pivot as widgets, Save by the rule `lay_over` asks (`row::admit`, D330), Reset by deleting the row, Check template on a built-in sample through the engine on duty, Adapt with the model on a button — each run belonging to its slot and cancelled when the slot or the page goes (D367); the words of a guard's and the loop's refusal (`reason_line`, `rejection_line`, D338) |
 | `journal.rs` | the document journal as the application keeps it: the `Writer` thread the windows write through, the MCP connections writing directly, the bookkeeper that writes every queued rewrite's start and end, the launch's settling (D317), the sweep by `journal.keep_days`, `Work` (the queue and the journal together), and `Duty`/`Going` — where an engine would now send a document, for the queue's consent (D361) |
 | `queue/rewriting.rs` | the table's half of E4-6b: a row's Rewrite and Rewrite all pushed to the batch queue with the plan taken at push (D91), the hold, Pause/Resume/Cancel, the statuses, the journal's rows read back as table rows (`rewrite_tests.rs` beside it) |
-| `config.rs` | every preference as a row in `wipemark.db` |
-| `duty.rs` | who rewrites — an endpoint or this machine — and in what order; `engine_for`, where that becomes an engine |
+| `config.rs` | every preference as a row in `wipemark.db`; the `models.user.<id>` rows of models the person adds |
+| `duty.rs` | who rewrites — an endpoint or this machine — and in what order; `engine_for`, where that becomes an engine; added models on duty (`Roster::added`, `AddedModelNotHere`) |
 | `engine_host.rs` | when the model on this machine is in memory: the keep policy (`decide`), the `EngineHost` that executes it, the Check (for the machine or an endpoint), an endpoint's key read when it is first asked, the `EngineHandle` other threads reach it through, `for_job`'s `JobEngine` that holds a job busy for its whole length — the batch queue's engine source — `when_changed`, which tells the queue the duty moved, the `Pace` a price is measured by, and the load progress an engine tells (`load_progress()`, numbered per engine so an abandoned load's end clears nothing, D305) |
 | `engine.rs` | the Layer B endpoint vocabulary and its refusals |
 | `profile.rs` | endpoint settings saved under a name |
-| `models.rs` | the Models page's vocabulary, the recommendation, the adoption; the card's bar while a download runs, waits or is checked (`models::bar`, D306); a model found elsewhere or another tool's file in the way, each with no button (`Availability::Found`, `Foreign`) |
-| `compare.rs` | the fourth window: the original beside what cleaning made of it — `clean(original)` at Layer A's defaults, made in the read's background task and kept for Reset — or, for a rewritten row, the rewrite as delivered (`Made::Rewritten`, "Back to the rewritten text") — every line that differs marked on both sides and the words within a changed line marked more strongly; what it reads, what it refuses, how the original follows the result's cursor, and the Compare page's rows as values |
-| `result.rs` | the result as an editor with a toolbar — the toolbar is `gpui_component::input`'s own actions taken by a different road, and the component knows nothing about originals |
+| `models.rs` | the Models page's vocabulary, the recommendation, the adoption; the card's bar while a download runs, waits or is checked (`models::bar`, D306); a model found elsewhere or another tool's file in the way, each with no button (`Availability::Found`, `Foreign`); what a file is for adding (`Offering`, `Facts`, `Addition`), the add dialog's lines, an added model's card (`UserCard`), the selector's rows across both kinds, the folder's strangers |
+| `compare.rs` | the fourth window: the original beside what cleaning made of it — `clean(original)` at Layer A's defaults, made in the read's background task and kept for Reset — or, for a rewritten row, the rewrite as delivered (`Made::Rewritten`, "Back to the rewritten text") — every line that differs marked on both sides and the words within a changed line marked more strongly; what it reads, what it refuses, how the original follows the result's cursor, and the Compare page's rows as values; a cleaned row opened on its result as written (`Made::CleanedTo`, D418); and saving an edited result — Save and ⌘S (`SaveCompare`), autosave after typing stops and as the window closes (`compare.autosave`), the changed-on-disk question (Overwrite / Keep theirs / Cancel), the close that saves or asks, the line under the result, and `Link`, the function the queue hands in to be told what a save did (`Told`, D410–D419) |
+| `compare/save.rs` | what the Compare window's Save writes, and where, with no window in it: `save_target` by what the window was opened on — over the result's own file, into a paste's row, into the batch queue's row (`save_item`), or a Clean of the pane's text when nothing was written yet (`Target::Clean`), never the original and never through a symbolic link (D410, D411); `save_file`, atomic and in the encoding the text arrived in; `Stamp`, a file changed on disk told by its size, then its bytes (D413); `Saver`, autosave's 1.5 s of quiet, one save in flight, the last edit winning and a failure stopping it (D415) |
+| `result.rs` | the result as an editor with a toolbar — the toolbar is `gpui_component::input`'s own actions taken by a different road, and the component knows nothing about originals or files; the window's Save is offered to its strip (`result::Offer`, pressed by dispatching the window's own action, D416), and `replace_text` is Reset's one edit the history keeps, so Undo takes it back (D414) |
 | `diff.rs` | two texts, line against line — and within a changed line, word against word or character against character: the pure function under the Compare window's marks |
-| `queue.rs` | the main window's table: what was dropped or imported, one row each — the preview, the hover card, the filter bar, the sort, the paginator, the Status column, a row's clean asked of `cleaner.rs`'s line and its `Started`/`Finished` read back into the row, the Process column's **Clean** and **Rewrite** buttons on every row, greyed with the menu's own reason (D325), the Actions menu (Clean and Rewrite first, each greyed with its reason under it; then open with the default app, Compare, Open the result, Show the result in its folder, Copy the result, Report…, Replace the existing result, Cancel, Remove — greyed while an agent or the command line waits for the row, D355) and the double click that opens the latest result in Compare; a row nobody asked to process says *Not started* (D318), every badge reads without its tooltip (D326), and Arrived carries the date for another day's row (D363) |
-| `cleaner.rs` | the one line of cleans per application (D283): `Cleaner`, a GPUI global over the pure `Line`, which the queue's Clean, Clean all, `--clean=` and Replace and the panel's Clean all ask — one clean at a time, first asked first done, a thing asked twice cleaned once, the plan taken when each starts, the plan and the clean under `catch_unwind` so a clean that panics ends as failed and the line goes on (D288) — and the `Started`/`Finished` events the rows, the panel's lines and the status bar's count are drawn from |
+| `queue.rs` | the main window's table: what was dropped or imported, one row each — the preview, the hover card, the filter bar, the sort, the paginator, the Status column, a row's clean asked of `cleaner.rs`'s line and its `Started`/`Finished` read back into the row, the Process column's **Clean** and **Rewrite** buttons on every row, greyed with the menu's own reason (D325), the Actions menu (Clean and Rewrite first, each greyed with its reason under it; then open with the default app, Compare, Open the result, Show the result in its folder, Copy the result, Report…, Replace the existing result, Cancel, Remove — greyed while an agent or the command line waits for the row, D355) and the double click that opens the latest result in Compare; a row nobody asked to process says *Not started* (D318), every badge reads without its tooltip (D326), and Arrived carries the date for another day's row (D363); Compare opened on a cleaned row's result as written (`cleaned_for`, `subject_of`, D418) and told through `link_to` what its save did — a cleaned paste's edited text kept in the row (`Row::edited`) for Copy the result and the next Compare, a Save that cleans refused while the row is in a line or its rewrite delivered (`told_by_compare`, D412) |
+| `cleaner.rs` | the one line of cleans per application (D283): `Cleaner`, a GPUI global over the pure `Line`, which the queue's Clean, Clean all, `--clean=` and Replace and the panel's Clean all ask — one clean at a time, first asked first done, a thing asked twice cleaned once, the plan taken when each starts, the plan and the clean under `catch_unwind` so a clean that panics ends as failed and the line goes on (D288) — and the `Started`/`Finished` events the rows, the panel's lines and the status bar's count are drawn from; `ask_with`, a clean with its text given — Compare's Save that cleans, under the row's own id (D411) |
 | `preview.rs` | what a row looks like before it is opened: the picture, the first lines, or nothing |
 | `wording.rs` | the sentences the panel, the queue and the report share about one thing that arrived — what a kind is called, whether the name lied, what would happen to it, what a look found, what a clean came to and where its result went — each over a `Say`, so a window and a copied report are one sentence in two renderings |
-| `clean.rs` | cleaning one thing that arrived, with no window: what can be (`cleanable`), the read that decides again from the bytes, the CLI's policy stated once as `outcome_of`, the write by the plan, the kept copies and the `sweep`; `inspect_one`, the same read for the panel's look; `number`, the one counter for rows and kept directories |
+| `clean.rs` | cleaning one thing that arrived, with no window: what can be (`cleanable`), the read that decides again from the bytes, the CLI's policy stated once as `outcome_of`, the write by the plan, the kept copies and the `sweep`; `inspect_one`, the same read for the panel's look; `number`, the one counter for rows and kept directories; `save_one`, Compare's Save that cleans — `clean_one` with the result given, its verdict by `saved_of` (D411, D419) |
 | `report.rs` | the Report dialog: one finished clean said in full — what arrived, what happened, and the three shelves, the third read off the report itself for a text and a picture alike (D289) — Copy JSON (the library's `to_json()`) and Copy as Markdown (plain, what Layer A removes spelled `U+XXXX` by its position, so a joiner it keeps inside an emoji is not) |
 | `drop.rs` | a place on screen that accepts what is dragged onto it, and what came back |
 | `pasteboard.rs` | the dragging destination GPUI has not got, and the one place a pasteboard is read |
-| `dialog.rs` | the modal overlays and the focus trap |
+| `dialog.rs` | the modal overlays and the focus trap; `AddModel`, the dialog that adds a model file; `Choose`, two things to do and Cancel (`Pick`) — Compare's changed on disk and its close — Enter the choice the caller names safe (D413, D415) |
 | `theme.rs` | Light, Dark and `System` — the live one |
 | `language.rs` | what the language selector offers, and what a click means |
 | `tray.rs` | the menu-bar item on macOS and on Linux — one menu, `build_menu`; on Linux a GTK thread of its own, installed only where a StatusNotifier host would draw it, the icon derived at run time (D340–D342, D347) — and the close button that only hides while it exists |
@@ -366,9 +371,12 @@ which is every write to disk (the original set aside first, never over
 one already there, a symbolic link refused),
 `audit.rs` the walk of a folder
 and its human, `--json` and SARIF 2.1.0 renderings, and `models.rs`
-`models list|pull|verify|rm` over `wipemark-models`, reading the app's
-`models.dir` and `models.rewrite` rows read-only — `list` says "found at"
-and "another tool's file", `rm` removes only what a download marked —;
+`models list|pull|verify|rm|add|forget` over `wipemark-models`, reading the app's
+`models.dir` and `models.rewrite` rows read-only — and writing only
+`models.user.<id>`, through `RowsWriter` (D404) — `list` says "found at"
+and "another tool's file", `rm` removes only what a download marked,
+`add` hashes a GGUF the catalogue does not have and prints its id,
+`forget` drops its row and never the file —;
 `rewrite.rs` the rewrite flow and the command's own local engine —
 `name.rewritten.ext` by default, refused when a file is already there
 (exit 2 before the read, naming `-o` and `--in-place`, D362) — `app.rs`
@@ -469,10 +477,15 @@ Anything that needed more than a rule to explain is in `docs/`;
   corrected; and a database that will not open is **left on disk**, byte
   for byte, while the app runs on an in-memory store that forgets. The
   CLI opens the same file read-only — it never creates or migrates one —
-  **except one write**: its own journal row through `JournalWriter`, which
+  **except two writes**: its own journal row through `JournalWriter`, which
   can write the journal table and nothing else, and never creates or
   migrates the file (D314); with no database it is silent but for a log
-  line, and with one it cannot write it says so in one stderr line (D315).
+  line, and with one it cannot write it says so in one stderr line (D315);
+  and the rows of models the person adds (`models add|forget`) through
+  `RowsWriter`, which writes keys under `models.user.` and nothing else,
+  into a database at exactly this build's schema, and refuses, naming the
+  application, when there is none (D404). `models.user.<id>` stays outside
+  `config::PERSISTED` (`a_user_model_row_is_never_a_preference_row`).
   `rewrite.pivot` is a persisted preference with a row on the Rewriting
   page since E4-6c (D331); no row is "by the document's language". The
   template overrides `prompts.<lang>.<tactic>.<step>.<role>` stay dynamic
@@ -763,7 +776,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   it (`EngineSource::whereto`); an endpoint other than the one agreed to
   holds the queue and asks once, for every waiting item
   (`QueueEvent::Ask`, `Queue::agree`), and a duty back on this machine asks
-  nothing. An agent's or the command line's item carries no consent of the
+  nothing. The consent, the Send-away question and the vacancy are one
+  fact, where the duty as the person set it would send a rewrite
+  (`Queue::going`, D430), and a yes records the destination its question
+  named — a yes the duty no longer stands behind pushes nothing and asks
+  again (D431). An agent's or the command line's item carries no consent of the
   window's and is never asked. The main window asks its questions — the
   price, a drop that would be sent away, this one — one at a time, in the
   order they came (D364). A row nobody asked to process says *Not
@@ -772,8 +789,8 @@ Anything that needed more than a rule to explain is in `docs/`;
   nothing, clean or rewrite; nothing by default, В1) a drop goes straight
   into a line, and with an endpoint on duty a rewrite on arrival asks
   first (`QueueEvent::SendAway`). The status bar: a load's percent, the
-  cleans, "Rewriting 2 of 5 · paragraph 7 of 52" or why the queue waits,
-  then who is on duty (D324); the toolbar and the status bar read the
+  cleans, "Rewriting 2 of 5 · paragraph 7 of 52" or why the queue waits
+  (or that it waits for the engine to change, D434), then who is on duty (D324); the toolbar and the status bar read the
   queue's pause and states from memory, never a row per frame (D359).
   Compare of a rewritten row opens on the rewrite as delivered, never
   called "better" (`compare_of_a_rewritten_row_is_the_delivered_text`).
@@ -969,15 +986,34 @@ Anything that needed more than a rule to explain is in `docs/`;
   D381); a scroll is seen by each editor's notification and by a look
   after every painted frame (D386), a follower's landing is told from a
   lead by what was asked (D382), the result leads the cursor follow
-  (D383), and a wrapped result lines up approximately (D384).
+  (D383), and a wrapped result lines up approximately (D384); an ask is
+  consumed or dropped by the end of the frame that lays it out (D432), and
+  the result is weighed first however its position is read (D433).
   `a_follower_that_stops_short_does_not_lead_back` is the gate on the
   loop. The result is **`clean(original)`** at Layer A's defaults (E7-3),
   made by `Subject::read` in the read's own background task and kept by
   the view, so **Back to the cleaned text** puts it back without running
   Layer A on the GPUI thread (D273) and is offered only once the result
   differs from it (D272); `the_result_is_what_the_queue_writes` holds the
-  pane to the bytes `clean::clean_one` writes. Editing the result saves
-  nothing and closing writes nothing, and the banner says both. Reading is
+  pane to the bytes `clean::clean_one` writes; once a clean has written a
+  result, the window opens on that result as written (D418). An edited
+  result is **saved where it lives** (E7-9, D410–D419): Save at the head
+  of the result's strip and ⌘S, and, with `compare.autosave` (on by
+  default, read when a window opens), a moment after typing stops and as
+  the window closes; without it, a close with edits not saved asks Save /
+  Discard / Cancel. `compare/save.rs` is the rule — over the result's own
+  file, into the row of a paste, or, when nothing was written yet, a Clean
+  of the pane's text in the one line of cleans (`clean::save_one`,
+  `Cleaner::ask_with`) — never over the original, never through a
+  symbolic link, in the encoding it arrived in; a file changed on disk
+  since the window read it is asked about (Overwrite / Keep theirs /
+  Cancel), never overwritten unasked. The window tells its row through a
+  `compare::Link` the queue hands in, and the row's journal entry marks
+  the edit — when, never what (`outcome.edited`). Reset is an edit and is
+  saved like one — one the editor's history keeps
+  (`ResultEditor::replace_text`), so Undo takes it back
+  (`reset_can_be_undone_and_the_undo_is_saved`). Layer A does not run
+  over an edit: the person's text is written as typed (D419). Reading is
   on the background executor, through `clean::text_of` — the queue's
   strict road, `clean_one`'s own read, limit and decode (D282) — and
   refuses what is not text, what is past `TEXT_LIMIT` (checked on the
@@ -1268,8 +1304,13 @@ Anything that needed more than a rule to explain is in `docs/`;
   (D303); a file changed while it was hashed is read again. A hash tells
   how far it has got (`watch_hashes`), and the card draws gpui-component's
   bar while a download runs, waits to be resumed or is checked
-  (`models::bar`, D306). A GGUF in no catalogue stays listed and not
-  loadable; loading the user's own GGUF, unverified, is an owner question.
+  (`models::bar`, D306). A GGUF in no catalogue can be **added** — named,
+  given a purpose and read once, its sha256 recorded and the file refused
+  later if it changes — one file however it is reached (D436), its
+  identity written back by the scan and the command line alike (D435), and
+  a Remove never takes a file an added model names (D439); nobody vouches
+  for what it is, and every surface says so (E8-1,
+  `docs/architecture/user-models.md`, D400–D409).
   See `docs/architecture/model-downloads.md`, "Found wherever it is".
 * **Who rewrites is a decision, it has a name, and there is one place it
   is made.** `apps/wipemark-app/src/duty.rs`. Two things can rewrite — an
@@ -1365,7 +1406,9 @@ Anything that needed more than a rule to explain is in `docs/`;
   discrete card, RAM on unified memory), mnemoria's tiering generalised
   over a catalogue that is data. `fit` is unchanged; it says whether a
   model runs. `a_constrained_machine_is_offered_the_small_model` is the
-  gate. The overlay is a `dialog`-shaped element in the main window's
+  gate; its roomy half now reads "the best entry this machine has room
+  for" (E8-1's U6, D403), so an 18 GB Mac is offered Gemma 4 12B and a
+  64 GB box Qwen3.8 27B. The overlay is a `dialog`-shaped element in the main window's
   own tree at the dialog priority; its backdrop swallows a click and
   does not answer to it (Skip is on screen for that), Enter is Next,
   Escape is Skip. "Run again" reaches the main window through
@@ -1410,9 +1453,16 @@ Anything that needed more than a rule to explain is in `docs/`;
   walks the folder to eight levels for anything with a weight
   extension, skipping hidden entries and linked *directories*; the
   catalogue's files, wherever they were found, are subtracted and the rest
-  is **listed and nothing more** under "Also in this folder" — no checksum, so nothing
-  verifies one, and nothing loads one, and the sentence over the list
-  says both. "Does not exist yet" is the ordinary state on a
+  is listed under "Also in this folder" with each GGUF's header read
+  (`wipemark_models::gguf`, never a tensor): a chat model offers **Add as
+  a model…**, anything else — a projector, an adapter, an encoder,
+  embedding, speech or audio model (by its name, type or tags), a
+  diffusion model or a draft head, a model with no chat template — says in
+  one line why it is not offered (D408, D437); a model whose chat format
+  this build does not write is listed greyed and is never on duty (D438); a model the person added is not
+  listed there. Nothing in the list is verified or loaded until it is
+  added, and the sentence over the list says that adding one records its
+  checksum and vouches for nothing. "Does not exist yet" is the ordinary state on a
   fresh install and is not a fault; "could not be read" is.
   `the_banner_names_the_folder_once_it_has_been_read` and
   `an_unreadable_folder_is_a_warning_and_a_missing_one_is_not` are the
@@ -1425,7 +1475,8 @@ Anything that needed more than a rule to explain is in `docs/`;
   `every_shipped_model_is_a_text_model` keeps a `pixel` entry out until
   there is an engine for one. The selector lists **only what is on the
   machine**: choosing a model that has not been downloaded is choosing a
-  file that does not exist. Which leaves the question the selector
+  file that does not exist — the catalogue's models on this machine, and
+  the added ones whose file is still the one added. Which leaves the question the selector
   cannot answer — *which one* — and two pure rules in `models.rs` answer
   it. `recommended` is the catalogue's own opinion
   (`host::default_for_role`, which existed, was tested and had **no
@@ -1442,8 +1493,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   moved on its own is one the user has to notice before they can undo
   it. `remove_model` is the mirror and was already there — deleting the
   chosen model clears the choice, because a preference naming a file
-  that is not there is worse than none. See
-  `docs/architecture/model-downloads.md`.
+  that is not there is worse than none. Neither `recommended` nor
+  `adopted` ever applies to a model the person added: adding a file they
+  already have is not the expensive half of choosing, and the catalogue
+  cannot recommend what nobody vouched for (D406). See
+  `docs/architecture/model-downloads.md` and `docs/architecture/user-models.md`.
 * **Only the fifty-six glyphs in `assets/icons/` resolve.** The
   application registers `WipemarkAssets` as GPUI's single
   `AssetSource`, so any gpui-component control that paints an icon this
@@ -1610,7 +1664,10 @@ Anything that needed more than a rule to explain is in `docs/`;
   cannot run: a build without llama.cpp, a missing file and a model over
   the memory the caller states are each `EngineError::Unavailable` saying
   which, before anything is generated — never an empty `Completion`,
-  never `FakeEngine`. One worker thread owns the model; a cancel sets a
+  never `FakeEngine` — and a model whose chat format this build does not
+  write — no template, or one neither `wipemark_llama::chat` nor
+  llama.cpp's detection at the pin recognises — is refused by name at its
+  load (`Unavailable::ChatFormat`, D407). One worker thread owns the model; a cancel sets a
   flag the decode loop reads between steps and then *waits* for the
   worker if it had taken the job up (one step, ~40 ms on a CPU), so the
   next request never starts on a model still decoding — and a request
@@ -1961,6 +2018,11 @@ What exists so far:
 | `wipemark-task-owner-fixes-2026-10-07` | FILE | a task for an agent: the owner's fixes from the first Qwen3.8 27B session in the application, F1–F6 — a bar while a model downloads, is checked and loads, catalogue models found anywhere under the folder, one hash per file, records out of the weights' folder, an empty paste lands nothing, a placeholder ends an identifier. Its report is in the tree, `docs/plan/reports/owner-fixes-2026-10-07.md` (D300–D306, with round 2's H1 and L1–L6) |
 | `wipemark-task-e4-6b-windows-rewrite-2026-10-07` | FILE | a task for an agent: E4-6b, the windows rewrite through the batch queue and every document has a status — the journal, whoever asked; owner questions В1–В10, built at their defaults. Its report is in the tree, `docs/plan/reports/E4-6b-2026-10-07.md` (D310–D326) |
 | `wipemark-task-e4-6c-templates-widgets-2026-10-07` | FILE | a task for an agent: E4-6c, the Prompts (Rewriting) section — every template and the pivot as widgets, Save by the one rule, Check template, Adapt on a button; Г1–Г7, built at their defaults. Its report is in the tree, `docs/plan/reports/E4-6c-2026-10-07.md` (D330–D339) |
+| `wipemark-task-user-models-2026-10-08` | FILE | a task for an agent: E8-1, adding a model the catalogue does not have the way a person would — pick a GGUF, name it, give it a purpose, use it, held to the sha256 it had when added — and Qwen3.8 27B and Gemma 4 12B in the shipped catalogue. Its report is in the tree, `docs/plan/reports/E8-1-user-models-2026-10-08.md` (D400–D409) |
+| `wipemark-task-compare-save-2026-10-08` | FILE | a task for an agent: E7-9, saving an edited Compare result — Save over the result's own file or into its row, never the original, a file changed on disk asked about, and an autosave on by default. Its report is in the tree, `docs/plan/reports/E7-9-compare-save-2026-10-08.md` (D410–D419) |
+| `wipemark-compare-save-report-2026-10-08` | FILE | that report, uploaded: S1–S5 done, D410–D419, 34 of 34 red checks, gates 1748/0/7 on `ba000c2`; the host verification's M1 (Reset cleared the undo history, and autosave wrote it) and M2 (a Save that cleans took a row from its finished rewrite) fixed in `cf7cadd` before the merge (`c333d0b`); its Lows are in `docs/plan/README.md` §7 E7 |
+| `wipemark-task-followups-e7-8-e8-1-2026-10-08` | FILE | a task for an agent: the open findings of E7-8's and E8-1's host verifications — A-M1 (one fact for consent), A-L1…A-L6, B-M3 (the command line writes the identity back), B-L1…B-L11 |
+| `wipemark-followups-e7-8-e8-1-report-2026-10-08` | FILE | its report: all nineteen done, D430–D439, 31 of 31 red checks, gates 1779/0/7; the host verification (2026-10-09) found it mergeable with one Medium (tags that say speech refuse a text model) and Lows, `docs/plan/README.md` §7 E8; merged into `feat` as a fast-forward |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 | `wipemark-status-2026-10-05` | FILE | where the project stood at the end of 2026-10-05: images rounds 3–5, E7 merged, the X11 first frame fixed through `GigLaboCom/zed`, and the plan of pull requests and branches (`docs/plan/README.md` §2.1) — PR #1 and what comes next, in order |
 | `wipemark-status-2026-10-06` | TEXT | where the project stood at the end of 2026-10-06: E7 follow-ups X1–X14 and Y1–Y9 merged, Z1–Z3 filed, mutation tables dropped for `coverage.yml` (on `main` and by hand), what is next |
@@ -1996,16 +2058,37 @@ the shortcut on Linux** (D340–D347), the divergence research's bench
 additions, and the fix round after one host verification (D350–D351,
 D355–D364, D365–D369); gates once on `844aa01`, 1623/0/7, the app with
 `local-llama` 628/0/2, CI green. Compare scrolls both panes together
-(E7-7, D380–D387, merged `9e1eb95`). What remains: of E7, saving an edited result (with
-autosave), the source editor with its badges (S7.2), the streamed result
+(E7-7, D380–D387, merged `9e1eb95`). The queue's consent is checked
+against the engine actually handed out (`fix/consent-and-lows`, D370–D375,
+merged `72da17d`), and the consent and Compare-scrolling follow-ups are in
+(E7-8, D390–D397, merged `021a5e8`). **E8-1, models the person adds** — a
+GGUF the catalogue does not have, picked, named, given a purpose, held to
+the sha256 it had when added, and Qwen3.8 27B and Gemma 4 12B in the
+shipped catalogue (D400–D409, `docs/architecture/user-models.md`) — is
+merged as `630d409` on 2026-10-08, with the host verification's two fixes
+(`baca2eb`). **E7-9, saving an edited Compare result** — Save, ⌘S and
+an autosave on by default, over the result's own file or into its row,
+never the original (D410–D419, `docs/architecture/compare.md`) — is
+merged as `c333d0b` on 2026-10-08, with the host verification's two
+fixes (`cf7cadd`); its Lows and one owner question are open
+(`docs/plan/README.md` §7 E7). What remains: of E7, the source editor
+with its badges (S7.2), the streamed result
 (S7.3) and the Inspector (S7.5); Compare's left scrollbar and the
 original's gutter on its right, which wait on the owner's gpui-kit pull
 requests #3416 and #3417 (drafts); of E4, the keep-voice rule after a
-four-model bench and a voice measure in the bench; the rest of E8; E9;
+four-model bench and a voice measure in the bench; the rest of E8 (E8-1,
+models the person adds, is done, and so are its verification's M3 and
+Lows); E9;
 E10 (the Linux tray is done; Windows, packaging and the rest are not);
 E12-6, E12-7, and of E12-8 Compare for pictures and the batch queue's
-picture item. The fix in progress is `fix/consent-and-lows`: the
-verification's M-1 — the queue's consent checked against the window's
-record of where an engine sends rather than the engine actually handed
-out — and its Lows. E1 and E3 parallelise in separate worktrees; E5 lands before
+picture item. The open findings of E7-8's and E8-1's verifications — one
+fact for consent, Compare's leftover asks, the added models' Lows and M3
+(the command line writes the identity back) — are merged
+(`fix/e7-8-e8-1-followups`, D430–D439, 2026-10-09); that verification's
+Medium (tags that say speech refuse a text model) and Lows are in
+`docs/plan/README.md` §7 E8. Filed and not started: `e4/bench-voice`
+(E4-8, voice measures in the bench and keep-voice variants of the
+templates, D420–D429 reserved) and the E12-R series
+(`plan/recon-2026-10-08`, the restoration measured, then made more
+precise). E1 and E3 parallelise in separate worktrees; E5 lands before
 E6 and gives agents a usable product before the GUI exists.

@@ -752,6 +752,7 @@ mod tests {
             format: None,
             size_in: None,
             size_out: None,
+            edited: false,
         }
     }
 

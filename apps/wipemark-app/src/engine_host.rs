@@ -92,8 +92,8 @@ use std::time::{Duration, Instant};
 use gpui::{App, AppContext as _, Context, Entity, Global, Subscription, Task};
 use wipemark_engine::http::KeyFault;
 use wipemark_engine::{
-    async_trait, CancellationToken, ChatRequest, Completion, EngineError, EngineInfo, LoadProgress,
-    LoadSink, RewriteEngine, SamplingParams, TokenSink, Unavailable,
+    async_trait, CancellationToken, ChatRefusal, ChatRequest, Completion, EngineError, EngineInfo,
+    LoadProgress, LoadSink, RewriteEngine, SamplingParams, TokenSink, Unavailable,
 };
 use wipemark_i18n::{args, t_args, Message};
 use wipemark_models::manifest::Role;
@@ -451,6 +451,9 @@ struct Shared {
     /// Told whenever the slot changes — the batch queue, whose hold lifts
     /// when the duty does (E4-6b, R1).
     watchers: Mutex<Vec<Watcher>>,
+    /// A change of duty the host deferred while a job ran, not landed yet
+    /// (D395): the batch queue starts no item on the engine leaving.
+    swap_pending: std::sync::atomic::AtomicBool,
 }
 
 /// One thing told when the slot changes. Called on whichever thread
@@ -542,6 +545,7 @@ impl EngineHandle {
                     engines: std::sync::atomic::AtomicU64::new(0),
                     pace: Mutex::new(Pace::default()),
                     watchers: Mutex::new(Vec::new()),
+                    swap_pending: std::sync::atomic::AtomicBool::new(false),
                 }),
             },
             inbox,
@@ -604,6 +608,36 @@ impl EngineHandle {
             .iter()
         {
             watcher();
+        }
+    }
+
+    /// Where the engine in the slot sends a document, read off the slot —
+    /// nothing built, no key read (D396).
+    pub fn sends_to(&self) -> Option<Whereto> {
+        self.slot_going().1
+    }
+
+    /// Whether a change of duty the host deferred while a job ran has yet
+    /// to land (D395).
+    pub fn swap_pending(&self) -> bool {
+        self.shared.swap_pending.load(Ordering::SeqCst)
+    }
+
+    /// Say a deferred change of duty is pending, or no longer is. Its end
+    /// tells whoever watches the slot, as a swap does — a queue that waited
+    /// for it looks again, whether or not the slot moved.
+    fn set_swap_pending(&self, pending: bool) {
+        let was = self.shared.swap_pending.swap(pending, Ordering::SeqCst);
+        if was && !pending {
+            for watcher in self
+                .shared
+                .watchers
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+            {
+                watcher();
+            }
         }
     }
 
@@ -741,6 +775,13 @@ impl EngineHandle {
         Arc::ptr_eq(&self.shared, &other.shared)
     }
 
+    /// Say a deferred change of duty is pending, or has landed — for a test
+    /// of a surface that reads it (D395).
+    #[cfg(test)]
+    pub fn pending_swap(&self, pending: bool) {
+        self.set_swap_pending(pending);
+    }
+
     /// Say the engine in the slot sends a document to `whereto` — for a
     /// test of a surface whose fake engine stands for an endpoint.
     #[cfg(test)]
@@ -857,6 +898,17 @@ impl wipemark_queue::EngineSource for EngineHandle {
                 detail: other.to_string(),
             }),
         }
+    }
+
+    /// Where the slot's engine sends a document, read off the slot — no
+    /// engine built, no key read (D396).
+    fn whereto(&self) -> Option<Whereto> {
+        self.sends_to()
+    }
+
+    /// A deferred change of duty not landed yet (D395).
+    fn settling(&self) -> bool {
+        self.swap_pending()
     }
 }
 
@@ -1226,6 +1278,11 @@ impl EngineHost {
             for deferred in std::mem::take(&mut self.deferred) {
                 self.on(deferred, cx);
             }
+            // After the swap, never before: the queue looks again only once
+            // the engine it would be handed is the new one (D395).
+            if !self.deferred.contains(&Event::DutyChanged) {
+                self.handle.set_swap_pending(false);
+            }
         }
         cx.notify();
     }
@@ -1234,6 +1291,9 @@ impl EngineHost {
         match action {
             Action::Nothing => {}
             Action::Defer(event) => {
+                if event == Event::DutyChanged {
+                    self.handle.set_swap_pending(true);
+                }
                 if !self.deferred.contains(&event) {
                     self.deferred.push(event);
                 }
@@ -1688,6 +1748,12 @@ fn refusal_message(why: &Unavailable) -> Message {
             KeyFault::Control => Message::EngineRefusalKeyUnsendableControl,
             KeyFault::Space => Message::EngineRefusalKeyUnsendableSpace,
         },
+        Unavailable::ChatFormat(ChatRefusal::NoTemplate) => {
+            Message::EngineRefusalChatFormatNoTemplate
+        }
+        Unavailable::ChatFormat(ChatRefusal::Unrecognised) => {
+            Message::EngineRefusalChatFormatUnrecognised
+        }
     }
 }
 
@@ -2222,6 +2288,87 @@ mod tests {
         );
     }
 
+    /// D395 (L-1): a change of duty the host defers while a job runs is
+    /// said as pending — the batch queue starts nothing on the engine
+    /// leaving — until the job ends and the swap has landed; and whoever
+    /// watches the slot, told as the flag clears, finds the new engine
+    /// there. Never raise the flag and the queue starts the next item on
+    /// endpoint Y: red; clear it before the deferred swap runs and the
+    /// queue is told while Y is still in the slot: red.
+    #[gpui::test]
+    fn a_deferred_swap_is_pending_until_it_lands(cx: &mut gpui::TestAppContext) {
+        let endpoint = |origin: &str| Reading {
+            performer: Some(Performer::Endpoint(Remote {
+                profile: None,
+                provider: crate::engine::Provider::OpenAiCompatible,
+                endpoint: format!("{origin}/v1/chat/completions"),
+                origin: origin.to_owned(),
+                model: "m".to_owned(),
+                temperature: 0.9,
+                reasoning: crate::engine::ReasoningEffort::None,
+                timeout: 120,
+                account: None,
+                on_this_machine: false,
+            })),
+            options: LocalOptions::default(),
+            policy: LocalPolicy::default(),
+            known: true,
+            key_saves: 0,
+        };
+        let y = Whereto::Away("https://y.example.com".to_owned());
+        let z = Whereto::Away("https://z.example.com".to_owned());
+        let vault = Arc::new(Vault::in_memory("com.GigLabo.wipemark.test"));
+        let (handle, inbox) = EngineHandle::new();
+        let host = cx.new(|cx| EngineHost::listening(handle.clone(), inbox, vault, cx));
+        host.update(cx, |host, cx| {
+            host.preferences_moved(endpoint("https://y.example.com"), cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(handle.slot_going().1, Some(y.clone()));
+
+        type Told = Vec<(bool, Option<Whereto>)>;
+        let told: Arc<Mutex<Told>> = Arc::default();
+        let telling = Arc::clone(&told);
+        let watched = handle.clone();
+        handle.when_changed(move || {
+            telling
+                .lock()
+                .expect("lock")
+                .push((watched.swap_pending(), watched.slot_going().1));
+        });
+
+        let job = block_on(handle.for_job()).expect("Y's engine");
+        cx.run_until_parked();
+        host.update(cx, |host, cx| {
+            host.preferences_moved(endpoint("https://z.example.com"), cx);
+        });
+        cx.run_until_parked();
+        assert!(handle.swap_pending(), "the deferred swap was not said");
+        assert_eq!(
+            handle.slot_going().1,
+            Some(y.clone()),
+            "the swap landed under the job"
+        );
+
+        drop(job);
+        cx.run_until_parked();
+        assert!(
+            !handle.swap_pending(),
+            "the swap landed and is still said pending"
+        );
+        assert_eq!(handle.slot_going().1, Some(z.clone()));
+        let told = told.lock().expect("lock").clone();
+        assert!(
+            !told.contains(&(false, Some(y))),
+            "the queue was told to look again while the engine leaving was in the slot: {told:?}"
+        );
+        assert_eq!(
+            told.last(),
+            Some(&(false, Some(z))),
+            "the last word to the queue was not the new engine, settled: {told:?}"
+        );
+    }
+
     /// D370: the slot says where its engine sends a document as the
     /// performer the host built it for — away to an endpoint's origin, here
     /// for an endpoint on loopback — and says it again with the next swap.
@@ -2322,6 +2469,8 @@ mod tests {
             Unavailable::KeyUnsendable(KeyFault::NotAscii),
             Unavailable::KeyUnsendable(KeyFault::Control),
             Unavailable::KeyUnsendable(KeyFault::Space),
+            Unavailable::ChatFormat(ChatRefusal::NoTemplate),
+            Unavailable::ChatFormat(ChatRefusal::Unrecognised),
         ];
         for why in &all {
             match why {
@@ -2339,7 +2488,8 @@ mod tests {
                 | Unavailable::Refused { .. }
                 | Unavailable::KeyUnreadable { .. }
                 | Unavailable::NoKey
-                | Unavailable::KeyUnsendable(_) => {}
+                | Unavailable::KeyUnsendable(_)
+                | Unavailable::ChatFormat(_) => {}
             }
         }
         all

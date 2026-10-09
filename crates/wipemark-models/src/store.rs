@@ -158,6 +158,11 @@ pub enum StoreError {
     /// exactly as it is (D302).
     #[error("{} is not a file this product downloaded; it is left as it is", .path.display())]
     Occupied { path: PathBuf },
+    /// The file was another file by the time it had been read — swapped,
+    /// written or touched between its header and its hash, or while it was
+    /// hashed — so what was read of it is not one file's (D439).
+    #[error("{} changed while it was read", .path.display())]
+    ChangedWhileRead { path: PathBuf },
 }
 
 impl StoreError {
@@ -343,6 +348,11 @@ pub struct Downloads {
     /// Set by [`Downloads::stop`]: every hash under way gives up at its
     /// next chunk, and none starts.
     stopped: AtomicBool,
+    /// The hashes under way, by path: a second asker for a file being read
+    /// waits for the first one's answer rather than reading it again — a
+    /// Remove clicked during a launch's scan, a fetch's check beside it —
+    /// so a file is read by one hash at a time (D304, D397).
+    hashing: std::sync::Mutex<std::collections::HashMap<PathBuf, Arc<InFlight>>>,
     /// What a test adds to every device and inode number this store reads
     /// — a remount, a file system whose numbers do not survive one (D375).
     #[cfg(test)]
@@ -369,6 +379,7 @@ impl Downloads {
             hashed: AtomicUsize::new(0),
             hash_watch: std::sync::Mutex::new(None),
             stopped: AtomicBool::new(false),
+            hashing: std::sync::Mutex::new(std::collections::HashMap::new()),
             #[cfg(test)]
             remount: std::sync::atomic::AtomicU64::new(0),
         }
@@ -1112,15 +1123,52 @@ impl Downloads {
     /// it had **before** the read (L1): a file that changed while it was
     /// being read then no longer matches its record, and is read again on
     /// the next look rather than trusted with a hash of other bytes.
-    fn hash_and_record(&self, path: &Path) -> Result<String, StoreError> {
+    pub(crate) fn hash_and_record(&self, path: &Path) -> Result<String, StoreError> {
         let (actual, before) = self.hash(path)?;
         self.record(path, &actual, &before);
         Ok(actual)
     }
 
-    /// Hash `path` in full, and count it: its sha256, and its fingerprint
-    /// as it was when the read began.
+    /// Hash `path` in full, once at a time: its sha256, and its
+    /// fingerprint as it was when the read began.
+    ///
+    /// The first asker reads the file; anyone asking for the same path
+    /// while it does waits and takes its answer (D397). A hash that failed
+    /// or gave up answers nobody else: whoever waited asks again, and
+    /// reads the file itself if it still can.
     fn hash(&self, path: &Path) -> Result<(String, String), StoreError> {
+        loop {
+            let (first, flight) = {
+                let mut hashing = self
+                    .hashing
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                match hashing.get(path) {
+                    Some(flight) => (false, Arc::clone(flight)),
+                    None => {
+                        let flight = Arc::new(InFlight::default());
+                        hashing.insert(path.to_path_buf(), Arc::clone(&flight));
+                        (true, flight)
+                    }
+                }
+            };
+            if first {
+                let landing = Landing {
+                    store: self,
+                    path,
+                    flight: &flight,
+                    answer: None,
+                };
+                return landing.with(self.hash_now(path));
+            }
+            if let Some(answer) = flight.wait() {
+                return Ok(answer);
+            }
+        }
+    }
+
+    /// Hash `path` in full, now, and count it.
+    fn hash_now(&self, path: &Path) -> Result<(String, String), StoreError> {
         if self.stopped.load(Ordering::SeqCst) {
             return Err(StoreError::Cancelled);
         }
@@ -1186,7 +1234,7 @@ impl Downloads {
     /// hash is then read once, not on every look. And a manifest that
     /// changes a file's expected hash is compared against the recorded
     /// one, so it cannot be fooled by a stale "ok".
-    fn recorded(&self, target: &Path) -> Option<String> {
+    pub(crate) fn recorded(&self, target: &Path) -> Option<String> {
         let body = std::fs::read_to_string(self.record_path(target)).ok()?;
         let mut lines = body.lines();
         let (fingerprint_then, sha) = (lines.next()?, lines.next()?);
@@ -1305,7 +1353,46 @@ impl Downloads {
     }
 
     /// What a mark of `kind` holds of the file at `path` — [`identity`],
-    /// with a test's remount added to the device and inode numbers.
+    /// never through a link, with a test's remount added to the device and
+    /// inode numbers.
+    fn identity(&self, path: &Path, kind: Identity) -> std::io::Result<Option<String>> {
+        let read = identity(&std::fs::symlink_metadata(path)?, kind);
+        Ok(self.remounted(read, kind))
+    }
+
+    /// What a user entry's row holds of the file at `path` (E8-1): a whole
+    /// file's identity, the one a download's mark holds (D350) — but read
+    /// **through** a link, because a model added from a file is the file the
+    /// link names, and a link is how one file is shared between two tools.
+    /// `None` for a path that is not a regular file once followed.
+    pub(crate) fn followed_identity(&self, path: &Path) -> std::io::Result<Option<String>> {
+        let read = identity(&std::fs::metadata(path)?, Identity::Whole);
+        Ok(self.remounted(read, Identity::Whole))
+    }
+
+    /// A whole file's identity read elsewhere — off a file a header was read
+    /// from ([`identity_of`]) — as [`Downloads::followed_identity`] would say
+    /// it: with a test's remount, so the two compare.
+    pub(crate) fn as_read_here(&self, identity: Option<String>) -> Option<String> {
+        self.remounted(identity, Identity::Whole)
+    }
+
+    /// The files [`Downloads::remove`] would delete of `entry` — each at the
+    /// entry's own place, whether or not anything is there.
+    #[must_use]
+    pub fn files_of(&self, entry: &ModelEntry) -> Vec<PathBuf> {
+        let Some(dir) = self.model_dir(&entry.id) else {
+            return Vec::new();
+        };
+        entry
+            .files
+            .iter()
+            .filter_map(|file| file.filename())
+            .map(|name| dir.join(name))
+            .collect()
+    }
+
+    /// `read`, with a test's remount added to its device and inode numbers.
     #[cfg_attr(
         not(test),
         allow(
@@ -1313,16 +1400,24 @@ impl Downloads {
             reason = "the store is the seam a test's remount goes through"
         )
     )]
-    fn identity(&self, path: &Path, kind: Identity) -> std::io::Result<Option<String>> {
-        let read = identity(path, kind)?;
+    fn remounted(&self, read: Option<String>, kind: Identity) -> Option<String> {
         #[cfg(test)]
         {
             let shift = self.remount.load(Ordering::SeqCst);
             if shift > 0 {
-                return Ok(read.map(|identity| renumbered(kind, &identity, shift)));
+                return read.map(|identity| renumbered(kind, &identity, shift));
             }
         }
-        Ok(read)
+        #[cfg(not(test))]
+        let _ = kind;
+        read
+    }
+
+    /// A test's remount: every device and inode number this store reads
+    /// from now on has `shift` added to it (D375).
+    #[cfg(test)]
+    pub(crate) fn remount_by(&self, shift: u64) {
+        self.remount.store(shift, Ordering::SeqCst);
     }
 
     /// Mark `target` as downloaded by this product.
@@ -1402,7 +1497,7 @@ const LAST: &str = "last ";
 
 /// Which identity a mark holds (D350, D351).
 #[derive(Debug, Clone, Copy)]
-enum Identity {
+pub(crate) enum Identity {
     /// A finished file: `size:mtime_ns:dev:ino` on Unix — what changes
     /// when it is rewritten, and what a file put in its place does not
     /// share — and `size:mtime_ns:birth_ns` elsewhere.
@@ -1413,14 +1508,24 @@ enum Identity {
     Part,
 }
 
-/// What a mark of `kind` holds of the file at `path`: `None` for a path
-/// that is a symbolic link or not a regular file — a download writes
-/// neither — and for an identity this platform cannot read. Never follows
-/// a link: the link is what is at the place.
-fn identity(path: &Path, kind: Identity) -> std::io::Result<Option<String>> {
-    let meta = std::fs::symlink_metadata(path)?;
+/// What a mark of `kind` holds of the file `meta` describes: `None` for a
+/// symbolic link or anything but a regular file — a download writes
+/// neither — and for an identity this platform cannot read. The caller
+/// chooses whether a link is followed: a mark never follows one (the link
+/// is what is at the place), a user entry always does (E8-1).
+/// A whole file's identity — `size:mtime_ns:dev:ino` on Unix — off its
+/// metadata, as a download's mark and an added model's row keep it (D350):
+/// for a caller that has the file open and asks the open file, which no
+/// rename can swap underneath ([`crate::gguf::Header::read_identified`]).
+/// `None` for anything but a regular file.
+#[must_use]
+pub fn identity_of(meta: &std::fs::Metadata) -> Option<String> {
+    identity(meta, Identity::Whole)
+}
+
+fn identity(meta: &std::fs::Metadata, kind: Identity) -> Option<String> {
     if !meta.file_type().is_file() {
-        return Ok(None);
+        return None;
     }
     let nanos = |time: std::io::Result<std::time::SystemTime>| {
         time.ok()
@@ -1431,7 +1536,7 @@ fn identity(path: &Path, kind: Identity) -> std::io::Result<Option<String>> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt as _;
-        Ok(match kind {
+        match kind {
             Identity::Whole => nanos(meta.modified())
                 .map(|mtime| format!("{}:{mtime}:{}:{}", meta.len(), meta.dev(), meta.ino())),
             Identity::Part => Some(format!(
@@ -1440,16 +1545,16 @@ fn identity(path: &Path, kind: Identity) -> std::io::Result<Option<String>> {
                 meta.ino(),
                 born.map_or_else(|| "-".to_owned(), |born| born.to_string())
             )),
-        })
+        }
     }
     #[cfg(not(unix))]
     {
-        Ok(match kind {
+        match kind {
             Identity::Whole => nanos(meta.modified())
                 .zip(born)
                 .map(|(mtime, born)| format!("{}:{mtime}:{born}", meta.len())),
             Identity::Part => born.map(|born| born.to_string()),
-        })
+        }
     }
 }
 
@@ -1507,7 +1612,7 @@ fn same_file(path: &Path, open: &std::fs::File) -> bool {
 /// do not survive one changes, and all it changes. Unix only: elsewhere an
 /// identity has no such numbers, and two that differ are two files. For a
 /// `.part`, a birth time either side does not know does not disagree.
-fn same_but_numbers(kind: Identity, marked: &str, now: &str) -> bool {
+pub(crate) fn same_but_numbers(kind: Identity, marked: &str, now: &str) -> bool {
     if !cfg!(unix) {
         return false;
     }
@@ -1556,6 +1661,69 @@ fn fingerprint(target: &Path) -> Result<String, StoreError> {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     Ok(format!("{}:{}", meta.len(), mtime))
+}
+
+/// One hash under way, which a second asker for the same file waits on.
+#[derive(Default)]
+struct InFlight {
+    /// `None` while it runs; then the answer, or `None` inside for a hash
+    /// that failed and answers nobody.
+    answer: std::sync::Mutex<Option<Option<(String, String)>>>,
+    landed: std::sync::Condvar,
+}
+
+impl InFlight {
+    /// Wait for the hash to end: its answer, or `None` when it failed.
+    fn wait(&self) -> Option<(String, String)> {
+        let mut answer = self
+            .answer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        loop {
+            if let Some(answer) = answer.as_ref() {
+                return answer.clone();
+            }
+            answer = self
+                .landed
+                .wait(answer)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+}
+
+/// The first asker's end of a hash: whatever happens — an answer, an
+/// error, a panic — the waiters are told and the path is free again.
+struct Landing<'a> {
+    store: &'a Downloads,
+    path: &'a Path,
+    flight: &'a Arc<InFlight>,
+    answer: Option<(String, String)>,
+}
+
+impl Landing<'_> {
+    fn with(
+        mut self,
+        hashed: Result<(String, String), StoreError>,
+    ) -> Result<(String, String), StoreError> {
+        self.answer = hashed.as_ref().ok().cloned();
+        hashed
+    }
+}
+
+impl Drop for Landing<'_> {
+    fn drop(&mut self) {
+        self.store
+            .hashing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(self.path);
+        *self
+            .flight
+            .answer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(self.answer.take());
+        self.flight.landed.notify_all();
+    }
 }
 
 /// The sha256 of `path`, telling `read` the bytes hashed so far and the
@@ -2089,6 +2257,55 @@ mod tests {
             !store.mark_path(&part).exists(),
             "the .part's mark outlived it"
         );
+    }
+
+    /// D397 (L-3): a file is read by one hash at a time across everything
+    /// the store does. A first hash is held mid-read — its progress goes
+    /// down a channel nobody reads yet — while a second asks for the same
+    /// file: the second waits and takes the first one's answer, and the
+    /// store counts one full read. Let every asker read for itself, as
+    /// before, and the count is two: red.
+    #[test]
+    fn two_askers_for_one_file_read_it_once() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Arc::new(Downloads::new(dir.path(), dir.path().join(".records")));
+        let bytes = vec![7u8; 4 * 1024 * 1024];
+        let entry = entry(
+            "m",
+            vec![file(
+                "https://x/m.gguf",
+                Some(&sha_of(&bytes)),
+                bytes.len() as u64,
+            )],
+        );
+        let model_dir = store.model_dir("m").expect("model dir");
+        std::fs::create_dir_all(&model_dir).expect("mkdir");
+        std::fs::write(model_dir.join("m.gguf"), &bytes).expect("write");
+
+        // A channel of no room: the first report blocks the hash that
+        // sends it until somebody reads.
+        let (sink, reports) = flume::bounded(0);
+        store.watch_hashes(sink);
+        let first = {
+            let (store, entry) = (Arc::clone(&store), entry.clone());
+            std::thread::spawn(move || store.rehash(&entry))
+        };
+        let held = reports
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the first hash reports");
+        assert!(matches!(held, Hashing::Progress { .. }), "{held:?}");
+        let second = {
+            let (store, entry) = (Arc::clone(&store), entry.clone());
+            std::thread::spawn(move || store.rehash(&entry))
+        };
+        // Give the second asker time to arrive while the first is held.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let draining = std::thread::spawn(move || while reports.recv().is_ok() {});
+        first.join().expect("first").expect("first hash");
+        second.join().expect("second").expect("second hash");
+        assert_eq!(store.hashes(), 1, "the file was read twice at once");
+        drop(store);
+        draining.join().expect("drained");
     }
 
     /// The stamp notices a file that was replaced, not bytes that changed

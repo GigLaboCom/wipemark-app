@@ -1005,6 +1005,28 @@ pub(crate) fn decide(
     }
 }
 
+/// [`decide`], asking `whole` — which reads the chosen model's file, in full
+/// when its identity moved — only when the answer depends on it: an
+/// endpoint on duty is a refusal whatever the file holds, and a refusal
+/// reads nothing (the follow-ups of E8-1, B-M3).
+pub(crate) fn decide_reading(
+    serves: Option<&str>,
+    provider: Option<&str>,
+    chosen: bool,
+    whole: impl FnOnce() -> bool,
+) -> Decision {
+    let configured = matches!(provider, Some("ollama" | "openai-compatible"));
+    let refused_whatever_the_file = match serves.map(str::trim) {
+        Some("endpoint") => true,
+        Some("machine" | "machine-first") => false,
+        _ => configured,
+    };
+    if refused_whatever_the_file {
+        return Decision::NeedsAppForEndpoint;
+    }
+    decide(serves, provider, chosen, whole())
+}
+
 /// The production road to this command's own engine: read the rows,
 /// decide, and load nothing yet — the job's warm-up loads the model.
 fn own_engine(
@@ -1044,21 +1066,65 @@ fn own_engine(
         .as_deref()
         .and_then(|id| catalogue.get(id))
         .cloned();
+    // E8-1: a model the person added, chosen for rewriting — loaded the same
+    // way, at its own context, while its file is the one that was added.
+    let added: Option<wipemark_models::user::UserModel> = place
+        .chosen
+        .as_deref()
+        .and_then(|id| place.added.iter().find(|model| model.id == id))
+        .cloned();
     let downloads = Downloads::new(&place.folder, layout.records_dir());
-    let weights = entry.as_ref().and_then(|entry| {
-        matches!(downloads.state(entry), State::Present { .. })
-            .then(|| downloads.weights_path(entry))
-            .flatten()
-    });
-    let decision = decide(
+    // The chosen model's file is looked at only when the decision turns on
+    // it: an endpoint on duty refuses here whatever it holds, and a refusal
+    // reads nothing — before, it read a touched 12 GB file in full first.
+    let mut weights = None;
+    let decision = decide_reading(
         engine_row("engine.serves").as_deref(),
         engine_row("engine.provider").as_deref(),
-        entry.is_some(),
-        weights.is_some(),
+        entry.is_some() || added.is_some(),
+        || {
+            weights = match (&entry, &added) {
+                (Some(entry), _) => matches!(downloads.state(entry), State::Present { .. })
+                    .then(|| downloads.weights_path(entry))
+                    .flatten(),
+                (None, Some(model)) => {
+                    let look = downloads.look_at_user(&model.entry);
+                    // D401's write-back, the command line's own (D435).
+                    if let Some(identity) = &look.identity {
+                        models::write_back(&layout.db_path(), model, identity);
+                    }
+                    (look.state == wipemark_models::user::UserState::Present)
+                        .then(|| model.entry.path.clone())
+                }
+                (None, None) => None,
+            };
+            weights.is_some()
+        },
     );
-    tracing::info!(?decision, "this command's own engine");
-    match (decision, entry, weights) {
-        (Decision::Machine, Some(entry), Some(weights)) => match built(&entry, weights) {
+    tracing::info!(
+        ?decision,
+        added = added.is_some(),
+        "this command's own engine"
+    );
+    let chosen = entry
+        .as_ref()
+        .map(|entry| (entry.id.clone(), entry.ctx_default))
+        .or_else(|| {
+            added
+                .as_ref()
+                .map(|model| (model.id.clone(), model.entry.ctx))
+        });
+    if let (Decision::ModelNotHere, Some(model)) = (decision, &added) {
+        return Err(say(
+            io,
+            t_args(
+                Message::CliRewriteAddedModelNotHere,
+                &args!("id" => model.id.as_str()),
+            ),
+        ));
+    }
+    match (decision, chosen, weights) {
+        (Decision::Machine, Some((id, ctx)), Some(weights)) => match built(&id, ctx, weights) {
             Ok(built) => Ok(built),
             Err(why) => Err(say(
                 io,
@@ -1070,12 +1136,9 @@ fn own_engine(
         },
         (Decision::NeedsAppForEndpoint, ..) => Err(say(io, t(Message::CliRewriteNeedsAppEndpoint))),
         (Decision::NeedsAppForFallback, ..) => Err(say(io, t(Message::CliRewriteNeedsAppFallback))),
-        (Decision::ModelNotHere, Some(entry), _) => Err(say(
+        (Decision::ModelNotHere, Some((id, _)), _) => Err(say(
             io,
-            t_args(
-                Message::CliRewriteModelNotHere,
-                &args!("id" => entry.id.as_str()),
-            ),
+            t_args(Message::CliRewriteModelNotHere, &args!("id" => id.as_str())),
         )),
         _ => Err(say(io, t(Message::CliRewriteNoModel))),
     }
@@ -1090,7 +1153,8 @@ fn own_engine(
     reason = "one signature for both builds; the one without the local engine refuses"
 )]
 fn built(
-    entry: &ModelEntry,
+    id: &str,
+    ctx: u32,
     weights: std::path::PathBuf,
 ) -> Result<(Arc<dyn RewriteEngine>, Executor), Unavailable> {
     use wipemark_engine::{has_gpu_backend, LoadParams, LocalConfig, LocalEngine};
@@ -1101,10 +1165,10 @@ fn built(
     // RAM, and only where RAM is the pool the model competes for.
     let available_mb = (host.unified_memory || !gpu).then_some(host.total_ram_mb);
     let engine = LocalEngine::new(LocalConfig {
-        model_id: entry.id.clone(),
+        model_id: id.to_owned(),
         weights,
         load: LoadParams {
-            n_ctx: entry.ctx_default,
+            n_ctx: ctx,
             ..LoadParams::default()
         },
         available_mb,
@@ -1119,7 +1183,8 @@ fn built(
 
 #[cfg(not(feature = "local-llama"))]
 fn built(
-    _entry: &ModelEntry,
+    _id: &str,
+    _ctx: u32,
     _weights: std::path::PathBuf,
 ) -> Result<(Arc<dyn RewriteEngine>, Executor), Unavailable> {
     Err(Unavailable::NotBuilt)
@@ -1204,6 +1269,12 @@ pub(crate) fn refusal_line(why: &Unavailable) -> String {
             },
             none(),
         ),
+        Unavailable::ChatFormat(wipemark_engine::ChatRefusal::NoTemplate) => {
+            (Message::EngineRefusalChatFormatNoTemplate, none())
+        }
+        Unavailable::ChatFormat(wipemark_engine::ChatRefusal::Unrecognised) => {
+            (Message::EngineRefusalChatFormatUnrecognised, none())
+        }
     };
     t_args(message, &args)
 }

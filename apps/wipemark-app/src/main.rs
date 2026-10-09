@@ -105,7 +105,7 @@ use crate::engine_host::{EngineHandle, EngineHost, Loaded};
 use crate::hotkey::Registration;
 use crate::icon::{Icon, IconName};
 use crate::placement::Origin;
-use crate::queue::{Queue, QueueEvent};
+use crate::queue::{Queue, QueueEvent, Road};
 use crate::report::ReportView;
 use crate::settings::{OpenSettings, Preferences, Section};
 use crate::setup::{Setup, SetupEvent};
@@ -137,6 +137,10 @@ struct Shell {
     /// Rewrite all's price, "send these away?", or the queue's question
     /// about where the waiting rewrites go, while it asks (E4-6b).
     asking: Option<(Entity<dialog::Confirm>, Subscription)>,
+    /// What the open question is about: the queue's consent question
+    /// names where the engine would now send the documents (D361);
+    /// `None` for any other.
+    asking_about: Option<wipemark_queue::Whereto>,
     /// The questions that arrived while one was open, asked in turn after
     /// it — never one silently put in place of another (D364).
     waiting: std::collections::VecDeque<Asked>,
@@ -280,21 +284,43 @@ impl Shell {
                         Message::RewritePriceTitle,
                         &args!("count" => price.documents),
                     );
+                    let going = price
+                        .away
+                        .clone()
+                        .map_or(wipemark_queue::Whereto::Here, wipemark_queue::Whereto::Away);
                     shell.ask(
-                        Asked::rewrite(title, price.lines(), Message::RewritePriceGo, ids),
+                        Asked::rewrite(
+                            title,
+                            price.lines(),
+                            Message::RewritePriceGo,
+                            ids,
+                            Road::Price,
+                            going,
+                        ),
                         window,
                         cx,
                     );
                 }
                 // A drop the switch would send away is asked about once (В1).
-                QueueEvent::SendAway { ids, host } => {
+                // A Replace that would send the document away, the same
+                // question (D393).
+                QueueEvent::SendAway {
+                    ids,
+                    host,
+                    replacing,
+                } => {
                     let title = t_args(
                         Message::RewriteSendTitle,
                         &args!("count" => ids.len(), "host" => host.clone()),
                     );
                     let body = vec![t(Message::RewriteSendBody)];
+                    let road = match replacing {
+                        Some(existing) => Road::Replace(existing.clone()),
+                        None => Road::Arrivals,
+                    };
+                    let going = wipemark_queue::Whereto::Away(host.clone());
                     shell.ask(
-                        Asked::rewrite(title, body, Message::RewriteSendGo, ids),
+                        Asked::rewrite(title, body, Message::RewriteSendGo, ids, road, going),
                         window,
                         cx,
                     );
@@ -325,6 +351,7 @@ impl Shell {
                         },
                         t(Message::RewriteConsentHold),
                     ];
+                    let about = now.clone();
                     let now = now.clone();
                     shell.ask(
                         Asked {
@@ -332,11 +359,17 @@ impl Shell {
                             body,
                             go: Message::RewriteConsentGo,
                             yes: Box::new(move |queue, _| queue.agree(now)),
+                            about: Some(about),
                         },
                         window,
                         cx,
                     );
                 }
+                // The queue no longer asks — the duty moved back, the
+                // person resumed, the item went: the question on screen,
+                // or waiting its turn, is taken down rather than left for
+                // an answer that would change nothing (D394).
+                QueueEvent::Unasked => shell.unask(window, cx),
             },
         );
 
@@ -348,6 +381,7 @@ impl Shell {
             _queue: [working, asked],
             report: None,
             asking: None,
+            asking_about: None,
             waiting: std::collections::VecDeque::new(),
             host,
             _host: loaded,
@@ -391,6 +425,9 @@ impl Shell {
     /// nothing. A question asked while another is open waits its turn and
     /// is asked after it (D364).
     fn ask(&mut self, asked: Asked, window: &mut Window, cx: &mut Context<Self>) {
+        if repeats(self.asking_about.as_ref(), &self.waiting, &asked) {
+            return;
+        }
         if self.asking.is_some() {
             self.waiting.push_back(asked);
             return;
@@ -400,7 +437,9 @@ impl Shell {
             body,
             go,
             yes,
+            about,
         } = asked;
+        self.asking_about = about;
         let view = cx.new(|cx| {
             dialog::Confirm::new(title, body, t(go), t(Message::RewriteCancel), window, cx)
         });
@@ -416,6 +455,7 @@ impl Shell {
                     }
                 }
                 shell.asking = None;
+                shell.asking_about = None;
                 if let Some(next) = shell.waiting.pop_front() {
                     shell.ask(next, window, cx);
                 }
@@ -423,6 +463,20 @@ impl Shell {
             },
         );
         self.asking = Some((view, answered));
+        cx.notify();
+    }
+
+    /// The queue withdrew its question (D394): the one on screen is taken
+    /// down if it is that question, and every copy waiting its turn is
+    /// dropped; the next question that is not, is asked.
+    fn unask(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let open = withdraw(self.asking_about.as_ref(), &mut self.waiting);
+        if open && self.asking.take().is_some() {
+            self.asking_about = None;
+            if let Some(next) = self.waiting.pop_front() {
+                self.ask(next, window, cx);
+            }
+        }
         cx.notify();
     }
 
@@ -591,19 +645,61 @@ struct Asked {
     body: Vec<String>,
     go: Message,
     yes: Yes,
+    /// For the queue's consent question, where the engine would now send
+    /// the documents — what a withdrawal of it names (D394).
+    about: Option<wipemark_queue::Whereto>,
 }
 
 impl Asked {
-    /// Yes rewrites rows `ids`.
-    fn rewrite(title: String, body: Vec<String>, go: Message, ids: &[u64]) -> Self {
+    /// Yes rewrites rows `ids` by `road`, agreed to go to `going` — the
+    /// destination this question names, and the one the consent records
+    /// (D431).
+    fn rewrite(
+        title: String,
+        body: Vec<String>,
+        go: Message,
+        ids: &[u64],
+        road: Road,
+        going: wipemark_queue::Whereto,
+    ) -> Self {
         let ids = ids.to_vec();
         Self {
             title,
             body,
             go,
-            yes: Box::new(move |queue, cx| queue.rewrite(&ids, cx)),
+            yes: Box::new(move |queue, cx| queue.agreed(&ids, road, going, cx)),
+            about: None,
         }
     }
+}
+
+/// Whether `asked` is the queue's consent question already open or waiting
+/// its turn — the queue says it again after a withdrawal and a new ask, and
+/// one question is asked once (D394). Pure.
+fn repeats(
+    open: Option<&wipemark_queue::Whereto>,
+    waiting: &std::collections::VecDeque<Asked>,
+    asked: &Asked,
+) -> bool {
+    let Some(about) = &asked.about else {
+        return false;
+    };
+    open == Some(about)
+        || waiting
+            .iter()
+            .any(|other| other.about.as_ref() == Some(about))
+}
+
+/// The queue withdrew its consent question: drop every copy of it waiting
+/// its turn, and say whether the open one is it — to be taken down. The
+/// queue holds one question at a time, so any consent question is the one
+/// withdrawn. Pure (D394).
+fn withdraw(
+    open: Option<&wipemark_queue::Whereto>,
+    waiting: &mut std::collections::VecDeque<Asked>,
+) -> bool {
+    waiting.retain(|asked| asked.about.is_none());
+    open.is_some()
 }
 
 /// The status bar's sentence while the queue cleans: which of how many.
@@ -1458,6 +1554,8 @@ fn main() {
                         made: compare::Made::Cleaned,
                     },
                     preferences.read(cx).comparison(),
+                    // No row: a save is a row of the window's own (D412).
+                    None,
                     AnyWindowHandle::from(window),
                     cx,
                 );
@@ -1786,6 +1884,75 @@ fn adopt_tray(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A question for the shell to put — the queue's consent question
+    /// about `about`, or another with `None`.
+    fn question(about: Option<&str>) -> Asked {
+        Asked {
+            title: String::new(),
+            body: Vec::new(),
+            go: Message::RewriteConsentGo,
+            yes: Box::new(|_, _| {}),
+            about: about.map(|origin| wipemark_queue::Whereto::Away(origin.to_owned())),
+        }
+    }
+
+    /// D394 (M-B): the queue's withdrawal takes its question down — the
+    /// open one when it is that question, and every copy waiting its turn
+    /// — and leaves every other question where it was, in its order. Make
+    /// `withdraw` keep the waiting copies, or leave the open one up, and
+    /// this goes red.
+    #[test]
+    fn a_withdrawn_question_is_taken_down_and_no_other() {
+        let y = wipemark_queue::Whereto::Away("https://y.example.com".to_owned());
+        let mut waiting = std::collections::VecDeque::from([
+            question(None),
+            question(Some("https://y.example.com")),
+            question(None),
+        ]);
+        assert!(
+            withdraw(Some(&y), &mut waiting),
+            "the open question stayed up"
+        );
+        assert_eq!(waiting.len(), 2, "a waiting copy of the question stayed");
+        assert!(waiting.iter().all(|asked| asked.about.is_none()));
+
+        // A price or a "send away?" on screen is not the queue's question.
+        let mut waiting =
+            std::collections::VecDeque::from([question(Some("https://y.example.com"))]);
+        assert!(
+            !withdraw(None, &mut waiting),
+            "another question was taken down"
+        );
+        assert!(waiting.is_empty());
+    }
+
+    /// D394 (M-B): one question is asked once — the queue's consent
+    /// question about where it is already open or waiting is not stacked
+    /// a second time; any other question always is. Make `repeats` always
+    /// `false` and the asks pile up: red.
+    #[test]
+    fn the_same_question_is_not_stacked() {
+        let y = wipemark_queue::Whereto::Away("https://y.example.com".to_owned());
+        let empty = std::collections::VecDeque::new();
+        let asked = question(Some("https://y.example.com"));
+        assert!(
+            repeats(Some(&y), &empty, &asked),
+            "stacked over the open one"
+        );
+        let waiting = std::collections::VecDeque::from([question(Some("https://y.example.com"))]);
+        assert!(
+            repeats(None, &waiting, &asked),
+            "stacked over a waiting one"
+        );
+        assert!(!repeats(None, &empty, &asked));
+        let other = question(Some("https://z.example.com"));
+        assert!(
+            !repeats(Some(&y), &waiting, &other),
+            "another endpoint is another question"
+        );
+        assert!(!repeats(Some(&y), &waiting, &question(None)));
+    }
 
     fn launch(arguments: &[&str]) -> Launch {
         launch_from(arguments.iter().map(|argument| (*argument).to_owned()))

@@ -573,3 +573,169 @@ fn a_yes_covers_the_items_it_was_asked_for_and_no_later_one() {
     );
     nothing_starts(&events, Duration::from_millis(300));
 }
+
+/// D394 (M-B): a yes to a question the queue has withdrawn changes
+/// nothing. B is asked about Y; the duty comes back here, the question is
+/// withdrawn and B runs here. A late yes to Y — the window's dialog was
+/// still up — then covers nobody: C, consented to stay here, is asked
+/// about when the duty goes to Y again, and does not start.
+#[test]
+fn a_yes_to_a_withdrawn_question_changes_nothing() {
+    let y = Whereto::Away("https://y.example.com".to_owned());
+    let source = Going::new(y.clone());
+    let queue = queue_going(&source);
+    let events = queue.events();
+    let text = format!("{}\n", common::PARAGRAPHS[0]);
+    let push = |text: &str| {
+        let request = text_request(text);
+        let id = queue.reserve(&request).expect("reserved");
+        queue
+            .push_reserved(id, request, Some(Whereto::Here))
+            .expect("pushed")
+    };
+    let b = push(&text);
+    wait_for(
+        &events,
+        |event| matches!(event, QueueEvent::Ask { item, .. } if *item == b),
+    );
+    source.go(Whereto::Here);
+    queue.engine_changed();
+    wait_for(&events, |event| matches!(event, QueueEvent::Unasked));
+    done_text(end_of(&events, b));
+    queue.agree(y.clone());
+
+    queue.pause();
+    wait_for(&events, |event| matches!(event, QueueEvent::Paused));
+    let c = push(&text);
+    source.go(y.clone());
+    queue.engine_changed();
+    queue.resume();
+    let seen = wait_for(&events, |event| {
+        matches!(event, QueueEvent::Ask { .. } | QueueEvent::Started { .. })
+    });
+    assert!(
+        matches!(
+            seen.last(),
+            Some(QueueEvent::Ask { item, now, .. }) if *item == c && *now == y
+        ),
+        "{:?}",
+        common::summary(&seen)
+    );
+    nothing_starts(&events, Duration::from_millis(300));
+}
+
+/// A [`Slotted`] that can say a swap is on its way.
+struct Settling {
+    slotted: Arc<Slotted>,
+    settling: std::sync::atomic::AtomicBool,
+}
+
+impl EngineSource for Settling {
+    fn for_item(&self) -> Result<Handed, Unavailable> {
+        self.slotted.for_item()
+    }
+
+    fn settling(&self) -> bool {
+        self.settling.load(Ordering::SeqCst)
+    }
+}
+
+/// D395 (L-1): while the source says a swap is on its way, no item starts
+/// on the engine leaving — not even one consented to that engine's
+/// endpoint: the duty has moved, and the item is checked against the
+/// engine that is coming. Told the engine moved, the queue starts it on the
+/// new one. Start items whatever the source says, and it goes to Y: red.
+#[test]
+fn no_item_starts_on_the_engine_leaving() {
+    let y = Whereto::Away("https://y.example.com".to_owned());
+    let y_asked = Arc::new(AtomicBool::new(false));
+    let here_asked = Arc::new(AtomicBool::new(false));
+    let source = Arc::new(Settling {
+        slotted: Slotted::holding(telling(&y_asked), y.clone()),
+        settling: AtomicBool::new(true),
+    });
+    let queue = Queue::with_source(
+        Arc::new(Store::in_memory().expect("memory")),
+        Durability::Memory { detail: None },
+        Arc::clone(&source) as Arc<dyn EngineSource>,
+    )
+    .expect("opens");
+    let events = queue.events();
+    let text = format!("{}\n", common::PARAGRAPHS[0]);
+    let request = text_request(&text);
+    let id = queue.reserve(&request).expect("reserved");
+    let item = queue.push_reserved(id, request, Some(y)).expect("pushed");
+    nothing_starts(&events, Duration::from_millis(300));
+    assert!(!y_asked.load(Ordering::SeqCst));
+
+    source.slotted.swap(telling(&here_asked), Whereto::Here);
+    source.settling.store(false, Ordering::SeqCst);
+    queue.engine_changed();
+    done_text(end_of(&events, item));
+    assert!(here_asked.load(Ordering::SeqCst));
+    assert!(
+        !y_asked.load(Ordering::SeqCst),
+        "an item started on the engine the duty had moved away from"
+    );
+}
+
+/// A [`Slotted`] that says where its engine sends a document without
+/// building it, and counts every engine it hands out — the build that, for
+/// an endpoint, reads its key from the credential store.
+struct Counting {
+    slotted: Arc<Slotted>,
+    built: std::sync::atomic::AtomicUsize,
+}
+
+impl EngineSource for Counting {
+    fn for_item(&self) -> Result<Handed, Unavailable> {
+        self.built.fetch_add(1, Ordering::SeqCst);
+        self.slotted.for_item()
+    }
+
+    fn whereto(&self) -> Option<Whereto> {
+        self.slotted.slot.lock().expect("lock").1.clone()
+    }
+}
+
+/// D396 (L-2): an item the queue will only ask about is asked about before
+/// any engine is built for it — for an endpoint, before its key is read,
+/// which on macOS can raise a keychain prompt for a document that is not
+/// going there. Ask only after building, as before, and the count is one:
+/// red.
+#[test]
+fn an_item_asked_about_costs_no_engine_build() {
+    let y = Whereto::Away("https://y.example.com".to_owned());
+    let y_asked = Arc::new(AtomicBool::new(false));
+    let source = Arc::new(Counting {
+        slotted: Slotted::holding(telling(&y_asked), y.clone()),
+        built: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let queue = Queue::with_source(
+        Arc::new(Store::in_memory().expect("memory")),
+        Durability::Memory { detail: None },
+        Arc::clone(&source) as Arc<dyn EngineSource>,
+    )
+    .expect("opens");
+    let events = queue.events();
+    let text = format!("{}\n", common::PARAGRAPHS[0]);
+    let request = text_request(&text);
+    let id = queue.reserve(&request).expect("reserved");
+    let item = queue
+        .push_reserved(id, request, Some(Whereto::Here))
+        .expect("pushed");
+    let seen = wait_for(&events, |event| {
+        matches!(event, QueueEvent::Ask { .. } | QueueEvent::Started { .. })
+    });
+    assert!(
+        matches!(seen.last(), Some(QueueEvent::Ask { item: asked, now, .. }) if *asked == item && *now == y),
+        "{:?}",
+        common::summary(&seen)
+    );
+    assert_eq!(
+        source.built.load(Ordering::SeqCst),
+        0,
+        "an engine was built — a key read — for an item only asked about"
+    );
+    assert!(!y_asked.load(Ordering::SeqCst));
+}

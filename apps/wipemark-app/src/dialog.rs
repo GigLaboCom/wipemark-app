@@ -1,8 +1,10 @@
 //! Modal overlays, and the focus trap that makes them modal.
 //!
-//! Two dialogs live here: [`Naming`], which asks what a set of settings
+//! Three dialogs live here: [`Naming`], which asks what a set of settings
 //! should be saved as, and [`Confirm`], which asks before something is
-//! removed. Both are opened by the profile row on the Engine page.
+//! removed — both opened by the profile row on the Engine page, Confirm
+//! by Forget on the Models page too — and [`AddModel`], which adds a model
+//! the catalogue does not have (E8-1).
 //!
 //! # Why these are entities in our own tree and not `Root` dialogs
 //!
@@ -73,11 +75,19 @@
 use gpui::prelude::*;
 use gpui::{
     actions, black, div, px, App, ClickEvent, Context, Div, Entity, EventEmitter, FocusHandle,
-    Focusable, KeyBinding, SharedString, Subscription, Window,
+    Focusable, KeyBinding, Pixels, SharedString, Subscription, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::{h_flex, v_flex, ActiveTheme, Disableable as _, Sizable, StyledExt};
+use gpui_component::{
+    h_flex, v_flex, ActiveTheme, Disableable as _, Selectable as _, Sizable, StyledExt,
+};
+use wipemark_i18n::{args, t, t_args, Message};
+use wipemark_models::host::Host;
+use wipemark_models::manifest::Role;
+use wipemark_models::user;
+
+use crate::models::{self, Addition, Facts};
 
 /// The key context a dialog dispatches in.
 ///
@@ -185,6 +195,11 @@ pub(crate) fn backdrop(_cx: &App) -> Div {
 /// the trap watches. Clicks stop here rather than reaching the backdrop
 /// behind, or every button in the dialog would also dismiss it.
 fn panel(focus: &FocusHandle, cx: &App) -> impl ParentElement + IntoElement {
+    panel_of(focus, px(400.0), cx)
+}
+
+/// [`panel`], `width` wide.
+fn panel_of(focus: &FocusHandle, width: Pixels, cx: &App) -> impl ParentElement + IntoElement {
     v_flex()
         .id("dialog-panel")
         .track_focus(focus)
@@ -196,7 +211,7 @@ fn panel(focus: &FocusHandle, cx: &App) -> impl ParentElement + IntoElement {
         // outside the panel's own background the first time this ran.
         .flex_none()
         .gap_3()
-        .w(px(400.0))
+        .w(width)
         .p_4()
         .rounded(cx.theme().radius)
         .border_1()
@@ -354,6 +369,155 @@ impl Render for Confirm {
                                     .label(self.accept.clone())
                                     .on_click(cx.listener(|dialog, _, _, cx| {
                                         dialog.answer(Answer::Accepted, cx);
+                                    })),
+                            ),
+                    ),
+            )
+    }
+}
+
+/// How a [`Choose`] dialog was answered: one of its two choices, or
+/// neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pick {
+    /// The first choice — Overwrite, Save.
+    First,
+    /// The second — Keep theirs, Discard.
+    Second,
+    /// Cancel, Escape, or a click on the backdrop: one answer, as in
+    /// [`Confirm`], and the one that changes nothing.
+    Dismissed,
+}
+
+/// Ask between two things to do and doing neither — the Compare window's
+/// questions (E7-9): a file changed under a save (Overwrite / Keep theirs
+/// / Cancel), and a close with edits that are not saved (Save / Discard /
+/// Cancel). [`Confirm`]'s shape with one more button, and its three walls.
+///
+/// Enter is the choice the caller names as the safe one — Save on a close,
+/// Cancel over a changed file, where the first choice writes over somebody
+/// else's text — because a key pressed out of habit must never be the
+/// destructive answer.
+pub struct Choose {
+    focus: FocusHandle,
+    title: SharedString,
+    body: Vec<SharedString>,
+    first: SharedString,
+    second: SharedString,
+    dismiss: SharedString,
+    /// What Enter answers.
+    enter: Pick,
+    armed: bool,
+}
+
+impl EventEmitter<Pick> for Choose {}
+
+impl Choose {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        title: impl Into<SharedString>,
+        body: Vec<String>,
+        first: impl Into<SharedString>,
+        second: impl Into<SharedString>,
+        dismiss: impl Into<SharedString>,
+        enter: Pick,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let focus = cx.focus_handle();
+        focus.focus(window, cx);
+        Self {
+            focus,
+            title: title.into(),
+            body: body.into_iter().map(SharedString::from).collect(),
+            first: first.into(),
+            second: second.into(),
+            dismiss: dismiss.into(),
+            enter,
+            armed: true,
+        }
+    }
+
+    /// Answer once, and open the trap as it does.
+    pub fn answer(&mut self, pick: Pick, cx: &mut Context<Self>) {
+        if !self.armed {
+            return;
+        }
+        self.armed = false;
+        cx.emit(pick);
+    }
+}
+
+impl Focusable for Choose {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl Render for Choose {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The same walls as `Confirm`'s, for the same reasons — see there.
+        backdrop(cx)
+            .id("choose-backdrop")
+            .on_action(cx.listener(|dialog, _: &Next, window, cx| {
+                cx.stop_propagation();
+                hold(&dialog.focus.clone(), window, cx);
+            }))
+            .on_action(cx.listener(|dialog, _: &Previous, window, cx| {
+                cx.stop_propagation();
+                hold(&dialog.focus.clone(), window, cx);
+            }))
+            .on_action(cx.listener(|dialog, _: &Accept, _, cx| {
+                cx.stop_propagation();
+                let enter = dialog.enter;
+                dialog.answer(enter, cx);
+            }))
+            .on_action(cx.listener(|dialog, _: &Dismiss, _, cx| {
+                cx.stop_propagation();
+                dialog.answer(Pick::Dismissed, cx);
+            }))
+            .on_click(cx.listener(|dialog, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                dialog.answer(Pick::Dismissed, cx);
+            }))
+            .child(
+                panel(&self.focus, cx)
+                    .child(heading(self.title.clone(), cx))
+                    .children(self.body.iter().map(|text| line(text.clone(), cx)))
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .gap_2()
+                            .justify_end()
+                            .pt_1()
+                            .child(
+                                Button::new("choose-dismiss")
+                                    .small()
+                                    .ghost()
+                                    .tab_index(1)
+                                    .label(self.dismiss.clone())
+                                    .on_click(cx.listener(|dialog, _, _, cx| {
+                                        dialog.answer(Pick::Dismissed, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("choose-second")
+                                    .small()
+                                    .outline()
+                                    .tab_index(2)
+                                    .label(self.second.clone())
+                                    .on_click(cx.listener(|dialog, _, _, cx| {
+                                        dialog.answer(Pick::Second, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("choose-first")
+                                    .small()
+                                    .primary()
+                                    .tab_index(3)
+                                    .label(self.first.clone())
+                                    .on_click(cx.listener(|dialog, _, _, cx| {
+                                        dialog.answer(Pick::First, cx);
                                     })),
                             ),
                     ),
@@ -555,6 +719,275 @@ impl Render for Naming {
     }
 }
 
+/// What an [`AddModel`] dialog came back with.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Adding {
+    Add(Box<Addition>),
+    Dismissed,
+}
+
+/// Add a model the catalogue does not have (E8-1, U1).
+///
+/// What can be read off the file is shown — the lines `models::dialog_lines`
+/// says, the first of them that this model is not the catalogue's — and
+/// only what cannot be is asked: a name (the file's own, to start with), a
+/// purpose, and a context within what the model was trained with, the
+/// memory estimate following it as it is typed. **Add** answers with an
+/// [`Addition`]; nothing is read or written until then, and Cancel, Escape
+/// and the backdrop write nothing. Two fields, so it is painted at
+/// [`FIELD_MODAL_PRIORITY`], and Tab moves between them and nowhere else.
+pub struct AddModel {
+    focus: FocusHandle,
+    facts: Facts,
+    host: Option<Host>,
+    /// The model this file is already added as — its id and name — when it
+    /// is: adding it again writes that row again (D405).
+    replacing: Option<(String, String)>,
+    role: Role,
+    name: Entity<InputState>,
+    ctx: Entity<InputState>,
+    /// The contexts accepted, from the header's training window.
+    bounds: (u32, u32),
+    /// The context the dialog opened with: the estimate's while the field
+    /// holds something it does not accept.
+    opened_ctx: u32,
+    armed: bool,
+    _typed: [Subscription; 2],
+}
+
+impl EventEmitter<Adding> for AddModel {}
+
+impl AddModel {
+    pub fn new(
+        facts: Facts,
+        host: Option<Host>,
+        replacing: Option<(String, String)>,
+        starting_name: String,
+        starting_ctx: u32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let bounds = user::ctx_bounds(facts.trained_ctx);
+        let name = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value(starting_name)
+                .placeholder(t(Message::SettingsModelsAddName))
+                .validate(|typed, _| user::typeable_name(typed))
+        });
+        let ctx = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value(starting_ctx.to_string())
+                .validate(|typed, _| typed.len() <= 7 && typed.chars().all(|c| c.is_ascii_digit()))
+        });
+        let focus = cx.focus_handle();
+        name.read(cx).focus_handle(cx).focus(window, cx);
+        // Add is disabled while a field holds nothing it can add with, and
+        // the estimate follows the context: a repaint per keystroke.
+        let typed = [
+            cx.subscribe_in(&name, window, |_, _, _: &InputEvent, _, cx| cx.notify()),
+            cx.subscribe_in(&ctx, window, |_, _, _: &InputEvent, _, cx| cx.notify()),
+        ];
+        Self {
+            focus,
+            facts,
+            host,
+            replacing,
+            role: models::ADDABLE_ROLES[0],
+            name,
+            ctx,
+            bounds,
+            opened_ctx: starting_ctx,
+            armed: true,
+            _typed: typed,
+        }
+    }
+
+    /// The name in the field.
+    pub fn typed_name(&self, cx: &App) -> String {
+        self.name.read(cx).value().to_string()
+    }
+
+    /// The context in the field, when it is one the dialog accepts.
+    pub fn typed_ctx(&self, cx: &App) -> Option<u32> {
+        models::ctx_typed(&self.ctx.read(cx).value(), self.bounds)
+    }
+
+    fn addable(&self, cx: &App) -> bool {
+        let name = self.typed_name(cx);
+        !name.trim().is_empty() && user::typeable_name(&name) && self.typed_ctx(cx).is_some()
+    }
+
+    fn answer(&mut self, answer: Adding, cx: &mut Context<Self>) {
+        if !self.armed {
+            return;
+        }
+        self.armed = false;
+        cx.emit(answer);
+    }
+
+    fn accept(&mut self, cx: &mut Context<Self>) {
+        let Some(ctx) = self.typed_ctx(cx) else {
+            return;
+        };
+        if !self.addable(cx) {
+            return;
+        }
+        let addition = Addition {
+            facts: self.facts.clone(),
+            name: self.typed_name(cx).trim().to_owned(),
+            role: self.role,
+            ctx,
+            replacing: self.replacing.as_ref().map(|(id, _)| id.clone()),
+        };
+        self.answer(Adding::Add(Box::new(addition)), cx);
+    }
+
+    /// The field the keyboard is in, and the other one.
+    fn fields(&self, window: &Window, cx: &App) -> (FocusHandle, FocusHandle) {
+        let name = self.name.read(cx).focus_handle(cx);
+        let ctx = self.ctx.read(cx).focus_handle(cx);
+        if ctx.is_focused(window) {
+            (ctx, name)
+        } else {
+            (name, ctx)
+        }
+    }
+}
+
+impl Focusable for AddModel {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl Render for AddModel {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let addable = self.addable(cx);
+        let ctx = self.typed_ctx(cx).unwrap_or(self.opened_ctx);
+        let lines = models::dialog_lines(&self.facts, ctx, self.host);
+        let muted = cx.theme().muted_foreground;
+        let label = |message: Message| {
+            div()
+                .text_xs()
+                .font_medium()
+                .child(SharedString::from(t(message)))
+        };
+        let role = self.role;
+
+        backdrop(cx)
+            .id("add-model-backdrop")
+            // Tab moves between the two fields and never past them.
+            .on_action(cx.listener(|dialog, _: &Next, window, cx| {
+                cx.stop_propagation();
+                let (_, other) = dialog.fields(window, cx);
+                hold(&other, window, cx);
+            }))
+            .on_action(cx.listener(|dialog, _: &Previous, window, cx| {
+                cx.stop_propagation();
+                let (_, other) = dialog.fields(window, cx);
+                hold(&other, window, cx);
+            }))
+            .on_action(cx.listener(|dialog, _: &Accept, _, cx| {
+                cx.stop_propagation();
+                dialog.accept(cx);
+            }))
+            .on_action(cx.listener(|dialog, _: &Dismiss, _, cx| {
+                cx.stop_propagation();
+                dialog.answer(Adding::Dismissed, cx);
+            }))
+            .on_click(cx.listener(|dialog, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                dialog.answer(Adding::Dismissed, cx);
+            }))
+            .child(
+                panel_of(&self.focus, px(520.0), cx)
+                    .child(heading(
+                        SharedString::from(t(Message::SettingsModelsAddTitle)),
+                        cx,
+                    ))
+                    .children(
+                        lines
+                            .into_iter()
+                            .map(|text| line(SharedString::from(text), cx)),
+                    )
+                    .children(self.replacing.as_ref().map(|(_, name)| {
+                        line(
+                            SharedString::from(t_args(
+                                Message::SettingsModelsAddAgainNote,
+                                &args!("name" => name.clone()),
+                            )),
+                            cx,
+                        )
+                    }))
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(label(Message::SettingsModelsAddName))
+                            .child(Input::new(&self.name).small()),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(label(Message::SettingsModelsAddPurpose))
+                            .child(h_flex().gap_1().children(
+                                models::ADDABLE_ROLES.into_iter().enumerate().map(
+                                    |(index, offered)| {
+                                        Button::new(("add-model-role", index))
+                                            .xsmall()
+                                            .outline()
+                                            .label(SharedString::from(models::role_label(offered)))
+                                            .selected(offered == role)
+                                            .on_click(cx.listener(move |dialog, _, _, cx| {
+                                                dialog.role = offered;
+                                                cx.notify();
+                                            }))
+                                    },
+                                ),
+                            )),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(label(Message::SettingsModelsAddContext))
+                            .child(Input::new(&self.ctx).small())
+                            .child(div().text_xs().text_color(muted).child(SharedString::from(
+                                t_args(
+                                    Message::SettingsModelsAddContextBounds,
+                                    &args!(
+                                        "min" => self.bounds.0.to_string(),
+                                        "max" => self.bounds.1.to_string(),
+                                    ),
+                                ),
+                            ))),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .gap_2()
+                            .justify_end()
+                            .pt_1()
+                            .child(
+                                Button::new("dialog-dismiss")
+                                    .small()
+                                    .ghost()
+                                    .label(SharedString::from(t(Message::SettingsModelsAddCancel)))
+                                    .on_click(cx.listener(|dialog, _, _, cx| {
+                                        dialog.answer(Adding::Dismissed, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("dialog-accept")
+                                    .small()
+                                    .primary()
+                                    .label(SharedString::from(t(Message::SettingsModelsAddConfirm)))
+                                    .disabled(!addable)
+                                    .on_click(cx.listener(|dialog, _, _, cx| dialog.accept(cx))),
+                            ),
+                    ),
+            )
+    }
+}
+
 /// Tab inside a dialog stays inside the dialog.
 ///
 /// Deliberately not `Window::focus_next`. Two things make GPUI's own
@@ -660,6 +1093,168 @@ mod tests {
             vec![Answer::Accepted],
             "a dialog answered more than once"
         );
+    }
+
+    /// A three-way question answers once too, and Enter is the choice the
+    /// caller named as the safe one — Cancel over a file that changed on
+    /// disk, never Overwrite (E7-9). Make Enter answer the first choice
+    /// and the changed-file question writes over somebody's text on a key
+    /// pressed out of habit: red.
+    #[gpui::test]
+    fn enter_on_a_three_way_question_is_the_safe_choice(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        for (enter, expected) in [
+            (Pick::Dismissed, Pick::Dismissed),
+            (Pick::First, Pick::First),
+        ] {
+            let slot: Rc<RefCell<Option<Entity<Choose>>>> = Rc::default();
+            let held = slot.clone();
+            let (_, window) = cx.add_window_view(move |window, cx| {
+                let dialog = cx.new(|cx| {
+                    Choose::new(
+                        "Changed",
+                        body(),
+                        "Overwrite",
+                        "Keep theirs",
+                        "Cancel",
+                        enter,
+                        window,
+                        cx,
+                    )
+                });
+                *held.borrow_mut() = Some(dialog.clone());
+                gpui_component::Root::new(dialog, window, cx)
+            });
+            window.run_until_parked();
+            let dialog = slot.take().expect("the window builder ran");
+            let heard = Rc::new(RefCell::new(Vec::new()));
+            let recorder = heard.clone();
+            let subscription = window.update(|_, cx| {
+                cx.subscribe(&dialog, move |_, pick: &Pick, _| {
+                    recorder.borrow_mut().push(*pick);
+                })
+            });
+            window.dispatch_action(Accept);
+            window.run_until_parked();
+            window.update(|_, cx| {
+                dialog.update(cx, |dialog, cx| dialog.answer(Pick::Second, cx));
+            });
+            window.run_until_parked();
+            drop(subscription);
+            assert_eq!(*heard.borrow(), vec![expected], "Enter with {enter:?}");
+        }
+    }
+
+    fn facts() -> Facts {
+        Facts {
+            path: std::path::PathBuf::from("/models/theirs/Qwen3-4B-Q4_K_M.gguf"),
+            size_bytes: 2_546_340_960,
+            name: Some("Qwen3 4B".to_owned()),
+            architecture: Some("qwen3".to_owned()),
+            parameters: Some("4.0B".to_owned()),
+            quant: Some("Q4_K_M".to_owned()),
+            trained_ctx: Some(262_144),
+            kv: None,
+            chat: wipemark_engine::ChatSupport::Supported { family: "chatml" },
+            identity: None,
+            key: wipemark_models::user::FileKey::default(),
+        }
+    }
+
+    /// U1: Add answers with what the dialog was given — the file's facts, the
+    /// name and the context typed, the purpose — and only while both fields
+    /// hold something it can add with; Cancel answers nothing to add, and
+    /// it answers once.
+    #[gpui::test]
+    fn the_add_dialog_answers_with_what_it_was_given(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let cx = cx.add_empty_window();
+        let dialog = cx.update(|window, cx| {
+            cx.new(|cx| {
+                AddModel::new(
+                    facts(),
+                    None,
+                    Some(("user-qwen".to_owned(), "Qwen".to_owned())),
+                    "Qwen3 4B".to_owned(),
+                    8192,
+                    window,
+                    cx,
+                )
+            })
+        });
+        let heard = Rc::new(RefCell::new(Vec::new()));
+        let recorder = heard.clone();
+        let subscription = cx.update(|_, cx| {
+            cx.subscribe(&dialog, move |_, adding: &Adding, _| {
+                recorder.borrow_mut().push(adding.clone());
+            })
+        });
+
+        // A context outside what the model was trained with is not one.
+        cx.update(|window, cx| {
+            dialog.update(cx, |dialog, cx| {
+                dialog
+                    .ctx
+                    .update(cx, |field, cx| field.set_value("999999", window, cx));
+                dialog.accept(cx);
+            });
+        });
+        cx.run_until_parked();
+        assert!(
+            heard.borrow().is_empty(),
+            "an out-of-bounds context was added"
+        );
+
+        cx.update(|window, cx| {
+            dialog.update(cx, |dialog, cx| {
+                dialog
+                    .ctx
+                    .update(cx, |field, cx| field.set_value("16384", window, cx));
+                dialog
+                    .name
+                    .update(cx, |field, cx| field.set_value("  My Qwen  ", window, cx));
+                dialog.accept(cx);
+                dialog.answer(Adding::Dismissed, cx);
+            });
+        });
+        cx.run_until_parked();
+        drop(subscription);
+        assert_eq!(
+            *heard.borrow(),
+            vec![Adding::Add(Box::new(Addition {
+                facts: facts(),
+                name: "My Qwen".to_owned(),
+                role: Role::Rewrite,
+                ctx: 16_384,
+                replacing: Some("user-qwen".to_owned()),
+            }))]
+        );
+    }
+
+    /// Cancel adds nothing: the one answer is Dismissed.
+    #[gpui::test]
+    fn cancelling_the_add_dialog_adds_nothing(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let cx = cx.add_empty_window();
+        let dialog = cx.update(|window, cx| {
+            cx.new(|cx| AddModel::new(facts(), None, None, "Q".to_owned(), 8192, window, cx))
+        });
+        let heard = Rc::new(RefCell::new(Vec::new()));
+        let recorder = heard.clone();
+        let subscription = cx.update(|_, cx| {
+            cx.subscribe(&dialog, move |_, adding: &Adding, _| {
+                recorder.borrow_mut().push(adding.clone());
+            })
+        });
+        cx.update(|_, cx| {
+            dialog.update(cx, |dialog, cx| {
+                dialog.answer(Adding::Dismissed, cx);
+                dialog.accept(cx);
+            });
+        });
+        cx.run_until_parked();
+        drop(subscription);
+        assert_eq!(*heard.borrow(), vec![Adding::Dismissed]);
     }
 
     /// A name field that is empty is not an answer. Enter on one, or a

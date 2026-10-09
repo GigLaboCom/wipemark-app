@@ -112,6 +112,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -141,7 +142,7 @@ use wipemark_store::entry::{Action, Delivered, Entry, Origin, Outcome as Recorde
 
 use crate::clean::{self, Cleanable, Outcome, Refusal, Verdict};
 use crate::cleaner::{self, Cleaner};
-use crate::compare::{self, Comparison, Made, RewriteFrom, Subject};
+use crate::compare::{self, CleanedTo, Comparison, Made, RewriteFrom, Subject, Told};
 use crate::drop::{self, Arrival, Catcher, Landed};
 use crate::icon::{Icon, IconName};
 use crate::journal::{self, Work, Writer, Written};
@@ -685,6 +686,11 @@ struct Row {
     /// A result already where this row's rewrite would go, refused (D261)
     /// — what "Replace the existing result" offers to write over.
     existing: Option<PathBuf>,
+    /// A cleaned paste's result as last saved in the Compare window (E7-9,
+    /// D412): what Copy the result copies and Compare opens on, in place
+    /// of the cleaned text — in memory, as that text is. Gone with the
+    /// next clean or rewrite of the row.
+    edited: Option<String>,
     /// lazy-shot's `key_word`: a handle somebody assigned so the thing
     /// can be found again by name. Nothing assigns one yet — see the
     /// module docs — so today every row's is `None`.
@@ -767,12 +773,21 @@ pub enum QueueEvent {
     /// the whole window, not inside the table.
     Report(u64),
     /// Rewrite all's price, said before anything is pushed (D61): rows
-    /// `ids`, at `price`. The shell asks; its answer is [`Queue::rewrite`].
+    /// `ids`, at `price`, going where `price.away` says. The shell asks;
+    /// its answer is [`Queue::agreed`] by [`Road::Price`], naming that
+    /// destination (D431).
     Price { ids: Vec<u64>, price: Price },
     /// Rows `ids` arrived with "Process what arrives" set to rewrite, and
     /// the engine on duty is not this machine: the shell asks once before
-    /// they are sent to `host` (В1).
-    SendAway { ids: Vec<u64>, host: String },
+    /// they are sent to `host` (В1). Or — `replacing` — one row's Replace
+    /// the existing result, asked the same question before it goes (D393).
+    /// Yes is [`Queue::agreed`] — by [`Road::Arrivals`], or
+    /// [`Road::Replace`] over that file — naming `host` (D431).
+    SendAway {
+        ids: Vec<u64>,
+        host: String,
+        replacing: Option<PathBuf>,
+    },
     /// The batch queue holds to ask (D361): `count` waiting rewrites were
     /// asked for while rewriting stayed here (`was` `None`) or went to
     /// `was`, and the engine on duty now would send them to `host`. The
@@ -784,6 +799,22 @@ pub enum QueueEvent {
         was: Option<String>,
         count: usize,
     },
+    /// The batch queue no longer asks — answered, the duty moved, the
+    /// person resumed, or its item went: the shell takes its question down
+    /// (D394).
+    Unasked,
+}
+
+/// The question a yes answered, so that a yes the duty no longer stands
+/// behind can ask it again (D431).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Road {
+    /// Rewrite all's price.
+    Price,
+    /// Rows a drop put in, with "Process what arrives" set to rewrite.
+    Arrivals,
+    /// One row's Replace the existing result, over this file.
+    Replace(PathBuf),
 }
 
 /// When a row arrived, as the Arrived column says it: the time alone for
@@ -1096,6 +1127,7 @@ impl Queue {
                 item: None,
                 price: None,
                 existing: None,
+                edited: None,
                 keyword: None,
                 arrival: Some(arrival.clone()),
                 preview: Preview::Pending,
@@ -1287,7 +1319,7 @@ impl Queue {
         // A rewrite refused over an existing result is replaced by the
         // batch queue, writing over that one named file.
         if let Some(existing) = row.existing.clone() {
-            self.push_rewrites(&[id], Some(existing), cx);
+            self.replace_rewrite(id, existing, cx);
             return;
         }
         let Some(existing) = row.outcome().and_then(existing_result) else {
@@ -1361,16 +1393,79 @@ impl Queue {
                 },
             );
         }
+        // A new clean is a new result: a paste's text saved in Compare
+        // before it is not this one's.
+        row.edited = None;
         row.status = status;
         cx.notify();
     }
 
     /// The cleaned text of row `id`, for Copy the result — looked up at
     /// click time rather than cloned into every menu, for the reason
-    /// [`compare_row`] gives.
+    /// [`compare_row`] gives. A paste's text saved in Compare, once there
+    /// is one (D412).
     fn result_text(&self, id: u64) -> Option<String> {
         let row = self.rows.iter().find(|row| row.id == id)?;
-        row.outcome()?.text.clone()
+        let outcome = row.outcome()?;
+        outcome.text.as_ref()?;
+        row.edited.clone().or_else(|| outcome.text.clone())
+    }
+
+    /// What a Compare window opened on row `id` saved (E7-9, D412): a
+    /// cleaned paste's text, kept in the row, or a mark that the result's
+    /// file or the batch queue's row holds an edit — written to the row's
+    /// journal entry as *when*, never *what* (D417). `false` when the row
+    /// cannot take it: gone, or no longer a result Compare saved into.
+    pub fn told_by_compare(&mut self, id: u64, told: Told, cx: &mut Context<Self>) -> bool {
+        let Some(row) = self.rows.iter_mut().find(|row| row.id == id) else {
+            return false;
+        };
+        match told {
+            // A Save in Compare that cleans keeps the row's own Clean's
+            // rule: not while it waits or runs in a line, not while it is
+            // rewritten (D411).
+            // Nor over a rewrite's result: a window opened before the row
+            // was rewritten still saves as a Clean, and that clean would
+            // take the row — and its journal entry's item — from the
+            // rewrite, a paste's rewritten text then reachable from
+            // nothing (its one home is the batch queue's row). The row's
+            // own Clean is greyed then too.
+            Told::Cleans => {
+                return !matches!(
+                    &row.status,
+                    Status::Queued
+                        | Status::Cleaning
+                        | Status::RewriteQueued
+                        | Status::Rewriting(_)
+                ) && !matches!(&row.status, Status::Recorded(said) if !said.phase.is_end())
+                    && !matches!(
+                        &row.status,
+                        Status::Recorded(said)
+                            if said.action == Action::Rewrite
+                                && matches!(
+                                    said.result,
+                                    Some(Delivered::File { .. } | Delivered::Row)
+                                )
+                    );
+            }
+            Told::Text(text) => {
+                // Only a paste whose clean handed its result back as text.
+                let holds_text = matches!(
+                    &row.status,
+                    Status::Done(outcome) if outcome.written.is_none() && outcome.text.is_some()
+                );
+                if !holds_text {
+                    return false;
+                }
+                row.edited = Some(text);
+            }
+            Told::Saved => {}
+        }
+        if let Some(writer) = &self.writer {
+            writer.edited(id, journal::now_ms());
+        }
+        cx.notify();
+        true
     }
 }
 
@@ -1411,6 +1506,39 @@ fn copy_result(queue: &Entity<Queue>, id: u64, cx: &App) {
         }
     })
     .detach();
+}
+
+/// Where a clean of `row` put its result, when it put one: the file it
+/// wrote — with the original's own file when the clean was in place, the
+/// source's name now holding the result — or a paste's text, as cleaned or
+/// as last saved in Compare (E7-9). `None` while nothing was written: a
+/// row waiting, being cleaned, or whose clean found nothing, was refused or
+/// failed — where a Save in Compare is a Clean of its text (D411).
+fn cleaned_for(row: &Row) -> Option<(Option<PathBuf>, CleanedTo)> {
+    match &row.status {
+        Status::Done(outcome) => match (&outcome.written, &outcome.text) {
+            (Some(path), _) => Some((outcome.set_aside.clone(), CleanedTo::File(path.clone()))),
+            (None, Some(text)) => Some((
+                None,
+                CleanedTo::Text(row.edited.clone().unwrap_or_else(|| text.clone())),
+            )),
+            (None, None) => None,
+        },
+        // A clean of an earlier session, or another surface's, that wrote
+        // a file.
+        Status::Recorded(said)
+            if matches!(said.action, Action::Clean) && said.phase == Phase::Done =>
+        {
+            match said.result.as_ref()? {
+                Delivered::File { path, original, .. } => Some((
+                    original.as_ref().map(PathBuf::from),
+                    CleanedTo::File(PathBuf::from(path)),
+                )),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 /// The file a clean refused to write over, when that is why it was not
@@ -1912,8 +2040,12 @@ struct Actions {
     written: Option<PathBuf>,
     /// Whether there is a cleaned text to copy.
     text: bool,
-    /// Whether the clean was refused over an existing result.
+    /// Whether the clean or the rewrite was refused over an existing
+    /// result — Replace is offered.
     replace: bool,
+    /// Why Replace is greyed although offered: a rewrite's Replace is a
+    /// Rewrite, and greyed when one would be (D393).
+    replace_why: Option<String>,
     /// Whether there is a finished clean to report.
     report: bool,
 }
@@ -2074,12 +2206,33 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
                         }),
                 )
                 .item(
-                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionReplace)))
-                        .icon(IconName::Replace)
-                        .disabled(!actions.replace)
-                        .on_click(move |_, _, cx| {
-                            replacing.update(cx, |queue, cx| queue.replace(id, cx));
-                        }),
+                    match actions.replace_why.clone().filter(|_| actions.replace) {
+                        None => {
+                            PopupMenuItem::new(SharedString::from(t(Message::QueueActionReplace)))
+                                .icon(IconName::Replace)
+                                .disabled(!actions.replace)
+                                .on_click(move |_, _, cx| {
+                                    replacing.update(cx, |queue, cx| queue.replace(id, cx));
+                                })
+                        }
+                        // Greyed with its reason under it, as Rewrite is (D269, D393).
+                        Some(why) => {
+                            let why = SharedString::from(why);
+                            PopupMenuItem::element(move |_, cx| {
+                                v_flex()
+                                    .max_w(px(280.0))
+                                    .child(SharedString::from(t(Message::QueueActionReplace)))
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(why.clone()),
+                                    )
+                            })
+                            .icon(IconName::Replace)
+                            .disabled(true)
+                        }
+                    },
                 )
                 .separator()
                 .item(match actions.remove.clone() {
@@ -2129,8 +2282,28 @@ fn compare_row(id: u64, queue: Entity<Queue>, window: &Window, cx: &mut App) {
         };
         let comparison = queue.read(cx).comparison(cx);
         tracing::info!(id, "opening the Compare window on a queued row");
-        compare::open(Some(id), subject, comparison, main, cx);
+        compare::open(
+            Some(id),
+            subject,
+            comparison,
+            Some(link_to(id, &queue)),
+            main,
+            cx,
+        );
     });
+}
+
+/// How a Compare window opened on row `id` tells the row what it saved
+/// (D412): through the queue, while the queue is there.
+pub fn link_to(id: u64, queue: &Entity<Queue>) -> compare::Link {
+    let queue = queue.downgrade();
+    compare::Link {
+        told: Rc::new(move |told, cx| {
+            queue
+                .update(cx, |queue, cx| queue.told_by_compare(id, told, cx))
+                .unwrap_or(false)
+        }),
+    }
 }
 
 /// The strip a row's cells go into, and what a click on it means.
@@ -2180,6 +2353,19 @@ impl Queue {
             });
         }
         let arrival = row.arrival.as_ref()?;
+        // A clean's, once it put one somewhere: the window opens on it as
+        // it stands — edits saved there included — and saves back over it
+        // (E7-9, D410). In place, the original is the file set aside.
+        if let Some((original, cleaned)) = cleaned_for(row) {
+            let intake = (original.is_none()).then(|| arrival.intake.clone());
+            return Some(Subject {
+                handed: original
+                    .map(Handed::Path)
+                    .unwrap_or_else(|| arrival.handed.clone()),
+                intake,
+                made: Made::CleanedTo(cleaned),
+            });
+        }
         Some(Subject {
             handed: arrival.handed.clone(),
             intake: Some(arrival.intake.clone()),
@@ -2379,6 +2565,10 @@ impl Queue {
                             || row.rewritten(self.work.as_ref()).is_some(),
                         replace: row.outcome().and_then(existing_result).is_some()
                             || row.existing.is_some(),
+                        replace_why: row
+                            .existing
+                            .as_ref()
+                            .and_then(|_| self.why_not_rewrite(row.id, cx)),
                         report: row.outcome().is_some() && row.arrival.is_some(),
                     },
                     cx.entity(),

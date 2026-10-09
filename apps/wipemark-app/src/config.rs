@@ -41,6 +41,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use wipemark_i18n::LanguagePreference;
 use wipemark_models::manifest::{Manifest, Role};
+use wipemark_models::user::{self, UserModel};
 use wipemark_pipeline::lang::Lang;
 use wipemark_pipeline::prompt::row::{self, Override};
 use wipemark_pipeline::prompt::{Overrides, Slot};
@@ -198,6 +199,21 @@ pub const ENGINE_PROFILES_PREFIX: &str = "engine.profiles.";
 /// to be changed.
 pub const MODEL_REWRITE_KEY: &str = "models.rewrite";
 
+/// The namespace every model the person added is filed under (E8-1): one
+/// row per model, `models.user.<id>`, its value a
+/// [`wipemark_models::user::UserEntry`] — the shape the command line writes
+/// too, which is why it is that crate's and not this module's.
+///
+/// Deliberately **not** in [`PERSISTED`], for the profiles' reason: a model
+/// the person added is a list entry with a dynamic key, not a preference
+/// with a widget. `a_user_model_row_is_never_a_preference_row` keeps the two
+/// namespaces apart.
+///
+/// `cfg(test)` because that gate is its only reader — the rows are read and
+/// written through `wipemark_models::user` — the idiom [`PERSISTED`] uses.
+#[cfg(test)]
+pub const MODELS_USER_PREFIX: &str = user::KEY_PREFIX;
+
 /// Where the weights live.
 ///
 /// An absolute path, or `""` for the folder the platform gives
@@ -294,6 +310,11 @@ pub const COMPARE_FOLLOW_KEY: &str = "compare.follow";
 /// so that matching lines stay level.
 pub const COMPARE_SYNC_SCROLL_KEY: &str = "compare.sync_scroll";
 
+/// Whether the Compare window saves an edited result a moment after
+/// typing stops, and as it closes (E7-9, D415): on unless it is turned
+/// off.
+pub const COMPARE_AUTOSAVE_KEY: &str = "compare.autosave";
+
 // ## E4-6b — the journal and the batch queue's rows.
 
 /// What happens to a thing as it arrives in the main window, as a
@@ -382,7 +403,7 @@ pub fn model_key(role: Role) -> &'static str {
 /// below name their own key — and `-D warnings` fails a bin target on
 /// dead code. Same idiom as `TrayCommand::ALL`.
 #[cfg(test)]
-pub const PERSISTED: [&str; 35] = [
+pub const PERSISTED: [&str; 36] = [
     THEME_KEY,
     LANGUAGE_KEY,
     WINDOW_SCREEN_KEY,
@@ -391,6 +412,7 @@ pub const PERSISTED: [&str; 35] = [
     COMPARE_GRAIN_KEY,
     COMPARE_FOLLOW_KEY,
     COMPARE_SYNC_SCROLL_KEY,
+    COMPARE_AUTOSAVE_KEY,
     RESULTS_DESTINATION_KEY,
     RESULTS_FOLDER_KEY,
     KEEP_ORIGINALS_KEY,
@@ -450,6 +472,8 @@ pub struct Stored {
     /// Where the weights live, when the row names somewhere. `None` is
     /// the platform's folder — see [`read_models_dir`].
     pub models_dir: Option<PathBuf>,
+    /// The models the person added (E8-1) — see [`read_user_models`].
+    pub added: Vec<UserModel>,
     /// Which side answers a rewrite, and in what order.
     pub serves: Serves,
     /// How long the local model is kept, and whether it is locked in RAM.
@@ -507,6 +531,7 @@ pub fn read_all(store: &Store) -> Stored {
         active_profile: read_active_profile(store),
         rewrite_model: read_model(store, Role::Rewrite),
         models_dir: read_models_dir(store),
+        added: read_user_models(store),
         serves: read_engine_serves(store),
         local: read_local(store),
         hotkeys: read_hotkeys(store),
@@ -571,14 +596,15 @@ pub fn write_journal_keep_days(store: &Store, days: u32) -> Result<()> {
 }
 
 /// Read the Compare page's rows, falling back to marks by word, an
-/// original that follows the cursor, and two panes that scroll
-/// together.
+/// original that follows the cursor, two panes that scroll together, and
+/// edits saved as they are typed.
 ///
 /// The same bargain every row here keeps: a grain this build does not
 /// spell is read as the default, warned about, and left in the row for
-/// a build that does. An unreadable `follow` is read as following, and
-/// an unreadable `sync_scroll` as scrolling together, because those are
-/// the defaults and an unreadable row has not asked for anything else.
+/// a build that does. An unreadable `follow` is read as following, an
+/// unreadable `sync_scroll` as scrolling together and an unreadable
+/// `autosave` as saving, because those are the defaults and an
+/// unreadable row has not asked for anything else.
 pub fn read_comparison(store: &Store) -> Comparison {
     let defaults = Comparison::default();
     let grain = match read_string(store, COMPARE_GRAIN_KEY) {
@@ -596,6 +622,7 @@ pub fn read_comparison(store: &Store) -> Comparison {
         follow: read_json::<bool>(store, COMPARE_FOLLOW_KEY).unwrap_or(defaults.follow),
         sync_scroll: read_json::<bool>(store, COMPARE_SYNC_SCROLL_KEY)
             .unwrap_or(defaults.sync_scroll),
+        autosave: read_json::<bool>(store, COMPARE_AUTOSAVE_KEY).unwrap_or(defaults.autosave),
     }
 }
 
@@ -616,6 +643,12 @@ pub fn write_compare_sync_scroll(store: &Store, sync_scroll: bool) -> Result<()>
     store
         .settings()
         .set(COMPARE_SYNC_SCROLL_KEY, &sync_scroll)?;
+    Ok(())
+}
+
+/// Persist whether the Compare window saves edits as they are typed.
+pub fn write_compare_autosave(store: &Store, autosave: bool) -> Result<()> {
+    store.settings().set(COMPARE_AUTOSAVE_KEY, &autosave)?;
     Ok(())
 }
 
@@ -733,11 +766,83 @@ pub fn write_keep_for(store: &Store, period: Period) -> Result<()> {
 /// follows: a downgrade must not silently discard the choice a later
 /// version made, and a catalogue that drops an entry for one release
 /// and restores it in the next must not cost the user their selection.
+///
+/// An id of a model the person added (E8-1) counts while its row is one
+/// this build reads and it serves `role`; a row that names one since
+/// forgotten reads as `None` and is left, the same rule (U2).
 pub fn read_model(store: &Store, role: Role) -> Option<String> {
     let chosen: String = store.settings().get(model_key(role)).ok().flatten()?;
+    if chosen.starts_with(user::ID_PREFIX) {
+        let row = read_json::<serde_json::Value>(store, &user::key_of(&chosen))?;
+        let added = UserModel::read(&chosen, row).ok()?;
+        return added.serves(role).then_some(chosen);
+    }
     let catalogue = Manifest::embedded().ok()?;
     let entry = catalogue.get(&chosen)?;
     entry.serves(role).then_some(chosen)
+}
+
+/// Every model the person added, by name and then id.
+///
+/// One scan of the table. A row this build cannot read whole is skipped,
+/// logged by its key and its reason — never its value, which names a path
+/// on somebody's disk — and **left where it is**, the bargain every row
+/// here makes: a newer build that wrote it may read it again.
+pub fn read_user_models(store: &Store) -> Vec<UserModel> {
+    let rows = match store.settings().all() {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::warn!(%error, "could not read the models added by hand; none will be listed");
+            return Vec::new();
+        }
+    };
+    let mut added: Vec<UserModel> = rows
+        .into_iter()
+        .filter_map(|(key, value)| match UserModel::of_row(&key, value)? {
+            Ok(model) => Some(model),
+            Err(why) => {
+                tracing::warn!(
+                    key,
+                    why,
+                    "a model added by hand was skipped: not a row this build reads"
+                );
+                None
+            }
+        })
+        .collect();
+    added.sort_by(|a, b| {
+        a.entry
+            .name
+            .to_lowercase()
+            .cmp(&b.entry.name.to_lowercase())
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    added
+}
+
+/// Persist one model the person added, leaving every other row alone.
+pub fn write_user_model(store: &Store, model: &UserModel) -> Result<()> {
+    store.settings().set(&model.key(), &model.entry)?;
+    Ok(())
+}
+
+/// Write back the identity a full read found for `model`'s file, whose bytes
+/// were the ones added (D401): one field of its row, and only while the row
+/// still exists and still records those bytes (D435). Never an insert — a
+/// model forgotten while its file was read stays forgotten — and never the
+/// whole of `model`, a copy older than the row. Answers whether it wrote.
+pub fn write_back_identity(store: &Store, model: &UserModel, identity: &str) -> Result<bool> {
+    Ok(store.settings().update(&model.key(), |value| {
+        user::with_identity(value, &model.entry.sha256, identity)
+    })?)
+}
+
+/// Forget one model the person added: its row, and nothing else — never
+/// the file, which this product did not download (U2), and not the
+/// `models.rewrite` row, which the caller decides about.
+pub fn forget_user_model(store: &Store, id: &str) -> Result<()> {
+    store.settings().delete(&user::key_of(id))?;
+    Ok(())
 }
 
 /// Persist the model chosen for `role`.
@@ -1782,24 +1887,27 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use wipemark_i18n::LanguagePreference;
+    use wipemark_models::manifest::Role;
     use wipemark_store::Store;
 
     use super::{
-        forget_profile, forget_setup, open, profile_key, read_active_profile,
+        forget_profile, forget_setup, forget_user_model, open, profile_key, read_active_profile,
         read_close_after_drop, read_comparison, read_engine, read_hotkeys, read_language,
-        read_local, read_mcp, read_models_dir, read_profiles, read_retention, read_setup_done,
-        read_theme, write_active_profile, write_close_after_drop, write_compare_follow,
-        write_compare_grain, write_compare_sync_scroll, write_engine, write_engine_allow_remote,
-        write_engine_base_url, write_engine_model, write_engine_provider, write_engine_reasoning,
+        read_local, read_mcp, read_model, read_models_dir, read_profiles, read_retention,
+        read_setup_done, read_theme, read_user_models, write_active_profile, write_back_identity,
+        write_close_after_drop, write_compare_autosave, write_compare_follow, write_compare_grain,
+        write_compare_sync_scroll, write_engine, write_engine_allow_remote, write_engine_base_url,
+        write_engine_model, write_engine_provider, write_engine_reasoning,
         write_engine_temperature, write_engine_timeout, write_hotkey, write_keep_for,
         write_keep_originals, write_keep_results, write_language, write_local_idle,
         write_local_keep, write_local_mlock, write_mcp_bind, write_mcp_enabled, write_mcp_port,
-        write_models_dir, write_profile, write_results_destination, write_results_folder,
-        write_setup_done, write_theme, COMPARE_FOLLOW_KEY, COMPARE_GRAIN_KEY,
-        COMPARE_SYNC_SCROLL_KEY, ENGINE_BASE_URL_KEY, ENGINE_LOCAL_IDLE_KEY, ENGINE_LOCAL_KEEP_KEY,
-        ENGINE_LOCAL_MLOCK_KEY, ENGINE_PROFILES_PREFIX, ENGINE_PROVIDER_KEY,
-        ENGINE_TEMPERATURE_KEY, HOTKEY_PANEL_KEY, HOTKEY_SHOW_KEY, KEEP_FOR_KEY,
-        KEEP_ORIGINALS_KEY, LANGUAGE_KEY, MCP_BIND_KEY, MCP_PORT_KEY, MODELS_DIR_KEY, PERSISTED,
+        write_model, write_models_dir, write_profile, write_results_destination,
+        write_results_folder, write_setup_done, write_theme, write_user_model,
+        COMPARE_AUTOSAVE_KEY, COMPARE_FOLLOW_KEY, COMPARE_GRAIN_KEY, COMPARE_SYNC_SCROLL_KEY,
+        ENGINE_BASE_URL_KEY, ENGINE_LOCAL_IDLE_KEY, ENGINE_LOCAL_KEEP_KEY, ENGINE_LOCAL_MLOCK_KEY,
+        ENGINE_PROFILES_PREFIX, ENGINE_PROVIDER_KEY, ENGINE_TEMPERATURE_KEY, HOTKEY_PANEL_KEY,
+        HOTKEY_SHOW_KEY, KEEP_FOR_KEY, KEEP_ORIGINALS_KEY, LANGUAGE_KEY, MCP_BIND_KEY,
+        MCP_PORT_KEY, MODELS_DIR_KEY, MODELS_USER_PREFIX, MODEL_REWRITE_KEY, PERSISTED,
         RESULTS_DESTINATION_KEY, RESULTS_FOLDER_KEY, SETUP_DONE_KEY, THEME_KEY,
     };
     use crate::compare::Comparison;
@@ -2320,13 +2428,16 @@ mod tests {
                 grain: Grain::Words,
                 follow: true,
                 sync_scroll: true,
+                autosave: true,
             },
-            "the Compare defaults moved; check what a fresh install now marks"
+            "the Compare defaults moved; check what a fresh install now marks — \
+             and that edits are still saved as they are typed (the owner, 2026-10-08)"
         );
 
         write_compare_grain(&store, Grain::Characters).expect("grain");
         write_compare_follow(&store, false).expect("follow");
         write_compare_sync_scroll(&store, false).expect("sync scroll");
+        write_compare_autosave(&store, false).expect("autosave");
         drop(store);
         let store = Store::open(&path).expect("reopen");
         assert_eq!(
@@ -2335,6 +2446,7 @@ mod tests {
                 grain: Grain::Characters,
                 follow: false,
                 sync_scroll: false,
+                autosave: false,
             }
         );
         // The row spells the grain by its id, not by a number or a
@@ -2440,6 +2552,8 @@ mod tests {
             (COMPARE_FOLLOW_KEY, "no"),
             (COMPARE_SYNC_SCROLL_KEY, "no"),
             (COMPARE_SYNC_SCROLL_KEY, "1"),
+            (COMPARE_AUTOSAVE_KEY, "off"),
+            (COMPARE_AUTOSAVE_KEY, "0"),
         ] {
             store.settings().set(key, spelling).expect("seed");
             assert_eq!(
@@ -2858,6 +2972,147 @@ mod tests {
     /// a key nobody typed, and a profile named in a way that produced one
     /// of the first would be a preference silently replaced by a list
     /// entry.
+    /// E8-1: a model the person added is a list entry with a dynamic key,
+    /// never a preference with a widget — whatever it is called.
+    #[test]
+    fn a_user_model_row_is_never_a_preference_row() {
+        for key in PERSISTED {
+            assert!(
+                !key.starts_with(MODELS_USER_PREFIX),
+                "the preference {key} lives inside the added models' namespace"
+            );
+        }
+        for name in ["rewrite", "dir", "models", "theme", "Gemma 4 12B"] {
+            let key =
+                wipemark_models::user::key_of(&wipemark_models::user::id_for(name, |_| false));
+            assert!(
+                !PERSISTED.contains(&key.as_str()),
+                "a model called {name} would file itself under the preference {key}"
+            );
+            assert!(key.starts_with(MODELS_USER_PREFIX));
+        }
+    }
+
+    fn added(id: &str, name: &str) -> wipemark_models::user::UserModel {
+        wipemark_models::user::UserModel {
+            id: id.to_owned(),
+            entry: wipemark_models::user::UserEntry {
+                name: name.to_owned(),
+                roles: vec![Role::Rewrite],
+                ctx: 8192,
+                path: std::path::PathBuf::from("/models/theirs/m.gguf"),
+                size_bytes: 11,
+                sha256: "0".repeat(64),
+                identity: "11:1:2:3".to_owned(),
+                architecture: Some("llama".to_owned()),
+                parameters: None,
+                quant: None,
+                trained_ctx: None,
+                kv: None,
+                added_at: 1,
+            },
+        }
+    }
+
+    /// D435 (B-L6): a scan's write-back of a moved identity changes one
+    /// field of a row that still exists and still records the bytes it
+    /// confirmed. A model forgotten while the scan read its file stays
+    /// forgotten; one added again with other bytes meanwhile keeps its new
+    /// row; every other field of the row is the row's. Write the scan's copy
+    /// back whole, as before, and the forgotten model is back: red.
+    #[test]
+    fn a_moved_identity_never_brings_a_forgotten_model_back() {
+        let store = Store::in_memory().expect("memory");
+        let model = added("user-a", "A");
+        write_user_model(&store, &model).expect("write");
+
+        assert!(write_back_identity(&store, &model, "11:9:2:3").expect("written"));
+        let read = read_user_models(&store);
+        assert_eq!(read[0].entry.identity, "11:9:2:3");
+        assert_eq!(read[0].entry.name, "A");
+
+        // Added again with other bytes while the scan read the old ones.
+        let mut again = model.clone();
+        again.entry.sha256 = "1".repeat(64);
+        again.entry.identity = "11:7:2:3".to_owned();
+        write_user_model(&store, &again).expect("write");
+        assert!(!write_back_identity(&store, &model, "11:8:2:3").expect("declined"));
+        assert_eq!(read_user_models(&store)[0].entry.identity, "11:7:2:3");
+
+        // Forgotten while the scan read it.
+        forget_user_model(&store, "user-a").expect("forget");
+        assert!(!write_back_identity(&store, &again, "11:6:2:3").expect("declined"));
+        assert!(
+            read_user_models(&store).is_empty(),
+            "a write-back brought a forgotten model back"
+        );
+    }
+
+    /// U2: a model the person added is chosen the way a catalogue one is —
+    /// the row names its id — and a row naming one since forgotten reads as
+    /// nothing chosen and is left where it is.
+    #[test]
+    fn a_chosen_model_the_person_added_reads_back_and_a_forgotten_one_stays_in_its_row() {
+        let store = Store::in_memory().expect("store");
+        let model = added("user-b", "B");
+        write_user_model(&store, &model).expect("write");
+        write_user_model(&store, &added("user-a", "a")).expect("write");
+        write_model(&store, Role::Rewrite, Some("user-b")).expect("choose");
+        assert_eq!(read_model(&store, Role::Rewrite).as_deref(), Some("user-b"));
+        assert_eq!(
+            read_model(&store, Role::Embed),
+            None,
+            "it serves rewrite alone"
+        );
+        assert_eq!(
+            read_user_models(&store)
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            ["user-a", "user-b"],
+            "by name, whatever the case"
+        );
+
+        forget_user_model(&store, "user-b").expect("forget");
+        assert_eq!(read_model(&store, Role::Rewrite), None);
+        assert_eq!(
+            store
+                .settings()
+                .get::<String>(MODEL_REWRITE_KEY)
+                .expect("read")
+                .as_deref(),
+            Some("user-b"),
+            "the row was corrected rather than left"
+        );
+        assert_eq!(read_user_models(&store).len(), 1);
+    }
+
+    /// A row this build cannot read is skipped and left exactly where it is.
+    #[test]
+    fn a_user_model_this_build_cannot_read_is_left_in_its_row() {
+        let store = Store::in_memory().expect("store");
+        let unreadable = serde_json::json!({"name": "X", "path": "relative.gguf"});
+        store
+            .settings()
+            .set("models.user.user-x", &unreadable)
+            .expect("write");
+        write_user_model(&store, &added("user-y", "Y")).expect("write");
+        assert_eq!(
+            read_user_models(&store)
+                .iter()
+                .map(|m| m.id.as_str())
+                .collect::<Vec<_>>(),
+            ["user-y"]
+        );
+        assert_eq!(
+            store
+                .settings()
+                .get::<serde_json::Value>("models.user.user-x")
+                .expect("read"),
+            Some(unreadable)
+        );
+    }
+
     #[test]
     fn a_profile_row_is_never_a_preference_row() {
         for key in PERSISTED {

@@ -48,8 +48,8 @@ use wipemark_llama::{estimate, refusal, Finish, LlamaError, LoadParams, Model, R
 
 use crate::progress::Pacer;
 use crate::{
-    ChatRequest, Completion, EngineError, EngineInfo, FinishReason, LoadProgress, LoadSink,
-    RewriteEngine, SamplingParams, TokenSink, Unavailable,
+    ChatRefusal, ChatRequest, ChatSupport, Completion, EngineError, EngineInfo, FinishReason,
+    LoadProgress, LoadSink, RewriteEngine, SamplingParams, TokenSink, Unavailable,
 };
 
 /// Where the worker tells how a load is going — set by
@@ -436,8 +436,9 @@ fn load(
         }
     }
     let Some(sink) = sink else {
-        return Model::load_unless(&config.weights, config.load.clone(), stop)
-            .map_err(engine_error);
+        let model =
+            Model::load_unless(&config.weights, config.load.clone(), stop).map_err(engine_error)?;
+        return writable(model);
     };
     let pacer = Mutex::new(Pacer::new());
     let tell = |fraction: f32| {
@@ -454,7 +455,45 @@ fn load(
     // However it ended, it is over: a bar left on screen over a refused or
     // stopped load would say something is still being read.
     let _ = sink.send(LoadProgress::Ended);
-    loaded.map_err(engine_error)
+    writable(loaded.map_err(engine_error)?)
+}
+
+/// `model`, when a conversation can be written for it — and otherwise the
+/// refusal by name, the model freed as it goes (E8-1). Asked once, at the
+/// load, so a model whose chat format this build does not write is refused
+/// before any request rather than at the first one.
+fn writable(model: Model) -> Result<Model, EngineError> {
+    match refused(model.chat_support()) {
+        None => Ok(model),
+        Some(refusal) => {
+            tracing::info!(%refusal, "load refused: the model's chat format is not one this build writes");
+            Err(refusal)
+        }
+    }
+}
+
+/// The refusal a chat verdict is, when it is one.
+fn refused(support: wipemark_llama::ChatSupport) -> Option<EngineError> {
+    support
+        .refusal()
+        .map(|why| EngineError::Unavailable(Unavailable::ChatFormat(chat_refusal(why))))
+}
+
+fn chat_refusal(why: wipemark_llama::ChatRefusal) -> ChatRefusal {
+    match why {
+        wipemark_llama::ChatRefusal::NoTemplate => ChatRefusal::NoTemplate,
+        wipemark_llama::ChatRefusal::Unrecognised => ChatRefusal::Unrecognised,
+    }
+}
+
+/// The llama layer's verdict, in this crate's words.
+pub(crate) fn chat_verdict(support: wipemark_llama::ChatSupport) -> ChatSupport {
+    match support.refusal() {
+        Some(why) => ChatSupport::Refused(chat_refusal(why)),
+        None => ChatSupport::Supported {
+            family: support.family().unwrap_or_default(),
+        },
+    }
 }
 
 /// A request's sampling, as the local engine runs it.
@@ -494,6 +533,9 @@ fn engine_error(e: LlamaError) -> EngineError {
         LlamaError::NoBackend { searched } => {
             tracing::warn!(?searched, "no ggml backend registered");
             EngineError::Unavailable(Unavailable::NoBackend)
+        }
+        LlamaError::ChatFormat(why) => {
+            EngineError::Unavailable(Unavailable::ChatFormat(chat_refusal(why)))
         }
     }
 }
@@ -595,6 +637,49 @@ mod tests {
                 other => panic!("a missing file must be refused by name, got {other:?}"),
             }
         }
+    }
+
+    /// E8-1: a model whose chat format this build does not write is
+    /// refused by name — the refusal a load makes of its verdict — and a
+    /// family it writes is not refused.
+    #[test]
+    fn a_chat_format_this_build_does_not_write_is_refused_by_name() {
+        use wipemark_llama::ChatSupport as Verdict;
+
+        for (verdict, why) in [
+            (Verdict::NoTemplate, crate::ChatRefusal::NoTemplate),
+            (Verdict::Unrecognised, crate::ChatRefusal::Unrecognised),
+        ] {
+            match super::refused(verdict) {
+                Some(EngineError::Unavailable(Unavailable::ChatFormat(said))) => {
+                    assert_eq!(said, why);
+                }
+                other => panic!("{verdict:?} must be refused by name, got {other:?}"),
+            }
+        }
+        assert!(super::refused(Verdict::Here("gemma4")).is_none());
+        assert!(super::refused(Verdict::LlamaCpp("chatml")).is_none());
+        // The engine's own verdict says the same, for a surface that has
+        // only a header.
+        assert_eq!(
+            crate::chat_support(Some("<start_of_turn>user")),
+            crate::ChatSupport::Supported { family: "gemma" }
+        );
+        assert_eq!(
+            crate::chat_support(None),
+            crate::ChatSupport::Refused(crate::ChatRefusal::NoTemplate)
+        );
+        assert_eq!(
+            crate::chat_support(Some("{{ messages }}")),
+            crate::ChatSupport::Refused(crate::ChatRefusal::Unrecognised)
+        );
+        // And a llama.cpp refusal that reaches the engine is the same value.
+        assert!(matches!(
+            super::engine_error(wipemark_llama::LlamaError::ChatFormat(
+                wipemark_llama::ChatRefusal::Unrecognised
+            )),
+            EngineError::Unavailable(Unavailable::ChatFormat(crate::ChatRefusal::Unrecognised))
+        ));
     }
 
     #[test]

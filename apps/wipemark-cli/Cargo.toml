@@ -54,6 +54,9 @@ wipemark-pixels.workspace = true
 # `--json` answer carries beside core's report, and for the tests to read
 # that answer back.
 serde_json.workspace = true
+# `models add` hears a hash's progress the way the application does
+# (`Downloads::watch_hashes`), to draw it on stderr like a pull's.
+flume.workspace = true
 clap.workspace = true
 # `models pull`: Ctrl-C cancels the download and keeps the `.part`; and
 # `rewrite`: Ctrl-C cancels the job (or hangs up on the application, which
