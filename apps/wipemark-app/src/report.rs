@@ -448,6 +448,16 @@ fn inexact(say: Say, restored: &Restored) -> Vec<String> {
             ),
         ));
     }
+    // A patch smoother than the picture around it (D307).
+    if restored.smoothed {
+        notes.push(say(
+            Message::CliImageVisibleSmoothed,
+            &args!(
+                "levels" => fixed(restored.texture, 1),
+                "around" => fixed(restored.texture_around, 1),
+            ),
+        ));
+    }
     notes
 }
 

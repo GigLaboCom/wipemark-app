@@ -37,7 +37,17 @@ What it does
   7. detection, and the `R-k` composites (D154);
   8. the two encoders apart: a line for every slice where they differ by
      more than 0.3 dB;
-  9. what was not done.
+  9. what was not done;
+ 10. the value inside the interval (E12-R8, added by its agent on 2026-10-09
+     for the coordinator; `docs/plan/E12-R8-value-inside-the-interval.md`
+     §6.2): per config, slice and encoder over the restored lossy files,
+     `texture` and its ratio to `texture_around`, how many are `smoothed`
+     (D307), refined, refined as text, in how many rounds, the largest
+     `consistency_dct`;
+     then §6.2's two checks per config — `texture` under 5.5 on
+     `jpeg444-q95` on at least 80 % of the restored files, and the soap
+     check, `texture / texture_around ≥ 0.8` on at least 95 % of every
+     restored lossy file — each said pass or fail. A1–A7 stay `gates`'.
 
 `gates` evaluates A1–A7 for `--candidate` against `--baseline` (R0) on the
 `--route` (`lossy` or `model`) with `--targets` (slices, globs allowed) and
@@ -91,6 +101,12 @@ CHROMA_BOUND = 4.0
 TEXTURE_BOUND = 5.5
 
 DEFAULT_TARGETS = ["jpeg420-q95", "jpeg420-q90", "jpeg444-q95"]
+# E12-R8 §6.2 — the value inside the codec's interval (added 2026-10-09):
+R8_TEXTURE_SLICE = "jpeg444-q95"
+R8_TEXTURE_SHARE = 0.8    # on that slice, texture under TEXTURE_BOUND on at least this share of restored files
+SOAP_RATIO = 0.8          # D307: texture / texture_around at least this (TEXTURE_RATIO_MIN)…
+SOAP_SHARE = 0.95         # …on at least this share of the restored lossy files (the soap check)
+LOSSY_SLICES = ["jpeg*", "webp-lossy*"]
 
 
 # ───────────────────────────────────────────────────────── numbers
@@ -579,15 +595,80 @@ def report(rows, side, targets):
            "* The groups and slices absent from this file are listed above by their absence; this report "
            "claims nothing about them.",
            "* A5 needs a second inverse (R9's R-lin); one inverse is a row of the matrix, not a verdict.",
-           "* `consistency_dct` (D305) is R8's and is not in this run.",
+           "* `consistency_dct` (D305) is written by R8's `R8d` only; §10 reads it.",
            ""]
+    md += r8_section(vend, configs)
     return "\n".join(md)
+
+
+def r8_rows(rows):
+    """Restored lossy files, with their measures."""
+    return [r for r in rows if r.get("restored") and r.get("measures") and matches(r["slice"], LOSSY_SLICES)]
+
+
+def ratio(r):
+    m = r["measures"]
+    around = m.get("texture_around")
+    return m["texture"] / around if around else None
+
+
+def r8_checks(rows, config):
+    """§6.2's two checks of E12-R8 for one config: `texture` under its bound on R8_TEXTURE_SLICE, and the
+    soap check over every restored lossy file. Each `{"what", "share", "n", "need", "ok"}`; `ok` None with no
+    file."""
+    mine = r8_rows([r for r in rows if r["config"] == config])
+    out = []
+    target = [r for r in mine if r["slice"] == R8_TEXTURE_SLICE]
+    under = [r for r in target if r["measures"]["texture"] < TEXTURE_BOUND]
+    share = len(under) / len(target) if target else None
+    out.append({"what": f"texture < {TEXTURE_BOUND} on {R8_TEXTURE_SLICE}", "share": share, "n": len(target),
+                "need": R8_TEXTURE_SHARE, "ok": None if share is None else share >= R8_TEXTURE_SHARE})
+    rated = [x for x in (ratio(r) for r in mine) if x is not None]
+    soap = sum(1 for x in rated if x >= SOAP_RATIO) / len(rated) if rated else None
+    out.append({"what": f"texture / around >= {SOAP_RATIO} (the soap check)", "share": soap, "n": len(rated),
+                "need": SOAP_SHARE, "ok": None if soap is None else soap >= SOAP_SHARE})
+    return out
+
+
+def r8_section(rows, configs):
+    md = ["## 10. The value inside the interval (E12-R8)", "",
+          "Restored lossy files, per config, slice and encoder: `texture` and its ratio to `texture_around` "
+          f"(D307 says a patch under {SOAP_RATIO} of its surroundings), how many were refined and in how many "
+          "rounds, and the largest `consistency_dct` (DCT-POCS: 0 by construction). Marks blended in code "
+          "values, k = 1.", ""]
+    body = []
+    for (cfg, sl, en), rs in sorted(group_by(r8_rows(rows), "config", "slice", "encoder").items()):
+        ratios = [x for x in (ratio(r) for r in rs) if x is not None]
+        refined = [r for r in rs if r["measures"].get("interval")]
+        dct = [r["measures"]["consistency_dct"] for r in rs
+               if isinstance(r["measures"].get("consistency_dct"), (int, float))]
+        body.append([cfg, sl, en, len(rs), median([r["measures"]["texture"] for r in rs]),
+                     sum(1 for r in rs if r["measures"]["texture"] < TEXTURE_BOUND), median(ratios),
+                     quantile(ratios, 0.05), sum(1 for r in rs if r["measures"].get("smoothed")), len(refined),
+                     sum(1 for r in refined if r["measures"]["interval"].get("text")),
+                     median([r["measures"]["interval"]["iterations"] for r in refined]),
+                     max(dct) if dct else None])
+    if not body:
+        return md + ["No restored lossy file in this run.", ""]
+    md += [table(["config", "slice", "encoder", "restored", "texture med", f"texture < {TEXTURE_BOUND}",
+                  "ratio med", "ratio p5", "smoothed", "refined", "as text", "rounds med",
+                  "consistency_dct max"], body), ""]
+    md += [f"§6.2's checks (`[tunable]`: {int(100 * R8_TEXTURE_SHARE)} % under {TEXTURE_BOUND} on "
+           f"{R8_TEXTURE_SLICE}; the soap check on {int(100 * SOAP_SHARE)} %); A1–A7 are `gates`':", ""]
+    for cfg in configs:
+        for c in r8_checks(rows, cfg):
+            verdict = "–" if c["ok"] is None else ("pass" if c["ok"] else "**fail**")
+            md.append(f"* {cfg}: {c['what']}: {fmt(None if c['share'] is None else 100 * c['share'], 1)} % "
+                      f"of {c['n']} (needs {int(100 * c['need'])} %) — {verdict}")
+    md.append("")
+    return md
 
 
 # ───────────────────────────────────────────────────────── selftest
 
 def fake(config, slice_id, psnr, i, *, group="flat", model="encoded", k=1.0, inverse="encoded",
-         restored=True, sha=None, exact=True, clamped=0, found=True, err=0.0, variant="canonical", consistency=0.25):
+         restored=True, sha=None, exact=True, clamped=0, found=True, err=0.0, variant="canonical", consistency=0.25,
+         texture=1.0, around=1.0, interval=None, dct=None, smoothed=False):
     return {
         "config": config, "inverse": inverse, "slice": slice_id, "encoder": "pillow", "group": group,
         "case_dir": f"{group}/bg-{i:03d}/case", "case": "v1-48.encoded", "background": f"bg-{i:03d}",
@@ -595,8 +676,10 @@ def fake(config, slice_id, psnr, i, *, group="flat", model="encoded", k=1.0, inv
         "psnr_roi": psnr, "ssim_roi": 0.99, "de2000_roi": 0.5, "psnr_roi_input": 15.0,
         "restored": restored, "restored_sha256": sha or f"{config}-{i}", "exit": 1,
         "detection": {"found": found, "verdict": "verified" if found else None, "rect_error": err, "placed": "row"},
-        "measures": {"exact": exact, "clamped": clamped, "texture": 1.0, "chroma": 1.0, "step": 0.1,
-                     "outline": 0.0, "consistency_px": consistency, "consistency_excluded": clamped} if restored else None,
+        "measures": {"exact": exact, "clamped": clamped, "texture": texture, "texture_around": around,
+                     "chroma": 1.0, "step": 0.1, "outline": 0.0, "consistency_px": consistency,
+                     "consistency_excluded": clamped, "consistency_dct": dct, "smoothed": smoothed,
+                     "interval": interval} if restored else None,
     }
 
 
@@ -678,6 +761,22 @@ def selftest():
         del r["measures"]["consistency_px"]
     md_old = report(old, {}, target)
     expect("a run before E12-R7 says it has none", "No `consistency_px` in this run" in md_old)
+    # E12-R8 §6.2: the texture under its bound on jpeg444-q95, and the soap check.
+    rounds = {"method": "dct", "space": "ycbcr", "sigma_base": [0.3, 0.0, 0.0], "iterations": 2}
+    r8 = [fake("R8d", "jpeg444-q95", 42.0, i, texture=3.0 if i < 9 else 7.0, around=3.0, interval=rounds, dct=0.0)
+          for i in range(10)]
+    checks = r8_checks(r8, "R8d")
+    expect("90 % under the bound passes R8's texture check",
+           checks[0]["ok"] and abs(checks[0]["share"] - 0.9) < 1e-9)
+    expect("every ratio at 1 or over passes the soap check", checks[1]["ok"])
+    soapy = [fake("R8d", "jpeg420-q95", 42.0, i, texture=1.5 if i < 2 else 3.0, around=3.0, interval=rounds,
+                  smoothed=i < 2) for i in range(20)]
+    expect("two in twenty at half their surroundings fail the soap check", r8_checks(soapy, "R8d")[1]["ok"] is False)
+    expect("a config with no restored lossy file says nothing", r8_checks(soapy, "R0")[1]["ok"] is None)
+    md_r8 = report(r8 + soapy, {}, target)
+    expect("§10 names each check's verdict", "R8d: texture < 5.5 on jpeg444-q95: 90.0 %" in md_r8
+           and "(the soap check): 93.3 % of 30 (needs 95 %) — **fail**" in md_r8)
+    expect("§10's table counts the smoothed", "| R8d | jpeg420-q95 | pillow | 20 |" in md_r8)
     # The whole road, through files: a report and a failing gate run.
     with tempfile.TemporaryDirectory() as d:
         p = os.path.join(d, "results.jsonl")
@@ -685,7 +784,7 @@ def selftest():
             for r in base + worse_tail:
                 f.write(json.dumps(r) + "\n")
         md = report(load(p), sidecars(p), target)
-        expect("the report renders every section", all(f"## {n}." in md for n in range(10)))
+        expect("the report renders every section", all(f"## {n}." in md for n in range(11)))
         code = main(["gates", p, "--candidate", "C", "--route", "lossy", "--targets", "jpeg420-*", "--out", os.path.join(d, "g.json")])
         expect("gates exits 1 when A1 fails", code == 1)
         code = main(["gates", p, "--candidate", "nobody", "--route", "lossy", "--targets", "jpeg420-*"])

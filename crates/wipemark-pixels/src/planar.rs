@@ -231,7 +231,7 @@ fn gap(v: f64, a: f64, l: f64) -> f64 {
 }
 
 /// JFIF's forward matrix, full range: `(Y, Cb, Cr)` of an RGB colour.
-fn ycc([r, g, b]: [f64; 3]) -> [f64; 3] {
+pub(crate) fn ycc([r, g, b]: [f64; 3]) -> [f64; 3] {
     [
         0.299 * r + 0.587 * g + 0.114 * b,
         -0.168_736 * r - 0.331_264 * g + 0.5 * b + 128.0,
@@ -754,6 +754,8 @@ pub(crate) fn restore(
             max_alpha_dev_in_block: inverse.max_alpha_dev_in_block as f32,
             holes_chroma,
         }),
+        smoothed: options.source == Fidelity::Lossy && outline.smoothed(),
+        interval: None,
     })
 }
 

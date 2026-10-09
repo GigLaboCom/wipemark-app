@@ -199,7 +199,18 @@ blended back against the input, the 95th percentile in 8-bit levels
 out of it, clamped ones and holes (`consistency_excluded`). The last two
 are a measure and decide no exit; `consistency_dct` joins them only on a
 path that chooses a value inside a JPEG's intervals, and is absent
-otherwise),
+otherwise. After them, two keys **absent** — not `false`, not `null` —
+wherever they would say nothing, so every report that says neither is
+byte for byte what it was: `"smoothed":true` (D307, E12-R8) when, on a
+lossy source, the restoration's roughness is under 0.8 of the picture's
+around it — a patch flatter than its surroundings, a mark left like a
+texture is (exit 3, and the human report says "The restored patch is
+smoother than the picture around it — … so the mark counts as still in
+the result", `cli-image-visible-smoothed`); and
+`"interval":{"method":"dct"|"pixel"|"wiener","space":"ycbcr"|"rgb","sigma_base":[…],"text","iterations"}`
+when the restored value was chosen inside a lossy codec's interval
+(E12-R8) — which only a CLI built with `planar-preview` and run with
+`WIPEMARK_INTERVAL` does, below),
 `"encoding"` (`{"kind":"unchanged"|"png"|"webp-lossless"|"jpeg",…}`),
 **Only in a CLI built with `--features wipemark-picture/planar-preview`**
 (E12-R6, D306 proposed; never in a default build, so every default
@@ -212,6 +223,13 @@ is then the share of pixels with either), and a restoration gains
 or `"planar":"unavailable"` for a lossy three-component JPEG whose planes
 could not be read and which was restored in RGB. See
 `docs/architecture/visible-marks.md`, "The planar inverse (E12-R6)".
+In that build, **and only there**, `WIPEMARK_INTERVAL=dct|pixel|wiener`
+refines every restoration of a lossy picture (E12-R8: DCT-POCS, pixel
+POCS or one Wiener step; any other value, and a lossless picture, is no
+refinement): the restoration gains `"interval"` and, for `dct`,
+`"consistency_dct"`. A default build never reads the variable. See
+`docs/architecture/visible-marks.md`, "The value inside the interval
+(E12-R8)".
 `"marks_left"`, `"not_established"`. The writers are the libraries'
 (`wipemark-image`'s `json.rs`, `wipemark-pixels`'s report,
 `wipemark-picture`'s splice).

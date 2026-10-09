@@ -755,6 +755,20 @@ fn visible_lines(say: Say, visible: &Visible, cleaned: bool) -> Vec<String> {
                     )
                 ));
             }
+            // The other side of it: a patch smoother than the picture
+            // around it (D307).
+            if restored.smoothed {
+                lines.push(format!(
+                    "    {}",
+                    say(
+                        Message::CliImageVisibleSmoothed,
+                        &args!(
+                            "levels" => fixed(restored.texture, 1),
+                            "around" => fixed(restored.texture_around, 1),
+                        ),
+                    )
+                ));
+            }
         }
     }
     lines
@@ -1345,6 +1359,8 @@ mod tests {
             consistency_excluded: 0,
             consistency_dct: None,
             planar: None,
+            smoothed: false,
+            interval: None,
         };
         let english = Localizer::for_languages(&["en-US".parse().unwrap()], Rendering::PlainText);
         let say = |message: Message, args: &FluentArgs| english.format_args(message, args);
@@ -1391,5 +1407,19 @@ mod tests {
         let resampled = lines(restored(false, true));
         assert!(resampled.contains("resampled"), "{resampled}");
         assert!(!resampled.contains("found by the search"), "{resampled}");
+        // D307: a patch smoother than the picture around it is said, with
+        // its roughness and then the surroundings'; nothing else is.
+        assert!(!resampled.contains("smoother"), "{resampled}");
+        let soap = lines(wipemark_pixels::Restored {
+            smoothed: true,
+            texture: 1.2,
+            texture_around: 3.0,
+            ..restored(false, false)
+        });
+        assert!(
+            soap.contains("The restored patch is smoother than the picture around it")
+                && soap.contains("lie 1.2 levels from their neighbours, against 3.0"),
+            "{soap}"
+        );
     }
 }

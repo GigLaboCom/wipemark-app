@@ -78,6 +78,21 @@ runs.
   `detection.scores.planar` (`y`, `chroma`). Run it beside R0 —
   `run … --config R0 --config R6` — and gate it with
   `report.py gates RESULTS --candidate R6 --route lossy --targets jpeg420-q95,jpeg420-q90,jpeg420-q85,jpeg420-q75,jpeg420-q90+resize-0.9`.
+  **`R8d`, `R8p`, `R8w`** (E12-R8) are `wipemark_pixels::clean_refined`
+  with `Refine::Dct`, `Pixel` or `Wiener`: R6's route, then on a lossy
+  file the restored value chosen inside the codec's interval — DCT-POCS
+  (JPEG with planes only), pixel POCS, one Wiener step; a `png` file is
+  R0's to the byte (A4). Their restorations carry `measures.interval`
+  (`method`, `space`, `sigma_base`, `text`, `iterations`), `measures.smoothed`
+  (D307) and, for `R8d`, `measures.consistency_dct` (0 by construction).
+  Run them beside R0 and R6 — `run … --config R0 --config R6 --config R8d
+  --config R8p --config R8w` — read `report.py report`'s §10 (texture
+  under 5.5 on `jpeg444-q95`, the soap check) and gate each against R6 on
+  4:2:0 and R0 elsewhere: `report.py gates RESULTS --candidate R8d
+  --baseline R6 --route lossy --targets jpeg420-q95,jpeg420-q90,jpeg420-q85,jpeg420-q75`
+  and `report.py gates RESULTS --candidate R8d --baseline R0 --route lossy
+  --targets jpeg444-q95,jpeg444-q90,webp-lossy-q90`, and the same for
+  `R8p` and `R8w`.
 
 ## In the container: the smoke run
 

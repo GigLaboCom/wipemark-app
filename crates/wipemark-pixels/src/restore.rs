@@ -107,6 +107,19 @@ pub struct Restored {
     /// and then not in the JSON.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub planar: Option<crate::planar::Planar>,
+    /// A smoothed patch is left (D307) — a lossy source, and `texture`
+    /// under [`crate::verify::TEXTURE_RATIO_MIN`] times `texture_around`:
+    /// the restoration is flatter than the picture around it. The mark
+    /// counts as left, as with `texture_left`. Not in the JSON while false,
+    /// so every report where it is not said is what it was.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub smoothed: bool,
+    /// The value chosen inside the codec's interval (E12-R8): how, over
+    /// what noise, in how many rounds. `None` — and not in the JSON — on
+    /// every restoration that was not refined, which is every one the
+    /// product makes until the method is decided (S12).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interval: Option<crate::interval::Interval>,
 }
 
 /// Why a verified mark was not restored.
@@ -265,6 +278,8 @@ fn restore_with(
         consistency_excluded: consistency.excluded,
         consistency_dct: None,
         planar: None,
+        smoothed: options.source == Fidelity::Lossy && outline.smoothed(),
+        interval: None,
     })
 }
 

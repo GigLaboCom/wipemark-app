@@ -39,7 +39,7 @@ pub use encode::{encode_like, Encoding, JPEG_QUALITY};
 pub use scan::{walk as walk_jpeg_scan, Scan};
 use wipemark_image::{ImageContainer, ImageError, ImageReport, Scope, StripOptions, StripReport};
 use wipemark_pixels::{
-    Catalogue, ExamineOptions, Fidelity, PixelRect, PixelReport, Planar, Raster,
+    Catalogue, ExamineOptions, Fidelity, PixelRect, PixelReport, Planar, Raster, RestoreOptions,
 };
 
 /// What [`clean`] does with a picture.
@@ -348,7 +348,23 @@ pub fn clean(
     bytes: &[u8],
     options: &PictureOptions<'_>,
 ) -> Result<(Vec<u8>, PictureReport), PictureError> {
-    clean_by(bytes, options, PLANAR_PREVIEW)
+    clean_by(bytes, options, PLANAR_PREVIEW, &preview_refine())
+}
+
+/// The refinement a `planar-preview` build takes from `WIPEMARK_INTERVAL`
+/// (E12-R8): `dct`, `pixel` or `wiener` — the value chosen inside a lossy
+/// codec's interval — for the regression's host run until the method is
+/// decided (S12). Any other value, and every build without the feature,
+/// is no refinement: the product's path does not read the variable at all.
+fn preview_refine() -> RestoreOptions {
+    #[cfg(feature = "planar-preview")]
+    if let Some(refine) = std::env::var("WIPEMARK_INTERVAL")
+        .ok()
+        .and_then(|v| wipemark_pixels::Refine::parse(v.trim()))
+    {
+        return RestoreOptions { refine };
+    }
+    RestoreOptions::default()
 }
 
 /// [`clean`] on the planar path (D306): a JPEG decoded with its planes
@@ -363,13 +379,28 @@ pub fn clean_bytes_with_planes(
     bytes: &[u8],
     options: &PictureOptions<'_>,
 ) -> Result<(Vec<u8>, PictureReport), PictureError> {
-    clean_by(bytes, options, true)
+    clean_by(bytes, options, true, &RestoreOptions::default())
+}
+
+/// [`clean_bytes_with_planes`] with every restoration refined by
+/// `restore` (E12-R8, [`wipemark_pixels::clean_refined`]): the value
+/// chosen inside a lossy codec's interval, then encoded, reframed and
+/// proved as [`clean`] does. For the tests and the bench until the method
+/// is decided (S12); not a surface.
+#[doc(hidden)]
+pub fn clean_bytes_refined(
+    bytes: &[u8],
+    options: &PictureOptions<'_>,
+    restore: &RestoreOptions,
+) -> Result<(Vec<u8>, PictureReport), PictureError> {
+    clean_by(bytes, options, true, restore)
 }
 
 fn clean_by(
     bytes: &[u8],
     options: &PictureOptions<'_>,
     planar: bool,
+    restore: &RestoreOptions,
 ) -> Result<(Vec<u8>, PictureReport), PictureError> {
     let metadata = wipemark_image::inspect(bytes)?;
     let container = metadata.container;
@@ -417,8 +448,13 @@ fn clean_by(
         });
     }
     let mut restored = decoded.raster.clone();
-    let mut report =
-        wipemark_pixels::clean_with(&mut restored, decoded.planes.as_ref(), cat, &examine);
+    let mut report = wipemark_pixels::clean_refined(
+        &mut restored,
+        decoded.planes.as_ref(),
+        cat,
+        &examine,
+        restore,
+    );
     if planar
         && decoded.planes.is_none()
         && decoded.source == (Source::Jpeg { components: 3 })

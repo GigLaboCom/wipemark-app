@@ -573,6 +573,18 @@ pub const TEXTURE_LEVELS: f32 = 5.5;
 /// [`TEXTURE_LEVELS`]), 2.63–2.95 at JPEG 4:4:4 95, about 2.5 at 97.
 pub const TEXTURE_RATIO: f32 = 2.0;
 
+/// Under this many times the roughness of the picture around the mark, a
+/// restoration on a lossy source is too smooth: a patch flatter than its
+/// surroundings, which is a mark left as plainly as a checker is (D307,
+/// E12-R8). The lower bound beside [`TEXTURE_RATIO`]'s upper one: a value
+/// chosen inside the codec's interval (`interval.rs`) takes the checker
+/// away by smoothing, and smoothing can overshoot. `[tunable]` — the
+/// spec's 0.8 (`06-recon-changes.md` §2.4); on today's path every lossy
+/// restoration of the committed crops reads 2.62 or more through `clean`
+/// and 1.76 or more through the planar inverse (the E12-R8 report). Only
+/// a lossy source is held to it (D251's reason).
+pub const TEXTURE_RATIO_MIN: f32 = 0.8;
+
 /// What a restoration left along the mark's contour, three ways (D238,
 /// D244, D247).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -618,6 +630,12 @@ impl Outline {
     /// times the roughness around the mark (D250).
     pub fn textured(&self) -> bool {
         self.texture > TEXTURE_LEVELS.max(TEXTURE_RATIO * self.texture_around)
+    }
+
+    /// A roughness under [`TEXTURE_RATIO_MIN`] times the roughness around
+    /// the mark (D307): a patch smoother than the picture around it.
+    pub fn smoothed(&self) -> bool {
+        self.texture < TEXTURE_RATIO_MIN * self.texture_around
     }
 }
 
@@ -856,7 +874,7 @@ fn inverse(i: [f64; 3], a: f64, logo: [f64; 3], opaque: f64) -> [f64; 3] {
 mod tests {
     use super::*;
     use crate::raster::Layout;
-    use crate::{restore, ExamineOptions};
+    use crate::{restore, ExamineOptions, Restored};
 
     /// A one-pixel proof over a stored value, the logo white, `α` given.
     fn one(alpha: f32) -> Verified {
@@ -1070,6 +1088,80 @@ mod tests {
         assert!((rougher.texture - 15.0).abs() < 1e-3, "{rougher:?}");
         assert!((rougher.texture_around - 7.0).abs() < 1e-3, "{rougher:?}");
         assert!(rougher.textured(), "{rougher:?}");
+    }
+
+    /// A grey 32 × 32 picture under a 16-pixel mark at (8, 8) with `α`
+    /// 0.5 throughout and a white logo, stored as the blend of a grain
+    /// over grey 101: every fourth pixel each way lifted, by `mark` levels
+    /// under the mark and by `around` in the pixels around it — both even,
+    /// so the blend is a whole level and the restoration gives the grain
+    /// back exactly. Restored at `source`.
+    fn restored_grain(mark: i32, around: i32, source: crate::Fidelity) -> Restored {
+        let mut samples = Vec::with_capacity(32 * 32 * 3);
+        for y in 0..32u32 {
+            for x in 0..32u32 {
+                let inside = (8..24).contains(&x) && (8..24).contains(&y);
+                let lift = match (x % 4 == 0 && y % 4 == 0, inside) {
+                    (false, _) => 0,
+                    (true, true) => mark,
+                    (true, false) => around,
+                };
+                let v = 101 + lift;
+                let stored = if inside { (255 + v) / 2 } else { v };
+                samples.extend([stored as u8; 3]);
+            }
+        }
+        let verified = Verified {
+            at: PixelRect {
+                x: 8,
+                y: 8,
+                width: 16,
+                height: 16,
+            },
+            values: vec![0.5; 16 * 16],
+            noise: vec![0.0; 16 * 16],
+            width: 32,
+            height: 32,
+            ..one(0.5)
+        };
+        let mut raster = Raster::from_u8(32, 32, Layout::Rgb8, &samples).unwrap();
+        let options = ExamineOptions {
+            source,
+            profiles: None,
+        };
+        restore(&mut raster, &verified, &options).unwrap()
+    }
+
+    /// D307: a restoration on a lossy source whose roughness is half the
+    /// picture's around it — a patch flatter than its surroundings — is
+    /// said (`smoothed`) and counts as a mark left; on a lossless source
+    /// the same patch is the picture's own and is not (D251's reason). At
+    /// the bound's other side, 0.8 of the surroundings and over, nothing
+    /// is said.
+    #[test]
+    fn a_patch_smoother_than_its_surroundings_is_said() {
+        let report = |r: Restored| crate::PixelReport {
+            found: Vec::new(),
+            restored: vec![r],
+            dismissed: 0,
+            not_established: crate::not_established::shelf(),
+        };
+        let soap = restored_grain(4, 8, crate::Fidelity::Lossy);
+        assert!((soap.texture - 4.0).abs() < 1e-3, "{soap:?}");
+        assert!((soap.texture_around - 8.0).abs() < 1e-3, "{soap:?}");
+        assert!(soap.smoothed && !soap.texture_left, "{soap:?}");
+        assert!(report(soap).marks_left());
+        let lossless = restored_grain(4, 8, crate::Fidelity::Lossless);
+        assert!(!lossless.smoothed, "{lossless:?}");
+        assert!(!report(lossless).marks_left());
+        // 8 under the mark against 10 around: 0.8, at the bound, not said.
+        let at = restored_grain(8, 10, crate::Fidelity::Lossy);
+        assert!(
+            (at.texture / at.texture_around - 0.8).abs() < 1e-3,
+            "{at:?}"
+        );
+        assert!(!at.smoothed, "{at:?}");
+        assert!(!report(at).marks_left());
     }
 
     /// The inverse is rounded to the nearest level, as GWT's is — not
