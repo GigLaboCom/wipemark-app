@@ -183,6 +183,18 @@ by recomputed DCT).
 
 ### 4.1 The fork (D301)
 
+> **Superseded 2026-10-09.** Upstream built the planes itself
+> (`JpegDecoder::raw_output`, etemesi254/zune-image #379/#386/#440, on
+> `dev`), so the fork no longer carries `decode_planes`, `JpegPlanes`,
+> `PlaneOut` or a `PATCH.md`: it is upstream `dev` plus one getter,
+> `RawDecodeSession::quantization_tables`, on branch
+> `raw-quantization-tables`, pinned as a git dependency rather than a
+> `[patch.crates-io]`. What follows is what R3 built first; the current pin
+> is [`docs/architecture/zune-jpeg-pin.md`](../architecture/zune-jpeg-pin.md),
+> the move is
+> [`reports/E12-R3-raw-output-2026-10-09.md`](reports/E12-R3-raw-output-2026-10-09.md),
+> and D301/D302 are amended in [`E12-R-recon.md`](E12-R-recon.md) §5.2.
+
 * **The repository.** `GigLaboCom/zune-image`, a fork of
   `etemesi254/zune-image`, with branch `wipemark/planes` cut from the
   `zune-jpeg-0.5.15` tag (or the commit `cargo` resolved, recorded in
