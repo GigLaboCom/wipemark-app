@@ -47,9 +47,9 @@ What it does
   exits, `written`, the output's sha256, the findings, the measures
   (`outline`, `step`, `chroma`, `texture` from `restored[]`;
   `out_of_range` from `found[].scores`; `holes`, `clamped`;
-  `consistency_px` when R7 has landed) and the time, under G1–G4 on every
-  route and L1–L4, M1–M4, D1–D4 by route; writes `summary.json` and
-  `summary.md`.
+  `consistency_px`, D305, where both sides carry it) and the time, under
+  G1–G4 on every route and L1–L4, M1–M4, D1–D4 by route; writes
+  `summary.json` and `summary.md`.
 * `selftest` — no corpus, no CLI: fake runs in a temporary folder, each
   rule of §4.3 asserted both ways, the derived-file refusal on a synthetic
   picture, the committed manifest against its schema. With `--cli PATH`
@@ -67,8 +67,8 @@ How to run it
                                         --out golden/baseline/<commit>/
     python3 scripts/regress.py run      [--corpus …] [--cache …] --cli … --baseline golden/baseline/<commit>/ \
                                         --route {lossy,model,detect,all}[,…] [--target MEASURE@SELECTOR]… \
-                                        [--out reports/regress-<commit>-<date>/]
-    python3 scripts/regress.py diff     --a <dir> --b <dir> --route … [--target …] [--out <dir>]
+                                        [--new-fields FIELD,…] [--out reports/regress-<commit>-<date>/]
+    python3 scripts/regress.py diff     --a <dir> --b <dir> --route … [--target …] [--new-fields …] [--out <dir>]
     python3 scripts/regress.py selftest [--cli target/release/wipemark-cli]
 
 `--select SELECTOR` (fetch, pin, baseline, run) takes a part of the corpus:
@@ -79,6 +79,14 @@ presigned URL is a credential: give it as `--url` or in
 `REGRESS_URL_<SOURCE>` (`REGRESS_URL_STICKERS`), never in a file; this
 script prints only its host. The CLI runs with `WIPEMARK_DATA_DIR` in a
 temporary folder, so no real settings are read.
+
+`--new-fields a,b` (run, diff; added by E12-R7, 2026-10-09) names JSON
+fields a change adds by a decision — `consistency_px,consistency_excluded`
+for D305. Where the baseline lacks one of them and the run has it, L1 and
+D4 do not count it as a difference; anything else still is (a field gone,
+one not named, a named one whose value moved where the baseline had it).
+The summary's notes say on how many files each named field was added, and
+ask whether the right CLI ran when none was.
 
 What it needs
 -------------
