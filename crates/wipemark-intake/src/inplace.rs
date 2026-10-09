@@ -240,6 +240,39 @@ fn write_atomically_with(
     written
 }
 
+/// [`write_atomically`], published only while `still` says so: the
+/// temporary is staged and synced first, then `still` is asked, and the
+/// rename runs only on `Ok(true)`. On `Ok(false)` or an error the temporary
+/// is removed and nothing is published; the answer is whether it was.
+///
+/// What it is for is a check that has to sit as close to the rename as it
+/// can — "is the destination still what I read?" (the Compare window's
+/// save, D443): asked before the staging, a write landing anywhere in the
+/// staging and the `fsync` would be replaced unasked. What it cannot do is
+/// close the last gap — a write between `still`'s read and the rename is
+/// still replaced — and nothing here locks anything. Blocking.
+pub fn write_atomically_if(
+    destination: &Path,
+    bytes: &[u8],
+    model: Option<&Path>,
+    still: impl FnOnce() -> io::Result<bool>,
+) -> io::Result<bool> {
+    let mut refused = false;
+    let written = write_atomically_with(destination, bytes, model, |from, to| {
+        if still()? {
+            std::fs::rename(from, to)
+        } else {
+            refused = true;
+            Err(io::Error::other("the destination moved; not published"))
+        }
+    });
+    match written {
+        Ok(()) => Ok(true),
+        Err(_) if refused => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 /// Write `bytes` to `destination` **only where nothing is**: a temporary
 /// file in the same folder, synced, given `model`'s permissions, then
 /// published under the destination's name by a hard link, which the
@@ -420,7 +453,8 @@ mod tests {
 
     use super::{
         copy, original_beside, replace, replace_with, temporary_for, write_atomically,
-        write_atomically_with, write_new, write_new_with, Failure, Keep, Replaced,
+        write_atomically_if, write_atomically_with, write_new, write_new_with, Failure, Keep,
+        Replaced,
     };
 
     struct Scratch(PathBuf);
@@ -799,6 +833,44 @@ mod tests {
     /// A write never goes into the destination's inode: a hard link to it
     /// keeps the old bytes, and no temporary file is left.
     #[cfg(unix)]
+    /// A publish that waits on a check (D443): `still` is asked after the
+    /// temporary is staged — the destination it sees is what the check
+    /// sees — and a `false` publishes nothing and leaves no temporary
+    /// behind; a `true` publishes; an error is the error, nothing
+    /// published. Rename on `false` and the destination is overwritten: red.
+    #[test]
+    fn write_atomically_if_publishes_only_while_still_holds() {
+        let scratch = Scratch::new("atomic-if");
+        let destination = scratch.0.join("x.cleaned.md");
+        std::fs::write(&destination, b"theirs\n").expect("theirs");
+
+        let staged_when_asked = std::cell::Cell::new(false);
+        let published = write_atomically_if(&destination, b"mine\n", None, || {
+            staged_when_asked.set(temporary_for(&destination).exists());
+            Ok(false)
+        })
+        .expect("answers");
+        assert!(!published);
+        assert!(staged_when_asked.get(), "asked before the staging");
+        assert_eq!(read(&destination), b"theirs\n", "published on a no");
+        assert_eq!(
+            scratch.names(),
+            vec!["x.cleaned.md"],
+            "a temporary was left"
+        );
+
+        let failed = write_atomically_if(&destination, b"mine\n", None, || {
+            Err(io::Error::other("could not read"))
+        });
+        assert!(failed.is_err());
+        assert_eq!(read(&destination), b"theirs\n");
+        assert_eq!(scratch.names(), vec!["x.cleaned.md"]);
+
+        assert!(write_atomically_if(&destination, b"mine\n", None, || Ok(true)).expect("answers"));
+        assert_eq!(read(&destination), b"mine\n");
+        assert_eq!(scratch.names(), vec!["x.cleaned.md"]);
+    }
+
     #[test]
     fn an_atomic_write_replaces_the_entry_and_not_the_inode() {
         let scratch = Scratch::new("atomic");

@@ -26,12 +26,18 @@
 //!
 //! # Changed on disk (D413)
 //!
-//! A save over a file first asks whether the file is still what this
-//! window last read or wrote there — by its size, then by its bytes, never
-//! by its time alone, which a file system may keep to the second. A file
-//! that moved is not written over: the window asks (Overwrite, Keep
-//! theirs, Cancel). A batch queue's row is held to the text this window
-//! last read or wrote there the same way.
+//! A save over a file asks whether the file is still what this window last
+//! read or wrote there — by its size, then by its bytes, never by its time
+//! alone, which a file system may keep to the second — once its temporary
+//! is staged and synced, just before the rename (D443). A file that moved
+//! is not written over: the window asks (Overwrite, Keep theirs, Cancel).
+//! A write landing between that last read and the rename is still
+//! replaced, and a program that keeps the old file open and writes in
+//! place after the rename writes into a file no name points at — as with
+//! every editor that saves atomically; nothing is locked, because an
+//! advisory lock binds only programs that take it, and editors do not. A
+//! batch queue's row is held to the text this window last read or wrote
+//! there the same way.
 
 use std::hash::{Hash as _, Hasher as _};
 use std::io;
@@ -220,8 +226,12 @@ impl NotSaved {
 /// (D410) — never over `original`, never through a symbolic link, and,
 /// unless `seen` is `None` (the person said Overwrite), only while the
 /// file still holds what `seen` says (D413). The write is
-/// `inplace::write_atomically`: a temporary beside it, synced, renamed
-/// over — so a run that dies part way leaves the file as it was, and a
+/// `inplace::write_atomically_if`: a temporary beside it, synced, and —
+/// only then, just before the rename over the file — the check that the
+/// file is still what was seen (D443), so a write landing anywhere in the
+/// staging and the `fsync` is asked about rather than replaced. What is
+/// left is the one read the check makes and the rename after it; nothing
+/// is locked. A run that dies part way leaves the file as it was, and a
 /// hard link to it keeps the old bytes. The stamp of what was written.
 /// Blocking.
 pub fn save_file(
@@ -231,6 +241,19 @@ pub fn save_file(
     text: &str,
     seen: Option<&Stamp>,
 ) -> Result<Stamp, NotSaved> {
+    save_file_with(path, original, encoding, text, seen, || {})
+}
+
+/// [`save_file`] with a step run after the staging and before the check —
+/// where a test writes the file as another program would.
+fn save_file_with(
+    path: &Path,
+    original: Option<&Path>,
+    encoding: Encoding,
+    text: &str,
+    seen: Option<&Stamp>,
+    between: impl FnOnce(),
+) -> Result<Stamp, NotSaved> {
     // Only the last name is a link's to answer for: a file reached
     // through a linked folder is the file (`/var` → `/private/var`).
     if std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
@@ -239,18 +262,23 @@ pub fn save_file(
     if original.is_some_and(|original| original == path || inplace::same_file(original, path)) {
         return Err(NotSaved::Original);
     }
-    if let Some(seen) = seen {
-        match unchanged(path, seen) {
-            Ok(true) => {}
-            Ok(false) => return Err(NotSaved::Changed),
-            Err(_) => return Err(NotSaved::Unreadable),
-        }
-    }
     let bytes = wipemark_intake::text::encode(text, encoding);
     // The file's own permissions, while it is there to take them from.
     let model = std::fs::metadata(path).is_ok().then_some(path);
-    inplace::write_atomically(path, &bytes, model).map_err(|error| NotSaved::write(&error))?;
-    Ok(Stamp::of(&bytes))
+    let mut unreadable = false;
+    let published = inplace::write_atomically_if(path, &bytes, model, || {
+        between();
+        match seen {
+            None => Ok(true),
+            Some(seen) => unchanged(path, seen).inspect_err(|_| unreadable = true),
+        }
+    });
+    match published {
+        Ok(true) => Ok(Stamp::of(&bytes)),
+        Ok(false) => Err(NotSaved::Changed),
+        Err(_) if unreadable => Err(NotSaved::Unreadable),
+        Err(error) => Err(NotSaved::write(&error)),
+    }
 }
 
 /// Put `text` in the batch queue's row of a rewritten paste (D410) —
@@ -627,6 +655,32 @@ mod tests {
             std::fs::read(&original).expect("read"),
             "original\u{200B}\n".as_bytes()
         );
+    }
+
+    /// The changed-on-disk check sits after the staging, just before the
+    /// rename (D443): a file another program writes while the temporary is
+    /// being staged and synced is asked about, and its bytes kept. Put the
+    /// check back before the staging and their write is replaced: red.
+    #[test]
+    fn a_write_after_the_staging_is_not_written_over() {
+        let scratch = Scratch::new("after-staging");
+        let result = scratch.file("x.cleaned.md", b"cleaned\n");
+        let seen = Stamp::read(&result).expect("stamp");
+        let theirs = || std::fs::write(&result, b"theirs, meanwhile\n").expect("theirs");
+        assert_eq!(
+            save_file_with(&result, None, Encoding::Utf8, "mine\n", Some(&seen), theirs),
+            Err(NotSaved::Changed)
+        );
+        assert_eq!(
+            std::fs::read(&result).expect("read"),
+            b"theirs, meanwhile\n",
+            "their write was replaced"
+        );
+        let names: Vec<_> = std::fs::read_dir(&scratch.0)
+            .expect("list")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect();
+        assert_eq!(names.len(), 1, "a temporary was left: {names:?}");
     }
 
     /// A result reached through a symbolic link is refused (D287): the

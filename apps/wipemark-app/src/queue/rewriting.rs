@@ -240,6 +240,7 @@ impl Queue {
                 price: None,
                 existing: None,
                 edited: None,
+                edited_at: None,
                 keyword: None,
                 // Filled in by the look below, once the file answers.
                 arrival: None,
@@ -333,6 +334,9 @@ impl Queue {
                         },
                         _ => None,
                     };
+                    // A new result: an edit saved over an earlier one is not
+                    // this one's (D447).
+                    row.edited_at = None;
                     row.status = Status::Recorded(Box::new(Said {
                         action: Action::Rewrite,
                         phase,
@@ -700,6 +704,7 @@ impl Queue {
             if let Some(row) = self.rows.iter_mut().find(|row| row.id == *id) {
                 row.status = Status::RewriteQueued;
                 row.existing = None;
+                row.edited_at = None;
             }
         }
         if asked.is_empty() {

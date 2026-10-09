@@ -273,10 +273,10 @@ impl Shell {
             window,
             |shell, queue, event: &QueueEvent, window, cx| match event {
                 QueueEvent::Report(id) => {
-                    let Some((intake, outcome)) = queue.read(cx).report_of(*id) else {
+                    let Some((intake, outcome, edited)) = queue.read(cx).report_of(*id) else {
                         return;
                     };
-                    shell.open_report(&intake, &outcome, window, cx);
+                    shell.open_report(&intake, &outcome, edited, window, cx);
                 }
                 // The price first (D61), and nothing pushed until yes.
                 QueueEvent::Price { ids, price } => {
@@ -407,10 +407,11 @@ impl Shell {
         &mut self,
         intake: &wipemark_intake::Intake,
         outcome: &clean::Outcome,
+        edited: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let view = cx.new(|cx| ReportView::new(intake, outcome, window, cx));
+        let view = cx.new(|cx| ReportView::new(intake, outcome, edited, window, cx));
         let closed = cx.subscribe(&view, |shell, _, _: &dialog::Answer, cx| {
             shell.report = None;
             cx.notify();

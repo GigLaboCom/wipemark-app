@@ -142,7 +142,7 @@ use wipemark_store::entry::{Action, Delivered, Entry, Origin, Outcome as Recorde
 
 use crate::clean::{self, Cleanable, Outcome, Refusal, Verdict};
 use crate::cleaner::{self, Cleaner};
-use crate::compare::{self, CleanedTo, Comparison, Made, RewriteFrom, Subject, Told};
+use crate::compare::{self, CleanedTo, Comparison, Home, Made, RewriteFrom, Subject, Told};
 use crate::drop::{self, Arrival, Catcher, Landed};
 use crate::icon::{Icon, IconName};
 use crate::journal::{self, Work, Writer, Written};
@@ -486,6 +486,21 @@ pub struct Said {
     pub result: Option<Delivered>,
 }
 
+/// Why a row's Report… is greyed, when the reason is one to say (D448): a
+/// row whose status the journal keeps — an earlier session's, the command
+/// line's, an agent's, every rewrite — ended. The journal holds metadata,
+/// never the characters (D312), so a full report built from it would put
+/// on its verifiable shelf what nothing backs, and there would be no report
+/// to copy as JSON; the list keeps a summary, which the row's status says.
+/// `None` for a row nothing has happened to yet (greyed, as it always was)
+/// and for a clean of this session (which has its report). Pure.
+pub fn why_no_report(status: &Status) -> Option<String> {
+    match status {
+        Status::Recorded(said) if said.phase.is_end() => Some(t(Message::QueueActionReportJournal)),
+        _ => None,
+    }
+}
+
 /// Why row's Clean item is greyed, or `None` when it is not: a thing
 /// that cannot be cleaned says why, and a row already in line or done
 /// says that — and a row being rewritten, whose file the rewrite reads
@@ -691,6 +706,12 @@ struct Row {
     /// of the cleaned text — in memory, as that text is. Gone with the
     /// next clean or rewrite of the row.
     edited: Option<String>,
+    /// When a Compare window last saved an edit over this row's result in
+    /// this session, and the result it was — the mark C3's rule let land
+    /// (D442): what says "…, then edited" on a row whose own outcome does
+    /// not know it yet (D447). Gone with the next clean or rewrite of the
+    /// row, as `edited` is.
+    edited_at: Option<i64>,
     /// lazy-shot's `key_word`: a handle somebody assigned so the thing
     /// can be found again by name. Nothing assigns one yet — see the
     /// module docs — so today every row's is `None`.
@@ -755,6 +776,25 @@ impl Row {
                 _ => None,
             },
             _ => None,
+        }
+    }
+
+    /// Whether its result was edited by hand in Compare and saved as typed
+    /// (D447): a Save that cleans says so in its outcome, the journal in
+    /// its entry's `outcome.edited`, and a save this session in the mark
+    /// it let land — for the result the row has now.
+    fn edited(&self) -> bool {
+        match &self.status {
+            Status::Done(outcome) => outcome.edited || self.edited_at.is_some(),
+            Status::Recorded(said) => {
+                said.phase == Phase::Done
+                    && (said
+                        .outcome
+                        .as_ref()
+                        .is_some_and(|outcome| outcome.edited.is_some())
+                        || self.edited_at.is_some())
+            }
+            _ => false,
         }
     }
 
@@ -1134,6 +1174,7 @@ impl Queue {
                 price: None,
                 existing: None,
                 edited: None,
+                edited_at: None,
                 keyword: None,
                 arrival: Some(arrival.clone()),
                 preview: Preview::Pending,
@@ -1257,12 +1298,14 @@ impl gpui::EventEmitter<QueueEvent> for Queue {}
 
 impl Queue {
     /// What row `id` arrived as and what its clean came to, for the
-    /// Report dialog — `None` until it is done.
-    pub fn report_of(&self, id: u64) -> Option<(Intake, Arc<Outcome>)> {
+    /// Report dialog — and whether its result was edited by hand and saved
+    /// as typed since (D447), which the sheet says as the row does. `None`
+    /// until it is done.
+    pub fn report_of(&self, id: u64) -> Option<(Intake, Arc<Outcome>, bool)> {
         let row = self.rows.iter().find(|row| row.id == id)?;
         match (&row.status, &row.arrival) {
             (Status::Done(outcome), Some(arrival)) => {
-                Some((arrival.intake.clone(), outcome.clone()))
+                Some((arrival.intake.clone(), outcome.clone(), row.edited()))
             }
             _ => None,
         }
@@ -1348,6 +1391,14 @@ impl Queue {
         self.cleaner.read(cx).progress()
     }
 
+    /// What row `id`'s Status cell says: its word, and its tooltip.
+    #[cfg(test)]
+    pub fn status_words(&self, id: u64) -> Option<(String, String)> {
+        let row = self.rows.iter().find(|row| row.id == id)?;
+        let (_, word, sentence) = status_said(row, self.rewrite_note(row), self.held());
+        Some((word, sentence))
+    }
+
     /// The status of row `id`, if it is here.
     #[cfg(test)]
     pub fn status_of(&self, id: u64) -> Option<&Status> {
@@ -1402,6 +1453,7 @@ impl Queue {
         // A new clean is a new result: a paste's text saved in Compare
         // before it is not this one's.
         row.edited = None;
+        row.edited_at = None;
         row.status = status;
         cx.notify();
     }
@@ -1422,11 +1474,20 @@ impl Queue {
     /// file or the batch queue's row holds an edit — written to the row's
     /// journal entry as *when*, never *what* (D417). `false` when the row
     /// cannot take it: gone, or no longer a result Compare saved into.
+    ///
+    /// A mark names what it is about (D442): the result of a clean or of a
+    /// rewrite, and where it lives. It lands only while that is still the
+    /// row's latest result — a window opened on a clean and saved after the
+    /// row was rewritten marks nothing — and the writer checks the action
+    /// again in the database, so a rewrite recorded between this and the
+    /// write is not marked either. The save itself stands: `true`, and a
+    /// log line.
     pub fn told_by_compare(&mut self, id: u64, told: Told, cx: &mut Context<Self>) -> bool {
+        let work = self.work.clone();
         let Some(row) = self.rows.iter_mut().find(|row| row.id == id) else {
             return false;
         };
-        match told {
+        let action = match told {
             // A Save in Compare that cleans keeps the row's own Clean's
             // rule: not while it waits or runs in a line, not while it is
             // rewritten (D411).
@@ -1464,14 +1525,44 @@ impl Queue {
                     return false;
                 }
                 row.edited = Some(text);
+                Action::Clean
             }
-            Told::Saved => {}
-        }
+            Told::Saved { action, home } => {
+                if !holds(row, work.as_ref(), action, &home) {
+                    tracing::info!(
+                        id,
+                        action = action.as_str(),
+                        "a save in Compare is not this row's latest result; no edit mark"
+                    );
+                    return true;
+                }
+                action
+            }
+        };
+        let now = journal::now_ms();
+        row.edited_at = Some(now);
         if let Some(writer) = &self.writer {
-            writer.edited(id, journal::now_ms());
+            writer.edited(id, now, action);
         }
         cx.notify();
         true
+    }
+}
+
+/// Whether `row`'s latest result is `action`'s and lives at `home` — what
+/// an edit mark has to be about to land (D442).
+fn holds(row: &Row, work: Option<&Work>, action: Action, home: &Home) -> bool {
+    match action {
+        Action::Clean => matches!(
+            (cleaned_for(row), home),
+            (Some((_, CleanedTo::File(path))), Home::File(saved)) if path == *saved
+        ),
+        Action::Rewrite => match (row.rewritten(work), home) {
+            (Some(RewriteFrom::File(path)), Home::File(saved)) => path == *saved,
+            (Some(RewriteFrom::Item(_, item)), Home::Item(saved)) => item == *saved,
+            _ => false,
+        },
+        Action::CleanImage | Action::Inspect => false,
     }
 }
 
@@ -1785,14 +1876,36 @@ fn kind_tag(kind: Kind) -> Tag {
 /// The row's life as a badge, and the sentence behind it as its tooltip:
 /// waiting (or, for a thing that cannot be cleaned, why not), queued,
 /// cleaning, or what the clean came to.
+/// A status's sentence, and — for a result edited by hand and saved as
+/// typed — that nothing checked the edits for marks (D447).
+fn then_edited(row: &Row, sentence: String) -> String {
+    if row.edited() {
+        format!("{sentence} {}", t(Message::QueueStatusEditedTooltip))
+    } else {
+        sentence
+    }
+}
+
 fn status_cell(row: &Row, notes: Vec<String>, held: bool) -> AnyElement {
+    let (tag, word, sentence) = status_said(row, notes, held);
+    let sentence = SharedString::from(sentence);
+    div()
+        .id(("queue-status", row.id))
+        .child(tag.small().child(SharedString::from(word)))
+        .tooltip(move |window, cx| Tooltip::new(sentence.clone()).build(window, cx))
+        .into_any_element()
+}
+
+/// What a row's Status cell says: its badge, its word, and the sentence
+/// its tooltip holds.
+fn status_said(row: &Row, notes: Vec<String>, held: bool) -> (Tag, String, String) {
     let tag_of = |badge: Badge| match badge {
         Badge::Muted => Tag::secondary(),
         Badge::Success => Tag::success(),
         Badge::Warning => Tag::warning(),
         Badge::Danger => Tag::danger(),
     };
-    let (tag, word, sentence) = match &row.status {
+    match &row.status {
         Status::Waiting => match row.cleanable() {
             Some(Cleanable::No(unable)) => (
                 Tag::secondary().outline(),
@@ -1840,6 +1953,11 @@ fn status_cell(row: &Row, notes: Vec<String>, held: bool) -> AnyElement {
         Status::Recorded(said) => {
             let (word, badge) =
                 wording::recorded_badge(said.action, said.phase, said.outcome.as_ref());
+            let word = if row.edited() {
+                wording::edited(word)
+            } else {
+                word
+            };
             let sentence = match &row.existing {
                 // A result already there: which file, and the one way over
                 // it (D357).
@@ -1849,7 +1967,7 @@ fn status_cell(row: &Row, notes: Vec<String>, held: bool) -> AnyElement {
                 ),
                 _ => wording::recorded_said(said.action, said.phase, said.outcome.as_ref()),
             };
-            (tag_of(badge), t(word), sentence)
+            (tag_of(badge), t(word), then_edited(row, sentence))
         }
         Status::Queued => (
             Tag::info(),
@@ -1863,15 +1981,18 @@ fn status_cell(row: &Row, notes: Vec<String>, held: bool) -> AnyElement {
         ),
         Status::Done(outcome) => {
             let (word, badge) = wording::verdict_badge(&outcome.verdict);
-            (tag_of(badge), t(word), wording::said(outcome))
+            let word = if row.edited() {
+                wording::edited(word)
+            } else {
+                word
+            };
+            (
+                tag_of(badge),
+                t(word),
+                then_edited(row, wording::said(outcome)),
+            )
         }
-    };
-    let sentence = SharedString::from(sentence);
-    div()
-        .id(("queue-status", row.id))
-        .child(tag.small().child(SharedString::from(word)))
-        .tooltip(move |window, cx| Tooltip::new(sentence.clone()).build(window, cx))
-        .into_any_element()
+    }
 }
 
 /// A value with a copy button beside it — lazy-shot's id and keyword
@@ -2054,6 +2175,9 @@ struct Actions {
     replace_why: Option<String>,
     /// Whether there is a finished clean to report.
     report: bool,
+    /// Why Report… is greyed, when there is a reason to give: a row whose
+    /// status the journal keeps, of which only a summary is kept (D448).
+    report_why: Option<String>,
 }
 
 /// The Actions menu.
@@ -2197,8 +2321,8 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
                         .disabled(!actions.text)
                         .on_click(move |_, _, cx| copy_result(&copying, id, cx)),
                 )
-                .item(
-                    PopupMenuItem::new(SharedString::from(t(Message::QueueActionReport)))
+                .item(match actions.report_why.clone() {
+                    None => PopupMenuItem::new(SharedString::from(t(Message::QueueActionReport)))
                         .icon(IconName::FileLines)
                         .disabled(!actions.report)
                         .on_click(move |_, _, cx| {
@@ -2210,7 +2334,24 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
                                 reporting.update(cx, |_, cx| cx.emit(QueueEvent::Report(id)));
                             });
                         }),
-                )
+                    // Greyed with its reason under it, as Clean is (D269, D448).
+                    Some(why) => {
+                        let why = SharedString::from(why);
+                        PopupMenuItem::element(move |_, cx| {
+                            v_flex()
+                                .max_w(px(280.0))
+                                .child(SharedString::from(t(Message::QueueActionReport)))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(why.clone()),
+                                )
+                        })
+                        .icon(IconName::FileLines)
+                        .disabled(true)
+                    }
+                })
                 .item(
                     match actions.replace_why.clone().filter(|_| actions.replace) {
                         None => {
@@ -2303,13 +2444,27 @@ fn compare_row(id: u64, queue: Entity<Queue>, window: &Window, cx: &mut App) {
 
 /// How a Compare window opened on row `id` tells the row what it saved
 /// (D412): through the queue, while the queue is there.
+///
+/// Where the row's clean put its result is asked of the row as it is now
+/// (D441), and the journal's writer is the queue's (D440).
 pub fn link_to(id: u64, queue: &Entity<Queue>) -> compare::Link {
     let queue = queue.downgrade();
+    let (homed, flushing) = (queue.clone(), queue.clone());
     compare::Link {
         told: Rc::new(move |told, cx| {
             queue
                 .update(cx, |queue, cx| queue.told_by_compare(id, told, cx))
                 .unwrap_or(false)
+        }),
+        home: Rc::new(move |cx| {
+            let queue = homed.upgrade()?;
+            let queue = queue.read(cx);
+            let row = queue.rows.iter().find(|row| row.id == id)?;
+            cleaned_for(row).map(|(aside, to)| (to, aside))
+        }),
+        flushed: Rc::new(move |cx| {
+            let queue = flushing.upgrade()?;
+            queue.read(cx).writer.as_ref().map(Writer::flushed)
         }),
     }
 }
@@ -2577,6 +2732,7 @@ impl Queue {
                             || row.existing.is_some(),
                         replace_why: row.existing.as_ref().and(rewrite),
                         report: row.outcome().is_some() && row.arrival.is_some(),
+                        report_why: why_no_report(&row.status),
                     },
                     cx.entity(),
                 )),
@@ -2763,7 +2919,7 @@ impl Render for Queue {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
@@ -2869,6 +3025,41 @@ mod tests {
             why_not_clean(&Status::Waiting, None),
             Some(t(Message::QueueActionNotKept))
         );
+    }
+
+    /// Report… of a row the journal keeps is greyed with its reason (D448):
+    /// the journal holds a summary, never the characters, so there is no
+    /// full report to show or copy — and the item says so rather than
+    /// greying in silence. A row nothing happened to stays greyed as it
+    /// was; a clean of this session has its report. Make `why_no_report`
+    /// answer `None` always and the journal's rows are silent again: red.
+    #[test]
+    fn report_of_a_journal_row_is_greyed_with_its_reason() {
+        use super::why_no_report;
+        for action in [Action::Clean, Action::Rewrite] {
+            for phase in [Phase::Done, Phase::Failed, Phase::Cancelled] {
+                let status = Status::Recorded(Box::new(Said {
+                    action,
+                    phase,
+                    outcome: None,
+                    result: None,
+                }));
+                assert_eq!(
+                    why_no_report(&status),
+                    Some(t(Message::QueueActionReportJournal)),
+                    "{action:?} {phase:?}"
+                );
+            }
+        }
+        let running = Status::Recorded(Box::new(Said {
+            action: Action::Rewrite,
+            phase: Phase::Running,
+            outcome: None,
+            result: None,
+        }));
+        for status in [Status::Waiting, Status::Queued, Status::Cleaning, running] {
+            assert_eq!(why_no_report(&status), None, "{status:?}");
+        }
     }
 
     /// D355: Remove is greyed while an agent or the command line waits for
@@ -3120,10 +3311,10 @@ mod tests {
     }
 
     /// A scratch directory that takes its own files away with it.
-    pub(super) struct Scratch(pub(super) std::path::PathBuf);
+    pub(crate) struct Scratch(pub(crate) std::path::PathBuf);
 
     impl Scratch {
-        pub(super) fn new(label: &str) -> Self {
+        pub(crate) fn new(label: &str) -> Self {
             let directory =
                 std::env::temp_dir().join(format!("wipemark-queue-{label}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&directory);
@@ -3131,7 +3322,7 @@ mod tests {
             Self(directory)
         }
 
-        pub(super) fn file(&self, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+        pub(crate) fn file(&self, name: &str, bytes: &[u8]) -> std::path::PathBuf {
             let path = self.0.join(name);
             std::fs::write(&path, bytes).expect("scratch file");
             path
@@ -3168,7 +3359,7 @@ mod tests {
     }
 
     /// [`queue_in`], over a batch queue and a journal — `work`.
-    pub(super) fn queue_with<'a>(
+    pub(crate) fn queue_with<'a>(
         cx: &'a mut TestAppContext,
         scratch: &Scratch,
         work: Option<crate::journal::Work>,
@@ -3195,7 +3386,7 @@ mod tests {
         (queue, preferences, cx)
     }
 
-    pub(super) fn statuses(
+    pub(crate) fn statuses(
         queue: &gpui::Entity<Queue>,
         cx: &mut VisualTestContext,
     ) -> Vec<&'static str> {
