@@ -38,6 +38,13 @@ flume.workspace = true
 [target.'cfg(windows)'.dependencies]
 ureq = { workspace = true, features = ["win-system-proxy"] }
 
+# `O_NONBLOCK`, by target, for the one open of a model file this crate
+# reads (`store::open_regular`, D455): an open of a pipe for reading
+# returns at once with it, and waits for a writer without it. The constant
+# only — no call into libc, so `forbid(unsafe_code)` holds.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"
 

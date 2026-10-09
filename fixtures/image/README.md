@@ -40,7 +40,11 @@ Six of the owner's own Gemini outputs (stickers made on 2026-04-24,
 The owner asked for them on 2026-10-04 in place of composites, which
 supersedes Q-V8's "no vendor file is committed" for these. Each
 2048 × 2048 picture is cut to its bottom-right **1025 × 1025** and
-saved as an RGB PNG — the vendor's 96-pixel V1 mark is then exactly at
+saved as an 8-bit PNG — RGB, and RGBA for `crying-transparent-1025.png`,
+whose alpha is what it is for — holding no chunk but `IHDR`, `IDAT` and
+`IEND`: no metadata and no colour chunk (read off the committed files on
+2026-10-09; the script that cut them is not in the tree). The vendor's
+96-pixel V1 mark is then exactly at
 the large row (margin 64), so a row is tested on the pixels the vendor
 stamped, at a twentieth of the bytes; the confetti WebP is as it was.
 Seven JPEGs and a WebP were made here on 2026-10-05 by Pillow 12.3.0,

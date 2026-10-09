@@ -361,6 +361,23 @@ table tests that pushed through the fallback — a fake engine in the slot,
 nobody in the preferences — put a duty on this machine in their
 preferences, as a person must.
 
+**The duty once per draw of the rows** (D452, the follow-ups' verification).
+Asking `Queue::going` builds a `Roster` — the installed, weights and added
+maps cloned — and runs `duty::on_duty`, and a row asked it up to three
+times (its Rewrite button, the menu's Rewrite, Replace's reason), every row
+on screen, every frame. The rows of a draw now share one answer:
+`Queue::vacancy` is taken once in `render`, where the list's processor is
+made, and each row reads its Rewrite's reason through
+`why_not_rewrite_given(id, vacant)` — the pure `why_not_rewrite` over it.
+Not inside the processor: the list calls it three times a draw (a row
+measured in its layout and again in its prepaint, then the rows on screen),
+which would be three asks. The callers outside a draw — Replace and
+"Process what arrives" — keep `why_not_rewrite(id, cx)`, and Rewrite all
+its own `vacancy`
+(`the_duty_is_asked_once_per_draw_of_the_rows`: one ask for a draw of
+twenty rows; one a row asks seventeen times — two rows measured, fifteen on
+screen — and the code before asked two or three times a row).
+
 **A yes records the question's destination** (D431, A-L1). Every question
 asked before rewrites go names where they would go — Rewrite all's price
 (`price.away`), a drop's and a Replace's "Send … to …?" — and its yes is
@@ -380,6 +397,19 @@ caller; the status bar says so — "Rewrites wait for the engine to change"
 — where it said nothing over items that did not move
 (`a_change_of_engine_waited_for_is_said_in_the_status_bar`). Read from the
 handle's flag, in memory (D359).
+
+**A swap is told when it is deferred, and when it lands** (D454). The
+handle tells whoever watches the slot on every change of its "swap pending"
+flag, not only as it clears. The window never waited for it — the host
+notifies at the end of the event that deferred the swap, the shell observes
+the host and the status bar reads the flag directly — but the batch queue
+hears of the slot only through the watcher, and kept a hold or a question
+about the engine leaving until the job ended. Told as the swap is deferred,
+the queue looks again (a Retry lifts its hold and withdraws its question),
+finds the source settling, and still waits: nothing starts on the engine
+that is leaving (D395, D430;
+`a_deferred_swap_is_pending_until_it_lands`, which holds both words,
+`no_item_starts_on_the_engine_leaving`, which holds the wait).
 
 **Where first, the key after** (D396, L-2). Before an item's engine is
 built — for an endpoint, before its key is read from the credential store,

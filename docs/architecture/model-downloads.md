@@ -160,6 +160,13 @@ What is checked, and when:
   it is hashed again. The record is not a security check — the sha256
   is — and anything that moves the file re-hashes it.
 
+A hash reads only a regular file, and never waits for one that is not:
+it opens through `store::open_regular` — the path asked first, then, on
+Unix, an open with `O_NONBLOCK` and the open file asked again — so a pipe
+put where a weight file was refuses as "not a regular file" rather than
+holding the reading slot for a writer that never comes (D455,
+`user-models.md`).
+
 ### Records under the data directory, never beside the weights (D303)
 
 Until 2026-10-07 a verify left `.<file>.ok-<sha256>` beside the file,

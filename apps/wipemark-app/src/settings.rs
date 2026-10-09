@@ -1146,8 +1146,14 @@ fn look_at_added(models: &Downloads, rows: &SettingsStore) -> Added {
 /// What one [`Reading`] came to.
 #[derive(Debug)]
 enum Read {
-    /// The model's row was written.
-    Added(UserModel),
+    /// The model's row was written — and what the dialog's header read
+    /// took of its file, off the thread that draws: what makes another path
+    /// the same file, and whether this build writes its chat format (D453).
+    Added {
+        model: UserModel,
+        key: wipemark_models::user::FileKey,
+        chat: ChatSupport,
+    },
     /// A re-check's verdict, and the model as its row now says when its
     /// identity was written again.
     Rechecked {
@@ -1202,7 +1208,11 @@ fn read_one(
                 return failed(why);
             }
             match config::write_user_model(rows, &model) {
-                Ok(()) => Read::Added(model),
+                Ok(()) => Read::Added {
+                    model,
+                    key: addition.facts.key.clone(),
+                    chat: addition.facts.chat,
+                },
                 Err(error) => failed(error.to_string()),
             }
         }
@@ -2455,10 +2465,18 @@ impl Preferences {
     fn read_landed(&mut self, landed: Read, cx: &mut Context<Self>) {
         self.reading = None;
         match landed {
-            Read::Added(model) => {
+            Read::Added { model, key, chat } => {
                 tracing::info!(model = %model.id, "added a model by hand");
                 self.added_states
                     .insert(model.id.clone(), UserState::Present);
+                // Known by another road, and by its chat format, before the
+                // rescan reads them again: until then a file picked again
+                // through a link or `..` would be a second row (D436), and a
+                // format this build does not write a model that could be
+                // chosen (D438). Taken off the drawing thread by the header
+                // read; nothing is read here (D453).
+                self.added_keys.insert(model.id.clone(), key);
+                self.added_chats.insert(model.id.clone(), chat);
                 match self.added.iter_mut().find(|known| known.id == model.id) {
                     Some(known) => *known = model,
                     None => self.added.push(model),
@@ -11045,6 +11063,68 @@ mod tests {
                     preferences.added_at(&facts).map(|model| model.id.as_str()),
                     Some("user-first"),
                     "{road:?} was not known as the model added"
+                );
+            });
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// M4 (D453): a file just added is known by another road at once, not
+    /// from the rescan that follows the add — its key and its chat format,
+    /// which the dialog's header read took off the drawing thread, go in
+    /// with the row. The rescan here panics, so nothing it finds is used and
+    /// what the add told the page is all there is. Drop the key's insert and
+    /// the file through `..` or a link is a stranger until a scan lands: red;
+    /// drop the chat's and the verdict is unknown until then: red.
+    #[gpui::test]
+    fn a_file_just_added_is_known_by_another_road_before_the_rescan(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("added-at-once");
+        let file = root.join("theirs").join("a.gguf");
+        std::fs::write(
+            &file,
+            wipemark_models::gguf::synthetic_chat_model("llama", "A", Some(CHATML)),
+        )
+        .expect("write");
+        let (preferences, cx) = added_bench(cx, &root);
+        let facts = facts_of(&file);
+        let chat = facts.chat;
+        preferences.update(cx, |preferences, cx| {
+            preferences.scan_panics = true;
+            preferences.add_model(
+                Addition {
+                    facts,
+                    name: "A".to_owned(),
+                    role: Role::Rewrite,
+                    ctx: 8192,
+                    replacing: None,
+                },
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        preferences.read_with(cx, |preferences, _| {
+            let ids: Vec<&str> = preferences
+                .added_models()
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect();
+            assert_eq!(ids, ["user-a"], "the add did not land");
+            assert_eq!(preferences.added_chat("user-a"), Some(chat));
+        });
+        let mut roads = vec![root.join("models").join("..").join("theirs").join("a.gguf")];
+        #[cfg(unix)]
+        {
+            let linked = root.join("linked.gguf");
+            std::os::unix::fs::symlink(&file, &linked).expect("a link");
+            roads.push(linked);
+        }
+        for road in roads {
+            let facts = facts_of(&road);
+            preferences.read_with(cx, |preferences, _| {
+                assert_eq!(
+                    preferences.added_at(&facts).map(|model| model.id.as_str()),
+                    Some("user-a"),
+                    "{road:?} was not known as the model just added"
                 );
             });
         }

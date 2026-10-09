@@ -1508,11 +1508,6 @@ pub(crate) enum Identity {
     Part,
 }
 
-/// What a mark of `kind` holds of the file `meta` describes: `None` for a
-/// symbolic link or anything but a regular file — a download writes
-/// neither — and for an identity this platform cannot read. The caller
-/// chooses whether a link is followed: a mark never follows one (the link
-/// is what is at the place), a user entry always does (E8-1).
 /// A whole file's identity — `size:mtime_ns:dev:ino` on Unix — off its
 /// metadata, as a download's mark and an added model's row keep it (D350):
 /// for a caller that has the file open and asks the open file, which no
@@ -1523,6 +1518,75 @@ pub fn identity_of(meta: &std::fs::Metadata) -> Option<String> {
     identity(meta, Identity::Whole)
 }
 
+/// Open the file at `path` for reading — only a regular file, and never
+/// waiting for one that is not (D455). The two readers of a model file this
+/// crate has, the header ([`crate::gguf::Header::read_identified`]) and the
+/// hash, open through it.
+///
+/// The path is asked first, through a link as the open follows one: a
+/// cheap refusal of a folder, a pipe or a device. A path can be swapped
+/// between that and the open, and an open of a pipe for reading waits for
+/// a writer that may never come (D356) — so on Unix the open is made with
+/// `O_NONBLOCK`, which returns at once from a pipe or a device and changes
+/// nothing about reading a regular file, and the **open** file is asked
+/// what it is before a byte is read. Off Unix the stat and the open are
+/// what there is.
+///
+/// Anything but a regular file is an error that [`is_not_regular`] tells
+/// apart, saying "not a regular file".
+pub(crate) fn open_regular(path: &Path) -> std::io::Result<std::fs::File> {
+    if !std::fs::metadata(path)?.is_file() {
+        return Err(not_regular());
+    }
+    open_checked(path)
+}
+
+/// [`open_regular`] past its stat: what a path swapped after the stat
+/// meets.
+fn open_checked(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(not_regular());
+    }
+    Ok(file)
+}
+
+/// What [`open_regular`] refuses a path with that is not a regular file.
+#[derive(Debug)]
+struct NotRegular;
+
+impl std::fmt::Display for NotRegular {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("not a regular file")
+    }
+}
+
+impl std::error::Error for NotRegular {}
+
+fn not_regular() -> std::io::Error {
+    std::io::Error::other(NotRegular)
+}
+
+/// Whether `error` is [`open_regular`]'s refusal of a path that is not a
+/// regular file, rather than the operating system's.
+pub(crate) fn is_not_regular(error: &std::io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|inner| inner.is::<NotRegular>())
+}
+
+/// What a mark of `kind` holds of the file `meta` describes: `None` for a
+/// symbolic link or anything but a regular file — a download writes
+/// neither — and for an identity this platform cannot read. The caller
+/// chooses whether a link is followed: a mark never follows one (the link
+/// is what is at the place), a user entry always does (E8-1).
 fn identity(meta: &std::fs::Metadata, kind: Identity) -> Option<String> {
     if !meta.file_type().is_file() {
         return None;
@@ -1727,13 +1791,15 @@ impl Drop for Landing<'_> {
 }
 
 /// The sha256 of `path`, telling `read` the bytes hashed so far and the
-/// file's size: once at zero, once per chunk, and at the end.
+/// file's size: once at zero, once per chunk, and at the end. Only a
+/// regular file is read ([`open_regular`]): anything else is
+/// [`StoreError::Io`], "not a regular file".
 fn hash_file(
     path: &Path,
     stop: &AtomicBool,
     read: &mut dyn FnMut(u64, u64),
 ) -> Result<String, StoreError> {
-    let mut file = std::fs::File::open(path).map_err(StoreError::io(path))?;
+    let mut file = open_regular(path).map_err(StoreError::io(path))?;
     let total = file.metadata().map(|meta| meta.len()).unwrap_or(0);
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; CHUNK];
@@ -3057,5 +3123,102 @@ mod tests {
             ..progress
         };
         assert!((empty.fraction() - 1.0).abs() < f32::EPSILON);
+    }
+
+    /// A pipe at `dir/name`, made by `mkfifo`.
+    #[cfg(unix)]
+    fn pipe(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+        let fifo = dir.join(name);
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo runs");
+        assert!(made.success(), "mkfifo failed");
+        fifo
+    }
+
+    /// Run `read` on a thread of its own and wait five seconds at most for
+    /// it. When it does not answer, the open stuck on `fifo` is let go — a
+    /// writer opens the other end — so the thread does not outlive the
+    /// test, and the answer is `None`.
+    #[cfg(unix)]
+    fn bounded<T: Send + 'static>(
+        fifo: &std::path::Path,
+        read: impl FnOnce() -> T + Send + 'static,
+    ) -> Option<T> {
+        let (told, answer) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = told.send(read());
+        });
+        let answered = answer.recv_timeout(std::time::Duration::from_secs(5)).ok();
+        if answered.is_none() {
+            let _ = std::fs::OpenOptions::new().write(true).open(fifo);
+        }
+        answered
+    }
+
+    /// M7 (D455): a pipe is refused without a wait — by the stat in front
+    /// of the open, and, for a path swapped in after the stat, by an open
+    /// that does not wait and an `fstat` of what it opened. Open without
+    /// `O_NONBLOCK` past the stat and the open waits for a writer: red.
+    #[cfg(unix)]
+    #[test]
+    fn open_regular_never_waits_on_a_pipe() {
+        let dir = tempfile::tempdir().expect("a scratch folder");
+        let fifo = pipe(dir.path(), "model.gguf");
+        let path = fifo.clone();
+        let (stated, swapped) = bounded(&fifo, move || {
+            (
+                super::open_regular(&path).map(drop),
+                super::open_checked(&path).map(drop),
+            )
+        })
+        .expect("an open of a pipe never answered");
+        for (road, refused) in [("the stat", stated), ("the open", swapped)] {
+            let error = refused.expect_err(road);
+            assert!(super::is_not_regular(&error), "{road}: {error}");
+            assert_eq!(error.to_string(), "not a regular file");
+        }
+        // A regular file opens and reads as ever.
+        let file = dir.path().join("plain.gguf");
+        std::fs::write(&file, b"GGUF").expect("write");
+        let mut read = String::new();
+        std::io::Read::read_to_string(
+            &mut super::open_regular(&file).expect("a regular file opens"),
+            &mut read,
+        )
+        .expect("read");
+        assert_eq!(read, "GGUF");
+        let folder = super::open_regular(dir.path()).expect_err("a folder");
+        assert!(super::is_not_regular(&folder));
+        let absent = super::open_regular(&dir.path().join("absent")).expect_err("absent");
+        assert!(!super::is_not_regular(&absent), "the system's own words");
+    }
+
+    /// M7 (D455): the hash is the other reader, and is reached after a
+    /// stat its callers made (`followed_identity`, `fingerprint`) — called
+    /// here directly, past them. `File::open` in place of `open_regular`
+    /// and the hash waits on the pipe: red.
+    #[cfg(unix)]
+    #[test]
+    fn a_hash_never_waits_on_a_pipe() {
+        let dir = tempfile::tempdir().expect("a scratch folder");
+        let fifo = pipe(dir.path(), "model.gguf");
+        let path = fifo.clone();
+        let hashed = bounded(&fifo, move || {
+            super::hash_file(
+                &path,
+                &std::sync::atomic::AtomicBool::new(false),
+                &mut |_, _| {},
+            )
+        })
+        .expect("a hash of a pipe never answered");
+        match hashed {
+            Err(StoreError::Io { path, source }) => {
+                assert_eq!(path, fifo);
+                assert_eq!(source.to_string(), "not a regular file");
+            }
+            other => panic!("a pipe hashed: {other:?}"),
+        }
     }
 }

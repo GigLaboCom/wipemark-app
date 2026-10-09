@@ -887,6 +887,10 @@ pub struct Queue {
     /// Dropped with the view: a change of duty tells the batch queue where
     /// a rewrite would go now (D361).
     _duty: Subscription,
+    /// How many times [`Queue::going`] has asked the duty — what a draw of
+    /// the rows costs, counted for a test (D452).
+    #[cfg(test)]
+    goings: std::cell::Cell<usize>,
 }
 
 impl Queue {
@@ -988,6 +992,8 @@ impl Queue {
             _cleaned: cleaned,
             _typed: [typed_id, typed_keyword],
             _duty: duty,
+            #[cfg(test)]
+            goings: std::cell::Cell::new(0),
         };
         queue.tell_where(cx);
         queue
@@ -2462,10 +2468,12 @@ impl Queue {
     }
 
     /// One row, by its index in the list — called by the page's list
-    /// for the rows on screen.
-    fn row(&self, index: usize, cx: &Context<Self>) -> AnyElement {
+    /// for the rows on screen, with `vacant`, why nothing would rewrite,
+    /// asked once for all of them (D452).
+    fn row(&self, index: usize, vacant: Option<&str>, cx: &Context<Self>) -> AnyElement {
         let theme = cx.theme();
         let row = &self.rows[index];
+        let rewrite = self.why_not_rewrite_given(row.id, vacant);
         // Once cleaned, what happened; once rewritten, likewise; until
         // then, what would.
         let lines = match (row.outcome(), row.said(), &row.arrival) {
@@ -2525,7 +2533,7 @@ impl Queue {
             .child(Column::Process.cell().child(process_cell(
                 row.id,
                 why_not_clean(&row.status, row.cleanable()),
-                self.why_not_rewrite(row.id, cx),
+                rewrite.clone(),
                 cx.entity(),
             )))
             .child(Column::Format.cell().child(format_cell(&row.look, cx)))
@@ -2556,7 +2564,7 @@ impl Queue {
                             .and_then(|arrival| arrival.intake.path.clone()),
                         comparable,
                         clean: why_not_clean(&row.status, row.cleanable()),
-                        rewrite: self.why_not_rewrite(row.id, cx),
+                        rewrite: rewrite.clone(),
                         cancel: matches!(row.status, Status::RewriteQueued | Status::Rewriting(_))
                             && row.item.is_some(),
                         remove: why_not_remove(&row.status, row.origin),
@@ -2565,10 +2573,7 @@ impl Queue {
                             || row.rewritten(self.work.as_ref()).is_some(),
                         replace: row.outcome().and_then(existing_result).is_some()
                             || row.existing.is_some(),
-                        replace_why: row
-                            .existing
-                            .as_ref()
-                            .and_then(|_| self.why_not_rewrite(row.id, cx)),
+                        replace_why: row.existing.as_ref().and(rewrite),
                         report: row.outcome().is_some() && row.arrival.is_some(),
                     },
                     cx.entity(),
@@ -2714,6 +2719,12 @@ impl Render for Queue {
             table.child(self.empty(over, cx))
         } else {
             let count = on_page.len();
+            // The duty once for the rows of a draw, never once a row: asking
+            // it builds a roster and runs `duty::on_duty` (D452). Taken here,
+            // where the list's processor is made, because the list calls
+            // that three times a draw — a row measured in its layout and in
+            // its prepaint, then the rows on screen.
+            let vacant = self.vacancy(cx);
             table.child(
                 div()
                     .relative()
@@ -2726,7 +2737,7 @@ impl Render for Queue {
                             cx.processor(move |queue, range: Range<usize>, _, cx| {
                                 on_page[range]
                                     .iter()
-                                    .map(|&index| queue.row(index, cx))
+                                    .map(|&index| queue.row(index, vacant.as_deref(), cx))
                                     .collect()
                             }),
                         )

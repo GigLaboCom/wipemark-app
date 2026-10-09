@@ -308,10 +308,12 @@ impl Guard for ScriptGuard {
 ///
 /// The trimmed set is A §6's plus curly quotes, angle quotes and the
 /// backtick (D43), so straightening or curling the quotes around an
-/// identifier, or dropping its Markdown backticks, loses nothing. Strict
-/// otherwise, on purpose: a candidate that glues the identifier to a dash
-/// or an ellipsis loses it and is rejected. A false reject costs one
-/// candidate.
+/// identifier, or dropping its Markdown backticks, loses nothing. A
+/// hyphenated word of letters alone is held by its parts that are
+/// identifiers on their own (D451): `macOS-only` holds `macOS`, so "only on
+/// macOS" keeps it. Strict otherwise, on purpose: a candidate that glues
+/// the identifier to a dash that is not a hyphen (`—`) or an ellipsis loses
+/// it and is rejected. A false reject costs one candidate.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct IdentifierGuard;
 
@@ -482,12 +484,38 @@ fn is_white_space(c: char) -> bool {
 /// `⟦1⟧host/path⟦2⟧**` holds the identifier `host/path`, and a candidate
 /// that drops the bold after `⟦2⟧` has not lost it. What is a placeholder
 /// is [`placeholder_at`]'s definition, the one the other guards read.
+///
+/// A hyphenated word is read by its parts (D451): `macOS-only` is not an
+/// identifier as a whole, and what is held of it is each part that is one
+/// on its own — `macOS` — so "only on macOS" keeps it. What a hyphenated
+/// word is, is [`hyphenated_parts`]'; every other token is read whole. The
+/// candidate is read the same way, so parts are compared with parts.
 fn identifiers(text: &str) -> Vec<&str> {
     text.split(is_white_space)
         .flat_map(between_placeholders)
         .map(|token| token.trim_matches(|c| TRIM.contains(&c)))
+        .flat_map(|token| hyphenated_parts(token).unwrap_or_else(|| vec![token]))
         .filter(|token| !token.is_empty() && is_identifier(token))
         .collect()
+}
+
+/// U+2010 HYPHEN, which joins the parts of a hyphenated word as U+002D
+/// does.
+const HYPHEN: char = '\u{2010}';
+
+/// The parts of `token` when it is a hyphenated word (D451), `None`
+/// otherwise: it holds U+002D or U+2010, and split on them it is two parts
+/// or more, every one non-empty and made of letters alone. A digit, `_`,
+/// `.`, `/`, `\`, `@` or `:` keeps a token whole — `x-fooBar2`,
+/// `my-var_name`, `foo.barBaz-qux` — and so does an empty part, as in
+/// `--dryRun`.
+fn hyphenated_parts(token: &str) -> Option<Vec<&str>> {
+    let parts: Vec<&str> = token.split(['-', HYPHEN]).collect();
+    let words = parts.len() >= 2
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.chars().all(tables::is_letter));
+    words.then_some(parts)
 }
 
 /// `token` cut at every canonical placeholder, the placeholders dropped.
@@ -929,6 +957,66 @@ ops@example.com.";
         for (text, want) in table {
             assert_eq!(identifiers(text), *want, "{text:?}");
         }
+    }
+
+    /// M8 (D451): a hyphenated word of letters alone is not an identifier
+    /// as a whole; what is held of it is each part that is one on its own.
+    /// `macOS-only` was a camel token that had to come back verbatim, so
+    /// "only on macOS" lost it (2026-10-07: three candidates refused, the
+    /// chunk kept). Read every token whole again and the first pass is
+    /// refused: red.
+    #[test]
+    fn a_hyphenated_word_holds_only_its_identifier_parts() {
+        for (source, candidate) in [
+            (
+                "Builds macOS-only binaries.",
+                "Builds binaries only on macOS.",
+            ),
+            ("An iPhone-like screen.", "A screen like an iPhone."),
+            ("A well-known rule.", "A rule known well."),
+            // U+2010 HYPHEN joins as U+002D does.
+            (
+                "Builds macOS\u{2010}only binaries.",
+                "Builds binaries only on macOS.",
+            ),
+        ] {
+            assert_eq!(
+                IdentifierGuard.check(source, candidate),
+                GuardOutcome::Pass,
+                "{source:?} → {candidate:?}"
+            );
+        }
+        // The part is still held: a candidate without it loses it.
+        assert_eq!(
+            IdentifierGuard.check(
+                "Builds macOS-only binaries.",
+                "Builds binaries only on Apple's system."
+            ),
+            reject(RejectReason::IdentifierMissing {
+                token: "macOS".into()
+            })
+        );
+        assert_eq!(identifiers("macOS-only"), ["macOS"]);
+        assert_eq!(identifiers("iPhone-like"), ["iPhone"]);
+        assert!(identifiers("well-known").is_empty());
+        // Anything but letters, or an empty part, keeps a token whole, as
+        // before: the cost the rule does not pay.
+        for whole in [
+            "snake_case",
+            "fooBar",
+            "host/path",
+            "--dryRun",
+            "x-fooBar2",
+            "my-var_name",
+            "foo.barBaz-qux",
+        ] {
+            assert_eq!(identifiers(whole), [whole], "{whole:?}");
+        }
+        // A version is no identifier before or after; its digits are the
+        // numbers guard's.
+        assert!(identifiers("v1.2-rc").is_empty());
+        // The cost, spelled: `data-testId` holds only `testId`.
+        assert_eq!(identifiers("data-testId"), ["testId"]);
     }
 
     /// The link-only line of the 2026-10-07 run (D300): every candidate

@@ -9931,6 +9931,7 @@ dependencies = [
  "directories",
  "flume 0.11.1",
  "hex",
+ "libc",
  "serde",
  "serde_json",
  "sha2 0.10.9",

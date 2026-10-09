@@ -52,6 +52,12 @@ Report: `docs/plan/reports/images-followups-5-2026-10-05.md`.
 | `mymut.py` | the verifier's own variants of 5V1, 5V2, 5V3 and 5V5, over `docs/plan/reports/images-followups-mutate.py`'s runner. **Edits the working tree and restores it** |
 | `gates.sh` | the same gate run as round 4's |
 
+## At the top
+
+| script | what it was for |
+|---|---|
+| `png-chunks.py` | the committed crops' bit depth, colour type and chunks — what `fixtures/image/README.md` says of them (M10 of `wipemark-task-models-pipeline-followups-2026-10-09`): RGB, RGBA for `crying-transparent-1025.png`, nothing but `IHDR`, `IDAT`, `IEND` |
+
 ## What is not here
 
 * **The first two verifications' scripts are lost.** They lived in the
