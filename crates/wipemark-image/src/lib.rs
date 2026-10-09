@@ -791,7 +791,9 @@ mod tests {
             }
         }
         for path in paths {
-            if path.extension().is_some_and(|e| e == "md") {
+            // A README and the script that made a directory's fixtures
+            // (`jpeg-planes/make.py`) sit beside them and are not pictures.
+            if path.extension().is_some_and(|e| e == "md" || e == "py") {
                 continue;
             }
             let bytes = std::fs::read(&path).unwrap();
