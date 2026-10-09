@@ -1350,8 +1350,10 @@ the gate the overview set, and the open edges.
   light theme's is opaque, so there it looks right. The same is latent for
   a left gutter under horizontally scrolled text. Fix upstream: clip the
   text area's painting (lines, selections, document colours, ghost lines)
-  to the text area — a gpui-kit pull request from `glani`, then the
-  submodule bumped. Shots: `target/e7-10-shots/` from
+  to the text area — gpui-kit **#3426** from `glani:editor-clip-text`
+  (`7eaf7a76`, 2026-10-09; the test reads what was painted and goes red
+  without the clip), then the submodule bumped. Checked on this host with
+  the submodule at `7eaf7a76`: the dark shots read right. Shots: `target/e7-10-shots/` from
   `scripts/verify/e7-10/shots.sh`.
 - **Build. A row's action is a button, not only a menu item** (the owner,
   2026-10-07) — **done** in E4-6b: Clean and Rewrite are buttons on every
