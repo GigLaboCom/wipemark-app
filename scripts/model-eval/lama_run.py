@@ -535,7 +535,9 @@ def _t_the_gates_say_ns_is_enough_when_lama_does_not_beat_it():
     for i in range(10):
         recs += [r("R*", i, 20.0), r("m-hard", i, 30.0), r("ns", i, 31.0), r("telea", i, 25.0), r("ring-mean", i, 22.0)]
     g = gates(recs)
-    assert g["M2"]["beats_ns"] is False and closing_line(g, recs).startswith("LaMa not needed"), closing_line(g, recs)
+    # The line says why — NS beats it — not only that M2 failed.
+    assert g["M2"]["beats_ns"] is False and closing_line(g, recs).startswith(
+        "LaMa not needed: it does not beat NS inside the holes"), closing_line(g, recs)
     recs = [dict(x, psnr_in_mask=26.0) if x["variant"] == "ns" else x for x in recs]
     g = gates(recs)
     assert g["M2"]["ok"] and "pending" in closing_line(g, recs), closing_line(g, recs)
