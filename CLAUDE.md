@@ -1697,6 +1697,10 @@ What exists so far:
 | `wipemark-recon-plan-2026-10-08` | FILE | `docs/plan/E12-R-recon.md`: the E12-R series built from that spec — twelve steps, the order, what the code changed in the spec, the owner's S1–S12, proposed D301–D312, Q-R1…Q-R9 |
 | `wipemark-recon-r1-regression-harness-2026-10-08` … `wipemark-recon-r12-grok-thresholds-and-support-2026-10-08` | FILE ×12 | the series' self-contained step documents, `docs/plan/E12-R1` … `E12-R12` (`-r2-corpora`, `-r3-jpeg-planes`, `-r4-corpus-analytics`, `-r5-recon-bench`, `-r6-planar-inverse`, `-r7-consistency`, `-r8-value-inside-the-interval`, `-r9-blend-model-changes`, `-r10-model-evaluation`, `-r11-grok-map` between) |
 | `wipemark-recon-plan-filed-2026-10-08` | TEXT | what was filed on 2026-10-08, what the code changed in the spec, and the order of the series |
+| `wipemark-recon-r1-report-2026-10-09` | FILE | E12-R1's report, the container part: `scripts/regress.py` (`fetch`/`pin`/`baseline`/`run`/`diff`/`selftest`), `golden/manifest.json` and its schema, gates by route; the baseline over the real corpus is the host's. Branch `recon/r1` |
+| `wipemark-recon-r3-report-2026-10-09` | FILE | E12-R3's report: the planes of a JPEG — `wipemark_pixels::Planes`, `decode_with_planes` (not `decode`: ×1.40), fixtures `fixtures/image/jpeg-planes/`; builds only with the fork's local path until `GigLaboCom/zune-image` exists (Q-R9). Branch `recon/r3` |
+| `wipemark-recon-r3-zune-jpeg-patch-2026-10-09` | FILE | the fork's patch over zune-jpeg 0.5.15 (`decode_planes`), the same file as `docs/plan/reports/E12-R3-zune-jpeg-planes.patch` — what the owner pushes to `wipemark/planes` once the fork is created |
+| `wipemark-recon-r1-r3-landed-2026-10-09` | TEXT | R1 and R3 landed in the container: the branches, the common gate run over both (`recon/r1-r3`, 1482/0/6, the one failure it found and fixed), what the owner and the host do next |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
@@ -1716,7 +1720,7 @@ E3 models → E4 pipeline → E5 CLI → E6 GPUI shell → E7 workspace UI →
 E8 models/engine UI → E9 licensing → E10 packaging; E11 images is
 phase 2 and E12 visible marks phase 2b — E11-1…E11-3 and E12-1…E12-5
 are done (the images series merged 2026-10-05); E12-6 (other vendors)
-and E12-7 (the reconstructor) are not started; the E12-R series (the restoration measured against ground truth and made more precise, Grok as E12-6) is filed — `docs/plan/E12-R-recon.md`, not started. **E7's windows clean is
+and E12-7 (the reconstructor) are not started; the E12-R series (the restoration measured against ground truth and made more precise, Grok as E12-6) is filed — `docs/plan/E12-R-recon.md`; R1 and R3 are done in the container on `recon/r1` and `recon/r3` (2026-10-09, not merged; R3 waits for the fork, Q-R9), the rest not started. **E7's windows clean is
 done** (E7-1…E7-6, merged 2026-10-05 as `7621c9f`; follow-ups W1–W15
 merged as `2f7ce56`; follow-ups X1–X14 merged as `78fd9e2`; follow-ups
 Y1–Y9 merged as `bb73dc3`; follow-ups Z1–Z3 filed), and with it the half of E12-8 that cleans a picture from the
