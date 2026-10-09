@@ -332,6 +332,10 @@ fn opaque_pixels_are_holes_never_divided() {
     assert_eq!(r.holes, holes);
     assert!(!r.exact);
     assert!(report.marks_left());
+    // A hole is never divided, so never measured: its three samples are
+    // counted apart (D305), and what was restored around it is consistent.
+    assert_eq!(r.consistency_excluded, r.clamped + 3 * holes, "{r:?}");
+    assert!(r.consistency_px <= 1.0, "{r:?}");
     // Every hole is the stamped value still; every other pixel is back.
     for y in 0..48 {
         for x in 0..48 {
@@ -672,30 +676,35 @@ fn clamped_samples_are_left_out_and_counted() {
 /// The measure sees a departure from the data (D305): a restoration moved
 /// two levels up inside the mark after the inverse — through the hidden
 /// hook, the very restoration otherwise — blends back two levels, less
-/// what the opacity takes, above the input it came from.
+/// what the opacity takes, above the input it came from. Two 8-bit levels
+/// on a 16-bit raster too, where they are 514 stored ones.
 #[test]
 fn a_restoration_off_by_one_level_is_seen() {
     let catalogue = synthetic_catalogue();
     let v1 = synthetic_v1();
     let at = small_row(W, H, 48);
-    for (kind, seed) in [
-        (Kind::Gradient, 3u64),
-        (Kind::Fractal, 4),
-        (Kind::ValueNoise, 5),
+    for (kind, seed, layout) in [
+        (Kind::Gradient, 3u64, Layout::Rgb8),
+        (Kind::Fractal, 4, Layout::Rgb8),
+        (Kind::ValueNoise, 5, Layout::Rgb8),
+        (Kind::Fractal, 4, Layout::Rgb16),
     ] {
-        let mut raster = picture(kind, W, H, seed, Layout::Rgb8);
+        let mut raster = picture(kind, W, H, seed, layout);
         composite(&mut raster, &v1.small, at, [255.0; 3]);
         let exam = examine(&raster, &catalogue, &lossless());
         let verified = exam
             .findings
             .iter()
             .find_map(|f| f.verified())
-            .unwrap_or_else(|| panic!("{kind:?}: {:#?}", exam.findings));
+            .unwrap_or_else(|| panic!("{kind:?} {layout:?}: {:#?}", exam.findings));
         let mut exact = raster.clone();
         let r0 = restore(&mut exact, verified, &lossless()).unwrap();
-        assert!(r0.consistency_px <= 1.0, "{kind:?}: {r0:?}");
+        assert!(r0.consistency_px <= 1.0, "{kind:?} {layout:?}: {r0:?}");
         let r2 = restore_off_by(&mut raster, verified, &lossless(), 2.0).unwrap();
-        assert_eq!(r2.clamped, r0.clamped, "{kind:?}");
-        assert!(r2.consistency_px >= 1.5, "{kind:?}: {r2:?}");
+        assert_eq!(r2.clamped, r0.clamped, "{kind:?} {layout:?}");
+        assert!(
+            (1.5..=2.5).contains(&r2.consistency_px),
+            "{kind:?} {layout:?}: {r2:?}"
+        );
     }
 }
