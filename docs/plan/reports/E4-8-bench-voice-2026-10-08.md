@@ -186,7 +186,26 @@ link in this container (glibc 2.36).
 
 ## CI
 
-CI_SECTION
+On `e24c55e` (the code, the gates script and this report before this
+section), both workflows green:
+
+- **gate** — https://github.com/GigLaboCom/wipemark-app/actions/runs/37914718825 — **success**
+  - `gate (fmt, clippy, test, deps, features)`: success — the workspace
+    tests **1 787 passed, 0 failed, 7 ignored** (the container's count);
+    the two new steps, *clippy the bench (local-llama, examples)* and *test
+    the bench (local-llama, examples)* (**20 passed**), both success
+  - `native (llama.cpp prebuilt + Vulkan, model-free)`: success
+  - `macos (clippy, tests, llama-native prebuilt with Metal)`: success —
+    the workspace tests there run `tests/bench_run_voice.rs` with the
+    runner's `bash`
+- **llama-source** (started by `feat`'s llama changes the merge brought) —
+  https://github.com/GigLaboCom/wipemark-app/actions/runs/37914718810 —
+  **success**: `linux (llama.cpp from source + Vulkan; bindings against the
+  archive's)` success, `windows (prebuilt, then from source with MSVC)`
+  success.
+
+The commit that adds this section changes only this file; it runs its own
+`gate`.
 
 ## The run on the host
 
