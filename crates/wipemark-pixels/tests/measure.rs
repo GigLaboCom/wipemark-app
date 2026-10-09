@@ -150,3 +150,92 @@ fn timings_on_a_large_picture() {
         report.restored.len()
     );
 }
+
+/// What becomes of a shipped mark drawn weaker than its profile — `k` of
+/// 0.90, 0.93 and 0.95 through the bench's composite (D312) — on every
+/// procedural kind, three seeds, 1024 × 1024 at V1's small row and V2's
+/// 1024 row, under the shipped catalogue: refused by its row's gain,
+/// proved at the row, or proved by the search after the row refused it
+/// (E12-R5's report, "D154 through the search"). One line per case, then
+/// the counts.
+#[test]
+#[ignore = "measurements: run with --release --ignored --nocapture and record"]
+fn a_weaker_mark_through_the_rows_and_the_search() {
+    use wipemark_pixels::synth::{composite_with, Blend};
+    use wipemark_pixels::{drawn, Catalogue, Kernel, Placed, SubRect, Verdict};
+    let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
+    let side = 1024u32;
+    for (profile, map_id, margin) in [
+        ("gemini-sparkle-v1", "gemini-v1-48", 32u32),
+        ("gemini-sparkle-v2", "gemini-v2-36", 71),
+    ] {
+        let p = catalogue.profile(profile).unwrap();
+        let (_, map) = p.maps.iter().find(|(id, _)| id == map_id).unwrap();
+        let rect = SubRect {
+            x: (side - margin - map.width()) as f32,
+            y: (side - margin - map.height()) as f32,
+            size: map.width() as f32,
+        };
+        for k in [0.90f32, 0.93, 0.95] {
+            // refused, proved at the row, proved by the search, nothing
+            // seen; of the restored: an outline or a texture said, and the
+            // largest difference from the picture under the mark.
+            let (mut refused, mut row, mut search, mut unseen) = (0, 0, 0, 0);
+            let (mut said, mut worst) = (0, 0u16);
+            for kind in KINDS {
+                for seed in [61u64, 62, 63] {
+                    let original = picture(kind, side, side, seed, Layout::Rgb8);
+                    let mut raster = original.clone();
+                    let blend = Blend {
+                        k,
+                        ..Blend::encoded(p.logo)
+                    };
+                    composite_with(&mut raster, &drawn(map), rect, Kernel::Area, &blend);
+                    let report = clean(&mut raster, catalogue, &ExamineOptions::default());
+                    let Some(f) = report.found.iter().find(|f| f.profile == profile) else {
+                        unseen += 1;
+                        println!("{map_id} k {k} {kind:?}/{seed}: not seen");
+                        continue;
+                    };
+                    let gain = f.scores.map_or(f32::NAN, |s| s.gain);
+                    let what = match (&f.verdict, f.placed) {
+                        (Verdict::Refused(r), _) => {
+                            refused += 1;
+                            format!("refused {r:?}")
+                        }
+                        (Verdict::Verified(_), Placed::Row(_)) => {
+                            row += 1;
+                            String::from("proved at the row")
+                        }
+                        (Verdict::Verified(_), Placed::Searched) => {
+                            search += 1;
+                            format!(
+                                "proved by the search at ({}, {}, {})",
+                                f.rect.x, f.rect.y, f.rect.size
+                            )
+                        }
+                    };
+                    let restored = report.restored.iter().find(|r| r.profile == profile);
+                    if let Some(r) = restored {
+                        said += usize::from(r.outline_left || r.texture_left);
+                        worst = worst.max(max_error(&raster, &original));
+                    }
+                    println!(
+                        "{map_id} k {k} {kind:?}/{seed}: {what}, gain {gain}{}",
+                        restored.map_or(String::new(), |r| format!(
+                            ", outline {:.3} said {}, off the picture by up to {} levels",
+                            r.outline,
+                            r.outline_left || r.texture_left,
+                            max_error(&raster, &original)
+                        ))
+                    );
+                }
+            }
+            println!(
+                "== {map_id} k {k}: refused {refused}, proved at the row {row}, \
+                 proved by the search {search}, not seen {unseen}; \
+                 of the restored, said {said}, off the picture by up to {worst} levels"
+            );
+        }
+    }
+}

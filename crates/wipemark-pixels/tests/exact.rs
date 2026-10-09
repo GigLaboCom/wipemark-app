@@ -5,9 +5,11 @@
 mod support;
 
 use support::*;
+use wipemark_pixels::synth::{composite_with, Blend};
 use wipemark_pixels::{
-    clean, composite, examine, resampled, restore, AlphaMap, ExamineOptions, Fidelity, Layout,
-    PixelRect, Placed, Refusal, RestoreError, Verdict, OUTLINE_BOUND, STEP_LEVELS,
+    clean, composite, drawn, examine, resampled, restore, AlphaMap, Catalogue, ExamineOptions,
+    Fidelity, Kernel, Layout, PixelRect, Placed, Raster, Refusal, RestoreError, SubRect, Verdict,
+    OUTLINE_BOUND, STEP_LEVELS,
 };
 
 const W: u32 = 320;
@@ -476,4 +478,124 @@ fn a_lopsided_outline_is_said_by_its_share() {
     assert!(r.step.abs() < STEP_LEVELS, "{r:?}");
     assert!(r.outline > OUTLINE_BOUND, "{r:?}");
     assert!(r.outline_left && report.marks_left(), "{r:?}");
+}
+
+/// The bench's composite (D312) at its defaults — the blend in code
+/// values, one logo colour, `k = 1`, no bias, rounding half away from zero,
+/// a whole-pixel rectangle at the map's own size, the area kernel — is
+/// `composite`, sample for sample: every shipped map, a random raster in
+/// three layouts, a place inside it and one hanging off its edge.
+#[test]
+fn composite_with_at_its_defaults_is_composite() {
+    let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
+    let mut rng = Rng::new(312);
+    for layout in [Layout::Rgb8, Layout::Rgba8, Layout::Rgb16] {
+        let (w, h) = (200u32, 150u32);
+        let samples = (0..w * h * layout.channels() as u32)
+            .map(|_| rng.below(u32::from(layout.max()) + 1) as u16)
+            .collect();
+        let background = Raster::new(w, h, layout, samples).unwrap();
+        for profile in catalogue.profiles() {
+            for (id, map) in &profile.maps {
+                for (x, y) in [(7u32, 11u32), (w - map.width() / 2, h - map.height() / 3)] {
+                    let mut old = background.clone();
+                    let at = PixelRect {
+                        x,
+                        y,
+                        width: map.width(),
+                        height: map.height(),
+                    };
+                    composite(&mut old, map, at, profile.logo);
+                    let mut new = background.clone();
+                    let rect = SubRect {
+                        x: x as f32,
+                        y: y as f32,
+                        size: map.width() as f32,
+                    };
+                    composite_with(
+                        &mut new,
+                        map,
+                        rect,
+                        Kernel::Area,
+                        &Blend::encoded(profile.logo),
+                    );
+                    assert!(old != background, "{id} {layout:?}: nothing was drawn");
+                    assert!(old == new, "{id} at ({x}, {y}) {layout:?}");
+                }
+            }
+        }
+    }
+}
+
+/// The bench's self-test is real: a shipped map that is not fitted, drawn
+/// as the vendor draws it (`drawn`, D241) with the bench's composite at a
+/// row's own place and size over a lossless picture, is proved by that row
+/// and restored by the template alone — no capture noise to take back off
+/// (D246) — to within a level of the picture under it, and `exact` says so
+/// wherever nothing clamped. Nothing outside the mark moves.
+#[test]
+fn a_canonical_composite_comes_back_exact() {
+    let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
+    // (profile, map, picture size, margin): V1's small row, V2's 1024 row
+    // and V2's large row — the canonical rows of the shipped catalogue.
+    let rows = [
+        ("gemini-sparkle-v1", "gemini-v1-48", 1024u32, 32u32),
+        ("gemini-sparkle-v2", "gemini-v2-36", 1024, 71),
+        ("gemini-sparkle-v2", "gemini-v2-96", 2048, 192),
+    ];
+    let mut exact = 0;
+    for (profile, map_id, side, margin) in rows {
+        let p = catalogue.profile(profile).unwrap();
+        let (_, map) = p.maps.iter().find(|(id, _)| id == map_id).unwrap();
+        let at = PixelRect {
+            x: side - margin - map.width(),
+            y: side - margin - map.height(),
+            width: map.width(),
+            height: map.height(),
+        };
+        let rect = SubRect {
+            x: at.x as f32,
+            y: at.y as f32,
+            size: map.width() as f32,
+        };
+        let kinds: &[Kind] = if side > 1024 {
+            &[Kind::Gradient, Kind::Fractal]
+        } else {
+            &[Kind::Gradient, Kind::ValueNoise, Kind::Fractal, Kind::Flat]
+        };
+        for &kind in kinds {
+            let name = format!("{map_id} over {kind:?}");
+            let original = picture(kind, side, side, 5, Layout::Rgb8);
+            let mut marked = original.clone();
+            composite_with(
+                &mut marked,
+                &drawn(map),
+                rect,
+                Kernel::Area,
+                &Blend::encoded(p.logo),
+            );
+            let report = clean(&mut marked, catalogue, &lossless());
+            assert_eq!(report.restored.len(), 1, "{name}: {:#?}", report.found);
+            let r = &report.restored[0];
+            assert_eq!(r.profile, profile, "{name}");
+            assert_eq!(r.rect, at, "{name}");
+            assert!(!r.noise, "{name}: the capture's noise was found drawn");
+            assert_eq!(r.exact, r.clamped == 0, "{name}: {r:?}");
+            exact += usize::from(r.exact);
+            assert!(!report.marks_left(), "{name}: {r:?}");
+            assert!(max_error(&marked, &original) <= 1, "{name}");
+            for (i, (m, o)) in marked
+                .samples()
+                .chunks_exact(3)
+                .zip(original.samples().chunks_exact(3))
+                .enumerate()
+            {
+                let (x, y) = (i as u32 % side, i as u32 / side);
+                let inside = x >= at.x && y >= at.y && x < at.x + at.width && y < at.y + at.height;
+                assert!(inside || m == o, "{name}: ({x}, {y}) moved");
+            }
+        }
+    }
+    // Not vacuous: most of them are exact.
+    assert!(exact >= 8, "{exact} exact");
 }

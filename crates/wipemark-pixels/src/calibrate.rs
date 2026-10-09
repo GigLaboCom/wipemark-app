@@ -145,7 +145,8 @@ pub enum CalibrationError {
 }
 
 /// sRGB decoding of an 8-bit-scaled value, to linear light in [0, 1].
-pub(crate) fn to_linear(v: f64) -> f64 {
+/// Public for [`crate::synth`]'s re-export only (D312).
+pub fn to_linear(v: f64) -> f64 {
     let c = (v / 255.0).clamp(0.0, 1.0);
     if c <= 0.040_45 {
         c / 12.92
@@ -154,8 +155,9 @@ pub(crate) fn to_linear(v: f64) -> f64 {
     }
 }
 
-/// sRGB encoding of linear light, to 8-bit-scaled units.
-pub(crate) fn from_linear(l: f64) -> f64 {
+/// sRGB encoding of linear light, to 8-bit-scaled units. Public for
+/// [`crate::synth`]'s re-export only (D312).
+pub fn from_linear(l: f64) -> f64 {
     let l = l.clamp(0.0, 1.0);
     let c = if l <= 0.003_130_8 {
         l * 12.92

@@ -34,6 +34,10 @@ mod planes;
 mod propose;
 mod raster;
 mod restore;
+/// Synthetic composition for the restoration bench and the tests (D312):
+/// never a feature, and nothing the catalogue can name.
+#[doc(hidden)]
+pub mod synth;
 mod verify;
 
 pub use alpha::{AlphaMap, WmaError, MAGIC};
