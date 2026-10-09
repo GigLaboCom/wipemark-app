@@ -89,9 +89,11 @@ git submodule update --init --recursive
 ```
 
 The submodule is upstream **`longbridge/gpui-kit`**, branch **`next`**,
-at `f8429177` — the commit that merged our line decorations as
-gpui-kit#3359 (2026-10-07; `docs/sdd/line-decorations.md` §4.1). Nothing
-of ours is carried on it. GPUI is the **`gpui-pre`** snapshots on
+at `d9b7c421` — our three pull requests merged there: the line
+decorations, gpui-kit#3359 (2026-10-07; `docs/sdd/line-decorations.md`
+§4.1), a scroll bar on the left, #3416, and mirrored gutters for a
+side-by-side diff, #3417 (both 2026-10-09; E7-10, D460). Nothing of ours
+is carried on it. GPUI is the **`gpui-pre`** snapshots on
 crates.io at exactly the component's version (`=0.3.8`, zed `279fe07`),
 so the graph holds one GPUI by construction; `scripts/check-gpui-pin.sh`
 is the check, and CI runs it. Until 2026-10-07 both came from forks
@@ -311,7 +313,7 @@ it sits.
 | `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`, `src/pin.rs`) | real under `native` — the prebuilt release by default, cmake with `WIPEMARK_LLAMA_SOURCE=1`; an empty shim without it |
 | `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends; the chat-format verdict, `chat_support` — this crate's families, then a port of llama.cpp's detection at the pin, then a refusal by name (D407) | real under `native`; refuses every load without it |
 | `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) and the one rule a stored template is held to — `row::admit`, which the Prompts page, `lay_over` and `lay_over_within` all ask (D330), with no invisible character in any template (`invisible-character`, D369); `prompt::trial`, a template checked on a built-in sample or adapted by the model (D332, D335) | preparation, prompts and the loop real (E4-1…E4-3), the resumable job the queue drives (E4-4), the prompt bench (`examples/bench`, `bench/`, E4-5 — `docs/architecture/prompt-bench.md`, with `--variant`, the sampling flags and a `whole` mode since the divergence research) and its recommendations built (E4-7); its voice measures (second and first person, the ты↔вы / du↔Sie switch, words ×, a register proxy), the judge's voice question, `bench plan`, keep-voice in en/ru/de and the four-model run `bench/run-voice.sh` (E4-8, D420–D429) — the run is the owner's, and keep-voice is not shipped; the windows rewrite through it (E4-6b) and edit its templates (E4-6c) |
-| `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; a catalogue file found anywhere under the folder by name, size and sha256 (D302); what a verify learned as a record under `<data dir>/records`, never beside the weights (D303); a download's **mark** naming the file by its identity, and a `.part` that is ours only when a download opened it (D350, D351); hash progress (`watch_hashes`, D306); the GGUF header, read without a tensor (`gguf`); models the person adds as rows, their ids, estimate and checks (`user`, D400–D402); `fit_mb`; the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
+| `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; a catalogue file found anywhere under the folder by name, size and sha256 (D302); what a verify learned as a record under `<data dir>/records`, never beside the weights (D303); a download's **mark** naming the file by its identity, and a `.part` that is ours only when a download opened it (D350, D351); hash progress (`watch_hashes`, D306); the GGUF header, read without a tensor (`gguf`); models the person adds as rows, their ids, estimate and checks (`user`, D400–D402); `store::open_regular`, the one open of a model file — only a regular one, never waiting on a pipe (D455); `fit_mb`; the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
 | `wipemark-store` | the SQLite file, the `settings` table, the queue's tables and, since schema 3, the document **journal** (`journal`, its vocabulary in `entry` — `Origin`, `Action`, `Phase`, `Entry` — because two applications write it, D312) and `JournalWriter`, the CLI's read-write handle that never creates or migrates (D314); `RowsWriter`, the CLI's write of one namespace of settings rows (`models.user.`), never created or migrated (D404); `Journal::mark_edited`, which says in a row's entry that its result was saved edited, and when — `outcome.edited`, that one field patched and the rest of the entry kept, never what (D417) | real |
 | `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination — an in-place delivery a crash cut short after the set-aside finished, not failed (D286); `EngineSource`, asked for an engine as each item starts (D310), a hold rather than a failure while there is none (D311), `reserve`/`push_reserved` so a row names its item before it can end (D358), the consent asked again at start (`whereto`, `QueueEvent::Ask`, `agree`, D361), `paused` and `states` from memory (D359); `save_text`, an edited result saved into a done item's stored text — a rewritten paste's one home — held to the text's digest (D410, D413) | real; the application runs it — the windows' Rewrite, an agent's `rewrite`, the CLI's rewrite through the application (E4-6b); the windows' clean has a line of its own |
 | `wipemark-secret` | the OS credential store, and `Secret` | real |
@@ -977,7 +979,12 @@ Anything that needed more than a rule to explain is in `docs/`;
 
 * **The Compare window is three things kept apart, and the toolbar
   inherits.** `apps/wipemark-app/src/compare.rs` is the window — the
-  original on the left, read-only, the result on the right, every line
+  original on the left, read-only, the result on the right — their
+  gutters facing the middle by default, the original's line numbers and
+  markers on its right and its scroll bar on its outer left edge, the
+  numbers of the two sides face to face at the divider (E7-10, D461,
+  D463), and `compare.gutters` (`middle` | `left`) the one Compare row an
+  open window follows at once (D462) — every line
   that differs marked on both sides through the `LineDecorationProvider`
   patch our vendored gpui-component carries from heretic-amuse-merge.
   `diff.rs` is the arithmetic, a pure LCS over `split_inclusive('\n')`
@@ -1472,9 +1479,10 @@ Anything that needed more than a rule to explain is in `docs/`;
   catalogue's files, wherever they were found, are subtracted and the rest
   is listed under "Also in this folder" with each GGUF's header read
   (`wipemark_models::gguf`, never a tensor): a chat model offers **Add as
-  a model…**, anything else — a projector, an adapter, an encoder,
-  embedding, speech or audio model (by its name, type or tags), a
-  diffusion model or a draft head, a model with no chat template — says in
+  a model…**, anything else — a projector, an adapter, an encoder or
+  embedding model, a speech or audio model (by its name or type, or by
+  tags that say it speaks, or that it hears with none saying it writes
+  text — D450), a diffusion model or a draft head, a model with no chat template — says in
   one line why it is not offered (D408, D437); a model whose chat format
   this build does not write is listed greyed and is never on duty (D438); a model the person added is not
   listed there. Nothing in the list is verified or loaded until it is
@@ -1808,7 +1816,9 @@ Anything that needed more than a rule to explain is in `docs/`;
   stored before the rule is refused by name by the job rather than sent
   (`an_invisible_character_is_an_error`). A placeholder ends a token for
   `IdentifierGuard`, as a space does, so `⟦1⟧host/path⟦2⟧` is the
-  identifier `host/path` (D300). See `docs/architecture/prompts.md`.
+  identifier `host/path` (D300); a hyphenated word of letters alone is
+  held by its identifier parts, so `macOS-only` holds `macOS` (D451, built
+  at a default the owner may override). See `docs/architecture/prompts.md`.
 * **A template is changed on the Rewriting page, by the one rule.**
   `apps/wipemark-app/src/prompts.rs` (`Section::Prompts`,
   `--settings=prompts`). `row::admit` decides whether an override may be
@@ -2051,7 +2061,9 @@ What exists so far:
 | `wipemark-task-compare-followups-2026-10-09` | FILE | a task for an agent: E7-9's open follow-ups (the quit flush, a stale window's Save, the edit mark's entry, the check just before the rename, one question at a time, closing with nowhere to save), *Cleaned, then edited* (D419, at a default), the Send-away test, Report…'s reason on a journal row, the tray README; D440–D449, on `fix/compare-followups` |
 | `wipemark-task-compare-followups-c16-2026-10-09` | FILE | the addendum C16 to the Compare task: whether the follower lags a frame while a scroll bar is dragged (the scroll bar notifies the view it is painted in, gpui-kit #3417's finding), measured in the same frame and fixed by a look in `render` if it does; D449 |
 | `wipemark-task-compare-mirrored-2026-10-09` | FILE | a task for an agent: E7-10, Compare's gutters face the middle — the submodule onto gpui-kit `next` `d9b7c421` (#3416 + #3417), the original's gutter on its right and its scroll bar on its left, both columns ordered with the numbers at the divider, a Compare row `compare.gutters` (middle / both on the left); D460–D469, on `e7/compare-mirrored` |
+| `wipemark-compare-mirrored-report-2026-10-09` | FILE | its report: M1–M6, D460–D467, five red checks, gates 1794/0/7, CI green; merged into `feat` 2026-10-09; the host's window checklist (screenshots, both layouts, the row flipped live) in it |
 | `wipemark-task-models-pipeline-followups-2026-10-09` | FILE | a task for an agent: the speech tags read in three kinds (E8's Medium, at a default), `macOS-only` no identifier (at a default), E8-1's last Lows, a non-blocking open of a model file, Gemma 4's re-upload looked at, the plan's stale rows; D450–D459, on `fix/models-pipeline-followups` |
+| `wipemark-models-pipeline-followups-report-2026-10-09` | FILE | the report of `wipemark-task-models-pipeline-followups-2026-10-09`: M1–M11, D450–D455, 14 of 14 red, gates 1795/0/7, CI green; Gemma 4 stays at `f18012b8` (HEAD only re-templates tool calls); merged into `feat` 2026-10-09 |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 | `wipemark-status-2026-10-05` | FILE | where the project stood at the end of 2026-10-05: images rounds 3–5, E7 merged, the X11 first frame fixed through `GigLaboCom/zed`, and the plan of pull requests and branches (`docs/plan/README.md` §2.1) — PR #1 and what comes next, in order |
 | `wipemark-status-2026-10-06` | TEXT | where the project stood at the end of 2026-10-06: E7 follow-ups X1–X14 and Y1–Y9 merged, Z1–Z3 filed, mutation tables dropped for `coverage.yml` (on `main` and by hand), what is next |
@@ -2102,11 +2114,7 @@ merged as `c333d0b` on 2026-10-08, with the host verification's two
 fixes (`cf7cadd`); its Lows and one owner question are open
 (`docs/plan/README.md` §7 E7). What remains: of E7, the source editor
 with its badges (S7.2), the streamed result
-(S7.3) and the Inspector (S7.5); Compare's left scrollbar and the
-original's gutter on its right, which wait on the owner's gpui-kit pull
-requests #3416 and #3417, both merged into `next` on 2026-10-09 (`63068d0`,
-`d9b7c421`) — the bump and the layout are E7-10
-(`wipemark-task-compare-mirrored-2026-10-09`); of E4, the keep-voice rule after a
+(S7.3) and the Inspector (S7.5); of E4, the keep-voice rule after a
 four-model bench and a voice measure in the bench; the rest of E8 (E8-1,
 models the person adds, is done, and so are its verification's M3 and
 Lows); E9;
@@ -2119,7 +2127,12 @@ fact for consent, Compare's leftover asks, the added models' Lows and M3
 Medium (tags that say speech refuse a text model) and Lows are in
 `docs/plan/README.md` §7 E8. **E4-8, the bench sees the
 author's voice** (D420–D429), is merged (2026-10-09); its four-model run is
-the owner's (`bench/run-voice.sh`), and keep-voice ships only after it. In
+the owner's (`bench/run-voice.sh`), and keep-voice ships only after it. **Compare's gutters face the middle** (E7-10,
+D460–D467, merged 2026-10-09): the submodule on gpui-kit `next`
+`d9b7c421`, where the owner's #3416 and #3417 are merged. **The
+models-and-pipeline follow-ups** are merged too (D450–D455, 2026-10-09):
+speech tags read in three kinds and `macOS-only` no identifier, both at a
+default the owner may override, and E8-1's last Lows. In
 progress: the E12-R series (`plan/recon-2026-10-08`, the restoration
 measured, then made more precise) — R1, R3, R4, R5 done in the container
 on `recon/r1-r5`, R3 being moved onto upstream zune-jpeg's raw output on
