@@ -968,11 +968,17 @@ ops@example.com.";
     #[test]
     fn a_hyphenated_word_holds_only_its_identifier_parts() {
         for (source, candidate) in [
-            ("Builds macOS-only binaries.", "Builds binaries only on macOS."),
+            (
+                "Builds macOS-only binaries.",
+                "Builds binaries only on macOS.",
+            ),
             ("An iPhone-like screen.", "A screen like an iPhone."),
             ("A well-known rule.", "A rule known well."),
             // U+2010 HYPHEN joins as U+002D does.
-            ("Builds macOS\u{2010}only binaries.", "Builds binaries only on macOS."),
+            (
+                "Builds macOS\u{2010}only binaries.",
+                "Builds binaries only on macOS.",
+            ),
         ] {
             assert_eq!(
                 IdentifierGuard.check(source, candidate),

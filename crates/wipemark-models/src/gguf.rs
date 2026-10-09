@@ -427,7 +427,11 @@ impl Header {
         if self.name.as_deref().is_some_and(says) || self.kind.as_deref().is_some_and(says) {
             return true;
         }
-        let tags: Vec<String> = self.tags.iter().map(|tag| tag.to_ascii_lowercase()).collect();
+        let tags: Vec<String> = self
+            .tags
+            .iter()
+            .map(|tag| tag.to_ascii_lowercase())
+            .collect();
         let speaks = |tag: &str| {
             tag.ends_with("-to-speech")
                 || tag.ends_with("-to-audio")
@@ -1594,14 +1598,20 @@ mod tests {
             ],
             GEMMA,
         );
-        assert_eq!(gemma_3n_like.offer("gemma-3n-E4B-it-Q4_K_M.gguf"), Offer::Rewrite);
+        assert_eq!(
+            gemma_3n_like.offer("gemma-3n-E4B-it-Q4_K_M.gguf"),
+            Offer::Rewrite
+        );
         let omni_like = tagged(
             "qwen2vl",
             "Qwen2.5 Omni 7B",
             &["multimodal", "audio-text-to-text", "any-to-any"],
             CHATML,
         );
-        assert_eq!(omni_like.offer("Qwen2.5-Omni-7B-Q4_K_M.gguf"), Offer::Rewrite);
+        assert_eq!(
+            omni_like.offer("Qwen2.5-Omni-7B-Q4_K_M.gguf"),
+            Offer::Rewrite
+        );
         // Case aside, a tag is still the tag it is.
         let shouted = tagged(
             "qwen3",
@@ -1628,7 +1638,11 @@ mod tests {
         assert_eq!(speaks.offer("m.gguf"), Offer::Not(NotOffered::Speech));
         for tag in ["text-to-audio", "audio-to-audio", "tts"] {
             let speaks = tagged("qwen3", "Q", &[tag, "any-to-any"], CHATML);
-            assert_eq!(speaks.offer("m.gguf"), Offer::Not(NotOffered::Speech), "{tag}");
+            assert_eq!(
+                speaks.offer("m.gguf"),
+                Offer::Not(NotOffered::Speech),
+                "{tag}"
+            );
         }
         // The name wins over a tag that writes.
         let named = tagged("qwen3vl", "Qwen3-ASR-1.7B", &["text-generation"], CHATML);

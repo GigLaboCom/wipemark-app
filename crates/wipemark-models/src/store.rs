@@ -1577,7 +1577,9 @@ fn not_regular() -> std::io::Error {
 /// Whether `error` is [`open_regular`]'s refusal of a path that is not a
 /// regular file, rather than the operating system's.
 pub(crate) fn is_not_regular(error: &std::io::Error) -> bool {
-    error.get_ref().is_some_and(|inner| inner.is::<NotRegular>())
+    error
+        .get_ref()
+        .is_some_and(|inner| inner.is::<NotRegular>())
 }
 
 /// What a mark of `kind` holds of the file `meta` describes: `None` for a
@@ -3204,7 +3206,11 @@ mod tests {
         let fifo = pipe(dir.path(), "model.gguf");
         let path = fifo.clone();
         let hashed = bounded(&fifo, move || {
-            super::hash_file(&path, &std::sync::atomic::AtomicBool::new(false), &mut |_, _| {})
+            super::hash_file(
+                &path,
+                &std::sync::atomic::AtomicBool::new(false),
+                &mut |_, _| {},
+            )
         })
         .expect("a hash of a pipe never answered");
         match hashed {

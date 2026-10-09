@@ -11077,9 +11077,7 @@ mod tests {
     /// the file through `..` or a link is a stranger until a scan lands: red;
     /// drop the chat's and the verdict is unknown until then: red.
     #[gpui::test]
-    fn a_file_just_added_is_known_by_another_road_before_the_rescan(
-        cx: &mut gpui::TestAppContext,
-    ) {
+    fn a_file_just_added_is_known_by_another_road_before_the_rescan(cx: &mut gpui::TestAppContext) {
         let root = scratch_root("added-at-once");
         let file = root.join("theirs").join("a.gguf");
         std::fs::write(
