@@ -42,7 +42,8 @@
 //! machine); a `photo` tile is cut from one of the owner's photographs.
 //!
 //! **Configs.** `R0` is the product today. A later step adds its switch as
-//! a config of this example (S12), never as a catalogue row.
+//! a config of this example (S12), never as a catalogue row: `R6` is the
+//! planar inverse of a subsampled JPEG (E12-R6, D306).
 
 use std::collections::BTreeMap;
 use std::io::{BufWriter, Write as _};
@@ -1456,12 +1457,33 @@ fn r0(
     wipemark_pixels::clean(raster, catalogue, options)
 }
 
-const CONFIGS: &[Config] = &[Config {
-    name: "R0",
-    inverse: BlendModel::Encoded,
-    about: "the product today: wipemark_pixels::clean, the shipped catalogue, encode_like, reframe, prove",
-    restore: r0,
-}];
+/// E12-R6 (D306): a lossy JPEG subsampled 4:2:0 or 4:2:2 is proved and
+/// restored in its planes — luma at full resolution, chroma at its own
+/// with the block's mean opacity — by `wipemark_pixels::clean_with`; every
+/// other file is R0's to the byte (`clean_with`'s route).
+fn r6(
+    raster: &mut Raster,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+    planes: Option<&Planes>,
+) -> PixelReport {
+    wipemark_pixels::clean_with(raster, planes, catalogue, options)
+}
+
+const CONFIGS: &[Config] = &[
+    Config {
+        name: "R0",
+        inverse: BlendModel::Encoded,
+        about: "the product today: wipemark_pixels::clean, the shipped catalogue, encode_like, reframe, prove",
+        restore: r0,
+    },
+    Config {
+        name: "R6",
+        inverse: BlendModel::Encoded,
+        about: "E12-R6, D306: a 4:2:0/4:2:2 JPEG proved and restored in its planes (clean_with); everything else R0",
+        restore: r6,
+    },
+];
 
 // ───────────────────────────────────────────────────────────── slices
 
@@ -2051,6 +2073,9 @@ fn one(
             "holes": r.holes, "clamped": r.clamped, "changed": r.changed,
             "exact": r.exact, "lossy": r.lossy, "fitted": r.fitted,
             "resampled": r.resampled, "searched": r.searched, "noise": r.noise,
+            // E12-R6 (D306): the planar restoration's block shape and
+            // `max |α − ᾱ|`; null on the RGB path.
+            "planar": r.planar,
             // R7 (D305) adds it to `Restored`; until then there is none.
             "consistency_px": Value::Null,
         })

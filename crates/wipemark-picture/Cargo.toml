@@ -29,6 +29,15 @@ zune-jpeg = "0.5"
 # encoder, pure Rust, its `jpeg` feature alone.
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
+[features]
+# The planar inverse (E12-R6, D306) on the product's own road: `clean` and
+# `inspect` decode a JPEG with its planes and restore a 4:2:0 or 4:2:2 mark
+# in them. Off by default until D306 is taken (S12); a release CLI built
+# with `--features wipemark-picture/planar-preview` is what the regression's
+# host run (R1, `--route lossy`) measures. The coordinator removes the
+# feature once the decision lands.
+planar-preview = []
+
 [dev-dependencies]
 # The pixels suite's generators are borrowed by `#[path]`, and they pin
 # their synthetic maps by sha256.

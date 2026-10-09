@@ -364,6 +364,10 @@ fn a_real_mark_saved_as_jpeg_leaves_a_texture_that_is_said() {
 /// on every one. `thinking` is the lowest of the 21 at 95, 7.40 levels:
 /// the colour bound is held from above by it.
 #[test]
+#[cfg_attr(
+    feature = "planar-preview",
+    ignore = "D247/D252 on the RGB path; with planar-preview `clean` takes the planes (E12-R6, tests/planar.rs) — rewritten when D306 is taken"
+)]
 fn a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said() {
     for name in [
         "torch-1025-q95-420.jpg",
@@ -400,6 +404,10 @@ fn a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said() {
 /// at 4:2:0 by the grid alone, so a bound between would only move which
 /// pictures fall on which side. Never restored with nothing said.
 #[test]
+#[cfg_attr(
+    feature = "planar-preview",
+    ignore = "D247/D252 on the RGB path; with planar-preview `clean` takes the planes (E12-R6, tests/planar.rs) — rewritten when D306 is taken"
+)]
 fn a_subsampled_jpeg_is_refused_or_said_by_where_its_blocks_fall() {
     for (name, at, refused) in [
         ("victory-1040-q95-420.jpg", 880, false),

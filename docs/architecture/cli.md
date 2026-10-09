@@ -195,6 +195,17 @@ the contour, the faint band's step per channel (`steps`, R G B), in luma
 restoration left and the same around the mark, and why it is or is not
 `exact`),
 `"encoding"` (`{"kind":"unchanged"|"png"|"webp-lossless"|"jpeg",…}`),
+**Only in a CLI built with `--features wipemark-picture/planar-preview`**
+(E12-R6, D306 proposed; never in a default build, so every default
+report is byte for byte what it was), a 4:2:0 or 4:2:2 JPEG is proved and
+restored in its planes, and two keys appear, each **absent** — not
+`null` — everywhere else: a finding's `scores` gains
+`"planar":{"y","chroma"}` (the out-of-range share's two terms; `out_of_range`
+is then the share of pixels with either), and a restoration gains
+`"planar":{"sampling":"4:2:0"|"4:2:2","max_alpha_dev_in_block","holes_chroma"}`,
+or `"planar":"unavailable"` for a lossy three-component JPEG whose planes
+could not be read and which was restored in RGB. See
+`docs/architecture/visible-marks.md`, "The planar inverse (E12-R6)".
 `"marks_left"`, `"not_established"`. The writers are the libraries'
 (`wipemark-image`'s `json.rs`, `wipemark-pixels`'s report,
 `wipemark-picture`'s splice).

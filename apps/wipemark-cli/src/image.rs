@@ -1341,6 +1341,7 @@ mod tests {
             resampled,
             searched,
             exact: false,
+            planar: None,
         };
         let english = Localizer::for_languages(&["en-US".parse().unwrap()], Rendering::PlainText);
         let say = |message: Message, args: &FluentArgs| english.format_args(message, args);
