@@ -45,7 +45,7 @@ pub struct Decoded {
     /// A YCbCr JPEG's stored planes (D302): Y, Cb and Cr at their own
     /// resolution and the quantisation tables, from a second decoder over
     /// the same bytes. Filled only by [`decode_with_planes`]: [`decode`]
-    /// leaves it `None`, because the second decode costs ×1.39 of the
+    /// leaves it `None`, because the second decode costs ×1.40 of the
     /// first on a 2048 JPEG (E12-R3's report) and only a verified mark on
     /// a JPEG needs them. `None` too for every other picture — grey, CMYK,
     /// an RGB-coded JPEG, PNG, WebP — and for a JPEG whose planes could
