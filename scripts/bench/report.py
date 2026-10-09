@@ -20,8 +20,11 @@ What it does
   0. the run: its commit, its time, the encoders' versions, the counts;
   1. configs × slices: n, the median and p5 of PSNR and SSIM, the median and
      p95 of ΔE2000 (for ΔE the tail is the top), the worst-5 % mean of PSNR,
-     the delta to R0 — per encoder, then per group, for marks blended as every
-     shipped profile declares (`encoded`, `k = 1`);
+     the delta to R0, and the p95 over restored files of `consistency_px`
+     (D305, added by E12-R7 on 2026-10-09: the restoration blended back
+     against its input; about 0 for an exact inverse, a slice over 1 level is
+     named under the table) — per encoder, then per group, for marks blended
+     as every shipped profile declares (`encoded`, `k = 1`);
   2. the blend-model matrix (A5): per inverse, the median PSNR on composites of
      each model;
   3. the measures against the truth: Pearson and Spearman of texture ↔ PSNR,
@@ -81,6 +84,8 @@ A2_P5_LOSS_DB = 0.2       # …and p5 at most this
 A3_TEXT_LOSS_DB = 0.3     # group `text`: no slice loses more than this, median or p5
 A6_MODEL_EXACT = 0.99     # route `model`: the exact share on png canonical, at least
 ENCODER_GAP_DB = 0.3      # two encoders on one slice further apart than this: a line
+# E12-R7 §6.3: an exact inverse is consistent to rounding — a slice whose p95 is over this is named.
+CONSISTENCY_LEVELS = 1.0
 # The real failures the synthetic set must reproduce by their order of magnitude (§6.4).
 CHROMA_BOUND = 4.0
 TEXTURE_BOUND = 5.5
@@ -191,10 +196,17 @@ def group_by(rows, *keys):
     return out
 
 
+def consistencies(rows):
+    """`consistency_px` of every restored row that carries one (D305; a run before E12-R7 has none)."""
+    return [r["measures"]["consistency_px"] for r in rows
+            if r.get("restored") and isinstance((r.get("measures") or {}).get("consistency_px"), (int, float))]
+
+
 def summary(rows):
     p = [r["psnr_roi"] for r in rows]
     s = [r["ssim_roi"] for r in rows if r.get("ssim_roi") is not None]
     d = [r["de2000_roi"] for r in rows]
+    c = consistencies(rows)
     return {
         "n": len(rows),
         "psnr_mean": sum(p) / len(p) if p else None,
@@ -206,6 +218,7 @@ def summary(rows):
         "de_median": median(d),
         "de_p95": quantile(d, 0.95),
         "restored": sum(1 for r in rows if r.get("restored")),
+        "consistency_p95": quantile(c, 0.95),
     }
 
 
@@ -381,7 +394,9 @@ def report(rows, side, targets):
 
     md += ["## 1. Configs × slices (marks blended in code values, k = 1)", "",
            "PSNR and SSIM: the median and p5 (the low tail); ΔE2000: the median and p95 (the high tail). "
-           "`worst 5 %` is the mean PSNR of the worst twentieth. Δ is against R0 on the same slice and encoder.", ""]
+           "`worst 5 %` is the mean PSNR of the worst twentieth. Δ is against R0 on the same slice and encoder. "
+           "`consist. p95` is the p95 over restored files of `consistency_px` (D305): the restoration blended back "
+           "against its input, in 8-bit levels — about 0 for an exact inverse; – when the run has none.", ""]
     rows1 = []
     for (cfg, sl, en), rs in sorted(group_by(vend, "config", "slice", "encoder").items(), key=lambda kv: (configs.index(kv[0][0]), kv[0][1], kv[0][2])):
         s = summary(rs)
@@ -389,9 +404,14 @@ def report(rows, side, targets):
         rows1.append([cfg, sl, en, s["n"], s["restored"], s["psnr_median"], s["psnr_p5"], s["psnr_worst5"],
                       s["ssim_median"], s["ssim_p5"], s["de_median"], s["de_p95"],
                       None if not b or cfg == "R0" else s["psnr_median"] - b["psnr_median"],
-                      None if not b or cfg == "R0" else s["psnr_p5"] - b["psnr_p5"]])
+                      None if not b or cfg == "R0" else s["psnr_p5"] - b["psnr_p5"],
+                      s["consistency_p95"]])
     md += [table(["config", "slice", "encoder", "n", "restored", "PSNR med", "PSNR p5", "worst 5 %", "SSIM med",
-                  "SSIM p5", "ΔE med", "ΔE p95", "Δ med", "Δ p5"], rows1), ""]
+                  "SSIM p5", "ΔE med", "ΔE p95", "Δ med", "Δ p5", "consist. p95"], rows1), ""]
+    over = [f"{r[0]} {r[1]} {r[2]} ({fmt(r[-1])})" for r in rows1 if r[-1] is not None and r[-1] > CONSISTENCY_LEVELS]
+    md += ([f"Over {CONSISTENCY_LEVELS} level of `consistency_px` at p95: " + ", ".join(over) + "."] if over
+           else [f"No slice is over {CONSISTENCY_LEVELS} level of `consistency_px` at p95."
+                 if any(r[-1] is not None for r in rows1) else "No `consistency_px` in this run (before E12-R7)."]) + [""]
     md += ["The `image` encoder writes 4:4:4 only (`encode.rs`): its 4:2:0 column is empty by construction.", ""]
     md += ["### Per group", ""]
     rows1g = []
@@ -559,7 +579,7 @@ def report(rows, side, targets):
            "* The groups and slices absent from this file are listed above by their absence; this report "
            "claims nothing about them.",
            "* A5 needs a second inverse (R9's R-lin); one inverse is a row of the matrix, not a verdict.",
-           "* `consistency_px` is null until R7 (D305).",
+           "* `consistency_dct` (D305) is R8's and is not in this run.",
            ""]
     return "\n".join(md)
 
@@ -567,7 +587,7 @@ def report(rows, side, targets):
 # ───────────────────────────────────────────────────────── selftest
 
 def fake(config, slice_id, psnr, i, *, group="flat", model="encoded", k=1.0, inverse="encoded",
-         restored=True, sha=None, exact=True, clamped=0, found=True, err=0.0, variant="canonical"):
+         restored=True, sha=None, exact=True, clamped=0, found=True, err=0.0, variant="canonical", consistency=0.25):
     return {
         "config": config, "inverse": inverse, "slice": slice_id, "encoder": "pillow", "group": group,
         "case_dir": f"{group}/bg-{i:03d}/case", "case": "v1-48.encoded", "background": f"bg-{i:03d}",
@@ -576,7 +596,7 @@ def fake(config, slice_id, psnr, i, *, group="flat", model="encoded", k=1.0, inv
         "restored": restored, "restored_sha256": sha or f"{config}-{i}", "exit": 1,
         "detection": {"found": found, "verdict": "verified" if found else None, "rect_error": err, "placed": "row"},
         "measures": {"exact": exact, "clamped": clamped, "texture": 1.0, "chroma": 1.0, "step": 0.1,
-                     "outline": 0.0} if restored else None,
+                     "outline": 0.0, "consistency_px": consistency, "consistency_excluded": clamped} if restored else None,
     }
 
 
@@ -643,6 +663,21 @@ def selftest():
     # Numbers.
     expect("the quantile interpolates", quantile([1, 2, 3, 4, 5], 0.05) == 1.2 and median([1, 2, 3, 4]) == 2.5)
     expect("Spearman is 1 on a monotone pair", abs(spearman([1, 2, 3, 4], [10, 20, 25, 100]) - 1.0) < 1e-12)
+    # The consistency column (E12-R7, D305): the p95 over restored files, a slice over a level named, none before R7.
+    cons = [fake("R0", "png", 60.0, i, consistency=0.25 if i < 18 else 3.0) for i in range(20)]
+    expect("consistency's p95 is the restored files' tail", summary(cons)["consistency_p95"] == 3.0)
+    unrestored = [fake("R0", "png", 60.0, i, restored=False) for i in range(3)]
+    expect("a file not restored has no consistency", summary(unrestored)["consistency_p95"] is None)
+    md_c = report(cons, {}, target)
+    expect("the report has the consistency column", "consist. p95" in md_c)
+    expect("a slice over a level is named", "Over 1.0 level of `consistency_px` at p95: R0 png pillow" in md_c)
+    md_ok = report([fake("R0", "png", 60.0, i) for i in range(20)], {}, target)
+    expect("a consistent run says no slice is over", "No slice is over 1.0 level" in md_ok)
+    old = [fake("R0", "png", 60.0, i) for i in range(5)]
+    for r in old:
+        del r["measures"]["consistency_px"]
+    md_old = report(old, {}, target)
+    expect("a run before E12-R7 says it has none", "No `consistency_px` in this run" in md_old)
     # The whole road, through files: a report and a failing gate run.
     with tempfile.TemporaryDirectory() as d:
         p = os.path.join(d, "results.jsonl")
