@@ -6,7 +6,7 @@
 use std::io::Cursor;
 
 use wipemark_image::ImageContainer;
-use wipemark_pixels::{Fidelity, Layout, Raster};
+use wipemark_pixels::{Fidelity, Layout, Plane, Planes, Quant, Raster, Sampling};
 use zune_jpeg::zune_core::colorspace::ColorSpace;
 use zune_jpeg::zune_core::options::DecoderOptions;
 
@@ -42,6 +42,16 @@ pub struct Decoded {
     pub raster: Raster,
     pub fidelity: Fidelity,
     pub source: Source,
+    /// A YCbCr JPEG's stored planes (D302): Y, Cb and Cr at their own
+    /// resolution and the quantisation tables, from a second decoder over
+    /// the same bytes. Filled only by [`decode_with_planes`]: [`decode`]
+    /// leaves it `None`, because the second decode costs ×1.39 of the
+    /// first on a 2048 JPEG (E12-R3's report) and only a verified mark on
+    /// a JPEG needs them. `None` too for every other picture — grey, CMYK,
+    /// an RGB-coded JPEG, PNG, WebP — and for a JPEG whose planes could
+    /// not be read, which is not a refusal: the raster above is the
+    /// decoder's own either way, and nothing reads the planes yet.
+    pub planes: Option<Planes>,
 }
 
 /// A picture whose pixels are not examined, and why.
@@ -67,6 +77,23 @@ pub fn decode(
         ImageContainer::Jpeg => jpeg_decode(bytes).map(Ok),
         other => Err(refused(other)),
     }
+}
+
+/// [`decode`], and for a three-component JPEG its stored planes too
+/// ([`Decoded::planes`]): the raster is `decode`'s, the planes are read by
+/// a second decoder over the same bytes. For the caller that needs them —
+/// the planar inverse, once a mark on a JPEG is verified — and nobody else.
+pub fn decode_with_planes(
+    bytes: &[u8],
+    container: ImageContainer,
+) -> Result<Result<Decoded, Skip>, PictureError> {
+    let mut decoded = decode(bytes, container)?;
+    if let Ok(d) = &mut decoded {
+        if d.source == (Source::Jpeg { components: 3 }) {
+            d.planes = jpeg_planes(bytes);
+        }
+    }
+    Ok(decoded)
 }
 
 fn png_decode(bytes: &[u8]) -> Result<Result<Decoded, Skip>, PictureError> {
@@ -124,6 +151,7 @@ fn png_decode(bytes: &[u8]) -> Result<Result<Decoded, Skip>, PictureError> {
         raster,
         fidelity: Fidelity::Lossless,
         source: Source::Png(png_info),
+        planes: None,
     }))
 }
 
@@ -148,6 +176,7 @@ fn webp_decode(bytes: &[u8]) -> Result<Result<Decoded, Skip>, PictureError> {
             Fidelity::Lossless
         },
         source: Source::WebP { lossy, alpha },
+        planes: None,
     }))
 }
 
@@ -178,5 +207,104 @@ fn jpeg_decode(bytes: &[u8]) -> Result<Decoded, PictureError> {
         source: Source::Jpeg {
             components: info.components,
         },
+        planes: None,
     })
+}
+
+/// A three-component YCbCr JPEG's stored planes, read by a second decoder
+/// over the same bytes — a second entropy pass — through the fork's
+/// `decode_planes` (D301): the IDCT's output before upsampling and colour
+/// conversion, cropped from the MCU padding. `None` when the components
+/// are not YCbCr (an Adobe RGB JPEG), when the decoder refuses, when Cb
+/// and Cr do not share one quantisation table (`Quant` holds one chroma
+/// table), or when the sizes do not make [`Planes`].
+fn jpeg_planes(bytes: &[u8]) -> Option<Planes> {
+    let mut decoder = zune_jpeg::JpegDecoder::new(Cursor::new(bytes));
+    decoder.decode_headers().ok()?;
+    if decoder.input_colorspace()? != ColorSpace::YCbCr {
+        return None;
+    }
+    let stored = decoder.decode_planes().ok()?;
+    let [y, cb, cr] = <[zune_jpeg::PlaneOut; 3]>::try_from(stored.components).ok()?;
+    if cb.qt_index != cr.qt_index {
+        return None;
+    }
+    let table = |index: u8| stored.qt.get(usize::from(index)).copied().flatten();
+    let quant = Quant {
+        luma: table(y.qt_index)?,
+        chroma: Some(table(cb.qt_index)?),
+    };
+    let sampling = Sampling::of([y.h, cb.h, cr.h], [y.v, cb.v, cr.v]);
+    let plane = |p: zune_jpeg::PlaneOut| {
+        Plane::new(
+            u32::try_from(p.width).ok()?,
+            u32::try_from(p.height).ok()?,
+            p.samples.into_iter().map(u16::from).collect(),
+        )
+        .ok()
+    };
+    Planes::new(
+        u32::try_from(stored.width).ok()?,
+        u32::try_from(stored.height).ok()?,
+        sampling,
+        plane(y)?,
+        Some(plane(cb)?),
+        Some(plane(cr)?),
+        quant,
+    )
+    .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture(name: &str) -> Vec<u8> {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/image")
+            .join(name);
+        std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    fn planes(name: &str, container: ImageContainer) -> Option<Planes> {
+        let bytes = fixture(name);
+        let without = decode(&bytes, container)
+            .unwrap_or_else(|e| panic!("{name}: {e}"))
+            .unwrap_or_else(|skip| panic!("{name}: {skip:?}"));
+        // The product's road takes none: nothing reads them yet, and the
+        // second decode is not free.
+        assert_eq!(without.planes, None, "{name}: decode took the planes");
+        let with = decode_with_planes(&bytes, container)
+            .unwrap_or_else(|e| panic!("{name}: {e}"))
+            .unwrap_or_else(|skip| panic!("{name}: {skip:?}"));
+        assert_eq!(with.raster, without.raster, "{name}");
+        with.planes
+    }
+
+    #[test]
+    fn a_png_has_no_planes_and_a_lossy_jpeg_has_them() {
+        // A YCbCr JPEG at each sampling has them, baseline or progressive.
+        for (name, sampling) in [
+            ("jpeg-planes/rgb-37x23-q90-444.jpg", Sampling::H444),
+            ("jpeg-planes/rgb-37x23-q90-422.jpg", Sampling::H422),
+            ("jpeg-planes/rgb-37x23-q90-420.jpg", Sampling::H420),
+            (
+                "jpeg-planes/rgb-129x65-q90-420-progressive.jpg",
+                Sampling::H420,
+            ),
+        ] {
+            let planes = planes(name, ImageContainer::Jpeg)
+                .unwrap_or_else(|| panic!("{name}: a YCbCr JPEG has its planes"));
+            assert_eq!(planes.sampling(), sampling, "{name}");
+        }
+        // Grey, PNG and WebP — lossless or lossy — have none.
+        for (name, container) in [
+            ("jpeg-planes/grey-37x23-q90.jpg", ImageContainer::Jpeg),
+            ("gemini/torch-1025.png", ImageContainer::Png),
+            ("gemini/scroll-1040-q90.webp", ImageContainer::WebP),
+            ("gemini/cut-out-confetti-256.webp", ImageContainer::WebP),
+        ] {
+            assert_eq!(planes(name, container), None, "{name}");
+        }
+    }
 }

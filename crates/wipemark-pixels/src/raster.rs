@@ -118,6 +118,19 @@ impl Raster {
         )
     }
 
+    /// An 8-bit RGB raster from samples a caller in this crate built in
+    /// range and to size (`Planes::to_rgb`): what `new` would check.
+    pub(crate) fn trusted_rgb8(width: u32, height: u32, samples: Vec<u16>) -> Self {
+        debug_assert_eq!(samples.len(), width as usize * height as usize * 3);
+        debug_assert!(samples.iter().all(|&s| s <= 255));
+        Raster {
+            width,
+            height,
+            layout: Layout::Rgb8,
+            samples,
+        }
+    }
+
     pub fn width(&self) -> u32 {
         self.width
     }
