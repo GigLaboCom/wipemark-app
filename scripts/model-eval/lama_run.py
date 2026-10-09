@@ -328,7 +328,7 @@ def run_crop(crop, predict, chosen, methods, context=CONTEXT, save=None, lpips_f
 
 # ───────────────────────────────────────────────────────── the gates
 
-def better(c, b, key, lower=False):
+def better(c, b, lower=False):
     """Median and p5 both better (higher, or lower for LPIPS: then p95 is the tail)."""
     c = [x for x in c if x is not None]
     b = [x for x in b if x is not None]
@@ -500,7 +500,7 @@ def _t_outside_the_mask_the_output_is_the_input():
         assert r["moved_outside"] == 0, r
         assert r["mask_px"] > 0
     # …and inside the mask, the stub's answer did land (the composite is not a no-op).
-    out = compose(c.recon, stub_predictor(c.recon / 255.0) * 255.0, m_hard)
+    out = compose(c.recon, stub_predictor(c.recon / 255.0, m_hard) * 255.0, m_hard)
     assert np.any(out[m_hard] != c.recon[m_hard])
     assert np.array_equal(out[~m_hard], c.recon[~m_hard])
 

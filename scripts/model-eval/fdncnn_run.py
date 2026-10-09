@@ -536,10 +536,11 @@ def _t_a_leak_where_alpha_is_zero_is_refused():
 
 
 def _t_the_sigma_map_is_clamped_and_grows_with_alpha():
-    a = np.array([[0.0, 0.5, 0.9, 0.99, 1.0]])
+    # Three equal rows: `np.gradient` needs two samples along each axis.
+    a = np.tile([0.0, 0.5, 0.9, 0.99, 1.0], (3, 1))
     s = sigma_map(a, 2.0, 0)
-    assert s[0, 0] == 2.0 and abs(s[0, 1] - 4.0) < 1e-9 and abs(s[0, 2] - 20.0) < 1e-6
-    assert s[0, 3] == SIGMA_MAX and s[0, 4] == SIGMA_MAX
+    assert s[1, 0] == 2.0 and abs(s[1, 1] - 4.0) < 1e-9 and abs(s[1, 2] - 20.0) < 1e-6
+    assert s[1, 3] == SIGMA_MAX and s[1, 4] == SIGMA_MAX
     assert np.all(sigma_map(a, 2.0, 10) >= s)
 
 
