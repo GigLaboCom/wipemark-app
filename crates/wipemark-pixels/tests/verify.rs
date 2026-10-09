@@ -6,9 +6,10 @@
 mod support;
 
 use support::*;
+use wipemark_pixels::synth::{composite_with, Blend};
 use wipemark_pixels::{
     clean, composite, drawn, examine, refine_at, resampled, Catalogue, CatalogueError,
-    ExamineOptions, Layout, PixelRect, Placed, Raster, Refusal, SubRect, Verdict,
+    ExamineOptions, Kernel, Layout, PixelRect, Placed, Raster, Refusal, SubRect, Verdict,
 };
 
 const W: u32 = 320;
@@ -500,5 +501,124 @@ fn refine_at_leaves_a_row_that_is_right() {
         assert!((taken.x - base.x).abs() < 0.125, "{name}");
         assert!((taken.y - base.y).abs() < 0.125, "{name}");
         assert!((taken.size - base.size).abs() < 0.125, "{name}");
+    }
+}
+
+/// The shipped catalogue with every search taken out: a mark is looked at
+/// by its rows alone.
+fn rows_only() -> Catalogue {
+    let json: String = wipemark_pixels::EMBEDDED
+        .lines()
+        .map(|line| {
+            if line.trim_start().starts_with("\"search\":") {
+                "      \"search\": null,"
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Catalogue::parse(&json, &|name: &str| {
+        wipemark_pixels::shipped_assets()
+            .find(|(n, _)| *n == name)
+            .map(|(_, b)| b)
+    })
+    .unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// The bench's gain (D312) is the gain the second proof measures: a
+/// shipped mark drawn at `k = 0.93` and looked at by its row alone is seen
+/// at a gain within three hundredths of 0.93 on every background — what
+/// the bench's `R-k` rows rest on, and what keeps them from testing
+/// nothing when the composite ignores `k`.
+#[test]
+fn the_benchs_gain_is_the_gain_a_row_measures() {
+    let catalogue = rows_only();
+    let side = 1024u32;
+    for (profile, map_id, margin) in [
+        ("gemini-sparkle-v1", "gemini-v1-48", 32u32),
+        ("gemini-sparkle-v2", "gemini-v2-36", 71),
+    ] {
+        let p = catalogue.profile(profile).unwrap();
+        let (_, map) = p.maps.iter().find(|(id, _)| id == map_id).unwrap();
+        let rect = SubRect {
+            x: (side - margin - map.width()) as f32,
+            y: (side - margin - map.height()) as f32,
+            size: map.width() as f32,
+        };
+        for kind in [Kind::Gradient, Kind::Fractal, Kind::Flat, Kind::Dark] {
+            let name = format!("{map_id} over {kind:?}");
+            let mut raster = picture(kind, side, side, 61, Layout::Rgb8);
+            let blend = Blend {
+                k: 0.93,
+                ..Blend::encoded(p.logo)
+            };
+            composite_with(&mut raster, &drawn(map), rect, Kernel::Area, &blend);
+            let exam = examine(&raster, &catalogue, &options());
+            let f = exam
+                .findings
+                .iter()
+                .find(|f| f.profile == profile && f.placed == Placed::Row(1))
+                .unwrap_or_else(|| panic!("{name}: not seen: {:#?}", exam.findings));
+            let k = f.scores.expect("measured").gain;
+            assert!((k - 0.93).abs() <= 0.03 + 1e-4, "{name}: k* = {k}");
+        }
+    }
+}
+
+/// D154 through the bench's own composite (D312): a shipped mark drawn at
+/// 0.93 of its opacity — `k = 0.93` against a profile of `k = 1` — is a
+/// blend, seen, refused by its gain with the gain it would have needed,
+/// and not restored. Another opacity is another profile, never a
+/// per-picture `k`.
+///
+/// **Red on the code it was written against** (E12-R5, 2026-10-09): the row
+/// refuses the mark by its gain, and then the search — which runs whenever
+/// no row's mark was proved — refines it to an eighth of a pixel off, or a
+/// fraction of a pixel smaller (D236), where the gain lands at 0.96–1.00,
+/// proves it and restores it with `k = 1`. Ignored so the workspace gate
+/// stays what it was; the finding, its figures and the question are in
+/// `docs/plan/reports/E12-R5-2026-10-09.md`. Run it with `--ignored`.
+#[test]
+#[ignore = "red today: the search re-proves a mark its row refused by gain (E12-R5 report)"]
+fn a_k_of_0_93_is_refused_by_a_k_of_1_profile() {
+    let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
+    let side = 1024u32;
+    for (profile, map_id, margin) in [
+        ("gemini-sparkle-v1", "gemini-v1-48", 32u32),
+        ("gemini-sparkle-v2", "gemini-v2-36", 71),
+    ] {
+        let p = catalogue.profile(profile).unwrap();
+        let (_, map) = p.maps.iter().find(|(id, _)| id == map_id).unwrap();
+        let rect = SubRect {
+            x: (side - margin - map.width()) as f32,
+            y: (side - margin - map.height()) as f32,
+            size: map.width() as f32,
+        };
+        for kind in [Kind::Gradient, Kind::Fractal, Kind::Flat] {
+            let name = format!("{map_id} over {kind:?}");
+            let mut raster = picture(kind, side, side, 61, Layout::Rgb8);
+            let blend = Blend {
+                k: 0.93,
+                ..Blend::encoded(p.logo)
+            };
+            composite_with(&mut raster, &drawn(map), rect, Kernel::Area, &blend);
+            let before = raster.clone();
+            let report = clean(&mut raster, catalogue, &options());
+            assert!(report.restored.is_empty(), "{name}: {:#?}", report.found);
+            assert_eq!(raster, before, "{name}");
+            let f = report
+                .found
+                .iter()
+                .find(|f| f.profile == profile)
+                .unwrap_or_else(|| panic!("{name}: not seen: {:#?}", report.found));
+            match f.verdict {
+                Verdict::Refused(Refusal::Gain { k }) => {
+                    assert!((k - 0.93).abs() <= 0.03, "{name}: k* = {k}");
+                }
+                ref other => panic!("{name}: {other:?}"),
+            }
+            assert!(report.marks_left(), "{name}");
+        }
     }
 }

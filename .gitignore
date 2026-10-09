@@ -63,6 +63,12 @@ Thumbs.db
 /golden/cache/
 /reports/regress-*/
 
+# ── The restoration bench (scripts/bench/README.md, E12-R5) ─────────────
+# A run's backgrounds, composites, variants and results: generated from
+# bench/manifest.json (and, for the photo group, the owner's photographs,
+# which never enter git — D304). The manifest is committed; a run is not.
+/bench/out/
+
 # ── Font Awesome Free staging (icon curation) ────────────────────────
 # The corpus is pulled into dev-staging/ to promote single glyphs into
 # apps/wipemark-app/assets/icons/. None of it is committed:
