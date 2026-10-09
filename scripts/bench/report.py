@@ -42,7 +42,8 @@ What it does
      for the coordinator; `docs/plan/E12-R8-value-inside-the-interval.md`
      §6.2): per config, slice and encoder over the restored lossy files,
      `texture` and its ratio to `texture_around`, how many are `smoothed`
-     (D307), refined, in how many rounds, the largest `consistency_dct`;
+     (D307), refined, refined as text, in how many rounds, the largest
+     `consistency_dct`;
      then §6.2's two checks per config — `texture` under 5.5 on
      `jpeg444-q95` on at least 80 % of the restored files, and the soap
      check, `texture / texture_around ≥ 0.8` on at least 95 % of every
@@ -644,12 +645,14 @@ def r8_section(rows, configs):
         body.append([cfg, sl, en, len(rs), median([r["measures"]["texture"] for r in rs]),
                      sum(1 for r in rs if r["measures"]["texture"] < TEXTURE_BOUND), median(ratios),
                      quantile(ratios, 0.05), sum(1 for r in rs if r["measures"].get("smoothed")), len(refined),
+                     sum(1 for r in refined if r["measures"]["interval"].get("text")),
                      median([r["measures"]["interval"]["iterations"] for r in refined]),
                      max(dct) if dct else None])
     if not body:
         return md + ["No restored lossy file in this run.", ""]
     md += [table(["config", "slice", "encoder", "restored", "texture med", f"texture < {TEXTURE_BOUND}",
-                  "ratio med", "ratio p5", "smoothed", "refined", "rounds med", "consistency_dct max"], body), ""]
+                  "ratio med", "ratio p5", "smoothed", "refined", "as text", "rounds med",
+                  "consistency_dct max"], body), ""]
     md += [f"§6.2's checks (`[tunable]`: {int(100 * R8_TEXTURE_SHARE)} % under {TEXTURE_BOUND} on "
            f"{R8_TEXTURE_SLICE}; the soap check on {int(100 * SOAP_SHARE)} %); A1–A7 are `gates`':", ""]
     for cfg in configs:

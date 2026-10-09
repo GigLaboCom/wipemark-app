@@ -790,7 +790,8 @@ reach a refinement. Plan:
   the smoothness: He's guided filter of the estimate by itself, radius 4
   and `eps` (4 levels)², `o' = r·o + (1 − r)·GF(o)` with `r = (1 − α)²`;
   radius 2 and half the `eps` on "text", when the restored samples'
-  Laplacian energy (each weighted by `1 − α`) is over 1.5 times the ring's.
+  Laplacian energy (each weighted by `1 − α`) is over 1.5 times the ring's
+  (`Restored.interval.text`).
   The region is the mark's rectangle widened to the codec's grid (8 pixels
   at 4:4:4, 16 at 4:2:0) and eight samples around it; `dct8`/`idct8` are
   the orthonormal 8 × 8 DCT-II (JPEG's FDCT) in `f64`.
@@ -849,9 +850,11 @@ reach a refinement. Plan:
   a step of 1 or 2, where the decoder's rounding to a level moves an
   index (`the_recomputed_coefficients_are_the_files`, which reads each
   file's own coefficients); exporting them from the decoder (R3) would
-  close it. The "text" rule fires on every committed crop (the restored
-  ring of the mark reads 2.5–350 times the ring's energy), so all of them
-  are refined at radius 2; on synthetic strokes under the mark DCT-POCS is
+  close it. The "text" rule takes every committed crop for text
+  (`interval.text` true on all seven refined JPEGs: the codec's error
+  amplified under the mark, and what is left of its edges, read as
+  strokes against a ring the codec flattened), so all of them are refined
+  at radius 2; on synthetic strokes under the mark DCT-POCS is
   2.5–3.6 dB nearer the truth than R0 at either radius
   (`text_is_not_smoothed_away`) — the data projection, not the radius,
   keeps the strokes.

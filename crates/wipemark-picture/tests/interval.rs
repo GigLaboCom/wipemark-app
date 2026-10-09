@@ -71,15 +71,20 @@ fn measure_the_methods_on_the_committed_crops() {
         else {
             continue;
         };
-        let Some(rect) = first(&report).map(|r| r.rect).or_else(|| match &report.visible {
-            Visible::Examined { report, .. } => report.found.first().and_then(|f| f.pixels),
-            Visible::NotExamined(_) => None,
-        }) else {
+        let Some(rect) = first(&report)
+            .map(|r| r.rect)
+            .or_else(|| match &report.visible {
+                Visible::Examined { report, .. } => report.found.first().and_then(|f| f.pixels),
+                Visible::NotExamined(_) => None,
+            })
+        else {
             println!("{name}: no mark seen, no sigma_base");
             continue;
         };
         let container = wipemark_image::ImageContainer::sniff(&bytes).unwrap();
-        let decoded = wipemark_picture::decode(&bytes, container).unwrap().unwrap();
+        let decoded = wipemark_picture::decode(&bytes, container)
+            .unwrap()
+            .unwrap();
         println!(
             "{name}: sigma_base (RGB, ring 2–8 px around {}×{} at {},{}) {:.2?}",
             rect.width,
@@ -126,8 +131,8 @@ fn measure_the_methods_on_the_committed_crops() {
                 r.consistency_dct,
                 r.interval
                     .map(|i| format!(
-                        "{:?} {:?} sigma {:.2?} rounds {}",
-                        i.method, i.space, i.sigma_base, i.iterations
+                        "{:?} {:?} sigma {:.2?} text {} rounds {}",
+                        i.method, i.space, i.sigma_base, i.text, i.iterations
                     ))
                     .unwrap_or_else(|| String::from("none")),
                 report.marks_left(),

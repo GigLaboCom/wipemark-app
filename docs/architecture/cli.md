@@ -207,7 +207,7 @@ around it — a patch flatter than its surroundings, a mark left like a
 texture is (exit 3, and the human report says "The restored patch is
 smoother than the picture around it — … so the mark counts as still in
 the result", `cli-image-visible-smoothed`); and
-`"interval":{"method":"dct"|"pixel"|"wiener","space":"ycbcr"|"rgb","sigma_base":[…],"iterations"}`
+`"interval":{"method":"dct"|"pixel"|"wiener","space":"ycbcr"|"rgb","sigma_base":[…],"text","iterations"}`
 when the restored value was chosen inside a lossy codec's interval
 (E12-R8) — which only a CLI built with `planar-preview` and run with
 `WIPEMARK_INTERVAL` does, below),

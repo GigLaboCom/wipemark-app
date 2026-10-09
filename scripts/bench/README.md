@@ -83,7 +83,7 @@ runs.
   file the restored value chosen inside the codec's interval — DCT-POCS
   (JPEG with planes only), pixel POCS, one Wiener step; a `png` file is
   R0's to the byte (A4). Their restorations carry `measures.interval`
-  (`method`, `space`, `sigma_base`, `iterations`), `measures.smoothed`
+  (`method`, `space`, `sigma_base`, `text`, `iterations`), `measures.smoothed`
   (D307) and, for `R8d`, `measures.consistency_dct` (0 by construction).
   Run them beside R0 and R6 — `run … --config R0 --config R6 --config R8d
   --config R8p --config R8w` — read `report.py report`'s §10 (texture

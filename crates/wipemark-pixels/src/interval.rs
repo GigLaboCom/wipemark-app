@@ -126,8 +126,12 @@ pub struct Interval {
     /// The input's noise per channel of `space`, in 8-bit levels
     /// ([`sigma_base`]'s estimate, on the ring around the mark).
     pub sigma_base: [f32; 3],
-    /// The rounds run: up to [`DCT_ROUNDS`] or [`PIXEL_ROUNDS`], fewer when
-    /// the stop rule held; 1 for Wiener.
+    /// Whether the restored region read as text ([`TEXT_RATIO`]), and was
+    /// smoothed at half the radius and half the `eps`.
+    pub text: bool,
+    /// The rounds kept: up to [`DCT_ROUNDS`] or [`PIXEL_ROUNDS`], fewer when
+    /// the stop rule held or a round was taken back — 0, and today's
+    /// restoration byte for byte, when none was kept; 1 for Wiener.
     pub iterations: u8,
 }
 
@@ -1067,7 +1071,8 @@ pub(crate) fn refine(
         .iter()
         .map(|ch| mad_sigma(ch.ring()))
         .collect();
-    let (radius, eps) = if work.text() {
+    let text = work.text();
+    let (radius, eps) = if text {
         (SMOOTH_RADIUS / 2, SMOOTH_EPS / 2.0)
     } else {
         (SMOOTH_RADIUS, SMOOTH_EPS)
@@ -1185,6 +1190,7 @@ pub(crate) fn refine(
         method,
         space: work.space,
         sigma_base: [sigma[0] as f32, sigma[1] as f32, sigma[2] as f32],
+        text,
         iterations,
     });
     // No round kept — the restoration was already in the band, or its first
