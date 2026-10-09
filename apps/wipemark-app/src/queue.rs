@@ -2281,12 +2281,14 @@ fn compare_row(id: u64, queue: Entity<Queue>, window: &Window, cx: &mut App) {
             return;
         };
         let comparison = queue.read(cx).comparison(cx);
+        let preferences = queue.read(cx).preferences.clone();
         tracing::info!(id, "opening the Compare window on a queued row");
         compare::open(
             Some(id),
             subject,
             comparison,
             Some(link_to(id, &queue)),
+            Some(preferences),
             main,
             cx,
         );

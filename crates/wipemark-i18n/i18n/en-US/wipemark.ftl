@@ -414,7 +414,7 @@ compare-help-scrolls = Scrolling either side scrolls the other, so the lines the
 compare-help-toolbar = The toolbar over the result is the editor's own operations, with the shortcuts it already answers to.
 compare-help-words = Within a passage that changed, the words that differ are marked more strongly.
 compare-help-characters = Within a passage that changed, the characters that differ are marked more strongly.
-compare-help-settings = The Compare page of Settings chooses four things for the next window opened: what is marked, whether the original follows the cursor, whether the sides scroll together, and whether edits are saved as they are typed.
+compare-help-settings = The Compare page of Settings chooses five things: what is marked, where the line numbers sit, whether the original follows the cursor, whether the sides scroll together, and whether edits are saved as they are typed. Where the line numbers sit changes this window at once; the rest is for the next window opened.
 compare-help-close = Closing this window saves the result first if it has edits that are not saved yet.
 compare-help-close-asks = Closing this window with edits that are not saved asks whether to save them.
 compare-help-save = Save, at the start of the result's toolbar, writes the edited result where it lives; the line under the result says whether it is saved.
@@ -487,7 +487,7 @@ result-whitespace = Show whitespace
 
 
 settings-compare-title = How a result is compared
-settings-compare-description = What the Compare window marks when a result is put beside its original, and when it saves an edited one. A window reads these as it opens; one already open keeps what it was opened with.
+settings-compare-description = What the Compare window marks when a result is put beside its original, how the two sides are laid out, and when it saves an edited one. A window reads these as it opens; one already open keeps what it was opened with — except where the line numbers sit, which an open window follows at once.
 settings-compare-exact = Every character counts: the comparison never overlooks a space, a line ending or a character that cannot be seen.
 
 settings-compare-grain-title = What is marked
@@ -495,6 +495,11 @@ settings-compare-grain-description = Every line that differs is marked on both s
 settings-compare-grain-lines = Lines only
 settings-compare-grain-words = Changed words
 settings-compare-grain-characters = Changed characters
+
+settings-compare-gutters-title = Where the line numbers sit
+settings-compare-gutters-description = Facing the middle puts the original's line numbers and marks on its right, beside the result's, and its scroll bar on its outer edge, as side-by-side diff tools do. Both on the left keeps each side's line numbers and marks on its left, and its scroll bar on its right.
+settings-compare-gutters-middle = Facing the middle
+settings-compare-gutters-left = Both on the left
 
 settings-compare-follow-title = The original follows the cursor
 settings-compare-follow-description = Moving the cursor in the result puts the original's cursor on the line that stands where that one does. Off, the original's cursor stays where it was.

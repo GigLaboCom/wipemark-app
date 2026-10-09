@@ -132,6 +132,21 @@
 //! nothing is dropped after its frame, so it cannot swallow a later move
 //! (D391).
 //!
+//! # Where the gutters sit (E7-10)
+//!
+//! Facing the middle, by default: the original's gutter — its line
+//! numbers and change markers — on its right, against the divider, and its
+//! scroll bar on its left, the outer edge; the result's as before. The
+//! numbers of two lines that stand level then sit side by side across the
+//! divider, as in IntelliJ IDEA's diff viewer (D461). On both panes the
+//! marker is by the text and the numbers outermost (D463). Both on the
+//! left is the layout before, column order included (D464). It is the
+//! Compare page's one row an open window follows, at once (D462): every
+//! piece of it is set by [`CompareView::apply_gutters`], which the
+//! window's construction calls too, and nothing in the painting or the
+//! scroll code knows which side a gutter is on — the follow and the sync
+//! work on rows and offsets, never on an x.
+//!
 //! # What it refuses
 //!
 //! A picture, a folder, an archive: nothing to compare line by line,
@@ -156,11 +171,14 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{
-    DocumentColorProvider, EditorState, GutterMarker, LineDecoration, LineDecorationCollection,
-    LineDecorationProvider, Position, Rope,
+    DocumentColorProvider, EditorState, GutterColumn, GutterMarker, LineDecoration,
+    LineDecorationCollection, LineDecorationProvider, Position, Rope,
 };
 use gpui_component::popover::Popover;
 use gpui_component::resizable::{h_resizable, resizable_panel};
+use gpui_component::scroll::ScrollbarPlacement;
+// The library's side of a pane, not `diff::Side`'s side of a comparison.
+use gpui_component::Side as Edge;
 use gpui_component::{
     h_flex, v_flex, ActiveTheme, Disableable as _, Root, Sizable as _, StyledExt as _, Theme,
 };
@@ -174,6 +192,7 @@ use crate::diff::{Diff, Grain, Side};
 use crate::icon::{Icon, IconName};
 use crate::result::{self, Offer, ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
 use crate::screen::{self, Screen};
+use crate::settings::Preferences;
 use crate::title::{self, Title};
 use crate::{clean, dialog, drop, journal, placement, wording};
 
@@ -217,6 +236,8 @@ const SETTLE: Duration = Duration::from_millis(120);
 /// Read once, when the window opens, and kept for its life; see the
 /// module docs for why the finer marks cannot be turned on in a window
 /// that is already open, and the page's description, which says so.
+/// The one exception is [`Gutters`], which an open window follows at
+/// once (D462).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Comparison {
     /// How finely a changed passage is marked.
@@ -228,21 +249,124 @@ pub struct Comparison {
     /// Whether an edited result is saved a moment after typing stops and
     /// as the window closes, or only by Save (E7-9, D415).
     pub autosave: bool,
+    /// Where the two panes' line numbers sit (E7-10, D461).
+    pub gutters: Gutters,
 }
 
 impl Default for Comparison {
     /// Words, following and scrolling together: the marks a reader of
     /// a rewrite wants, and the two sides kept in step — and edits saved
     /// as they are typed, so closing a window never loses them (the
-    /// owner, 2026-10-08).
+    /// owner, 2026-10-08) — and the line numbers facing each other
+    /// across the middle, as side-by-side diff tools have them (the
+    /// owner, 2026-10-07).
     fn default() -> Self {
         Self {
             grain: Grain::Words,
             follow: true,
             sync_scroll: true,
             autosave: true,
+            gutters: Gutters::Middle,
         }
     }
+}
+
+/// Where the two panes' gutters sit — the line numbers and the marks
+/// beside them — and so where the original's scroll bar goes (E7-10).
+///
+/// A row on the Compare page, `compare.gutters`, spelled by [`id`]
+/// (`Self::id`). An open window follows it at once (D462): the
+/// library's setters cost no undo entry, no jump and no `Window`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Gutters {
+    /// The original's gutter on its right and its scroll bar on its
+    /// left, its outer edge; the result's as ever — so the numbers of
+    /// lines that stand level sit next to each other across the
+    /// divider, the way IntelliJ IDEA's diff viewer has them (D461).
+    #[default]
+    Middle,
+    /// Every pane's gutter on its left and its scroll bar on its right:
+    /// the layout before E7-10, column order included (D464).
+    Left,
+}
+
+impl Gutters {
+    /// Both choices, the default first — the order the page lists them.
+    pub const ALL: [Gutters; 2] = [Gutters::Middle, Gutters::Left];
+
+    /// The stable spelling: a row value and an element id, never a
+    /// label.
+    pub fn id(self) -> &'static str {
+        match self {
+            Gutters::Middle => "middle",
+            Gutters::Left => "left",
+        }
+    }
+
+    /// The choice a row named, or `None` for a spelling this build does
+    /// not know — which the reader leaves in the row.
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|gutters| gutters.id() == value)
+    }
+
+    /// The radio button's label.
+    pub fn title(self) -> Message {
+        match self {
+            Gutters::Middle => Message::SettingsCompareGuttersMiddle,
+            Gutters::Left => Message::SettingsCompareGuttersLeft,
+        }
+    }
+
+    /// How one pane is laid out under this choice.
+    ///
+    /// Facing the middle, both gutters hold their columns from the text
+    /// outward as fold icons (none here: neither pane folds), the change
+    /// marker, the line numbers — the marker by the text it marks and the
+    /// numbers at the divider, so the two columns of numbers face each
+    /// other (D463). Both on the left is the library's default order,
+    /// which is what the panes had before (D464).
+    fn layout(self, side: Side) -> Layout {
+        match (self, side) {
+            (Gutters::Middle, Side::Original) => Layout {
+                gutter: Edge::Right,
+                scroll_bar: ScrollbarPlacement::BottomLeft,
+                order: FACING,
+            },
+            (Gutters::Middle, Side::Result) => Layout {
+                gutter: Edge::Left,
+                scroll_bar: ScrollbarPlacement::BottomRight,
+                order: FACING,
+            },
+            (Gutters::Left, _) => Layout {
+                gutter: Edge::Left,
+                scroll_bar: ScrollbarPlacement::BottomRight,
+                order: LIBRARY_ORDER,
+            },
+        }
+    }
+}
+
+/// A gutter's columns from the text outward when the numbers face the
+/// middle (D463).
+const FACING: [GutterColumn; 3] = [
+    GutterColumn::FoldIcons,
+    GutterColumn::Markers,
+    GutterColumn::LineNumbers,
+];
+
+/// The library's own order, from the text outward.
+const LIBRARY_ORDER: [GutterColumn; 3] = [
+    GutterColumn::FoldIcons,
+    GutterColumn::LineNumbers,
+    GutterColumn::Markers,
+];
+
+/// Where one pane's gutter, scroll bar and gutter columns go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Layout {
+    gutter: Edge,
+    scroll_bar: ScrollbarPlacement,
+    order: [GutterColumn; 3],
 }
 
 impl Grain {
@@ -619,15 +743,18 @@ pub fn rewritten_text(from: &RewriteFrom) -> Result<String, Refusal> {
 /// that cleans is filed under in the application's line, so the row hears
 /// it like any clean of its own (D411); `link` is how the window tells the
 /// row of any other save (D412). `comparison` is the Compare page's rows
-/// as they stand, which the window keeps. `main` is what the new window is
-/// centred over, handed in rather than looked up for the reason
-/// `settings::open` gives: from inside the main window's own update it
-/// would come back "not found". Every caller defers to here.
+/// as they stand, which the window keeps; `preferences`, when there are
+/// some, is where it hears the one row it follows while open, where the
+/// line numbers sit (D462). `main` is what the new window is centred
+/// over, handed in rather than looked up for the reason `settings::open`
+/// gives: from inside the main window's own update it would come back
+/// "not found". Every caller defers to here.
 pub fn open(
     key: Option<u64>,
     subject: Subject,
     comparison: Comparison,
     link: Option<Link>,
+    preferences: Option<Entity<Preferences>>,
     main: AnyWindowHandle,
     cx: &mut App,
 ) {
@@ -664,7 +791,9 @@ pub fn open(
             ..Default::default()
         },
         move |window, cx| {
-            let view = cx.new(|cx| CompareView::new(subject, comparison, key, link, window, cx));
+            let view = cx.new(|cx| {
+                CompareView::new(subject, comparison, key, link, preferences, window, cx)
+            });
             cx.new(|cx| Root::new(view, window, cx))
         },
     );
@@ -1071,7 +1200,8 @@ struct CompareView {
     original_marks: Option<LineDecorationCollection>,
     /// The right pane, toolbar and all.
     result: Entity<ResultEditor>,
-    /// What the window was opened with — see [`Comparison`].
+    /// What the window was opened with — see [`Comparison`] — but for
+    /// `gutters`, which follows the row while the window is open (D462).
     comparison: Comparison,
     /// The latest comparison, which the cursor is followed by.
     diff: Diff,
@@ -1175,6 +1305,7 @@ impl CompareView {
         comparison: Comparison,
         key: Option<u64>,
         link: Option<Link>,
+        preferences: Option<Entity<Preferences>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -1185,7 +1316,8 @@ impl CompareView {
 
         let original = cx.new(|cx| {
             // The same editor as the result's, for the same reasons —
-            // see `ResultEditor::new`.
+            // see `ResultEditor::new`. Where its gutter and scroll bar
+            // sit is `apply_gutters`'s, below.
             EditorState::new(window, cx)
                 .language("text")
                 .line_number(true)
@@ -1220,6 +1352,17 @@ impl CompareView {
             view.look(false, cx);
         });
         let mut subscriptions = vec![changed, led_by_result, led_by_original];
+        // Where the line numbers sit is the one row an open window
+        // follows (D462): the setters it takes cost no undo entry, no
+        // jump and no `Window`. Every other row stays as it was opened.
+        if let Some(preferences) = preferences {
+            subscriptions.push(cx.observe(&preferences, |view, preferences, cx| {
+                let gutters = preferences.read(cx).comparison().gutters;
+                if gutters != view.comparison.gutters {
+                    view.apply_gutters(gutters, cx);
+                }
+            }));
+        }
         // A Save that cleans waits in the application's line like any
         // clean, and ends there (D411).
         if let Some(line) = Cleaner::existing(cx) {
@@ -1265,8 +1408,29 @@ impl CompareView {
             saving,
             _subscriptions: subscriptions,
         };
+        view.apply_gutters(comparison.gutters, cx);
         view.read(window, cx);
         view
+    }
+
+    /// Lay both panes' gutters out as `gutters` says: the original's
+    /// side, scroll bar and column order, and the result's order (D461,
+    /// D463). The one place this window's layout is set — at the opening
+    /// and when the row is flipped with the window open — so a window
+    /// opened one way and one flipped to it are one state (D462). Nothing
+    /// here moves the text, a scroll offset or the undo history: the
+    /// library's setters assign and repaint.
+    fn apply_gutters(&mut self, gutters: Gutters, cx: &mut Context<Self>) {
+        self.comparison.gutters = gutters;
+        for side in [Side::Original, Side::Result] {
+            let layout = gutters.layout(side);
+            self.editor(side, cx).update(cx, |state, cx| {
+                state.set_gutter_side(layout.gutter, cx);
+                state.set_scrollbar_placement(layout.scroll_bar, cx);
+                state.set_gutter_order(layout.order, cx);
+            });
+        }
+        cx.notify();
     }
 
     /// Read the subject and clean it on the background executor, then
@@ -2934,7 +3098,8 @@ mod tests {
         let slot: Rc<std::cell::RefCell<Option<Entity<CompareView>>>> = Rc::default();
         let held = slot.clone();
         let (_, cx) = cx.add_window_view(move |window, cx| {
-            let view = cx.new(|cx| CompareView::new(subject, comparison, key, link, window, cx));
+            let view =
+                cx.new(|cx| CompareView::new(subject, comparison, key, link, None, window, cx));
             *held.borrow_mut() = Some(view.clone());
             Root::new(view, window, cx)
         });
@@ -3346,7 +3511,7 @@ mod tests {
             let subject = of(Handed::Path(source));
             let (_, window) = cx.add_window_view(move |window, cx| {
                 let view = cx.new(|cx| {
-                    CompareView::new(subject, Comparison::default(), None, None, window, cx)
+                    CompareView::new(subject, Comparison::default(), None, None, None, window, cx)
                 });
                 *held.borrow_mut() = Some(view.clone());
                 Root::new(view, window, cx)
@@ -3431,8 +3596,11 @@ mod tests {
         cx.run_until_parked();
     }
 
-    /// Two points across the middle of row 0 of the original, two
-    /// fifths in and nine tenths in.
+    /// Two points across the middle of row 0 of the original's text, from
+    /// where its text starts: a sixth and three fifths of the row's width
+    /// on. The row spans the gutter too, on whichever side the gutter is,
+    /// so a point measured off the row's own left could land in a gutter
+    /// on the right (E7-10, D466); measured off the text, both stay in it.
     fn across_the_original(
         view: &Entity<CompareView>,
         cx: &mut gpui::VisualTestContext,
@@ -3444,10 +3612,11 @@ mod tests {
                 .row_bounds(0)
                 .expect("the original painted its first row")
         });
+        let text = text_left(view, Side::Original, cx);
         let y = row.origin.y + row.size.height / 2.0;
         (
-            gpui::point(row.origin.x + row.size.width * 0.4, y),
-            gpui::point(row.origin.x + row.size.width * 0.9, y),
+            gpui::point(text + row.size.width / 6.0, y),
+            gpui::point(text + row.size.width * 0.6, y),
         )
     }
 
@@ -3509,6 +3678,358 @@ mod tests {
 
         let original = cx.update(|_, cx| view.read(cx).original.read(cx).value().to_string());
         assert_eq!(original, text, "a keystroke changed the original");
+    }
+
+    // -- where the gutters sit (E7-10) ----------------------------------
+
+    /// What each choice asks of each pane. Facing the middle: the
+    /// original's gutter on its right and its bar on its left, the
+    /// result's as before, and on both the marker before the numbers from
+    /// the text outward — so the numbers stand at the divider (D461,
+    /// D463). Both on the left: the library's defaults on both, sides and
+    /// order alike (D464). The order has no public geometry to measure —
+    /// the library keeps a marker's x to itself — so this is its gate;
+    /// put `LIBRARY_ORDER` in the middle's result and it goes red.
+    #[test]
+    fn each_choice_lays_out_both_panes() {
+        let numbers_at_the_divider = |order: [GutterColumn; 3]| {
+            let at = |column| order.iter().position(|c| *c == column);
+            at(GutterColumn::Markers) < at(GutterColumn::LineNumbers)
+                && order.last() == Some(&GutterColumn::LineNumbers)
+        };
+        let original = Gutters::Middle.layout(Side::Original);
+        let result = Gutters::Middle.layout(Side::Result);
+        assert_eq!(original.gutter, Edge::Right);
+        assert!(original.scroll_bar.is_left());
+        assert_eq!(result.gutter, Edge::Left);
+        assert!(!result.scroll_bar.is_left());
+        assert!(
+            numbers_at_the_divider(original.order),
+            "{:?}",
+            original.order
+        );
+        assert!(numbers_at_the_divider(result.order), "{:?}", result.order);
+
+        for side in [Side::Original, Side::Result] {
+            assert_eq!(
+                Gutters::Left.layout(side),
+                Layout {
+                    gutter: Edge::Left,
+                    scroll_bar: ScrollbarPlacement::default(),
+                    order: LIBRARY_ORDER,
+                },
+                "both on the left is not the library's own layout on {side:?}"
+            );
+        }
+        assert_eq!(Gutters::default(), Gutters::Middle);
+        for gutters in Gutters::ALL {
+            assert_eq!(Gutters::parse(gutters.id()), Some(gutters));
+        }
+    }
+
+    /// `side`'s input bounds as last painted: the editor inside its
+    /// padding, gutter included.
+    fn pane_of(
+        view: &Entity<CompareView>,
+        side: Side,
+        cx: &mut gpui::VisualTestContext,
+    ) -> Bounds<Pixels> {
+        cx.update(|_, cx| view.read(cx).editor(side, cx).read(cx).input_bounds())
+    }
+
+    /// Where `side`'s text starts: the left of row 0's first character,
+    /// in the window — the library's `range_to_bounds`, which places a
+    /// range where the text is painted, past whatever gutter is before it.
+    fn text_left(
+        view: &Entity<CompareView>,
+        side: Side,
+        cx: &mut gpui::VisualTestContext,
+    ) -> Pixels {
+        cx.update(|_, cx| {
+            view.read(cx)
+                .editor(side, cx)
+                .read(cx)
+                .range_to_bounds(&(0..0))
+                .expect("row 0 is laid out")
+                .left()
+        })
+    }
+
+    /// Which side of its pane `side`'s gutter is on, as the library reads
+    /// it back.
+    fn gutter_of(view: &Entity<CompareView>, side: Side, cx: &mut gpui::VisualTestContext) -> Edge {
+        cx.update(|_, cx| {
+            view.read(cx)
+                .editor(side, cx)
+                .read(cx)
+                .presentation()
+                .gutter_side()
+        })
+    }
+
+    /// Where a person grabs `side`'s vertical scroll bar, by the window's
+    /// layout: on the pane's outer edge — the left for the original
+    /// facing the middle, the right otherwise — four pixels outside the
+    /// input bounds, inside the padding the track overlays, and near the
+    /// top of the track, where the thumb is while the pane is scrolled to
+    /// the top. A drag from here is a drag of the thumb.
+    fn thumb_of(
+        view: &Entity<CompareView>,
+        side: Side,
+        cx: &mut gpui::VisualTestContext,
+    ) -> gpui::Point<Pixels> {
+        let left = cx.update(|_, cx| {
+            view.read(cx)
+                .comparison
+                .gutters
+                .layout(side)
+                .scroll_bar
+                .is_left()
+        });
+        let pane = pane_of(view, side, cx);
+        let x = if left {
+            pane.left() - px(4.0)
+        } else {
+            pane.right() + px(4.0)
+        };
+        gpui::point(x, pane.top() + px(12.0))
+    }
+
+    /// A point in `side`'s gutter, by the library's own reading of which
+    /// side that is: eight pixels in from the pane's edge there, on the
+    /// outermost column, level with [`thumb_of`].
+    fn in_gutter(
+        view: &Entity<CompareView>,
+        side: Side,
+        cx: &mut gpui::VisualTestContext,
+    ) -> gpui::Point<Pixels> {
+        let pane = pane_of(view, side, cx);
+        let x = match gutter_of(view, side, cx) {
+            Edge::Right => pane.right() - px(8.0),
+            Edge::Left => pane.left() + px(8.0),
+        };
+        gpui::point(x, thumb_of(view, side, cx).y)
+    }
+
+    /// Show every scroll bar always, so a press lands on one without a
+    /// scroll first to reveal it, and paint a frame with them shown.
+    fn bars_shown(cx: &mut gpui::VisualTestContext) {
+        cx.update(|_, cx| {
+            Theme::set_scrollbar_mode(gpui_component::scroll::ScrollbarMode::Always, cx)
+        });
+        cx.update(|window, _| window.refresh());
+        settle(cx);
+    }
+
+    /// Facing the middle, the default: the original's text starts at its
+    /// left, just clear of the scroll bar's track, and its gutter is at
+    /// its right; the result's text starts past its gutter; and the
+    /// original's text ends before its pane's right edge by at least the
+    /// result's gutter-to-text inset — measured by the caret at the end of
+    /// a line longer than the pane, which the editor scrolls into view
+    /// inside the text and so before the gutter. Without
+    /// `.gutter_side(Right)` in `apply_gutters` the original's text starts
+    /// a gutter in: red.
+    #[gpui::test]
+    fn the_original_s_gutter_faces_the_middle(cx: &mut TestAppContext) {
+        let line = "word ".repeat(80);
+        let (view, cx) = window_with(cx, &format!("{line}\n{line}\n"), Comparison::default());
+        settle(cx);
+
+        let original = pane_of(&view, Side::Original, cx);
+        let result = pane_of(&view, Side::Result, cx);
+        let original_inset = text_left(&view, Side::Original, cx) - original.left();
+        let result_inset = text_left(&view, Side::Result, cx) - result.left();
+        assert_eq!(gutter_of(&view, Side::Original, cx), Edge::Right);
+        assert_eq!(gutter_of(&view, Side::Result, cx), Edge::Left);
+        assert!(
+            original_inset >= px(0.0) && original_inset < original.size.width / 5.0,
+            "the original's text does not start at its left: {original_inset:?} into {:?}",
+            original.size.width
+        );
+        assert!(
+            result_inset > original_inset,
+            "the result's text does not start past a gutter: {result_inset:?}, the original's {original_inset:?}"
+        );
+
+        // The caret at the end of row 0, brought into view.
+        let end = line.len();
+        cx.update(|window, cx| {
+            view.read(cx).original.clone().update(cx, |state, cx| {
+                state.set_cursor_position(Position::new(0, end as u32), window, cx)
+            })
+        });
+        settle(cx);
+        let caret = cx.update(|_, cx| {
+            view.read(cx)
+                .original
+                .read(cx)
+                .range_to_bounds(&(end..end))
+                .expect("the caret's row is laid out")
+                .left()
+        });
+        assert!(
+            original.right() - caret >= result_inset,
+            "the original's text runs into its right-hand gutter: the caret at {caret:?}, \
+             the pane ends at {:?}, a gutter is {result_inset:?}",
+            original.right()
+        );
+    }
+
+    /// Facing the middle, the original's scroll bar is on its outer edge:
+    /// a drag down from its left edge moves its thumb and scrolls it, and
+    /// the same drag in its gutter, at its right edge, scrolls nothing —
+    /// it is a drag over the text's line ends, and selects from the end of
+    /// one row to the end of another, the mirror of what a drag in a
+    /// gutter on the left selects (D465). The result's bar is on its
+    /// right, as ever. Scrolling together is off, so each pane's offset is
+    /// its own doing. Without the original's
+    /// `set_scrollbar_placement(BottomLeft)` the left edge drags nothing:
+    /// red.
+    #[gpui::test]
+    fn the_original_s_scroll_bar_is_on_its_outer_edge(cx: &mut TestAppContext) {
+        let text = numbered(0, 300);
+        let comparison = Comparison {
+            sync_scroll: false,
+            ..Comparison::default()
+        };
+        let (view, cx) = window_with(cx, &text, comparison);
+        bars_shown(cx);
+
+        let gutter = in_gutter(&view, Side::Original, cx);
+        drag(cx, gutter, gutter + gpui::point(px(0.0), px(120.0)));
+        settle(cx);
+        assert_eq!(
+            offsets(&view, cx).0,
+            0.0,
+            "a drag in the original's gutter scrolled it"
+        );
+
+        let thumb = thumb_of(&view, Side::Original, cx);
+        assert!(
+            thumb.x < pane_of(&view, Side::Original, cx).left(),
+            "the original's bar is not on its left"
+        );
+        drag(cx, thumb, thumb + gpui::point(px(0.0), px(120.0)));
+        settle(cx);
+        let (left, right) = offsets(&view, cx);
+        assert!(
+            left < 0.0,
+            "a drag of the original's left edge did not scroll it"
+        );
+        assert_eq!(right, 0.0, "the result moved with scrolling together off");
+
+        let thumb = thumb_of(&view, Side::Result, cx);
+        assert!(
+            thumb.x > pane_of(&view, Side::Result, cx).right(),
+            "the result's bar is not on its right"
+        );
+        drag(cx, thumb, thumb + gpui::point(px(0.0), px(120.0)));
+        settle(cx);
+        assert!(
+            offsets(&view, cx).1 < 0.0,
+            "a drag of the result's right edge did not scroll it"
+        );
+    }
+
+    /// Both on the left is the layout before E7-10: each text right of
+    /// its gutter, by the same inset, and the original's scroll bar on its
+    /// right edge, where a drag scrolls it.
+    #[gpui::test]
+    fn both_on_the_left_is_today_s_layout(cx: &mut TestAppContext) {
+        let text = numbered(0, 300);
+        let comparison = Comparison {
+            gutters: Gutters::Left,
+            sync_scroll: false,
+            ..Comparison::default()
+        };
+        let (view, cx) = window_with(cx, &text, comparison);
+        bars_shown(cx);
+
+        assert_eq!(gutter_of(&view, Side::Original, cx), Edge::Left);
+        assert_eq!(gutter_of(&view, Side::Result, cx), Edge::Left);
+        let original =
+            text_left(&view, Side::Original, cx) - pane_of(&view, Side::Original, cx).left();
+        let result = text_left(&view, Side::Result, cx) - pane_of(&view, Side::Result, cx).left();
+        assert!(
+            original > px(0.0),
+            "the original's text is not past a gutter"
+        );
+        assert_eq!(original, result, "the two texts are not inset alike");
+
+        let thumb = thumb_of(&view, Side::Original, cx);
+        assert!(
+            thumb.x > pane_of(&view, Side::Original, cx).right(),
+            "the original's bar is not on its right"
+        );
+        drag(cx, thumb, thumb + gpui::point(px(0.0), px(120.0)));
+        settle(cx);
+        assert!(
+            offsets(&view, cx).0 < 0.0,
+            "a drag of the original's right edge did not scroll it"
+        );
+    }
+
+    /// The row flipped with a window open moves its gutters at once
+    /// (D462): the original's text moves right of a gutter on its left,
+    /// and nothing goes into the result's history — an edit typed before
+    /// the flip is still the first thing Undo takes back. Without the
+    /// observer's call to `apply_gutters` the original's text stays at
+    /// its left edge: red.
+    #[gpui::test]
+    fn flipping_the_row_moves_an_open_window_s_gutters(cx: &mut TestAppContext) {
+        let scratch = Scratch::new("gutters-flip");
+        let comparison = Comparison {
+            autosave: false,
+            ..Comparison::default()
+        };
+        let (view, preferences, cx) = saving_window(
+            cx,
+            &scratch,
+            of(Handed::Text("one\ntwo\n".to_owned())),
+            comparison,
+            None,
+            None,
+        );
+        settle(cx);
+        let before =
+            text_left(&view, Side::Original, cx) - pane_of(&view, Side::Original, cx).left();
+        let result = text_left(&view, Side::Result, cx) - pane_of(&view, Side::Result, cx).left();
+
+        cx.update(|window, cx| {
+            let pane = view.read(cx).result.clone();
+            pane.update(cx, |pane, cx| pane.focus(window, cx));
+        });
+        cx.simulate_input("typed ");
+        cx.run_until_parked();
+        let typed = panes_of(&view, cx).1;
+
+        cx.update(|_, cx| {
+            preferences.update(cx, |preferences, cx| {
+                preferences.place_gutters(Gutters::Left, cx)
+            })
+        });
+        settle(cx);
+        assert_eq!(gutter_of(&view, Side::Original, cx), Edge::Left);
+        let after =
+            text_left(&view, Side::Original, cx) - pane_of(&view, Side::Original, cx).left();
+        assert!(
+            after > before,
+            "the original's text did not move right of a gutter: {before:?} then {after:?}"
+        );
+        assert_eq!(
+            after, result,
+            "a window flipped to the left is not one opened so"
+        );
+        assert_eq!(panes_of(&view, cx).1, typed, "the flip changed the result");
+
+        cx.dispatch_action(gpui_component::input::Undo);
+        cx.run_until_parked();
+        assert_eq!(
+            panes_of(&view, cx).1,
+            "one\ntwo\n",
+            "the first Undo after the flip did not take back the typing"
+        );
     }
 
     // -- the two sides scroll together ----------------------------------
@@ -4238,7 +4759,17 @@ mod tests {
                     preferences
                 }
             };
-            let view = cx.new(|cx| CompareView::new(subject, comparison, key, link, window, cx));
+            let view = cx.new(|cx| {
+                CompareView::new(
+                    subject,
+                    comparison,
+                    key,
+                    link,
+                    Some(preferences.clone()),
+                    window,
+                    cx,
+                )
+            });
             *held.borrow_mut() = Some((view.clone(), preferences));
             Root::new(view, window, cx)
         });

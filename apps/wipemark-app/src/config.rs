@@ -47,7 +47,7 @@ use wipemark_pipeline::prompt::row::{self, Override};
 use wipemark_pipeline::prompt::{Overrides, Slot};
 use wipemark_store::Store;
 
-use crate::compare::Comparison;
+use crate::compare::{Comparison, Gutters};
 use crate::diff::Grain;
 use crate::duty::Serves;
 use crate::engine::{self, BaseUrl, EngineSettings, Provider, ReasoningEffort};
@@ -315,6 +315,12 @@ pub const COMPARE_SYNC_SCROLL_KEY: &str = "compare.sync_scroll";
 /// off.
 pub const COMPARE_AUTOSAVE_KEY: &str = "compare.autosave";
 
+/// Where the Compare window's line numbers sit, as a `compare::Gutters`
+/// id: `middle` (the original's on its right, facing the result's) or
+/// `left` (every pane's on its left) (E7-10, D461). The one `compare.`
+/// row an open window follows at once (D462).
+pub const COMPARE_GUTTERS_KEY: &str = "compare.gutters";
+
 // ## E4-6b — the journal and the batch queue's rows.
 
 /// What happens to a thing as it arrives in the main window, as a
@@ -403,7 +409,7 @@ pub fn model_key(role: Role) -> &'static str {
 /// below name their own key — and `-D warnings` fails a bin target on
 /// dead code. Same idiom as `TrayCommand::ALL`.
 #[cfg(test)]
-pub const PERSISTED: [&str; 36] = [
+pub const PERSISTED: [&str; 37] = [
     THEME_KEY,
     LANGUAGE_KEY,
     WINDOW_SCREEN_KEY,
@@ -413,6 +419,7 @@ pub const PERSISTED: [&str; 36] = [
     COMPARE_FOLLOW_KEY,
     COMPARE_SYNC_SCROLL_KEY,
     COMPARE_AUTOSAVE_KEY,
+    COMPARE_GUTTERS_KEY,
     RESULTS_DESTINATION_KEY,
     RESULTS_FOLDER_KEY,
     KEEP_ORIGINALS_KEY,
@@ -596,12 +603,12 @@ pub fn write_journal_keep_days(store: &Store, days: u32) -> Result<()> {
 }
 
 /// Read the Compare page's rows, falling back to marks by word, an
-/// original that follows the cursor, two panes that scroll together, and
-/// edits saved as they are typed.
+/// original that follows the cursor, two panes that scroll together,
+/// edits saved as they are typed, and line numbers facing the middle.
 ///
-/// The same bargain every row here keeps: a grain this build does not
-/// spell is read as the default, warned about, and left in the row for
-/// a build that does. An unreadable `follow` is read as following, an
+/// The same bargain every row here keeps: a grain or a gutters choice
+/// this build does not spell is read as the default, warned about, and
+/// left in the row for a build that does. An unreadable `follow` is read as following, an
 /// unreadable `sync_scroll` as scrolling together and an unreadable
 /// `autosave` as saving, because those are the defaults and an
 /// unreadable row has not asked for anything else.
@@ -617,12 +624,23 @@ pub fn read_comparison(store: &Store) -> Comparison {
             defaults.grain
         }),
     };
+    let gutters = match read_string(store, COMPARE_GUTTERS_KEY) {
+        None => defaults.gutters,
+        Some(value) => Gutters::parse(&value).unwrap_or_else(|| {
+            tracing::warn!(
+                value,
+                "unknown {COMPARE_GUTTERS_KEY}, expected middle or left"
+            );
+            defaults.gutters
+        }),
+    };
     Comparison {
         grain,
         follow: read_json::<bool>(store, COMPARE_FOLLOW_KEY).unwrap_or(defaults.follow),
         sync_scroll: read_json::<bool>(store, COMPARE_SYNC_SCROLL_KEY)
             .unwrap_or(defaults.sync_scroll),
         autosave: read_json::<bool>(store, COMPARE_AUTOSAVE_KEY).unwrap_or(defaults.autosave),
+        gutters,
     }
 }
 
@@ -649,6 +667,12 @@ pub fn write_compare_sync_scroll(store: &Store, sync_scroll: bool) -> Result<()>
 /// Persist whether the Compare window saves edits as they are typed.
 pub fn write_compare_autosave(store: &Store, autosave: bool) -> Result<()> {
     store.settings().set(COMPARE_AUTOSAVE_KEY, &autosave)?;
+    Ok(())
+}
+
+/// Persist where the Compare window's line numbers sit.
+pub fn write_compare_gutters(store: &Store, gutters: Gutters) -> Result<()> {
+    store.settings().set(COMPARE_GUTTERS_KEY, gutters.id())?;
     Ok(())
 }
 
@@ -1896,21 +1920,22 @@ mod tests {
         read_local, read_mcp, read_model, read_models_dir, read_profiles, read_retention,
         read_setup_done, read_theme, read_user_models, write_active_profile, write_back_identity,
         write_close_after_drop, write_compare_autosave, write_compare_follow, write_compare_grain,
-        write_compare_sync_scroll, write_engine, write_engine_allow_remote, write_engine_base_url,
-        write_engine_model, write_engine_provider, write_engine_reasoning,
+        write_compare_gutters, write_compare_sync_scroll, write_engine, write_engine_allow_remote,
+        write_engine_base_url, write_engine_model, write_engine_provider, write_engine_reasoning,
         write_engine_temperature, write_engine_timeout, write_hotkey, write_keep_for,
         write_keep_originals, write_keep_results, write_language, write_local_idle,
         write_local_keep, write_local_mlock, write_mcp_bind, write_mcp_enabled, write_mcp_port,
         write_model, write_models_dir, write_profile, write_results_destination,
         write_results_folder, write_setup_done, write_theme, write_user_model,
-        COMPARE_AUTOSAVE_KEY, COMPARE_FOLLOW_KEY, COMPARE_GRAIN_KEY, COMPARE_SYNC_SCROLL_KEY,
-        ENGINE_BASE_URL_KEY, ENGINE_LOCAL_IDLE_KEY, ENGINE_LOCAL_KEEP_KEY, ENGINE_LOCAL_MLOCK_KEY,
-        ENGINE_PROFILES_PREFIX, ENGINE_PROVIDER_KEY, ENGINE_TEMPERATURE_KEY, HOTKEY_PANEL_KEY,
-        HOTKEY_SHOW_KEY, KEEP_FOR_KEY, KEEP_ORIGINALS_KEY, LANGUAGE_KEY, MCP_BIND_KEY,
-        MCP_PORT_KEY, MODELS_DIR_KEY, MODELS_USER_PREFIX, MODEL_REWRITE_KEY, PERSISTED,
-        RESULTS_DESTINATION_KEY, RESULTS_FOLDER_KEY, SETUP_DONE_KEY, THEME_KEY,
+        COMPARE_AUTOSAVE_KEY, COMPARE_FOLLOW_KEY, COMPARE_GRAIN_KEY, COMPARE_GUTTERS_KEY,
+        COMPARE_SYNC_SCROLL_KEY, ENGINE_BASE_URL_KEY, ENGINE_LOCAL_IDLE_KEY, ENGINE_LOCAL_KEEP_KEY,
+        ENGINE_LOCAL_MLOCK_KEY, ENGINE_PROFILES_PREFIX, ENGINE_PROVIDER_KEY,
+        ENGINE_TEMPERATURE_KEY, HOTKEY_PANEL_KEY, HOTKEY_SHOW_KEY, KEEP_FOR_KEY,
+        KEEP_ORIGINALS_KEY, LANGUAGE_KEY, MCP_BIND_KEY, MCP_PORT_KEY, MODELS_DIR_KEY,
+        MODELS_USER_PREFIX, MODEL_REWRITE_KEY, PERSISTED, RESULTS_DESTINATION_KEY,
+        RESULTS_FOLDER_KEY, SETUP_DONE_KEY, THEME_KEY,
     };
-    use crate::compare::Comparison;
+    use crate::compare::{Comparison, Gutters};
     use crate::diff::Grain;
     use crate::engine::{BaseUrl, EngineSettings, Provider, ReasoningEffort};
     use crate::engine_host::{Keeping, LocalPolicy};
@@ -2429,6 +2454,7 @@ mod tests {
                 follow: true,
                 sync_scroll: true,
                 autosave: true,
+                gutters: Gutters::Middle,
             },
             "the Compare defaults moved; check what a fresh install now marks — \
              and that edits are still saved as they are typed (the owner, 2026-10-08)"
@@ -2438,6 +2464,7 @@ mod tests {
         write_compare_follow(&store, false).expect("follow");
         write_compare_sync_scroll(&store, false).expect("sync scroll");
         write_compare_autosave(&store, false).expect("autosave");
+        write_compare_gutters(&store, Gutters::Left).expect("gutters");
         drop(store);
         let store = Store::open(&path).expect("reopen");
         assert_eq!(
@@ -2447,6 +2474,7 @@ mod tests {
                 follow: false,
                 sync_scroll: false,
                 autosave: false,
+                gutters: Gutters::Left,
             }
         );
         // The row spells the grain by its id, not by a number or a
@@ -2458,6 +2486,55 @@ mod tests {
                 .expect("read"),
             Some("characters".to_owned())
         );
+    }
+
+    /// A first launch puts the line numbers face to face across the
+    /// middle (D461), a spelling this build does not know reads as that
+    /// and stays in its row, and each choice comes back as written, by
+    /// its id. With `Gutters::parse` answering `Left` for everything, the
+    /// unknown spelling reads as both on the left: red.
+    #[test]
+    fn a_first_launch_faces_the_middle() {
+        let dir = scratch("gutters");
+        let path = dir.join("wipemark.db");
+        let store = Store::open(&path).expect("open");
+        assert_eq!(read_comparison(&store).gutters, Gutters::Middle);
+
+        store
+            .settings()
+            .set(COMPARE_GUTTERS_KEY, "mirrored")
+            .expect("seed");
+        assert_eq!(
+            read_comparison(&store).gutters,
+            Gutters::Middle,
+            "an unknown spelling did not read as facing the middle"
+        );
+        assert_eq!(
+            store
+                .settings()
+                .get::<String>(COMPARE_GUTTERS_KEY)
+                .expect("read"),
+            Some("mirrored".to_owned()),
+            "an unknown spelling was rewritten"
+        );
+
+        drop(store);
+
+        for gutters in Gutters::ALL {
+            let store = Store::open(&path).expect("reopen");
+            write_compare_gutters(&store, gutters).expect("write");
+            drop(store);
+            let store = Store::open(&path).expect("reopen");
+            assert_eq!(read_comparison(&store).gutters, gutters);
+            assert_eq!(
+                store
+                    .settings()
+                    .get::<String>(COMPARE_GUTTERS_KEY)
+                    .expect("read"),
+                Some(gutters.id().to_owned()),
+                "the row does not spell the choice by its id"
+            );
+        }
     }
 
     /// The local model's three rows come back as they were written, a
@@ -2554,6 +2631,8 @@ mod tests {
             (COMPARE_SYNC_SCROLL_KEY, "1"),
             (COMPARE_AUTOSAVE_KEY, "off"),
             (COMPARE_AUTOSAVE_KEY, "0"),
+            (COMPARE_GUTTERS_KEY, "Middle"),
+            (COMPARE_GUTTERS_KEY, "right"),
         ] {
             store.settings().set(key, spelling).expect("seed");
             assert_eq!(

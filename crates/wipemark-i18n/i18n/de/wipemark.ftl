@@ -236,7 +236,7 @@ compare-help-scrolls = Wird eine Seite gerollt, rollt die andere mit, sodass gem
 compare-help-toolbar = Die Leiste über dem Ergebnis sind die Befehle des Editors selbst, mit den Kurzbefehlen, auf die er ohnehin hört.
 compare-help-words = Innerhalb einer geänderten Passage werden die Wörter, die abweichen, stärker markiert.
 compare-help-characters = Innerhalb einer geänderten Passage werden die Zeichen, die abweichen, stärker markiert.
-compare-help-settings = Auf der Seite „Vergleich“ der Einstellungen werden vier Dinge für das nächste Fenster gewählt, das aufgeht: was markiert wird, ob das Original dem Cursor folgt, ob beide Seiten zusammen rollen und ob Änderungen beim Tippen gespeichert werden.
+compare-help-settings = Auf der Seite „Vergleich“ der Einstellungen werden fünf Dinge gewählt: was markiert wird, wo die Zeilennummern stehen, ob das Original dem Cursor folgt, ob beide Seiten zusammen rollen und ob Änderungen beim Tippen gespeichert werden. Wo die Zeilennummern stehen, ändert dieses Fenster sofort; der Rest gilt für das nächste Fenster, das aufgeht.
 compare-help-close = Hat das Ergebnis ungespeicherte Änderungen, speichert das Schließen dieses Fensters es zuerst.
 compare-help-close-asks = Hat das Ergebnis ungespeicherte Änderungen, fragt das Schließen dieses Fensters, ob sie gespeichert werden sollen.
 compare-help-save = „Speichern“ am Anfang der Leiste über dem Ergebnis schreibt das bearbeitete Ergebnis dorthin, wo es liegt; die Zeile unter dem Ergebnis sagt, ob es gespeichert ist.
@@ -295,7 +295,7 @@ result-whitespace = Leerzeichen anzeigen
 
 
 settings-compare-title = Wie ein Ergebnis verglichen wird
-settings-compare-description = Was das Vergleichsfenster markiert, wenn ein Ergebnis neben sein Original gestellt wird, und wann es ein bearbeitetes speichert. Ein Fenster liest diese Einstellungen beim Öffnen; ein bereits offenes behält, womit es geöffnet wurde.
+settings-compare-description = Was das Vergleichsfenster markiert, wenn ein Ergebnis neben sein Original gestellt wird, wie die beiden Seiten angeordnet sind und wann es ein bearbeitetes speichert. Ein Fenster liest diese Einstellungen beim Öffnen; ein bereits offenes behält, womit es geöffnet wurde — außer, wo die Zeilennummern stehen: Dem folgt ein offenes Fenster sofort.
 settings-compare-exact = Jedes Zeichen zählt: der Vergleich übersieht kein Leerzeichen, kein Zeilenende und kein Zeichen, das man nicht sehen kann.
 
 settings-compare-grain-title = Was markiert wird
@@ -303,6 +303,11 @@ settings-compare-grain-description = Jede Zeile, die abweicht, wird auf beiden S
 settings-compare-grain-lines = Nur Zeilen
 settings-compare-grain-words = Geänderte Wörter
 settings-compare-grain-characters = Geänderte Zeichen
+
+settings-compare-gutters-title = Wo die Zeilennummern stehen
+settings-compare-gutters-description = „Zur Mitte hin“ setzt die Zeilennummern und Markierungen des Originals an seinen rechten Rand, neben die des Ergebnisses, und seine Bildlaufleiste an seinen äußeren Rand, wie es Programme tun, die Texte nebeneinander vergleichen. „Beide links“ lässt die Zeilennummern und Markierungen jeder Seite links und ihre Bildlaufleiste rechts.
+settings-compare-gutters-middle = Zur Mitte hin
+settings-compare-gutters-left = Beide links
 
 settings-compare-follow-title = Das Original folgt dem Cursor
 settings-compare-follow-description = Wird der Cursor im Ergebnis bewegt, springt der Cursor des Originals auf die Zeile, die an derselben Stelle steht. Ausgeschaltet bleibt der Cursor des Originals, wo er war.
