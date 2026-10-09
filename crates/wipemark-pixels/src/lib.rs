@@ -67,6 +67,8 @@ pub use raster::{Layout, Raster, RasterError};
 pub use restore::restore_off_by;
 pub use restore::{composite, restore, RestoreError, Restored};
 use serde::Serialize;
+#[doc(hidden)]
+pub use verify::{measure_at, Outline};
 pub use verify::{
     Refusal, Scores, Verified, BAND, BLEND_LEVELS, CHROMA_LEVELS, NOISE_FLOOR, NO_BLEND_RATIO,
     OUTLINE_BOUND, STEP_LEVELS, TEXTURE_LEVELS, TEXTURE_RATIO,

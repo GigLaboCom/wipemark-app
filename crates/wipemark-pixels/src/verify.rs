@@ -574,9 +574,10 @@ pub const TEXTURE_LEVELS: f32 = 5.5;
 pub const TEXTURE_RATIO: f32 = 2.0;
 
 /// What a restoration left along the mark's contour, three ways (D238,
-/// D244, D247).
+/// D244, D247). Public for [`measure_at`] alone (E12-R12), a developer's
+/// measure: the product hands it out only inside [`crate::Restored`].
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Outline {
+pub struct Outline {
     /// The contour's energy on the restored raster, less what the texture
     /// around the mark would put there, as a share of the energy the mark
     /// had before (D238). Relative: on a flat picture a ring of twenty
@@ -648,6 +649,92 @@ pub(crate) fn outline(raster: &Raster, verified: &Verified) -> Outline {
         ((after - weight * texture).max(0.0) / verified.contour) as f32
     };
     Outline { share, ..steps }
+}
+
+/// [`outline`]'s measures over a rectangle **nothing was restored in**
+/// (E12-R12 §4.1): what a restoration that handed this very picture back
+/// would be told — the clean picture's share of the measures every bound
+/// is set against. `map` is brought to `rect` by `kernel` as `verify`
+/// brings it (the template, its capture noise taken out), and `outline`
+/// runs as it runs after a restoration, with two things a restoration
+/// would have had standing in:
+///
+/// * **the contour the mark had** (the share's denominator, `E(0)` before
+///   the restoration): the contour energy of this template drawn here with
+///   the profile's logo — [`crate::composite`], rounded as a file stores
+///   it, over a copy of the rectangle and its one-pixel ring — which is
+///   the stored file a perfect restoration would have started from;
+/// * **the pixels the restoration changed** (the set `texture` is taken
+///   over): the template's support, `α` from [`NOISE_FLOOR`] to under the
+///   profile's `opaque_above` — the pixels a restoration of this map would
+///   write. It is the set `outline` takes after a real restoration too,
+///   which counts the faint ones the inverse rounds back to themselves.
+///
+/// `None` when the template does not fit `rect` or the picture. A measure
+/// for `examples/measure_clean.rs`, never a verdict: the bounds are
+/// [`Outline::left`] and [`Outline::textured`], the latter on a lossy
+/// source only, as `restore` applies it.
+#[doc(hidden)]
+pub fn measure_at(
+    raster: &Raster,
+    profile: &Profile,
+    map: &crate::alpha::AlphaMap,
+    rect: SubRect,
+    kernel: Kernel,
+) -> Option<Outline> {
+    let (shape, at, noise) = template_and_noise(map, rect, kernel)?;
+    if !at.inside(raster.width(), raster.height()) {
+        return None;
+    }
+    let max = f64::from(raster.layout().max());
+    let logo = profile.logo.map(|c| f64::from(c) * max / 255.0);
+    let opaque = profile.opaque_above;
+    // The rectangle and its ring — all `Grid` reads — copied, and the
+    // template drawn over the copy.
+    let (x0, y0) = (at.x.saturating_sub(1), at.y.saturating_sub(1));
+    let x1 = (at.x + at.width + 1).min(raster.width());
+    let y1 = (at.y + at.height + 1).min(raster.height());
+    let mut samples = Vec::new();
+    for y in y0..y1 {
+        let row = raster.at(x0, y)..raster.at(x1 - 1, y) + raster.layout().channels();
+        samples.extend_from_slice(&raster.samples()[row]);
+    }
+    let mut drawn = Raster::new(x1 - x0, y1 - y0, raster.layout(), samples).ok()?;
+    let local = PixelRect {
+        x: at.x - x0,
+        y: at.y - y0,
+        ..at
+    };
+    let mark = crate::alpha::AlphaMap::new(
+        at.width,
+        at.height,
+        shape.values.iter().map(|v| v.clamp(0.0, 1.0)).collect(),
+    )
+    .ok()?;
+    crate::restore::composite(&mut drawn, &mark, local, profile.logo);
+    let grid = Grid::new(&drawn, &shape.values, local, opaque, logo);
+    let contour = grid.energy(0.0, &mut vec![0f64; grid.pixels.len()]);
+    // `outline` reads the template, its place, the logo, the opaque
+    // threshold and the contour; the rest is what no proof measured.
+    let unrestored = Verified {
+        profile: profile.id.clone(),
+        rect,
+        at,
+        values: shape.values,
+        logo,
+        opaque_above: opaque,
+        gain: 1.0,
+        edge_ratio: 0.0,
+        holes: 0,
+        resampled: false,
+        searched: false,
+        fitted: false,
+        noise,
+        width: raster.width(),
+        height: raster.height(),
+        contour,
+    };
+    Some(outline(raster, &unrestored))
 }
 
 /// The faint band's step against the picture around it, per channel and
