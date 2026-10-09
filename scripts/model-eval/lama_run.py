@@ -29,9 +29,10 @@ and the accepted R*, or `regress.py run --export-crops` — see `evalkit.py`):
    (`baselines.hard_mask`, the same for every method).
 2. **The crop**: the ROI and 128 px around it (`--context`), mirror-padded
    to sides that are multiples of 8. Where the exported crop gives less
-   context than asked (`recon_bench` exports 64 px), the shortfall is
-   mirror-padded and recorded per crop (`context_px`); export with more
-   (`export_crops --pad 128`) to avoid it.
+   context than asked (`recon_bench` exports 64 px unless `--crop-pad`), the
+   shortfall is mirror-padded and recorded per crop (`context_px`); export
+   with more (`recon_bench run … --crop-pad 128`, `export_crops --pad 128`)
+   to avoid it.
 3. **LaMa**: `predict(image, mask)` — image RGB in [0, 1], mask in {0, 1} —
    is `lama_predictor`, the one integration point: the reference code of
    https://github.com/advimman/lama (`saicinpainting`), the `big-lama`

@@ -106,9 +106,10 @@ Crops come from two places, in one layout (`evalkit.py`'s header):
    python3 scripts/model-eval/lama_run.py run … --ab-holes ab/lama-holes/score.json --ab-ns ab/lama-ns/score.json
    ```
 
-   `recon_bench` exports 64 px of context; `lama_run.py` mirror-pads the
-   rest and records how much each crop had (`context_px`). R1's crops take
-   `--crop-pad 128`.
+   `recon_bench run … --export-crops DIR --crop-pad 128` exports LaMa's
+   128 px (64 by default); where a crop has less, `lama_run.py` mirror-pads
+   the rest and records how much each crop had (`context_px`). R1's crops
+   take `regress.py … --crop-pad 128`.
 
 ## The venvs
 

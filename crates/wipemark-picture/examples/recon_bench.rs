@@ -27,7 +27,7 @@
 //! # 4. Run every config over every file.
 //! cargo run --release -p wipemark-picture --example recon_bench -- \
 //!     run --in bench/out/<run> --config R0 [--config …] \
-//!     --out bench/out/<run>/results.jsonl [--export-crops DIR] [--jobs N] [--slices png,…]
+//!     --out bench/out/<run>/results.jsonl [--export-crops DIR [--crop-pad 64]] [--jobs N] [--slices png,…]
 //! # 5. The tables and the gates.
 //! python3 scripts/bench/report.py bench/out/<run>/results.jsonl
 //! ```
@@ -112,7 +112,8 @@ mod catalogue_file;
 const SCHEMA: u64 = 1;
 /// The ROI: the mark's box and this many pixels around it.
 const ROI_PAD: u32 = 4;
-/// An exported crop: the ROI and this many pixels around it.
+/// An exported crop: the ROI and this many pixels around it, unless
+/// `--crop-pad` says otherwise (LaMa asks 128, R10 §3.2).
 const CROP_PAD: u32 = 64;
 /// A PSNR over identical ROIs is infinite; written as this.
 const PSNR_CAP: f64 = 100.0;
@@ -125,7 +126,7 @@ fn usage() -> ! {
          recon_bench gen --manifest M --out DIR [--seed S] [--sample N] [--groups a,b] [--rows a,b] [--photos DIR]\n\
          \x20   [--profile ID,…] [--catalogue FILE] [--sizes WxH,…] [--slices a,b | --degradations FILE]\n\
          \x20   [--bias B|R,G,B] [--rounding round|truncate] [--logo-map FILE.wml]\n\
-         recon_bench run --in DIR --config NAME [--config NAME …] --out FILE [--export-crops DIR] [--jobs N] [--slices a,b]\n\
+         recon_bench run --in DIR --config NAME [--config NAME …] --out FILE [--export-crops DIR [--crop-pad N]] [--jobs N] [--slices a,b]\n\
          \x20   [--catalogue FILE] [--blend-row FILE.json]  (R9a, R9b, R9c: a build with blend-preview)\n\
          recon_bench configs"
     );
@@ -2471,7 +2472,15 @@ fn run(args: &Args) {
     }
     #[cfg(feature = "blend-preview")]
     load_preview(args, &configs);
-    let crops = args.get("export-crops").map(PathBuf::from);
+    let crops_dir = args.get("export-crops").map(PathBuf::from);
+    let pad = args.get("crop-pad").map_or(CROP_PAD, |p| {
+        p.parse()
+            .unwrap_or_else(|_| refuse(&format!("--crop-pad {p}: not a number")))
+    });
+    if crops_dir.is_none() && args.get("crop-pad").is_some() {
+        refuse("--crop-pad without --export-crops");
+    }
+    let crops = crops_dir.as_deref().map(|dir| Crops { dir, pad });
     let index_text = std::fs::read_to_string(input.join("index.jsonl"))
         .unwrap_or_else(|e| refuse(&format!("{}: {e}", input.join("index.jsonl").display())));
     let index: Vec<Value> = index_text
@@ -2487,14 +2496,7 @@ fn run(args: &Args) {
             s.spawn(|| loop {
                 let i = next.fetch_add(1, Ordering::Relaxed);
                 let Some(item) = index.get(i) else { break };
-                let mine = run_case(
-                    &input,
-                    item,
-                    &configs,
-                    &slices,
-                    &catalogues,
-                    crops.as_deref(),
-                );
+                let mine = run_case(&input, item, &configs, &slices, &catalogues, crops);
                 lines.lock().unwrap_or_else(|e| e.into_inner()).extend(mine);
             });
         }
@@ -2588,7 +2590,7 @@ fn run_case(
     configs: &[&Config],
     slices: &[&Slice],
     catalogues: &Catalogues,
-    crops: Option<&Path>,
+    crops: Option<Crops<'_>>,
 ) -> Vec<String> {
     let case_dir = root.join(item["case_dir"].as_str().unwrap_or_default());
     let bg_dir = root.join(item["bg_dir"].as_str().unwrap_or_default());
@@ -2674,7 +2676,7 @@ fn one(
     slice: &Slice,
     config: &Config,
     catalogue: &Catalogue,
-    crops: Option<&Path>,
+    crops: Option<Crops<'_>>,
     encoder: &str,
 ) -> Value {
     let bytes = match std::fs::read(path) {
@@ -2800,9 +2802,21 @@ fn one(
             "interval": r.interval,
         })
     });
-    if let Some(dir) = crops {
+    if let Some(crops) = crops {
         let _ = export(
-            dir, meta, slice, encoder, config, catalogue, raster, &restored, gt, roi, want, scale,
+            crops,
+            meta,
+            slice,
+            encoder,
+            config,
+            catalogue,
+            raster,
+            &restored,
+            gt,
+            roi,
+            want,
+            scale,
+            (want_box, restoration.map(|r| r.rect)),
         );
     }
     let samples: Vec<u8> = restored
@@ -2871,13 +2885,23 @@ fn write_back(
 
 // ───────────────────────────────────────────────────────────── crops
 
-/// `--export-crops`: per file and config, the ROI and 64 pixels around it —
-/// `input.png`, `recon.png`, `gt.png`, `alpha.pgm` (16-bit, the opacity as
-/// composited at the crop's pixels) and `meta.json` (σ_base when R8 lands,
-/// the holes as runs). R10's input.
+/// Where `--export-crops` writes, and how much context a crop carries.
+#[derive(Clone, Copy)]
+struct Crops<'a> {
+    dir: &'a Path,
+    pad: u32,
+}
+
+/// `--export-crops`: per file and config, the ROI and `--crop-pad` (64)
+/// pixels around it — `input.png`, `recon.png`, `gt.png`, `alpha.pgm`
+/// (16-bit, the opacity as composited at the crop's pixels) and `meta.json`
+/// (σ_base as `interval.rs` computes it, R8 §4.1, over the input at the
+/// restoration's own rectangle — the expected box when nothing was restored
+/// — the holes as runs, and whether a restoration made the crop). R10's
+/// input, read by `scripts/model-eval/evalkit.py`.
 #[allow(clippy::too_many_arguments)]
 fn export(
-    dir: &Path,
+    crops: Crops<'_>,
     meta: &Value,
     slice: &Slice,
     encoder: &str,
@@ -2889,8 +2913,10 @@ fn export(
     roi: PixelRect,
     want: SubRect,
     scale: (f32, f32),
+    (want_box, restored_at): (PixelRect, Option<PixelRect>),
 ) -> Result<(), String> {
-    let crop = grow(roi, CROP_PAD, input.width(), input.height());
+    let sigma_at = restored_at.unwrap_or(want_box);
+    let crop = grow(roi, crops.pad, input.width(), input.height());
     let name = format!(
         "{}__{}__{}__{}",
         meta["background"].as_str().unwrap_or("bg"),
@@ -2898,7 +2924,7 @@ fn export(
         slice.id,
         encoder
     );
-    let out = dir.join(config.name).join(name);
+    let out = crops.dir.join(config.name).join(name);
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
     write_png(&out.join("input.png"), &cut(input, crop))?;
     write_png(&out.join("recon.png"), &cut(recon, crop))?;
@@ -2962,12 +2988,28 @@ fn export(
             "roi_in_crop": rect_json(PixelRect { x: roi.x - crop.x, y: roi.y - crop.y, ..roi }),
             "rect_in_crop": {"x": want.x - crop.x as f32, "y": want.y - crop.y as f32, "size": want.size},
             "alpha_kernel": if slice.scale.is_some() { "area (the picture was resized bicubically: an approximation)" } else { "area (the composite's own)" },
-            // R8 §4.1 adds it.
-            "sigma_base": Value::Null,
+            // R8 §4.1's σ_base per RGB channel, the Rust value R10 reads.
+            "sigma_base": wipemark_pixels::sigma_base(input, sigma_at),
+            "sigma_rect_in_crop": in_crop(sigma_at, crop),
+            // `export_crops`' keys: the restoration's rectangle and the word.
+            "rect_px_in_crop": restored_at.map(|r| in_crop(r, crop)),
+            "restored": restored_at.is_some(),
+            "crop_pad": crops.pad,
             "holes_rle": runs,
         }),
     );
     Ok(())
+}
+
+/// `r` in the coordinates of `crop`, signed: a rectangle may reach past a
+/// crop cut with a small `--crop-pad`.
+fn in_crop(r: PixelRect, crop: PixelRect) -> Value {
+    json!({
+        "x": i64::from(r.x) - i64::from(crop.x),
+        "y": i64::from(r.y) - i64::from(crop.y),
+        "width": r.width,
+        "height": r.height,
+    })
 }
 
 /// Sorted indices as `[start, length]` runs.
@@ -3327,6 +3369,11 @@ mod tests {
         assert!(rec["zones"][rows[0].id]["tone"].is_string(), "{rec}");
         let slices: Vec<&Slice> = asked.iter().map(|id| slice_of(id).unwrap()).collect();
         let r0 = CONFIGS.iter().find(|cfg| cfg.name == "R0").unwrap();
+        let crops_dir = out.join("crops");
+        let crops = Crops {
+            dir: &crops_dir,
+            pad: 100,
+        };
         let mut models = Vec::new();
         let mut proved = 0;
         for line in &lines {
@@ -3334,7 +3381,7 @@ mod tests {
             let case_dir = out.join(item["case_dir"].as_str().unwrap());
             assert!(case_dir.join("jpeg444-q90").join("image.jpg").exists());
             assert!(!case_dir.join("jpeg444-q95").exists());
-            for result in run_case(&out, &item, &[r0], &slices, &c, None) {
+            for result in run_case(&out, &item, &[r0], &slices, &c, Some(crops)) {
                 let r: Value = serde_json::from_str(&result).unwrap();
                 assert!(r.get("error").is_none(), "{r}");
                 assert_eq!(r["profile"], FIXTURE);
@@ -3354,6 +3401,53 @@ mod tests {
         for model in ["encoded", "linear-light"] {
             assert!(models.iter().any(|(m, _)| m == model), "{models:?}");
         }
+        // The crops (R10): `--crop-pad`'s context, and σ_base the Rust value
+        // at the restoration's rectangle — the one `interval.rs` computes
+        // over the stored picture — never null.
+        let mut restored = 0;
+        let mut exported = 0;
+        for entry in std::fs::read_dir(crops_dir.join("R0")).unwrap() {
+            let dir = entry.unwrap().path();
+            let m = read_json(&dir.join("meta.json"));
+            exported += 1;
+            assert_eq!(m["crop_pad"], 100, "{m}");
+            let (crop, roi) = (&m["crop"], &m["roi_in_crop"]);
+            // The fixture's mark sits bottom left: the crop's top and right
+            // are not clipped, so there the context is the pad's.
+            let n = |v: &Value| v.as_u64().unwrap();
+            assert_eq!(n(&roi["y"]), 100, "{m}");
+            assert_eq!(
+                n(&crop["width"]) - n(&roi["x"]) - n(&roi["width"]),
+                100,
+                "{m}"
+            );
+            let sigma: Vec<f64> = m["sigma_base"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{m}"))
+                .iter()
+                .map(|v| v.as_f64().unwrap())
+                .collect();
+            assert_eq!(sigma.len(), 3, "{m}");
+            if m["restored"] == true {
+                restored += 1;
+                let input = decode_any(&std::fs::read(dir.join("input.png")).unwrap()).unwrap();
+                let r = &m["rect_px_in_crop"];
+                let at = PixelRect {
+                    x: r["x"].as_u64().unwrap() as u32,
+                    y: r["y"].as_u64().unwrap() as u32,
+                    width: r["width"].as_u64().unwrap() as u32,
+                    height: r["height"].as_u64().unwrap() as u32,
+                };
+                let want = wipemark_pixels::sigma_base(&input, at);
+                for (got, want) in sigma.iter().zip(want) {
+                    assert!((got - f64::from(want)).abs() < 1e-4, "{m}");
+                }
+            } else {
+                assert!(m["rect_px_in_crop"].is_null(), "{m}");
+            }
+        }
+        assert!(exported >= lines.len(), "{exported}");
+        assert!(restored >= 1, "{restored}");
         let _ = std::fs::remove_dir_all(&out);
     }
 

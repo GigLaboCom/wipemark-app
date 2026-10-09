@@ -25,8 +25,10 @@ What it does
   any encoder), `gt.png` (the truth; the bench's only), `alpha.pgm`
   (16-bit, the opacity at the crop's pixels) and `meta.json` (the ROI and
   the mark's rectangle in the crop, the profile, the slice or the class and
-  variant, `sigma_base` where the exporter measured it, the holes as
-  `[start, length]` runs of row-major indices).
+  variant, `sigma_base` as the exporter measured it — both exporters write
+  the Rust value, `wipemark_pixels::sigma_base` at the restoration's
+  rectangle; a `null` or missing one, from an older run, is restated here —
+  the holes as `[start, length]` runs of row-major indices).
 * **Restated measures**, each from the Rust it names, so a crop can be
   measured after a model changed it:
   * `sigma_base` — `wipemark_pixels::sigma_base` (`interval.rs`, R8 §4.1):
@@ -790,6 +792,17 @@ def _t_sigma_base_reads_white_noise_as_its_sigma():
     assert all(3.4 < v < 4.6 for v in s), s
 
 
+def _t_the_exporters_sigma_base_wins_and_null_is_restated():
+    c = synthetic_crop()
+    restated = float(max(sigma_base(c.input, c.rect_px)))
+    c.meta["sigma_base"] = [1.25, 7.5, 2.0]
+    assert c.sigma_base() == 7.5, c.sigma_base()
+    c.meta["sigma_base"] = None
+    assert c.sigma_base() == restated, (c.sigma_base(), restated)
+    del c.meta["sigma_base"]
+    assert c.sigma_base() == restated
+
+
 def _t_morphology_and_padding():
     m = np.zeros((9, 9), bool)
     m[4, 4] = True
@@ -827,6 +840,8 @@ def selftest():
         ("ciede2000_is_sharmas", _t_ciede2000_is_sharmas),
         ("psnr_of_one_level_is_48_13", _t_psnr_of_one_level_is_48_13),
         ("sigma_base_reads_white_noise_as_its_sigma", _t_sigma_base_reads_white_noise_as_its_sigma),
+        ("the_exporters_sigma_base_wins_and_null_is_restated",
+         _t_the_exporters_sigma_base_wins_and_null_is_restated),
         ("morphology_and_padding", _t_morphology_and_padding),
         ("an_exact_inverse_is_consistent_to_rounding", _t_an_exact_inverse_is_consistent_to_rounding),
         ("a_pgm_and_runs_round_trip", _t_a_pgm_and_runs_round_trip),
