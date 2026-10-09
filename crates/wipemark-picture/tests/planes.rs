@@ -1,9 +1,11 @@
 //! A JPEG's stored planes (E12-R3, D301, D302): Y, Cb and Cr at their own
-//! resolution from the `zune-jpeg` fork's `decode_planes`, held to the
-//! decoder's own RGB raster (upsampled by `Planes::to_rgb`), to the
-//! picture they were encoded from, and to the quantisation tables read
-//! out of the file by a marker walk that shares no code with the decoder.
-//! And the RGB raster every other path reads did not move.
+//! resolution from `zune-jpeg`'s raw output (`JpegDecoder::raw_output`,
+//! with the fork's `quantization_tables` getter), held to the decoder's
+//! own RGB raster (upsampled by `Planes::to_rgb`), to the picture they
+//! were encoded from, to the planes R3's own `decode_planes` read, and to
+//! the quantisation tables read out of the file by a marker walk that
+//! shares no code with the decoder. And the RGB raster every other path
+//! reads did not move.
 //!
 //! The fixtures are `fixtures/image/jpeg-planes/` (`make.py`, Pillow
 //! 12.3.0), odd sizes so the MCU padding has to be cropped, and the
@@ -82,26 +84,35 @@ fn planes_of(path: &str) -> (Decoded, Planes) {
     (d, planes)
 }
 
-/// A grey JPEG's one plane, straight from the fork (`Decoded` leaves
-/// grey's planes out, §4.3): what `Planes::to_rgb` does with `Gray`.
+/// A grey JPEG's one plane, straight from `zune-jpeg`'s raw output
+/// (`Decoded` leaves grey's planes out, §4.3) and cropped from its block
+/// padding as `decode.rs` crops a colour one: what `Planes::to_rgb` does
+/// with `Gray`.
 fn grey_planes(path: &str) -> Planes {
     let bytes = read(path);
-    let stored = zune_jpeg::JpegDecoder::new(Cursor::new(&bytes[..]))
-        .decode_planes()
+    let mut decoder = zune_jpeg::JpegDecoder::new(Cursor::new(&bytes[..]));
+    decoder
+        .decode_headers()
         .unwrap_or_else(|e| panic!("{path}: {e:?}"));
-    assert_eq!(stored.components.len(), 1, "{path}");
-    let y = &stored.components[0];
-    let luma = stored.qt[usize::from(y.qt_index)].unwrap();
+    let (width, height) = decoder.dimensions().unwrap();
+    let mut raw = decoder.raw_output();
+    assert_eq!(raw.num_components(), Some(1), "{path}");
+    let y = raw.layout().unwrap()[0];
+    let luma = raw.quantization_tables().unwrap()[0];
+    let mut padded = vec![0; y.byte_size];
+    raw.decode_into_planes(&mut [&mut padded[..]])
+        .unwrap_or_else(|e| panic!("{path}: {e:?}"));
+    let samples = padded
+        .chunks_exact(y.stride)
+        .take(y.height)
+        .flat_map(|row| &row[..y.width])
+        .map(|&s| u16::from(s))
+        .collect();
     Planes::new(
-        stored.width as u32,
-        stored.height as u32,
+        width as u32,
+        height as u32,
         Sampling::Gray,
-        Plane::new(
-            y.width as u32,
-            y.height as u32,
-            y.samples.iter().map(|&s| u16::from(s)).collect(),
-        )
-        .unwrap(),
+        Plane::new(y.width as u32, y.height as u32, samples).unwrap(),
         None,
         None,
         Quant { luma, chroma: None },
@@ -346,6 +357,62 @@ fn the_quantisation_tables_are_the_files() {
     }
 }
 
+/// `bytes` with the frame header's third component — Cr — quantised by
+/// table `slot` instead of its own.
+fn cr_on_table(mut bytes: Vec<u8>, slot: u8) -> Vec<u8> {
+    let mut at = 2;
+    loop {
+        let (marker, len) = (
+            bytes[at + 1],
+            usize::from(u16::from_be_bytes([bytes[at + 2], bytes[at + 3]])),
+        );
+        if (0xC0..=0xC2).contains(&marker) {
+            // Length (2), precision (1), height (2), width (2), count (1),
+            // then three bytes a component: id, factors, table.
+            bytes[at + 4 + 6 + 2 * 3 + 2] = slot;
+            return bytes;
+        }
+        at += 2 + len;
+    }
+}
+
+fn planes_of_bytes(bytes: &[u8]) -> Option<Planes> {
+    decode_with_planes(bytes, ImageContainer::Jpeg)
+        .unwrap()
+        .unwrap()
+        .planes
+}
+
+#[test]
+fn a_jpeg_whose_cb_and_cr_are_quantised_apart_has_no_planes() {
+    // Cr moved onto the luma table: `Quant` holds one chroma table, and
+    // half of one is not offered. The picture still decodes.
+    let path = "jpeg-planes/rgb-37x23-q90-420.jpg";
+    let bytes = cr_on_table(read(path), 0);
+    let file = header(&bytes);
+    assert_ne!(file.components[1].3, file.components[2].3);
+    assert_ne!(
+        file.tables[0], file.tables[1],
+        "{path}: two tables that differ"
+    );
+    assert!(planes_of(path).1.quant().chroma.is_some());
+    assert_eq!(planes_of_bytes(&bytes), None);
+}
+
+#[test]
+fn two_slots_holding_the_same_table_are_one_chroma_table() {
+    // At quality 100 both of the file's tables are all ones, so Cr on the
+    // luma's slot is quantised exactly as Cb is: one chroma table, by
+    // value. (R3's patch handed out slots and refused this file; the
+    // getter hands out each component's table, and the quantisation is
+    // what the planar inverse and the interval read.)
+    let bytes = cr_on_table(read("jpeg-planes/ycc-37x23-q100-420.jpg"), 0);
+    let file = header(&bytes);
+    assert_ne!(file.components[1].3, file.components[2].3);
+    let planes = planes_of_bytes(&bytes).expect("one table in two slots");
+    assert_eq!(planes.quant().chroma, Some([1; 64]));
+}
+
 #[test]
 fn the_fixtures_are_what_their_names_say() {
     // What each variant is there to exercise, read off the file.
@@ -384,6 +451,81 @@ fn the_fixtures_are_what_their_names_say() {
     assert!(sixteen.tables[0].unwrap().iter().any(|&q| q > 255));
     for path in GREY {
         assert_eq!(header(&read(path)).components.len(), 1, "{path}");
+    }
+}
+
+/// One plane as `(width, height, sha256 of its samples as bytes)`.
+type Stored = (u32, u32, &'static str);
+
+/// Every three-component JPEG the fixtures hold, as R3's own road read it:
+/// the sampling, Y, Cb and Cr, and the sha256 of the two quantisation
+/// tables (luma then chroma, 64 little-endian `u16` each, natural order).
+/// Made by `examples/planes_digest.rs` over `recon/r1-r5` at `33a2c0e` with
+/// `zune-jpeg` at the old fork branch `wipemark/planes` (`bc409ea6`, its
+/// `decode_planes` over 0.5.15), before the move onto upstream's raw
+/// output; the tool prints the same lines over this code.
+#[rustfmt::skip]
+const PLANES: [(&str, &str, Stored, Stored, Stored, &str); 21] = [
+    ("jpeg-planes/even-38x24-q90-420.jpg", "4:2:0", (38, 24, "54c9a18a37568244bb66150ab638eb2511e66dcb403e273d412a89fadf989343"), (19, 12, "6585d799800f7f1bf5fcb51ca3981b8dd82f400a96c766dd45b649f511978c9e"), (19, 12, "7b129807d624486f21ff97b4366a5995e2aace9b88d933bfa219f6b037799118"), "3430deac84527226e3220a309c75dc0e7077f567e5c5cefff6d348590510bd70"),
+    ("jpeg-planes/rgb-129x65-q85-420.jpg", "4:2:0", (129, 65, "3dfd5b54b94e7c193d34a9d379c9cfe0af83f81c2a4f0a64c24f78f26e8cf589"), (65, 33, "cb4718493a02b375d48ac307ff0d239c97edbc07702aef045522786d0a048ef1"), (65, 33, "f47a1dc1682aff18a5a9f3b6f266e66449221e6f90bcb88b02c4024432897b3b"), "308aa80fe09a2a840b527ba73b70a720453939b842db8f524a7e5a82d05fb802"),
+    ("jpeg-planes/rgb-129x65-q85-422.jpg", "4:2:2", (129, 65, "3dfd5b54b94e7c193d34a9d379c9cfe0af83f81c2a4f0a64c24f78f26e8cf589"), (65, 65, "259eff91168103c21e8ec4794f8d6a99b6dd4daaa60dc44b0a871e2223f2bfba"), (65, 65, "df2515a46ed108291ad3eb38086020dcab74f42303cafb0213469ec1e2618e6e"), "308aa80fe09a2a840b527ba73b70a720453939b842db8f524a7e5a82d05fb802"),
+    ("jpeg-planes/rgb-129x65-q85-444.jpg", "4:4:4", (129, 65, "3dfd5b54b94e7c193d34a9d379c9cfe0af83f81c2a4f0a64c24f78f26e8cf589"), (129, 65, "af28eb1bc27d65b454c62d40879c6a4ca4472844216acf62986ff9a5a02d0e77"), (129, 65, "62915deb83a423fe2275dd9200aeabf67770bd5edf3180d20da9016e442b83fe"), "308aa80fe09a2a840b527ba73b70a720453939b842db8f524a7e5a82d05fb802"),
+    ("jpeg-planes/rgb-129x65-q90-420-progressive.jpg", "4:2:0", (129, 65, "fdb113a78f90df69d5e79002e302f7afcbbdae1b0a7a05ccc0716e6546b62797"), (65, 33, "91134185082936829749655b2b1e2d266e6afa6035b5334d988437ade0a672ce"), (65, 33, "cd5ade47f4272e36e508e86213e1ac1ae1e2b9e2a2db59f1ccad825a0e3a7382"), "3430deac84527226e3220a309c75dc0e7077f567e5c5cefff6d348590510bd70"),
+    ("jpeg-planes/rgb-129x65-q90-420-restart.jpg", "4:2:0", (129, 65, "fdb113a78f90df69d5e79002e302f7afcbbdae1b0a7a05ccc0716e6546b62797"), (65, 33, "91134185082936829749655b2b1e2d266e6afa6035b5334d988437ade0a672ce"), (65, 33, "cd5ade47f4272e36e508e86213e1ac1ae1e2b9e2a2db59f1ccad825a0e3a7382"), "3430deac84527226e3220a309c75dc0e7077f567e5c5cefff6d348590510bd70"),
+    ("jpeg-planes/rgb-37x23-dqt16-420.jpg", "4:2:0", (37, 23, "f228474d9e8272820109a8359008f6231384ee39d7ade010862e4aaa045ef8fb"), (19, 12, "e2d9e009557ac18c75f04e4576a5fc760f12c8524c548fdd5947b1ad2d771b47"), (19, 12, "4072cc9ad2a6b1275db85ca642166a88e39b463e9b0cc9000174e1a7a2f5c3f4"), "d91bb7cb287605fc6aedae50e96466bcb19c1731c4e65034b13e832da36f65a2"),
+    ("jpeg-planes/rgb-37x23-q90-420-one-dqt.jpg", "4:2:0", (37, 23, "5137235f6c4b4e045dfdbaae2f3a07b4c86b8b24fc6a30354fa68b2adde8ad64"), (19, 12, "3a4bcc87abf215c228dc311bb4abb3411c365a3f4ff0ecafd8f67c8881b85786"), (19, 12, "a142a5379d251b8f423a2da5a5387ea708921498614c6171278333f275d87771"), "3430deac84527226e3220a309c75dc0e7077f567e5c5cefff6d348590510bd70"),
+    ("jpeg-planes/rgb-37x23-q90-420.jpg", "4:2:0", (37, 23, "5137235f6c4b4e045dfdbaae2f3a07b4c86b8b24fc6a30354fa68b2adde8ad64"), (19, 12, "3a4bcc87abf215c228dc311bb4abb3411c365a3f4ff0ecafd8f67c8881b85786"), (19, 12, "a142a5379d251b8f423a2da5a5387ea708921498614c6171278333f275d87771"), "3430deac84527226e3220a309c75dc0e7077f567e5c5cefff6d348590510bd70"),
+    ("jpeg-planes/rgb-37x23-q90-422.jpg", "4:2:2", (37, 23, "5137235f6c4b4e045dfdbaae2f3a07b4c86b8b24fc6a30354fa68b2adde8ad64"), (19, 23, "a439f4dd0a24fc16ce38813b3ee91179bd64d28d6379c35f8897c7a3c88341c5"), (19, 23, "8c535d024a539aa118f200a032fb3b7dc0924e82e4165de540ac671bf96fdc44"), "3430deac84527226e3220a309c75dc0e7077f567e5c5cefff6d348590510bd70"),
+    ("jpeg-planes/rgb-37x23-q90-444-progressive.jpg", "4:4:4", (37, 23, "5137235f6c4b4e045dfdbaae2f3a07b4c86b8b24fc6a30354fa68b2adde8ad64"), (37, 23, "82f32d3aa2466c8c34defe2e9d85da494b966fc3e993e2a2f787ef2f6f15caaf"), (37, 23, "25fe5b987457ffb349e09eeb6c1a66b9c7e18a4e21c55cc7d663618696ee3802"), "3430deac84527226e3220a309c75dc0e7077f567e5c5cefff6d348590510bd70"),
+    ("jpeg-planes/rgb-37x23-q90-444.jpg", "4:4:4", (37, 23, "5137235f6c4b4e045dfdbaae2f3a07b4c86b8b24fc6a30354fa68b2adde8ad64"), (37, 23, "82f32d3aa2466c8c34defe2e9d85da494b966fc3e993e2a2f787ef2f6f15caaf"), (37, 23, "25fe5b987457ffb349e09eeb6c1a66b9c7e18a4e21c55cc7d663618696ee3802"), "3430deac84527226e3220a309c75dc0e7077f567e5c5cefff6d348590510bd70"),
+    ("jpeg-planes/ycc-129x65-q100-420.jpg", "4:2:0", (129, 65, "40439c14bf8492a662196213d1d8ba29cc5db61f58d566dffb7f1dcba896a3d7"), (65, 33, "1137a95b816aefeb1150c0736f4a56d5758814784d9348c0478258ad68ee4c63"), (65, 33, "08fa84a26b81da7195aee08dbd137e03cf9d7e9c9ede29f0a9cfdafca62dc5f6"), "8ca36e6856e98e919eeb6e5747c915091ca0f872c86fefbebfc76aa0867a52ea"),
+    ("jpeg-planes/ycc-37x23-q100-420.jpg", "4:2:0", (37, 23, "4b53587c6abd9e4d838eeb539b8a6fbf163aad8e069892010644ca022c40a540"), (19, 12, "e37137ec27679c551e884e037977111b11df4031b16a5c3bfebe0d92f31530f1"), (19, 12, "b51c92316f8570ecaed52115ea94c2092454317653679f8eec269734e2949554"), "8ca36e6856e98e919eeb6e5747c915091ca0f872c86fefbebfc76aa0867a52ea"),
+    ("gemini/fine-1040-q98-444.jpg", "4:4:4", (1040, 1040, "c41d72fb7b4b4da96d34da87c7a2f6fa29922c1a982c7bdf871f00051985860d"), (1040, 1040, "d3b95613beb77e2a4d863120a38c6c77752c541aa3b45b0163c33519b9c14fce"), (1040, 1040, "c69966abafec446964219a468c743965a63ba04ed65297006b5a291264962b4f"), "a6e104d220d599ad41df4317afee476ae04064584debe832e9f502a83de60e36"),
+    ("gemini/thinking-1040-q95-420.jpg", "4:2:0", (1040, 1040, "e8fa17e96e753fd10da381364440b1cea9ac808d64988374deb749e1c5a85061"), (520, 520, "051afd92b2b46af42d9ce57cde066901e6e22be9bc414d126fb07f4615290da1"), (520, 520, "f420442abc1471bb1b4be845008780d1fd507c70fa4e154ffb009863444365f8"), "3fe4686921f1f3c2f2064a0cab4ef556c21c39874cc86254e3f9d5dc8347df58"),
+    ("gemini/torch-1025-q95-420.jpg", "4:2:0", (1025, 1025, "20b387efdce44a16bb85f15b9d182a1e0fc6874b8ab7eb5f2d28bc664f178a7e"), (513, 513, "d1f31ebb6013d18df4a3137f2a535ac4b0c202394a58c4dd5aae09e7f38fa715"), (513, 513, "9675ca3ffe8a39987f57189baed74d4efe89ae34649084d687086e6f08221b41"), "3fe4686921f1f3c2f2064a0cab4ef556c21c39874cc86254e3f9d5dc8347df58"),
+    ("gemini/torch-1025-q95-444.jpg", "4:4:4", (1025, 1025, "20b387efdce44a16bb85f15b9d182a1e0fc6874b8ab7eb5f2d28bc664f178a7e"), (1025, 1025, "d0ee3ae0b3ae713d8919bd1d233418d9fb00701ddd7f45fb0fbdef0b873bd956"), (1025, 1025, "d8603712a17716ebdcb689a68d451e1a573e78fe66100ca4bb717344466c6983"), "3fe4686921f1f3c2f2064a0cab4ef556c21c39874cc86254e3f9d5dc8347df58"),
+    ("gemini/victory-1025-q95-420.jpg", "4:2:0", (1025, 1025, "05d6085a9a763c5f1a8cc6b8ce1db4890a0d3ee844f09d2f3b6affa21e3bf0e4"), (513, 513, "4a90a4aecf80d26d6f0f72ea359635af867a60e1607551ba9bef093ef3d3efb9"), (513, 513, "63c9c35def639ae84b358d13d950429adae1a8e34524cffaab05f2ada4f3c1ff"), "3fe4686921f1f3c2f2064a0cab4ef556c21c39874cc86254e3f9d5dc8347df58"),
+    ("gemini/victory-1025-q98-420.jpg", "4:2:0", (1025, 1025, "0ddde0f36b4b10d797c5d3db383d56e5033aab4813ad76caba2b7f4a1b695311"), (513, 513, "4e56976d489d08dd129dbeb80c90569367b1a941b4af2791bc07f08e3cb16896"), (513, 513, "4a9d9e61c4f26ceab3caad3a46de373c88d5d70852bf26a3869849c411da5f66"), "a6e104d220d599ad41df4317afee476ae04064584debe832e9f502a83de60e36"),
+    ("gemini/victory-1040-q95-420.jpg", "4:2:0", (1040, 1040, "39a6a7cb563cf95c95b3deaab02b7e4a61d2c12c65b8baf1703f82d16280245a"), (520, 520, "359807104f61f0d52794ce477911fa589ec633c789d3361ee098f00d25abe607"), (520, 520, "9e3bf221e720c3f2f1708bb23ad64b240e2e948a31eab32dfc6e3287f2325e71"), "3fe4686921f1f3c2f2064a0cab4ef556c21c39874cc86254e3f9d5dc8347df58"),
+];
+
+fn digest(plane: &Plane) -> (u32, u32, String) {
+    let mut hash = Sha256::new();
+    for &s in plane.samples() {
+        hash.update([u8::try_from(s).unwrap()]);
+    }
+    (
+        plane.width(),
+        plane.height(),
+        format!("{:x}", hash.finalize()),
+    )
+}
+
+#[test]
+fn the_planes_are_the_ones_r3_read() {
+    // Byte for byte: upstream's raw output and R3's `decode_planes` both
+    // copy the IDCT's clamped output before upsampling; what this holds is
+    // that the crop from the 8 × 8 padding, the order of the components
+    // and the tables are what they were.
+    for (path, sampling, y, cb, cr, tables) in PLANES {
+        let (_, planes) = planes_of(path);
+        let quant = planes.quant();
+        let mut hash = Sha256::new();
+        for q in quant.luma.iter().chain(quant.chroma.iter().flatten()) {
+            hash.update(q.to_le_bytes());
+        }
+        let owned = |(w, h, sha): Stored| (w, h, sha.to_owned());
+        assert_eq!(
+            (
+                planes.sampling().id(),
+                digest(planes.y()),
+                digest(planes.cb().unwrap()),
+                digest(planes.cr().unwrap()),
+                format!("{:x}", hash.finalize()),
+            ),
+            (sampling, owned(y), owned(cb), owned(cr), tables.to_owned()),
+            "{path}"
+        );
     }
 }
 

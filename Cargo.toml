@@ -156,6 +156,28 @@ gpui_platform = { git = "https://github.com/GigLaboCom/zed", rev = "9d80553d6a3d
 # update.
 gpui-component = { path = "vendor/gpui-component/crates/ui" }
 
+# zune-jpeg comes from our fork of the zune-image monorepo,
+# GigLaboCom/zune-image, branch `raw-quantization-tables` (protected
+# against deletion and force-push): upstream `dev` at 002706a8, which has
+# a JPEG's raw post-IDCT planes (`JpegDecoder::raw_output`,
+# etemesi254/zune-image #379, #386, #440) but no release with them yet,
+# plus one getter of ours, `RawDecodeSession::quantization_tables`
+# (offered upstream as #488). Its zune-core comes with it, by path, from
+# the same rev — the crates of ours that take zune-jpeg name zune-core
+# only through `zune_jpeg::zune_core`, so they see one.
+#
+# A git dependency, not a `[patch.crates-io]`: zune-jpeg there is
+# 0.5.16-rc2, and a patched crates-io package shares its semver slot
+# ("0.5") with crates.io's 0.5.15, which `image` 0.25.10 (our JPEG
+# encoder, and GPUI's image stack) asks for as "^0.5.5" — a pre-release
+# does not match that, and Cargo answered by downgrading `image` to
+# 0.25.8. A git source is a package of its own: `image` keeps crates.io's
+# 0.5.15 and every crate of ours gets the fork's. `version` makes Cargo
+# check the fork still is the pre-release this was written for. The fork
+# goes once upstream releases raw output with the getter. D301;
+# docs/architecture/zune-jpeg-pin.md.
+zune-jpeg = { git = "https://github.com/GigLaboCom/zune-image", rev = "e8d24f7e6007d74116bffe320ffff639e47eb702", version = "=0.5.16-rc2" }
+
 wipemark-core = { path = "crates/wipemark-core" }
 wipemark-i18n = { path = "crates/wipemark-i18n" }
 wipemark-engine = { path = "crates/wipemark-engine" }

@@ -24,7 +24,7 @@ thiserror.workspace = true
 # anyway); JPEG in through `zune-jpeg`.
 png = "0.18"
 image-webp = "0.2"
-zune-jpeg = "0.5"
+zune-jpeg = { workspace = true }
 # JPEG out (Q-V2: decode, restore, re-encode at high quality): `image`'s own
 # encoder, pure Rust, its `jpeg` feature alone.
 image = { version = "0.25", default-features = false, features = ["jpeg"] }

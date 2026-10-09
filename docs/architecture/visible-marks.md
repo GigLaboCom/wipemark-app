@@ -706,9 +706,11 @@ stored (D302):
   `None` for grey, CMYK, an RGB-coded JPEG, a PNG or a WebP, and for a
   JPEG whose planes could not be read, which is not a refusal. They are
   read by a second decoder over the same bytes (a second entropy pass),
-  through `zune-jpeg`'s `decode_planes`, which our fork adds (D301,
+  through `zune-jpeg`'s raw output (`JpegDecoder::raw_output`, upstream
+  `dev`, unreleased) cropped from its 8 × 8-padded buffers, with the
+  tables from the one getter our fork adds (D301,
   [zune-jpeg-pin.md](zune-jpeg-pin.md)). **`decode` leaves them `None`**:
-  the second decode costs ×1.40 of the first on the 21 stickers at 2048,
+  the second decode costs ×1.43 of the first on the 21 stickers at 2048,
   JPEG 95 4:2:0 — over the ×1.10 the step allowed — so they are taken
   only when a caller needs them, which will be the planar inverse once a
   mark on a JPEG is verified. The RGB decode is unchanged, and **nothing
@@ -723,8 +725,8 @@ stored (D302):
   padding cropped, 0–255 in `u16` as a raster's samples are — and `Quant`,
   the luma table and the one Cb and Cr share, in natural order.
   `Planes::new` refuses sizes the sampling does not make. A JPEG whose Cb
-  and Cr use two different tables gets no planes (`Quant` has one chroma
-  table).
+  and Cr are quantised by two different tables gets no planes (`Quant` has
+  one chroma table); two slots holding the same values are one table.
 * **`Planes::to_rgb`** restates the decoder's scalar upsampler (the
   triangle filter, vertical then horizontal at 4:2:0) and its 14-bit
   colour conversion, and is the decoder's raster **to the byte** on every
@@ -733,11 +735,15 @@ stored (D302):
   padding (up to 9 levels at 38 × 24; see zune-jpeg-pin.md §4). It is
   what the planar inverse (R6) will write back through, inside a mark's
   rectangle only.
-* **Cost.** `decode_with_planes` against the old `decode`: ×1.397 summed
-  over the 21 (853.6 ms against 610.9 ms; 20–35 ms a file before, 28–48
-  after); `decode` itself ×1.015, which is timing noise around the same
-  code. `crates/wipemark-picture/examples/planes_speed.rs`, aarch64, in
-  the E12-R3 report.
+* **Cost.** `decode_with_planes` against `decode` as it was at
+  `4b5ba17`: ×1.431 summed over the 21 (890.6 ms against 622.2 ms; 22–33
+  ms a file before, 31–46 after), against ×1.404 for R3's own patch timed
+  beside it; of what the planes add, the raw decode is about 203 ms and
+  the crop 43 (`examples/planes_cost.rs`). `decode` itself costs what it
+  cost on `zune-jpeg` 0.5.15. `crates/wipemark-picture/examples/planes_speed.rs`
+  through `docs/plan/reports/E12-R3-raw-output-against-r3.sh`, aarch64, in
+  the E12-R3 raw-output report (R3's first figure, ×1.397, is in the E12-R3
+  report).
 
 ## The planar inverse (E12-R6) — built, not on the product's path
 

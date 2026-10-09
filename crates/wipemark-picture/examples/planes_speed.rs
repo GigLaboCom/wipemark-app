@@ -12,8 +12,10 @@
 //! * **decode** — `wipemark_picture::decode` as it is now, the road every
 //!   surface takes (it leaves `planes` `None`);
 //! * **with planes** — `wipemark_picture::decode_with_planes`: `decode`,
-//!   then the fork's `decode_planes` on a second decoder over the same
-//!   bytes and the `Planes` built from it;
+//!   then `zune-jpeg`'s raw output (`raw_output`, `decode_into_planes`; R3
+//!   had the fork's own `decode_planes` there until 2026-10-09) on a
+//!   second decoder over the same bytes, cropped from the blocks' padding,
+//!   and the `Planes` built from it;
 //!
 //! checks that all three rasters are one, and prints each file's medians
 //! and the ratios `decode / old` and `with planes / old`, then the sums of
@@ -28,7 +30,8 @@
 //! stickers at 2048 × 2048 (Watchword `wipemark-gemini-stickers-2026-10-04`,
 //! `stickers/*.png`) saved at quality 95, 4:2:0 by
 //! `scripts/verify/images/round4-ebf421a/mkset.py` (Pillow 12.3.0): its
-//! `set/q95-420/`.
+//! `set/q95-420/`. `examples/planes_cost.rs` breaks the second decode
+//! down when this figure moves.
 
 use std::io::Cursor;
 use std::time::{Duration, Instant};

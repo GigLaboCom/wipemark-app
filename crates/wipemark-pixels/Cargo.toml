@@ -47,7 +47,7 @@ png = "0.18"
 # format a vendor hands out, and its gate puts a synthetic vendor through a
 # real JPEG encoder (`image`'s `JpegEncoder`). Dev-dependencies only, all
 # already in the lock: the library still has no codec.
-zune-jpeg = "0.5"
+zune-jpeg = { workspace = true }
 image-webp = "0.2"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 toml.workspace = true
