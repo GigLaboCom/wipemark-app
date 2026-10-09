@@ -58,7 +58,7 @@
           "id": { "allOf": [{ "$ref": "#/$defs/name" }, { "not": { "enum": ["index", "summary", "reproduce"] } }] },
           "class": {
             "enum": ["recon-png", "recon-jpeg-444", "recon-jpeg-420", "recon-webp", "recon-resized",
-                     "frames", "transparent", "alt", "negative", "gemini-midtone"]
+                     "frames", "transparent", "alt", "negative", "gemini-midtone", "held-out"]
           },
           "variant": { "type": "string", "minLength": 1 },
           "source": { "$ref": "#/$defs/name" },

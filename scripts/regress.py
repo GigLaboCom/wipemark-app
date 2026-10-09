@@ -72,8 +72,10 @@ How to run it
                                         --out golden/baseline/<commit>/
     python3 scripts/regress.py run      [--corpus …] [--cache …] --cli … --baseline golden/baseline/<commit>/ \
                                         --route {lossy,model,detect,all}[,…] [--target MEASURE@SELECTOR]… \
-                                        [--new-fields FIELD,…] [--out reports/regress-<commit>-<date>/]
-    python3 scripts/regress.py diff     --a <dir> --b <dir> --route … [--target …] [--new-fields …] [--out <dir>]
+                                        [--new-fields FIELD,…] [--profile GLOB] [--foreign GLOB] \
+                                        [--out reports/regress-<commit>-<date>/]
+    python3 scripts/regress.py diff     --a <dir> --b <dir> --route … [--target …] [--new-fields …] \
+                                        [--profile GLOB] [--foreign GLOB] [--out <dir>]
     python3 scripts/regress.py list     [--corpus …] [--cache …] [--select …] [--out list.tsv]
     python3 scripts/regress.py selftest [--cli target/release/wipemark-cli]
 
@@ -91,6 +93,44 @@ presigned URL is a credential: give it as `--url` or in
 `REGRESS_URL_<SOURCE>` (`REGRESS_URL_STICKERS`), never in a file; this
 script prints only its host. The CLI runs with `WIPEMARK_DATA_DIR` in a
 temporary folder, so no real settings are read.
+
+A second golden set (E12-R12 stage 4b, 2026-10-09): `golden/grok/manifest.json`
+in R1's structure — created only once there are files, never with invented
+rows — takes the classes R12 §4.2 names: `recon-<format>`, `frames` (a
+clip's frames, `…png` lossless), `held-out` (the files R11 held out at
+collection; lossless or lossy by their variant, like `frames`; a proof lost
+is G4's fail), and `negative` with text look-alikes (a variant such as
+`text-png`; G1 as for any negative). The §6.3 reproduction is the Gemini
+stickers' alone: `baseline` checks D247/D250/D252 over the files of
+`wipemark-gemini-stickers-2026-10-04` and those derived from them, and on a
+corpus with none of them says so and checks nothing.
+
+`--profile GLOB` and `--foreign GLOB` (run, diff; repeated or
+comma-separated; E12-R12 stage 4b) tell one vendor's findings from
+another's. `--profile 'gemini-*'` makes every gate read those profiles'
+findings and restorations alone, and adds **F2**: a file whose found or
+verified count of them fell fails. `--foreign 'grok-*'` adds **F1**: a file
+with any finding of those profiles after the change fails, and so does the
+corpus gate. Together they are R11's P5 as a diff: the Gemini corpus, a
+baseline from before the new profile and a run with it,
+`diff … --route detect --profile 'gemini-*' --foreign 'grok-*'` — "0
+findings of the Grok profile, and the Gemini profiles lose none".
+
+The Grok runbook (host; nothing of it is runnable before R11's provisional
+profile and its captures exist):
+
+    # 1. The corpus: R2 stage 0's captures as a Watchword ZIP, named in golden/grok/manifest.json (D304),
+    #    the classes above; pin it, commit the manifest.
+    python3 scripts/regress.py pin --golden golden/grok --add 'recon-png:captures:recon/*.png' \
+        --add 'held-out:captures:held/*.png' --add 'negative:captures:negative/*.png:text-png' …
+    # 2. P5 on the Gemini corpus: the baseline at the commit before the profile, a run at the commit with it.
+    python3 scripts/regress.py run --cli target/release/wipemark-cli --baseline golden/baseline/<before>/ \
+        --route detect --profile 'gemini-*' --foreign 'grok-*'
+    # 3. After the profile is accepted (R12 §4.2): the Grok baseline, then the run against itself, 100 % pass.
+    python3 scripts/regress.py baseline --golden golden/grok --cli target/release/wipemark-cli \
+        --out golden/grok/baseline/$(git rev-parse --short=7 HEAD)/
+    python3 scripts/regress.py run --golden golden/grok --cli target/release/wipemark-cli \
+        --baseline golden/grok/baseline/<commit>/ --route all
 
 `--new-fields a,b` (run, diff; added by E12-R7, 2026-10-09) names JSON
 fields a change adds by a decision — `consistency_px,consistency_excluded`
@@ -176,7 +216,15 @@ TOL_MEASURES = list(TOLERANCE)
 CLASSES = [
     "recon-png", "recon-jpeg-444", "recon-jpeg-420", "recon-webp", "recon-resized",
     "frames", "transparent", "alt", "negative", "gemini-midtone",
+    # E12-R12 §4.2 (stage 4b, 2026-10-09): a second golden set's files that R11 held out at collection — marked
+    # files its profile was not fitted on (P1–P3), judged lossless or lossy by their variant, like `frames`.
+    "held-out",
 ]
+# The classes whose fidelity is their variant's: `…png` is lossless, anything else lossy.
+BY_VARIANT = ("frames", "recon-resized", "negative", "gemini-midtone", "held-out")
+# §6.3's figures are the Gemini stickers' (D247/D250/D252): the baseline checks them over that ZIP's files and those
+# derived from them, and over nothing else — a second golden set (`--golden golden/grok`) was never measured on them.
+REPRODUCE_KEY = "wipemark-gemini-stickers-2026-10-04"
 LOSSLESS_CLASSES = {"recon-png", "transparent", "alt"}
 LOSSY_CLASSES = {"recon-jpeg-444", "recon-jpeg-420", "recon-webp"}
 ROUTES = ["lossy", "model", "detect"]
@@ -198,13 +246,13 @@ class Refusal(Exception):
 def is_lossless(cls, variant):
     if cls in LOSSLESS_CLASSES:
         return True
-    return cls in ("frames", "recon-resized", "negative", "gemini-midtone") and variant.endswith("png")
+    return cls in BY_VARIANT and variant.endswith("png")
 
 
 def is_lossy(cls, variant):
     if cls in LOSSY_CLASSES:
         return True
-    return cls in ("frames", "recon-resized", "negative", "gemini-midtone") and not variant.endswith("png")
+    return cls in BY_VARIANT and not variant.endswith("png")
 
 
 def sha256_file(path):
@@ -655,7 +703,26 @@ def load_run(d):
 # ── What a record says ───────────────────────────────────────────────────────
 
 
-def facts(rec):
+def of_profiles(items, profiles):
+    """The findings or restorations of the profiles `profiles` names (globs over the `profile` id); all when None."""
+    if not profiles:
+        return list(items)
+    return [x for x in items if isinstance(x, dict) and any(fnmatch.fnmatchcase(str(x.get("profile") or ""), p) for p in profiles)]
+
+
+def parse_profiles(values):
+    """`--profile` / `--foreign`: globs over profile ids, repeated or comma-separated; None when not given."""
+    if not values:
+        return None
+    globs = tuple(g.strip() for v in values for g in v.split(",") if g.strip())
+    if not globs:
+        raise Refusal(f"{values!r}: a profile id or a glob (gemini-*, grok-*)")
+    return globs
+
+
+def facts(rec, profiles=None):
+    """What a record says. With `profiles` (globs), only the findings and restorations of those profiles count —
+    a Gemini finding and another vendor's told apart (E12-R12 §4.2, R11's P5)."""
     ins = rec.get("inspect") or {}
     cl = rec.get("clean") or {}
     cj = cl.get("json") if isinstance(cl.get("json"), dict) else {}
@@ -664,8 +731,8 @@ def facts(rec):
     if vis is None:
         ij = ins.get("json") if isinstance(ins.get("json"), dict) else {}
         vis = ij.get("visible") if isinstance(ij.get("visible"), dict) else {}
-    found = vis.get("found") or []
-    restored = vis.get("restored") or []
+    found = of_profiles(vis.get("found") or [], profiles)
+    restored = of_profiles(vis.get("restored") or [], profiles)
     m = {}
 
     def most(key, signed=False):
@@ -790,17 +857,24 @@ def rect_moved(fa, fb):
 # ── The comparison: §4.3 ─────────────────────────────────────────────────────
 
 
-def compare(before, after, routes, targets=(), new_fields=frozenset()):
+def compare(before, after, routes, targets=(), new_fields=frozenset(), profiles=None, foreign=None):
     """`before` and `after` are {id: record}; returns (files, corpus).
 
     `new_fields` are the JSON fields the change adds by a decision (`--new-fields`): L1 and D4 do not count them
-    as a difference where the baseline lacks them, and the corpus notes say how many files carried each."""
+    as a difference where the baseline lacks them, and the corpus notes say how many files carried each.
+
+    `profiles` (`--profile`, globs; E12-R12 stage 4b) restricts every gate to the findings of those profiles, and
+    adds F2: a file whose found or verified count of them fell fails — "the Gemini profiles lose none". `foreign`
+    (`--foreign`) names profiles that have no business on this corpus, and adds F1: a file with any finding of
+    theirs after the change fails — "the Gemini corpus shows 0 findings of the Grok profile" (R11's P5)."""
     routes = set(routes)
     new_fields = frozenset(new_fields)
     files = []
     corpus = {"routes": sorted(routes), "targets": [t["text"] for t in targets], "gates": {}, "lifted": [],
               "known_false_positives": [], "missing": [], "new": [], "notes": [],
-              "new_fields": {n: 0 for n in sorted(new_fields)}}
+              "new_fields": {n: 0 for n in sorted(new_fields)},
+              "profiles": list(profiles) if profiles else None, "foreign": list(foreign) if foreign else None}
+    foreign_files, lost_files = [], []
     level_of = {"pass": 0, "attention": 1, "fail": 2}
 
     for fid in sorted(set(before) | set(after)):
@@ -828,7 +902,7 @@ def compare(before, after, routes, targets=(), new_fields=frozenset()):
             continue
         if a.get("input_sha256") != b.get("input_sha256"):
             say("fail", "the input is not the baseline's (sha256 differs): one baseline per corpus")
-        fa, fb = facts(a), facts(b)
+        fa, fb = facts(a, profiles), facts(b, profiles)
         cls, variant = rec["class"], rec["variant"]
         added = set()
         for side in ("inspect", "clean"):
@@ -914,6 +988,23 @@ def compare(before, after, routes, targets=(), new_fields=frozenset()):
                     say("fail", "D1: the 1024 frame is the target and still finds nothing")
             elif fa["found"] and not fb["found"]:
                 say("fail", f"G4/D1: the {variant.split('-')[0]} frame lost its finding")
+        # G4 — a held-out file (E12-R12 §4.2) keeps its proofs: one lost is a fail, as a frame's finding is.
+        if cls == "held-out" and fb["verified"] < fa["verified"]:
+            say("fail", f"G4: a held-out file lost a proof (verified {fa['verified']}→{fb['verified']})")
+
+        # F1 — no finding of a foreign profile (`--foreign`): R11's P5, the Gemini corpus shows none of Grok's.
+        if foreign:
+            ff = facts(b, foreign)
+            entry["foreign"] = {"found": ff["found"], "verified": ff["verified"], "restored": ff["restored"]}
+            if ff["found"] or ff["restored"]:
+                foreign_files.append(fid)
+                say("fail", f"F1: {ff['found']} finding(s) of a foreign profile ({', '.join(foreign)}): "
+                            f"verified {ff['verified']}, restored {ff['restored']}")
+        # F2 — the selected profiles (`--profile`) lose no finding and no proof: P5's other half.
+        if profiles and (fb["found"] < fa["found"] or fb["verified"] < fa["verified"]):
+            lost_files.append(fid)
+            say("fail", f"F2: the selected profiles ({', '.join(profiles)}) lost a finding: found "
+                        f"{fa['found']}→{fb['found']}, verified {fa['verified']}→{fb['verified']}")
 
         lossless = is_lossless(cls, variant)
         moved = rect_moved(fa, fb)
@@ -980,6 +1071,12 @@ def compare(before, after, routes, targets=(), new_fields=frozenset()):
     neg = [f for f in files if f["class"] == "negative"]
     g1_failed = [f["id"] for f in neg if f["gate"] == "fail" and any(n.startswith("G1:") and "known" not in n for n in f["notes"])]
     corpus["gates"]["G1"] = {"files": len(neg), "failed": len(g1_failed), "ok": not g1_failed}
+    if foreign:
+        corpus["gates"]["F1"] = {"foreign": ",".join(foreign), "files_with_findings": len(foreign_files),
+                                 "ok": not foreign_files}
+    if profiles:
+        corpus["gates"]["F2"] = {"profiles": ",".join(profiles), "files_that_lost": len(lost_files),
+                                 "ok": not lost_files}
     if "lossy" in routes or "detect" in routes:
         jneg = [f for f in neg if is_lossy(f["class"], f["variant"])]
         corpus["gates"]["L4/D3"] = {"files": len(jneg), "verified_after": sum(f.get("verified", {}).get("after", 0) for f in jneg),
@@ -1034,6 +1131,10 @@ def summary_md(files, corpus, a_index, b_index):
                f"Pillow {b_index.get('pillow')}, libjpeg {b_index.get('libjpeg')}, Python {b_index.get('python')}.")
     if corpus["targets"]:
         out.append(f"Targets: {', '.join('`' + t + '`' for t in corpus['targets'])}.")
+    if corpus.get("profiles"):
+        out.append(f"Profiles compared: {', '.join('`' + p + '`' for p in corpus['profiles'])} (every other profile's findings are not read).")
+    if corpus.get("foreign"):
+        out.append(f"Foreign profiles (any finding of theirs fails, F1): {', '.join('`' + p + '`' for p in corpus['foreign'])}.")
     out.append("")
     out.append("Corpus gates: " + "; ".join(f"**{k}** {'ok' if v['ok'] else 'FAIL'} "
                                            f"({', '.join(f'{kk} {vv}' for kk, vv in v.items() if kk != 'ok')})"
@@ -1121,6 +1222,15 @@ def parse_routes(text):
 
 
 # ── §6.3: the baseline reproduces D247/D250/D252 ─────────────────────────────
+
+
+def reproduce_scope(m, recs):
+    """The records §6.3's figures are about: the files of the Gemini stickers' ZIP (`REPRODUCE_KEY`) and those
+    derived from them. Another golden set (`--golden golden/grok`) has none, and its baseline checks no figure it
+    was never measured on — a Grok `recon-jpeg-444` q95 is not D250's 21 files."""
+    keys = {name for name, s in m["sources"].items() if s.get("key") == REPRODUCE_KEY}
+    entries = {e["id"]: e for e in m["files"]}
+    return {fid: r for fid, r in recs.items() if fid in entries and root_source(m, entries[fid]) in keys}
 
 
 def reproduce(recs):
@@ -1277,7 +1387,9 @@ def cmd_baseline(args):
                 e["expect"] = {"inspect_exit": f["inspect_exit"], "clean_exit": f["clean_exit"], "verified": f["verified"]}
         save_manifest(args.corpus, m)
         print(f"expect written into {args.corpus} for {len(recs)} file(s)")
-    rows = reproduce(recs)
+    rows = reproduce(reproduce_scope(m, recs))
+    if not rows:
+        print(f"  §6.3: this corpus holds none of the Gemini stickers' files ({REPRODUCE_KEY}); nothing to reproduce")
     with open(os.path.join(args.out, "reproduce.json"), "w") as f:
         json.dump({"commit": index["commit"], "checks": rows}, f, indent=1)
         f.write("\n")
@@ -1317,7 +1429,8 @@ def cmd_run(args):
     _, after = load_run(out)
     if args.select:
         before = {k: v for k, v in before.items() if k in after}
-    files, corp = compare(before, after, routes, targets, parse_new_fields(args.new_fields))
+    files, corp = compare(before, after, routes, targets, parse_new_fields(args.new_fields),
+                          parse_profiles(args.profile), parse_profiles(args.foreign))
     print(write_summary(out, files, corp, a_index, b_index))
     print(f"summary: {os.path.join(out, 'summary.md')}")
     return exit_of(corp)
@@ -1343,7 +1456,8 @@ def cmd_diff(args):
     targets = [parse_target(t) for t in args.target or []]
     a_index, before = load_run(args.a)
     b_index, after = load_run(args.b)
-    files, corp = compare(before, after, routes, targets, parse_new_fields(args.new_fields))
+    files, corp = compare(before, after, routes, targets, parse_new_fields(args.new_fields),
+                          parse_profiles(args.profile), parse_profiles(args.foreign))
     out = args.out or tempfile.mkdtemp(prefix="regress-diff-")
     print(write_summary(out, files, corp, a_index, b_index))
     print(f"summary: {os.path.join(out, 'summary.md')}")
@@ -1366,14 +1480,14 @@ def fake(fid, cls, variant, *, inspect_exit=1, clean_exit=1, found=None, restore
             "time_s": {"inspect": t / 2, "clean": t / 2}}
 
 
-def finding(verdict="verified", why=None, oor=0.0, x=880.0, y=880.0, size=96.0):
-    return {"profile": "gemini-sparkle-v1", "pass": 1, "rect": {"x": x, "y": y, "size": size}, "verdict": verdict,
+def finding(verdict="verified", why=None, oor=0.0, x=880.0, y=880.0, size=96.0, profile="gemini-sparkle-v1"):
+    return {"profile": profile, "pass": 1, "rect": {"x": x, "y": y, "size": size}, "verdict": verdict,
             "refusal": None if why is None else {"why": why}, "scores": {"gain": 1.0, "edge_ratio": 0.07, "out_of_range": oor, "holes": 0}}
 
 
 def restoration(outline=0.05, step=0.1, chroma=0.3, texture=1.8, holes=0, clamped=10, outline_left=False, texture_left=False,
-                consistency=None):
-    r = {"profile": "gemini-sparkle-v1", "outline": outline, "step": step, "chroma": chroma, "texture": texture,
+                consistency=None, profile="gemini-sparkle-v1"):
+    r = {"profile": profile, "outline": outline, "step": step, "chroma": chroma, "texture": texture,
          "holes": holes, "clamped": clamped, "outline_left": outline_left, "texture_left": texture_left}
     if consistency is not None:  # E12-R7 (D305): the two fields the CLI writes after `exact`
         r["consistency_px"], r["consistency_excluded"] = consistency, clamped + 3 * holes
@@ -1776,6 +1890,121 @@ def t_a_consistency_that_grows_past_its_tolerance_fails_l2():
     assert one(files, "j")["gate"] == "pass" and mm["before"] is None and mm["ok"] is None, one(files, "j")
 
 
+GROK_LIKE = "grok-wordmark-selftest"  # a profile id for the selftests alone: no such profile exists
+
+
+def t_a_second_golden_set_takes_held_out_files_and_text_look_alikes():
+    """E12-R12 §4.2: `golden/grok/manifest.json` in R1's structure — `recon-<format>`, `frames`, `held-out`, and
+    `negative` with text look-alikes — validates; a held-out file is lossless or lossy by its variant, keeps its
+    proofs, and a text look-alike that a profile proves is G1's fail like any negative."""
+    m = {"schema": 1, "sources": {"captures": {"key": "wipemark-corpus-captures-selftest", "sha256": None}},
+         "recipes": {"pillow": "12.3.0", "libjpeg": "6.2", "mkset": "x"},
+         "files": [{"id": "r1", "class": "recon-png", "variant": "png", "source": "captures", "path": "r1.png", "sha256": None, "expect": None},
+                   {"id": "r1-q85-420", "class": "recon-jpeg-420", "variant": "q85",
+                    "derived": {"from": "r1", "recipe": "jpeg", "quality": 85, "subsampling": "4:2:0"}, "sha256": None, "expect": None},
+                   {"id": "clip-f0003", "class": "frames", "variant": "clip-png", "source": "captures", "path": "clip/f0003.png", "sha256": None, "expect": None},
+                   {"id": "h1", "class": "held-out", "variant": "png", "source": "captures", "path": "held/h1.png", "sha256": None, "expect": None},
+                   {"id": "h1-q90-420", "class": "held-out", "variant": "q90-420",
+                    "derived": {"from": "h1", "recipe": "jpeg", "quality": 90, "subsampling": "4:2:0"}, "sha256": None, "expect": None},
+                   {"id": "word-white", "class": "negative", "variant": "text-png", "source": "captures", "path": "neg/word-white.png", "sha256": None, "expect": None}]}
+    assert validate(m) == [], validate(m)
+    assert is_lossless("held-out", "png") and is_lossy("held-out", "q90-420") and not is_lossy("held-out", "png")
+    # A held-out PNG whose output moved is L1's, as any lossless file's.
+    a = fake("h1", "held-out", "png", found=[finding(profile=GROK_LIKE)], restored=[restoration(profile=GROK_LIKE)], out_sha="1" * 64)
+    b = fake("h1", "held-out", "png", found=[finding(profile=GROK_LIKE)], restored=[restoration(profile=GROK_LIKE)], out_sha="2" * 64)
+    files, _ = compare(by_id(a), by_id(b), {"lossy"})
+    assert has(one(files, "h1"), "L1: a lossless output moved"), one(files, "h1")
+    files, corpus = compare(by_id(a), by_id(a), parse_routes("all"))
+    assert one(files, "h1")["gate"] == "pass" and corpus["verdict"] == "pass", (files, corpus)
+    # A held-out file that lost its proof fails, on every route.
+    lost = fake("h1", "held-out", "png", clean_exit=3, found=[finding("refused", "edges", profile=GROK_LIKE)], encoding="unchanged")
+    for route in ("lossy", "model", "detect"):
+        files, _ = compare(by_id(a), by_id(lost), {route})
+        assert one(files, "h1")["gate"] == "fail" and has(one(files, "h1"), "G4: a held-out file lost a proof"), (route, one(files, "h1"))
+    # A text look-alike proved by a profile is a new finding on a negative.
+    quiet = fake("word-white", "negative", "text-png", inspect_exit=0, clean_exit=0, encoding="unchanged")
+    proved = fake("word-white", "negative", "text-png", clean_exit=1, found=[finding(profile=GROK_LIKE)],
+                  restored=[restoration(profile=GROK_LIKE)])
+    files, corpus = compare(by_id(quiet), by_id(proved), {"detect"})
+    assert has(one(files, "word-white"), "G1: a new finding") and corpus["gates"]["G1"]["ok"] is False, one(files, "word-white")
+    # The schema file names the class too.
+    with open(os.path.join(REPO, "golden", "manifest.schema.json")) as f:
+        assert "held-out" in json.dumps(json.load(f)), "golden/manifest.schema.json does not name held-out"
+
+
+def t_a_profile_filter_makes_p5_a_diff():
+    """E12-R12 §4.2 / R11's P5 as a diff: over the Gemini corpus, `--foreign 'grok-*'` fails a file with any finding
+    of the other profile (F1), and `--profile 'gemini-*'` compares Gemini's findings alone and fails a file that lost
+    one (F2) — while the run against itself passes with both."""
+    def rec(*found, restored=()):
+        return fake("s", "recon-jpeg-420", "q95", clean_exit=3, found=list(found), restored=list(restored), encoding="jpeg")
+    gem = finding()
+    before = rec(gem, restored=[restoration(chroma=7.5, outline_left=True)])
+    beside = rec(gem, finding("refused", "edges", x=40.0, profile=GROK_LIKE), restored=[restoration(chroma=7.5, outline_left=True)])
+    instead = rec(finding(profile=GROK_LIKE), restored=[restoration(chroma=7.5, outline_left=True, profile=GROK_LIKE)])
+    gemini, grok = parse_profiles(["gemini-*"]), parse_profiles(["grok-*"])
+    # F1: a refused finding of the foreign profile beside Gemini's is a fail, and the corpus gate says so.
+    files, corpus = compare(by_id(before), by_id(beside), {"detect"}, foreign=grok)
+    f = one(files, "s")
+    assert f["gate"] == "fail" and has(f, "F1:") and f["foreign"]["found"] == 1, f
+    assert corpus["gates"]["F1"]["ok"] is False and corpus["verdict"] == "fail", corpus
+    # --profile reads Gemini's findings alone: the foreign one beside them is not a difference to it.
+    files, corpus = compare(by_id(before), by_id(beside), {"detect"}, profiles=gemini)
+    assert one(files, "s")["gate"] == "pass" and corpus["gates"]["F2"]["ok"] is True, (one(files, "s"), corpus)
+    # F2: Gemini's finding gone (another profile took the place) is a loss, even with the exit unchanged.
+    files, corpus = compare(by_id(before), by_id(instead), {"detect"}, profiles=gemini)
+    f = one(files, "s")
+    assert f["gate"] == "fail" and has(f, "F2: the selected profiles (gemini-*) lost a finding"), f
+    assert corpus["gates"]["F2"]["ok"] is False
+    # Against itself, with both: pass.
+    files, corpus = compare(by_id(before), by_id(before), parse_routes("all"), profiles=gemini, foreign=grok)
+    assert corpus["verdict"] == "pass" and all(x["gate"] == "pass" for x in files), (files, corpus)
+    assert parse_profiles(None) is None and parse_profiles(["a-*,b-*", "c"]) == ("a-*", "b-*", "c")
+    # Through the command line, from folders, as `diff` reads them.
+    tmp = tempfile.mkdtemp(prefix="regress-selftest-")
+    try:
+        for side, r in (("a", before), ("b", beside)):
+            d = os.path.join(tmp, side)
+            os.makedirs(d)
+            with open(os.path.join(d, "s.json"), "w") as fh:
+                json.dump(r, fh)
+            with open(os.path.join(d, "index.json"), "w") as fh:
+                json.dump({"schema": 1, "kind": side, "commit": "selftest", "files": ["s"]}, fh)
+        common = ["diff", "--a", os.path.join(tmp, "a"), "--route", "detect", "--profile", "gemini-*"]
+        assert main([*common, "--b", os.path.join(tmp, "b"), "--foreign", "grok-*", "--out", os.path.join(tmp, "d1")], quiet=True) == 1
+        assert main([*common, "--b", os.path.join(tmp, "a"), "--foreign", "grok-*", "--out", os.path.join(tmp, "d2")], quiet=True) == 0
+        assert main([*common, "--b", os.path.join(tmp, "b"), "--out", os.path.join(tmp, "d3")], quiet=True) == 0
+        assert main([*common, "--b", os.path.join(tmp, "b"), "--foreign", ",", "--out", os.path.join(tmp, "d4")], quiet=True) == 2
+        with open(os.path.join(tmp, "d1", "summary.md")) as fh:
+            assert "Foreign profiles" in fh.read()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def t_the_reproduction_reads_the_gemini_stickers_alone():
+    """§6.3's figures are the Gemini stickers': the baseline checks them over that ZIP's files and their derived
+    ones, never over a second golden set's — a Grok q95 4:4:4 file with another texture is not D250's."""
+    m = {"schema": 1, "sources": {"stickers": {"key": REPRODUCE_KEY, "sha256": None},
+                                  "captures": {"key": "wipemark-corpus-captures-selftest", "sha256": None}},
+         "recipes": {"pillow": "12.3.0", "libjpeg": "6.2", "mkset": "x"},
+         "files": [{"id": "a", "class": "recon-png", "variant": "png", "source": "stickers", "path": "a.png", "sha256": None, "expect": None},
+                   {"id": "a-q95-444", "class": "recon-jpeg-444", "variant": "q95",
+                    "derived": {"from": "a", "recipe": "jpeg", "quality": 95, "subsampling": "4:4:4"}, "sha256": None, "expect": None},
+                   {"id": "g", "class": "recon-png", "variant": "png", "source": "captures", "path": "g.png", "sha256": None, "expect": None},
+                   {"id": "g-q95-444", "class": "recon-jpeg-444", "variant": "q95",
+                    "derived": {"from": "g", "recipe": "jpeg", "quality": 95, "subsampling": "4:4:4"}, "sha256": None, "expect": None}]}
+    assert validate(m) == [], validate(m)
+    recs = {e["id"]: fake(e["id"], e["class"], e["variant"], clean_exit=3, found=[finding()],
+                          restored=[restoration(texture=2.0, texture_left=False)]) for e in m["files"]}
+    assert sorted(reproduce_scope(m, recs)) == ["a", "a-q95-444"]
+    grok_only = dict(m, sources={"captures": m["sources"]["captures"]}, files=m["files"][2:])
+    assert reproduce_scope(grok_only, recs) == {}
+    assert reproduce(reproduce_scope(grok_only, recs)) == []
+    # Over the stickers' file the figures are still read (and this one's texture is not D250's).
+    rows = {r["check"]: r["ok"] for r in reproduce(reproduce_scope(m, recs))}
+    assert rows.get("D250: texture at q95 4:4:4 (11_crying left out)") is False, rows
+
+
 SELFTESTS = [
     t_a_new_finding_on_a_negative_fails_every_route,
     t_a_png_output_that_moved_fails_the_lossy_route,
@@ -1793,6 +2022,9 @@ SELFTESTS = [
     t_the_committed_manifest_is_valid,
     t_a_declared_new_field_is_the_only_difference_l1_forgives,
     t_a_consistency_that_grows_past_its_tolerance_fails_l2,
+    t_a_second_golden_set_takes_held_out_files_and_text_look_alikes,
+    t_a_profile_filter_makes_p5_a_diff,
+    t_the_reproduction_reads_the_gemini_stickers_alone,
 ]
 
 
@@ -1897,6 +2129,12 @@ def parser():
         s.add_argument("--url", action="append", help="SOURCE=<presigned URL> (or REGRESS_URL_<SOURCE>)")
         s.add_argument("--select", action="append", help="class[:variant,…] | source=name | id=a,b")
 
+    def profile_args(s):
+        s.add_argument("--profile", action="append",
+                       help="compare only these profiles' findings (globs, e.g. gemini-*); F2: none of them lost")
+        s.add_argument("--foreign", action="append",
+                       help="profiles with no business on this corpus (globs, e.g. grok-*); F1: any finding fails")
+
     s = sub.add_parser("fetch")
     corpus_args(s)
     s = sub.add_parser("pin")
@@ -1916,6 +2154,7 @@ def parser():
     s.add_argument("--route", required=True)
     s.add_argument("--target", action="append")
     s.add_argument("--new-fields", help="JSON fields the change adds by a decision, comma-separated (L1/D4 forgive them)")
+    profile_args(s)
     s.add_argument("--out")
     s = sub.add_parser("diff")
     s.add_argument("--a", required=True)
@@ -1923,6 +2162,7 @@ def parser():
     s.add_argument("--route", required=True)
     s.add_argument("--target", action="append")
     s.add_argument("--new-fields", help="JSON fields the change adds by a decision, comma-separated (L1/D4 forgive them)")
+    profile_args(s)
     s.add_argument("--out")
     s = sub.add_parser("list")
     corpus_args(s)
