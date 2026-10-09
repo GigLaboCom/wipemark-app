@@ -58,13 +58,17 @@ What it does
    (group, bin, channel, n, mean, median, sd).
 
 `list` turns a corpus manifest (`corpus/gemini-midtone/manifest.json`, R2,
-D304) into the `path<TAB>group<TAB>held_out` list this script,
-`forced_search` and `map_regress` read, checking each file's sha256 first.
+D304, as `scripts/corpus/manifest.py` writes it) into the
+`path<TAB>group<TAB>held_out` list this script, `forced_search` and
+`map_regress` read, checking each file's sha256 first. R2's manifest holds
+both Gemini profiles, and a list is read under one profile's map, so
+`--profile` keeps that profile's rows; a manifest whose rows name more than
+one profile is refused without it.
 
 How to run it
 -------------
     python3 scripts/analytics/bias.py list --manifest corpus/gemini-midtone/manifest.json \
-        --root <unpacked ZIP> > midtone.tsv
+        --root <unpacked ZIP> --profile gemini-sparkle-v1 > midtone.tsv
     python3 scripts/analytics/bias.py run --profile gemini-sparkle-v1 --row 0 --list midtone.tsv [--out DIR]
     python3 scripts/analytics/bias.py run --profile gemini-sparkle-v1 --row 0 PICTURE.png [MORE …]
     cargo run --release -p wipemark-picture --example map_regress -- \
@@ -410,6 +414,17 @@ def cmd_list(args):
     with open(args.manifest) as f:
         m = json.load(f)
     rows = m if isinstance(m, list) else (m.get("files") or m.get("entries") or [])
+    named = sorted({e["profile"] for e in rows if e.get("profile")})
+    if args.profile is not None:
+        left = [e for e in rows if e.get("profile") not in (None, args.profile)]
+        if left:
+            print(f"{len(left)} row(s) of another profile left out", file=sys.stderr)
+        rows = [e for e in rows if e.get("profile") in (None, args.profile)]
+        if not rows:
+            raise Refusal(f"no row of {args.profile} in the manifest (it names {', '.join(named) or 'none'})")
+    elif len(named) > 1:
+        raise Refusal(f"the manifest holds {', '.join(named)}: a list is read under one profile's map, "
+                      "name it with --profile")
     bad = 0
     print("path\tgroup\theld_out")
     for e in rows:
@@ -489,6 +504,46 @@ def synthetic(alpha, logo, centre, b=0.0, linear=False, size=220, at=62):
     return img, (at, at, w, h)
 
 
+def lists_r2s_manifest():
+    """`list` over a manifest in the schema `scripts/corpus/manifest.py`
+    writes for `gemini-midtone`: rows with `id`, `source`, `path`,
+    `sha256`, `profile`, `group`, `held_out`."""
+    import contextlib
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rows = []
+        for i, (profile, group, held) in enumerate((("gemini-sparkle-v1", "gray-50", False),
+                                                     ("gemini-sparkle-v1", "black", True),
+                                                     ("gemini-sparkle-v2", "gray-50", False))):
+            name = f"{profile}/{group}/f{i}.png"
+            os.makedirs(os.path.join(tmp, os.path.dirname(name)), exist_ok=True)
+            with open(os.path.join(tmp, name), "wb") as f:
+                f.write(bytes([i]) * 16)
+            rows.append({"id": f"r{i}", "source": "gemini-midtone", "path": name,
+                         "sha256": hashlib.sha256(bytes([i]) * 16).hexdigest(), "profile": profile,
+                         "group": group, "held_out": held, "batch": 1})
+        path = os.path.join(tmp, "manifest.json")
+        with open(path, "w") as f:
+            json.dump({"schema": 1, "set": "gemini-midtone", "held_out": {"every": 5, "by": ["group"]},
+                       "sources": {}, "files": rows, "dropped": []}, f)
+
+        def listed(*extra):
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = main(["list", "--manifest", path, "--root", tmp, *extra])
+            return code, [line.split("\t") for line in out.getvalue().splitlines()[1:]]
+
+        code_both, _ = listed()
+        code, lines = listed("--profile", "gemini-sparkle-v1")
+        ok = code_both == 2 and code == 0 and [(os.path.basename(p), g, h) for p, g, h in lines] == [
+            ("f0.png", "gray-50", "false"), ("f1.png", "black", "true")]
+        with open(os.path.join(tmp, rows[0]["path"]), "wb") as f:
+            f.write(b"changed")
+        code_bad, _ = listed("--profile", "gemini-sparkle-v1")
+        return ok and code_bad == 2
+
+
 def selftest():
     failures = []
 
@@ -534,6 +589,10 @@ def selftest():
     check(all(np.all(r[c][1] < 3.5) for c in range(3)) and r[0][0].size < (alpha >= ALPHA_LO).sum(),
           "a sample clipped at 255 is left out")
 
+    # R2's manifest (`scripts/corpus/manifest.py`'s rows) through `list`.
+    check(lists_r2s_manifest(), "R2's manifest is listed under one profile, sha256 checked, held-out kept; "
+          "two profiles without --profile refused")
+
     # One background is not a reading, whatever its numbers.
     img, rect = synthetic(alpha, logo, 128.0, b=1.0)
     t = table([residuals(img, rect, alpha, logo)])
@@ -559,6 +618,7 @@ def main(argv=None):
     li.add_argument("--manifest", required=True)
     li.add_argument("--root", required=True)
     li.add_argument("--no-check", action="store_true")
+    li.add_argument("--profile", help="keep this profile's rows (R2's manifest holds both Gemini profiles)")
     cb = sub.add_parser("check-background")
     cb.add_argument("picture")
     cb.add_argument("ohat")

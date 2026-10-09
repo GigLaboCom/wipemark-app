@@ -21,7 +21,9 @@ has neither the corpus nor Python. Every script opens with the header
 
 `bias.py list` turns R2's `corpus/gemini-midtone/manifest.json` into the
 list the other three read (`path<TAB>group<TAB>held_out`), checking each
-file's sha256 first (D304). `bias.py check-background` holds its Python
+file's sha256 first (D304), one profile at a time (`--profile`: the set
+holds both Gemini profiles, and a list is read under one map).
+`bias.py check-background` holds its Python
 restatement of `calibrate`'s ring quadratic to the Rust one
 (`wipemark_pixels::ring_background`, through `map_regress --background`).
 
@@ -68,7 +70,7 @@ target/release/examples/forced_search reports/r4/forced-recon-png.csv $(cat repo
 
 # —— when gemini-midtone lands (R2 §1) ——
 .venv/bin/python scripts/analytics/bias.py list --manifest corpus/gemini-midtone/manifest.json \
-    --root <unpacked gemini-midtone> > reports/r4/midtone.tsv
+    --root <unpacked gemini-midtone> --profile gemini-sparkle-v1 > reports/r4/midtone.tsv
 .venv/bin/python scripts/analytics/gain.py run golden/baseline/<commit>/ --class gemini-midtone \
     --out reports/r4/gain-midtone                      # once R1's baseline holds the class
 target/release/examples/forced_search --list reports/r4/midtone.tsv reports/r4/forced-midtone.csv

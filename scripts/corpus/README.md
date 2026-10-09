@@ -133,7 +133,8 @@ and `<group>/<file>` for `negative`; `$CLI` is
    `"midtone": {"key": "wipemark-corpus-gemini-midtone-<date>", "sha256": null}`,
    then `python3 scripts/regress.py pin --add gemini-midtone:midtone:*.png`
    (it fetches the ZIP, checks its sha256 and pins every file). R4's tools
-   read the set with `python3 scripts/analytics/bias.py list --manifest corpus/gemini-midtone/manifest.json --root <set>`.
+   read the set with `python3 scripts/analytics/bias.py list --manifest corpus/gemini-midtone/manifest.json --root <set> --profile <id>`,
+   one profile at a time.
 
 ### §4.2 `negative`
 
