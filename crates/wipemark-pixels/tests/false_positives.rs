@@ -58,7 +58,7 @@ enum Word {
 /// The word the `n`-th negative carries, if it is one: the seventh slot,
 /// its three styles in turn (111 each).
 fn word_of(n: u64) -> Option<Word> {
-    (n % 7 == 6).then(|| match (n / 7) % 3 {
+    (n % 7 == 6).then_some(match (n / 7) % 3 {
         0 => Word::Opaque,
         1 => Word::Outlined,
         _ => Word::Translucent,
