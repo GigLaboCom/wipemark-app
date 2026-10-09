@@ -229,9 +229,10 @@ pub const NOT_WRITERS: [&str; 21] = [
     "dflash",
 ];
 
-/// Words that make a model's name, type or tags say it hears or speaks
-/// rather than writes (D437) — matched as whole words, case aside, so a
-/// `Speechless` fine-tune is not one.
+/// Words that make a model's name or type say it hears or speaks rather
+/// than writes (D437) — matched as whole words, case aside, so a
+/// `Speechless` fine-tune is not one. A tag holding one only *hears*, and
+/// refuses only when no tag says the model writes text (D450).
 pub const SPEECH_WORDS: [&str; 6] = ["asr", "stt", "tts", "speech", "audio", "whisper"];
 
 /// Whether a file can be added as a model that rewrites, and if not, why.
@@ -257,10 +258,11 @@ pub enum NotOffered {
     /// draft head — an architecture in [`NOT_WRITERS`], a pooling type other
     /// than none, or `attention.causal = false`.
     NotAWriter,
-    /// A model whose name, `general.type` or `general.tags` says it hears or
-    /// speaks — speech recognition, audio — even under an architecture that
-    /// writes text, as Qwen3-ASR's decoder is `qwen3vl` with a ChatML
-    /// template (D437).
+    /// A model whose name or `general.type` says it hears or speaks — speech
+    /// recognition, audio — even under an architecture that writes text, as
+    /// Qwen3-ASR's decoder is `qwen3vl` with a ChatML template (D437); or
+    /// whose `general.tags` say it speaks, or hear with no tag that says it
+    /// writes text (D450).
     Speech,
     /// No `tokenizer.chat_template`: nothing says how a conversation is
     /// written for it, so it is not a chat model this product can ask.
@@ -399,20 +401,58 @@ impl Header {
 }
 
 impl Header {
-    /// Whether the file's name for itself, its type or its tags say it is a
-    /// speech or audio model ([`SPEECH_WORDS`], as whole words).
+    /// Whether the file says it is a speech or audio model.
+    ///
+    /// Its name for itself and its type say so by holding a
+    /// [`SPEECH_WORDS`] word, as a whole word (D437). Its tags are read in
+    /// three kinds, each tag whole and ASCII case aside (D450), because
+    /// llama.cpp copies a model card's `tags` and its `pipeline_tag` into
+    /// `general.tags`, and a model that writes text from speech says
+    /// `automatic-speech-recognition` there too (Gemma 3n, Qwen2.5-Omni):
+    ///
+    /// * a tag that **writes** — `text-generation`, `text2text-generation`,
+    ///   `any-to-any`, or one ending in `-text-to-text`;
+    /// * a tag that **speaks** — one ending in `-to-speech` or `-to-audio`,
+    ///   or holding the word `tts`: what it puts out is not text;
+    /// * a tag that **hears** — any other holding a [`SPEECH_WORDS`] word.
+    ///
+    /// The tags say speech when one speaks, or when one hears and none
+    /// writes. A tag may be of two kinds: `audio-text-to-text` hears and
+    /// writes, and does not refuse on its own.
     fn says_speech(&self) -> bool {
-        let speaks = |text: &str| {
-            text.split(|c: char| !c.is_alphanumeric()).any(|word| {
-                SPEECH_WORDS
-                    .iter()
-                    .any(|said| word.eq_ignore_ascii_case(said))
-            })
+        let says = |text: &str| words_say_speech(text);
+        if self.name.as_deref().is_some_and(says) || self.kind.as_deref().is_some_and(says) {
+            return true;
+        }
+        let tags: Vec<String> = self.tags.iter().map(|tag| tag.to_ascii_lowercase()).collect();
+        let speaks = |tag: &str| {
+            tag.ends_with("-to-speech")
+                || tag.ends_with("-to-audio")
+                || words(tag).any(|word| word == "tts")
         };
-        self.name.as_deref().is_some_and(speaks)
-            || self.kind.as_deref().is_some_and(speaks)
-            || self.tags.iter().any(|tag| speaks(tag))
+        let writes = |tag: &str| {
+            ["text-generation", "text2text-generation", "any-to-any"].contains(&tag)
+                || tag.ends_with("-text-to-text")
+        };
+        let hears = |tag: &str| !speaks(tag) && words_say_speech(tag);
+        tags.iter().any(|tag| speaks(tag))
+            || (tags.iter().any(|tag| hears(tag)) && !tags.iter().any(|tag| writes(tag)))
     }
+}
+
+/// The words of `text`: its runs of letters and digits.
+fn words(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !c.is_alphanumeric())
+}
+
+/// Whether `text` holds a [`SPEECH_WORDS`] word, as a whole word, case
+/// aside.
+fn words_say_speech(text: &str) -> bool {
+    words(text).any(|word| {
+        SPEECH_WORDS
+            .iter()
+            .any(|said| word.eq_ignore_ascii_case(said))
+    })
 }
 
 /// llama.cpp's `llama_ftype`, by number, as `llama-quantize` names it — the
@@ -1513,6 +1553,86 @@ mod tests {
             ..chat
         };
         assert_eq!(speechless.offer("m.gguf"), Offer::Rewrite);
+    }
+
+    /// A header that says `name`, `tags` and a chat template — the shape of
+    /// the cards M1 (D450) is about, written here; not a copy of any file.
+    fn tagged(architecture: &str, name: &str, tags: &[&str], template: &str) -> Header {
+        read(&synthetic(
+            1,
+            &[
+                ("general.architecture", Meta::Text(architecture)),
+                ("general.type", Meta::Text("model")),
+                ("general.name", Meta::Text(name)),
+                ("general.tags", Meta::Texts(tags)),
+                ("tokenizer.chat_template", Meta::Text(template)),
+            ],
+        ))
+        .expect("a header")
+    }
+
+    /// M1 (D450): llama.cpp copies a card's `tags` and its `pipeline_tag`
+    /// into `general.tags`, and a model that writes text from speech says
+    /// so there — a tag that hears refuses only when no tag writes. Read
+    /// every tag as D437 did and the Gemma 3n-like model is refused: red.
+    #[test]
+    fn a_text_model_that_also_hears_is_offered() {
+        const GEMMA: &str = "{% for m in messages %}<start_of_turn>{{ m.role }}\n\
+                             {{ m.content }}<end_of_turn>\n{% endfor %}";
+        let gemma_3n_like = tagged(
+            "gemma3n",
+            "Gemma 3n E4B It",
+            &[
+                "automatic-speech-recognition",
+                "automatic-speech-translation",
+                "audio-text-to-text",
+                "video-text-to-text",
+                "image-text-to-text",
+            ],
+            GEMMA,
+        );
+        assert_eq!(gemma_3n_like.offer("gemma-3n-E4B-it-Q4_K_M.gguf"), Offer::Rewrite);
+        let omni_like = tagged(
+            "qwen2vl",
+            "Qwen2.5 Omni 7B",
+            &["multimodal", "audio-text-to-text", "any-to-any"],
+            CHATML,
+        );
+        assert_eq!(omni_like.offer("Qwen2.5-Omni-7B-Q4_K_M.gguf"), Offer::Rewrite);
+        // Case aside, a tag is still the tag it is.
+        let shouted = tagged(
+            "qwen3",
+            "Q",
+            &["Automatic-Speech-Recognition", "Text-Generation"],
+            CHATML,
+        );
+        assert_eq!(shouted.offer("m.gguf"), Offer::Rewrite);
+    }
+
+    /// M1 (D450): what only hears, what speaks, and what a name says are
+    /// refused as before.
+    #[test]
+    fn a_model_that_only_hears_or_speaks_is_still_refused() {
+        let hears = tagged(
+            "qwen3",
+            "Q",
+            &["transformers", "automatic-speech-recognition"],
+            CHATML,
+        );
+        assert_eq!(hears.offer("m.gguf"), Offer::Not(NotOffered::Speech));
+        // Speaking is never writing, whatever else the tags say.
+        let speaks = tagged("qwen3", "Q", &["text-to-speech", "text-generation"], CHATML);
+        assert_eq!(speaks.offer("m.gguf"), Offer::Not(NotOffered::Speech));
+        for tag in ["text-to-audio", "audio-to-audio", "tts"] {
+            let speaks = tagged("qwen3", "Q", &[tag, "any-to-any"], CHATML);
+            assert_eq!(speaks.offer("m.gguf"), Offer::Not(NotOffered::Speech), "{tag}");
+        }
+        // The name wins over a tag that writes.
+        let named = tagged("qwen3vl", "Qwen3-ASR-1.7B", &["text-generation"], CHATML);
+        assert_eq!(
+            named.offer("Qwen3-ASR-1.7B-Q8_0.gguf"),
+            Offer::Not(NotOffered::Speech)
+        );
     }
 
     /// The tags are kept within their bounds: past the count, or a tag past
