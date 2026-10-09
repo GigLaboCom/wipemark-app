@@ -330,16 +330,17 @@ fn mean_error_under(a: &Raster, b: &Raster, at: PixelRect, mark: &AlphaMap) -> f
     sum / n
 }
 
-/// R9a in the planes (R6): a mark drawn with a bias of +6 levels over a
-/// flat colour, stored 4:2:0 at quality 100, cleaned with its planes. The
-/// profile that declares the bias restores it in the planes — the bias's
-/// linear part taken off Y, Cb and Cr — and lands two levels nearer the
-/// truth under the mark than the same profile without it, which leaves
-/// 6/(1 − α) wherever it restored (or the whole mark, where it did not).
+/// R9a in the planes (R6): a mark drawn with a bias of (+6, +2, −4) levels
+/// — a colour, so it has a chroma part — over a flat colour, stored 4:2:0
+/// at quality 100, cleaned with its planes. The profile that declares the
+/// bias restores it in the planes — the bias's linear part taken off Y, Cb
+/// and Cr — within two levels of the truth under the mark, and two levels
+/// nearer than the same profile without it, which leaves b/(1 − α) wherever
+/// it restored (or the whole mark, where it did not).
 #[test]
 fn a_bias_is_taken_off_in_the_planes_too() {
     let biased = catalogue_with(
-        r#"{ "model": "encoded", "logo": [255, 255, 255], "logo_map": null, "bias": [6, 6, 6] }"#,
+        r#"{ "model": "encoded", "logo": [255, 255, 255], "logo_map": null, "bias": [6, 2, -4] }"#,
         &[],
     );
     let plain = catalogue_with(TODAY.trim_start_matches(r#""blend": "#), &[]);
@@ -348,7 +349,7 @@ fn a_bias_is_taken_off_in_the_planes_too() {
     let original = flat([60, 120, 200]);
     let mut marked = original.clone();
     let blend = Blend {
-        bias: [6.0; 3],
+        bias: [6.0, 2.0, -4.0],
         ..Blend::encoded([255.0; 3])
     };
     composite_with(&mut marked, &mark, rect, Kernel::Area, &blend);
@@ -370,5 +371,11 @@ fn a_bias_is_taken_off_in_the_planes_too() {
     clean_with(&mut without, Some(&planes), &plain, &lossy);
     let near = mean_error_under(&with, &original, at, &mark);
     let far = mean_error_under(&without, &original, at, &mark);
+    // Within two levels of the truth, and two nearer than without the bias.
+    // A bias left in Y or in the chroma blocks reads 4.8 or 6.0 here
+    // (central check, 2026-10-09: with a grey bias, which has no chroma,
+    // and the relative bound alone, a bias left in Y read 12.8 against the
+    // plain profile's 68 and passed).
+    assert!(near < 2.0, "with the bias {near}");
     assert!(near + 2.0 < far, "with the bias {near}, without it {far}");
 }
