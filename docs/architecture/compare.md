@@ -160,6 +160,24 @@ queue's row, would be reachable from nothing
 (`a_save_that_cleans_never_takes_a_row_from_its_rewrite`; the host
 verification, 2026-10-08).
 
+**A row cleaned since the window opened** (D441). A window opened on a
+waiting row is a Save that cleans; if the row is cleaned meanwhile — from
+the main window, by Clean all, from another Compare window — its result
+is already there, and a clean now would only be refused over it, setting
+the row and its journal entry to *Not cleaned* over a good result. So a
+Save that cleans first asks the row where its result lives now
+(`compare::Link::home`, which the queue answers from `cleaned_for`). With
+a home, the window **retargets** — over that file (the original on the
+left now the file set aside, for a clean in place), or into the paste's
+row — records that it never read it (`Seen::Unread`), and asks at once,
+with nothing cleaned and nothing written: *This document was cleaned
+after the window opened* — Overwrite (this window's text over that
+result, and the row told), Keep theirs (the result's text in this
+window), Cancel (nothing changes anywhere; Save asks again). Enter is
+Cancel. An unread home is written only on Overwrite. The line of cleans
+runs only when the row has no home
+(`a_row_cleaned_since_the_window_opened_is_asked_about_not_refused`).
+
 ### Changed on disk (D413)
 
 A save over a file asks first whether the file still holds what the
@@ -176,8 +194,21 @@ pressed out of habit must never be that
 row is held to its text the same way. A Save that cleans meets a taken
 name as a clean does, and asks the same question: Overwrite replaces that
 one file (D261's Replace, asked by the person), Keep theirs makes that
-file the result's home. The check and the write are two steps; a write
-landing between them is not caught, and nothing here locks a file.
+file the result's home.
+
+**Where the check sits** (D443). The check is made **after** the
+temporary is staged and synced, immediately before the rename over the
+file — `inplace::write_atomically_if`, whose `still` is the check and
+whose `false` publishes nothing and leaves no temporary — so a write by
+another program anywhere in the staging and the `fsync` is asked about
+rather than replaced (`write_atomically_if_publishes_only_while_still_holds`,
+`a_write_after_the_staging_is_not_written_over`). One read, not two.
+What remains: a write landing between that last read (at most 8 MiB)
+and the `rename` is still replaced; and a program that holds the old
+file open and writes in place after the rename writes into a file no
+name points at — as with every editor that saves atomically. Nothing is
+locked: an advisory lock (`File::lock`) binds only programs that take
+it, and editors do not.
 
 ### Autosave (S3, D415)
 
@@ -196,6 +227,53 @@ autosave, the window saves and then closes, and stays open if the save
 could not write; without, it asks — **Save** (what Enter answers),
 **Discard**, **Cancel** (`closing_saves_with_autosave_and_asks_without`).
 Both the close button and ⌘W go there.
+
+**One question at a time** (D445, the main window's D364 here). A
+question that comes while another stands — a file found changed by a
+save that was under way when ⌘W asked Save / Discard / Cancel — is held
+and asked once the standing one is answered, never put over it: after
+**Save** in place of a second write (which would only come back changed
+again), with the close kept, so Overwrite and Keep theirs end in the
+close and Cancel keeps the window; after **Discard** not at all, the
+window gone; after **Cancel** as it is. And ⌘W while a save runs with
+nothing typed since it began waits for that save instead of asking
+(`a_close_question_is_not_replaced_by_a_changed_file`).
+
+**Closing with nowhere to save** (D446). A result that is the original's
+own file with nothing set aside, or a paste's text with no row behind
+the window, has nowhere to save; closing it with edits used to let them
+go unasked. It asks now: *Close and let the edits go?* — the reason
+there is nowhere to save, then **Copy and close** (the pane's text on the
+clipboard, then the window closes — what Enter answers, because nothing
+is lost), **Discard**, **Cancel**
+(`closing_with_nowhere_to_save_asks_and_can_copy`).
+
+**At quit** (D440). ⌘Q and the tray's Quit ask no window — GPUI runs the
+`on_app_quit` callbacks and gives their futures 200 milliseconds — so an
+edit still inside the quiet was lost, silently. Each window now registers
+one: while it autosaves and is not stopped, no question stands, the pane
+holds edits, and the result lives in a file or the batch queue's row,
+the edit is written **in the callback, synchronously** — the one write a
+Compare window makes on the GPUI thread, for the reason `settings.rs`
+gives for its own: a task queued at quit has nothing left to run on, and
+the text is under `TEXT_LIMIT` — by the stamp the window holds, so a file
+or row that changed is not written (nobody can be asked) and one log line
+says so, the path elided. The row is told as a save would tell it, and
+the quit then waits for the journal's writer to be done with the mark
+(`journal::Writer::flushed`, a command answered after everything sent
+before it is written; the window reaches the queue's writer through
+`Link::flushed`). A save already under way is waited for — its end is
+signalled from the background task that writes, not from the window —
+and nothing more is written beside it; its journal mark is the window's
+side's and does not run after a quit has begun, so the file holds the
+edit and the mark may be missing. **Not flushed**: autosave off (the
+person saves by hand; a quit cannot ask); a Save that cleans (a clean in
+the application's line, whose row and journal the main window moves —
+neither runs after a quit begins); a cleaned paste's row (its text lives
+in memory and goes with the process, as the cleaned text itself does,
+D419) (`quitting_saves_an_edit_autosave_has_not_reached_yet`,
+`quitting_with_autosave_off_writes_nothing`,
+`quitting_never_writes_over_a_file_changed_on_disk`).
 
 `compare.autosave` is read when a window opens and kept for its life,
 like every row on the Compare page (D385's reason: the page's one
@@ -243,6 +321,25 @@ wrote included. A window opened by `--compare=` has no row: its first
 Save that cleans writes a journal row of its own, as a launch flag's,
 and its later saves mark it.
 
+**A mark names what it is about** (D442). One journal row per document,
+its action the last asked (D320): a window opened on a clean's result
+and saved after the row was rewritten would have marked the rewrite's
+entry as edited. `Told::Saved` carries `{ action, home }` — the clean's
+result or the rewrite's, and the file or the batch queue's row it lives
+in — and `told_by_compare` marks only while that is still the row's
+latest result (`cleaned_for` / `rewritten`); otherwise it marks nothing,
+answers that the save stands, and logs one line. The writer passes the
+action down to `Journal::mark_edited(id, at, action)`, whose SQL is
+`WHERE id = ?1 AND action = ?3`, so a rewrite written between the tell
+and the mark is not marked either
+(`a_save_marks_the_entry_it_was_opened_on_and_not_a_later_one`,
+`an_edit_mark_lands_only_on_the_action_it_names`). **An entry this build
+cannot read is left as it is** (D444): not a JSON object, or an `outcome`
+that is there and not an object — `mark_edited` writes nothing and says
+`false`, the rule `config.rs` keeps for a preference
+(`an_entry_this_build_cannot_read_is_left_as_it_is_by_an_edit_mark`). An
+entry with no `outcome` still gets one.
+
 ### The decisions, by number
 
 - **D410** — Save writes where the result lives: over its own file
@@ -257,7 +354,8 @@ and its later saves mark it.
   hands in; a paste's saved text lives in the row; a `--compare=` window
   writes a journal row of its own.
 - **D413** — changed on disk is the size, then the bytes; it asks
-  Overwrite / Keep theirs / Cancel, Enter is Cancel.
+  Overwrite / Keep theirs / Cancel, Enter is Cancel. Where the check
+  sits, and what is left, is D443.
 - **D414** — Reset returns to what was made (or, for a rewrite, to what
   the window opened on), and is saved like an edit — one the history
   keeps, so Undo takes it back.
@@ -268,7 +366,43 @@ and its later saves mark it.
 - **D417** — the journal records `outcome.edited`, when and never what.
 - **D418** — a cleaned row's Compare opens on its result as written; in
   place, the original on the left is the file set aside.
-- **D419** — what a save does not do (below).
+- **D419** — what a save does not do (below); what the row says about
+  it is D447.
+
+And for Compare's follow-ups (2026-10-09, `docs/plan/compare-followups.md`):
+
+- **D440** — at quit, what autosave would have saved is saved: autosave
+  on and not stopped, no question, edits, a file or the batch queue's
+  row as home; synchronously in the `on_app_quit` callback, by the stamp
+  held; a save under way waited for; the journal's writer awaited within
+  GPUI's 200 ms (`Writer::flushed`, reached through `Link::flushed`).
+  Not flushed: autosave off, a Save that cleans, a cleaned paste's row.
+- **D441** — a Save that cleans asks the row where its result lives
+  first (`Link::home`); with one it retargets, records `Seen::Unread`,
+  and asks *cleaned after the window opened* — Overwrite / Keep theirs /
+  Cancel, Enter Cancel; the line runs only when there is none.
+- **D442** — an edit mark names its action and home, checked by the row
+  and again in the SQL (`AND action = ?3`).
+- **D443** — the changed-on-disk check runs after the staging, just
+  before the rename (`inplace::write_atomically_if`); what remains is the
+  last read and the rename, and nothing is locked.
+- **D444** — an entry this build cannot read is left as it is by an edit
+  mark.
+- **D445** — one question at a time in a Compare window: a standing one
+  is never replaced; a held one is asked after Save (no second write, the
+  close kept) or Cancel, and dropped with Discard; ⌘W during a save with
+  nothing typed since waits for it.
+- **D446** — closing with edits and nowhere to save asks: Copy and close
+  (Enter), Discard, Cancel.
+- **D447** — "…, then edited" wherever a verdict is said (`wording::edited`;
+  the row's badge and tooltip, the Report and its Markdown copy; Copy
+  JSON unmoved) — see "What a save does not do"; the alternative there.
+- **D449** — the two panes stand level in the frame a scroll bar is
+  dragged (C16): measured, not fixed — every non-wrapping input on either
+  pane, in both gutter layouts, is level in the same frame, because the
+  bar notifies the editor's own view; a wrapped result that leads is
+  followed a frame late and no later (D386); the measure, its frame
+  record and its gates stay — see "Scrolling together".
 
 And for where the gutters sit (E7-10, "Where the gutters sit"):
 
@@ -299,6 +433,24 @@ the marks, and the person decides. A save does not refresh the copies the
 Retention page keeps under `kept/`: those are what the clean made. A save
 of a cleaned paste lives in the row and nowhere on disk, as the cleaned
 text does; it is gone with the row or the next clean of it.
+
+**What the row says about it** (D447, built at the default; the owner
+may switch). A result saved edited says so wherever its verdict is said:
+the row's badge reads "Cleaned, then edited" (or *Partly cleaned*,
+*Rewritten*, *Partly rewritten*, then edited) in the verdict's own
+colour — `wording::edited`, one pure map, a verdict no edit follows
+mapping to itself — its tooltip adds that the edits were saved as typed
+and nothing checked them for marks, and so does the Report's "what
+happened", in the window and in Copy as Markdown. Copy JSON is the
+library's report, a format, and does not move. A row is edited when its
+clean's outcome says so (a Save that cleans), when its journal entry has
+`outcome.edited`, or when a mark landed this session (`Row::edited_at`,
+gone with the row's next clean or rewrite). **The alternative**, for the
+owner to switch to: run Layer A over the edit before it is written —
+`clean::saved_of` and the file and row saves would write `clean(edited)`
+at the defaults, and the verdict is then honest without a new word, at
+the cost of removing characters the person typed on purpose (a U+00A0
+inside a French quotation, a ZWJ in an emoji they pasted).
 
 ## What is real
 
@@ -445,8 +597,30 @@ patched.
   (`on_every_shared_line_the_maps_undo_each_other`). `diff::Side` names
   the side a row is counted on, and is the side a mark is painted on
   too — the enum `compare` had for its marks moved there (D387).
-* **Seeing a scroll** (D386). A wheel and the scroll bar notify the
-  editor's entity at once; a scroll the library applies while it lays
+* **Seeing a scroll** (D386, D449). A wheel and the scroll bar notify the
+  editor's entity at once — the bar notifies the view it is painted in
+  (`window.current_view()`), and in this editor that is the editor's own
+  `EditorState`, which `Editor` renders as a view with the bar inside it.
+  In a story where the bar is painted in a parent view, an observer on
+  the editor misses a drag of the thumb — what gpui-kit's maintainer
+  found in his side-by-side story (#3417, `70b271ad`). Here it does not:
+  measured on the first frame painted after each step of a thumb drag and
+  of the wheel, on either pane, with the gutters facing the middle (the
+  original's bar on its left) and both on the left, the other pane
+  stands level **in the same frame**
+  (`both_panes_stand_level_in_the_frame_a_scroll_bar_is_dragged`, through
+  a test-only record of what every frame painted, `CompareView::frames`,
+  because GPUI's test mode paints a dirty window at every flush until
+  nothing is dirty, and what the panes settle on would hide a frame
+  late). With the editors' observers taken out every one of those is a
+  frame late, and the gate goes red. A wrapped result is the exception
+  (D384, D386): read only at the end of a frame, while it leads the
+  original stands level one frame late, and never later
+  (`with_the_result_wrapped_it_leads_a_frame_late_and_no_later`); the
+  original leading a wrapped result is level in the same frame. With
+  scrolling together off a drag moves its own pane alone
+  (`with_the_row_off_a_drag_moves_one_pane`). No look was added to
+  `render`: nothing was late to fix. Beyond those, a scroll the library applies while it lays
   the text out — the keyboard's, a caret brought into view, a
   `set_scroll_offset` landing — is applied silently in the frame and
   noticed by the library's own notification after a frame in which the
