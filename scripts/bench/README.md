@@ -20,6 +20,8 @@ Asked for by the coordinator on 2026-10-09, from the owner's spec
 | Pillow's degradations | `scripts/bench/encode.py` | Python + Pillow 12.3.0 |
 | the tables and the gates A1–A7 | `scripts/bench/report.py` | Python, stdlib only |
 | the backgrounds, pinned | `bench/manifest.json` (committed) | — |
+| a stand-in profile for the tests (not a vendor's) | `scripts/bench/wordmark.py` → `fixtures/marks/synthetic-wordmark/` | Python, stdlib only |
+| a catalogue file (`--catalogue`) | `crates/wipemark-picture/examples/support/catalogue.rs` | the Rust gates |
 | a run | `bench/out/<run>/` (ignored by git) | — |
 
 No Rust gate depends on Python, and the bench is not a CI job (§7). Its
@@ -195,3 +197,72 @@ Only the vendor's blend (`encoded`, `k = 1`) enters A1–A3 and A7; the
 linear-light composites are A5's, the `R-k` ones §7's. Every threshold is a
 `[tunable]` at the top of `report.py` and moves only with a line in a
 report.
+
+## Any profile: the bench for Grok (E12-R12 §4.2, stage 4b)
+
+The mark is data, so the bench takes a **profile**, not "Gemini" (added
+2026-10-09, before any Grok profile exists; `docs/plan/reports/E12-R12-stage4b-tools-2026-10-09.md`).
+
+* **`gen --profile ID`**: a Gemini id keeps that profile's rows of the table
+  above; any other id — in the shipped catalogue, or in the file
+  `--catalogue` names — gets rows read off **its own placements**: one per
+  size (`--sizes WxH,…`, or the least size each placement answers for, 1024
+  where its `when` says nothing), each the profile's first placement at that
+  size as the product takes it; `canonical` when that row is at its map's
+  own size with a map not fitted (so `exact` is a true self-test), `shipped`
+  otherwise. Row ids are `<map>-<W>x<H>`. A tile goes in the canvas's
+  corner nearest the mark (bottom-right for every Gemini row).
+* **`--catalogue FILE`** (gen and run): a catalogue in the shipped one's
+  schema — the shape R11 §4.3 commits a provisional profile in, a row with
+  `status: "provisional"` and its maps pinned by sha256 — its `.wma` maps
+  beside it (or one folder down), the shipped assets found by name. The run's
+  `manifest.json` records the file and its sha256; `run` reads the same file
+  again and refuses one whose sha256 moved. The catalogue keeps refusing
+  `linear-light` and `logo_map` (R11 needs R9 first for those).
+* **The degradations a vendor hands out** (R2 stage 0): `gen --slices a,b`
+  or `gen --degradations FILE`, a small JSON file —
+  `{"schema": 1, "profile": "<id>", "slices": ["png", "jpeg420-q85", …], "comment": "…"}`
+  (`fixtures/marks/synthetic-wordmark/degradations.json` is the shape).
+  Besides §4.3's slices, any `jpeg444-qNN` / `jpeg420-qNN` (NN 1–100) is a
+  slice: `image` writes the 4:4:4 ones, Pillow both. The run's
+  `manifest.json` records the list; `encode.py` writes those alone (and the
+  resized truths they need), and `run` takes them unless `--slices` says
+  otherwise. If Grok hands out JPEG 4:2:0, that is the main slice and `png`
+  is only the map's self-test.
+* **The matrix (A5)** is made for every row of every profile: each case is
+  composited `encoded` and `linear-light` (and `R-k` on a canonical row).
+  `report.py report RESULTS --profile 'grok-*'` reports one profile's lines
+  out of a concatenation; §0 names the profiles and the catalogue file.
+* **The stand-in.** `fixtures/marks/synthetic-wordmark/` holds a text-like
+  72 × 24 map of straight strokes (`scripts/bench/wordmark.py`, no font),
+  profile `fixture-wordmark`, pinned like every asset. It is a fixture, not
+  a vendor's mark; the example's tests run it from `gen` to its result lines
+  (`a_profile_from_a_catalogue_file_runs_from_gen_to_its_result_lines`).
+
+### The Grok runbook (host)
+
+Nothing here runs before R11 has left a provisional profile (its `.wma` and
+its catalogue row) and R2 stage 0 has said what Grok hands out.
+
+0. **Build** with the zune-jpeg fork (`docs/architecture/zune-jpeg-pin.md`),
+   at the commit under test:
+   `cargo build --release -p wipemark-picture --example recon_bench --locked`
+   (and `--features wipemark-picture/planar-preview` for the R6/R8 configs'
+   `WIPEMARK_INTERVAL` road, as for Gemini).
+1. **The degradation list**: `bench/degradations/grok.json` from R2 stage
+   0's facts table, committed with the report that names them.
+2. **Generate R0-grok's run** with the provisional catalogue:
+   `$B gen --manifest bench/manifest.json --out bench/out/grok-<date> --sample 30 --catalogue <dir>/marks.v1.json --profile <grok id> --degradations bench/degradations/grok.json`
+   (`--sizes` for the (size, aspect) pairs stage 0 found, when the rows'
+   least sizes are not those).
+3. `python3 scripts/bench/encode.py bench/out/grok-<date>`.
+4. **R0-grok, and every accepted config on it unchanged**:
+   `$B run --in bench/out/grok-<date> --config R0 --config R6 --config R8d --config R8p --config R8w --out bench/out/grok-<date>/results.jsonl`
+   (the catalogue is read back from the run's manifest).
+5. `python3 scripts/bench/report.py report bench/out/grok-<date>/results.jsonl --out <report>.md`:
+   §1 per slice, §2 the matrix (more important here than for Gemini: the
+   model was chosen on captures from the same corpus), §5 whether Grok's
+   real failures are reproduced by their order of magnitude. The gates as
+   for Gemini, against R0 on the same run.
+6. Once the profile is accepted, the regression's Grok baseline
+   (`scripts/regress.py`'s header, "The Grok runbook").

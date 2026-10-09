@@ -32,6 +32,15 @@ the same way. A file already there is kept unless `--force`. Then writes
 `<run>/encode.json`: Pillow's, libjpeg's and libwebp's versions and the
 counts.
 
+**The run's own slices** (added by E12-R12's stage 4b, 2026-10-09): when
+`<run>/manifest.json` carries a `slices` list — `recon_bench gen --slices
+a,b` or `--degradations FILE`, the degradations a profile's vendor actually
+hands out — only those are written (and only the resized truths they need),
+and a JPEG slice may be any `jpeg444-qNN` or `jpeg420-qNN`, NN in 1–100,
+written at that quality and subsampling. A run with no list gets every
+slice above, as before. A name this script cannot make is refused (exit
+2) before anything is written.
+
 How to run it
 -------------
     python3 scripts/bench/encode.py bench/out/<run> [--jobs N] [--force] [--any-pillow]
@@ -58,6 +67,7 @@ refused Pillow.
 
 import json
 import os
+import re
 import sys
 import tempfile
 from concurrent.futures import ProcessPoolExecutor
@@ -77,8 +87,45 @@ JPEG = [
     ("jpeg420-q75", 75, 2),
 ]
 SCALES = ["0.9", "1.1"]
+COMBO = "jpeg420-q90+resize-0.9"
+WEBP = "webp-lossy-q90"
+# Every slice this script writes when a run names none, in the order it writes them.
+ALL_SLICES = [s for s, _, _ in JPEG] + [WEBP] + [f"resize-{s}" for s in SCALES] + [COMBO]
+# Any JPEG quality (E12-R12 stage 4b): `jpeg444-qNN`, `jpeg420-qNN`.
+JPEG_RE = re.compile(r"^jpeg(444|420)-q([0-9]{1,3})$")
 # Pillow's `subsampling` value → what `JpegImagePlugin.get_sampling` reads back.
 SAMPLING_ID = {0: 0, 2: 2}
+
+
+def jpeg_of(slice_id):
+    """(quality, subsampling) of a JPEG slice, or None."""
+    m = JPEG_RE.match(slice_id)
+    if not m or not 1 <= int(m.group(2)) <= 100:
+        return None
+    return int(m.group(2)), {"444": 0, "420": 2}[m.group(1)]
+
+
+def planned(run):
+    """The slices a run asks for: its manifest's `slices` (`recon_bench gen`), or every one. `png` is gen's."""
+    try:
+        with open(os.path.join(run, "manifest.json")) as f:
+            slices = json.load(f).get("slices")
+    except FileNotFoundError:
+        slices = None
+    if slices is None:
+        return list(ALL_SLICES)
+    unknown = [s for s in slices if s != "png" and s not in ALL_SLICES and jpeg_of(s) is None]
+    if unknown:
+        raise ValueError(f"the run asks for slices this script cannot make: {unknown}")
+    return [s for s in slices if s != "png"]
+
+
+def scales_of(plan):
+    """The resize scales a plan's truths need."""
+    need = {s[len("resize-"):] for s in plan if s.startswith("resize-")}
+    if COMBO in plan:
+        need.add("0.9")
+    return [s for s in SCALES if s in need]
 
 
 def resized(im, scale):
@@ -92,8 +139,9 @@ def save_jpeg(im, path, quality, subsampling):
     im.save(path, format="JPEG", quality=quality, subsampling=subsampling)
 
 
-def encode_case(run, case_dir, force):
-    """Every Pillow variant of one case; returns the number written."""
+def encode_case(run, case_dir, force, plan=None):
+    """Every Pillow variant of one case the plan names (every one by default); returns the number written."""
+    plan = ALL_SLICES if plan is None else plan
     base = os.path.join(run, case_dir)
     marked = Image.open(os.path.join(base, "marked.png")).convert("RGB")
     written = 0
@@ -104,32 +152,36 @@ def encode_case(run, case_dir, force):
         p = os.path.join(d, name)
         return p, (force or not os.path.exists(p))
 
-    for slice_id, q, ss in JPEG:
-        p, go = out(slice_id, "pillow.jpg")
-        if go:
-            save_jpeg(marked, p, q, ss)
-            written += 1
-    p, go = out("webp-lossy-q90", "pillow.webp")
-    if go:
-        marked.save(p, format="WEBP", quality=90, lossless=False)
-        written += 1
-    for s in SCALES:
-        p, go = out(f"resize-{s}", "pillow.png")
-        if go:
-            resized(marked, s).save(p, format="PNG")
-            written += 1
-    p, go = out("jpeg420-q90+resize-0.9", "pillow.jpg")
-    if go:
-        save_jpeg(resized(marked, "0.9"), p, 90, 2)
-        written += 1
+    for slice_id in plan:
+        if jpeg_of(slice_id) is not None:
+            q, ss = jpeg_of(slice_id)
+            p, go = out(slice_id, "pillow.jpg")
+            if go:
+                save_jpeg(marked, p, q, ss)
+                written += 1
+        elif slice_id == WEBP:
+            p, go = out(WEBP, "pillow.webp")
+            if go:
+                marked.save(p, format="WEBP", quality=90, lossless=False)
+                written += 1
+        elif slice_id.startswith("resize-"):
+            p, go = out(slice_id, "pillow.png")
+            if go:
+                resized(marked, slice_id[len("resize-"):]).save(p, format="PNG")
+                written += 1
+        elif slice_id == COMBO:
+            p, go = out(COMBO, "pillow.jpg")
+            if go:
+                save_jpeg(resized(marked, "0.9"), p, 90, 2)
+                written += 1
     return written
 
 
-def encode_truth(run, bg_dir, force):
+def encode_truth(run, bg_dir, force, scales=None):
     base = os.path.join(run, bg_dir)
     gt = None
     written = 0
-    for s in SCALES:
+    for s in SCALES if scales is None else scales:
         p = os.path.join(base, f"gt-resize-{s}.png")
         if force or not os.path.exists(p):
             if gt is None:
@@ -140,9 +192,9 @@ def encode_truth(run, bg_dir, force):
 
 
 def _case(args):
-    run, case_dir, force = args
+    run, case_dir, force, plan = args
     try:
-        return case_dir, encode_case(run, case_dir, force), None
+        return case_dir, encode_case(run, case_dir, force, plan), None
     except Exception as e:  # reported by name, never swallowed
         return case_dir, 0, f"{type(e).__name__}: {e}"
 
@@ -165,15 +217,20 @@ def encode_run(run, jobs=None, force=False, any_pillow=False):
             file=sys.stderr,
         )
         return 2
+    try:
+        plan = planned(run)
+    except ValueError as e:
+        print(f"encode.py: {e}", file=sys.stderr)
+        return 2
     index_path = os.path.join(run, "index.jsonl")
     with open(index_path) as f:
         index = [json.loads(line) for line in f if line.strip()]
     truths = 0
     for bg in sorted({i["bg_dir"] for i in index}):
-        truths += encode_truth(run, bg, force)
+        truths += encode_truth(run, bg, force, scales_of(plan))
     failed = []
     written = 0
-    work = [(run, i["case_dir"], force) for i in index]
+    work = [(run, i["case_dir"], force, plan) for i in index]
     if jobs == 1:
         results = map(_case, work)
     else:
@@ -187,7 +244,8 @@ def encode_run(run, jobs=None, force=False, any_pillow=False):
         print(f"encode.py: {case_dir}: {err}", file=sys.stderr)
     with open(os.path.join(run, "encode.json"), "w") as f:
         json.dump(
-            {"versions": v, "cases": len(index), "written": written, "truths": truths, "failed": len(failed)},
+            {"versions": v, "cases": len(index), "written": written, "truths": truths, "failed": len(failed),
+             "slices": plan},
             f,
             indent=2,
         )
@@ -253,6 +311,38 @@ def selftest():
                 problems.append("another Pillow was not refused")
         finally:
             WANT_PILLOW = saved
+    # E12-R12 stage 4b: a run that names its slices gets those alone — a JPEG at any quality among them —
+    # and only the resized truths they need; a slice this script cannot make is refused before a file is written.
+    with tempfile.TemporaryDirectory() as run:
+        bg, cd = "g/bg/48x40", "g/bg/48x40/a"
+        os.makedirs(os.path.join(run, cd))
+        px = Image.new("RGB", (48, 40))
+        px.putdata([((x * 5) % 256, (y * 9) % 256, (x + y) % 256) for y in range(40) for x in range(48)])
+        px.save(os.path.join(run, bg, "gt.png"))
+        px.save(os.path.join(run, cd, "marked.png"))
+        with open(os.path.join(run, "index.jsonl"), "w") as f:
+            f.write(json.dumps({"case_dir": cd, "bg_dir": bg, "size": [48, 40]}) + "\n")
+        with open(os.path.join(run, "manifest.json"), "w") as f:
+            json.dump({"slices": ["png", "jpeg420-q82", "resize-1.1"]}, f)
+        if encode_run(run, jobs=1, any_pillow=True) != 0:
+            problems.append("a run with its own slices was not encoded")
+        base = os.path.join(run, cd)
+        got = sorted(n for n in os.listdir(base) if os.path.isdir(os.path.join(base, n)))
+        if got != ["jpeg420-q82", "resize-1.1"]:
+            problems.append(f"a run naming its slices wrote {got}")
+        else:
+            im = Image.open(os.path.join(base, "jpeg420-q82", "pillow.jpg"))
+            if JpegImagePlugin.get_sampling(im) != 2:
+                problems.append("jpeg420-q82 is not 4:2:0")
+        truths = sorted(n for n in os.listdir(os.path.join(run, bg)) if n.startswith("gt-resize-"))
+        if truths != ["gt-resize-1.1.png"]:
+            problems.append(f"a run naming resize-1.1 alone wrote the truths {truths}")
+        with open(os.path.join(run, "manifest.json"), "w") as f:
+            json.dump({"slices": ["png", "jpeg422-q90"]}, f)
+        if encode_run(run, jobs=1, any_pillow=True) != 2:
+            problems.append("a slice this script cannot make was not refused")
+    if jpeg_of("jpeg444-q100") != (100, 0) or jpeg_of("jpeg420-q0") is not None or jpeg_of("jpeg420-q101") is not None:
+        problems.append("jpeg_of reads a quality outside 1–100, or misreads one inside")
     for p in problems:
         print(f"FAIL {p}")
     print("selftest:", "FAIL" if problems else "ok", f"({len(problems)} problems)")
