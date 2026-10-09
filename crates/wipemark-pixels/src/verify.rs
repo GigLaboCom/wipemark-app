@@ -776,6 +776,37 @@ fn percentile(values: &mut [f64], p: f64) -> f64 {
     values[((values.len() - 1) as f64 * p).round() as usize]
 }
 
+/// How far a restoration is from the data (D305): over `pairs` — per
+/// sample, the restored value blended back with the very `α`, logo and
+/// gain the restoration used, beside the stored value it was restored
+/// from, both in 8-bit levels — the 95th percentile of their distance;
+/// 0 for none. `excluded` is what the caller left out (clamped samples
+/// and holes), handed back beside it. Written once, for every path that
+/// restores: the RGB raster's here, a JPEG's planes later (Y and chroma
+/// at their own resolutions, one percentile over both). A measure: no
+/// bound, no verdict.
+pub(crate) fn consistency(
+    pairs: impl IntoIterator<Item = (f64, f64)>,
+    excluded: u32,
+) -> Consistency {
+    let mut distance: Vec<f64> = pairs
+        .into_iter()
+        .map(|(blended, stored)| (blended - stored).abs())
+        .collect();
+    Consistency {
+        px: percentile(&mut distance, 0.95) as f32,
+        excluded,
+    }
+}
+
+/// [`consistency`]'s answer: `Restored::consistency_px` and
+/// `Restored::consistency_excluded`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Consistency {
+    pub px: f32,
+    pub excluded: u32,
+}
+
 /// The mean luma gradient (central differences, luma in [0, 1]) over the
 /// pixels two to eight outside `at`, inside the picture.
 fn texture_around(raster: &Raster, at: PixelRect) -> f64 {
@@ -1051,5 +1082,43 @@ mod tests {
             restore(&mut raster, &one(0.3), &ExamineOptions::default()).unwrap();
             assert_eq!(raster.samples(), &[original; 3], "{stored}");
         }
+    }
+
+    /// D305's measure: the distance either way, the 95th percentile by
+    /// nearest rank — one sample off in twenty is the percentile, one in a
+    /// hundred is not — 0 with nothing to measure, and the excluded count
+    /// handed back as it came.
+    #[test]
+    fn consistency_is_the_95th_percentile_of_the_distance() {
+        let pairs = |off: usize, n: usize, by: f64| {
+            (0..n).map(move |i| {
+                let stored = 100.0 + i as f64 % 7.0;
+                let d = if i < off { by } else { 0.25 };
+                (stored + if i % 2 == 0 { d } else { -d }, stored)
+            })
+        };
+        assert_eq!(consistency(pairs(0, 100, 0.0), 4).px, 0.25);
+        assert_eq!(consistency(pairs(10, 100, -3.0), 0).px, 3.0);
+        assert_eq!(consistency(pairs(1, 100, 3.0), 0).px, 0.25);
+        let none = consistency(std::iter::empty(), 7);
+        assert_eq!(
+            none,
+            Consistency {
+                px: 0.0,
+                excluded: 7
+            }
+        );
+        assert_eq!(consistency(pairs(0, 3, 0.0), 4).excluded, 4);
+    }
+
+    /// One pixel at `α` 0.3 under a white logo is restored, and blended
+    /// back lands within the rounding of what was stored: the inverse at
+    /// 160.71 is written as 161, which blends back to 189.2.
+    #[test]
+    fn a_restored_pixel_blends_back_to_its_input() {
+        let mut raster = Raster::from_u8(1, 1, Layout::Rgb8, &[189; 3]).unwrap();
+        let r = restore(&mut raster, &one(0.3), &ExamineOptions::default()).unwrap();
+        assert!((r.consistency_px - 0.2).abs() < 1e-4, "{r:?}");
+        assert_eq!(r.consistency_excluded, 0);
     }
 }

@@ -85,6 +85,23 @@ pub struct Restored {
     /// Lossless source, a row's own canonical map that is not fitted, no
     /// hole, no clamp, no outline: the original values to within one level.
     pub exact: bool,
+    /// How far the result is from the data (D305): the restored samples
+    /// blended back — `α·L + (1 − α)·O` with the `α` and the logo they were
+    /// restored with, at gain 1 — against the stored input, the 95th
+    /// percentile of the distance over every sample with `α` from the noise
+    /// floor to the opaque threshold, in 8-bit levels. About 0 for an
+    /// exact inverse, by identity: half a level of rounding at most. A
+    /// measure, never a verdict.
+    pub consistency_px: f32,
+    /// The samples left out of `consistency_px`, where an error is
+    /// expected: every clamped one (`clamped`, and any of a capture noise
+    /// taken off, D246), and the three colour samples of every hole.
+    pub consistency_excluded: u32,
+    /// The share of DCT coefficients outside their quantisation intervals,
+    /// for a value chosen inside them (D305); none on every path today,
+    /// and then not in the JSON.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consistency_dct: Option<f32>,
     /// Restored in the planes of a subsampled JPEG (D306, E12-R6), or a
     /// lossy JPEG whose planes could not be read; `None` on the RGB path,
     /// and then not in the JSON.
@@ -109,6 +126,29 @@ pub fn restore(
     verified: &Verified,
     options: &ExamineOptions,
 ) -> Result<Restored, RestoreError> {
+    restore_with(raster, verified, options, 0.0)
+}
+
+/// [`restore`] with every restored sample moved by `levels` (8-bit levels)
+/// after the inverse and before it is written and measured — a departure
+/// from the data that `Restored::consistency_px` has to see (D305). For
+/// tests only; never a feature.
+#[doc(hidden)]
+pub fn restore_off_by(
+    raster: &mut Raster,
+    verified: &Verified,
+    options: &ExamineOptions,
+    levels: f32,
+) -> Result<Restored, RestoreError> {
+    restore_with(raster, verified, options, levels)
+}
+
+fn restore_with(
+    raster: &mut Raster,
+    verified: &Verified,
+    options: &ExamineOptions,
+    levels: f32,
+) -> Result<Restored, RestoreError> {
     if !verified.fits(raster) {
         return Err(RestoreError::Elsewhere);
     }
@@ -117,6 +157,11 @@ pub fn restore(
     let logo = verified.logo();
     let opaque = verified.opaque_above();
     let (mut changed, mut holes, mut clamped) = (0u32, 0u32, 0u32);
+    // D305: per sample restored, (blend(O), I) in 8-bit levels.
+    let to_8 = 255.0 / max;
+    let shift = f64::from(levels) / to_8;
+    let blend = |o: f64, a: f64, l: f64| a * l + (1.0 - a) * o;
+    let (mut pairs, mut excluded) = (Vec::new(), 0u32);
     for ty in 0..at.height {
         for tx in 0..at.width {
             let a = verified.values()[(ty * at.width + tx) as usize];
@@ -125,6 +170,7 @@ pub fn restore(
             }
             if a >= opaque {
                 holes += 1;
+                excluded += 3;
                 continue;
             }
             let a = f64::from(a);
@@ -138,10 +184,14 @@ pub fn restore(
             let original = unblend(stored, a, logo);
             let mut moved = false;
             for (c, o) in original.into_iter().enumerate() {
+                let v = (o + shift).round().clamp(0.0, max);
                 if o < -0.5 || o > max + 0.5 {
                     clamped += 1;
+                    excluded += 1;
+                } else {
+                    pairs.push((blend(v, a, logo[c]) * to_8, stored[c] * to_8));
                 }
-                let v = o.round().clamp(0.0, max) as u16;
+                let v = v as u16;
                 if v != samples[i + c] {
                     samples[i + c] = v;
                     moved = true;
@@ -166,7 +216,13 @@ pub fn restore(
             ];
             let mut moved = false;
             for (c, o) in unblend(stored, f64::from(a), logo).into_iter().enumerate() {
-                let v = o.round().clamp(0.0, max) as u16;
+                let v = o.round().clamp(0.0, max);
+                if o < -0.5 || o > max + 0.5 {
+                    excluded += 1;
+                } else {
+                    pairs.push((blend(v, f64::from(a), logo[c]) * to_8, stored[c] * to_8));
+                }
+                let v = v as u16;
                 if v != samples[i + c] {
                     samples[i + c] = v;
                     moved = true;
@@ -176,6 +232,7 @@ pub fn restore(
         }
     }
     let outline = crate::verify::outline(raster, verified);
+    let consistency = crate::verify::consistency(pairs, excluded);
     Ok(Restored {
         profile: verified.profile().to_owned(),
         rect: at,
@@ -204,6 +261,9 @@ pub fn restore(
             && holes == 0
             && clamped == 0
             && !outline.left(),
+        consistency_px: consistency.px,
+        consistency_excluded: consistency.excluded,
+        consistency_dct: None,
         planar: None,
     })
 }

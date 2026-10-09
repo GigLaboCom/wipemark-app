@@ -1341,6 +1341,9 @@ mod tests {
             resampled,
             searched,
             exact: false,
+            consistency_px: 0.4,
+            consistency_excluded: 0,
+            consistency_dct: None,
             planar: None,
         };
         let english = Localizer::for_languages(&["en-US".parse().unwrap()], Rendering::PlainText);

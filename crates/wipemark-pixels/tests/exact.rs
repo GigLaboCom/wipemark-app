@@ -7,9 +7,9 @@ mod support;
 use support::*;
 use wipemark_pixels::synth::{composite_with, Blend};
 use wipemark_pixels::{
-    clean, composite, drawn, examine, resampled, restore, AlphaMap, Catalogue, ExamineOptions,
-    Fidelity, Kernel, Layout, PixelRect, Placed, Raster, Refusal, RestoreError, SubRect, Verdict,
-    OUTLINE_BOUND, STEP_LEVELS,
+    clean, composite, drawn, examine, resampled, restore, restore_off_by, AlphaMap, Catalogue,
+    ExamineOptions, Fidelity, Kernel, Layout, PixelRect, Placed, Raster, Refusal, RestoreError,
+    SubRect, Verdict, OUTLINE_BOUND, STEP_LEVELS,
 };
 
 const W: u32 = 320;
@@ -332,6 +332,10 @@ fn opaque_pixels_are_holes_never_divided() {
     assert_eq!(r.holes, holes);
     assert!(!r.exact);
     assert!(report.marks_left());
+    // A hole is never divided, so never measured: its three samples are
+    // counted apart (D305), and what was restored around it is consistent.
+    assert_eq!(r.consistency_excluded, r.clamped + 3 * holes, "{r:?}");
+    assert!(r.consistency_px <= 1.0, "{r:?}");
     // Every hole is the stamped value still; every other pixel is back.
     for y in 0..48 {
         for x in 0..48 {
@@ -598,4 +602,109 @@ fn a_canonical_composite_comes_back_exact() {
     }
     // Not vacuous: most of them are exact.
     assert!(exact >= 8, "{exact} exact");
+}
+
+// ------------------------------------------------- consistency (D305)
+
+/// The identity of the inverse (E12-R7, D305): every restoration of a
+/// composite — thirteen procedural pictures, both 8-bit layouts and a
+/// 16-bit one — blended back with the map and the logo it was restored
+/// with, lands within the rounding of the input it was restored from. The
+/// measure is in 8-bit levels whatever the depth: the 257 stored levels a
+/// 16-bit raster has to one 8-bit level are not a departure.
+#[test]
+fn a_composited_mark_is_consistent_to_rounding() {
+    let catalogue = synthetic_catalogue();
+    let v1 = synthetic_v1();
+    let at = small_row(W, H, 48);
+    let mut seen = 0;
+    for layout in [Layout::Rgb8, Layout::Rgba8, Layout::Rgb16] {
+        for (name, original) in backgrounds(W, H, layout) {
+            let mut marked = original.clone();
+            composite(&mut marked, &v1.small, at, [255.0; 3]);
+            let report = clean(&mut marked, &catalogue, &lossless());
+            for r in &report.restored {
+                assert!(r.consistency_px <= 1.0, "{name} {layout:?}: {r:?}");
+                assert_eq!(
+                    r.consistency_excluded,
+                    r.clamped + 3 * r.holes,
+                    "{name} {layout:?}: {r:?}"
+                );
+                assert_eq!(r.consistency_dct, None, "{name}");
+                seen += 1;
+            }
+        }
+    }
+    assert!(seen >= 36, "only {seen} restorations");
+}
+
+/// The measure's exclusion (D305): a mark over a saturated green whose red
+/// sits a few levels under `α·L` — D240's real case, the vendor's α against
+/// an 8-bit capture — inverts past 0 in red, and those samples are clamped.
+/// An error there is expected: they are left out of the measure and
+/// counted apart, every one of them, and what is left is consistent to
+/// rounding. Counted in, a third of the samples would be levels off.
+#[test]
+fn clamped_samples_are_left_out_and_counted() {
+    let shipped = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
+    let v1 = shipped.profile("gemini-sparkle-v1").unwrap();
+    let (_, small) = v1.maps.iter().find(|(id, _)| id == "gemini-v1-48").unwrap();
+    let (w, h) = (640, 480);
+    let at = small_row(w, h, 48);
+    let pixels: Vec<u8> = (0..w * h).flat_map(|_| [0u8, 150, 58]).collect();
+    let mut raster = Raster::from_u8(w, h, Layout::Rgb8, &pixels).unwrap();
+    composite(&mut raster, &drawn(small), at, v1.logo);
+    let mut samples = raster.samples().to_vec();
+    for y in at.y..at.y + at.height {
+        for x in at.x..at.x + at.width {
+            let i = ((y * w + x) * 3) as usize;
+            samples[i] = samples[i].saturating_sub(5);
+        }
+    }
+    let mut raster = Raster::new(w, h, Layout::Rgb8, samples).unwrap();
+    let report = clean(&mut raster, shipped, &lossless());
+    assert_eq!(report.restored.len(), 1, "{:#?}", report.found);
+    let r = &report.restored[0];
+    assert_eq!(r.holes, 0, "{r:?}");
+    assert!(!r.noise, "{r:?}");
+    // Not vacuous: most of the red under the mark clamped.
+    assert!(r.clamped * 10 > r.changed, "{r:?}");
+    assert_eq!(r.consistency_excluded, r.clamped, "{r:?}");
+    assert!(r.consistency_px <= 1.0, "{r:?}");
+}
+
+/// The measure sees a departure from the data (D305): a restoration moved
+/// two levels up inside the mark after the inverse — through the hidden
+/// hook, the very restoration otherwise — blends back two levels, less
+/// what the opacity takes, above the input it came from. Two 8-bit levels
+/// on a 16-bit raster too, where they are 514 stored ones.
+#[test]
+fn a_restoration_off_by_one_level_is_seen() {
+    let catalogue = synthetic_catalogue();
+    let v1 = synthetic_v1();
+    let at = small_row(W, H, 48);
+    for (kind, seed, layout) in [
+        (Kind::Gradient, 3u64, Layout::Rgb8),
+        (Kind::Fractal, 4, Layout::Rgb8),
+        (Kind::ValueNoise, 5, Layout::Rgb8),
+        (Kind::Fractal, 4, Layout::Rgb16),
+    ] {
+        let mut raster = picture(kind, W, H, seed, layout);
+        composite(&mut raster, &v1.small, at, [255.0; 3]);
+        let exam = examine(&raster, &catalogue, &lossless());
+        let verified = exam
+            .findings
+            .iter()
+            .find_map(|f| f.verified())
+            .unwrap_or_else(|| panic!("{kind:?} {layout:?}: {:#?}", exam.findings));
+        let mut exact = raster.clone();
+        let r0 = restore(&mut exact, verified, &lossless()).unwrap();
+        assert!(r0.consistency_px <= 1.0, "{kind:?} {layout:?}: {r0:?}");
+        let r2 = restore_off_by(&mut raster, verified, &lossless(), 2.0).unwrap();
+        assert_eq!(r2.clamped, r0.clamped, "{kind:?} {layout:?}");
+        assert!(
+            (1.5..=2.5).contains(&r2.consistency_px),
+            "{kind:?} {layout:?}: {r2:?}"
+        );
+    }
 }

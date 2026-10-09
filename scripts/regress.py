@@ -47,9 +47,9 @@ What it does
   exits, `written`, the output's sha256, the findings, the measures
   (`outline`, `step`, `chroma`, `texture` from `restored[]`;
   `out_of_range` from `found[].scores`; `holes`, `clamped`;
-  `consistency_px` when R7 has landed) and the time, under G1–G4 on every
-  route and L1–L4, M1–M4, D1–D4 by route; writes `summary.json` and
-  `summary.md`.
+  `consistency_px`, D305, where both sides carry it) and the time, under
+  G1–G4 on every route and L1–L4, M1–M4, D1–D4 by route; writes
+  `summary.json` and `summary.md`.
 * `selftest` — no corpus, no CLI: fake runs in a temporary folder, each
   rule of §4.3 asserted both ways, the derived-file refusal on a synthetic
   picture, the committed manifest against its schema. With `--cli PATH`
@@ -67,8 +67,8 @@ How to run it
                                         --out golden/baseline/<commit>/
     python3 scripts/regress.py run      [--corpus …] [--cache …] --cli … --baseline golden/baseline/<commit>/ \
                                         --route {lossy,model,detect,all}[,…] [--target MEASURE@SELECTOR]… \
-                                        [--out reports/regress-<commit>-<date>/]
-    python3 scripts/regress.py diff     --a <dir> --b <dir> --route … [--target …] [--out <dir>]
+                                        [--new-fields FIELD,…] [--out reports/regress-<commit>-<date>/]
+    python3 scripts/regress.py diff     --a <dir> --b <dir> --route … [--target …] [--new-fields …] [--out <dir>]
     python3 scripts/regress.py selftest [--cli target/release/wipemark-cli]
 
 `--select SELECTOR` (fetch, pin, baseline, run) takes a part of the corpus:
@@ -79,6 +79,14 @@ presigned URL is a credential: give it as `--url` or in
 `REGRESS_URL_<SOURCE>` (`REGRESS_URL_STICKERS`), never in a file; this
 script prints only its host. The CLI runs with `WIPEMARK_DATA_DIR` in a
 temporary folder, so no real settings are read.
+
+`--new-fields a,b` (run, diff; added by E12-R7, 2026-10-09) names JSON
+fields a change adds by a decision — `consistency_px,consistency_excluded`
+for D305. Where the baseline lacks one of them and the run has it, L1 and
+D4 do not count it as a difference; anything else still is (a field gone,
+one not named, a named one whose value moved where the baseline had it).
+The summary's notes say on how many files each named field was added, and
+ask whether the right CLI ran when none was.
 
 What it needs
 -------------
@@ -132,6 +140,8 @@ TOLERANCE = {
     "step": (0.2, 0.05),
     "chroma": (0.2, 0.05),
     "texture": (0.2, 0.05),
+    # E12-R7 (D305): the restoration blended back against its input, p95 in 8-bit levels.
+    "consistency_px": (0.2, 0.05),
 }
 OUT_OF_RANGE_POINTS = 0.001  # G3: a share may grow by 0.1 percentage points
 RECT_PX = 0.125  # D2: a verified rect may move by an eighth of a pixel
@@ -684,8 +694,12 @@ def not_worse(name, before, after):
     return abs(after) <= abs(before) + max(abs_tol, rel_tol * abs(before))
 
 
-def json_equal(a, b, path="$"):
-    """None when equal up to the printing of floats, else the first path that differs."""
+def json_equal(a, b, path="$", new=frozenset()):
+    """None when equal up to the printing of floats, else the first path that differs.
+
+    `new` names fields the run is told to expect (`--new-fields`): an object key in `b`, absent from `a`, whose
+    name is in `new` is not a difference. Everything else still is — a field gone, a field not declared, and a
+    declared field whose value moved where the baseline already had it."""
     if isinstance(a, bool) or isinstance(b, bool):
         return None if a is b or a == b and type(a) is type(b) else path
     if isinstance(a, (int, float)) and isinstance(b, (int, float)):
@@ -693,10 +707,10 @@ def json_equal(a, b, path="$"):
             return None
         return path
     if isinstance(a, dict) and isinstance(b, dict):
-        if set(a) != set(b):
+        if set(a) - set(b) or set(b) - set(a) - new:
             return f"{path}{{keys}}"
         for k in a:
-            r = json_equal(a[k], b[k], f"{path}.{k}")
+            r = json_equal(a[k], b[k], f"{path}.{k}", new)
             if r:
                 return r
         return None
@@ -704,11 +718,32 @@ def json_equal(a, b, path="$"):
         if len(a) != len(b):
             return f"{path}[len]"
         for i, (x, y) in enumerate(zip(a, b)):
-            r = json_equal(x, y, f"{path}[{i}]")
+            r = json_equal(x, y, f"{path}[{i}]", new)
             if r:
                 return r
         return None
     return None if a == b else path
+
+
+def added_keys(a, b, out=None):
+    """Every object key in `b` that the object at the same place in `a` lacks (lists matched by index)."""
+    out = set() if out is None else out
+    if isinstance(a, dict) and isinstance(b, dict):
+        out.update(set(b) - set(a))
+        for k in set(a) & set(b):
+            added_keys(a[k], b[k], out)
+    elif isinstance(a, list) and isinstance(b, list):
+        for x, y in zip(a, b):
+            added_keys(x, y, out)
+    return out
+
+
+def parse_new_fields(text):
+    names = [n.strip() for n in (text or "").split(",") if n.strip()]
+    bad = [n for n in names if not re.fullmatch(r"[a-z_][a-z0-9_]*", n)]
+    if bad:
+        raise Refusal(f"--new-fields {text!r}: comma-separated JSON field names, not {bad}")
+    return frozenset(names)
 
 
 # ── Targets: what a change says it means to move ─────────────────────────────
@@ -743,12 +778,17 @@ def rect_moved(fa, fb):
 # ── The comparison: §4.3 ─────────────────────────────────────────────────────
 
 
-def compare(before, after, routes, targets=()):
-    """`before` and `after` are {id: record}; returns (files, corpus)."""
+def compare(before, after, routes, targets=(), new_fields=frozenset()):
+    """`before` and `after` are {id: record}; returns (files, corpus).
+
+    `new_fields` are the JSON fields the change adds by a decision (`--new-fields`): L1 and D4 do not count them
+    as a difference where the baseline lacks them, and the corpus notes say how many files carried each."""
     routes = set(routes)
+    new_fields = frozenset(new_fields)
     files = []
     corpus = {"routes": sorted(routes), "targets": [t["text"] for t in targets], "gates": {}, "lifted": [],
-              "known_false_positives": [], "missing": [], "new": [], "notes": []}
+              "known_false_positives": [], "missing": [], "new": [], "notes": [],
+              "new_fields": {n: 0 for n in sorted(new_fields)}}
     level_of = {"pass": 0, "attention": 1, "fail": 2}
 
     for fid in sorted(set(before) | set(after)):
@@ -778,6 +818,11 @@ def compare(before, after, routes, targets=()):
             say("fail", "the input is not the baseline's (sha256 differs): one baseline per corpus")
         fa, fb = facts(a), facts(b)
         cls, variant = rec["class"], rec["variant"]
+        added = set()
+        for side in ("inspect", "clean"):
+            added_keys((a.get(side) or {}).get("json"), (b.get(side) or {}).get("json"), added)
+        for n in added & new_fields:
+            corpus["new_fields"][n] += 1
         entry["exit"] = {"before": fa["clean_exit"], "after": fb["clean_exit"]}
         entry["inspect_exit"] = {"before": fa["inspect_exit"], "after": fb["inspect_exit"]}
         entry["written"] = {"before": fa["written"], "after": fb["written"]}
@@ -871,7 +916,7 @@ def compare(before, after, routes, targets=()):
                 if not entry["output_sha_equal"]:
                     say("fail", f"{gate}: a lossless output moved (sha256 differs): the change was routed wrong")
                 for side in ("inspect", "clean"):
-                    diff_at = json_equal((a.get(side) or {}).get("json"), (b.get(side) or {}).get("json"))
+                    diff_at = json_equal((a.get(side) or {}).get("json"), (b.get(side) or {}).get("json"), new=new_fields)
                     if diff_at:
                         say("fail", f"{gate}: the {side} JSON differs at {diff_at}")
 
@@ -942,6 +987,9 @@ def compare(before, after, routes, targets=()):
                 share = better / len(pairs) if pairs else 0.0
                 corpus["gates"][f"M3 {t['measure']}"] = {"improved": better, "of": len(pairs), "share": round(share, 4), "ok": share >= MIDTONE_SHARE}
         corpus["notes"].append("M4: level A is R5's bench (A5, the matrix) — not checked here")
+    for n, count in corpus["new_fields"].items():
+        corpus["notes"].append(f"new field `{n}` (--new-fields): added on {count} of {len(files)} files"
+                               + ("" if count else " — none carried it: is the CLI under test the change's?"))
     corpus_ok = all(g["ok"] for g in corpus["gates"].values())
     worst = max((level_of[f["gate"]] for f in files), default=0)
     if not corpus_ok:
@@ -1257,7 +1305,7 @@ def cmd_run(args):
     _, after = load_run(out)
     if args.select:
         before = {k: v for k, v in before.items() if k in after}
-    files, corp = compare(before, after, routes, targets)
+    files, corp = compare(before, after, routes, targets, parse_new_fields(args.new_fields))
     print(write_summary(out, files, corp, a_index, b_index))
     print(f"summary: {os.path.join(out, 'summary.md')}")
     return exit_of(corp)
@@ -1268,7 +1316,7 @@ def cmd_diff(args):
     targets = [parse_target(t) for t in args.target or []]
     a_index, before = load_run(args.a)
     b_index, after = load_run(args.b)
-    files, corp = compare(before, after, routes, targets)
+    files, corp = compare(before, after, routes, targets, parse_new_fields(args.new_fields))
     out = args.out or tempfile.mkdtemp(prefix="regress-diff-")
     print(write_summary(out, files, corp, a_index, b_index))
     print(f"summary: {os.path.join(out, 'summary.md')}")
@@ -1296,9 +1344,13 @@ def finding(verdict="verified", why=None, oor=0.0, x=880.0, y=880.0, size=96.0):
             "refusal": None if why is None else {"why": why}, "scores": {"gain": 1.0, "edge_ratio": 0.07, "out_of_range": oor, "holes": 0}}
 
 
-def restoration(outline=0.05, step=0.1, chroma=0.3, texture=1.8, holes=0, clamped=10, outline_left=False, texture_left=False):
-    return {"profile": "gemini-sparkle-v1", "outline": outline, "step": step, "chroma": chroma, "texture": texture,
-            "holes": holes, "clamped": clamped, "outline_left": outline_left, "texture_left": texture_left}
+def restoration(outline=0.05, step=0.1, chroma=0.3, texture=1.8, holes=0, clamped=10, outline_left=False, texture_left=False,
+                consistency=None):
+    r = {"profile": "gemini-sparkle-v1", "outline": outline, "step": step, "chroma": chroma, "texture": texture,
+         "holes": holes, "clamped": clamped, "outline_left": outline_left, "texture_left": texture_left}
+    if consistency is not None:  # E12-R7 (D305): the two fields the CLI writes after `exact`
+        r["consistency_px"], r["consistency_excluded"] = consistency, clamped + 3 * holes
+    return r
 
 
 def by_id(*recs):
@@ -1585,6 +1637,83 @@ def t_the_committed_manifest_is_valid():
     assert any("a second file with this id" in p for p in validate(bad))
 
 
+R7_FIELDS = frozenset({"consistency_px", "consistency_excluded"})
+
+
+def with_consistency(rec, px=0.245):
+    """`rec` as a CLI with E12-R7 writes it: every restoration of its clean JSON carries the two new fields."""
+    rec = json.loads(json.dumps(rec))
+    for r in rec["clean"]["json"]["report"]["visible"]["restored"]:
+        r["consistency_px"], r["consistency_excluded"] = px, int(r.get("clamped") or 0) + 3 * int(r.get("holes") or 0)
+    return rec
+
+
+def t_a_declared_new_field_is_the_only_difference_l1_forgives():
+    a = fake("p", "recon-png", "png", found=[finding()], restored=[restoration()])
+    b = with_consistency(a)
+    # Undeclared, the new fields are a JSON that moved under an equal PNG: L1.
+    files, _ = compare(by_id(a), by_id(b), {"lossy"})
+    assert one(files, "p")["gate"] == "fail" and has(one(files, "p"), "L1: the clean JSON differs"), one(files, "p")
+    # Declared, they are the only difference, and the corpus says how many files carried each.
+    files, corpus = compare(by_id(a), by_id(b), {"lossy"}, new_fields=R7_FIELDS)
+    assert one(files, "p")["gate"] == "pass", one(files, "p")
+    assert corpus["new_fields"] == {"consistency_excluded": 1, "consistency_px": 1}, corpus["new_fields"]
+    assert any(n.startswith("new field `consistency_px` (--new-fields): added on 1 of 1") for n in corpus["notes"]), corpus["notes"]
+    # Half declared is not declared: the other one is still L1's.
+    files, _ = compare(by_id(a), by_id(b), {"lossy"}, new_fields={"consistency_px"})
+    assert has(one(files, "p"), "L1: the clean JSON differs"), one(files, "p")
+    # Declared fields forgive nothing else: a measure that moved beside them is still L1's …
+    moved = with_consistency(fake("p", "recon-png", "png", found=[finding()], restored=[restoration(outline=0.06)]))
+    files, _ = compare(by_id(a), by_id(moved), {"lossy"}, new_fields=R7_FIELDS)
+    assert has(one(files, "p"), "L1: the clean JSON differs at $.report.visible.restored[0].outline"), one(files, "p")
+    # … and so is a declared field that moved where the baseline already had it, or one that went.
+    files, _ = compare(by_id(b), by_id(with_consistency(a, px=0.3)), {"lossy"}, new_fields=R7_FIELDS)
+    assert has(one(files, "p"), "L1: the clean JSON differs at $.report.visible.restored[0].consistency_px"), one(files, "p")
+    files, _ = compare(by_id(b), by_id(a), {"lossy"}, new_fields=R7_FIELDS)
+    assert has(one(files, "p"), "L1: the clean JSON differs"), one(files, "p")
+    # A declared field no file carried is a note that asks whether the right CLI ran, not a pass in silence.
+    _, corpus = compare(by_id(a), by_id(a), {"lossy"}, new_fields=R7_FIELDS)
+    assert any("none carried it" in n for n in corpus["notes"]), corpus["notes"]
+    # Through the command line, from folders, as `diff` reads them.
+    tmp = tempfile.mkdtemp(prefix="regress-selftest-")
+    try:
+        for side, rec in (("a", a), ("b", b)):
+            d = os.path.join(tmp, side)
+            os.makedirs(d)
+            with open(os.path.join(d, "p.json"), "w") as f:
+                json.dump(rec, f)
+            with open(os.path.join(d, "index.json"), "w") as f:
+                json.dump({"schema": 1, "kind": side, "commit": "selftest", "files": ["p"]}, f)
+        common = ["diff", "--a", os.path.join(tmp, "a"), "--b", os.path.join(tmp, "b"), "--route", "lossy"]
+        assert main([*common, "--out", os.path.join(tmp, "d1")], quiet=True) == 1
+        assert main([*common, "--new-fields", "consistency_px,consistency_excluded", "--out", os.path.join(tmp, "d2")], quiet=True) == 0
+        assert main([*common, "--new-fields", "consistency px", "--out", os.path.join(tmp, "d3")], quiet=True) == 2
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def t_a_consistency_that_grows_past_its_tolerance_fails_l2():
+    def rec(px):
+        return fake("j", "recon-jpeg-444", "q95", clean_exit=3, found=[finding()],
+                    restored=[restoration(texture=9.0, texture_left=True, consistency=px)], encoding="jpeg")
+    # 0.2 levels on a quarter: within max(0.2, 5 %).
+    files, _ = compare(by_id(rec(0.25)), by_id(rec(0.44)), {"lossy"})
+    assert one(files, "j")["gate"] == "pass" and one(files, "j")["measures"]["consistency_px"]["ok"] is True, one(files, "j")
+    files, _ = compare(by_id(rec(0.25)), by_id(rec(0.5)), {"lossy"})
+    assert one(files, "j")["gate"] == "fail" and has(one(files, "j"), "L2: consistency_px worse"), one(files, "j")
+    # 5 % of a large one: 4.0 → 4.19 is within, 4.0 → 4.3 is not.
+    files, _ = compare(by_id(rec(4.0)), by_id(rec(4.19)), {"lossy"})
+    assert one(files, "j")["gate"] == "pass", one(files, "j")
+    files, _ = compare(by_id(rec(4.0)), by_id(rec(4.3)), {"lossy"})
+    assert has(one(files, "j"), "L2: consistency_px worse"), one(files, "j")
+    # A baseline from before E12-R7 has none: nothing to compare, nothing said.
+    old = fake("j", "recon-jpeg-444", "q95", clean_exit=3, found=[finding()],
+               restored=[restoration(texture=9.0, texture_left=True)], encoding="jpeg")
+    files, _ = compare(by_id(old), by_id(rec(0.25)), {"lossy"}, new_fields=R7_FIELDS)
+    mm = one(files, "j")["measures"]["consistency_px"]
+    assert one(files, "j")["gate"] == "pass" and mm["before"] is None and mm["ok"] is None, one(files, "j")
+
+
 SELFTESTS = [
     t_a_new_finding_on_a_negative_fails_every_route,
     t_a_png_output_that_moved_fails_the_lossy_route,
@@ -1599,6 +1728,8 @@ SELFTESTS = [
     t_a_rect_moved_past_an_eighth_fails_the_detect_route,
     t_the_baseline_reproduction_reads_the_2048_figures,
     t_the_committed_manifest_is_valid,
+    t_a_declared_new_field_is_the_only_difference_l1_forgives,
+    t_a_consistency_that_grows_past_its_tolerance_fails_l2,
 ]
 
 
@@ -1709,12 +1840,14 @@ def main(argv=None, quiet=False):
     s.add_argument("--baseline", required=True)
     s.add_argument("--route", required=True)
     s.add_argument("--target", action="append")
+    s.add_argument("--new-fields", help="JSON fields the change adds by a decision, comma-separated (L1/D4 forgive them)")
     s.add_argument("--out")
     s = sub.add_parser("diff")
     s.add_argument("--a", required=True)
     s.add_argument("--b", required=True)
     s.add_argument("--route", required=True)
     s.add_argument("--target", action="append")
+    s.add_argument("--new-fields", help="JSON fields the change adds by a decision, comma-separated (L1/D4 forgive them)")
     s.add_argument("--out")
     s = sub.add_parser("selftest")
     s.add_argument("--cli")
