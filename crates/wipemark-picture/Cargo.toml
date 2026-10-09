@@ -54,5 +54,11 @@ serde_json.workspace = true
 name = "recon_bench"
 test = true
 
+# The clean-picture measures (E12-R12 §4.1): its rectangles, their map and
+# its summary's arithmetic are held by tests of its own.
+[[example]]
+name = "measure_clean"
+test = true
+
 [lints]
 workspace = true

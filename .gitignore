@@ -61,6 +61,8 @@ Thumbs.db
 # by golden/manifest.json, never committed (D304). A run's folder is a
 # report of the moment; the baseline under golden/baseline/ is committed.
 /golden/cache/
+# Another corpus folder's (`regress.py --golden golden/<set>`, E12-R12).
+/golden/*/cache/
 /reports/regress-*/
 
 # ── The restoration bench (scripts/bench/README.md, E12-R5) ─────────────
