@@ -1225,8 +1225,14 @@ def t_a_stored_zip_round_trips_and_a_deflated_one_is_refused():
             for r in m["files"]:
                 zf.write(os.path.join(root, r["path"]), r["path"])
         problems, _ = verify(m, zip_path=z3)
-        assert any("deflated" in p for p in problems), problems
+        assert any("deflated in the ZIP" in p for p in problems), problems
         assert _quiet(["verify", "--manifest", mp, "--zip", z3]) == 2
+        # The stored rule alone: with the source's pin out of the way, the
+        # deflated ZIP's members are its only problems (its bytes are right).
+        unpinned = json.loads(json.dumps(m))
+        unpinned["sources"]["gemini-midtone"]["sha256"] = None
+        problems, _ = verify(unpinned, zip_path=z3)
+        assert problems and all("not stored" in p for p in problems), problems
 
 
 def t_the_captures_toml_parses_and_has_the_examples_keys():
