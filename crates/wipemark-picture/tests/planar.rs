@@ -127,22 +127,10 @@ fn a_444_jpeg_and_a_png_take_the_old_path_byte_for_byte() {
     }
 }
 
-/// E12-R7's `Restored::consistency_px` (D305). On the planar path it is
-/// to be measured in the planes — `wipemark_pixels::planar::Inverse::blend_back`
-/// gives the pairs (Y at full resolution; Cb and Cr at their own with
-/// `ᾱ`; clamped samples and holes left out) — and there is no field to
-/// read until R6 and R7 merge.
-fn consistency_px(_: &Restored) -> f32 {
-    unimplemented!(
-        "E12-R7: read r.consistency_px, computed on the planar path from Inverse::blend_back"
-    )
-}
-
 /// The identity (D305): the planar restoration blended back with the mark
 /// is what the file stored, to within a level at the 95th percentile, on
 /// every 4:2:0 fixture — measured in the planes.
 #[test]
-#[ignore = "needs consistency_px (E12-R7); wired when R6 and R7 merge"]
 fn the_planar_inverse_is_still_an_inverse() {
     for name in [
         "thinking-1040-q95-420.jpg",
@@ -154,7 +142,7 @@ fn the_planar_inverse_is_still_an_inverse() {
         let (_, report) = clean_bytes_with_planes(&fixture(name), &shipped()).unwrap();
         let r = restored(name, &report);
         assert!(r.planar.is_some(), "{name}");
-        let c = consistency_px(&r);
+        let c = r.consistency_px;
         assert!(c <= 1.0, "{name}: consistency_px {c}");
     }
 }

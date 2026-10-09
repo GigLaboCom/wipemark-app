@@ -711,6 +711,12 @@ pub(crate) fn restore(
         .iter()
         .filter(|&&a| a >= inverse.opaque)
         .count() as u32;
+    // How far the result is from the data (D305), in the planes the file
+    // stored: Y at full resolution with `α`, Cb and Cr at their own with
+    // `ᾱ`, clamped samples and holes left out — measured before the
+    // capture noise is taken off in RGB.
+    let back = inverse.blend_back(raster, chroma);
+    let consistency = crate::verify::consistency(back.pairs, back.excluded);
     // The capture noise the template dropped, where it is drawn after all
     // (D246) — a few levels at most, taken off in RGB as the old path
     // does, after the inverse.
@@ -740,6 +746,9 @@ pub(crate) fn restore(
         searched: verified.searched(),
         // Only a lossy source takes this path.
         exact: false,
+        consistency_px: consistency.px,
+        consistency_excluded: consistency.excluded,
+        consistency_dct: None,
         planar: Some(Planar::Inverse {
             sampling: inverse.sampling,
             max_alpha_dev_in_block: inverse.max_alpha_dev_in_block as f32,
