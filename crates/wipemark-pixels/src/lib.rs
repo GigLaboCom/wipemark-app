@@ -30,6 +30,7 @@ mod calibrate;
 mod catalogue;
 mod geometry;
 mod ncc;
+mod planes;
 mod propose;
 mod raster;
 mod restore;
@@ -45,6 +46,7 @@ pub use catalogue::{
     ProfileId, Search, Status, Thresholds, When, EMBEDDED, SCHEMA,
 };
 pub use geometry::{Kernel, PixelRect, SubRect, CAPTURE_NOISE};
+pub use planes::{Plane, Planes, PlanesError, Quant, Sampling};
 pub use propose::{Placed, REFINE_MARGIN, ROW_FLOOR, SHRUNK};
 pub use raster::{Layout, Raster, RasterError};
 pub use restore::{composite, restore, RestoreError, Restored};

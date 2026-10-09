@@ -34,7 +34,7 @@ mod decode;
 mod encode;
 mod scan;
 
-pub use decode::{decode, Decoded, PngInfo, Skip, Source};
+pub use decode::{decode, decode_with_planes, Decoded, PngInfo, Skip, Source};
 pub use encode::{encode_like, Encoding, JPEG_QUALITY};
 pub use scan::{walk as walk_jpeg_scan, Scan};
 use wipemark_image::{ImageContainer, ImageError, ImageReport, Scope, StripOptions, StripReport};
