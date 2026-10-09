@@ -538,3 +538,59 @@ pub fn stamp_opaque(
     }
     *raster = Raster::new(raster.width(), raster.height(), raster.layout(), samples).unwrap();
 }
+
+// -------------------------------------------------------------- words
+
+/// The letters `word` draws: 5 × 7 cells each, one byte per row, the
+/// leftmost cell in bit 4 — a bitmap face written out as a table, so no
+/// font file enters the repository and no font crate becomes a
+/// dependency. Twelve capitals are enough to spell the short white words
+/// a corner can carry (R2 §4.2's look-alikes).
+pub const LETTERS: [(char, [u8; 7]); 12] = [
+    ('A', [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001]),
+    ('E', [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111]),
+    ('G', [0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01111]),
+    ('I', [0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110]),
+    ('K', [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001]),
+    ('M', [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001]),
+    ('N', [0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001]),
+    ('O', [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110]),
+    ('R', [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001]),
+    ('S', [0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110]),
+    ('T', [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100]),
+    ('X', [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001]),
+];
+
+/// A short word, `letters` (indices into `LETTERS`) set `width` pixels
+/// wide with one empty cell between letters, at `peak`: every pixel is the
+/// share of its 4 × 4 supersamples that land in a stroke, so the edge is
+/// anti-aliased the way rendered text is. The height follows the width
+/// (seven cells at the same scale); strokes are `width / cells` pixels
+/// thick, one pixel and more.
+pub fn word(letters: &[usize], width: u32, peak: f32) -> AlphaMap {
+    let cells = (letters.len() * 6 - 1) as f32;
+    let scale = width as f32 / cells;
+    let height = (7.0 * scale).ceil().max(1.0) as u32;
+    let mut values = Vec::with_capacity((width * height) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let mut inside = 0u32;
+            for sy in 0..4 {
+                for sx in 0..4 {
+                    let u = (x as f32 + (sx as f32 + 0.5) / 4.0) / scale;
+                    let v = (y as f32 + (sy as f32 + 0.5) / 4.0) / scale;
+                    let (col, row) = (u as usize, v as usize);
+                    let (letter, cell) = (col / 6, col % 6);
+                    if row < 7 && cell < 5 && letter < letters.len() {
+                        let bits = LETTERS[letters[letter]].1[row];
+                        if (bits >> (4 - cell)) & 1 == 1 {
+                            inside += 1;
+                        }
+                    }
+                }
+            }
+            values.push(peak * inside as f32 / 16.0);
+        }
+    }
+    AlphaMap::new(width, height, values).unwrap()
+}
