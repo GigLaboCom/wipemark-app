@@ -318,7 +318,13 @@ both brought). This branch adds 18 tests: compare 10 (C1 ×3, C2, C6, C7, C8,
 C16 ×3), compare/save 1, queue 1, queue/rewrite_tests 2, wording 1, store 2,
 intake 1.
 
-CI_RESULTS
+CI: the `gate` workflow on the pushed branch, run
+[37997980789](https://github.com/GigLaboCom/wipemark-app/actions/runs/37997980789)
+on `abf5dfd` (the code as tested here, with this report before this
+paragraph): **success** — `gate` (fmt, clippy, test, deps, features)
+success, `native` (llama.cpp prebuilt + Vulkan, model-free) success,
+`macos` (clippy, tests, llama-native prebuilt with Metal) success. The
+commit that adds this paragraph changes this file only.
 
 ## Host checklist (for the coordinator — what only a window shows)
 
