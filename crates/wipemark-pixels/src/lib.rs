@@ -30,6 +30,11 @@ mod calibrate;
 mod catalogue;
 mod geometry;
 mod ncc;
+/// The planar inverse of a subsampled JPEG (E12-R6, D306). Its types are
+/// re-exported below; the rest — the intermediates a test or the bench
+/// reads — is not a surface.
+#[doc(hidden)]
+pub mod planar;
 mod planes;
 mod propose;
 mod raster;
@@ -52,6 +57,7 @@ pub use catalogue::{
     ProfileId, Search, Status, Thresholds, When, EMBEDDED, SCHEMA,
 };
 pub use geometry::{Kernel, PixelRect, SubRect, CAPTURE_NOISE};
+pub use planar::{blend_levels_c, Planar, PlanarScores, DC_SHARE};
 pub use planes::{Plane, Planes, PlanesError, Quant, Sampling};
 #[doc(hidden)]
 pub use propose::{refine_at, Refined};
@@ -171,11 +177,44 @@ pub struct Examination {
 /// Propose, verify and choose, for every profile the options name.
 /// Read-only.
 pub fn examine(raster: &Raster, catalogue: &Catalogue, options: &ExamineOptions) -> Examination {
-    examine_pass(raster, catalogue, options, 1)
+    examine_with(raster, None, catalogue, options)
+}
+
+/// [`examine`], given the stored planes the raster was decoded from (D306):
+/// on a lossy source whose planes are subsampled 4:2:0 or 4:2:2, the
+/// out-of-range share is measured in the planes ([`Scores::planar`]).
+/// Every other input — no planes, 4:4:4, a lossless source — is
+/// [`examine`], byte for byte.
+pub fn examine_with(
+    raster: &Raster,
+    planes: Option<&Planes>,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+) -> Examination {
+    let model = planar::route(raster, planes, options);
+    examine_pass(raster, model.as_ref(), catalogue, options, 1)
+}
+
+/// [`examine_with`] on the planar path with the chroma allowance
+/// `levels_c` in place of [`blend_levels_c`]: for the tool that measures
+/// where that allowance should sit (E12-R6), never for a surface. `None`
+/// when the planes would not be taken.
+#[doc(hidden)]
+pub fn examine_planar_at(
+    raster: &Raster,
+    planes: &Planes,
+    levels_c: f64,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+) -> Option<Examination> {
+    planar::route(raster, Some(planes), options)?;
+    let model = planar::Model::new(raster, planes, levels_c)?;
+    Some(examine_pass(raster, Some(&model), catalogue, options, 1))
 }
 
 fn examine_pass(
     raster: &Raster,
+    model: Option<&planar::Model<'_>>,
     catalogue: &Catalogue,
     options: &ExamineOptions,
     pass: u8,
@@ -192,7 +231,7 @@ fn examine_pass(
             continue;
         }
         let mut look = |p: &propose::Proposal| {
-            let f = finding(raster, profile, p, pass);
+            let f = finding(raster, model, profile, p, pass);
             dismissed += usize::from(f.is_none());
             f
         };
@@ -229,11 +268,12 @@ fn examine_pass(
 /// (D235).
 fn finding(
     raster: &Raster,
+    model: Option<&planar::Model<'_>>,
     profile: &Profile,
     proposal: &propose::Proposal,
     pass: u8,
 ) -> Option<Finding> {
-    let (scores, outcome) = verify::verify(raster, profile, proposal);
+    let (scores, outcome) = verify::verify_with(raster, model, profile, proposal);
     let verdict = match outcome {
         verify::Outcome::Verified(v) => Verdict::Verified(v),
         verify::Outcome::Refused(r) => Verdict::Refused(r),
@@ -402,11 +442,30 @@ impl<'a> FindingJson<'a> {
 /// first) supersedes that refusal: it is listed under the proof, not left
 /// standing as a mark.
 pub fn clean(raster: &mut Raster, catalogue: &Catalogue, options: &ExamineOptions) -> PixelReport {
-    let first = examine_pass(raster, catalogue, options, 1);
+    clean_with(raster, None, catalogue, options)
+}
+
+/// [`clean`], given the stored planes the raster was decoded from (D306):
+/// where [`examine_with`] takes the planar path, a verified mark is
+/// restored in the planes ([`Restored::planar`]); the second look (D165)
+/// is over the restored RGB raster, whose planes no longer mean anything,
+/// and takes the old path. Every other input is [`clean`], byte for byte.
+pub fn clean_with(
+    raster: &mut Raster,
+    planes: Option<&Planes>,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+) -> PixelReport {
+    let model = planar::route(raster, planes, options);
+    let first = examine_pass(raster, model.as_ref(), catalogue, options, 1);
     let mut restored = Vec::new();
     for f in &first.findings {
         if let Some(v) = f.verified() {
-            if let Ok(r) = restore(raster, v, options) {
+            let r = match &model {
+                Some(m) => planar::restore(raster, m, v, options),
+                None => restore(raster, v, options),
+            };
+            if let Ok(r) = r {
                 restored.push(r);
             }
         }
@@ -414,7 +473,7 @@ pub fn clean(raster: &mut Raster, catalogue: &Catalogue, options: &ExamineOption
     let mut found = first.findings;
     let mut dismissed = first.dismissed;
     if !restored.is_empty() {
-        let second = examine_pass(raster, catalogue, options, 2);
+        let second = examine_pass(raster, None, catalogue, options, 2);
         dismissed += second.dismissed;
         for mut f in second.findings {
             let overlaps = |g: &Finding, by: f32| matches!((g.pixels, f.pixels), (Some(a), Some(b)) if a.iou(b) > by);

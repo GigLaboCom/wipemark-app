@@ -85,6 +85,11 @@ pub struct Restored {
     /// Lossless source, a row's own canonical map that is not fitted, no
     /// hole, no clamp, no outline: the original values to within one level.
     pub exact: bool,
+    /// Restored in the planes of a subsampled JPEG (D306, E12-R6), or a
+    /// lossy JPEG whose planes could not be read; `None` on the RGB path,
+    /// and then not in the JSON.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planar: Option<crate::planar::Planar>,
 }
 
 /// Why a verified mark was not restored.
@@ -199,6 +204,7 @@ pub fn restore(
             && holes == 0
             && clamped == 0
             && !outline.left(),
+        planar: None,
     })
 }
 
@@ -222,7 +228,7 @@ pub fn restore(
 /// own noise, not a capture's — on the outputs it was fitted from it
 /// follows their grain (slopes of 1.3–1.8), on two held out it sits at the
 /// threshold (0.58, 0.62). Not evidence of anything; left out.
-fn drawn_noise(raster: &Raster, verified: &Verified) -> bool {
+pub(crate) fn drawn_noise(raster: &Raster, verified: &Verified) -> bool {
     if verified.fitted() {
         return false;
     }

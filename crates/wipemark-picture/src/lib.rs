@@ -38,7 +38,9 @@ pub use decode::{decode, decode_with_planes, Decoded, PngInfo, Skip, Source};
 pub use encode::{encode_like, Encoding, JPEG_QUALITY};
 pub use scan::{walk as walk_jpeg_scan, Scan};
 use wipemark_image::{ImageContainer, ImageError, ImageReport, Scope, StripOptions, StripReport};
-use wipemark_pixels::{Catalogue, ExamineOptions, Fidelity, PixelRect, PixelReport, Raster};
+use wipemark_pixels::{
+    Catalogue, ExamineOptions, Fidelity, PixelRect, PixelReport, Planar, Raster,
+};
 
 /// What [`clean`] does with a picture.
 #[derive(Debug, Clone, Copy, Default)]
@@ -268,8 +270,47 @@ pub fn inspect(
     bytes: &[u8],
     options: &PictureOptions<'_>,
 ) -> Result<PictureInspection, ImageError> {
+    inspect_by(bytes, options, PLANAR_PREVIEW)
+}
+
+/// Whether [`clean`] and [`inspect`] read a JPEG's planes (E12-R6, D306):
+/// only in a build with the `planar-preview` feature, until the decision
+/// is taken (S12). Off, they are what they were, byte for byte.
+const PLANAR_PREVIEW: bool = cfg!(feature = "planar-preview");
+
+/// [`inspect`] on the planar path (D306): a JPEG decoded with its planes
+/// ([`decode_with_planes`]), the visible pass by
+/// [`wipemark_pixels::examine_with`]. For the regression's host run and
+/// the tests until D306 is taken; not a surface.
+#[doc(hidden)]
+pub fn inspect_bytes_with_planes(
+    bytes: &[u8],
+    options: &PictureOptions<'_>,
+) -> Result<PictureInspection, ImageError> {
+    inspect_by(bytes, options, true)
+}
+
+/// The planes a lossy three-component JPEG's examination reads, by
+/// [`decode_with_planes`] when `planar` and by [`decode`] otherwise.
+fn decode_by(
+    bytes: &[u8],
+    container: wipemark_image::ImageContainer,
+    planar: bool,
+) -> Result<Result<Decoded, Skip>, PictureError> {
+    if planar {
+        decode_with_planes(bytes, container)
+    } else {
+        decode(bytes, container)
+    }
+}
+
+fn inspect_by(
+    bytes: &[u8],
+    options: &PictureOptions<'_>,
+    planar: bool,
+) -> Result<PictureInspection, ImageError> {
     let metadata = wipemark_image::inspect(bytes)?;
-    let Ok(decoded) = decode(bytes, metadata.container) else {
+    let Ok(decoded) = decode_by(bytes, metadata.container, planar) else {
         return Ok(PictureInspection {
             metadata,
             visible: Visible::NotExamined(NotExamined::Decode),
@@ -279,8 +320,9 @@ pub fn inspect(
         (Err(Skip::Animated), _) => Visible::NotExamined(NotExamined::Animated),
         (_, None) => Visible::NotExamined(NotExamined::Catalogue),
         (Ok(decoded), Some(cat)) => {
-            let exam = wipemark_pixels::examine(
+            let exam = wipemark_pixels::examine_with(
                 &decoded.raster,
+                decoded.planes.as_ref(),
                 cat,
                 &ExamineOptions {
                     source: decoded.fidelity,
@@ -306,6 +348,29 @@ pub fn clean(
     bytes: &[u8],
     options: &PictureOptions<'_>,
 ) -> Result<(Vec<u8>, PictureReport), PictureError> {
+    clean_by(bytes, options, PLANAR_PREVIEW)
+}
+
+/// [`clean`] on the planar path (D306): a JPEG decoded with its planes
+/// ([`decode_with_planes`]), a 4:2:0 or 4:2:2 mark restored in them by
+/// [`wipemark_pixels::clean_with`]; the output encoded, reframed and proved
+/// as [`clean`] does. A restoration of a lossy three-component JPEG whose
+/// planes could not be read says so ([`Planar::Unavailable`]). For the
+/// regression's host run (a CLI built with `planar-preview`) and the tests
+/// until D306 is taken; not a surface.
+#[doc(hidden)]
+pub fn clean_bytes_with_planes(
+    bytes: &[u8],
+    options: &PictureOptions<'_>,
+) -> Result<(Vec<u8>, PictureReport), PictureError> {
+    clean_by(bytes, options, true)
+}
+
+fn clean_by(
+    bytes: &[u8],
+    options: &PictureOptions<'_>,
+    planar: bool,
+) -> Result<(Vec<u8>, PictureReport), PictureError> {
     let metadata = wipemark_image::inspect(bytes)?;
     let container = metadata.container;
     let strip_options = StripOptions {
@@ -323,7 +388,7 @@ pub fn clean(
             },
         ))
     };
-    let decoded = match decode(bytes, container) {
+    let decoded = match decode_by(bytes, container, planar) {
         Err(PictureError::Decode { .. }) => {
             return unchanged(Visible::NotExamined(NotExamined::Decode))
         }
@@ -339,7 +404,8 @@ pub fn clean(
         profiles: None,
     };
     if !restorable(&decoded.source) {
-        let exam = wipemark_pixels::examine(&decoded.raster, cat, &examine);
+        let exam =
+            wipemark_pixels::examine_with(&decoded.raster, decoded.planes.as_ref(), cat, &examine);
         return unchanged(Visible::Examined {
             report: PixelReport {
                 found: exam.findings,
@@ -351,7 +417,17 @@ pub fn clean(
         });
     }
     let mut restored = decoded.raster.clone();
-    let report = wipemark_pixels::clean(&mut restored, cat, &examine);
+    let mut report =
+        wipemark_pixels::clean_with(&mut restored, decoded.planes.as_ref(), cat, &examine);
+    if planar
+        && decoded.planes.is_none()
+        && decoded.source == (Source::Jpeg { components: 3 })
+        && decoded.fidelity == Fidelity::Lossy
+    {
+        for r in report.restored.iter_mut().filter(|r| r.planar.is_none()) {
+            r.planar = Some(Planar::Unavailable);
+        }
+    }
     if report.restored.is_empty() {
         return unchanged(Visible::Examined {
             report,

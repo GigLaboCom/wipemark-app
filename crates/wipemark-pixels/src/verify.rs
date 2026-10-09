@@ -65,10 +65,15 @@ pub struct Scores {
     pub gain: f32,
     /// `E(1)/E(0)`.
     pub edge_ratio: f32,
-    /// The share of samples out of range at `k = 1`.
+    /// The share of samples out of range at `k = 1` — on the planar path
+    /// (D306), the share of pixels whose Y or chroma block is.
     pub out_of_range: f32,
     /// Pixels at or above the opaque threshold: never divided.
     pub holes: u32,
+    /// On the planar path (D306), the share's two terms; `None`, and not
+    /// in the JSON, on the RGB path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planar: Option<crate::planar::PlanarScores>,
 }
 
 /// A proposal that passed both proofs — the only thing [`crate::restore`]
@@ -337,8 +342,20 @@ pub(crate) fn residual(
 
 /// The second proof over one proposal: the numbers, and the outcome.
 /// `None` for the numbers when the outcome came before any was measured.
+#[cfg(test)]
 pub(crate) fn verify(
     raster: &Raster,
+    profile: &Profile,
+    proposal: &Proposal,
+) -> (Option<Scores>, Outcome) {
+    verify_with(raster, None, profile, proposal)
+}
+
+/// [`verify`], with the out-of-range share measured in the planes when
+/// `model` is the planar path's (D306).
+pub(crate) fn verify_with(
+    raster: &Raster,
+    model: Option<&crate::planar::Model<'_>>,
     profile: &Profile,
     proposal: &Proposal,
 ) -> (Option<Scores>, Outcome) {
@@ -439,12 +456,22 @@ pub(crate) fn verify(
     } else {
         out as f32 / total as f32
     };
+    // In the planes the file stored, when they are known and subsampled
+    // (D306): the share the decision uses, and its two terms.
+    let (out_of_range, planar) = match model {
+        Some(m) => {
+            let (share, terms) = m.out_of_range(&shape.values, at, logo, opaque);
+            (share, Some(terms))
+        }
+        None => (out_of_range, None),
+    };
 
     let scores = Scores {
         gain,
         edge_ratio,
         out_of_range,
         holes,
+        planar,
     };
     let t = profile.thresholds;
     let outcome = if best_ratio > NO_BLEND_RATIO || edge_ratio > 1.0 {

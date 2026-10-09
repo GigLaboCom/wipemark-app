@@ -298,3 +298,62 @@ fn no_lookalike_blend_is_ever_restored() {
          at 0.8 or 1.2 refused by their gain; 0 restored"
     );
 }
+
+/// The planar path's proof (D306) did not loosen into restoring what the
+/// RGB path refused: three hundred look-alike blends and three hundred
+/// negatives, each stored as a 4:2:0 JPEG at 90 (`synth::jpeg_planes`) and
+/// examined with those planes, are never restored, and the planes change
+/// no finding into a non-finding or back — only, at most, which proof
+/// refused. The refusals are counted both ways (`--nocapture`). Measured
+/// over all 1000 of each (2026-10-09): 567 refused by gain and 151 by
+/// edges on both paths, none by the range on either — on these families
+/// the range term decides nothing, and this gate holds the planes to
+/// "never restore", not to the range.
+#[test]
+fn no_negative_or_lookalike_is_restored_from_subsampled_planes() {
+    use wipemark_pixels::synth::jpeg_planes;
+    use wipemark_pixels::{clean_with, Sampling};
+    let catalogue = synthetic_catalogue();
+    let lossy = ExamineOptions {
+        source: Fidelity::Lossy,
+        profiles: None,
+    };
+    let why = |report: &PixelReport| -> Vec<&'static str> {
+        report
+            .found
+            .iter()
+            .map(|f| match f.verdict {
+                Verdict::Verified(_) => "verified",
+                Verdict::Refused(Refusal::Gain { .. }) => "gain",
+                Verdict::Refused(Refusal::Edges { .. }) => "edges",
+                Verdict::Refused(Refusal::OutOfRange { .. }) => "out-of-range",
+                Verdict::Refused(_) => "other",
+            })
+            .collect()
+    };
+    let mut tally: std::collections::BTreeMap<(&str, &str), usize> = Default::default();
+    let pictures = (0..300u64)
+        .map(|n| {
+            let (name, raster, _) = lookalike(n);
+            (name, raster)
+        })
+        .chain((0..300u64).map(negative));
+    for (name, original) in pictures {
+        let (planes, raster) = jpeg_planes(&original, Sampling::H420, 90).unwrap();
+        let mut rgb = raster.clone();
+        let old = clean(&mut rgb, &catalogue, &lossy);
+        let mut planar = raster.clone();
+        let new = clean_with(&mut planar, Some(&planes), &catalogue, &lossy);
+        assert!(
+            new.restored.is_empty(),
+            "{name} was restored from its planes: {:#?}",
+            new.found
+        );
+        assert_eq!(planar, raster, "{name}");
+        assert_eq!(old.found.len(), new.found.len(), "{name}");
+        for (a, b) in why(&old).into_iter().zip(why(&new)) {
+            *tally.entry((a, b)).or_default() += 1;
+        }
+    }
+    println!("4:2:0 q90, 300 look-alikes and 300 negatives: (RGB, planes) -> findings {tally:?}");
+}
