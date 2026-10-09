@@ -30,6 +30,18 @@ clean-parity/
           table is the claim: the CLI's exit and whether it writes, and
           whether a window writes, per input; `apps/wipemark-cli/tests/
           parity.rs` and the app's `clean::tests` both read it.
+marks/    mark catalogues the developer tools read through
+          `--catalogue` (E12-R12 stage 4b): `synthetic-wordmark/` is a
+          stand-in profile, `fixture-wordmark` — a text-like 72 × 24
+          opacity map of straight strokes, written by
+          `scripts/bench/wordmark.py` (no font file), pinned by sha256
+          in its own `marks.json`, with a `degradations.json` in the
+          bench's format. A fixture, not a vendor's mark: no figure
+          about any vendor is read off it. The claims are the tests of
+          `crates/wipemark-picture/examples/recon_bench.rs` and
+          `measure_clean.rs` that read it (gen → run end to end for a
+          profile that is not Gemini's; a non-square map measured at
+          its own shape).
 ```
 
 `text/keep-*.txt` — the survival set (E1-2): one file per context rule

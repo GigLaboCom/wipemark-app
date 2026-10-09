@@ -51,7 +51,7 @@
 //!
 //!    ```text
 //!    {"file","group","sha256","fidelity","sampling","width","height",
-//!     "profile","map","x","y","size","share","step","steps":[r,g,b],
+//!     "profile","map","x","y","size","rect_height","share","step","steps":[r,g,b],
 //!     "spread","chroma","chroma_spread","texture","texture_around",
 //!     "left","textured","texture_left"}
 //!    ```
@@ -84,7 +84,18 @@
 //!
 //! `OPTIONS`: `--profile ID` (repeated; every shipped profile by default),
 //! `--map ID` (with one profile), `--count N` (100), `--seed S` (1),
-//! `--pad P` (8), `--skip-rows`. `list.tsv` is `path<TAB>group`, one
+//! `--pad P` (8), `--skip-rows`, `--catalogue FILE`.
+//!
+//! `--catalogue FILE` (added by E12-R12's stage 4b, 2026-10-09) reads the
+//! profiles from a catalogue file in the shipped one's schema instead of the
+//! compiled-in one — R11's provisional profile before it is compiled in, its
+//! `.wma` maps beside it, pinned by sha256 (`examples/support/catalogue.rs`)
+//! — for the examination that finds what to avoid and for the rectangles
+//! alike, so §4.1's "the same over R11's held-out Grok files" runs with no
+//! change of code: `--catalogue <grok>.json --profile <grok id>`. A map
+//! that is not square (a wordmark) is measured at its own shape: the
+//! rectangle is the map's width by its height (`size` and `rect_height` in
+//! a row). `list.tsv` is `path<TAB>group`, one
 //! picture a line, `#` comments and a `path…` header allowed, a relative
 //! path read from the list's folder — what `scripts/regress.py list`
 //! writes from `golden/manifest.json` (the group is `class:variant`).
@@ -118,6 +129,9 @@
 
 #[path = "../../wipemark-pixels/tests/support/mod.rs"]
 mod pixels_support;
+
+#[path = "support/catalogue.rs"]
+mod catalogue_file;
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -153,7 +167,8 @@ fn usage() -> ! {
          measure_clean list --out FILE [OPTIONS] <list.tsv>\n\
          measure_clean synth --out FILE [OPTIONS] [--side N]\n\
          measure_clean summarise <rows.jsonl>…\n\
-         OPTIONS: --profile ID (repeated) --map ID --count N --seed S --pad P --skip-rows"
+         OPTIONS: --profile ID (repeated) --map ID --count N --seed S --pad P --skip-rows\n\
+         \x20        --catalogue FILE"
     );
     std::process::exit(2)
 }
@@ -170,6 +185,9 @@ struct Options {
     pad: u32,
     skip_rows: bool,
     side: u32,
+    /// `--catalogue FILE`: the profiles from a file, not the compiled-in
+    /// catalogue.
+    catalogue: Option<String>,
     rest: Vec<String>,
 }
 
@@ -184,6 +202,7 @@ impl Options {
             pad: PAD,
             skip_rows: false,
             side: 1100,
+            catalogue: None,
             rest: Vec::new(),
         };
         let mut it = args.iter();
@@ -198,6 +217,7 @@ impl Options {
                 "--pad" => o.pad = value().parse().unwrap_or_else(|_| usage()),
                 "--side" => o.side = value().parse().unwrap_or_else(|_| usage()),
                 "--skip-rows" => o.skip_rows = true,
+                "--catalogue" => o.catalogue = Some(value()),
                 "--help" | "-h" => usage(),
                 flag if flag.starts_with("--") => usage(),
                 path => o.rest.push(path.to_string()),
@@ -346,29 +366,31 @@ fn row_box(profile: &Profile, index: usize, width: u32, height: u32) -> Option<P
     }
 }
 
-/// The map a profile measures with at this size, its id and the side of
-/// its rectangle.
+/// The map a profile measures with at this size, its id, and the width and
+/// height of its rectangle — the map's own shape, which a wordmark's is
+/// not square.
 fn map_for<'a>(
     profile: &'a Profile,
     width: u32,
     height: u32,
     asked: Option<&str>,
-) -> Option<(&'a wipemark_pixels::AlphaMap, &'a str, u32)> {
+) -> Option<(&'a wipemark_pixels::AlphaMap, &'a str, u32, u32)> {
     if let Some(id) = asked {
         let (id, map) = profile.maps.iter().find(|(m, _)| m == id)?;
-        return Some((map, id.as_str(), map.width()));
+        return Some((map, id.as_str(), map.width(), map.height()));
     }
     let index = (0..profile.placements.len())
         .find_map(|i| row_box(profile, i, width, height).map(|b| (i, b)));
-    let (alpha, side) = match index {
-        Some((i, b)) => (profile.placements[i].alpha, b.width),
+    let (alpha, wide, tall) = match index {
+        Some((i, b)) => (profile.placements[i].alpha, b.width, b.height),
         None => {
             let s = profile.search.as_ref()?;
-            (s.alpha, profile.map(s.alpha).width())
+            let map = profile.map(s.alpha);
+            (s.alpha, map.width(), map.height())
         }
     };
     let (id, map) = &profile.maps[alpha];
-    Some((map, id.as_str(), side))
+    Some((map, id.as_str(), wide, tall))
 }
 
 fn meets(a: PixelRect, b: PixelRect) -> bool {
@@ -423,6 +445,8 @@ struct Row {
     x: u32,
     y: u32,
     size: u32,
+    /// The rectangle's height: `size` for a square map.
+    rect_height: u32,
     share: f32,
     step: f32,
     steps: [f32; 3],
@@ -454,6 +478,7 @@ impl Row {
             "x": self.x,
             "y": self.y,
             "size": self.size,
+            "rect_height": self.rect_height,
             "share": self.share,
             "step": self.step,
             "steps": self.steps,
@@ -474,6 +499,7 @@ impl Row {
         let f = |k: &str| v.get(k)?.as_f64().map(|n| n as f32);
         let b = |k: &str| v.get(k)?.as_bool();
         let steps = v.get("steps")?.as_array()?;
+        let size = u("size")?;
         Some(Row {
             file: s("file")?,
             group: s("group")?,
@@ -486,7 +512,9 @@ impl Row {
             map: s("map")?,
             x: u("x")?,
             y: u("y")?,
-            size: u("size")?,
+            size,
+            // Rows written before E12-R12's stage 4b were square.
+            rect_height: u("rect_height").unwrap_or(size),
             share: f("share")?,
             step: f("step")?,
             steps: [
@@ -525,13 +553,13 @@ fn measure(pic: &Picture, catalogue: &Catalogue, profiles: &[&Profile], o: &Opti
         short: Vec::new(),
     };
     for profile in profiles {
-        let Some((map, map_id, side)) = map_for(profile, w, h, o.map.as_deref()) else {
+        let Some((map, map_id, side, tall)) = map_for(profile, w, h, o.map.as_deref()) else {
             m.short.push(format!("{}: no map at {w}×{h}", profile.id));
             continue;
         };
-        if w < side + 2 * EDGE || h < side + 2 * EDGE {
+        if w < side + 2 * EDGE || h < tall + 2 * EDGE {
             m.short
-                .push(format!("{}: {side} px does not fit", profile.id));
+                .push(format!("{}: {side}×{tall} px does not fit", profile.id));
             continue;
         }
         let salt = sha256_hex(profile.id.as_bytes());
@@ -542,12 +570,12 @@ fn measure(pic: &Picture, catalogue: &Catalogue, profiles: &[&Profile], o: &Opti
         while taken < o.count && tries < o.count * TRIES {
             tries += 1;
             let x = EDGE + rng.below(w - side - 2 * EDGE + 1);
-            let y = EDGE + rng.below(h - side - 2 * EDGE + 1);
+            let y = EDGE + rng.below(h - tall - 2 * EDGE + 1);
             let at = PixelRect {
                 x,
                 y,
                 width: side,
-                height: side,
+                height: tall,
             };
             if avoid.iter().any(|a| meets(grown(at, o.pad), *a)) {
                 m.excluded += 1;
@@ -588,6 +616,7 @@ fn row_of(pic: &Picture, profile: &Profile, map: &str, at: PixelRect, o: &Outlin
         x: at.x,
         y: at.y,
         size: at.width,
+        rect_height: at.height,
         share: o.share,
         step: o.step,
         steps: o.steps,
@@ -908,6 +937,21 @@ fn profiles<'a>(catalogue: &'a Catalogue, o: &Options) -> Vec<&'a Profile> {
         .collect()
 }
 
+/// The catalogue the run measures with: the compiled-in one, or the file
+/// `--catalogue` names (read once; it lives as long as the process).
+fn catalogue_of(o: &Options) -> &'static Catalogue {
+    match &o.catalogue {
+        None => Catalogue::shipped().unwrap_or_else(|e| panic!("{e}")),
+        Some(path) => match catalogue_file::read(Path::new(path)) {
+            Ok(c) => Box::leak(Box::new(c)),
+            Err(e) => {
+                eprintln!("measure_clean: {e}");
+                std::process::exit(2)
+            }
+        },
+    }
+}
+
 /// Measure every picture `next` yields, write the rows, print the summary.
 fn run(
     o: &Options,
@@ -915,7 +959,7 @@ fn run(
     mut next: impl FnMut(usize) -> Option<Result<Picture, String>>,
 ) -> i32 {
     let Some(out) = o.out.as_deref() else { usage() };
-    let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
+    let catalogue = catalogue_of(o);
     let chosen = profiles(catalogue, o);
     if o.map.is_some() && chosen.len() != 1 {
         eprintln!("measure_clean: --map needs one --profile");
@@ -1087,7 +1131,7 @@ mod tests {
                 x: r.x,
                 y: r.y,
                 width: r.size,
-                height: r.size,
+                height: r.rect_height,
             };
             assert!(!meets(grown(at, PAD), mark), "{r:?}");
             assert!(r.x >= EDGE && r.x + r.size + EDGE <= 1100, "{r:?}");
@@ -1104,13 +1148,50 @@ mod tests {
     fn the_map_is_the_rows_at_the_pictures_size() {
         let catalogue = Catalogue::shipped().unwrap();
         let v1 = catalogue.profile("gemini-sparkle-v1").unwrap();
-        let (_, id, side) = map_for(v1, 1100, 1100, None).unwrap();
-        assert_eq!((id, side), ("gemini-v1-96-measured", 96));
-        let (_, id, side) = map_for(v1, 1024, 1024, None).unwrap();
-        assert_eq!((id, side), ("gemini-v1-48", 48));
-        let (_, id, _) = map_for(v1, 1024, 1024, Some("gemini-v1-96")).unwrap();
+        let (_, id, side, tall) = map_for(v1, 1100, 1100, None).unwrap();
+        assert_eq!((id, side, tall), ("gemini-v1-96-measured", 96, 96));
+        let (_, id, side, tall) = map_for(v1, 1024, 1024, None).unwrap();
+        assert_eq!((id, side, tall), ("gemini-v1-48", 48, 48));
+        let (_, id, _, _) = map_for(v1, 1024, 1024, Some("gemini-v1-96")).unwrap();
         assert_eq!(id, "gemini-v1-96");
         assert!(map_for(v1, 1024, 1024, Some("nothing")).is_none());
+    }
+
+    /// A profile read from a catalogue file (`--catalogue`, E12-R12 stage
+    /// 4b) is measured at its own shape: the stand-in wordmark of
+    /// `fixtures/marks/synthetic-wordmark/` — a fixture, not a vendor's —
+    /// gets a hundred 72 × 24 rectangles on a clean picture, its own row's
+    /// map, inside the picture by the edge; and a row written before the
+    /// height was kept reads back square.
+    #[test]
+    fn a_profile_from_a_catalogue_file_is_measured_at_its_own_shape() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/marks/synthetic-wordmark/marks.json");
+        let mut o = options(1);
+        o.catalogue = Some(path.to_string_lossy().into_owned());
+        let catalogue = catalogue_of(&o);
+        let mark = catalogue.profile("fixture-wordmark").unwrap();
+        let (_, id, side, tall) = map_for(mark, 1100, 1100, None).unwrap();
+        assert_eq!((id, side, tall), ("fixture-wordmark-72x24", 72, 24));
+        let pic = Picture {
+            file: "clean".into(),
+            group: "test".into(),
+            sha256: sha256_hex(b"clean"),
+            raster: picture(Kind::Gradient, 1100, 1100, 5, Layout::Rgb8),
+            fidelity: Fidelity::Lossless,
+            planes: None,
+        };
+        let m = measure(&pic, catalogue, &[mark], &o);
+        assert_eq!(m.found, 0, "a clean picture holds no finding");
+        assert_eq!(m.rows.len(), COUNT, "{:?}", m.short);
+        for r in &m.rows {
+            assert_eq!((r.profile.as_str(), r.size, r.rect_height), ("fixture-wordmark", 72, 24));
+            assert!(r.x >= EDGE && r.x + r.size + EDGE <= 1100, "{r:?}");
+            assert!(r.y >= EDGE && r.y + r.rect_height + EDGE <= 1100, "{r:?}");
+        }
+        let mut old = m.rows[0].json();
+        old.as_object_mut().unwrap().remove("rect_height");
+        assert_eq!(Row::of_json(&old).unwrap().rect_height, 72);
     }
 
     /// A row read back from its JSON line is the row, so `summarise` sees

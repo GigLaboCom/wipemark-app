@@ -56,14 +56,21 @@ gate both ways.
 
 How to run it
 -------------
-    python3 scripts/bench/report.py report RESULTS.jsonl [--out REPORT.md] [--targets jpeg420-*,…]
-    python3 scripts/bench/report.py gates  RESULTS.jsonl --candidate R6 [--baseline R0] \
+    python3 scripts/bench/report.py report RESULTS.jsonl [--out REPORT.md] [--targets jpeg420-*,…] [--profile GLOB]
+    python3 scripts/bench/report.py gates  RESULTS.jsonl --candidate R6 [--baseline R0] [--profile GLOB] \
                                     --route {lossy,model} --targets jpeg420-q95,jpeg420-q90 [--out gates.json]
     python3 scripts/bench/report.py selftest
 
 `RESULTS.jsonl` may hold several configs (one `run` with several `--config`,
 or files concatenated); `RESULTS.jsonl.run.json`, written beside it by
 `run`, and the run's `encode.json` are read when they are there.
+
+`--profile GLOB[,GLOB]` (report, gates; added by E12-R12's stage 4b,
+2026-10-09) keeps the lines of the matching profiles only — results of
+several profiles concatenated (a Gemini run and `R0-grok`) are reported
+and gated apart; none matching is exit 2. §0 names the profiles a report
+is over. Nothing in the tables is a profile's: the rows, the matrix (A5)
+and the gates read the lines as they come, whatever mark made them.
 
 What it needs
 -------------
@@ -203,6 +210,13 @@ def vendor_blend(r):
 
 def matches(slice_id, patterns):
     return any(fnmatch.fnmatch(slice_id, p) for p in patterns)
+
+
+def of_profiles(rows, patterns):
+    """The lines whose `profile` matches one of `patterns` (globs); every line when there are none."""
+    if not patterns:
+        return list(rows)
+    return [r for r in rows if any(fnmatch.fnmatchcase(str(r.get("profile")), p) for p in patterns)]
 
 
 def group_by(rows, *keys):
@@ -402,6 +416,9 @@ def report(rows, side, targets):
         f"* commit: {run.get('commit', '–')}; {run.get('seconds', '–')} s with {run.get('jobs', '–')} jobs over {run.get('cases', '–')} cases",
         f"* Pillow: {(enc.get('versions') or {}).get('pillow', '–')}, libjpeg {(enc.get('versions') or {}).get('libjpeg', '–')}, libwebp {(enc.get('versions') or {}).get('libwebp', '–')}",
         f"* groups: {', '.join(sorted({r['group'] for r in ok}))}; backgrounds: {len({r['background'] for r in ok})}",
+        f"* profiles: {', '.join(sorted({str(r.get('profile')) for r in ok})) or '–'}"
+        + (f"; catalogue file {run['catalogue'].get('file')} (sha256 {run['catalogue'].get('sha256')})"
+           if isinstance(run.get("catalogue"), dict) else ""),
         "",
     ]
     for e in errors[:10]:
@@ -668,11 +685,11 @@ def r8_section(rows, configs):
 
 def fake(config, slice_id, psnr, i, *, group="flat", model="encoded", k=1.0, inverse="encoded",
          restored=True, sha=None, exact=True, clamped=0, found=True, err=0.0, variant="canonical", consistency=0.25,
-         texture=1.0, around=1.0, interval=None, dct=None, smoothed=False):
+         texture=1.0, around=1.0, interval=None, dct=None, smoothed=False, profile="gemini-sparkle-v1", row="v1-48"):
     return {
         "config": config, "inverse": inverse, "slice": slice_id, "encoder": "pillow", "group": group,
-        "case_dir": f"{group}/bg-{i:03d}/case", "case": "v1-48.encoded", "background": f"bg-{i:03d}",
-        "row": "v1-48", "tone": "other", "variant": variant, "model": model, "k": k,
+        "case_dir": f"{group}/bg-{i:03d}/case", "case": f"{row}.{model}", "background": f"bg-{i:03d}",
+        "row": row, "profile": profile, "tone": "other", "variant": variant, "model": model, "k": k,
         "psnr_roi": psnr, "ssim_roi": 0.99, "de2000_roi": 0.5, "psnr_roi_input": 15.0,
         "restored": restored, "restored_sha256": sha or f"{config}-{i}", "exit": 1,
         "detection": {"found": found, "verdict": "verified" if found else None, "rect_error": err, "placed": "row"},
@@ -777,6 +794,19 @@ def selftest():
     expect("§10 names each check's verdict", "R8d: texture < 5.5 on jpeg444-q95: 90.0 %" in md_r8
            and "(the soap check): 93.3 % of 30 (needs 95 %) — **fail**" in md_r8)
     expect("§10's table counts the smoothed", "| R8d | jpeg420-q95 | pillow | 20 |" in md_r8)
+    # E12-R12 stage 4b: any profile. The report and the gates read the lines, whatever mark made them; §0 names
+    # the profiles; --profile keeps one profile's lines out of a concatenation.
+    wm, wr = "fixture-wordmark", "fixture-wordmark-72x24-1024x1024"
+    other = [fake("R0", "png", 50.0, i, profile=wm, row=wr) for i in range(6)] + \
+            [fake("R0", "png", 30.0, i, profile=wm, row=wr, model="linear-light") for i in range(6)]
+    md_other = report(other, {}, target)
+    expect("a profile that is not Gemini's renders every section", all(f"## {n}." in md_other for n in range(11)))
+    expect("§0 names the profile it is over", f"* profiles: {wm}" in md_other)
+    expect("its matrix has a row of its own", "| R0 | encoded | png | pillow |" in md_other)
+    expect("its row is reported by its id", f"| {wr} |" in md_other)
+    mixed = base + other
+    expect("--profile keeps one profile's lines", of_profiles(mixed, ["fixture-*"]) == other)
+    expect("no pattern keeps every line", of_profiles(mixed, []) == mixed)
     # The whole road, through files: a report and a failing gate run.
     with tempfile.TemporaryDirectory() as d:
         p = os.path.join(d, "results.jsonl")
@@ -789,6 +819,16 @@ def selftest():
         expect("gates exits 1 when A1 fails", code == 1)
         code = main(["gates", p, "--candidate", "nobody", "--route", "lossy", "--targets", "jpeg420-*"])
         expect("gates exits 2 for a candidate with no results", code == 2)
+        q = os.path.join(d, "mixed.jsonl")
+        with open(q, "w") as f:
+            for r in mixed:
+                f.write(json.dumps(r) + "\n")
+        out = os.path.join(d, "fixture.md")
+        code = main(["report", q, "--profile", "fixture-*", "--out", out])
+        with open(out) as f:
+            md_f = f.read()
+        expect("report --profile reports that profile alone", code == 0 and f"* profiles: {wm}\n" in md_f)
+        expect("report --profile with no match exits 2", main(["report", q, "--profile", "nobody-*"]) == 2)
     print("selftest:", "FAIL" if problems else "ok", f"({len(problems)} failed)")
     return 1 if problems else 0
 
@@ -818,6 +858,11 @@ def main(argv):
         print(__doc__.split("How to run it")[1].split("What it needs")[0], file=sys.stderr)
         return 2
     rows = load(pos[0])
+    if "profile" in opts:
+        rows = of_profiles(rows, [p for p in opts["profile"].split(",") if p])
+        if not rows:
+            print(f"report.py: no result of a profile matching {opts['profile']}", file=sys.stderr)
+            return 2
     targets = opts.get("targets", ",".join(DEFAULT_TARGETS)).split(",")
     if cmd == "report":
         md = report(rows, sidecars(pos[0]), targets)

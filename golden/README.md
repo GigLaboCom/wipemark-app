@@ -35,6 +35,20 @@ fixtures (`fixtures/image/gemini/`, 14 crops) are a `repo` source.
 | `alt` | the 2 alternates | expectations unchanged |
 | `negative` | R2 §2: ≥ 60 real pictures with no mark, each also at 4:2:0 q90 and q85 | zero found, zero verified, zero restored, `clean` exit 0, pixels not written |
 | `gemini-midtone` | R2 §1, when it lands | M3's target |
+| `held-out` | a second golden set's marked files its profile was not fitted on (R11's held-out 20 %; E12-R12 §4.2) | lossless or lossy by the variant (`…png` lossless); a proof lost is G4's fail |
+
+**A second golden set** — `golden/grok/` for Grok (E12-R12 §4.2) — has the
+same structure: `golden/grok/manifest.json`, its `cache/` and its
+`baseline/<commit>/`, read with `regress.py … --golden golden/grok`. Its
+manifest is created on the host once R2 stage 0's captures exist, never with
+invented rows; its classes are `recon-<format>`, `frames` (a clip's frames),
+`held-out` and `negative` with text look-alikes (variant `text-…`). Its
+baseline is taken **after** the profile is accepted. The §6.3 reproduction
+(D247/D250/D252) is the Gemini stickers' and is not checked on it. R11's P5 —
+the Gemini corpus shows no finding of the new profile, and the Gemini
+profiles lose none — is `regress.py diff --a <Gemini baseline before> --b
+<run with the profile> --route detect --profile 'gemini-*' --foreign 'grok-*'`
+(F1, F2); see `scripts/regress.py`'s header.
 
 `transparent` and `alt` are added on the host with `pin --add` (their paths
 inside the ZIP are written nowhere in this repository); `negative` and

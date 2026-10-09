@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "profile": "fixture-wordmark",
+  "slices": ["png", "jpeg444-q90", "jpeg420-q85"],
+  "comment": "A fixture of the bench's degradation list (recon_bench gen --degradations): the shape a vendor's own list takes once R2 stage 0 says what it hands out. Not anyone's measured list."
+}

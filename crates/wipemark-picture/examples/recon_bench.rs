@@ -48,6 +48,35 @@
 //! (E12-R8) by DCT-POCS, pixel POCS or one Wiener step — each over R6 on a
 //! subsampled JPEG and over R0 elsewhere, and R0's to the byte on a
 //! lossless file.
+//!
+//! **A profile, not "Gemini"** (E12-R12 stage 4b, 2026-10-09). The mark is
+//! data, so the bench takes it as a parameter. With neither `--profile` nor
+//! `--catalogue`, `gen` composites the six Gemini rows of §4.2 (`ROWS`), as
+//! it always has; `--profile gemini-sparkle-v1` keeps that profile's rows
+//! alone. `--catalogue FILE` reads a catalogue in the shipped one's schema —
+//! R11's provisional profile before it is compiled in, its `.wma` maps
+//! beside it and pinned by sha256 (`examples/support/catalogue.rs`) — and
+//! `--profile ID` names a profile there or in the shipped catalogue that is
+//! not one of `ROWS`': its rows are then read off its own placements, one
+//! per size (`--sizes WxH,…`, or the smallest size each placement answers
+//! for, 1024 where its `when` says nothing), each the first placement at
+//! that size as the product takes it, `canonical` when it is a row at its
+//! map's own size with a map that is not fitted. A tile goes in the corner
+//! of the canvas nearest the mark (bottom-right for every Gemini row, where
+//! it always was). Both blend models and the `R-k` case are made for every
+//! row, so the matrix (A5) exists for any profile. The run's
+//! `manifest.json` records the profiles, the catalogue file and its sha256;
+//! `run` reads the same file again (or `--catalogue`) and refuses another.
+//! So `R0-grok` is `R0` over a run generated with `--catalogue <grok> --profile
+//! <grok id>`, and every config runs on it unchanged.
+//!
+//! **Degradations per profile.** `gen --slices a,b` or `gen --degradations
+//! FILE` (`{"schema": 1, "profile": ID, "slices": […], "comment": …}`, the
+//! degradations a vendor actually hands out, R2 stage 0) narrows the slices
+//! to the ones named; the run's `manifest.json` records them, and
+//! `encode.py` and `run` follow it. A slice is one of §4.3's or any
+//! `jpeg444-qNN`/`jpeg420-qNN` (a JPEG at that quality; `image` writes the
+//! 4:4:4 ones, Pillow both).
 
 use std::collections::BTreeMap;
 use std::io::{BufWriter, Write as _};
@@ -63,8 +92,11 @@ use wipemark_picture::{decode_with_planes, encode_like, prove, Decoded, PictureE
 use wipemark_pixels::synth::{composite_with, to_linear, Blend, BlendModel};
 use wipemark_pixels::{
     drawn, resampled, Anchor, Catalogue, ExamineOptions, Kernel, Layout, PixelRect, PixelReport,
-    Planes, Raster, Refine, Refusal, RestoreOptions, Restored, SubRect, Verdict, EMBEDDED,
+    Planes, Profile, Raster, Refine, Refusal, RestoreOptions, Restored, SubRect, Verdict, EMBEDDED,
 };
+
+#[path = "support/catalogue.rs"]
+mod catalogue_file;
 
 // ───────────────────────────────────────────────────────────── the frame
 
@@ -84,7 +116,9 @@ fn usage() -> ! {
     eprintln!(
         "recon_bench pin --manifest M [--photos DIR]\n\
          recon_bench gen --manifest M --out DIR [--seed S] [--sample N] [--groups a,b] [--rows a,b] [--photos DIR]\n\
+         \x20   [--profile ID,…] [--catalogue FILE] [--sizes WxH,…] [--slices a,b | --degradations FILE]\n\
          recon_bench run --in DIR --config NAME [--config NAME …] --out FILE [--export-crops DIR] [--jobs N] [--slices a,b]\n\
+         \x20   [--catalogue FILE]\n\
          recon_bench configs"
     );
     std::process::exit(2)
@@ -612,14 +646,14 @@ fn decoded(bytes: &[u8]) -> Result<Decoded, String> {
     }
 }
 
-/// The canvas a row's size needs: flat at the tile's mean, the tile in its
-/// bottom-right corner.
-fn canvas(tile: &Tile, w: u32, h: u32) -> Raster {
+/// The canvas a row's size needs: flat at the tile's mean, the tile at
+/// `(ox, oy)` — its bottom-right corner for every Gemini row
+/// (`tile_origin`).
+fn canvas(tile: &Tile, w: u32, h: u32, (ox, oy): (u32, u32)) -> Raster {
     let mean = tile.mean();
     let mut rgb: Vec<u8> = std::iter::repeat_n(mean, (w * h) as usize)
         .flatten()
         .collect();
-    let (ox, oy) = (w - tile.side, h - tile.side);
     for ty in 0..tile.side {
         let src = (ty * tile.side * 3) as usize;
         let dst = (((oy + ty) * w + ox) * 3) as usize;
@@ -640,6 +674,9 @@ enum Cat {
     /// the measured one: what makes a composite with GWT's 96 a self-test
     /// (`exact` is false on a fitted map by D245). Nothing else differs.
     GwtV1,
+    /// The one `--catalogue FILE` read (E12-R12 stage 4b): a provisional
+    /// profile before it is compiled in.
+    File,
 }
 
 impl Cat {
@@ -647,6 +684,7 @@ impl Cat {
         match self {
             Cat::Shipped => "shipped",
             Cat::GwtV1 => "gwt-v1-96",
+            Cat::File => "file",
         }
     }
 }
@@ -725,10 +763,12 @@ const ROWS: [Row; 6] = [
 /// (D154).
 const K_OFF: f32 = 0.93;
 
-/// The two catalogues, read once.
+/// The catalogues, read once: the shipped one, its GWT twin, and the file
+/// `--catalogue` names.
 struct Catalogues {
     shipped: &'static Catalogue,
     gwt: Catalogue,
+    file: Option<Catalogue>,
 }
 
 impl Catalogues {
@@ -745,15 +785,193 @@ impl Catalogues {
                 .map(|(_, b)| b)
         })
         .unwrap_or_else(|e| refuse(&e.to_string()));
-        Catalogues { shipped, gwt }
+        Catalogues {
+            shipped,
+            gwt,
+            file: None,
+        }
     }
 
     fn of(&self, cat: Cat) -> &Catalogue {
         match cat {
             Cat::Shipped => self.shipped,
             Cat::GwtV1 => &self.gwt,
+            Cat::File => self
+                .file
+                .as_ref()
+                .unwrap_or_else(|| refuse("a case names the catalogue file; give it (--catalogue)")),
         }
     }
+}
+
+/// `--catalogue FILE`: the catalogues with that file read beside them, and
+/// what a run records of it — its path and its sha256 (the JSON's; every
+/// asset it names is pinned inside it).
+fn with_file(mut catalogues: Catalogues, path: Option<&Path>) -> (Catalogues, Value) {
+    let Some(path) = path else {
+        return (catalogues, Value::Null);
+    };
+    let bytes =
+        std::fs::read(path).unwrap_or_else(|e| refuse(&format!("{}: {e}", path.display())));
+    catalogues.file = Some(catalogue_file::read(path).unwrap_or_else(|e| refuse(&e)));
+    let record = json!({"file": path.to_string_lossy(), "sha256": sha256_hex(&bytes)});
+    (catalogues, record)
+}
+
+/// The first placement row of `p` that answers for `w × h`, as `propose`
+/// takes it.
+fn first_placement(p: &Profile, w: u32, h: u32) -> Option<usize> {
+    p.placements.iter().position(|pl| pl.when.matches(w, h))
+}
+
+/// The size a row is composited at when nothing names one: its `when`'s
+/// exact or least size, this where it says nothing.
+const DERIVED_SIZE: u32 = 1024;
+
+/// A profile's rows read off its own placements (E12-R12 stage 4b): one per
+/// size — `sizes`, or the least size each placement answers for — each the
+/// profile's first placement at that size. `canonical` when that row is at
+/// its map's own size, not resampled, with a map that is not fitted (so
+/// `exact` is a true self-test); `shipped` otherwise. A size is never less
+/// than a tile. The rows live as long as the process, as `ROWS` do.
+fn derive_rows(
+    catalogue: &Catalogue,
+    cat: Cat,
+    id: &str,
+    sizes: Option<&[(u32, u32)]>,
+    side: u32,
+) -> Result<Vec<&'static Row>, String> {
+    let p = catalogue
+        .profile(id)
+        .ok_or_else(|| format!("no profile {id} in the catalogue"))?;
+    let sizes: Vec<(u32, u32)> = match sizes {
+        Some(s) => s.to_vec(),
+        None => {
+            let mut out = Vec::new();
+            for (i, pl) in p.placements.iter().enumerate() {
+                let w = pl.when.width.or(pl.when.min_width).unwrap_or(DERIVED_SIZE);
+                let h = pl.when.height.or(pl.when.min_height).unwrap_or(DERIVED_SIZE);
+                let (w, h) = (w.max(side), h.max(side));
+                if first_placement(p, w, h) == Some(i) && !out.contains(&(w, h)) {
+                    out.push((w, h));
+                }
+            }
+            out
+        }
+    };
+    if sizes.is_empty() {
+        return Err(format!(
+            "{id}: no placement row to draw the mark at; a profile with a search alone needs a row (--sizes names sizes a row answers for)"
+        ));
+    }
+    let mut rows = Vec::new();
+    for (w, h) in sizes {
+        if w < side || h < side {
+            return Err(format!("{id}: {w}x{h} is smaller than a tile ({side})"));
+        }
+        let i = first_placement(p, w, h).ok_or_else(|| format!("{id}: no row at {w}x{h}"))?;
+        let pl = &p.placements[i];
+        let (map_id, map) = &p.maps[pl.alpha];
+        let own_size = match pl.anchor {
+            Anchor::Corner { .. } => true,
+            Anchor::Rect(r) => (r.width, r.height) == (map.width(), map.height()),
+        };
+        let fitted = p.fitted.get(pl.alpha).copied().unwrap_or(false);
+        let row: &'static Row = Box::leak(Box::new(Row {
+            id: format!("{map_id}-{w}x{h}").leak(),
+            profile: p.id.clone().leak(),
+            map: map_id.clone().leak(),
+            size: (w, h),
+            variant: if own_size && !pl.resample && !fitted {
+                "canonical"
+            } else {
+                "shipped"
+            },
+            catalogue: cat,
+        }));
+        rows.push(row);
+    }
+    Ok(rows)
+}
+
+/// `WxH`.
+fn parse_size(text: &str) -> (u32, u32) {
+    text.split_once('x')
+        .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
+        .unwrap_or_else(|| refuse(&format!("--sizes {text}: WIDTHxHEIGHT")))
+}
+
+/// The rows a run composites: `ROWS` (§4.2) for the shipped catalogue's
+/// Gemini profiles — every one, or those `--profile` names — or rows read
+/// off the profiles `--profile` names (`derive_rows`) when one of them is
+/// not a Gemini row's or `--catalogue` is given; then `--rows` by id.
+fn rows_for(args: &Args, catalogues: &Catalogues, side: u32) -> Vec<&'static Row> {
+    let profiles = args.list("profile");
+    let builtin = |p: &String| ROWS.iter().any(|r| r.profile == p);
+    let derived =
+        catalogues.file.is_some() || profiles.as_ref().is_some_and(|ps| !ps.iter().all(builtin));
+    let candidates: Vec<&'static Row> = if derived {
+        let Some(ps) = profiles else {
+            refuse("--catalogue needs --profile: the profiles of the file to composite")
+        };
+        let sizes: Option<Vec<(u32, u32)>> = args
+            .list("sizes")
+            .map(|s| s.iter().map(|x| parse_size(x)).collect());
+        let cat = if catalogues.file.is_some() {
+            Cat::File
+        } else {
+            Cat::Shipped
+        };
+        let mut out = Vec::new();
+        for p in &ps {
+            let rows = derive_rows(catalogues.of(cat), cat, p, sizes.as_deref(), side)
+                .unwrap_or_else(|e| refuse(&e));
+            out.extend(rows);
+        }
+        out
+    } else {
+        if args.get("sizes").is_some() {
+            refuse("--sizes is for a profile's own rows; the Gemini rows have theirs");
+        }
+        ROWS.iter()
+            .filter(|r| profiles.as_ref().is_none_or(|ps| ps.iter().any(|p| p == r.profile)))
+            .collect()
+    };
+    let rows: Vec<&'static Row> = match args.list("rows") {
+        None => candidates,
+        Some(ids) => ids
+            .iter()
+            .map(|id| {
+                *candidates
+                    .iter()
+                    .find(|r| r.id == id)
+                    .unwrap_or_else(|| refuse(&format!("no row {id}")))
+            })
+            .collect(),
+    };
+    if rows.is_empty() {
+        refuse("no row to composite");
+    }
+    rows
+}
+
+/// Where a background's tile sits on a `w × h` canvas: in the corner
+/// nearest the mark's box, so the mark, its ROI and the search's box lie on
+/// content. Every Gemini row is bottom-right, where the tile always was.
+fn tile_origin(mark: PixelRect, w: u32, h: u32, side: u32) -> (u32, u32) {
+    // Twice the box's centre, against the canvas's size: no rounding.
+    let (cx, cy) = (2 * mark.x + mark.width, 2 * mark.y + mark.height);
+    (
+        if cx < w { 0 } else { w - side },
+        if cy < h { 0 } else { h - side },
+    )
+}
+
+/// Where `row`'s mark is drawn, in whole pixels.
+fn mark_box(row: &Row, catalogues: &Catalogues) -> PixelRect {
+    let cat = catalogues.of(row.catalogue);
+    let map = map_of(cat, row);
+    box_of(place(row, cat), map.width(), map.height())
 }
 
 /// Where the shipped catalogue's first row for `row.size` puts the mark,
@@ -983,19 +1201,18 @@ fn backgrounds(manifest: &Value, seed: u64) -> Vec<Background> {
 
 /// The zones of every row on a tile: where each row's mark sits, and what
 /// is under it.
-fn zones_of(tile: &Tile, catalogues: &Catalogues) -> Value {
+fn zones_of(tile: &Tile, catalogues: &Catalogues, rows: &[&'static Row]) -> Value {
     let mut zones = serde_json::Map::new();
     let raster = Raster::from_u8(tile.side, tile.side, Layout::Rgb8, &tile.rgb)
         .unwrap_or_else(|e| refuse(&e.to_string()));
-    for row in &ROWS {
-        let rect = place(row, catalogues.of(row.catalogue));
+    for row in rows {
         let (w, h) = row.size;
-        let map = map_of(catalogues.shipped, row);
-        let b = box_of(rect, map.width(), map.height());
-        // Every row's mark lies on the tile, in the canvas's bottom-right
-        // corner.
-        let (ox, oy) = (w - tile.side, h - tile.side);
-        if b.x < ox || b.y < oy || b.x + b.width > w || b.y + b.height > h {
+        let b = mark_box(row, catalogues);
+        // Every row's mark lies on the tile, in the canvas's corner nearest
+        // the mark (bottom-right for every Gemini row).
+        let (ox, oy) = tile_origin(b, w, h, tile.side);
+        let (x1, y1) = (ox + tile.side, oy + tile.side);
+        if b.x < ox || b.y < oy || b.x + b.width > x1 || b.y + b.height > y1 {
             refuse(&format!("{}: the mark is off the tile", row.id));
         }
         let on_tile = PixelRect {
@@ -1060,6 +1277,8 @@ fn pin(args: &Args) {
         }
     }
     let catalogues = Catalogues::load();
+    // The committed manifest's zones are the Gemini rows' (§4.2).
+    let gemini: Vec<&'static Row> = ROWS.iter().collect();
     let list = backgrounds(&manifest, seed);
     let mut records = Vec::new();
     for b in &list {
@@ -1071,7 +1290,7 @@ fn pin(args: &Args) {
             }
             Err(e) => refuse(&e),
         };
-        records.push(record(b, &tile, &catalogues));
+        records.push(record(b, &tile, &catalogues, &gemini));
     }
     let n = records.len();
     manifest["backgrounds"] = Value::Array(records);
@@ -1079,7 +1298,7 @@ fn pin(args: &Args) {
     println!("pinned {n} backgrounds into {}", path.display());
 }
 
-fn record(b: &Background, tile: &Tile, catalogues: &Catalogues) -> Value {
+fn record(b: &Background, tile: &Tile, catalogues: &Catalogues, rows: &[&'static Row]) -> Value {
     json!({
         "id": b.id,
         "group": b.group,
@@ -1090,7 +1309,7 @@ fn record(b: &Background, tile: &Tile, catalogues: &Catalogues) -> Value {
         // A photograph's tile goes through Lanczos (`sin`): its hash is
         // the machine's, and only the file's own sha256 is checked.
         "tile_sha256": if b.photo.is_none() { Some(sha256_hex(&tile.rgb)) } else { None },
-        "zones": zones_of(tile, catalogues),
+        "zones": zones_of(tile, catalogues, rows),
     })
 }
 
@@ -1219,18 +1438,22 @@ fn gen(args: &Args) {
         .get("seed")
         .map_or(pinned_seed, |s| s.parse().unwrap_or_else(|_| usage()));
     let groups = args.list("groups");
-    let rows: Vec<&'static Row> = match args.list("rows") {
-        None => ROWS.iter().collect(),
-        Some(ids) => ids
-            .iter()
-            .map(|id| {
-                ROWS.iter()
-                    .find(|r| r.id == id)
-                    .unwrap_or_else(|| refuse(&format!("no row {id}")))
-            })
-            .collect(),
-    };
-    let catalogues = Catalogues::load();
+    let catalogue_path = args.get("catalogue").map(PathBuf::from);
+    let (catalogues, catalogue_record) = with_file(Catalogues::load(), catalogue_path.as_deref());
+    let rows = rows_for(args, &catalogues, side);
+    let mut profiles: Vec<&str> = rows.iter().map(|r| r.profile).collect();
+    profiles.sort_unstable();
+    profiles.dedup();
+    let (slices, for_profile) = asked_slices(args);
+    if let Some(p) = &for_profile {
+        if !profiles.contains(&p.as_str()) {
+            refuse(&format!(
+                "--degradations is {p}'s list; this run composites {}",
+                profiles.join(", ")
+            ));
+        }
+    }
+    let jpegs = image_jpegs(slices.as_deref());
     let pins: BTreeMap<String, Value> = manifest["backgrounds"]
         .as_array()
         .unwrap_or(&Vec::new())
@@ -1281,6 +1504,7 @@ fn gen(args: &Args) {
                     &rows,
                     &out,
                     (!unpinned).then(|| pins.get(&b.id)),
+                    &jpegs,
                 );
                 match result {
                     Ok((lines, rec)) => {
@@ -1318,6 +1542,12 @@ fn gen(args: &Args) {
     run_manifest["seed"] = json!(seed);
     run_manifest["pinned"] = json!(!unpinned);
     run_manifest["rows"] = json!(rows.iter().map(|r| r.id).collect::<Vec<_>>());
+    // E12-R12 stage 4b: which profiles, from which catalogue, under which
+    // degradations — what `encode.py` and `run` read back.
+    run_manifest["profiles"] = json!(profiles);
+    run_manifest["catalogue"] = catalogue_record;
+    run_manifest["slices"] = json!(slices);
+    run_manifest["degradations"] = json!(args.get("degradations"));
     run_manifest["backgrounds"] = Value::Array(records);
     write_manifest(&out.join("manifest.json"), &run_manifest);
     println!(
@@ -1337,7 +1567,9 @@ fn jobs(args: &Args) -> usize {
 }
 
 /// One background: its tile checked against its pin, every size's canvas,
-/// every case. Returns the index lines and the background's record.
+/// every case — and `image`'s JPEG of each, one per `jpegs` (slice,
+/// quality). Returns the index lines and the background's record.
+#[allow(clippy::too_many_arguments)]
 fn gen_one(
     b: &Background,
     side: u32,
@@ -1346,9 +1578,10 @@ fn gen_one(
     rows: &[&'static Row],
     out: &Path,
     pin: Option<Option<&Value>>,
+    jpegs: &[(String, u8)],
 ) -> Result<(Vec<String>, Value), String> {
     let tile = b.tile(side, photos)?;
-    let rec = record(b, &tile, catalogues);
+    let rec = record(b, &tile, catalogues, rows);
     if let Some(pin) = pin {
         let Some(pin) = pin else {
             return Err(String::from(
@@ -1370,15 +1603,26 @@ fn gen_one(
         let bg_rel = PathBuf::from(&b.group).join(&b.id).join(format!("{w}x{h}"));
         let bg_dir = out.join(&bg_rel);
         std::fs::create_dir_all(&bg_dir).map_err(|e| e.to_string())?;
-        let gt = canvas(&tile, w, h);
-        write_png(&bg_dir.join("gt.png"), &gt)?;
         let mine: Vec<&'static Row> = rows.iter().copied().filter(|r| r.size == (w, h)).collect();
+        // One canvas per size: its rows' marks must want the tile in one
+        // corner.
+        let mut corners = mine
+            .iter()
+            .map(|r| tile_origin(mark_box(r, catalogues), w, h, tile.side));
+        let origin = corners.next().unwrap_or((w - tile.side, h - tile.side));
+        if corners.any(|o| o != origin) {
+            return Err(format!(
+                "{w}x{h}: its rows' marks are in different corners; run them apart (--rows)"
+            ));
+        }
+        let gt = canvas(&tile, w, h, origin);
+        write_png(&bg_dir.join("gt.png"), &gt)?;
         for case in cases(&mine) {
             let row = case.row;
             let catalogue = catalogues.of(row.catalogue);
             let p = catalogue.profile(row.profile).ok_or("no profile")?;
-            let map = map_of(catalogues.shipped, row);
-            let rect = place(row, catalogues.shipped);
+            let map = map_of(catalogue, row);
+            let rect = place(row, catalogue);
             let pixels = box_of(rect, map.width(), map.height());
             let mut marked = gt.clone();
             let blend = Blend {
@@ -1389,11 +1633,12 @@ fn gen_one(
             composite_with(&mut marked, &drawn(map), rect, Kernel::Area, &blend);
             let rel = bg_rel.join(case.id());
             let dir = out.join(&rel);
-            std::fs::create_dir_all(dir.join("jpeg444-q95")).map_err(|e| e.to_string())?;
-            std::fs::create_dir_all(dir.join("jpeg444-q90")).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
             write_png(&dir.join("marked.png"), &marked)?;
-            write_jpeg(&dir.join("jpeg444-q95").join("image.jpg"), &marked, 95)?;
-            write_jpeg(&dir.join("jpeg444-q90").join("image.jpg"), &marked, 90)?;
+            for (slice, quality) in jpegs {
+                std::fs::create_dir_all(dir.join(slice)).map_err(|e| e.to_string())?;
+                write_jpeg(&dir.join(slice).join("image.jpg"), &marked, *quality)?;
+            }
             let meta = json!({
                 "schema": SCHEMA,
                 "case": case.id(),
@@ -1623,6 +1868,115 @@ const SLICES: &[Slice] = &[
     },
 ];
 
+/// A JPEG slice's files: Pillow's, and `image`'s where it can write one.
+const JPEG_FILES: &[(&str, &str)] = &[("pillow", "pillow.jpg"), ("image", "image.jpg")];
+
+/// `jpeg444-qNN` or `jpeg420-qNN`, NN in 1–100: whether it is 4:4:4, and
+/// its quality.
+fn jpeg_slice(id: &str) -> Option<(bool, u8)> {
+    let (sampling, quality) = id.strip_prefix("jpeg")?.split_once("-q")?;
+    if quality.is_empty() || !quality.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let quality: u8 = quality.parse().ok().filter(|q| (1..=100).contains(q))?;
+    match sampling {
+        "444" => Some((true, quality)),
+        "420" => Some((false, quality)),
+        _ => None,
+    }
+}
+
+/// A slice by its id: one of §4.3's, or a JPEG at any quality — the
+/// degradations a vendor actually hands out (E12-R12 stage 4b). The latter
+/// live as long as the process, as `SLICES` do.
+fn slice_of(id: &str) -> Option<&'static Slice> {
+    if let Some(s) = SLICES.iter().find(|s| s.id == id) {
+        return Some(s);
+    }
+    jpeg_slice(id)?;
+    let slice: &'static Slice = Box::leak(Box::new(Slice {
+        id: id.to_owned().leak(),
+        files: JPEG_FILES,
+        scale: None,
+    }));
+    Some(slice)
+}
+
+/// The `image` crate's JPEGs a run writes (it writes 4:4:4 only): q95 and
+/// q90 when no slices are named, else one per `jpeg444-qNN` named.
+fn image_jpegs(slices: Option<&[String]>) -> Vec<(String, u8)> {
+    match slices {
+        None => vec![
+            (String::from("jpeg444-q95"), 95),
+            (String::from("jpeg444-q90"), 90),
+        ],
+        Some(ids) => ids
+            .iter()
+            .filter_map(|id| match jpeg_slice(id) {
+                Some((true, q)) => Some((id.clone(), q)),
+                _ => None,
+            })
+            .collect(),
+    }
+}
+
+/// Every id a slice: the list, or why not.
+fn check_slices(ids: &[String]) -> Result<(), String> {
+    if ids.is_empty() {
+        return Err(String::from("an empty list of slices"));
+    }
+    match ids.iter().find(|id| slice_of(id).is_none()) {
+        Some(id) => Err(format!(
+            "no slice {id}: one of {}, or jpeg444-qNN / jpeg420-qNN",
+            SLICES.iter().map(|s| s.id).collect::<Vec<_>>().join(", ")
+        )),
+        None => Ok(()),
+    }
+}
+
+/// A degradation list (`gen --degradations FILE`): `{"schema": 1,
+/// "profile": ID or null, "slices": […], "comment": …}` — the degradations
+/// a profile's vendor actually hands out (R2 stage 0), so a run benches
+/// those and no others. Returns the profile it is for and the slices.
+fn degradations(path: &Path) -> Result<(Option<String>, Vec<String>), String> {
+    let at = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+    let text = std::fs::read_to_string(path).map_err(|e| at(&e))?;
+    let v: Value = serde_json::from_str(&text).map_err(|e| at(&e))?;
+    if v["schema"].as_u64() != Some(1) {
+        return Err(at(&"not a schema-1 degradation list"));
+    }
+    let slices: Vec<String> = v["slices"]
+        .as_array()
+        .ok_or_else(|| at(&"no `slices` list"))?
+        .iter()
+        .map(|s| s.as_str().map(str::to_owned).ok_or_else(|| at(&"a slice is not a string")))
+        .collect::<Result<_, _>>()?;
+    check_slices(&slices).map_err(|e| at(&e))?;
+    let profile = match &v["profile"] {
+        Value::Null => None,
+        Value::String(p) => Some(p.clone()),
+        _ => return Err(at(&"`profile` is not a string or null")),
+    };
+    Ok((profile, slices))
+}
+
+/// The slices `gen` is asked for — `--slices a,b` or `--degradations FILE`,
+/// and the profile a list is for — or `None`: every slice of §4.3.
+fn asked_slices(args: &Args) -> (Option<Vec<String>>, Option<String>) {
+    match (args.list("slices"), args.get("degradations")) {
+        (Some(_), Some(_)) => refuse("--slices or --degradations, not both"),
+        (Some(ids), None) => {
+            check_slices(&ids).unwrap_or_else(|e| refuse(&e));
+            (Some(ids), None)
+        }
+        (None, Some(file)) => {
+            let (profile, ids) = degradations(Path::new(file)).unwrap_or_else(|e| refuse(&e));
+            (Some(ids), profile)
+        }
+        (None, None) => (None, None),
+    }
+}
+
 // ───────────────────────────────────────────────────────────── metrics
 
 /// PSNR over the colour samples inside `roi`, in dB; [`PSNR_CAP`] for
@@ -1815,18 +2169,44 @@ fn run(args: &Args) {
             })
         })
         .collect();
-    let slices: Vec<&Slice> = match args.list("slices") {
+    // What `gen` recorded (E12-R12 stage 4b): the slices it was asked for and
+    // the catalogue file it read; a run from before has neither.
+    let generated = input.join("manifest.json");
+    let generated = generated.exists().then(|| read_json(&generated));
+    let recorded = |key: &str| {
+        generated
+            .as_ref()
+            .map(|m| m[key].clone())
+            .filter(|v| !v.is_null())
+    };
+    let asked = args.list("slices").or_else(|| {
+        recorded("slices").and_then(|v| {
+            v.as_array()
+                .map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect())
+        })
+    });
+    let slices: Vec<&Slice> = match asked {
         None => SLICES.iter().collect(),
         Some(ids) => ids
             .iter()
-            .map(|id| {
-                SLICES
-                    .iter()
-                    .find(|s| s.id == id)
-                    .unwrap_or_else(|| refuse(&format!("no slice {id}")))
-            })
+            .map(|id| slice_of(id).unwrap_or_else(|| refuse(&format!("no slice {id}"))))
             .collect(),
     };
+    let generated_with = recorded("catalogue");
+    let catalogue_path = args.get("catalogue").map(PathBuf::from).or_else(|| {
+        generated_with
+            .as_ref()
+            .and_then(|c| c["file"].as_str().map(PathBuf::from))
+    });
+    let (catalogues, catalogue_record) = with_file(Catalogues::load(), catalogue_path.as_deref());
+    if let Some(want) = &generated_with {
+        if want["sha256"] != catalogue_record["sha256"] {
+            refuse(&format!(
+                "the run was generated with the catalogue {} (sha256 {}); this is {}",
+                want["file"], want["sha256"], catalogue_record
+            ));
+        }
+    }
     let crops = args.get("export-crops").map(PathBuf::from);
     let index_text = std::fs::read_to_string(input.join("index.jsonl"))
         .unwrap_or_else(|e| refuse(&format!("{}: {e}", input.join("index.jsonl").display())));
@@ -1835,7 +2215,6 @@ fn run(args: &Args) {
         .filter(|l| !l.trim().is_empty())
         .map(|l| serde_json::from_str(l).unwrap_or_else(|e| refuse(&e.to_string())))
         .collect();
-    let catalogues = Catalogues::load();
     let t0 = Instant::now();
     let next = AtomicUsize::new(0);
     let lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -1887,6 +2266,7 @@ fn run(args: &Args) {
         "seconds": (seconds * 10.0).round() / 10.0,
         "jobs": jobs(args),
         "commit": git_commit(),
+        "catalogue": catalogue_record,
     });
     let mut run_path = out.clone().into_os_string();
     run_path.push(".run.json");
@@ -1949,10 +2329,10 @@ fn run_case(
     let case_dir = root.join(item["case_dir"].as_str().unwrap_or_default());
     let bg_dir = root.join(item["bg_dir"].as_str().unwrap_or_default());
     let meta = read_json(&case_dir.join("meta.json"));
-    let catalogue = if meta["catalogue"] == Cat::GwtV1.id() {
-        &catalogues.gwt
-    } else {
-        catalogues.shipped
+    let catalogue = match meta["catalogue"].as_str() {
+        Some(id) if id == Cat::GwtV1.id() => &catalogues.gwt,
+        Some(id) if id == Cat::File.id() => catalogues.of(Cat::File),
+        _ => catalogues.shipped,
     };
     let mut lines = Vec::new();
     let mut truths: BTreeMap<&str, Result<Raster, String>> = BTreeMap::new();
@@ -2157,7 +2537,7 @@ fn one(
     });
     if let Some(dir) = crops {
         let _ = export(
-            dir, meta, slice, encoder, config, raster, &restored, gt, roi, want, scale,
+            dir, meta, slice, encoder, config, catalogue, raster, &restored, gt, roi, want, scale,
         );
     }
     let samples: Vec<u8> = restored
@@ -2237,6 +2617,7 @@ fn export(
     slice: &Slice,
     encoder: &str,
     config: &Config,
+    catalogue: &Catalogue,
     input: &Raster,
     recon: &Raster,
     gt: &Raster,
@@ -2259,8 +2640,8 @@ fn export(
     write_png(&out.join("gt.png"), &cut(gt, crop))?;
     // The opacity as composited: the map as drawn, at the expected place,
     // times k — by the area integral, which is the composite's own kernel
-    // and, after a resize, an approximation of Pillow's bicubic.
-    let catalogue = Catalogue::shipped().map_err(|e| e.to_string())?;
+    // and, after a resize, an approximation of Pillow's bicubic. The map is
+    // the case's catalogue's: the shipped one, its GWT twin or the file.
     let profile = catalogue
         .profile(meta["profile"].as_str().unwrap_or_default())
         .ok_or("no profile")?;
@@ -2523,6 +2904,177 @@ mod tests {
         assert_eq!(v1(c.shipped), "gemini-v1-96-measured");
         assert_eq!(v1(&c.gwt), "gemini-v1-96");
         assert_eq!(c.shipped.profile(V2), c.gwt.profile(V2));
+    }
+
+    /// The stand-in profile of `fixtures/marks/synthetic-wordmark/` — a
+    /// text-like map written by `scripts/bench/wordmark.py`, a fixture and
+    /// not any vendor's.
+    const FIXTURE: &str = "fixture-wordmark";
+
+    fn fixture_dir() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/marks/synthetic-wordmark")
+    }
+
+    /// The catalogues with the fixture read through `--catalogue`'s road.
+    fn with_fixture() -> Catalogues {
+        let path = fixture_dir().join("marks.json");
+        let (c, record) = with_file(Catalogues::load(), Some(path.as_path()));
+        assert_eq!(record["sha256"].as_str().map(str::len), Some(64), "{record}");
+        c
+    }
+
+    /// A profile that is not Gemini's, read from a catalogue file, gets
+    /// rows of its own: one per size its placements answer for, each the
+    /// first placement at that size, canonical (a corner row at its map's
+    /// own size, a map not fitted) — and its tile goes in the corner of its
+    /// mark, while every Gemini row keeps the bottom-right one.
+    #[test]
+    fn a_catalogue_files_profile_gets_rows_of_its_own() {
+        let c = with_fixture();
+        let file = c.of(Cat::File);
+        let rows = derive_rows(file, Cat::File, FIXTURE, None, 512).unwrap();
+        let ids: Vec<&str> = rows.iter().map(|r| r.id).collect();
+        assert_eq!(
+            ids,
+            [
+                "fixture-wordmark-72x24-1025x1025",
+                "fixture-wordmark-72x24-1024x1024"
+            ]
+        );
+        for r in &rows {
+            assert_eq!((r.profile, r.variant, r.catalogue), (FIXTURE, "canonical", Cat::File));
+        }
+        let at = place(rows[0], file);
+        assert_eq!((at.x, at.y, at.size), (48.0, 961.0, 72.0));
+        let b = mark_box(rows[0], &c);
+        assert_eq!((b.width, b.height), (72, 24));
+        assert_eq!(tile_origin(b, 1025, 1025, 512), (0, 513));
+        let asked = derive_rows(file, Cat::File, FIXTURE, Some(&[(2048, 2048)]), 512).unwrap();
+        assert_eq!(asked[0].id, "fixture-wordmark-72x24-2048x2048");
+        assert!(derive_rows(file, Cat::File, FIXTURE, Some(&[(300, 300)]), 512).is_err());
+        assert!(derive_rows(file, Cat::File, "gemini-sparkle-v1", None, 512).is_err());
+        for row in &ROWS {
+            let (w, h) = row.size;
+            assert_eq!(
+                tile_origin(mark_box(row, &c), w, h, 512),
+                (w - 512, h - 512),
+                "{}",
+                row.id
+            );
+        }
+    }
+
+    /// A slice is one of §4.3's or a JPEG at any quality; `image` writes
+    /// the 4:4:4 ones asked for, and q95 and q90 when none is named.
+    #[test]
+    fn a_slice_is_one_of_the_benchs_or_a_jpeg_at_any_quality() {
+        assert_eq!(slice_of("png").map(|s| s.id), Some("png"));
+        let s = slice_of("jpeg420-q82").unwrap();
+        assert_eq!((s.id, s.files, s.scale), ("jpeg420-q82", JPEG_FILES, None));
+        for bad in [
+            "jpeg422-q90",
+            "jpeg420-q0",
+            "jpeg420-q101",
+            "jpeg420-q+9",
+            "jpeg420-q",
+            "webp-lossy-q80",
+        ] {
+            assert!(slice_of(bad).is_none(), "{bad}");
+        }
+        assert_eq!(
+            image_jpegs(None),
+            [
+                (String::from("jpeg444-q95"), 95),
+                (String::from("jpeg444-q90"), 90)
+            ]
+        );
+        let asked: Vec<String> = ["png", "jpeg420-q85", "jpeg444-q80"].map(String::from).to_vec();
+        assert_eq!(
+            image_jpegs(Some(asked.as_slice())),
+            [(String::from("jpeg444-q80"), 80)]
+        );
+        assert!(check_slices(&asked).is_ok());
+        assert!(check_slices(&[String::from("jpeg420-q101")]).is_err());
+        assert!(check_slices(&[]).is_err());
+    }
+
+    /// A degradation list names its profile and its slices; one that names
+    /// a slice the bench cannot make, or is not schema 1, is refused.
+    #[test]
+    fn a_degradation_list_names_its_profile_and_its_slices() {
+        let (profile, slices) = degradations(&fixture_dir().join("degradations.json")).unwrap();
+        assert_eq!(profile.as_deref(), Some(FIXTURE));
+        assert_eq!(slices, ["png", "jpeg444-q90", "jpeg420-q85"]);
+        let dir = std::env::temp_dir().join(format!("recon-bench-deg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, text) in [
+            ("unknown", r#"{"schema": 1, "profile": null, "slices": ["png", "jpeg422-q90"]}"#),
+            ("schema", r#"{"schema": 2, "profile": null, "slices": ["png"]}"#),
+            ("empty", r#"{"schema": 1, "profile": null, "slices": []}"#),
+        ] {
+            let path = dir.join(format!("{name}.json"));
+            std::fs::write(&path, text).unwrap();
+            assert!(degradations(&path).is_err(), "{name}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// gen → run for a profile that is not Gemini's, end to end: the
+    /// fixture's rows composited at their own place, both blend models and
+    /// the `R-k` case made (the matrix exists for any profile), only the
+    /// JPEG slices asked for written, and the user's path over the result
+    /// with the file's catalogue — the vendor-blended PNG found, proved,
+    /// restored, and far closer to the truth than the input was.
+    #[test]
+    fn a_profile_from_a_catalogue_file_runs_from_gen_to_its_result_lines() {
+        let c = with_fixture();
+        let file = c.of(Cat::File);
+        let rows = derive_rows(file, Cat::File, FIXTURE, Some(&[(1024, 1024)]), 512).unwrap();
+        let out = std::env::temp_dir().join(format!("recon-bench-fixture-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&out);
+        let b = Background {
+            id: String::from("flat-000"),
+            group: String::from("flat"),
+            kind: String::from("gradient"),
+            asked: Some(Tone::Midtone),
+            seed: 11,
+            photo: None,
+        };
+        let asked: Vec<String> = ["png", "jpeg444-q90"].map(String::from).to_vec();
+        let jpegs = image_jpegs(Some(asked.as_slice()));
+        let (lines, rec) = gen_one(&b, 512, None, &c, &rows, &out, None, &jpegs).unwrap();
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(rec["zones"][rows[0].id]["tone"].is_string(), "{rec}");
+        let slices: Vec<&Slice> = asked.iter().map(|id| slice_of(id).unwrap()).collect();
+        let r0 = CONFIGS.iter().find(|cfg| cfg.name == "R0").unwrap();
+        let mut models = Vec::new();
+        let mut proved = 0;
+        for line in &lines {
+            let item: Value = serde_json::from_str(line).unwrap();
+            let case_dir = out.join(item["case_dir"].as_str().unwrap());
+            assert!(case_dir.join("jpeg444-q90").join("image.jpg").exists());
+            assert!(!case_dir.join("jpeg444-q95").exists());
+            for result in run_case(&out, &item, &[r0], &slices, &c, None) {
+                let r: Value = serde_json::from_str(&result).unwrap();
+                assert!(r.get("error").is_none(), "{r}");
+                assert_eq!(r["profile"], FIXTURE);
+                assert_eq!(r["catalogue"], "file");
+                models.push((r["model"].clone(), r["k"].clone()));
+                let vendor = r["model"] == "encoded" && r["k"] == 1.0;
+                if vendor && r["slice"] == "png" {
+                    assert_eq!(r["detection"]["verdict"], "verified", "{r}");
+                    assert_eq!(r["restored"], true, "{r}");
+                    let (after, before) = (r["psnr_roi"].as_f64(), r["psnr_roi_input"].as_f64());
+                    assert!(after.unwrap() > before.unwrap() + 10.0, "{r}");
+                    proved += 1;
+                }
+            }
+        }
+        assert_eq!(proved, 1);
+        for model in ["encoded", "linear-light"] {
+            assert!(models.iter().any(|(m, _)| m == model), "{models:?}");
+        }
+        let _ = std::fs::remove_dir_all(&out);
     }
 
     /// A linear-light composite is drawn with the inverse sRGB curve: on
