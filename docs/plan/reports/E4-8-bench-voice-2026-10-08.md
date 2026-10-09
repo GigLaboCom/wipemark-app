@@ -101,7 +101,8 @@ still reads a judge file with voice lines in it.
 
 **`bench plan --of run|judge`** prints `attempts=<n> calls=<n> done=<n>`
 with no model loaded (D429): over the shim, the voice run's grid on this
-corpus is **1 440 calls a part** (90 chunks × 16).
+corpus is **1 440 calls a part** (90 chunks × 16) — **1 568** (98 chunks)
+since the host verification's `address` items.
 
 **The variant reader** (`examples/bench/variant.rs`, D427) holds every file
 to `row::admit` with the bench's window — the rule an edit in Settings, the
@@ -143,13 +144,13 @@ In `docs/architecture/prompt-bench.md`, "Decisions D420–D429"; summarised:
 
 | | decision |
 |---|---|
-| **D420** | Person words are closed pronoun lists per language, in code; second person with its formal subset (ru «вы», de capitalised «Sie»-forms); a German sentence-initial Sie/Ihnen/Ihr… is formal only when the pair has an unambiguous one; bare "ihr" not counted; English "I" only as written, "US" never; kept = min(answer, source) / source by count; switched = a source in one register only, an answer with any form of the other. |
+| **D420** | Person words are closed pronoun lists per language, in code; second person with its formal subset (ru «вы», de capitalised «Sie»-forms); a German sentence-initial Sie/Ihnen/Ihr… is formal only when the pair has an unambiguous one; bare "ihr" not counted; English "I" only as written, "US" never; kept = min(answer, source) / source by count; switched = a source in one register only, an answer with any form of the other. *Amended 2026-10-09 (host verification, M3):* the source's sentence-initial Sie/Ihr… is decided by the source alone — formally addressed when a capitalised formal form stands inside a sentence or the chunk opens with «Sie» + a plural verb — and the answer's by the source or the answer itself; see "Host verification". |
 | **D421** | The register shift is a proxy from data lists (`bench/register/<lang>.txt`): the answer's matching words whose five-letter stem the chunk lacks, over the answer's words; compared between runs, never read alone. |
 | **D422** | `report` recomputes the voice from the texts (as the preface and the trailer); `run` writes it on each record too; quartiles for the voice measures. |
-| **D423** | The judge's voice question is a separate request and line (YES/PARTLY/NO), calibrated on the chunk against itself; the meaning question unchanged, pinned by a test. |
+| **D423** | The judge's voice question is a separate request and line (YES/PARTLY/NO), calibrated on the chunk against itself and (amended 2026-10-09) on three fixed texts against a version addressing the reader otherwise, expected NO; the meaning question — its system turn too — unchanged, pinned by a test. |
 | **D424** | keep-voice: paraphrase and humanize, system turn, en/ru/de; humanize without "keep its register"; not back_translate, structural or code. |
 | **D425** | No keep-voice-light: the grid's intensity reproduces it. |
-| **D426** | `run-voice.sh`: four models × {shipped, keep-voice}, `--every 3`, every language, paraphrase l/m/s × 4 and humanize m/s × 2, two run names, the judge by variables, offline, refusing, estimating. |
+| **D426** | `run-voice.sh`: four models × {shipped, keep-voice}, `--every 3`, every language, paraphrase l/m/s × 4 and humanize m/s × 2, two run names, the judge by variables, offline, refusing, estimating; (amended 2026-10-09) the prebuilt cache it accepts is this pin's release, by its sha256 prefix. |
 | **D427** | A variant is read through `row::admit`, strictly, by one reader shared with the walk test. |
 | **D428** | CI lints the bench and runs its unit tests over the shim. |
 | **D429** | `bench plan` counts with no model; the voice table: the loop's pick beside `min ≥ 0.2`, GPU 2 × 2 where there are four candidates, CPU 1 × 2 where there are two. |
@@ -229,16 +230,20 @@ crates/wipemark-pipeline/bench/run-voice.sh 2>&1 | tee crates/wipemark-pipeline/
 
 It refuses (exit 2) on a variable not set or a file not there, and when the
 pinned llama.cpp release is not already in `target/debug/llama-cpp-prebuilt`
-(any earlier `llama-native` build put it there) or `WIPEMARK_LLAMA_PREBUILT`;
+— the release `crates/wipemark-llama-sys/src/pin.rs` pins for this host,
+`<its sha256, 12>/llama-cpp-<tag>-<host>`, so a cache an older pin left does
+not count (any earlier `llama-native` build of this pin put it there) or `WIPEMARK_LLAMA_PREBUILT`;
 it downloads nothing. Stopped anywhere, the same command picks up where it
 was; on another day add `--out crates/wipemark-pipeline/bench/results/voice-<the first day>`.
 
-**How long.** 1 440 calls a part (counted here by `bench plan` over the
-shim; `--estimate` counts it on the host). At E4-5's measured seconds per
-call: Qwen3 4B 1.19 s → ~29 min a part, Gemma 3 12B 2.37 s → ~57 min,
-Gemma 4 12B 1.61 s → ~39 min, Qwen3.8 27B 2.04 s → ~49 min; × 2 parts each
-≈ **5 h 50 min**; the judge at most ~23 400 calls × 0.21 s ≈ **80 min**
-(two questions an attempt); about **7 h** in all, plus each model's load.
+**How long.** 1 568 calls a part since the host verification's `address`
+items (1 440 before; counted by `bench plan` over the shim; `--estimate`
+counts it on the host). At E4-5's measured seconds per call: Qwen3 4B
+1.19 s → ~31 min a part, Gemma 3 12B 2.37 s → ~62 min, Gemma 4 12B 1.61 s
+→ ~42 min, Qwen3.8 27B 2.04 s → ~53 min; × 2 parts each ≈ **6 h 17 min**;
+the judge at most ~25 100 calls × 0.21 s ≈ **88 min** (two questions an
+attempt); about **7 h 45 min** in all, plus each model's load. The
+two-model run this host can make is in "Host verification (2026-10-09)".
 The script prints the estimate before each part and the measured figure
 after it (`timings.tsv`).
 
@@ -333,3 +338,98 @@ are the owner's.
   a proxy, as before.
 - **`humanize` at two candidates** is read on its CPU 1 × 2 pick; a GPU
   2 × 2 view of it would need `humanize:…:4` in the grid (+360 calls a part).
+
+## Host verification (2026-10-09)
+
+The host verification of `5c212e1` found three Medium findings and four
+Lows. They are fixed on `fix/e4-8-verification` (from `5c212e1`) in
+`a4b5d4e`; this section is the commit after it. Nothing under
+`crates/wipemark-pipeline/src/`, no shipped template and not
+`select::RULES` changed. Each fix's test was seen red once with the fix
+taken out — the checks `H-…` in `E4-8-bench-voice-2026-10-08-red.py`,
+beside E4-5's 27, and the whole script was run again over the new tree:
+**39 of 39 red**.
+
+| | finding | what was done | test | red check |
+|---|---|---|---|---|
+| M1 | Russian possessives had no prepositional case: «В твоём коде ошибка.» → «В вашем коде ошибка.» counted nothing and no switch | `вашем`, `твоём`/`твоем`, `нашем`, `моём`/`моем` in the person lists; every other case of ты/вы/я/мы and of твой/ваш/мой/наш was already there (тобою, вами, мною, нами, the -ею forms) | `measure::tests::russian_counts_every_case_of_the_possessives_the_prepositional_too` — the sentence above: one 2nd person each side and a switch; each new form; every case of the four pronouns | `H-M1-prepositional` |
+| M3 | A German sentence-initial «Sie» was formal when the source **or the answer** had a formal form inside a sentence, so the denominator moved with the candidate, and a formal address dropped whole ("Sie können das Formular online ausfüllen. Ihre Angaben werden geprüft." → "Das Formular lässt sich online ausfüllen. Die Angaben werden geprüft.") counted 0 on both sides | The source's count is decided by the source alone: it is **formally addressed** when a capitalised Sie/Ihnen/Ihr… stands inside a sentence, or when the chunk **opens** with «Sie» and a plural verb (lower case, "-en", or "sind"/"tun" — "Sie arbeitet" stays "she"; a "they" that opens a chunk has nothing in the chunk to refer to). The answer's sentence-initial forms count when the source is formally addressed **or the answer itself is** by the same rule — the one place this reads the task's "iff the source" more widely: without it "Du kannst das Formular online ausfüllen." → "Sie können das Formular online ausfüllen." would be read as the address lost, not switched. Only the numerator can move with the answer. D420 amended (here and in `prompt-bench.md`) | `measure::tests::a_formal_address_lost_whole_is_seen_from_the_source_alone` — exactly the case above (source 2 formal, answer 0, lost all), "Sie arbeitet als Ärztin." counting 0 whatever the answer, and du → «Sie können» a switch | `H-M3-source-alone`, `H-M3-opening`, `H-M3-answer-own` |
+| M2 | The corpus barely addressed the reader in ru/de (ru: no «ты» at all) | Four items each in ru and de, written for the bench (no invisible character — checked): a chatty how-to and a post addressed with «ты» / "du", instructions and a product page with «вы» / "Sie" (`ru-addr-01…04`, `de-addr-01…04`, kind `address`, one paragraph each, appended to the files). `run::selected` keeps an `address` item always and **does not count it** in `--every`'s position, so every earlier item keeps its place, its selection and its id — E4-5's and the divergence study's records line up with a new run | `run::tests::the_address_items_leave_every_other_selection_as_it_was` (the selection of every earlier item, with and without the new items, for `--every 3`, `--every 2`, `--langs ru,de`, none; every address item kept); `run::tests::the_corpus_speaks_to_its_reader_in_every_language` (the figures below, by the bench's own `plan` and `Voice::of`; ≥ 2 chunks informal-only and ≥ 2 formal-only in ru and de under `--every 3`) | `H-M2-selection`, `H-M2-corpus` |
+| Low | The voice calibration had no negative case, so a judge that always says YES passed it | `judge::VOICE_SWITCHED`: three fixed texts (en "you" → a formal impersonal, ru ты → вы, de du → Sie), each against its switched version, asked once per judge run (`calib-voice|<judge>|switched-<lang>|switched`, `"voice_calib": "switched"`), expected `NO`; `report`'s calibration table has a `switched (voice) | NO` row. D423 amended | `judge::tests::every_judged_attempt_is_asked_both_questions_and_an_old_file_only_the_new_one` (the three are asked, as voice questions, with a text that differs); `analyse::tests::the_judges_voice_answer_is_read_beside_the_meaning` (a YES to a switched text fails the row: 50 % of 2) | `H-L-voice-negative`, `H-L-voice-negative-report` |
+| Low | The meaning question's `SYSTEM` text was not pinned | pinned word for word in `the_meaning_question_is_the_one_e4_5_asked` | that test | `H-L-meaning-system` |
+| Low | `run-voice.sh` took any cached release (`*/*/PROVENANCE.txt`) for the pin's | It reads the host target (`rustc -vV`), the release tag and the target's sha256 off `crates/wipemark-llama-sys/src/pin.rs` and accepts only `<target>/debug/llama-cpp-prebuilt/<sha256, 12>/llama-cpp-<tag>-<host>/PROVENANCE.txt` — where `build.rs` caches that release; a host the pin publishes nothing for is told to set `WIPEMARK_LLAMA_SOURCE`/`WIPEMARK_LLAMA_PREBUILT`. D426 amended | `tests/bench_run_voice.rs`: `a_prebuilt_cache_of_another_pin_is_a_refusal_and_nothing_is_built` — a whole release of another sha and tag in a scratch `CARGO_TARGET_DIR`, `cargo` a stub on `PATH` that records being asked: exit 2, the refusal names this pin's release (read by the test from `pin.rs` with no code of the script's), nothing built. `it_downloads_nothing` is unchanged and still holds (no URL in the script) | `H-L-cache-pin` |
+| Low | «„Sie kommt.“» — an opening quote was no sentence boundary | `„`, `»` and `«` open a sentence in `measure::cased` | `measure::tests::an_opening_quotation_mark_opens_a_sentence` | `H-L-quote` |
+| Low | English "World War I" / "Part I" counted as first person | An "I" right after "War", "Part", "Chapter", "Volume", "Book", "Act", "Section" … (22 words, `measure::NUMBERED`, as written), or after a capitalised word inside a sentence and before a stop, comma, semicolon, bracket or the end ("under Henry I."), is a numeral. Only a space may stand between. Documented in `prompt-bench.md` | `measure::tests::an_english_roman_one_is_not_the_first_person` ("World War I", "Part I", "Henry I." numerals; "I moved", "Tom and I", "Yes, I." first person) | `H-L-roman` |
+
+**Chunks that carry a second person** — `cargo test -p wipemark-pipeline
+--features local-llama --examples --locked -- the_corpus_speaks --nocapture`
+prints them: the chunks `run` makes (`job::plan`, `paraphrase` moderate)
+measured by `Voice::of` (the amended rule, before and after alike);
+*informal* / *formal* = a chunk addressed in that register only.
+
+| | en | ru | de |
+|---|---|---|---|
+| every chunk, before the `address` items | 15 of 49 (15 informal) | 7 of 48 (0 informal, 7 formal) | 18 of 48 (3 informal, 14 formal) |
+| every chunk, now | 15 of 49 (15 informal) | **11 of 52 (2 informal, 9 formal)** | **22 of 52 (5 informal, 16 formal)** |
+| `--every 3`, before | 10 of 30 (10 informal) | 2 of 30 (0 informal, 2 formal) | 13 of 30 (3 informal, 9 formal) |
+| `--every 3`, now (the voice run) | 10 of 30 (10 informal) | **6 of 34 (2 informal, 4 formal)** | **17 of 34 (5 informal, 11 formal)** |
+
+The voice run is now **1 568 calls a part** (98 chunks × 16; 1 440 before),
+counted by `bench plan --of run --grid
+'paraphrase:light,moderate,strong:4;humanize:moderate,strong:2' --every 3`
+over the shim.
+
+**Checks run on the host while fixing** (targeted; the full gates are the
+coordinator's, once, after the merge):
+
+| command | result |
+|---|---|
+| `cargo test -p wipemark-pipeline --features local-llama --examples --locked` | ok — **26 passed**, 0 failed (20 before; +6 new) |
+| `cargo test -p wipemark-pipeline --features local-llama --test bench_run_voice --test bench_variants --locked` | ok — **6 + 3 passed**, 0 failed |
+| `cargo clippy -p wipemark-pipeline --features local-llama --examples --all-targets --locked -- -D warnings` | exit 0 (it asked for `is_multiple_of` in `selected`, now taken) |
+| `rustup run nightly rustfmt --edition 2021 --check` on every file touched | exit 0 |
+| `python3 -I docs/plan/reports/E4-8-bench-voice-2026-10-08-red.py` | 39 of 39 RED |
+| `crates/wipemark-pipeline/bench/run-voice.sh --dry-run` | through its tests only; nothing else of it was run |
+
+**Left.**
+
+- "Elizabeth I was queen" still counts as first person: a capitalised word
+  before "I was" is too often a vocative to call it a numeral.
+- A German «Sie» + plural verb **later** in a chunk with no formal form
+  inside a sentence ("Das Formular ist online. Sie können es ausfüllen.")
+  is still not counted: it may be "they" of a plural named before it.
+  Real formal texts nearly always carry an inside-the-sentence Sie
+  ("füllen Sie", "Ihnen"), and the corpus's do; the judge's question is the
+  check on the rest.
+- Russian «ты» rests on two chunks under `--every 3` (all four new items
+  are kept; the earlier corpus had none). More would be more items.
+- The script checks the cache by name and sha prefix; `build.rs` still
+  checks `PROVENANCE.txt`'s content when it links.
+
+**The run this host can make.** Only Gemma 4 12B and Qwen3.8 27B are here
+(`/mnt/data/mnemoria/models/…`, read-only), so the run is the two of them,
+each with the shipped templates and keep-voice, the judge (Gemma 4 12B —
+it judges its own answers, a proxy as before) and the report:
+
+```sh
+export WIPEMARK_BENCH_GGUF_GEMMA4_12B=/mnt/data/mnemoria/models/gemma-4-12b-qat-ud-q4/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
+export WIPEMARK_BENCH_GGUF_QWEN38_27B=/mnt/data/mnemoria/models/qwen38-27b-ud-iq3s/Qwen3.8-27B-UD-IQ3_S.gguf
+export WIPEMARK_BENCH_GGUF_JUDGE=$WIPEMARK_BENCH_GGUF_GEMMA4_12B
+export WIPEMARK_BENCH_JUDGE_NAME=gemma4-12b-judge
+# WIPEMARK_BENCH_GPU_LAYERS_QWEN38_27B=<n> only if the 27B does not fit whole (default -1).
+crates/wipemark-pipeline/bench/run-voice.sh --dry-run gemma4-12b gemma4-12b+voice qwen38-27b qwen38-27b+voice judge report
+crates/wipemark-pipeline/bench/run-voice.sh --estimate gemma4-12b gemma4-12b+voice qwen38-27b qwen38-27b+voice
+crates/wipemark-pipeline/bench/run-voice.sh gemma4-12b gemma4-12b+voice qwen38-27b qwen38-27b+voice judge report 2>&1 \
+  | tee crates/wipemark-pipeline/bench/results/voice-run.log
+```
+
+No Qwen3 4B or Gemma 3 12B variable is needed: a part asks only for its
+own. The judge and the report read the runs that exist under `--out` (the
+dry run lists all eight run files, since it checks for none). At
+E4-5's seconds per call: Gemma 4 12B ~42 min a part, Qwen3.8 27B ~53 min,
+× 2 each ≈ 3 h 10 min; the judge at most ~12 550 calls × 0.21 s ≈ 44 min;
+about **4 h** with the loads. The prebuilt release must be in this
+worktree's `CARGO_TARGET_DIR` (or the default `target/`) as this pin's
+(`0352d4924d84/llama-cpp-b10731-x86_64-unknown-linux-gnu`) — one
+`cargo build -p wipemark-pipeline --features llama-native --locked --example bench`
+puts it there — or the script refuses.
