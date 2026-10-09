@@ -57,6 +57,8 @@ pub use planes::{Plane, Planes, PlanesError, Quant, Sampling};
 pub use propose::{refine_at, Refined};
 pub use propose::{Placed, REFINE_MARGIN, ROW_FLOOR, SHRUNK};
 pub use raster::{Layout, Raster, RasterError};
+#[doc(hidden)]
+pub use restore::restore_off_by;
 pub use restore::{composite, restore, RestoreError, Restored};
 use serde::Serialize;
 pub use verify::{

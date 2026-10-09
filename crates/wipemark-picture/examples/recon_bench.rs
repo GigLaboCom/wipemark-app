@@ -2051,8 +2051,9 @@ fn one(
             "holes": r.holes, "clamped": r.clamped, "changed": r.changed,
             "exact": r.exact, "lossy": r.lossy, "fitted": r.fitted,
             "resampled": r.resampled, "searched": r.searched, "noise": r.noise,
-            // R7 (D305) adds it to `Restored`; until then there is none.
-            "consistency_px": Value::Null,
+            // D305: the restored picture blended back, against the input.
+            "consistency_px": r.consistency_px,
+            "consistency_excluded": r.consistency_excluded,
         })
     });
     if let Some(dir) = crops {

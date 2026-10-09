@@ -369,11 +369,15 @@ fn the_report_json_is_ascii_and_stable() {
         "\"also_tried\":[{\"profile\":\"test-sparkle-v2\",\"verified\":false,\"refusal\":{\"why\":\"gain\",\"k\":",
         "\"restored\":[{\"profile\":\"test-sparkle-v1\",\"rect\":{\"x\":",
         "\"changed\":",
-        "\"exact\":true}]",
+        // D305: the measure follows `exact`; `consistency_dct` is R8's
+        // and absent while it is none.
+        "\"exact\":true,\"consistency_px\":",
+        ",\"consistency_excluded\":0}]",
         "\"not_established\":[\"invisible-pixel-marks\",\"vendor-detector-evasion\",\"human-authorship\",\"unknown-mark-schemes\"]}",
     ] {
         assert!(json.contains(key), "{key} not in {json}");
     }
+    assert!(!json.contains("consistency_dct"), "{json}");
 }
 
 /// The third proof (D240): a blend proved by its gain and its edges is
