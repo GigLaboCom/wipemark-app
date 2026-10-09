@@ -1,0 +1,130 @@
+{
+ "id": "10_this_is_fine-q75-420",
+ "class": "recon-jpeg-420",
+ "variant": "q75",
+ "input_sha256": "5bbee48f0ed2f82ce1de55d41555f78cc26fd7588b022858e85102b9d13ce614",
+ "inspect": {
+  "exit": 1,
+  "json": {
+   "container": "jpeg",
+   "ai_metadata": false,
+   "c2pa": false,
+   "findings": [],
+   "visible": {
+    "examined": true,
+    "restorable": true,
+    "found": [
+     {
+      "profile": "gemini-sparkle-v1",
+      "vendor": "google",
+      "product": "gemini",
+      "pass": 1,
+      "rect": {
+       "x": 1888.0,
+       "y": 1888.0,
+       "size": 96.0
+      },
+      "pixels": {
+       "x": 1888,
+       "y": 1888,
+       "width": 96,
+       "height": 96
+      },
+      "placed": "row",
+      "row": 0,
+      "kernel": "area",
+      "ncc": 0.99722254,
+      "verdict": "refused",
+      "refusal": {
+       "why": "gain",
+       "k": 0.94
+      },
+      "scores": {
+       "gain": 0.94,
+       "edge_ratio": 0.26801956,
+       "out_of_range": 0.02421073,
+       "holes": 0
+      },
+      "also_tried": []
+     }
+    ],
+    "restored": []
+   },
+   "not_established": [
+    "invisible-pixel-marks",
+    "vendor-detector-evasion",
+    "human-authorship",
+    "unknown-mark-schemes"
+   ]
+  }
+ },
+ "clean": {
+  "exit": 3,
+  "json": {
+   "report": {
+    "container": "jpeg",
+    "still_has_ai_metadata": false,
+    "still_has_c2pa": false,
+    "removed": [],
+    "kept": [],
+    "orientation_removed": null,
+    "visible": {
+     "examined": true,
+     "restorable": true,
+     "found": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "vendor": "google",
+       "product": "gemini",
+       "pass": 1,
+       "rect": {
+        "x": 1888.0,
+        "y": 1888.0,
+        "size": 96.0
+       },
+       "pixels": {
+        "x": 1888,
+        "y": 1888,
+        "width": 96,
+        "height": 96
+       },
+       "placed": "row",
+       "row": 0,
+       "kernel": "area",
+       "ncc": 0.99722254,
+       "verdict": "refused",
+       "refusal": {
+        "why": "gain",
+        "k": 0.94
+       },
+       "scores": {
+        "gain": 0.94,
+        "edge_ratio": 0.26801956,
+        "out_of_range": 0.02421073,
+        "holes": 0
+       },
+       "also_tried": []
+      }
+     ],
+     "restored": []
+    },
+    "encoding": {
+     "kind": "unchanged"
+    },
+    "marks_left": true,
+    "not_established": [
+     "invisible-pixel-marks",
+     "vendor-detector-evasion",
+     "human-authorship",
+     "unknown-mark-schemes"
+    ]
+   },
+   "written": true
+  },
+  "output_sha256": "5bbee48f0ed2f82ce1de55d41555f78cc26fd7588b022858e85102b9d13ce614"
+ },
+ "time_s": {
+  "inspect": 0.8376,
+  "clean": 0.8508
+ }
+}

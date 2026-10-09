@@ -1,0 +1,175 @@
+{
+ "id": "04_tearing_scroll-x1.1",
+ "class": "recon-resized",
+ "variant": "x1.1-png",
+ "input_sha256": "817dbed0ace2254d76f14c96078f4113c8fa44870576e891cb1f4ec1a54fc264",
+ "inspect": {
+  "exit": 1,
+  "json": {
+   "container": "png",
+   "ai_metadata": false,
+   "c2pa": false,
+   "findings": [],
+   "visible": {
+    "examined": true,
+    "restorable": true,
+    "found": [
+     {
+      "profile": "gemini-sparkle-v1",
+      "vendor": "google",
+      "product": "gemini",
+      "pass": 1,
+      "rect": {
+       "x": 2077.0,
+       "y": 2077.0,
+       "size": 105.625
+      },
+      "pixels": {
+       "x": 2077,
+       "y": 2077,
+       "width": 106,
+       "height": 106
+      },
+      "placed": "searched",
+      "row": null,
+      "kernel": "area",
+      "ncc": 0.9995757,
+      "verdict": "verified",
+      "refusal": null,
+      "scores": {
+       "gain": 1.06,
+       "edge_ratio": 0.1353495,
+       "out_of_range": 0.0,
+       "holes": 0
+      },
+      "also_tried": [
+       {
+        "profile": "gemini-sparkle-v2",
+        "verified": false,
+        "refusal": {
+         "why": "gain",
+         "k": 1.54
+        }
+       }
+      ]
+     }
+    ],
+    "restored": []
+   },
+   "not_established": [
+    "invisible-pixel-marks",
+    "vendor-detector-evasion",
+    "human-authorship",
+    "unknown-mark-schemes"
+   ]
+  }
+ },
+ "clean": {
+  "exit": 3,
+  "json": {
+   "report": {
+    "container": "png",
+    "still_has_ai_metadata": false,
+    "still_has_c2pa": false,
+    "removed": [],
+    "kept": [],
+    "orientation_removed": null,
+    "visible": {
+     "examined": true,
+     "restorable": true,
+     "found": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "vendor": "google",
+       "product": "gemini",
+       "pass": 1,
+       "rect": {
+        "x": 2077.0,
+        "y": 2077.0,
+        "size": 105.625
+       },
+       "pixels": {
+        "x": 2077,
+        "y": 2077,
+        "width": 106,
+        "height": 106
+       },
+       "placed": "searched",
+       "row": null,
+       "kernel": "area",
+       "ncc": 0.9995757,
+       "verdict": "verified",
+       "refusal": null,
+       "scores": {
+        "gain": 1.06,
+        "edge_ratio": 0.1353495,
+        "out_of_range": 0.0,
+        "holes": 0
+       },
+       "also_tried": [
+        {
+         "profile": "gemini-sparkle-v2",
+         "verified": false,
+         "refusal": {
+          "why": "gain",
+          "k": 1.54
+         }
+        }
+       ]
+      }
+     ],
+     "restored": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "rect": {
+        "x": 2077,
+        "y": 2077,
+        "width": 106,
+        "height": 106
+       },
+       "changed": 4326,
+       "holes": 0,
+       "clamped": 0,
+       "outline": 0.11851581,
+       "steps": [
+        -5.349344,
+        -2.3122237,
+        -4.163278
+       ],
+       "step": -3.4313428,
+       "chroma": 1.4290444,
+       "outline_left": true,
+       "texture": 4.776075,
+       "texture_around": 1.3539112,
+       "texture_left": false,
+       "noise": false,
+       "lossy": false,
+       "fitted": true,
+       "resampled": true,
+       "searched": true,
+       "exact": false
+      }
+     ]
+    },
+    "encoding": {
+     "kind": "png",
+     "colour_changed": false,
+     "interlace_dropped": false
+    },
+    "marks_left": true,
+    "not_established": [
+     "invisible-pixel-marks",
+     "vendor-detector-evasion",
+     "human-authorship",
+     "unknown-mark-schemes"
+    ]
+   },
+   "written": true
+  },
+  "output_sha256": "62d775a0a240c5fcf997b147fe54224175986d7bf4535e9c1a124800448327ea"
+ },
+ "time_s": {
+  "inspect": 1.277,
+  "clean": 3.2527
+ }
+}

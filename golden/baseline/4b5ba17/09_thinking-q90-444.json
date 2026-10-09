@@ -1,0 +1,156 @@
+{
+ "id": "09_thinking-q90-444",
+ "class": "recon-jpeg-444",
+ "variant": "q90",
+ "input_sha256": "9907f6254697a2627b9dfc29e51707c2b57d67633a94a2a15a566bfc7441e006",
+ "inspect": {
+  "exit": 1,
+  "json": {
+   "container": "jpeg",
+   "ai_metadata": false,
+   "c2pa": false,
+   "findings": [],
+   "visible": {
+    "examined": true,
+    "restorable": true,
+    "found": [
+     {
+      "profile": "gemini-sparkle-v1",
+      "vendor": "google",
+      "product": "gemini",
+      "pass": 1,
+      "rect": {
+       "x": 1888.0,
+       "y": 1888.0,
+       "size": 96.0
+      },
+      "pixels": {
+       "x": 1888,
+       "y": 1888,
+       "width": 96,
+       "height": 96
+      },
+      "placed": "row",
+      "row": 0,
+      "kernel": "area",
+      "ncc": 0.998962,
+      "verdict": "verified",
+      "refusal": null,
+      "scores": {
+       "gain": 1.0,
+       "edge_ratio": 0.12782623,
+       "out_of_range": 0.003486345,
+       "holes": 0
+      },
+      "also_tried": []
+     }
+    ],
+    "restored": []
+   },
+   "not_established": [
+    "invisible-pixel-marks",
+    "vendor-detector-evasion",
+    "human-authorship",
+    "unknown-mark-schemes"
+   ]
+  }
+ },
+ "clean": {
+  "exit": 3,
+  "json": {
+   "report": {
+    "container": "jpeg",
+    "still_has_ai_metadata": false,
+    "still_has_c2pa": false,
+    "removed": [],
+    "kept": [],
+    "orientation_removed": null,
+    "visible": {
+     "examined": true,
+     "restorable": true,
+     "found": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "vendor": "google",
+       "product": "gemini",
+       "pass": 1,
+       "rect": {
+        "x": 1888.0,
+        "y": 1888.0,
+        "size": 96.0
+       },
+       "pixels": {
+        "x": 1888,
+        "y": 1888,
+        "width": 96,
+        "height": 96
+       },
+       "placed": "row",
+       "row": 0,
+       "kernel": "area",
+       "ncc": 0.998962,
+       "verdict": "verified",
+       "refusal": null,
+       "scores": {
+        "gain": 1.0,
+        "edge_ratio": 0.12782623,
+        "out_of_range": 0.003486345,
+        "holes": 0
+       },
+       "also_tried": []
+      }
+     ],
+     "restored": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "rect": {
+        "x": 1888,
+        "y": 1888,
+        "width": 96,
+        "height": 96
+       },
+       "changed": 3441,
+       "holes": 0,
+       "clamped": 162,
+       "outline": 0.1054817,
+       "steps": [
+        7.8398705,
+        -1.3394761,
+        5.7979894
+       ],
+       "step": 2.2188194,
+       "chroma": 4.489361,
+       "outline_left": true,
+       "texture": 11.435119,
+       "texture_around": 4.655302,
+       "texture_left": true,
+       "noise": false,
+       "lossy": true,
+       "fitted": true,
+       "resampled": false,
+       "searched": false,
+       "exact": false
+      }
+     ]
+    },
+    "encoding": {
+     "kind": "jpeg",
+     "quality": 95
+    },
+    "marks_left": true,
+    "not_established": [
+     "invisible-pixel-marks",
+     "vendor-detector-evasion",
+     "human-authorship",
+     "unknown-mark-schemes"
+    ]
+   },
+   "written": true
+  },
+  "output_sha256": "3760799b1902e3db35d0a0d8f83cd2fe2f953d311d38032930a21f77b4966197"
+ },
+ "time_s": {
+  "inspect": 0.4651,
+  "clean": 1.3126
+ }
+}

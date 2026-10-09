@@ -25,7 +25,11 @@
       "source": "fixtures",
       "path": "anchor-green-1025.png",
       "sha256": "48ffc44b91899766a738a07ec26e2ff053d69b05a4ccc5ea7e9093ca15b7b1f8",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "crying-1025",
@@ -34,7 +38,11 @@
       "source": "fixtures",
       "path": "crying-1025.png",
       "sha256": "ef0da91aa48a491e5a9017cf774e71506867f125ebfd9d832f8d22a5103a5bab",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "crying-transparent-1025",
@@ -43,7 +51,11 @@
       "source": "fixtures",
       "path": "crying-transparent-1025.png",
       "sha256": "6cbc54505c68415faf21eef20fbc8dcd30ab00709c44d96eb4093eb788e64f14",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "cut-out-confetti-256",
@@ -52,7 +64,11 @@
       "source": "fixtures",
       "path": "cut-out-confetti-256.webp",
       "sha256": "88b1aeaf710201fc9374c653ca689b41bfc33600eb8fd1dd11450f2718e8fe39",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "fine-1040-q98-444",
@@ -61,7 +77,11 @@
       "source": "fixtures",
       "path": "fine-1040-q98-444.jpg",
       "sha256": "4e3f72bb53b548471675d5200405c31c8916ff609c15dc90b8e280e68f67395b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "scroll-1040-q90",
@@ -70,7 +90,11 @@
       "source": "fixtures",
       "path": "scroll-1040-q90.webp",
       "sha256": "3404fd6e596e98b8837a4946c52197b564d4ddc142bcd16103784ebb63f9da29",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "thinking-1040-q95-420",
@@ -79,7 +103,11 @@
       "source": "fixtures",
       "path": "thinking-1040-q95-420.jpg",
       "sha256": "2bfa389774885d105db9669669a968f378865b66e224a1742889abd241584204",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "torch-1025-q95-420",
@@ -88,7 +116,11 @@
       "source": "fixtures",
       "path": "torch-1025-q95-420.jpg",
       "sha256": "4f14601af46d7a44bebb932548ad8d63aca10cf04804f382ab8d03fc583ab259",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "torch-1025-q95-444",
@@ -97,7 +129,11 @@
       "source": "fixtures",
       "path": "torch-1025-q95-444.jpg",
       "sha256": "f7bd31ce30f752b39026d6b041165df907ab660ef246e0f7b526e7ed0f480e5f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "torch-1025",
@@ -106,7 +142,11 @@
       "source": "fixtures",
       "path": "torch-1025.png",
       "sha256": "a81716a84e0117d5c895e09c0addef0740cdbce497a4972308d3756c0adc20e3",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "victory-1025-q95-420",
@@ -115,7 +155,11 @@
       "source": "fixtures",
       "path": "victory-1025-q95-420.jpg",
       "sha256": "ec3f7054fa42a22ab854a16936b1c647a7cc3845ee579b82ccec13e48786f119",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "victory-1025-q98-420",
@@ -124,7 +168,11 @@
       "source": "fixtures",
       "path": "victory-1025-q98-420.jpg",
       "sha256": "e54180d481e71ef2a86abfc5a1ee54d620b4259318fe6b5f93f06d9ab985630e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "victory-1025",
@@ -133,7 +181,11 @@
       "source": "fixtures",
       "path": "victory-1025.png",
       "sha256": "f79a575baa38d91aa53026d9420ee68026e3418786b0ad348d8f87135ffeb2a9",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "victory-1040-q95-420",
@@ -142,7 +194,11 @@
       "source": "fixtures",
       "path": "victory-1040-q95-420.jpg",
       "sha256": "e001118524d8c47fceb03cb4689fb06308b8cd5600e3707d69b6b27b156df4b4",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger",
@@ -151,7 +207,11 @@
       "source": "stickers",
       "path": "stickers/01_pointing_finger.png",
       "sha256": "2b04752cafeb54ad1b642c80bbe778b7bf388602817c32170fafed1a5afb4a49",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "02_skeptical_look",
@@ -160,7 +220,11 @@
       "source": "stickers",
       "path": "stickers/02_skeptical_look.png",
       "sha256": "9c22a0a47f17291f393569581dfdbca7a66895800a2993afbed0d56522a540f0",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing",
@@ -169,7 +233,11 @@
       "source": "stickers",
       "path": "stickers/03_blessing.png",
       "sha256": "46c4628c7f639cb4e10fd0220c9a781af7d94fe3260e14cfb340aa9d37f7fb47",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll",
@@ -178,7 +246,11 @@
       "source": "stickers",
       "path": "stickers/04_tearing_scroll.png",
       "sha256": "f6b0c67dc22f5b49f1deba7ad675598b8bc8ce3d04ae8ec0d5a6e54faea9e46d",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "05_torch_and_cross",
@@ -187,7 +259,11 @@
       "source": "stickers",
       "path": "stickers/05_torch_and_cross.png",
       "sha256": "f038e7590f7b49b8f32a0c06bd5347edd7a366dd5fd5e5b92a4c24021d7a94d8",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "06_thumbs_up",
@@ -196,7 +272,11 @@
       "source": "stickers",
       "path": "stickers/06_thumbs_up.png",
       "sha256": "ce5d07a8f1cac750cce36f0749150cc144dfa2bfd17954a02781a5f3b0512469",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "07_shock",
@@ -205,7 +285,11 @@
       "source": "stickers",
       "path": "stickers/07_shock.png",
       "sha256": "065ed7041f5d33348ab722f1f86d6320bcb19015e07e448bf648f4a7d3e55e11",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "08_facepalm",
@@ -214,7 +298,11 @@
       "source": "stickers",
       "path": "stickers/08_facepalm.png",
       "sha256": "6f08983d359ad080910bfd96e8a041e44dd0a9cdd19e76d1cd8bef6c8f8a0acd",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "09_thinking",
@@ -223,7 +311,11 @@
       "source": "stickers",
       "path": "stickers/09_thinking.png",
       "sha256": "e1be89b63aed384d74dc2413ed09950898cac00e6a2846104f5e529a098edaf9",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine",
@@ -232,7 +324,11 @@
       "source": "stickers",
       "path": "stickers/10_this_is_fine.png",
       "sha256": "43a2a39431f251d7b892d72a94651005fa0ed624d2c62f7eb3ca72fd4aee55df",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine_alternative",
@@ -241,7 +337,11 @@
       "source": "stickers",
       "path": "stickers/10_this_is_fine_alternative.png",
       "sha256": "5325ef6936c618bbf7194ff750203b240680432a326c2b44d374945bb8a79853",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "11_crying",
@@ -250,7 +350,11 @@
       "source": "stickers",
       "path": "stickers/11_crying.png",
       "sha256": "6ccb9302485d74fc7f702f45ebfcd5fa6d9f90f2218d074b82300654352b453a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing",
@@ -259,7 +363,11 @@
       "source": "stickers",
       "path": "stickers/12_laughing.png",
       "sha256": "6158a6f073b37a1e4bcbc1d8c02247643d86d98599daced5cdc69909fbd72108",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "13_angry",
@@ -268,7 +376,11 @@
       "source": "stickers",
       "path": "stickers/13_angry.png",
       "sha256": "9b418c0ea8ae39f8c3dba9da8f55f4b4f0419f24519a0b012738c46f89069c72",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping",
@@ -277,7 +389,11 @@
       "source": "stickers",
       "path": "stickers/14_sleeping.png",
       "sha256": "febf6ce30eb997caa86b5f6398a59694b9cd5c10bcd0698a56c88b613414c466",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "15_coffee",
@@ -286,7 +402,11 @@
       "source": "stickers",
       "path": "stickers/15_coffee.png",
       "sha256": "da54e7a2385e94c8e2c737d1f4f620617f9218679182ebfd3eabfe5e43b0a57f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "16_laptop",
@@ -295,7 +415,11 @@
       "source": "stickers",
       "path": "stickers/16_laptop.png",
       "sha256": "882b1318a691f7811dbcc9c60694ab25175416d4164d44e11507c473a5f00bb9",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass",
@@ -304,7 +428,11 @@
       "source": "stickers",
       "path": "stickers/17_magnifying_glass.png",
       "sha256": "f4c7313ae6fceb3a08ba133419082a91321b0f329e021951a7cbf2700a6e9216",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "18_stamp",
@@ -313,7 +441,11 @@
       "source": "stickers",
       "path": "stickers/18_stamp.png",
       "sha256": "57dd410c2561d8303c1cf2a440378e94e352f4c8d9e67e20abaf3e90322c778b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "19_victory",
@@ -322,7 +454,11 @@
       "source": "stickers",
       "path": "stickers/19_victory.png",
       "sha256": "e543124d6a2ee908ef8d029d0cd53c894e4781a9930b49d72d95d4dfa7aea690",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "20_waving",
@@ -331,7 +467,11 @@
       "source": "stickers",
       "path": "stickers/20_waving.png",
       "sha256": "ac127d55cf94a14ff0af5ea7c5e4bafbd0632b76b1a265fbef5691b01af29635",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-q95-444",
@@ -344,7 +484,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "5cd218db24777fd8b53e2d9f80c2e15275bb3b18da2c0c44f82e519444b809eb",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-q90-444",
@@ -357,7 +501,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "9cc450c3d37914116ca499b6da92a9ba88856a338ea18c33245f1aa457fc10a3",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-q95-420",
@@ -370,7 +518,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "41bc14660801dd75e5f15247ef8c06c9ad06ab5228e25f4ae5ad82d91d6e2cff",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-q90-420",
@@ -383,7 +535,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "f7f7a02f9a84549aed2039c54afef2d9bbbf5fcdaa75c5f7eb4866e7d4bb454e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-q85-420",
@@ -396,7 +552,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "3b6cc778971fc746dc2ea2e58d2599725b8a986c01123a8f2b87f353357be9ab",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-q75-420",
@@ -409,7 +569,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "83dcd3731f91ef84422064ada2b3595eab167113aaa47bf20ac8314e9b68abf7",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "02_skeptical_look-q95-444",
@@ -422,7 +586,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "4158af734623df2b324f84223ff185f8b7a5200b19b33211f96371d8d8a1b741",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "02_skeptical_look-q90-444",
@@ -435,7 +603,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "ba0d90635711311ef9697d62047ab78eb423109c04870299150d74dbc41d1cac",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "02_skeptical_look-q95-420",
@@ -448,7 +620,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "55c5b7aa509587ae9666f83051c30e0a1f1f4ad2c6b178f1ae74945a95a6a899",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "02_skeptical_look-q90-420",
@@ -461,7 +637,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "e5731ab20e456b2ef1457d5828e918f0ccbdcfa5d8324cf0f42a568f4d01f4be",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "02_skeptical_look-q85-420",
@@ -474,7 +654,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "60b980049759ba355e631af92b8137b9e02145783169ccb47a91cc69d9d7917f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "02_skeptical_look-q75-420",
@@ -487,7 +671,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "6fa79210b8a6cc1d7d3320f40327cf69ff77af866ae805efcf5df2ecba35f7a2",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "03_blessing-q95-444",
@@ -500,7 +688,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "897c0576a90b4b00fff7acc555d35cfd856d25d0234372383a3abeb2389d5be1",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-q90-444",
@@ -513,7 +705,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "ad833e068737b770a0d6c73eb7f5cdc68046bd830c1cdab93ff5d85b3607b79d",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-q95-420",
@@ -526,7 +722,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "dfdd1291c0db961b53bcdf4304f653e2dafb2873d0c873dd572488db1208cec0",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-q90-420",
@@ -539,7 +739,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "5b3080f8f7dce8549732f1c73154785d1fff706a2e31c3e67eca61c942c48278",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-q85-420",
@@ -552,7 +756,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "78556ac7bdbe98f917164f6263ec222ff14156768ed6c47436eb649e4070ac1c",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-q75-420",
@@ -565,7 +773,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "227a9d0ea454eb2ac0d3baf681b841dd9b36cd44af7958a95e61f474cc35da11",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "04_tearing_scroll-q95-444",
@@ -578,7 +790,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "db7b9ea9ac5d0812234856a544624059168870b8d7646395c57346f8c0623d50",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-q90-444",
@@ -591,7 +807,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "338b68790bebe8d6562660896ea1f5e21bce03b79afb4752b1230cc0ecb7adb9",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-q95-420",
@@ -604,7 +824,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "c335d5d8d8984fe187d084865259237c3710cf20f58ba87397044b21889492ef",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-q90-420",
@@ -617,7 +841,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "09e2d0273015b3b69e296a9c624581d6ebe57cb70f63e78333107115a1eaec1c",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-q85-420",
@@ -630,7 +858,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "c4565fbf7ba555b6cbc06173c0423b71101c17d914aaba2bafea3f67a0cabc8b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-q75-420",
@@ -643,7 +875,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "ca47fa2a96230ab67d1d76be048c98766ca9538610f72b9f6f3abdea96c99574",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "05_torch_and_cross-q95-444",
@@ -656,7 +892,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "8f3118c4491a22af3216d2429bb2fe090f81a151c7fb22fbc5f8608bf36e589b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "05_torch_and_cross-q90-444",
@@ -669,7 +909,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "93f5fa49258301d46df835abe895998c9ab419eab76041dd36cfbb3dcecc1faa",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "05_torch_and_cross-q95-420",
@@ -682,7 +926,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "74148d078fb832a325de0cc23dd9b2ded96a0bd8f6f6e057c3799133eccdc69a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "05_torch_and_cross-q90-420",
@@ -695,7 +943,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "10904f74d65e1eb1337e5b3fdefa8d7642cfaba82c9c03f5663ae2c9975b1d40",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "05_torch_and_cross-q85-420",
@@ -708,7 +960,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "8ced7d18d443ae8da02343dc8b5c99d9299f2a17bbbe58b853ebd1bf291cd0fc",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "05_torch_and_cross-q75-420",
@@ -721,7 +977,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "77e0bcd4b7b321abd52512bc5a27543f341dbf9988d2570f35e8bd1bcb9ad179",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "06_thumbs_up-q95-444",
@@ -734,7 +994,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "fac6659e51f1de66b90618aa2fa425f36e37b55c3c5ddc0cca6713016a187bf4",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "06_thumbs_up-q90-444",
@@ -747,7 +1011,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "1c950e66df39793f37c08f7d77d4f22b584b2a2e8eaf5b196cfc1c60b4279308",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "06_thumbs_up-q95-420",
@@ -760,7 +1028,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "c3c5ce8cab0a372f5b1942ec4df987736ba4fd418bc03e1774b5e06201a63726",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "06_thumbs_up-q90-420",
@@ -773,7 +1045,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "2f18c59d57c44c3b8ac38ffa719218a0fba6f0a4b5fae8526fb6be59cc0b3ea5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "06_thumbs_up-q85-420",
@@ -786,7 +1062,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "f5a63f44e01d3c7ed1d8ad54a51bb91be2a4976d3ed561750efecae154adc935",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "06_thumbs_up-q75-420",
@@ -799,7 +1079,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "412ce392b2f76278260a1fb90a11c89c2922008e54eb20e8a2b7d7f602a29f68",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "07_shock-q95-444",
@@ -812,7 +1096,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "85a83b9bab09ea0ad6e17f8a391ec7c349fcf6d5bdce348641b275e2f35aeac7",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "07_shock-q90-444",
@@ -825,7 +1113,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "cb4b9846b8155fcce69f92b62feace30f46545dbffc54559f5db0778ece829fb",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "07_shock-q95-420",
@@ -838,7 +1130,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "f68edd57749ee01794c85026bd855d1646a5252f0f56ba46502bef1f6a33dbe7",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "07_shock-q90-420",
@@ -851,7 +1147,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "5f95d0a0507f7367a45b8e80eef9f6af17175835f2e01b678ac2be24011fe0c8",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "07_shock-q85-420",
@@ -864,7 +1164,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "8090b17b2a0b0265e1949f456c9617ed1e9482a7ed34d63159a357d788550356",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "07_shock-q75-420",
@@ -877,7 +1181,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "1facc8099792d6587270927153bb273799b28a714b4cd03c43ab988438d1de0b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "08_facepalm-q95-444",
@@ -890,7 +1198,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "85990e3d1a5df229131d7aa8b12dccc5dc07d21b6808598c7588cc213d550e4f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "08_facepalm-q90-444",
@@ -903,7 +1215,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "de961f7c1b14c4734a73483406d033443f874fda7545a89df809b4bd3fa1af51",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "08_facepalm-q95-420",
@@ -916,7 +1232,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "310ce56e917bb5a73ebf174196c9f23826da6ff735e371bfc84f9aaf11726191",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "08_facepalm-q90-420",
@@ -929,7 +1249,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "d3e7631d199844c5d48e3807e77c560c8b3e87e2019dd9495addede6de87a1d5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "08_facepalm-q85-420",
@@ -942,7 +1266,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "00d11b14a87c50fab51013867a08f9d08d85fac95d2874a0dac3f3afb3d3899c",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "08_facepalm-q75-420",
@@ -955,7 +1283,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "4d48389899b8059a46dfff0c758644974b5a1ce949495d1b48cc38e65986e8fa",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "09_thinking-q95-444",
@@ -968,7 +1300,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "3e226410281356ef8d037fc0ee137c8bbe4ee270fa87bcc062ac084294565950",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "09_thinking-q90-444",
@@ -981,7 +1317,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "9907f6254697a2627b9dfc29e51707c2b57d67633a94a2a15a566bfc7441e006",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "09_thinking-q95-420",
@@ -994,7 +1334,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "f6d40a09937db01a5f6bde29150017fe01b5f68d0a88600546f3a7fa0207cd44",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "09_thinking-q90-420",
@@ -1007,7 +1351,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "d2007400fbaa798a65025eca59b826f3aa9b3a94250b9ef85512815a858cc603",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "09_thinking-q85-420",
@@ -1020,7 +1368,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "8ffa67131e1535f4e2d2ddff8597250ff1094d88e4c84cae15bdbd63bf4710e3",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "09_thinking-q75-420",
@@ -1033,7 +1385,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "0c557be99cc5a2b372b459fd7424f264bd1dfb511d8096a26bacc653adcaa8f3",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine-q95-444",
@@ -1046,7 +1402,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "86fe65ed00c8231cbb6038c593901da9a6bc8ad0f6aa361522b4d5f5356944ed",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine-q90-444",
@@ -1059,7 +1419,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "8f4d3d5c309425aff4f4c2902a07590f1f46c236a9471dba93cac64cd8f43ddc",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine-q95-420",
@@ -1072,7 +1436,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "9c2861832c4a44dfc6c3be1529ea567b0b8599e81d2da7e6eacf625b1a641bce",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine-q90-420",
@@ -1085,7 +1453,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "1bfccd7ee375d6da3e501479e01470c80b513913f04752612ace5260ea873451",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine-q85-420",
@@ -1098,7 +1470,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "fe10aa1e826d4e341eea72ec6c42a56f02c99aa5f8cb44d641cdaf83dedeadb4",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine-q75-420",
@@ -1111,7 +1487,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "5bbee48f0ed2f82ce1de55d41555f78cc26fd7588b022858e85102b9d13ce614",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine_alternative-q95-444",
@@ -1124,7 +1504,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "7eb19de27f9013e0277cfed6886fe2f7e0f26ffb7e56d3fe44ae5a7ef37427d2",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine_alternative-q90-444",
@@ -1137,7 +1521,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "aa14b47da8a8c3624ee62cf08f818bca36a0180ec1226ef7635733fcf7a9deef",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine_alternative-q95-420",
@@ -1150,7 +1538,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "e3112e29ea04bbb3b2a005efb5a67f7c07e3968b6f92bc544a106cf8450cb866",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine_alternative-q90-420",
@@ -1163,7 +1555,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "02c80f9daaf38b45174fbc131515c71615c8774eb449dea5fe67549c46df6bf2",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine_alternative-q85-420",
@@ -1176,7 +1572,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "8b081b16dcfb0ef0fb67031a6fe18c13b8cae0fb6644c1344d1f115f637ac214",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine_alternative-q75-420",
@@ -1189,7 +1589,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "0258a3ddd7abfb0fbce8fb8d0eb489fbd0985ecd72230a5ebe795001c388455d",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "11_crying-q95-444",
@@ -1202,7 +1606,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "6f5e2f34999fb70e0600728ef8f29c6a5afc876bdacfc2f754fee1afd0a2aad4",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "11_crying-q90-444",
@@ -1215,7 +1623,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "f0705e78a9b6870de91ef76300eda2f14f1651b60364161750e36d9a48714d01",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "11_crying-q95-420",
@@ -1228,7 +1640,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "216fefd1a5bec51803b3e79c77c57997a0dd27f7d6559b6620116e0e19786a4b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "11_crying-q90-420",
@@ -1241,7 +1657,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "f5286750923ebf23f6dc0b1586d857d1be9890a6df9200688d57360ac0c392d3",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "11_crying-q85-420",
@@ -1254,7 +1674,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "de5e66de129f19556c6fbc9ab66b666b096b3af4a69fd1d7156e18ba8472a8e6",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "11_crying-q75-420",
@@ -1267,7 +1691,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "0d85bacd25920d62bf71f1d0d994af4bf8ad49230e8ed80a1cbf9d57042064a7",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "12_laughing-q95-444",
@@ -1280,7 +1708,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "02a9a0bcf3338c1c010145e5e328bc34f19953816548bff3c2638a2bcc87c805",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-q90-444",
@@ -1293,7 +1725,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "6ff5f9963c7d4447663ce6b2885b84b7988a36a5a940a3ac3bc769e15c0a74ca",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-q95-420",
@@ -1306,7 +1742,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "9bf57864c93e1fdc42ccec8d1a5abd60cf46b4050b4c3574814e0bb632a3738f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-q90-420",
@@ -1319,7 +1759,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "43ffc528aa5b10ffb19c8ae7bc019690d58a5540679124972d663480f5e46ebd",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-q85-420",
@@ -1332,7 +1776,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "8a53f17d82cb5f8f1ac95853fa44b840ee26cc8b49b7c82578a9d34e97acb009",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-q75-420",
@@ -1345,7 +1793,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "876c0fb4fd4ba16e391026268cc8351b3a1e694348bd309493f4be1ac85a0fac",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "13_angry-q95-444",
@@ -1358,7 +1810,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "0f20a05579274c3f2efe13fe56e4ca3cb13c088dfa610d67b38cc86a4e25117c",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "13_angry-q90-444",
@@ -1371,7 +1827,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "a81cb55043907b3b3ccf01b31f385c58693619ff2f90d772066def7e8bac3f6e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "13_angry-q95-420",
@@ -1384,7 +1844,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "dcc4d8435b472ef2937eed918a503b56eeb68635280c19cbdf517e8e72b623b0",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "13_angry-q90-420",
@@ -1397,7 +1861,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "1184a5ba766ed20bb5e6b2408974a4b7a5f209e266dced2051440c13727346f5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "13_angry-q85-420",
@@ -1410,7 +1878,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "172a6beb6de0bfd624836884a9383cf81ea7a0b0c18bc4dc91ee0bd5a5b47e06",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "13_angry-q75-420",
@@ -1423,7 +1895,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "8e78ee3596238d72fab4adf7a4bd00540d3b868260544541eb81900808397785",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "14_sleeping-q95-444",
@@ -1436,7 +1912,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "4631ee5deff18830afc342f63e6e622397c5914d7923ba6d344ce9e45fd68553",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping-q90-444",
@@ -1449,7 +1929,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "b9fc532dae4e0f594f55cb0551e3990e1b0d1a41211c1e80dcc36ebe472847f3",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping-q95-420",
@@ -1462,7 +1946,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "c44adf4030039c230710be1a8418cc98aa9c0748681172149fda5e98237b4890",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping-q90-420",
@@ -1475,7 +1963,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "9c2a61bda49fe6f14e68cddad04b3d5aea7484d8d555e50efbb541a075222ac5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping-q85-420",
@@ -1488,7 +1980,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "59e8d5eef7284c1bf4d0a8c6938ac764a13f3a332c1a11fc71ed2e6420dcd291",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "14_sleeping-q75-420",
@@ -1501,7 +1997,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "ccf165ac5ba181e66d4c9b536bc52c30f803e8cb471e6ece5e4fe634ba8c0dd0",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "15_coffee-q95-444",
@@ -1514,7 +2014,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "817b9518377ecd169d8a4239da17d2c3057828e3377f92191bd340405f223503",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "15_coffee-q90-444",
@@ -1527,7 +2031,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "e7b7737accb99cff3651a1c668da97d633feabe386c169bbf9c89f0731ae6820",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "15_coffee-q95-420",
@@ -1540,7 +2048,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "1b543fcb2e090a35c00337981d4e1b2a4ab84fd91157fe5e10c10dded2df2d86",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "15_coffee-q90-420",
@@ -1553,7 +2065,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "3547c2271141e0938782080d0291322ebec3f0c7847679ecf59e2fd079adf430",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "15_coffee-q85-420",
@@ -1566,7 +2082,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "b1b5a22f6e5c4f91e5b44508986feaac6ef5b65a6bc716049fa2cce6cfda7465",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "15_coffee-q75-420",
@@ -1579,7 +2099,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "a6081b6a38183594e851a10082bfe5b6e3133cc85f38478e6bf6194b75557dc5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "16_laptop-q95-444",
@@ -1592,7 +2116,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "71d9bbf5df8544b7990f52967f921e87d3d286d92d28260f14ccd669268d6610",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "16_laptop-q90-444",
@@ -1605,7 +2133,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "d4d23c2584a9e1281b76ec382ca614a16fb8458912fde5fb4e370459de88f529",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "16_laptop-q95-420",
@@ -1618,7 +2150,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "ce07d052bf6fe93b3575cd145a7da6d82e6ac783f4f702426d7ed17b71c240cf",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "16_laptop-q90-420",
@@ -1631,7 +2167,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "d56eec16c8b7ba051daf5ad6ce7ace1c38176d5ae865b52b4fcb1495b063ec42",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "16_laptop-q85-420",
@@ -1644,7 +2184,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "1b7ad3b064715902691b75367571393aaf5f8c307a8a02f63bdbbc56bd7c4c71",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "16_laptop-q75-420",
@@ -1657,7 +2201,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "6ac90acdeb28d0a380a5671f76537e9bf35657e4ffeb6f7127eef096c03f5e4a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "17_magnifying_glass-q95-444",
@@ -1670,7 +2218,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "c2acd6d30649d3feff24c9050f533128c6b69b70fff3263265faf072ed6ced3d",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass-q90-444",
@@ -1683,7 +2235,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "7e2376c8ef9671dc20c8691b19750e5f047df46e96d58e4f950478b41c05045c",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass-q95-420",
@@ -1696,7 +2252,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "75a383259d2b6cade2de1c1a53b30aa50e15314683492d93139612c96f37a6b1",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass-q90-420",
@@ -1709,7 +2269,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "6bff5b223e5acf302d58266fe29b54e97356e74d3b9e3f4dfa72e90769136fef",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass-q85-420",
@@ -1722,7 +2286,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "a26c71d9bd22bced31b22bf9a231396929e4050d5daa2c0521b5f7e4fb175ad6",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass-q75-420",
@@ -1735,7 +2303,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "3079fc5c9d42c0be7b0f35709e5efef6b197c653ddc21df96c6b8fc07e7a234e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "18_stamp-q95-444",
@@ -1748,7 +2320,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "0ae8d8cd78596730b276cd6465e5148a9e21240c1a7e86cea00e8d2ffed78372",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "18_stamp-q90-444",
@@ -1761,7 +2337,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "d4944750b092e0654189c3378d6325e0f53ad93144f89e2a7df5bd8bc1998825",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "18_stamp-q95-420",
@@ -1774,7 +2354,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "90f11614b06efbaa433f5453e8cdf5fe199b9c770e376658f1f6cea20756989a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "18_stamp-q90-420",
@@ -1787,7 +2371,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "8cb53f3a66c30af2a2197b1b776f8798fba0ca6d5a3a59d6cb7e2ec35303666a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "18_stamp-q85-420",
@@ -1800,7 +2388,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "324f5ed01d23c63806b43287be4d3f3f7cfcd12a50123cf21cf30ffbfbac728a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "18_stamp-q75-420",
@@ -1813,7 +2405,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "7f69bef5367d341175d5d87e9168c71a73be3fcef556cae0b07489a84ee4e3de",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "19_victory-q95-444",
@@ -1826,7 +2422,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "58631d7b2884145d744f214051de1ae63b5627424ee93f260b71859c1d4fa82a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "19_victory-q90-444",
@@ -1839,7 +2439,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "9e641cee9a338b2a3e6c1a3e2a6c38c4302a40bfd726d21574ee5d0e041918e1",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "19_victory-q95-420",
@@ -1852,7 +2456,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "f98fd2cb9505a998ac3613b9a7c8b8837c497060da2f9120ddefa061802999f6",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "19_victory-q90-420",
@@ -1865,7 +2473,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "a4b5e23774d074d2eb418f95ec7615fab1f71808ced874a5f6252c232758261c",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "19_victory-q85-420",
@@ -1878,7 +2490,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "29426dccaa4bad61d96952b90c4a52924b89227fab4b56a5b3fbe7c05c721710",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "19_victory-q75-420",
@@ -1891,7 +2507,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "0ec8949c631175462e80218b3d44de98386b79fdda4b11b58e6c8153129bf9b3",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "20_waving-q95-444",
@@ -1904,7 +2524,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "ac110db5698fc124f563c318e01891b0cba284d313d146c4416d1ac443dcbab3",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "20_waving-q90-444",
@@ -1917,7 +2541,11 @@
         "subsampling": "4:4:4"
       },
       "sha256": "b4e213437519901c4b067974ad4e16b4486622a59ce48d5f504d4aabfc15c450",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "20_waving-q95-420",
@@ -1930,7 +2558,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "859b34783bc222d0f3fd4a8236cfc572a45490cde3f07812b9de72bc15b7a870",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "20_waving-q90-420",
@@ -1943,7 +2575,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "6ee80b242ff1d550e3c6abf6a3553b6831ce361920571034023fcc4e43e7042f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "20_waving-q85-420",
@@ -1956,7 +2592,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "b672d47655642e7692e06912748f46a5153a0b64045786813285ad9543627e9a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "20_waving-q75-420",
@@ -1969,7 +2609,11 @@
         "subsampling": "4:2:0"
       },
       "sha256": "531e2bf4bf04d2dda168456c7f8e5849bbd74831ca3487e88545ad18c52bc155",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "01_pointing_finger-c1025",
@@ -1986,7 +2630,11 @@
         ]
       },
       "sha256": "d2c4a6829c2e9fb530e6bf4083f02b0d6abc97ae962e1c1669e41767c1374f07",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-c1025-q95-420",
@@ -2005,7 +2653,11 @@
         ]
       },
       "sha256": "dd183502b2039ae1a3d43f175a2b4e6d900850e2b3adaabea8fb3d3bdb49c53c",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-c1025-q90-420",
@@ -2024,7 +2676,11 @@
         ]
       },
       "sha256": "508eed7fbe9df91d3868de968cccda57acb0bb306399ee396f0d4b3fa1e803f6",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-c1040",
@@ -2041,7 +2697,11 @@
         ]
       },
       "sha256": "e81372113179fe409d8d4f8aad20ae16d009eb0d0723ef093441321ea4cba9e3",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-c1040-q95-420",
@@ -2060,7 +2720,11 @@
         ]
       },
       "sha256": "3048db22914d5549dfe238cf499405d531ddf2ace3f4e48884ceb2e959350fd1",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-c1040-q90-420",
@@ -2079,7 +2743,11 @@
         ]
       },
       "sha256": "1e4be3e8bc6a3c1500013f709e8f20e967fa9d422fd65ecbae83c1ee0c688bc7",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-c1024",
@@ -2096,7 +2764,11 @@
         ]
       },
       "sha256": "f48e77e6a04ad6cbbf61732f4a67f09aa3ec9d3c019875808697b193e9dafb7e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "01_pointing_finger-c1024-q95-420",
@@ -2115,7 +2787,11 @@
         ]
       },
       "sha256": "c2e89e12d03942d20e62f41743370dbe144fb81369388fad3e27155660488745",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "01_pointing_finger-c1024-q90-420",
@@ -2134,7 +2810,11 @@
         ]
       },
       "sha256": "cd92246c3288e07358dbedb0ebd6b2c0557486beb46fa3ff2b86df35e9d02cb5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "02_skeptical_look-c1025",
@@ -2151,7 +2831,11 @@
         ]
       },
       "sha256": "cb1d59c98a0b4091765836c48928579f3dceeadd2d3cfc05faee4d8d5d59928e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "02_skeptical_look-c1025-q95-420",
@@ -2170,7 +2854,11 @@
         ]
       },
       "sha256": "a592226df165b01a7bab0dca59455b7567e9c2dc4c79e6297145cc7c8ed9eeee",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "02_skeptical_look-c1025-q90-420",
@@ -2189,7 +2877,11 @@
         ]
       },
       "sha256": "c7fd93e64d3569c7d82e5ebaf444befdcec683442aec86bc8e4d92ce1233938b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "02_skeptical_look-c1040",
@@ -2206,7 +2898,11 @@
         ]
       },
       "sha256": "11685e052539085c64dd339cec956fcf7d2f5187810acfd7c188f6a522169d95",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "02_skeptical_look-c1040-q95-420",
@@ -2225,7 +2921,11 @@
         ]
       },
       "sha256": "41f0078ee90e335fd9786d616feb68ba2bdbfaf9493f40360b2f2c765eedd324",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "02_skeptical_look-c1040-q90-420",
@@ -2244,7 +2944,11 @@
         ]
       },
       "sha256": "fe8b3b186274cfa18402b399571478d6c09f7081d600c7126c26a8fca6e8e4d1",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "02_skeptical_look-c1024",
@@ -2261,7 +2965,11 @@
         ]
       },
       "sha256": "27522ac79d1c7ae350d937e7dcb3d429abaa2f03e8ce4831d826c8bcb98bb7e6",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "02_skeptical_look-c1024-q95-420",
@@ -2280,7 +2988,11 @@
         ]
       },
       "sha256": "36cd21ebaa4fda00d3d50ec1220eed2a021a473225db7c5b292cfd3809d956ff",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "02_skeptical_look-c1024-q90-420",
@@ -2299,7 +3011,11 @@
         ]
       },
       "sha256": "ab80ad701b461ceff077d201d8be32bb9012e83b97606e3e5b50384acdcb7887",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "03_blessing-c1025",
@@ -2316,7 +3032,11 @@
         ]
       },
       "sha256": "df82e0080b8237fd5a04c1d6c16bf735a11004a2b3eb72563bdc8e08b3cba47d",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-c1025-q95-420",
@@ -2335,7 +3055,11 @@
         ]
       },
       "sha256": "a5e63fe967511da940a3dacf73f8981fb417dc83b33837fa524ea1e9d4cbb24c",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-c1025-q90-420",
@@ -2354,7 +3078,11 @@
         ]
       },
       "sha256": "689342b278230a0bd02d5fd534ae377184af37cc3154ae4f4f98b2492848d073",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-c1040",
@@ -2371,7 +3099,11 @@
         ]
       },
       "sha256": "29c5db1a7ea8bf227286d12db072a292f0f90dd587fc1abf9360961e42cc0585",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-c1040-q95-420",
@@ -2390,7 +3122,11 @@
         ]
       },
       "sha256": "a601a504650aa6d965ebc7b79419b8be8bead0e9ef6fb6749dc48ddaa897f252",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-c1040-q90-420",
@@ -2409,7 +3145,11 @@
         ]
       },
       "sha256": "411147ff0afe92bab1e338f5fbbe3c211e103f41fbbeeafc172c55b33b61ab21",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-c1024",
@@ -2426,7 +3166,11 @@
         ]
       },
       "sha256": "e8290157ec3abe8261837a77110cdc7f958895b374f936105d16a7fc52398542",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "03_blessing-c1024-q95-420",
@@ -2445,7 +3189,11 @@
         ]
       },
       "sha256": "2f34027427a94a4fbd1e2b9f7654f23be6a6d73ff720b1a46c29b00bb695babc",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "03_blessing-c1024-q90-420",
@@ -2464,7 +3212,11 @@
         ]
       },
       "sha256": "abfbd80faf4fd9bae5bb8764ab86079ce0b6448a721a44c9a2ad12b30b2298d5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "04_tearing_scroll-c1025",
@@ -2481,7 +3233,11 @@
         ]
       },
       "sha256": "c8b0029a74c7a349c7855a723a7b526012aea1fb64ee76713a849603dfeef9cb",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-c1025-q95-420",
@@ -2500,7 +3256,11 @@
         ]
       },
       "sha256": "95970452fba5b937238f547808e1952b977b6eb31fa1e451110aefc3d0d78148",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-c1025-q90-420",
@@ -2519,7 +3279,11 @@
         ]
       },
       "sha256": "2b608d91a3ba0d6619a45565110ecdcebd3224067f0865dc8a5f33a6f901397f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-c1040",
@@ -2536,7 +3300,11 @@
         ]
       },
       "sha256": "1530f3376ac053693465c1a095e81fc2bf43907c345341fad5b5cb93b1b4479a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-c1040-q95-420",
@@ -2555,7 +3323,11 @@
         ]
       },
       "sha256": "39367fdfacc0e94499e23e6419392ef5f542f71e853a5bb31dc96ee67920bcc0",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-c1040-q90-420",
@@ -2574,7 +3346,11 @@
         ]
       },
       "sha256": "b07ace9c67615c6bebb4bdab6310e4e129d066929e207ea6642c8a3a0b3f31f5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-c1024",
@@ -2591,7 +3367,11 @@
         ]
       },
       "sha256": "d5eab0ebc9690a20f08fc379bfc0176d736448b269c109fcf1da47f7d4274398",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "04_tearing_scroll-c1024-q95-420",
@@ -2610,7 +3390,11 @@
         ]
       },
       "sha256": "2f70fdb66dda63a59196c9a296e0f6062c99a3f7e4847fc59ace0b1fb22eec51",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "04_tearing_scroll-c1024-q90-420",
@@ -2629,7 +3413,11 @@
         ]
       },
       "sha256": "fad35b86723d94cdc619bd0d63f85f5668519d4620efb258c89f73e8e847e2bf",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "05_torch_and_cross-c1025",
@@ -2646,7 +3434,11 @@
         ]
       },
       "sha256": "71d9334d99ee9c1b3038dd1e8f1ad6f37766cea80ae1d8dc522265d790e91a4d",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "05_torch_and_cross-c1025-q95-420",
@@ -2665,7 +3457,11 @@
         ]
       },
       "sha256": "4f14601af46d7a44bebb932548ad8d63aca10cf04804f382ab8d03fc583ab259",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "05_torch_and_cross-c1025-q90-420",
@@ -2684,7 +3480,11 @@
         ]
       },
       "sha256": "ff97ba23488f5d5937640106fc793872f14fd2ce83e72d50de76613cf0fae3cd",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "05_torch_and_cross-c1040",
@@ -2701,7 +3501,11 @@
         ]
       },
       "sha256": "61f6fea9f356046f8b418d35952ca9703138536486f49d2d8f9fa40a7a64cf7b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "05_torch_and_cross-c1040-q95-420",
@@ -2720,7 +3524,11 @@
         ]
       },
       "sha256": "daa7f4132123cf04bdea986322a4ea998d47d0cf56d90be022537e92ebf0bc88",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "05_torch_and_cross-c1040-q90-420",
@@ -2739,7 +3547,11 @@
         ]
       },
       "sha256": "f2d3867b507aafdde918977dda2b7e3b68946d3d8831ead8efae53651dc337df",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "05_torch_and_cross-c1024",
@@ -2756,7 +3568,11 @@
         ]
       },
       "sha256": "32d64227078a76a369eb564d98c029ebb7510bada127f5a410c16e6a8e887a20",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "05_torch_and_cross-c1024-q95-420",
@@ -2775,7 +3591,11 @@
         ]
       },
       "sha256": "c3fc66fd6db828407427b59c1fe818d736d95179c31097ff357569c77a2bbd12",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "05_torch_and_cross-c1024-q90-420",
@@ -2794,7 +3614,11 @@
         ]
       },
       "sha256": "471983fd83fdf288be0c01ba4546e9225ca34465a744000b6f3cf7c70f92f988",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "06_thumbs_up-c1025",
@@ -2811,7 +3635,11 @@
         ]
       },
       "sha256": "369d7a61eff47409c6b01929f11c1dd8df85edafa521541ef8863c8b918ecd79",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "06_thumbs_up-c1025-q95-420",
@@ -2830,7 +3658,11 @@
         ]
       },
       "sha256": "f33a95eb1457c7eb0d1ca13b412d153e9a74019fd9b624b5bc6890bef441d027",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "06_thumbs_up-c1025-q90-420",
@@ -2849,7 +3681,11 @@
         ]
       },
       "sha256": "7d34ad34abb92551b6ffda3776f2ef752ed7de0a792416c981e7a2a212cab87b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "06_thumbs_up-c1040",
@@ -2866,7 +3702,11 @@
         ]
       },
       "sha256": "8355076078cd5f63215a5c4da9682d844bb6569333ae5457ffe9fab7ad8c8e6e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "06_thumbs_up-c1040-q95-420",
@@ -2885,7 +3725,11 @@
         ]
       },
       "sha256": "26282ee75009696bc1cd6b8b10400a0b09fe7fa3586f585f26d1077bf926cb39",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "06_thumbs_up-c1040-q90-420",
@@ -2904,7 +3748,11 @@
         ]
       },
       "sha256": "8b0c6729d0bd3936466a2710cb18d0227d7889275f64ffe66ca4f42a7f2b177f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "06_thumbs_up-c1024",
@@ -2921,7 +3769,11 @@
         ]
       },
       "sha256": "aea461c8bfdce3d64f747a8522d6fcae92d08ab6c01d8cc9fe2ac363f94378a5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "06_thumbs_up-c1024-q95-420",
@@ -2940,7 +3792,11 @@
         ]
       },
       "sha256": "05bee0a223cf76e20825e9f10405cef6e69a4721d8b0d458f5c55605db5ad98f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "06_thumbs_up-c1024-q90-420",
@@ -2959,7 +3815,11 @@
         ]
       },
       "sha256": "60228f40d77d24474413bbd3bd57fee04cf0922869bdcc95f07e250ba9fed14e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "07_shock-c1025",
@@ -2976,7 +3836,11 @@
         ]
       },
       "sha256": "d34dacab2188f4abff3521ccfbc7e89079a1876f66626441e68718e93f23df15",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "07_shock-c1025-q95-420",
@@ -2995,7 +3859,11 @@
         ]
       },
       "sha256": "22987c886b6a6a2dd5df77c8c127c0fa63ac72e6bff83415f955169fece45e41",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "07_shock-c1025-q90-420",
@@ -3014,7 +3882,11 @@
         ]
       },
       "sha256": "83692cb4ada6019274d305d03915713c88eee673cac45007eb057643d7e6d428",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "07_shock-c1040",
@@ -3031,7 +3903,11 @@
         ]
       },
       "sha256": "8bc2b31eef99aacb9bef538d96db9d4b6741ec5e7496724fec827fbd56ab547d",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "07_shock-c1040-q95-420",
@@ -3050,7 +3926,11 @@
         ]
       },
       "sha256": "d60b454d2b084949240b7f708def5c3f2ce732bd19b53f0bfadf32baeea69daa",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "07_shock-c1040-q90-420",
@@ -3069,7 +3949,11 @@
         ]
       },
       "sha256": "7f35bf627a72710f99aaa4e2c9078d6078ee96312e13c79f830193409848fe2c",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "07_shock-c1024",
@@ -3086,7 +3970,11 @@
         ]
       },
       "sha256": "11fc1cd65be9df9f1eabb43370b50894631d58b801d17a46b5665bec46441c78",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "07_shock-c1024-q95-420",
@@ -3105,7 +3993,11 @@
         ]
       },
       "sha256": "c4f3f1c213371cea450133776dbef0aeb7799d41d947ac9578cf87a073ac9693",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "07_shock-c1024-q90-420",
@@ -3124,7 +4016,11 @@
         ]
       },
       "sha256": "5f62f7acf553f5e6b9cbbca650e41b021dbffd2eefbfb43035f14a2758da5167",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "08_facepalm-c1025",
@@ -3141,7 +4037,11 @@
         ]
       },
       "sha256": "33d2f17b5b64535369d15715ace4349e15f5ea201d6ccaf82456ece1dfecb150",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "08_facepalm-c1025-q95-420",
@@ -3160,7 +4060,11 @@
         ]
       },
       "sha256": "aa3761d04991133e7ab69edbb52680286c0540a2d295901f0f0027c60353f96f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "08_facepalm-c1025-q90-420",
@@ -3179,7 +4083,11 @@
         ]
       },
       "sha256": "7c9c8baf70f168912e70a584a9858c44ae900c7c06c9ef87b8742dffc4d8363a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "08_facepalm-c1040",
@@ -3196,7 +4104,11 @@
         ]
       },
       "sha256": "3e3f4dfd7be5468db9207d4a01620cfdd1f035bf2d3bc88c2af80f169bff729d",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "08_facepalm-c1040-q95-420",
@@ -3215,7 +4127,11 @@
         ]
       },
       "sha256": "5ca20b631400d1641887b2dabc69be2b6ae339a3b3ca0e00cb68d9d9fa8ccf16",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "08_facepalm-c1040-q90-420",
@@ -3234,7 +4150,11 @@
         ]
       },
       "sha256": "ce9eef1e4cab8957fe4e46f5569016e49579a0591f167807366f53baab2ab827",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "08_facepalm-c1024",
@@ -3251,7 +4171,11 @@
         ]
       },
       "sha256": "b3cbb39faf2fb9c884b893a73a0bf26813196465f018da2274429211fbe32180",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "08_facepalm-c1024-q95-420",
@@ -3270,7 +4194,11 @@
         ]
       },
       "sha256": "620d56dd5b45613045041242111c9ce550d96bcdbd5e9b9ba7b1262bc70dc020",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "08_facepalm-c1024-q90-420",
@@ -3289,7 +4217,11 @@
         ]
       },
       "sha256": "6c8f0111bf2c89f21a3c0f680f91a269823847576ea3026b133dcc71eb8e1f76",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "09_thinking-c1025",
@@ -3306,7 +4238,11 @@
         ]
       },
       "sha256": "48a1336c659d4582710291ecb6849ed9ad70cc81e2386814c0cbd0911836def0",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "09_thinking-c1025-q95-420",
@@ -3325,7 +4261,11 @@
         ]
       },
       "sha256": "b601234d05105253f69ca05fa7ac917f44e8a5fa91871c5492e02d5fdc6f0bde",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "09_thinking-c1025-q90-420",
@@ -3344,7 +4284,11 @@
         ]
       },
       "sha256": "a8b612786904e4b47e99187196c9d8e37e8f8feef219a8c936fc46f51ef6b107",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "09_thinking-c1040",
@@ -3361,7 +4305,11 @@
         ]
       },
       "sha256": "9b2e62f67bfbcb2ba01c9049efd584583db0766259e99e6dbf2731520e694d84",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "09_thinking-c1040-q95-420",
@@ -3380,7 +4328,11 @@
         ]
       },
       "sha256": "2bfa389774885d105db9669669a968f378865b66e224a1742889abd241584204",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "09_thinking-c1040-q90-420",
@@ -3399,7 +4351,11 @@
         ]
       },
       "sha256": "8c77873e2341569040f01783562410066b35419c103a7bc859b1cf50f4a605da",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "09_thinking-c1024",
@@ -3416,7 +4372,11 @@
         ]
       },
       "sha256": "c84cfc1169b5b473ecff030c5d21a4fd08eca59a36b2719b21bded4d25d4d16b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "09_thinking-c1024-q95-420",
@@ -3435,7 +4395,11 @@
         ]
       },
       "sha256": "ad7da1b599b9ba580d0f975a7cdfb8c7b27253bb38695beb207f1f12d6618133",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "09_thinking-c1024-q90-420",
@@ -3454,7 +4418,11 @@
         ]
       },
       "sha256": "4493e503b9c3ed822e109da092c32f0efcfb6016c11db9d3ebbbd084864d5994",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine-c1025",
@@ -3471,7 +4439,11 @@
         ]
       },
       "sha256": "9e477170ba8f5777b0fdf93d9111b97b2655bb03b360b8bb933f448b615844a1",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine-c1025-q95-420",
@@ -3490,7 +4462,11 @@
         ]
       },
       "sha256": "06edfccca170dfd1ce381dbd2ee4de30275fede74743c1ae95a1c000fa992ed7",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine-c1025-q90-420",
@@ -3509,7 +4485,11 @@
         ]
       },
       "sha256": "f1aa3e5882c45912eb277883a7b8b878823767e23e246a34b23496af16d878c9",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine-c1040",
@@ -3526,7 +4506,11 @@
         ]
       },
       "sha256": "9a71deeb10073fd03cf642a8ad6c860e660da4ab7226b9d6962f32aa28dc8ade",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine-c1040-q95-420",
@@ -3545,7 +4529,11 @@
         ]
       },
       "sha256": "724d84686ec156b60ab47aa2f6f3dc9010f9e04cb9c3c56f426ecc1313e70ff6",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine-c1040-q90-420",
@@ -3564,7 +4552,11 @@
         ]
       },
       "sha256": "e56f9e04472bf9b78f24e92ea651c5c242bf48bc54b632dbf87f44ef415f8108",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine-c1024",
@@ -3581,7 +4573,11 @@
         ]
       },
       "sha256": "54dc497bd71be5df83de7fc979eaff1ef4169c2beda037ab8f162d11c6d87358",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine-c1024-q95-420",
@@ -3600,7 +4596,11 @@
         ]
       },
       "sha256": "8ba75afc69522b231a8308c2c9864341a49d94f0a29c5c247d155b857946367f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine-c1024-q90-420",
@@ -3619,7 +4619,11 @@
         ]
       },
       "sha256": "478916963f6781eb0f8351fdb6b5a39509fd78f5481ceca2211bb09875a638e0",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine_alternative-c1025",
@@ -3636,7 +4640,11 @@
         ]
       },
       "sha256": "630af23067268d72fd0af2d9975d08451b489c7eae692c40c12604124239d7b7",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine_alternative-c1025-q95-420",
@@ -3655,7 +4663,11 @@
         ]
       },
       "sha256": "b0c01570edbd0d90c27224f1a263e8590f688506dc4da36a858b0c72e339058e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine_alternative-c1025-q90-420",
@@ -3674,7 +4686,11 @@
         ]
       },
       "sha256": "d41968cd92c489b6fb67186f407f249a534981f8645d2a1c6583b9edb56d7881",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine_alternative-c1040",
@@ -3691,7 +4707,11 @@
         ]
       },
       "sha256": "c1c4985fd906266a179186f8661223b3052d7648bf52e55beadad67461397e5e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine_alternative-c1040-q95-420",
@@ -3710,7 +4730,11 @@
         ]
       },
       "sha256": "30fa8dc3318ce701576863a0db2a9512f95cb9fbdd770772c34d063a528303bb",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine_alternative-c1040-q90-420",
@@ -3729,7 +4753,11 @@
         ]
       },
       "sha256": "ce4ed19ea531b686ec0d30e06fb79fa65634bd06f25e3526a4fc3e8f5e74425b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine_alternative-c1024",
@@ -3746,7 +4774,11 @@
         ]
       },
       "sha256": "73f53ced1262d703187175c85bf9e552d530eea117c00d654a493727ea521ed0",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine_alternative-c1024-q95-420",
@@ -3765,7 +4797,11 @@
         ]
       },
       "sha256": "73c619338180dc837a4ccabf968c6fcc071a28f76e6eaa70775e23f6ba34546b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "10_this_is_fine_alternative-c1024-q90-420",
@@ -3784,7 +4820,11 @@
         ]
       },
       "sha256": "0538d2cb3c541ee5b94ccbf92932e8af4d92af362fff75d034c1f95e612dc375",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "11_crying-c1025",
@@ -3801,7 +4841,11 @@
         ]
       },
       "sha256": "650a684f40e6f7595da58d2242ccc81a37c95cf0ec90cfd1ee5efcb226d1a112",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "11_crying-c1025-q95-420",
@@ -3820,7 +4864,11 @@
         ]
       },
       "sha256": "3535ee37f1b40eb20571615f58e27f8b1772c3fe382211d620489d90fe94b6b9",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "11_crying-c1025-q90-420",
@@ -3839,7 +4887,11 @@
         ]
       },
       "sha256": "550d1b670adc942a083132714eaa877749e7395f0709ae4518b791a3dcca10af",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "11_crying-c1040",
@@ -3856,7 +4908,11 @@
         ]
       },
       "sha256": "142927fcbb99c5b78ecc1eaa0ba169a01961dd9d9a74e7216a23edcddc1fbc17",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "11_crying-c1040-q95-420",
@@ -3875,7 +4931,11 @@
         ]
       },
       "sha256": "b013b2d70384da535a1b710198dc80bcbbd22a68273a26983546304779e58dfe",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "11_crying-c1040-q90-420",
@@ -3894,7 +4954,11 @@
         ]
       },
       "sha256": "750da898dde09562f1829800038b89c003b6d785c75d0ea5396fdc0e4c80d74b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "11_crying-c1024",
@@ -3911,7 +4975,11 @@
         ]
       },
       "sha256": "a86d7a2224476f578decd389e5e8a68439a24c3db9d146c388f804bbd279c558",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "11_crying-c1024-q95-420",
@@ -3930,7 +4998,11 @@
         ]
       },
       "sha256": "5196977a6844bf0da8daf01dc3301bcf8b548fd82b10bed0a2eaf29c44cb48ae",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "11_crying-c1024-q90-420",
@@ -3949,7 +5021,11 @@
         ]
       },
       "sha256": "62c7f009be8e0fc43bd3b6cdaa36a2841add598a8a389b5c2861b389b6f50de5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "12_laughing-c1025",
@@ -3966,7 +5042,11 @@
         ]
       },
       "sha256": "e97eb1918d7d1e737992bdba8d6f6b04f4950b2900300c706fe05ea1ac6a22f6",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-c1025-q95-420",
@@ -3985,7 +5065,11 @@
         ]
       },
       "sha256": "6f12a35811628d0e3adf46d82784ce250ad707082fb28f639ab62e5dbb7381dd",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-c1025-q90-420",
@@ -4004,7 +5088,11 @@
         ]
       },
       "sha256": "e180674c633c2c81d1da164b7d8609766e8d27297688360b2d54c18d6c214dc7",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-c1040",
@@ -4021,7 +5109,11 @@
         ]
       },
       "sha256": "1ede15dc54dc6e0b295a4b3322bd35f6cd6eb9c0c2c316b7f59fb08dfe19e3a8",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-c1040-q95-420",
@@ -4040,7 +5132,11 @@
         ]
       },
       "sha256": "a55edd8d04f39e2347ca0a236f156e4e3260fd09aeede0517796abde71febb57",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-c1040-q90-420",
@@ -4059,7 +5155,11 @@
         ]
       },
       "sha256": "db022d000b28b35e872eaf26089edad0e3f4b7e756ca5c389af8fce586911984",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-c1024",
@@ -4076,7 +5176,11 @@
         ]
       },
       "sha256": "1381428ab7700fe219a194bffe78f67cc594f6ca7c9a1f8e7cee2d55c76d3cea",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "12_laughing-c1024-q95-420",
@@ -4095,7 +5199,11 @@
         ]
       },
       "sha256": "fa89af23ebe829ea63edff9b7897d5186e8175799f0f4b4de89b8b4b997487bb",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "12_laughing-c1024-q90-420",
@@ -4114,7 +5222,11 @@
         ]
       },
       "sha256": "ba8a7abac067dc27c7f3a9374b4365c8205e8ab53d86c2a2d1d9e73469febbf9",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "13_angry-c1025",
@@ -4131,7 +5243,11 @@
         ]
       },
       "sha256": "367d2a63b81a2f11a34eaa09840b4c592f4d868197ddb75bc4d19841476a91fe",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "13_angry-c1025-q95-420",
@@ -4150,7 +5266,11 @@
         ]
       },
       "sha256": "c57361247cd4df052d5837044bc8a0f525f1f4635f4949921332e50df82ce37f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "13_angry-c1025-q90-420",
@@ -4169,7 +5289,11 @@
         ]
       },
       "sha256": "92f34f0a4d20a80e6895fa57b1fdbd179c78d251a8e321b2fc4f78a97a0f52a4",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "13_angry-c1040",
@@ -4186,7 +5310,11 @@
         ]
       },
       "sha256": "b3e8993461fca113a6a40be4ad8aa8288dff3e4e06ce27e161df38b3ac03f415",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "13_angry-c1040-q95-420",
@@ -4205,7 +5333,11 @@
         ]
       },
       "sha256": "949346920351d177426ddaf99461fe52dcc6d905167fac19892f2e9283374c16",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "13_angry-c1040-q90-420",
@@ -4224,7 +5356,11 @@
         ]
       },
       "sha256": "dc6b4aab35aee9a2353676e7fb7131129e55f701bfb304641ca9e9087ad14550",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "13_angry-c1024",
@@ -4241,7 +5377,11 @@
         ]
       },
       "sha256": "f88444e6066fea2fb75471347beb15726ceee10b2b7905467d6609b2d3079d7b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "13_angry-c1024-q95-420",
@@ -4260,7 +5400,11 @@
         ]
       },
       "sha256": "11e538cfb6f882034e103e1eec9a5f338a6fea99460eee66c12b7676fcbe22f0",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "13_angry-c1024-q90-420",
@@ -4279,7 +5423,11 @@
         ]
       },
       "sha256": "b5ee0d0049a638e480ff6a72a44691dc78ee704d38b119f5ebb6c6df6c5a0224",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "14_sleeping-c1025",
@@ -4296,7 +5444,11 @@
         ]
       },
       "sha256": "48efe5d971c5c44fb5fe83e46f5f796dbc331ee3ae7868260ae80227a250233c",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping-c1025-q95-420",
@@ -4315,7 +5467,11 @@
         ]
       },
       "sha256": "d00327f74767d8dddf83e50ac510910368cc06211922d22b149f67106a56a873",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping-c1025-q90-420",
@@ -4334,7 +5490,11 @@
         ]
       },
       "sha256": "6e06595bac230d75f1a52c265a2d568353423502b024355a1efce74940711596",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping-c1040",
@@ -4351,7 +5511,11 @@
         ]
       },
       "sha256": "1035c58ab264b1d7534d82844adc7af746e4820f5eca853e5c107a11215d08e1",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping-c1040-q95-420",
@@ -4370,7 +5534,11 @@
         ]
       },
       "sha256": "a0e3e1c9080d8e51eee0842637013082d3a1d969959405fd5065277cc09643c4",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping-c1040-q90-420",
@@ -4389,7 +5557,11 @@
         ]
       },
       "sha256": "be27c134570f55bd0a3846036809c72ad840fff71d869150c6506001ec268138",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping-c1024",
@@ -4406,7 +5578,11 @@
         ]
       },
       "sha256": "b060a8af79448ac4188c222e9138fc8d20857ca97e69ed4808636af8784ab50e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "14_sleeping-c1024-q95-420",
@@ -4425,7 +5601,11 @@
         ]
       },
       "sha256": "67b53ea152e60fb494321d99ce6142f2aa15a85e86122a4f16957ad0bfd65763",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "14_sleeping-c1024-q90-420",
@@ -4444,7 +5624,11 @@
         ]
       },
       "sha256": "043574b4718e7bbbb202c83b333c496fd73493d3c384ac06d8fec3aa11c1b116",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "15_coffee-c1025",
@@ -4461,7 +5645,11 @@
         ]
       },
       "sha256": "004b29d00696957dc4d46896a26534170f0f8500909351d67570a694bb740f6e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "15_coffee-c1025-q95-420",
@@ -4480,7 +5668,11 @@
         ]
       },
       "sha256": "626edde5dc71db584c169fa0bb5848057e5546ebf0a3658add37e2cbffb02d4b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "15_coffee-c1025-q90-420",
@@ -4499,7 +5691,11 @@
         ]
       },
       "sha256": "872ee47be153cc0177f773666457b969e56e187d8b773c73d55501b43c3c01ae",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "15_coffee-c1040",
@@ -4516,7 +5712,11 @@
         ]
       },
       "sha256": "f300aa6e30f9975f0d2909ab83f5bdeb0ec846bdeb7d60b84e366f0261b30af4",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "15_coffee-c1040-q95-420",
@@ -4535,7 +5735,11 @@
         ]
       },
       "sha256": "70646b275dc00a56e4831da3eb70702e310a8e74346bd4d8a4aee56ef9a87a26",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "15_coffee-c1040-q90-420",
@@ -4554,7 +5758,11 @@
         ]
       },
       "sha256": "ac8c8024e7ac460871b999383f2d5b988641bac4aa8b05ef7a067d801b317983",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "15_coffee-c1024",
@@ -4571,7 +5779,11 @@
         ]
       },
       "sha256": "df88335f101e29e7626b4993be02bb2596e745464e7be5a73b6f99b138e7812a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "15_coffee-c1024-q95-420",
@@ -4590,7 +5802,11 @@
         ]
       },
       "sha256": "80a83eb5940aa1f01b0977d6c86993e02f51b801df3cecad5d7a09ef5bfea64b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "15_coffee-c1024-q90-420",
@@ -4609,7 +5825,11 @@
         ]
       },
       "sha256": "772403a30712579a0b61558968ab3f5a6a25798d37bdf6bbba943c7275fa7203",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "16_laptop-c1025",
@@ -4626,7 +5846,11 @@
         ]
       },
       "sha256": "1e6c76f9e6764d9fe0fdf8d6c4aca18f4c03a3b6305ab39e74fd1b7959a21f11",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "16_laptop-c1025-q95-420",
@@ -4645,7 +5869,11 @@
         ]
       },
       "sha256": "e23cdbbc784596f3538de4336d2bfaf51154d9a61c40fdfc9ee5423873b93a10",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "16_laptop-c1025-q90-420",
@@ -4664,7 +5892,11 @@
         ]
       },
       "sha256": "585284020d56ebdbdd20f2cc11c802884c6564e77eee3070b1eb26339b45b539",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "16_laptop-c1040",
@@ -4681,7 +5913,11 @@
         ]
       },
       "sha256": "acd90522106d30e1fb9cf3d68266b9199a34b653ae58673f711c0b47ad8f75b6",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "16_laptop-c1040-q95-420",
@@ -4700,7 +5936,11 @@
         ]
       },
       "sha256": "cd08a2c841b7d2f640e56f3ff68cd21490d9027558dac8a338f457ffd30104b7",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "16_laptop-c1040-q90-420",
@@ -4719,7 +5959,11 @@
         ]
       },
       "sha256": "96e3e8480afc2f3c8faaf25ca67a52ae2b613aeafea75454f96a88a00ef57f28",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "16_laptop-c1024",
@@ -4736,7 +5980,11 @@
         ]
       },
       "sha256": "dd92914e076c69147c1c60921ff91f9a29d3451a59e974d65344116439f33c28",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "16_laptop-c1024-q95-420",
@@ -4755,7 +6003,11 @@
         ]
       },
       "sha256": "ed1d91b6db30e51d7943b030707cdad18e3216c285b4078561c4c0e769ce22e4",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "16_laptop-c1024-q90-420",
@@ -4774,7 +6026,11 @@
         ]
       },
       "sha256": "2323de9d42e9b203da4150c277ea34df8bdca2f0fc2e8b56b51ef99062caac94",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "17_magnifying_glass-c1025",
@@ -4791,7 +6047,11 @@
         ]
       },
       "sha256": "c4787c7c554d8fcd822992c38a179911e83644ab6cec8e7823d60c5d14612a65",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass-c1025-q95-420",
@@ -4810,7 +6070,11 @@
         ]
       },
       "sha256": "b6141d6e7b577df324e6017eca553d83664e83601607fb853c528dab69f684ec",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass-c1025-q90-420",
@@ -4829,7 +6093,11 @@
         ]
       },
       "sha256": "89c2381ef9ddce15817e40c8f0c42b5885b6a095ccb22e46611bde6cacf10d50",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "17_magnifying_glass-c1040",
@@ -4846,7 +6114,11 @@
         ]
       },
       "sha256": "ec411788aa1013c52d9cbfe324841f0fca04c83e117a1df013b6790893e3ee05",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass-c1040-q95-420",
@@ -4865,7 +6137,11 @@
         ]
       },
       "sha256": "6c2e4a64142d34472f0725d978ab982bae96576c33901706c67054f339836165",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass-c1040-q90-420",
@@ -4884,7 +6160,11 @@
         ]
       },
       "sha256": "dac78b8c8eb8eca02ed8af37ac2f950bf1b37e164b168b6083b993b8f2144083",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass-c1024",
@@ -4901,7 +6181,11 @@
         ]
       },
       "sha256": "e59e0af34d1e23bad36fefe4c364b13449b8791686d7d28788577d3816600a28",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "17_magnifying_glass-c1024-q95-420",
@@ -4920,7 +6204,11 @@
         ]
       },
       "sha256": "145b6abd33b026c6c74ab4bed39b07b02c71662ecd3c2554e8200b13ec3492f8",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "17_magnifying_glass-c1024-q90-420",
@@ -4939,7 +6227,11 @@
         ]
       },
       "sha256": "0314d42fc27bb9cb219e5ef08c8c1e4122f73ebbf1d02db9d564726ecbb07023",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "18_stamp-c1025",
@@ -4956,7 +6248,11 @@
         ]
       },
       "sha256": "99b6b193cdcbd9107d59d208cff929d592ca81c28399874ce983bf98d59ccb19",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "18_stamp-c1025-q95-420",
@@ -4975,7 +6271,11 @@
         ]
       },
       "sha256": "1473fa5ba97ede74df14ecccba53448e4e5a51ff56820842b87c77bc397b0703",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "18_stamp-c1025-q90-420",
@@ -4994,7 +6294,11 @@
         ]
       },
       "sha256": "75902053417419142fe51d2ffdb338ccb101bfbd623982188061117557369608",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "18_stamp-c1040",
@@ -5011,7 +6315,11 @@
         ]
       },
       "sha256": "85915957f1f60e06771e01dca0d658fff8d0f9fd8e4143cf2cf97827311f7bf5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "18_stamp-c1040-q95-420",
@@ -5030,7 +6338,11 @@
         ]
       },
       "sha256": "53e55cafeef7b749d2b836e9c562d77238e61d125424bb56807555d95b8de753",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "18_stamp-c1040-q90-420",
@@ -5049,7 +6361,11 @@
         ]
       },
       "sha256": "ed0b3a8d904ab4844963f2ffb95c3b66cc35106918a8e5fdde9674451ee2b2e6",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "18_stamp-c1024",
@@ -5066,7 +6382,11 @@
         ]
       },
       "sha256": "4e8e85b2ec8e2210efe6bd588b51bd4cc4b3143f77585149cb03afd3b6d42ff4",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "18_stamp-c1024-q95-420",
@@ -5085,7 +6405,11 @@
         ]
       },
       "sha256": "0e93fe823d864ae64681aa360aaf530e875de6b775e6a8abc0ad29edbcb31789",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "18_stamp-c1024-q90-420",
@@ -5104,7 +6428,11 @@
         ]
       },
       "sha256": "d77a7644f03c982273703297e34de12b285655910f0653e16c9f65108e7b8927",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "19_victory-c1025",
@@ -5121,7 +6449,11 @@
         ]
       },
       "sha256": "fe9dc114431811afad75c982e1793bbbef650367f7ee69c81d989e31dad6b112",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "19_victory-c1025-q95-420",
@@ -5140,7 +6472,11 @@
         ]
       },
       "sha256": "ec3f7054fa42a22ab854a16936b1c647a7cc3845ee579b82ccec13e48786f119",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "19_victory-c1025-q90-420",
@@ -5159,7 +6495,11 @@
         ]
       },
       "sha256": "9494e246caacf31b8ab6ca81ea8a50c0cbf3bd1a501afab49d2c74f9e1aa33d5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "19_victory-c1040",
@@ -5176,7 +6516,11 @@
         ]
       },
       "sha256": "846f30e796075481dc7be4878ab3f30a50f046596949c39410f24fb2351cc9bf",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "19_victory-c1040-q95-420",
@@ -5195,7 +6539,11 @@
         ]
       },
       "sha256": "e001118524d8c47fceb03cb4689fb06308b8cd5600e3707d69b6b27b156df4b4",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "19_victory-c1040-q90-420",
@@ -5214,7 +6562,11 @@
         ]
       },
       "sha256": "ccdb11823eb52a6410945d7d6288d83fcefd5d02f4d13de021fa7f24a34c2e48",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "19_victory-c1024",
@@ -5231,7 +6583,11 @@
         ]
       },
       "sha256": "ddce5db6b9e4a5ef6621ac0404707921fc45b1aa0b841672dd2b0e014b2be0ea",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "19_victory-c1024-q95-420",
@@ -5250,7 +6606,11 @@
         ]
       },
       "sha256": "db4ba2fae2c03be313b66a718dac887bfc31dd27f111fcd47dd071d31e82bd73",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "19_victory-c1024-q90-420",
@@ -5269,7 +6629,11 @@
         ]
       },
       "sha256": "c6750639d867d28aeea8c3134c83faf98a514918a31471a80d6540da83a1c220",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "20_waving-c1025",
@@ -5286,7 +6650,11 @@
         ]
       },
       "sha256": "64b09656f1b1c0a02607ac71093bbe8b7aea479c79da57e28a72c7a49ec4e509",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "20_waving-c1025-q95-420",
@@ -5305,7 +6673,11 @@
         ]
       },
       "sha256": "66029f75e5d4a807ac8b2e516bf3d88cddafe357ba92c17613fe5c2814cee4a2",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "20_waving-c1025-q90-420",
@@ -5324,7 +6696,11 @@
         ]
       },
       "sha256": "6d56e063fb1d1bb0f8bef7a9ce25cbcfb1d66a12489ad85bff753872731d0abe",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "20_waving-c1040",
@@ -5341,7 +6717,11 @@
         ]
       },
       "sha256": "bcdde4bef2d94c62174dea6d8f10f72fcb7b83b7edd7d62d8f654f787af36168",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 1,
+        "verified": 1
+      }
     },
     {
       "id": "20_waving-c1040-q95-420",
@@ -5360,7 +6740,11 @@
         ]
       },
       "sha256": "d1015288f38df1e0da5a8ee7455a7d2392dc344e6768ae75c41f0f630f855ba1",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "20_waving-c1040-q90-420",
@@ -5379,7 +6763,11 @@
         ]
       },
       "sha256": "4b2a66402d0744da7d828e314058c9b14ad0b1ef2b73e4dbc0197cd7acdd0480",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 0
+      }
     },
     {
       "id": "20_waving-c1024",
@@ -5396,7 +6784,11 @@
         ]
       },
       "sha256": "78219b18f5e86f9f661e0abf638d4adcae58134eeb0b24bc6b5df756e47907b8",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "20_waving-c1024-q95-420",
@@ -5415,7 +6807,11 @@
         ]
       },
       "sha256": "c28d26b13d45e303de0cc830f565d2a2530a00dcaae0605417bc8c49dffdb3aa",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "20_waving-c1024-q90-420",
@@ -5434,7 +6830,11 @@
         ]
       },
       "sha256": "0678f9461ff179920fc61f45cf3c7e25448ec6adf2b90f57e8552e4d51be7178",
-      "expect": null
+      "expect": {
+        "inspect_exit": 0,
+        "clean_exit": 0,
+        "verified": 0
+      }
     },
     {
       "id": "01_pointing_finger-x0.9",
@@ -5449,7 +6849,11 @@
         ]
       },
       "sha256": "69351ee9f1c6506a59282aac8ddd144a9bdbb5583e784ab3087e052d47bf31c5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-x1.1",
@@ -5464,7 +6868,11 @@
         ]
       },
       "sha256": "6391af552e819f0e48be236bb8adf093945da3755436b8895723d4ab5dc26264",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "01_pointing_finger-x0.9-q90-420",
@@ -5481,7 +6889,11 @@
         ]
       },
       "sha256": "0f670b9e3fa127a7793cc4014a06406f3528fabc33a9bf874c54ed5120d390fb",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "02_skeptical_look-x0.9",
@@ -5496,7 +6908,11 @@
         ]
       },
       "sha256": "6d2443d34f30067658597800144fa2ce87ee7a3d87b3da6f9254cb18d868d77f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "02_skeptical_look-x1.1",
@@ -5511,7 +6927,11 @@
         ]
       },
       "sha256": "a32b0a63896b75b476d94c0f4195c2bedb5bc8770f435cb8d797a8a7607d7237",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "02_skeptical_look-x0.9-q90-420",
@@ -5528,7 +6948,11 @@
         ]
       },
       "sha256": "3c323b61141141032ab8de2a34b5fdb8bf732005a91a5644df1d5d6f46474842",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-x0.9",
@@ -5543,7 +6967,11 @@
         ]
       },
       "sha256": "be3f396ceda0a534cbe948203597619941307b89ada391f19ef06ac1ecd26c58",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-x1.1",
@@ -5558,7 +6986,11 @@
         ]
       },
       "sha256": "5e8917383ab33459f4b019791e4fcf575dc3cec019e66fb1a209de897149e187",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "03_blessing-x0.9-q90-420",
@@ -5575,7 +7007,11 @@
         ]
       },
       "sha256": "de56d65581f5aa6cbb2d692893ea8da302c3292efe4aee798383fe436bb38aac",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-x0.9",
@@ -5590,7 +7026,11 @@
         ]
       },
       "sha256": "c792b854ae2e3f492ef972f8a0ca22e68cd884c885515e20ceb55cca55db925e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-x1.1",
@@ -5605,7 +7045,11 @@
         ]
       },
       "sha256": "817dbed0ace2254d76f14c96078f4113c8fa44870576e891cb1f4ec1a54fc264",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "04_tearing_scroll-x0.9-q90-420",
@@ -5622,7 +7066,11 @@
         ]
       },
       "sha256": "5c01cbf57eb3899d9fcaaa616936a1015cd05a5acdc1119a8416025121268fd3",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "05_torch_and_cross-x0.9",
@@ -5637,7 +7085,11 @@
         ]
       },
       "sha256": "6f24b7f8c5a43fd5bfe444ddfbfea657bcbdbdf0bfaf816f2b4d783a9c1e79ad",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "05_torch_and_cross-x1.1",
@@ -5652,7 +7104,11 @@
         ]
       },
       "sha256": "25e978b7bca447b7c5da6a35e9853801f8fbd8090cc6bee574e31d09eb05d822",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "05_torch_and_cross-x0.9-q90-420",
@@ -5669,7 +7125,11 @@
         ]
       },
       "sha256": "db05b9f26aca01409d37cedb2c35c2c225c35e702613b417aa2b9fa9fa24153c",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "06_thumbs_up-x0.9",
@@ -5684,7 +7144,11 @@
         ]
       },
       "sha256": "4ac47eac993dcc6a61aa8d6f6b134a371d0cefce9a624858efae413643e5e68c",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "06_thumbs_up-x1.1",
@@ -5699,7 +7163,11 @@
         ]
       },
       "sha256": "fec992aa9f91e95f8378b6417c973d3453ea17650ef617e8ee48721765d941bc",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "06_thumbs_up-x0.9-q90-420",
@@ -5716,7 +7184,11 @@
         ]
       },
       "sha256": "8ff3818678e039d59e22dc1aa06d918927aaa3b7c873f95eb50c31c9ee4f19aa",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "07_shock-x0.9",
@@ -5731,7 +7203,11 @@
         ]
       },
       "sha256": "9fee805786bb61132b16f3f61c205aafd92a62fd54de75e6c3ca3d8b8612eb7a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "07_shock-x1.1",
@@ -5746,7 +7222,11 @@
         ]
       },
       "sha256": "53a67aa09508d750d80d988a77db45dbd3a9341fbaf6635c76a6e60c271cc238",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "07_shock-x0.9-q90-420",
@@ -5763,7 +7243,11 @@
         ]
       },
       "sha256": "8ce4b425ddea1ee2f24ab6ce390ec6e6ae3b6cc9a5d984b8f2168ce0292761a0",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "08_facepalm-x0.9",
@@ -5778,7 +7262,11 @@
         ]
       },
       "sha256": "111aa7280bd01e4dac102e7c282d04b6d8689f10c2157649df33080fe0c43fbc",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "08_facepalm-x1.1",
@@ -5793,7 +7281,11 @@
         ]
       },
       "sha256": "bac2959c74eae9476980214a2b9465452611bc6bb092750776a31af5a43e0baa",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "08_facepalm-x0.9-q90-420",
@@ -5810,7 +7302,11 @@
         ]
       },
       "sha256": "84516589ba66929a6eaefb6e9d7e796de6e03f890aed856d451f4a5ebad4c500",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "09_thinking-x0.9",
@@ -5825,7 +7321,11 @@
         ]
       },
       "sha256": "15fa1c9523df949706a66de76b5858991c6537c71c1433466a8361d9a373f73e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "09_thinking-x1.1",
@@ -5840,7 +7340,11 @@
         ]
       },
       "sha256": "6ed4f6174ffb9314a25d57ebb2d6c9cd40553ae4e5690297dac47ef748f5c84a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "09_thinking-x0.9-q90-420",
@@ -5857,7 +7361,11 @@
         ]
       },
       "sha256": "3704efacade35ac0c4dcf86af47b9ed87c4bf7269514ab42822b4db23f99585b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine-x0.9",
@@ -5872,7 +7380,11 @@
         ]
       },
       "sha256": "69b3373e05e528e18d147829f54d2875ec6706b2e66966aec3ff732e2a453aa4",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine-x1.1",
@@ -5887,7 +7399,11 @@
         ]
       },
       "sha256": "59b9023556339468023ac52d5a7417936d55505489f0276ab37c24fa853f6d5e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine-x0.9-q90-420",
@@ -5904,7 +7420,11 @@
         ]
       },
       "sha256": "77a0183e4beee54b53f8c078f7980f1accc84d432fcdf79955fac6dabcbe81ac",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine_alternative-x0.9",
@@ -5919,7 +7439,11 @@
         ]
       },
       "sha256": "c343d29f032f093e53b365fdc1c8c812c47b5d77343aaa8d8742c91e6ffe0726",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine_alternative-x1.1",
@@ -5934,7 +7458,11 @@
         ]
       },
       "sha256": "3d06148795dd183d988af1a7b8be238a74ffe0de24fd118c5bbfdf6ca0ad9ec7",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "10_this_is_fine_alternative-x0.9-q90-420",
@@ -5951,7 +7479,11 @@
         ]
       },
       "sha256": "805bd303215b0341a665aca39dd29eb515a1df498650eaa8dfbaad9f08ffbda4",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "11_crying-x0.9",
@@ -5966,7 +7498,11 @@
         ]
       },
       "sha256": "6051d362d38e0aa6bdfa61b5c18232b4802a43434f5f0f2c13ce056b0c07476e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "11_crying-x1.1",
@@ -5981,7 +7517,11 @@
         ]
       },
       "sha256": "8fc87e2b6835cfbdc8a66182da0380350814c53661893d0c1ee6cd787e3f8c6a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "11_crying-x0.9-q90-420",
@@ -5998,7 +7538,11 @@
         ]
       },
       "sha256": "b075d1b54ca8a25cae1f58e01c31812bc41a8bd7f1cde7908d5a41a86913343e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-x0.9",
@@ -6013,7 +7557,11 @@
         ]
       },
       "sha256": "0f9a1c0beae73990097b9b9c349a0bafd9618bead191ad2761c3e95f07e8ac8b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-x1.1",
@@ -6028,7 +7576,11 @@
         ]
       },
       "sha256": "a837323fef071d4d33a4515a90aae349f8c6f82cc22b2eef0f57dc644aaa1547",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "12_laughing-x0.9-q90-420",
@@ -6045,7 +7597,11 @@
         ]
       },
       "sha256": "6f695ac93956def350203da7761b1f89f32be14caa5a50ef9320c1e4679802a6",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "13_angry-x0.9",
@@ -6060,7 +7616,11 @@
         ]
       },
       "sha256": "f55b113bfdf46cf5254984ee813d0c9e4c2dfd231d1a0070b3b362947eb95b0f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "13_angry-x1.1",
@@ -6075,7 +7635,11 @@
         ]
       },
       "sha256": "04ba187c6618573d7d3cec67368facd9d26859b8cf858afc6fcdd6dc79f3304a",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "13_angry-x0.9-q90-420",
@@ -6092,7 +7656,11 @@
         ]
       },
       "sha256": "869edc99277aca8f303e496e307261407a2dc0856884acc80141d6d4da1f1a19",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping-x0.9",
@@ -6107,7 +7675,11 @@
         ]
       },
       "sha256": "e5baa1c2602c8de4292f09518085a486ab502a6c71d93fa5c81b446187f8cfc5",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping-x1.1",
@@ -6122,7 +7694,11 @@
         ]
       },
       "sha256": "661c5fd7d9ac1124cc93cef3ee19b5e907b3d2e7e1435e40d3d52f40906415e9",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "14_sleeping-x0.9-q90-420",
@@ -6139,7 +7715,11 @@
         ]
       },
       "sha256": "ffafcc0177842f6d87a7265d19e9886dc3b5730106e463298e4e5ea7a9c2274f",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "15_coffee-x0.9",
@@ -6154,7 +7734,11 @@
         ]
       },
       "sha256": "24c592cbb705c514fb8901aa560632bdba5e4acce356297a84487146e18afd40",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "15_coffee-x1.1",
@@ -6169,7 +7753,11 @@
         ]
       },
       "sha256": "29dbfe9bcc35b62660c2dfca30d4b986f8622a629bc00e7bd238d0ae56d50bdc",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "15_coffee-x0.9-q90-420",
@@ -6186,7 +7774,11 @@
         ]
       },
       "sha256": "d2a0277003a03e86db1ab749703234bad147eb4b0fb0ae2d4e9ed917b50697a0",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "16_laptop-x0.9",
@@ -6201,7 +7793,11 @@
         ]
       },
       "sha256": "61b90656aaa5bd9d4a689969f9d80cfec648ca0d88cc7394547913e134ef703c",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "16_laptop-x1.1",
@@ -6216,7 +7812,11 @@
         ]
       },
       "sha256": "10a68e64b5e1e248dc0fd68b436c7bedb65a07a9f7b86244e5b59d1362f2a005",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "16_laptop-x0.9-q90-420",
@@ -6233,7 +7833,11 @@
         ]
       },
       "sha256": "41652e5bae489bd8bf114113a30e950dec5a0fdf1dd27defe43ac51db236960b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass-x0.9",
@@ -6248,7 +7852,11 @@
         ]
       },
       "sha256": "c3565692c81c43a57e123d79e31c7be4cb00a66275c093f4213e045a9167ce04",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass-x1.1",
@@ -6263,7 +7871,11 @@
         ]
       },
       "sha256": "7aa22153a66259bcb1e6f009bf8959987826cf623ad524d4bc9cbe8537bf3a21",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "17_magnifying_glass-x0.9-q90-420",
@@ -6280,7 +7892,11 @@
         ]
       },
       "sha256": "673852df8bce3b6100e9cc0abadaaaa7394166428d373fdb078337058fdce54e",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "18_stamp-x0.9",
@@ -6295,7 +7911,11 @@
         ]
       },
       "sha256": "fbd642dd3e173fd515322d0ecd86344f8a4b7d44017293ccbb3bc77264a8cca7",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "18_stamp-x1.1",
@@ -6310,7 +7930,11 @@
         ]
       },
       "sha256": "5494d75b54e8e041dc14815ccb3db75f06d2862ccecb9c96ca5c645586db7bce",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "18_stamp-x0.9-q90-420",
@@ -6327,7 +7951,11 @@
         ]
       },
       "sha256": "d9fe8e573ce49fbf31ea0762032a6150ecd9e4b9cfef42826ac711ccef108f0b",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "19_victory-x0.9",
@@ -6342,7 +7970,11 @@
         ]
       },
       "sha256": "995ebcb11ad7f0570e30bd38baa2f0500c50360f5b377957d5fe5d2b0e900bdc",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "19_victory-x1.1",
@@ -6357,7 +7989,11 @@
         ]
       },
       "sha256": "0390fbdd695612d3d9bec9a6012d7d115f9d931a219c439910f012627dadb1db",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "19_victory-x0.9-q90-420",
@@ -6374,7 +8010,11 @@
         ]
       },
       "sha256": "d543d42b1d6ce805d0ef503488c707018e3437b887b5b8eac55a58a6428faa89",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "20_waving-x0.9",
@@ -6389,7 +8029,11 @@
         ]
       },
       "sha256": "cc1b5c09260c6e6db2bdbb099f51e6bd75581a1df988c3039fb5a13a2b0882e3",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "20_waving-x1.1",
@@ -6404,7 +8048,11 @@
         ]
       },
       "sha256": "45446ab93b93750db3de1e2356689406c50482cf59db52b9fdcc022213d91459",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     },
     {
       "id": "20_waving-x0.9-q90-420",
@@ -6421,7 +8069,11 @@
         ]
       },
       "sha256": "17312bc43e0e1889f06a42f2f4f0ffc2d6429973d90912afaccc83e3794f9f20",
-      "expect": null
+      "expect": {
+        "inspect_exit": 1,
+        "clean_exit": 3,
+        "verified": 1
+      }
     }
   ]
 }
