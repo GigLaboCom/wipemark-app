@@ -196,6 +196,8 @@ opens its own pull request against `main` instead of riding on `feat`.
 | 7 | `e7/compare-synced-scroll` — **merged `9e1eb95`** | Compare scrolls both panes together, on by default (§7 E7), D380–D387 | `docs/plan/E7-7-compare-synced-scroll.md` | [E7-7](reports/E7-7-compare-synced-scroll-2026-10-08.md) | done; M1 and lows open |
 | 7a | `e8/user-models` — **merged `630d409`** | E8-1: a GGUF the catalogue does not have, added by the person — picked, named, given a purpose, held to the sha256 it had when added — and Qwen3.8 27B and Gemma 4 12B in the shipped catalogue (§7 E8) | `wipemark-task-user-models-2026-10-08` | D400–D409, [E8-1](reports/E8-1-user-models-2026-10-08.md) | done; the host verification's M1 and M2 fixed in `baca2eb`, M3 and lows open |
 | 7b | `e7/compare-save` — **merged `c333d0b`** | E7-9: saving an edited Compare result — Save and ⌘S over the result's own file or into its row, never the original, a file changed on disk asked about, an autosave on by default (§7 E7) | `wipemark-task-compare-save-2026-10-08` | D410–D419, [E7-9](reports/E7-9-compare-save-2026-10-08.md) | done; the host verification's M1 and M2 fixed in `cf7cadd`, lows and one owner question open (§7 E7) |
+| 7c | `fix/e7-8-e8-1-followups` — **merged 2026-10-09** | the open findings of E7-8's and E8-1's verifications: one fact for consent, Compare's leftover asks, the added models' lows (§7 E7, E8) | `wipemark-task-followups-e7-8-e8-1-2026-10-08` | D430–D439, [report](reports/followups-e7-8-e8-1-2026-10-08.md) | done; the verification's Medium (tags that say speech refuse a text model) and Lows kept in §7 E8 |
+| 7d | `e4/bench-voice` | E4-8: voice measures in the bench, keep-voice templates in en, ru, de | `wipemark-task-bench-voice-2026-10-08` | D420–D429 reserved | task filed, not started |
 | 8 | gpui-kit #3416, #3417 (upstream, the owner's) | The scrollbar on the left and the original's gutter on its right in the editor — what Compare's mirrored layout needs (§7 E7) | — | — | **open as drafts** upstream |
 | 9 | — | The keep-voice rule after a four-model bench, and a voice measure in the bench (§7 E4); E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), S7.2, S7.3, S7.5, E9 licensing, E10 packaging (Windows; the Linux tray is done) | to be written | — | §7 |
 
@@ -819,6 +821,16 @@ tell a decision from an accident.
 | **D417** | **The journal records that a result was edited, and when** — `entry.outcome.edited`, milliseconds since the epoch, never what. `journal::clean_end` sets it for a Save that cleans; every later save sets it through the row's writer (`Writer::edited` → `Journal::mark_edited`), which patches that one field as JSON values and keeps the rest of the entry, a field a newer build wrote included. | E7-9; every document has a status; a row is metadata, never the document (D312). |
 | **D418** | **A cleaned row's Compare opens on its result as written**: once a clean put a result somewhere, the window opens on that file or that row's text — so edits saved there before are what it shows, and a second window never overwrites them with a fresh clean — and, in place, the original on the left is the file set aside. A clean the journal recorded in an earlier session, with a file, opens the same way. | E7-9; the old `Made::Cleaned` read the source's name, which after an in-place clean held the result; `Made::CleanedTo`. |
 | **D419** | **What a save does not do**: Layer A does not run over an edit — the person's text is written as typed; a save does not refresh the copies `kept/` holds (those are what the clean made); a cleaned paste's saved text lives in its row and nowhere on disk, as the cleaned text does. | E7-9; the row's *Cleaned* over such a text is an owner question (§5, D419's). |
+| **D430** | **One fact for consent**: a push's consent, the Send-away question and the vacancy are `Queue::going` — where the duty, as the person set it, would send a rewrite, or why nothing would; never the slot's word, which speaks only for the refusal of the duty it was built for, and not while a swap is pending. | E7-8's verification M1; follow-ups A-M1. |
+| **D431** | **A yes records the question's destination**; a yes the duty no longer stands behind pushes nothing, and its road runs again with the duty as it stands. | A-L1. |
+| **D432** | **An ask is consumed or dropped by the end of the frame that lays it out**; the recompute's put-back goes where a pending ask goes. | A-L2, A-L4 (D391 on every road). |
+| **D433** | **The result is weighed first however its position is read**: a look between frames waits while a wrapping result has moved unseen. | A-L3. |
+| **D434** | **A change of engine waited for is said in the status bar**, read from the handle's flag; no caller refused for it. | A-L5. |
+| **D435** | **An identity is written back as one field of a row that exists and still records the confirmed bytes** (`Settings::update`, never an insert) — by the scan, Re-check, and the command line (`list`, `verify`, `rewrite`) through `RowsWriter`; the command line's rewrite decides before it reads a model file. | E8-1's verification M3 (owner question answered by the task's default), B-L6. |
+| **D436** | **One file, however it is reached**: the resolved path or the device and inode (`FileKey`); a CLI re-add keeps the name and context unless given. | B-L2. |
+| **D437** | **Diffusion models, draft heads, and a model whose name, type or tags say speech or audio are not offered**; a pooling type of none is a writer. | B-L3, B-L4. |
+| **D438** | **A refused chat format is listed, not choosable, and not on duty**; a NUL in a template is a refusal. | B-L5, B-L7. |
+| **D439** | **The checksum is of the file the header was read from**; **a Remove never takes a file an added model names**; **only a regular file is opened**. | B-L1, B-L9, B-L10. |
 
 ---
 
@@ -1290,6 +1302,13 @@ the gate the overview set, and the open edges.
   stale ask that swallows one scroll; **L3** D392 does not hold with the
   result wrapping; **L4** D390 can overwrite a pending ask; **L5** D395 waits
   silently (nothing says why); **L6** a doc comment moved in `store.rs`.
+  **All done** in `fix/e7-8-e8-1-followups` (D430–D434, merged 2026-10-09,
+  report `reports/followups-e7-8-e8-1-2026-10-08.md`): consent, the
+  Send-away question and the vacancy are one fact, `Queue::going` (D430); a
+  yes records the destination its question named (D431); an ask is consumed
+  or dropped by the end of the frame that lays it out (D432); the result is
+  weighed first however its position is read (D433); a change of engine
+  waited for is said in the status bar (D434).
 - **Build. Saving an edited result, with autosave** (the owner,
   2026-10-08) — **done**: E7-9 (`e7/compare-save`, D410–D419, merged as
   `c333d0b` on 2026-10-08, report
@@ -1498,7 +1517,20 @@ the gate the overview set, and the open edges.
   Vulkan with Gemma 4 12B and Qwen3.8 27B, 2/2. The CLI's `models add`,
   `list`, `verify` and `forget` were checked on the host, and nothing was
   written beside the weights.
-- **Fix. E8-1's open follow-ups** (the host verification of `e8/user-models`):
+- **Fix. E8-1's open follow-ups** (the host verification of `e8/user-models`)
+  — **done** in `fix/e7-8-e8-1-followups` (D435–D439, merged 2026-10-09):
+  M3 answered by the task's default, the command line writes the identity
+  back through `RowsWriter::update` (D435); one file however it is reached
+  (D436); speech/audio, diffusion and draft models not offered (D437); a
+  refused chat format listed, not choosable, not on duty (D438); the
+  checksum of the file the header was read from, a Remove never takes a
+  file an added model names, only a regular file opened (D439). Left open:
+  a path swapped for a pipe between the check and the open still blocks
+  that one open (off the drawing thread); the speech words are a list, and
+  `general.tags` with `audio`/`speech`/`asr` refuses a model — Gemma 4 E2B
+  and E4B (audio-capable) were checked and are added, but a card that tags
+  a text model `automatic-speech-recognition` would be refused (the
+  verification's Medium, kept for the owner). What was asked:
   - **M3** — the command line never writes a moved identity back to an
     added model's row (`apps/wipemark-cli/src/models.rs:322`, "Read-only: a
     moved identity is the application's to" write), though `RowsWriter`
@@ -1528,6 +1560,23 @@ the gate the overview set, and the open edges.
     describe two different files if the file is swapped between the two
     reads; and `models rm <catalogue-id>` can remove a file the person has
     also added by its path.
+- **Fix. The follow-ups' verification left** (host, 2026-10-09, on
+  `7cf55c2`): **Medium** — `gguf::says_speech` refuses any model whose
+  `general.tags` holds the word `audio`, `speech` or `asr`, and llama.cpp
+  copies a card's tags there, so a text model tagged
+  `automatic-speech-recognition` or `audio-text-to-text` (Gemma 3n,
+  Qwen2.5-Omni) would be refused with no override; trust tags only when no
+  `*-text-to-text`/`text-generation` tag is present, or ask the owner.
+  **Lows:** the private `identity()`'s doc comment runs into `identity_of`'s
+  (`crates/wipemark-models/src/store.rs:1511`, A-L6's kind again);
+  `why_not_rewrite` → `vacancy` → `going` runs the whole `on_duty` once per
+  visible row per frame (`queue/rewriting.rs:538`) — compute it once per
+  render; `added_keys` is filled only by the scan, so between an add and its
+  rescan the same file by another road could be a second row — insert the
+  new key when `Read::Added` lands; `set_swap_pending(true)` notifies no
+  watcher, so the status bar's sentence can come a frame late; the report's
+  host step 2 is wrong — while the queue's own item runs the bar says
+  "Rewriting n of m", the waiting sentence shows only with nothing running.
 
 ### E9 — licensing
 

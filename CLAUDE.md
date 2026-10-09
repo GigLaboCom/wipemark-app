@@ -776,7 +776,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   it (`EngineSource::whereto`); an endpoint other than the one agreed to
   holds the queue and asks once, for every waiting item
   (`QueueEvent::Ask`, `Queue::agree`), and a duty back on this machine asks
-  nothing. An agent's or the command line's item carries no consent of the
+  nothing. The consent, the Send-away question and the vacancy are one
+  fact, where the duty as the person set it would send a rewrite
+  (`Queue::going`, D430), and a yes records the destination its question
+  named — a yes the duty no longer stands behind pushes nothing and asks
+  again (D431). An agent's or the command line's item carries no consent of the
   window's and is never asked. The main window asks its questions — the
   price, a drop that would be sent away, this one — one at a time, in the
   order they came (D364). A row nobody asked to process says *Not
@@ -785,8 +789,8 @@ Anything that needed more than a rule to explain is in `docs/`;
   nothing, clean or rewrite; nothing by default, В1) a drop goes straight
   into a line, and with an endpoint on duty a rewrite on arrival asks
   first (`QueueEvent::SendAway`). The status bar: a load's percent, the
-  cleans, "Rewriting 2 of 5 · paragraph 7 of 52" or why the queue waits,
-  then who is on duty (D324); the toolbar and the status bar read the
+  cleans, "Rewriting 2 of 5 · paragraph 7 of 52" or why the queue waits
+  (or that it waits for the engine to change, D434), then who is on duty (D324); the toolbar and the status bar read the
   queue's pause and states from memory, never a row per frame (D359).
   Compare of a rewritten row opens on the rewrite as delivered, never
   called "better" (`compare_of_a_rewritten_row_is_the_delivered_text`).
@@ -982,7 +986,9 @@ Anything that needed more than a rule to explain is in `docs/`;
   D381); a scroll is seen by each editor's notification and by a look
   after every painted frame (D386), a follower's landing is told from a
   lead by what was asked (D382), the result leads the cursor follow
-  (D383), and a wrapped result lines up approximately (D384).
+  (D383), and a wrapped result lines up approximately (D384); an ask is
+  consumed or dropped by the end of the frame that lays it out (D432), and
+  the result is weighed first however its position is read (D433).
   `a_follower_that_stops_short_does_not_lead_back` is the gate on the
   loop. The result is **`clean(original)`** at Layer A's defaults (E7-3),
   made by `Subject::read` in the read's own background task and kept by
@@ -1300,8 +1306,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   bar while a download runs, waits to be resumed or is checked
   (`models::bar`, D306). A GGUF in no catalogue can be **added** — named,
   given a purpose and read once, its sha256 recorded and the file refused
-  later if it changes; nobody vouches for what it is, and every surface
-  says so (E8-1, `docs/architecture/user-models.md`, D400–D409).
+  later if it changes — one file however it is reached (D436), its
+  identity written back by the scan and the command line alike (D435), and
+  a Remove never takes a file an added model names (D439); nobody vouches
+  for what it is, and every surface says so (E8-1,
+  `docs/architecture/user-models.md`, D400–D409).
   See `docs/architecture/model-downloads.md`, "Found wherever it is".
 * **Who rewrites is a decision, it has a name, and there is one place it
   is made.** `apps/wipemark-app/src/duty.rs`. Two things can rewrite — an
@@ -1447,8 +1456,10 @@ Anything that needed more than a rule to explain is in `docs/`;
   is listed under "Also in this folder" with each GGUF's header read
   (`wipemark_models::gguf`, never a tensor): a chat model offers **Add as
   a model…**, anything else — a projector, an adapter, an encoder,
-  embedding or speech model, a model with no chat template — says in one
-  line why it is not offered (D408); a model the person added is not
+  embedding, speech or audio model (by its name, type or tags), a
+  diffusion model or a draft head, a model with no chat template — says in
+  one line why it is not offered (D408, D437); a model whose chat format
+  this build does not write is listed greyed and is never on duty (D438); a model the person added is not
   listed there. Nothing in the list is verified or loaded until it is
   added, and the sentence over the list says that adding one records its
   checksum and vouches for nothing. "Does not exist yet" is the ordinary state on a
@@ -2010,6 +2021,8 @@ What exists so far:
 | `wipemark-task-user-models-2026-10-08` | FILE | a task for an agent: E8-1, adding a model the catalogue does not have the way a person would — pick a GGUF, name it, give it a purpose, use it, held to the sha256 it had when added — and Qwen3.8 27B and Gemma 4 12B in the shipped catalogue. Its report is in the tree, `docs/plan/reports/E8-1-user-models-2026-10-08.md` (D400–D409) |
 | `wipemark-task-compare-save-2026-10-08` | FILE | a task for an agent: E7-9, saving an edited Compare result — Save over the result's own file or into its row, never the original, a file changed on disk asked about, and an autosave on by default. Its report is in the tree, `docs/plan/reports/E7-9-compare-save-2026-10-08.md` (D410–D419) |
 | `wipemark-compare-save-report-2026-10-08` | FILE | that report, uploaded: S1–S5 done, D410–D419, 34 of 34 red checks, gates 1748/0/7 on `ba000c2`; the host verification's M1 (Reset cleared the undo history, and autosave wrote it) and M2 (a Save that cleans took a row from its finished rewrite) fixed in `cf7cadd` before the merge (`c333d0b`); its Lows are in `docs/plan/README.md` §7 E7 |
+| `wipemark-task-followups-e7-8-e8-1-2026-10-08` | FILE | a task for an agent: the open findings of E7-8's and E8-1's host verifications — A-M1 (one fact for consent), A-L1…A-L6, B-M3 (the command line writes the identity back), B-L1…B-L11 |
+| `wipemark-followups-e7-8-e8-1-report-2026-10-08` | FILE | its report: all nineteen done, D430–D439, 31 of 31 red checks, gates 1779/0/7; the host verification (2026-10-09) found it mergeable with one Medium (tags that say speech refuse a text model) and Lows, `docs/plan/README.md` §7 E8; merged into `feat` as a fast-forward |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 | `wipemark-status-2026-10-05` | FILE | where the project stood at the end of 2026-10-05: images rounds 3–5, E7 merged, the X11 first frame fixed through `GigLaboCom/zed`, and the plan of pull requests and branches (`docs/plan/README.md` §2.1) — PR #1 and what comes next, in order |
 | `wipemark-status-2026-10-06` | TEXT | where the project stood at the end of 2026-10-06: E7 follow-ups X1–X14 and Y1–Y9 merged, Z1–Z3 filed, mutation tables dropped for `coverage.yml` (on `main` and by hand), what is next |
@@ -2064,13 +2077,18 @@ with its badges (S7.2), the streamed result
 original's gutter on its right, which wait on the owner's gpui-kit pull
 requests #3416 and #3417 (drafts); of E4, the keep-voice rule after a
 four-model bench and a voice measure in the bench; the rest of E8 (E8-1,
-models the person adds, is done; its verification's M3 and Lows are open,
-`docs/plan/README.md` §7 E8); E9;
+models the person adds, is done, and so are its verification's M3 and
+Lows); E9;
 E10 (the Linux tray is done; Windows, packaging and the rest are not);
 E12-6, E12-7, and of E12-8 Compare for pictures and the batch queue's
-picture item. In progress, each a task with an agent: `e4/bench-voice`
+picture item. The open findings of E7-8's and E8-1's verifications — one
+fact for consent, Compare's leftover asks, the added models' Lows and M3
+(the command line writes the identity back) — are merged
+(`fix/e7-8-e8-1-followups`, D430–D439, 2026-10-09); that verification's
+Medium (tags that say speech refuse a text model) and Lows are in
+`docs/plan/README.md` §7 E8. Filed and not started: `e4/bench-voice`
 (E4-8, voice measures in the bench and keep-voice variants of the
-templates) and `fix/e7-8-e8-1-followups` (the open findings of E7-8's
-and E8-1's verifications: one fact for consent, Compare's leftover asks,
-the added models' Lows). E1 and E3 parallelise in separate worktrees; E5 lands before
+templates, D420–D429 reserved) and the E12-R series
+(`plan/recon-2026-10-08`, the restoration measured, then made more
+precise). E1 and E3 parallelise in separate worktrees; E5 lands before
 E6 and gives agents a usable product before the GUI exists.
