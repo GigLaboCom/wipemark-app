@@ -70,7 +70,14 @@ runs.
   `Restored`; the detection — found, verdict, refusal, the rect error
   against the composited place; the CLI's exit.
 * **Configs.** `R0` is the product today. R6/R8/R9 add theirs as configs of
-  the example (S12), never as catalogue rows.
+  the example (S12), never as catalogue rows. **`R6`** (E12-R6, D306) is
+  `wipemark_pixels::clean_with` given the decoded planes: a lossy JPEG
+  subsampled 4:2:0 or 4:2:2 is proved and restored in its planes, every
+  other file is R0's to the byte; its restorations carry `measures.planar`
+  (`sampling`, `max_alpha_dev_in_block`, `holes_chroma`) and its scores
+  `detection.scores.planar` (`y`, `chroma`). Run it beside R0 —
+  `run … --config R0 --config R6` — and gate it with
+  `report.py gates RESULTS --candidate R6 --route lossy --targets jpeg420-q95,jpeg420-q90,jpeg420-q85,jpeg420-q75,jpeg420-q90+resize-0.9`.
 
 ## In the container: the smoke run
 

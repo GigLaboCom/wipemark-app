@@ -377,7 +377,10 @@ traces; the proof here is stricter and the map and the logo are measured.
   blocks fall on the mark, not on the code: see D252. That is honest —
   the mark is said to be left and `clean` exits 3 — but the commonest
   JPEG is the one this release restores least. Restoring the colour at
-  the chroma's own resolution is the road, and not taken here.
+  the chroma's own resolution is the road, and not taken here. *It is
+  built (E12-R6, "The planar inverse" below) and stays off the product's
+  path until D306 is taken; until then this limitation stands as
+  written.*
 
 ## What the fourth host verification taught (D250–D253)
 
@@ -633,9 +636,10 @@ stored (D302):
   JPEG 95 4:2:0 — over the ×1.10 the step allowed — so they are taken
   only when a caller needs them, which will be the planar inverse once a
   mark on a JPEG is verified. The RGB decode is unchanged, and **nothing
-  reads the planes yet**: `clean`, `inspect` and the proof are byte for
-  byte what they were (`the_rgb_raster_did_not_move`, through both
-  roads).
+  on the product's path reads the planes yet**: `clean`, `inspect` and the
+  proof are byte for byte what they were (`the_rgb_raster_did_not_move`,
+  through both roads). The planar inverse (E12-R6, below) reads them off
+  that path, until D306 is taken.
 * **`Planes`** (`crates/wipemark-pixels/src/planes.rs`) is a value, not a
   codec: the picture's size, its `Sampling` (`H444`, `H422`, `H420`,
   `Gray`, or `Other` with the factors), the planes Y, Cb, Cr — each
@@ -658,6 +662,76 @@ stored (D302):
   after); `decode` itself ×1.015, which is timing noise around the same
   code. `crates/wipemark-picture/examples/planes_speed.rs`, aarch64, in
   the E12-R3 report.
+
+## The planar inverse (E12-R6) — built, not on the product's path
+
+`crates/wipemark-pixels/src/planar.rs`; D306 is proposed and **not
+taken**, so `wipemark_picture::clean` and `inspect` still call `examine`
+and `clean` and read no planes (S12,
+`the_product_takes_the_planes_only_with_the_preview`). The road to it is
+three: `wipemark_pixels::examine_with` / `clean_with`, given the planes;
+`recon_bench --config R6`; and `wipemark_picture::clean_bytes_with_planes`
+/ `inspect_bytes_with_planes` — `#[doc(hidden)]`, and what `clean` and
+`inspect` become in a build with the `planar-preview` feature of
+`wipemark-picture` (off by default; the regression's host run builds the
+CLI with it). Plan: [`docs/plan/E12-R6-planar-inverse.md`](../plan/E12-R6-planar-inverse.md).
+
+* **The model.** JFIF's YCbCr is affine in RGB, so the blend keeps its form
+  per plane: `Y_I = α·L_Y + (1 − α)·Y_O` at full resolution, and the
+  encoder's block average of chroma is `ᾱ·L_C + (1 − ᾱ)·C_O,sub` with
+  `ᾱ` the block's mean `α` — exact when `C_O` is constant over the block,
+  off by at most `max_B|C_O − mean_B C_O| · max_B|α − ᾱ|` otherwise. So Y
+  is inverted per pixel with `α`, Cb and Cr per block with `ᾱ`, unrounded;
+  the chroma is upsampled by the decoder's own triangle filter (in reals),
+  recombined by the decoder's own constants, rounded once and clamped once
+  — and written **only** inside the mark's rectangle, where `α` or the
+  block's `ᾱ` is at the noise floor or over, and not a hole (`α` or `ᾱ` at
+  `opaque_above`). Everything else stays the decoder's RGB, which is what
+  `prove`'s `outside_unchanged` holds (`nothing_outside_the_mark_moved`).
+  The capture noise (D246) and the outline, step, colour step and texture
+  are taken as the RGB restoration takes them.
+* **The proof in the same model** (D306). Out of range is counted per
+  pixel of the support: out when its Y lies outside
+  `[α·L_Y, α·L_Y + (1 − α)·255]` by more than `BLEND_LEVELS` (8), or its
+  chroma block's Cb or Cr outside `[ᾱ·L_C, ᾱ·L_C + (1 − ᾱ)·255]` by more
+  than `blend_levels_c` = 8 + `DC_SHARE` (0.5, `[tunable]`) × the chroma
+  table's DC step (9 at quality 95, 9.5 at 90, 10.5 at 85). The bound stays
+  1 %. `k*` and `E(1)/E(0)` stay on luma, unchanged. `Scores.planar`
+  carries the two terms (`y`, `chroma`); `out_of_range` is the share with
+  either.
+* **The route** is narrow: a lossy source, planes known, subsampled 4:2:0
+  or 4:2:2, the raster's size, 8-bit RGB. 4:4:4 (the RGB model already
+  matches), PNG, WebP and a JPEG without planes take the old path byte for
+  byte (`a_444_jpeg_and_a_png_take_the_old_path_byte_for_byte`). The second
+  pass (D165) and `prove`'s re-examination of the 4:4:4 output are RGB.
+* **What it does to the committed crops** (`examples/planar_measure.rs`):
+  the 4:2:0 fringe (D247) goes from `chroma` 7.40–8.43 to 0.22–0.80 at 95
+  and 98, under `CHROMA_LEVELS` on every one, and `victory-1025-q95-420`,
+  refused by its grid on the RGB path (1.06 %, D252), is proved with a
+  share of 0. The texture (D250) falls but stays: 10.3 → 6.7–7.0 at 4:2:0
+  95, over `TEXTURE_LEVELS` — R8's step. Pillow 4:2:0 and 4:2:2 variants
+  of three PNG crops at 85–95, on and off the 16-pixel grid
+  (`docs/plan/reports/E12-R6-variants.py`), that the RGB path refuses out
+  of range (1.03–2.17 %) are all proved, with a share of 0, and each still
+  ends with a mark left: the texture on every one, and at 90 and under the
+  luma step of D244 on most.
+* **Known weakness, measured.** The per-plane intervals do not see the RGB
+  cube. On the stickers' saturated green (Cb ≈ 104, Cr ≈ 65, far from 0
+  and 255) both terms read 0 at any chroma allowance from 1 to 16 levels,
+  while the same inverse brought to RGB lies outside the cube by more than
+  8 stored levels on 1.13–1.95 % of the pixels at 4:2:0 q90 — about the
+  RGB path's share. And a white blend at 0.7–0.9 of the mark's opacity,
+  which the RGB path refuses out of range at 23–63 % on every flat colour
+  tried, reads 0 in the planes on that green, on cyan and on magenta
+  (`measure_where_the_chroma_allowance_stops_seeing_a_lookalike`); its
+  gain still refuses it. What lifts D252's refusals is as much the looser
+  interval as the better model. See the E12-R6 report, Q1.
+* `Restored.planar` (`{"sampling","max_alpha_dev_in_block","holes_chroma"}`,
+  or `"unavailable"`) and `Scores.planar` (`{"y","chroma"}`) are skipped
+  in the JSON when `None`: every report off this path is byte for byte
+  what it was. `planar::invert` keeps every intermediate (`Y_I`, `Y_O`,
+  `α`; per block `ᾱ`, Cb and Cr in and out) and `Inverse::blend_back`
+  gives the pairs a consistency measure (D305) takes in the planes.
 
 ## Surfaces (E12-5)
 
