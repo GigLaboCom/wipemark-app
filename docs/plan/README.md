@@ -190,24 +190,25 @@ opens its own pull request against `main` instead of riding on `feat`.
 | 1c | `e7/windows-clean` (continued) | E7 follow-ups Z1–Z3, the host verification's three Lows on Y1–Y9, tests only: a plan that panics for a clean already waiting in the line (Z1), D290's stale-look guard (Z2), `RenameBack` after the publish on the rename road (Z3) | `wipemark-task-e7-followups-4-2026-10-06` | none | **done**: verified on the host (`4b5ba17`) with no High and no Medium finding, merged into `feat` squashed on 2026-10-07; one Low outside the round open — `apps/wipemark-app/build.rs:23` reads `CARGO_MANIFEST_DIR` with `env!`, fixed when the build script compiles |
 | 2 | — (the owner, by hand) | E7's live check in the windows, `docs/plan/reports/E7-windows-clean-live-check.md`: what the windows paint. The disk half is automated (`scripts/verify/e7/live-disk.sh`, 38/38). On this host the D-Bus workaround is no longer needed, and `scripts/verify/e7/clip.py` stands in for `pbcopy`/`pbpaste`. | — | — | waiting for the owner |
 | 3 | `gpui/bump-pre` | GPUI onto `gpui-pre =0.3.8` from crates.io, nothing carried (patch A upstream as #62081, patch B unneeded since #61789 — measured); the component on gpui-kit `next` at `f8429177` (#3359 merged there); toolchain 1.95.0; `check-gpui-pin.sh`; Compare's original read-only; modal priorities | `wipemark-task-gpui-bump-2026-10-07` | D291–D299 | **done**: verified on the host (M1, L1–L4 fixed before the merge), CI green on Linux and macOS, merged as `ebd83b4` on 2026-10-07; the owner's window checklist `docs/plan/reports/gpui-bump-host-check.md` not yet run |
-| 4 | `images/series-v3` (or the next images round) | three doc nits not yet filed: `visible-marks.md` 3439–3441 → 3442; "all 22" against `crying`'s aside; the fixtures README's `.convert("RGB")` | to be filed with the next images task | — | open |
+| 4 | `fix/models-pipeline-followups` (row 7f) | three doc nits: `visible-marks.md` 3439–3441 → 3442; "all 22" against `crying`'s aside; the fixtures README's `.convert("RGB")` | `wipemark-task-models-pipeline-followups-2026-10-09` (M10) | — | **done** in row 7f: 3 441–3 442 (the host verifications' count); the q98 range is the 21 besides `crying`; the crops are 8-bit RGB PNGs, RGBA for `crying-transparent-1025.png`, with nothing but `IHDR`, `IDAT`, `IEND` (`scripts/verify/images/png-chunks.py`). Left as written: whether q97's 6.12–6.51 holds `crying` is not in the tree |
 | 5 | `integrate/2026-10-08` | One integration branch for the day's work, each part on its own branch first: `fix/owner-2026-10-07` (F1–F6 and round 2's H1, L1–L6), `e4/windows-rewrite` (E4-6b: the windows rewrite through the batch queue, the document journal), `e4/templates-widgets` (E4-6c: the Rewriting page), `e10/linux-tray` (the tray and the shortcut on Linux), `research/divergence-vs-upstream` (the bench's additions; no product code), `5a9e525` (templates against the engine's window on the CLI and over MCP); then one host verification of the whole, and its findings fixed on three branches — `fix/integrate-models-tray` (A1–A4, B1), `fix/integrate-e4-6b` (M1–M3, L1–L5), `fix/integrate-e4-6c` (M1, L1–L6) — with targeted checks only, the full gates run once on the merge of the three | `wipemark-task-owner-fixes-2026-10-07`, `wipemark-task-e4-6b-windows-rewrite-2026-10-07`, `wipemark-task-e4-6c-templates-widgets-2026-10-07` | D300–D306, D310–D326, D330–D339, D340–D347, D350–D351, D355–D369 | **done**: gates once on `844aa01` — 1623 passed, 0 failed, 7 ignored; the app with `local-llama` 628/0/2 — CI green; merged into `feat` as `9b907bb` on 2026-10-08. Reports: [owner-fixes](reports/owner-fixes-2026-10-07.md), [E4-6b](reports/E4-6b-2026-10-07.md), [E4-6c](reports/E4-6c-2026-10-07.md), [linux-tray](reports/linux-tray-2026-10-07.md), [divergence](reports/divergence-vs-upstream-2026-10-07.md), [models-tray fixes](reports/integrate-fixes-models-tray-2026-10-08.md), [E4-6b fixes](reports/integrate-fixes-e4-6b-2026-10-08.md), [E4-6c fixes](reports/integrate-fixes-e4-6c-2026-10-08.md). The owner's window checklists in those reports not yet run |
 | 6 | `fix/consent-and-lows` — **merged `72da17d`** | The verification's open item **M-1** — the queue's consent (D361) is checked against the window's record of where an engine sends (`journal::Going`) rather than against the engine actually handed out — and its remaining Lows | — (the coordinator) | D370–D375 | **done**: merged as `72da17d`; its verification's M-A, M-B and lows followed up by E7-8 (`fix/consent-compare-followups`, D390–D397, merged `021a5e8`) |
 | 7 | `e7/compare-synced-scroll` — **merged `9e1eb95`** | Compare scrolls both panes together, on by default (§7 E7), D380–D387 | `docs/plan/E7-7-compare-synced-scroll.md` | [E7-7](reports/E7-7-compare-synced-scroll-2026-10-08.md) | done; M1 and lows open |
-| 7a | `e8/user-models` — **merged `630d409`** | E8-1: a GGUF the catalogue does not have, added by the person — picked, named, given a purpose, held to the sha256 it had when added — and Qwen3.8 27B and Gemma 4 12B in the shipped catalogue (§7 E8) | `wipemark-task-user-models-2026-10-08` | D400–D409, [E8-1](reports/E8-1-user-models-2026-10-08.md) | done; the host verification's M1 and M2 fixed in `baca2eb`, M3 and lows open |
+| 7a | `e8/user-models` — **merged `630d409`** | E8-1: a GGUF the catalogue does not have, added by the person — picked, named, given a purpose, held to the sha256 it had when added — and Qwen3.8 27B and Gemma 4 12B in the shipped catalogue (§7 E8) | `wipemark-task-user-models-2026-10-08` | D400–D409, [E8-1](reports/E8-1-user-models-2026-10-08.md) | done; M1, M2 in `baca2eb`, M3 and Lows in 7c (D435–D439) |
 | 7b | `e7/compare-save` — **merged `c333d0b`** | E7-9: saving an edited Compare result — Save and ⌘S over the result's own file or into its row, never the original, a file changed on disk asked about, an autosave on by default (§7 E7) | `wipemark-task-compare-save-2026-10-08` | D410–D419, [E7-9](reports/E7-9-compare-save-2026-10-08.md) | done; the host verification's M1 and M2 fixed in `cf7cadd`, lows and one owner question open (§7 E7) |
-| 7c | `fix/e7-8-e8-1-followups` — **merged 2026-10-09** | the open findings of E7-8's and E8-1's verifications: one fact for consent, Compare's leftover asks, the added models' lows (§7 E7, E8) | `wipemark-task-followups-e7-8-e8-1-2026-10-08` | D430–D439, [report](reports/followups-e7-8-e8-1-2026-10-08.md) | done; the verification's Medium (tags that say speech refuse a text model) and Lows kept in §7 E8 |
+| 7c | `fix/e7-8-e8-1-followups` — **merged 2026-10-09** | the open findings of E7-8's and E8-1's verifications: one fact for consent, Compare's leftover asks, the added models' lows (§7 E7, E8) | `wipemark-task-followups-e7-8-e8-1-2026-10-08` | D430–D439, [report](reports/followups-e7-8-e8-1-2026-10-08.md) | done; the verification's Medium (tags that say speech refuse a text model) and Lows done in 7f (D450, D452–D455) |
 | 7d | `e4/bench-voice` — **merged 2026-10-09** | E4-8: voice measures in the bench, keep-voice variants in en, ru, de, the four-model run as a script (§7 E4) | `wipemark-task-bench-voice-2026-10-08` | D420–D429, [report](reports/E4-8-bench-voice-2026-10-08.md) | done in the container, the host verification's M1–M3 and Lows fixed (`a4b5d4e`); the host run and the keep-voice decision pending |
+| 7f | `fix/models-pipeline-followups` | the follow-ups' verification's Medium and Lows (§7 E8), `macOS-only` as an identifier (§7 E4), Gemma 4's re-upload checked (§7 E2), the images nits (row 4) and this table's E8-1 rows: M1–M11 | `wipemark-task-models-pipeline-followups-2026-10-09` | D450–D455, [report](reports/models-pipeline-followups-2026-10-09.md) | done in the container; not merged. D450 and D451 built at a default the owner may override |
 | 8 | gpui-kit #3416, #3417 (upstream, the owner's) | The scrollbar on the left and the original's gutter on its right in the editor — what Compare's mirrored layout needs (§7 E7) | — | — | **open as drafts** upstream |
 | 9 | — | The keep-voice rule after a four-model bench, and a voice measure in the bench (§7 E4); E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), S7.2, S7.3, S7.5, E9 licensing, E10 packaging (Windows; the Linux tray is done) | to be written | — | §7 |
 
 **Open with the owner** (§5): Q-C2–Q-C4 (E7's defaults: all metadata,
 Layer A's finer choices, an existing result; Q-C1 is answered by E4-6b's
 В1), Q-C6 (refuse what is not a regular file before opening it — D356
-does it for the journal's road), D361's consent default, whether the
-command line may write a moved identity back to an added model's row
-(E8-1's M3, §7 E8), whether a row may say *Cleaned* over an edit
-Compare saved that Layer A never ran over (D419's, §7 E7), Q-V4–Q-V7
+does it for the journal's road), D361's consent default, whether a row
+may say *Cleaned* over an edit Compare saved that Layer A never ran over
+(D419's, §7 E7), the speech-tag rule and the hyphenated-word rule, each
+built at a default (D450's, D451's, §5), Q-V4–Q-V7
 and Q-V9, the mn-embed-fleet restart, `llama-cpp-prebuilt`'s LICENSE, and
 the OpenAI/Grok captures. (Loading the user's own GGUF, D302's, is
 answered by E8-1; the Gemma 4 / Qwen3.8 catalogue entries are D403.)
@@ -552,7 +553,7 @@ tell a decision from an accident.
 | **D93** | **E4-6a — rewriting without a window** (delegated, written without a compiler; verified on the host 2026-10-04: two build errors fixed, 1124 tests green, nine of its mutations re-run, all red). Its H1–H20 are adopted as written in `docs/plan/E4-6a-headless-rewrite.md`; the ones a reader needs here: `EngineHandle::for_job` → `JobEngine` holds a job busy for its whole length (closes D56); the MCP `rewrite` blocks until done, a hang-up or 60 min cancels, `dry_run` prices without loading, `templates` lay a caller's templates over the rows strictly; the CLI finds the application by a loopback-only beacon (`<data dir>/mcp.json`, closes D52); the CLI's own engine is the **local model only** — an endpoint without the application refuses (H16); a seed is fresh per job unless named (D83); `rewrite` exits 3 when a chunk kept its source; `Unavailable::KeyUnsendable` (closes D79); core's `RewriteSummary`/`RiskLabel`/`FinalReport` removed, the baseline is `not_established::baseline()` (closes D85); a rewrite's result is `name.cleaned.ext`. | The task in Watchword `wipemark-task-e4-6a-headless-rewrite-2026-10-04`; report `docs/plan/reports/E4-6a-2026-10-04.md` (also Watchword `wipemark-e4-6a-report-2026-10-04`). |
 | **D94** | **The prompt bench and its two template changes** (E4-5, adopted): `crates/wipemark-pipeline/examples/bench` (requires `local-llama`), a corpus of 121 items en/ru/de, results in `bench/results/summary.json`, method in `docs/architecture/prompt-bench.md`; the bench reproduces `start`'s verdicts exactly (54/54 attempts). Shipped: every rewrite and translation contract says to write numbers in digits exactly as in the text (Gemma 3 number rejections 4.1 %→1.6 %); `structural` step 1 outputs only the bullet points, step 2 only the finished text (Gemma 4 passes 17→106 of 133). | Four models measured: Qwen3 4B and Gemma 3 12B on our engine (Vulkan), Gemma 4 12B and Qwen3.8 27B as loopback endpoints (llama.cpp b10731). |
 | **D95** | **The bench's recommendations — built by E4-7 (D111–D117), measured again: `docs/plan/reports/E4-7-2026-10-04.md`** (E4-5; the first is the owner's "how strongly" question): (1) pick the **most**-changed candidate that passed, raise the no-op floor 0.05→0.2, drop the dead 0.15 length penalty, keep the length guard 0.6–1.6 for chunks of 20+ words and widen it to 0.5–2.0 below; (2) a language check in the loop — reject an answer of 20+ words whose language differs from the chunk's (catches all 32 instruction-obeying answers that passed, costs 0.3–0.4 % of the rest); (3) a list item as a chunk of its own (revises D70/D78/D87 — list-line placeholders are where `⟦n⟧` is lost); (4) `NumbersGuard` reads a placeholder's digits as a number (a lost placeholder reported twice), and whether "1800" for "1,800" is a loss. Keep D61's 1×2 / 2×2 and "moderate". | Pairs of the original's words left in the result, paraphrase/moderate/GPU: 25–33 % today → 20–23 % with (1), no more meaning drift by the judge; KGW arithmetic: one page can drop under the threshold, no setting makes a 5–20-page document safe. |
-| **D96** | **Found by the bench, for E2/E8** (open): Gemma 4 does not run on our local engine at this pin — `llama_chat_apply_template` does not know its template, every request refused before a token; 5 of 6 Vulkan processes crashed with SIGSEGV **at exit**, after their output (the app's quit path shares the code — check on a Vulkan build); Qwen3.8 returned an empty answer 5 times in 1 394. | `docs/plan/reports/E4-5-2026-10-04.md`. The SIGSEGV at exit seen again by E4-7's judge run (Gemma 3 12B, Vulkan). **Closed by E2-4:** Gemma 4 runs locally (D181); the SIGSEGV at exit was the engine's drop racing `exit`, fixed (D184); Qwen3.8 runs locally at `b10731` (D180); its empty answers are model behaviour — reasoning written as text after a closed think block (report). E2-4's open question 1, Gemma 4's catalogue commit: **pinned to `f18012b8`** by D403 (the owner's file); HEAD's re-upload with the updated official template is unchecked. |
+| **D96** | **Found by the bench, for E2/E8** (open): Gemma 4 does not run on our local engine at this pin — `llama_chat_apply_template` does not know its template, every request refused before a token; 5 of 6 Vulkan processes crashed with SIGSEGV **at exit**, after their output (the app's quit path shares the code — check on a Vulkan build); Qwen3.8 returned an empty answer 5 times in 1 394. | `docs/plan/reports/E4-5-2026-10-04.md`. The SIGSEGV at exit seen again by E4-7's judge run (Gemma 3 12B, Vulkan). **Closed by E2-4:** Gemma 4 runs locally (D181); the SIGSEGV at exit was the engine's drop racing `exit`, fixed (D184); Qwen3.8 runs locally at `b10731` (D180); its empty answers are model behaviour — reasoning written as text after a closed think block (report). E2-4's open question 1, Gemma 4's catalogue commit: **pinned to `f18012b8`** by D403 (the owner's file); HEAD's re-upload with the updated official template checked on 2026-10-09 (row 7f, M9): only the header moved, and the conversation this product sends renders the same — the pin stays (§7 E2). |
 | **D97** | **An image is blocks that tile it**: every byte in exactly one block; `strip` keeps the unselected blocks and concatenates them byte for byte (E11-1 I1). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
 | **D98** | **What is structure**: PNG's critical chunks (any unknown one included), `tRNS`, APNG; JPEG's non-APP markers, APP0, APP14 `Adobe`, APP2 `MPF`; WebP's image chunks — never listed, never removed (I2). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
 | **D99** | **`Rendering` and `Other`** join `MetadataKind`; colour (ICC, gamma, sRGB…) is listed and removed by no scope (I3). | `docs/plan/E11-1-image-metadata.md`, report `docs/plan/reports/E11-1-2026-10-04.md`. |
@@ -841,6 +842,12 @@ tell a decision from an accident.
 | **D427** | A variant is read through `row::admit`, strictly, by one reader shared with the walk test. |
 | **D428** | CI lints the bench and runs its unit tests over the shim. |
 | **D429** | `bench plan` counts with no model; the voice table: the loop's pick beside `min ≥ 0.2`, GPU 2 × 2 where there are four candidates, CPU 1 × 2 where there are two. |
+| **D450** | **Speech tags in three kinds** (built at the default; the owner may override): a tag that writes (`text-generation`, `text2text-generation`, `any-to-any`, `*-text-to-text`), one that speaks (`*-to-speech`, `*-to-audio`, the word `tts`), one that hears (any other with a `SPEECH_WORDS` word); the tags refuse when one speaks, or one hears and none writes. The name and `general.type` rules are D437's. | The follow-ups' verification's Medium: llama.cpp copies a card's tags and `pipeline_tag` into `general.tags`, and Gemma 3n and Qwen2.5-Omni were refused; `user-models.md`. |
+| **D451** | **A hyphenated word holds its identifier parts** (built at the default; the owner may override): a token with U+002D or U+2010 that splits into two or more non-empty parts of letters alone is read by its parts, each kept when it is an identifier on its own; every other token is read whole. `data-testId` holds only `testId`; a job resumed across the change keeps chunks decided under the stricter rule. | §7 E4's `macOS-only` (2026-10-07: three candidates refused, one chunk kept); `layer-a.md`. |
+| **D452** | **The duty once per draw of the rows**: `Queue::vacancy` taken once in `render` — the list calls its processor three times a draw — and handed to each row's `why_not_rewrite_given`; `why_not_rewrite` stays for the callers outside a draw. | The follow-ups' verification's Low: `on_duty` ran up to three times per visible row per frame; `queue.md`. |
+| **D453** | **An add files its key and chat verdict at once**: `Read::Added` carries the header read's `FileKey` and `ChatSupport`, filed beside the row until the rescan reads them again. | The follow-ups' verification's Low: between an add and its rescan the same file by another road was a second row (against D436), and its verdict was unknown (D438); `user-models.md`. |
+| **D454** | **A swap told both ways**: the slot's watchers are told on every change of "swap pending"; the batch queue, told while it is pending, looks again and still waits (D395). | The follow-ups' verification's Low; the window never lagged (the host notifies, the shell observes it), the batch queue did; `queue.md`. |
+| **D455** | **A non-blocking open, then `fstat`**: `store::open_regular`, the header's and the hash's one open — a stat, then on Unix `O_NONBLOCK` (from `libc`, already locked) and the open file asked again; off Unix the stat and the open. | E8-1 follow-ups' Left open: a pipe swapped in after the stat blocked the open and held the scan's slot; `user-models.md`. |
 
 ---
 
@@ -887,6 +894,8 @@ answered moves here or to §4.
 | D302's | load the user's own GGUF, one in no catalogue, unverified — and what it costs the "verified" promise | E8 | **Closed (owner, 2026-10-08, by asking for E8-1):** added by the person, its checksum recorded, refused when it changes, never vouched for — D400–D409, `docs/architecture/user-models.md`. |
 | D419's | a Save that cleans writes the person's edit as typed (D419), and the row's badge says *Cleaned* over it — though Layer A never ran over the edit, which may carry a pasted ZWSP (`clean.rs` `saved_of`) | — | **Open (owner), from E7-9's host verification.** Built as D419: the edit is written as typed and the verdict is `Cleaned` whenever it differs from the source; the Report still says what Layer A found in the source. The alternatives: run Layer A over the edit before it is written, or say on the row that the result was edited after the clean. |
 | D361's | the queue's consent: asked again at start when the duty moved away from where the person agreed (D361) | — | **Open (owner)**: the coordinator's default is built (asked once, for every waiting item); the verification's M-1 is fixed by D370 (`fix/consent-and-lows`, merged `72da17d`), its follow-ups by E7-8 (D390–D397, merged `021a5e8`). |
+| D450's | which `general.tags` refuse a model as speech or audio | — | **Open (owner), built at a default** (row 7f): the speech-tag rule — a tag that speaks refuses; one that hears refuses only when no tag says the model writes text. The alternatives: trust no tag (the name and type alone), or every tag (D437 as it was). |
+| D451's | whether a hyphenated word whose parts are words with a brand's casing (`macOS-only`) is held whole by the identifier guard | — | **Open (owner), built at a default** (row 7f): held by its identifier parts (`macOS`), so "only on macOS" passes and "only on Apple's system" is refused; the cost is that `data-testId` holds only `testId`. |
 
 ---
 
@@ -972,8 +981,16 @@ the gate the overview set, and the open edges.
   thinking off); the Vulkan SIGSEGV at exit fixed (D180–D186) — status:
   done — [reports/E2-4-2026-10-04.md](reports/E2-4-2026-10-04.md). Its
   open question 1, Gemma 4's catalogue commit, is answered by E8-1's D403:
-  pinned to `f18012b8`, the owner's file; HEAD's re-upload with the updated
-  official template is unchecked.
+  pinned to `f18012b8`, the owner's file. HEAD's re-upload (`980b060c`,
+  2026-07-17, 6 716 356 800 bytes, sha256 `90fd44e2…c370`) was **checked
+  on 2026-10-09** (row 7f, M9; `scripts/verify/models/gemma4-template.py`
+  and `gemma4-render.py`): only the header moved — the template grew 1 458
+  bytes, its changes all in tools, reasoning content, consecutive assistant
+  turns and media part types — and both templates render the three
+  conversations `chat.rs` pins exactly as the renderer writes them. The
+  pin stays; moving it is the host's live gate, `POST /apply-template` and
+  the measured RSS, for no change this product would see
+  ([report](reports/models-pipeline-followups-2026-10-09.md), M9).
 - **E2-5** — [E2-5-llama-prebuilt.md](E2-5-llama-prebuilt.md): `native`
   links release `b10731` of `GigLaboCom/llama-cpp-prebuilt` (sha256-pinned
   in `src/pin.rs`) on the four published targets; `WIPEMARK_LLAMA_SOURCE=1`
@@ -1168,10 +1185,12 @@ the gate the overview set, and the open edges.
       A link-only line (`**→ [host/path](url)**`) was refused as
       `identifier-missing` on the token `⟦1⟧host/path⟦2⟧**`: a placeholder
       now ends a token, as a space does.
-    - **Check (open). `macOS-only` is an identifier** to the guard (a capital inside
-      a word), so "only on macOS" is a lost identifier — 3 candidates
-      refused, one chunk kept. Decide whether a hyphenated word whose parts
-      are dictionary words with a brand's casing is held.
+    - **Check. `macOS-only` is an identifier — done, built at the default
+      (D451)** (row 7f, M8): a hyphenated word of letters alone is held by
+      its parts that are identifiers on their own, so `macOS-only` holds
+      `macOS` and "only on macOS" passes; the owner may override (§5). It
+      was a capital inside a word to the guard, so "only on macOS" was a
+      lost identifier — 3 candidates refused, one chunk kept.
     - **Check. The most-diverged pick reads formal.** Passed candidates
       diverge 0.86 at the median; the chosen ones are longer (+10 % words),
       lose the second person and the article's voice ("Your agent is smart,
@@ -1543,13 +1562,14 @@ the gate the overview set, and the open edges.
   (D436); speech/audio, diffusion and draft models not offered (D437); a
   refused chat format listed, not choosable, not on duty (D438); the
   checksum of the file the header was read from, a Remove never takes a
-  file an added model names, only a regular file opened (D439). Left open:
-  a path swapped for a pipe between the check and the open still blocks
-  that one open (off the drawing thread); the speech words are a list, and
-  `general.tags` with `audio`/`speech`/`asr` refuses a model — Gemma 4 E2B
+  file an added model names, only a regular file opened (D439). Left open
+  then, **done since** (row 7f): a path swapped for a pipe between the
+  check and the open blocked that one open — now `store::open_regular`
+  opens without waiting (D455); the speech words were a list, and
+  `general.tags` with `audio`/`speech`/`asr` refused a model — Gemma 4 E2B
   and E4B (audio-capable) were checked and are added, but a card that tags
-  a text model `automatic-speech-recognition` would be refused (the
-  verification's Medium, kept for the owner). What was asked:
+  a text model `automatic-speech-recognition` was refused (the
+  verification's Medium) — now read in three kinds (D450). What was asked:
   - **M3** — the command line never writes a moved identity back to an
     added model's row (`apps/wipemark-cli/src/models.rs:322`, "Read-only: a
     moved identity is the application's to" write), though `RowsWriter`
@@ -1579,7 +1599,9 @@ the gate the overview set, and the open edges.
     describe two different files if the file is swapped between the two
     reads; and `models rm <catalogue-id>` can remove a file the person has
     also added by its path.
-- **Fix. The follow-ups' verification left** (host, 2026-10-09, on
+- **Fix. The follow-ups' verification left — done** (row 7f,
+  `fix/models-pipeline-followups`, M1–M7: D450, D452–D455; the doc comment
+  moved; the report's step 2 corrected 2026-10-09) (host, 2026-10-09, on
   `7cf55c2`): **Medium** — `gguf::says_speech` refuses any model whose
   `general.tags` holds the word `audio`, `speech` or `asr`, and llama.cpp
   copies a card's tags there, so a text model tagged

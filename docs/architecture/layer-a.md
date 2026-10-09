@@ -1036,6 +1036,26 @@ definition above — the format `wipemark_pipeline::placeholder` writes,
 which core re-states (`placeholder_at`) because core depends on nothing.
 Brackets around anything else (`⟦01⟧`) are text and split nothing.
 
+A hyphenated word is read by its parts (D451, 2026-10-09; built at the
+default, the owner may override). A token, once trimmed, that holds
+U+002D or U+2010 and splits on them into two or more parts, every one
+non-empty and made of letters alone (`tables::is_letter`), is not an
+identifier as a whole: what the guard holds of it is each part that is
+one on its own — in practice a CamelCase part. `macOS-only` holds `macOS`,
+so "only on macOS" keeps it; `iPhone-like` holds `iPhone`; `well-known`
+holds nothing. Before, `macOS-only` was a CamelCase token (`c` before `O`)
+that had to come back verbatim, and Qwen3.8 27B's run of 2026-10-07 lost
+three candidates and kept one chunk over it. Source and candidate are read
+the same way, so parts are compared with parts, and the parts are slices
+of the token. Anything but letters keeps a token whole, as before — a
+digit, `_`, `.`, `/`, `\`, `@`, `:` (`x-fooBar2`, `my-var_name`,
+`foo.barBaz-qux`, `host/path`) — and so does an empty part (`--dryRun`);
+`v1.2-rc` is no identifier before or after, its digits the numbers
+guard's. The cost: `data-testId` holds only `testId`, so a candidate that
+writes `testId` alone passes. `select::RULES` (D116) does not fingerprint
+the guards, so a job resumed across this change keeps the chunks it decided
+under the stricter rule — harmless: they passed a stricter guard.
+
 ### Why strict, and what they cannot see
 
 A false reject costs one more candidate; a false pass costs the user a
@@ -1048,7 +1068,9 @@ their blind spots are deliberate and written on each type:
 - **units** — not tracked; `50 %` holds the token `50`, so `50 %` →
   `50%` passes and `50%` → `50 %` is rejected;
 - **an identifier glued to a dash or an ellipsis** — `foo_bar—see` is
-  one token, so a candidate that glues it loses it and is rejected;
+  one token, so a candidate that glues it loses it and is rejected; a
+  hyphen joining words of letters is the exception (D451): `fooBar-see`
+  holds `fooBar`, wherever the candidate puts it;
 - **Arabic, Hebrew and every other script** are one bucket, `other`:
   English translated into Arabic is caught as Latin falling, but the
   reason does not name Arabic (A §9 Q-A5).
