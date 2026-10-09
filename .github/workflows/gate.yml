@@ -89,6 +89,12 @@ jobs:
       - name: Dependency direction
         run: scripts/check-dep-direction.sh
 
+      # Every crate of ours on the zune-jpeg fork's one rev (D301): a member
+      # that names its own zune-jpeg, a [patch] or a local path builds and
+      # quietly decodes with something else.
+      - name: zune-jpeg pin
+        run: scripts/check-zune-pin.sh
+
       - name: Toolchains
         run: |
           # The pinned stable from rust-toolchain.toml, with its components.

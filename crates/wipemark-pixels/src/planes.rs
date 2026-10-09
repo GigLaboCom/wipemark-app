@@ -13,10 +13,15 @@
 //!
 //! > Restated from `zune-jpeg` 0.5.15 (`etemesi254/zune-image` at
 //! > `31d81fed7551c8ccea456d9d8e2b1fd8bebb6995`, `crates/zune-jpeg`; MIT OR
-//! > Apache-2.0 OR Zlib), as patched on `GigLaboCom/zune-image`
-//! > `wipemark/planes` (whose patch does not touch these functions):
-//! > `src/upsampler/scalar.rs` (`upsample_horizontal`, `upsample_vertical`,
-//! > `upsample_hv`, `upsample_generic`), `src/worker.rs` (`upsample`: the
+//! > Apache-2.0 OR Zlib), and checked again on 2026-10-09 against the
+//! > decoder this workspace pins, `GigLaboCom/zune-image`
+//! > `raw-quantization-tables` at `e8d24f7e` (upstream `dev` at `002706a8`,
+//! > `zune-jpeg` 0.5.16-rc2), where these functions differ from 0.5.15 in
+//! > formatting only — but for `upsample`'s rows for factors other than
+//! > the four named samplings (upstream #482), which nothing holds this
+//! > restatement to: `src/upsampler/scalar.rs` (`upsample_horizontal`,
+//! > `upsample_vertical`, `upsample_hv`, `upsample_generic`),
+//! > `src/worker.rs` (`upsample`: the
 //! > rows above and below at the picture's top and bottom), and
 //! > `src/color_convert/scalar.rs` (`ycbcr_to_rgb_inner_16_scalar` and its
 //! > constants). **Cut**: the SIMD variants (AVX2, NEON, portable SIMD,
