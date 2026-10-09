@@ -195,3 +195,68 @@ Only the vendor's blend (`encoded`, `k = 1`) enters A1–A3 and A7; the
 linear-light composites are A5's, the `R-k` ones §7's. Every threshold is a
 `[tunable]` at the top of `report.py` and moves only with a line in a
 report.
+
+## E12-R9: the blend past one colour, with R4's numbers
+
+R9's three sub-steps — a bias (R9a, D308), a logo colour per pixel (R9b,
+D313), linear light (R9c, D311), all proposed — are code behind the
+`blend-preview` feature (`docs/architecture/visible-marks.md`, "A mark is
+data"). Nothing in the repository carries R4's values: the host writes
+them into **one profile row in a file**, and the bench reads that file, so
+plugging in a measured `b`, a regressed `L(p)` or the linear model is an
+edit to a JSON file, not to the code. Build:
+
+```sh
+cargo build --release -p wipemark-picture --example recon_bench --features blend-preview --locked
+B=target/release/examples/recon_bench
+$B configs          # R9a, R9b, R9c are listed only in this build
+```
+
+**The row.** Copy V1's row out of `manifests/marks.v1.json` into
+`bench/r9/<sub-step>/row.json` (one JSON object, the same schema), keep its
+`id` (`gemini-sparkle-v1`) so it takes the shipped row's place, and change
+only its `blend`:
+
+| sub-step | the row's `blend` | from |
+|---|---|---|
+| R9a | `{ "model": "encoded", "logo": [252.1, 253.5, 252.8], "logo_map": null, "bias": [b_r, b_g, b_b] }` | R4 §4.3, `scripts/analytics/bias.py`'s `b` per channel |
+| R9b | `{ "model": "encoded", "logo": [252.1, 253.5, 252.8], "logo_map": { "asset": "gemini-v1-96-regressed.wml", "sha256": "…", "size": [96, 96] } }`, and `alpha` / `placements` / `search` naming only the 96 maps (a logo colour map must be the size of every map its row lists) | R4 §4.4: `python3 scripts/bench/wml.py from-tsv <map_regress-out>/pixels.tsv --logo 252.1,253.5,252.8 --out bench/r9/r9b/gemini-v1-96-regressed.wml` prints the sha256 and the `blend` |
+| R9c | `{ "model": "linear-light", "logo": […], "logo_map": null }` with the `alpha` and `logo` a linear-light calibration wrote (`examples/calibrate.rs` on `gemini-midtone`'s greys writes such a row under `blend-preview`) | R4 §4.3/§4.4 and the calibration (D311's three agreements) |
+
+Every `.wma` and `.wml` in the row file's folder is read before the shipped
+ones, so a regressed `α` map (`map_regress`'s `alpha_reg.wma`, pinned with
+its sha256 in the row's `alpha`) goes beside it too. `run` refuses a row
+that does not read, and an R9 config whose row carries nothing it measures.
+
+**Level A.** The composites carry the effect the sub-step models — `gen`'s
+flags draw it, with the same row's numbers, into a run of its own:
+
+```sh
+# R9a: R5's composites with the bias, and with the bias truncated.
+$B gen --manifest bench/manifest.json --out bench/out/r9a-<date> --sample 30 --bias b_r,b_g,b_b
+$B gen --manifest bench/manifest.json --out bench/out/r9a-trunc-<date> --sample 30 --bias b_r,b_g,b_b --rounding truncate
+# R9b: the regressed L(p) drawn on the rows whose map is its size.
+$B gen --manifest bench/manifest.json --out bench/out/r9b-<date> --sample 30 --rows v1-96,v1-96-measured \
+    --logo-map bench/r9/r9b/gemini-v1-96-regressed.wml
+# R9c: R5's own composites already hold both models (A5's matrix).
+python3 scripts/bench/encode.py bench/out/r9a-<date>     # and every other run
+$B run --in bench/out/r9a-<date> --config R0 --config R9a --blend-row bench/r9/r9a/row.json \
+    --out bench/out/r9a-<date>/results.jsonl
+python3 scripts/bench/report.py gates bench/out/r9a-<date>/results.jsonl --candidate R9a --route model --targets png
+```
+
+and the same for `r9a-trunc`, `r9b` (`--config R9b`, `--blend-row
+bench/r9/r9b/row.json`; A1 on the `sat-*` and `black`-like tones by ΔE,
+`report.py report`'s per-tone table) and R9c over an ordinary run
+(`--config R0 --config R9c --blend-row bench/r9/r9c/row.json`; the
+report's §2 is the matrix, `gates … --candidate R9c` checks A5). Without a
+bias, a truncation or a map, `gen` writes what it wrote before R9, byte for
+byte, `meta.json` included; with one, `meta.json`'s `blend` says it and an
+`exact` expectation becomes `restored`. A2 (R9a/R9b): an R9 config on an
+R0 run with `"bias": null` / no map must equal R0 file for file.
+
+**Level B** is R1's `--route model` with a CLI built `--features
+wipemark-picture/blend-preview` over a `manifests/marks.v1.json` carrying
+the same row (a local edit, never committed until the decision is taken),
+on `recon-png` (M2) and `gemini-midtone`'s **held-out** files (M3), and
+the negatives (G1).
