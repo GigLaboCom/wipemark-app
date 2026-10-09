@@ -143,8 +143,14 @@ together.
 
 **Since 2026-10-07: upstream.** #3359 is merged into gpui-kit's `next`
 (`f8429177`), and this repository's submodule is `longbridge/gpui-kit`,
-branch `next`, at that commit — the GPUI bump (Watchword
-`wipemark-task-gpui-bump-2026-10-07`). Nothing of ours is carried in the
+branch `next` — at that commit from the GPUI bump (Watchword
+`wipemark-task-gpui-bump-2026-10-07`), and since 2026-10-09 at
+`d9b7c421`, which contains it and adds #3416 and #3417, the left scroll
+bar and the mirrored gutter the Compare window's layout uses (E7-10,
+D460; `docs/architecture/gpui-pin.md` §1). #3417 lets the gutter's
+columns — fold icons, line numbers and this patch's markers — be ordered
+from the text outward; Compare puts the markers by the text and the
+numbers at the divider (D463). Nothing of ours is carried in the
 component any more; `compare.rs` and `result.rs` use the API as merged
 (§4.1, and `line-decorations/upstream-port.md`, "As it landed"). The
 table below is the fork as it was from 2026-10-03 until then; the fork's
