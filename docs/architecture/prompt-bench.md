@@ -300,8 +300,10 @@ and `report` recomputes from the texts, so a better list needs no rerun.
   candidates — GPU 2 × 2 where the run made four candidates a chunk, CPU
   1 × 2 where it made two — with the judge's voice answers among the
   winners (D429). A chunk kept as it was keeps its voice. `summary.json`
-  carries the same under `"voice"` for every policy, executor and
-  language, and over every answered attempt of every cell.
+  carries the same under `"voice"` in every policy row — every language
+  together, and per language for the policies the report weighs (E4-3's,
+  E4-7's, `min ≥ 0.2`, `min ≥ 0.6`) on GPU 2 × 2 — and over every answered
+  attempt of every cell.
 - The medians come with **quartiles** (p25–p75) here, where the older
   measures keep p10–p90.
 

@@ -56,7 +56,6 @@
 #   export WIPEMARK_BENCH_JUDGE_NAME=gemma4-12b-judge
 #   # optional, per model: WIPEMARK_BENCH_GPU_LAYERS_<QWEN3_4B|GEMMA3_12B|
 #   # GEMMA4_12B|QWEN38_27B|JUDGE>, default -1 (every layer on the GPU)
-#   export GGML_VULKAN=ON                  # E4-5's backend on the RTX 5070 Ti
 #   crates/wipemark-pipeline/bench/run-voice.sh --dry-run    # the commands; nothing runs
 #   crates/wipemark-pipeline/bench/run-voice.sh --estimate   # build and plan; no model
 #   crates/wipemark-pipeline/bench/run-voice.sh              # all of it
@@ -67,9 +66,10 @@
 #
 # What it needs
 #   bash (3.2 is enough), awk, sed, cargo; the four GGUFs and the judge's,
-#   read only; a GPU (E4-5: an RTX 5070 Ti, 16 GB, Vulkan); the crates and
-#   the llama.cpp release in the local caches (any earlier llama-native
-#   build). Hours, not minutes: --estimate says how many.
+#   read only; a GPU (E4-5: an RTX 5070 Ti, 16 GB — the prebuilt release
+#   carries the Vulkan backend, so no GGML_* variable is needed or read);
+#   the crates and the llama.cpp release in the local caches (any earlier
+#   llama-native build). Hours, not minutes: --estimate says how many.
 #
 # What its output means (under --out)
 #   runs/<id>.jsonl, runs/<id>+voice.jsonl — one JSON line per attempt, the
