@@ -1191,20 +1191,23 @@ pub fn tables(
             cal.push(json!({"judge": judge_name, "case": case, "n": js.len(), "as_expected": ok}));
         }
         // E4-8: the voice question's calibration — a text keeps its own
-        // voice. Judgements made before E4-8 have none.
-        let js: Vec<&Value> = judgements
-            .iter()
-            .filter(|j| j["judge"] == judge_name && j["voice_calib"] == "same")
-            .collect();
-        if !js.is_empty() {
-            let ok = js.iter().filter(|j| j["voice"] == "YES").count();
-            let _ = writeln!(
-                md,
-                "| {judge_name} | same (voice) | YES | {} | {} |",
-                js.len(),
-                pct(ok, js.len())
-            );
-            cal.push(json!({"judge": judge_name, "case": "same-voice", "n": js.len(), "as_expected": ok}));
+        // voice, and a text that speaks to its reader otherwise does not
+        // (2026-10-09). Judgements made before have none.
+        for (case, expected) in [("same", "YES"), ("switched", "NO")] {
+            let js: Vec<&Value> = judgements
+                .iter()
+                .filter(|j| j["judge"] == judge_name && j["voice_calib"] == case)
+                .collect();
+            if !js.is_empty() {
+                let ok = js.iter().filter(|j| j["voice"] == expected).count();
+                let _ = writeln!(
+                    md,
+                    "| {judge_name} | {case} (voice) | {expected} | {} | {} |",
+                    js.len(),
+                    pct(ok, js.len())
+                );
+                cal.push(json!({"judge": judge_name, "case": format!("{case}-voice"), "n": js.len(), "as_expected": ok}));
+            }
         }
         let other = judgements
             .iter()
@@ -1436,11 +1439,17 @@ mod tests {
             json!({"key": "voice|J|m|en-mx-01|0|paraphrase|moderate|2", "of": "m|en-mx-01|0|paraphrase|moderate|2", "judge": "J", "voice": "YES"}),
             json!({"key": "voice|J|m|en-mx-01|0|paraphrase|moderate|1", "of": "m|en-mx-01|0|paraphrase|moderate|1", "judge": "J", "voice": "NO"}),
             json!({"key": "calib-voice|J|en-mx-01#0|same", "voice_calib": "same", "item": "en-mx-01#0", "judge": "J", "voice": "YES"}),
+            json!({"key": "calib-voice|J|switched-ru|switched", "voice_calib": "switched", "item": "switched-ru", "judge": "J", "voice": "NO"}),
+            json!({"key": "calib-voice|J|switched-de|switched", "voice_calib": "switched", "item": "switched-de", "judge": "J", "voice": "YES"}),
         ];
         let (md, _) = tables(english(), &judgements, None);
         assert!(voice_row(&md, "max ≥ 0.2 (E4-7)").ends_with("| 100% / 0% / 0% of 1 |"));
         assert!(voice_row(&md, "min ≥ 0.2").ends_with("| 0% / 0% / 100% of 1 |"));
         assert!(md.contains("| J | same (voice) | YES | 1 | 100% |"));
+        assert!(
+            md.contains("| J | switched (voice) | NO | 2 | 50% |"),
+            "a judge that says YES to a switched address fails"
+        );
         // The meaning's own columns read the meaning lines only.
         assert!(md.contains("| J | same | EQUIVALENT | 0 | – |"));
     }

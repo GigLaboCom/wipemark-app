@@ -40,6 +40,10 @@ What the output means
     revert did not build, or the filter matched no test: no verdict), or
     MISSING (the source moved and the piece is no longer there — update the
     entry).
+
+    The checks named H-… were added by the host verification's round
+    (2026-10-09, branch fix/e4-8-verification; the report's "Host
+    verification" section), run the same way.
 """
 
 import re
@@ -62,6 +66,18 @@ VARIANT = "crates/wipemark-pipeline/examples/bench/variant.rs"
 EN_LIST = "crates/wipemark-pipeline/bench/register/en.txt"
 KV = "crates/wipemark-pipeline/bench/variants/keep-voice"
 SCRIPT = "crates/wipemark-pipeline/bench/run-voice.sh"
+RU_CORPUS = "crates/wipemark-pipeline/bench/corpus/ru.txt"
+
+
+def item_of(path, item_id):
+    """The text of one corpus item, its header included, as it is in `path`
+    (an id that is not there yields a piece that is not there: MISSING)."""
+    text = open(path, encoding="utf-8").read()
+    start = text.find(f"\n=== id: {item_id} ")
+    if start < 0:
+        return f"\0no item {item_id}\0"
+    end = text.find("\n=== ", start + 1)
+    return text[start:] if end < 0 else text[start:end]
 
 # name: ([(file, the protection as it is, what it becomes), ...], command)
 CHECKS = {
@@ -220,6 +236,82 @@ CHECKS = {
     "V4-lint": (
         [(ANALYSE, "fn round3(v: f64) -> f64 {\n", "fn round3(v: f64) -> f64 {\n    let _copied = 1u8.clone();\n")],
         LINT,
+    ),
+    # ── The host verification, 2026-10-09 ──────────────────────────────
+    # M1: Russian possessives in the prepositional — твоём/твоем, вашем,
+    # нашем, моём/моем. Take them out.
+    "H-M1-prepositional": (
+        [(MEASURE, '        "твоём",\n        "твоем",\n', ""),
+         (MEASURE, '        "вашем",\n', ""),
+         (MEASURE, '        "моём",\n        "моем",\n', ""),
+         (MEASURE, '        "нашем",\n', "")],
+        BENCH + ["measure::tests::russian_counts_every_case"],
+    ),
+    # M3: the source's count is the source's alone — let the answer decide
+    # it again, as before.
+    "H-M3-source-alone": (
+        [(MEASURE, "            persons(lang, source, source_formal),\n",
+          "            persons(lang, source, source_formal || formally_addressed(lang, answer)),\n")],
+        BENCH + ["measure::tests::a_formal_address_lost_whole"],
+    ),
+    # M3: a chunk that opens with "Sie" and a plural verb is formally
+    # addressed — without it the whole loss is invisible.
+    "H-M3-opening": (
+        [(MEASURE, "    inside || opening\n", "    let _ = opening;\n    inside\n")],
+        BENCH + ["measure::tests::a_formal_address_lost_whole"],
+    ),
+    # M3: the answer's own address counts in the answer — du → Sie is a
+    # switch, not a loss.
+    "H-M3-answer-own": (
+        [(MEASURE, "                source_formal || formally_addressed(lang, answer),\n",
+          "                source_formal,\n")],
+        BENCH + ["measure::tests::a_formal_address_lost_whole"],
+    ),
+    # Low: an opening quotation mark opens a sentence.
+    "H-L-quote": (
+        [(MEASURE, " | '\\n' | '„' | '»' | '«') {", " | '\\n') {")],
+        BENCH + ["measure::tests::an_opening_quotation_mark"],
+    ),
+    # Low: "World War I" is a numeral, not the first person.
+    "H-L-roman": (
+        [(MEASURE, '            out.first += u32::from(word == "I" && !roman_one(text, &all, i));\n',
+          '            out.first += u32::from(word == "I" && !roman_one(text, &all, i) || word == "I");\n')],
+        BENCH + ["measure::tests::an_english_roman_one"],
+    ),
+    # M2: the address items are never counted by --every — count them, and
+    # every ru item after the de ones moves.
+    "H-M2-selection": (
+        [(RUN, "            if item.kind == ADDRESS {\n                return true;\n            }\n            let i = place;\n            place += 1;\n",
+          "            let i = place;\n            place += 1;\n            if item.kind == ADDRESS {\n                return true;\n            }\n")],
+        BENCH + ["run::tests::the_address_items_leave"],
+    ),
+    # M2: the corpus speaks to its reader with «ты» — take one such item out.
+    "H-M2-corpus": (
+        [(RU_CORPUS, item_of(RU_CORPUS, "ru-addr-01"), "")],
+        BENCH + ["run::tests::the_corpus_speaks"],
+    ),
+    # Low: the voice calibration has a negative case — ask none.
+    "H-L-voice-negative": (
+        [(JUDGE, "    if !chunks.is_empty() {\n        for (lang, text, switched) in VOICE_SWITCHED {\n",
+          "    if false {\n        for (lang, text, switched) in VOICE_SWITCHED {\n")],
+        BENCH + ["judge::tests::every_judged_attempt"],
+    ),
+    # Low: the report holds the negative case to NO.
+    "H-L-voice-negative-report": (
+        [(ANALYSE, '[("same", "YES"), ("switched", "NO")]', '[("same", "YES"), ("switched", "YES")]')],
+        BENCH + ["analyse::tests::the_judges_voice"],
+    ),
+    # Low: the meaning question's system turn is E4-5's, word for word.
+    "H-L-meaning-system": (
+        [(JUDGE, '"You compare two texts for meaning. You answer with exactly one word: EQUIVALENT or CHANGED.";',
+          '"You compare two texts for meaning and voice. You answer with exactly one word: EQUIVALENT or CHANGED.";')],
+        BENCH + ["judge::tests::the_meaning_question"],
+    ),
+    # Low: the prebuilt cache is this pin's — take any release, as before.
+    "H-L-cache-pin": (
+        [(SCRIPT, '  [ -f "$target/debug/llama-cpp-prebuilt/$release/PROVENANCE.txt" ] ||\n',
+          '  ls "$target"/debug/llama-cpp-prebuilt/*/*/PROVENANCE.txt > /dev/null 2>&1 ||\n')],
+        SCRIPT_TEST + ["a_prebuilt_cache_of_another_pin"],
     ),
 }
 

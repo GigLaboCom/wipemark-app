@@ -208,3 +208,83 @@ fn it_downloads_nothing() {
         );
     }
 }
+
+/// The release `crates/wipemark-llama-sys/src/pin.rs` pins for this host,
+/// as the prebuilt cache names its directory — `<sha256, 12>/llama-cpp-<tag>-
+/// <host>` — read here with no code of the script's.
+fn pinned_release() -> Option<String> {
+    let host = text(&Command::new("rustc").arg("-vV").output().unwrap().stdout)
+        .lines()
+        .find_map(|l| l.strip_prefix("host: ").map(str::to_owned))?;
+    let pin = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../wipemark-llama-sys/src/pin.rs"),
+    )
+    .unwrap();
+    let tag = pin
+        .lines()
+        .find_map(|l| l.strip_prefix("pub const PREBUILT_TAG: &str = \""))?
+        .trim_end_matches("\";");
+    let mut lines = pin
+        .lines()
+        .skip_while(|l| l.trim() != format!("\"{host}\","));
+    lines.next()?;
+    let sha = lines.next()?.trim().trim_matches(|c| c == '"' || c == ',');
+    Some(format!("{}/llama-cpp-{tag}-{host}", &sha[..12]))
+}
+
+#[test]
+fn a_prebuilt_cache_of_another_pin_is_a_refusal_and_nothing_is_built() {
+    let dir = nowhere();
+    let target = dir.join("target");
+    // A release another pin left, whole: an archive of another sha256 and tag.
+    let stale = target.join("debug/llama-cpp-prebuilt/0123456789ab/llama-cpp-b1-some-host");
+    std::fs::create_dir_all(&stale).unwrap();
+    std::fs::write(stale.join("PROVENANCE.txt"), "llama.cpp b1\n").unwrap();
+    let model = dir.join("gemma4-12b.gguf");
+    std::fs::write(&model, b"GGUF").unwrap();
+    // `cargo` here is a stub that only says it was asked: a build that
+    // started would be a real one, and could fetch the release.
+    let bin = dir.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let built = dir.join("built");
+    let stub = bin.join("cargo");
+    std::fs::write(
+        &stub,
+        format!("#!/bin/sh\necho \"$@\" >> '{}'\n", built.display()),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut command = Command::new("bash");
+    command
+        .arg(script())
+        .args(["--estimate", "gemma4-12b"])
+        .env("CARGO_TARGET_DIR", &target)
+        .env(
+            "PATH",
+            format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()),
+        )
+        .env("WIPEMARK_BENCH_GGUF_GEMMA4_12B", &model);
+    for name in VARIABLES
+        .iter()
+        .filter(|n| **n != "WIPEMARK_BENCH_GGUF_GEMMA4_12B")
+    {
+        command.env_remove(name);
+    }
+    let done = command.output().expect("bash runs");
+    let stderr = text(&done.stderr);
+    let built_anything = built.exists();
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(done.status.code(), Some(2), "{stderr}");
+    assert!(!built_anything, "the stale cache was taken for the pin's");
+    match pinned_release() {
+        Some(release) => assert!(
+            stderr.contains(&format!(
+                "the pinned llama.cpp release ({release}) is not in"
+            )),
+            "the refusal names this pin's release, {release}: {stderr}"
+        ),
+        None => assert!(stderr.contains("no prebuilt llama.cpp is pinned for this host")),
+    }
+}

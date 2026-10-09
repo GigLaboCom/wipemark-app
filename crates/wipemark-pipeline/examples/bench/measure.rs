@@ -314,6 +314,8 @@ const RU_PERSONS: PersonWords = PersonWords {
         "твоего",
         "твоей",
         "твоему",
+        "твоём",
+        "твоем",
         "твоим",
         "твоих",
         "твоими",
@@ -332,6 +334,7 @@ const RU_PERSONS: PersonWords = PersonWords {
         "вашего",
         "вашей",
         "вашему",
+        "вашем",
         "вашим",
         "ваших",
         "вашими",
@@ -352,6 +355,8 @@ const RU_PERSONS: PersonWords = PersonWords {
         "моего",
         "моей",
         "моему",
+        "моём",
+        "моем",
         "моим",
         "моих",
         "моими",
@@ -368,6 +373,7 @@ const RU_PERSONS: PersonWords = PersonWords {
         "нашего",
         "нашей",
         "нашему",
+        "нашем",
         "нашим",
         "наших",
         "нашими",
@@ -411,7 +417,8 @@ fn placeholder_at(rest: &str) -> Option<usize> {
 
 /// `text`'s words **as written** — the runs of letters and digits outside
 /// its placeholders — each with whether it opens a sentence: the first
-/// word, or the first after `.`, `!`, `?`, `…`, `:` or a line break.
+/// word, or the first after `.`, `!`, `?`, `…`, `:`, a line break or an
+/// opening quotation mark (`„`, `»`, `«` — «„Sie kommt.“» is "she").
 fn cased(text: &str) -> Vec<(&str, bool)> {
     let mut out = Vec::new();
     let mut start: Option<usize> = None;
@@ -432,7 +439,7 @@ fn cased(text: &str) -> Vec<(&str, bool)> {
             if let Some(from) = start.take() {
                 out.push((&text[from..at], std::mem::take(&mut boundary)));
             }
-            if matches!(c, '.' | '!' | '?' | '…' | ':' | '\n') {
+            if matches!(c, '.' | '!' | '?' | '…' | ':' | '\n' | '„' | '»' | '«') {
                 boundary = true;
             }
         }
@@ -444,15 +451,70 @@ fn cased(text: &str) -> Vec<(&str, bool)> {
     out
 }
 
-/// Whether `text` addresses the reader formally beyond doubt — German only:
-/// a capitalised «Sie», «Ihnen» or «Ihr…» inside a sentence. At a
-/// sentence's start the capital says nothing ("Sie" is "she" and "they"
-/// too), so there it counts only when the pair has such a form (D420).
-fn plainly_formal(lang: Lang, text: &str) -> bool {
-    lang == Lang::De
-        && cased(text)
-            .iter()
-            .any(|(word, opens)| !opens && DE_PERSONS.formal.contains(word))
+/// Whether `text` addresses the reader formally — German only (D420,
+/// amended 2026-10-09): a capitalised «Sie», «Ihnen» or «Ihr…» inside a
+/// sentence, or a text that **opens** with «Sie» and a verb in the plural
+/// («Sie können …», «Sie sind …»). At a sentence's start the capital says
+/// nothing by itself ("Sie" is "she" and "they" too); the plural verb rules
+/// out "she", and a "they" that opens the chunk has nothing in it to refer
+/// to. A "Sie" + plural verb later in the chunk may be "they" of a plural
+/// named before it, and is left to the first rule.
+fn formally_addressed(lang: Lang, text: &str) -> bool {
+    if lang != Lang::De {
+        return false;
+    }
+    let words = cased(text);
+    let inside = words
+        .iter()
+        .any(|(word, opens)| !opens && DE_PERSONS.formal.contains(word));
+    let opening = matches!(words.as_slice(), [("Sie", _), (verb, false), ..] if plural_verb(verb));
+    inside || opening
+}
+
+/// Whether a German word, as written, reads as a finite verb in the plural
+/// (or the formal address): lower case, and "-en" or one of the two short
+/// forms that do not end so. The singular's forms end otherwise — "arbeitet",
+/// "ist", "kann", "hatte" — so "Sie" before one is "she".
+fn plural_verb(word: &str) -> bool {
+    word.chars().next().is_some_and(char::is_lowercase)
+        && (word.ends_with("en") || matches!(word, "sind" | "tun"))
+}
+
+/// Words after which an English capital "I" is a Roman numeral, not the
+/// first person: "World War I", "Part I", "Chapter I" — matched as written.
+const NUMBERED: [&str; 22] = [
+    "War", "Part", "Chapter", "Volume", "Vol", "Book", "Act", "Scene", "Phase", "Stage", "Type",
+    "Class", "Section", "Article", "Appendix", "Level", "Season", "Episode", "Figure", "Table",
+    "Title", "Grade",
+];
+
+/// Where `word`, a slice of `text`, starts in it.
+fn offset(text: &str, word: &str) -> usize {
+    word.as_ptr() as usize - text.as_ptr() as usize
+}
+
+/// Whether the English "I" at `words[i]` is a Roman numeral: right after a
+/// word of [`NUMBERED`] ("World War I"), or after a capitalised word inside
+/// a sentence and before a stop, a comma, a semicolon, a bracket or the end
+/// ("under Elizabeth I." — but "Tom and I." is first person). Only a space
+/// may stand between the two. "Elizabeth I was queen" is not caught: a
+/// capitalised name before "I was" is also "Then, Tom, I was …".
+fn roman_one(text: &str, words: &[(&str, bool)], i: usize) -> bool {
+    let Some(&(before, before_opens)) = i.checked_sub(1).and_then(|j| words.get(j)) else {
+        return false;
+    };
+    let at = offset(text, words[i].0);
+    let gap = &text[offset(text, before) + before.len()..at];
+    if gap.is_empty() || !gap.chars().all(|c| c == ' ') {
+        return false;
+    }
+    if NUMBERED.contains(&before) {
+        return true;
+    }
+    let after = text[at + 1..].chars().next();
+    !before_opens
+        && before.chars().next().is_some_and(char::is_uppercase)
+        && after.is_none_or(|c| matches!(c, '.' | ',' | ';' | ')' | '\n'))
 }
 
 /// Who one text speaks to and as: its person words, counted.
@@ -474,11 +536,12 @@ impl Persons {
 
 /// [`Persons`] of `text`. `formal_here` says whether a German
 /// sentence-initial «Sie/Ihnen/Ihr…» is the formal address — see
-/// [`plainly_formal`].
+/// [`formally_addressed`] and [`Voice::of`].
 fn persons(lang: Lang, text: &str, formal_here: bool) -> Persons {
     let words = person_words(lang);
     let mut out = Persons::default();
-    for (word, opens) in cased(text) {
+    let all = cased(text);
+    for (i, &(word, opens)) in all.iter().enumerate() {
         if lang == Lang::De && words.formal.contains(&word) {
             if !opens || formal_here {
                 out.second += 1;
@@ -487,7 +550,7 @@ fn persons(lang: Lang, text: &str, formal_here: bool) -> Persons {
             continue;
         }
         if lang == Lang::En && (word == "I" || word == "US") {
-            out.first += u32::from(word == "I");
+            out.first += u32::from(word == "I" && !roman_one(text, &all, i));
             continue;
         }
         let lower = word.to_lowercase();
@@ -596,11 +659,22 @@ pub struct Voice {
 }
 
 impl Voice {
+    /// A German sentence-initial «Sie/Ihr…» is read by the **source**: the
+    /// source's count — the denominator of every share — is the source's
+    /// alone (D420, amended 2026-10-09), so a rewrite that drops the formal
+    /// address cannot also take away the address it dropped. The answer's
+    /// is formal when the source is formally addressed, or when the answer
+    /// itself is by the same rule — so "Du kannst …" → "Sie können …" is a
+    /// switch, not a loss.
     pub fn of(lang: Lang, source: &str, answer: &str) -> Voice {
-        let formal_here = plainly_formal(lang, source) || plainly_formal(lang, answer);
+        let source_formal = formally_addressed(lang, source);
         let (s, a) = (
-            persons(lang, source, formal_here),
-            persons(lang, answer, formal_here),
+            persons(lang, source, source_formal),
+            persons(
+                lang,
+                answer,
+                source_formal || formally_addressed(lang, answer),
+            ),
         );
         let switched = match (lang, s.informal() > 0, s.formal > 0) {
             (Lang::En, _, _) => None,
@@ -799,14 +873,18 @@ mod tests {
         assert_eq!(formal.lost_all_second(), Some(true));
         assert_eq!(formal.switched, Some(false));
 
-        let from_the_answer = Voice::of(
+        let opening = Voice::of(
             Lang::De,
             "Sie können das Formular online ausfüllen.",
             "Das Formular können Sie online ausfüllen.",
         );
-        assert_eq!(counts(from_the_answer.source), (1, 1, 0));
-        assert_eq!(counts(from_the_answer.answer), (1, 1, 0));
-        assert_eq!(from_the_answer.second_kept(), Some(1.0));
+        assert_eq!(
+            counts(opening.source),
+            (1, 1, 0),
+            "a chunk that opens with Sie and a plural verb speaks to its reader"
+        );
+        assert_eq!(counts(opening.answer), (1, 1, 0));
+        assert_eq!(opening.second_kept(), Some(1.0));
 
         let du_to_sie = Voice::of(
             Lang::De,
@@ -828,6 +906,97 @@ mod tests {
             "ihr is her; euch is the plural you"
         );
         assert_eq!(her.lost_all_second(), Some(true));
+    }
+
+    #[test]
+    fn russian_counts_every_case_of_the_possessives_the_prepositional_too() {
+        let v = Voice::of(Lang::Ru, "В твоём коде ошибка.", "В вашем коде ошибка.");
+        assert_eq!(counts(v.source), (1, 0, 0), "твоём");
+        assert_eq!(counts(v.answer), (1, 1, 0), "вашем");
+        assert_eq!(v.switched, Some(true));
+        for (word, person) in [
+            ("твоем", (1, 0, 0)),
+            ("нашем", (0, 0, 1)),
+            ("моём", (0, 0, 1)),
+            ("моем", (0, 0, 1)),
+        ] {
+            let text = format!("В {word} доме тепло.");
+            assert_eq!(
+                counts(Voice::of(Lang::Ru, &text, "").source),
+                person,
+                "{word}"
+            );
+        }
+        let every = "Ты, тебя, тебе, тобой, тобою; вы, вас, вам, вами; я, меня, мне, мной, мною; \
+                     мы, нас, нам, нами.";
+        assert_eq!(counts(Voice::of(Lang::Ru, every, "").source), (9, 4, 9));
+    }
+
+    #[test]
+    fn a_formal_address_lost_whole_is_seen_from_the_source_alone() {
+        let lost = Voice::of(
+            Lang::De,
+            "Sie können das Formular online ausfüllen. Ihre Angaben werden geprüft.",
+            "Das Formular lässt sich online ausfüllen. Die Angaben werden geprüft.",
+        );
+        assert_eq!(
+            counts(lost.source),
+            (2, 2, 0),
+            "Sie können …; Ihre, by the source"
+        );
+        assert_eq!(counts(lost.answer), (0, 0, 0));
+        assert_eq!(lost.lost_all_second(), Some(true));
+        assert_eq!(lost.second_kept(), Some(0.0));
+
+        // The answer never decides the source's count, the denominator.
+        let she = "Sie arbeitet als Ärztin.";
+        for answer in [she, "Sie arbeitet als Ärztin, sagen Sie.", ""] {
+            assert_eq!(
+                counts(Voice::of(Lang::De, she, answer).source),
+                (0, 0, 0),
+                "{answer:?}"
+            );
+        }
+
+        // The answer's own address still counts in the answer: du → Sie.
+        let switched = Voice::of(
+            Lang::De,
+            "Du kannst das Formular online ausfüllen.",
+            "Sie können das Formular online ausfüllen.",
+        );
+        assert_eq!(counts(switched.answer), (1, 1, 0));
+        assert_eq!(switched.switched, Some(true));
+    }
+
+    #[test]
+    fn an_opening_quotation_mark_opens_a_sentence() {
+        for text in [
+            "Er rief „Sie kommt!“ und lief.",
+            "Er rief »Sie kommt!« und lief.",
+        ] {
+            let v = Voice::of(Lang::De, text, text);
+            assert_eq!(
+                counts(v.source),
+                (0, 0, 0),
+                "she, at a quotation's start: {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_english_roman_one_is_not_the_first_person() {
+        let v = Voice::of(
+            Lang::En,
+            "After World War I, I moved. Part I tells why. It began under Henry I. Tom and I left.",
+            "",
+        );
+        assert_eq!(
+            counts(v.source),
+            (0, 0, 2),
+            "War I, Part I and Henry I are numerals; \"I moved\" and \"Tom and I\" are not"
+        );
+        let plain = Voice::of(Lang::En, "I know. Yes, I. Me and I.", "");
+        assert_eq!(counts(plain.source), (0, 0, 4), "I, I; me, I");
     }
 
     #[test]

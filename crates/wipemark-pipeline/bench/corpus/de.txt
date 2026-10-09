@@ -131,3 +131,15 @@ Die Besprechung wurde auf Donnerstagnachmittag verschoben.
 
 === id: de-quote-01 | kind: quote | format: plain | source: written for the bench (quotation in machine-style text) | licence: project's own
 Wie die Projektleiterin beim Auftakt sagte: „Wir bauen nicht das schnellste Werkzeug, sondern das, dem die Leute auch in fünf Jahren noch vertrauen.“ Dieser Satz hat seitdem jede Designentscheidung geleitet, von der Wahl eines konservativen Dateiformats bis zur bewusst schlichten Oberfläche.
+
+=== id: de-addr-01 | kind: address | format: plain | source: written for the bench (a chatty how-to, addressed with "du") | licence: project's own
+Wenn du zum ersten Mal einen Sauerteig ansetzt, brauchst du nur Mehl, Wasser und ein bisschen Geduld. Rühr beides in einem sauberen Glas zusammen und stell es an einen warmen Ort. Füttere deinen Ansatz jeden Tag mit einem Löffel Mehl, und nach ungefähr einer Woche riecht er angenehm säuerlich. Keine Sorge, wenn sich oben Flüssigkeit sammelt – gieß sie einfach ab und mach weiter.
+
+=== id: de-addr-02 | kind: address | format: plain | source: written for the bench (a chatty post, addressed with "du") | licence: project's own
+Kennst du das, wenn dein Handy schon wieder meldet, dass der Speicher voll ist? Schau mal in die Einstellungen und such nach dem Speicherplatz. Meistens sind es alte Videos aus Chats, an die du dich gar nicht mehr erinnerst. Lösch die, und dein Telefon läuft wieder flott. Ich habe so neulich zwanzig Gigabyte frei bekommen, und das in fünf Minuten.
+
+=== id: de-addr-03 | kind: address | format: plain | source: written for the bench (instructions, addressed with "Sie") | licence: project's own
+Sie können den Antrag auf Verlängerung Ihres Ausweises bequem online stellen. Dafür brauchen Sie Ihren Reisepass und ein aktuelles biometrisches Foto. Wenn Sie in diesem Jahr bereits einen Antrag gestellt haben, werden Ihre Daten automatisch übernommen – prüfen Sie nur noch die Adresse. Sobald der Ausweis fertig ist, erhalten Sie eine Nachricht in Ihrem Kundenkonto.
+
+=== id: de-addr-04 | kind: address | format: plain | source: written for the bench (a product page, addressed with "Sie") | licence: project's own
+Diesen Rucksack haben wir für alle entwickelt, die täglich mit dem Fahrrad zur Arbeit fahren. Er bietet Platz für Ihren Laptop, Wechselkleidung und das Mittagessen, und die reflektierenden Streifen machen Sie im Dunkeln besser sichtbar. Der Stoff ist wasserdicht, Regen kann Ihnen also nichts anhaben. Falls der Rucksack nicht passt, schicken Sie ihn innerhalb von dreißig Tagen zurück – wir erstatten Ihnen den Kaufpreis ohne Wenn und Aber.

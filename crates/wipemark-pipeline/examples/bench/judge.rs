@@ -19,7 +19,10 @@
 //! voice answer is a line of its own beside the meaning's (`voice|…`,
 //! `"of"` the same attempt), so a file judged before E4-8 gets its voice
 //! lines by being judged again; its calibration is the chunk against
-//! itself (must be `YES`).
+//! itself (must be `YES`) and, since the verification of 2026-10-09, three
+//! fixed texts against a version that speaks to the reader otherwise —
+//! ты → вы, du → Sie, "you" → nobody in a formal register (must be `NO`),
+//! so a judge that says `YES` to everything fails it.
 
 use std::collections::HashSet;
 use std::io::{BufRead, Write};
@@ -48,6 +51,27 @@ fn prompt(source: &str, answer: &str) -> String {
 
 const VOICE_SYSTEM: &str =
     "You compare the voice of two texts. You answer with exactly one word: YES, PARTLY or NO.";
+
+/// The voice question's negative calibration: a text, and the same text
+/// addressing its reader the other way (`[lang, text, switched]`). Written
+/// for the bench; `NO` is the answer.
+pub const VOICE_SWITCHED: [(&str, &str, &str); 3] = [
+    (
+        "en",
+        "You'll love how easy this is. Grab your biggest bowl, throw everything in and give it a good stir.",
+        "The procedure is notably straightforward. The largest available bowl should be utilised to combine the ingredients thoroughly.",
+    ),
+    (
+        "ru",
+        "Если ты ни разу не пёк хлеб, не переживай: это проще, чем кажется. Смешай муку, воду и соль в твоей самой большой миске.",
+        "Если вы ни разу не пекли хлеб, не переживайте: это проще, чем кажется. Смешайте муку, воду и соль в вашей самой большой миске.",
+    ),
+    (
+        "de",
+        "Wenn du zum ersten Mal Brot backst, mach dir keine Sorgen. Rühr Mehl, Wasser und Salz in deiner größten Schüssel zusammen.",
+        "Wenn Sie zum ersten Mal Brot backen, machen Sie sich keine Sorgen. Rühren Sie Mehl, Wasser und Salz in Ihrer größten Schüssel zusammen.",
+    ),
+];
 
 fn voice_prompt(source: &str, answer: &str) -> String {
     format!(
@@ -243,6 +267,23 @@ fn work(args: &Args, judge: &str, done: &HashSet<String>) -> Work {
             ));
         }
     }
+    // The voice question's negative calibration: a text against itself
+    // speaking to its reader otherwise must be `NO`.
+    if !chunks.is_empty() {
+        for (lang, text, switched) in VOICE_SWITCHED {
+            let id = format!("switched-{lang}");
+            let key = format!("calib-voice|{judge}|{id}|switched");
+            if !done.contains(&key) {
+                work.push((
+                    key,
+                    text.to_owned(),
+                    switched.to_owned(),
+                    json!({"voice_calib": "switched", "item": id}),
+                    Question::Voice,
+                ));
+            }
+        }
+    }
     for r in records.iter().filter(|r| judgeable(r)) {
         let of = r["key"].as_str().unwrap_or("");
         for (prefix, question) in [("judge", Question::Meaning), ("voice", Question::Voice)] {
@@ -349,9 +390,17 @@ mod tests {
         );
         assert_eq!(
             questions(&fresh, Question::Voice),
-            1 + 2,
-            "its calibration and each attempt"
+            1 + VOICE_SWITCHED.len() + 2,
+            "its calibration — the chunk against itself and the fixed switched texts — and each attempt"
         );
+        let switched: Vec<&(String, String, String, Value, Question)> = fresh
+            .iter()
+            .filter(|w| w.3["voice_calib"] == "switched")
+            .collect();
+        assert_eq!(switched.len(), VOICE_SWITCHED.len());
+        assert!(switched
+            .iter()
+            .all(|w| w.4 == Question::Voice && w.1 != w.2 && w.0.ends_with("|switched")));
         assert!(fresh
             .iter()
             .any(|w| w.0 == "voice|J|m|en-mx-01|0|paraphrase|moderate|1"
@@ -369,7 +418,10 @@ mod tests {
             0,
             "the meaning is never asked twice"
         );
-        assert_eq!(questions(&again, Question::Voice), 3);
+        assert_eq!(
+            questions(&again, Question::Voice),
+            1 + VOICE_SWITCHED.len() + 2
+        );
         std::fs::remove_file(&path).ok();
     }
 
@@ -377,6 +429,10 @@ mod tests {
     fn the_meaning_question_is_the_one_e4_5_asked() {
         // A judgement made before E4-8 and one made after are the same
         // question: the voice question is asked beside it, never in it.
+        assert_eq!(
+            SYSTEM,
+            "You compare two texts for meaning. You answer with exactly one word: EQUIVALENT or CHANGED."
+        );
         let asked = prompt("A one.", "B one.");
         assert!(asked.ends_with(
             "Does B state the same facts, claims, numbers and names as A, with nothing added, \

@@ -279,21 +279,35 @@ pub fn done(path: &Path) -> HashSet<String> {
         .collect()
 }
 
+/// The kind of the items that speak to their reader with «ты»/«вы» and
+/// du/Sie, added at the end of the ru and de files after E4-5's and the
+/// divergence study's runs (E4-8's verification, 2026-10-09).
+pub const ADDRESS: &str = "address";
+
 pub fn selected(items: Vec<Item>, args: &Args) -> Vec<Item> {
     let langs = args.list("--langs");
     let only = args.list("--items");
     let every: Option<usize> = args.value("--every").map(|v| v.parse().expect("--every n"));
+    // The position `--every` counts by. An `address` item is always kept
+    // and never counted, so every other item keeps the place — and the
+    // selection — it had before those items were written, and the earlier
+    // runs' records line up with a new run's.
+    let mut place = 0usize;
     items
         .into_iter()
         .filter(|item| langs.is_empty() || langs.iter().any(|l| l == item.lang.as_str()))
         .filter(|item| only.is_empty() || only.iter().any(|p| item.id.starts_with(p.as_str())))
-        .enumerate()
-        .filter(|(i, item)| {
+        .filter(|item| {
+            if item.kind == ADDRESS {
+                return true;
+            }
+            let i = place;
+            place += 1;
             // A thinner corpus for a slow model keeps every special case.
-            every
-                .is_none_or(|n| i % n == 0 || !matches!(item.kind.as_str(), "prose-pd" | "machine"))
+            every.is_none_or(|n| {
+                i.is_multiple_of(n) || !matches!(item.kind.as_str(), "prose-pd" | "machine")
+            })
         })
-        .map(|(_, item)| item)
         .collect()
 }
 
@@ -489,6 +503,8 @@ fn attempts(args: &Args, plan_only: bool) -> Option<(usize, usize, usize)> {
 
 #[cfg(test)]
 mod tests {
+    use wipemark_pipeline::lang::Lang;
+
     use super::*;
 
     #[test]
@@ -507,5 +523,129 @@ mod tests {
         );
         // en-mx-01 is one paragraph: one chunk; back_translate is two steps.
         assert_eq!(attempts(&args, true), Some((4 + 2, 4 + 2 * 2, 0)));
+    }
+
+    fn the_corpus() -> Vec<Item> {
+        corpus::load(Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/bench/corpus"
+        )))
+    }
+
+    fn ids(items: &[Item]) -> Vec<&str> {
+        items.iter().map(|item| item.id.as_str()).collect()
+    }
+
+    #[test]
+    fn the_address_items_leave_every_other_selection_as_it_was() {
+        let corpus = the_corpus();
+        let address: Vec<&str> = corpus
+            .iter()
+            .filter(|item| item.kind == ADDRESS)
+            .map(|item| item.id.as_str())
+            .collect();
+        assert!(
+            address.len() >= 8,
+            "ru and de, informal and formal: {address:?}"
+        );
+        let before: Vec<Item> = corpus
+            .iter()
+            .filter(|item| item.kind != ADDRESS)
+            .cloned()
+            .collect();
+        for flags in [
+            vec![("--every", "3")],
+            vec![("--every", "2")],
+            vec![("--every", "3"), ("--langs", "ru,de")],
+            vec![],
+        ] {
+            let args = Args::of("run", &flags);
+            let now = selected(corpus.clone(), &args);
+            let then = selected(before.clone(), &args);
+            let kept: Vec<&str> = ids(&now)
+                .into_iter()
+                .filter(|id| !address.contains(id))
+                .collect();
+            assert_eq!(
+                kept,
+                ids(&then),
+                "{flags:?}: the earlier items, as selected before"
+            );
+            let langs = args.list("--langs");
+            for id in &address {
+                if langs.is_empty() || langs.iter().any(|l| id.starts_with(l.as_str())) {
+                    assert!(ids(&now).contains(id), "{flags:?}: {id} is always kept");
+                }
+            }
+        }
+    }
+
+    /// The chunks of every item as `run` makes them (`job::plan`, over the
+    /// shim: nothing is loaded), with the second-person words in each —
+    /// informal and formal, by the bench's own measure.
+    fn addressed(items: &[Item]) -> Vec<(Lang, u32, u32)> {
+        let args = Args::of(
+            "plan",
+            &[("--local", "/nowhere/model.gguf"), ("--name", "m")],
+        );
+        let (_, engine) = engine::from_args(&args);
+        let info = engine.info();
+        let options = options(Tactic::Paraphrase, Intensity::Moderate);
+        let mut out = Vec::new();
+        for item in items {
+            let document = Document {
+                text: item.text.clone(),
+                format: item.format,
+            };
+            let planned = plan(&document, &options, &info).expect("the shipped templates render");
+            for chunk in planned.prepared.chunks() {
+                let persons = measure::Voice::of(item.lang, &chunk.text, "").source;
+                out.push((item.lang, persons.informal(), persons.formal));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn the_corpus_speaks_to_its_reader_in_every_language() {
+        // The figures in docs/plan/reports/E4-8-bench-voice-2026-10-08.md,
+        // "Host verification": `-- --nocapture` prints them.
+        let corpus = the_corpus();
+        let before: Vec<Item> = corpus
+            .iter()
+            .filter(|item| item.kind != ADDRESS)
+            .cloned()
+            .collect();
+        for (label, items, flags) in [
+            ("before the address items, every chunk", &before, vec![]),
+            (
+                "before the address items, --every 3",
+                &before,
+                vec![("--every", "3")],
+            ),
+            ("every chunk", &corpus, vec![]),
+            ("--every 3", &corpus, vec![("--every", "3")]),
+        ] {
+            let chunks = addressed(&selected(items.clone(), &Args::of("run", &flags)));
+            for lang in Lang::ALL {
+                let of: Vec<&(Lang, u32, u32)> = chunks.iter().filter(|c| c.0 == lang).collect();
+                let second = of.iter().filter(|c| c.1 + c.2 > 0).count();
+                let informal = of.iter().filter(|c| c.1 > 0 && c.2 == 0).count();
+                let formal = of.iter().filter(|c| c.2 > 0 && c.1 == 0).count();
+                eprintln!(
+                    "{label}: {}: {} chunks, {second} with a second person \
+                     ({informal} informal only, {formal} formal only)",
+                    lang.as_str(),
+                    of.len()
+                );
+                if lang != Lang::En && items.len() == corpus.len() {
+                    assert!(
+                        informal >= 2 && formal >= 2,
+                        "{label}, {}: {informal} chunks informal, {formal} formal",
+                        lang.as_str()
+                    );
+                }
+            }
+        }
     }
 }

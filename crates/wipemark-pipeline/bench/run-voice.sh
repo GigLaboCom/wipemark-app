@@ -21,8 +21,11 @@
 #   2. Builds the bench once, `--features llama-native --offline --locked`.
 #      It downloads nothing: cargo is offline, and the pinned llama.cpp
 #      release is linked from the cache an earlier llama-native build left
-#      (<target>/debug/llama-cpp-prebuilt) or from WIPEMARK_LLAMA_PREBUILT;
-#      with neither it refuses rather than let the build script fetch it.
+#      (<target>/debug/llama-cpp-prebuilt/<sha256, 12>/llama-cpp-<tag>-<host>,
+#      the very release crates/wipemark-llama-sys/src/pin.rs pins for this
+#      host — a cache another pin left does not count) or from
+#      WIPEMARK_LLAMA_PREBUILT; with neither it refuses rather than let the
+#      build script fetch it.
 #      Nothing here pulls a model.
 #   3. Plans every model part (`bench plan --of run`: no model loaded) and
 #      prints calls × seconds per call = minutes for each — the seconds are
@@ -65,7 +68,7 @@
 #   gemma4-12b gemma4-12b+voice qwen38-27b qwen38-27b+voice judge report.
 #
 # What it needs
-#   bash (3.2 is enough), awk, sed, cargo; the four GGUFs and the judge's,
+#   bash (3.2 is enough), awk, sed, cargo, rustc; the four GGUFs and the judge's,
 #   read only; a GPU (E4-5: an RTX 5070 Ti, 16 GB — the prebuilt release
 #   carries the Vulkan backend, so no GGML_* variable is needed or read);
 #   the crates and the llama.cpp release in the local caches (any earlier
@@ -273,9 +276,24 @@ fi
 
 # 2. Build, downloading nothing.
 target=${CARGO_TARGET_DIR:-$ROOT/target}
-if [ -z "${WIPEMARK_LLAMA_PREBUILT:-}" ] && [ -z "${WIPEMARK_LLAMA_SOURCE:-}" ] &&
-  ! ls "$target"/debug/llama-cpp-prebuilt/*/*/PROVENANCE.txt > /dev/null 2>&1; then
-  die "the pinned llama.cpp release is not in $target/debug/llama-cpp-prebuilt and WIPEMARK_LLAMA_PREBUILT is not set; this script downloads nothing — build once yourself: cargo build -p wipemark-pipeline --features llama-native --locked --example bench"
+# The release this build pins, where wipemark-llama-sys's build.rs caches it:
+# <target>/debug/llama-cpp-prebuilt/<the archive's sha256, 12>/llama-cpp-
+# <tag>-<host>/PROVENANCE.txt — read off src/pin.rs, so a cache another pin
+# left is not taken for this one (the build would download this one).
+PIN_RS=crates/wipemark-llama-sys/src/pin.rs
+pinned_release() { # → <sha12>/llama-cpp-<tag>-<host>, or nothing
+  local host tag sha
+  host=$(rustc -vV | sed -n 's/^host: //p')
+  tag=$(sed -n 's/^pub const PREBUILT_TAG: &str = "\(.*\)";$/\1/p' "$PIN_RS")
+  sha=$(awk -v t="\"$host\"," '$1 == t { getline; gsub(/[" ,]/, ""); print; exit }' "$PIN_RS")
+  [ -n "$host" ] && [ -n "$tag" ] && [ ${#sha} -eq 64 ] || return 0
+  printf '%s/llama-cpp-%s-%s' "${sha:0:12}" "$tag" "$host"
+}
+if [ -z "${WIPEMARK_LLAMA_PREBUILT:-}" ] && [ -z "${WIPEMARK_LLAMA_SOURCE:-}" ]; then
+  release=$(pinned_release)
+  [ -n "$release" ] || die "no prebuilt llama.cpp is pinned for this host in $PIN_RS; set WIPEMARK_LLAMA_SOURCE=1 (cmake) or WIPEMARK_LLAMA_PREBUILT"
+  [ -f "$target/debug/llama-cpp-prebuilt/$release/PROVENANCE.txt" ] ||
+    die "the pinned llama.cpp release ($release) is not in $target/debug/llama-cpp-prebuilt and WIPEMARK_LLAMA_PREBUILT is not set; this script downloads nothing — build once yourself: cargo build -p wipemark-pipeline --features llama-native --locked --example bench"
 fi
 "${BUILD[@]}"
 
