@@ -1820,8 +1820,8 @@ const CONFIGS: &[Config] = &[
 
 /// R9's configs (E12-R9; D308, D313 and D311, all proposed): the user's
 /// path, R0's, with the catalogue `run --blend-row FILE` builds — the
-/// shipped one with that file's profile row in place of the shipped row of
-/// its id. The row carries what the sub-step measures, and the host writes
+/// run's catalogue (the `--catalogue` file, else the shipped one) with that
+/// file's profile row in place of the row of its id. The row carries what the sub-step measures, and the host writes
 /// it from R4's numbers: a `bias`, a `logo_map` (a `.wml` beside the row,
 /// `scripts/bench/wml.py`), `"model": "linear-light"`. Only a build with
 /// `blend-preview` has them, because only its catalogue reads such a row.
@@ -1871,53 +1871,20 @@ fn catalogue_for<'a>(config: &Config, case: &'a Catalogue) -> &'a Catalogue {
     case
 }
 
-/// `run`'s R9 configs: the shipped catalogue with `--blend-row`'s profile
-/// row in place of the shipped row of its id (beside them for a new id),
-/// its assets read from the row file's own folder first (every `.wma` and
-/// `.wml` there) and the shipped ones after; refused unless every R9 config
-/// asked for has something to measure in it.
+/// `run`'s R9 configs: the run's catalogue — the `--catalogue` file when
+/// there is one, else the shipped one — with `--blend-row`'s profile row in
+/// place of the row of its id (beside them for a new id), its assets read
+/// from the row file's own folder first (every `.wma` and `.wml` there),
+/// then the catalogue file's, then the shipped ones; refused unless every
+/// R9 config asked for has something to measure in it.
 #[cfg(feature = "blend-preview")]
-fn load_preview(args: &Args, configs: &[&Config]) {
+fn load_preview(args: &Args, configs: &[&Config], base: Option<&Path>) {
     if !configs.iter().any(|c| c.name.starts_with("R9")) {
         return;
     }
     let path = PathBuf::from(args.need("blend-row"));
-    let row = read_json(&path);
-    let id = row["id"]
-        .as_str()
-        .unwrap_or_else(|| refuse("--blend-row: the row has no id"))
-        .to_owned();
-    let mut file: Value = serde_json::from_str(EMBEDDED).unwrap_or_else(|e| refuse(&e.to_string()));
-    let Some(profiles) = file["profiles"].as_array_mut() else {
-        refuse("the shipped catalogue has no profiles")
-    };
-    match profiles.iter_mut().find(|p| p["id"] == id.as_str()) {
-        Some(p) => *p = row,
-        None => profiles.push(row),
-    }
-    let dir = match path.parent() {
-        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
-        _ => PathBuf::from("."),
-    };
-    let mut local: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-    let entries =
-        std::fs::read_dir(&dir).unwrap_or_else(|e| refuse(&format!("{}: {e}", dir.display())));
-    for entry in entries.flatten() {
-        let p = entry.path();
-        if p.extension().is_some_and(|x| x == "wma" || x == "wml") {
-            let bytes =
-                std::fs::read(&p).unwrap_or_else(|e| refuse(&format!("{}: {e}", p.display())));
-            local.insert(entry.file_name().to_string_lossy().into_owned(), bytes);
-        }
-    }
-    let catalogue = Catalogue::parse(&file.to_string(), &|name: &str| {
-        local.get(name).map(Vec::as_slice).or_else(|| {
-            wipemark_pixels::shipped_assets()
-                .find(|(n, _)| *n == name)
-                .map(|(_, b)| b)
-        })
-    })
-    .unwrap_or_else(|e| refuse(&format!("--blend-row {}: {e}", path.display())));
+    let (catalogue, id) = preview_catalogue(&path, base)
+        .unwrap_or_else(|e| refuse(&format!("--blend-row {}: {e}", path.display())));
     let profile = catalogue.profile(&id).unwrap_or_else(|| refuse(&id));
     for c in configs {
         let carries = match c.name {
@@ -1934,6 +1901,33 @@ fn load_preview(args: &Args, configs: &[&Config]) {
         }
     }
     let _ = PREVIEW.set(catalogue);
+}
+
+/// The catalogue `--blend-row ROW` builds over `base` (a `--catalogue`
+/// file) or the shipped one, and the row's profile id.
+#[cfg(feature = "blend-preview")]
+fn preview_catalogue(row_path: &Path, base: Option<&Path>) -> Result<(Catalogue, String), String> {
+    let text = std::fs::read_to_string(row_path).map_err(|e| e.to_string())?;
+    let row: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let id = row["id"].as_str().ok_or("the row has no id")?.to_owned();
+    let base_json = match base {
+        Some(b) => std::fs::read_to_string(b).map_err(|e| format!("{}: {e}", b.display()))?,
+        None => EMBEDDED.to_owned(),
+    };
+    let mut file: Value = serde_json::from_str(&base_json).map_err(|e| e.to_string())?;
+    let profiles = file["profiles"]
+        .as_array_mut()
+        .ok_or("the catalogue has no profiles")?;
+    match profiles.iter_mut().find(|p| p["id"] == id.as_str()) {
+        Some(p) => *p = row,
+        None => profiles.push(row),
+    }
+    let mut dirs = vec![catalogue_file::folder_of(row_path)];
+    if let Some(b) = base {
+        dirs.push(catalogue_file::folder_of(b));
+    }
+    let catalogue = catalogue_file::parse_with(&file.to_string(), &dirs)?;
+    Ok((catalogue, id))
 }
 
 /// How `gen` draws its composites past the profile's own blend (E12-R9): a
@@ -2471,7 +2465,7 @@ fn run(args: &Args) {
         }
     }
     #[cfg(feature = "blend-preview")]
-    load_preview(args, &configs);
+    load_preview(args, &configs, catalogue_path.as_deref());
     let crops_dir = args.get("export-crops").map(PathBuf::from);
     let pad = args.get("crop-pad").map_or(CROP_PAD, |p| {
         p.parse()
@@ -3498,5 +3492,93 @@ mod tests {
             logo_map: Some((String::from("x.wml"), String::new(), colours)),
         }));
         assert!(mapped.blend(logo, &map).is_err());
+    }
+
+    /// A copy of the synthetic-wordmark fixture in a folder of its own,
+    /// its one profile's `blend` changed by `edit`; the folder.
+    fn fixture_with_blend(name: &str, edit: impl Fn(&mut Value)) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("recon-bench-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let wma = "fixture-wordmark-72x24.wma";
+        std::fs::copy(fixture_dir().join(wma), dir.join(wma)).unwrap();
+        let mut json = read_json(&fixture_dir().join("marks.json"));
+        edit(&mut json["profiles"][0]["blend"]);
+        write_json(&dir.join("marks.json"), &json);
+        dir
+    }
+
+    /// A logo colour map the fixture's map's size, written beside it; its
+    /// `logo_map` object.
+    fn wml_in(dir: &Path) -> Value {
+        let map = LogoMap::new(72, 24, vec![[240.0, 250.0, 255.0]; 72 * 24]).unwrap();
+        let bytes = map.write().unwrap();
+        std::fs::write(dir.join("logo.wml"), &bytes).unwrap();
+        json!({"asset": "logo.wml", "sha256": sha256_hex(&bytes), "size": [72, 24]})
+    }
+
+    /// The two roads to a catalogue a tool takes — `--catalogue FILE` and
+    /// `--blend-row` — meet over one rule (the central check, 2026-10-09):
+    /// a catalogue file whose row carries a `bias` or a `logo_map` (its
+    /// `.wml` beside it) loads in a `blend-preview` build and is refused
+    /// otherwise, as the shipped catalogue would refuse it.
+    #[test]
+    fn a_catalogue_file_with_a_blend_field_loads_only_under_blend_preview() {
+        let biased = fixture_with_blend("bias", |b| b["bias"] = json!([1.5, 0.0, -1.0]));
+        let mapped = fixture_with_blend("map", |_| {});
+        let logo_map = wml_in(&mapped);
+        let mut json = read_json(&mapped.join("marks.json"));
+        json["profiles"][0]["blend"]["logo_map"] = logo_map;
+        write_json(&mapped.join("marks.json"), &json);
+        let bias = catalogue_file::read(&biased.join("marks.json"));
+        let map = catalogue_file::read(&mapped.join("marks.json"));
+        if cfg!(feature = "blend-preview") {
+            let c = bias.unwrap();
+            assert_eq!(c.profile(FIXTURE).unwrap().bias, Some([1.5, 0.0, -1.0]));
+            let c = map.unwrap();
+            assert!(c.profile(FIXTURE).unwrap().logo_map.is_some());
+        } else {
+            let e = bias.err().expect("a bias was read without blend-preview");
+            assert!(e.contains("bias"), "{e}");
+            let e = map
+                .err()
+                .expect("a logo map was read without blend-preview");
+            assert!(e.contains("logo colour map"), "{e}");
+        }
+        let _ = std::fs::remove_dir_all(&biased);
+        let _ = std::fs::remove_dir_all(&mapped);
+    }
+
+    /// `--blend-row` over `--catalogue`: the row replaces its id's row in
+    /// the catalogue file, and its assets are found in the row's folder,
+    /// then the file's — so an R9 config runs on a profile that exists only
+    /// in a file. Without the file the fixture's map is nowhere.
+    #[cfg(feature = "blend-preview")]
+    #[test]
+    fn a_blend_row_lays_over_the_catalogue_file() {
+        let rows = std::env::temp_dir().join(format!("recon-bench-row-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&rows);
+        std::fs::create_dir_all(&rows).unwrap();
+        let mut row = read_json(&fixture_dir().join("marks.json"))["profiles"][0].clone();
+        row["blend"]["bias"] = json!([2.0, 2.0, 2.0]);
+        row["blend"]["logo_map"] = wml_in(&rows);
+        let row_path = rows.join("row.json");
+        write_json(&row_path, &row);
+        let base = fixture_dir().join("marks.json");
+        let (c, id) = preview_catalogue(&row_path, Some(&base)).unwrap();
+        assert_eq!(id, FIXTURE);
+        let p = c.profile(FIXTURE).unwrap();
+        assert_eq!(p.bias, Some([2.0; 3]));
+        assert!(p.logo_map.is_some());
+        assert_eq!(
+            c.profiles().len(),
+            1,
+            "the file's catalogue, not the shipped one"
+        );
+        let e = preview_catalogue(&row_path, None)
+            .err()
+            .expect("read with no map");
+        assert!(e.contains("fixture-wordmark-72x24"), "{e}");
+        let _ = std::fs::remove_dir_all(&rows);
     }
 }

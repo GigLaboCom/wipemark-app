@@ -326,6 +326,15 @@ byte, `meta.json` included; with one, `meta.json`'s `blend` says it and an
 `exact` expectation becomes `restored`. A2 (R9a/R9b): an R9 config on an
 R0 run with `"bias": null` / no map must equal R0 file for file.
 
+`--blend-row` and `--catalogue` (R12's road, "Any profile") compose: with
+both, the row replaces its id's row in the `--catalogue` file rather than
+in the shipped catalogue, and its assets are looked for beside the row,
+then beside the file, then among the shipped ones — so a Grok profile
+that exists only as a file is measured by R9's configs unchanged. A
+`--catalogue` file whose row carries a `bias` or a `logo_map` (`.wml`
+beside it) loads only in a `blend-preview` build, and is refused by name
+otherwise.
+
 **Level B** is R1's `--route model` with a CLI built `--features
 wipemark-picture/blend-preview` over a `manifests/marks.v1.json` carrying
 the same row (a local edit, never committed until the decision is taken),
