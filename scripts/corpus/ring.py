@@ -339,7 +339,7 @@ def line(r):
 
 def write_png(path, arr):
     from PIL import Image
-    Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8), "RGB").save(path)
+    Image.fromarray(np.clip(np.rint(arr), 0, 255).astype(np.uint8)).save(path)
 
 
 def busy(size, seed):
