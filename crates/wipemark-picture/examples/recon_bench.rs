@@ -3538,11 +3538,13 @@ mod tests {
             let c = map.unwrap();
             assert!(c.profile(FIXTURE).unwrap().logo_map.is_some());
         } else {
-            let e = bias.err().expect("a bias was read without blend-preview");
+            let Err(e) = bias else {
+                panic!("a bias was read without blend-preview")
+            };
             assert!(e.contains("bias"), "{e}");
-            let e = map
-                .err()
-                .expect("a logo map was read without blend-preview");
+            let Err(e) = map else {
+                panic!("a logo map was read without blend-preview")
+            };
             assert!(e.contains("logo colour map"), "{e}");
         }
         let _ = std::fs::remove_dir_all(&biased);
@@ -3575,9 +3577,9 @@ mod tests {
             1,
             "the file's catalogue, not the shipped one"
         );
-        let e = preview_catalogue(&row_path, None)
-            .err()
-            .expect("read with no map");
+        let Err(e) = preview_catalogue(&row_path, None) else {
+            panic!("read with no map")
+        };
         assert!(e.contains("fixture-wordmark-72x24"), "{e}");
         let _ = std::fs::remove_dir_all(&rows);
     }
