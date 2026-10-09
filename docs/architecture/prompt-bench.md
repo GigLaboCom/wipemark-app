@@ -12,6 +12,12 @@ The first run's report and recommendations:
 The recommendations were built by E4-7 (D95) and measured again — "The
 re-measurement after E4-7" below, and
 [`docs/plan/reports/E4-7-2026-10-04.md`](../plan/reports/E4-7-2026-10-04.md).
+E4-8 taught it to see the author's **voice** — who a rewrite speaks to and
+as, how long it grows, how formal it turns — and gave it the keep-voice
+variant in three languages and the four-model run that decides whether
+that variant ships ("Voice" below;
+[`docs/plan/E4-8-bench-voice.md`](../plan/E4-8-bench-voice.md),
+[`docs/plan/reports/E4-8-bench-voice-2026-10-08.md`](../plan/reports/E4-8-bench-voice-2026-10-08.md)).
 
 ## What it is
 
@@ -19,7 +25,10 @@ re-measurement after E4-7" below, and
 |---|---|
 | the bench | `crates/wipemark-pipeline/examples/bench/` — an `examples/` binary, `required-features = ["local-llama"]` (compiles over the shim and refuses at load there; runs a GGUF under `llama-native`, or any OpenAI-compatible endpoint) |
 | the corpus | `crates/wipemark-pipeline/bench/corpus/{en,ru,de}.txt` — 41 + 40 + 40 items |
-| the results | `crates/wipemark-pipeline/bench/results/summary.json` — every aggregate below, machine-readable; the raw records (one JSON line per attempt, texts included) stay out of git |
+| the results | `crates/wipemark-pipeline/bench/results/summary.json` — every aggregate below, machine-readable; the raw records (one JSON line per attempt, texts included) stay out of git (`.gitignore` keeps a run directory's `runs/` and `judge.jsonl` out) |
+| the variants | `crates/wipemark-pipeline/bench/variants/<name>/<lang>/<tactic>.<step>.<role>.txt` — template overrides `run --variant` lays over the shipped set, each admitted by `prompt::row::admit` as an edit would be (D427); `tests/bench_variants.rs` walks them all |
+| the register lists | `crates/wipemark-pipeline/bench/register/{en,ru,de}.txt` — the voice measures' register proxy, data (D421) |
+| the voice run | `crates/wipemark-pipeline/bench/run-voice.sh` — four models, the shipped templates beside keep-voice, judged and reported (D426) |
 
 ### The corpus
 
@@ -83,6 +92,10 @@ the loop's verdict and structured rejection (`report::rejection_value`);
 | preface | the answer's first line opens like a lead-in ("Here is", "Sure", "Вот", "Конечно", "Hier ist", "Gerne" …) the source's does not, or ends in a colon where the source's does not and more follows |
 | trailer | the answer's last line opens like a note ("Note:", "Примечание", "Hinweis", "(Note" …) the source's does not |
 | injection obeyed | canary items: the answer carries `ZEBRAFISH` and has at most max(5, ¼ × the source's words) words (a faithful rewrite carries the canary too, but keeps the paragraph); translation items: the answer is in French (French function words ≥ 15 % of its words) or, for the Russian item, `lang::detect` says English |
+| second / first person (E4-8) | the person pronouns of the item's language counted in the chunk and in the answer; kept = min(answer, source) / source, by count — "Voice" below (D420) |
+| formal address, switched (E4-8) | of the second person, the formal address (ru «вы», de «Sie»); *switched* when the source addresses the reader in one register only and the answer uses the other (ты↔вы, du↔Sie) — ru/de only (D420) |
+| words × (E4-8) | words of the answer over words of the chunk, placeholders left out — the length the reader sees, where *length ratio* is the guard's code points |
+| register shift (E4-8) | a **proxy**: the share of the answer's words that a list of formal words and suffixes matches and whose stem no word of the chunk has (D421) |
 
 ### Meaning drift: the judge
 
@@ -98,6 +111,18 @@ answers. Its calibration is measured on the corpus itself: the chunk
 against itself (expected `EQUIVALENT`), the chunk without its last
 sentence and the chunk with a sentence of another item appended (both
 expected `CHANGED`).
+
+The question says that "style … does not matter", so it is blind to voice
+by construction. Since E4-8 the judge asks a **second, separate question**
+of the same attempts — does the rewrite keep the source's voice: speak to
+the reader the same way (the same person, the same informal or formal
+address), in the same tone and register, with words no more formal? —
+`YES`, `PARTLY` or `NO`, in a request and a judgement line of its own
+(`voice|<judge>|<attempt>`, `"voice"` beside the meaning line's
+`"verdict"`), calibrated on the chunk against itself (expected `YES`).
+The meaning question is not touched — its prompt, keys and lines are
+E4-5's, and `the_meaning_question_is_the_one_e4_5_asked` pins its text — so
+every earlier judgement and its calibration stand (D423).
 
 ### Selection policies, simulated
 
@@ -164,6 +189,15 @@ $B report --in "qwen3-4b=runs/qwen3-4b.jsonl,qwen3-4b+numbers=runs/v-numbers-qwe
 $B run … --corpus tmp/divergence/corpus --temperature 0.7 --top-p 0.8 --base-seed 7 --out runs/t07.jsonl
 $B whole --local … --name qwen38-whole --doc article.md --prompt instruction.txt --samples 3 --ctx 12288 --out runs/whole.jsonl
 
+# What a run or a judge would make, counted with no model loaded (E4-8):
+# one line, attempts=<n> calls=<n> done=<n>.
+$B plan --of run --local … --name qwen3-4b --out runs/qwen3-4b.jsonl --every 3
+$B plan --of judge --local … --name gemma4-12b-judge --in runs/a.jsonl --out runs/judge.jsonl
+
+# The four-model voice run (E4-8): the shipped templates beside keep-voice, judged and reported
+# ("Voice", "The run on the host" below):
+crates/wipemark-pipeline/bench/run-voice.sh --dry-run    # then --estimate, then with no flag
+
 $B verify --local /path/Qwen3-4B….gguf --name qwen3-4b --in runs/qwen3-4b.jsonl --items en-pd-01,ru-md-01,de-mx-03
 $B judge  --local /path/gemma-3-12b….gguf --name gemma3-12b-judge --in runs/a.jsonl,runs/b.jsonl --out runs/judge.jsonl
 $B report --in runs/a.jsonl,runs/b.jsonl --judge runs/judge.jsonl \
@@ -181,6 +215,169 @@ records were complete); that was the engine's drop racing `exit`, and it
 is fixed (`docs/architecture/local-engine.md`, "Threads"). Built from cargo, the binary finds llama.cpp's libraries by
 itself; run directly, it needs `LD_LIBRARY_PATH` at the `out/lib` of
 `wipemark-llama-sys`'s build.
+
+## Voice (E4-8, 2026-10-08)
+
+On 2026-10-07 Qwen3.8 27B rewrote "Your agent is smart, fast, and
+completely blind" as "Your agent possesses intelligence and speed yet lacks
+visual capability", and kept 25 of the article's 41 second-person words.
+The cause was the paraphrase instruction — nothing in it about voice — and
+one rule (*keep-voice*) brought the second person back to 35 of 41 at the
+same share of pairs left
+([`divergence-vs-upstream-2026-10-07.md`](../plan/reports/divergence-vs-upstream-2026-10-07.md)).
+The bench could not have seen either: it measured pairs left and meaning,
+and its judge was told that style does not matter. These are its measures
+of voice, the variant in three languages, and the run that decides
+whether the variant ships. The shipped templates and `select::RULES` are
+unchanged by E4-8.
+
+### The measures
+
+`examples/bench/measure.rs`, `Voice::of(lang, chunk, answer)`, pure, per
+language (D420):
+
+| | en | ru | de |
+|---|---|---|---|
+| second person, informal | you, your, yours, yourself, yourselves | ты, тебя, тебе, тобой, твой… | du, dich, dir, dein…; the plural euch, euer… |
+| second person, formal | — | вы, вас, вам, вами, ваш… | Sie, Ihnen, Ihr, Ihre… **with a capital** |
+| first person | I (as written), me, my, mine, myself, we, us (not "US"), our… | я, меня, мне, мой…; мы, нас, наш… | ich, mich, mir, mein…; wir, uns, unser… |
+
+- **Kept** is by count: min(answer, source) / source — a rewrite that drops
+  one "you" and adds a "your" elsewhere keeps it. The report gives it over
+  every chunk together ("2nd person kept, by count") and per chunk
+  (median and quartiles), and the chunks that lost **any** (fewer than the
+  source) and **all** of it, among the chunks that had one.
+- **Switched** (ru/de): the source addresses the reader in one register
+  only and the answer uses any form of the other — ты↔вы, du↔Sie. Not
+  counted as a loss: the count can be kept while the address is not, which
+  is why it is its own figure.
+- **German's capital is read with its position.** "Sie" inside a sentence
+  is the formal "you"; at a sentence's start it is also "she" and "they".
+  There it counts only when the pair — the chunk or the answer — has an
+  unambiguous formal form inside a sentence. Bare "ihr" is not counted (in
+  prose it is far more often "her" or "their"); euch/euer… carry the
+  plural "you".
+- **Russian «вы»** is the plural too; in a text that speaks to its reader it
+  is the polite address, and is counted as that.
+- **Pronouns only.** A reader is often addressed by the verb alone
+  («Нажмите кнопку», an English imperative); the counts do not see that, so
+  a rewrite that turns «вы можете нажать» into «нажмите» loses a pronoun
+  and not the address. The judge's question (above) is the check on that.
+- **Words ×** is the answer's words over the chunk's, placeholders left out
+  — over every chunk together, and per chunk.
+
+### The register proxy — what it is and is not
+
+`bench/register/<lang>.txt`, data (D421): formal connectives and verbs and
+nominalisation suffixes — en "possess*", "utiliz*", "thereby", "-tion",
+"-ity"…; ru «осуществл*», «явля*», «данный», «-ние», «-ция»…; de
+"bezüglich", "hinsichtlich", "-ung", "-heit", "-keit"…. One entry a line:
+a word, `stem*`, or `-suffix` (three letters at least before it). An
+answer's word counts when it matches **and no word of the chunk begins
+with the same five letters** — a crude stem, so the chunk's own word in
+another case or number is not a shift. The shift is that count over the
+answer's words.
+
+It **is** a count of words of a kind the formal register uses more,
+brought in by the rewrite; "is smart" → "possesses intelligence" scores
+two. It **is not** a judgement of register: a list word can be plain in
+context ("information"), a rewrite can turn formal with words no list has,
+and the five-letter stem both misses and over-matches. It is compared
+between runs over the same corpus — a model's shipped-templates row beside
+its keep-voice row — and never read alone. The lists change without code,
+and `report` recomputes from the texts, so a better list needs no rerun.
+
+### Where they are
+
+- `run` writes them on every answered record (`"voice"`: the counts as
+  `[chunk, answer]`, `switched`, `words`, `register_new`, `words_ratio`,
+  `register_shift`). `report` **recomputes** them from the texts, as it does
+  the preface and the trailer (D422): a record made before E4-8 reports
+  them too, and a changed list applies to every run on file.
+- `report`'s **voice table** — "Voice — the loop's pick (E4-7) beside the
+  least diverged": per model × tactic × intensity, the loop's pick
+  (`max ≥ 0.2`) and the least diverged (`min ≥ 0.2`) on the same
+  candidates — GPU 2 × 2 where the run made four candidates a chunk, CPU
+  1 × 2 where it made two — with the judge's voice answers among the
+  winners (D429). A chunk kept as it was keeps its voice. `summary.json`
+  carries the same under `"voice"` for every policy, executor and
+  language, and over every answered attempt of every cell.
+- The medians come with **quartiles** (p25–p75) here, where the older
+  measures keep p10–p90.
+
+### D111, to be re-read
+
+D111 — the most diverged candidate that passed wins — was decided on the
+meaning judge and pairs left, both blind to voice. The voice table puts its
+pick beside the least diverged on the same candidates, so when the host's
+run lands D111 is read again against the second person kept, the switches,
+words × and the register shift, for the shipped templates and for
+keep-voice: the research found the pick sharpens the register and does not
+cause it (−2 "you", +2 % words, −8 points of pairs left), on one article.
+
+### keep-voice in three languages
+
+`bench/variants/keep-voice/{en,ru,de}/{paraphrase,humanize}.1.system.txt`
+— each the shipped system turn with one rule added after "do not add
+claims", admitted by `row::admit` and walked by `tests/bench_variants.rs`
+(D424):
+
+- **paraphrase**: speak to the reader as the text does (if it says "you",
+  so do you; ru «ты»/«вы», de duzen/siezen as the text does), keep its tone
+  and register, words no harder than its own, not more formal, not longer.
+  The Russian is the task's wording; the German says it with duzen and
+  siezen, the way a German writer would.
+- **humanize**, its own wording: the address, and "not more formal, not
+  longer" — but not "keep its tone and register". Humanize's job is to move
+  a machine text off its inflated register; keeping that register would
+  undo it.
+- **not back_translate**: step 2 sees only the pivot translation, never the
+  source, and a pivot through English erases ты/вы and du/Sie; a rule asking
+  to keep an address the step cannot see is a rule it cannot follow. A
+  register-only clause for translation would be its own variant.
+- **not structural**: step 2 writes from an outline, which carries no voice
+  to keep.
+- **not code**: English only, and a comment addresses no reader.
+
+**keep-voice-light** is not a variant (D425): intensity is a fragment the
+grid sets, and a variant carries slots only, so `--grid
+"paraphrase:light:4" --variant …/keep-voice` is the research's "voice +
+light" — and `run-voice.sh`'s grid has "light" in it.
+
+### The run on the host
+
+`bench/run-voice.sh` (D426): the four local models — Qwen3 4B, Gemma 3 12B,
+Gemma 4 12B, Qwen3.8 27B, paths and GPU layers in
+`WIPEMARK_BENCH_GGUF_<MODEL>` / `WIPEMARK_BENCH_GPU_LAYERS_<MODEL>`, no
+default naming a disk — each run twice on the same seeds, the shipped
+templates (`--name <id>`) and keep-voice (`--name <id>+voice`), over the
+corpus with `--every 3`, every language, grid
+`paraphrase:light,moderate,strong:4;humanize:moderate,strong:2`; then the
+judge named by `WIPEMARK_BENCH_GGUF_JUDGE` / `WIPEMARK_BENCH_JUDGE_NAME`;
+then `report` into `bench/results/voice-<date>/` (`tables.md`,
+`summary.json`, `timings.tsv`; the records and judgements stay out of
+git). It refuses to start without its variables (exit 2), builds
+`--offline` and downloads nothing — not a model, not the llama.cpp release
+(it must already be in the cache) — and says how long each part will take:
+`bench plan` counts the calls (1 440 a part over this corpus), times E4-5's
+measured seconds per call for that model, then this run's own. `--dry-run`
+prints every command and touches nothing (`tests/bench_run_voice.rs`);
+`--estimate` builds and plans and loads no model.
+
+### Decisions D420–D429
+
+| | decision | why |
+|---|---|---|
+| **D420** | **Person words** are closed pronoun lists per language, in code; the second person is counted with its formal subset (ru «вы»-forms, de capitalised «Sie»-forms); a German sentence-initial Sie/Ihnen/Ihr… is formal only when the pair has an unambiguous one; bare German "ihr" is not counted; English "I" only as written and "US" not at all; kept is min(answer, source) / source by count; an address switch is the source in one register only and the answer with any form of the other. | The question is who the text speaks to; pronouns are where that is unambiguous enough to count, and each exclusion removes a common false reading ("Sie" = she, "ihr" = her, "i.e.", the US). |
+| **D421** | **The register shift is a proxy** from lists in `bench/register/<lang>.txt` (word, `stem*`, `-suffix` with three letters before it): an answer's word that matches and whose five-letter stem the chunk lacks, over the answer's words. Compared between runs, never read alone. | A judgement of register needs a reader; the lists are cheap, deterministic and editable, and the stem keeps a re-inflected word of the source from counting (Russian and German re-inflect constantly). |
+| **D422** | **`report` recomputes the voice from the texts**, as it does the preface and the trailer; `run` writes it on each record too. | Records made before E4-8 (and E4-5's on the host) report it, and a better list needs no rerun. |
+| **D423** | **The judge's voice question is separate**: its own request and line (key `voice` + judge + attempt, field `"voice"`: YES, PARTLY, NO), calibrated on the chunk against itself; the meaning question's prompt, keys and lines are unchanged and pinned by a test. | A question folded into the meaning prompt would change the meaning answers and their calibration; a line of its own lets an old judge file gain voice by being judged again. |
+| **D424** | **keep-voice touches the system turn of paraphrase and humanize, en/ru/de**; humanize's rule keeps the address and "not more formal, not longer" but not the register; not back_translate, structural or code. | Where the voice was lost and the step can see it (above); humanize exists to change an inflated register. |
+| **D425** | **No keep-voice-light variant.** | The grid's intensity reproduces it; a variant carries slots, not fragments. |
+| **D426** | **`run-voice.sh`**: four models × {shipped, keep-voice}, `--every 3`, every language, paraphrase at three intensities × 4 and humanize at two × 2; two run names; the judge by variables; offline, refusing, estimating calls × measured seconds. | The decision is the owner's after this run; the run must not be started half-configured or download behind anyone's back, and hours are worth saying first. Humanize at two candidates keeps the run near E4-5's cost; its voice is read on the CPU 1 × 2 pick. |
+| **D427** | **A variant is read through `row::admit`** with the bench's window, strictly (a stray file or a non-language directory is refused), by one reader shared with the walk test by `#[path]`. | A variant that wins is shipped as it is, so it must pass the rule an edit passes (D330); one reader, so the test and the bench cannot disagree. |
+| **D428** | **CI lints the bench and runs its unit tests** over the shim (`gate.yml`). | It needs `local-llama`, which no other lint or test target enabled; a test no lane runs protects nothing. |
+| **D429** | **`bench plan`** (`--of run`, `--of judge`) counts without loading a model; the voice table shows the loop's pick beside `min ≥ 0.2`, GPU 2 × 2 where there are four candidates, CPU 1 × 2 where there are two. | The script's estimate needs the count before a model is loaded; D111 is re-read only against a pick beside it on the same candidates. |
 
 ## The re-measurement after E4-7 (2026-10-04)
 
