@@ -65,6 +65,16 @@ How to run it
 or files concatenated); `RESULTS.jsonl.run.json`, written beside it by
 `run`, and the run's `encode.json` are read when they are there.
 
+**A model is one more config** (added by E12-R10, 2026-10-09):
+`scripts/model-eval/fdncnn_run.py run --results RESULTS.jsonl` writes
+`model.jsonl`, the bench's own line per crop with the metrics measured in
+the exported crop — `<R*>@crop` for the restoration itself and
+`<R*>+fdncnn:<variant>` per variant — so `gates model.jsonl --candidate
+R8d+fdncnn:k5-s1.0-rgb --baseline R8d@crop --route lossy` holds a model to
+A1–A7 like any config, one implementation of the metrics against itself.
+Such a line carries `model_eval`; its `measures` and `detection` are R*'s
+(the model runs after them), so §3's correlations leave it out.
+
 What it needs
 -------------
 Python 3.10+, the standard library only. Nothing in the repository depends
@@ -464,7 +474,8 @@ def report(rows, side, targets):
            "Over restored files of vendor-blended composites, per slice (Pillow or none): how far the "
            "restoration's own measures follow the truth they stand in for on real files.", ""]
     rows3 = []
-    for (cfg, sl), rs in sorted(group_by([r for r in vend if r.get("measures") and r["encoder"] in ("none", "pillow")], "config", "slice").items()):
+    for (cfg, sl), rs in sorted(group_by([r for r in vend if r.get("measures") and not r.get("model_eval")
+                                          and r["encoder"] in ("none", "pillow")], "config", "slice").items()):
         m = [r["measures"] for r in rs]
         p = [r["psnr_roi"] for r in rs]
         d = [r["de2000_roi"] for r in rs]
