@@ -97,7 +97,9 @@ pub struct Verified {
     values: Vec<f32>,
     /// The logo per channel, in the raster's stored units — and per pixel
     /// of the template when the profile has a logo colour map (R9b).
-    colours: Colours,
+    /// Boxed: with it inline a `Verdict` is 232 bytes against a refusal's
+    /// 8 (`clippy::large_enum_variant`).
+    colours: Box<Colours>,
     /// The model and the bias (R9a, R9c): `Law::today` on every profile
     /// without `blend-preview`.
     law: Law,
@@ -570,7 +572,7 @@ pub(crate) fn verify_with(
             rect: proposal.rect,
             at,
             values: shape.values,
-            colours,
+            colours: Box::new(colours),
             law,
             opaque_above: opaque,
             gain,
@@ -823,7 +825,7 @@ pub fn measure_at(
         rect,
         at,
         values: shape.values,
-        colours,
+        colours: Box::new(colours),
         law,
         opaque_above: opaque,
         gain: 1.0,
@@ -1065,10 +1067,10 @@ mod tests {
                 height: 1,
             },
             values: vec![alpha],
-            colours: Colours {
+            colours: Box::new(Colours {
                 logo: [255.0; 3],
                 per_pixel: None,
-            },
+            }),
             law: Law {
                 model: BlendModel::Encoded,
                 bias: None,
