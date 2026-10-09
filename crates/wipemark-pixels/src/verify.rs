@@ -25,6 +25,8 @@
 
 use serde::Serialize;
 
+use crate::blend::{template_logos, Colours, Law};
+use crate::calibrate::BlendModel;
 use crate::catalogue::Profile;
 use crate::geometry::{template_and_noise, template_with, Kernel, PixelRect, SubRect};
 use crate::propose::Proposal;
@@ -93,8 +95,12 @@ pub struct Verified {
     rect: SubRect,
     at: PixelRect,
     values: Vec<f32>,
-    /// The logo per channel, in the raster's stored units.
-    logo: [f64; 3],
+    /// The logo per channel, in the raster's stored units — and per pixel
+    /// of the template when the profile has a logo colour map (R9b).
+    colours: Colours,
+    /// The model and the bias (R9a, R9c): `Law::today` on every profile
+    /// without `blend-preview`.
+    law: Law,
     opaque_above: f32,
     gain: f32,
     edge_ratio: f32,
@@ -146,8 +152,32 @@ impl Verified {
         &self.values
     }
 
+    /// The profile's one logo colour, in stored units.
     pub(crate) fn logo(&self) -> [f64; 3] {
-        self.logo
+        self.colours.logo
+    }
+
+    /// The logo at template pixel `p` (row-major over [`Verified::pixels`]):
+    /// the one colour, or the logo colour map's there (R9b).
+    pub(crate) fn logo_at(&self, p: usize) -> [f64; 3] {
+        self.colours.at(p)
+    }
+
+    /// The template's colour per pixel, when the profile has a logo colour
+    /// map (R9b); `None` for one colour.
+    pub(crate) fn logos(&self) -> Option<&[[f64; 3]]> {
+        self.colours.per_pixel.as_deref()
+    }
+
+    pub(crate) fn law(&self) -> Law {
+        self.law
+    }
+
+    /// The reverse blend at template pixel `p`, unrounded and unclamped:
+    /// [`Law::inverse`] with the logo there — for `encoded` with no bias,
+    /// [`crate::restore::unblend`] itself.
+    pub(crate) fn unblend(&self, stored: [f64; 3], a: f64, p: usize) -> [f64; 3] {
+        self.law.inverse(stored, a, self.logo_at(p))
     }
 
     pub(crate) fn opaque_above(&self) -> f32 {
@@ -230,12 +260,24 @@ struct Grid {
     pixels: Vec<[f64; 3]>,
     edges: Vec<(usize, f32)>,
     logo: [f64; 3],
+    /// The logo per grid pixel, when the template has one per pixel (R9b);
+    /// the one colour on the ring.
+    logos: Option<Vec<[f64; 3]>>,
+    law: Law,
     max: f64,
     opaque: f64,
 }
 
 impl Grid {
-    fn new(raster: &Raster, values: &[f32], at: PixelRect, opaque: f32, logo: [f64; 3]) -> Self {
+    fn new(
+        raster: &Raster,
+        values: &[f32],
+        at: PixelRect,
+        opaque: f32,
+        colours: &Colours,
+        law: Law,
+    ) -> Self {
+        let logo = colours.logo;
         let samples = raster.samples();
         let gx0 = at.x.saturating_sub(1);
         let gy0 = at.y.saturating_sub(1);
@@ -244,11 +286,16 @@ impl Grid {
         let (gw, gh) = ((gx1 - gx0) as usize, (gy1 - gy0) as usize);
         let mut alpha = vec![0f32; gw * gh];
         let mut pixels = vec![[0f64; 3]; gw * gh];
+        let mut logos = colours.per_pixel.as_ref().map(|_| vec![logo; gw * gh]);
         for gy in 0..gh {
             for gx in 0..gw {
                 let (x, y) = (gx0 + gx as u32, gy0 + gy as u32);
                 if x >= at.x && y >= at.y && x < at.x + at.width && y < at.y + at.height {
-                    alpha[gy * gw + gx] = values[((y - at.y) * at.width + (x - at.x)) as usize];
+                    let t = ((y - at.y) * at.width + (x - at.x)) as usize;
+                    alpha[gy * gw + gx] = values[t];
+                    if let Some(l) = logos.as_mut() {
+                        l[gy * gw + gx] = colours.at(t);
+                    }
                 }
                 let i = raster.at(x, y);
                 pixels[gy * gw + gx] = [
@@ -283,8 +330,18 @@ impl Grid {
             pixels,
             edges,
             logo,
+            logos,
+            law,
             max: f64::from(raster.layout().max()),
             opaque: f64::from(opaque),
+        }
+    }
+
+    /// The logo at grid pixel `p`.
+    fn logo(&self, p: usize) -> [f64; 3] {
+        match &self.logos {
+            Some(l) => l[p],
+            None => self.logo,
         }
     }
 
@@ -295,8 +352,9 @@ impl Grid {
             let o = inverse(
                 self.pixels[p],
                 f64::from(self.alpha[p]) * k,
-                self.logo,
+                self.logo(p),
                 self.opaque,
+                self.law,
             );
             *l =
                 (f64::from(LUMA[0]) * o[0] + f64::from(LUMA[1]) * o[1] + f64::from(LUMA[2]) * o[2])
@@ -333,8 +391,19 @@ pub(crate) fn residual(
         return None;
     }
     let max = f64::from(raster.layout().max());
-    let logo = profile.logo.map(|c| f64::from(c) * max / 255.0);
-    let grid = Grid::new(raster, &shape.values, at, profile.opaque_above, logo);
+    let colours = Colours {
+        logo: profile.logo.map(|c| f64::from(c) * max / 255.0),
+        per_pixel: template_logos(profile, map, rect, kernel, max),
+    };
+    let law = Law::of(profile, max);
+    let grid = Grid::new(
+        raster,
+        &shape.values,
+        at,
+        profile.opaque_above,
+        &colours,
+        law,
+    );
     let weight: f64 = grid.edges.iter().map(|&(_, g)| f64::from(g)).sum();
     let mut luma = vec![0f64; grid.pixels.len()];
     (weight > 0.0).then(|| grid.energy(1.0, &mut luma) / weight)
@@ -401,8 +470,12 @@ pub(crate) fn verify_with(
         return (None, Outcome::Refused(Refusal::Opaque { holes }));
     }
 
-    let logo = profile.logo.map(|c| f64::from(c) * max / 255.0);
-    let grid = Grid::new(raster, &shape.values, at, opaque, logo);
+    let colours = Colours {
+        logo: profile.logo.map(|c| f64::from(c) * max / 255.0),
+        per_pixel: template_logos(profile, map, proposal.rect, proposal.kernel, max),
+    };
+    let law = Law::of(profile, max);
+    let grid = Grid::new(raster, &shape.values, at, opaque, &colours, law);
     let mut energy = [0f64; STEPS + 1];
     let mut luma = vec![0f64; grid.pixels.len()];
     for (i, e) in energy.iter_mut().enumerate() {
@@ -437,16 +510,13 @@ pub(crate) fn verify_with(
             continue;
         }
         let a = f64::from(a);
-        for v in inverse(grid.pixels[p], a, logo, f64::from(opaque)) {
+        // `Law::out_of_range`: for `encoded` with no bias, the gap of
+        // `restore::unblend` outside the range times `1 − α`, as it was;
+        // the interval moved by a bias (D308), and measured in light for
+        // `linear-light` (D311), under `blend-preview`.
+        for outside in law.out_of_range(grid.pixels[p], a, grid.logo(p), allowance) {
             total += 1;
-            let gap = if v < 0.0 {
-                -v * (1.0 - a)
-            } else if v > max {
-                (v - max) * (1.0 - a)
-            } else {
-                0.0
-            };
-            if gap > allowance {
+            if outside {
                 out += 1;
             }
         }
@@ -458,9 +528,11 @@ pub(crate) fn verify_with(
     };
     // In the planes the file stored, when they are known and subsampled
     // (D306): the share the decision uses, and its two terms.
-    let (out_of_range, planar) = match model {
+    // A `linear-light` blend is not linear in the planes' code values: it
+    // is proved in RGB, as on every other route (R9c).
+    let (out_of_range, planar) = match model.filter(|_| law.model == BlendModel::Encoded) {
         Some(m) => {
-            let (share, terms) = m.out_of_range(&shape.values, at, logo, opaque);
+            let (share, terms) = m.out_of_range(&shape.values, at, &colours, law, opaque);
             (share, Some(terms))
         }
         None => (out_of_range, None),
@@ -498,7 +570,8 @@ pub(crate) fn verify_with(
             rect: proposal.rect,
             at,
             values: shape.values,
-            logo,
+            colours,
+            law,
             opaque_above: opaque,
             gain,
             edge_ratio,
@@ -658,7 +731,8 @@ pub(crate) fn outline(raster: &Raster, verified: &Verified) -> Outline {
             &verified.values,
             verified.at,
             verified.opaque_above,
-            verified.logo,
+            &verified.colours,
+            verified.law,
         );
         let weight: f64 = grid.edges.iter().map(|&(_, g)| f64::from(g)).sum();
         let mut luma = vec![0f64; grid.pixels.len()];
@@ -705,7 +779,11 @@ pub fn measure_at(
         return None;
     }
     let max = f64::from(raster.layout().max());
-    let logo = profile.logo.map(|c| f64::from(c) * max / 255.0);
+    let colours = Colours {
+        logo: profile.logo.map(|c| f64::from(c) * max / 255.0),
+        per_pixel: template_logos(profile, map, rect, kernel, max),
+    };
+    let law = Law::of(profile, max);
     let opaque = profile.opaque_above;
     // The rectangle and its ring — all `Grid` reads — copied, and the
     // template drawn over the copy.
@@ -729,8 +807,14 @@ pub fn measure_at(
         shape.values.iter().map(|v| v.clamp(0.0, 1.0)).collect(),
     )
     .ok()?;
-    crate::restore::composite(&mut drawn, &mark, local, profile.logo);
-    let grid = Grid::new(&drawn, &shape.values, local, opaque, logo);
+    if law.today() && colours.per_pixel.is_none() {
+        crate::restore::composite(&mut drawn, &mark, local, profile.logo);
+    } else {
+        // The profile's own blend (E12-R9, `blend-preview`): the bias, the
+        // logo per pixel, the model.
+        crate::blend::draw(&mut drawn, &mark, local, &colours, law);
+    }
+    let grid = Grid::new(&drawn, &shape.values, local, opaque, &colours, law);
     let contour = grid.energy(0.0, &mut vec![0f64; grid.pixels.len()]);
     // `outline` reads the template, its place, the logo, the opaque
     // threshold and the contour; the rest is what no proof measured.
@@ -739,7 +823,8 @@ pub fn measure_at(
         rect,
         at,
         values: shape.values,
-        logo,
+        colours,
+        law,
         opaque_above: opaque,
         gain: 1.0,
         edge_ratio: 0.0,
@@ -948,13 +1033,14 @@ fn texture_around(raster: &Raster, at: PixelRect) -> f64 {
 }
 
 /// [`crate::restore::unblend`] — GWT's reverse blend, written once —
-/// unclamped; the input itself where `a` is at or above the opaque
-/// threshold, which is never divided.
-fn inverse(i: [f64; 3], a: f64, logo: [f64; 3], opaque: f64) -> [f64; 3] {
+/// unclamped, through the profile's law ([`Law::inverse`], which is
+/// `unblend` itself for `encoded` with no bias); the input itself where
+/// `a` is at or above the opaque threshold, which is never divided.
+fn inverse(i: [f64; 3], a: f64, logo: [f64; 3], opaque: f64, law: Law) -> [f64; 3] {
     if a <= 0.0 || a >= opaque {
         return i;
     }
-    crate::restore::unblend(i, a, logo)
+    law.inverse(i, a, logo)
 }
 
 #[cfg(test)]
@@ -979,7 +1065,15 @@ mod tests {
                 height: 1,
             },
             values: vec![alpha],
-            logo: [255.0; 3],
+            colours: Colours {
+                logo: [255.0; 3],
+                per_pixel: None,
+            },
+            law: Law {
+                model: BlendModel::Encoded,
+                bias: None,
+                max: 255.0,
+            },
             opaque_above: 0.95,
             gain: 1.0,
             edge_ratio: 0.0,

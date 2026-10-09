@@ -167,17 +167,19 @@ fn restore_with(
     }
     let at = verified.pixels();
     let max = f64::from(raster.layout().max());
-    let logo = verified.logo();
+    let law = verified.law();
     let opaque = verified.opaque_above();
     let (mut changed, mut holes, mut clamped) = (0u32, 0u32, 0u32);
-    // D305: per sample restored, (blend(O), I) in 8-bit levels.
+    // D305: per sample restored, (blend(O), I) in 8-bit levels — the blend
+    // the profile's law makes (`Law::forward`; `a·l + (1 − a)·o` for
+    // `encoded` with no bias, as it always was).
     let to_8 = 255.0 / max;
     let shift = f64::from(levels) / to_8;
-    let blend = |o: f64, a: f64, l: f64| a * l + (1.0 - a) * o;
     let (mut pairs, mut excluded) = (Vec::new(), 0u32);
     for ty in 0..at.height {
         for tx in 0..at.width {
-            let a = verified.values()[(ty * at.width + tx) as usize];
+            let p = (ty * at.width + tx) as usize;
+            let a = verified.values()[p];
             if a < NOISE_FLOOR {
                 continue;
             }
@@ -187,6 +189,7 @@ fn restore_with(
                 continue;
             }
             let a = f64::from(a);
+            let logo = verified.logo_at(p);
             let i = raster.at(at.x + tx, at.y + ty);
             let samples = raster.samples_mut();
             let stored = [
@@ -194,7 +197,7 @@ fn restore_with(
                 f64::from(samples[i + 1]),
                 f64::from(samples[i + 2]),
             ];
-            let original = unblend(stored, a, logo);
+            let original = law.inverse(stored, a, logo);
             let mut moved = false;
             for (c, o) in original.into_iter().enumerate() {
                 let v = (o + shift).round().clamp(0.0, max);
@@ -202,7 +205,8 @@ fn restore_with(
                     clamped += 1;
                     excluded += 1;
                 } else {
-                    pairs.push((blend(v, a, logo[c]) * to_8, stored[c] * to_8));
+                    let back = law.forward(v, a, logo[c], c);
+                    pairs.push((back * to_8, stored[c] * to_8));
                 }
                 let v = v as u16;
                 if v != samples[i + c] {
@@ -220,6 +224,7 @@ fn restore_with(
                 continue;
             }
             let (tx, ty) = (p as u32 % at.width, p as u32 / at.width);
+            let logo = verified.logo_at(p);
             let i = raster.at(at.x + tx, at.y + ty);
             let samples = raster.samples_mut();
             let stored = [
@@ -227,13 +232,15 @@ fn restore_with(
                 f64::from(samples[i + 1]),
                 f64::from(samples[i + 2]),
             ];
+            let original = law.inverse(stored, f64::from(a), logo);
             let mut moved = false;
-            for (c, o) in unblend(stored, f64::from(a), logo).into_iter().enumerate() {
+            for (c, o) in original.into_iter().enumerate() {
                 let v = o.round().clamp(0.0, max);
                 if o < -0.5 || o > max + 0.5 {
                     excluded += 1;
                 } else {
-                    pairs.push((blend(v, f64::from(a), logo[c]) * to_8, stored[c] * to_8));
+                    let back = law.forward(v, f64::from(a), logo[c], c);
+                    pairs.push((back * to_8, stored[c] * to_8));
                 }
                 let v = v as u16;
                 if v != samples[i + c] {
@@ -308,7 +315,7 @@ pub(crate) fn drawn_noise(raster: &Raster, verified: &Verified) -> bool {
         return false;
     }
     let at = verified.pixels();
-    let logo = verified.logo();
+    let law = verified.law();
     let samples = raster.samples();
     let noise = verified.noise();
     let (w, h) = (i64::from(at.width), i64::from(at.height));
@@ -319,11 +326,22 @@ pub(crate) fn drawn_noise(raster: &Raster, verified: &Verified) -> bool {
             .sum::<f64>()
     };
     let lift = |x: i64, y: i64| {
-        let a = f64::from(noise[(y * w + x) as usize]);
+        let p = (y * w + x) as usize;
+        let a = f64::from(noise[p]);
         if a < f64::from(NOISE_FLOOR) {
             return 0.0;
         }
+        let logo = verified.logo_at(p);
         let i = raster.at(at.x + x as u32, at.y + y as u32);
+        if !law.today() {
+            // What the profile's own inverse would take off (E12-R9,
+            // `blend-preview`): the stored value less its restoration.
+            let stored = [0, 1, 2].map(|c| f64::from(samples[i + c]));
+            let o = law.inverse(stored, a, logo);
+            return (0..3)
+                .map(|c| f64::from(crate::raster::LUMA[c]) * (stored[c] - o[c]))
+                .sum::<f64>();
+        }
         (0..3)
             .map(|c| {
                 f64::from(crate::raster::LUMA[c]) * a * (logo[c] - f64::from(samples[i + c]))

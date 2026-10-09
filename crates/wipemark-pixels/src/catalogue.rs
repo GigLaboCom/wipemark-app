@@ -10,6 +10,15 @@
 //! calibration shows a vendor needs it (D152). A failure is a
 //! [`CatalogueError`] naming the profile and what is wrong, never a panic
 //! and never a profile that half loaded.
+//!
+//! **The blend past one colour (E12-R9) is built and not opened.** A
+//! `bias` (R9a, D308), a `logo_map` (R9b, D313) and `"model":
+//! "linear-light"` (R9c, D311) — all three proposed, none taken — are
+//! read only in a build with the `blend-preview` feature. Without it the
+//! catalogue refuses each exactly as it did before the code existed: a
+//! `bias` is a field the schema does not know, a `logo_map` and
+//! `linear-light` are refused by name
+//! (`the_catalogue_still_refuses_what_was_not_built`).
 
 use std::sync::OnceLock;
 
@@ -17,6 +26,8 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use crate::alpha::{AlphaMap, WmaError};
+use crate::blend::{LogoMap, WmlError};
+use crate::calibrate::BlendModel;
 use crate::geometry::PixelRect;
 
 /// The compiled-in catalogue.
@@ -25,8 +36,8 @@ pub const EMBEDDED: &str = include_str!("../../../manifests/marks.v1.json");
 /// The only schema this build reads.
 pub const SCHEMA: u32 = 1;
 
-// `ASSETS`: every `.wma` under `marks/`, by file name, compiled in by
-// `build.rs`. A catalogue row names the file; a file nobody names is
+// `ASSETS`: every `.wma` and `.wml` under `marks/`, by file name,
+// compiled in by `build.rs`. A catalogue row names the file; a file nobody names is
 // carried and never read.
 include!(concat!(env!("OUT_DIR"), "/assets.rs"));
 
@@ -47,6 +58,9 @@ pub enum AssetProblem {
     Size,
     #[error("{0}")]
     Wma(WmaError),
+    /// A logo colour map that does not read (R9b, `blend-preview` only).
+    #[error("{0}")]
+    Wml(WmlError),
 }
 
 /// Why a catalogue could not be read.
@@ -230,6 +244,18 @@ pub struct Profile {
     pub status: Status,
     /// The logo's colour, per channel, in 8-bit units.
     pub logo: [f32; 3],
+    /// How the vendor blended: `Encoded` on every profile this build can
+    /// read without `blend-preview`; `LinearLight` only with it (R9c,
+    /// D311 proposed).
+    pub model: BlendModel,
+    /// A constant the vendor added where the mark is drawn, per channel,
+    /// in 8-bit levels (R9a, D308 proposed): `None` on every profile
+    /// without `blend-preview`, and `None` is no bias — not a zero added.
+    pub bias: Option<[f32; 3]>,
+    /// The logo's colour per sample of the opacity maps (R9b, D313
+    /// proposed), the size of every one of them: `None` without
+    /// `blend-preview`, and then `logo` is the colour everywhere.
+    pub logo_map: Option<LogoMap>,
     /// `α` at or above this is a hole: never divided (D155).
     pub opaque_above: f32,
     /// The opacity maps, by id.
@@ -353,7 +379,26 @@ struct BlendJson {
     model: String,
     /// In 8-bit levels; a measured colour may be fractional (D242).
     logo: [f32; 3],
-    logo_map: Option<String>,
+    /// Refused by name without `blend-preview`, whatever it holds; with
+    /// it, a [`LogoMapJson`] (R9b).
+    logo_map: Option<serde_json::Value>,
+    /// In 8-bit levels, per channel (R9a). Not a field of the schema
+    /// without `blend-preview`: a row that carries one is refused as it
+    /// always was, as a field nobody knows.
+    #[cfg(feature = "blend-preview")]
+    #[serde(default)]
+    bias: Option<[f32; 3]>,
+}
+
+/// A logo colour map, named as an opacity map is: the asset's file name,
+/// its sha256 and its size (R9b, `blend-preview` only).
+#[cfg_attr(not(feature = "blend-preview"), allow(dead_code))]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LogoMapJson {
+    asset: String,
+    sha256: String,
+    size: [u32; 2],
 }
 
 #[derive(Deserialize)]
@@ -455,17 +500,30 @@ fn profile<'a>(
         "provisional" => Status::Provisional,
         _ => return Err(bad("the status is neither stable nor provisional")),
     };
-    match row.blend.model.as_str() {
-        "encoded" => {}
+    let model = match row.blend.model.as_str() {
+        "encoded" => BlendModel::Encoded,
+        #[cfg(feature = "blend-preview")]
+        "linear-light" => BlendModel::LinearLight,
+        #[cfg(not(feature = "blend-preview"))]
         "linear-light" => return Err(bad("the linear-light blend is not in this version")),
         _ => return Err(bad("the blend model is not one this version knows")),
-    }
+    };
+    #[cfg(not(feature = "blend-preview"))]
     if row.blend.logo_map.is_some() {
         return Err(bad("a logo colour map is not in this version"));
     }
     if row.blend.logo.iter().any(|&c| !(0.0..=255.0).contains(&c)) {
         return Err(bad("a logo channel is outside 0–255"));
     }
+    #[cfg(feature = "blend-preview")]
+    let bias = match row.blend.bias {
+        Some(b) if b.iter().any(|c| !c.is_finite() || c.abs() >= 255.0) => {
+            return Err(bad("a bias channel is not within ±255 levels"));
+        }
+        b => b,
+    };
+    #[cfg(not(feature = "blend-preview"))]
+    let bias: Option<[f32; 3]> = None;
     if !(row.opaque_above > 0.0 && row.opaque_above <= 1.0) {
         return Err(bad("opaque_above is not in (0, 1]"));
     }
@@ -505,6 +563,40 @@ fn profile<'a>(
         maps.push((a.id.clone(), map));
     }
     let index = |name: &str| maps.iter().position(|(m, _)| m == name);
+
+    #[cfg(feature = "blend-preview")]
+    let logo_map = match &row.blend.logo_map {
+        None => None,
+        Some(value) => {
+            let named: LogoMapJson = serde_json::from_value(value.clone())
+                .map_err(|_| bad("a logo colour map is not an asset, its sha256 and its size"))?;
+            let asset = |problem| CatalogueError::Asset {
+                profile: id.clone(),
+                id: named.asset.clone(),
+                problem,
+            };
+            let pin = parse_pin(&named.sha256).ok_or_else(|| asset(AssetProblem::Pin))?;
+            let bytes = assets(&named.asset).ok_or_else(|| asset(AssetProblem::Missing))?;
+            if Sha256::digest(bytes).as_slice() != pin {
+                return Err(asset(AssetProblem::Hash));
+            }
+            let logos = LogoMap::read(bytes).map_err(|e| asset(AssetProblem::Wml(e)))?;
+            if [logos.width(), logos.height()] != named.size {
+                return Err(asset(AssetProblem::Size));
+            }
+            if maps
+                .iter()
+                .any(|(_, m)| (m.width(), m.height()) != (logos.width(), logos.height()))
+            {
+                return Err(bad(
+                    "a logo colour map is not the size of every opacity map",
+                ));
+            }
+            Some(logos)
+        }
+    };
+    #[cfg(not(feature = "blend-preview"))]
+    let logo_map: Option<LogoMap> = None;
 
     let mut placements = Vec::with_capacity(row.placements.len());
     for p in &row.placements {
@@ -582,6 +674,9 @@ fn profile<'a>(
         mark: row.mark,
         status,
         logo: row.blend.logo,
+        model,
+        bias,
+        logo_map,
         opaque_above: row.opaque_above,
         maps,
         fitted: row.alpha.iter().map(|a| a.fitted).collect(),
@@ -661,5 +756,147 @@ mod tests {
             ..When::default()
         };
         assert!(!never.can_match());
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    /// A catalogue of one profile over one 2 × 2 map, its blend `blend`
+    /// (the JSON object), and `logo.wml` beside the map for a blend that
+    /// names it.
+    fn parse_row(blend: &str, logos: &[u8]) -> Result<Catalogue, CatalogueError> {
+        let map = AlphaMap::new(2, 2, vec![0.0, 0.25, 0.5, 0.75])
+            .unwrap()
+            .write(8)
+            .unwrap();
+        let map_sha = hex(&map);
+        let json = format!(
+            r#"{{ "schema": 1, "profiles": [{{
+      "id": "test", "vendor": "test", "product": "synthetic", "mark": "sparkle",
+      "observed": {{ "from": null, "until": null }}, "status": "stable",
+      "blend": {blend},
+      "opaque_above": 0.95,
+      "alpha": [ {{ "id": "small", "asset": "small.wma", "sha256": "{map_sha}", "size": [2, 2] }} ],
+      "placements": [ {{ "when": {{}}, "corner": "bottom-right", "margin": [1, 1], "alpha": "small" }} ],
+      "search": null,
+      "detect": {{ "min_ncc": 0.70 }},
+      "verify": {{ "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 }},
+      "source": null
+    }}] }}"#
+        );
+        Catalogue::parse(&json, &|name: &str| match name {
+            "small.wma" => Some(map.as_slice()),
+            "logo.wml" => Some(logos),
+            _ => None,
+        })
+    }
+
+    /// E12-R9: the three changes are code, and none of them is open. A
+    /// build without `blend-preview` refuses a `bias`, a `logo_map` and
+    /// `linear-light` exactly as before the code existed — the first as a
+    /// field the schema does not know, the other two by name; a build with
+    /// it reads each into the profile. Either way a row with none of them
+    /// is today's: `encoded`, no bias, no map.
+    #[test]
+    fn the_catalogue_still_refuses_what_was_not_built() {
+        let logos = LogoMap::new(2, 2, vec![[250.0, 251.0, 252.0]; 4])
+            .unwrap()
+            .write()
+            .unwrap();
+        let logo_sha = hex(&logos);
+        let encoded = r#""model": "encoded", "logo": [255, 255, 255]"#;
+        let today = format!(r#"{{ {encoded}, "logo_map": null }}"#);
+        let bias = format!(r#"{{ {encoded}, "logo_map": null, "bias": [1.5, 1.5, 1.5] }}"#);
+        let logo_map = format!(
+            r#"{{ {encoded}, "logo_map": {{ "asset": "logo.wml", "sha256": "{logo_sha}", "size": [2, 2] }} }}"#
+        );
+        let linear = r#"{ "model": "linear-light", "logo": [255, 255, 255], "logo_map": null }"#;
+
+        let read = parse_row(&today, &logos).unwrap();
+        let p = &read.profiles()[0];
+        assert_eq!(p.model, BlendModel::Encoded);
+        assert_eq!(p.bias, None);
+        assert!(p.logo_map.is_none());
+
+        let refused = |why: &'static str| CatalogueError::Profile {
+            id: String::from("test"),
+            why,
+        };
+        if cfg!(feature = "blend-preview") {
+            let read = parse_row(&bias, &logos).unwrap();
+            assert_eq!(read.profiles()[0].bias, Some([1.5; 3]));
+            let read = parse_row(&logo_map, &logos).unwrap();
+            let map = read.profiles()[0].logo_map.as_ref().unwrap();
+            assert_eq!(map.colours()[3], [250.0, 251.0, 252.0]);
+            let read = parse_row(linear, &logos).unwrap();
+            assert_eq!(read.profiles()[0].model, BlendModel::LinearLight);
+        } else {
+            match parse_row(&bias, &logos) {
+                Err(CatalogueError::Json(e)) => assert!(e.contains("unknown field `bias`"), "{e}"),
+                other => panic!("a bias was read: {other:?}"),
+            }
+            assert_eq!(
+                parse_row(&logo_map, &logos).unwrap_err(),
+                refused("a logo colour map is not in this version")
+            );
+            assert_eq!(
+                parse_row(linear, &logos).unwrap_err(),
+                refused("the linear-light blend is not in this version")
+            );
+        }
+    }
+
+    /// Under `blend-preview`, a logo colour map is held to everything an
+    /// opacity map is, and to the size of the maps it colours.
+    #[cfg(feature = "blend-preview")]
+    #[test]
+    fn a_logo_map_is_refused_when_it_does_not_fit() {
+        let small = LogoMap::new(1, 1, vec![[250.0; 3]])
+            .unwrap()
+            .write()
+            .unwrap();
+        let named = |sha: &str, size: &str| {
+            format!(
+                r#"{{ "model": "encoded", "logo": [255, 255, 255], "logo_map": {{ "asset": "logo.wml", "sha256": "{sha}", "size": {size} }} }}"#
+            )
+        };
+        // Its declared size is not the file's.
+        assert!(matches!(
+            parse_row(&named(&hex(&small), "[2, 2]"), &small),
+            Err(CatalogueError::Asset {
+                problem: AssetProblem::Size,
+                ..
+            })
+        ));
+        // It reads, but it is not the size of the opacity map.
+        assert_eq!(
+            parse_row(&named(&hex(&small), "[1, 1]"), &small).unwrap_err(),
+            CatalogueError::Profile {
+                id: String::from("test"),
+                why: "a logo colour map is not the size of every opacity map",
+            }
+        );
+        // It is not a logo colour map at all.
+        let wma = AlphaMap::new(2, 2, vec![0.5; 4])
+            .unwrap()
+            .write(16)
+            .unwrap();
+        assert!(matches!(
+            parse_row(&named(&hex(&wma), "[2, 2]"), &wma),
+            Err(CatalogueError::Asset {
+                problem: AssetProblem::Wml(WmlError::Magic),
+                ..
+            })
+        ));
+        // A bias out of its range.
+        let far = r#"{ "model": "encoded", "logo": [255, 255, 255], "logo_map": null, "bias": [0, 300, 0] }"#;
+        assert!(matches!(
+            parse_row(far, &small),
+            Err(CatalogueError::Profile { .. })
+        ));
     }
 }

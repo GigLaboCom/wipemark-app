@@ -280,16 +280,22 @@ fn refusals_are_values_never_panics() {
     let v1 = synthetic_v1();
     let mut assets = Vec::new();
     let good = profile_json(&v1, &mut assets, 32);
-    for bad in [
+    let mut bads = vec![
         String::from("not json"),
         String::from("{\"schema\": 2, \"profiles\": []}"),
         format!("{{ \"schema\": 1, \"profiles\": [{good}, {good}] }}"),
-        good.replace("\"encoded\"", "\"linear-light\""),
         good.replace("\"alpha\": \"small\"", "\"alpha\": \"nowhere\""),
         good.replace("\"min_ncc\": 0.70", "\"min_ncc\": 1.70"),
         good.replace("\"opaque_above\": 0.95", "\"opaque_above\": 0"),
         good.replace("bottom-right", "middle"),
-    ] {
+        // A blend model nobody knows, with the feature or without.
+        good.replace("\"encoded\"", "\"gamma-2\""),
+    ];
+    // `linear-light` is read under `blend-preview` (E12-R9c).
+    if !cfg!(feature = "blend-preview") {
+        bads.push(good.replace("\"encoded\"", "\"linear-light\""));
+    }
+    for bad in bads {
         let json = if bad.starts_with("{ \"schema\"") || !bad.contains("\"id\"") {
             bad.clone()
         } else {

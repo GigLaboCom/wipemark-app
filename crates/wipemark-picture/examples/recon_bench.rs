@@ -77,22 +77,29 @@
 //! `encode.py` and `run` follow it. A slice is one of §4.3's or any
 //! `jpeg444-qNN`/`jpeg420-qNN` (a JPEG at that quality; `image` writes the
 //! 4:4:4 ones, Pillow both).
+//!
+//! In a build with `blend-preview` (E12-R9), `R9a`, `R9b`
+//! and `R9c` are R0's path with a catalogue whose profile row is the one
+//! `run --blend-row FILE` names — a bias, a logo colour map, linear light —
+//! and `gen --bias`, `--rounding` and `--logo-map` draw the composites
+//! they are measured on (see "the blend" below and `scripts/bench/README.md`).
 
 use std::collections::BTreeMap;
 use std::io::{BufWriter, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use wipemark_image::{ImageContainer, Scope, StripOptions};
 use wipemark_picture::{decode_with_planes, encode_like, prove, Decoded, PictureError};
-use wipemark_pixels::synth::{composite_with, to_linear, Blend, BlendModel};
+use wipemark_pixels::synth::{composite_with, to_linear, Blend, BlendModel, LogoColor, Rounding};
 use wipemark_pixels::{
-    drawn, resampled, Anchor, Catalogue, ExamineOptions, Kernel, Layout, PixelRect, PixelReport,
-    Planes, Profile, Raster, Refine, Refusal, RestoreOptions, Restored, SubRect, Verdict, EMBEDDED,
+    drawn, resampled, Anchor, Catalogue, ExamineOptions, Kernel, Layout, LogoMap, PixelRect,
+    PixelReport, Planes, Profile, Raster, Refine, Refusal, RestoreOptions, Restored, SubRect,
+    Verdict, EMBEDDED,
 };
 
 #[path = "support/catalogue.rs"]
@@ -117,8 +124,9 @@ fn usage() -> ! {
         "recon_bench pin --manifest M [--photos DIR]\n\
          recon_bench gen --manifest M --out DIR [--seed S] [--sample N] [--groups a,b] [--rows a,b] [--photos DIR]\n\
          \x20   [--profile ID,…] [--catalogue FILE] [--sizes WxH,…] [--slices a,b | --degradations FILE]\n\
+         \x20   [--bias B|R,G,B] [--rounding round|truncate] [--logo-map FILE.wml]\n\
          recon_bench run --in DIR --config NAME [--config NAME …] --out FILE [--export-crops DIR] [--jobs N] [--slices a,b]\n\
-         \x20   [--catalogue FILE]\n\
+         \x20   [--catalogue FILE] [--blend-row FILE.json]  (R9a, R9b, R9c: a build with blend-preview)\n\
          recon_bench configs"
     );
     std::process::exit(2)
@@ -181,7 +189,7 @@ fn main() {
         "gen" => gen(&args),
         "run" => run(&args),
         "configs" => {
-            for c in CONFIGS {
+            for c in all_configs() {
                 println!("{}\t{}\t{}", c.name, c.inverse.id(), c.about);
             }
         }
@@ -1454,6 +1462,8 @@ fn gen(args: &Args) {
         }
     }
     let jpegs = image_jpegs(slices.as_deref());
+    // E12-R9: how the composites are drawn past the profile's own blend.
+    let _ = DRAWING.set(Drawing::from_args(args));
     let pins: BTreeMap<String, Value> = manifest["backgrounds"]
         .as_array()
         .unwrap_or(&Vec::new())
@@ -1628,7 +1638,7 @@ fn gen_one(
             let blend = Blend {
                 k: case.k,
                 model: case.model,
-                ..Blend::encoded(p.logo)
+                ..drawing().blend(p.logo, map)?
             };
             composite_with(&mut marked, &drawn(map), rect, Kernel::Area, &blend);
             let rel = bg_rel.join(case.id());
@@ -1639,7 +1649,7 @@ fn gen_one(
                 std::fs::create_dir_all(dir.join(slice)).map_err(|e| e.to_string())?;
                 write_jpeg(&dir.join(slice).join("image.jpg"), &marked, *quality)?;
             }
-            let meta = json!({
+            let mut meta = json!({
                 "schema": SCHEMA,
                 "case": case.id(),
                 "group": b.group,
@@ -1667,6 +1677,7 @@ fn gen_one(
                 },
                 "expect": case.expect(),
             });
+            drawing().record(&mut meta);
             write_json(&dir.join("meta.json"), &meta);
             lines.push(
                 json!({
@@ -1797,6 +1808,247 @@ const CONFIGS: &[Config] = &[
         restore: r8w,
     },
 ];
+
+// ───────────────────────────────────────────────────────────── the blend
+
+/// R9's configs (E12-R9; D308, D313 and D311, all proposed): the user's
+/// path, R0's, with the catalogue `run --blend-row FILE` builds — the
+/// shipped one with that file's profile row in place of the shipped row of
+/// its id. The row carries what the sub-step measures, and the host writes
+/// it from R4's numbers: a `bias`, a `logo_map` (a `.wml` beside the row,
+/// `scripts/bench/wml.py`), `"model": "linear-light"`. Only a build with
+/// `blend-preview` has them, because only its catalogue reads such a row.
+#[cfg(feature = "blend-preview")]
+const PREVIEW_CONFIGS: &[Config] = &[
+    Config {
+        name: "R9a",
+        inverse: BlendModel::Encoded,
+        about: "E12-R9a, D308 (proposed): R0 with the --blend-row profile, which carries a bias",
+        restore: r0,
+    },
+    Config {
+        name: "R9b",
+        inverse: BlendModel::Encoded,
+        about: "E12-R9b, D313 (proposed): R0 with the --blend-row profile, which carries a logo colour map",
+        restore: r0,
+    },
+    Config {
+        name: "R9c",
+        inverse: BlendModel::LinearLight,
+        about: "E12-R9c, D311 (proposed): R0 with the --blend-row profile, blended in linear light",
+        restore: r0,
+    },
+];
+#[cfg(not(feature = "blend-preview"))]
+const PREVIEW_CONFIGS: &[Config] = &[];
+
+/// Every config this build knows: [`CONFIGS`], then R9's.
+fn all_configs() -> impl Iterator<Item = &'static Config> {
+    CONFIGS.iter().chain(PREVIEW_CONFIGS)
+}
+
+/// The catalogue R9's configs restore with, built once by `run`.
+#[cfg(feature = "blend-preview")]
+static PREVIEW: OnceLock<Catalogue> = OnceLock::new();
+
+/// The catalogue `config` restores with: the case's, or for an R9 config
+/// the one `--blend-row` built.
+fn catalogue_for<'a>(config: &Config, case: &'a Catalogue) -> &'a Catalogue {
+    #[cfg(feature = "blend-preview")]
+    if config.name.starts_with("R9") {
+        return PREVIEW
+            .get()
+            .unwrap_or_else(|| refuse("an R9 config needs --blend-row"));
+    }
+    let _ = config;
+    case
+}
+
+/// `run`'s R9 configs: the shipped catalogue with `--blend-row`'s profile
+/// row in place of the shipped row of its id (beside them for a new id),
+/// its assets read from the row file's own folder first (every `.wma` and
+/// `.wml` there) and the shipped ones after; refused unless every R9 config
+/// asked for has something to measure in it.
+#[cfg(feature = "blend-preview")]
+fn load_preview(args: &Args, configs: &[&Config]) {
+    if !configs.iter().any(|c| c.name.starts_with("R9")) {
+        return;
+    }
+    let path = PathBuf::from(args.need("blend-row"));
+    let row = read_json(&path);
+    let id = row["id"]
+        .as_str()
+        .unwrap_or_else(|| refuse("--blend-row: the row has no id"))
+        .to_owned();
+    let mut file: Value =
+        serde_json::from_str(EMBEDDED).unwrap_or_else(|e| refuse(&e.to_string()));
+    let Some(profiles) = file["profiles"].as_array_mut() else {
+        refuse("the shipped catalogue has no profiles")
+    };
+    match profiles.iter_mut().find(|p| p["id"] == id.as_str()) {
+        Some(p) => *p = row,
+        None => profiles.push(row),
+    }
+    let dir = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    let mut local: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    let entries = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| refuse(&format!("{}: {e}", dir.display())));
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.extension().is_some_and(|x| x == "wma" || x == "wml") {
+            let bytes = std::fs::read(&p)
+                .unwrap_or_else(|e| refuse(&format!("{}: {e}", p.display())));
+            local.insert(entry.file_name().to_string_lossy().into_owned(), bytes);
+        }
+    }
+    let catalogue = Catalogue::parse(&file.to_string(), &|name: &str| {
+        local.get(name).map(Vec::as_slice).or_else(|| {
+            wipemark_pixels::shipped_assets()
+                .find(|(n, _)| *n == name)
+                .map(|(_, b)| b)
+        })
+    })
+    .unwrap_or_else(|e| refuse(&format!("--blend-row {}: {e}", path.display())));
+    let profile = catalogue.profile(&id).unwrap_or_else(|| refuse(&id));
+    for c in configs {
+        let carries = match c.name {
+            "R9a" => profile.bias.is_some(),
+            "R9b" => profile.logo_map.is_some(),
+            "R9c" => profile.model == BlendModel::LinearLight,
+            _ => true,
+        };
+        if !carries {
+            refuse(&format!(
+                "{}: the --blend-row profile {id} carries nothing it measures",
+                c.name
+            ));
+        }
+    }
+    let _ = PREVIEW.set(catalogue);
+}
+
+/// How `gen` draws its composites past the profile's own blend (E12-R9): a
+/// bias and a rounding (R9a), a logo colour per map sample (R9b). At its
+/// defaults it draws what every run before R9 drew, and writes the same
+/// `meta.json`. Needs no feature: `synth` draws all of it in any build.
+struct Drawing {
+    bias: [f32; 3],
+    rounding: Rounding,
+    /// `--logo-map`'s `.wml`: its file name, its sha256 and the map.
+    logo_map: Option<(String, String, LogoMap)>,
+}
+
+static DRAWING: OnceLock<Drawing> = OnceLock::new();
+
+/// `gen`'s drawing, or the defaults where nothing set one.
+fn drawing() -> &'static Drawing {
+    DRAWING.get_or_init(|| Drawing {
+        bias: [0.0; 3],
+        rounding: Rounding::Round,
+        logo_map: None,
+    })
+}
+
+impl Drawing {
+    /// From `gen`'s `--bias B` or `--bias R,G,B` (8-bit levels, added where
+    /// the mark is drawn, before the rounding), `--rounding round|truncate`
+    /// and `--logo-map FILE.wml`.
+    fn from_args(args: &Args) -> Drawing {
+        let bias = match args.get("bias") {
+            None => [0.0; 3],
+            Some(v) => {
+                let parts: Vec<f32> = v
+                    .split(',')
+                    .map(|s| {
+                        s.trim()
+                            .parse()
+                            .unwrap_or_else(|_| refuse(&format!("--bias {v}: not a number")))
+                    })
+                    .collect();
+                match parts[..] {
+                    [b] => [b; 3],
+                    [r, g, b] => [r, g, b],
+                    _ => refuse(&format!("--bias {v}: one number or three")),
+                }
+            }
+        };
+        let rounding = match args.get("rounding") {
+            None | Some("round") => Rounding::Round,
+            Some("truncate") => Rounding::Truncate,
+            Some(other) => refuse(&format!("--rounding {other}: round or truncate")),
+        };
+        let logo_map = args.get("logo-map").map(|path| {
+            let bytes = std::fs::read(path)
+                .unwrap_or_else(|e| refuse(&format!("{path}: {e}")));
+            let map = LogoMap::read(&bytes)
+                .unwrap_or_else(|e| refuse(&format!("{path}: {e}")));
+            let name = Path::new(path)
+                .file_name()
+                .map_or_else(|| path.to_owned(), |n| n.to_string_lossy().into_owned());
+            (name, sha256_hex(&bytes), map)
+        });
+        Drawing {
+            bias,
+            rounding,
+            logo_map,
+        }
+    }
+
+    /// The blend of a case drawn with `map` and the profile's `logo`: the
+    /// bias, the rounding, and the logo colour map in place of `logo`; a
+    /// refusal for a row whose map is not the colour map's size.
+    fn blend(
+        &'static self,
+        logo: [f32; 3],
+        map: &wipemark_pixels::AlphaMap,
+    ) -> Result<Blend<'static>, String> {
+        let colour = match &self.logo_map {
+            None => LogoColor::Global(logo),
+            Some((name, _, m)) => {
+                if (m.width(), m.height()) != (map.width(), map.height()) {
+                    return Err(format!(
+                        "--logo-map {name} is {}x{} and this row's map {}x{}: choose the rows with --rows",
+                        m.width(),
+                        m.height(),
+                        map.width(),
+                        map.height()
+                    ));
+                }
+                LogoColor::PerPixel(m.colours())
+            }
+        };
+        Ok(Blend {
+            logo: colour,
+            bias: self.bias,
+            rounding: self.rounding,
+            ..Blend::encoded(logo)
+        })
+    }
+
+    /// `meta.json`'s `blend`, said as drawn: the bias and the rounding when
+    /// they are not the defaults, the logo colour map's file and sha256
+    /// when there is one; and an `exact` expectation is only `restored`
+    /// once the composite is not the profile's own blend.
+    fn record(&self, meta: &mut Value) {
+        if self.bias != [0.0; 3] {
+            meta["blend"]["bias"] = json!(self.bias);
+        }
+        if self.rounding == Rounding::Truncate {
+            meta["blend"]["rounding"] = json!("truncate");
+        }
+        if let Some((name, sha, _)) = &self.logo_map {
+            meta["blend"]["logo_map"] = json!({"file": name, "sha256": sha});
+        }
+        let altered =
+            self.bias != [0.0; 3] || self.rounding != Rounding::Round || self.logo_map.is_some();
+        if altered && meta["expect"] == "exact" {
+            meta["expect"] = json!("restored");
+        }
+    }
+}
 
 // ───────────────────────────────────────────────────────────── slices
 
@@ -2160,8 +2412,8 @@ fn run(args: &Args) {
     let configs: Vec<&Config> = names
         .iter()
         .map(|n| {
-            CONFIGS.iter().find(|c| c.name == n).unwrap_or_else(|| {
-                let known: Vec<&str> = CONFIGS.iter().map(|c| c.name).collect();
+            all_configs().find(|c| c.name == n).unwrap_or_else(|| {
+                let known: Vec<&str> = all_configs().map(|c| c.name).collect();
                 refuse(&format!(
                     "no config {n}; this build knows {}",
                     known.join(", ")
@@ -2207,6 +2459,8 @@ fn run(args: &Args) {
             ));
         }
     }
+    #[cfg(feature = "blend-preview")]
+    load_preview(args, &configs);
     let crops = args.get("export-crops").map(PathBuf::from);
     let index_text = std::fs::read_to_string(input.join("index.jsonl"))
         .unwrap_or_else(|e| refuse(&format!("{}: {e}", input.join("index.jsonl").display())));
@@ -2350,6 +2604,7 @@ fn run_case(
                 .entry(slice.scale.unwrap_or("1"))
                 .or_insert_with(|| truth(&bg_dir, slice));
             for config in configs {
+                let catalogue = catalogue_for(config, catalogue);
                 let t = Instant::now();
                 let mut line = match truth {
                     Ok(gt) => one(&path, gt, &meta, slice, config, catalogue, crops, encoder),
@@ -3085,5 +3340,44 @@ mod tests {
         for v in [0.0, 1.0, 50.0, 128.0, 254.0, 255.0] {
             assert!((from_linear(to_linear(v)) - v).abs() < 1e-9, "{v}");
         }
+    }
+
+    /// E12-R9: a `gen` given none of `--bias`, `--rounding` and
+    /// `--logo-map` draws what every run before R9 drew and writes the
+    /// same `meta.json`; one given a bias and truncation says both, and no
+    /// longer expects `exact`.
+    #[test]
+    fn a_drawing_records_what_it_draws_and_nothing_else() {
+        let logo = [252.1, 253.5, 252.8];
+        let map = wipemark_pixels::AlphaMap::new(2, 2, vec![0.5; 4]).unwrap();
+        assert_eq!(drawing().blend(logo, &map), Ok(Blend::encoded(logo)));
+        let before = json!({
+            "blend": {"bias": [0, 0, 0], "rounding": "round"},
+            "expect": "exact",
+        });
+        let mut meta = before.clone();
+        drawing().record(&mut meta);
+        assert_eq!(meta, before);
+
+        let biased: &'static Drawing = Box::leak(Box::new(Drawing {
+            bias: [1.5; 3],
+            rounding: Rounding::Truncate,
+            logo_map: None,
+        }));
+        let blend = biased.blend(logo, &map).unwrap();
+        assert_eq!((blend.bias, blend.rounding), ([1.5; 3], Rounding::Truncate));
+        biased.record(&mut meta);
+        assert_eq!(meta["blend"]["bias"], json!([1.5, 1.5, 1.5]));
+        assert_eq!(meta["blend"]["rounding"], "truncate");
+        assert_eq!(meta["expect"], "restored");
+
+        // A logo colour map of another size than the row's map is refused.
+        let colours = LogoMap::new(3, 3, vec![[250.0; 3]; 9]).unwrap();
+        let mapped: &'static Drawing = Box::leak(Box::new(Drawing {
+            bias: [0.0; 3],
+            rounding: Rounding::Round,
+            logo_map: Some((String::from("x.wml"), String::new(), colours)),
+        }));
+        assert!(mapped.blend(logo, &map).is_err());
     }
 }

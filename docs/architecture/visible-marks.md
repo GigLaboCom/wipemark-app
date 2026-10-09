@@ -31,7 +31,8 @@ between them. A profile is: an id (a format: ASCII, never renamed, never
 translated), vendor, product and mark (identifiers, shown beside a
 finding, never inside a sentence), `observed`, `status`, the blend
 (`encoded` with a logo colour; `linear-light` refused until a calibration
-needs it, D152; `logo_map` refused in this version), `opaque_above`, its
+needs it, D152; `logo_map` refused in this version; `bias` not a field —
+all three read only under `blend-preview`, below), `opaque_above`, its
 opacity maps, its placement rows, its search, `detect.min_ncc` and the
 three `verify` limits, and `source` for provenance.
 
@@ -46,6 +47,55 @@ all little-endian; α = sample / (2^depth − 1)
 
 GWT's four maps are depth 8, `sample = max(R, G, B)` of the PNG they came
 from (`marks/README.md`); a calibrated map (E12-2) is depth 16.
+
+**The blend past one colour (E12-R9) — built, not opened.** Three schema
+additions exist as code and are read by the catalogue **only** in a build
+with the `blend-preview` feature of `wipemark-pixels` (forwarded by
+`wipemark-picture` under the same name, as `planar-preview` is); their
+decisions are proposed and none is taken:
+
+* **`blend.bias`** (R9a, D308): `[b_r, b_g, b_b]` in stored 8-bit levels,
+  scaled to the layout as the logo is, added by the vendor where the mark
+  is drawn (`α > 0`). The inverse takes it off first, `O = (I − α·L −
+  b)/(1 − α)`, and the out-of-range interval moves with it, `[α·L + b,
+  α·L + b + (1 − α)·max]`. Absent or `null` is no bias, never a zero added
+  (A2, `a_profile_without_a_bias_is_byte_for_byte_todays`); a channel at
+  ±255 or past it is refused.
+* **`blend.logo_map`** (R9b, D313): `{ "asset", "sha256", "size" }`, a
+  **`.wml`** under `marks/` compiled in beside the `.wma` files and pinned
+  and re-hashed the same way (`a_logo_map_asset_is_pinned`), the size of
+  every opacity map the profile lists:
+
+  ```
+  "WML1" | u16 width | u16 height | u8 depth (16) | R plane | G plane | B plane
+  each plane width × height u16 samples, row-major; all little-endian; L = sample · 255 / 65535
+  ```
+
+  `L(p)` is brought to a template as the composite draws it — `α·L` and
+  `α` resampled alike, one divided by the other — and the proof, the
+  restoration, the outline's stand-in (`measure_at`) and the capture noise
+  read the pixel's own colour. In the planes (R6) it goes through JFIF's
+  matrix per pixel, and a chroma block's is its pixels' `α`-weighted mean.
+  `scripts/bench/wml.py` writes one from `map_regress`'s `pixels.tsv`.
+* **`"model": "linear-light"`** (R9c, D311): the inverse in light,
+  `O = from_lin((lin(I) − α·lin(L))/(1 − α))`, the sRGB curve continued
+  past its range so an unclamped inverse still says by how much; the
+  out-of-range share measured in light, the allowance of eight stored
+  levels converted at each stored value by the curve's own slope. A
+  linear-light blend is not linear in a JPEG's code values, so it never
+  takes the planar path (R6) and is never refined inside the interval
+  (R8): it is proved and restored in RGB. A calibration whose greys chose
+  it writes a provisional row that says so, and that row loads.
+
+Without the feature every one of the three is refused as it was before the
+code existed — `bias` as an unknown field, the other two by name — and
+every shipped profile restores byte for byte as it did
+(`the_catalogue_still_refuses_what_was_not_built`). No shipped profile
+carries any of them: the values are R4's runs on `gemini-midtone`, which
+do not exist yet. The tests are `crates/wipemark-pixels/tests/blend.rs`;
+the bench's `R9a`, `R9b` and `R9c` (`scripts/bench/README.md`) are how the
+host measures each. A sub-step whose condition (R9 §1) fails is closed and
+its code removed; the feature goes when the decisions land.
 
 **`Catalogue::shipped()`** parses once (`OnceLock`) and returns
 `Result<&'static Catalogue, &'static CatalogueError>` — the choice the plan
@@ -896,7 +946,8 @@ removed"); plan: [`docs/plan/E12-5-surfaces.md`](../plan/E12-5-surfaces.md).
 
 * **V2 rows for the 512-pixel tier and the 1:4 and 1:8 shapes** — GWT's
   formula does not reach them; a capture of each would.
-* **Other vendors** (E12-6), **reconstruction** (E12-7); restoring a
-  `logo_map` or a linear-light mark. The windows clean a picture through
+* **Other vendors** (E12-6), **reconstruction** (E12-7); restoring with a
+  bias, a `logo_map` or a linear-light mark outside the `blend-preview`
+  build (E12-R9, above). The windows clean a picture through
   `wipemark-picture` since E7 — the queue's and the panel's Clean, with
   the picture's report and its three shelves.
