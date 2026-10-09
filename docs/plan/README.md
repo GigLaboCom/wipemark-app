@@ -199,7 +199,7 @@ opens its own pull request against `main` instead of riding on `feat`.
 | 7c | `fix/e7-8-e8-1-followups` — **merged 2026-10-09** | the open findings of E7-8's and E8-1's verifications: one fact for consent, Compare's leftover asks, the added models' lows (§7 E7, E8) | `wipemark-task-followups-e7-8-e8-1-2026-10-08` | D430–D439, [report](reports/followups-e7-8-e8-1-2026-10-08.md) | done; the verification's Medium (tags that say speech refuse a text model) and Lows done in 7f (D450, D452–D455) |
 | 7d | `e4/bench-voice` — **merged 2026-10-09** | E4-8: voice measures in the bench, keep-voice variants in en, ru, de, the four-model run as a script (§7 E4) | `wipemark-task-bench-voice-2026-10-08` | D420–D429, [report](reports/E4-8-bench-voice-2026-10-08.md) | done in the container, the host verification's M1–M3 and Lows fixed (`a4b5d4e`); the host run and the keep-voice decision pending |
 | 7f | `fix/models-pipeline-followups` | the follow-ups' verification's Medium and Lows (§7 E8), `macOS-only` as an identifier (§7 E4), Gemma 4's re-upload checked (§7 E2), the images nits (row 4) and this table's E8-1 rows: M1–M11 | `wipemark-task-models-pipeline-followups-2026-10-09` | D450–D455, [report](reports/models-pipeline-followups-2026-10-09.md) | **merged 2026-10-09**. D450 and D451 built at a default the owner may override |
-| 7g | `e7/compare-mirrored` | E7-10: Compare's gutters face the middle — the original's line numbers and markers on its right, its scroll bar on its left, the result as before, the marker by the text and the numbers at the divider on both; `compare.gutters` on the Compare page (`middle` by default, `left` the layout before), followed by an open window at once; the submodule onto gpui-kit `next` `d9b7c421` (§7 E7) | `wipemark-task-compare-mirrored-2026-10-09` | D460–D467, [report](reports/E7-10-compare-mirrored-2026-10-09.md) | **merged 2026-10-09**; the host's window checklist in the report |
+| 7g | `e7/compare-mirrored` | E7-10: Compare's gutters face the middle — the original's line numbers and markers on its right, its scroll bar on its left, the result as before, the marker by the text and the numbers at the divider on both; `compare.gutters` on the Compare page (`middle` by default, `left` the layout before), followed by an open window at once; the submodule onto gpui-kit `next` `d9b7c421` (§7 E7) | `wipemark-task-compare-mirrored-2026-10-09` | D460–D467, [report](reports/E7-10-compare-mirrored-2026-10-09.md) | **merged 2026-10-09**; host screenshots (`scripts/verify/e7-10/shots.sh`): right in light, **wrong in dark** — the original's text shows through its right-hand gutter (§7 E7, "Fix. The text shows through a gutter in a dark theme") |
 | 8 | gpui-kit #3416, #3417 (upstream, the owner's) | The scrollbar on the left and the original's gutter on its right in the editor — what Compare's mirrored layout needs (§7 E7) | **#3416 merged** into `next` 2026-10-09 (`63068d0`, squashed, with the maintainer's story commit); **#3417 merged** 2026-10-09 (`d9b7c421`, "Support mirrored gutters for side-by-side diffs") — three commits of ours plus the maintainer's Editor Diff story (`70b271ad`) and horizontal-track fix (`e30f2615`), and the inventory and gallery entries his story needed | E7-10 (`wipemark-task-compare-mirrored-2026-10-09`, `e7/compare-mirrored`): the submodule onto `next` `d9b7c421` and Compare's gutters facing the middle | **done**: both merged into `next` on 2026-10-09 — #3416 as `63068d0f`, #3417 as `d9b7c421`; the submodule on `next` `d9b7c421` since E7-10 (row 7g, D460) |
 | 9 | — | The keep-voice rule after a four-model bench, and a voice measure in the bench (§7 E4); E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), S7.2, S7.3, S7.5, E9 licensing, E10 packaging (Windows; the Linux tray is done) | to be written | — | §7 |
 
@@ -1339,6 +1339,20 @@ the gate the overview set, and the open edges.
   from the text, and `compare.gutters` (`middle` by default, `left` the
   layout before) followed by an open window at once
   (`docs/architecture/compare.md`, "Where the gutters sit").
+- **Fix. The text shows through a gutter in a dark theme** (the owner,
+  2026-10-09, on E7-10's screenshots). With `compare.gutters = middle` the
+  original's lines run under its right-hand gutter, and in the dark theme
+  the line numbers are painted over visible text. Upstream's editor paints
+  the gutter as an overlay above scrolling text with the editor's
+  background, and a dark theme with no `editor.background` makes that
+  `input.mix_oklab(transparent, 0.3)` — translucent
+  (`vendor/gpui-component/crates/component/src/theme/mod.rs:485`); the
+  light theme's is opaque, so there it looks right. The same is latent for
+  a left gutter under horizontally scrolled text. Fix upstream: clip the
+  text area's painting (lines, selections, document colours, ghost lines)
+  to the text area — a gpui-kit pull request from `glani`, then the
+  submodule bumped. Shots: `target/e7-10-shots/` from
+  `scripts/verify/e7-10/shots.sh`.
 - **Build. A row's action is a button, not only a menu item** (the owner,
   2026-10-07) — **done** in E4-6b: Clean and Rewrite are buttons on every
   row, greyed with the menu's reason (D325), the *Not started* tooltip
