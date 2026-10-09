@@ -99,7 +99,11 @@ fn somewhere(rng: &mut Rng, size: u32) -> PixelRect {
 fn negative(n: u64) -> (String, Raster) {
     let mut rng = Rng::new(n.wrapping_mul(7919) + 3);
     let kind = KINDS[(n % KINDS.len() as u64) as usize];
-    let side = if word_of(n).is_some() { WORD_SIDE } else { SIDE };
+    let side = if word_of(n).is_some() {
+        WORD_SIDE
+    } else {
+        SIDE
+    };
     let mut raster = picture(kind, side, side, n + 10_000, Layout::Rgb8);
     let size = 24 + rng.below(40);
     let at = somewhere(&mut rng, size);
@@ -275,7 +279,10 @@ fn no_procedural_negative_is_ever_restored() {
                 .zip(original.samples().chunks_exact(3))
                 .filter(|(a, b)| a != b)
                 .count();
-            assert!(drawn >= 20, "{name}: only {drawn} pixels of a word were drawn");
+            assert!(
+                drawn >= 20,
+                "{name}: only {drawn} pixels of a word were drawn"
+            );
             *words.entry(word_style(style)).or_default() += 1;
             catalogues.push(shipped);
         }

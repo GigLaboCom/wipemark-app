@@ -804,10 +804,9 @@ impl Catalogues {
         match cat {
             Cat::Shipped => self.shipped,
             Cat::GwtV1 => &self.gwt,
-            Cat::File => self
-                .file
-                .as_ref()
-                .unwrap_or_else(|| refuse("a case names the catalogue file; give it (--catalogue)")),
+            Cat::File => self.file.as_ref().unwrap_or_else(|| {
+                refuse("a case names the catalogue file; give it (--catalogue)")
+            }),
         }
     }
 }
@@ -819,8 +818,7 @@ fn with_file(mut catalogues: Catalogues, path: Option<&Path>) -> (Catalogues, Va
     let Some(path) = path else {
         return (catalogues, Value::Null);
     };
-    let bytes =
-        std::fs::read(path).unwrap_or_else(|e| refuse(&format!("{}: {e}", path.display())));
+    let bytes = std::fs::read(path).unwrap_or_else(|e| refuse(&format!("{}: {e}", path.display())));
     catalogues.file = Some(catalogue_file::read(path).unwrap_or_else(|e| refuse(&e)));
     let record = json!({"file": path.to_string_lossy(), "sha256": sha256_hex(&bytes)});
     (catalogues, record)
@@ -858,7 +856,11 @@ fn derive_rows(
             let mut out = Vec::new();
             for (i, pl) in p.placements.iter().enumerate() {
                 let w = pl.when.width.or(pl.when.min_width).unwrap_or(DERIVED_SIZE);
-                let h = pl.when.height.or(pl.when.min_height).unwrap_or(DERIVED_SIZE);
+                let h = pl
+                    .when
+                    .height
+                    .or(pl.when.min_height)
+                    .unwrap_or(DERIVED_SIZE);
                 let (w, h) = (w.max(side), h.max(side));
                 if first_placement(p, w, h) == Some(i) && !out.contains(&(w, h)) {
                     out.push((w, h));
@@ -942,7 +944,11 @@ fn rows_for(args: &Args, catalogues: &Catalogues, side: u32) -> Vec<&'static Row
             refuse("--sizes is for a profile's own rows; the Gemini rows have theirs");
         }
         ROWS.iter()
-            .filter(|r| profiles.as_ref().is_none_or(|ps| ps.iter().any(|p| p == r.profile)))
+            .filter(|r| {
+                profiles
+                    .as_ref()
+                    .is_none_or(|ps| ps.iter().any(|p| p == r.profile))
+            })
             .collect()
     };
     let rows: Vec<&'static Row> = match args.list("rows") {
@@ -1880,8 +1886,7 @@ fn load_preview(args: &Args, configs: &[&Config]) {
         .as_str()
         .unwrap_or_else(|| refuse("--blend-row: the row has no id"))
         .to_owned();
-    let mut file: Value =
-        serde_json::from_str(EMBEDDED).unwrap_or_else(|e| refuse(&e.to_string()));
+    let mut file: Value = serde_json::from_str(EMBEDDED).unwrap_or_else(|e| refuse(&e.to_string()));
     let Some(profiles) = file["profiles"].as_array_mut() else {
         refuse("the shipped catalogue has no profiles")
     };
@@ -1894,13 +1899,13 @@ fn load_preview(args: &Args, configs: &[&Config]) {
         _ => PathBuf::from("."),
     };
     let mut local: BTreeMap<String, Vec<u8>> = BTreeMap::new();
-    let entries = std::fs::read_dir(&dir)
-        .unwrap_or_else(|e| refuse(&format!("{}: {e}", dir.display())));
+    let entries =
+        std::fs::read_dir(&dir).unwrap_or_else(|e| refuse(&format!("{}: {e}", dir.display())));
     for entry in entries.flatten() {
         let p = entry.path();
         if p.extension().is_some_and(|x| x == "wma" || x == "wml") {
-            let bytes = std::fs::read(&p)
-                .unwrap_or_else(|e| refuse(&format!("{}: {e}", p.display())));
+            let bytes =
+                std::fs::read(&p).unwrap_or_else(|e| refuse(&format!("{}: {e}", p.display())));
             local.insert(entry.file_name().to_string_lossy().into_owned(), bytes);
         }
     }
@@ -1981,10 +1986,8 @@ impl Drawing {
             Some(other) => refuse(&format!("--rounding {other}: round or truncate")),
         };
         let logo_map = args.get("logo-map").map(|path| {
-            let bytes = std::fs::read(path)
-                .unwrap_or_else(|e| refuse(&format!("{path}: {e}")));
-            let map = LogoMap::read(&bytes)
-                .unwrap_or_else(|e| refuse(&format!("{path}: {e}")));
+            let bytes = std::fs::read(path).unwrap_or_else(|e| refuse(&format!("{path}: {e}")));
+            let map = LogoMap::read(&bytes).unwrap_or_else(|e| refuse(&format!("{path}: {e}")));
             let name = Path::new(path)
                 .file_name()
                 .map_or_else(|| path.to_owned(), |n| n.to_string_lossy().into_owned());
@@ -2201,7 +2204,11 @@ fn degradations(path: &Path) -> Result<(Option<String>, Vec<String>), String> {
         .as_array()
         .ok_or_else(|| at(&"no `slices` list"))?
         .iter()
-        .map(|s| s.as_str().map(str::to_owned).ok_or_else(|| at(&"a slice is not a string")))
+        .map(|s| {
+            s.as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| at(&"a slice is not a string"))
+        })
         .collect::<Result<_, _>>()?;
     check_slices(&slices).map_err(|e| at(&e))?;
     let profile = match &v["profile"] {
@@ -2433,8 +2440,11 @@ fn run(args: &Args) {
     };
     let asked = args.list("slices").or_else(|| {
         recorded("slices").and_then(|v| {
-            v.as_array()
-                .map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect())
+            v.as_array().map(|a| {
+                a.iter()
+                    .filter_map(|s| s.as_str().map(str::to_owned))
+                    .collect()
+            })
         })
     });
     let slices: Vec<&Slice> = match asked {
@@ -3174,7 +3184,11 @@ mod tests {
     fn with_fixture() -> Catalogues {
         let path = fixture_dir().join("marks.json");
         let (c, record) = with_file(Catalogues::load(), Some(path.as_path()));
-        assert_eq!(record["sha256"].as_str().map(str::len), Some(64), "{record}");
+        assert_eq!(
+            record["sha256"].as_str().map(str::len),
+            Some(64),
+            "{record}"
+        );
         c
     }
 
@@ -3197,7 +3211,10 @@ mod tests {
             ]
         );
         for r in &rows {
-            assert_eq!((r.profile, r.variant, r.catalogue), (FIXTURE, "canonical", Cat::File));
+            assert_eq!(
+                (r.profile, r.variant, r.catalogue),
+                (FIXTURE, "canonical", Cat::File)
+            );
         }
         let at = place(rows[0], file);
         assert_eq!((at.x, at.y, at.size), (48.0, 961.0, 72.0));
@@ -3243,7 +3260,9 @@ mod tests {
                 (String::from("jpeg444-q90"), 90)
             ]
         );
-        let asked: Vec<String> = ["png", "jpeg420-q85", "jpeg444-q80"].map(String::from).to_vec();
+        let asked: Vec<String> = ["png", "jpeg420-q85", "jpeg444-q80"]
+            .map(String::from)
+            .to_vec();
         assert_eq!(
             image_jpegs(Some(asked.as_slice())),
             [(String::from("jpeg444-q80"), 80)]
@@ -3263,8 +3282,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("recon-bench-deg-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         for (name, text) in [
-            ("unknown", r#"{"schema": 1, "profile": null, "slices": ["png", "jpeg422-q90"]}"#),
-            ("schema", r#"{"schema": 2, "profile": null, "slices": ["png"]}"#),
+            (
+                "unknown",
+                r#"{"schema": 1, "profile": null, "slices": ["png", "jpeg422-q90"]}"#,
+            ),
+            (
+                "schema",
+                r#"{"schema": 2, "profile": null, "slices": ["png"]}"#,
+            ),
             ("empty", r#"{"schema": 1, "profile": null, "slices": []}"#),
         ] {
             let path = dir.join(format!("{name}.json"));

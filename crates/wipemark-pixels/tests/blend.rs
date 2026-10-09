@@ -121,7 +121,10 @@ fn a_bias_composited_is_a_bias_restored() {
         let report = clean(&mut plain, &biased, &ExamineOptions::default());
         assert_eq!(report.restored.len(), 1, "{name}: {:#?}", report.found);
         let off = max_error(&plain, &original);
-        assert!(off >= 2, "{name}: a bias nobody drew was not taken off ({off})");
+        assert!(
+            off >= 2,
+            "{name}: a bias nobody drew was not taken off ({off})"
+        );
     }
 }
 
@@ -211,7 +214,13 @@ fn a_logo_map_restores_what_a_global_logo_cannot() {
     let colours: Vec<[f32; 3]> = mark
         .values()
         .iter()
-        .map(|&a| [250.0, (250.0 - 120.0 * a).round(), (250.0 - 200.0 * a).round()])
+        .map(|&a| {
+            [
+                250.0,
+                (250.0 - 120.0 * a).round(),
+                (250.0 - 200.0 * a).round(),
+            ]
+        })
         .collect();
     let wml = LogoMap::new(48, 48, colours).unwrap().write().unwrap();
     // Composited with the colours the profile reads back: the same values.

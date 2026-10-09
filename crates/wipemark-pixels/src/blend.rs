@@ -546,7 +546,10 @@ mod tests {
                 let stored = [0, 1, 2].map(|c| law.forward(o[c], a, logo[c], c));
                 let back = law.inverse(stored, a, logo);
                 for c in 0..3 {
-                    assert!((back[c] - o[c]).abs() < 1e-6, "{model:?} {bias:?}: {back:?}");
+                    assert!(
+                        (back[c] - o[c]).abs() < 1e-6,
+                        "{model:?} {bias:?}: {back:?}"
+                    );
                 }
                 assert_eq!(law.out_of_range(stored, a, logo, 8.0), [false; 3]);
             }

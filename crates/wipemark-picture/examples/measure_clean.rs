@@ -1185,7 +1185,10 @@ mod tests {
         assert_eq!(m.found, 0, "a clean picture holds no finding");
         assert_eq!(m.rows.len(), COUNT, "{:?}", m.short);
         for r in &m.rows {
-            assert_eq!((r.profile.as_str(), r.size, r.rect_height), ("fixture-wordmark", 72, 24));
+            assert_eq!(
+                (r.profile.as_str(), r.size, r.rect_height),
+                ("fixture-wordmark", 72, 24)
+            );
             assert!(r.x >= EDGE && r.x + r.size + EDGE <= 1100, "{r:?}");
             assert!(r.y >= EDGE && r.y + r.rect_height + EDGE <= 1100, "{r:?}");
         }
