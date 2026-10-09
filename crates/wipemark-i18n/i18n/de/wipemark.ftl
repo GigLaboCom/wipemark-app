@@ -780,6 +780,7 @@ cli-image-visible-inexact = Das Bild war verlustbehaftet gespeichert; die Wieder
 cli-image-visible-holes = { $holes } Pixel unter einem deckenden Teil der Markierung ließen sich nicht zurückgewinnen und blieben, wie sie waren.
 cli-image-visible-outline = Entlang ihres Randes ist ein Umriss der Markierung geblieben — im Mittel { $levels } Stufen vom Bild um sie herum im am stärksten abweichenden Farbkanal, { $share } % ihrer Kontur —, mehr als diese Version zulässt, daher gilt die Markierung als noch im Ergebnis.
 cli-image-visible-texture = Entlang des Randes der Markierung ist eine Körnung geblieben — beim 95. Perzentil liegen ihre Pixel { $levels } Stufen von ihren Nachbarn, im Bild um sie herum { $around } —, mehr als diese Version zulässt, daher gilt die Markierung als noch im Ergebnis.
+cli-image-visible-smoothed = Die wiederhergestellte Fläche ist glatter als das Bild um sie herum — beim 95. Perzentil liegen ihre Pixel { $levels } Stufen von ihren Nachbarn, im Bild um sie herum { $around } —, weniger als diese Version zulässt, daher gilt die Markierung als noch im Ergebnis.
 cli-image-visible-clamped = { $clamped ->
         [one] Beim Umkehren der Überblendung fiel { $clamped } Wert aus dem Wertebereich und wurde begrenzt, daher ist die Wiederherstellung nicht exakt.
        *[other] Beim Umkehren der Überblendung fielen { $clamped } Werte aus dem Wertebereich und wurden begrenzt, daher ist die Wiederherstellung nicht exakt.

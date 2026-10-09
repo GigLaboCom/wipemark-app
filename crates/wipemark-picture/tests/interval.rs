@@ -61,6 +61,34 @@ fn first(report: &PictureReport) -> Option<&Restored> {
 #[test]
 #[ignore = "prints the report's figures"]
 fn measure_the_methods_on_the_committed_crops() {
+    // `sigma_base` on the decoded raster, around the mark's rectangle as
+    // today's path restores it, for every crop — lossless ones too.
+    for name in names(&[".png", ".jpg", ".webp"]) {
+        let bytes = read(&name);
+        let Some((_, report)) = clean(&bytes, &shipped())
+            .ok()
+            .or_else(|| refined(&bytes, Refine::None))
+        else {
+            continue;
+        };
+        let Some(rect) = first(&report).map(|r| r.rect).or_else(|| match &report.visible {
+            Visible::Examined { report, .. } => report.found.first().and_then(|f| f.pixels),
+            Visible::NotExamined(_) => None,
+        }) else {
+            println!("{name}: no mark seen, no sigma_base");
+            continue;
+        };
+        let container = wipemark_image::ImageContainer::sniff(&bytes).unwrap();
+        let decoded = wipemark_picture::decode(&bytes, container).unwrap().unwrap();
+        println!(
+            "{name}: sigma_base (RGB, ring 2–8 px around {}×{} at {},{}) {:.2?}",
+            rect.width,
+            rect.height,
+            rect.x,
+            rect.y,
+            wipemark_pixels::sigma_base(&decoded.raster, rect)
+        );
+    }
     for name in names(&[".jpg", ".webp"]) {
         let bytes = read(&name);
         for (label, refine) in [
@@ -186,6 +214,17 @@ fn the_4_4_4_texture_falls_under_its_bound() {
     let interval = r8.interval.unwrap();
     assert_eq!(interval.method, Method::Dct);
     assert!(!after.marks_left(), "{after:?}");
+    // The measures describe the result written: the value chosen inside
+    // the intervals blends back further from the decoded input than the
+    // exact inverse's rounding (0.24), and is consistent with the file's
+    // coefficients.
+    assert!(
+        r0.consistency_px < 0.5 && r8.consistency_px > 1.0,
+        "{} → {}",
+        r0.consistency_px,
+        r8.consistency_px
+    );
+    assert_eq!(r8.consistency_dct, Some(0.0));
 }
 
 /// `P_D` last (§4.2): after DCT-POCS every coefficient of every block the

@@ -580,8 +580,9 @@ pub const TEXTURE_RATIO: f32 = 2.0;
 /// chosen inside the codec's interval (`interval.rs`) takes the checker
 /// away by smoothing, and smoothing can overshoot. `[tunable]` — the
 /// spec's 0.8 (`06-recon-changes.md` §2.4); on today's path every lossy
-/// restoration of the committed crops reads 1.4 or more (the E12-R8
-/// report). Only a lossy source is held to it (D251's reason).
+/// restoration of the committed crops reads 2.62 or more through `clean`
+/// and 1.76 or more through the planar inverse (the E12-R8 report). Only
+/// a lossy source is held to it (D251's reason).
 pub const TEXTURE_RATIO_MIN: f32 = 0.8;
 
 /// What a restoration left along the mark's contour, three ways (D238,

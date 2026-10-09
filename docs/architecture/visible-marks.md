@@ -240,8 +240,9 @@ codec's interval (R8) it is bounded by the interval, and for a model it
 says how far the model moved from what the file says. It is a measure:
 no bound, no verdict, no exit code and no `*_left` flag reads it.
 `consistency_dct`, the share of DCT coefficients outside their
-quantisation intervals, is R8's; it is absent from the JSON while there
-is none. The measure is written once (`verify::consistency`, over pairs
+quantisation intervals, is written by DCT-POCS alone (E12-R8, below); it
+is absent from the JSON everywhere else. After a refinement both
+measures are taken on the refined result, through the same function. The measure is written once (`verify::consistency`, over pairs
 of a blended-back value and a stored one), for the planar inverse to
 call over Y and chroma too.
 
@@ -488,7 +489,8 @@ level of luma or `CHROMA_LEVELS` **4.0** levels of colour difference and
 the picture's own spread in each (D238, D244, D247); a texture is left,
 on a lossy source, past `TEXTURE_LEVELS` **5.5** levels of roughness and
 `TEXTURE_RATIO` **2.0** times the roughness around the mark (D250,
-D251). Measured on the synthetic pair and the shipped maps
+D251), and a smoothed patch is left, on a lossy source, under
+`TEXTURE_RATIO_MIN` **0.8** times it (D307, E12-R8). Measured on the synthetic pair and the shipped maps
 (2026-10-04, `--nocapture`):
 
 | | |
@@ -756,6 +758,103 @@ CLI with it). Plan: [`docs/plan/E12-R6-planar-inverse.md`](../plan/E12-R6-planar
   what it was. `planar::invert` keeps every intermediate (`Y_I`, `Y_O`,
   `α`; per block `ᾱ`, Cb and Cr in and out) and `Inverse::blend_back`
   gives the pairs a consistency measure (D305) takes in the planes.
+
+## The value inside the interval (E12-R8) — built, not on the product's path
+
+`crates/wipemark-pixels/src/interval.rs`. A lossy codec stored, for every
+coefficient, an interval, and the decoded value is one point of it; the
+inverse amplifies the codec's error by `1/(1 − α)`, which on a 4:4:4 JPEG
+at 95 is the checker D250 says. On a **lossy** source, after today's
+restoration (R6's on a subsampled JPEG, R0's elsewhere), the restored
+value is moved — never outside what the file says — towards the one whose
+restoration has the least block structure. **On a lossless source nothing
+runs** (S6). The method is not decided (S12): `wipemark_picture::clean`
+and `inspect` pass `Refine::None`, and only `recon_bench --config
+R8d|R8p|R8w`, `wipemark_pixels::clean_refined` / `restore_refined` and a
+`planar-preview` build run with `WIPEMARK_INTERVAL=dct|pixel|wiener`
+reach a refinement. Plan:
+[`docs/plan/E12-R8-value-inside-the-interval.md`](../plan/E12-R8-value-inside-the-interval.md).
+
+* **The working space is the file's.** A JPEG whose planes are read is
+  refined in them — Y at full resolution with `α`, Cb and Cr at their own
+  with the block's `ᾱ` (R6's model; at 4:4:4 a block is a pixel) — and
+  written back through R6's `Inverse::rgb_at`, the decoder's upsampler and
+  colour constants, rounded and clamped once; a lossy WebP or a JPEG whose
+  planes did not read is refined in RGB. Only the samples the restoration
+  writes move; the rest are the file's and hold the result to it (the
+  "ring at `r = 1`"). `Restored.interval.space` says which
+  (`"ycbcr"`/`"rgb"`).
+* **The shared parts.** `sigma_base`, the noise of the input: over the
+  ring two to eight samples outside the mark's rectangle,
+  `1.4826 · median|ΔI| / √20` per channel (`Δ` the 3 × 3 Laplacian). `P_S`,
+  the smoothness: He's guided filter of the estimate by itself, radius 4
+  and `eps` (4 levels)², `o' = r·o + (1 − r)·GF(o)` with `r = (1 − α)²`;
+  radius 2 and half the `eps` on "text", when the restored samples'
+  Laplacian energy (each weighted by `1 − α`) is over 1.5 times the ring's.
+  The region is the mark's rectangle widened to the codec's grid (8 pixels
+  at 4:4:4, 16 at 4:2:0) and eight samples around it; `dct8`/`idct8` are
+  the orthonormal 8 × 8 DCT-II (JPEG's FDCT) in `f64`.
+* **DCT-POCS** (`Refine::Dct`, R4d; JPEG with planes only). Per whole
+  8 × 8 block of every plane that holds a sample the restoration writes:
+  the interval of every coefficient, `[(q − ½)·Q, (q + ½)·Q]` with
+  `q = round(DCT(I − 128)/Q)` recomputed from the decoded plane (R3
+  exports no coefficients); `P_D` composites the estimate forward,
+  clamps its coefficients into their intervals, transforms back, puts
+  every sample the restoration does not write back to the file's, and
+  repeats until both hold (to 10⁻⁶), then unblends. Up to 4 rounds of
+  `P_S` then `P_D`, so the last operation is always `P_D`, and
+  `Restored.consistency_dct` — the share of coefficients outside their
+  intervals by more than 10⁻⁴ — is 0 by construction (a block at the
+  grid's edge, not whole, is left unrefined).
+* **Pixel POCS** (`Refine::Pixel`, R3): the interval per sample
+  `I ± h`, `h = 0.5 + 2·σ_base`, carried through the inverse; up to 3
+  rounds of `P_S` then the clamp. `consistency_px ≤ 2h`.
+* **Wiener** (`Refine::Wiener`, R3w): one step,
+  `O = O₀·s/(s + n) + P_S(O₀)·n/(s + n)`, `n = σ²/(1 − α)²`, `s` the
+  variance of the ring's Laplacian over `√20`.
+* **When it stops.** Before each round, when the roughness against the
+  picture around the mark is in `[0.8, 1.2]`; after one, when the estimate
+  moved less than 0.1 level at p95; and **a round that leaves the
+  restoration under 0.8 of its surroundings is taken back** — the round
+  before it, which ended on `P_D` too, is kept (a deviation from the plan:
+  without it DCT-POCS at radius 4 ended three 4:2:0 crops at 0.47–0.50,
+  `no_refinement_ends_smoother_than_its_surroundings`).
+  `Restored.interval.iterations` counts the rounds kept.
+* **After it**, every measure is taken again on the refined raster — the
+  outline, steps, texture, `smoothed`, `changed`, `clamped` — and
+  `consistency_px` through R7's one function, in the planes on R6's path
+  and in RGB on R0's.
+* **D307, live everywhere.** `TEXTURE_RATIO_MIN` 0.8: on a lossy source a
+  restoration whose roughness is under 0.8 of the picture's around it is a
+  patch flatter than its surroundings; `Restored.smoothed`, counted in
+  `marks_left` (exit 3) and said by the CLI and the window's Report
+  (`cli-image-visible-smoothed`). On today's path no committed crop comes
+  near it: 2.62–5.42 through `clean`, 1.76–5.42 through the planar
+  inverse (`no_restoration_on_todays_path_is_smoothed`). Absent from the
+  JSON while false, `interval` while `None`: every report the product
+  wrote before is byte for byte what it was.
+* **What it does to the committed crops** (`tests/interval.rs` in
+  `wipemark-picture`, `measure_the_methods_on_the_committed_crops`): with
+  DCT-POCS every JPEG crop restored ends under `TEXTURE_LEVELS` — the
+  4:4:4 95 torch from 9.04 to 2.87, the 4:2:0 95 crops from R6's
+  6.66–6.96 to 2.26–3.33, the 98s to 1.63–1.84 — at 0.82–1.20 of its
+  surroundings, its step, colour step and outline no worse; pixel POCS
+  and Wiener leave 1.89–6.95 and 2.42–8.17, over the bound on 3 and 4 of
+  the 7 (their interval is the ring's noise, 0.33 levels or less on these
+  flat greens, far under the codec's error under the mark). The lossy WebP crop, with no planes, gets no
+  DCT-POCS, and pixel POCS and Wiener barely move it (`σ_base` 0).
+* **Known weaknesses, measured.** The indices recomputed from the decoded
+  planes are the file's on 100 % of R3's fixtures at 85 and 90 but on
+  97.3–99.2 % of the stickers at 95 and 98 — 99.4–99.9 % of the misses at
+  a step of 1 or 2, where the decoder's rounding to a level moves an
+  index (`the_recomputed_coefficients_are_the_files`, which reads each
+  file's own coefficients); exporting them from the decoder (R3) would
+  close it. The "text" rule fires on every committed crop (the restored
+  ring of the mark reads 2.5–350 times the ring's energy), so all of them
+  are refined at radius 2; on synthetic strokes under the mark DCT-POCS is
+  2.5–3.6 dB nearer the truth than R0 at either radius
+  (`text_is_not_smoothed_away`) — the data projection, not the radius,
+  keeps the strokes.
 
 ## Surfaces (E12-5)
 

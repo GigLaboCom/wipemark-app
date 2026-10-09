@@ -43,7 +43,11 @@
 //!
 //! **Configs.** `R0` is the product today. A later step adds its switch as
 //! a config of this example (S12), never as a catalogue row: `R6` is the
-//! planar inverse of a subsampled JPEG (E12-R6, D306).
+//! planar inverse of a subsampled JPEG (E12-R6, D306); `R8d`, `R8p` and
+//! `R8w` choose the restored value inside a lossy codec's interval
+//! (E12-R8) by DCT-POCS, pixel POCS or one Wiener step — each over R6 on a
+//! subsampled JPEG and over R0 elsewhere, and R0's to the byte on a
+//! lossless file.
 
 use std::collections::BTreeMap;
 use std::io::{BufWriter, Write as _};
@@ -59,7 +63,7 @@ use wipemark_picture::{decode_with_planes, encode_like, prove, Decoded, PictureE
 use wipemark_pixels::synth::{composite_with, to_linear, Blend, BlendModel};
 use wipemark_pixels::{
     drawn, resampled, Anchor, Catalogue, ExamineOptions, Kernel, Layout, PixelRect, PixelReport,
-    Planes, Raster, Refusal, Restored, SubRect, Verdict, EMBEDDED,
+    Planes, Raster, Refine, Refusal, RestoreOptions, Restored, SubRect, Verdict, EMBEDDED,
 };
 
 // ───────────────────────────────────────────────────────────── the frame
@@ -1470,6 +1474,52 @@ fn r6(
     wipemark_pixels::clean_with(raster, planes, catalogue, options)
 }
 
+/// E12-R8: `wipemark_pixels::clean_refined` with `refine` — the planar
+/// route as R6 takes it, then, on a lossy source, the value chosen inside
+/// the codec's interval; a lossless file is R0's to the byte (S6).
+fn r8(
+    raster: &mut Raster,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+    planes: Option<&Planes>,
+    refine: Refine,
+) -> PixelReport {
+    wipemark_pixels::clean_refined(
+        raster,
+        planes,
+        catalogue,
+        options,
+        &RestoreOptions { refine },
+    )
+}
+
+fn r8d(
+    raster: &mut Raster,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+    planes: Option<&Planes>,
+) -> PixelReport {
+    r8(raster, catalogue, options, planes, Refine::Dct)
+}
+
+fn r8p(
+    raster: &mut Raster,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+    planes: Option<&Planes>,
+) -> PixelReport {
+    r8(raster, catalogue, options, planes, Refine::Pixel)
+}
+
+fn r8w(
+    raster: &mut Raster,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+    planes: Option<&Planes>,
+) -> PixelReport {
+    r8(raster, catalogue, options, planes, Refine::Wiener)
+}
+
 const CONFIGS: &[Config] = &[
     Config {
         name: "R0",
@@ -1482,6 +1532,24 @@ const CONFIGS: &[Config] = &[
         inverse: BlendModel::Encoded,
         about: "E12-R6, D306: a 4:2:0/4:2:2 JPEG proved and restored in its planes (clean_with); everything else R0",
         restore: r6,
+    },
+    Config {
+        name: "R8d",
+        inverse: BlendModel::Encoded,
+        about: "E12-R8: R6/R0, then on a JPEG the value chosen inside the DCT intervals by DCT-POCS (clean_refined, Refine::Dct)",
+        restore: r8d,
+    },
+    Config {
+        name: "R8p",
+        inverse: BlendModel::Encoded,
+        about: "E12-R8: R6/R0, then on a lossy file the value chosen inside a per-sample interval by pixel POCS (Refine::Pixel)",
+        restore: r8p,
+    },
+    Config {
+        name: "R8w",
+        inverse: BlendModel::Encoded,
+        about: "E12-R8: R6/R0, then on a lossy file one Wiener step (Refine::Wiener)",
+        restore: r8w,
     },
 ];
 
@@ -2079,6 +2147,12 @@ fn one(
             // D305: the restored picture blended back, against the input.
             "consistency_px": r.consistency_px,
             "consistency_excluded": r.consistency_excluded,
+            // E12-R8: the share of DCT coefficients outside their intervals
+            // (DCT-POCS only), the soap check (D307), and how the value was
+            // chosen; null where not refined.
+            "consistency_dct": r.consistency_dct,
+            "smoothed": r.smoothed,
+            "interval": r.interval,
         })
     });
     if let Some(dir) = crops {

@@ -211,3 +211,43 @@ fn no_refinement_ends_smoother_than_its_surroundings() {
     }
     assert!(refined_any >= 20, "{refined_any}");
 }
+
+/// A restoration already as rough as the picture around it — a glyph
+/// sheet's strokes under the mark and around it — is in the stop rule's
+/// band before the first round: no round is run, and today's restoration
+/// stands byte for byte (`interval.iterations` 0), whatever the method's
+/// own round trip through the planes would have rounded differently.
+#[test]
+fn a_restoration_already_in_the_band_is_left_as_it_was() {
+    let mut seen = 0;
+    for seed in 0..6u64 {
+        let mut marked = picture(
+            Kind::Glyphs,
+            W,
+            H,
+            background_seed(Kind::Glyphs, seed),
+            Layout::Rgb8,
+        );
+        composite_at(&mut marked, &synthetic_v1().small, small_row(W, H, 48));
+        for sampling in [Sampling::H444, Sampling::H420] {
+            let (planes, raster) = jpeg_planes(&marked, sampling, 95).unwrap();
+            let mut today = raster.clone();
+            let base = clean_with(&mut today, Some(&planes), &synthetic_catalogue(), &lossy());
+            for refine in [Refine::Dct, Refine::Pixel] {
+                let (out, report) = refined(&raster, Some(&planes), &lossy(), refine);
+                let Some(r) = report.restored.first() else {
+                    continue;
+                };
+                if r.interval.map(|i| i.iterations) != Some(0) {
+                    continue;
+                }
+                println!("glyphs {seed} {sampling:?} {refine:?}: no round");
+                assert_eq!(out, today, "glyphs {seed} {sampling:?} {refine:?}");
+                let b = &base.restored[0];
+                assert_eq!((r.texture, r.consistency_px), (b.texture, b.consistency_px));
+                seen += 1;
+            }
+        }
+    }
+    assert!(seen >= 4, "{seen}");
+}

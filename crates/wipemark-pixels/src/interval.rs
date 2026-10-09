@@ -235,10 +235,17 @@ pub fn indices(plane: &Plane, table: &[u16; 64], bx: u32, by: u32) -> [i32; 64] 
     let mut block = [0f64; 64];
     for y in 0..8u32 {
         for x in 0..8u32 {
-            block[(y * 8 + x) as usize] = f64::from(plane.get(bx * 8 + x, by * 8 + y)) - 128.0;
+            block[(y * 8 + x) as usize] = f64::from(plane.get(bx * 8 + x, by * 8 + y));
         }
     }
-    let c = dct8(&block);
+    quantised(&block, table)
+}
+
+/// `round(DCT(block − 128) / Q)`, natural order: the one place a block's
+/// indices are recomputed — [`indices`] and the data projection's
+/// intervals both read it.
+fn quantised(block: &[f64; 64], table: &[u16; 64]) -> [i32; 64] {
+    let c = dct8(&block.map(|v| v - 128.0));
     let mut q = [0i32; 64];
     for k in 0..64 {
         q[k] = (c[k] / f64::from(table[k])).round() as i32;
@@ -510,14 +517,14 @@ impl Channel {
     fn intervals(&self, table: &[u16; 64], bx: u32, by: u32) -> [(f64, f64); 64] {
         let mut block = [0f64; 64];
         for (k, v) in block.iter_mut().enumerate() {
-            *v = self.stored[self.index(bx * 8 + k as u32 % 8, by * 8 + k as u32 / 8)] - 128.0;
+            *v = self.stored[self.index(bx * 8 + k as u32 % 8, by * 8 + k as u32 / 8)];
         }
-        let c = dct8(&block);
+        let q = quantised(&block, table);
         let mut out = [(0f64, 0f64); 64];
         for k in 0..64 {
-            let q = f64::from(table[k]);
-            let centre = (c[k] / q).round() * q;
-            out[k] = (centre - q / 2.0, centre + q / 2.0);
+            let step = f64::from(table[k]);
+            let centre = f64::from(q[k]) * step;
+            out[k] = (centre - step / 2.0, centre + step / 2.0);
         }
         out
     }
@@ -1073,6 +1080,15 @@ pub(crate) fn refine(
         ratio(raster).is_some_and(|r| (STOP_RATIO[0]..=STOP_RATIO[1]).contains(&r))
     };
     let under_band = |raster: &Raster| ratio(raster).is_some_and(|r| r < STOP_RATIO[0]);
+    // Today's restoration, as it was written: what a refinement that kept
+    // no round leaves, to the byte.
+    let base: Vec<u16> = (at.y..at.y + at.height)
+        .flat_map(|y| (at.x..at.x + at.width).map(move |x| (x, y)))
+        .flat_map(|(x, y)| {
+            let i = raster.at(x, y);
+            raster.samples()[i..i + 3].to_vec()
+        })
+        .collect();
     let mut iterations = 0u8;
     match method {
         Method::Dct | Method::Pixel => {
@@ -1153,8 +1169,6 @@ pub(crate) fn refine(
             iterations = 1;
         }
     }
-    let clamped = work.render(raster, at, &noise_at);
-    let consistency = work.consistency(raster, input, verified, restored.noise);
     let dct = (method == Method::Dct).then(|| {
         let (out, all) = work
             .channels
@@ -1167,6 +1181,33 @@ pub(crate) fn refine(
             out as f32 / all as f32
         }
     });
+    let interval = Some(Interval {
+        method,
+        space: work.space,
+        sigma_base: [sigma[0] as f32, sigma[1] as f32, sigma[2] as f32],
+        iterations,
+    });
+    // No round kept — the restoration was already in the band, or its first
+    // round would have left it too smooth: today's restoration stands, byte
+    // for byte, with every measure it had. `consistency_dct` is then its
+    // own share outside the intervals, not the refinement's.
+    if iterations == 0 {
+        let mut k = 0;
+        for y in at.y..at.y + at.height {
+            for x in at.x..at.x + at.width {
+                let i = raster.at(x, y);
+                raster.samples_mut()[i..i + 3].copy_from_slice(&base[k..k + 3]);
+                k += 3;
+            }
+        }
+        return Restored {
+            consistency_dct: dct,
+            interval,
+            ..restored
+        };
+    }
+    let clamped = work.render(raster, at, &noise_at);
+    let consistency = work.consistency(raster, input, verified, restored.noise);
     let o = outline(raster, verified);
     let changed = (at.y..at.y + at.height)
         .flat_map(|y| (at.x..at.x + at.width).map(move |x| (x, y)))
@@ -1191,12 +1232,7 @@ pub(crate) fn refine(
         consistency_px: consistency.px,
         consistency_excluded: consistency.excluded,
         consistency_dct: dct,
-        interval: Some(Interval {
-            method,
-            space: work.space,
-            sigma_base: [sigma[0] as f32, sigma[1] as f32, sigma[2] as f32],
-            iterations,
-        }),
+        interval,
         ..restored
     }
 }
