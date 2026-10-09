@@ -1508,11 +1508,6 @@ pub(crate) enum Identity {
     Part,
 }
 
-/// What a mark of `kind` holds of the file `meta` describes: `None` for a
-/// symbolic link or anything but a regular file — a download writes
-/// neither — and for an identity this platform cannot read. The caller
-/// chooses whether a link is followed: a mark never follows one (the link
-/// is what is at the place), a user entry always does (E8-1).
 /// A whole file's identity — `size:mtime_ns:dev:ino` on Unix — off its
 /// metadata, as a download's mark and an added model's row keep it (D350):
 /// for a caller that has the file open and asks the open file, which no
@@ -1523,6 +1518,11 @@ pub fn identity_of(meta: &std::fs::Metadata) -> Option<String> {
     identity(meta, Identity::Whole)
 }
 
+/// What a mark of `kind` holds of the file `meta` describes: `None` for a
+/// symbolic link or anything but a regular file — a download writes
+/// neither — and for an identity this platform cannot read. The caller
+/// chooses whether a link is followed: a mark never follows one (the link
+/// is what is at the place), a user entry always does (E8-1).
 fn identity(meta: &std::fs::Metadata, kind: Identity) -> Option<String> {
     if !meta.file_type().is_file() {
         return None;
