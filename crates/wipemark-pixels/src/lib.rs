@@ -29,6 +29,10 @@ mod alpha;
 mod calibrate;
 mod catalogue;
 mod geometry;
+/// The value chosen inside a lossy codec's interval (E12-R8): reached
+/// through [`clean_refined`] and [`restore_refined`] only, never by the
+/// product's defaults until the method is decided (S12).
+mod interval;
 mod ncc;
 /// The planar inverse of a subsampled JPEG (E12-R6, D306). Its types are
 /// re-exported below; the rest — the intermediates a test or the bench
@@ -57,6 +61,12 @@ pub use catalogue::{
     ProfileId, Search, Status, Thresholds, When, EMBEDDED, SCHEMA,
 };
 pub use geometry::{Kernel, PixelRect, SubRect, CAPTURE_NOISE};
+#[doc(hidden)]
+pub use interval::{dct8, idct8, indices, smooth};
+pub use interval::{
+    sigma_base, Interval, Method, Refine, RestoreOptions, Space, DCT_ROUNDS, H_BASE, H_SIGMAS,
+    NOISE_RING, PIXEL_ROUNDS, SMOOTH_EPS, SMOOTH_RADIUS, STOP_MOVE, STOP_RATIO, TEXT_RATIO,
+};
 pub use planar::{blend_levels_c, Planar, PlanarScores, DC_SHARE};
 pub use planes::{Plane, Planes, PlanesError, Quant, Sampling};
 #[doc(hidden)]
@@ -69,7 +79,7 @@ pub use restore::{composite, restore, RestoreError, Restored};
 use serde::Serialize;
 pub use verify::{
     Refusal, Scores, Verified, BAND, BLEND_LEVELS, CHROMA_LEVELS, NOISE_FLOOR, NO_BLEND_RATIO,
-    OUTLINE_BOUND, STEP_LEVELS, TEXTURE_LEVELS, TEXTURE_RATIO,
+    OUTLINE_BOUND, STEP_LEVELS, TEXTURE_LEVELS, TEXTURE_RATIO, TEXTURE_RATIO_MIN,
 };
 
 /// The claim this crate adds to the third shelf (D156). The English is
@@ -353,15 +363,15 @@ pub struct PixelReport {
 
 impl PixelReport {
     /// Whether a mark was seen and is still there: a blend refused,
-    /// restored around holes, or restored with its outline (D238) or a
-    /// texture (D250) left. A proposal that was no blend is not here to
+    /// restored around holes, or restored with its outline (D238), a
+    /// texture (D250) or a smoothed patch (D307) left. A proposal that was no blend is not here to
     /// count (D235).
     pub fn marks_left(&self) -> bool {
         self.found.iter().any(|f| f.verified().is_none())
             || self
                 .restored
                 .iter()
-                .any(|r| r.holes > 0 || r.outline_left || r.texture_left)
+                .any(|r| r.holes > 0 || r.outline_left || r.texture_left || r.smoothed)
     }
 
     /// One line of ASCII JSON. Field names are a format.
@@ -458,15 +468,45 @@ pub fn clean_with(
     catalogue: &Catalogue,
     options: &ExamineOptions,
 ) -> PixelReport {
+    clean_refined(
+        raster,
+        planes,
+        catalogue,
+        options,
+        &RestoreOptions::default(),
+    )
+}
+
+/// [`clean_with`], every mark the first pass restores refined by
+/// `restore.refine` (E12-R8): on a lossy source, the restored value chosen
+/// inside the codec's interval ([`Restored::interval`]). The second pass
+/// (D165) restores as [`clean_with`] does — its raster is no longer the
+/// file's, so there is no interval left to choose in. With
+/// [`Refine::None`], and on a lossless source whatever is asked (S6), it is
+/// [`clean_with`], byte for byte. For the bench and the `planar-preview`
+/// build until the method is decided (S12); not a surface.
+pub fn clean_refined(
+    raster: &mut Raster,
+    planes: Option<&Planes>,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+    restore_options: &RestoreOptions,
+) -> PixelReport {
     let model = planar::route(raster, planes, options);
     let first = examine_pass(raster, model.as_ref(), catalogue, options, 1);
+    let input = (restore_options.refine != Refine::None).then(|| raster.clone());
     let mut restored = Vec::new();
     for f in &first.findings {
         if let Some(v) = f.verified() {
-            let r = match &model {
-                Some(m) => planar::restore(raster, m, v, options),
-                None => restore(raster, v, options),
-            };
+            let r = restore_one(
+                raster,
+                input.as_ref(),
+                planes,
+                model.as_ref(),
+                v,
+                options,
+                restore_options,
+            );
             if let Ok(r) = r {
                 restored.push(r);
             }
@@ -515,6 +555,60 @@ pub fn clean_with(
         dismissed,
         not_established: not_established::shelf(),
     }
+}
+
+/// One verified mark restored — in the planes on the planar route, in RGB
+/// otherwise — and then refined over `input`, the raster as the file
+/// decoded it, when one is given.
+fn restore_one(
+    raster: &mut Raster,
+    input: Option<&Raster>,
+    planes: Option<&Planes>,
+    model: Option<&planar::Model<'_>>,
+    verified: &Verified,
+    options: &ExamineOptions,
+    restore_options: &RestoreOptions,
+) -> Result<Restored, RestoreError> {
+    let r = match model {
+        Some(m) => planar::restore(raster, m, verified, options),
+        None => restore(raster, verified, options),
+    }?;
+    Ok(match input {
+        Some(input) => interval::refine(
+            raster,
+            input,
+            planes,
+            verified,
+            options,
+            restore_options.refine,
+            r,
+        ),
+        None => r,
+    })
+}
+
+/// [`restore`] of one verified mark with `restore_options` (E12-R8): in the
+/// planes when `planes` take the planar route (D306), refined by
+/// `restore_options.refine` on a lossy source. With the defaults it is
+/// [`restore`], or the planar inverse on that route.
+pub fn restore_refined(
+    raster: &mut Raster,
+    planes: Option<&Planes>,
+    verified: &Verified,
+    options: &ExamineOptions,
+    restore_options: &RestoreOptions,
+) -> Result<Restored, RestoreError> {
+    let model = planar::route(raster, planes, options);
+    let input = (restore_options.refine != Refine::None).then(|| raster.clone());
+    restore_one(
+        raster,
+        input.as_ref(),
+        planes,
+        model.as_ref(),
+        verified,
+        options,
+        restore_options,
+    )
 }
 
 /// `map` resampled to width `size` at the sub-pixel phase `(fx, fy)`, as

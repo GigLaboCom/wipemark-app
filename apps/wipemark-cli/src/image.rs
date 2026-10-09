@@ -1345,6 +1345,8 @@ mod tests {
             consistency_excluded: 0,
             consistency_dct: None,
             planar: None,
+            smoothed: false,
+            interval: None,
         };
         let english = Localizer::for_languages(&["en-US".parse().unwrap()], Rendering::PlainText);
         let say = |message: Message, args: &FluentArgs| english.format_args(message, args);
