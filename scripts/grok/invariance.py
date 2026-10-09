@@ -114,14 +114,20 @@ One list, in any of three shapes (the extension decides):
   `rect = [x, y, w, h]` or `corner`, `margin = [x, y]`, `mark = [w, h]`;
   an optional `[defaults]` table is laid under every file.
 * **JSON** (`.json`): the stage-0 manifest `corpus/grok/manifest.json`
-  that `scripts/corpus/manifest.py grok` will write (R2 §4.3). Its schema
-  is **not fixed yet**; this script reads `{"files": [...]}` (or a bare
-  list), and per row `path` (or `zip_path`, `file`), `source`, `held_out`,
-  `sha256`, and the mark either as an object `mark: {corner, margin: [x, y],
-  size: [w, h]}` or `mark: {rect: [x, y, w, h]}`, or as the CSV's flat keys.
-  A row whose `mark` is `false`, `"no"` or `"none"` is skipped (a source
-  with no mark). Every other key is ignored. When R2 fixes the schema,
-  `normalise` is the one function to change.
+  that `scripts/corpus/manifest.py grok` writes (R2 §4.3–§4.4), read as
+  it is: `{"files": [...]}`, per row `path` (relative to `--root`, the
+  folder `manifest.py grok --root` was given), `sha256`, `held_out`, the
+  Grok source in **`profile`** (`grok.com`, `grok-in-x`, `xai-api`; the
+  row's `source` there is the ZIP's, `grok` or `grok-video`), and the
+  by-hand fields in `stage0`: `mark` (`yes`/`no`), `corner`, `margin` and
+  `mark_size` (`"20×20"`, as `manifest.py` joins a sidecar's list). A clip
+  (`facts.kind` `clip`, source `grok-video`) and a row whose `mark` is not
+  `yes` are skipped. A hand-written JSON may instead carry `source` and the
+  mark as an object `mark: {corner, margin: [x, y], size: [w, h]}` or
+  `mark: {rect: [x, y, w, h]}`, or the CSV's flat keys; a row whose `mark`
+  is `false`, `"no"` or `"none"` is skipped (a source with no mark).
+  Every other key is ignored. `normalise` is the one function that reads
+  a row.
 
 Relative paths are under `--root`, or else beside the list. A row with a
 `sha256` is hashed first and refused on a mismatch (D304). `align.py`'s
@@ -173,6 +179,7 @@ import hashlib
 import io
 import math
 import os
+import re
 import sys
 import tempfile
 from collections import Counter
@@ -224,10 +231,41 @@ def given(d, k):
     return k in d and d[k] not in (None, "")
 
 
+def pair_of(v, where, what):
+    """Two integers from `[a, b]`, `"a×b"`, `"axb"`, `"a,b"` or `"a b"`."""
+    if isinstance(v, (list, tuple)) and len(v) == 2:
+        return int(v[0]), int(v[1])
+    parts = [p for p in re.split(r"[×xX,\s]+", str(v).strip()) if p]
+    if len(parts) != 2:
+        raise Refusal(f"{where}: {what} {v!r} is not two numbers")
+    return int(float(parts[0])), int(float(parts[1]))
+
+
+def from_stage0(d, where):
+    """A row of `manifest.py grok`'s manifest (R2 §4.4) in the shape below,
+    or None for a clip or a row without a mark."""
+    facts = d.get("facts") or {}
+    if facts.get("kind") == "clip" or d.get("source") == "grok-video":
+        return None
+    hand = d.get("stage0") or {}
+    if str(hand.get("mark") or "").strip().lower() not in ("yes", "y", "true", "1"):
+        return None
+    if not given(hand, "margin") or not given(hand, "mark_size"):
+        raise Refusal(f"{where}: stage0 says there is a mark but not its margin and mark_size")
+    (mx, my), (w, h) = pair_of(hand["margin"], where, "margin"), pair_of(hand["mark_size"], where, "mark_size")
+    return {"path": d["path"], "source": d.get("profile") or d.get("source"), "held_out": d.get("held_out"),
+            "sha256": d.get("sha256"), "corner": hand.get("corner") or "bottom-right",
+            "margin_x": mx, "margin_y": my, "mark_w": w, "mark_h": h}
+
+
 def normalise(d, where):
     """One row of any input shape → {path, source, held_out, sha256, and a
     rectangle: mark_x/mark_y/mark_w/mark_h, or corner/margin_x/margin_y/
     mark_w/mark_h}, plus align's crop fields; None for a row with no mark."""
+    if isinstance(d.get("stage0"), dict) or isinstance(d.get("facts"), dict):
+        d = from_stage0(d, where)
+        if d is None:
+            return None
     path = d.get("path") or d.get("zip_path") or d.get("file")
     source = d.get("source")
     if not path or not source:
@@ -812,6 +850,56 @@ def synth_pair(folder, name, n, seed, peak=0.5, k=None, jitter=0.0, hole=False, 
     return path, truth
 
 
+def reads_r2s_manifest(tmp, n):
+    """`scripts/corpus/manifest.py grok` (R2) over synthetic captures; its
+    manifest through `read_rows` and `run`."""
+    import importlib.util
+    import json
+    import shutil
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location("corpus_manifest", os.path.join(here, "..", "corpus", "manifest.py"))
+    manifest = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(manifest)
+    root = os.path.join(tmp, "grok-root")
+    for source in ("grok.com", "xai-api", "grok-imagine-video"):
+        os.makedirs(os.path.join(root, source))
+    listing, _ = synth_pair(tmp, "r2", n, 7)
+    w, h = word_size()
+    sidecar = os.path.join(tmp, "grok.toml")
+    with open(sidecar, "w") as f:
+        for i in range(n):
+            name = f"r2-{i:03d}.png"
+            for source, mark in (("grok.com", "yes"), ("xai-api", "no")):
+                shutil.copy(os.path.join(tmp, name), os.path.join(root, source, name))
+                f.write(f'[[file]]\npath = "{source}/{name}"\ndate = "2026-10-09"\nmark = "{mark}"\n'
+                        f'corner = "bottom-right"\nmargin = [{SYNTH_MARGIN[0]}, {SYNTH_MARGIN[1]}]\n'
+                        f'mark_size = [{w}, {h}]\n\n')
+        with open(os.path.join(root, "grok-imagine-video", "clip.mp4"), "wb") as clip:
+            clip.write(b"\x00\x00\x00\x18ftypmp42" + bytes(64))
+        f.write('[[file]]\npath = "grok-imagine-video/clip.mp4"\ndate = "2026-10-09"\nmark = "yes"\n'
+                'corner = "bottom-right"\nmargin = [20, 20]\nmark_size = [90, 30]\n')
+    path = os.path.join(tmp, "manifest.json")
+    md = os.path.join(tmp, "stage0.md")
+    with open(os.devnull, "w") as null:
+        old = sys.stdout
+        sys.stdout = null
+        try:
+            code = manifest.main(["grok", "--root", root, "--sidecar", sidecar, "--out", md, "--manifest", path])
+        finally:
+            sys.stdout = old
+    if code not in (0, 3):
+        print(f"     manifest.py grok exited {code}")
+        return False
+    with open(path) as f:
+        held = sum(1 for r in json.load(f)["files"] if r["held_out"] and r["path"].startswith("grok.com/"))
+    rows = read_rows(path, root)
+    pairs = pairs_of(rows, defaults())
+    ok = [p.source for p in pairs] == ["grok.com"] and len(pairs[0].crops) == n - held and held == n // 5
+    results, _ = run(rows, defaults(), None)
+    return ok and [st["reading"] for st, _ in results] == ["one map"]
+
+
 def one(listing, opts=None):
     """The statistics of the one pair a synthetic list holds."""
     opts = opts or defaults()
@@ -871,6 +959,11 @@ def selftest():
               and os.path.exists(os.path.join(out, "invariance.md")),
               "the maps, invariance.md and invariance.csv are written")
         check("## Between sources" in text, "three sources at one size are compared")
+
+        # R2's own tool writes the list: `manifest.py grok` over a folder of
+        # the source's captures and a sidecar, its manifest read as it is.
+        check(reads_r2s_manifest(tmp, n), "R2's manifest.py grok manifest is read: one pair per Grok source, "
+              "the clip and the source without a mark skipped, the held-out files left out")
     print(f"selftest: {'all passed' if not failures else str(len(failures)) + ' failed'}")
     return 1 if failures else 0
 

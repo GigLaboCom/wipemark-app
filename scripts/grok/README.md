@@ -55,7 +55,17 @@ mkdir -p reports/r11
     --root <unpacked captures> --out reports/r11/aligned
 .venv/bin/python scripts/grok/invariance.py run reports/r11/aligned/crops.csv \
     --out reports/r11/invariance-aligned
+
+# 3. R10's LaMa trigger reads the hole shares as invariance.py wrote them
+python3 scripts/model-eval/trigger.py lama --holes reports/r11/invariance/invariance.csv \
+    --out docs/plan/reports/E12-R10-lama-decision-<date>.md
 ```
+
+The manifest is read as `scripts/corpus/manifest.py grok` writes it: the
+Grok source is the row's `profile`, the mark is `stage0`'s `mark`,
+`corner`, `margin` and `mark_size`, clips and rows without a mark are
+skipped. Its paths are relative to the folder `manifest.py grok --root`
+was given, which is `--root` here.
 
 Then `docs/plan/reports/E12-R11-stage1-<date>.md`, R11 §4.1's gate:
 

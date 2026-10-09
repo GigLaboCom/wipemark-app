@@ -48,15 +48,19 @@ carrying `interval` (R8). None of either is a warning in the report — the
 trigger is to be measured **with the accepted R6/R8 in the CLI** (a
 `planar-preview` build, `WIPEMARK_INTERVAL` set), never on R0.
 
-`lama` (§3.1) reads R11 stage 1's hole shares — R11's own tool
-(`scripts/grok/invariance.py`) was being written beside this one, so the
-input is a plain file it or a person can write:
+`lama` (§3.1) reads R11 stage 1's hole shares — `invariance.csv` as R11's
+  `scripts/grok/invariance.py run` writes it (one row per pair: `source`,
+  `size`, `hole_share`, …, `reading`), or a plain file a person writes:
 
 * JSON: a list, or `{"rows": [...]}`, of `{"profile", "source",
   "hole_share"}` — the share of the mark's support with `α̂ ≥ opaque_above`,
   a fraction in [0, 1] (`hole_pct`, a percentage, is read too);
-* CSV with a header naming `profile`, `source` and `hole_share` (or
-  `hole_pct`).
+* CSV with a header naming `source` and `hole_share` (or `hole_pct`), and
+  `profile` if there is one.
+
+A row of `invariance.csv` whose `reading` is `none` — no support, nothing
+departs from the background at that rectangle — has no hole share and is
+left out, said in the report; any other row without one is a refusal.
 
 Any row over 1 % (`HOLE_SHARE`, `[tunable]`) → "LaMa mandatory"; any above
 0 → "LaMa evaluated as an option"; none → "Grok has no holes: LaMa not
@@ -275,7 +279,7 @@ def cmd_fdncnn(args):
 
 # ───────────────────────────────────────────────────────── LaMa
 
-def read_holes(path):
+def read_holes(path, skipped=None):
     """R11 stage 1's hole shares, JSON or CSV (see the header): [{profile, source, hole_share}]."""
     with open(path, newline="") as f:
         text = f.read()
@@ -286,6 +290,11 @@ def read_holes(path):
         rows = list(csv.DictReader(text.splitlines()))
     out = []
     for r in rows:
+        if r.get("hole_share") in (None, "") and r.get("hole_pct") in (None, "") \
+                and str(r.get("reading", "")).strip() == "none":
+            if skipped is not None:  # invariance.py: no support at this pair's rectangle, so no share to read
+                skipped.append(f"{r.get('source') or '-'} {r.get('size') or ''}".strip())
+            continue
         if r.get("hole_share") not in (None, ""):
             share = float(r["hole_share"])
         elif r.get("hole_pct") not in (None, ""):
@@ -294,7 +303,8 @@ def read_holes(path):
             raise ek.Refusal(f"{path}: a row with neither hole_share nor hole_pct: {r}")
         if not 0.0 <= share <= 1.0:
             raise ek.Refusal(f"{path}: a hole share outside [0, 1]: {r}")
-        out.append({"profile": r.get("profile") or "-", "source": r.get("source") or "-", "hole_share": share})
+        out.append({"profile": r.get("profile") or "-", "source": r.get("source") or "-", "hole_share": share,
+                    "size": r.get("size") or "-"})
     return out
 
 
@@ -311,14 +321,17 @@ def lama_verdict(rows):
 
 
 def cmd_lama(args):
-    rows = read_holes(args.holes)
+    skipped = []
+    rows = read_holes(args.holes, skipped)
     kind, line = lama_verdict(rows)
     md = [f"# E12-R10 — the LaMa trigger, {time.strftime('%Y-%m-%d')}", "",
           "Written by `scripts/model-eval/trigger.py lama` (R10 §3.1).", "",
           "* **Gemini: not evaluated.** No Gemini map has a pixel with α ≥ 0.95; the peaks are 0.33–0.51 "
           "(`E12-R2-corpora.md` §3). Recorded by S10.", f"* input: `{args.holes}`", "",
-          ek.md_table(["profile", "source", "hole share"], [[r["profile"], r["source"], f"{100 * r['hole_share']:.3f} %"] for r in rows]),
-          "", "## Verdict", "", line, ""]
+          ek.md_table(["profile", "source", "size", "hole share"],
+                      [[r["profile"], r["source"], r["size"], f"{100 * r['hole_share']:.3f} %"] for r in rows]),
+          ""] + ([f"* left out, no support (`reading` none): {', '.join(skipped)}", ""] if skipped else []) + [
+          "## Verdict", "", line, ""]
     emit(args.out, "\n".join(md), {"rows": rows, "verdict": line, "kind": kind, "hole_share": HOLE_SHARE})
     return 0 if kind == "none" else 1
 
@@ -413,6 +426,28 @@ def _t_a_run_without_r6_or_r8_is_said():
     assert "warning" not in fdncnn_report(["x"], fdncnn_rows(recs), c, None, False, "v")
 
 
+def _t_r11s_invariance_csv_is_read_as_it_is():
+    """`scripts/grok/invariance.py run` (R11) writes the file this reads."""
+    import importlib.util
+    import tempfile
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location("grok_invariance", os.path.join(here, "..", "grok", "invariance.py"))
+    inv = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(inv)
+    with tempfile.TemporaryDirectory() as d:
+        lists = [inv.synth_pair(d, "holed", 12, 5, hole=True)[0], inv.synth_pair(d, "bare", 12, 6, peak=0.0)[0]]
+        rows = [r for p in lists for r in inv.read_rows(p)]
+        out = os.path.join(d, "inv")
+        results, _ = inv.run(rows, inv.defaults(), out)
+        assert sorted(st["reading"] == "none" for st, _ in results) == [False, True], [st["reading"] for st, _ in results]
+        skipped = []
+        got = read_holes(os.path.join(out, "invariance.csv"), skipped)
+        assert [r["source"] for r in got] == ["holed"] and skipped == ["bare 320x200"], (got, skipped)
+        assert got[0]["hole_share"] > HOLE_SHARE and got[0]["size"] == "320x200", got
+        assert lama_verdict(got)[0] == "mandatory"
+
+
 def _t_holes_over_one_percent_make_lama_mandatory():
     import tempfile
 
@@ -447,6 +482,7 @@ def selftest():
         ("the_blind_ab_trips_the_trigger_on_its_own", _t_the_blind_ab_trips_the_trigger_on_its_own),
         ("a_run_without_r6_or_r8_is_said", _t_a_run_without_r6_or_r8_is_said),
         ("holes_over_one_percent_make_lama_mandatory", _t_holes_over_one_percent_make_lama_mandatory),
+        ("r11s_invariance_csv_is_read_as_it_is", _t_r11s_invariance_csv_is_read_as_it_is),
     ])
 
 

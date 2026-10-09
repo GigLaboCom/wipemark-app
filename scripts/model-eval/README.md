@@ -83,12 +83,14 @@ Crops come from two places, in one layout (`evalkit.py`'s header):
 
    Copy `bench/out/<run>/fdncnn/report.md` into
    `docs/plan/reports/E12-R10-fdncnn-<date>.md`.
-4. **The LaMa trigger** (§3.1), after R11 stage 1: write its hole shares as
-   JSON or CSV (`profile, source, hole_share` — a fraction of the mark's
-   support with `α̂ ≥ opaque_above`) and
+4. **The LaMa trigger** (§3.1), after R11 stage 1: it reads R11's
+   `invariance.csv` as `scripts/grok/invariance.py run` wrote it (one row
+   per source and size; a row with no support is left out and said), or a
+   JSON or CSV written by hand (`profile, source, hole_share` — a fraction
+   of the mark's support with `α̂ ≥ opaque_above`):
 
    ```sh
-   python3 scripts/model-eval/trigger.py lama --holes r11-holes.json \
+   python3 scripts/model-eval/trigger.py lama --holes reports/r11/invariance/invariance.csv \
        --out docs/plan/reports/E12-R10-lama-decision-<date>.md
    ```
 
