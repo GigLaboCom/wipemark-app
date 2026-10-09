@@ -371,8 +371,9 @@ made, and each row reads its Rewrite's reason through
 `why_not_rewrite_given(id, vacant)` — the pure `why_not_rewrite` over it.
 Not inside the processor: the list calls it three times a draw (a row
 measured in its layout and again in its prepaint, then the rows on screen),
-which would be three asks. The callers outside a draw — Replace, Rewrite
-all's rows, "Process what arrives" — keep `why_not_rewrite(id, cx)`
+which would be three asks. The callers outside a draw — Replace and
+"Process what arrives" — keep `why_not_rewrite(id, cx)`, and Rewrite all
+its own `vacancy`
 (`the_duty_is_asked_once_per_draw_of_the_rows`: one ask for a draw of
 twenty rows; one a row asks seventeen times — two rows measured, fifteen on
 screen — and the code before asked two or three times a row).
