@@ -1704,6 +1704,9 @@ What exists so far:
 | `wipemark-recon-r4-report-2026-10-09` | FILE | E12-R4's report, the container part and partial: `refine_at` and `ring_background` (hidden hooks), `examples/forced_search.rs` and `map_regress.rs`, `scripts/analytics/`; the four questions wait for the host's runs, §3–§4 for `gemini-midtone`. Branch `recon/r4` |
 | `wipemark-recon-r5-report-2026-10-09` | FILE | E12-R5's report: `wipemark_pixels::synth` (D312), `examples/recon_bench.rs` (`pin`/`gen`/`run`), `scripts/bench/`, `bench/manifest.json`, a smoke run; the finding that a mark drawn at `k` 0.93 is refused by its row and then proved by the search (D154 through the search, its test committed ignored). Branch `recon/r5` |
 | `wipemark-recon-r4-r5-landed-2026-10-09` | TEXT | R4 and R5 landed in the container: the branches, the common gate run over R1–R5 (`recon/r1-r5`), the D154 finding, what the host runs next, the agents' questions |
+| `wipemark-recon-r6-report-2026-10-09` | FILE | E12-R6's report: the planar inverse — a 4:2:0/4:2:2 JPEG restored in its planes (`planar.rs`, `examine_with`/`clean_with`), behind `planar-preview` and `recon_bench --config R6` only; the fringe falls from 7.4–8.4 to 0.2–0.8, every out-of-range refusal is lifted and still ends with a mark left; D306 proposed, its form (per-plane interval or a cube test) the owner's question. Branch `recon/r6` |
+| `wipemark-recon-r7-report-2026-10-09` | FILE | E12-R7's report: `consistency_px`, `consistency_excluded`, `consistency_dct` on `Restored` (D305) — the restoration blended back against the input, 0.24 levels on the 14 crops; `regress.py --new-fields`, the bench's column. Branch `recon/r7` |
+| `wipemark-recon-r6-r7-landed-2026-10-09` | TEXT | R6 and R7 landed in the container: the branches, the planar consistency wired at the merge, the common gate run over R1–R7 (`recon/r1-r7`), what the host runs next, the agents' questions |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
@@ -1723,7 +1726,7 @@ E3 models → E4 pipeline → E5 CLI → E6 GPUI shell → E7 workspace UI →
 E8 models/engine UI → E9 licensing → E10 packaging; E11 images is
 phase 2 and E12 visible marks phase 2b — E11-1…E11-3 and E12-1…E12-5
 are done (the images series merged 2026-10-05); E12-6 (other vendors)
-and E12-7 (the reconstructor) are not started; the E12-R series (the restoration measured against ground truth and made more precise, Grok as E12-6) is filed — `docs/plan/E12-R-recon.md`; R1, R3, R4 and R5 are done in the container on `recon/r1`, `recon/r3`, `recon/r4` and `recon/r5`, together on `recon/r1-r5` (2026-10-09, not merged; R3 and R5 wait for the fork, Q-R9; R4's and R5's runs are the host's), the rest not started. **E7's windows clean is
+and E12-7 (the reconstructor) are not started; the E12-R series (the restoration measured against ground truth and made more precise, Grok as E12-6) is filed — `docs/plan/E12-R-recon.md`; R1 and R3–R7 are done in the container on `recon/r1`, `recon/r3` … `recon/r7`, together on `recon/r1-r7` (2026-10-09, not merged; R3, R5 and R6 wait for the fork, Q-R9; R4–R7's runs are the host's; D306 waits on the owner's answer to R6's Q1), the rest not started. **E7's windows clean is
 done** (E7-1…E7-6, merged 2026-10-05 as `7621c9f`; follow-ups W1–W15
 merged as `2f7ce56`; follow-ups X1–X14 merged as `78fd9e2`; follow-ups
 Y1–Y9 merged as `bb73dc3`; follow-ups Z1–Z3 filed), and with it the half of E12-8 that cleans a picture from the
