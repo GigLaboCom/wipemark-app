@@ -50,6 +50,11 @@ What it does
   `consistency_px`, D305, where both sides carry it) and the time, under
   G1–G4 on every route and L1–L4, M1–M4, D1–D4 by route; writes
   `summary.json` and `summary.md`.
+* `list` (added by E12-R12, 2026-10-09) — every selected file's absolute
+  path and its `class:variant`, tab-separated under a `path<TAB>group`
+  header, every sha256 checked first: the list a tool reads
+  (`crates/wipemark-picture/examples/measure_clean.rs list`,
+  `forced_search --list`).
 * `selftest` — no corpus, no CLI: fake runs in a temporary folder, each
   rule of §4.3 asserted both ways, the derived-file refusal on a synthetic
   picture, the committed manifest against its schema. With `--cli PATH`
@@ -69,7 +74,14 @@ How to run it
                                         --route {lossy,model,detect,all}[,…] [--target MEASURE@SELECTOR]… \
                                         [--new-fields FIELD,…] [--out reports/regress-<commit>-<date>/]
     python3 scripts/regress.py diff     --a <dir> --b <dir> --route … [--target …] [--new-fields …] [--out <dir>]
+    python3 scripts/regress.py list     [--corpus …] [--cache …] [--select …] [--out list.tsv]
     python3 scripts/regress.py selftest [--cli target/release/wipemark-cli]
+
+`--golden DIR` (fetch, pin, baseline, run, list; added by E12-R12,
+2026-10-09) names a corpus folder: `DIR/manifest.json` and `DIR/cache/`,
+`golden/` when it is not given — `--golden golden/grok` is Grok's corpus
+(E12-R12 §4.2). `--corpus` or `--cache` given beside it wins for that one
+path.
 
 `--select SELECTOR` (fetch, pin, baseline, run) takes a part of the corpus:
 `class`, `class:variant,variant` (globs allowed), `source=name` or
@@ -1311,6 +1323,21 @@ def cmd_run(args):
     return exit_of(corp)
 
 
+def cmd_list(args):
+    """`path<TAB>class:variant` per selected file, every sha256 checked — the list a tool takes (`measure_clean list`)."""
+    m, corpus, entries = open_corpus(args)
+    files = corpus.materialise(entries)
+    lines = ["path\tgroup"] + [f"{os.path.abspath(files[e['id']][0])}\t{e['class']}:{e['variant']}" for e in entries]
+    text = "\n".join(lines) + "\n"
+    if args.out:
+        with open(args.out, "w") as f:
+            f.write(text)
+        print(f"{args.out}: {len(entries)} file(s)", file=sys.stderr)
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
 def cmd_diff(args):
     routes = parse_routes(args.route)
     targets = [parse_target(t) for t in args.target or []]
@@ -1536,6 +1563,41 @@ def t_a_zip_source_is_checked_unpacked_and_pinned():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def t_golden_names_a_corpus_folder_and_list_prints_it():
+    """E12-R12: `--golden DIR` is DIR/manifest.json and DIR/cache, `golden/` when absent, and a path given beside
+    it wins; `list` prints every selected file's absolute path and `class:variant`, its sha256 checked."""
+    from PIL import Image
+
+    tmp = tempfile.mkdtemp(prefix="regress-selftest-")
+    try:
+        default = resolve_corpus(parser().parse_args(["list"]))
+        assert (default.corpus, default.cache) == (DEFAULT_CORPUS, DEFAULT_CACHE), (default.corpus, default.cache)
+        named = resolve_corpus(parser().parse_args(["fetch", "--golden", tmp]))
+        assert (named.corpus, named.cache) == (os.path.join(tmp, "manifest.json"), os.path.join(tmp, "cache"))
+        beside = resolve_corpus(parser().parse_args(["run", "--golden", tmp, "--cache", "elsewhere", "--cli", "x",
+                                                     "--baseline", "b", "--route", "all"]))
+        assert (beside.corpus, beside.cache) == (os.path.join(tmp, "manifest.json"), "elsewhere")
+
+        src = os.path.join(tmp, "src")
+        os.makedirs(src)
+        for name, colour in [("a.png", (10, 200, 30)), ("b.png", (200, 10, 30))]:
+            Image.new("RGB", (16, 16), colour).save(os.path.join(src, name))
+        m = {"schema": 1, "sources": {"synthetic": {"key": "wipemark-corpus-synthetic-selftest", "sha256": None}},
+             "recipes": {"pillow": "12.3.0", "libjpeg": "6.2", "mkset": "x"},
+             "files": [{"id": i, "class": "negative", "variant": "png", "source": "synthetic", "path": f"{i}.png",
+                        "sha256": sha256_file(os.path.join(src, f"{i}.png")), "expect": None} for i in ("a", "b")]}
+        save_manifest(os.path.join(tmp, "manifest.json"), m)
+        out = os.path.join(tmp, "list.tsv")
+        assert main(["list", "--golden", tmp, "--local", f"synthetic={src}", "--select", "id=b", "--out", out], quiet=True) == 0
+        with open(out) as f:
+            assert f.read() == f"path\tgroup\n{os.path.join(src, 'b.png')}\tnegative:png\n"
+        m["files"][1]["sha256"] = "0" * 64
+        save_manifest(os.path.join(tmp, "manifest.json"), m)
+        assert main(["list", "--golden", tmp, "--local", f"synthetic={src}", "--out", out], quiet=True) == 2
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def mixed_corpus():
     return by_id(
         fake("neg", "negative", "q85-420", inspect_exit=0, clean_exit=0, encoding="unchanged"),
@@ -1722,6 +1784,7 @@ SELFTESTS = [
     t_the_1024_frame_finding_nothing_is_expected_off_the_detect_route,
     t_a_derived_file_with_another_sha_is_refused,
     t_a_zip_source_is_checked_unpacked_and_pinned,
+    t_golden_names_a_corpus_folder_and_list_prints_it,
     t_a_run_against_itself_passes_everything,
     t_more_exits_3_over_the_corpus_fail_g2,
     t_a_clamped_count_that_grows_fails_g3,
@@ -1811,13 +1874,25 @@ def cmd_selftest(args):
 # ── main ─────────────────────────────────────────────────────────────────────
 
 
-def main(argv=None, quiet=False):
+def resolve_corpus(args):
+    """`--golden DIR` names a corpus folder — its `manifest.json` and its `cache/`; `golden/` by default.
+    `--corpus` or `--cache` given beside it wins for that one path."""
+    golden = args.golden or os.path.dirname(DEFAULT_CORPUS)
+    if args.corpus is None:
+        args.corpus = os.path.join(golden, "manifest.json")
+    if args.cache is None:
+        args.cache = os.path.join(golden, "cache")
+    return args
+
+
+def parser():
     p = argparse.ArgumentParser(prog="regress.py", description="The regression over real files (E12-R1, D303/D304).")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def corpus_args(s):
-        s.add_argument("--corpus", default=DEFAULT_CORPUS)
-        s.add_argument("--cache", default=DEFAULT_CACHE)
+        s.add_argument("--golden", help="a corpus folder: DIR/manifest.json and DIR/cache (default golden/)")
+        s.add_argument("--corpus", help="the manifest (default: --golden's manifest.json)")
+        s.add_argument("--cache", help="the cache (default: --golden's cache/)")
         s.add_argument("--local", action="append", help="SOURCE=<zip or folder>, in place of a download")
         s.add_argument("--url", action="append", help="SOURCE=<presigned URL> (or REGRESS_URL_<SOURCE>)")
         s.add_argument("--select", action="append", help="class[:variant,…] | source=name | id=a,b")
@@ -1849,10 +1924,20 @@ def main(argv=None, quiet=False):
     s.add_argument("--target", action="append")
     s.add_argument("--new-fields", help="JSON fields the change adds by a decision, comma-separated (L1/D4 forgive them)")
     s.add_argument("--out")
+    s = sub.add_parser("list")
+    corpus_args(s)
+    s.add_argument("--out", help="the list (default: stdout)")
     s = sub.add_parser("selftest")
     s.add_argument("--cli")
-    args = p.parse_args(argv)
-    commands = {"fetch": cmd_fetch, "pin": cmd_pin, "baseline": cmd_baseline, "run": cmd_run, "diff": cmd_diff, "selftest": cmd_selftest}
+    return p
+
+
+def main(argv=None, quiet=False):
+    args = parser().parse_args(argv)
+    if hasattr(args, "golden"):
+        resolve_corpus(args)
+    commands = {"fetch": cmd_fetch, "pin": cmd_pin, "baseline": cmd_baseline, "run": cmd_run, "diff": cmd_diff,
+                "list": cmd_list, "selftest": cmd_selftest}
     stdout, stderr = sys.stdout, sys.stderr
     if quiet:  # the selftest calls main() and reads exit codes; a refusal it expects is not news
         sys.stdout = sys.stderr = open(os.devnull, "w")
