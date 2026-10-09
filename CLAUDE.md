@@ -2049,6 +2049,7 @@ What exists so far:
 | `wipemark-zune-image-fork-raw-output-2026-10-09` | TEXT | the fork `GigLaboCom/zune-image`: upstream `dev` already has raw planes (#379, #386, #440), the fork adds only the quantisation tables (`raw-quantization-tables`, `e8d24f7e`, offered upstream as #488); supersedes `wipemark-zune-image-fork-2026-10-09` |
 | `wipemark-task-recon-r3-raw-output-2026-10-09` | FILE | a task for an agent: E12-R3 moved onto upstream's `raw_output()` and the fork's getter, both crates pinned by rev, on `recon/r3-raw` |
 | `wipemark-task-compare-followups-2026-10-09` | FILE | a task for an agent: E7-9's open follow-ups (the quit flush, a stale window's Save, the edit mark's entry, the check just before the rename, one question at a time, closing with nowhere to save), *Cleaned, then edited* (D419, at a default), the Send-away test, Report…'s reason on a journal row, the tray README; D440–D449, on `fix/compare-followups` |
+| `wipemark-task-compare-followups-c16-2026-10-09` | FILE | the addendum C16 to the Compare task: whether the follower lags a frame while a scroll bar is dragged (the scroll bar notifies the view it is painted in, gpui-kit #3417's finding), measured in the same frame and fixed by a look in `render` if it does; D449 |
 | `wipemark-task-models-pipeline-followups-2026-10-09` | FILE | a task for an agent: the speech tags read in three kinds (E8's Medium, at a default), `macOS-only` no identifier (at a default), E8-1's last Lows, a non-blocking open of a model file, Gemma 4's re-upload looked at, the plan's stale rows; D450–D459, on `fix/models-pipeline-followups` |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 | `wipemark-status-2026-10-05` | FILE | where the project stood at the end of 2026-10-05: images rounds 3–5, E7 merged, the X11 first frame fixed through `GigLaboCom/zed`, and the plan of pull requests and branches (`docs/plan/README.md` §2.1) — PR #1 and what comes next, in order |
@@ -2102,7 +2103,9 @@ fixes (`cf7cadd`); its Lows and one owner question are open
 with its badges (S7.2), the streamed result
 (S7.3) and the Inspector (S7.5); Compare's left scrollbar and the
 original's gutter on its right, which wait on the owner's gpui-kit pull
-requests #3416 and #3417 (drafts); of E4, the keep-voice rule after a
+request #3417 (#3416 merged into `next` as `63068d0` on 2026-10-09; #3417
+in review with the maintainer's Editor Diff story and horizontal-track
+fix, CI green — `docs/plan/README.md` §2.1 row 8); of E4, the keep-voice rule after a
 four-model bench and a voice measure in the bench; the rest of E8 (E8-1,
 models the person adds, is done, and so are its verification's M3 and
 Lows); E9;

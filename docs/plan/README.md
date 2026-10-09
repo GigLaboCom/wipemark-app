@@ -198,7 +198,7 @@ opens its own pull request against `main` instead of riding on `feat`.
 | 7b | `e7/compare-save` — **merged `c333d0b`** | E7-9: saving an edited Compare result — Save and ⌘S over the result's own file or into its row, never the original, a file changed on disk asked about, an autosave on by default (§7 E7) | `wipemark-task-compare-save-2026-10-08` | D410–D419, [E7-9](reports/E7-9-compare-save-2026-10-08.md) | done; the host verification's M1 and M2 fixed in `cf7cadd`, lows and one owner question open (§7 E7) |
 | 7c | `fix/e7-8-e8-1-followups` — **merged 2026-10-09** | the open findings of E7-8's and E8-1's verifications: one fact for consent, Compare's leftover asks, the added models' lows (§7 E7, E8) | `wipemark-task-followups-e7-8-e8-1-2026-10-08` | D430–D439, [report](reports/followups-e7-8-e8-1-2026-10-08.md) | done; the verification's Medium (tags that say speech refuse a text model) and Lows kept in §7 E8 |
 | 7d | `e4/bench-voice` — **merged 2026-10-09** | E4-8: voice measures in the bench, keep-voice variants in en, ru, de, the four-model run as a script (§7 E4) | `wipemark-task-bench-voice-2026-10-08` | D420–D429, [report](reports/E4-8-bench-voice-2026-10-08.md) | done in the container, the host verification's M1–M3 and Lows fixed (`a4b5d4e`); the host run and the keep-voice decision pending |
-| 8 | gpui-kit #3416, #3417 (upstream, the owner's) | The scrollbar on the left and the original's gutter on its right in the editor — what Compare's mirrored layout needs (§7 E7) | — | — | **open as drafts** upstream |
+| 8 | gpui-kit #3416, #3417 (upstream, the owner's) | The scrollbar on the left and the original's gutter on its right in the editor — what Compare's mirrored layout needs (§7 E7) | **#3416 merged** into `next` 2026-10-09 (`63068d0`, squashed, with the maintainer's story commit); **#3417 in review** — rebased onto `next`, three commits of ours plus the maintainer's Editor Diff story (`70b271ad`) and horizontal-track fix (`e30f2615`), the inventory and gallery entries his story needed, CI green on all twelve jobs; titled "Support mirrored gutters for side-by-side diffs", waiting for his re-review | once #3417 is merged: the submodule onto `next` and Compare's original pane `BottomLeft` + `gutter_side(Side::Right)` | **open as drafts** upstream |
 | 9 | — | The keep-voice rule after a four-model bench, and a voice measure in the bench (§7 E4); E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), S7.2, S7.3, S7.5, E9 licensing, E10 packaging (Windows; the Linux tray is done) | to be written | — | §7 |
 
 **Open with the owner** (§5): Q-C2–Q-C4 (E7's defaults: all metadata,
@@ -1262,7 +1262,20 @@ the gate the overview set, and the open edges.
   inside a changed block taller than the window; **L4** `compare-help-settings`
   wording. Earlier note: the left scrollbar and the right gutter
   wait on the owner's gpui-kit pull requests **#3416** and **#3417**, open
-  as drafts. Like IntelliJ
+  as drafts. **Update 2026-10-09:** #3416 is merged (`63068d0`); #3417 is
+  in review, reframed at the maintainer's request around a side-by-side
+  diff whose gutters face the center, with his Editor Diff story
+  (`70b271ad`), which keeps the two panes level by synchronising in the
+  parent view's `render` before either pane is laid out — he found that an
+  observer on the editors misses a drag of the scroll-bar thumb, which
+  notifies the view the bar is painted in — and his fix that ends the
+  horizontal track before a center-facing gutter (`e30f2615`; horizontal
+  scrolling stays each pane's own, as ours does, D380). Whether Compare's
+  follower lags a frame on a thumb drag is **C16** of
+  `wipemark-task-compare-followups-2026-10-09` (addendum
+  `-c16-2026-10-09`, D449): measured first, fixed only if it does. The
+  sentence below that "a scroll by wheel or scrollbar notifies the editor
+  entity" is that claim. Like IntelliJ
   IDEA Community's diff viewer (synchronized scrolling): scrolling either
   pane — wheel, middle button, the scrollbar — scrolls the other so the
   matching lines stay level, through `Diff::original_row_of` and its
