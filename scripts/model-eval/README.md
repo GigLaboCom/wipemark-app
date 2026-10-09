@@ -20,7 +20,7 @@ weights, no corpus). Nothing has been run on a model yet.
 | script | what | needs |
 |---|---|---|
 | `evalkit.py` | the crop reader and the restated measures (σ_base, texture, consistency_px, PSNR/SSIM/ΔE2000 in the ROI), shared by all | numpy, Pillow |
-| `trigger.py` | §2.1: the FDnCNN trigger over R1's run; §3.1: the LaMa trigger from R11 stage 1's hole shares; writes the decision report | stdlib |
+| `trigger.py` | §2.1: the FDnCNN trigger over R1's run; §3.1: the LaMa trigger from R11 stage 1's hole shares; writes the decision report | numpy (through `evalkit.py`) |
 | `fdncnn_export.py` | §2.2: KAIR's `fdncnn_color.pth` → ONNX (dynamic H/W), the network restated, weights' sha256 recorded | torch, onnx, (onnxruntime) |
 | `fdncnn_run.py` | §2.3–§2.5: 18 variants per crop, F1–F7, one closing line; `model.jsonl` for `scripts/bench/report.py` | onnxruntime |
 | `lama_run.py` | §3.2–§3.5: Big-LaMa in the hole mask, the mandatory composite, four variants, M1–M7, one closing line | LaMa's own venv, OpenCV, (lpips) |

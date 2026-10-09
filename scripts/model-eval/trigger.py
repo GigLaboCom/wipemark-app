@@ -74,7 +74,8 @@ How to run it
 
 What it needs
 -------------
-Python 3.10+, the standard library only. An R1 run made by a release CLI
+Python 3.10+ and numpy (through `evalkit.py`, whose helpers it shares;
+none of the model's packages). An R1 run made by a release CLI
 built with `--features wipemark-picture/planar-preview` and run with
 `WIPEMARK_INTERVAL` set to the method R8 kept (`scripts/regress.py run`).
 
