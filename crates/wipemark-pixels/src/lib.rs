@@ -37,6 +37,8 @@ mod restore;
 mod verify;
 
 pub use alpha::{AlphaMap, WmaError, MAGIC};
+#[doc(hidden)]
+pub use calibrate::ring_background;
 pub use calibrate::{
     calibrate, replay, Background, BlendModel, CalibrateOptions, Calibration, CalibrationError,
     Capture, Counts, Draft, Replay,
@@ -47,6 +49,8 @@ pub use catalogue::{
 };
 pub use geometry::{Kernel, PixelRect, SubRect, CAPTURE_NOISE};
 pub use planes::{Plane, Planes, PlanesError, Quant, Sampling};
+#[doc(hidden)]
+pub use propose::{refine_at, Refined};
 pub use propose::{Placed, REFINE_MARGIN, ROW_FLOOR, SHRUNK};
 pub use raster::{Layout, Raster, RasterError};
 pub use restore::{composite, restore, RestoreError, Restored};

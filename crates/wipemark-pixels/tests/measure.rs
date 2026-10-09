@@ -150,3 +150,69 @@ fn timings_on_a_large_picture() {
         report.restored.len()
     );
 }
+
+/// E12-R4 §4.2: how the search's refinement (`refine_at`, from the row's
+/// own rectangle) answers a mark drawn a hair off its row — under the
+/// eighth-pixel grid's resolution — over three kinds of picture, three
+/// seeds and three noise amplitudes. Prints, per case, the raw best's shift,
+/// `gain_ratio` and whether it clears `REFINE_MARGIN`. It is where
+/// `refine_at_leaves_a_row_that_is_right` took its case from (E12-R4's
+/// report): exactly at the row the residual's minimum is the row; from
+/// 0.05 px the raw best moves by an eighth, and sometimes past the margin.
+#[test]
+#[ignore = "measurements: run with --release --ignored --nocapture and record"]
+fn refinement_against_a_mark_under_an_eighth_off_its_row() {
+    use wipemark_pixels::{refine_at, resampled, SubRect};
+    let catalogue = synthetic_catalogue();
+    let v1 = synthetic_v1();
+    let row = small_row(W, H, 48);
+    let base = SubRect {
+        x: row.x as f32,
+        y: row.y as f32,
+        size: 48.0,
+    };
+    for off in [0.0f32, 0.03, 0.05, 0.06, 0.07] {
+        let (mut n, mut moved, mut past, mut lowest) = (0, 0, 0, f64::INFINITY);
+        for kind in [Kind::ValueNoise, Kind::Fractal, Kind::Gradient] {
+            for amp in [0u32, 1, 2] {
+                for seed in 0..3u64 {
+                    let clean = picture(kind, W, H, 60 + seed, Layout::Rgb8);
+                    let mut rng = Rng::new(600 + seed);
+                    let noisy: Vec<u16> = clean
+                        .samples()
+                        .iter()
+                        .map(|&v| {
+                            (i32::from(v) + rng.below(2 * amp + 1) as i32 - amp as i32)
+                                .clamp(0, 255) as u16
+                        })
+                        .collect();
+                    let mut raster = Raster::new(W, H, Layout::Rgb8, noisy).unwrap();
+                    let mark = quantised(&resampled(&v1.small, 48.0, off, 0.0).unwrap());
+                    let at = PixelRect {
+                        width: mark.width(),
+                        height: mark.height(),
+                        ..row
+                    };
+                    composite(&mut raster, &mark, at, [255.0; 3]);
+                    let r = refine_at(&raster, &catalogue, "test-sparkle-v1", base).unwrap();
+                    println!(
+                        "{kind:?} off {off} noise ±{amp} seed {seed}: dx {:+.3} dy {:+.3} dsize {:+.3} gain_ratio {:.3} past the margin {}",
+                        r.rect.x - base.x,
+                        r.rect.y - base.y,
+                        r.rect.size - base.size,
+                        r.residual_refined / r.residual_at,
+                        r.kept_by_margin
+                    );
+                    let ratio = r.residual_refined / r.residual_at;
+                    n += 1;
+                    moved += usize::from(r.rect != base);
+                    past += usize::from(r.kept_by_margin);
+                    lowest = lowest.min(ratio);
+                }
+            }
+        }
+        println!(
+            "off {off} px: {n} cases, the raw best moved in {moved}, past the margin in {past}, lowest gain_ratio {lowest:.3}"
+        );
+    }
+}

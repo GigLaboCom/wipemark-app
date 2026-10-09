@@ -7,8 +7,8 @@ mod support;
 
 use support::*;
 use wipemark_pixels::{
-    clean, composite, drawn, examine, resampled, Catalogue, CatalogueError, ExamineOptions, Layout,
-    PixelRect, Placed, Raster, Refusal, Verdict,
+    clean, composite, drawn, examine, refine_at, resampled, Catalogue, CatalogueError,
+    ExamineOptions, Layout, PixelRect, Placed, Raster, Refusal, SubRect, Verdict,
 };
 
 const W: u32 = 320;
@@ -417,5 +417,88 @@ fn a_mark_painted_over_out_of_range_is_refused_and_the_allowance_is_eight_levels
                 f.verdict
             );
         }
+    }
+}
+
+/// The small row's own rectangle in the `W × H` test picture.
+fn small_row_rect() -> SubRect {
+    let row = small_row(W, H, 48);
+    SubRect {
+        x: row.x as f32,
+        y: row.y as f32,
+        size: 48.0,
+    }
+}
+
+/// E12-R4 §4.2's hook: a mark a quarter of a pixel right of its row, over
+/// a textured picture. Asked from the row's own rectangle, the search's
+/// refinement — by the residual the second proof leaves, never by NCC —
+/// lands on the mark within an eighth of a pixel, and the residual there
+/// is under nine tenths of the row's (`forced_search`'s `gain_ratio`).
+#[test]
+fn refine_at_finds_a_mark_moved_by_a_quarter_pixel() {
+    let catalogue = synthetic_catalogue();
+    let v1 = synthetic_v1();
+    let base = small_row_rect();
+    for (kind, seed) in [(Kind::Fractal, 41u64), (Kind::ValueNoise, 42)] {
+        let mut raster = picture(kind, W, H, seed, Layout::Rgb8);
+        let mark = quantised(&resampled(&v1.small, 48.0, 0.25, 0.0).unwrap());
+        let row = small_row(W, H, 48);
+        let at = PixelRect {
+            width: mark.width(),
+            height: mark.height(),
+            ..row
+        };
+        composite(&mut raster, &mark, at, [255.0; 3]);
+        let r = refine_at(&raster, &catalogue, "test-sparkle-v1", base).expect("measured");
+        let name = format!("{kind:?}: {r:?}");
+        assert!((r.rect.x - (base.x + 0.25)).abs() <= 0.125, "{name}");
+        assert!((r.rect.y - base.y).abs() <= 0.125, "{name}");
+        assert!((r.rect.size - base.size).abs() <= 0.125, "{name}");
+        assert!(r.residual_refined / r.residual_at < 0.9, "{name}");
+        assert!(r.kept_by_margin, "{name}");
+    }
+}
+
+/// The other half: a mark at its row as far as an eighth-pixel grid can
+/// tell — drawn a sixteenth of a pixel (0.06) right of it, over a
+/// gradient with a level of noise. A mark exactly at its row leaves the
+/// row as the residual's own minimum, and then the margin is never asked;
+/// here the sweeps do find a neighbour an eighth away with a little less
+/// residual (by 1–8 %), and the margin keeps the row: what the search
+/// would take is the row's own rectangle, never a shift under a tenth of
+/// the residual (D236).
+#[test]
+fn refine_at_leaves_a_row_that_is_right() {
+    let catalogue = synthetic_catalogue();
+    let v1 = synthetic_v1();
+    let base = small_row_rect();
+    let row = small_row(W, H, 48);
+    for seed in 0..3u64 {
+        let clean = picture(Kind::Gradient, W, H, 60 + seed, Layout::Rgb8);
+        let mut rng = Rng::new(600 + seed);
+        let noisy: Vec<u16> = clean
+            .samples()
+            .iter()
+            .map(|&v| (i32::from(v) + rng.below(3) as i32 - 1).clamp(0, 255) as u16)
+            .collect();
+        let mut raster = Raster::new(W, H, Layout::Rgb8, noisy).unwrap();
+        let mark = quantised(&resampled(&v1.small, 48.0, 0.06, 0.0).unwrap());
+        let at = PixelRect {
+            width: mark.width(),
+            height: mark.height(),
+            ..row
+        };
+        composite(&mut raster, &mark, at, [255.0; 3]);
+        let r = refine_at(&raster, &catalogue, "test-sparkle-v1", base).expect("measured");
+        let name = format!("seed {seed}: {r:?}");
+        // The sweeps did see a better neighbour: the margin is what is
+        // being asked.
+        assert!(r.rect != base, "{name}");
+        assert!(r.residual_refined < r.residual_at, "{name}");
+        let taken = if r.kept_by_margin { r.rect } else { base };
+        assert!((taken.x - base.x).abs() < 0.125, "{name}");
+        assert!((taken.y - base.y).abs() < 0.125, "{name}");
+        assert!((taken.size - base.size).abs() < 0.125, "{name}");
     }
 }

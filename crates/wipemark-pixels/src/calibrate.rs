@@ -264,7 +264,7 @@ fn background(
     rect: PixelRect,
     ring: u32,
 ) -> Result<Vec<[f64; 3]>, CalibrationError> {
-    let (w, h) = (capture.raster.width(), capture.raster.height());
+    let w = capture.raster.width();
     if let Some(clean) = &capture.clean {
         let px = pixels(clean);
         let mut out = Vec::with_capacity(rect.area() as usize);
@@ -275,7 +275,22 @@ fn background(
         }
         return Ok(out);
     }
-    let px = pixels(&capture.raster);
+    ring_background(&capture.raster, rect, ring).ok_or(CalibrationError::NoRing)
+}
+
+/// The picture under `rect` as the calibration estimates it with no clean
+/// twin: a quadratic in `(x, y)` per channel, fitted by least squares to
+/// a ring `ring` pixels wide around the rectangle (clipped at the
+/// picture's edges), in 8-bit-scaled units, row-major over `rect`.
+/// `None` when the ring has fewer than 30 pixels.
+///
+/// The calibration's own fit, handed out for the analytics of E12-R4
+/// (`map_regress`, and `scripts/analytics/bias.py`'s check of its Python
+/// restatement) — a developer's measure, not a feature.
+#[doc(hidden)]
+pub fn ring_background(raster: &Raster, rect: PixelRect, ring: u32) -> Option<Vec<[f64; 3]>> {
+    let (w, h) = (raster.width(), raster.height());
+    let px = pixels(raster);
     let (cx, cy) = (
         f64::from(rect.x) + f64::from(rect.width) / 2.0,
         f64::from(rect.y) + f64::from(rect.height) / 2.0,
@@ -300,7 +315,7 @@ fn background(
         }
     }
     if ring_points[0].len() < 30 {
-        return Err(CalibrationError::NoRing);
+        return None;
     }
     let k = [
         fit_quadratic(&ring_points[0]),
@@ -319,7 +334,7 @@ fn background(
             out.push(p);
         }
     }
-    Ok(out)
+    Some(out)
 }
 
 /// Where the mark is: the bounding box of the pixels that stand out of
