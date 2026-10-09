@@ -144,6 +144,8 @@ cargo check --workspace --no-default-features --locked
 cargo check --workspace --features local-llama --locked
 cargo test  -p wipemark-engine --features local-llama --locked
 cargo test  -p wipemark-app    --features local-llama --locked
+cargo clippy -p wipemark-pipeline --features local-llama --examples --locked -- -D warnings
+cargo test   -p wipemark-pipeline --features local-llama --examples --locked
 ```
 
 Coverage is a workflow of its own, `.github/workflows/coverage.yml`: on
@@ -293,7 +295,7 @@ it sits.
 | `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP); the load-progress sink (`watch_loads`, `LoadProgress`, `progress::Pacer`, D305); `ChatSupport`, and `Unavailable::ChatFormat` for a chat format this build does not write (D407) | both engines real, handed out by `duty::engine_for`, asked by the Check and by every rewrite |
 | `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`, `src/pin.rs`) | real under `native` — the prebuilt release by default, cmake with `WIPEMARK_LLAMA_SOURCE=1`; an empty shim without it |
 | `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends; the chat-format verdict, `chat_support` — this crate's families, then a port of llama.cpp's detection at the pin, then a refusal by name (D407) | real under `native`; refuses every load without it |
-| `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) and the one rule a stored template is held to — `row::admit`, which the Prompts page, `lay_over` and `lay_over_within` all ask (D330), with no invisible character in any template (`invisible-character`, D369); `prompt::trial`, a template checked on a built-in sample or adapted by the model (D332, D335) | preparation, prompts and the loop real (E4-1…E4-3), the resumable job the queue drives (E4-4), the prompt bench (`examples/bench`, `bench/`, E4-5 — `docs/architecture/prompt-bench.md`, with `--variant`, the sampling flags and a `whole` mode since the divergence research) and its recommendations built (E4-7); the windows rewrite through it (E4-6b) and edit its templates (E4-6c) |
+| `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) and the one rule a stored template is held to — `row::admit`, which the Prompts page, `lay_over` and `lay_over_within` all ask (D330), with no invisible character in any template (`invisible-character`, D369); `prompt::trial`, a template checked on a built-in sample or adapted by the model (D332, D335) | preparation, prompts and the loop real (E4-1…E4-3), the resumable job the queue drives (E4-4), the prompt bench (`examples/bench`, `bench/`, E4-5 — `docs/architecture/prompt-bench.md`, with `--variant`, the sampling flags and a `whole` mode since the divergence research) and its recommendations built (E4-7); its voice measures (second and first person, the ты↔вы / du↔Sie switch, words ×, a register proxy), the judge's voice question, `bench plan`, keep-voice in en/ru/de and the four-model run `bench/run-voice.sh` (E4-8, D420–D429) — the run is the owner's, and keep-voice is not shipped; the windows rewrite through it (E4-6b) and edit its templates (E4-6c) |
 | `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; a catalogue file found anywhere under the folder by name, size and sha256 (D302); what a verify learned as a record under `<data dir>/records`, never beside the weights (D303); a download's **mark** naming the file by its identity, and a `.part` that is ours only when a download opened it (D350, D351); hash progress (`watch_hashes`, D306); the GGUF header, read without a tensor (`gguf`); models the person adds as rows, their ids, estimate and checks (`user`, D400–D402); `fit_mb`; the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
 | `wipemark-store` | the SQLite file, the `settings` table, the queue's tables and, since schema 3, the document **journal** (`journal`, its vocabulary in `entry` — `Origin`, `Action`, `Phase`, `Entry` — because two applications write it, D312) and `JournalWriter`, the CLI's read-write handle that never creates or migrates (D314); `RowsWriter`, the CLI's write of one namespace of settings rows (`models.user.`), never created or migrated (D404); `Journal::mark_edited`, which says in a row's entry that its result was saved edited, and when — `outcome.edited`, that one field patched and the rest of the entry kept, never what (D417) | real |
 | `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination — an in-place delivery a crash cut short after the set-aside finished, not failed (D286); `EngineSource`, asked for an engine as each item starts (D310), a hold rather than a failure while there is none (D311), `reserve`/`push_reserved` so a row names its item before it can end (D358), the consent asked again at start (`whereto`, `QueueEvent::Ask`, `agree`, D361), `paused` and `states` from memory (D359); `save_text`, an edited result saved into a done item's stored text — a rewritten paste's one home — held to the text's digest (D410, D413) | real; the application runs it — the windows' Rewrite, an agent's `rewrite`, the CLI's rewrite through the application (E4-6b); the windows' clean has a line of its own |
@@ -1776,6 +1778,10 @@ Anything that needed more than a rule to explain is in `docs/`;
   every candidate of a document with code or links. An override is a row
   `prompts.<lang>.<tactic>.<step>.<role>` (outside `config::PERSISTED`);
   one this build cannot read is the shipped template, and the row stays.
+  A bench variant (`bench/variants/<name>/`) is held to `row::admit` as an
+  edit is and walked by `tests/bench_variants.rs` (D427); keep-voice
+  (paraphrase and humanize, en/ru/de) waits for the four-model run before it
+  is shipped (E4-8).
   An adaptation into another language is never automatic (Q-B22), and
   `clean_response` never cuts a preface (D67) — a sentence removed by a
   pattern is a content edit. There is no non-origin rule (D62): the
@@ -2023,6 +2029,10 @@ What exists so far:
 | `wipemark-compare-save-report-2026-10-08` | FILE | that report, uploaded: S1–S5 done, D410–D419, 34 of 34 red checks, gates 1748/0/7 on `ba000c2`; the host verification's M1 (Reset cleared the undo history, and autosave wrote it) and M2 (a Save that cleans took a row from its finished rewrite) fixed in `cf7cadd` before the merge (`c333d0b`); its Lows are in `docs/plan/README.md` §7 E7 |
 | `wipemark-task-followups-e7-8-e8-1-2026-10-08` | FILE | a task for an agent: the open findings of E7-8's and E8-1's host verifications — A-M1 (one fact for consent), A-L1…A-L6, B-M3 (the command line writes the identity back), B-L1…B-L11 |
 | `wipemark-followups-e7-8-e8-1-report-2026-10-08` | FILE | its report: all nineteen done, D430–D439, 31 of 31 red checks, gates 1779/0/7; the host verification (2026-10-09) found it mergeable with one Medium (tags that say speech refuse a text model) and Lows, `docs/plan/README.md` §7 E8; merged into `feat` as a fast-forward |
+| `wipemark-task-bench-voice-2026-10-08` | FILE | a task for an agent: E4-8, the prompt bench sees the author's voice — voice measures, keep-voice in en/ru/de, the four-model run as a script, CI lints the bench |
+| `wipemark-bench-voice-report-2026-10-08` | FILE | its report: V1–V5 done, D420–D429, 27 of 27 red checks; the host verification (2026-10-09) found it mergeable, its M1–M3 and Lows fixed before the merge (`a4b5d4e`, 39 of 39 red) |
+| `wipemark-zune-image-fork-raw-output-2026-10-09` | TEXT | the fork `GigLaboCom/zune-image`: upstream `dev` already has raw planes (#379, #386, #440), the fork adds only the quantisation tables (`raw-quantization-tables`, `e8d24f7e`, offered upstream as #488); supersedes `wipemark-zune-image-fork-2026-10-09` |
+| `wipemark-task-recon-r3-raw-output-2026-10-09` | FILE | a task for an agent: E12-R3 moved onto upstream's `raw_output()` and the fork's getter, both crates pinned by rev, on `recon/r3-raw` |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 | `wipemark-status-2026-10-05` | FILE | where the project stood at the end of 2026-10-05: images rounds 3–5, E7 merged, the X11 first frame fixed through `GigLaboCom/zed`, and the plan of pull requests and branches (`docs/plan/README.md` §2.1) — PR #1 and what comes next, in order |
 | `wipemark-status-2026-10-06` | TEXT | where the project stood at the end of 2026-10-06: E7 follow-ups X1–X14 and Y1–Y9 merged, Z1–Z3 filed, mutation tables dropped for `coverage.yml` (on `main` and by hand), what is next |
@@ -2086,9 +2096,11 @@ fact for consent, Compare's leftover asks, the added models' Lows and M3
 (the command line writes the identity back) — are merged
 (`fix/e7-8-e8-1-followups`, D430–D439, 2026-10-09); that verification's
 Medium (tags that say speech refuse a text model) and Lows are in
-`docs/plan/README.md` §7 E8. Filed and not started: `e4/bench-voice`
-(E4-8, voice measures in the bench and keep-voice variants of the
-templates, D420–D429 reserved) and the E12-R series
-(`plan/recon-2026-10-08`, the restoration measured, then made more
-precise). E1 and E3 parallelise in separate worktrees; E5 lands before
+`docs/plan/README.md` §7 E8. **E4-8, the bench sees the
+author's voice** (D420–D429), is merged (2026-10-09); its four-model run is
+the owner's (`bench/run-voice.sh`), and keep-voice ships only after it. In
+progress: the E12-R series (`plan/recon-2026-10-08`, the restoration
+measured, then made more precise) — R1, R3, R4, R5 done in the container
+on `recon/r1-r5`, R3 being moved onto upstream zune-jpeg's raw output on
+`recon/r3-raw` (`GigLaboCom/zune-image`, `raw-quantization-tables`). E1 and E3 parallelise in separate worktrees; E5 lands before
 E6 and gives agents a usable product before the GUI exists.

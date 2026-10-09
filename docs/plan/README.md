@@ -197,7 +197,7 @@ opens its own pull request against `main` instead of riding on `feat`.
 | 7a | `e8/user-models` — **merged `630d409`** | E8-1: a GGUF the catalogue does not have, added by the person — picked, named, given a purpose, held to the sha256 it had when added — and Qwen3.8 27B and Gemma 4 12B in the shipped catalogue (§7 E8) | `wipemark-task-user-models-2026-10-08` | D400–D409, [E8-1](reports/E8-1-user-models-2026-10-08.md) | done; the host verification's M1 and M2 fixed in `baca2eb`, M3 and lows open |
 | 7b | `e7/compare-save` — **merged `c333d0b`** | E7-9: saving an edited Compare result — Save and ⌘S over the result's own file or into its row, never the original, a file changed on disk asked about, an autosave on by default (§7 E7) | `wipemark-task-compare-save-2026-10-08` | D410–D419, [E7-9](reports/E7-9-compare-save-2026-10-08.md) | done; the host verification's M1 and M2 fixed in `cf7cadd`, lows and one owner question open (§7 E7) |
 | 7c | `fix/e7-8-e8-1-followups` — **merged 2026-10-09** | the open findings of E7-8's and E8-1's verifications: one fact for consent, Compare's leftover asks, the added models' lows (§7 E7, E8) | `wipemark-task-followups-e7-8-e8-1-2026-10-08` | D430–D439, [report](reports/followups-e7-8-e8-1-2026-10-08.md) | done; the verification's Medium (tags that say speech refuse a text model) and Lows kept in §7 E8 |
-| 7d | `e4/bench-voice` | E4-8: voice measures in the bench, keep-voice templates in en, ru, de | `wipemark-task-bench-voice-2026-10-08` | D420–D429 reserved | task filed, not started |
+| 7d | `e4/bench-voice` — **merged 2026-10-09** | E4-8: voice measures in the bench, keep-voice variants in en, ru, de, the four-model run as a script (§7 E4) | `wipemark-task-bench-voice-2026-10-08` | D420–D429, [report](reports/E4-8-bench-voice-2026-10-08.md) | done in the container, the host verification's M1–M3 and Lows fixed (`a4b5d4e`); the host run and the keep-voice decision pending |
 | 8 | gpui-kit #3416, #3417 (upstream, the owner's) | The scrollbar on the left and the original's gutter on its right in the editor — what Compare's mirrored layout needs (§7 E7) | — | — | **open as drafts** upstream |
 | 9 | — | The keep-voice rule after a four-model bench, and a voice measure in the bench (§7 E4); E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), S7.2, S7.3, S7.5, E9 licensing, E10 packaging (Windows; the Linux tray is done) | to be written | — | §7 |
 
@@ -831,6 +831,16 @@ tell a decision from an accident.
 | **D437** | **Diffusion models, draft heads, and a model whose name, type or tags say speech or audio are not offered**; a pooling type of none is a writer. | B-L3, B-L4. |
 | **D438** | **A refused chat format is listed, not choosable, and not on duty**; a NUL in a template is a refusal. | B-L5, B-L7. |
 | **D439** | **The checksum is of the file the header was read from**; **a Remove never takes a file an added model names**; **only a regular file is opened**. | B-L1, B-L9, B-L10. |
+| **D420** | Person words are closed pronoun lists per language, in code; second person with its formal subset (ru «вы», de capitalised «Sie»-forms); a German sentence-initial Sie/Ihnen/Ihr… is formal only when the pair has an unambiguous one; bare "ihr" not counted; English "I" only as written, "US" never; kept = min(answer, source) / source by count; switched = a source in one register only, an answer with any form of the other. *Amended 2026-10-09 (host verification, M3):* the source's sentence-initial Sie/Ihr… is decided by the source alone — formally addressed when a capitalised formal form stands inside a sentence or the chunk opens with «Sie» + a plural verb — and the answer's by the source or the answer itself; see "Host verification". |
+| **D421** | The register shift is a proxy from data lists (`bench/register/<lang>.txt`): the answer's matching words whose five-letter stem the chunk lacks, over the answer's words; compared between runs, never read alone. |
+| **D422** | `report` recomputes the voice from the texts (as the preface and the trailer); `run` writes it on each record too; quartiles for the voice measures. |
+| **D423** | The judge's voice question is a separate request and line (YES/PARTLY/NO), calibrated on the chunk against itself and (amended 2026-10-09) on three fixed texts against a version addressing the reader otherwise, expected NO; the meaning question — its system turn too — unchanged, pinned by a test. |
+| **D424** | keep-voice: paraphrase and humanize, system turn, en/ru/de; humanize without "keep its register"; not back_translate, structural or code. |
+| **D425** | No keep-voice-light: the grid's intensity reproduces it. |
+| **D426** | `run-voice.sh`: four models × {shipped, keep-voice}, `--every 3`, every language, paraphrase l/m/s × 4 and humanize m/s × 2, two run names, the judge by variables, offline, refusing, estimating; (amended 2026-10-09) the prebuilt cache it accepts is this pin's release, by its sha256 prefix. |
+| **D427** | A variant is read through `row::admit`, strictly, by one reader shared with the walk test. |
+| **D428** | CI lints the bench and runs its unit tests over the shim. |
+| **D429** | `bench plan` counts with no model; the voice table: the loop's pick beside `min ≥ 0.2`, GPU 2 × 2 where there are four candidates, CPU 1 × 2 where there are two. |
 
 ---
 
@@ -1186,12 +1196,21 @@ the gate the overview set, and the open edges.
       "moderate" stay. **Open**: the research's bench additions
       (`--variant`, `--temperature`, `--top-p`, `--min-p`, `--base-seed`,
       the `whole` mode, `bench/variants/keep-voice`) are merged with
-      `integrate/2026-10-08`; the four-model run, the rule in en/ru/de and
-      the voice measure in `bench report` are not done.
+      `integrate/2026-10-08`. **E4-8** (`e4/bench-voice`, D420–D429, merged
+      2026-10-09, `reports/E4-8-bench-voice-2026-10-08.md`): the voice
+      measure is in `bench report` (second and first person, the ты↔вы /
+      du↔Sie switch, words ×, a register proxy, the judge's voice question);
+      the rule exists in en/ru/de as `bench/variants/keep-voice` (paraphrase,
+      humanize); the corpus gained eight items that address the reader
+      (`ru-addr-*`, `de-addr-*`, always selected); the four-model run is
+      `bench/run-voice.sh`, ~7 h on the host — two of its models (Qwen3 4B,
+      Gemma 3 12B) are not on this host, so the run here is the two-model
+      one (Gemma 4 12B, Qwen3.8 27B, ~4 h). **Open**: that run, then whether
+      keep-voice ships and whether D111 stands, read against the voice table.
     - **Fix. No gate builds the bench example**: `examples/bench/analyse.rs:537`
       fails clippy `-D warnings` (`unnecessary_sort_by`) on 1.95.0 unseen.
-      The lint is fixed (`dfaff29`); the example still needs
-      `local-llama`, which no clippy gate enables — open.
+      The lint is fixed (`dfaff29`); **done**: `gate.yml` lints the examples
+      with `local-llama` and runs their tests (E4-8, D428).
 
 ### E5 — the rest of the CLI
 
