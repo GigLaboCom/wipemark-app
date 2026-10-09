@@ -9,7 +9,8 @@
 #   gate    — the four gates (nightly rustfmt over crates/ and apps/ only,
 #             clippy -D warnings, the workspace tests, the dependency
 #             direction) and the CI-only feature lines (`--no-default-
-#             features`, `local-llama` over the shim).
+#             features`, `local-llama` over the shim) — the prompt bench
+#             among them, an example only `local-llama` builds (E4-8).
 #   native  — llama.cpp at the pin, **prebuilt** (E2-5): the release
 #             archive of GigLaboCom/llama-cpp-prebuilt for this target,
 #             downloaded and checked against the sha256 in
@@ -145,6 +146,15 @@ jobs:
 
       - name: test wipemark-app --features local-llama
         run: cargo test -p wipemark-app --features local-llama --locked
+
+      # The prompt bench (`examples/bench`, `required-features =
+      # ["local-llama"]`) is in no target the lines above build: linted and
+      # its unit tests run here over the shim (E4-8, V4; D428).
+      - name: clippy the bench (local-llama, examples)
+        run: cargo clippy -p wipemark-pipeline --features local-llama --examples --locked -- -D warnings
+
+      - name: test the bench (local-llama, examples)
+        run: cargo test -p wipemark-pipeline --features local-llama --examples --locked
 
       - name: Disk left
         if: always()
