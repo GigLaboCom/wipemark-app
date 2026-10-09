@@ -185,9 +185,10 @@ height at 4:2:0. The cropped plane does not have that sample, and
 `to_rgb` repeats the last one instead. At 38 × 24, 4:2:0, 55 of the 61
 edge pixels differ, by up to 9 levels; nothing inside the picture differs
 (`an_even_side_differs_only_where_the_decoder_read_the_padding`) — the
-same figures on the raw output as on R3's patch. Raw output's buffer does
-hold that padding, but upstream documents it as implementation-defined,
-so `Planes` does not keep it (Q-R3a). R6 writes back through `to_rgb` only
+same figures on the raw output as on R3's patch. Raw output's buffer
+carries padding past the logical size, but upstream documents it as
+implementation-defined (whether it is the sample the decoder reads there
+was not checked), so `Planes` does not keep it (Q-R3a). R6 writes back through `to_rgb` only
 inside a restored mark's rectangle, which is never the picture's last
 column or row, and leaves the decoder's raster everywhere else.
 
