@@ -94,9 +94,7 @@ dark panel and the outline on a light one
 (`the_linux_icon_reads_on_a_light_and_a_dark_panel`,
 `the_linux_icon_keeps_the_glyph_white_inside_its_outline`). It is
 derived at run time from the one template, so the broom is drawn once,
-in `icons/create-icons.sh`. The note in `assets/tray/README.md` (which
-that script generates) still says E10 will pick black or white by theme;
-that is superseded here.
+in `icons/create-icons.sh`.
 
 **D347 — one indicator id per process.** `tray-icon` writes the icon to
 `$XDG_RUNTIME_DIR/tray-icon/tray-icon-<id>-0.png` and removes it when the
