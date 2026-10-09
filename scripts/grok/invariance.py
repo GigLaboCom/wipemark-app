@@ -919,8 +919,18 @@ def selftest():
     with tempfile.TemporaryDirectory() as tmp:
         n = 40
         fixed, _ = synth_pair(tmp, "fixed", n, 1)
-        st, _ = one(fixed)
+        st, maps = one(fixed)
         check(st["reading"] == "one map", f"a fixed mark reads as one map: {st['why']}")
+        # std_ring is the backgrounds' scatter where there is no mark: the
+        # floor band, farther out, reads the same; the zone, which holds the
+        # mark, reads less (central check, 2026-10-09: R11's M1 was green
+        # on the ratio alone).
+        pair = pairs_of(read_rows(fixed), defaults())[0]
+        _, _, floor_m = bands(maps["std"].shape, pair.mark, GUARD, RING, FLOOR)
+        floor_std = float(np.median(maps["std"][floor_m]))
+        check(abs(st["std_ring"] / floor_std - 1.0) <= 0.03,
+              f"… std_ring is the backgrounds' scatter outside the mark: {st['std_ring']:.2f} against the floor "
+              f"band's {floor_std:.2f}")
         check(abs(st["alpha_hat_p90"] - 0.5) <= 0.05,
               f"… α̂'s 90th percentile on the support is the peak 0.5: {st['alpha_hat_p90']:.3f}")
         check(abs(st["ratio_median"] - (1.0 - st["alpha_hat_p50"])) <= 0.15,
