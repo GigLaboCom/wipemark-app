@@ -39,7 +39,6 @@
 //! refuses them.
 
 use std::collections::BTreeMap;
-use std::fs::File;
 use std::io::{BufReader, Read, Seek};
 use std::path::Path;
 
@@ -82,7 +81,9 @@ pub enum GgufError {
     #[error("could not be read: {0}")]
     Io(String),
     /// Not a regular file — a folder, a pipe, a socket, a device — and never
-    /// opened: opening a pipe waits for a writer that may never come (D356).
+    /// read, nor waited on: opening a pipe waits for a writer that may never
+    /// come (D356), so it is refused before the open, or by an open that
+    /// does not wait when it was swapped in after (D455).
     #[error("not a regular file")]
     NotAFile,
     /// The first four bytes are not `GGUF`.
@@ -282,21 +283,23 @@ impl Header {
     /// — read off the open file, so a hash made after it can be held to the
     /// same file (D439). `None` where the platform gives no identity.
     ///
-    /// Only a regular file is opened. The path is asked first — through a
-    /// link, as the open follows one — and anything else, a pipe above all,
-    /// is [`GgufError::NotAFile`] without an open: opening a pipe waits for
-    /// a writer, and a device may answer forever (D356). The open file is
-    /// asked again, for a path that was swapped in between.
+    /// Only a regular file is read, through [`crate::store::open_regular`]:
+    /// the path is asked first — through a link, as the open follows one —
+    /// and anything else, a pipe above all, is [`GgufError::NotAFile`]
+    /// without an open, because opening a pipe waits for a writer and a
+    /// device may answer forever (D356). A path swapped in between meets an
+    /// open that does not wait (`O_NONBLOCK` on Unix), and the open file is
+    /// asked again before a byte is read (D455).
     pub fn read_identified(path: &Path) -> Result<(Header, Option<String>), GgufError> {
-        let io = |error: std::io::Error| GgufError::Io(error.to_string());
-        if !std::fs::metadata(path).map_err(io)?.is_file() {
-            return Err(GgufError::NotAFile);
-        }
-        let file = File::open(path).map_err(io)?;
+        let io = |error: std::io::Error| {
+            if crate::store::is_not_regular(&error) {
+                GgufError::NotAFile
+            } else {
+                GgufError::Io(error.to_string())
+            }
+        };
+        let file = crate::store::open_regular(path).map_err(io)?;
         let meta = file.metadata().map_err(io)?;
-        if !meta.is_file() {
-            return Err(GgufError::NotAFile);
-        }
         let identity = crate::store::identity_of(&meta);
         Ok((
             Header::read_from(BufReader::new(file), meta.len())?,
