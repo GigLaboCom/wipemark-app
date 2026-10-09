@@ -374,7 +374,8 @@ measured in its layout and again in its prepaint, then the rows on screen),
 which would be three asks. The callers outside a draw — Replace, Rewrite
 all's rows, "Process what arrives" — keep `why_not_rewrite(id, cx)`
 (`the_duty_is_asked_once_per_draw_of_the_rows`: one ask for a draw of
-twenty rows, where there were forty).
+twenty rows; one a row asks seventeen times — two rows measured, fifteen on
+screen — and the code before asked two or three times a row).
 
 **A yes records the question's destination** (D431, A-L1). Every question
 asked before rewrites go names where they would go — Rewrite all's price
