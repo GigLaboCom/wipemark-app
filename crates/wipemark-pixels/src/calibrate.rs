@@ -69,7 +69,8 @@ pub enum BlendModel {
     /// Linear over the stored code values — the only one restored today.
     Encoded,
     /// Linear in light (sRGB decoded): in the schema, refused by the
-    /// catalogue until a vendor needs it (D152).
+    /// catalogue until a vendor needs it (D152) — read only under
+    /// `blend-preview` (E12-R9c, D311 proposed).
     LinearLight,
 }
 
@@ -140,6 +141,11 @@ pub enum CalibrationError {
     NotABlend { encoded: f32, linear: f32 },
     #[error("a linear-light mark cannot be written as a profile in this version")]
     LinearLight,
+    /// Some sizes chose `encoded` and some `linear-light`: one profile has
+    /// one blend (`blend-preview` only, where a linear-light row is
+    /// written at all).
+    #[error("the sizes' calibrations chose different blend models")]
+    MixedModels,
     #[error("the map cannot be written")]
     Map,
 }
@@ -709,18 +715,27 @@ impl Draft<'_> {
     /// The catalogue row: `status: provisional`, an exact `rect` row per
     /// size, the largest map as the search's, the logo the mean of the
     /// sizes'. Refused for a linear-light mark — the catalogue would
-    /// refuse it too.
+    /// refuse it too — except under `blend-preview` (E12-R9c), where the
+    /// row says `"model": "linear-light"` and the catalogue of that build
+    /// reads it; sizes that chose different models are refused there.
     pub fn to_json(&self) -> Result<String, CalibrationError> {
         if self.sizes.is_empty() {
             return Err(CalibrationError::NoCaptures);
         }
-        if self
+        let linear = self
             .sizes
             .iter()
-            .any(|(c, _, _)| c.model == BlendModel::LinearLight)
-        {
+            .filter(|(c, _, _)| c.model == BlendModel::LinearLight)
+            .count();
+        let model = if linear == 0 {
+            BlendModel::Encoded
+        } else if !cfg!(feature = "blend-preview") {
             return Err(CalibrationError::LinearLight);
-        }
+        } else if linear == self.sizes.len() {
+            BlendModel::LinearLight
+        } else {
+            return Err(CalibrationError::MixedModels);
+        };
         let k = self.sizes.len() as f32;
         let mut logo = [0f32; 3];
         for (c, _, _) in &self.sizes {
@@ -759,7 +774,7 @@ impl Draft<'_> {
             r#"{{
       "id": "{id}", "vendor": "{vendor}", "product": "{product}", "mark": "{mark}",
       "observed": {{ "from": {observed}, "until": null }}, "status": "provisional",
-      "blend": {{ "model": "encoded", "logo": [{l0}, {l1}, {l2}], "logo_map": null }},
+      "blend": {{ "model": "{model}", "logo": [{l0}, {l1}, {l2}], "logo_map": null }},
       "opaque_above": 0.95,
       "alpha": [ {alpha} ],
       "placements": [ {placements} ],
@@ -772,6 +787,7 @@ impl Draft<'_> {
             vendor = self.vendor,
             product = self.product,
             mark = self.mark,
+            model = model.id(),
             l0 = logo[0].round().clamp(0.0, 255.0),
             l1 = logo[1].round().clamp(0.0, 255.0),
             l2 = logo[2].round().clamp(0.0, 255.0),
