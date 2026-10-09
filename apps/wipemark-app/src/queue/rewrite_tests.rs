@@ -1328,6 +1328,34 @@ fn a_change_of_engine_waited_for_is_said_in_the_status_bar(cx: &mut TestAppConte
     until(cx, "the end", |cx| status(&queue, cx) == "rewritten");
 }
 
+/// M3 (D452): the rows of a draw ask the duty once between them. Asking it
+/// clones the models' maps into a roster and runs `duty::on_duty`, and a row
+/// asked it up to three times — every row on screen, every frame. Ask it
+/// again in `row` and the count is the rows on screen at least: red.
+#[gpui::test]
+fn the_duty_is_asked_once_per_draw_of_the_rows(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("duty-per-draw");
+    let files: Vec<PathBuf> = (0..20)
+        .map(|n| scratch.file(&format!("{n:02}.md"), PARAGRAPH.as_bytes()))
+        .collect();
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work(swapping())));
+    here_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| queue.hand(files, cx));
+    cx.run_until_parked();
+    assert_eq!(statuses(&queue, cx), ["waiting"; 20]);
+    let rewritable = cx.update(|_, cx| queue.read(cx).rewritable_waiting(cx).len());
+    assert_eq!(rewritable, 20, "every row's Rewrite is offered");
+
+    queue.update(cx, |queue, _| queue.goings.set(0));
+    cx.update(|window, _| window.refresh());
+    cx.run_until_parked();
+    let asked = cx.update(|_, cx| queue.read(cx).goings.get());
+    assert!(
+        (1..=2).contains(&asked),
+        "one draw of twenty rows asked the duty {asked} times"
+    );
+}
+
 // -- Compare's Save (E7-9) ---------------------------------------------
 
 /// A cleaned row opens Compare on its result as it stands (D410): beside,

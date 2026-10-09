@@ -442,6 +442,8 @@ impl Queue {
     /// is the reason here — but not while a swap is pending, when the slot
     /// is the engine leaving.
     fn going(&self, cx: &gpui::App) -> Result<Whereto, String> {
+        #[cfg(test)]
+        self.goings.set(self.goings.get() + 1);
         let Some(work) = &self.work else {
             return Err(t(Message::StatusIdleNoEngine));
         };
@@ -464,7 +466,7 @@ impl Queue {
 
     /// Why nothing could rewrite now — [`Queue::going`]'s reason — `None`
     /// while something is on duty.
-    fn vacancy(&self, cx: &gpui::App) -> Option<String> {
+    pub(super) fn vacancy(&self, cx: &gpui::App) -> Option<String> {
         self.going(cx).err()
     }
 
@@ -538,6 +540,14 @@ impl Queue {
     pub(super) fn why_not_rewrite(&self, id: u64, cx: &gpui::App) -> Option<String> {
         let row = self.rows.iter().find(|row| row.id == id)?;
         super::why_not_rewrite(&row.status, row.cleanable(), self.vacancy(cx))
+    }
+
+    /// [`Queue::why_not_rewrite`] with the duty's answer already taken:
+    /// `vacant`, [`Queue::vacancy`] asked once for a whole draw of the rows
+    /// rather than once a row (D452).
+    pub(super) fn why_not_rewrite_given(&self, id: u64, vacant: Option<&str>) -> Option<String> {
+        let row = self.rows.iter().find(|row| row.id == id)?;
+        super::why_not_rewrite(&row.status, row.cleanable(), vacant.map(str::to_owned))
     }
 
     /// The rows Rewrite all would take: waiting, text, with something
