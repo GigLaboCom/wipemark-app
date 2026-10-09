@@ -9144,6 +9144,7 @@ dependencies = [
  "image",
  "image-webp",
  "png 0.18.1",
+ "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.20",
  "wipemark-image",

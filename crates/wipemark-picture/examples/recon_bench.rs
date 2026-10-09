@@ -1,0 +1,2437 @@
+//! The restoration against ground truth (E12-R5) — a developer's tool, not
+//! a surface (D162, D312): no catalogue string, no settings row, no flag of
+//! the product.
+//!
+//! A known mark is composited over a known background, the result is
+//! degraded the way a user's file is (`scripts/bench/encode.py` with
+//! Pillow, and here with `image`'s encoder), and the **user's path** runs
+//! over it — `wipemark_picture::decode_with_planes`, `wipemark_pixels::clean`
+//! with the shipped catalogue, `encode_like`, `reframe` and `prove`, as
+//! `wipemark_picture::clean` runs them. The restored raster is compared with
+//! the background inside the mark's box and four pixels around it (the
+//! ROI): PSNR, SSIM on luma (window 7) and CIEDE2000. Never over the whole
+//! picture. Plan: `docs/plan/E12-R5-recon-bench.md`; the host's commands are
+//! `scripts/bench/README.md`.
+//!
+//! ```sh
+//! # 1. Pin the backgrounds the manifest names (their sha256 and the zone
+//! #    statistics), once per change of the generator; commit the manifest.
+//! cargo run --release -p wipemark-picture --example recon_bench -- \
+//!     pin --manifest bench/manifest.json [--photos DIR]
+//! # 2. Generate: backgrounds, composites, `image`'s JPEG variants.
+//! cargo run --release -p wipemark-picture --example recon_bench -- \
+//!     gen --manifest bench/manifest.json --out bench/out/<run> \
+//!     [--seed 1] [--sample N] [--groups flat,text] [--rows v1-48,…] [--photos DIR]
+//! # 3. Pillow's variants.
+//! python3 scripts/bench/encode.py bench/out/<run>
+//! # 4. Run every config over every file.
+//! cargo run --release -p wipemark-picture --example recon_bench -- \
+//!     run --in bench/out/<run> --config R0 [--config …] \
+//!     --out bench/out/<run>/results.jsonl [--export-crops DIR] [--jobs N] [--slices png,…]
+//! # 5. The tables and the gates.
+//! python3 scripts/bench/report.py bench/out/<run>/results.jsonl
+//! ```
+//!
+//! A **background** is a tile of `tile × tile` pixels (512) of content in
+//! the bottom-right corner of a canvas of the row's size, the rest flat at
+//! the tile's mean: everything the user's path reads near a mark — every
+//! row, the search's 320-pixel box, the ROI and an exported crop — is the
+//! tile's, and the files stay small enough to run hundreds of. A `flat`
+//! or `text` tile is generated from its seed with arithmetic alone (no
+//! `sin`, no `pow`: the sha256 the manifest pins must be the same on every
+//! machine); a `photo` tile is cut from one of the owner's photographs.
+//!
+//! **Configs.** `R0` is the product today. A later step adds its switch as
+//! a config of this example (S12), never as a catalogue row.
+
+use std::collections::BTreeMap;
+use std::io::{BufWriter, Write as _};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::time::Instant;
+
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use wipemark_image::{ImageContainer, Scope, StripOptions};
+use wipemark_picture::{decode_with_planes, encode_like, prove, Decoded, PictureError};
+use wipemark_pixels::synth::{composite_with, to_linear, Blend, BlendModel};
+use wipemark_pixels::{
+    drawn, resampled, Anchor, Catalogue, ExamineOptions, Kernel, Layout, PixelRect, PixelReport,
+    Planes, Raster, Refusal, Restored, SubRect, Verdict, EMBEDDED,
+};
+
+// ───────────────────────────────────────────────────────────── the frame
+
+/// The bench's own schema, for `bench/manifest.json`, `meta.json` and the
+/// result lines.
+const SCHEMA: u64 = 1;
+/// The ROI: the mark's box and this many pixels around it.
+const ROI_PAD: u32 = 4;
+/// An exported crop: the ROI and this many pixels around it.
+const CROP_PAD: u32 = 64;
+/// A PSNR over identical ROIs is infinite; written as this.
+const PSNR_CAP: f64 = 100.0;
+/// The opacity a hole starts at in the shipped profiles (D155).
+const OPAQUE: f32 = 0.95;
+
+fn usage() -> ! {
+    eprintln!(
+        "recon_bench pin --manifest M [--photos DIR]\n\
+         recon_bench gen --manifest M --out DIR [--seed S] [--sample N] [--groups a,b] [--rows a,b] [--photos DIR]\n\
+         recon_bench run --in DIR --config NAME [--config NAME …] --out FILE [--export-crops DIR] [--jobs N] [--slices a,b]\n\
+         recon_bench configs"
+    );
+    std::process::exit(2)
+}
+
+/// A refusal: said on stderr, exit 2 (usage or a refusal).
+fn refuse(why: &str) -> ! {
+    eprintln!("recon_bench: {why}");
+    std::process::exit(2)
+}
+
+struct Args {
+    command: String,
+    one: BTreeMap<String, String>,
+    many: BTreeMap<String, Vec<String>>,
+}
+
+impl Args {
+    fn parse() -> Args {
+        let raw: Vec<String> = std::env::args().skip(1).collect();
+        let Some((command, rest)) = raw.split_first() else {
+            usage()
+        };
+        let (mut one, mut many) = (BTreeMap::new(), BTreeMap::<String, Vec<String>>::new());
+        let mut it = rest.iter();
+        while let Some(flag) = it.next() {
+            let Some(name) = flag.strip_prefix("--") else {
+                usage()
+            };
+            let Some(value) = it.next() else { usage() };
+            many.entry(name.to_owned()).or_default().push(value.clone());
+            one.insert(name.to_owned(), value.clone());
+        }
+        Args {
+            command: command.clone(),
+            one,
+            many,
+        }
+    }
+
+    fn get(&self, name: &str) -> Option<&str> {
+        self.one.get(name).map(String::as_str)
+    }
+
+    fn need(&self, name: &str) -> &str {
+        self.get(name)
+            .unwrap_or_else(|| refuse(&format!("--{name} is needed")))
+    }
+
+    fn list(&self, name: &str) -> Option<Vec<String>> {
+        self.get(name)
+            .map(|v| v.split(',').map(str::to_owned).collect())
+    }
+}
+
+fn main() {
+    let args = Args::parse();
+    match args.command.as_str() {
+        "pin" => pin(&args),
+        "gen" => gen(&args),
+        "run" => run(&args),
+        "configs" => {
+            for c in CONFIGS {
+                println!("{}\t{}\t{}", c.name, c.inverse.id(), c.about);
+            }
+        }
+        _ => usage(),
+    }
+}
+
+// ───────────────────────────────────────────────────────────── random
+
+/// xorshift64*, as the pixels suite's: the same pictures on every machine.
+struct Rng(u64);
+
+impl Rng {
+    fn new(seed: u64) -> Self {
+        Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+
+    /// Uniform in [0, 1).
+    fn unit(&mut self) -> f32 {
+        (self.next_u64() >> 40) as f32 / (1u64 << 24) as f32
+    }
+
+    fn range(&mut self, lo: f32, hi: f32) -> f32 {
+        lo + (hi - lo) * self.unit()
+    }
+
+    fn below(&mut self, n: u32) -> u32 {
+        (self.next_u64() % u64::from(n.max(1))) as u32
+    }
+}
+
+/// A background's seed from the run's, its group and its index.
+fn seed_of(run: u64, group: &str, index: usize) -> u64 {
+    let mut h = run ^ 0xC0FF_EE00_D15E_A5E5;
+    for b in group.bytes().chain((index as u64).to_le_bytes()) {
+        h = (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01B3);
+    }
+    h
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+// ───────────────────────────────────────────────────────────── tones
+
+/// What is under a mark: the colours the blend models and the clamps are
+/// told apart on (§4.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tone {
+    /// Grey at 40–60 %.
+    Midtone,
+    /// A saturated colour with one channel near 0.
+    Saturated,
+    White,
+    Black,
+    /// The corner of the owner's first-generation Gemini stickers, where
+    /// every D247/D250/D252 figure was measured: about (7, 150, 58), the
+    /// ring around the mark in `fixtures/image/gemini/*-1025.png`
+    /// (E12-R5's report). Two channels low but not at 0 — milder under a
+    /// 4:2:0 codec than `Saturated`, and the colour the bench has to
+    /// reproduce the real failures on (§6.4).
+    StickerGreen,
+    Other,
+}
+
+const TONES: [Tone; 6] = [
+    Tone::Midtone,
+    Tone::Saturated,
+    Tone::White,
+    Tone::Black,
+    Tone::StickerGreen,
+    Tone::Other,
+];
+
+impl Tone {
+    fn id(self) -> &'static str {
+        match self {
+            Tone::Midtone => "midtone",
+            Tone::Saturated => "saturated",
+            Tone::White => "white",
+            Tone::Black => "black",
+            Tone::StickerGreen => "sticker-green",
+            Tone::Other => "other",
+        }
+    }
+
+    /// What a zone is, by its mean per channel.
+    fn of(mean: [f64; 3]) -> Tone {
+        let hi = mean.iter().copied().fold(f64::MIN, f64::max);
+        let lo = mean.iter().copied().fold(f64::MAX, f64::min);
+        let avg = (mean[0] + mean[1] + mean[2]) / 3.0;
+        if mean[0] <= 15.0 && (140.0..=160.0).contains(&mean[1]) && (45.0..=70.0).contains(&mean[2])
+        {
+            Tone::StickerGreen
+        } else if lo >= 235.0 {
+            Tone::White
+        } else if hi <= 20.0 {
+            Tone::Black
+        } else if lo <= 12.0 && hi - lo >= 100.0 {
+            Tone::Saturated
+        } else if hi - lo <= 25.0 && (102.0..=153.0).contains(&avg) {
+            Tone::Midtone
+        } else {
+            Tone::Other
+        }
+    }
+
+    /// A base colour of this tone, in 8-bit units.
+    fn colour(self, rng: &mut Rng) -> [f32; 3] {
+        match self {
+            Tone::Midtone => {
+                let g = rng.range(104.0, 150.0);
+                [
+                    g + rng.range(-3.0, 3.0),
+                    g + rng.range(-3.0, 3.0),
+                    g + rng.range(-3.0, 3.0),
+                ]
+            }
+            Tone::Saturated => {
+                let zero = rng.below(3) as usize;
+                let high = (zero + 1 + rng.below(2) as usize) % 3;
+                let mut c = [0f32; 3];
+                c[zero] = rng.range(0.0, 4.0);
+                c[high] = rng.range(170.0, 235.0);
+                c[3 - zero - high] = rng.range(0.0, 200.0);
+                c
+            }
+            Tone::White => [
+                rng.range(246.0, 255.0),
+                rng.range(246.0, 255.0),
+                rng.range(246.0, 255.0),
+            ],
+            Tone::Black => [
+                rng.range(0.0, 8.0),
+                rng.range(0.0, 8.0),
+                rng.range(0.0, 8.0),
+            ],
+            Tone::StickerGreen => [
+                rng.range(4.0, 12.0),
+                rng.range(144.0, 156.0),
+                rng.range(50.0, 62.0),
+            ],
+            Tone::Other => [
+                rng.range(25.0, 230.0),
+                rng.range(25.0, 230.0),
+                rng.range(25.0, 230.0),
+            ],
+        }
+    }
+}
+
+// ───────────────────────────────────────────────────────────── tiles
+
+/// A tile of content, `side × side`, 8-bit RGB, row-major.
+#[derive(Clone)]
+struct Tile {
+    side: u32,
+    rgb: Vec<u8>,
+}
+
+impl Tile {
+    fn mean(&self) -> [u8; 3] {
+        let mut sum = [0u64; 3];
+        for p in self.rgb.chunks_exact(3) {
+            for c in 0..3 {
+                sum[c] += u64::from(p[c]);
+            }
+        }
+        let n = u64::from(self.side) * u64::from(self.side);
+        sum.map(|s| ((s + n / 2) / n) as u8)
+    }
+}
+
+/// The kinds of the generated groups, in the order an index walks them.
+const FLAT_KINDS: [&str; 5] = ["flat", "dither", "gradient", "value-noise", "shapes"];
+const TEXT_KINDS: [&str; 5] = ["glyphs", "dense-glyphs", "ui", "lines", "sheet"];
+
+/// What a generated background is asked to be: its tone by index % 6, its
+/// kind by index / 6 — so any six consecutive indices hold every tone.
+fn asked(group: &str, index: usize) -> (&'static str, Tone) {
+    let kinds = if group == "text" {
+        &TEXT_KINDS
+    } else {
+        &FLAT_KINDS
+    };
+    (
+        kinds[(index / TONES.len()) % kinds.len()],
+        TONES[index % TONES.len()],
+    )
+}
+
+/// A smooth random field in [0, 1]: a lattice every `cell` pixels,
+/// smoothstep between.
+fn value_noise(rng: &mut Rng, side: u32, cell: f32) -> Vec<f32> {
+    let g = (side as f32 / cell) as usize + 3;
+    let lattice: Vec<f32> = (0..g * g).map(|_| rng.unit()).collect();
+    let mut out = Vec::with_capacity((side * side) as usize);
+    for y in 0..side {
+        for x in 0..side {
+            let (fx, fy) = (x as f32 / cell, y as f32 / cell);
+            let (ix, iy) = (fx as usize, fy as usize);
+            let (tx, ty) = (fx - ix as f32, fy - iy as f32);
+            let s = |t: f32| t * t * (3.0 - 2.0 * t);
+            let (sx, sy) = (s(tx), s(ty));
+            let at = |i: usize, j: usize| lattice[j * g + i];
+            let top = at(ix, iy) * (1.0 - sx) + at(ix + 1, iy) * sx;
+            let bottom = at(ix, iy + 1) * (1.0 - sx) + at(ix + 1, iy + 1) * sx;
+            out.push(top * (1.0 - sy) + bottom * sy);
+        }
+    }
+    out
+}
+
+/// How much of a pixel `[x, x+1) × [y, y+1)` a disc covers, by its
+/// centre's distance from the edge (a one-pixel ramp).
+fn disc_cover(x: u32, y: u32, cx: f32, cy: f32, r: f32) -> f32 {
+    let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+    (r - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0)
+}
+
+/// How much of a pixel an axis-aligned rectangle covers.
+fn rect_cover(x: u32, y: u32, r: [f32; 4]) -> f32 {
+    let over = |a0: f32, a1: f32, b0: f32, b1: f32| (a1.min(b1) - a0.max(b0)).max(0.0);
+    let (px, py) = (x as f32, y as f32);
+    over(px, px + 1.0, r[0], r[0] + r[2]) * over(py, py + 1.0, r[1], r[1] + r[3])
+}
+
+fn blend_into(px: &mut [f32; 3], colour: [f32; 3], cover: f32) {
+    for c in 0..3 {
+        px[c] += cover * (colour[c] - px[c]);
+    }
+}
+
+fn luma(c: [f32; 3]) -> f32 {
+    0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+}
+
+/// One generated tile. Only `+ − × ÷` and `sqrt` — IEEE-exact on every
+/// machine — so its sha256 is the same wherever it is made.
+fn generate(group: &str, kind: &str, tone: Tone, seed: u64, side: u32) -> Tile {
+    let mut rng = Rng::new(seed);
+    let base = tone.colour(&mut rng);
+    let n = (side * side) as usize;
+    let mut px = vec![base; n];
+    let s = side as f32;
+    match (group, kind) {
+        (_, "dither") => {
+            for p in &mut px {
+                for v in p.iter_mut() {
+                    *v += rng.range(-1.5, 1.5);
+                }
+            }
+        }
+        (_, "gradient") => {
+            let (a, b) = (rng.range(-30.0, 30.0), rng.range(-30.0, 30.0));
+            let tint = [
+                rng.range(0.8, 1.2),
+                rng.range(0.8, 1.2),
+                rng.range(0.8, 1.2),
+            ];
+            for (i, p) in px.iter_mut().enumerate() {
+                let (x, y) = ((i as u32 % side) as f32 / s, (i as u32 / side) as f32 / s);
+                let d = a * (x - 0.5) + b * (y - 0.5);
+                for c in 0..3 {
+                    p[c] += d * tint[c];
+                }
+            }
+        }
+        (_, "value-noise") => {
+            let amp = rng.range(8.0, 25.0);
+            let cell = rng.range(16.0, 64.0);
+            let field = value_noise(&mut rng, side, cell);
+            let tint = [
+                rng.range(0.7, 1.3),
+                rng.range(0.7, 1.3),
+                rng.range(0.7, 1.3),
+            ];
+            for (p, f) in px.iter_mut().zip(field) {
+                for c in 0..3 {
+                    p[c] += amp * (2.0 * f - 1.0) * tint[c];
+                }
+            }
+        }
+        (_, "shapes") => {
+            for _ in 0..3 + rng.below(4) {
+                let colour = [
+                    rng.range(0.0, 255.0),
+                    rng.range(0.0, 255.0),
+                    rng.range(0.0, 255.0),
+                ];
+                let (cx, cy) = (rng.range(0.25, 1.0) * s, rng.range(0.25, 1.0) * s);
+                let size = rng.range(30.0, 150.0);
+                let disc = rng.unit() < 0.5;
+                for (i, p) in px.iter_mut().enumerate() {
+                    let (x, y) = (i as u32 % side, i as u32 / side);
+                    let cover = if disc {
+                        disc_cover(x, y, cx, cy, size)
+                    } else {
+                        rect_cover(x, y, [cx - size, cy - size * 0.6, size * 2.0, size * 1.2])
+                    };
+                    if cover > 0.0 {
+                        blend_into(p, colour, cover);
+                    }
+                }
+            }
+        }
+        ("text", _) => {
+            let ink = if luma(base) > 110.0 {
+                [
+                    rng.range(0.0, 60.0),
+                    rng.range(0.0, 60.0),
+                    rng.range(0.0, 60.0),
+                ]
+            } else {
+                [
+                    rng.range(200.0, 255.0),
+                    rng.range(200.0, 255.0),
+                    rng.range(200.0, 255.0),
+                ]
+            };
+            text(&mut px, &mut rng, kind, side, base, ink);
+        }
+        _ => {}
+    }
+    let rgb = px
+        .iter()
+        .flat_map(|p| p.map(|v| v.round().clamp(0.0, 255.0) as u8))
+        .collect();
+    Tile { side, rgb }
+}
+
+/// Strokes: `count` bars of length `len` and thickness `thick`, each
+/// horizontal or vertical, hard-edged with a half-covered end.
+fn strokes(
+    px: &mut [[f32; 3]],
+    rng: &mut Rng,
+    side: u32,
+    count: u32,
+    len: (u32, u32),
+    thick: (u32, u32),
+    ink: [f32; 3],
+) {
+    for _ in 0..count {
+        let (x0, y0) = (rng.below(side), rng.below(side));
+        let l = len.0 + rng.below(len.1 - len.0 + 1);
+        let t = thick.0 + rng.below(thick.1 - thick.0 + 1);
+        let horizontal = rng.unit() < 0.5;
+        for a in 0..=l {
+            let cover = if a == l { 0.5 } else { 1.0 };
+            for b in 0..t {
+                let (x, y) = if horizontal {
+                    (x0 + a, y0 + b)
+                } else {
+                    (x0 + b, y0 + a)
+                };
+                if x < side && y < side {
+                    blend_into(&mut px[(y * side + x) as usize], ink, cover);
+                }
+            }
+        }
+    }
+}
+
+/// The `text` group: glyphs, dense glyphs, a UI, ruled lines, a sheet of
+/// large glyphs — over the paper `base` in `ink`.
+fn text(px: &mut [[f32; 3]], rng: &mut Rng, kind: &str, side: u32, base: [f32; 3], ink: [f32; 3]) {
+    let area = side * side;
+    match kind {
+        "glyphs" => strokes(px, rng, side, area / 300, (4, 18), (1, 2), ink),
+        "dense-glyphs" => strokes(px, rng, side, area / 120, (3, 8), (1, 1), ink),
+        "ui" => {
+            for _ in 0..4 + rng.below(4) {
+                let r = [
+                    rng.range(0.0, 0.9) * side as f32,
+                    rng.range(0.0, 0.9) * side as f32,
+                    rng.range(60.0, 260.0),
+                    rng.range(30.0, 160.0),
+                ];
+                let shade = rng.range(-30.0, 30.0);
+                let fill = base.map(|c| c + shade);
+                for (i, p) in px.iter_mut().enumerate() {
+                    let (x, y) = (i as u32 % side, i as u32 / side);
+                    let inner = rect_cover(x, y, [r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0]);
+                    let outer = rect_cover(x, y, r);
+                    if outer > 0.0 {
+                        blend_into(p, ink, (outer - inner) * 0.6);
+                        blend_into(p, fill, inner);
+                    }
+                }
+            }
+            strokes(px, rng, side, area / 600, (4, 14), (1, 2), ink);
+        }
+        "lines" => {
+            let gap = 6 + rng.below(15);
+            let vertical = rng.unit() < 0.5;
+            for (i, p) in px.iter_mut().enumerate() {
+                let (x, y) = (i as u32 % side, i as u32 / side);
+                if y % gap == 0 || (vertical && x % (gap * 3) == 0) {
+                    blend_into(p, ink, 0.8);
+                }
+            }
+        }
+        _ => strokes(px, rng, side, area / 600, (10, 40), (2, 4), ink),
+    }
+}
+
+/// A photograph's tile: `crop` of it (the centre square when none), resized
+/// to `side × side` by Lanczos 3.
+fn photo_tile(path: &Path, crop: Option<[u32; 4]>, side: u32) -> Result<Tile, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let raster = decode_any(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    let (w, h, c) = (raster.width(), raster.height(), raster.layout().channels());
+    let scale = 255.0 / f64::from(raster.layout().max());
+    let rgb: Vec<u8> = raster
+        .samples()
+        .chunks_exact(c)
+        .flat_map(|p| [p[0], p[1], p[2]].map(|v| (f64::from(v) * scale).round() as u8))
+        .collect();
+    let image = image::RgbImage::from_raw(w, h, rgb).ok_or("a raster of the wrong length")?;
+    let [x, y, cw, ch] = crop.unwrap_or_else(|| {
+        let m = w.min(h);
+        [(w - m) / 2, (h - m) / 2, m, m]
+    });
+    if x + cw > w || y + ch > h || cw == 0 || ch == 0 {
+        return Err(format!(
+            "{}: the crop is outside the picture",
+            path.display()
+        ));
+    }
+    let cut = image::imageops::crop_imm(&image, x, y, cw, ch).to_image();
+    let tile = image::imageops::resize(&cut, side, side, image::imageops::FilterType::Lanczos3);
+    Ok(Tile {
+        side,
+        rgb: tile.into_raw(),
+    })
+}
+
+/// A file's raster, whatever it is.
+fn decode_any(bytes: &[u8]) -> Result<Raster, String> {
+    Ok(decoded(bytes)?.raster)
+}
+
+fn decoded(bytes: &[u8]) -> Result<Decoded, String> {
+    let container = wipemark_image::inspect(bytes)
+        .map_err(|e| e.to_string())?
+        .container;
+    match decode_with_planes(bytes, container) {
+        Ok(Ok(d)) => Ok(d),
+        Ok(Err(skip)) => Err(format!("{skip:?}")),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// The canvas a row's size needs: flat at the tile's mean, the tile in its
+/// bottom-right corner.
+fn canvas(tile: &Tile, w: u32, h: u32) -> Raster {
+    let mean = tile.mean();
+    let mut rgb: Vec<u8> = std::iter::repeat_n(mean, (w * h) as usize)
+        .flatten()
+        .collect();
+    let (ox, oy) = (w - tile.side, h - tile.side);
+    for ty in 0..tile.side {
+        let src = (ty * tile.side * 3) as usize;
+        let dst = (((oy + ty) * w + ox) * 3) as usize;
+        let n = (tile.side * 3) as usize;
+        rgb[dst..dst + n].copy_from_slice(&tile.rgb[src..src + n]);
+    }
+    Raster::from_u8(w, h, Layout::Rgb8, &rgb).unwrap_or_else(|e| refuse(&e.to_string()))
+}
+
+// ───────────────────────────────────────────────────────────── rows
+
+/// Which catalogue a case is restored with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Cat {
+    /// The product's.
+    Shipped,
+    /// The product's with V1's large row naming GWT's own 96 map instead of
+    /// the measured one: what makes a composite with GWT's 96 a self-test
+    /// (`exact` is false on a fitted map by D245). Nothing else differs.
+    GwtV1,
+}
+
+impl Cat {
+    fn id(self) -> &'static str {
+        match self {
+            Cat::Shipped => "shipped",
+            Cat::GwtV1 => "gwt-v1-96",
+        }
+    }
+}
+
+/// A profile's mark at one of its rows.
+struct Row {
+    id: &'static str,
+    profile: &'static str,
+    map: &'static str,
+    size: (u32, u32),
+    /// `canonical`: the map at its own size at a row's own place, not
+    /// fitted, so `exact` is a true self-test; `shipped`: the row as the
+    /// catalogue places it, `exact` false by construction.
+    variant: &'static str,
+    catalogue: Cat,
+}
+
+const V1: &str = "gemini-sparkle-v1";
+const V2: &str = "gemini-sparkle-v2";
+
+/// V1-48, V1-96, V1-96-measured, V2-36, V2-96 at 2048 and V2-96 resampled
+/// to 48 at 1376 × 768. A row whose shipped placement is its canonical one
+/// is one composite, not two.
+const ROWS: [Row; 6] = [
+    Row {
+        id: "v1-48",
+        profile: V1,
+        map: "gemini-v1-48",
+        size: (1024, 1024),
+        variant: "canonical",
+        catalogue: Cat::Shipped,
+    },
+    Row {
+        id: "v1-96",
+        profile: V1,
+        map: "gemini-v1-96",
+        size: (2048, 2048),
+        variant: "canonical",
+        catalogue: Cat::GwtV1,
+    },
+    Row {
+        id: "v1-96-measured",
+        profile: V1,
+        map: "gemini-v1-96-measured",
+        size: (2048, 2048),
+        variant: "shipped",
+        catalogue: Cat::Shipped,
+    },
+    Row {
+        id: "v2-36",
+        profile: V2,
+        map: "gemini-v2-36",
+        size: (1024, 1024),
+        variant: "canonical",
+        catalogue: Cat::Shipped,
+    },
+    Row {
+        id: "v2-96",
+        profile: V2,
+        map: "gemini-v2-96",
+        size: (2048, 2048),
+        variant: "canonical",
+        catalogue: Cat::Shipped,
+    },
+    Row {
+        id: "v2-96-r48",
+        profile: V2,
+        map: "gemini-v2-96",
+        size: (1376, 768),
+        variant: "shipped",
+        catalogue: Cat::Shipped,
+    },
+];
+
+/// The gain the `R-k` cases draw a mark at, against a profile of `k = 1`
+/// (D154).
+const K_OFF: f32 = 0.93;
+
+/// The two catalogues, read once.
+struct Catalogues {
+    shipped: &'static Catalogue,
+    gwt: Catalogue,
+}
+
+impl Catalogues {
+    fn load() -> Catalogues {
+        let shipped = Catalogue::shipped().unwrap_or_else(|e| refuse(&e.to_string()));
+        let from = "\"margin\": [64, 64], \"alpha\": \"gemini-v1-96-measured\"";
+        if EMBEDDED.matches(from).count() != 1 {
+            refuse("the shipped catalogue's V1 large row is not where the bench expects it");
+        }
+        let json = EMBEDDED.replace(from, "\"margin\": [64, 64], \"alpha\": \"gemini-v1-96\"");
+        let gwt = Catalogue::parse(&json, &|name: &str| {
+            wipemark_pixels::shipped_assets()
+                .find(|(n, _)| *n == name)
+                .map(|(_, b)| b)
+        })
+        .unwrap_or_else(|e| refuse(&e.to_string()));
+        Catalogues { shipped, gwt }
+    }
+
+    fn of(&self, cat: Cat) -> &Catalogue {
+        match cat {
+            Cat::Shipped => self.shipped,
+            Cat::GwtV1 => &self.gwt,
+        }
+    }
+}
+
+/// Where the shipped catalogue's first row for `row.size` puts the mark,
+/// drawn with `row.map`.
+fn place(row: &Row, catalogue: &Catalogue) -> SubRect {
+    let p = catalogue
+        .profile(row.profile)
+        .unwrap_or_else(|| refuse(row.profile));
+    let (_, map) = p
+        .maps
+        .iter()
+        .find(|(id, _)| id == row.map)
+        .unwrap_or_else(|| refuse(row.map));
+    let (w, h) = row.size;
+    let placement = p
+        .placements
+        .iter()
+        .find(|pl| pl.when.matches(w, h))
+        .unwrap_or_else(|| refuse(&format!("{}: no row at {w}x{h}", row.id)));
+    match placement.anchor {
+        Anchor::Corner { corner, margin } => {
+            let (x, y) = corner
+                .origin(w, h, map.width(), map.height(), margin)
+                .unwrap_or_else(|| refuse(row.id));
+            SubRect {
+                x: x as f32,
+                y: y as f32,
+                size: map.width() as f32,
+            }
+        }
+        Anchor::Rect(r) => SubRect {
+            x: r.x as f32,
+            y: r.y as f32,
+            size: r.width as f32,
+        },
+    }
+}
+
+/// The whole pixels a sub-pixel rectangle of a `mw × mh` map covers.
+fn box_of(rect: SubRect, mw: u32, mh: u32) -> PixelRect {
+    let height = rect.size * mh as f32 / mw as f32;
+    let (x0, y0) = (rect.x.floor(), rect.y.floor());
+    PixelRect {
+        x: x0 as u32,
+        y: y0 as u32,
+        width: ((rect.x + rect.size).ceil() - x0) as u32,
+        height: ((rect.y + height).ceil() - y0) as u32,
+    }
+}
+
+fn grow(r: PixelRect, by: u32, w: u32, h: u32) -> PixelRect {
+    let (x0, y0) = (r.x.saturating_sub(by), r.y.saturating_sub(by));
+    let (x1, y1) = ((r.x + r.width + by).min(w), (r.y + r.height + by).min(h));
+    PixelRect {
+        x: x0,
+        y: y0,
+        width: x1 - x0,
+        height: y1 - y0,
+    }
+}
+
+fn rect_json(r: PixelRect) -> Value {
+    json!({"x": r.x, "y": r.y, "width": r.width, "height": r.height})
+}
+
+/// Mean, min and max per channel of a raster inside `r`.
+fn zone(raster: &Raster, r: PixelRect) -> Value {
+    let c = raster.layout().channels();
+    let (mut sum, mut lo, mut hi) = ([0f64; 3], [u16::MAX; 3], [0u16; 3]);
+    let mut n = 0f64;
+    for y in r.y..r.y + r.height {
+        for x in r.x..r.x + r.width {
+            let i = ((y * raster.width() + x) as usize) * c;
+            for k in 0..3 {
+                let v = raster.samples()[i + k];
+                sum[k] += f64::from(v);
+                lo[k] = lo[k].min(v);
+                hi[k] = hi[k].max(v);
+            }
+            n += 1.0;
+        }
+    }
+    let mean = sum.map(|s| (s / n * 100.0).round() / 100.0);
+    json!({"tone": Tone::of(mean).id(), "mean": mean, "min": lo, "max": hi})
+}
+
+// ───────────────────────────────────────────────────────────── manifest
+
+fn read_json(path: &Path) -> Value {
+    let text = std::fs::read_to_string(path)
+        .unwrap_or_else(|e| refuse(&format!("{}: {e}", path.display())));
+    serde_json::from_str(&text).unwrap_or_else(|e| refuse(&format!("{}: {e}", path.display())))
+}
+
+fn write_json(path: &Path, value: &Value) {
+    let text = serde_json::to_string_pretty(value).unwrap_or_else(|e| refuse(&e.to_string()));
+    std::fs::write(path, text + "\n")
+        .unwrap_or_else(|e| refuse(&format!("{}: {e}", path.display())));
+}
+
+/// A manifest as the pretty JSON it is, but one background a line — two
+/// hundred records of a dozen arrays each are a diff to read, not a page.
+fn write_manifest(path: &Path, manifest: &Value) {
+    let mut head = manifest.clone();
+    let records = head
+        .as_object_mut()
+        .and_then(|o| o.remove("backgrounds"))
+        .and_then(|b| b.as_array().cloned())
+        .unwrap_or_default();
+    let pretty = serde_json::to_string_pretty(&head).unwrap_or_else(|e| refuse(&e.to_string()));
+    let lines: Vec<String> = records.iter().map(|r| format!("    {r}")).collect();
+    let body = if lines.is_empty() {
+        String::from("[]")
+    } else {
+        format!("[\n{}\n  ]", lines.join(",\n"))
+    };
+    let text = match pretty.strip_suffix("\n}") {
+        Some(open) => format!("{open},\n  \"backgrounds\": {body}\n}}\n"),
+        None => refuse("a manifest is an object"),
+    };
+    std::fs::write(path, text).unwrap_or_else(|e| refuse(&format!("{}: {e}", path.display())));
+}
+
+/// One background as the manifest describes it.
+#[derive(Clone)]
+struct Background {
+    id: String,
+    group: String,
+    /// Generated: the kind and the tone it was asked for; a photograph:
+    /// the file and its crop.
+    kind: String,
+    asked: Option<Tone>,
+    seed: u64,
+    photo: Option<(String, Option<[u32; 4]>, Option<String>)>,
+}
+
+impl Background {
+    fn tile(&self, side: u32, photos: Option<&Path>) -> Result<Tile, String> {
+        match &self.photo {
+            None => Ok(generate(
+                &self.group,
+                &self.kind,
+                self.asked.unwrap_or(Tone::Other),
+                self.seed,
+                side,
+            )),
+            Some((path, crop, pinned)) => {
+                let dir = photos.ok_or("a photo background needs --photos")?;
+                let file = dir.join(path);
+                let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+                let found = sha256_hex(&bytes);
+                match pinned {
+                    Some(p) if *p != found => {
+                        return Err(format!("{path}: sha256 {found}, the manifest pins {p}"))
+                    }
+                    None => return Err(format!("{path}: not pinned; run `pin` first")),
+                    Some(_) => {}
+                }
+                photo_tile(&file, *crop, side)
+            }
+        }
+    }
+}
+
+/// Every background the manifest's groups name, for `seed`.
+fn backgrounds(manifest: &Value, seed: u64) -> Vec<Background> {
+    let mut out = Vec::new();
+    for group in manifest["groups"].as_array().unwrap_or(&Vec::new()) {
+        let id = group["id"]
+            .as_str()
+            .unwrap_or_else(|| refuse("a group has no id"));
+        match group["source"].as_str() {
+            Some("generated") => {
+                let count = group["count"].as_u64().unwrap_or(0) as usize;
+                for index in 0..count {
+                    let (kind, tone) = asked(id, index);
+                    out.push(Background {
+                        id: format!("{id}-{index:03}"),
+                        group: id.to_owned(),
+                        kind: kind.to_owned(),
+                        asked: Some(tone),
+                        seed: seed_of(seed, id, index),
+                        photo: None,
+                    });
+                }
+            }
+            Some("photos") => {
+                for (index, f) in group["files"]
+                    .as_array()
+                    .unwrap_or(&Vec::new())
+                    .iter()
+                    .enumerate()
+                {
+                    let path = f["path"]
+                        .as_str()
+                        .unwrap_or_else(|| refuse("a photo has no path"));
+                    let crop = f["crop"].as_array().map(|c| {
+                        let v: Vec<u32> = c
+                            .iter()
+                            .filter_map(|n| n.as_u64())
+                            .map(|n| n as u32)
+                            .collect();
+                        if v.len() != 4 {
+                            refuse(&format!("{path}: a crop is [x, y, width, height]"));
+                        }
+                        [v[0], v[1], v[2], v[3]]
+                    });
+                    out.push(Background {
+                        id: format!("{id}-{index:03}"),
+                        group: id.to_owned(),
+                        kind: String::from("photo"),
+                        asked: None,
+                        seed: 0,
+                        photo: Some((
+                            path.to_owned(),
+                            crop,
+                            f["sha256"].as_str().map(str::to_owned),
+                        )),
+                    });
+                }
+            }
+            other => refuse(&format!("group {id}: unknown source {other:?}")),
+        }
+    }
+    out
+}
+
+/// The zones of every row on a tile: where each row's mark sits, and what
+/// is under it.
+fn zones_of(tile: &Tile, catalogues: &Catalogues) -> Value {
+    let mut zones = serde_json::Map::new();
+    let raster = Raster::from_u8(tile.side, tile.side, Layout::Rgb8, &tile.rgb)
+        .unwrap_or_else(|e| refuse(&e.to_string()));
+    for row in &ROWS {
+        let rect = place(row, catalogues.of(row.catalogue));
+        let (w, h) = row.size;
+        let map = map_of(catalogues.shipped, row);
+        let b = box_of(rect, map.width(), map.height());
+        // Every row's mark lies on the tile, in the canvas's bottom-right
+        // corner.
+        let (ox, oy) = (w - tile.side, h - tile.side);
+        if b.x < ox || b.y < oy || b.x + b.width > w || b.y + b.height > h {
+            refuse(&format!("{}: the mark is off the tile", row.id));
+        }
+        let on_tile = PixelRect {
+            x: b.x - ox,
+            y: b.y - oy,
+            ..b
+        };
+        zones.insert(row.id.to_owned(), zone(&raster, on_tile));
+    }
+    Value::Object(zones)
+}
+
+fn map_of<'a>(catalogue: &'a Catalogue, row: &Row) -> &'a wipemark_pixels::AlphaMap {
+    let p = catalogue
+        .profile(row.profile)
+        .unwrap_or_else(|| refuse(row.profile));
+    &p.maps
+        .iter()
+        .find(|(id, _)| id == row.map)
+        .unwrap_or_else(|| refuse(row.map))
+        .1
+}
+
+/// `pin`: every background's tile hashed and its zones measured, written
+/// into the manifest; with `--photos`, a photo group whose file list is
+/// empty is filled from the folder first.
+fn pin(args: &Args) {
+    let path = PathBuf::from(args.need("manifest"));
+    let mut manifest = read_json(&path);
+    let photos = args.get("photos").map(PathBuf::from);
+    let side = manifest["tile"].as_u64().unwrap_or(512) as u32;
+    let seed = manifest["seed"].as_u64().unwrap_or(1);
+    if let (Some(dir), Some(groups)) = (&photos, manifest["groups"].as_array_mut()) {
+        for g in groups.iter_mut().filter(|g| g["source"] == "photos") {
+            if g["files"].as_array().is_some_and(|f| !f.is_empty()) {
+                continue;
+            }
+            let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+                .unwrap_or_else(|e| refuse(&format!("{}: {e}", dir.display())))
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| {
+                    p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+                        matches!(
+                            e.to_ascii_lowercase().as_str(),
+                            "png" | "jpg" | "jpeg" | "webp"
+                        )
+                    })
+                })
+                .collect();
+            files.sort();
+            g["files"] = files
+                .iter()
+                .map(|f| {
+                    let bytes = std::fs::read(f).unwrap_or_else(|e| refuse(&e.to_string()));
+                    json!({
+                        "path": f.file_name().and_then(|n| n.to_str()).unwrap_or_default(),
+                        "sha256": sha256_hex(&bytes),
+                        "crop": null,
+                    })
+                })
+                .collect();
+        }
+    }
+    let catalogues = Catalogues::load();
+    let list = backgrounds(&manifest, seed);
+    let mut records = Vec::new();
+    for b in &list {
+        let tile = match b.tile(side, photos.as_deref()) {
+            Ok(t) => t,
+            Err(e) if b.photo.is_some() => {
+                eprintln!("recon_bench: {}: {e}; left out", b.id);
+                continue;
+            }
+            Err(e) => refuse(&e),
+        };
+        records.push(record(b, &tile, &catalogues));
+    }
+    let n = records.len();
+    manifest["backgrounds"] = Value::Array(records);
+    write_manifest(&path, &manifest);
+    println!("pinned {n} backgrounds into {}", path.display());
+}
+
+fn record(b: &Background, tile: &Tile, catalogues: &Catalogues) -> Value {
+    json!({
+        "id": b.id,
+        "group": b.group,
+        "kind": b.kind,
+        "asked": b.asked.map(Tone::id),
+        "seed": b.seed,
+        "photo": b.photo.as_ref().map(|p| &p.0),
+        // A photograph's tile goes through Lanczos (`sin`): its hash is
+        // the machine's, and only the file's own sha256 is checked.
+        "tile_sha256": if b.photo.is_none() { Some(sha256_hex(&tile.rgb)) } else { None },
+        "zones": zones_of(tile, catalogues),
+    })
+}
+
+// ───────────────────────────────────────────────────────────── gen
+
+/// One case: a row's mark, a blend model, a gain.
+struct Case {
+    row: &'static Row,
+    model: BlendModel,
+    k: f32,
+}
+
+impl Case {
+    fn id(&self) -> String {
+        let mut id = format!("{}.{}", self.row.id, self.model.id());
+        if self.k != 1.0 {
+            id += &format!(".k{:03}", (self.k * 100.0).round() as u32);
+        }
+        id
+    }
+
+    fn expect(&self) -> &'static str {
+        match (self.model, self.k == 1.0, self.row.variant) {
+            (BlendModel::Encoded, false, _) => "refused-gain",
+            (BlendModel::Encoded, true, "canonical") => "exact",
+            (BlendModel::Encoded, true, _) => "restored",
+            (BlendModel::LinearLight, ..) => "unknown",
+        }
+    }
+}
+
+fn cases(rows: &[&'static Row]) -> Vec<Case> {
+    let mut out = Vec::new();
+    for &row in rows {
+        for model in [BlendModel::Encoded, BlendModel::LinearLight] {
+            out.push(Case { row, model, k: 1.0 });
+        }
+        if row.variant == "canonical" {
+            out.push(Case {
+                row,
+                model: BlendModel::Encoded,
+                k: K_OFF,
+            });
+        }
+    }
+    out
+}
+
+fn write_png(path: &Path, raster: &Raster) -> Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let (colour, channels) = match raster.layout() {
+        Layout::Rgb8 => (png::ColorType::Rgb, 3),
+        Layout::Rgba8 => (png::ColorType::Rgba, 4),
+        other => return Err(format!("{}: no PNG for {other:?}", path.display())),
+    };
+    let mut encoder = png::Encoder::new(
+        std::io::BufWriter::new(file),
+        raster.width(),
+        raster.height(),
+    );
+    encoder.set_color(colour);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.set_compression(png::Compression::Fast);
+    let bytes: Vec<u8> = raster.samples().iter().map(|&s| s as u8).collect();
+    debug_assert_eq!(
+        bytes.len(),
+        (raster.width() * raster.height()) as usize * channels
+    );
+    let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
+    writer.write_image_data(&bytes).map_err(|e| e.to_string())
+}
+
+fn write_jpeg(path: &Path, raster: &Raster, quality: u8) -> Result<(), String> {
+    let bytes: Vec<u8> = raster.samples().iter().map(|&s| s as u8).collect();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality)
+        .encode(
+            &bytes,
+            raster.width(),
+            raster.height(),
+            image::ExtendedColorType::Rgb8,
+        )
+        .map_err(|e| e.to_string())?;
+    std::fs::write(path, out).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// A fixed-seed sample of `n` of `0..count`, in order, stratified by
+/// `index % 6` — a generated background's tone — so that six or more
+/// hold every tone: the indices are shuffled, then taken a stratum at a
+/// time in turn.
+fn sample(count: usize, n: usize, seed: u64) -> Vec<usize> {
+    let mut idx: Vec<usize> = (0..count).collect();
+    let mut rng = Rng::new(seed ^ 0x5A17_5A17);
+    for i in (1..idx.len()).rev() {
+        let j = rng.below(i as u32 + 1) as usize;
+        idx.swap(i, j);
+    }
+    let mut strata: Vec<Vec<usize>> = vec![Vec::new(); TONES.len()];
+    for i in idx {
+        strata[i % TONES.len()].push(i);
+    }
+    let mut out = Vec::new();
+    for round in 0..count {
+        for s in &strata {
+            if out.len() < n {
+                if let Some(&i) = s.get(round) {
+                    out.push(i);
+                }
+            }
+        }
+    }
+    out.sort_unstable();
+    out
+}
+
+/// `gen`: the backgrounds, every case's composite, its `meta.json`, and
+/// `image`'s two JPEG variants; `index.jsonl` and the run's `manifest.json`.
+fn gen(args: &Args) {
+    let manifest_path = PathBuf::from(args.need("manifest"));
+    let manifest = read_json(&manifest_path);
+    let out = PathBuf::from(args.need("out"));
+    let photos = args.get("photos").map(PathBuf::from);
+    let side = manifest["tile"].as_u64().unwrap_or(512) as u32;
+    let pinned_seed = manifest["seed"].as_u64().unwrap_or(1);
+    let seed: u64 = args
+        .get("seed")
+        .map_or(pinned_seed, |s| s.parse().unwrap_or_else(|_| usage()));
+    let groups = args.list("groups");
+    let rows: Vec<&'static Row> = match args.list("rows") {
+        None => ROWS.iter().collect(),
+        Some(ids) => ids
+            .iter()
+            .map(|id| {
+                ROWS.iter()
+                    .find(|r| r.id == id)
+                    .unwrap_or_else(|| refuse(&format!("no row {id}")))
+            })
+            .collect(),
+    };
+    let catalogues = Catalogues::load();
+    let pins: BTreeMap<String, Value> = manifest["backgrounds"]
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .filter_map(|b| Some((b["id"].as_str()?.to_owned(), b.clone())))
+        .collect();
+    let mut list: Vec<Background> = backgrounds(&manifest, seed)
+        .into_iter()
+        .filter(|b| groups.as_ref().is_none_or(|g| g.contains(&b.group)))
+        .collect();
+    if let Some(n) = args.get("sample") {
+        let n: usize = n.parse().unwrap_or_else(|_| usage());
+        let mut kept = Vec::new();
+        let names: Vec<String> = {
+            let mut g: Vec<String> = list.iter().map(|b| b.group.clone()).collect();
+            g.dedup();
+            g
+        };
+        for g in names {
+            let mine: Vec<Background> = list.iter().filter(|b| b.group == g).cloned().collect();
+            for i in sample(mine.len(), n, seed_of(seed, &g, usize::MAX)) {
+                kept.push(mine[i].clone());
+            }
+        }
+        list = kept;
+    }
+    std::fs::create_dir_all(&out).unwrap_or_else(|e| refuse(&e.to_string()));
+    let unpinned = seed != pinned_seed;
+    if unpinned {
+        eprintln!("recon_bench: seed {seed} is not the manifest's {pinned_seed}: these backgrounds are not pinned");
+    }
+    let t0 = Instant::now();
+    let next = AtomicUsize::new(0);
+    let index: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let records: Mutex<Vec<Value>> = Mutex::new(Vec::new());
+    let failures: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let jobs = jobs(args);
+    std::thread::scope(|s| {
+        for _ in 0..jobs {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(b) = list.get(i) else { break };
+                let result = gen_one(
+                    b,
+                    side,
+                    photos.as_deref(),
+                    &catalogues,
+                    &rows,
+                    &out,
+                    (!unpinned).then(|| pins.get(&b.id)),
+                );
+                match result {
+                    Ok((lines, rec)) => {
+                        index
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .extend(lines);
+                        records.lock().unwrap_or_else(|e| e.into_inner()).push(rec);
+                    }
+                    Err(e) => failures
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(format!("{}: {e}", b.id)),
+                }
+            });
+        }
+    });
+    let failures = failures.into_inner().unwrap_or_else(|e| e.into_inner());
+    if !failures.is_empty() {
+        for f in &failures {
+            eprintln!("recon_bench: {f}");
+        }
+        refuse(&format!(
+            "{} backgrounds refused; nothing is complete",
+            failures.len()
+        ));
+    }
+    let mut index = index.into_inner().unwrap_or_else(|e| e.into_inner());
+    index.sort();
+    let mut records = records.into_inner().unwrap_or_else(|e| e.into_inner());
+    records.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    std::fs::write(out.join("index.jsonl"), index.join("\n") + "\n")
+        .unwrap_or_else(|e| refuse(&e.to_string()));
+    let mut run_manifest = manifest.clone();
+    run_manifest["seed"] = json!(seed);
+    run_manifest["pinned"] = json!(!unpinned);
+    run_manifest["rows"] = json!(rows.iter().map(|r| r.id).collect::<Vec<_>>());
+    run_manifest["backgrounds"] = Value::Array(records);
+    write_manifest(&out.join("manifest.json"), &run_manifest);
+    println!(
+        "generated {} backgrounds, {} cases in {:.1} s → {}",
+        list.len(),
+        index.len(),
+        t0.elapsed().as_secs_f64(),
+        out.display()
+    );
+}
+
+fn jobs(args: &Args) -> usize {
+    args.get("jobs").map_or_else(
+        || std::thread::available_parallelism().map_or(1, usize::from),
+        |j| j.parse().unwrap_or_else(|_| usage()),
+    )
+}
+
+/// One background: its tile checked against its pin, every size's canvas,
+/// every case. Returns the index lines and the background's record.
+fn gen_one(
+    b: &Background,
+    side: u32,
+    photos: Option<&Path>,
+    catalogues: &Catalogues,
+    rows: &[&'static Row],
+    out: &Path,
+    pin: Option<Option<&Value>>,
+) -> Result<(Vec<String>, Value), String> {
+    let tile = b.tile(side, photos)?;
+    let rec = record(b, &tile, catalogues);
+    if let Some(pin) = pin {
+        let Some(pin) = pin else {
+            return Err(String::from(
+                "not in the manifest's backgrounds; run `pin` first",
+            ));
+        };
+        if b.photo.is_none() && pin["tile_sha256"] != rec["tile_sha256"] {
+            return Err(format!(
+                "tile sha256 {}, the manifest pins {}: the generator moved; run `pin` and commit",
+                rec["tile_sha256"], pin["tile_sha256"]
+            ));
+        }
+    }
+    let mut lines = Vec::new();
+    let mut sizes: Vec<(u32, u32)> = rows.iter().map(|r| r.size).collect();
+    sizes.sort_unstable();
+    sizes.dedup();
+    for (w, h) in sizes {
+        let bg_rel = PathBuf::from(&b.group).join(&b.id).join(format!("{w}x{h}"));
+        let bg_dir = out.join(&bg_rel);
+        std::fs::create_dir_all(&bg_dir).map_err(|e| e.to_string())?;
+        let gt = canvas(&tile, w, h);
+        write_png(&bg_dir.join("gt.png"), &gt)?;
+        let mine: Vec<&'static Row> = rows.iter().copied().filter(|r| r.size == (w, h)).collect();
+        for case in cases(&mine) {
+            let row = case.row;
+            let catalogue = catalogues.of(row.catalogue);
+            let p = catalogue.profile(row.profile).ok_or("no profile")?;
+            let map = map_of(catalogues.shipped, row);
+            let rect = place(row, catalogues.shipped);
+            let pixels = box_of(rect, map.width(), map.height());
+            let mut marked = gt.clone();
+            let blend = Blend {
+                k: case.k,
+                model: case.model,
+                ..Blend::encoded(p.logo)
+            };
+            composite_with(&mut marked, &drawn(map), rect, Kernel::Area, &blend);
+            let rel = bg_rel.join(case.id());
+            let dir = out.join(&rel);
+            std::fs::create_dir_all(dir.join("jpeg444-q95")).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(dir.join("jpeg444-q90")).map_err(|e| e.to_string())?;
+            write_png(&dir.join("marked.png"), &marked)?;
+            write_jpeg(&dir.join("jpeg444-q95").join("image.jpg"), &marked, 95)?;
+            write_jpeg(&dir.join("jpeg444-q90").join("image.jpg"), &marked, 90)?;
+            let meta = json!({
+                "schema": SCHEMA,
+                "case": case.id(),
+                "group": b.group,
+                "background": b.id,
+                "kind": b.kind,
+                "asked": b.asked.map(Tone::id),
+                "tone": rec["zones"][row.id]["tone"],
+                "size": [w, h],
+                "row": row.id,
+                "profile": row.profile,
+                "map": row.map,
+                "variant": row.variant,
+                "catalogue": row.catalogue.id(),
+                "rect": {"x": rect.x, "y": rect.y, "size": rect.size},
+                "pixels": rect_json(pixels),
+                "roi": rect_json(grow(pixels, ROI_PAD, w, h)),
+                "blend": {
+                    "model": case.model.id(),
+                    "k": case.k,
+                    "logo": p.logo.map(|v| (f64::from(v) * 1e4).round() / 1e4),
+                    "bias": [0, 0, 0],
+                    "rounding": "round",
+                    "kernel": "area",
+                    "drawn": true,
+                },
+                "expect": case.expect(),
+            });
+            write_json(&dir.join("meta.json"), &meta);
+            lines.push(
+                json!({
+                    "case_dir": rel.to_string_lossy(),
+                    "bg_dir": bg_rel.to_string_lossy(),
+                    "case": case.id(),
+                    "group": b.group,
+                    "background": b.id,
+                    "size": [w, h],
+                })
+                .to_string(),
+            );
+        }
+    }
+    Ok((lines, rec))
+}
+
+// ───────────────────────────────────────────────────────────── configs
+
+/// A restoration to bench: R0 is the product; a later step adds its
+/// switch here as a parameter of this example (S12), never as a row of
+/// the catalogue.
+struct Config {
+    name: &'static str,
+    /// The blend model its inverse assumes — its row of the matrix (A5).
+    inverse: BlendModel,
+    about: &'static str,
+    restore: fn(&mut Raster, &Catalogue, &ExamineOptions, Option<&Planes>) -> PixelReport,
+}
+
+fn r0(
+    raster: &mut Raster,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+    _planes: Option<&Planes>,
+) -> PixelReport {
+    wipemark_pixels::clean(raster, catalogue, options)
+}
+
+const CONFIGS: &[Config] = &[Config {
+    name: "R0",
+    inverse: BlendModel::Encoded,
+    about: "the product today: wipemark_pixels::clean, the shipped catalogue, encode_like, reframe, prove",
+    restore: r0,
+}];
+
+// ───────────────────────────────────────────────────────────── slices
+
+/// A degradation and the files that carry it, by encoder. `scale` is the
+/// resize it includes, 1 when none.
+struct Slice {
+    id: &'static str,
+    files: &'static [(&'static str, &'static str)],
+    scale: Option<&'static str>,
+}
+
+/// §4.3. `image`'s encoder writes 4:4:4 only (`encode.rs`), so its 4:2:0
+/// files never exist and the report says the column is empty.
+const SLICES: &[Slice] = &[
+    Slice {
+        id: "png",
+        files: &[("none", "marked.png")],
+        scale: None,
+    },
+    Slice {
+        id: "jpeg444-q95",
+        files: &[("pillow", "pillow.jpg"), ("image", "image.jpg")],
+        scale: None,
+    },
+    Slice {
+        id: "jpeg444-q90",
+        files: &[("pillow", "pillow.jpg"), ("image", "image.jpg")],
+        scale: None,
+    },
+    Slice {
+        id: "jpeg420-q95",
+        files: &[("pillow", "pillow.jpg"), ("image", "image.jpg")],
+        scale: None,
+    },
+    Slice {
+        id: "jpeg420-q90",
+        files: &[("pillow", "pillow.jpg"), ("image", "image.jpg")],
+        scale: None,
+    },
+    Slice {
+        id: "jpeg420-q85",
+        files: &[("pillow", "pillow.jpg"), ("image", "image.jpg")],
+        scale: None,
+    },
+    Slice {
+        id: "jpeg420-q75",
+        files: &[("pillow", "pillow.jpg"), ("image", "image.jpg")],
+        scale: None,
+    },
+    Slice {
+        id: "webp-lossy-q90",
+        files: &[("pillow", "pillow.webp")],
+        scale: None,
+    },
+    Slice {
+        id: "resize-0.9",
+        files: &[("pillow", "pillow.png")],
+        scale: Some("0.9"),
+    },
+    Slice {
+        id: "resize-1.1",
+        files: &[("pillow", "pillow.png")],
+        scale: Some("1.1"),
+    },
+    Slice {
+        id: "jpeg420-q90+resize-0.9",
+        files: &[("pillow", "pillow.jpg")],
+        scale: Some("0.9"),
+    },
+];
+
+// ───────────────────────────────────────────────────────────── metrics
+
+/// PSNR over the colour samples inside `roi`, in dB; [`PSNR_CAP`] for
+/// identical ROIs.
+fn psnr(a: &Raster, b: &Raster, roi: PixelRect) -> f64 {
+    let (ca, cb) = (a.layout().channels(), b.layout().channels());
+    let (ma, mb) = (
+        255.0 / f64::from(a.layout().max()),
+        255.0 / f64::from(b.layout().max()),
+    );
+    let (mut sum, mut n) = (0f64, 0f64);
+    for y in roi.y..roi.y + roi.height {
+        for x in roi.x..roi.x + roi.width {
+            let (i, j) = (
+                ((y * a.width() + x) as usize) * ca,
+                ((y * b.width() + x) as usize) * cb,
+            );
+            for k in 0..3 {
+                let d = f64::from(a.samples()[i + k]) * ma - f64::from(b.samples()[j + k]) * mb;
+                sum += d * d;
+                n += 1.0;
+            }
+        }
+    }
+    if sum == 0.0 {
+        return PSNR_CAP;
+    }
+    (10.0 * (255.0 * 255.0 / (sum / n)).log10()).min(PSNR_CAP)
+}
+
+/// A raster's colour at `(x, y)` in 8-bit units.
+fn rgb(r: &Raster, x: u32, y: u32) -> [f64; 3] {
+    let c = r.layout().channels();
+    let m = 255.0 / f64::from(r.layout().max());
+    let i = ((y * r.width() + x) as usize) * c;
+    [0, 1, 2].map(|k| f64::from(r.samples()[i + k]) * m)
+}
+
+/// The mean SSIM of BT.601 luma over every 7 × 7 window inside `roi`
+/// (uniform weights, the usual constants for 8 bits); `None` when the ROI
+/// is smaller than a window.
+fn ssim(a: &Raster, b: &Raster, roi: PixelRect) -> Option<f64> {
+    const WIN: u32 = 7;
+    if roi.width < WIN || roi.height < WIN {
+        return None;
+    }
+    let y = |r: &Raster, x: u32, y: u32| {
+        let c = rgb(r, x, y);
+        0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+    };
+    let (c1, c2) = ((0.01f64 * 255.0).powi(2), (0.03f64 * 255.0).powi(2));
+    let (mut total, mut n) = (0f64, 0f64);
+    for wy in roi.y..=roi.y + roi.height - WIN {
+        for wx in roi.x..=roi.x + roi.width - WIN {
+            let (mut sa, mut sb, mut saa, mut sbb, mut sab) = (0f64, 0f64, 0f64, 0f64, 0f64);
+            for dy in 0..WIN {
+                for dx in 0..WIN {
+                    let (p, q) = (y(a, wx + dx, wy + dy), y(b, wx + dx, wy + dy));
+                    sa += p;
+                    sb += q;
+                    saa += p * p;
+                    sbb += q * q;
+                    sab += p * q;
+                }
+            }
+            let k = f64::from(WIN * WIN);
+            let (ma, mb) = (sa / k, sb / k);
+            let (va, vb, cov) = (saa / k - ma * ma, sbb / k - mb * mb, sab / k - ma * mb);
+            total += ((2.0 * ma * mb + c1) * (2.0 * cov + c2))
+                / ((ma * ma + mb * mb + c1) * (va + vb + c2));
+            n += 1.0;
+        }
+    }
+    Some(total / n)
+}
+
+/// sRGB, 8-bit units, to CIE L*a*b* under D65.
+fn lab(c: [f64; 3]) -> [f64; 3] {
+    let [r, g, b] = c.map(to_linear);
+    let x = (0.412_456_4 * r + 0.357_576_1 * g + 0.180_437_5 * b) / 0.950_47;
+    let y = 0.212_672_9 * r + 0.715_152_2 * g + 0.072_175 * b;
+    let z = (0.019_333_9 * r + 0.119_192 * g + 0.950_304_1 * b) / 1.088_83;
+    let f = |t: f64| {
+        let d = 6.0f64 / 29.0;
+        if t > d * d * d {
+            t.cbrt()
+        } else {
+            t / (3.0 * d * d) + 4.0 / 29.0
+        }
+    };
+    let (fx, fy, fz) = (f(x), f(y), f(z));
+    [116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)]
+}
+
+/// CIEDE2000, `kL = kC = kH = 1` (Sharma, Wu and Dalal, 2005).
+fn ciede2000(p: [f64; 3], q: [f64; 3]) -> f64 {
+    use std::f64::consts::PI;
+    let deg = |r: f64| r * 180.0 / PI;
+    let rad = |d: f64| d * PI / 180.0;
+    let (l1, a1, b1) = (p[0], p[1], p[2]);
+    let (l2, a2, b2) = (q[0], q[1], q[2]);
+    let c1 = a1.hypot(b1);
+    let c2 = a2.hypot(b2);
+    let cm = (c1 + c2) / 2.0;
+    let g = 0.5 * (1.0 - (cm.powi(7) / (cm.powi(7) + 25f64.powi(7))).sqrt());
+    let (a1p, a2p) = ((1.0 + g) * a1, (1.0 + g) * a2);
+    let (c1p, c2p) = (a1p.hypot(b1), a2p.hypot(b2));
+    let hue = |a: f64, b: f64| {
+        if a == 0.0 && b == 0.0 {
+            0.0
+        } else {
+            let h = deg(b.atan2(a));
+            if h < 0.0 {
+                h + 360.0
+            } else {
+                h
+            }
+        }
+    };
+    let (h1p, h2p) = (hue(a1p, b1), hue(a2p, b2));
+    let dl = l2 - l1;
+    let dc = c2p - c1p;
+    let dh = if c1p * c2p == 0.0 {
+        0.0
+    } else if (h2p - h1p).abs() <= 180.0 {
+        h2p - h1p
+    } else if h2p - h1p > 180.0 {
+        h2p - h1p - 360.0
+    } else {
+        h2p - h1p + 360.0
+    };
+    let dhh = 2.0 * (c1p * c2p).sqrt() * (rad(dh) / 2.0).sin();
+    let lm = (l1 + l2) / 2.0;
+    let cmp = (c1p + c2p) / 2.0;
+    let hm = if c1p * c2p == 0.0 {
+        h1p + h2p
+    } else if (h1p - h2p).abs() <= 180.0 {
+        (h1p + h2p) / 2.0
+    } else if h1p + h2p < 360.0 {
+        (h1p + h2p + 360.0) / 2.0
+    } else {
+        (h1p + h2p - 360.0) / 2.0
+    };
+    let t = 1.0 - 0.17 * rad(hm - 30.0).cos()
+        + 0.24 * rad(2.0 * hm).cos()
+        + 0.32 * rad(3.0 * hm + 6.0).cos()
+        - 0.20 * rad(4.0 * hm - 63.0).cos();
+    let dtheta = 30.0 * (-((hm - 275.0) / 25.0).powi(2)).exp();
+    let rc = 2.0 * (cmp.powi(7) / (cmp.powi(7) + 25f64.powi(7))).sqrt();
+    let sl = 1.0 + 0.015 * (lm - 50.0).powi(2) / (20.0 + (lm - 50.0).powi(2)).sqrt();
+    let sc = 1.0 + 0.045 * cmp;
+    let sh = 1.0 + 0.015 * cmp * t;
+    let rt = -(rad(2.0 * dtheta)).sin() * rc;
+    ((dl / sl).powi(2) + (dc / sc).powi(2) + (dhh / sh).powi(2) + rt * (dc / sc) * (dhh / sh))
+        .sqrt()
+}
+
+/// The mean CIEDE2000 inside `roi`.
+fn delta_e(a: &Raster, b: &Raster, roi: PixelRect) -> f64 {
+    let (mut sum, mut n) = (0f64, 0f64);
+    for y in roi.y..roi.y + roi.height {
+        for x in roi.x..roi.x + roi.width {
+            sum += ciede2000(lab(rgb(a, x, y)), lab(rgb(b, x, y)));
+            n += 1.0;
+        }
+    }
+    sum / n
+}
+
+fn round4(v: f64) -> f64 {
+    (v * 10_000.0).round() / 10_000.0
+}
+
+// ───────────────────────────────────────────────────────────── run
+
+/// `run`: every file of every case through every config.
+fn run(args: &Args) {
+    let input = PathBuf::from(args.need("in"));
+    let out = PathBuf::from(args.need("out"));
+    let names = args.many.get("config").cloned().unwrap_or_else(|| usage());
+    let configs: Vec<&Config> = names
+        .iter()
+        .map(|n| {
+            CONFIGS.iter().find(|c| c.name == n).unwrap_or_else(|| {
+                let known: Vec<&str> = CONFIGS.iter().map(|c| c.name).collect();
+                refuse(&format!(
+                    "no config {n}; this build knows {}",
+                    known.join(", ")
+                ))
+            })
+        })
+        .collect();
+    let slices: Vec<&Slice> = match args.list("slices") {
+        None => SLICES.iter().collect(),
+        Some(ids) => ids
+            .iter()
+            .map(|id| {
+                SLICES
+                    .iter()
+                    .find(|s| s.id == id)
+                    .unwrap_or_else(|| refuse(&format!("no slice {id}")))
+            })
+            .collect(),
+    };
+    let crops = args.get("export-crops").map(PathBuf::from);
+    let index_text = std::fs::read_to_string(input.join("index.jsonl"))
+        .unwrap_or_else(|e| refuse(&format!("{}: {e}", input.join("index.jsonl").display())));
+    let index: Vec<Value> = index_text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap_or_else(|e| refuse(&e.to_string())))
+        .collect();
+    let catalogues = Catalogues::load();
+    let t0 = Instant::now();
+    let next = AtomicUsize::new(0);
+    let lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    std::thread::scope(|s| {
+        for _ in 0..jobs(args) {
+            s.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(item) = index.get(i) else { break };
+                let mine = run_case(
+                    &input,
+                    item,
+                    &configs,
+                    &slices,
+                    &catalogues,
+                    crops.as_deref(),
+                );
+                lines.lock().unwrap_or_else(|e| e.into_inner()).extend(mine);
+            });
+        }
+    });
+    let mut lines = lines.into_inner().unwrap_or_else(|e| e.into_inner());
+    lines.sort();
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for l in &lines {
+        if let Ok(v) = serde_json::from_str::<Value>(l) {
+            let key = format!(
+                "{} {}",
+                v["slice"].as_str().unwrap_or("?"),
+                v["encoder"].as_str().unwrap_or("?")
+            );
+            *counts.entry(key).or_default() += 1;
+        }
+    }
+    let file =
+        std::fs::File::create(&out).unwrap_or_else(|e| refuse(&format!("{}: {e}", out.display())));
+    let mut w = BufWriter::new(file);
+    for l in &lines {
+        writeln!(w, "{l}").unwrap_or_else(|e| refuse(&e.to_string()));
+    }
+    w.flush().unwrap_or_else(|e| refuse(&e.to_string()));
+    let seconds = t0.elapsed().as_secs_f64();
+    let run = json!({
+        "schema": SCHEMA,
+        "in": input.to_string_lossy(),
+        "configs": configs.iter().map(|c| json!({"name": c.name, "inverse": c.inverse.id(), "about": c.about})).collect::<Vec<_>>(),
+        "cases": index.len(),
+        "results": lines.len(),
+        "per_slice": counts,
+        "seconds": (seconds * 10.0).round() / 10.0,
+        "jobs": jobs(args),
+        "commit": git_commit(),
+    });
+    let mut run_path = out.clone().into_os_string();
+    run_path.push(".run.json");
+    write_json(Path::new(&run_path), &run);
+    for (k, n) in &counts {
+        println!("{k:<34} {n}");
+    }
+    println!(
+        "{} results from {} cases in {seconds:.1} s → {}",
+        lines.len(),
+        index.len(),
+        out.display()
+    );
+}
+
+/// The commit the bench ran at, and whether the crates it measures — and
+/// the bench itself — differed from it (`"<sha>+dirty"`).
+fn git_commit() -> Option<String> {
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git").args(args).output().ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+    };
+    let head = git(&["rev-parse", "HEAD"])?;
+    let dirty = git(&[
+        "status",
+        "--porcelain",
+        "--",
+        "crates/wipemark-pixels",
+        "crates/wipemark-picture",
+        "crates/wipemark-image",
+        "manifests",
+    ])
+    .is_some_and(|s| !s.is_empty());
+    Some(if dirty { head + "+dirty" } else { head })
+}
+
+/// The truth for a slice: the background, resized as the slice was when it
+/// includes a resize (`encode.py` writes `gt-resize-<s>.png`).
+fn truth(bg_dir: &Path, slice: &Slice) -> Result<Raster, String> {
+    let name = match slice.scale {
+        None => String::from("gt.png"),
+        Some(s) => format!("gt-resize-{s}.png"),
+    };
+    let path = bg_dir.join(&name);
+    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    decode_any(&bytes)
+}
+
+/// One case: every slice and encoder present on disk, every config.
+fn run_case(
+    root: &Path,
+    item: &Value,
+    configs: &[&Config],
+    slices: &[&Slice],
+    catalogues: &Catalogues,
+    crops: Option<&Path>,
+) -> Vec<String> {
+    let case_dir = root.join(item["case_dir"].as_str().unwrap_or_default());
+    let bg_dir = root.join(item["bg_dir"].as_str().unwrap_or_default());
+    let meta = read_json(&case_dir.join("meta.json"));
+    let catalogue = if meta["catalogue"] == Cat::GwtV1.id() {
+        &catalogues.gwt
+    } else {
+        catalogues.shipped
+    };
+    let mut lines = Vec::new();
+    let mut truths: BTreeMap<&str, Result<Raster, String>> = BTreeMap::new();
+    for slice in slices {
+        for &(encoder, file) in slice.files {
+            let path = if slice.id == "png" {
+                case_dir.join(file)
+            } else {
+                case_dir.join(slice.id).join(file)
+            };
+            if !path.exists() {
+                continue;
+            }
+            let truth = truths
+                .entry(slice.scale.unwrap_or("1"))
+                .or_insert_with(|| truth(&bg_dir, slice));
+            for config in configs {
+                let t = Instant::now();
+                let mut line = match truth {
+                    Ok(gt) => one(&path, gt, &meta, slice, config, catalogue, crops, encoder),
+                    Err(e) => json!({"error": format!("the truth: {e}")}),
+                };
+                let base = json!({
+                    "schema": SCHEMA,
+                    "config": config.name,
+                    "inverse": config.inverse.id(),
+                    "case": meta["case"],
+                    "case_dir": item["case_dir"],
+                    "group": meta["group"],
+                    "background": meta["background"],
+                    "kind": meta["kind"],
+                    "tone": meta["tone"],
+                    "row": meta["row"],
+                    "profile": meta["profile"],
+                    "variant": meta["variant"],
+                    "catalogue": meta["catalogue"],
+                    "model": meta["blend"]["model"],
+                    "k": meta["blend"]["k"],
+                    "expect": meta["expect"],
+                    "slice": slice.id,
+                    "encoder": encoder,
+                    "time_ms": (t.elapsed().as_secs_f64() * 1000.0).round(),
+                });
+                if let (Some(o), Some(b)) = (line.as_object_mut(), base.as_object()) {
+                    for (k, v) in b {
+                        o.insert(k.clone(), v.clone());
+                    }
+                }
+                lines.push(line.to_string());
+            }
+        }
+    }
+    lines
+}
+
+/// The mark's expected place in a file of this slice.
+fn expected(meta: &Value, scale: (f32, f32)) -> SubRect {
+    let r = &meta["rect"];
+    let f = |v: &Value| v.as_f64().unwrap_or(0.0) as f32;
+    SubRect {
+        x: f(&r["x"]) * scale.0,
+        y: f(&r["y"]) * scale.1,
+        size: f(&r["size"]) * scale.0,
+    }
+}
+
+/// One file through one config: the user's path, the metrics in the ROI,
+/// the measures, the detection.
+#[allow(clippy::too_many_arguments)]
+fn one(
+    path: &Path,
+    gt: &Raster,
+    meta: &Value,
+    slice: &Slice,
+    config: &Config,
+    catalogue: &Catalogue,
+    crops: Option<&Path>,
+    encoder: &str,
+) -> Value {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) => return json!({"error": e.to_string()}),
+    };
+    let input_sha = sha256_hex(&bytes);
+    let container = match wipemark_image::inspect(&bytes) {
+        Ok(r) => r.container,
+        Err(e) => return json!({"error": e.to_string()}),
+    };
+    let decoded = match decode_with_planes(&bytes, container) {
+        Ok(Ok(d)) => d,
+        Ok(Err(skip)) => return json!({"error": format!("{skip:?}")}),
+        Err(e) => return json!({"error": e.to_string()}),
+    };
+    let raster = &decoded.raster;
+    if (raster.width(), raster.height()) != (gt.width(), gt.height()) {
+        return json!({"error": format!(
+            "the file is {}x{}, its truth {}x{}",
+            raster.width(), raster.height(), gt.width(), gt.height()
+        )});
+    }
+    let size = &meta["size"];
+    let (w0, h0) = (
+        size[0].as_u64().unwrap_or(1) as f32,
+        size[1].as_u64().unwrap_or(1) as f32,
+    );
+    let scale = (raster.width() as f32 / w0, raster.height() as f32 / h0);
+    let want = expected(meta, scale);
+    let mw = meta["pixels"]["width"].as_f64().unwrap_or(1.0) as f32;
+    let mh = meta["pixels"]["height"].as_f64().unwrap_or(1.0) as f32;
+    let want_box = box_of(want, 1000, (1000.0 * mh / mw).round() as u32);
+    let roi = grow(want_box, ROI_PAD, raster.width(), raster.height());
+    let options = ExamineOptions {
+        source: decoded.fidelity,
+        profiles: None,
+    };
+    // The user's path, as `wipemark_picture::clean` runs it.
+    let mut restored = raster.clone();
+    let report = (config.restore)(&mut restored, catalogue, &options, decoded.planes.as_ref());
+    let (written, proof, written_raster) = if report.restored.is_empty() {
+        (false, Value::Null, None)
+    } else {
+        match write_back(
+            &bytes, container, &decoded, &restored, &report, catalogue, &options,
+        ) {
+            Ok(out) => (true, json!("ok"), decode_any(&out).ok()),
+            Err(e) => (false, json!(format!("{e:?}")), None),
+        }
+    };
+    let marks_left = report.marks_left();
+    // The CLI's `clean_exit`: a result not written or a mark left is 3,
+    // a mark removed 1, nothing found 0 (the bench's files carry no
+    // provenance metadata).
+    let exit = if (!report.restored.is_empty() && !written) || marks_left {
+        3
+    } else if !report.restored.is_empty() {
+        1
+    } else {
+        0
+    };
+    // The finding at the mark's place, and its restoration.
+    let at = |p: Option<PixelRect>| p.map_or(0.0, |p| p.iou(want_box));
+    let finding = report
+        .found
+        .iter()
+        .filter(|f| at(f.pixels) > 0.3)
+        .max_by(|a, b| {
+            u8::from(a.verified().is_some())
+                .cmp(&u8::from(b.verified().is_some()))
+                .then(at(a.pixels).total_cmp(&at(b.pixels)))
+        });
+    let restoration: Option<&Restored> = report
+        .restored
+        .iter()
+        .filter(|r| r.rect.iou(want_box) > 0.3)
+        .max_by(|a, b| a.rect.iou(want_box).total_cmp(&b.rect.iou(want_box)));
+    let detection = finding.map_or_else(
+        || json!({"found": false}),
+        |f| {
+            let err = (f.rect.x - want.x)
+                .abs()
+                .max((f.rect.y - want.y).abs())
+                .max((f.rect.size - want.size).abs());
+            json!({
+                "found": true,
+                "profile": f.profile.as_str(),
+                "verdict": if f.verified().is_some() { "verified" } else { "refused" },
+                "refusal": match &f.verdict {
+                    Verdict::Refused(r) => refusal_json(r),
+                    Verdict::Verified(_) => Value::Null,
+                },
+                "placed": match f.placed { wipemark_pixels::Placed::Row(_) => "row", wipemark_pixels::Placed::Searched => "searched" },
+                "kernel": f.kernel,
+                "rect": f.rect,
+                "rect_error": round4(f64::from(err)),
+                "ncc": round4(f64::from(f.ncc)),
+                "pass": f.pass,
+                "scores": f.scores,
+            })
+        },
+    );
+    let measures = restoration.map_or(Value::Null, |r| {
+        json!({
+            "outline": r.outline, "step": r.step, "steps": r.steps, "chroma": r.chroma,
+            "texture": r.texture, "texture_around": r.texture_around,
+            "outline_left": r.outline_left, "texture_left": r.texture_left,
+            "holes": r.holes, "clamped": r.clamped, "changed": r.changed,
+            "exact": r.exact, "lossy": r.lossy, "fitted": r.fitted,
+            "resampled": r.resampled, "searched": r.searched, "noise": r.noise,
+            // R7 (D305) adds it to `Restored`; until then there is none.
+            "consistency_px": Value::Null,
+        })
+    });
+    if let Some(dir) = crops {
+        let _ = export(
+            dir, meta, slice, encoder, config, raster, &restored, gt, roi, want, scale,
+        );
+    }
+    let samples: Vec<u8> = restored
+        .samples()
+        .iter()
+        .flat_map(|s| s.to_le_bytes())
+        .collect();
+    json!({
+        "file": path.file_name().and_then(|n| n.to_str()),
+        "input_sha256": input_sha,
+        "restored_sha256": sha256_hex(&samples),
+        "fidelity": format!("{:?}", decoded.fidelity).to_lowercase(),
+        "planes": decoded.planes.as_ref().map(|p| p.sampling().id()),
+        "size": [raster.width(), raster.height()],
+        "roi": rect_json(roi),
+        "expected_rect": {"x": want.x, "y": want.y, "size": want.size},
+        "psnr_roi": round4(psnr(&restored, gt, roi)),
+        "ssim_roi": ssim(&restored, gt, roi).map(round4),
+        "de2000_roi": round4(delta_e(&restored, gt, roi)),
+        "psnr_roi_input": round4(psnr(raster, gt, roi)),
+        "de2000_roi_input": round4(delta_e(raster, gt, roi)),
+        "psnr_roi_written": written_raster.as_ref().filter(|r| (r.width(), r.height()) == (gt.width(), gt.height())).map(|r| round4(psnr(r, gt, roi))),
+        "restored": !report.restored.is_empty(),
+        "written": written,
+        "proof": proof,
+        "marks_left": marks_left,
+        "exit": exit,
+        "found_any": !report.found.is_empty(),
+        "detection": detection,
+        "measures": measures,
+    })
+}
+
+fn refusal_json(r: &Refusal) -> Value {
+    serde_json::to_value(r).unwrap_or(Value::Null)
+}
+
+/// `encode_like`, `reframe` and `prove`, as `wipemark_picture::clean` runs
+/// them after the visible pass.
+fn write_back(
+    bytes: &[u8],
+    container: ImageContainer,
+    decoded: &Decoded,
+    restored: &Raster,
+    report: &PixelReport,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+) -> Result<Vec<u8>, PictureError> {
+    let strip = StripOptions {
+        scope: Scope::AiProvenance,
+    };
+    let (new_image, _) = encode_like(&decoded.source, restored)?;
+    let (out, _) = wipemark_image::reframe(bytes, &new_image, &strip)?;
+    let rects: Vec<PixelRect> = report.restored.iter().map(|r| r.rect).collect();
+    prove(
+        &out,
+        container,
+        &decoded.raster,
+        restored,
+        &rects,
+        catalogue,
+        options,
+    )?;
+    Ok(out)
+}
+
+// ───────────────────────────────────────────────────────────── crops
+
+/// `--export-crops`: per file and config, the ROI and 64 pixels around it —
+/// `input.png`, `recon.png`, `gt.png`, `alpha.pgm` (16-bit, the opacity as
+/// composited at the crop's pixels) and `meta.json` (σ_base when R8 lands,
+/// the holes as runs). R10's input.
+#[allow(clippy::too_many_arguments)]
+fn export(
+    dir: &Path,
+    meta: &Value,
+    slice: &Slice,
+    encoder: &str,
+    config: &Config,
+    input: &Raster,
+    recon: &Raster,
+    gt: &Raster,
+    roi: PixelRect,
+    want: SubRect,
+    scale: (f32, f32),
+) -> Result<(), String> {
+    let crop = grow(roi, CROP_PAD, input.width(), input.height());
+    let name = format!(
+        "{}__{}__{}__{}",
+        meta["background"].as_str().unwrap_or("bg"),
+        meta["case"].as_str().unwrap_or("case"),
+        slice.id,
+        encoder
+    );
+    let out = dir.join(config.name).join(name);
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    write_png(&out.join("input.png"), &cut(input, crop))?;
+    write_png(&out.join("recon.png"), &cut(recon, crop))?;
+    write_png(&out.join("gt.png"), &cut(gt, crop))?;
+    // The opacity as composited: the map as drawn, at the expected place,
+    // times k — by the area integral, which is the composite's own kernel
+    // and, after a resize, an approximation of Pillow's bicubic.
+    let catalogue = Catalogue::shipped().map_err(|e| e.to_string())?;
+    let profile = catalogue
+        .profile(meta["profile"].as_str().unwrap_or_default())
+        .ok_or("no profile")?;
+    let map = &profile
+        .maps
+        .iter()
+        .find(|(id, _)| id == meta["map"].as_str().unwrap_or_default())
+        .ok_or("no map")?
+        .1;
+    let k = meta["blend"]["k"].as_f64().unwrap_or(1.0) as f32;
+    let shape = resampled(
+        &drawn(map),
+        want.size,
+        want.x - want.x.floor(),
+        want.y - want.y.floor(),
+    )
+    .ok_or("no shape")?;
+    let (ox, oy) = (want.x.floor() as i64, want.y.floor() as i64);
+    let mut alpha = vec![0u16; (crop.width * crop.height) as usize];
+    let mut holes = Vec::new();
+    for y in 0..crop.height {
+        for x in 0..crop.width {
+            let (mx, my) = (i64::from(crop.x + x) - ox, i64::from(crop.y + y) - oy);
+            let a = shape.get(mx, my) * k;
+            let p = (y * crop.width + x) as usize;
+            alpha[p] = (a.clamp(0.0, 1.0) * 65535.0).round() as u16;
+            if a >= OPAQUE {
+                holes.push(p);
+            }
+        }
+    }
+    let mut pgm = format!("P5\n{} {}\n65535\n", crop.width, crop.height).into_bytes();
+    pgm.extend(alpha.iter().flat_map(|a| a.to_be_bytes()));
+    std::fs::write(out.join("alpha.pgm"), pgm).map_err(|e| e.to_string())?;
+    let runs = runs(&holes);
+    write_json(
+        &out.join("meta.json"),
+        &json!({
+            "schema": SCHEMA,
+            "config": config.name,
+            "case": meta["case"],
+            "background": meta["background"],
+            "group": meta["group"],
+            "tone": meta["tone"],
+            "row": meta["row"],
+            "profile": meta["profile"],
+            "map": meta["map"],
+            "blend": meta["blend"],
+            "slice": slice.id,
+            "encoder": encoder,
+            "scale": [scale.0, scale.1],
+            "crop": rect_json(crop),
+            "roi_in_crop": rect_json(PixelRect { x: roi.x - crop.x, y: roi.y - crop.y, ..roi }),
+            "rect_in_crop": {"x": want.x - crop.x as f32, "y": want.y - crop.y as f32, "size": want.size},
+            "alpha_kernel": if slice.scale.is_some() { "area (the picture was resized bicubically: an approximation)" } else { "area (the composite's own)" },
+            // R8 §4.1 adds it.
+            "sigma_base": Value::Null,
+            "holes_rle": runs,
+        }),
+    );
+    Ok(())
+}
+
+/// Sorted indices as `[start, length]` runs.
+fn runs(sorted: &[usize]) -> Vec<[usize; 2]> {
+    let mut out: Vec<[usize; 2]> = Vec::new();
+    for &i in sorted {
+        match out.last_mut() {
+            Some(r) if r[0] + r[1] == i => r[1] += 1,
+            _ => out.push([i, 1]),
+        }
+    }
+    out
+}
+
+/// `r` cut to `crop`, as RGB 8.
+fn cut(r: &Raster, crop: PixelRect) -> Raster {
+    let mut rgb = Vec::with_capacity((crop.width * crop.height * 3) as usize);
+    for y in crop.y..crop.y + crop.height {
+        for x in crop.x..crop.x + crop.width {
+            rgb.extend(rgb_of(r, x, y));
+        }
+    }
+    Raster::from_u8(crop.width, crop.height, Layout::Rgb8, &rgb)
+        .unwrap_or_else(|e| refuse(&e.to_string()))
+}
+
+fn rgb_of(r: &Raster, x: u32, y: u32) -> [u8; 3] {
+    rgb(r, x, y).map(|v| v.round() as u8)
+}
+
+#[cfg(test)]
+mod tests {
+    use wipemark_pixels::synth::from_linear;
+
+    use super::*;
+
+    /// Sharma, Wu and Dalal's test data (2005), pairs 1, 7, 17–20.
+    #[test]
+    fn ciede2000_is_sharmas() {
+        let pairs = [
+            ([50.0, 2.6772, -79.7751], [50.0, 0.0, -82.7485], 2.0425),
+            ([50.0, 0.0, 0.0], [50.0, -1.0, 2.0], 2.3669),
+            ([50.0, 2.5, 0.0], [73.0, 25.0, -18.0], 27.1492),
+            ([50.0, 2.5, 0.0], [61.0, -5.0, 29.0], 22.8977),
+            ([50.0, 2.5, 0.0], [56.0, -27.0, -3.0], 31.9030),
+            ([50.0, 2.5, 0.0], [58.0, 24.0, 15.0], 19.4535),
+        ];
+        for (p, q, want) in pairs {
+            let got = ciede2000(p, q);
+            assert!((got - want).abs() < 1e-4, "{p:?} {q:?}: {got} not {want}");
+            assert!((ciede2000(q, p) - want).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn lab_of_white_and_black() {
+        let w = lab([255.0; 3]);
+        assert!(
+            (w[0] - 100.0).abs() < 1e-3 && w[1].abs() < 1e-2 && w[2].abs() < 1e-2,
+            "{w:?}"
+        );
+        assert_eq!(lab([0.0; 3]), [0.0, 0.0, 0.0]);
+    }
+
+    fn flat(w: u32, h: u32, v: u8) -> Raster {
+        Raster::from_u8(w, h, Layout::Rgb8, &vec![v; (w * h * 3) as usize]).unwrap()
+    }
+
+    #[test]
+    fn the_metrics_of_a_roi() {
+        let a = flat(20, 20, 100);
+        let mut b = a.clone();
+        let roi = PixelRect {
+            x: 5,
+            y: 5,
+            width: 10,
+            height: 10,
+        };
+        assert_eq!(psnr(&a, &b, roi), PSNR_CAP);
+        assert!((ssim(&a, &b, roi).unwrap() - 1.0).abs() < 1e-12);
+        assert_eq!(delta_e(&a, &b, roi), 0.0);
+        // One level everywhere: PSNR 20·log10(255) ≈ 48.13 dB.
+        b = flat(20, 20, 101);
+        assert!((psnr(&a, &b, roi) - 48.1308).abs() < 1e-3);
+        // A difference outside the ROI is not seen.
+        let mut s = a.samples().to_vec();
+        s[0] = 0;
+        let c = Raster::new(20, 20, Layout::Rgb8, s).unwrap();
+        assert_eq!(psnr(&a, &c, roi), PSNR_CAP);
+        assert!(ssim(&a, &c, PixelRect { width: 6, ..roi }).is_none());
+    }
+
+    /// Every six consecutive generated backgrounds hold every tone, and a
+    /// zone over a generated flat tile reads as the tone it was asked for.
+    #[test]
+    fn the_generator_puts_every_tone_under_the_mark() {
+        for group in ["flat", "text"] {
+            for start in [0usize, 5, 20] {
+                let tones: Vec<Tone> = (start..start + 6).map(|i| asked(group, i).1).collect();
+                for t in TONES {
+                    assert!(tones.contains(&t), "{group} {start}: {t:?}");
+                }
+            }
+        }
+        for (i, want) in TONES.iter().enumerate() {
+            let tile = generate("flat", "flat", *want, seed_of(1, "flat", i), 64);
+            let r = Raster::from_u8(64, 64, Layout::Rgb8, &tile.rgb).unwrap();
+            let z = zone(
+                &r,
+                PixelRect {
+                    x: 8,
+                    y: 8,
+                    width: 48,
+                    height: 48,
+                },
+            );
+            if *want != Tone::Other {
+                assert_eq!(z["tone"], want.id(), "{z}");
+            }
+        }
+    }
+
+    /// The generator is a function of its seed: the same tile twice, and
+    /// another for another seed.
+    #[test]
+    fn a_tile_is_its_seed() {
+        for kind in FLAT_KINDS {
+            let a = generate("flat", kind, Tone::Other, 7, 96);
+            assert_eq!(
+                a.rgb,
+                generate("flat", kind, Tone::Other, 7, 96).rgb,
+                "{kind}"
+            );
+            assert_ne!(
+                a.rgb,
+                generate("flat", kind, Tone::Other, 8, 96).rgb,
+                "{kind}"
+            );
+        }
+        for kind in TEXT_KINDS {
+            let a = generate("text", kind, Tone::White, 7, 96);
+            assert_eq!(
+                a.rgb,
+                generate("text", kind, Tone::White, 7, 96).rgb,
+                "{kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn runs_are_runs() {
+        assert_eq!(runs(&[1, 2, 3, 7, 9, 10]), vec![[1, 3], [7, 1], [9, 2]]);
+        assert!(runs(&[]).is_empty());
+    }
+
+    /// A sample is fixed by its seed and is a subset in order.
+    #[test]
+    fn a_sample_is_fixed_by_its_seed() {
+        let a = sample(100, 10, 1);
+        assert_eq!(a, sample(100, 10, 1));
+        assert_eq!(a.len(), 10);
+        assert!(a.windows(2).all(|w| w[0] < w[1]));
+        assert_ne!(a, sample(100, 10, 2));
+        assert_eq!(sample(3, 10, 1), vec![0, 1, 2]);
+        // Six hold every tone; twelve hold each twice.
+        for (n, each) in [(6usize, 1usize), (12, 2)] {
+            let s = sample(100, n, 3);
+            for t in 0..TONES.len() {
+                assert_eq!(
+                    s.iter().filter(|&&i| i % TONES.len() == t).count(),
+                    each,
+                    "{s:?}"
+                );
+            }
+        }
+    }
+
+    /// Every row's place is where the shipped catalogue puts it, and the
+    /// GWT catalogue differs from the shipped one in V1's large row alone.
+    #[test]
+    fn the_rows_are_the_catalogues() {
+        let c = Catalogues::load();
+        let at = |id: &str| place(ROWS.iter().find(|r| r.id == id).unwrap(), c.shipped);
+        assert_eq!(
+            (at("v1-48").x, at("v1-48").y, at("v1-48").size),
+            (944.0, 944.0, 48.0)
+        );
+        assert_eq!((at("v1-96").x, at("v1-96").size), (1888.0, 96.0));
+        assert_eq!((at("v2-36").x, at("v2-36").size), (917.0, 36.0));
+        assert_eq!((at("v2-96").x, at("v2-96").size), (1760.0, 96.0));
+        assert_eq!(
+            (at("v2-96-r48").x, at("v2-96-r48").y, at("v2-96-r48").size),
+            (1232.0, 624.0, 48.0)
+        );
+        let v1 = |cat: &Catalogue| {
+            let p = cat.profile(V1).unwrap();
+            p.maps[p.placements[0].alpha].0.clone()
+        };
+        assert_eq!(v1(c.shipped), "gemini-v1-96-measured");
+        assert_eq!(v1(&c.gwt), "gemini-v1-96");
+        assert_eq!(c.shipped.profile(V2), c.gwt.profile(V2));
+    }
+
+    /// A linear-light composite is drawn with the inverse sRGB curve: on
+    /// mid-grey it is brighter than the encoded one (`synth`'s own test
+    /// holds the size; this holds the bench's use of the re-export).
+    #[test]
+    fn the_linear_light_curve_round_trips() {
+        for v in [0.0, 1.0, 50.0, 128.0, 254.0, 255.0] {
+            assert!((from_linear(to_linear(v)) - v).abs() < 1e-9, "{v}");
+        }
+    }
+}

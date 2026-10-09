@@ -33,6 +33,17 @@ image = { version = "0.25", default-features = false, features = ["jpeg"] }
 # The pixels suite's generators are borrowed by `#[path]`, and they pin
 # their synthetic maps by sha256.
 sha2.workspace = true
+# The restoration bench (`examples/recon_bench.rs`, E12-R5) reads its
+# manifest and a case's `meta.json`, and writes one JSON line per result.
+# Already in the lock through `wipemark-pixels`.
+serde_json.workspace = true
+
+# The bench's metrics (PSNR, SSIM, CIEDE2000) and its generator are held to
+# known values by tests of their own, which `cargo test -p wipemark-picture`
+# runs: an example's tests are not run unless it says so.
+[[example]]
+name = "recon_bench"
+test = true
 
 [lints]
 workspace = true
