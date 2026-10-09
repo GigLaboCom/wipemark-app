@@ -94,7 +94,7 @@ use wipemark_models::store::{Cancel, Downloads, Event, Hashing, Progress, State}
 use wipemark_models::user::{UserModel, UserState};
 use wipemark_secret::{Secret, Vault};
 
-use crate::compare::Comparison;
+use crate::compare::{Comparison, Gutters};
 use crate::config::{self, SettingsStore};
 use crate::dialog::{AddModel, Adding, Answer, Chosen, Confirm, Naming};
 use crate::diff::Grain;
@@ -347,6 +347,8 @@ pub enum Setting {
     CompareFollow,
     CompareSyncScroll,
     CompareAutosave,
+    /// E7-10: where the line numbers sit (D461, D462).
+    CompareGutters,
     EngineServes,
     EngineKeep,
     EngineIdle,
@@ -408,8 +410,10 @@ impl Setting {
     /// one of the two switches is on.
     ///
     /// The Compare rows put what is *marked* before how the two sides
-    /// *move*: a reader opens the window for the marks.
-    pub const ALL: [Setting; 37] = [
+    /// *move*: a reader opens the window for the marks. Where the line
+    /// numbers sit comes straight after, because it too is about what a
+    /// pane shows rather than how it moves.
+    pub const ALL: [Setting; 38] = [
         Self::Appearance,
         Self::Language,
         Self::ShortcutShow,
@@ -420,6 +424,8 @@ impl Setting {
         Self::WindowScreen,
         Self::CloseAfterDrop,
         Self::CompareGrain,
+        // ## E7-10
+        Self::CompareGutters,
         Self::CompareFollow,
         Self::CompareSyncScroll,
         // ## E7-9
@@ -462,6 +468,7 @@ impl Setting {
             | Self::Setup => Section::General,
             Self::WindowScreen | Self::CloseAfterDrop => Section::Placement,
             Self::CompareGrain
+            | Self::CompareGutters
             | Self::CompareFollow
             | Self::CompareSyncScroll
             | Self::CompareAutosave => Section::Compare,
@@ -503,6 +510,7 @@ impl Setting {
             Self::WindowScreen => Message::SettingsPlacementScreenTitle,
             Self::CloseAfterDrop => Message::SettingsPlacementCloseTitle,
             Self::CompareGrain => Message::SettingsCompareGrainTitle,
+            Self::CompareGutters => Message::SettingsCompareGuttersTitle,
             Self::CompareFollow => Message::SettingsCompareFollowTitle,
             Self::CompareSyncScroll => Message::SettingsCompareSyncScrollTitle,
             Self::CompareAutosave => Message::SettingsCompareAutosaveTitle,
@@ -555,6 +563,7 @@ impl Setting {
             Self::WindowScreen => Message::SettingsPlacementScreenDescription,
             Self::CloseAfterDrop => Message::SettingsPlacementCloseDescription,
             Self::CompareGrain => Message::SettingsCompareGrainDescription,
+            Self::CompareGutters => Message::SettingsCompareGuttersDescription,
             Self::CompareFollow => Message::SettingsCompareFollowDescription,
             Self::CompareSyncScroll => Message::SettingsCompareSyncScrollDescription,
             Self::CompareAutosave => Message::SettingsCompareAutosaveDescription,
@@ -622,6 +631,7 @@ impl Setting {
             Self::WindowScreen => Storage::Row(config::WINDOW_SCREEN_KEY),
             Self::CloseAfterDrop => Storage::Row(config::CLOSE_AFTER_DROP_KEY),
             Self::CompareGrain => Storage::Row(config::COMPARE_GRAIN_KEY),
+            Self::CompareGutters => Storage::Row(config::COMPARE_GUTTERS_KEY),
             Self::CompareFollow => Storage::Row(config::COMPARE_FOLLOW_KEY),
             Self::CompareSyncScroll => Storage::Row(config::COMPARE_SYNC_SCROLL_KEY),
             Self::CompareAutosave => Storage::Row(config::COMPARE_AUTOSAVE_KEY),
@@ -1559,6 +1569,19 @@ impl Preferences {
         self.comparison.grain = grain;
         cx.notify();
         self.persist(cx, move |store| config::write_compare_grain(store, grain));
+    }
+
+    /// Record where a Compare window's line numbers sit. An open window
+    /// hears it through this entity's notification and follows (D462).
+    pub fn place_gutters(&mut self, gutters: Gutters, cx: &mut Context<Self>) {
+        if self.comparison.gutters == gutters {
+            return;
+        }
+        self.comparison.gutters = gutters;
+        cx.notify();
+        self.persist(cx, move |store| {
+            config::write_compare_gutters(store, gutters)
+        });
     }
 
     /// Record whether the original follows the result's cursor.
@@ -4784,6 +4807,7 @@ impl SettingsView {
             Setting::WindowScreen => self.screen_choice(cx).into_any_element(),
             Setting::CloseAfterDrop => self.close_switch(cx).into_any_element(),
             Setting::CompareGrain => self.grain_choice(cx).into_any_element(),
+            Setting::CompareGutters => self.gutters_choice(cx).into_any_element(),
             Setting::CompareFollow => self.follow_switch(cx).into_any_element(),
             Setting::CompareSyncScroll => self.sync_scroll_switch(cx).into_any_element(),
             Setting::CompareAutosave => self.autosave_switch(cx).into_any_element(),
@@ -5016,6 +5040,25 @@ impl SettingsView {
                 };
                 view.preferences.update(cx, |preferences, cx| {
                     preferences.select_grain(grain, cx);
+                });
+            }))
+    }
+
+    /// Facing the middle or both on the left — two radio buttons, the
+    /// grain's shape, the default first.
+    fn gutters_choice(&self, cx: &Context<Self>) -> impl IntoElement {
+        let current = self.preferences.read(cx).comparison().gutters;
+        RadioGroup::vertical("compare-gutters")
+            .selected_index(Gutters::ALL.iter().position(|g| *g == current))
+            .children(
+                Gutters::ALL.map(|gutters| Radio::new(gutters.id()).label(t(gutters.title()))),
+            )
+            .on_click(cx.listener(|view, index: &usize, _, cx| {
+                let Some(gutters) = Gutters::ALL.get(*index).copied() else {
+                    return;
+                };
+                view.preferences.update(cx, |preferences, cx| {
+                    preferences.place_gutters(gutters, cx);
                 });
             }))
     }

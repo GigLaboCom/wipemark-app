@@ -27,7 +27,8 @@ Cargo.toml ── gpui, gpui_platform ──► crates.io: gpui-pre, gpui-pre-pl
    │                                    every one from crates.io as published — nothing patched)
    │
    └── gpui-component (path) ──► vendor/gpui-component/crates/component
-                                   longbridge/gpui-kit, branch next @ f8429177
+                                   longbridge/gpui-kit, branch next @ d9b7c421
+                                   (#3359 + #3416 + #3417 over main 8d8cc671)
                                    its own gpui: gpui-pre =0.3.8 — the same package
 ```
 
@@ -59,10 +60,17 @@ rely on (§2). It replaces
 `scripts/pin-gpui-component.sh`, which now only says it is retired.
 
 **The vendored component.** `vendor/gpui-component` is a submodule of
-**`longbridge/gpui-kit`** itself, branch **`next`**, at **`f8429177`**
-(2026-10-07): `main` at `8d8cc671` plus #3359, our line decorations as
-merged (`docs/sdd/line-decorations.md` §4.1). `next` held nothing beyond
-`f8429177` when it was pinned. Upstream split the old `crates/ui` into
+**`longbridge/gpui-kit`** itself, branch **`next`**, at **`d9b7c421`**
+(2026-10-09, D460): `main` at `8d8cc671` plus three pull requests of the
+owner's, as merged — #3359 (`f8429177`, 2026-10-07), our line
+decorations (`docs/sdd/line-decorations.md` §4.1); #3416 (`63068d0f`), a
+vertical scroll bar on the left (`ScrollbarPlacement`); and #3417
+(`d9b7c421`), the editor's gutter on either side with its columns in a
+chosen order (`gutter_side`, `gutter_order`) — the two the Compare
+window's mirrored layout is built on (`docs/architecture/compare.md`,
+"Where the gutters sit"). `next` held nothing beyond `d9b7c421` when it
+was pinned, and neither of the two later commits touched a manifest:
+`gpui-pre` stayed `=0.3.8`. Upstream split the old `crates/ui` into
 `crates/component` (`gpui-component`), `crates/base` (`gpui-base`),
 `crates/kit` and more, so the root manifest's path is
 `vendor/gpui-component/crates/component`. Nothing of ours is carried in
@@ -461,6 +469,18 @@ decisions D291–D300):
    checks both upstream fixes and the button-layout rule in the resolved
    sources (D297). `GigLaboCom/zed` is used by nothing in the build.
 
+### The bump of 2026-10-09: the component only
+
+The submodule from `f8429177` to `d9b7c421` on gpui-kit `next` — #3416
+and #3417, nothing else (`git log f8429177..d9b7c421`) — for the Compare
+window's mirrored layout (E7-10, D460). The component only: `gpui-pre`
+unchanged at `=0.3.8`, no manifest moved upstream, `Cargo.lock` not
+touched, `scripts/check-gpui-pin.sh` green as it was (neither commit
+adds an `observe_button_layout_changed`). Steps 2, 3 and 5 of "The next
+bump" had nothing to do. heretic-amuse-merge is not in lockstep for
+this one (step 8): it does not use the new API. What the two commits moved
+in our tests is in `docs/plan/reports/E7-10-compare-mirrored-2026-10-09.md`.
+
 ### The next bump
 
 1. **The component.** Move the submodule to the gpui-kit commit that
@@ -538,7 +558,10 @@ decisions D291–D300):
 - #3359, our line decorations upstream: <https://github.com/longbridge/gpui-kit/pull/3359>
 - #3040 (decoration collections), #2691 and #2716 (the editor), #2278, #2279, #2322, #2410, #2411, #2412 (the fork's other commits): see `docs/sdd/line-decorations.md`, "Sources"
 
-- `next` at `f8429177`, the commit the submodule pins (#3359 merged): <https://github.com/longbridge/gpui-kit/commit/f8429177ce6516f0dc7a0a2c2d15767affce82bd>
+- `next` at `f8429177`, the commit the submodule pinned from 2026-10-07 to 2026-10-09 (#3359 merged): <https://github.com/longbridge/gpui-kit/commit/f8429177ce6516f0dc7a0a2c2d15767affce82bd>
+- #3416, scrollbar: Let the vertical scrollbar sit on the left side: <https://github.com/longbridge/gpui-kit/pull/3416>, `63068d0f`: <https://github.com/longbridge/gpui-kit/commit/63068d0fe0b33b2104c66c9963708c7486e5cc6f>
+- #3417, editor: Support mirrored gutters for side-by-side diffs: <https://github.com/longbridge/gpui-kit/pull/3417>, `d9b7c421` — the commit the submodule pins since 2026-10-09: <https://github.com/longbridge/gpui-kit/commit/d9b7c4219a93cc8a95e92d4a4f2f880bab26fb22>
+- the maintainer's Editor Diff story at `d9b7c421`, the calls Compare makes: <https://github.com/longbridge/gpui-kit/blob/d9b7c4219a93cc8a95e92d4a4f2f880bab26fb22/crates/story/src/stories/editor_diff_story.rs>
 
 **crates.io**
 

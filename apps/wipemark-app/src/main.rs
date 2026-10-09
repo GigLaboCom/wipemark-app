@@ -1556,6 +1556,7 @@ fn main() {
                     preferences.read(cx).comparison(),
                     // No row: a save is a row of the window's own (D412).
                     None,
+                    Some(preferences.clone()),
                     AnyWindowHandle::from(window),
                     cx,
                 );

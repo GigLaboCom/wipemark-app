@@ -270,6 +270,27 @@ and its later saves mark it.
   place, the original on the left is the file set aside.
 - **D419** — what a save does not do (below).
 
+And for where the gutters sit (E7-10, "Where the gutters sit"):
+
+- **D460** — the submodule on gpui-kit `next` `d9b7c421` (#3359 + #3416 +
+  #3417); `gpui-pre` unchanged at `=0.3.8`; nothing carried.
+- **D461** — facing the middle: the original's gutter on its right and
+  its scroll bar on its left; the result's as before.
+- **D462** — `compare.gutters`, `middle` by default, followed by an open
+  window at once (alternative: read at the opening, D385's reason).
+- **D463** — both gutters ordered `[FoldIcons, Markers, LineNumbers]`
+  from the text: the numbers at the divider, the markers by the text.
+- **D464** — `left` is the layout before E7-10 to the column: the
+  library's default column order as well as its sides.
+- **D465** — a press in the original's right-hand gutter is the
+  library's: it scrolls nothing, and is a press past the ends of the lines
+  (a click puts the caret at the row's end, a drag selects row end to row
+  end), the mirror of a left gutter.
+- **D466** — the mouse tests' points are measured from the text's own
+  left, not from the row's, which spans the gutter.
+- **D467** — `compare::tests::thumb_of` finds a pane's vertical thumb by
+  the window's layout, for C16 to reuse.
+
 ### What a save does not do (D419)
 
 Layer A does not run over an edit: the person's text is written as
@@ -320,8 +341,12 @@ gpui-kit #3359 (on `next`, which the submodule follows): one
 `compare::Marks` provider by every later one, which the editor asks for
 its visible rows on every frame. A decoration is
 `LineDecoration::new(row).with_background(tint).with_marker(marker)`: a
-marker in a slot left of the line numbers and a tint across the row,
-gutter to edge. The original's marker is `GutterMarker::DiffRemoved` (a
+marker in a slot of the gutter and a tint across the whole row, gutter
+included (since #3417). Where the slot is follows the gutter's column
+order (E7-10, D463): facing the middle — the default — it is between
+the line numbers and the text on both sides, so the marker sits by the
+line it marks and the numbers at the divider; with both gutters on the
+left it is the library's own place, outside the numbers. The original's marker is `GutterMarker::DiffRemoved` (a
 `minus`, in the theme's danger colour); the result's is `DiffAdded` (a
 `plus`, in its success colour). The colour is read from the theme at
 paint time rather than stored, so a theme switch repaints the marks
@@ -513,21 +538,89 @@ change only at the next frame, so nothing blurs. One direction: the
 result leads, because it is the side being written in. With scrolling
 together off, the original scrolls to show its caret, as before E7-7.
 
+## Where the gutters sit (E7-10)
+
+**Facing the middle, by default** (D461). The original's gutter — its
+line numbers and its change markers — is on its **right**, against the
+divider, and its vertical scroll bar on its **left**, the window's outer
+edge; the result keeps its gutter on its left and its scroll bar on its
+right. Both gutters face the divider, so the numbers of two lines that
+stand level sit next to each other across it, and each pane's scroll bar
+is on its own outer edge: the layout of IntelliJ IDEA's diff viewer, the
+owner's goal since 2026-10-07. It is the library's own, as merged on
+gpui-kit `next` — `EditorState::gutter_side(Side::Right)` (#3417) and
+`scrollbar_placement(ScrollbarPlacement::BottomLeft)` (#3416), the calls
+the maintainer's Editor Diff story makes — and nothing of ours is
+patched or carried (D460, `docs/architecture/gpui-pin.md`). On the
+right the text keeps clear of the left scroll bar's whole track, and
+the horizontal track stops short of the gutter.
+
+**The columns, from the text outward** (D463): fold icons, the change
+marker, the line numbers — `gutter_order([FoldIcons, Markers,
+LineNumbers])` on **both** panes, where the library's default puts the
+markers outside the numbers. The marker sits by the line it marks and
+the numbers at the divider, so the two columns of numbers face each
+other with nothing between them but the divider. Neither pane folds
+(`folding(false)`), and then the fold column takes no width at all: the
+library counts it in the gutter only while folding is on
+(`fold_column_width`, `layout_line_numbers` at `d9b7c421`), so the order
+puts nothing between the text and the marker.
+
+**The row** (D462). `compare.gutters` on the Compare page: `middle`
+("Facing the middle", the default) or `left` ("Both on the left"), the
+layout before E7-10 to the column — every gutter on its pane's left,
+every scroll bar on its right, the library's column order (D464). An
+id this build does not spell is read as `middle`, warned about and left
+in the row. It is the one row of the page an **open** window follows,
+at once: the library's setters assign and repaint, and cost no undo
+entry, no jump and no `Window` — the very reason D385 read scrolling
+together at the opening (one sentence true of every row) is outweighed
+here by a layout a person flips in order to look at it. `compare::open`
+is handed the `Preferences` (`main` and the queue hold them), the window
+observes them, and when the value differs from its own it calls
+`CompareView::apply_gutters` — the one function that sets the original's
+side, scroll bar and order and the result's order, and the one
+`CompareView::new` calls, so a window opened `left` and one flipped to
+`left` are one state (`flipping_the_row_moves_an_open_window_s_gutters`,
+which also holds the result's undo history unchanged). The alternative,
+read when a window opens like the other four rows, is recorded under
+D462 in the plan.
+
+**What does not move.** Horizontal scrolling stays each pane's own
+(D380). The cursor follow, scrolling together and the guard work on
+rows and offsets, never on an x, so a gutter on the other side changes
+none of them; the inline marks are byte ranges and the line marks rows.
+What does read an x is a person's mouse: a drag in the original's text
+selects (`the_original_selects_with_the_mouse`, whose points are
+measured from the text's own column, not from the row's width, since
+the row spans the gutter), a press on its left edge drags its thumb and
+one on its right edge, in the gutter, does not scroll
+(`the_original_s_scroll_bar_is_on_its_outer_edge`) — though a drag
+there selects from row end to row end, the mirror of a drag in a gutter
+on the left (D465); where each text
+starts is `the_original_s_gutter_faces_the_middle` and
+`both_on_the_left_is_today_s_layout`. All of the layout is in the
+editors' construction and `apply_gutters`; nothing in `panes`, `render`,
+`look` or the scroll code knows which side a gutter is on.
+
 ## The Compare page
 
 Settings › Compare is where the choices above are made —
 `compare.grain` (`lines`, `words` or `characters`; words by default),
-`compare.follow` (on by default) and `compare.sync_scroll` (on by
-default, the owner, 2026-10-07) and `compare.autosave` (on by default,
-the owner, 2026-10-08; see "Saving an edited result") — as rows in
-`wipemark.db` like
+`compare.gutters` (`middle` or `left`; facing the middle by default —
+"Where the gutters sit"), `compare.follow` (on by default) and
+`compare.sync_scroll` (on by default, the owner, 2026-10-07) and
+`compare.autosave` (on by default, the owner, 2026-10-08; see "Saving an
+edited result") — as rows in `wipemark.db` like
 every other preference, read into `compare::Comparison` and handed to
 `compare::open` by whoever opens a window. A window keeps what it was
 opened with; the page's own sentence says so, and the reason is the
 catch above. Scrolling together could be read live — turning it on in
 an open window would cost no undo entry and no jump — and is read at
 the opening all the same (D385), so that the page's one sentence stays
-true of every row on it. What the page deliberately does not offer is a way to
+true of every row on it. Where the line numbers sit is the exception,
+and the page's sentence names it: an open window follows that row at
+once (D462). What the page deliberately does not offer is a way to
 *ignore* anything — whitespace, case, line endings — and its banner
 says why: this product exists to notice characters people cannot see,
 and a comparison that overlooked some of them would be the wrong

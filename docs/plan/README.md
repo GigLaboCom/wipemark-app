@@ -199,7 +199,8 @@ opens its own pull request against `main` instead of riding on `feat`.
 | 7c | `fix/e7-8-e8-1-followups` — **merged 2026-10-09** | the open findings of E7-8's and E8-1's verifications: one fact for consent, Compare's leftover asks, the added models' lows (§7 E7, E8) | `wipemark-task-followups-e7-8-e8-1-2026-10-08` | D430–D439, [report](reports/followups-e7-8-e8-1-2026-10-08.md) | done; the verification's Medium (tags that say speech refuse a text model) and Lows done in 7f (D450, D452–D455) |
 | 7d | `e4/bench-voice` — **merged 2026-10-09** | E4-8: voice measures in the bench, keep-voice variants in en, ru, de, the four-model run as a script (§7 E4) | `wipemark-task-bench-voice-2026-10-08` | D420–D429, [report](reports/E4-8-bench-voice-2026-10-08.md) | done in the container, the host verification's M1–M3 and Lows fixed (`a4b5d4e`); the host run and the keep-voice decision pending |
 | 7f | `fix/models-pipeline-followups` | the follow-ups' verification's Medium and Lows (§7 E8), `macOS-only` as an identifier (§7 E4), Gemma 4's re-upload checked (§7 E2), the images nits (row 4) and this table's E8-1 rows: M1–M11 | `wipemark-task-models-pipeline-followups-2026-10-09` | D450–D455, [report](reports/models-pipeline-followups-2026-10-09.md) | **merged 2026-10-09**. D450 and D451 built at a default the owner may override |
-| 8 | gpui-kit #3416, #3417 (upstream, the owner's) | The scrollbar on the left and the original's gutter on its right in the editor — what Compare's mirrored layout needs (§7 E7) | **#3416 merged** into `next` 2026-10-09 (`63068d0`, squashed, with the maintainer's story commit); **#3417 merged** 2026-10-09 (`d9b7c421`, "Support mirrored gutters for side-by-side diffs") — three commits of ours plus the maintainer's Editor Diff story (`70b271ad`) and horizontal-track fix (`e30f2615`), and the inventory and gallery entries his story needed | E7-10 (`wipemark-task-compare-mirrored-2026-10-09`, `e7/compare-mirrored`): the submodule onto `next` `d9b7c421` and Compare's gutters facing the middle | **open as drafts** upstream |
+| 7g | `e7/compare-mirrored` | E7-10: Compare's gutters face the middle — the original's line numbers and markers on its right, its scroll bar on its left, the result as before, the marker by the text and the numbers at the divider on both; `compare.gutters` on the Compare page (`middle` by default, `left` the layout before), followed by an open window at once; the submodule onto gpui-kit `next` `d9b7c421` (§7 E7) | `wipemark-task-compare-mirrored-2026-10-09` | D460–D467, [report](reports/E7-10-compare-mirrored-2026-10-09.md) | **merged 2026-10-09**; the host's window checklist in the report |
+| 8 | gpui-kit #3416, #3417 (upstream, the owner's) | The scrollbar on the left and the original's gutter on its right in the editor — what Compare's mirrored layout needs (§7 E7) | **#3416 merged** into `next` 2026-10-09 (`63068d0`, squashed, with the maintainer's story commit); **#3417 merged** 2026-10-09 (`d9b7c421`, "Support mirrored gutters for side-by-side diffs") — three commits of ours plus the maintainer's Editor Diff story (`70b271ad`) and horizontal-track fix (`e30f2615`), and the inventory and gallery entries his story needed | E7-10 (`wipemark-task-compare-mirrored-2026-10-09`, `e7/compare-mirrored`): the submodule onto `next` `d9b7c421` and Compare's gutters facing the middle | **done**: both merged into `next` on 2026-10-09 — #3416 as `63068d0f`, #3417 as `d9b7c421`; the submodule on `next` `d9b7c421` since E7-10 (row 7g, D460) |
 | 9 | — | The keep-voice rule after a four-model bench, and a voice measure in the bench (§7 E4); E8 (models and engine UI, the rest), E12-6 (other vendors), E12-7 (the reconstructor), the rest of E12-8 (Compare for pictures, the queue's picture item), S7.2, S7.3, S7.5, E9 licensing, E10 packaging (Windows; the Linux tray is done) | to be written | — | §7 |
 
 **Open with the owner** (§5): Q-C2–Q-C4 (E7's defaults: all metadata,
@@ -848,6 +849,14 @@ tell a decision from an accident.
 | **D453** | **An add files its key and chat verdict at once**: `Read::Added` carries the header read's `FileKey` and `ChatSupport`, filed beside the row until the rescan reads them again. | The follow-ups' verification's Low: between an add and its rescan the same file by another road was a second row (against D436), and its verdict was unknown (D438); `user-models.md`. |
 | **D454** | **A swap told both ways**: the slot's watchers are told on every change of "swap pending"; the batch queue, told while it is pending, looks again and still waits (D395). | The follow-ups' verification's Low; the window never lagged (the host notifies, the shell observes it), the batch queue did; `queue.md`. |
 | **D455** | **A non-blocking open, then `fstat`**: `store::open_regular`, the header's and the hash's one open — a stat, then on Unix `O_NONBLOCK` (from `libc`, already locked) and the open file asked again; off Unix the stat and the open. | E8-1 follow-ups' Left open: a pipe swapped in after the stat blocked the open and held the scan's slot; `user-models.md`. |
+| **D460** | **The component on gpui-kit `next` `d9b7c421`** — #3359 + #3416 + #3417 over `main` `8d8cc671`; `gpui-pre` unchanged at `=0.3.8`, no manifest moved upstream, `Cargo.lock` untouched, nothing carried. Steps 2, 3 and 5 of `gpui-pin.md` §4 "The next bump" had nothing to do; heretic-amuse-merge not in lockstep for this one (it does not use the new API). | E7-10 M1; `docs/architecture/gpui-pin.md` §1, §4. |
+| **D461** | **Compare's gutters face the middle**: the original's gutter on its right (`gutter_side(Side::Right)`) and its vertical scroll bar on its left (`ScrollbarPlacement::BottomLeft`), the result's gutter on its left and its bar on its right as before — the corresponding line numbers side by side across the divider, IntelliJ IDEA's diff viewer. Horizontal scroll stays each pane's own (D380). | The owner, 2026-10-07 (§7 E7, "And the gutter"); E7-10 M2. |
+| **D462** | **`compare.gutters`, `middle` by default, is followed by an open window at once**: `compare::open` takes the `Preferences`, the window observes them and calls `apply_gutters` — the one function `CompareView::new` calls too — when the value differs from its own. The library's setters cost no undo entry, no jump and no `Window`, so D385's reason (one sentence true of every row) is outweighed by a layout a person flips to look at; the page's sentence and the window's help name the exception. **Alternative**, recorded: read when a window opens, like the other four rows. | E7-10 M3 (the coordinator's default, 2026-10-09; the owner may override). |
+| **D463** | **Both gutters ordered `[FoldIcons, Markers, LineNumbers]` from the text**: the change marker by the line it marks, the numbers at the divider, so the two columns of numbers face each other. Neither pane folds, and with `folding(false)` the fold column takes no width (`fold_column_width`), so listing it first costs nothing. | E7-10 M2. |
+| **D464** | **`left` is the layout before E7-10 to the column**: the library's own sides *and* its column order (`[FoldIcons, LineNumbers, Markers]`, markers outside the numbers), so a person who prefers the old layout gets exactly it. | E7-10 M3 ("Both on the left" — today's layout). |
+| **D465** | **A press in the original's right-hand gutter is the library's**: it scrolls nothing (no scroll bar there) and is a press past the ends of the lines — a click puts the caret at that row's end, a drag selects from row end to row end — the mirror of a press in a left gutter, which places it at the row's start. Not patched and not asked upstream. | E7-10 M4 (`the_original_s_scroll_bar_is_on_its_outer_edge` asserts the scroll only); the task expected no selection — measured otherwise. |
+| **D466** | **`across_the_original` measures its drag from the text's own left** (`range_to_bounds`), not from the row's: `row_bounds` spans the gutter, and with the gutter on the right a point at 0.9 of the row could land in it in a narrower window. The bump itself moved no test. | E7-10 M1 step 4. |
+| **D467** | **One helper finds a pane's vertical thumb, by the window's layout**: `compare::tests::thumb_of(view, side, cx)` — the original's left edge facing the middle, the right edge otherwise, near the track's top — for C16 to reuse rather than assume the right edge. | E7-10 M5 (C16 not landed when E7-10 was built). |
 
 ---
 
@@ -1281,8 +1290,9 @@ the gate the overview set, and the open edges.
   inside a changed block taller than the window; **L4** `compare-help-settings`
   wording. Earlier note: the left scrollbar and the right gutter
   wait on the owner's gpui-kit pull requests **#3416** and **#3417**, open
-  as drafts. **Update 2026-10-09:** #3416 is merged (`63068d0`); #3417 is
-  in review, reframed at the maintainer's request around a side-by-side
+  as drafts — **done by E7-10** (row 7g): both merged, the submodule on
+  `next` `d9b7c421`, Compare's gutters facing the middle. **Update
+  2026-10-09:** #3416 is merged (`63068d0`); #3417 was in review, reframed at the maintainer's request around a side-by-side
   diff whose gutters face the center, with his Editor Diff story
   (`70b271ad`), which keeps the two panes level by synchronising in the
   parent view's `render` before either pane is laid out — he found that an
@@ -1322,7 +1332,13 @@ the gate the overview set, and the open edges.
   as today. A "gutter side" option on the editor is a second, larger
   upstream change than the scrollbar's; assessed with the scrollbar patch
   (fork branch `scrollbar-left-side`, and `editor-gutter-right-side` if it
-  is small).
+  is small). **Done by E7-10** (`e7/compare-mirrored`, D460–D467, report
+  `reports/E7-10-compare-mirrored-2026-10-09.md`): upstream as #3416 and
+  #3417, the submodule on `next` `d9b7c421`; the original's gutter on its
+  right and its bar on its left, both gutters ordered marker-then-numbers
+  from the text, and `compare.gutters` (`middle` by default, `left` the
+  layout before) followed by an open window at once
+  (`docs/architecture/compare.md`, "Where the gutters sit").
 - **Build. A row's action is a button, not only a menu item** (the owner,
   2026-10-07) — **done** in E4-6b: Clean and Rewrite are buttons on every
   row, greyed with the menu's reason (D325), the *Not started* tooltip
