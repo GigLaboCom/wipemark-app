@@ -235,6 +235,21 @@ skip when unset (D186).
   anything sent upstream (`GigLaboCom/zed`, gpui-kit, zed). An agent's
   commits follow the same rule; a task document for one says so (the
   owner, 2026-10-07).
+* **A pull request to an upstream project comes from the owner's personal
+  fork.** gpui-kit, zune-image, zed and the rest: fork under the GitHub
+  account **`glani`** (the one `gh` is logged in as — `gh repo fork
+  <upstream> --clone=false`, no `--org`), open the PR from `glani:<branch>`
+  and check that "Allow edits from maintainers" is on
+  (`maintainer_can_modify`). A maintainer cannot push to a branch of an
+  organization-owned fork even with that flag set — gpui-kit's had to ask
+  us to cherry-pick his commit into #3416 (2026-10-09) — so the
+  `GigLaboCom/*` forks hold only what this repository pins
+  (`GigLaboCom/zune-image` `raw-quantization-tables`) and the screenshots a
+  PR links (`GigLaboCom/gpui-component` `pr-assets`); gpui-kit #3416, #3417
+  and zune-image #488, opened from them before the rule, finish where they
+  are. The patch is upstream's style, not ours — no comments where upstream
+  has none — with `des <denis.yesakov@gmail.com>` as its only author (the
+  owner, 2026-10-07 and 2026-10-09).
 
 ## Build, run, look
 
