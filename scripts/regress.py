@@ -50,6 +50,20 @@ What it does
   `consistency_px`, D305, where both sides carry it) and the time, under
   G1–G4 on every route and L1–L4, M1–M4, D1–D4 by route; writes
   `summary.json` and `summary.md`.
+* `--export-crops DIR` on `baseline` and `run` (added by E12-R10,
+  2026-10-09, for `scripts/model-eval/`) — after the CLI's run, per file
+  the restoration's crops R10's scripts read. The CLI's `--json` carries
+  neither the opacity a restoration used nor the restored raster before
+  the encoder, so a small example of `wipemark-picture`
+  (`examples/export_crops.rs`, `--crop-tool`, by default
+  `<the CLI's tree>/target/release/examples/export_crops`) runs the user's
+  path over the file again with `--crop-planar` and `--crop-refine` — give
+  the ones the CLI was built and run with (a `planar-preview` build and
+  `WIPEMARK_INTERVAL`; the default is the product today, no planes and no
+  refinement) — and writes `DIR/<id>__<n>/` (`input.png`, `recon.png`,
+  `alpha.pgm`, `meta.json`, which names the file's class and variant) and
+  `DIR/index.json` (the tool, its settings, the commit, the crops per
+  file). `--crop-pad` is the context around the ROI (64; LaMa asks 128).
 * `list` (added by E12-R12, 2026-10-09) — every selected file's absolute
   path and its `class:variant`, tab-separated under a `path<TAB>group`
   header, every sha256 checked first: the list a tool reads
@@ -76,6 +90,8 @@ How to run it
                                         [--out reports/regress-<commit>-<date>/]
     python3 scripts/regress.py diff     --a <dir> --b <dir> --route … [--target …] [--new-fields …] \
                                         [--profile GLOB] [--foreign GLOB] [--out <dir>]
+    python3 scripts/regress.py run      … --export-crops <dir> [--crop-tool target/release/examples/export_crops] \
+                                        [--crop-planar true] [--crop-refine dct] [--crop-pad 128]
     python3 scripts/regress.py list     [--corpus …] [--cache …] [--select …] [--out list.tsv]
     python3 scripts/regress.py selftest [--cli target/release/wipemark-cli]
 
@@ -1379,6 +1395,7 @@ def cmd_baseline(args):
     if re.fullmatch(r"[0-9a-f]{7,40}", base) and head and not head.startswith(base):
         raise Refusal(f"--out names commit {base}, but the CLI's tree ({tree}) is at {head[:12]}: a baseline is filed under its own commit")
     index = execute(m, corpus, entries, args.cli, args.out, "baseline", tree)
+    maybe_export_crops(args, corpus, entries, tree)
     _, recs = load_run(args.out)
     if args.write_expect:
         for e in m["files"]:
@@ -1426,6 +1443,7 @@ def cmd_run(args):
     head = (git("rev-parse", "--short=7", "HEAD", tree=tree) or "unknown")
     out = args.out or os.path.join(REPO, "reports", f"regress-{head}-{time.strftime('%Y-%m-%d')}")
     b_index = execute(m, corpus, entries, args.cli, out, "run", tree)
+    maybe_export_crops(args, corpus, entries, tree)
     _, after = load_run(out)
     if args.select:
         before = {k: v for k, v in before.items() if k in after}
@@ -1434,6 +1452,53 @@ def cmd_run(args):
     print(write_summary(out, files, corp, a_index, b_index))
     print(f"summary: {os.path.join(out, 'summary.md')}")
     return exit_of(corp)
+
+
+def crop_tool_of(cli, given=None, tree=None):
+    """The `export_crops` example beside the CLI: `<tree>/target/release/examples/export_crops`."""
+    if given:
+        return given
+    return os.path.join(cli_tree_of(cli, tree), "target", "release", "examples", "export_crops")
+
+
+def export_crops(corpus, entries, tool, out_dir, planar="false", refine="none", pad=64, tree=None):
+    """`--export-crops` (E12-R10): the restoration's crops of every file, by `examples/export_crops.rs`."""
+    if not os.path.isfile(tool) or not os.access(tool, os.X_OK):
+        raise Refusal(f"{tool}: not an executable crop tool "
+                      "(cargo build --release -p wipemark-picture --example export_crops [--features planar-preview])")
+    if planar not in ("true", "false") or refine not in ("none", "dct", "pixel", "wiener"):
+        raise Refusal(f"--crop-planar {planar} / --crop-refine {refine}: true|false and none|dct|pixel|wiener")
+    files = corpus.materialise(entries)
+    os.makedirs(out_dir, exist_ok=True)
+    per_file = {}
+    for n, e in enumerate(entries, 1):
+        path, _sha = files[e["id"]]
+        p = subprocess.run([tool, "--in", path, "--out", out_dir, "--id", e["id"], "--pad", str(pad),
+                            "--planar", planar, "--refine", refine, "--class", e["class"], "--variant", e["variant"]],
+                           capture_output=True, text=True)
+        if p.returncode != 0:
+            per_file[e["id"]] = {"exit": p.returncode, "stderr_tail": p.stderr[-400:]}
+        else:
+            made = sorted(d for d in os.listdir(out_dir) if d.startswith(e["id"] + "__")
+                          and os.path.isdir(os.path.join(out_dir, d)))
+            per_file[e["id"]] = {"exit": 0, "crops": made}
+        print(f"  crops [{n}/{len(entries)}] {e['id']}: exit {p.returncode}, "
+              f"{len(per_file[e['id']].get('crops', []))} crop(s)", flush=True)
+    index = {"schema": SCHEMA, "kind": "crops", "tool": os.path.abspath(tool), "planar": planar, "refine": refine,
+             "pad": pad, "commit": git("rev-parse", "HEAD", tree=tree or REPO), "date": time.strftime("%Y-%m-%d"),
+             "files": per_file}
+    with open(os.path.join(out_dir, "index.json"), "w") as f:
+        json.dump(index, f, indent=1)
+        f.write("\n")
+    return index
+
+
+def maybe_export_crops(args, corpus, entries, tree):
+    if getattr(args, "export_crops", None):
+        tool = crop_tool_of(args.cli, args.crop_tool, args.cli_tree)
+        print(f"crops: {tool} with planar={args.crop_planar}, refine={args.crop_refine} "
+              "(give the ones the CLI was built and run with)", flush=True)
+        export_crops(corpus, entries, tool, args.export_crops, args.crop_planar, args.crop_refine, args.crop_pad, tree)
 
 
 def cmd_list(args):
@@ -1981,6 +2046,46 @@ def t_a_profile_filter_makes_p5_a_diff():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def t_export_crops_runs_the_tool_once_per_file_with_its_class():
+    tmp = tempfile.mkdtemp(prefix="regress-selftest-")
+    try:
+        tool = os.path.join(tmp, "export_crops")
+        with open(tool, "w") as f:
+            f.write("#!" + sys.executable + "\n"
+                    "import json, os, sys\n"
+                    "a = dict(zip(sys.argv[1::2], sys.argv[2::2]))\n"
+                    "d = os.path.join(a['--out'], a['--id'] + '__0')\n"
+                    "os.makedirs(d, exist_ok=True)\n"
+                    "json.dump(a, open(os.path.join(d, 'meta.json'), 'w'))\n")
+        os.chmod(tool, 0o755)
+        src = os.path.join(tmp, "src")
+        os.makedirs(src)
+        for name in ("a.png", "b.png"):
+            with open(os.path.join(src, name), "wb") as f:
+                f.write(name.encode())
+        m = {"schema": SCHEMA, "sources": {"s": {"key": "k", "sha256": None}}, "files": [
+            {"id": "a", "class": "recon-jpeg-444", "variant": "q95", "source": "s", "path": "a.png",
+             "sha256": sha256_file(os.path.join(src, "a.png"))},
+            {"id": "b", "class": "recon-png", "variant": "png", "source": "s", "path": "b.png",
+             "sha256": sha256_file(os.path.join(src, "b.png"))}]}
+        corpus = Corpus(m, os.path.join(tmp, "cache"), {"s": src})
+        out = os.path.join(tmp, "crops")
+        index = export_crops(corpus, m["files"], tool, out, "true", "dct", 128)
+        assert sorted(index["files"]) == ["a", "b"] and index["files"]["a"]["crops"] == ["a__0"], index
+        with open(os.path.join(out, "a__0", "meta.json")) as f:
+            seen = json.load(f)
+        assert (seen["--class"], seen["--variant"], seen["--planar"], seen["--refine"], seen["--pad"]) == \
+            ("recon-jpeg-444", "q95", "true", "dct", "128"), seen
+        try:
+            export_crops(corpus, m["files"], tool, out, "yes", "dct")
+        except Refusal:
+            pass
+        else:
+            raise AssertionError("a --crop-planar that is not true|false was taken")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def t_the_reproduction_reads_the_gemini_stickers_alone():
     """§6.3's figures are the Gemini stickers': the baseline checks them over that ZIP's files and their derived
     ones, never over a second golden set's — a Grok q95 4:4:4 file with another texture is not D250's."""
@@ -2025,6 +2130,7 @@ SELFTESTS = [
     t_a_second_golden_set_takes_held_out_files_and_text_look_alikes,
     t_a_profile_filter_makes_p5_a_diff,
     t_the_reproduction_reads_the_gemini_stickers_alone,
+    t_export_crops_runs_the_tool_once_per_file_with_its_class,
 ]
 
 
@@ -2134,6 +2240,12 @@ def parser():
                        help="compare only these profiles' findings (globs, e.g. gemini-*); F2: none of them lost")
         s.add_argument("--foreign", action="append",
                        help="profiles with no business on this corpus (globs, e.g. grok-*); F1: any finding fails")
+    def crop_args(s):
+        s.add_argument("--export-crops", help="E12-R10: write the restoration's crops of every file here")
+        s.add_argument("--crop-tool", help="the export_crops example (default: <CLI tree>/target/release/examples/export_crops)")
+        s.add_argument("--crop-planar", default="false", help="true for the planar inverse (R6), as the CLI was built")
+        s.add_argument("--crop-refine", default="none", help="none|dct|pixel|wiener, as WIPEMARK_INTERVAL was set (R8)")
+        s.add_argument("--crop-pad", type=int, default=64, help="pixels of context around the ROI (LaMa asks 128)")
 
     s = sub.add_parser("fetch")
     corpus_args(s)
@@ -2146,6 +2258,7 @@ def parser():
     s.add_argument("--cli-tree", help="the checkout the CLI was built in (default: found from --cli)")
     s.add_argument("--out", required=True)
     s.add_argument("--no-write-expect", dest="write_expect", action="store_false")
+    crop_args(s)
     s = sub.add_parser("run")
     corpus_args(s)
     s.add_argument("--cli", required=True)
@@ -2156,6 +2269,7 @@ def parser():
     s.add_argument("--new-fields", help="JSON fields the change adds by a decision, comma-separated (L1/D4 forgive them)")
     profile_args(s)
     s.add_argument("--out")
+    crop_args(s)
     s = sub.add_parser("diff")
     s.add_argument("--a", required=True)
     s.add_argument("--b", required=True)

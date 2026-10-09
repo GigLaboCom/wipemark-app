@@ -60,5 +60,12 @@ test = true
 name = "measure_clean"
 test = true
 
+# The restoration's crops from a real file, for R10's model evaluation
+# (E12-R10, `scripts/model-eval/`): its rectangles and its runs of holes are
+# held by tests of its own.
+[[example]]
+name = "export_crops"
+test = true
+
 [lints]
 workspace = true
