@@ -10,6 +10,8 @@ the repository, and says what it is for" (the owner, 2026-10-05). Each
 script's header says which claim it checked, how to run it and what its
 output means; this page is the index.
 
+Since E12-R1 a change to the picture crates is run over the whole corpus by `scripts/regress.py`, which generalises `mkset.py`, `batch.py` and `summ.py` — see [`golden/README.md`](../../../golden/README.md).
+
 One folder per verification, named by the round whose work it verified
 and the commit it verified. The verdicts and figures are in the next
 round's task (Watchword FILE `wipemark-task-images-followups-<n+1>-…`,

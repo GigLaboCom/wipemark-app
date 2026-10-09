@@ -56,6 +56,13 @@ Thumbs.db
 /queue.json
 /history.jsonl
 
+# ── The regression over real files (scripts/regress.py, golden/README.md) ──
+# The owner's pictures, unpacked, and the files derived from them: named
+# by golden/manifest.json, never committed (D304). A run's folder is a
+# report of the moment; the baseline under golden/baseline/ is committed.
+/golden/cache/
+/reports/regress-*/
+
 # ── Font Awesome Free staging (icon curation) ────────────────────────
 # The corpus is pulled into dev-staging/ to promote single glyphs into
 # apps/wipemark-app/assets/icons/. None of it is committed:

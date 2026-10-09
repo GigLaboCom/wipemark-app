@@ -1,0 +1,6427 @@
+{
+  "schema": 1,
+  "comment": "Written by scripts/golden-manifest.py and filled by scripts/regress.py (pin, baseline). D304: the owner's pictures are named, never committed.",
+  "sources": {
+    "fixtures": {
+      "repo": "fixtures/image/gemini",
+      "comment": "the 14 committed crops"
+    },
+    "stickers": {
+      "key": "wipemark-gemini-stickers-2026-10-04",
+      "sha256": "5a54435bbd600b43113ade474ad08f6f8b83dc10cdb637eca84847515b991f04",
+      "comment": "the owner's first-generation Gemini stickers, a stored ZIP of 42 files"
+    }
+  },
+  "recipes": {
+    "pillow": "12.3.0",
+    "libjpeg": "6.2",
+    "mkset": "scripts/verify/images/round4-ebf421a/mkset.py"
+  },
+  "files": [
+    {
+      "id": "anchor-green-1025",
+      "class": "recon-png",
+      "variant": "fixture-png",
+      "source": "fixtures",
+      "path": "anchor-green-1025.png",
+      "sha256": "48ffc44b91899766a738a07ec26e2ff053d69b05a4ccc5ea7e9093ca15b7b1f8",
+      "expect": null
+    },
+    {
+      "id": "crying-1025",
+      "class": "recon-png",
+      "variant": "fixture-png",
+      "source": "fixtures",
+      "path": "crying-1025.png",
+      "sha256": "ef0da91aa48a491e5a9017cf774e71506867f125ebfd9d832f8d22a5103a5bab",
+      "expect": null
+    },
+    {
+      "id": "crying-transparent-1025",
+      "class": "transparent",
+      "variant": "fixture-png",
+      "source": "fixtures",
+      "path": "crying-transparent-1025.png",
+      "sha256": "6cbc54505c68415faf21eef20fbc8dcd30ab00709c44d96eb4093eb788e64f14",
+      "expect": null
+    },
+    {
+      "id": "cut-out-confetti-256",
+      "class": "transparent",
+      "variant": "fixture-webp-lossy",
+      "source": "fixtures",
+      "path": "cut-out-confetti-256.webp",
+      "sha256": "88b1aeaf710201fc9374c653ca689b41bfc33600eb8fd1dd11450f2718e8fe39",
+      "expect": null
+    },
+    {
+      "id": "fine-1040-q98-444",
+      "class": "recon-jpeg-444",
+      "variant": "fixture-q98",
+      "source": "fixtures",
+      "path": "fine-1040-q98-444.jpg",
+      "sha256": "4e3f72bb53b548471675d5200405c31c8916ff609c15dc90b8e280e68f67395b",
+      "expect": null
+    },
+    {
+      "id": "scroll-1040-q90",
+      "class": "recon-webp",
+      "variant": "fixture-q90",
+      "source": "fixtures",
+      "path": "scroll-1040-q90.webp",
+      "sha256": "3404fd6e596e98b8837a4946c52197b564d4ddc142bcd16103784ebb63f9da29",
+      "expect": null
+    },
+    {
+      "id": "thinking-1040-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "fixture-q95",
+      "source": "fixtures",
+      "path": "thinking-1040-q95-420.jpg",
+      "sha256": "2bfa389774885d105db9669669a968f378865b66e224a1742889abd241584204",
+      "expect": null
+    },
+    {
+      "id": "torch-1025-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "fixture-q95",
+      "source": "fixtures",
+      "path": "torch-1025-q95-420.jpg",
+      "sha256": "4f14601af46d7a44bebb932548ad8d63aca10cf04804f382ab8d03fc583ab259",
+      "expect": null
+    },
+    {
+      "id": "torch-1025-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "fixture-q95",
+      "source": "fixtures",
+      "path": "torch-1025-q95-444.jpg",
+      "sha256": "f7bd31ce30f752b39026d6b041165df907ab660ef246e0f7b526e7ed0f480e5f",
+      "expect": null
+    },
+    {
+      "id": "torch-1025",
+      "class": "recon-png",
+      "variant": "fixture-png",
+      "source": "fixtures",
+      "path": "torch-1025.png",
+      "sha256": "a81716a84e0117d5c895e09c0addef0740cdbce497a4972308d3756c0adc20e3",
+      "expect": null
+    },
+    {
+      "id": "victory-1025-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "fixture-q95",
+      "source": "fixtures",
+      "path": "victory-1025-q95-420.jpg",
+      "sha256": "ec3f7054fa42a22ab854a16936b1c647a7cc3845ee579b82ccec13e48786f119",
+      "expect": null
+    },
+    {
+      "id": "victory-1025-q98-420",
+      "class": "recon-jpeg-420",
+      "variant": "fixture-q98",
+      "source": "fixtures",
+      "path": "victory-1025-q98-420.jpg",
+      "sha256": "e54180d481e71ef2a86abfc5a1ee54d620b4259318fe6b5f93f06d9ab985630e",
+      "expect": null
+    },
+    {
+      "id": "victory-1025",
+      "class": "recon-png",
+      "variant": "fixture-png",
+      "source": "fixtures",
+      "path": "victory-1025.png",
+      "sha256": "f79a575baa38d91aa53026d9420ee68026e3418786b0ad348d8f87135ffeb2a9",
+      "expect": null
+    },
+    {
+      "id": "victory-1040-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "fixture-q95",
+      "source": "fixtures",
+      "path": "victory-1040-q95-420.jpg",
+      "sha256": "e001118524d8c47fceb03cb4689fb06308b8cd5600e3707d69b6b27b156df4b4",
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/01_pointing_finger.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/02_skeptical_look.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/03_blessing.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/04_tearing_scroll.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/05_torch_and_cross.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/06_thumbs_up.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/07_shock.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/08_facepalm.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/09_thinking.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/10_this_is_fine.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/10_this_is_fine_alternative.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/11_crying.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/12_laughing.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/13_angry.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/14_sleeping.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/15_coffee.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/16_laptop.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/17_magnifying_glass.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/18_stamp.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/19_victory.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving",
+      "class": "recon-png",
+      "variant": "png",
+      "source": "stickers",
+      "path": "stickers/20_waving.png",
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-q95-444",
+      "class": "recon-jpeg-444",
+      "variant": "q95",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-q90-444",
+      "class": "recon-jpeg-444",
+      "variant": "q90",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:4:4"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-q95-420",
+      "class": "recon-jpeg-420",
+      "variant": "q95",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-q90-420",
+      "class": "recon-jpeg-420",
+      "variant": "q90",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-q85-420",
+      "class": "recon-jpeg-420",
+      "variant": "q85",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "jpeg",
+        "quality": 85,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-q75-420",
+      "class": "recon-jpeg-420",
+      "variant": "q75",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "jpeg",
+        "quality": 75,
+        "subsampling": "4:2:0"
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-c1025",
+      "class": "frames",
+      "variant": "c1025-png",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "png",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-c1025-q95-420",
+      "class": "frames",
+      "variant": "c1025-q95-420",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-c1025-q90-420",
+      "class": "frames",
+      "variant": "c1025-q90-420",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1023,
+          1023,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-c1040",
+      "class": "frames",
+      "variant": "c1040-png",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "png",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-c1040-q95-420",
+      "class": "frames",
+      "variant": "c1040-q95-420",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-c1040-q90-420",
+      "class": "frames",
+      "variant": "c1040-q90-420",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1008,
+          1008,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-c1024",
+      "class": "frames",
+      "variant": "c1024-png",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "png",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-c1024-q95-420",
+      "class": "frames",
+      "variant": "c1024-q95-420",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "jpeg",
+        "quality": 95,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-c1024-q90-420",
+      "class": "frames",
+      "variant": "c1024-q90-420",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "crop": [
+          1024,
+          1024,
+          2048,
+          2048
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "01_pointing_finger-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "01_pointing_finger",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "02_skeptical_look-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "02_skeptical_look",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "03_blessing-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "03_blessing",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "04_tearing_scroll-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "04_tearing_scroll",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "05_torch_and_cross-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "05_torch_and_cross",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "06_thumbs_up-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "06_thumbs_up",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "07_shock-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "07_shock",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "08_facepalm-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "08_facepalm",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "09_thinking-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "09_thinking",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "10_this_is_fine",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "10_this_is_fine_alternative-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "10_this_is_fine_alternative",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "11_crying-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "11_crying",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "12_laughing-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "12_laughing",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "13_angry-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "13_angry",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "14_sleeping-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "14_sleeping",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "15_coffee-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "15_coffee",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "16_laptop-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "16_laptop",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "17_magnifying_glass-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "17_magnifying_glass",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "18_stamp-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "18_stamp",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "19_victory-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "19_victory",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-x0.9",
+      "class": "recon-resized",
+      "variant": "x0.9-png",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "png",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-x1.1",
+      "class": "recon-resized",
+      "variant": "x1.1-png",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "png",
+        "resize": [
+          2253,
+          2253
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    },
+    {
+      "id": "20_waving-x0.9-q90-420",
+      "class": "recon-resized",
+      "variant": "x0.9-q90-420",
+      "derived": {
+        "from": "20_waving",
+        "recipe": "jpeg",
+        "quality": 90,
+        "subsampling": "4:2:0",
+        "resize": [
+          1843,
+          1843
+        ]
+      },
+      "sha256": null,
+      "expect": null
+    }
+  ]
+}
