@@ -37,6 +37,15 @@ image = { version = "0.25", default-features = false, features = ["jpeg"] }
 # host run (R1, `--route lossy`) measures. The coordinator removes the
 # feature once the decision lands.
 planar-preview = []
+# The blend past one logo colour (E12-R9, D308/D313/D311 proposed): the
+# catalogue reads a profile's `bias`, `logo_map` and `linear-light`, which
+# it refuses without it (`wipemark-pixels`' feature of the same name). A
+# release CLI built with `--features wipemark-picture/blend-preview` and a
+# catalogue carrying R4's measured values is what the regression's host run
+# (R1, `--route model`) measures; `recon_bench`'s `R9a`, `R9b` and `R9c`
+# exist only in such a build. The coordinator removes the feature once the
+# decisions land.
+blend-preview = ["wipemark-pixels/blend-preview"]
 
 [dev-dependencies]
 # The pixels suite's generators are borrowed by `#[path]`, and they pin

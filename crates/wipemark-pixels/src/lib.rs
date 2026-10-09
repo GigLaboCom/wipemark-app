@@ -26,6 +26,10 @@
 #![forbid(unsafe_code)]
 
 mod alpha;
+/// The blend past one logo colour (E12-R9): a bias, a logo colour map and
+/// linear light — built, and read by the catalogue only under the
+/// `blend-preview` feature.
+mod blend;
 mod calibrate;
 mod catalogue;
 mod geometry;
@@ -50,6 +54,7 @@ pub mod synth;
 mod verify;
 
 pub use alpha::{AlphaMap, WmaError, MAGIC};
+pub use blend::{LogoMap, WmlError, WML_MAGIC};
 #[doc(hidden)]
 pub use calibrate::ring_background;
 pub use calibrate::{
@@ -571,7 +576,9 @@ fn restore_one(
     options: &ExamineOptions,
     restore_options: &RestoreOptions,
 ) -> Result<Restored, RestoreError> {
-    let r = match model {
+    // A `linear-light` profile (R9c, `blend-preview`) was proved in RGB and
+    // is restored there: it is not linear in the planes.
+    let r = match model.filter(|_| verified.law().linear_in_codes()) {
         Some(m) => planar::restore(raster, m, verified, options),
         None => restore(raster, verified, options),
     }?;

@@ -13,7 +13,9 @@
 //! sample (`composite_with_at_its_defaults_is_composite`).
 //!
 //! This adds no capability to the catalogue: it still refuses a
-//! `linear-light` blend and a `logo_map` (`catalogue.rs`). A bench that
+//! `linear-light` blend, a `logo_map` and a `bias` (`catalogue.rs`) —
+//! unless the build has `blend-preview` (E12-R9), whose catalogue reads
+//! all three and restores with them (`blend.rs`). A bench that
 //! composites in linear light measures how the shipped inverse fares on a
 //! mark it does not model, which is the point of having it.
 

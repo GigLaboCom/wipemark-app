@@ -34,6 +34,12 @@
 //! restoration writes move; everything else is the file's, and is held as
 //! the data's anchor.
 //!
+//! A profile's bias and logo colour map (E12-R9, `blend-preview`) ride
+//! along: every channel blends forward and back with its own sample's `L`
+//! and the bias where the mark is. A `linear-light` profile is never
+//! refined — the codec's intervals are linear in code values and its
+//! blend is not — and keeps the RGB restoration it was given.
+//!
 //! Nothing in the product calls this until the method is decided (S12):
 //! [`crate::clean_refined`] with a [`Refine`] other than `None` is reached
 //! from `recon_bench --config R8d|R8p|R8w` and from `wipemark-picture`'s
@@ -43,10 +49,10 @@
 use serde::Serialize;
 
 use crate::geometry::PixelRect;
-use crate::planar::{ycc, Inverse};
+use crate::planar::{ycc, ycc_delta, Inverse};
 use crate::planes::{Plane, Planes, Sampling};
 use crate::raster::{Layout, Raster};
-use crate::restore::{unblend, Restored};
+use crate::restore::Restored;
 use crate::verify::{consistency, outline, Consistency, Verified, NOISE_FLOOR};
 use crate::{ExamineOptions, Fidelity};
 
@@ -420,7 +426,11 @@ struct Channel {
     stored: Vec<f64>,
     alpha: Vec<f64>,
     free: Vec<bool>,
-    logo: f64,
+    /// The logo per sample, in 8-bit levels: one colour, or the logo
+    /// colour map's (R9b).
+    logo: Vec<f64>,
+    /// The bias where the mark is, in 8-bit levels (R9a); 0 without one.
+    bias: f64,
     /// The quantisation table, for the planes.
     table: Option<[u16; 64]>,
 }
@@ -430,12 +440,26 @@ impl Channel {
         (y - self.y0) as usize * self.w + (x - self.x0) as usize
     }
 
+    /// The bias at sample `i`: where the mark is drawn, and only there.
+    fn bias_at(&self, i: usize) -> f64 {
+        if self.alpha[i] > 0.0 {
+            self.bias
+        } else {
+            0.0
+        }
+    }
+
     fn forward(&self, i: usize) -> f64 {
-        self.alpha[i] * self.logo + (1.0 - self.alpha[i]) * self.o[i]
+        let v = self.alpha[i] * self.logo[i] + (1.0 - self.alpha[i]) * self.o[i];
+        if self.bias != 0.0 {
+            v + self.bias_at(i)
+        } else {
+            v
+        }
     }
 
     fn unblend(&self, i: usize, composite: f64) -> f64 {
-        (composite - self.alpha[i] * self.logo) / (1.0 - self.alpha[i])
+        (composite - self.bias_at(i) - self.alpha[i] * self.logo[i]) / (1.0 - self.alpha[i])
     }
 
     /// The Laplacians of the file's samples on the ring.
@@ -679,7 +703,8 @@ impl Work {
             stored: Vec::with_capacity(w * h),
             alpha: Vec::with_capacity(w * h),
             free: Vec::with_capacity(w * h),
-            logo: inverse.logo[0],
+            logo: Vec::with_capacity(w * h),
+            bias: inverse.bias[0],
             table: Some(tables[0]),
         };
         let at = inverse.at;
@@ -693,11 +718,14 @@ impl Work {
                 y.alpha.push(a);
                 y.free
                     .push((floor..opaque).contains(&a) && !inverse.hole(px, py));
-                y.o.push(if inside {
-                    inverse.y_out[((py - at.y) * at.width + (px - at.x)) as usize]
+                if inside {
+                    let t = ((py - at.y) * at.width + (px - at.x)) as usize;
+                    y.o.push(inverse.y_out[t]);
+                    y.logo.push(inverse.logo_y_at(t));
                 } else {
-                    stored
-                });
+                    y.o.push(stored);
+                    y.logo.push(inverse.logo[0]);
+                }
             }
         }
         channels.push(y);
@@ -717,7 +745,8 @@ impl Work {
                 stored: Vec::with_capacity(w * h),
                 alpha: Vec::with_capacity(w * h),
                 free: Vec::with_capacity(w * h),
-                logo: inverse.logo[c],
+                logo: Vec::with_capacity(w * h),
+                bias: inverse.bias[c],
                 table: Some(tables[1]),
             };
             for qy in y0..y0 + h as u32 {
@@ -729,6 +758,8 @@ impl Work {
                     ch.alpha.push(a);
                     ch.free.push((floor..opaque).contains(&a));
                     ch.o.push(b.map_or(stored, |b| out[b]));
+                    ch.logo
+                        .push(b.map_or(inverse.logo[c], |b| inverse.logo_block(b)[c]));
                 }
             }
             channels.push(ch);
@@ -759,13 +790,16 @@ impl Work {
         let scale = 255.0 / f64::from(restored.layout().max());
         let floor = f64::from(NOISE_FLOOR);
         let opaque = f64::from(verified.opaque_above());
-        let alpha_at = |x: u32, y: u32| {
-            if x >= at.x && y >= at.y && x < at.x + at.width && y < at.y + at.height {
-                f64::from(verified.values()[((y - at.y) * at.width + (x - at.x)) as usize])
-            } else {
-                0.0
-            }
+        // The template pixel at `(x, y)`, if it is one.
+        let template = |x: u32, y: u32| {
+            (x >= at.x && y >= at.y && x < at.x + at.width && y < at.y + at.height)
+                .then(|| ((y - at.y) * at.width + (x - at.x)) as usize)
         };
+        let alpha_at = |x: u32, y: u32| match template(x, y) {
+            Some(t) => f64::from(verified.values()[t]),
+            None => 0.0,
+        };
+        let bias = verified.law().bias.unwrap_or([0.0; 3]);
         let channels = (0..3)
             .map(|c| {
                 let mut ch = Channel {
@@ -780,22 +814,26 @@ impl Work {
                     stored: Vec::with_capacity(w * h),
                     alpha: Vec::with_capacity(w * h),
                     free: Vec::with_capacity(w * h),
-                    logo: verified.logo()[c] * scale,
+                    logo: Vec::with_capacity(w * h),
+                    bias: bias[c] * scale,
                     table: None,
                 };
                 for py in y0..y0 + h as u32 {
                     for px in x0..x0 + w as u32 {
                         let a = alpha_at(px, py);
+                        let t = template(px, py);
                         let j = input.at(px, py);
                         let stored = [0, 1, 2].map(|k| f64::from(input.samples()[j + k]));
                         let free = (floor..opaque).contains(&a);
                         ch.stored.push(stored[c] * scale);
+                        ch.logo
+                            .push(t.map_or(verified.logo(), |t| verified.logo_at(t))[c] * scale);
                         // The restoration's own value before its rounding
-                        // and clamp (`restore::unblend`), where it wrote.
-                        ch.o.push(if free {
-                            unblend(stored, a, verified.logo())[c] * scale
-                        } else {
-                            f64::from(restored.samples()[restored.at(px, py) + c]) * scale
+                        // and clamp (`restore::unblend`, through the
+                        // profile's law), where it wrote.
+                        ch.o.push(match t {
+                            Some(t) if free => verified.unblend(stored, a, t)[c] * scale,
+                            _ => f64::from(restored.samples()[restored.at(px, py) + c]) * scale,
                         });
                         ch.alpha.push(a);
                         ch.free.push(free);
@@ -982,20 +1020,24 @@ impl Work {
         let at = verified.pixels();
         let max = f64::from(raster.layout().max());
         let to_8 = 255.0 / max;
-        let logo = verified.logo();
+        let law = verified.law();
         let opaque = verified.opaque_above();
         let (mut pairs, mut excluded) = (Vec::new(), 0u32);
         let mut holes = 0u32;
-        let mut pair = |o: f64, a: f64, stored: f64, written: f64, l: f64| {
+        // `Law::forward` is `a·l + (1 − a)·written` for `encoded` with no
+        // bias, as this measure always wrote it.
+        let mut pair = |o: f64, a: f64, stored: f64, written: f64, l: f64, c: usize| {
             if o < -0.5 || o > max + 0.5 {
                 excluded += 1;
             } else {
-                pairs.push(((a * l + (1.0 - a) * written) * to_8, stored * to_8));
+                pairs.push((law.forward(written, a, l, c) * to_8, stored * to_8));
             }
         };
         for ty in 0..at.height {
             for tx in 0..at.width {
-                let a = verified.values()[(ty * at.width + tx) as usize];
+                let t = (ty * at.width + tx) as usize;
+                let a = verified.values()[t];
+                let logo = verified.logo_at(t);
                 let (x, y) = (at.x + tx, at.y + ty);
                 let (i, j) = (raster.at(x, y), input.at(x, y));
                 if a >= opaque {
@@ -1011,8 +1053,9 @@ impl Work {
                     // The capture noise the base restoration took off
                     // (D246), measured as it measured it.
                     let n = f64::from(verified.noise()[(ty * at.width + tx) as usize]);
-                    for (c, o) in unblend(stored, n, logo).into_iter().enumerate() {
-                        pair(o, n, stored[c], f64::from(raster.samples()[i + c]), logo[c]);
+                    for (c, o) in verified.unblend(stored, n, t).into_iter().enumerate() {
+                        let written = f64::from(raster.samples()[i + c]);
+                        pair(o, n, stored[c], written, logo[c], c);
                     }
                     continue;
                 } else {
@@ -1026,6 +1069,7 @@ impl Work {
                         stored[c],
                         f64::from(raster.samples()[i + c]),
                         logo[c],
+                        c,
                     );
                 }
             }
@@ -1255,6 +1299,10 @@ fn setup(
     method: Method,
     restored: &Restored,
 ) -> Option<Work> {
+    // R9c: the intervals are linear in code values, light is not.
+    if !verified.law().linear_in_codes() {
+        return None;
+    }
     let planar = matches!(restored.planar, Some(crate::Planar::Inverse { .. }));
     if planar {
         let planes = planes?;
@@ -1296,10 +1344,21 @@ fn per_pixel(input: &Raster, planes: &Planes, verified: &Verified) -> Option<Inv
             0.0
         }
     };
+    // The logo at `(x, y)`: the template's own colour there (R9b), or the
+    // one colour.
+    let logo_of = |x: u32, y: u32| {
+        if x >= at.x && y >= at.y && x < at.x + at.width && y < at.y + at.height {
+            verified.logo_at(((y - at.y) * at.width + (x - at.x)) as usize)
+        } else {
+            verified.logo()
+        }
+    };
     let ycc_at = |x: u32, y: u32| {
         let i = input.at(x, y);
         let stored = [0, 1, 2].map(|c| f64::from(input.samples()[i + c]));
-        ycc(unblend(stored, alpha_at(x, y), verified.logo()))
+        ycc(verified
+            .law()
+            .inverse(stored, alpha_at(x, y), logo_of(x, y)))
     };
     let mut y_in = Vec::with_capacity((at.width * at.height) as usize);
     let mut y_out = Vec::with_capacity(y_in.capacity());
@@ -1364,6 +1423,16 @@ fn per_pixel(input: &Raster, planes: &Planes, verified: &Verified) -> Option<Inv
         cr_in,
         cr_out,
         logo: ycc(verified.logo()),
+        logo_y: verified
+            .logos()
+            .map(|v| v.iter().map(|&l| ycc(l)[0]).collect()),
+        logo_blocks: verified.logos().map(|_| {
+            (by0..by1)
+                .flat_map(|y| (bx0..bx1).map(move |x| (x, y)))
+                .map(|(x, y)| ycc(logo_of(x, y)))
+                .collect()
+        }),
+        bias: verified.law().bias.map_or([0.0; 3], ycc_delta),
         opaque,
         block: (1, 1),
         max_alpha_dev_in_block: 0.0,

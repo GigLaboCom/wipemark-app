@@ -29,6 +29,14 @@
 //! [`blend_levels_c`]; a pixel is out when its Y is or its block is. The
 //! edge energy and `k*` stay on luma, unchanged.
 //!
+//! A profile's bias (R9a) and logo colour map (R9b), under
+//! `blend-preview`, go through the same matrix: the bias's linear part is
+//! taken off every plane where the mark is, `L(p)` is brought to `(Y, Cb,
+//! Cr)` per pixel and, for a chroma block, weighted by the pixels' `α`
+//! into the block's own. A `linear-light` profile (R9c) is not linear in
+//! the planes' code values and never takes this path: it is proved and
+//! restored in RGB.
+//!
 //! The route is narrow ([`route`]): a lossy source whose planes are known
 //! and subsampled. 4:4:4 already matches the RGB model, and a PNG, a WebP
 //! and a JPEG whose planes could not be read take the old path, byte for
@@ -37,6 +45,7 @@
 
 use serde::{Serialize, Serializer};
 
+use crate::blend::{Colours, Law};
 use crate::geometry::PixelRect;
 use crate::planes::{Planes, Sampling};
 use crate::raster::{Layout, Raster};
@@ -163,15 +172,26 @@ impl<'a> Model<'a> {
     /// [`BLEND_LEVELS`] or a chroma block whose Cb or Cr is outside
     /// `[ᾱ·L_C, ᾱ·L_C + (1 − ᾱ)·255]` by more than the chroma allowance —
     /// and each term apart.
+    ///
+    /// Under `blend-preview` the interval moves by the bias's linear part
+    /// in `(Y, Cb, Cr)` (R9a) and `L` is the pixel's own, or the block's
+    /// `α`-weighted, from the logo colour map (R9b); without either, both
+    /// terms are what they were, operation for operation.
     pub(crate) fn out_of_range(
         &self,
         values: &[f32],
         at: PixelRect,
-        logo: [f64; 3],
+        colours: &Colours,
+        law: Law,
         opaque: f32,
     ) -> (f32, PlanarScores) {
         let blocks = Blocks::new(self, values, at);
-        let l = ycc(logo);
+        let l = ycc(colours.logo);
+        let bias = law.bias.map_or([0.0; 3], ycc_delta);
+        let logo_blocks = colours
+            .per_pixel
+            .as_deref()
+            .map(|v| block_logos(&blocks, self.size(), values, at, v, l));
         let opaque = f64::from(opaque);
         let block_out: Vec<bool> = (0..blocks.alpha.len())
             .map(|b| {
@@ -179,10 +199,11 @@ impl<'a> Model<'a> {
                 if !(f64::from(NOISE_FLOOR)..opaque).contains(&a) {
                     return false;
                 }
+                let lb = logo_blocks.as_ref().map_or(l, |v| v[b]);
                 let (qx, qy) = blocks.coords(b);
-                let cb = f64::from(self.cb().get(qx, qy));
-                let cr = f64::from(self.cr().get(qx, qy));
-                gap(cb, a, l[1]) > self.levels_c || gap(cr, a, l[2]) > self.levels_c
+                let cb = f64::from(self.cb().get(qx, qy)) - bias[1];
+                let cr = f64::from(self.cr().get(qx, qy)) - bias[2];
+                gap(cb, a, lb[1]) > self.levels_c || gap(cr, a, lb[2]) > self.levels_c
             })
             .collect();
         let y_plane = self.planes.y();
@@ -195,7 +216,12 @@ impl<'a> Model<'a> {
                 }
                 let (x, y) = (at.x + tx, at.y + ty);
                 n += 1;
-                let yo = gap(f64::from(y_plane.get(x, y)), f64::from(a), l[0]) > BLEND_LEVELS;
+                let ly = colours
+                    .per_pixel
+                    .as_ref()
+                    .map_or(l[0], |v| ycc(v[(ty * at.width + tx) as usize])[0]);
+                let stored = f64::from(y_plane.get(x, y)) - bias[0];
+                let yo = gap(stored, f64::from(a), ly) > BLEND_LEVELS;
                 let co = block_out[blocks.index(x / self.sx, y / self.sy)];
                 y_out += u32::from(yo);
                 c_out += u32::from(co);
@@ -216,6 +242,11 @@ impl<'a> Model<'a> {
         self.planes.cb().expect("a model has chroma")
     }
 
+    /// The picture's size, as the planes give it.
+    fn size(&self) -> (u32, u32) {
+        (self.planes.width(), self.planes.height())
+    }
+
     fn cr(&self) -> &crate::planes::Plane {
         self.planes.cr().expect("a model has chroma")
     }
@@ -228,6 +259,55 @@ fn gap(v: f64, a: f64, l: f64) -> f64 {
     let lo = a * l;
     let hi = lo + (1.0 - a) * 255.0;
     (lo - v).max(v - hi).max(0.0)
+}
+
+/// A difference of RGB colours — a bias (R9a) — in `(Y, Cb, Cr)`: JFIF's
+/// matrix without its offset.
+pub(crate) fn ycc_delta([r, g, b]: [f64; 3]) -> [f64; 3] {
+    [
+        0.299 * r + 0.587 * g + 0.114 * b,
+        -0.168_736 * r - 0.331_264 * g + 0.5 * b,
+        0.5 * r - 0.418_688 * g - 0.081_312 * b,
+    ]
+}
+
+/// Per chroma block of `blocks`, the logo in `(Y, Cb, Cr)` its pixels
+/// blend with as one (R9b): their own colours from the template's
+/// `per_pixel` (stored units), through JFIF's matrix and weighted by
+/// their `α` — the block's stored mean is `Σα·L/n + …`, so its `L` is
+/// `Σα·L/Σα`. `global` where the block holds no opacity.
+fn block_logos(
+    blocks: &Blocks,
+    (w, h): (u32, u32),
+    values: &[f32],
+    at: PixelRect,
+    per_pixel: &[[f64; 3]],
+    global: [f64; 3],
+) -> Vec<[f64; 3]> {
+    (0..blocks.alpha.len())
+        .map(|b| {
+            let (qx, qy) = blocks.coords(b);
+            let (mut sum, mut weight) = ([0f64; 3], 0f64);
+            for y in qy * blocks.sy..(qy * blocks.sy + blocks.sy).min(h) {
+                for x in qx * blocks.sx..(qx * blocks.sx + blocks.sx).min(w) {
+                    if x < at.x || y < at.y || x >= at.x + at.width || y >= at.y + at.height {
+                        continue;
+                    }
+                    let t = ((y - at.y) * at.width + (x - at.x)) as usize;
+                    let a = f64::from(values[t]);
+                    for (s, l) in sum.iter_mut().zip(ycc(per_pixel[t])) {
+                        *s += a * l;
+                    }
+                    weight += a;
+                }
+            }
+            if weight > 0.0 {
+                sum.map(|s| s / weight)
+            } else {
+                global
+            }
+        })
+        .collect()
 }
 
 /// JFIF's forward matrix, full range: `(Y, Cb, Cr)` of an RGB colour.
@@ -353,6 +433,16 @@ pub struct Inverse {
     pub cr_out: Vec<f64>,
     /// `L` in `(Y, Cb, Cr)`.
     pub logo: [f64; 3],
+    /// `L_Y` per pixel of the rectangle, from the profile's logo colour
+    /// map (R9b, `blend-preview`); `None` is `logo[0]` everywhere.
+    pub logo_y: Option<Vec<f64>>,
+    /// `(L_Y, L_Cb, L_Cr)` per block, its pixels' `α`-weighted (R9b);
+    /// `None` is `logo` everywhere.
+    pub logo_blocks: Option<Vec<[f64; 3]>>,
+    /// The profile's bias in `(Y, Cb, Cr)`, its linear part (R9a,
+    /// `blend-preview`); zeros without one — and a zero taken off a
+    /// stored value is that value, to the bit.
+    pub bias: [f64; 3],
     /// The opaque threshold, and the block shape `(sx, sy)`.
     pub opaque: f64,
     pub block: (u32, u32),
@@ -378,6 +468,16 @@ impl Inverse {
         let b = self.blocks;
         (qx >= b.x && qy >= b.y && qx < b.x + b.width && qy < b.y + b.height)
             .then(|| ((qy - b.y) * b.width + (qx - b.x)) as usize)
+    }
+
+    /// `L_Y` at pixel `t` of the rectangle, row-major.
+    pub fn logo_y_at(&self, t: usize) -> f64 {
+        self.logo_y.as_ref().map_or(self.logo[0], |v| v[t])
+    }
+
+    /// `(L_Y, L_Cb, L_Cr)` of block `b`.
+    pub fn logo_block(&self, b: usize) -> [f64; 3] {
+        self.logo_blocks.as_ref().map_or(self.logo, |v| v[b])
     }
 
     /// `ᾱ` of the block that holds pixel `(x, y)`; 0 outside the region.
@@ -507,8 +607,9 @@ impl Inverse {
                     excluded += 1;
                     continue;
                 }
-                let blended = a * self.logo[0] + (1.0 - a) * read(x, y)[0];
-                pairs.push((blended, self.y_in[(ty * at.width + tx) as usize]));
+                let t = (ty * at.width + tx) as usize;
+                let blended = a * self.logo_y_at(t) + (1.0 - a) * read(x, y)[0] + self.bias[0];
+                pairs.push((blended, self.y_in[t]));
             }
         }
         let luma = pairs.len();
@@ -555,8 +656,9 @@ impl Inverse {
                 let c = read(x, y);
                 [m[0] + wt * c[1], m[1] + wt * c[2]]
             });
+            let lb = self.logo_block(b);
             for (c, input) in [(0, self.cb_in[b]), (1, self.cr_in[b])] {
-                let blended = a * self.logo[c + 1] + (1.0 - a) * rec[c];
+                let blended = a * lb[c + 1] + (1.0 - a) * rec[c] + self.bias[c + 1];
                 pairs.push((blended, input));
             }
         }
@@ -581,10 +683,11 @@ pub struct BlendBack {
 
 /// The planar inverse of a mark verified on `raster`, over the `planes`
 /// it was decoded from, every step kept; `None` when the planes are not
-/// subsampled or not the raster's, or the mark is another raster's.
+/// subsampled or not the raster's, or the mark is another raster's — and
+/// for a `linear-light` profile (R9c), which is not linear in the planes.
 #[doc(hidden)]
 pub fn invert(raster: &Raster, planes: &Planes, verified: &Verified) -> Option<Inverse> {
-    if !verified.fits(raster) {
+    if !verified.fits(raster) || !verified.law().linear_in_codes() {
         return None;
     }
     let model = Model::new(raster, planes, blend_levels_c(planes))?;
@@ -597,17 +700,26 @@ fn invert_with(model: &Model<'_>, verified: &Verified) -> Inverse {
     let opaque = f64::from(verified.opaque_above());
     let floor = f64::from(NOISE_FLOOR);
     let l = ycc(verified.logo());
+    let bias = verified.law().bias.map_or([0.0; 3], ycc_delta);
+    let logo_y: Option<Vec<f64>> = verified
+        .logos()
+        .map(|v| v.iter().map(|&c| ycc(c)[0]).collect());
     let blocks = Blocks::new(model, values, at);
+    let logo_blocks = verified
+        .logos()
+        .map(|v| block_logos(&blocks, model.size(), values, at, v, l));
     let y_plane = model.planes.y();
     let mut y_in = Vec::with_capacity(values.len());
     let mut y_out = Vec::with_capacity(values.len());
     for ty in 0..at.height {
         for tx in 0..at.width {
-            let a = f64::from(values[(ty * at.width + tx) as usize]);
+            let t = (ty * at.width + tx) as usize;
+            let a = f64::from(values[t]);
             let i = f64::from(y_plane.get(at.x + tx, at.y + ty));
             y_in.push(i);
             y_out.push(if (floor..opaque).contains(&a) {
-                (i - a * l[0]) / (1.0 - a)
+                let ly = logo_y.as_ref().map_or(l[0], |v| v[t]);
+                (i - bias[0] - a * ly) / (1.0 - a)
             } else {
                 i
             });
@@ -629,8 +741,9 @@ fn invert_with(model: &Model<'_>, verified: &Verified) -> Inverse {
         cb_in.push(cb);
         cr_in.push(cr);
         if (floor..opaque).contains(&a) {
-            cb_out.push((cb - a * l[1]) / (1.0 - a));
-            cr_out.push((cr - a * l[2]) / (1.0 - a));
+            let lb = logo_blocks.as_ref().map_or(l, |v| v[b]);
+            cb_out.push((cb - bias[1] - a * lb[1]) / (1.0 - a));
+            cr_out.push((cr - bias[2] - a * lb[2]) / (1.0 - a));
         } else {
             cb_out.push(cb);
             cr_out.push(cr);
@@ -657,6 +770,9 @@ fn invert_with(model: &Model<'_>, verified: &Verified) -> Inverse {
         cr_in,
         cr_out,
         logo: l,
+        logo_y,
+        logo_blocks,
+        bias,
         opaque,
         block: (blocks.sx, blocks.sy),
         max_alpha_dev_in_block: max_dev,
@@ -765,7 +881,6 @@ pub(crate) fn restore(
 fn take_noise(raster: &mut Raster, verified: &Verified) -> u32 {
     let at = verified.pixels();
     let max = f64::from(raster.layout().max());
-    let logo = verified.logo();
     let mut changed = 0;
     for (p, &a) in verified.noise().iter().enumerate() {
         if a < NOISE_FLOOR {
@@ -776,7 +891,8 @@ fn take_noise(raster: &mut Raster, verified: &Verified) -> u32 {
         let samples = raster.samples_mut();
         let stored = [0, 1, 2].map(|c| f64::from(samples[i + c]));
         let mut moved = false;
-        for (c, o) in crate::restore::unblend(stored, f64::from(a), logo)
+        for (c, o) in verified
+            .unblend(stored, f64::from(a), p)
             .into_iter()
             .enumerate()
         {
