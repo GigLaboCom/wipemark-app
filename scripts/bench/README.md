@@ -147,6 +147,12 @@ about 18 MB per background.
   proved by the search after their row refused them — the finding of
   E12-R5's report, "D154 through the search".
 * **§8**: Pillow and `image` within 0.3 dB on `jpeg444-*`.
+* **§1, `consist. p95`** (E12-R7, D305): the restoration blended back
+  against its input, the p95 over restored files of `consistency_px`, in
+  8-bit levels. R0's inverse is exact by construction, so every slice is
+  at most 1 (rounding: about 0.25); the line under the table names any
+  slice over it. One over it on R0 is a defect of the inverse, not of
+  the slice.
 
 ## The gates (§4.6)
 

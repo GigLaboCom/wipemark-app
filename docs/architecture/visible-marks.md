@@ -217,9 +217,33 @@ the proposals that were no blend, is a count for gates and is not in it):
   "placed":"row","row":1,"ncc":…,"verdict":"verified","refusal":null,
   "scores":{"gain":…,"edge_ratio":…,"out_of_range":…,"holes":0},
   "also_tried":[{"profile":"…","verified":false,"refusal":{"why":"gain","k":…}}]}],
- "restored":[{"profile":"…","rect":{…},"changed":…,"holes":0,"clamped":0,"exact":true}],
+ "restored":[{"profile":"…","rect":{…},"changed":…,"holes":0,"clamped":0,…,"exact":true,
+  "consistency_px":0.24,"consistency_excluded":0}],
  "not_established":["invisible-pixel-marks","vendor-detector-evasion","human-authorship","unknown-mark-schemes"]}
 ```
+
+**How far the result is from the data** (D305, E12-R7). Every
+restoration carries `consistency_px`: the restored samples blended back
+— `α·L + (1 − α)·O`, with the `α` (after any resampling), the logo and
+the gain 1 the restoration used — against the stored input **before**
+the restoration, `|blend(O) − I|`, the 95th percentile over every sample
+with `α` from `NOISE_FLOOR` to `opaque_above` (the capture noise a
+restoration took off too, D246), in 8-bit levels whatever the depth.
+`consistency_excluded` counts the samples left out because an error is
+expected there: every clamped one, and the three colour samples of every
+hole. For an exact inverse it is about 0 by identity — half a level of
+rounding at most, 0.24–0.25 on the fourteen crops in
+`fixtures/image/gemini/` whether PNG, JPEG or WebP
+(`tests/consistency.rs` in `wipemark-picture`) — so it is the cheapest
+test that an inverse is still an inverse; for a value chosen inside a
+codec's interval (R8) it is bounded by the interval, and for a model it
+says how far the model moved from what the file says. It is a measure:
+no bound, no verdict, no exit code and no `*_left` flag reads it.
+`consistency_dct`, the share of DCT coefficients outside their
+quantisation intervals, is R8's; it is absent from the JSON while there
+is none. The measure is written once (`verify::consistency`, over pairs
+of a blended-back value and a stored one), for the planar inverse to
+call over Y and chroma too.
 
 **The third shelf** (D156): `not_established::ID` =
 `invisible-pixel-marks`, "invisible marks in the picture's pixels — not

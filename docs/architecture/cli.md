@@ -188,12 +188,18 @@ ASCII. `clean`: `{"report":<PictureReport>,"written":…}` with E11's
 `StripReport` keys
 (`"container","still_has_ai_metadata","still_has_c2pa","removed","kept","orientation_removed"`),
 then `"visible"` (with `restored`:
-`{"profile","rect","changed","holes","clamped","outline","steps","step","chroma","outline_left","texture","texture_around","texture_left","noise","lossy","fitted","resampled","searched","exact"}`
+`{"profile","rect","changed","holes","clamped","outline","steps","step","chroma","outline_left","texture","texture_around","texture_left","noise","lossy","fitted","resampled","searched","exact","consistency_px","consistency_excluded"}`
 — `wipemark_pixels::Restored`, field for field: the outline's share of
 the contour, the faint band's step per channel (`steps`, R G B), in luma
 (`step`) and in colour difference (`chroma`), the roughness the
-restoration left and the same around the mark, and why it is or is not
-`exact`),
+restoration left and the same around the mark, why it is or is not
+`exact`, and how far it is from the data (D305): the restored samples
+blended back against the input, the 95th percentile in 8-bit levels
+(`consistency_px`, about 0 for an exact inverse), and the samples left
+out of it, clamped ones and holes (`consistency_excluded`). The last two
+are a measure and decide no exit; `consistency_dct` joins them only on a
+path that chooses a value inside a JPEG's intervals, and is absent
+otherwise),
 `"encoding"` (`{"kind":"unchanged"|"png"|"webp-lossless"|"jpeg",…}`),
 `"marks_left"`, `"not_established"`. The writers are the libraries'
 (`wipemark-image`'s `json.rs`, `wipemark-pixels`'s report,
