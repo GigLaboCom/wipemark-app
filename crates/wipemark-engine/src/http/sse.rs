@@ -246,6 +246,7 @@ impl Assembled {
             tokens_out: self.tokens.unwrap_or(self.pieces),
             finish: self.finish.unwrap_or(FinishReason::Stop),
             text: self.text,
+            drafted: None,
         })
     }
 }

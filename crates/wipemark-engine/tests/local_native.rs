@@ -45,6 +45,7 @@ fn engine(n_ctx: u32) -> LocalEngine {
             ..LoadParams::default()
         },
         available_mb: None,
+        draft: None,
     })
 }
 
@@ -508,6 +509,7 @@ async fn a_named_model_rewrites(var: &str, layers_var: &str, model_id: &str) {
             ..LoadParams::default()
         },
         available_mb: None,
+        draft: None,
     });
     let started = Instant::now();
     engine.warmup().await.expect("the model loads");
@@ -542,4 +544,231 @@ async fn qwen_3_8_rewrites_in_english_and_russian() {
         "qwen3.8-27b-ud-iq3s",
     )
     .await;
+}
+
+// ---------------------------------------------------------------------------
+// E2-dflash2: Qwen3.8 27B with its DFlash2 draft — the live gate (a)–(c).
+//
+// Each skips, saying so on stderr, when its variables are unset (D186):
+//
+//   WIPEMARK_TEST_GGUF_QWEN38=/path/to/Qwen3.8-27B-UD-IQ3_S.gguf
+//   WIPEMARK_TEST_GGUF_QWEN38_DFLASH=/path/to/Qwen3.8-27B-DFlash2-Q4_K_M.gguf
+//   WIPEMARK_TEST_GPU_LAYERS_QWEN38=40      # optional; default: all layers
+//   WIPEMARK_TEST_GGUF=/path/to/Qwen3-4B…   # optional: (a)'s refusal beside another model
+//
+//   cargo test -p wipemark-engine --features llama-native --locked \
+//     -- --ignored --test-threads=1 qwen38
+// ---------------------------------------------------------------------------
+
+/// The paragraph of each language the lossless claim is held over.
+const DE_TEXT: &str = "Die neue Version der Software wird am 14. März veröffentlicht und \
+     behebt 23 Fehler, die Nutzer seit dem letzten Update gemeldet haben.";
+
+/// The draft's catalogue id and an identity for it.
+const DRAFT_ID: &str = "qwen3.8-27b-dflash2-q4km";
+
+/// Qwen3.8 27B, with the draft at `draft` beside it when one is given.
+fn qwen38(weights: PathBuf, draft: Option<PathBuf>) -> LocalEngine {
+    LocalEngine::new(LocalConfig {
+        model_id: "qwen3.8-27b-ud-iq3s".to_owned(),
+        weights,
+        load: LoadParams {
+            n_ctx: 4096,
+            n_gpu_layers: gpu_layers("WIPEMARK_TEST_GPU_LAYERS_QWEN38"),
+            ..LoadParams::default()
+        },
+        available_mb: None,
+        draft: draft.map(|weights| wipemark_engine::DraftConfig {
+            id: DRAFT_ID.to_owned(),
+            weights,
+            sha256: "live".to_owned(),
+        }),
+    })
+}
+
+/// Warm `engine` up, and what its load said of the draft.
+async fn loaded(engine: &LocalEngine) -> Vec<wipemark_engine::LoadProgress> {
+    let (sink, told) = flume::unbounded();
+    engine.watch_loads(wipemark_engine::LoadSink::new(sink, 1));
+    let started = Instant::now();
+    engine.warmup().await.expect("the model loads");
+    eprintln!("LIVE loaded in {} ms", started.elapsed().as_millis());
+    told.drain().map(|(_, told)| told).collect()
+}
+
+/// The draft outcome a load told, when it told one.
+fn draft_told(
+    told: &[wipemark_engine::LoadProgress],
+) -> Option<Result<(), wipemark_engine::DraftRefusal>> {
+    told.iter().find_map(|told| match told {
+        wipemark_engine::LoadProgress::Draft(outcome) => Some(*outcome),
+        _ => None,
+    })
+}
+
+/// A greedy rewrite of `text`, and how long it took.
+async fn greedy_rewrite(engine: &LocalEngine, text: &str) -> (Completion, Duration) {
+    let (sink, _streamed) = flume::unbounded();
+    let started = Instant::now();
+    let out = engine
+        .complete(
+            ChatRequest {
+                system: Some(REWRITE_SYSTEM.to_owned()),
+                prompt: text.to_owned(),
+                params: SamplingParams {
+                    temperature: 0.0,
+                    seed: Some(1),
+                    max_tokens: Some(200),
+                    ..SamplingParams::default()
+                },
+            },
+            sink,
+            CancellationToken::new(),
+        )
+        .await
+        .expect("the completion runs");
+    (out, started.elapsed())
+}
+
+/// (a) The draft loads beside Qwen3.8 27B and drafts for it — and beside
+/// another model (Qwen3 4B, when `WIPEMARK_TEST_GGUF` names it) it is
+/// refused by name, the model loaded alone (D481).
+#[tokio::test]
+#[ignore = "needs WIPEMARK_TEST_GGUF_QWEN38 and WIPEMARK_TEST_GGUF_QWEN38_DFLASH"]
+async fn qwen38s_draft_loads_beside_it_and_is_refused_beside_another_model() {
+    let (Some(weights), Some(draft)) = (
+        optional_gguf("WIPEMARK_TEST_GGUF_QWEN38"),
+        optional_gguf("WIPEMARK_TEST_GGUF_QWEN38_DFLASH"),
+    ) else {
+        return;
+    };
+    let engine = qwen38(weights, Some(draft.clone()));
+    let told = loaded(&engine).await;
+    assert_eq!(
+        draft_told(&told),
+        Some(Ok(())),
+        "the draft was not loaded beside its model: {told:?}"
+    );
+    assert_eq!(engine.info().draft.as_deref(), Some("live"));
+    let (out, _) = greedy_rewrite(&engine, EN_TEXT).await;
+    let drafted = out
+        .drafted
+        .expect("a drafted completion says what the draft did");
+    assert!(drafted.steps > 0, "the draft proposed nothing");
+    eprintln!("LIVE (a) beside Qwen3.8: {drafted:?}");
+    engine.unload().await;
+    drop(engine);
+
+    let Some(other) = std::env::var_os("WIPEMARK_TEST_GGUF").map(PathBuf::from) else {
+        eprintln!("SKIPPED (a)'s second half: WIPEMARK_TEST_GGUF is not set");
+        return;
+    };
+    let beside_another = LocalEngine::new(LocalConfig {
+        model_id: "qwen3-4b-instruct-2507-ud-q4".to_owned(),
+        weights: other,
+        load: LoadParams {
+            n_ctx: 4096,
+            ..LoadParams::default()
+        },
+        available_mb: None,
+        draft: Some(wipemark_engine::DraftConfig {
+            id: DRAFT_ID.to_owned(),
+            weights: draft,
+            sha256: "live".to_owned(),
+        }),
+    });
+    let told = loaded(&beside_another).await;
+    let refused = draft_told(&told).expect("the load said what became of the draft");
+    eprintln!("LIVE (a) beside Qwen3 4B: {refused:?}");
+    assert!(
+        refused.is_err(),
+        "Qwen3.8's draft ran beside another model: {told:?}"
+    );
+    assert_eq!(beside_another.info().draft, None);
+    let (out, _) = greedy_rewrite(&beside_another, EN_TEXT).await;
+    assert!(out.drafted.is_none(), "the model alone reported a draft");
+    beside_another.unload().await;
+}
+
+/// (b) The lossless claim, held: greedy output with the draft is byte for
+/// byte greedy output without it, over a paragraph in English, Russian and
+/// German.
+#[tokio::test]
+#[ignore = "needs WIPEMARK_TEST_GGUF_QWEN38 and WIPEMARK_TEST_GGUF_QWEN38_DFLASH"]
+async fn qwen38_greedy_text_is_the_same_with_and_without_the_draft() {
+    let (Some(weights), Some(draft)) = (
+        optional_gguf("WIPEMARK_TEST_GGUF_QWEN38"),
+        optional_gguf("WIPEMARK_TEST_GGUF_QWEN38_DFLASH"),
+    ) else {
+        return;
+    };
+    let texts = [("en", EN_TEXT), ("ru", RU_TEXT), ("de", DE_TEXT)];
+    let alone = qwen38(weights.clone(), None);
+    loaded(&alone).await;
+    let mut without = Vec::new();
+    for (_, text) in texts {
+        without.push(greedy_rewrite(&alone, text).await.0);
+    }
+    alone.unload().await;
+    drop(alone);
+
+    let drafted = qwen38(weights, Some(draft));
+    assert_eq!(draft_told(&loaded(&drafted).await), Some(Ok(())));
+    for ((language, text), without) in texts.into_iter().zip(without) {
+        let (with, _) = greedy_rewrite(&drafted, text).await;
+        eprintln!("LIVE (b) {language}: {:?} {:?}", with.drafted, with.text);
+        assert_eq!(
+            with.text, without.text,
+            "{language}: greedy text with the draft is not the text without it"
+        );
+        assert_eq!(with.tokens_out, without.tokens_out, "{language}");
+        assert_eq!(with.finish, without.finish, "{language}");
+    }
+    drafted.unload().await;
+}
+
+/// (c) How much faster: tokens a second with and without the draft, and
+/// the draft's acceptance length — printed, never asserted.
+#[tokio::test]
+#[ignore = "needs WIPEMARK_TEST_GGUF_QWEN38 and WIPEMARK_TEST_GGUF_QWEN38_DFLASH"]
+async fn qwen38_speed_with_and_without_the_draft() {
+    let (Some(weights), Some(draft)) = (
+        optional_gguf("WIPEMARK_TEST_GGUF_QWEN38"),
+        optional_gguf("WIPEMARK_TEST_GGUF_QWEN38_DFLASH"),
+    ) else {
+        return;
+    };
+    let texts = [EN_TEXT, RU_TEXT, DE_TEXT];
+    let mut rows = Vec::new();
+    for (label, with) in [("without", None), ("with", Some(draft))] {
+        let engine = qwen38(weights.clone(), with);
+        loaded(&engine).await;
+        // One call first, unmeasured: the first decode warms the backend.
+        greedy_rewrite(&engine, EN_TEXT).await;
+        let (mut tokens, mut seconds) = (0_u32, 0.0_f64);
+        let mut drafted = wipemark_engine::Drafted::default();
+        for text in texts {
+            let (out, took) = greedy_rewrite(&engine, text).await;
+            tokens += out.tokens_out;
+            seconds += took.as_secs_f64();
+            if let Some(d) = out.drafted {
+                drafted.steps += d.steps;
+                drafted.proposed += d.proposed;
+                drafted.accepted += d.accepted;
+            }
+        }
+        rows.push((label, tokens, seconds, drafted));
+        engine.unload().await;
+    }
+    for (label, tokens, seconds, drafted) in rows {
+        eprintln!(
+            "LIVE (c) {label} the draft: {tokens} tokens in {seconds:.2} s, {:.1} tokens/s, \
+             {:.2} s a call; acceptance length {}",
+            f64::from(tokens) / seconds,
+            seconds / 3.0,
+            drafted
+                .tokens_per_step()
+                .map_or_else(|| "-".to_owned(), |length| format!("{length:.2}"))
+        );
+    }
 }

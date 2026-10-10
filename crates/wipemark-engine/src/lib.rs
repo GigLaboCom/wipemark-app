@@ -52,7 +52,7 @@ use std::path::PathBuf;
 pub use async_trait::async_trait;
 pub use http::{HttpConfig, HttpEngine, HttpProvider, Reasoning};
 #[cfg(feature = "local-llama")]
-pub use local::{has_gpu_backend, LocalConfig, LocalEngine};
+pub use local::{has_gpu_backend, DraftConfig, LocalConfig, LocalEngine};
 pub use progress::{LoadProgress, LoadSink};
 /// The cancellation every call takes, re-exported so a caller names the
 /// type the trait names.
@@ -91,6 +91,16 @@ pub struct EngineInfo {
     /// it, which is the same mistake `Host::vram_mb` exists as an
     /// `Option` to avoid.
     pub ctx_len: Option<u32>,
+    /// The speculative draft that decodes beside a local model — its
+    /// sha256, as the catalogue pins it — or `None` (E2-dflash2, D483).
+    ///
+    /// Part of the engine's identity because the queue's fingerprint
+    /// hashes this struct (D116): a chunk decided with a draft is, with
+    /// sampling, another draw than one decided without, and a job resumed
+    /// after a crash must not mix the two. Before a load it is the draft
+    /// the engine was built with; after one, the draft that loaded, or
+    /// `None` when it was refused.
+    pub draft: Option<String>,
 }
 
 /// Sampling knobs. Every one of them is a config value, never a
@@ -143,6 +153,69 @@ pub struct Completion {
     pub text: String,
     pub tokens_out: u32,
     pub finish: FinishReason,
+    /// What a speculative draft did for this completion, when one decoded
+    /// beside the model (E2-dflash2); `None` for everything else.
+    pub drafted: Option<Drafted>,
+}
+
+/// What a draft did for one completion (E2-dflash2, D486): the
+/// verification steps it proposed a block for, the tokens it proposed and
+/// the tokens the model kept of them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Drafted {
+    pub steps: u32,
+    pub proposed: u32,
+    pub accepted: u32,
+}
+
+impl Drafted {
+    /// Proposed tokens the model kept, per step — `None` before a step.
+    pub fn accepted_per_step(&self) -> Option<f64> {
+        (self.steps > 0).then(|| f64::from(self.accepted) / f64::from(self.steps))
+    }
+
+    /// Tokens kept per step, the model's own included: the draft card's
+    /// "acceptance length".
+    pub fn tokens_per_step(&self) -> Option<f64> {
+        (self.steps > 0).then(|| f64::from(self.accepted + self.steps) / f64::from(self.steps))
+    }
+}
+
+/// Why a speculative draft does not decode beside its model (E2-dflash2,
+/// D481, D485). Every one of them leaves the model loaded **alone** — none
+/// is a failed load, and none is a fallback to anything else. Structured
+/// for the reason [`Unavailable`] is: the surface words it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum DraftRefusal {
+    /// The file is not a DFlash draft model.
+    #[error("it is not a DFlash draft model")]
+    NotDflash,
+    /// A DFlash 1 draft; this build runs DFlash2.
+    #[error("it is a DFlash 1 draft; only DFlash2 drafts are run")]
+    Dflash1,
+    /// Its block, selector or layer list is not one this build reads.
+    #[error("its block, selector or layer list is not one this build reads")]
+    Malformed,
+    /// Its vocabulary is not the model's.
+    #[error("its vocabulary is not the model's")]
+    Vocabulary,
+    /// It was trained for a model of another hidden size.
+    #[error("it was trained for a model of another hidden size")]
+    HiddenSize,
+    /// It reads layers the model does not have.
+    #[error("it reads layers the model does not have")]
+    Layers,
+    /// The model's recurrent state cannot be rolled back by a block.
+    #[error("the model's recurrent state cannot be rolled back by a block")]
+    NoRollback,
+    /// llama.cpp would not load it, or create its context — the draft's
+    /// file gone included.
+    #[error("llama.cpp could not load it or create its context")]
+    Load,
+    /// The model and its draft together are over the memory a load may
+    /// claim, and the model alone is not (D485).
+    #[error("the model and its draft need about {need_mb} MiB and {have_mb} MiB is available")]
+    NoRoom { need_mb: u64, have_mb: u64 },
 }
 
 #[derive(Debug, thiserror::Error)]
