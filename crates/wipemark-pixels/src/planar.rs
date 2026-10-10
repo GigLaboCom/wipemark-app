@@ -406,7 +406,7 @@ impl Blocks {
 }
 
 /// Everything the planar inverse computed for one verified mark, kept
-/// reachable so a blend-back can be measured in the planes (D305, R7) and
+/// reachable so a blend-back can be measured in the planes (D494, R7) and
 /// the tests can hold each step: the template, Y in and out at full
 /// resolution, and per chroma block `ᾱ`, Cb and Cr in and out, at the
 /// chroma's own resolution. Unrounded and unclamped.
@@ -557,7 +557,7 @@ impl Inverse {
 
     /// The restored picture blended back with the mark and compared with
     /// what the file stored, **in the planes** — the pairs a measure of
-    /// consistency (D305, `consistency_px`) takes the 95th percentile of,
+    /// consistency (D494, `consistency_px`) takes the 95th percentile of,
     /// in stored levels:
     ///
     /// * **Y**, per written pixel with `NOISE_FLOOR ≤ α < opaque`:
@@ -827,7 +827,7 @@ pub(crate) fn restore(
         .iter()
         .filter(|&&a| a >= inverse.opaque)
         .count() as u32;
-    // How far the result is from the data (D305), in the planes the file
+    // How far the result is from the data (D494), in the planes the file
     // stored: Y at full resolution with `α`, Cb and Cr at their own with
     // `ᾱ`, clamped samples and holes left out — measured before the
     // capture noise is taken off in RGB.

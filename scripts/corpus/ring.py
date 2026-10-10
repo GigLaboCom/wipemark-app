@@ -14,7 +14,7 @@ and neither can the blend models. A file only helps if its corner really is
 the background its group names. This is the check before a file enters the
 set: the host runs it on every file the owner delivers, and
 `scripts/corpus/manifest.py add` runs it again and records its numbers in
-the row (D304).
+the row (D493).
 
 What it does
 ------------

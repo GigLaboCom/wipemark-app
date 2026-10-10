@@ -198,7 +198,7 @@ then `"visible"` (with `restored`:
 the contour, the faint band's step per channel (`steps`, R G B), in luma
 (`step`) and in colour difference (`chroma`), the roughness the
 restoration left and the same around the mark, why it is or is not
-`exact`, and how far it is from the data (D305): the restored samples
+`exact`, and how far it is from the data (D494): the restored samples
 blended back against the input, the 95th percentile in 8-bit levels
 (`consistency_px`, about 0 for an exact inverse), and the samples left
 out of it, clamped ones and holes (`consistency_excluded`). The last two
@@ -206,7 +206,7 @@ are a measure and decide no exit; `consistency_dct` joins them only on a
 path that chooses a value inside a JPEG's intervals, and is absent
 otherwise. After them, two keys **absent** — not `false`, not `null` —
 wherever they would say nothing, so every report that says neither is
-byte for byte what it was: `"smoothed":true` (D307, E12-R8) when, on a
+byte for byte what it was: `"smoothed":true` (D496, E12-R8) when, on a
 lossy source, the restoration's roughness is under 0.8 of the picture's
 around it — a patch flatter than its surroundings, a mark left like a
 texture is (exit 3, and the human report says "The restored patch is
@@ -218,7 +218,7 @@ when the restored value was chosen inside a lossy codec's interval
 is, by DCT-POCS (D472, below)),
 `"encoding"` (`{"kind":"unchanged"|"png"|"webp-lossless"|"jpeg",…}`),
 **A 4:2:0 or 4:2:2 JPEG is proved and restored in its planes** (D471, the
-owner, 2026-10-10 — the series' proposed D306, taken with the per-plane
+owner, 2026-10-10 — the series' proposed D495, taken with the per-plane
 interval), and two keys appear, each **absent** — not `null` — everywhere
 else: a finding's `scores` gains `"planar":{"y","chroma"}` (the
 out-of-range share's two terms; `out_of_range` is then the share of

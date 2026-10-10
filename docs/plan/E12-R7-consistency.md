@@ -9,7 +9,7 @@
 | Runs on          | **container**                                                                                                           |
 | Files touched    | `crates/wipemark-pixels/src/{restore.rs,verify.rs}`, `crates/wipemark-pixels/tests/exact.rs`, `scripts/regress.py` (one measure), `scripts/bench/report.py` (one column), `docs/architecture/visible-marks.md` ("The report"), `docs/architecture/cli.md`, the report |
 | Not touched      | any bound, any verdict, any exit code                                                                                   |
-| Decisions        | **D305**                                                                                                                |
+| Decisions        | **D494**                                                                                                                |
 | Size             | ~1 day                                                                                                                  |
 
 ## §0 Ground rules — identical in every document of the E12-R series
@@ -47,7 +47,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   image, pixels`). `scripts/check-dep-direction.sh` reads `[dependencies]`,
   `[dev-dependencies]` and `[build-dependencies]` alike.
 * **A developer tool that reads a picture file** is an example of
-  `wipemark-picture`, as `examples/measure_map.rs` is (D312).
+  `wipemark-picture`, as `examples/measure_map.rs` is (D501).
 * **Synthetic helpers** (`composite`, the blend models) live in
   `wipemark_pixels::synth`, `#[doc(hidden)]`.
 * **A developer tool is not a surface** (D162). It gets no catalogue
@@ -72,7 +72,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   `scripts/compare-gwt.py` is the shape. A figure in a report that no
   committed script reproduces is a figure nobody can check.
 * **The owner's pictures never go into git.** A manifest names the
-  Watchword key, the path inside the ZIP and the sha256 (D304). Tests in CI
+  Watchword key, the path inside the ZIP and the sha256 (D493). Tests in CI
   read only committed fixtures (`fixtures/image/gemini/`, 14 crops) and
   synthesis. No test touches the network, a corpus or Python.
 * **A real file's JPEG variants are made by `mkset.py`'s recipe**
@@ -190,7 +190,7 @@ R6, because R6 wants it as a test (`E12-R-recon.md` §2.1).
   * on the planar path (R6) it is computed **in the planes**: Y at full
     resolution, chroma at its own with `ᾱ`. The p95 is over both.
 * **The JSON gains the fields.** That is a format change, so it needs a
-  decision (D305), and `visible-marks.md` and `cli.md` get the fields with
+  decision (D494), and `visible-marks.md` and `cli.md` get the fields with
   their meaning.
 * **The tools**: `regress.py` compares `consistency_px` as a measure, with
   `abs_tol` 0.2 levels and `rel_tol` 5 % `[tunable]`. `report.py` shows it
@@ -220,7 +220,7 @@ R6, because R6 wants it as a test (`E12-R-recon.md` §2.1).
    consistency_px,consistency_excluded`.
 3. R5's R0 run is repeated with the column. `consistency_px` ≤ 1 at p95 on
    every slice.
-4. The report, with D305's final text.
+4. The report, with D494's final text.
 
 ## §7 Out of scope
 
@@ -234,4 +234,4 @@ R6, because R6 wants it as a test (`E12-R-recon.md` §2.1).
 
 ## §9 Decisions
 
-**D305**, as proposed.
+**D494**, as proposed.

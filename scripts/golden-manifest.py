@@ -5,7 +5,7 @@ What it is for
 --------------
 Step E12-R1 of the E12-R series (`docs/plan/E12-R1-regression-harness.md`
 §4.1), dispatched by the coordinator on 2026-10-09. The regression's corpus
-is named by a manifest in git (D304): the Watchword key of each ZIP, the
+is named by a manifest in git (D493): the Watchword key of each ZIP, the
 path inside it, each file's sha256 and class, and how each derived file is
 rebuilt. The classes marked ● in §4.1 come to some four hundred entries
 over the owner's 21 stickers; typing them is how a recipe drifts from the
@@ -156,7 +156,7 @@ def main():
     files += [e for i, e in old.items() if i not in named]
     manifest = {
         "schema": 1,
-        "comment": "Written by scripts/golden-manifest.py and filled by scripts/regress.py (pin, baseline). D304: the owner's pictures are named, never committed.",
+        "comment": "Written by scripts/golden-manifest.py and filled by scripts/regress.py (pin, baseline). D493: the owner's pictures are named, never committed.",
         "sources": {
             "fixtures": {"repo": FIXTURES, "comment": "the 14 committed crops"},
             "stickers": {"key": STICKERS_KEY, "sha256": old_sources.get("stickers", {}).get("sha256") or STICKERS_SHA,

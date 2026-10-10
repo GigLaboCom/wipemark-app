@@ -1,5 +1,5 @@
 //! The outline's measures on pictures with no mark — not a feature, a
-//! developer's tool (D162, D312).
+//! developer's tool (D162, D501).
 //!
 //! **What it is for.** Step E12-R12 of the E12-R series, stage 4a
 //! (`docs/plan/E12-R12-grok-thresholds-and-support.md` §4.1, filed
@@ -120,7 +120,7 @@
 //! in a hundred; a constant far over it has room a vendor's restoration
 //! may be using. The summary is arithmetic; which bound moves, if any, is
 //! the report's and a decision's (§4.1: within 25 % of Gemini's constant
-//! the constants stay, S3; more is D309). `|step|` and `chroma` are said
+//! the constants stay, S3; more is D498). `|step|` and `chroma` are said
 //! only over the picture's own spread as well (`Outline::left`), and
 //! `texture` only over `TEXTURE_RATIO` times `texture_around` too, so the
 //! verdict counts are the product's and the per-measure counts are not.

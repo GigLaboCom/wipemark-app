@@ -1,5 +1,5 @@
 //! The planar inverse against the RGB one, file by file (E12-R6, D471) — a
-//! developer's tool, not a surface (D162, D312).
+//! developer's tool, not a surface (D162, D501).
 //!
 //! Asked for by the E12-R6 step document (`docs/plan/E12-R6-planar-inverse.md`
 //! §6.4: `max_alpha_dev_in_block`'s distribution and the out-of-range split
@@ -18,7 +18,7 @@
 //!    the noise floor or over (its 50th, 95th percentile and max), and the
 //!    blend-back in the planes (`Inverse::blend_back`: the 50th, 95th
 //!    percentile and the max of `|blend(O_rec) − I|`, and the samples left
-//!    out) — the consistency R7 will report (D305);
+//!    out) — the consistency R7 will report (D494);
 //! 4. the combined out-of-range share R6 would measure at chroma
 //!    allowances of 1 to 16 levels (`examine_planar_at`), so where the
 //!    allowance sits can be read off real marks;

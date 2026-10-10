@@ -144,7 +144,7 @@ fn measure_the_methods_on_the_committed_crops() {
     }
 }
 
-/// D307 on the inverse alone and on the product: no lossy crop's
+/// D496 on the inverse alone and on the product: no lossy crop's
 /// restoration is smoother than the picture around it —
 /// `texture / texture_around` at 0.8 or over on every one, through the
 /// inverse with no refinement (R0, and R6's planar inverse on 4:2:0) and
@@ -520,7 +520,7 @@ fn the_recomputed_coefficients_are_the_files() {
         let decoded = wipemark_picture::decode_with_planes(&bytes, container)
             .unwrap()
             .unwrap();
-        // A grey JPEG is handed no planes (D302).
+        // A grey JPEG is handed no planes (D491).
         let Some(planes) = decoded.planes else {
             println!("{name}: no planes, not read");
             continue;

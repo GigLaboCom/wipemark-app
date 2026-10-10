@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/GigLaboCom/wipemark-app/golden/manifest.schema.json",
   "title": "The regression corpus (golden/manifest.json), schema 1",
-  "description": "D304: a corpus is named, never committed. scripts/regress.py `validate` checks these same rules without a schema library; a rule changed here is changed there.",
+  "description": "D493: a corpus is named, never committed. scripts/regress.py `validate` checks these same rules without a schema library; a rule changed here is changed there.",
   "type": "object",
   "required": ["schema", "sources", "recipes", "files"],
   "additionalProperties": false,

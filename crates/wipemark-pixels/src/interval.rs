@@ -240,7 +240,7 @@ pub fn idct8(coef: &[f64; 64]) -> [f64; 64] {
 /// The quantisation indices of the whole 8 × 8 block at `(bx, by)` (in
 /// blocks) of `plane`, recomputed from the decoded samples:
 /// `q_k = round(DCT_k(I − 128) / Q_k)`, natural order. The decoder exports
-/// no coefficients (D302), so this is the data §4.2 projects onto; how
+/// no coefficients (D491), so this is the data §4.2 projects onto; how
 /// often it is the file's own is held by
 /// `the_recomputed_coefficients_are_the_files`.
 #[doc(hidden)]
@@ -1000,7 +1000,7 @@ impl Work {
         clamped
     }
 
-    /// `consistency_px` of what [`Work::render`] wrote (D305), through R7's
+    /// `consistency_px` of what [`Work::render`] wrote (D494), through R7's
     /// measure: in the planes when the base restoration measured it there
     /// (R6's), in RGB otherwise (R0's) — the restored samples blended back
     /// with the `α` and logo they were restored with, against the file.
@@ -1185,7 +1185,7 @@ pub(crate) fn refine(
                 }
                 work.render(raster, at, &noise_at);
                 // A round that leaves the restoration smoother than the
-                // picture around it (D307) is taken back: the round before
+                // picture around it (D496) is taken back: the round before
                 // it, which ended on the data projection too, is kept.
                 if under_band(raster) {
                     for (ch, o) in work.channels.iter_mut().zip(kept) {

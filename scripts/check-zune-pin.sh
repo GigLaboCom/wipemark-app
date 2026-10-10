@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The zune-jpeg pin (D301): every crate of ours decodes a JPEG with the
+# The zune-jpeg pin (D490): every crate of ours decodes a JPEG with the
 # fork's zune-jpeg, at the one rev the root Cargo.toml names, and nothing
 # else of ours slipped in beside it.
 #

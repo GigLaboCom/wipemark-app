@@ -12,8 +12,8 @@
 //! and never a profile that half loaded.
 //!
 //! **The blend past one colour (E12-R9) is built and not opened.** A
-//! `bias` (R9a, D308), a `logo_map` (R9b, D313) and `"model":
-//! "linear-light"` (R9c, D311) — all three proposed, none taken — are
+//! `bias` (R9a, D497), a `logo_map` (R9b, D502) and `"model":
+//! "linear-light"` (R9c, D500) — all three proposed, none taken — are
 //! read only in a build with the `blend-preview` feature. Without it the
 //! catalogue refuses each exactly as it did before the code existed: a
 //! `bias` is a field the schema does not know, a `logo_map` and
@@ -246,13 +246,13 @@ pub struct Profile {
     pub logo: [f32; 3],
     /// How the vendor blended: `Encoded` on every profile this build can
     /// read without `blend-preview`; `LinearLight` only with it (R9c,
-    /// D311 proposed).
+    /// D500 proposed).
     pub model: BlendModel,
     /// A constant the vendor added where the mark is drawn, per channel,
-    /// in 8-bit levels (R9a, D308 proposed): `None` on every profile
+    /// in 8-bit levels (R9a, D497 proposed): `None` on every profile
     /// without `blend-preview`, and `None` is no bias — not a zero added.
     pub bias: Option<[f32; 3]>,
-    /// The logo's colour per sample of the opacity maps (R9b, D313
+    /// The logo's colour per sample of the opacity maps (R9b, D502
     /// proposed), the size of every one of them: `None` without
     /// `blend-preview`, and then `logo` is the colour everywhere.
     pub logo_map: Option<LogoMap>,

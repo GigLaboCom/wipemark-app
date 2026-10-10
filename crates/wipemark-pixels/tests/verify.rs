@@ -375,7 +375,7 @@ fn the_report_json_is_ascii_and_stable() {
         "\"also_tried\":[{\"profile\":\"test-sparkle-v2\",\"verified\":false,\"refusal\":{\"why\":\"gain\",\"k\":",
         "\"restored\":[{\"profile\":\"test-sparkle-v1\",\"rect\":{\"x\":",
         "\"changed\":",
-        // D305: the measure follows `exact`; `consistency_dct` is R8's
+        // D494: the measure follows `exact`; `consistency_dct` is R8's
         // and absent while it is none.
         "\"exact\":true,\"consistency_px\":",
         ",\"consistency_excluded\":0}]",
@@ -536,7 +536,7 @@ fn rows_only() -> Catalogue {
     .unwrap_or_else(|e| panic!("{e}"))
 }
 
-/// The bench's gain (D312) is the gain the second proof measures: a
+/// The bench's gain (D501) is the gain the second proof measures: a
 /// shipped mark drawn at `k = 0.93` and looked at by its row alone is seen
 /// at a gain within three hundredths of 0.93 on every background — what
 /// the bench's `R-k` rows rest on, and what keeps them from testing
@@ -576,7 +576,7 @@ fn the_benchs_gain_is_the_gain_a_row_measures() {
     }
 }
 
-/// D154 through the bench's own composite (D312): a shipped mark drawn at
+/// D154 through the bench's own composite (D501): a shipped mark drawn at
 /// 0.93 of its opacity — `k = 0.93` against a profile of `k = 1` — is a
 /// blend, seen, refused by its gain with the gain it would have needed,
 /// and not restored. Another opacity is another profile, never a

@@ -1,7 +1,7 @@
 # `scripts/corpus/` — the E12-R2 corpora
 
 Step E12-R2 (`docs/plan/E12-R2-corpora.md`) collects three sets of real
-pictures. The pictures are the owner's and **never enter git** (D304): a set
+pictures. The pictures are the owner's and **never enter git** (D493): a set
 is a **stored** ZIP under a dated Watchword key, and its manifest in git,
 `corpus/<set>/manifest.json`, names the key, each file's path inside the ZIP
 and its sha256. These two scripts are the tooling:
@@ -196,7 +196,7 @@ key is never reused for other bytes (`zip --key` refuses). Every upload is
 FILE, ttl 0, followed by a read-back showing no `expires_at`; the
 coordinator gives each key a row in `CLAUDE.md`'s table.
 
-`verify` is the D304 check at any time: `--root <set>` against the unpacked
+`verify` is the D493 check at any time: `--root <set>` against the unpacked
 files, `--zip <file>` against the ZIP (every member stored, the ZIP's own
 sha256 against the manifest's); a file whose sha256 differs from its row is
 refused, exit 2.

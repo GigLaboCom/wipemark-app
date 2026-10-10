@@ -70,7 +70,7 @@ pub enum BlendModel {
     Encoded,
     /// Linear in light (sRGB decoded): in the schema, refused by the
     /// catalogue until a vendor needs it (D152) — read only under
-    /// `blend-preview` (E12-R9c, D311 proposed).
+    /// `blend-preview` (E12-R9c, D500 proposed).
     LinearLight,
 }
 
@@ -151,7 +151,7 @@ pub enum CalibrationError {
 }
 
 /// sRGB decoding of an 8-bit-scaled value, to linear light in [0, 1].
-/// Public for [`crate::synth`]'s re-export only (D312).
+/// Public for [`crate::synth`]'s re-export only (D501).
 pub fn to_linear(v: f64) -> f64 {
     let c = (v / 255.0).clamp(0.0, 1.0);
     if c <= 0.040_45 {
@@ -162,7 +162,7 @@ pub fn to_linear(v: f64) -> f64 {
 }
 
 /// sRGB encoding of linear light, to 8-bit-scaled units. Public for
-/// [`crate::synth`]'s re-export only (D312).
+/// [`crate::synth`]'s re-export only (D501).
 pub fn from_linear(l: f64) -> f64 {
     let l = l.clamp(0.0, 1.0);
     let c = if l <= 0.003_130_8 {

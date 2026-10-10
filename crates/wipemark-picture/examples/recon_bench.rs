@@ -1,5 +1,5 @@
 //! The restoration against ground truth (E12-R5) — a developer's tool, not
-//! a surface (D162, D312): no catalogue string, no settings row, no flag of
+//! a surface (D162, D501): no catalogue string, no settings row, no flag of
 //! the product.
 //!
 //! A known mark is composited over a known background, the result is
@@ -1823,7 +1823,7 @@ const CONFIGS: &[Config] = &[
 
 // ───────────────────────────────────────────────────────────── the blend
 
-/// R9's configs (E12-R9; D308, D313 and D311, all proposed): the user's
+/// R9's configs (E12-R9; D497, D502 and D500, all proposed): the user's
 /// path, R0's, with the catalogue `run --blend-row FILE` builds — the
 /// run's catalogue (the `--catalogue` file, else the shipped one) with that
 /// file's profile row in place of the row of its id. The row carries what the sub-step measures, and the host writes
@@ -1835,19 +1835,19 @@ const PREVIEW_CONFIGS: &[Config] = &[
     Config {
         name: "R9a",
         inverse: BlendModel::Encoded,
-        about: "E12-R9a, D308 (proposed): R0 with the --blend-row profile, which carries a bias",
+        about: "E12-R9a, D497 (proposed): R0 with the --blend-row profile, which carries a bias",
         restore: r0,
     },
     Config {
         name: "R9b",
         inverse: BlendModel::Encoded,
-        about: "E12-R9b, D313 (proposed): R0 with the --blend-row profile, which carries a logo colour map",
+        about: "E12-R9b, D502 (proposed): R0 with the --blend-row profile, which carries a logo colour map",
         restore: r0,
     },
     Config {
         name: "R9c",
         inverse: BlendModel::LinearLight,
-        about: "E12-R9c, D311 (proposed): R0 with the --blend-row profile, blended in linear light",
+        about: "E12-R9c, D500 (proposed): R0 with the --blend-row profile, blended in linear light",
         restore: r0,
     },
 ];
@@ -2790,11 +2790,11 @@ fn one(
             // E12-R6 (D471): the planar restoration's block shape and
             // `max |α − ᾱ|`; null on the RGB path.
             "planar": r.planar,
-            // D305: the restored picture blended back, against the input.
+            // D494: the restored picture blended back, against the input.
             "consistency_px": r.consistency_px,
             "consistency_excluded": r.consistency_excluded,
             // E12-R8: the share of DCT coefficients outside their intervals
-            // (DCT-POCS only), the soap check (D307), and how the value was
+            // (DCT-POCS only), the soap check (D496), and how the value was
             // chosen; null where not refined.
             "consistency_dct": r.consistency_dct,
             "smoothed": r.smoothed,

@@ -2,7 +2,7 @@
 
 Every change to `wipemark-pixels` or `wipemark-picture` is run over a fixed
 corpus of real pictures and compared with a baseline **file by file**, under
-the gates of the route the change says it touches (D303). The tool is
+the gates of the route the change says it touches (D492). The tool is
 `scripts/regress.py`; the plan is
 [`docs/plan/E12-R1-regression-harness.md`](../docs/plan/E12-R1-regression-harness.md).
 It is a host tool, like `scripts/verify/`, and not a gate of CI: CI has
@@ -10,7 +10,7 @@ neither the corpus nor Python.
 
 | path | what | in git |
 |---|---|---|
-| `manifest.json` | the corpus: sources, recipes, one entry per file (D304) | yes |
+| `manifest.json` | the corpus: sources, recipes, one entry per file (D493) | yes |
 | `manifest.schema.json` | the manifest's rules (`regress.py` checks the same without a schema library) | yes |
 | `baseline/<commit>/` | one `<id>.json` per file, `index.json`, `reproduce.json` — the CLI's JSONs, exits and sha256s, no picture | yes |
 | `cache/` | the unpacked ZIPs and the derived files | **no** (`.gitignore`) |
@@ -114,7 +114,7 @@ CLI. `--select` takes a part of the corpus (`frames:c1040-*`,
 and no CLI; `selftest --cli target/release/wipemark-cli` also runs a
 baseline and a run over the committed fixtures.
 
-## The routes (D303)
+## The routes (D492)
 
 On every route: **G1** negatives gain no finding (a known false positive in
 the baseline is listed, and only an increase fails); **G2** the number of

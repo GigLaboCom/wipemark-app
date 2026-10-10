@@ -54,14 +54,14 @@ with the `blend-preview` feature of `wipemark-pixels` (forwarded by
 `wipemark-picture` under the same name); their
 decisions are proposed and none is taken:
 
-* **`blend.bias`** (R9a, D308): `[b_r, b_g, b_b]` in stored 8-bit levels,
+* **`blend.bias`** (R9a, D497): `[b_r, b_g, b_b]` in stored 8-bit levels,
   scaled to the layout as the logo is, added by the vendor where the mark
   is drawn (`α > 0`). The inverse takes it off first, `O = (I − α·L −
   b)/(1 − α)`, and the out-of-range interval moves with it, `[α·L + b,
   α·L + b + (1 − α)·max]`. Absent or `null` is no bias, never a zero added
   (A2, `a_profile_without_a_bias_is_byte_for_byte_todays`); a channel at
   ±255 or past it is refused.
-* **`blend.logo_map`** (R9b, D313): `{ "asset", "sha256", "size" }`, a
+* **`blend.logo_map`** (R9b, D502): `{ "asset", "sha256", "size" }`, a
   **`.wml`** under `marks/` compiled in beside the `.wma` files and pinned
   and re-hashed the same way (`a_logo_map_asset_is_pinned`), the size of
   every opacity map the profile lists:
@@ -77,7 +77,7 @@ decisions are proposed and none is taken:
   read the pixel's own colour. In the planes (R6) it goes through JFIF's
   matrix per pixel, and a chroma block's is its pixels' `α`-weighted mean.
   `scripts/bench/wml.py` writes one from `map_regress`'s `pixels.tsv`.
-* **`"model": "linear-light"`** (R9c, D311): the inverse in light,
+* **`"model": "linear-light"`** (R9c, D500): the inverse in light,
   `O = from_lin((lin(I) − α·lin(L))/(1 − α))`, the sRGB curve continued
   past its range so an unclamped inverse still says by how much; the
   out-of-range share measured in light, the allowance of eight stored
@@ -288,7 +288,7 @@ the proposals that were no blend, is a count for gates and is not in it):
  "not_established":["invisible-pixel-marks","vendor-detector-evasion","human-authorship","unknown-mark-schemes"]}
 ```
 
-**How far the result is from the data** (D305, E12-R7). Every
+**How far the result is from the data** (D494, E12-R7). Every
 restoration carries `consistency_px`: the restored samples blended back
 — `α·L + (1 − α)·O`, with the `α` (after any resampling), the logo and
 the gain 1 the restoration used — against the stored input **before**
@@ -563,7 +563,7 @@ the picture's own spread in each (D238, D244, D247); a texture is left,
 on a lossy source, past `TEXTURE_LEVELS` **5.5** levels of roughness and
 `TEXTURE_RATIO` **2.0** times the roughness around the mark (D250,
 D251), and a smoothed patch is left, on a lossy source, under
-`TEXTURE_RATIO_MIN` **0.8** times it (D307, E12-R8). Measured on the synthetic pair and the shipped maps
+`TEXTURE_RATIO_MIN` **0.8** times it (D496, E12-R8). Measured on the synthetic pair and the shipped maps
 (2026-10-04, `--nocapture`):
 
 | | |
@@ -722,7 +722,7 @@ never decodes) and `wipemark-pixels` (which never reads a file). Plan:
 A JPEG stores its colour at its own resolution — half the width and
 height at 4:2:0 — and the raster above is the decoder's upsampling of it.
 `wipemark_picture::Decoded` carries, beside that raster, what the file
-stored (D302):
+stored (D491):
 
 * **`Decoded.planes: Option<wipemark_pixels::Planes>`**, filled by
   **`decode_with_planes`** — `Some` for a JPEG of three YCbCr components;
@@ -731,7 +731,7 @@ stored (D302):
   read by a second decoder over the same bytes (a second entropy pass),
   through `zune-jpeg`'s raw output (`JpegDecoder::raw_output`, upstream
   `dev`, unreleased) cropped from its 8 × 8-padded buffers, with the
-  tables from the one getter our fork adds (D301,
+  tables from the one getter our fork adds (D490,
   [zune-jpeg-pin.md](zune-jpeg-pin.md)). **`decode` leaves them `None`**:
   the second decode costs ×1.43 of the first on the 21 stickers at 2048,
   JPEG 95 4:2:0 — over the ×1.10 the step allowed — so they are taken
@@ -769,7 +769,7 @@ stored (D302):
 ## The planar inverse (E12-R6) — the product's road (D471)
 
 `crates/wipemark-pixels/src/planar.rs`. **D471** (the owner, 2026-10-10 —
-the series' proposed D306, taken with the per-plane interval) puts it on
+the series' proposed D495, taken with the per-plane interval) puts it on
 the product's road: `wipemark_picture::clean` and `inspect` decode a JPEG
 with its planes and call `wipemark_pixels::clean_refined` /
 `examine_with` with them, so the CLI, the MCP tools and the windows'
@@ -839,7 +839,7 @@ measure it alone; `recon_bench --config R6` is the same. Plan:
   in the JSON when `None`: every report off this path (4:4:4, PNG, WebP)
   is byte for byte what it was. `planar::invert` keeps every intermediate (`Y_I`, `Y_O`,
   `α`; per block `ᾱ`, Cb and Cr in and out) and `Inverse::blend_back`
-  gives the pairs a consistency measure (D305) takes in the planes.
+  gives the pairs a consistency measure (D494) takes in the planes.
 
 ## The value inside the interval (E12-R8) — DCT-POCS is the product's (D472)
 
@@ -910,7 +910,7 @@ Plan:
   outline, steps, texture, `smoothed`, `changed`, `clamped` — and
   `consistency_px` through R7's one function, in the planes on R6's path
   and in RGB on R0's.
-* **D307, live everywhere.** `TEXTURE_RATIO_MIN` 0.8: on a lossy source a
+* **D496, live everywhere.** `TEXTURE_RATIO_MIN` 0.8: on a lossy source a
   restoration whose roughness is under 0.8 of the picture's around it is a
   patch flatter than its surroundings; `Restored.smoothed`, counted in
   `marks_left` (exit 3) and said by the CLI and the window's Report

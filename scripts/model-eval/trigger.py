@@ -38,7 +38,7 @@ chroma when `outline_left` holds and `chroma` > `CHROMA_LEVELS` (4.0) —
 the condition the chroma term needs, whatever the spread; when the share
 or the luma step could have fired too, the file is still counted (an upper
 bound: it says *could*, and the table shows how many such files there
-are). Files with `smoothed` (D307) or with an outline left by the share or
+are). Files with `smoothed` (D496) or with an outline left by the share or
 the step alone are shown apart and not counted: FDnCNN removes noise; it
 does not add texture or move a band.
 

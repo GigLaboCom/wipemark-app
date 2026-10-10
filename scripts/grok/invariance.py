@@ -130,7 +130,7 @@ One list, in any of three shapes (the extension decides):
   a row.
 
 Relative paths are under `--root`, or else beside the list. A row with a
-`sha256` is hashed first and refused on a mismatch (D304). `align.py`'s
+`sha256` is hashed first and refused on a mismatch (D493). `align.py`'s
 `crops.csv` is a list too (its rows carry `crop`, `aligned`, the original
 `width` and `height`, and the rectangle inside the crop); its `.npy`
 crops are read as they are.

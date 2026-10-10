@@ -21,7 +21,7 @@ has neither the corpus nor Python. Every script opens with the header
 
 `bias.py list` turns R2's `corpus/gemini-midtone/manifest.json` into the
 list the other three read (`path<TAB>group<TAB>held_out`), checking each
-file's sha256 first (D304), one profile at a time (`--profile`: the set
+file's sha256 first (D493), one profile at a time (`--profile`: the set
 holds both Gemini profiles, and a list is read under one map).
 `bias.py check-background` holds its Python
 restatement of `calibrate`'s ring quadratic to the Rust one

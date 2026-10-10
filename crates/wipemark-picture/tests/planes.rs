@@ -1,4 +1,4 @@
-//! A JPEG's stored planes (E12-R3, D301, D302): Y, Cb and Cr at their own
+//! A JPEG's stored planes (E12-R3, D490, D491): Y, Cb and Cr at their own
 //! resolution from `zune-jpeg`'s raw output (`JpegDecoder::raw_output`,
 //! with the fork's `quantization_tables` getter), held to the decoder's
 //! own RGB raster (upsampled by `Planes::to_rgb`), to the picture they

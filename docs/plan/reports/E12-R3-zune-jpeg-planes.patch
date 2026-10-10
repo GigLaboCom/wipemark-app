@@ -39,7 +39,7 @@ index 0000000..15ba68f
 +at their own resolution — the IDCT's output, before upsampling and colour
 +conversion — and its quantisation tables. Wipemark
 +(`GigLaboCom/wipemark-app`) needs them to restore a visible mark at the
-+chroma's own resolution (its decisions D301 and D302; its
++chroma's own resolution (its decisions D490 and D491; its
 +`docs/architecture/zune-jpeg-pin.md`). Nothing that `decode`,
 +`decode_into` or any other existing call returns changes.
 +

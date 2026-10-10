@@ -1,4 +1,4 @@
-//! The stored planes of a lossy JPEG (D302): Y, Cb and Cr at their own
+//! The stored planes of a lossy JPEG (D491): Y, Cb and Cr at their own
 //! resolution — after the IDCT and dequantisation, before the decoder
 //! upsamples the chroma and converts to RGB, cropped from the MCU padding
 //! — with the sampling and the two quantisation tables.
@@ -186,7 +186,7 @@ pub struct Quant {
     pub chroma: Option<[u16; 64]>,
 }
 
-/// A lossy JPEG's stored planes (D302).
+/// A lossy JPEG's stored planes (D491).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Planes {
     width: u32,

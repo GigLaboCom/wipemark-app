@@ -1,6 +1,6 @@
 //! The blend past one logo colour (E12-R9), built and not opened: a bias
-//! (R9a, D308 proposed), a logo colour per pixel (R9b, D313 proposed) and
-//! linear light (R9c, D311 proposed) — each composited by
+//! (R9a, D497 proposed), a logo colour per pixel (R9b, D502 proposed) and
+//! linear light (R9c, D500 proposed) — each composited by
 //! `wipemark_pixels::synth`, read by a catalogue only a `blend-preview`
 //! build has, and restored through the product's own `clean`. Without the
 //! feature there is nothing here to run: the catalogue refuses all three

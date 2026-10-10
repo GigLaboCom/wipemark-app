@@ -462,7 +462,7 @@ fn inexact(say: Say, restored: &Restored) -> Vec<String> {
             ),
         ));
     }
-    // A patch smoother than the picture around it (D307).
+    // A patch smoother than the picture around it (D496).
     if restored.smoothed {
         notes.push(say(
             Message::CliImageVisibleSmoothed,

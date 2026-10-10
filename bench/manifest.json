@@ -1,5 +1,5 @@
 {
-  "about": "The restoration bench's backgrounds (E12-R5, D304): per background its group, its seed or its photograph, the sha256 of its tile and, per row, the mean code and the min/max per channel in the mark's zone. Written by `recon_bench pin`; `recon_bench gen` refuses a background whose tile no longer hashes to its pin. The owner's photographs never enter git: the photo group names the Watchword key, each file's path inside it and its sha256. See scripts/bench/README.md.",
+  "about": "The restoration bench's backgrounds (E12-R5, D493): per background its group, its seed or its photograph, the sha256 of its tile and, per row, the mean code and the min/max per channel in the mark's zone. Written by `recon_bench pin`; `recon_bench gen` refuses a background whose tile no longer hashes to its pin. The owner's photographs never enter git: the photo group names the Watchword key, each file's path inside it and its sha256. See scripts/bench/README.md.",
   "groups": [
     {
       "about": "flat colour, dither, soft gradients, value noise, drawn shapes; the tone under the mark cycles midtone, saturated, white, black, sticker-green (the stickers' corner, about (7, 150, 58)), other",

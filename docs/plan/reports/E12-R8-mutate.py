@@ -55,7 +55,7 @@ PIXELS = "crates/wipemark-pixels/src/interval.rs"
 
 # (protection, file, old, new, command, expected: "red" or "green")
 MUTATIONS = [
-    ("D307's lower bound", "crates/wipemark-pixels/src/verify.rs",
+    ("D496's lower bound", "crates/wipemark-pixels/src/verify.rs",
      "        self.texture < TEXTURE_RATIO_MIN * self.texture_around",
      "        false && self.texture < TEXTURE_RATIO_MIN * self.texture_around",
      ["test", "--release", "-p", "wipemark-pixels", "--lib", "--", "a_patch_smoother_than_its_surroundings_is_said"],

@@ -8,7 +8,7 @@ filed 2026-10-08 by the coordinator from the owner's spec
 `wipemark-recon-spec-2026-10-08` (`02-data-collection.md`,
 `08-grok-evaluation.md` §1; the owner's S2 and S5), the container part
 written 2026-10-09. Three sets — `gemini-midtone`, `negative`, `grok` — are
-the owner's pictures, which never enter git (D304): a set is a stored ZIP
+the owner's pictures, which never enter git (D493): a set is a stored ZIP
 under a dated Watchword key, and its manifest in git
 (`corpus/<set>/manifest.json`) names the key, the path inside the ZIP and
 each file's sha256. This script writes and checks those manifests, so the
@@ -25,7 +25,7 @@ What it does
   is added — unless `--on-fail move`, which files it under the group the
   check names (`gradient`, `texture`) with `moved_from`, or lists it under
   `dropped`. A file already a row is skipped; a path already a row with
-  other bytes is refused (D304); the same bytes twice are one row.
+  other bytes is refused (D493); the same bytes twice are one row.
 * `build` — `add` over every picture under `--root` not yet in the
   manifest, the group read from its folder (`<group>/<file>`) and the
   profile from the folder above it when that names one
@@ -44,7 +44,7 @@ What it does
   `batch` field records the order.
 * `verify` — every row's file against its sha256, in a folder (`--root`)
   or in a ZIP (`--zip`): a file whose sha256 differs from its row, or a
-  row with no file, is refused (D304). A ZIP must be **stored**: a
+  row with no file, is refused (D493). A ZIP must be **stored**: a
   deflated member is refused, the ZIP's own sha256 is checked against the
   source's when the manifest pins one, and a member no row names is
   listed (attention, exit 3).
@@ -208,7 +208,7 @@ def new_manifest(set_name):
     return {
         "schema": SCHEMA,
         "set": set_name,
-        "comment": "E12-R2, D304: the owner's pictures are a stored ZIP under the sources' keys; this names them. "
+        "comment": "E12-R2, D493: the owner's pictures are a stored ZIP under the sources' keys; this names them. "
                    "Written by scripts/corpus/manifest.py; see scripts/corpus/README.md.",
         "held_out": {"every": EVERY, "by": SETS[set_name]["by"],
                      "rule": "decided once, when a row is written: a run's new rows sorted by sha256 within "
@@ -345,7 +345,7 @@ def add_files(m, root, items, on_fail="refuse"):
         old = by_path.get((source, rel))
         if old is not None:
             if old["sha256"] != sha:
-                raise Refusal(f"{rel}: sha256 {sha} is not its row {old['id']}'s {old['sha256']} — refused (D304); "
+                raise Refusal(f"{rel}: sha256 {sha} is not its row {old['id']}'s {old['sha256']} — refused (D493); "
                               "a changed file is a new file under a new name")
             said.append(f"{rel}: already row {old['id']}")
             continue
@@ -432,7 +432,7 @@ def one_source(m, source):
 
 
 def verify(m, root=None, zip_path=None, source=None):
-    """(problems, extras): every row's file against its sha256 (D304)."""
+    """(problems, extras): every row's file against its sha256 (D493)."""
     problems, extras = [], []
     if zip_path:
         source = one_source(m, source)
@@ -445,7 +445,7 @@ def verify(m, root=None, zip_path=None, source=None):
             infos = {i.filename: i for i in zf.infolist() if not i.is_dir()}
             for i in infos.values():
                 if i.compress_type != zipfile.ZIP_STORED:
-                    problems.append(f"{i.filename}: deflated in the ZIP, not stored — a corpus ZIP is stored (D304)")
+                    problems.append(f"{i.filename}: deflated in the ZIP, not stored — a corpus ZIP is stored (D493)")
             for r in rows:
                 i = infos.get(r["path"])
                 if i is None:
@@ -453,7 +453,7 @@ def verify(m, root=None, zip_path=None, source=None):
                     continue
                 got = sha256_bytes(zf.read(i))
                 if got != r["sha256"]:
-                    problems.append(f"{r['path']}: sha256 {got} is not row {r['id']}'s {r['sha256']} — refused (D304)")
+                    problems.append(f"{r['path']}: sha256 {got} is not row {r['id']}'s {r['sha256']} — refused (D493)")
             want = {r["path"] for r in rows}
             extras = sorted(n for n in infos if n not in want)
     else:
@@ -465,7 +465,7 @@ def verify(m, root=None, zip_path=None, source=None):
                 continue
             got = sha256_file(p)
             if got != r["sha256"]:
-                problems.append(f"{r['path']}: sha256 {got} is not row {r['id']}'s {r['sha256']} — refused (D304)")
+                problems.append(f"{r['path']}: sha256 {got} is not row {r['id']}'s {r['sha256']} — refused (D493)")
     return problems, extras
 
 
@@ -484,7 +484,7 @@ def zip_set(m, root, out, source=None, force=False):
                 with open(os.path.join(root, r["path"]), "rb") as f:
                     data = f.read()
                 if sha256_bytes(data) != r["sha256"]:
-                    raise Refusal(f"{r['path']}: sha256 {sha256_bytes(data)} is not row {r['id']}'s — not packed (D304)")
+                    raise Refusal(f"{r['path']}: sha256 {sha256_bytes(data)} is not row {r['id']}'s — not packed (D493)")
                 info = zipfile.ZipInfo(r["path"], date_time=(1980, 1, 1, 0, 0, 0))
                 info.compress_type = zipfile.ZIP_STORED
                 info.create_system = 3
@@ -499,7 +499,7 @@ def zip_set(m, root, out, source=None, force=False):
 
 def pin_key(m, source, key, zsha):
     if not re.match(r"^wipemark-corpus-[a-z0-9-]+-\d{4}-\d{2}-\d{2}$", key):
-        raise Refusal(f"--key {key!r}: wipemark-corpus-<set>-<YYYY-MM-DD> (D304)")
+        raise Refusal(f"--key {key!r}: wipemark-corpus-<set>-<YYYY-MM-DD> (D493)")
     s = m["sources"][source]
     if s.get("key") == key:
         if s.get("sha256") not in (None, zsha):
@@ -1018,7 +1018,7 @@ def cmd_inspect(args):
                 continue
             p = os.path.join(args.root, r["path"])
             if sha256_file(p) != r["sha256"]:
-                raise Refusal(f"{r['path']}: sha256 is not its row's — refused (D304); nothing was recorded")
+                raise Refusal(f"{r['path']}: sha256 is not its row's — refused (D493); nothing was recorded")
             code, j = cli_inspect(args.cli, p, env)
             found = findings_of(j)
             want = r["profile"] if m["set"] == "gemini-midtone" else None

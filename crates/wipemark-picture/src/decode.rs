@@ -42,7 +42,7 @@ pub struct Decoded {
     pub raster: Raster,
     pub fidelity: Fidelity,
     pub source: Source,
-    /// A YCbCr JPEG's stored planes (D302): Y, Cb and Cr at their own
+    /// A YCbCr JPEG's stored planes (D491): Y, Cb and Cr at their own
     /// resolution and the quantisation tables, from a second decoder over
     /// the same bytes. Filled only by [`decode_with_planes`]: [`decode`]
     /// leaves it `None`, because the second decode costs ×1.43 of the
@@ -214,7 +214,7 @@ fn jpeg_decode(bytes: &[u8]) -> Result<Decoded, PictureError> {
 
 /// A three-component YCbCr JPEG's stored planes, read by a second decoder
 /// over the same bytes — a second entropy pass — through upstream's raw
-/// output (`JpegDecoder::raw_output`, D301): one plane per component, the
+/// output (`JpegDecoder::raw_output`, D490): one plane per component, the
 /// IDCT's clamped output before upsampling and colour conversion, handed
 /// out padded to whole 8 × 8 blocks and cropped here to its logical
 /// `ceil(W·h/h_max) × ceil(H·v/v_max)`; and each component's quantisation

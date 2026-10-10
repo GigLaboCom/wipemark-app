@@ -47,7 +47,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   image, pixels`). `scripts/check-dep-direction.sh` reads `[dependencies]`,
   `[dev-dependencies]` and `[build-dependencies]` alike.
 * **A developer tool that reads a picture file** is an example of
-  `wipemark-picture`, as `examples/measure_map.rs` is (D312).
+  `wipemark-picture`, as `examples/measure_map.rs` is (D501).
 * **Synthetic helpers** (`composite`, the blend models) live in
   `wipemark_pixels::synth`, `#[doc(hidden)]`.
 * **A developer tool is not a surface** (D162). It gets no catalogue
@@ -72,7 +72,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   `scripts/compare-gwt.py` is the shape. A figure in a report that no
   committed script reproduces is a figure nobody can check.
 * **The owner's pictures never go into git.** A manifest names the
-  Watchword key, the path inside the ZIP and the sha256 (D304). Tests in CI
+  Watchword key, the path inside the ZIP and the sha256 (D493). Tests in CI
   read only committed fixtures (`fixtures/image/gemini/`, 14 crops) and
   synthesis. No test touches the network, a corpus or Python.
 * **A real file's JPEG variants are made by `mkset.py`'s recipe**
@@ -239,7 +239,7 @@ textures apart, since a shift shows best there.
 
 | observation | conclusion | action |
 |---|---|---|
-| `r` of one sign and size (±0.2) in every bin and channel | a constant bias | R9 R2b: `b` as profile data (D308) |
+| `r` of one sign and size (±0.2) in every bin and channel | a constant bias | R9 R2b: `b` as profile data (D497) |
 | `r` grows or falls with `Ô` monotonically | not a bias; the blend model, or `L` | R9 R-lin, and §4.4 |
 | `r` differs per channel and does not depend on `Ô` | `L_c` is off | re-fit the global `L` on `gemini-midtone`, then §4.4 |
 | `r` within ±0.2 everywhere | nothing | R2b not needed; recorded |
@@ -336,5 +336,5 @@ slope `1 − α(p)` and the intercept `α(p)·L(p)` **separately**.
 
 ## §9 Decisions
 
-None. The report's four lines feed R9, Q-R1 and, through R9, D308 and
-D311.
+None. The report's four lines feed R9, Q-R1 and, through R9, D497 and
+D500.

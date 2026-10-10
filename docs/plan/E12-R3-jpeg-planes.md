@@ -9,7 +9,7 @@
 | Runs on          | **owner**: creates `GigLaboCom/zune-image`. **container**: the patch, the types, the tests. **host**: R1 `--route lossy` with the fork in |
 | Files touched    | in the fork: `crates/zune-jpeg/src/{decoder.rs,mcu.rs,mcu_prog.rs,lib.rs,planes.rs}`, `PATCH.md`; here: `Cargo.toml` (`[patch.crates-io]`), `Cargo.lock`, `crates/wipemark-pixels/src/{planes.rs,lib.rs}`, `crates/wipemark-picture/src/{decode.rs,lib.rs}`, `crates/wipemark-picture/tests/planes.rs`, `fixtures/image/jpeg-planes/` (small synthetic JPEGs + `make.py`), `docs/architecture/zune-jpeg-pin.md`, `docs/architecture/visible-marks.md` (one section), `docs/README.md` (one row), the report |
 | Not touched      | `restore.rs`, `verify.rs`, `propose.rs` (nothing reads the planes yet), the CLI, the MCP tools                                          |
-| Decisions        | D301 (the fork and its pin), D302 (`Planes` and `Decoded.planes`)                                                                       |
+| Decisions        | D490 (the fork and its pin), D491 (`Planes` and `Decoded.planes`)                                                                       |
 | Size             | ~4 days                                                                                                                                 |
 
 ## §0 Ground rules — identical in every document of the E12-R series
@@ -47,7 +47,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   image, pixels`). `scripts/check-dep-direction.sh` reads `[dependencies]`,
   `[dev-dependencies]` and `[build-dependencies]` alike.
 * **A developer tool that reads a picture file** is an example of
-  `wipemark-picture`, as `examples/measure_map.rs` is (D312).
+  `wipemark-picture`, as `examples/measure_map.rs` is (D501).
 * **Synthetic helpers** (`composite`, the blend models) live in
   `wipemark_pixels::synth`, `#[doc(hidden)]`.
 * **A developer tool is not a surface** (D162). It gets no catalogue
@@ -72,7 +72,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   `scripts/compare-gwt.py` is the shape. A figure in a report that no
   committed script reproduces is a figure nobody can check.
 * **The owner's pictures never go into git.** A manifest names the
-  Watchword key, the path inside the ZIP and the sha256 (D304). Tests in CI
+  Watchword key, the path inside the ZIP and the sha256 (D493). Tests in CI
   read only committed fixtures (`fixtures/image/gemini/`, 14 crops) and
   synthesis. No test touches the network, a corpus or Python.
 * **A real file's JPEG variants are made by `mkset.py`'s recipe**
@@ -154,7 +154,7 @@ by recomputed DCT).
 ## §2 Read first
 
 * `docs/architecture/gpui-pin.md`: how a fork is pinned here, what a bump
-  means, and the protected branch. D301 copies its shape.
+  means, and the protected branch. D490 copies its shape.
 * `crates/wipemark-picture/src/decode.rs` 155–185: `jpeg_decode`.
 * `crates/wipemark-pixels/src/raster.rs`: `Raster`, `Layout`, `luma_plane`.
 * In `zune-jpeg` 0.5.15 (`~/.cargo/registry/src/*/zune-jpeg-0.5.15/src/`):
@@ -181,7 +181,7 @@ by recomputed DCT).
 
 ## §4 Deliverables
 
-### 4.1 The fork (D301)
+### 4.1 The fork (D490)
 
 > **Superseded 2026-10-09.** Upstream built the planes itself
 > (`JpegDecoder::raw_output`, etemesi254/zune-image #379/#386/#440, on
@@ -193,7 +193,7 @@ by recomputed DCT).
 > is [`docs/architecture/zune-jpeg-pin.md`](../architecture/zune-jpeg-pin.md),
 > the move is
 > [`reports/E12-R3-raw-output-2026-10-09.md`](reports/E12-R3-raw-output-2026-10-09.md),
-> and D301/D302 are amended in [`E12-R-recon.md`](E12-R-recon.md) §5.2.
+> and D490/D491 are amended in [`E12-R-recon.md`](E12-R-recon.md) §5.2.
 
 * **The repository.** `GigLaboCom/zune-image`, a fork of
   `etemesi254/zune-image`, with branch `wipemark/planes` cut from the
@@ -242,7 +242,7 @@ by recomputed DCT).
   * the patch's size in lines;
   * how to re-carry the patch onto a new tag.
 
-### 4.2 `wipemark_pixels::Planes` (D302) — `crates/wipemark-pixels/src/planes.rs`
+### 4.2 `wipemark_pixels::Planes` (D491) — `crates/wipemark-pixels/src/planes.rs`
 
 ```rust
 pub enum Sampling { H444, H422, H420, Gray, Other { h: [u8; 3], v: [u8; 3] } }
@@ -310,7 +310,7 @@ Each is a few kilobytes, and they are committed.
 | `a_420_plane_is_the_averaged_chroma_at_quality_100` — a known YCbCr image encoded 4:2:0 at q100 by `make.py`: `cb`/`cr` within 2 levels of the 2×2 mean of the full chroma `[tunable]` | native resolution | hand out the upsampled chroma as the plane |
 | `the_quantisation_tables_are_the_files` — every fixture: `quant` equals the tables read independently from the DQT segments (`wipemark_image` blocks), in natural order, two-segment and progressive files included | `qt`, `qt_index` | swap `qt_index` between luma and chroma; hand out the zigzag order |
 | `a_png_has_no_planes_and_a_lossy_jpeg_has_them` (`decode.rs` unit) | routing | set `planes` for a greyscale JPEG |
-| `the_rgb_raster_did_not_move` — the 14 `fixtures/image/gemini/` crops and every planes fixture: `decode(..).raster`'s sha256 equals a table pinned at `4b5ba17` | L1, D302 | decode the RGB through `planes.to_rgb()` |
+| `the_rgb_raster_did_not_move` — the 14 `fixtures/image/gemini/` crops and every planes fixture: `decode(..).raster`'s sha256 equals a table pinned at `4b5ba17` | L1, D491 | decode the RGB through `planes.to_rgb()` |
 | `planes_new_refuses_sizes_that_do_not_match_the_sampling` (`planes.rs` unit) | `Planes::new` | drop the check |
 
 ## §6 Acceptance
@@ -343,6 +343,6 @@ Each is a few kilobytes, and they are committed.
 
 ## §9 Decisions
 
-**D301** and **D302**, as proposed in `E12-R-recon.md` §5.2. If the patch
+**D490** and **D491**, as proposed in `E12-R-recon.md` §5.2. If the patch
 turns out deeper than local, the report says how deep, and the owner
 decides between a C library and a different fork scope (S1).

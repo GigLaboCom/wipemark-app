@@ -28,8 +28,8 @@ thiserror.workspace = true
 
 [features]
 # The blend past one logo colour (E12-R9): the catalogue reads a profile's
-# `bias` (R9a, D308), its `logo_map` — a `.wml` asset pinned by sha256
-# (R9b, D313) — and `"model": "linear-light"` (R9c, D311). All three are
+# `bias` (R9a, D497), its `logo_map` — a `.wml` asset pinned by sha256
+# (R9b, D502) — and `"model": "linear-light"` (R9c, D500). All three are
 # proposed and none is taken; without the feature the catalogue refuses
 # each exactly as it did before the code existed, and every shipped
 # profile restores byte for byte as it did. `wipemark-picture` forwards it

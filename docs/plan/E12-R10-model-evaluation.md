@@ -9,7 +9,7 @@
 | Runs on          | **host only**: Python in a venv (`torch`, `onnxruntime`, `opencv-python`, `lpips`), on crops; **nothing in the crates**                 |
 | Files touched    | new: `scripts/model-eval/{fdncnn_export.py,fdncnn_run.py,lama_run.py,baselines.py,ab.py,README.md}`, `docs/plan/reports/E12-R10-fdncnn-<date>.md` and/or `E12-R10-lama-<date>.md` (or a `-decision-` report when not triggered); edited: `scripts/bench/report.py` (a model as one more config), `scripts/regress.py` (`--export-crops`) |
 | Not touched      | every crate; the catalogue's `Role` list (no `pixel` model ships: `every_shipped_model_is_a_text_model`)                              |
-| Decisions        | **D310** (restored and reconstructed are never mixed); Q-R2, Q-R3 are the owner's                                                     |
+| Decisions        | **D499** (restored and reconstructed are never mixed); Q-R2, Q-R3 are the owner's                                                     |
 | Size             | ~3 days per model run; **0** when not triggered (a one-page report)                                                                  |
 
 ## §0 Ground rules — identical in every document of the E12-R series
@@ -47,7 +47,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   image, pixels`). `scripts/check-dep-direction.sh` reads `[dependencies]`,
   `[dev-dependencies]` and `[build-dependencies]` alike.
 * **A developer tool that reads a picture file** is an example of
-  `wipemark-picture`, as `examples/measure_map.rs` is (D312).
+  `wipemark-picture`, as `examples/measure_map.rs` is (D501).
 * **Synthetic helpers** (`composite`, the blend models) live in
   `wipemark_pixels::synth`, `#[doc(hidden)]`.
 * **A developer tool is not a surface** (D162). It gets no catalogue
@@ -72,7 +72,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   `scripts/compare-gwt.py` is the shape. A figure in a report that no
   committed script reproduces is a figure nobody can check.
 * **The owner's pictures never go into git.** A manifest names the
-  Watchword key, the path inside the ZIP and the sha256 (D304). Tests in CI
+  Watchword key, the path inside the ZIP and the sha256 (D493). Tests in CI
   read only committed fixtures (`fixtures/image/gemini/`, 14 crops) and
   synthesis. No test touches the network, a corpus or Python.
 * **A real file's JPEG variants are made by `mkset.py`'s recipe**
@@ -283,7 +283,7 @@ be measured.
 | outcome | next |
 |---|---|
 | M2 fails against NS | E12-7 on classical inpainting (NS/Telea in pure Rust), no LaMa (Q-R3) |
-| M1–M7 pass | E12-7 is an integration document for LaMa: a runtime decision (`ort`, `candle` or our own), weights as a catalogue model of role `pixel` (~200 MB, a separate download, OV §9), lazily loaded, crops, CPU fallback; the pixels marked **reconstructed** in JSON and report, never **restored** (D310) |
+| M1–M7 pass | E12-7 is an integration document for LaMa: a runtime decision (`ort`, `candle` or our own), weights as a catalogue model of role `pixel` (~200 MB, a separate download, OV §9), lazily loaded, crops, CPU fallback; the pixels marked **reconstructed** in JSON and report, never **restored** (D499) |
 | Grok has no holes | LaMa is not evaluated; recorded as for Gemini |
 
 A self-consistency diagnostic (LaMa from the input `I` over the whole
@@ -335,5 +335,5 @@ Every script carries a `selftest` with no weights and no corpus:
 
 ## §9 Decisions
 
-**D310**, as proposed. **Q-R2** and **Q-R3** are the owner's to answer on
+**D499**, as proposed. **Q-R2** and **Q-R3** are the owner's to answer on
 this step's reports.

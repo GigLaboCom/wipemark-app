@@ -39,7 +39,7 @@ What it does
     the mean of its eight neighbours, over the pixels under the mark with
     `α` from the noise floor to under the opaque threshold, and over the
     pixels of the rectangle and a ring four out with `α` under the floor;
-  * `consistency_px` — `restore.rs` (D305): the restored samples blended
+  * `consistency_px` — `restore.rs` (D494): the restored samples blended
     back, `α·L + (1 − α)·O`, against the stored ones, the 95th percentile of
     the distance over the samples with `α` from the floor to under the
     threshold, clamped samples and holes left out;
@@ -89,7 +89,7 @@ NOISE_RING = 8               # interval.rs NOISE_RING
 H_BASE, H_SIGMAS = 0.5, 2.0  # interval.rs: pixel POCS's h = H_BASE + H_SIGMAS·σ_base
 TEXTURE_LEVELS = 5.5         # verify.rs TEXTURE_LEVELS (D250)
 TEXTURE_RATIO = 2.0          # verify.rs TEXTURE_RATIO
-TEXTURE_RATIO_MIN = 0.8      # verify.rs TEXTURE_RATIO_MIN (D307)
+TEXTURE_RATIO_MIN = 0.8      # verify.rs TEXTURE_RATIO_MIN (D496)
 CHROMA_LEVELS = 4.0          # verify.rs CHROMA_LEVELS (D247)
 STEP_LEVELS = 1.0            # verify.rs STEP_LEVELS (D244)
 BAND = (3.0 / 255.0, 0.2)    # verify.rs BAND
@@ -549,7 +549,7 @@ def clamped_samples(stored, alpha, logo, opaque):
 
 
 def consistency_px(out, stored, alpha, logo, opaque):
-    """D305 restated: (p95 of |α·L + (1 − α)·O − I|, excluded) over the
+    """D494 restated: (p95 of |α·L + (1 − α)·O − I|, excluded) over the
     samples with `α` from the noise floor to under `opaque`, the clamped ones
     and the three samples of every hole left out."""
     a = np.asarray(alpha, dtype=np.float64)

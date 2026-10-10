@@ -10,7 +10,7 @@
 | Files touched    | `crates/wipemark-pixels/src/{interval.rs (new),restore.rs,verify.rs,lib.rs}`, `crates/wipemark-pixels/tests/interval.rs` (new), `crates/wipemark-picture/src/lib.rs` (the switch), `crates/wipemark-picture/examples/recon_bench.rs` (configs `R8d`, `R8p`, `R8w`), `docs/architecture/visible-marks.md`, `docs/architecture/cli.md`, the report |
 | Not touched      | the lossless path (S6), detection, the proof's bounds, the encoder                                                                      |
 | Status           | **Decided 2026-10-10**: the owner took DCT-POCS (R8d) as the product's method, **D472**; it runs by default, and `WIPEMARK_INTERVAL` and the `planar-preview` road below are gone — see `docs/plan/reports/E12-R-decided-2026-10-10.md`. What follows is the step as it was written |
-| Decisions        | **D307** (`TEXTURE_RATIO_MIN`); the choice of one method recorded as a decision row by the coordinator                                  |
+| Decisions        | **D496** (`TEXTURE_RATIO_MIN`); the choice of one method recorded as a decision row by the coordinator                                  |
 | Size             | ~1–2 weeks (three methods, one kept)                                                                                                     |
 
 ## §0 Ground rules — identical in every document of the E12-R series
@@ -48,7 +48,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   image, pixels`). `scripts/check-dep-direction.sh` reads `[dependencies]`,
   `[dev-dependencies]` and `[build-dependencies]` alike.
 * **A developer tool that reads a picture file** is an example of
-  `wipemark-picture`, as `examples/measure_map.rs` is (D312).
+  `wipemark-picture`, as `examples/measure_map.rs` is (D501).
 * **Synthetic helpers** (`composite`, the blend models) live in
   `wipemark_pixels::synth`, `#[doc(hidden)]`.
 * **A developer tool is not a surface** (D162). It gets no catalogue
@@ -73,7 +73,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   `scripts/compare-gwt.py` is the shape. A figure in a report that no
   committed script reproduces is a figure nobody can check.
 * **The owner's pictures never go into git.** A manifest names the
-  Watchword key, the path inside the ZIP and the sha256 (D304). Tests in CI
+  Watchword key, the path inside the ZIP and the sha256 (D493). Tests in CI
   read only committed fixtures (`fixtures/image/gemini/`, 14 crops) and
   synthesis. No test touches the network, a corpus or Python.
 * **A real file's JPEG variants are made by `mkset.py`'s recipe**
@@ -245,7 +245,7 @@ n(p) = σ_base² / (1 − α(p))²        s = var(HP(I_ring))        O = O₀·s
 It is cheaper than R3 and keeps no interval. Keep it **only if** it is not
 worse than R3 at p5 on R5.
 
-### 4.5 The lower bound (D307)
+### 4.5 The lower bound (D496)
 
 * **`TEXTURE_RATIO_MIN` = 0.8** `[tunable]`. On a lossy source, a
   restoration whose `texture` is under 0.8 × `texture_around` is too
@@ -274,7 +274,7 @@ worse than R3 at p5 on R5.
 | `the_recomputed_coefficients_are_the_files`: R3's fixtures, `round(DCT(plane)/Q)` equals the encoder's indices on ≥ 99.9 % of coefficients (the fixtures are made by `make.py` with known indices); otherwise R3 must export coefficients, and the test says so | §4.2's data | use the zigzag table order |
 | `after_the_data_projection_every_coefficient_is_in_its_interval`: `consistency_dct == 0` after R4d on `torch-1025-q95-444.jpg` | `P_D` last | end on `P_S` |
 | `a_lossless_source_is_never_refined`: PNG fixtures with `Refine::Dct` → byte-equal to `Refine::None` | S6 | drop the `Fidelity::Lossy` check |
-| `a_patch_smoother_than_its_surroundings_is_said` (`verify.rs` unit): `texture` 0.5 × around on a lossy source → `smoothed`, a mark left; the same on a lossless one → not | D307 | drop the lower bound |
+| `a_patch_smoother_than_its_surroundings_is_said` (`verify.rs` unit): `texture` 0.5 × around on a lossy source → `smoothed`, a mark left; the same on a lossless one → not | D496 | drop the lower bound |
 | `the_4_4_4_texture_falls_under_its_bound`: `torch-1025-q95-444.jpg` with `Refine::Dct` → `texture < 5.5` and `step`, `chroma`, `outline` within R1's tolerances of R0 | the target (D250) | `N` = 0 |
 | `pixel_pocs_keeps_its_interval`: `consistency_px ≤ 2h` on the JPEG fixtures | §4.3 | clamp to `[lo − 1, hi + 1]` |
 | `text_is_not_smoothed_away` (synthetic): the glyph sheet of `tests/assets.rs` at 4:4:4 q95 → PSNR in the ROI no worse than R0 by more than 0.3 dB | A3 | radius 4 on text |
@@ -304,7 +304,7 @@ worse than R3 at p5 on R5.
 5. **The blind A/B**, if Q-R7 is answered: 30 pairs, R6 against R8 at 200
    % in the ROI. The candidate is no worse in ≥ 70 %. If unanswered, the
    report says it was not run.
-6. The report gives D307's final text, the method kept as a decision row,
+6. The report gives D496's final text, the method kept as a decision row,
    and the follow-up that turns the switch on.
 
 ## §7 Out of scope
@@ -321,5 +321,5 @@ worse than R3 at p5 on R5.
 
 ## §9 Decisions
 
-**D307**, as proposed. The method kept (R4d, R3 or R3w, and where) becomes
+**D496**, as proposed. The method kept (R4d, R3 or R3w, and where) becomes
 a decision row with the next free number when the coordinator takes it.

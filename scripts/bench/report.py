@@ -21,7 +21,7 @@ What it does
   1. configs × slices: n, the median and p5 of PSNR and SSIM, the median and
      p95 of ΔE2000 (for ΔE the tail is the top), the worst-5 % mean of PSNR,
      the delta to R0, and the p95 over restored files of `consistency_px`
-     (D305, added by E12-R7 on 2026-10-09: the restoration blended back
+     (D494, added by E12-R7 on 2026-10-09: the restoration blended back
      against its input; about 0 for an exact inverse, a slice over 1 level is
      named under the table) — per encoder, then per group, for marks blended
      as every shipped profile declares (`encoded`, `k = 1`);
@@ -42,7 +42,7 @@ What it does
      for the coordinator; `docs/plan/E12-R8-value-inside-the-interval.md`
      §6.2): per config, slice and encoder over the restored lossy files,
      `texture` and its ratio to `texture_around`, how many are `smoothed`
-     (D307), refined, refined as text, in how many rounds, the largest
+     (D496), refined, refined as text, in how many rounds, the largest
      `consistency_dct`;
      then §6.2's two checks per config — `texture` under 5.5 on
      `jpeg444-q95` on at least 80 % of the restored files, and the soap
@@ -126,7 +126,7 @@ DEFAULT_TARGETS = ["jpeg420-q95", "jpeg420-q90", "jpeg444-q95"]
 # E12-R8 §6.2 — the value inside the codec's interval (added 2026-10-09):
 R8_TEXTURE_SLICE = "jpeg444-q95"
 R8_TEXTURE_SHARE = 0.8    # on that slice, texture under TEXTURE_BOUND on at least this share of restored files
-SOAP_RATIO = 0.8          # D307: texture / texture_around at least this (TEXTURE_RATIO_MIN)…
+SOAP_RATIO = 0.8          # D496: texture / texture_around at least this (TEXTURE_RATIO_MIN)…
 SOAP_SHARE = 0.95         # …on at least this share of the restored lossy files (the soap check)
 LOSSY_SLICES = ["jpeg*", "webp-lossy*"]
 
@@ -242,7 +242,7 @@ def group_by(rows, *keys):
 
 
 def consistencies(rows):
-    """`consistency_px` of every restored row that carries one (D305; a run before E12-R7 has none)."""
+    """`consistency_px` of every restored row that carries one (D494; a run before E12-R7 has none)."""
     return [r["measures"]["consistency_px"] for r in rows
             if r.get("restored") and isinstance((r.get("measures") or {}).get("consistency_px"), (int, float))]
 
@@ -443,7 +443,7 @@ def report(rows, side, targets):
     md += ["## 1. Configs × slices (marks blended in code values, k = 1)", "",
            "PSNR and SSIM: the median and p5 (the low tail); ΔE2000: the median and p95 (the high tail). "
            "`worst 5 %` is the mean PSNR of the worst twentieth. Δ is against R0 on the same slice and encoder. "
-           "`consist. p95` is the p95 over restored files of `consistency_px` (D305): the restoration blended back "
+           "`consist. p95` is the p95 over restored files of `consistency_px` (D494): the restoration blended back "
            "against its input, in 8-bit levels — about 0 for an exact inverse; – when the run has none.", ""]
     rows1 = []
     for (cfg, sl, en), rs in sorted(group_by(vend, "config", "slice", "encoder").items(), key=lambda kv: (configs.index(kv[0][0]), kv[0][1], kv[0][2])):
@@ -628,7 +628,7 @@ def report(rows, side, targets):
            "* The groups and slices absent from this file are listed above by their absence; this report "
            "claims nothing about them.",
            "* A5 needs a second inverse (R9's R-lin); one inverse is a row of the matrix, not a verdict.",
-           "* `consistency_dct` (D305) is written by R8's `R8d` only; §10 reads it.",
+           "* `consistency_dct` (D494) is written by R8's `R8d` only; §10 reads it.",
            ""]
     md += r8_section(vend, configs)
     return "\n".join(md)
@@ -666,7 +666,7 @@ def r8_checks(rows, config):
 def r8_section(rows, configs):
     md = ["## 10. The value inside the interval (E12-R8)", "",
           "Restored lossy files, per config, slice and encoder: `texture` and its ratio to `texture_around` "
-          f"(D307 says a patch under {SOAP_RATIO} of its surroundings), how many were refined and in how many "
+          f"(D496 says a patch under {SOAP_RATIO} of its surroundings), how many were refined and in how many "
           "rounds, and the largest `consistency_dct` (DCT-POCS: 0 by construction). Marks blended in code "
           "values, k = 1.", ""]
     body = []
@@ -779,7 +779,7 @@ def selftest():
     # Numbers.
     expect("the quantile interpolates", quantile([1, 2, 3, 4, 5], 0.05) == 1.2 and median([1, 2, 3, 4]) == 2.5)
     expect("Spearman is 1 on a monotone pair", abs(spearman([1, 2, 3, 4], [10, 20, 25, 100]) - 1.0) < 1e-12)
-    # The consistency column (E12-R7, D305): the p95 over restored files, a slice over a level named, none before R7.
+    # The consistency column (E12-R7, D494): the p95 over restored files, a slice over a level named, none before R7.
     cons = [fake("R0", "png", 60.0, i, consistency=0.25 if i < 18 else 3.0) for i in range(20)]
     expect("consistency's p95 is the restored files' tail", summary(cons)["consistency_p95"] == 3.0)
     unrestored = [fake("R0", "png", 60.0, i, restored=False) for i in range(3)]

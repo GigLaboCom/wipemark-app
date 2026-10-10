@@ -9,7 +9,7 @@
 | Runs on          | **container**: the bench, `synth`, the scripts' self-tests. **host**: the full run and its report                                     |
 | Files touched    | new: `crates/wipemark-pixels/src/synth.rs`, `crates/wipemark-picture/examples/recon_bench.rs`, `scripts/bench/{encode.py,report.py,README.md}`, `bench/manifest.json`, `docs/plan/reports/E12-R5-<date>.md`; edited: `crates/wipemark-pixels/src/{lib.rs,calibrate.rs}` (re-exports only), `crates/wipemark-pixels/tests/exact.rs` (one test), `.gitignore` (`bench/out/`) |
 | Not touched      | `restore.rs`, `verify.rs`, `propose.rs`, the catalogue's refusals, the CLI                                                           |
-| Decisions        | D312 (where the bench and `synth` live)                                                                                              |
+| Decisions        | D501 (where the bench and `synth` live)                                                                                              |
 | Size             | ~5 days                                                                                                                              |
 
 ## §0 Ground rules — identical in every document of the E12-R series
@@ -47,7 +47,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   image, pixels`). `scripts/check-dep-direction.sh` reads `[dependencies]`,
   `[dev-dependencies]` and `[build-dependencies]` alike.
 * **A developer tool that reads a picture file** is an example of
-  `wipemark-picture`, as `examples/measure_map.rs` is (D312).
+  `wipemark-picture`, as `examples/measure_map.rs` is (D501).
 * **Synthetic helpers** (`composite`, the blend models) live in
   `wipemark_pixels::synth`, `#[doc(hidden)]`.
 * **A developer tool is not a surface** (D162). It gets no catalogue
@@ -72,7 +72,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   `scripts/compare-gwt.py` is the shape. A figure in a report that no
   committed script reproduces is a figure nobody can check.
 * **The owner's pictures never go into git.** A manifest names the
-  Watchword key, the path inside the ZIP and the sha256 (D304). Tests in CI
+  Watchword key, the path inside the ZIP and the sha256 (D493). Tests in CI
   read only committed fixtures (`fixtures/image/gemini/`, 14 crops) and
   synthesis. No test touches the network, a corpus or Python.
 * **A real file's JPEG variants are made by `mkset.py`'s recipe**
@@ -176,7 +176,7 @@ This generalises two tests that exist today:
 
 ## §4 Deliverables
 
-### 4.1 `wipemark_pixels::synth` (D312), `#[doc(hidden)] pub mod synth`
+### 4.1 `wipemark_pixels::synth` (D501), `#[doc(hidden)] pub mod synth`
 
 ```rust
 pub enum BlendModel { Encoded, LinearLight }
@@ -214,7 +214,7 @@ cargo run --release -p wipemark-picture --example recon_bench -- gen --manifest 
   Inside each group there **must** be mid-tones (grey 40–60 %), saturated
   colours with one channel ≈ 0, white and black under the mark. Without
   them R9 cannot be benched.
-* **The manifest** (`bench/manifest.json`, D304) records per background the
+* **The manifest** (`bench/manifest.json`, D493) records per background the
   mean code and the min/max per channel in the mark's zone, the group and
   the seed.
 * **Composites.** Per background × profile/row (V1-48, V1-96,
@@ -351,6 +351,6 @@ fail.
 
 ## §9 Decisions
 
-**D312**, as proposed. The bench, `forced_search`, `map_regress` and
+**D501**, as proposed. The bench, `forced_search`, `map_regress` and
 `measure_clean` are examples of `wipemark-picture`, and `synth` is
 `#[doc(hidden)]` in `wipemark-pixels`.

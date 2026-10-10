@@ -9,7 +9,7 @@
 | Runs on          | **the owner** (every generation, every photograph) + **host** (the checks, the manifests, the uploads)                               |
 | Files touched    | new: `scripts/corpus/ring.py`, `scripts/corpus/manifest.py`, `scripts/corpus/README.md`, `corpus/gemini-midtone/manifest.json`, `corpus/negative/manifest.json`, `corpus/grok/manifest.json`, `docs/plan/reports/E12-R2-<date>.md`, `docs/plan/reports/E12-R2-grok-stage0-<date>.md` |
 | Not touched      | every crate                                                                                                                           |
-| Decisions        | D304 (a corpus is a dated ZIP, its manifest in git)                                                                                  |
+| Decisions        | D493 (a corpus is a dated ZIP, its manifest in git)                                                                                  |
 | Size             | ~1 week of the owner's time spread over the series; ~1 day host                                                                       |
 
 ## §0 Ground rules — identical in every document of the E12-R series
@@ -47,7 +47,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   image, pixels`). `scripts/check-dep-direction.sh` reads `[dependencies]`,
   `[dev-dependencies]` and `[build-dependencies]` alike.
 * **A developer tool that reads a picture file** is an example of
-  `wipemark-picture`, as `examples/measure_map.rs` is (D312).
+  `wipemark-picture`, as `examples/measure_map.rs` is (D501).
 * **Synthetic helpers** (`composite`, the blend models) live in
   `wipemark_pixels::synth`, `#[doc(hidden)]`.
 * **A developer tool is not a surface** (D162). It gets no catalogue
@@ -72,7 +72,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   `scripts/compare-gwt.py` is the shape. A figure in a report that no
   committed script reproduces is a figure nobody can check.
 * **The owner's pictures never go into git.** A manifest names the
-  Watchword key, the path inside the ZIP and the sha256 (D304). Tests in CI
+  Watchword key, the path inside the ZIP and the sha256 (D493). Tests in CI
   read only committed fixtures (`fixtures/image/gemini/`, 14 crops) and
   synthesis. No test touches the network, a corpus or Python.
 * **A real file's JPEG variants are made by `mkset.py`'s recipe**
@@ -286,7 +286,7 @@ The gate is that all four sources are described and each has one answer in
 the first column (yes / no / it varies), a format and a rough position. An
 API with no mark is a product fact (Q-R5) and changes nothing technical.
 
-### 4.4 Storage (D304)
+### 4.4 Storage (D493)
 
 | set | Watchword FILE (stored ZIP) | manifest in git |
 |---|---|---|
@@ -312,7 +312,7 @@ synthetic PNGs are written to a temporary directory.
 |---|---|---|
 | `a_flat_corner_passes_and_a_gradient_does_not` (`ring.py`) | the 8-level spread rule | measure the spread over the whole image |
 | `the_held_out_choice_never_moves_when_a_file_is_added` (`manifest.py`) | `held_out` stability | assign by position in the listing instead of by sha256 |
-| `a_file_whose_sha_differs_from_its_row_is_refused` (`manifest.py`) | D304 | skip the hash |
+| `a_file_whose_sha_differs_from_its_row_is_refused` (`manifest.py`) | D493 | skip the hash |
 
 ## §6 Acceptance
 
@@ -345,5 +345,5 @@ synthetic PNGs are written to a temporary directory.
 
 ## §9 Decisions
 
-**D304**, as proposed in `E12-R-recon.md` §5.2. No other decision is
+**D493**, as proposed in `E12-R-recon.md` §5.2. No other decision is
 expected here.

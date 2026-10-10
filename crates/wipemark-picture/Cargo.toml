@@ -30,7 +30,7 @@ zune-jpeg = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 
 [features]
-# The blend past one logo colour (E12-R9, D308/D313/D311 proposed): the
+# The blend past one logo colour (E12-R9, D497/D502/D500 proposed): the
 # catalogue reads a profile's `bias`, `logo_map` and `linear-light`, which
 # it refuses without it (`wipemark-pixels`' feature of the same name). A
 # release CLI built with `--features wipemark-picture/blend-preview` and a

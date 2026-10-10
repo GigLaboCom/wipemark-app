@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "comment": "Written by scripts/golden-manifest.py and filled by scripts/regress.py (pin, baseline). D304: the owner's pictures are named, never committed.",
+  "comment": "Written by scripts/golden-manifest.py and filled by scripts/regress.py (pin, baseline). D493: the owner's pictures are named, never committed.",
   "sources": {
     "fixtures": {
       "repo": "fixtures/image/gemini",

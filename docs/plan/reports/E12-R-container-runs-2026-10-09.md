@@ -106,7 +106,7 @@ generated tile matched its pinned sha256.
   93.0 % for R0 and 93.6 % for every other config (needs 95 %): it fails
   on the baseline too, so on this bench the bound, not a method, is what
   fails.
-* **D305, `consistency_px` p95:** R0/R6 0.35–0.47; R8p 1.2–1.35; **R8d
+* **D494, `consistency_px` p95:** R0/R6 0.35–0.47; R8p 1.2–1.35; **R8d
   2.7–5.3** — the DCT method moves the restoration furthest from what was
   stored. R10 §2.4's F5 calls more than `2h` on over 10 % "the model leaves
   the data"; here it is the restoration's own interval method.
@@ -164,7 +164,7 @@ with R6 alone it is not.
 * **R8's method.** R8d wins on both levels (and closes R10), but moves the
   restoration furthest from the stored file (`consistency_px` p95 up to
   5.3) and still misses §6.2's 80 %. Take R8d, R8p, or neither?
-* **D306** (R6): level B fails L2 on 9 files with R6 alone; with R8d or
+* **D495** (R6): level B fails L2 on 9 files with R6 alone; with R8d or
   R8p it does not. R6's Q1 (per-plane interval or a cube test) is still
   the form question.
 * **D154:** 13–16 % of `k = 0.93` marks proved by the search.

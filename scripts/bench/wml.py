@@ -11,7 +11,7 @@ left out), which writes it as three columns of `pixels.tsv`; the catalogue
 reads it only as a `.wml` asset (`crates/wipemark-pixels/src/blend.rs`)
 pinned by sha256. This turns the one into the other, so the host can plug
 R4's measured map into `recon_bench gen --logo-map` and `run --blend-row`
-(and, once D313 is taken, into `manifests/marks.v1.json`) without a code
+(and, once D502 is taken, into `manifests/marks.v1.json`) without a code
 change.
 
 What it does

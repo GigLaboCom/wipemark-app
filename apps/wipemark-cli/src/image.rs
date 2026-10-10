@@ -777,7 +777,7 @@ fn visible_lines(say: Say, visible: &Visible, cleaned: bool) -> Vec<String> {
                 ));
             }
             // The other side of it: a patch smoother than the picture
-            // around it (D307).
+            // around it (D496).
             if restored.smoothed {
                 lines.push(format!(
                     "    {}",
@@ -1428,7 +1428,7 @@ mod tests {
         let resampled = lines(restored(false, true));
         assert!(resampled.contains("resampled"), "{resampled}");
         assert!(!resampled.contains("found by the search"), "{resampled}");
-        // D307: a patch smoother than the picture around it is said, with
+        // D496: a patch smoother than the picture around it is said, with
         // its roughness and then the surroundings'; nothing else is.
         assert!(!resampled.contains("smoother"), "{resampled}");
         let soap = lines(wipemark_pixels::Restored {

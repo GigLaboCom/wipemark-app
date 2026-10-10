@@ -172,7 +172,7 @@ fn text_is_not_smoothed_away() {
     assert!(checked >= 3, "{checked}");
 }
 
-/// D307 against the refinement itself: a round that would leave the
+/// D496 against the refinement itself: a round that would leave the
 /// restoration smoother than the picture around it is taken back, so no
 /// method ends on a smoothed patch — over every procedural background,
 /// saved 4:4:4 and 4:2:0 at 95 and 90. `--nocapture` prints each ratio.

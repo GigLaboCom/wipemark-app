@@ -9,7 +9,7 @@
 | Runs on          | **container** (code, tests) + **host** (R5, R1 `--route model`, the held-out check)                                                     |
 | Files touched    | per sub-step: `crates/wipemark-pixels/src/{catalogue.rs,restore.rs,verify.rs,planar.rs,lib.rs}`, `manifests/marks.v1.json` (a new profile row or field, its asset pinned), `crates/wipemark-pixels/marks/measured/` (a new map), `crates/wipemark-pixels/tests/{assets.rs,blend.rs (new)}`, `docs/architecture/visible-marks.md`, the report |
 | Not touched      | detection, the lossy branch (R6, R8)                                                                                                    |
-| Decisions        | **D308** (a bias as profile data), **D311** (D152 revisited only on three agreements); R-lm's decision row if it lands                  |
+| Decisions        | **D497** (a bias as profile data), **D500** (D152 revisited only on three agreements); R-lm's decision row if it lands                  |
 | Size             | **0** if R4 says "not needed" three times; ~3 days per sub-step that starts                                                              |
 
 ## §0 Ground rules — identical in every document of the E12-R series
@@ -47,7 +47,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   image, pixels`). `scripts/check-dep-direction.sh` reads `[dependencies]`,
   `[dev-dependencies]` and `[build-dependencies]` alike.
 * **A developer tool that reads a picture file** is an example of
-  `wipemark-picture`, as `examples/measure_map.rs` is (D312).
+  `wipemark-picture`, as `examples/measure_map.rs` is (D501).
 * **Synthetic helpers** (`composite`, the blend models) live in
   `wipemark_pixels::synth`, `#[doc(hidden)]`.
 * **A developer tool is not a surface** (D162). It gets no catalogue
@@ -72,7 +72,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   `scripts/compare-gwt.py` is the shape. A figure in a report that no
   committed script reproduces is a figure nobody can check.
 * **The owner's pictures never go into git.** A manifest names the
-  Watchword key, the path inside the ZIP and the sha256 (D304). Tests in CI
+  Watchword key, the path inside the ZIP and the sha256 (D493). Tests in CI
   read only committed fixtures (`fixtures/image/gemini/`, 14 crops) and
   synthesis. No test touches the network, a corpus or Python.
 * **A real file's JPEG variants are made by `mkset.py`'s recipe**
@@ -150,7 +150,7 @@ of its own with its own gates:
 |---|---|---|
 | **R9a — R2b, a bias** | §3: a residual of one sign and size (±0.2) in every bin of `Ô` and every channel | the profile gains `bias`; the inverse subtracts it |
 | **R9b — R-lm, a per-pixel logo colour** | §4: `L_reg` departs **along the logo's shape** with `α_reg ≈ α_measured`, **and** the held-out check passes | the catalogue accepts `logo_map`; the inverse uses `L(p)` |
-| **R9c — R-lin, linear light** | **all three** agree: `calibrate` on `gemini-midtone`'s greys chooses `linear-light`; R4 §3/§4 show an error monotonic in `Ô`; R5's matrix has the linear inverse winning on linear composites and losing on encoded ones (D311) | the catalogue accepts `linear-light`; the inverse and the proof work in linear light |
+| **R9c — R-lin, linear light** | **all three** agree: `calibrate` on `gemini-midtone`'s greys chooses `linear-light`; R4 §3/§4 show an error monotonic in `Ô`; R5's matrix has the linear inverse winning on linear composites and losing on encoded ones (D500) | the catalogue accepts `linear-light`; the inverse and the proof work in linear light |
 
 A sub-step whose condition did not hold is **closed in the report** by one
 line: the condition, R4's number, "not built". That is a result.
@@ -182,7 +182,7 @@ for as an error in the experiment.
 
 ## §4 Deliverables
 
-### R9a — a bias (D308)
+### R9a — a bias (D497)
 
 * **Schema.** `blend.bias: Option<[f32; 3]>` in stored 8-bit levels,
   scaled to the layout, as `logo` is. `None` is today.
@@ -210,7 +210,7 @@ for as an error in the experiment.
   ~6 to ≤ 1.5 levels `[tunable]`. A fall on the training files only is a
   rejection.
 
-### R9c — linear light (D311)
+### R9c — linear light (D500)
 
 * **Schema.** The catalogue accepts `"model": "linear-light"`.
 * **Inverse.** `I_lin = to_linear(I)`, `L_lin = to_linear(L)`, `O_lin =
@@ -219,7 +219,7 @@ for as an error in the experiment.
   allowance converted per pixel. Eight stored levels around `I` become
   `to_linear(I ± 8) − to_linear(I)`, the EOTF's local slope.
 * **D152 is amended** by the decision, and the experiment's outcome is
-  recorded whichever way it went (D311).
+  recorded whichever way it went (D500).
 
 ## §5 Tests (`crates/wipemark-pixels/tests/blend.rs` unless named)
 
@@ -249,7 +249,7 @@ for as an error in the experiment.
    * G1: the negatives show zero `verified`.
 4. **The report** has:
    * one section per sub-step, built or closed;
-   * the decision text (D308, R9b's row, D311);
+   * the decision text (D497, R9b's row, D500);
    * the lines for `docs/architecture/visible-marks.md` and for `CLAUDE.md`
      (the profile's description of V1).
 
@@ -267,7 +267,7 @@ for as an error in the experiment.
 
 ## §9 Decisions
 
-* **D308** (R9a) and **D311** (R9c), as proposed.
+* **D497** (R9a) and **D500** (R9c), as proposed.
 * R9b's acceptance of `logo_map` is a decision row given the next free
   number by the coordinator.
 * All three amend the profile's schema, so `docs/architecture/visible-marks.md`

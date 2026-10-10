@@ -182,7 +182,7 @@ gpui-base = { path = "vendor/gpui-component/crates/base" }
 # 0.25.8. A git source is a package of its own: `image` keeps crates.io's
 # 0.5.15 and every crate of ours gets the fork's. `version` makes Cargo
 # check the fork still is the pre-release this was written for. The fork
-# goes once upstream releases raw output with the getter. D301;
+# goes once upstream releases raw output with the getter. D490;
 # docs/architecture/zune-jpeg-pin.md.
 zune-jpeg = { git = "https://github.com/GigLaboCom/zune-image", rev = "e8d24f7e6007d74116bffe320ffff639e47eb702", version = "=0.5.16-rc2" }
 

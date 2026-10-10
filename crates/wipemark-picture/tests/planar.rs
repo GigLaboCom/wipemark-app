@@ -140,7 +140,7 @@ fn a_444_jpeg_and_a_png_take_the_old_path_byte_for_byte() {
     }
 }
 
-/// The identity (D305): the planar restoration blended back with the mark
+/// The identity (D494): the planar restoration blended back with the mark
 /// is what the file stored, to within a level at the 95th percentile, on
 /// every 4:2:0 fixture — measured in the planes.
 #[test]

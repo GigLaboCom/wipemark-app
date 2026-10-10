@@ -9,8 +9,8 @@
 | Runs on          | **container** (code, tests) + **host** (R5 on `jpeg420-*`, R1 `--route lossy`, then the coordinator's decision)                          |
 | Files touched    | `crates/wipemark-pixels/src/{planar.rs (new),verify.rs,restore.rs,lib.rs}`, `crates/wipemark-pixels/tests/planar.rs` (new), `crates/wipemark-picture/src/lib.rs` (the switch, §4.5), `crates/wipemark-picture/examples/recon_bench.rs` (config `R6`), `docs/architecture/visible-marks.md`, `docs/architecture/cli.md` (the JSON), the report |
 | Not touched      | `propose.rs`, the rows, the search, the second pass's logic, `prove`'s floor, the encoder (the output stays 4:4:4 q95)                   |
-| Status           | **Decided 2026-10-10**: the owner took D306 with the per-plane interval, numbered **D471** (D306 is another decision on `feat`); the planar path is the product's road and the `planar-preview` feature below is gone — see `docs/plan/reports/E12-R-decided-2026-10-10.md`. What follows is the step as it was written |
-| Decisions        | **D306** (out of range by planes; amends D240 and D252 for these inputs)                                                                 |
+| Status           | **Decided 2026-10-10**: the owner took D495 (proposed as D306) with the per-plane interval, numbered **D471** (D306 is another decision on `feat`); the planar path is the product's road and the `planar-preview` feature below is gone — see `docs/plan/reports/E12-R-decided-2026-10-10.md`. What follows is the step as it was written |
+| Decisions        | **D495** (out of range by planes; amends D240 and D252 for these inputs)                                                                 |
 | Size             | ~5 days                                                                                                                                 |
 
 ## §0 Ground rules — identical in every document of the E12-R series
@@ -48,7 +48,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   image, pixels`). `scripts/check-dep-direction.sh` reads `[dependencies]`,
   `[dev-dependencies]` and `[build-dependencies]` alike.
 * **A developer tool that reads a picture file** is an example of
-  `wipemark-picture`, as `examples/measure_map.rs` is (D312).
+  `wipemark-picture`, as `examples/measure_map.rs` is (D501).
 * **Synthetic helpers** (`composite`, the blend models) live in
   `wipemark_pixels::synth`, `#[doc(hidden)]`.
 * **A developer tool is not a surface** (D162). It gets no catalogue
@@ -73,7 +73,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   `scripts/compare-gwt.py` is the shape. A figure in a report that no
   committed script reproduces is a figure nobody can check.
 * **The owner's pictures never go into git.** A manifest names the
-  Watchword key, the path inside the ZIP and the sha256 (D304). Tests in CI
+  Watchword key, the path inside the ZIP and the sha256 (D493). Tests in CI
   read only committed fixtures (`fixtures/image/gemini/`, 14 crops) and
   synthesis. No test touches the network, a corpus or Python.
 * **A real file's JPEG variants are made by `mkset.py`'s recipe**
@@ -234,7 +234,7 @@ Cb_O,sub(q) = (Cb_I,sub(q) − ᾱ(q)·L_Cb) / (1 − ᾱ(q))            the chr
   planar: Option<{ sampling: "4:2:0"|"4:2:2", max_alpha_dev_in_block: f32, holes_chroma: u32 }>
   ```
 
-### 4.3 The proof, in the same model (D306)
+### 4.3 The proof, in the same model (D495)
 
 * **Y**: as today, in the Y plane: `[α·L_Y, α·L_Y + (1−α)·255]` against
   `BLEND_LEVELS` = 8.
@@ -279,7 +279,7 @@ re-examination of the 4:4:4 output does.
 
 ### 4.5 The switch (S12)
 
-Until D306 is taken:
+Until D495 is taken:
 
 * `wipemark_picture::clean` and `inspect` keep calling `examine` and `clean`;
 * only `recon_bench --config R6` passes the planes;
@@ -322,7 +322,7 @@ that passes `decoded.planes.as_ref()` and removes the feature.
      empty.
 4. The report gives `max_alpha_dev_in_block`'s distribution and the
    out-of-range split (`y`, `chroma`, combined) per variant.
-5. It also gives the decision text for D306 as it should read in
+5. It also gives the decision text for D495 as it should read in
    `docs/plan/README.md` §4. That text **names D240 and D252 as amended**,
    and adds a line for `docs/architecture/visible-marks.md`'s "known
    limitation", whose sentence in `CLAUDE.md` has to move.
@@ -342,5 +342,5 @@ that passes `decoded.planes.as_ref()` and removes the feature.
 
 ## §9 Decisions
 
-**D306**, as proposed in `E12-R-recon.md` §5.2. Its final text comes from
+**D495**, as proposed in `E12-R-recon.md` §5.2. Its final text comes from
 this step's measured `BLEND_LEVELS_C` and the host's level-B result.

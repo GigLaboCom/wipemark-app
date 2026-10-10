@@ -6,10 +6,10 @@
 | Spec             | `wipemark-recon-spec-2026-10-08`, `08-grok-evaluation.md` §5–§8; S3; D-new-5, D-new-6                                                 |
 | Depends on       | R11 (the provisional profile), R5 (the bench), R1 (the regression's structure), R10 §3 if Grok has holes                              |
 | Unblocks         | announcing Grok support (with Q-R5), Q-R8                                                                                            |
-| Runs on          | **container** (`measure_clean`, the profile's bounds if D309) + **host** (the runs, the Grok baseline)                                 |
-| Files touched    | new: `crates/wipemark-picture/examples/measure_clean.rs`, `golden/grok/manifest.json`, `golden/grok/baseline/<commit>/`, `docs/plan/reports/E12-R12-<date>.md`; edited (only if D309): `crates/wipemark-pixels/src/{catalogue.rs,verify.rs}`, `manifests/marks.v1.json`; `scripts/regress.py` (`--golden golden/grok`) |
+| Runs on          | **container** (`measure_clean`, the profile's bounds if D498) + **host** (the runs, the Grok baseline)                                 |
+| Files touched    | new: `crates/wipemark-picture/examples/measure_clean.rs`, `golden/grok/manifest.json`, `golden/grok/baseline/<commit>/`, `docs/plan/reports/E12-R12-<date>.md`; edited (only if D498): `crates/wipemark-pixels/src/{catalogue.rs,verify.rs}`, `manifests/marks.v1.json`; `scripts/regress.py` (`--golden golden/grok`) |
 | Not touched      | Gemini's bounds (they stay constants unless §4.1 shows a divergence over 25 %)                                                        |
-| Decisions        | **D309** (bounds as profile data, conditional), **D310** (restored / reconstructed)                                                   |
+| Decisions        | **D498** (bounds as profile data, conditional), **D499** (restored / reconstructed)                                                   |
 | Size             | ~1 week                                                                                                                              |
 
 ## §0 Ground rules — identical in every document of the E12-R series
@@ -47,7 +47,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   image, pixels`). `scripts/check-dep-direction.sh` reads `[dependencies]`,
   `[dev-dependencies]` and `[build-dependencies]` alike.
 * **A developer tool that reads a picture file** is an example of
-  `wipemark-picture`, as `examples/measure_map.rs` is (D312).
+  `wipemark-picture`, as `examples/measure_map.rs` is (D501).
 * **Synthetic helpers** (`composite`, the blend models) live in
   `wipemark_pixels::synth`, `#[doc(hidden)]`.
 * **A developer tool is not a surface** (D162). It gets no catalogue
@@ -72,7 +72,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   `scripts/compare-gwt.py` is the shape. A figure in a report that no
   committed script reproduces is a figure nobody can check.
 * **The owner's pictures never go into git.** A manifest names the
-  Watchword key, the path inside the ZIP and the sha256 (D304). Tests in CI
+  Watchword key, the path inside the ZIP and the sha256 (D493). Tests in CI
   read only committed fixtures (`fixtures/image/gemini/`, 14 crops) and
   synthesis. No test touches the network, a corpus or Python.
 * **A real file's JPEG variants are made by `mkset.py`'s recipe**
@@ -190,7 +190,7 @@ as above.
 
 * **≤ 25 % from Gemini's constant**: the constants stay (S3), and the
   report gives the justification.
-* **More than 25 % for any measure**: D309. The bounds move into the
+* **More than 25 % for any measure**: D498. The bounds move into the
   profile:
   * `"bounds": { "outline": …, "step": …, … }`, optional;
   * absent means today's constants, so Gemini's rows do not change;
@@ -225,7 +225,7 @@ By R10:
 * a remainder on JPEG after R* over the bounds on ≥ 20 % of files triggers
   FDnCNN (R10 §2).
 
-**D310 holds.** Pixels from inpainting are **reconstructed** and pixels
+**D499 holds.** Pixels from inpainting are **reconstructed** and pixels
 from the inverse are **restored**, in the JSON, the CLI and the reports
 alike.
 
@@ -272,15 +272,15 @@ That is a coordinator's commit, with its decision row.
 | test | protects | mutation that must turn it red |
 |---|---|---|
 | `measure_at_on_a_clean_picture_is_what_outline_measures_after_a_null_restoration` (`tests/outline.rs`): a picture with no mark; `measure_at` against `restore` of a zero-opacity profile over the same rectangle → equal | `measure_at` restates nothing | compute `texture` in RGB instead of YCbCr |
-| (if D309) `a_profile_without_bounds_is_judged_by_the_constants` (`catalogue.rs` unit) | Gemini unchanged | default absent bounds to zero |
-| (if D309) `a_profiles_own_bound_is_the_one_applied` (`tests/outline.rs`) | the bound is read | ignore the profile's `bounds` |
+| (if D498) `a_profile_without_bounds_is_judged_by_the_constants` (`catalogue.rs` unit) | Gemini unchanged | default absent bounds to zero |
+| (if D498) `a_profiles_own_bound_is_the_one_applied` (`tests/outline.rs`) | the bound is read | ignore the profile's `bounds` |
 
 ## §6 Acceptance
 
 1. `measure_clean` is committed. The clean distributions, Gemini's and
    Grok's, are in the report with the script and the run.
 2. **The bounds' outcome** is in the report: constants kept with their
-   justification, or D309 with Q-R8's answer and its code.
+   justification, or D498 with Q-R8's answer and its code.
 3. `R0-grok` on the bench, its matrix, and the reproduction of real
    failures.
 4. The Grok baseline is committed, and `regress.py run --golden
@@ -303,4 +303,4 @@ That is a coordinator's commit, with its decision row.
 
 ## §9 Decisions
 
-**D309** (conditional) and **D310**, as proposed in `E12-R-recon.md` §5.2.
+**D498** (conditional) and **D499**, as proposed in `E12-R-recon.md` §5.2.

@@ -6,7 +6,7 @@ What it is for
 Step E12-R4 of the E12-R series (`docs/plan/E12-R4-corpus-analytics.md`
 §4.3), filed 2026-10-08 by the coordinator from the owner's spec
 `wipemark-recon-spec-2026-10-08` (`04-corpus-analytics.md` §3; the owner's
-S8: a bias only as profile data, D308). The restoration inverts
+S8: a bias only as profile data, D497). The restoration inverts
 `I = α·L + (1 − α)·O` exactly. If the vendor's encoder adds a constant —
 an offset in its rounding, a dither with a mean — every restored pixel is
 off by `b/(1 − α)`. This script measures the residual
@@ -58,7 +58,7 @@ What it does
    (group, bin, channel, n, mean, median, sd).
 
 `list` turns a corpus manifest (`corpus/gemini-midtone/manifest.json`, R2,
-D304, as `scripts/corpus/manifest.py` writes it) into the
+D493, as `scripts/corpus/manifest.py` writes it) into the
 `path<TAB>group<TAB>held_out` list this script, `forced_search` and
 `map_regress` read, checking each file's sha256 first. R2's manifest holds
 both Gemini profiles, and a list is read under one profile's map, so
@@ -86,7 +86,7 @@ git). `selftest` needs none: it synthesises its pictures.
 What its output means
 ---------------------
 §4.3's table. `r` of one sign and size (±0.2) in every bin and channel: a
-constant bias — R9's R2b, `b` as profile data (D308). `r` growing or
+constant bias — R9's R2b, `b` as profile data (D497). `r` growing or
 falling with `Ô`: not a bias — the blend model or `L` (R9's R-lin, and
 §4.4). `r` different per channel and flat in `Ô`: `L_c` is off — re-fit the
 global `L` on `gemini-midtone`, then §4.4. `r` within ±0.2 everywhere:

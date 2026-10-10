@@ -39,7 +39,7 @@ mod geometry;
 mod interval;
 mod ncc;
 /// The planar inverse of a subsampled JPEG (E12-R6, D471 — the series'
-/// proposed D306). Its types are re-exported below; the rest — the
+/// proposed D495). Its types are re-exported below; the rest — the
 /// intermediates a test or the bench reads — is not a surface.
 #[doc(hidden)]
 pub mod planar;
@@ -47,7 +47,7 @@ mod planes;
 mod propose;
 mod raster;
 mod restore;
-/// Synthetic composition for the restoration bench and the tests (D312):
+/// Synthetic composition for the restoration bench and the tests (D501):
 /// never a feature, and nothing the catalogue can name.
 #[doc(hidden)]
 pub mod synth;
@@ -410,7 +410,7 @@ pub struct PixelReport {
 impl PixelReport {
     /// Whether a mark was seen and is still there: a blend refused,
     /// restored around holes, or restored with its outline (D238), a
-    /// texture (D250) or a smoothed patch (D307) left. A proposal that was no blend is not here to
+    /// texture (D250) or a smoothed patch (D496) left. A proposal that was no blend is not here to
     /// count (D235).
     pub fn marks_left(&self) -> bool {
         self.found.iter().any(|f| f.verified().is_none())

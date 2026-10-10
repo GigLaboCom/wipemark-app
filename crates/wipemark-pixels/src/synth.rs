@@ -1,4 +1,4 @@
-//! Synthetic composition, for the restoration bench and the tests (D312):
+//! Synthetic composition, for the restoration bench and the tests (D501):
 //! a known mark over a known background, with the blend a vendor might
 //! have used — never a feature, and nothing the catalogue can name.
 //!

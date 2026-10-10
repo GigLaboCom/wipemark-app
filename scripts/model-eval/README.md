@@ -7,7 +7,7 @@ needed" is a result that closes the question. Two models, two jobs:
 then Grok); **LaMa** makes up what is under a hole (Grok only — no Gemini map
 has one). Nothing here goes into the product: no Rust, no catalogue model
 (D166; R10 §7). A pixel a model made is *reconstructed*, never *restored*
-(D310).
+(D499).
 
 The scripts were written on 2026-10-09, ahead of the runs, because the owner
 asked for all code work to be finished before the steps are unblocked. They

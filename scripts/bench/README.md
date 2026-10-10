@@ -5,8 +5,8 @@ background, degraded the way a user's file is, run through **the user's
 path**, and compared with the background in the mark's ROI. Level B is R1's
 regression over real files (`scripts/regress.py`, `golden/`); a change to
 the restoration passes both (`docs/plan/E12-R-recon.md` §4). The plan is
-`docs/plan/E12-R5-recon-bench.md`; the decisions are D304 (the manifest)
-and D312 (where the bench and `synth` live).
+`docs/plan/E12-R5-recon-bench.md`; the decisions are D493 (the manifest)
+and D501 (where the bench and `synth` live).
 
 Asked for by the coordinator on 2026-10-09, from the owner's spec
 `wipemark-recon-spec-2026-10-08` (`05-recon-bench.md`).
@@ -46,7 +46,7 @@ runs.
     actually under each row's mark is measured and recorded (`zones`).
   * `photo` is a crop of one of the owner's photographs (R2), resized to the
     tile. The pictures never enter git: the manifest names the Watchword key,
-    each file's path and its sha256 (D304).
+    each file's path and its sha256 (D493).
 * **Rows.** `v1-48` (1024²), `v1-96` (2048², GWT's own 96 map — restored with
   the shipped catalogue whose V1 large row names that map instead of the
   measured one, so that `exact` is a true self-test), `v1-96-measured`
@@ -91,7 +91,7 @@ runs.
   (JPEG with planes only), pixel POCS, one Wiener step; a `png` file is
   R0's to the byte (A4). Their restorations carry `measures.interval`
   (`method`, `space`, `sigma_base`, `text`, `iterations`), `measures.smoothed`
-  (D307) and, for `R8d`, `measures.consistency_dct` (0 by construction).
+  (D496) and, for `R8d`, `measures.consistency_dct` (0 by construction).
   Run them beside R0 and R6 — `run … --config R0 --config R6 --config R8d
   --config R8p --config R8w` — read `report.py report`'s §10 (texture
   under 5.5 on `jpeg444-q95`, the soap check) and gate each against R6 on
@@ -176,7 +176,7 @@ about 18 MB per background.
   proved by the search after their row refused them — the finding of
   E12-R5's report, "D154 through the search".
 * **§8**: Pillow and `image` within 0.3 dB on `jpeg444-*`.
-* **§1, `consist. p95`** (E12-R7, D305): the restoration blended back
+* **§1, `consist. p95`** (E12-R7, D494): the restoration blended back
   against its input, the p95 over restored files of `consistency_px`, in
   8-bit levels. R0's inverse is exact by construction, so every slice is
   at most 1 (rounding: about 0.25); the line under the table names any
@@ -273,8 +273,8 @@ its catalogue row) and R2 stage 0 has said what Grok hands out.
 
 ## E12-R9: the blend past one colour, with R4's numbers
 
-R9's three sub-steps — a bias (R9a, D308), a logo colour per pixel (R9b,
-D313), linear light (R9c, D311), all proposed — are code behind the
+R9's three sub-steps — a bias (R9a, D497), a logo colour per pixel (R9b,
+D502), linear light (R9c, D500), all proposed — are code behind the
 `blend-preview` feature (`docs/architecture/visible-marks.md`, "A mark is
 data"). Nothing in the repository carries R4's values: the host writes
 them into **one profile row in a file**, and the bench reads that file, so
@@ -296,7 +296,7 @@ only its `blend`:
 |---|---|---|
 | R9a | `{ "model": "encoded", "logo": [252.1, 253.5, 252.8], "logo_map": null, "bias": [b_r, b_g, b_b] }` | R4 §4.3, `scripts/analytics/bias.py`'s `b` per channel |
 | R9b | `{ "model": "encoded", "logo": [252.1, 253.5, 252.8], "logo_map": { "asset": "gemini-v1-96-regressed.wml", "sha256": "…", "size": [96, 96] } }`, and `alpha` / `placements` / `search` naming only the 96 maps (a logo colour map must be the size of every map its row lists) | R4 §4.4: `python3 scripts/bench/wml.py from-tsv <map_regress-out>/pixels.tsv --logo 252.1,253.5,252.8 --out bench/r9/r9b/gemini-v1-96-regressed.wml` prints the sha256 and the `blend` |
-| R9c | `{ "model": "linear-light", "logo": […], "logo_map": null }` with the `alpha` and `logo` a linear-light calibration wrote (`examples/calibrate.rs` on `gemini-midtone`'s greys writes such a row under `blend-preview`) | R4 §4.3/§4.4 and the calibration (D311's three agreements) |
+| R9c | `{ "model": "linear-light", "logo": […], "logo_map": null }` with the `alpha` and `logo` a linear-light calibration wrote (`examples/calibrate.rs` on `gemini-midtone`'s greys writes such a row under `blend-preview`) | R4 §4.3/§4.4 and the calibration (D500's three agreements) |
 
 Every `.wma` and `.wml` in the row file's folder is read before the shipped
 ones, so a regressed `α` map (`map_regress`'s `alpha_reg.wma`, pinned with

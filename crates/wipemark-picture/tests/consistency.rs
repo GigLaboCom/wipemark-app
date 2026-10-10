@@ -1,4 +1,4 @@
-//! `consistency_px` on real files (E12-R7, D305): the restored picture,
+//! `consistency_px` on real files (E12-R7, D494): the restored picture,
 //! blended back with the map and the logo it was restored with, against
 //! the stored input — the identity of the inverse, held on the owner's
 //! own Gemini crops (`fixtures/image/gemini/`) as the inverse alone

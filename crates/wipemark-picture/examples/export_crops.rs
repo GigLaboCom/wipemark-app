@@ -1,5 +1,5 @@
 //! The restoration's crops from a real file (E12-R10) — a developer's
-//! tool, not a surface (D162, D312): no catalogue string, no settings row,
+//! tool, not a surface (D162, D501): no catalogue string, no settings row,
 //! no flag of the product.
 //!
 //! R10 evaluates FDnCNN and LaMa *after* the restoration, on crops. The

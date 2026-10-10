@@ -14,7 +14,7 @@ answer) with its number. Figures: `docs/plan/reports/E12-R-container-runs-2026-1
 | | decision | number |
 |---|---|---|
 | A1 | R8's method: **R8d, DCT-POCS**, the product's by default on a lossy JPEG | **D472** |
-| A2 | D306 **with the per-plane interval**; the RGB-cube share a reported measure, no gate; the planar path is the product's road for 4:2:0 and 4:2:2 | **D471** (the series' proposed D306, which is another decision on `feat`) |
+| A2 | D495 **with the per-plane interval**; the RGB-cube share a reported measure, no gate; the planar path is the product's road for 4:2:0 and 4:2:2 | **D471** (the series' proposed D306 — D495 since the merge's renumbering; D306 is another decision on `feat`) |
 | A3 | **option a**: the search does not prove a mark where a row of its profile refused it by gain, at that row's place | **D470** |
 
 R8's sub-questions Q1–Q3 under A1 were not answered and stay open; the
@@ -40,14 +40,14 @@ Sub-questions R8 left (its report, §Questions):
 * **Q3** — the text rule reads every committed crop as text: keep, or
   narrow?
 
-### A2. D306: the planar inverse — its out-of-range test (R6's Q1) — **decided: per-plane interval (D471)**
+### A2. D495: the planar inverse — its out-of-range test (R6's Q1) — **decided: per-plane interval (D471)**
 
 | option | what it means | figures |
 |---|---|---|
-| **per-plane interval** (D306 as written) | each of Y, Cb, Cr checked against its own range | lifts every q90 4:2:0 refusal — but cannot see a colour that leaves the RGB cube (green's R is 3–12; Y ≈ 97, Cb ≈ 104, Cr ≈ 65 are each far from 0 and 255) |
+| **per-plane interval** (D495 as written) | each of Y, Cb, Cr checked against its own range | lifts every q90 4:2:0 refusal — but cannot see a colour that leaves the RGB cube (green's R is 3–12; Y ≈ 97, Cb ≈ 104, Cr ≈ 65 are each far from 0 and 255) |
 | **RGB-cube test** | the restored colour, back in RGB, checked against 0–255 | share over 8 levels: q95 0.00–0.06 %, q90 4:2:0 1.13–1.95 %, q85 1.69–3.81 % — about the RGB path's own (1.03–2.17 %); the q90 refusals would mostly stay |
 
-Also: whether D306 waits for the D154 fix (A3) — R6 roughly doubles the
+Also: whether D495 waits for the D154 fix (A3) — R6 roughly doubles the
 search's acceptances of a weaker mark.
 
 ### A3. D154: a weaker mark proved by the search — **decided: option a (D470)**
@@ -70,7 +70,7 @@ to 15–25 levels off (E12-R5's table).
 | option | |
 |---|---|
 | a. merge now | everything new is behind `planar-preview` / `blend-preview` or in tools; the product does not change. `feat` has moved (E4-8, E7-9, E8-1, CLAUDE.md), so CLAUDE.md is merged by hand. The gates on `recon/r1-r12-raw` run first (not run since `recon/r3-raw` was merged — the owner asked for none yet) |
-| b. after A1–A3 | the merge then also removes a preview flag (D306/R8 taken) |
+| b. after A1–A3 | the merge then also removes a preview flag (D495/R8 taken) |
 
 ## B. Bounds and measures
 
@@ -80,11 +80,11 @@ Fails on R0 itself on this bench (93.0 %; every other config 93.6 %).
 Options: lower the share (e.g. 90 %); keep and re-measure with the
 `photo` group (R2); keep as is (it then never passes).
 
-### B2. R12's Q1 / Q-R8 / D309: an outline bound per map
+### B2. R12's Q1 / Q-R8 / D498: an outline bound per map
 
 On clean content (no mark), the outline is said left on V2's rectangles
 2.6 % (lossless) / 2.7 % (lossy), on V1's 0.5 % / 0.8 %. Options: keep the
-constants (S3); a bound per profile (D309: `bounds` in the profile, absent
+constants (S3); a bound per profile (D498: `bounds` in the profile, absent
 = today's constants).
 
 ### B3. R4: the search's `k*` on resampled files

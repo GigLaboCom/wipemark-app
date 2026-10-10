@@ -44,7 +44,7 @@ That is 3 × 3 × 2 = 18 variants (`k<k_edge>-s<strength>-<rgb|luma>`).
 Each is measured in the crop's ROI against `gt.png` (the bench's crops have
 one; R1's have none, so F1/F2 read only the bench): PSNR, SSIM (luma,
 7 × 7) and ΔE2000 as `recon_bench` measures them; `texture / texture_around`
-(D250, restated); `consistency_px` against `input.png` (D305, restated)
+(D250, restated); `consistency_px` against `input.png` (D494, restated)
 beside `2h`, `h = 0.5 + 2·σ_base` (R8). R* — `recon.png` itself — is
 measured the same way, so every comparison is one implementation against
 itself.

@@ -15,7 +15,7 @@ Inpainting with Fourier Convolutions", WACV 2022; the `big-lama`
 checkpoint, ~51 M parameters, FFC blocks, trained on Places) **invents**
 what is under a hole; so it never runs where the inverse returned a pixel,
 its output is composited back inside the hole mask only, and a pixel it
-made is *reconstructed*, never *restored* (D310).
+made is *reconstructed*, never *restored* (D499).
 
 What it does
 ------------
@@ -400,7 +400,7 @@ def closing_line(g, recs, candidate="m-hard"):
         f"LaMa needed, variant {candidate}"
     if pending:
         return f"{head}; {', '.join(pending)} pending — no verdict before them"
-    return f"{head}; integration: Q-R3 (pixels reconstructed, never restored: D310)"
+    return f"{head}; integration: Q-R3 (pixels reconstructed, never restored: D499)"
 
 
 # ───────────────────────────────────────────────────────── report
@@ -421,7 +421,7 @@ def report(facts, env, recs, g, line, times, crops_dir):
                              sum(1 for r in rs if r["within_bounds"]) / len(rs)])
     md = [f"# E12-R10 — LaMa inside Grok's holes, {time.strftime('%Y-%m-%d')}", "",
           "Written by `scripts/model-eval/lama_run.py run` (R10 §3, §4). Pixels LaMa made are **reconstructed**, never "
-          "restored (D310).", "",
+          "restored (D499).", "",
           "## The run", "",
           f"* crops: `{crops_dir}` — {len({r['crop'] for r in recs})}; "
           f"{sum(1 for r in recs if r.get('variant') is None)} not inpainted (no restoration, or nothing to inpaint)",
@@ -546,7 +546,7 @@ def _t_the_gates_say_ns_is_enough_when_lama_does_not_beat_it():
     g = gates(recs, ab6, ab7)
     assert g["M7"]["ok"] is False and "NS is enough" in closing_line(g, recs)
     g = gates(recs, ab6, dict(ab7, pooled={"prefer_share": 0.7, "items": 20}))
-    assert closing_line(g, recs).endswith("D310)"), closing_line(g, recs)
+    assert closing_line(g, recs).endswith("D499)"), closing_line(g, recs)
 
 
 def selftest():

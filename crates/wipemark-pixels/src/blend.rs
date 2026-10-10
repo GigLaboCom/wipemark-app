@@ -1,7 +1,7 @@
 //! The blend past its one global colour (E12-R9) — **built, not opened**:
-//! a constant **bias** (R9a, D308 proposed), a **logo colour per pixel**
-//! read from a `.wml` asset (R9b, D313 proposed) and the **linear-light**
-//! blend (R9c, D311 proposed). The catalogue accepts any of them only in a
+//! a constant **bias** (R9a, D497 proposed), a **logo colour per pixel**
+//! read from a `.wml` asset (R9b, D502 proposed) and the **linear-light**
+//! blend (R9c, D500 proposed). The catalogue accepts any of them only in a
 //! build with the `blend-preview` feature; without it every profile is the
 //! `encoded` blend with one logo colour and no bias, and every function
 //! here reduces to the arithmetic the crate had before, operation for
@@ -202,7 +202,7 @@ impl Law {
         self.model == BlendModel::Encoded
     }
 
-    /// `stored` less the bias, where the mark is drawn (D308).
+    /// `stored` less the bias, where the mark is drawn (D497).
     fn debiased(self, stored: [f64; 3], a: f64) -> [f64; 3] {
         match self.bias {
             Some(b) if a > 0.0 => [stored[0] - b[0], stored[1] - b[1], stored[2] - b[2]],
@@ -213,7 +213,7 @@ impl Law {
     /// The reverse blend at `a` with the logo `logo` (stored units),
     /// unrounded and unclamped: the bias taken off, then the model undone.
     /// `encoded` is [`crate::restore::unblend`], GWT's equation, untouched;
-    /// `linear-light` is `from_lin((lin(I) − α·lin(L))/(1 − α))` (D311),
+    /// `linear-light` is `from_lin((lin(I) − α·lin(L))/(1 − α))` (D500),
     /// the curve extended past its range so an inverse that leaves it
     /// still says by how much.
     pub(crate) fn inverse(self, stored: [f64; 3], a: f64, logo: [f64; 3]) -> [f64; 3] {
@@ -233,7 +233,7 @@ impl Law {
     /// The forward blend of channel `c`, unrounded: what an original `o`
     /// is stored as under a mark of opacity `a` and logo colour `l` (all
     /// stored units). `encoded` with no bias is `a·l + (1 − a)·o`, the
-    /// expression every consistency measure wrote before (D305).
+    /// expression every consistency measure wrote before (D494).
     pub(crate) fn forward(self, o: f64, a: f64, l: f64, c: usize) -> f64 {
         let v = match self.model {
             BlendModel::Encoded => a * l + (1.0 - a) * o,
@@ -252,10 +252,10 @@ impl Law {
     /// `logo` could make over any original by more than `allowance`
     /// (stored units) — D240's proof. `encoded`: the inverse's excess over
     /// the range times `1 − α`, today's arithmetic, the interval moved by
-    /// the bias (D308) because the inverse took it off. `linear-light`:
+    /// the bias (D497) because the inverse took it off. `linear-light`:
     /// the same in light, the allowance converted at the stored value by
     /// the curve's own slope — `lin(I) − lin(I − δ)` below the range,
-    /// `lin(I + δ) − lin(I)` above it (D311).
+    /// `lin(I + δ) − lin(I)` above it (D500).
     pub(crate) fn out_of_range(
         self,
         stored: [f64; 3],
@@ -510,7 +510,7 @@ mod tests {
         }
     }
 
-    /// The bias moves the proof's interval (D308): a value just under
+    /// The bias moves the proof's interval (D497): a value just under
     /// `α·L` is a blend once the bias says the vendor stored it lower.
     #[test]
     fn a_bias_moves_the_interval_the_proof_allows() {

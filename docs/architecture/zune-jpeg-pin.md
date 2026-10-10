@@ -7,8 +7,8 @@ converted to RGB, and each component's **quantisation table** — so
 `zune-jpeg` comes from a fork, pinned by commit, the way GPUI does
 ([gpui-pin.md](gpui-pin.md)). This page says where it comes from, what the
 fork carries over upstream, why it is a git dependency and not a
-`[patch]`, what holds it, and when it goes. The decisions are D301 (the
-fork and its pin) and D302 (`Planes` and `Decoded.planes`).
+`[patch]`, what holds it, and when it goes. The decisions are D490 (the
+fork and its pin) and D491 (`Planes` and `Decoded.planes`).
 
 **History.** 2026-10-09 (E12-R3): branch `wipemark/planes` (`bc409ea6`),
 our own `JpegDecoder::decode_planes` patched over the published 0.5.15,

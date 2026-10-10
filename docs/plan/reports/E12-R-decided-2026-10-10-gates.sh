@@ -4,7 +4,7 @@
 # What it is for and who asked
 #   The owner took three decisions of the E12-R series on 2026-10-10 —
 #   D470 (D154 through the search), D471 (the planar inverse, the series'
-#   proposed D306) and D472 (DCT-POCS, E12-R8's method) — "плоскости, делай
+#   proposed D495) and D472 (DCT-POCS, E12-R8's method) — "плоскости, делай
 #   все три с проверками". The coordinator asked one agent to implement them
 #   on `recon/decided` and to be the one verifier. This is the gate half of
 #   that check, so the table in `E12-R-decided-2026-10-10.md` can be made

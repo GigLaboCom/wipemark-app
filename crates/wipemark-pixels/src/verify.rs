@@ -514,8 +514,8 @@ pub(crate) fn verify_with(
         let a = f64::from(a);
         // `Law::out_of_range`: for `encoded` with no bias, the gap of
         // `restore::unblend` outside the range times `1 − α`, as it was;
-        // the interval moved by a bias (D308), and measured in light for
-        // `linear-light` (D311), under `blend-preview`.
+        // the interval moved by a bias (D497), and measured in light for
+        // `linear-light` (D500), under `blend-preview`.
         for outside in law.out_of_range(grid.pixels[p], a, grid.logo(p), allowance) {
             total += 1;
             if outside {
@@ -650,7 +650,7 @@ pub const TEXTURE_RATIO: f32 = 2.0;
 
 /// Under this many times the roughness of the picture around the mark, a
 /// restoration on a lossy source is too smooth: a patch flatter than its
-/// surroundings, which is a mark left as plainly as a checker is (D307,
+/// surroundings, which is a mark left as plainly as a checker is (D496,
 /// E12-R8). The lower bound beside [`TEXTURE_RATIO`]'s upper one: a value
 /// chosen inside the codec's interval (`interval.rs`) takes the checker
 /// away by smoothing, and smoothing can overshoot. `[tunable]` — the
@@ -709,7 +709,7 @@ impl Outline {
     }
 
     /// A roughness under [`TEXTURE_RATIO_MIN`] times the roughness around
-    /// the mark (D307): a patch smoother than the picture around it.
+    /// the mark (D496): a patch smoother than the picture around it.
     pub fn smoothed(&self) -> bool {
         self.texture < TEXTURE_RATIO_MIN * self.texture_around
     }
@@ -968,7 +968,7 @@ fn percentile(values: &mut [f64], p: f64) -> f64 {
     values[((values.len() - 1) as f64 * p).round() as usize]
 }
 
-/// How far a restoration is from the data (D305): over `pairs` — per
+/// How far a restoration is from the data (D494): over `pairs` — per
 /// sample, the restored value blended back with the very `α`, logo and
 /// gain the restoration used, beside the stored value it was restored
 /// from, both in 8-bit levels — the 95th percentile of their distance;
@@ -1315,7 +1315,7 @@ mod tests {
         restore(&mut raster, &verified, &options).unwrap()
     }
 
-    /// D307: a restoration on a lossy source whose roughness is half the
+    /// D496: a restoration on a lossy source whose roughness is half the
     /// picture's around it — a patch flatter than its surroundings — is
     /// said (`smoothed`) and counts as a mark left; on a lossless source
     /// the same patch is the picture's own and is not (D251's reason). At
@@ -1359,7 +1359,7 @@ mod tests {
         }
     }
 
-    /// D305's measure: the distance either way, the 95th percentile by
+    /// D494's measure: the distance either way, the 95th percentile by
     /// nearest rank — one sample off in twenty is the percentile, one in a
     /// hundred is not — 0 with nothing to measure, and the excluded count
     /// handed back as it came.

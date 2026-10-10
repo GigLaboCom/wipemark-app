@@ -85,7 +85,7 @@ pub struct Restored {
     /// Lossless source, a row's own canonical map that is not fitted, no
     /// hole, no clamp, no outline: the original values to within one level.
     pub exact: bool,
-    /// How far the result is from the data (D305): the restored samples
+    /// How far the result is from the data (D494): the restored samples
     /// blended back — `α·L + (1 − α)·O` with the `α` and the logo they were
     /// restored with, at gain 1 — against the stored input, the 95th
     /// percentile of the distance over every sample with `α` from the noise
@@ -98,7 +98,7 @@ pub struct Restored {
     /// taken off, D246), and the three colour samples of every hole.
     pub consistency_excluded: u32,
     /// The share of DCT coefficients outside their quantisation intervals,
-    /// for a value chosen inside them (D305); none on every path today,
+    /// for a value chosen inside them (D494); none on every path today,
     /// and then not in the JSON.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub consistency_dct: Option<f32>,
@@ -107,7 +107,7 @@ pub struct Restored {
     /// and then not in the JSON.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub planar: Option<crate::planar::Planar>,
-    /// A smoothed patch is left (D307) — a lossy source, and `texture`
+    /// A smoothed patch is left (D496) — a lossy source, and `texture`
     /// under [`crate::verify::TEXTURE_RATIO_MIN`] times `texture_around`:
     /// the restoration is flatter than the picture around it. The mark
     /// counts as left, as with `texture_left`. Not in the JSON while false,
@@ -144,7 +144,7 @@ pub fn restore(
 
 /// [`restore`] with every restored sample moved by `levels` (8-bit levels)
 /// after the inverse and before it is written and measured — a departure
-/// from the data that `Restored::consistency_px` has to see (D305). For
+/// from the data that `Restored::consistency_px` has to see (D494). For
 /// tests only; never a feature.
 #[doc(hidden)]
 pub fn restore_off_by(
@@ -170,7 +170,7 @@ fn restore_with(
     let law = verified.law();
     let opaque = verified.opaque_above();
     let (mut changed, mut holes, mut clamped) = (0u32, 0u32, 0u32);
-    // D305: per sample restored, (blend(O), I) in 8-bit levels — the blend
+    // D494: per sample restored, (blend(O), I) in 8-bit levels — the blend
     // the profile's law makes (`Law::forward`; `a·l + (1 − a)·o` for
     // `encoded` with no bias, as it always was).
     let to_8 = 255.0 / max;

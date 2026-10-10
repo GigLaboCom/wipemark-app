@@ -9,8 +9,8 @@ from the owner's spec `wipemark-recon-spec-2026-10-08`
 S11, 2026-10-08), dispatched by the coordinator on 2026-10-09. Every change
 to `wipemark-pixels` or `wipemark-picture` is run over a fixed corpus of
 real files and compared with a baseline **file by file**, under the gates
-of the route the change says it touches (D303): `lossy`, `model`, `detect`,
-or `all`. The corpus is named in `golden/manifest.json` (D304): the
+of the route the change says it touches (D492): `lossy`, `model`, `detect`,
+or `all`. The corpus is named in `golden/manifest.json` (D493): the
 Watchword key of each ZIP, the path inside it and each file's sha256 — the
 owner's pictures never enter git. This is a host tool, like
 `scripts/verify/`; it is not a gate of CI (no corpus, no Python there), and
@@ -47,7 +47,7 @@ What it does
   exits, `written`, the output's sha256, the findings, the measures
   (`outline`, `step`, `chroma`, `texture` from `restored[]`;
   `out_of_range` from `found[].scores`; `holes`, `clamped`;
-  `consistency_px`, D305, where both sides carry it) and the time, under
+  `consistency_px`, D494, where both sides carry it) and the time, under
   G1–G4 on every route and L1–L4, M1–M4, D1–D4 by route; writes
   `summary.json` and `summary.md`.
 * `--export-crops DIR` on `baseline` and `run` (added by E12-R10,
@@ -136,7 +136,7 @@ findings of the Grok profile, and the Gemini profiles lose none".
 The Grok runbook (host; nothing of it is runnable before R11's provisional
 profile and its captures exist):
 
-    # 1. The corpus: R2 stage 0's captures as a Watchword ZIP, named in golden/grok/manifest.json (D304),
+    # 1. The corpus: R2 stage 0's captures as a Watchword ZIP, named in golden/grok/manifest.json (D493),
     #    the classes above; pin it, commit the manifest.
     python3 scripts/regress.py pin --golden golden/grok --add 'recon-png:captures:recon/*.png' \
         --add 'held-out:captures:held/*.png' --add 'negative:captures:negative/*.png:text-png' …
@@ -151,7 +151,7 @@ profile and its captures exist):
 
 `--new-fields a,b` (run, diff; added by E12-R7, 2026-10-09) names JSON
 fields a change adds by a decision — `consistency_px,consistency_excluded`
-for D305. Where the baseline lacks one of them and the run has it, L1 and
+for D494. Where the baseline lacks one of them and the run has it, L1 and
 D4 do not count it as a difference; anything else still is (a field gone,
 one not named, a named one whose value moved where the baseline had it).
 The summary's notes say on how many files each named field was added, and
@@ -202,14 +202,14 @@ DEFAULT_CORPUS = os.path.join(REPO, "golden", "manifest.json")
 DEFAULT_CACHE = os.path.join(REPO, "golden", "cache")
 SCHEMA = 1
 
-# ── [tunable] — every one of these is D303's and moves only with a line in a report ──
+# ── [tunable] — every one of these is D492's and moves only with a line in a report ──
 # "Not worse": after ≤ before + max(abs_tol, rel_tol·|before|), on |value|.
 TOLERANCE = {
     "outline": (0.01, 0.05),
     "step": (0.2, 0.05),
     "chroma": (0.2, 0.05),
     "texture": (0.2, 0.05),
-    # E12-R7 (D305): the restoration blended back against its input, p95 in 8-bit levels.
+    # E12-R7 (D494): the restoration blended back against its input, p95 in 8-bit levels.
     "consistency_px": (0.2, 0.05),
 }
 OUT_OF_RANGE_POINTS = 0.001  # G3: a share may grow by 0.1 percentage points
@@ -1555,7 +1555,7 @@ def restoration(outline=0.05, step=0.1, chroma=0.3, texture=1.8, holes=0, clampe
                 consistency=None, profile="gemini-sparkle-v1"):
     r = {"profile": profile, "outline": outline, "step": step, "chroma": chroma, "texture": texture,
          "holes": holes, "clamped": clamped, "outline_left": outline_left, "texture_left": texture_left}
-    if consistency is not None:  # E12-R7 (D305): the two fields the CLI writes after `exact`
+    if consistency is not None:  # E12-R7 (D494): the two fields the CLI writes after `exact`
         r["consistency_px"], r["consistency_excluded"] = consistency, clamped + 3 * holes
     return r
 
@@ -2225,7 +2225,7 @@ def resolve_corpus(args):
 
 
 def parser():
-    p = argparse.ArgumentParser(prog="regress.py", description="The regression over real files (E12-R1, D303/D304).")
+    p = argparse.ArgumentParser(prog="regress.py", description="The regression over real files (E12-R1, D492/D493).")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def corpus_args(s):

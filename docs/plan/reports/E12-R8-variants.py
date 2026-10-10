@@ -10,7 +10,7 @@ committed fixtures shows they cannot work, and says why with the run that showed
 it. Two of the report's findings are such runs: with the document's radius 4 and
 `eps` 16 on every crop (the "text" rule off) and no rule taking an overshooting
 round back, DCT-POCS leaves three 4:2:0 crops smoother than their surroundings
-(D307's soap); with the round taken back, it does not. This reproduces both.
+(D496's soap); with the round taken back, it does not. This reproduces both.
 
 What it does
 ------------
@@ -41,7 +41,7 @@ Python 3 (standard library) and the Rust toolchain. Nothing else.
 What its output means
 ---------------------
 One block per variant, one line per lossy crop: a ratio under 0.8 is a patch
-smoother than its surroundings, which D307 says, and which counts as a mark
+smoother than its surroundings, which D496 says, and which counts as a mark
 left; `rounds` is how many rounds DCT-POCS kept. The figures of the E12-R8
 report's "The tunables" section are this output.
 """

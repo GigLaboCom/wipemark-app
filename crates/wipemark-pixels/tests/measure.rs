@@ -218,7 +218,7 @@ fn refinement_against_a_mark_under_an_eighth_off_its_row() {
 }
 
 /// What becomes of a shipped mark drawn weaker than its profile — `k` of
-/// 0.90, 0.93 and 0.95 through the bench's composite (D312) — on every
+/// 0.90, 0.93 and 0.95 through the bench's composite (D501) — on every
 /// procedural kind, three seeds, 1024 × 1024 at V1's small row and V2's
 /// 1024 row, under the shipped catalogue: refused by its row's gain,
 /// proved at the row, or proved by the search after the row refused it

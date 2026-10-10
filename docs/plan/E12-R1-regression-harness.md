@@ -9,7 +9,7 @@
 | Runs on          | **container**: the script, its self-test and the manifest's schema. **Host**: the corpus, the release CLI, the baseline                 |
 | Files touched    | new: `scripts/regress.py`, `golden/manifest.json`, `golden/README.md`, `golden/baseline/<commit>/`, `docs/plan/reports/E12-R1-<date>.md`; edited: `.gitignore` (`golden/cache/`, `reports/regress-*/`), `scripts/verify/images/README.md` (one line pointing here) |
 | Not touched      | every crate; `CLAUDE.md`; `docs/plan/README.md` (wanted edits go in the report)                                                      |
-| Decisions        | D303 (routes and gates), D304 (corpora as ZIPs with a manifest)                                                                        |
+| Decisions        | D492 (routes and gates), D493 (corpora as ZIPs with a manifest)                                                                        |
 | Size             | ~3 days                                                                                                                               |
 
 ## §0 Ground rules — identical in every document of the E12-R series
@@ -47,7 +47,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   image, pixels`). `scripts/check-dep-direction.sh` reads `[dependencies]`,
   `[dev-dependencies]` and `[build-dependencies]` alike.
 * **A developer tool that reads a picture file** is an example of
-  `wipemark-picture`, as `examples/measure_map.rs` is (D312).
+  `wipemark-picture`, as `examples/measure_map.rs` is (D501).
 * **Synthetic helpers** (`composite`, the blend models) live in
   `wipemark_pixels::synth`, `#[doc(hidden)]`.
 * **A developer tool is not a surface** (D162). It gets no catalogue
@@ -72,7 +72,7 @@ scripts/pin-gpui-component.sh                                # idempotent
   `scripts/compare-gwt.py` is the shape. A figure in a report that no
   committed script reproduces is a figure nobody can check.
 * **The owner's pictures never go into git.** A manifest names the
-  Watchword key, the path inside the ZIP and the sha256 (D304). Tests in CI
+  Watchword key, the path inside the ZIP and the sha256 (D493). Tests in CI
   read only committed fixtures (`fixtures/image/gemini/`, 14 crops) and
   synthesis. No test touches the network, a corpus or Python.
 * **A real file's JPEG variants are made by `mkset.py`'s recipe**
@@ -269,7 +269,7 @@ The measures compared are `outline`, `step`, `chroma`, `texture`,
 `out_of_range` (from `found[].scores`), `holes`, `clamped` and, after R7,
 `consistency_px`.
 
-### 4.3 Gates by route (D303)
+### 4.3 Gates by route (D492)
 
 **On every route:**
 
@@ -334,7 +334,7 @@ one.
 | `a_refusal_lifted_into_exit_3_is_attention_not_pass` | L3 | treat any lifted refusal as pass |
 | `a_step_near_zero_is_judged_by_the_absolute_tolerance` | §4.3 tolerances | drop `abs_tol` |
 | `the_1024_frame_finding_nothing_is_expected_off_the_detect_route` | G4 / S11 | drop the class rule |
-| `a_derived_file_with_another_sha_is_refused` | D304 | skip the sha check on derived files |
+| `a_derived_file_with_another_sha_is_refused` | D493 | skip the sha check on derived files |
 | `a_run_against_itself_passes_everything` | the comparison | — (an identity) |
 
 Record each mutation in the report, once.
@@ -380,7 +380,7 @@ Record each mutation in the report, once.
 
 ## §9 Decisions
 
-**D303** (routes and gates) and **D304** (corpora as dated ZIPs with a
+**D492** (routes and gates) and **D493** (corpora as dated ZIPs with a
 manifest in git, sha256 checked before a run) are proposed in
 `E12-R-recon.md` §5.2. Their wording is confirmed or amended by this
 step's report.

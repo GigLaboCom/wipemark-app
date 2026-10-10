@@ -337,7 +337,7 @@ fn opaque_pixels_are_holes_never_divided() {
     assert!(!r.exact);
     assert!(report.marks_left());
     // A hole is never divided, so never measured: its three samples are
-    // counted apart (D305), and what was restored around it is consistent.
+    // counted apart (D494), and what was restored around it is consistent.
     assert_eq!(r.consistency_excluded, r.clamped + 3 * holes, "{r:?}");
     assert!(r.consistency_px <= 1.0, "{r:?}");
     // Every hole is the stamped value still; every other pixel is back.
@@ -488,7 +488,7 @@ fn a_lopsided_outline_is_said_by_its_share() {
     assert!(r.outline_left && report.marks_left(), "{r:?}");
 }
 
-/// The bench's composite (D312) at its defaults — the blend in code
+/// The bench's composite (D501) at its defaults — the blend in code
 /// values, one logo colour, `k = 1`, no bias, rounding half away from zero,
 /// a whole-pixel rectangle at the map's own size, the area kernel — is
 /// `composite`, sample for sample: every shipped map, a random raster in
@@ -608,9 +608,9 @@ fn a_canonical_composite_comes_back_exact() {
     assert!(exact >= 8, "{exact} exact");
 }
 
-// ------------------------------------------------- consistency (D305)
+// ------------------------------------------------- consistency (D494)
 
-/// The identity of the inverse (E12-R7, D305): every restoration of a
+/// The identity of the inverse (E12-R7, D494): every restoration of a
 /// composite — thirteen procedural pictures, both 8-bit layouts and a
 /// 16-bit one — blended back with the map and the logo it was restored
 /// with, lands within the rounding of the input it was restored from. The
@@ -642,7 +642,7 @@ fn a_composited_mark_is_consistent_to_rounding() {
     assert!(seen >= 36, "only {seen} restorations");
 }
 
-/// The measure's exclusion (D305): a mark over a saturated green whose red
+/// The measure's exclusion (D494): a mark over a saturated green whose red
 /// sits a few levels under `α·L` — D240's real case, the vendor's α against
 /// an 8-bit capture — inverts past 0 in red, and those samples are clamped.
 /// An error there is expected: they are left out of the measure and
@@ -677,7 +677,7 @@ fn clamped_samples_are_left_out_and_counted() {
     assert!(r.consistency_px <= 1.0, "{r:?}");
 }
 
-/// The measure sees a departure from the data (D305): a restoration moved
+/// The measure sees a departure from the data (D494): a restoration moved
 /// two levels up inside the mark after the inverse — through the hidden
 /// hook, the very restoration otherwise — blends back two levels, less
 /// what the opacity takes, above the input it came from. Two 8-bit levels
