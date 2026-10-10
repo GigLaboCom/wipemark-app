@@ -8,7 +8,9 @@
 use std::path::PathBuf;
 
 use image::imageops::FilterType;
-use wipemark_picture::{clean, decode, inspect, Encoding, PictureOptions, Visible};
+use wipemark_picture::{
+    clean, clean_bytes_with_planes, decode, inspect, Encoding, PictureOptions, Visible,
+};
 use wipemark_pixels::{
     Catalogue, ExamineOptions, Fidelity, Layout, PixelRect, Placed, Raster, Refusal, Verdict,
     CHROMA_LEVELS, OUTLINE_BOUND, STEP_LEVELS, TEXTURE_LEVELS, TEXTURE_RATIO,
@@ -52,6 +54,23 @@ const NOISE_LEVELS: f32 = 0.6;
 fn raster_of(bytes: &[u8]) -> Raster {
     let container = wipemark_image::inspect(bytes).unwrap().container;
     decode(bytes, container).unwrap().unwrap().raster
+}
+
+/// The RGB path over a file: decoded with no planes and the pixels pass
+/// with no refinement — the product's road before D471/D472, and still its
+/// road for a 4:2:0 JPEG whose planes do not read (`Planar::Unavailable`).
+fn rgb_path(bytes: &[u8]) -> wipemark_pixels::PixelReport {
+    let container = wipemark_image::inspect(bytes).unwrap().container;
+    let d = decode(bytes, container).unwrap().unwrap();
+    let options = ExamineOptions {
+        source: d.fidelity,
+        profiles: None,
+    };
+    wipemark_pixels::clean(
+        &mut d.raster.clone(),
+        Catalogue::shipped().unwrap(),
+        &options,
+    )
 }
 
 fn jpeg_of(raster: &Raster, quality: u8) -> Vec<u8> {
@@ -324,13 +343,21 @@ fn the_sparkle_leaves_no_ghost() {
 /// comes back 2–3 levels lighter than the picture around it, the order
 /// of `crying`'s outline: the outline is said too (D244), within the
 /// relative bound all the same.
+///
+/// That is **the inverse alone** (`clean_bytes_with_planes`: no
+/// refinement), which D250's bound was set against. The product's `clean`
+/// then chooses the value inside the file's intervals by DCT-POCS (D472),
+/// and no texture is left on either picture at either quality (the end of
+/// the loop): under `TEXTURE_LEVELS` at 95, and at 90 within
+/// `TEXTURE_RATIO` of the picture around it.
 #[test]
 fn a_real_mark_saved_as_jpeg_leaves_a_texture_that_is_said() {
     for name in MARKED {
         let raster = raster_of(&fixture(name));
         for quality in [90u8, 95] {
             let label = format!("{name} q{quality}");
-            let (_, cleaned) = clean(&jpeg_of(&raster, quality), &shipped()).unwrap();
+            let jpeg = jpeg_of(&raster, quality);
+            let (_, cleaned) = clean_bytes_with_planes(&jpeg, &shipped()).unwrap();
             let Visible::Examined { report, .. } = &cleaned.visible else {
                 panic!("{label}: {:?}", cleaned.visible)
             };
@@ -349,6 +376,15 @@ fn a_real_mark_saved_as_jpeg_leaves_a_texture_that_is_said() {
                 assert!(r.step > STEP_LEVELS && r.outline_left, "{label}: {r:?}");
             }
             assert_eq!(cleaned.encoding, Encoding::Jpeg { quality: 95 });
+            let (_, product) = clean(&jpeg, &shipped()).unwrap();
+            let Visible::Examined { report, .. } = &product.visible else {
+                panic!("{label}: {:?}", product.visible)
+            };
+            let r = &report.restored[0];
+            assert!(
+                !r.texture_left && !r.smoothed,
+                "{label}, the product: {r:?}"
+            );
         }
     }
 }
@@ -363,6 +399,11 @@ fn a_real_mark_saved_as_jpeg_leaves_a_texture_that_is_said() {
 /// an outline whatever else is: luma and the share are under their bounds
 /// on every one. `thinking` is the lowest of the 21 at 95, 7.40 levels:
 /// the colour bound is held from above by it.
+///
+/// On the **RGB path** — the product's before D471, and still its road for
+/// a 4:2:0 JPEG whose planes do not read. The product's `clean` restores
+/// these in their planes, where the fringe falls under the bound
+/// (`tests/planar.rs`, `the_product_takes_the_planes_on_a_subsampled_jpeg`).
 #[test]
 fn a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said() {
     for name in [
@@ -370,10 +411,7 @@ fn a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said() {
         "victory-1025-q98-420.jpg",
         "thinking-1040-q95-420.jpg",
     ] {
-        let (_, cleaned) = clean(&fixture(name), &shipped()).unwrap();
-        let Visible::Examined { report, .. } = &cleaned.visible else {
-            panic!("{name}: {:?}", cleaned.visible)
-        };
+        let report = rgb_path(&fixture(name));
         assert_eq!(report.found.len(), 1, "{name}: {:#?}", report.found);
         let [r] = report.restored.as_slice() else {
             panic!("{name}: {report:#?}")
@@ -386,7 +424,7 @@ fn a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said() {
         assert!(r.chroma > 7.0, "{name}: {r:?}");
         assert!(r.steps[0] > 8.0 && r.steps[1] < -4.0, "{name}: {r:?}");
         assert!(r.outline_left && !r.exact, "{name}: {r:?}");
-        assert!(cleaned.marks_left(), "{name}: {report:#?}");
+        assert!(report.marks_left(), "{name}: {report:#?}");
     }
 }
 
@@ -399,16 +437,17 @@ fn a_real_mark_saved_as_a_subsampled_jpeg_leaves_a_fringe_that_is_said() {
 /// and it is refused before it is restored. The share lands at 0.9–1.4 %
 /// at 4:2:0 by the grid alone, so a bound between would only move which
 /// pictures fall on which side. Never restored with nothing said.
+///
+/// On the **RGB path** (D252), as the test above. In the planes (D471) the
+/// share is measured where the codec stored it and neither crop is
+/// refused (`tests/planar.rs`, `tests/lossy.rs`).
 #[test]
 fn a_subsampled_jpeg_is_refused_or_said_by_where_its_blocks_fall() {
     for (name, at, refused) in [
         ("victory-1040-q95-420.jpg", 880, false),
         ("victory-1025-q95-420.jpg", 865, true),
     ] {
-        let (_, cleaned) = clean(&fixture(name), &shipped()).unwrap();
-        let Visible::Examined { report, .. } = &cleaned.visible else {
-            panic!("{name}: {:?}", cleaned.visible)
-        };
+        let report = rgb_path(&fixture(name));
         assert_eq!(report.found.len(), 1, "{name}: {:#?}", report.found);
         let f = &report.found[0];
         assert_eq!(f.placed, Placed::Row(0), "{name}");
@@ -427,7 +466,7 @@ fn a_subsampled_jpeg_is_refused_or_said_by_where_its_blocks_fall() {
             assert!(r.outline_left && r.chroma > CHROMA_LEVELS, "{name}: {r:?}");
         }
         assert!(
-            cleaned.marks_left(),
+            report.marks_left(),
             "never restored with nothing said: {name}"
         );
     }
@@ -437,11 +476,15 @@ fn a_subsampled_jpeg_is_refused_or_said_by_where_its_blocks_fall() {
 /// saved at JPEG 4:4:4 98 is the roughest of the 22 at that quality —
 /// 5.22 against 1.99 around it, a checker barely found at ×6 — and is
 /// restored with nothing said and nothing left. The bound is 5 % over it,
-/// not more: at 5.0 it would be said.
+/// not more: at 5.0 it would be said. Measured on the inverse alone, as
+/// the bound was set; the product's DCT-POCS (D472) leaves it smoother
+/// still, and says nothing either.
 #[test]
 fn a_texture_an_eye_barely_finds_is_not_said() {
     let name = "fine-1040-q98-444.jpg";
-    let (_, cleaned) = clean(&fixture(name), &shipped()).unwrap();
+    let (_, product) = clean(&fixture(name), &shipped()).unwrap();
+    assert!(!product.marks_left(), "{name}, the product: {product:#?}");
+    let (_, cleaned) = clean_bytes_with_planes(&fixture(name), &shipped()).unwrap();
     let Visible::Examined { report, .. } = &cleaned.visible else {
         panic!("{name}: {:?}", cleaned.visible)
     };

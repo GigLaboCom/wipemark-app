@@ -111,6 +111,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 scripts/check-dep-direction.sh
 scripts/check-gpui-pin.sh           # one GPUI, from crates.io, and the X11 guards (below)
+scripts/check-zune-pin.sh           # every crate of ours on the zune-jpeg fork's one rev
 ```
 
 `cargo clippy --workspace` compiles GPUI from source. When iterating on
@@ -320,8 +321,8 @@ it sits.
 | `wipemark-log` | the rotating file, the panic hook, `Elided` | real |
 | `wipemark-i18n` | the Fluent catalogues and the `Message` enum `build.rs` generates from them | real |
 | `wipemark-image` | PNG, JPEG and WebP metadata: blocks that tile the file, the AI signals as data, `inspect`/`strip` with the raster unchanged; and `reframe`, the one writer for a picture whose pixels changed (`reframe(x, x) == strip(x)`) | real for PNG/JPEG/WebP (E11-1, E11-3; `reframe` E12-3); TIFF, HEIC/AVIF refused by name (backlog); the CLI and the MCP server call it (E11-2), `wipemark-picture` too, and through it the windows' Clean (E7) |
-| `wipemark-pixels` | visible marks as data: the raster, the `.wma` opacity map, the compiled-in catalogue `manifests/marks.v1.json` with every asset pinned by sha256; propose (rows at their own place, then a search refined to the sub-pixel and to the filter that shrank the mark) → verify (edge energy over the unclamped inverse: proved, a blend not proved, or no blend) → restore, the outline and texture checks, holes, the second pass; calibration (`examples/calibrate.rs`); the report whose shelf leads with `invisible-pixel-marks`. No codec | real (E12-1, E12-2, five rounds of host verification); Gemini V1/V2 from GWT's maps (`marks/gwt/`), V1's large-row map and logo measured from real outputs (`gemini-v1-96-measured`), V2's small rows from GWT's formula; other vendors **E12-6** |
-| `wipemark-picture` | a picture file through both passes: decode to the stored raster, the visible pass, encode like the original, `wipemark_image::reframe`, the proof before a byte is handed back — one writer | real for PNG, WebP (lossless out) and JPEG (re-encoded at quality 95; CMYK examined, never written back) (E12-3, E12-4); the CLI and the MCP tools call it (E12-5), and the windows' Clean and the panel's look at AI-provenance scope (E7); Compare for pictures and the batch queue's picture item are **E12-8** |
+| `wipemark-pixels` | visible marks as data: the raster, the `.wma` opacity map, the compiled-in catalogue `manifests/marks.v1.json` with every asset pinned by sha256; propose (rows at their own place, then a search refined to the sub-pixel and to the filter that shrank the mark, which never proves a mark where its row refused it by gain, D470) → verify (edge energy over the unclamped inverse: proved, a blend not proved, or no blend; for a 4:2:0/4:2:2 JPEG out of range in its planes, D471) → restore (in the planes on that route, D471; then, on a lossy JPEG, the value chosen inside the file's quantisation intervals by DCT-POCS, D472 — pixel POCS and Wiener are the bench's), the outline and texture checks, holes, the second pass; calibration (`examples/calibrate.rs`); the report whose shelf leads with `invisible-pixel-marks`. No codec | real (E12-1, E12-2, five rounds of host verification); Gemini V1/V2 from GWT's maps (`marks/gwt/`), V1's large-row map and logo measured from real outputs (`gemini-v1-96-measured`), V2's small rows from GWT's formula; other vendors **E12-6** |
+| `wipemark-picture` | a picture file through both passes: decode to the stored raster (a JPEG with its planes, D471), the visible pass (a 4:2:0/4:2:2 mark in the planes, D471; DCT-POCS after it on a lossy JPEG, `REFINE`, D472 — no feature, no environment variable), encode like the original, `wipemark_image::reframe`, the proof before a byte is handed back — one writer | real for PNG, WebP (lossless out) and JPEG (re-encoded at quality 95; CMYK examined, never written back) (E12-3, E12-4; the planes and DCT-POCS since the owner's decisions of 2026-10-10); the CLI and the MCP tools call it (E12-5), and the windows' Clean and the panel's look at AI-provenance scope (E7); Compare for pictures and the batch queue's picture item are **E12-8** |
 | `wipemark-intake` | what was handed over — text, bytes or a path — and what it turns out to be (`Handed::is_nothing`: an empty or ASCII-white-space text is no item, D301; no head read from a FIFO, terminal, socket or device, D356); and `inplace`, the one module that writes: a result beside a file or over it, the original set aside first, a new file only where nothing is (`write_new`) | real |
 | `wipemark-license` | activation, grace, and what a lapse never locks | types; **E9** |
 
@@ -1897,14 +1898,19 @@ Anything that needed more than a rule to explain is in `docs/`;
   `manifests/marks.v1.json`, its maps pinned by sha256. NCC proposes: a
   placement row at its own rectangle and **never moved**, and the search,
   refined to an eighth of a pixel, only when no row's mark was proved
-  (D236). Edge energy over the unclamped inverse decides, and there are
+  (D236) — and never proving a mark at the place of a row of its profile
+  that refused it by gain: another opacity is another profile (D470).
+  Edge energy over the unclamped inverse decides, and there are
   three outcomes (D235): **proved**, and restored; **a blend not proved**
   (the gain is not the mark's, the edges do not go far enough, the
   inverse leaves the range), a finding left in place; **no blend**, which
   is not a finding — never reported, never an exit code. Only a
   `Verified` is restored, and an opaque pixel is a hole, never a
   division. Out of range is counted in stored levels, past an allowance
-  of 8 (`BLEND_LEVELS`, D240). After a restoration the outline is held
+  of 8 (`BLEND_LEVELS`, D240) — for a 4:2:0 or 4:2:2 JPEG in its planes,
+  where the mark is also restored (D471). On a lossy JPEG the restored
+  value is then chosen inside the file's own quantisation intervals by
+  DCT-POCS (D472). After a restoration the outline is held
   three ways — its share of the mark's contour energy (D238), the faint
   band's step in luma levels against the surroundings and their own
   spread (D244), and the same in colour difference `‖(ΔCb, ΔCr)‖`
@@ -1921,9 +1927,12 @@ Anything that needed more than a rule to explain is in `docs/`;
   nothing is written; nothing restored is `strip`'s output to the byte.
   No flag: a proved mark is removed (the owner, 2026-10-04). The
   picture's third shelf leads with `invisible-pixel-marks`, in every
-  language. The known limitation: a 4:2:0 JPEG under quality 95 is often
-  refused out of range — how often depends on where its blocks fall
-  around the mark — and is then said to be left, exit 3. See
+  language. The known limitation: a JPEG under quality 95 is restored but
+  usually keeps a band — on the corpus's 2048 originals at 90 and 85, 20
+  of 21 are restored with an outline said (the luma step or share, exit 3)
+  and none is refused; at 75, 20 of 21 are refused by their row's gain
+  (`k*` 0.94). A 4:2:0 JPEG whose planes do not read takes the RGB path,
+  where D252's refusals by block alignment still hold. See
   `docs/architecture/visible-marks.md`.
 * **Layer A is never licence-gated.** Any state, expired or invalid,
   keeps the deterministic scrubber available.
@@ -2090,6 +2099,33 @@ What exists so far:
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 | `wipemark-status-2026-10-05` | FILE | where the project stood at the end of 2026-10-05: images rounds 3–5, E7 merged, the X11 first frame fixed through `GigLaboCom/zed`, and the plan of pull requests and branches (`docs/plan/README.md` §2.1) — PR #1 and what comes next, in order |
 | `wipemark-status-2026-10-06` | TEXT | where the project stood at the end of 2026-10-06: E7 follow-ups X1–X14 and Y1–Y9 merged, Z1–Z3 filed, mutation tables dropped for `coverage.yml` (on `main` and by hand), what is next |
+| `wipemark-recon-spec-2026-10-08` | FILE | the owner's spec for the restoration's precision, its verification and models (a ZIP of ten files, `00-context` … `09-decisions`, Russian), checked against `4b5ba17`; it absorbed the earlier recon, cleanup and verification notes |
+| `wipemark-recon-plan-2026-10-08` | FILE | `docs/plan/E12-R-recon.md`: the E12-R series built from that spec — twelve steps, the order, what the code changed in the spec, the owner's S1–S12, proposed D301–D312, Q-R1…Q-R9 |
+| `wipemark-recon-r1-regression-harness-2026-10-08` … `wipemark-recon-r12-grok-thresholds-and-support-2026-10-08` | FILE ×12 | the series' self-contained step documents, `docs/plan/E12-R1` … `E12-R12` (`-r2-corpora`, `-r3-jpeg-planes`, `-r4-corpus-analytics`, `-r5-recon-bench`, `-r6-planar-inverse`, `-r7-consistency`, `-r8-value-inside-the-interval`, `-r9-blend-model-changes`, `-r10-model-evaluation`, `-r11-grok-map` between) |
+| `wipemark-recon-plan-filed-2026-10-08` | TEXT | what was filed on 2026-10-08, what the code changed in the spec, and the order of the series |
+| `wipemark-recon-r1-report-2026-10-09` | FILE | E12-R1's report, the container part: `scripts/regress.py` (`fetch`/`pin`/`baseline`/`run`/`diff`/`selftest`), `golden/manifest.json` and its schema, gates by route; the baseline over the real corpus is the host's. Branch `recon/r1` |
+| `wipemark-recon-r3-report-2026-10-09` | FILE | E12-R3's report: the planes of a JPEG — `wipemark_pixels::Planes`, `decode_with_planes` (not `decode`: ×1.40), fixtures `fixtures/image/jpeg-planes/`; builds only with the fork's local path until `GigLaboCom/zune-image` exists (Q-R9). Branch `recon/r3` |
+| `wipemark-recon-r3-zune-jpeg-patch-2026-10-09` | FILE | the fork's patch over zune-jpeg 0.5.15 (`decode_planes`), the same file as `docs/plan/reports/E12-R3-zune-jpeg-planes.patch` — what the owner pushes to `wipemark/planes` once the fork is created |
+| `wipemark-recon-r1-r3-landed-2026-10-09` | TEXT | R1 and R3 landed in the container: the branches, the common gate run over both (`recon/r1-r3`, 1482/0/6, the one failure it found and fixed), what the owner and the host do next |
+| `wipemark-recon-r4-report-2026-10-09` | FILE | E12-R4's report, the container part and partial: `refine_at` and `ring_background` (hidden hooks), `examples/forced_search.rs` and `map_regress.rs`, `scripts/analytics/`; the four questions wait for the host's runs, §3–§4 for `gemini-midtone`. Branch `recon/r4` |
+| `wipemark-recon-r5-report-2026-10-09` | FILE | E12-R5's report: `wipemark_pixels::synth` (D312), `examples/recon_bench.rs` (`pin`/`gen`/`run`), `scripts/bench/`, `bench/manifest.json`, a smoke run; the finding that a mark drawn at `k` 0.93 is refused by its row and then proved by the search (D154 through the search, its test committed ignored). Branch `recon/r5` |
+| `wipemark-recon-r4-r5-landed-2026-10-09` | TEXT | R4 and R5 landed in the container: the branches, the common gate run over R1–R5 (`recon/r1-r5`), the D154 finding, what the host runs next, the agents' questions |
+| `wipemark-recon-r6-report-2026-10-09` | FILE | E12-R6's report: the planar inverse — a 4:2:0/4:2:2 JPEG restored in its planes (`planar.rs`, `examine_with`/`clean_with`), behind `planar-preview` and `recon_bench --config R6` only; the fringe falls from 7.4–8.4 to 0.2–0.8, every out-of-range refusal is lifted and still ends with a mark left; D306 proposed, its form (per-plane interval or a cube test) the owner's question. Branch `recon/r6` |
+| `wipemark-recon-r7-report-2026-10-09` | FILE | E12-R7's report: `consistency_px`, `consistency_excluded`, `consistency_dct` on `Restored` (D305) — the restoration blended back against the input, 0.24 levels on the 14 crops; `regress.py --new-fields`, the bench's column. Branch `recon/r7` |
+| `wipemark-recon-r6-r7-landed-2026-10-09` | TEXT | R6 and R7 landed in the container: the branches, the planar consistency wired at the merge, the common gate run over R1–R7 (`recon/r1-r7`), what the host runs next, the agents' questions |
+| `wipemark-recon-r8-report-2026-10-09` | FILE | E12-R8's report: the value chosen inside the codec's interval — DCT-POCS, pixel POCS and Wiener in `interval.rs`, behind `recon_bench --config R8d\|R8p\|R8w` and `WIPEMARK_INTERVAL` under `planar-preview` only; DCT-POCS brings every committed JPEG crop under D250's texture bound, the other two fall short; D307's lower bound live everywhere (no restoration on today's path under it). Branch `recon/r8` |
+| `wipemark-recon-r12-stage4a-report-2026-10-09` | FILE | E12-R12's stage 4a, the container part, Gemini only: `measure_at` (hidden) over `verify::outline`'s own code, `examples/measure_clean.rs`, `regress.py --golden` and `list`; a smoke run of the measures on clean content against today's constants; nothing Grok. Branch `recon/r12a` |
+| `wipemark-recon-r8-r12a-landed-2026-10-09` | TEXT | R8 and R12's stage 4a landed in the container: the branches, the common gate run over R1–R8 (`recon/r1-r8`), what the host runs next, the agents' questions |
+| `wipemark-recon-r2-tools-report-2026-10-09` | FILE | E12-R2's tooling, the container part: `scripts/corpus/ring.py` (the ring check) and `manifest.py` (rows, `held_out` by sha256, the stored ZIP, `captures.toml`, the Grok stage-0 table), the host's runbook; the corpora themselves are the owner's. Branch `recon/r2-tools` |
+| `wipemark-recon-r11-tools-report-2026-10-09` | FILE | E12-R11's stage-1 tools before any capture: `scripts/grok/invariance.py` (the per-pixel scatter, the hole share, a mechanical reading) and `align.py`; short white words in the procedural negatives (none verified, none restored). Branch `recon/r11-tools` |
+| `wipemark-recon-r12-stage4b-tools-report-2026-10-09` | FILE | E12-R12's stage 4b before a Grok profile: the bench takes a profile, a catalogue file and a degradation list; a synthetic wordmark fixture profile; `measure_clean --catalogue`; `regress.py` `held-out`, `--profile`, `--foreign`. D309 and D310 not built. Branch `recon/r12b` |
+| `wipemark-recon-r10-scripts-report-2026-10-09` | FILE | E12-R10's scripts before its runs: `scripts/model-eval/` (the triggers, FDnCNN, LaMa and its controls, the blind A/B), `regress.py --export-crops` through `examples/export_crops.rs`; nothing in the product. Branch `recon/r10` |
+| `wipemark-recon-r9-report-2026-10-09` | FILE | E12-R9 built ahead of R4's evidence: a bias (D308), a logo colour map `.wml` (D313, proposed) and linear light (D311), all behind the feature `blend-preview` — without it the catalogue refuses them as before and no shipped profile changes; the bench's `R9a`/`R9b`/`R9c` with `--blend-row`. Branch `recon/r9` |
+| `wipemark-recon-central-check-report-2026-10-09` | FILE | the one check of all five over `recon/r1-r12`: every gate (four feature sets of the picture crates), 59 of 60 red checks, the fixes and the interfaces between the steps reconciled |
+| `wipemark-recon-r1-r12-code-landed-2026-10-09` | TEXT | every piece of the series' code a container can write has landed (`recon/r1-r12`, not merged); what is left is the owner's answers and corpora, then the host's runs |
+| `wipemark-recon-container-runs-report-2026-10-09` | FILE | the host's runs that need no window, done in the container on `recon/r1-r12-raw` (`recon/r3-raw` merged): R1's baseline at `4b5ba17` (D247/D250/D252/S11 reproduced, committed), R4 §4.1–4.2 (k stable, rows right), the bench with R6/R8's level A, the corpus with the `planar-preview` CLI (level B: R6 + R8d 285 → 195 exit 3, no failure), R12's clean measures, R10's trigger (not reached with R6 + R8d) |
+| `wipemark-recon-pending-decisions-2026-10-10` | FILE | `docs/plan/E12-R-pending-decisions-2026-10-10.md`: every decision the series waited on, with its options and figures; A1–A3 since marked decided |
+| `wipemark-recon-decided-report-2026-10-10` | FILE | the owner's three decisions of 2026-10-10 in the product, on `recon/decided`: D470 (the search does not prove a mark its row refused by gain, D154), D471 (the planar inverse with the per-plane interval, `planar-preview` removed), D472 (DCT-POCS by default on a lossy JPEG); every gate green with `--locked`, level B unchanged from R6 + R8d (285 → 195 exit 3, 0 fail), new baseline `golden/baseline/34b4c2c/` |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
@@ -2109,7 +2145,7 @@ E3 models → E4 pipeline → E5 CLI → E6 GPUI shell → E7 workspace UI →
 E8 models/engine UI → E9 licensing → E10 packaging; E11 images is
 phase 2 and E12 visible marks phase 2b — E11-1…E11-3 and E12-1…E12-5
 are done (the images series merged 2026-10-05); E12-6 (other vendors)
-and E12-7 (the reconstructor) are not started. **E7's windows clean is
+and E12-7 (the reconstructor) are not started; the E12-R series (the restoration measured against ground truth and made more precise, Grok as E12-6, `docs/plan/E12-R-recon.md`) is merged (below). **E7's windows clean is
 done** (E7-1…E7-6, merged 2026-10-05 as `7621c9f`; follow-ups W1–W15
 merged as `2f7ce56`; follow-ups X1–X14 merged as `78fd9e2`; follow-ups
 Y1–Y9 merged as `bb73dc3`; follow-ups Z1–Z3 merged, squashed), and with it the half of E12-8 that cleans a picture from the
@@ -2159,9 +2195,17 @@ default the owner may override, and E8-1's last Lows. **Compare's
 follow-ups** are merged (D440–D449, 2026-10-10): an edit saved at quit, a
 row cleaned since the window opened asked about, an edit mark that names
 its result, one question at a time, "…, then edited" (D447) and Report… of
-a journal row greyed (D448), both at a default the owner may switch. In
-progress: the E12-R series (`plan/recon-2026-10-08`, the restoration
-measured, then made more precise) — R1, R3, R4, R5 done in the container
-on `recon/r1-r5`, R3 being moved onto upstream zune-jpeg's raw output on
-`recon/r3-raw` (`GigLaboCom/zune-image`, `raw-quantization-tables`). E1 and E3 parallelise in separate worktrees; E5 lands before
+a journal row greyed (D448), both at a default the owner may switch. **The E12-R series** (`plan/recon-2026-10-08`, the restoration measured,
+then made more precise) is merged (`recon/decided`, 2026-10-10): R1 and
+R3–R8 are done, R12's stage 4a is done, and the tools of R2, R9 (behind
+`blend-preview`), R10, R11 and R12's stage 4b are written; R3 reads
+upstream zune-jpeg's raw output through the fork's getter
+(`GigLaboCom/zune-image`, `raw-quantization-tables`, a git dependency,
+`docs/architecture/zune-jpeg-pin.md`); the owner's D470–D472 are taken —
+the search does not prove a mark its row refused by gain, a 4:2:0/4:2:2
+JPEG is proved and restored in its planes, and DCT-POCS refines a lossy
+JPEG's restoration, on the product's road (`planar-preview` removed).
+What remains of it is not code: the Gemini question (new generations come
+unmarked, `docs/plan/E12-R2-corpora.md` §3), the corpora, and the smaller
+questions in `docs/plan/E12-R-pending-decisions-2026-10-10.md` section D. E1 and E3 parallelise in separate worktrees; E5 lands before
 E6 and gives agents a usable product before the GUI exists.

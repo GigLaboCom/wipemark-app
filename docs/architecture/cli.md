@@ -193,13 +193,52 @@ ASCII. `clean`: `{"report":<PictureReport>,"written":…}` with E11's
 `StripReport` keys
 (`"container","still_has_ai_metadata","still_has_c2pa","removed","kept","orientation_removed"`),
 then `"visible"` (with `restored`:
-`{"profile","rect","changed","holes","clamped","outline","steps","step","chroma","outline_left","texture","texture_around","texture_left","noise","lossy","fitted","resampled","searched","exact"}`
+`{"profile","rect","changed","holes","clamped","outline","steps","step","chroma","outline_left","texture","texture_around","texture_left","noise","lossy","fitted","resampled","searched","exact","consistency_px","consistency_excluded"}`
 — `wipemark_pixels::Restored`, field for field: the outline's share of
 the contour, the faint band's step per channel (`steps`, R G B), in luma
 (`step`) and in colour difference (`chroma`), the roughness the
-restoration left and the same around the mark, and why it is or is not
-`exact`),
+restoration left and the same around the mark, why it is or is not
+`exact`, and how far it is from the data (D305): the restored samples
+blended back against the input, the 95th percentile in 8-bit levels
+(`consistency_px`, about 0 for an exact inverse), and the samples left
+out of it, clamped ones and holes (`consistency_excluded`). The last two
+are a measure and decide no exit; `consistency_dct` joins them only on a
+path that chooses a value inside a JPEG's intervals, and is absent
+otherwise. After them, two keys **absent** — not `false`, not `null` —
+wherever they would say nothing, so every report that says neither is
+byte for byte what it was: `"smoothed":true` (D307, E12-R8) when, on a
+lossy source, the restoration's roughness is under 0.8 of the picture's
+around it — a patch flatter than its surroundings, a mark left like a
+texture is (exit 3, and the human report says "The restored patch is
+smoother than the picture around it — … so the mark counts as still in
+the result", `cli-image-visible-smoothed`); and
+`"interval":{"method":"dct"|"pixel"|"wiener","space":"ycbcr"|"rgb","sigma_base":[…],"text","iterations"}`
+when the restored value was chosen inside a lossy codec's interval
+(E12-R8) — which every restoration of a JPEG whose planes were read now
+is, by DCT-POCS (D472, below)),
 `"encoding"` (`{"kind":"unchanged"|"png"|"webp-lossless"|"jpeg",…}`),
+**A 4:2:0 or 4:2:2 JPEG is proved and restored in its planes** (D471, the
+owner, 2026-10-10 — the series' proposed D306, taken with the per-plane
+interval), and two keys appear, each **absent** — not `null` — everywhere
+else: a finding's `scores` gains `"planar":{"y","chroma"}` (the
+out-of-range share's two terms; `out_of_range` is then the share of
+pixels with either), and a restoration gains
+`"planar":{"sampling":"4:2:0"|"4:2:2","max_alpha_dev_in_block","holes_chroma"}`,
+or `"planar":"unavailable"` for a lossy three-component JPEG whose planes
+could not be read and which was restored in RGB. A 4:4:4 JPEG, a PNG and
+a WebP carry neither. See `docs/architecture/visible-marks.md`, "The
+planar inverse (E12-R6)".
+**Every restoration of a lossy JPEG whose planes were read is refined by
+DCT-POCS** (D472, the owner, 2026-10-10): the restored value chosen inside
+the file's own quantisation intervals. It gains `"interval"` (`"method":"dct"`)
+and `"consistency_dct"`, and its `consistency_px` is no longer about 0 —
+the value chosen is another point of the data, by design. A lossless
+picture is never refined (S6) and its report is byte for byte what it
+was; a lossy WebP, which has no intervals to read, keeps the inverse's
+value and carries no `interval`. No flag and no environment variable
+chooses the method (the `planar-preview` build and its
+`WIPEMARK_INTERVAL` are gone). See `docs/architecture/visible-marks.md`,
+"The value inside the interval (E12-R8)".
 `"marks_left"`, `"not_established"`. The writers are the libraries'
 (`wipemark-image`'s `json.rs`, `wipemark-pixels`'s report,
 `wipemark-picture`'s splice).

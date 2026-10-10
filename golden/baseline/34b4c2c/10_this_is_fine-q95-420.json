@@ -1,0 +1,183 @@
+{
+ "id": "10_this_is_fine-q95-420",
+ "class": "recon-jpeg-420",
+ "variant": "q95",
+ "input_sha256": "9c2861832c4a44dfc6c3be1529ea567b0b8599e81d2da7e6eacf625b1a641bce",
+ "inspect": {
+  "exit": 1,
+  "json": {
+   "container": "jpeg",
+   "ai_metadata": false,
+   "c2pa": false,
+   "findings": [],
+   "visible": {
+    "examined": true,
+    "restorable": true,
+    "found": [
+     {
+      "profile": "gemini-sparkle-v1",
+      "vendor": "google",
+      "product": "gemini",
+      "pass": 1,
+      "rect": {
+       "x": 1888.0,
+       "y": 1888.0,
+       "size": 96.0
+      },
+      "pixels": {
+       "x": 1888,
+       "y": 1888,
+       "width": 96,
+       "height": 96
+      },
+      "placed": "row",
+      "row": 0,
+      "kernel": "area",
+      "ncc": 0.9995042,
+      "verdict": "verified",
+      "refusal": null,
+      "scores": {
+       "gain": 1.0,
+       "edge_ratio": 0.07460385,
+       "out_of_range": 0.0,
+       "holes": 0,
+       "planar": {
+        "y": 0.0,
+        "chroma": 0.0
+       }
+      },
+      "also_tried": []
+     }
+    ],
+    "restored": []
+   },
+   "not_established": [
+    "invisible-pixel-marks",
+    "vendor-detector-evasion",
+    "human-authorship",
+    "unknown-mark-schemes"
+   ]
+  }
+ },
+ "clean": {
+  "exit": 1,
+  "json": {
+   "report": {
+    "container": "jpeg",
+    "still_has_ai_metadata": false,
+    "still_has_c2pa": false,
+    "removed": [],
+    "kept": [],
+    "orientation_removed": null,
+    "visible": {
+     "examined": true,
+     "restorable": true,
+     "found": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "vendor": "google",
+       "product": "gemini",
+       "pass": 1,
+       "rect": {
+        "x": 1888.0,
+        "y": 1888.0,
+        "size": 96.0
+       },
+       "pixels": {
+        "x": 1888,
+        "y": 1888,
+        "width": 96,
+        "height": 96
+       },
+       "placed": "row",
+       "row": 0,
+       "kernel": "area",
+       "ncc": 0.9995042,
+       "verdict": "verified",
+       "refusal": null,
+       "scores": {
+        "gain": 1.0,
+        "edge_ratio": 0.07460385,
+        "out_of_range": 0.0,
+        "holes": 0,
+        "planar": {
+         "y": 0.0,
+         "chroma": 0.0
+        }
+       },
+       "also_tried": []
+      }
+     ],
+     "restored": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "rect": {
+        "x": 1888,
+        "y": 1888,
+        "width": 96,
+        "height": 96
+       },
+       "changed": 3622,
+       "holes": 0,
+       "clamped": 0,
+       "outline": 0.021871515,
+       "steps": [
+        -0.23409106,
+        -0.2710092,
+        0.80447984
+       ],
+       "step": -0.13736492,
+       "chroma": 0.53597397,
+       "outline_left": false,
+       "texture": 2.2599401,
+       "texture_around": 2.694457,
+       "texture_left": false,
+       "noise": false,
+       "lossy": true,
+       "fitted": true,
+       "resampled": false,
+       "searched": false,
+       "exact": false,
+       "consistency_px": 2.4194462,
+       "consistency_excluded": 0,
+       "consistency_dct": 0.0,
+       "planar": {
+        "sampling": "4:2:0",
+        "max_alpha_dev_in_block": 0.31009766,
+        "holes_chroma": 0
+       },
+       "interval": {
+        "method": "dct",
+        "space": "ycbcr",
+        "sigma_base": [
+         0.33151942,
+         0.0,
+         0.0
+        ],
+        "text": true,
+        "iterations": 3
+       }
+      }
+     ]
+    },
+    "encoding": {
+     "kind": "jpeg",
+     "quality": 95
+    },
+    "marks_left": false,
+    "not_established": [
+     "invisible-pixel-marks",
+     "vendor-detector-evasion",
+     "human-authorship",
+     "unknown-mark-schemes"
+    ]
+   },
+   "written": true
+  },
+  "output_sha256": "30b362c99029e07badf51966be2246200528073ca9739cdc88895a2ab7791f3b"
+ },
+ "time_s": {
+  "inspect": 0.6047,
+  "clean": 1.4865
+ }
+}

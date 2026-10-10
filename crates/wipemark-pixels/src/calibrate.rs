@@ -69,7 +69,8 @@ pub enum BlendModel {
     /// Linear over the stored code values — the only one restored today.
     Encoded,
     /// Linear in light (sRGB decoded): in the schema, refused by the
-    /// catalogue until a vendor needs it (D152).
+    /// catalogue until a vendor needs it (D152) — read only under
+    /// `blend-preview` (E12-R9c, D311 proposed).
     LinearLight,
 }
 
@@ -140,12 +141,18 @@ pub enum CalibrationError {
     NotABlend { encoded: f32, linear: f32 },
     #[error("a linear-light mark cannot be written as a profile in this version")]
     LinearLight,
+    /// Some sizes chose `encoded` and some `linear-light`: one profile has
+    /// one blend (`blend-preview` only, where a linear-light row is
+    /// written at all).
+    #[error("the sizes' calibrations chose different blend models")]
+    MixedModels,
     #[error("the map cannot be written")]
     Map,
 }
 
 /// sRGB decoding of an 8-bit-scaled value, to linear light in [0, 1].
-pub(crate) fn to_linear(v: f64) -> f64 {
+/// Public for [`crate::synth`]'s re-export only (D312).
+pub fn to_linear(v: f64) -> f64 {
     let c = (v / 255.0).clamp(0.0, 1.0);
     if c <= 0.040_45 {
         c / 12.92
@@ -154,8 +161,9 @@ pub(crate) fn to_linear(v: f64) -> f64 {
     }
 }
 
-/// sRGB encoding of linear light, to 8-bit-scaled units.
-pub(crate) fn from_linear(l: f64) -> f64 {
+/// sRGB encoding of linear light, to 8-bit-scaled units. Public for
+/// [`crate::synth`]'s re-export only (D312).
+pub fn from_linear(l: f64) -> f64 {
     let l = l.clamp(0.0, 1.0);
     let c = if l <= 0.003_130_8 {
         l * 12.92
@@ -264,7 +272,7 @@ fn background(
     rect: PixelRect,
     ring: u32,
 ) -> Result<Vec<[f64; 3]>, CalibrationError> {
-    let (w, h) = (capture.raster.width(), capture.raster.height());
+    let w = capture.raster.width();
     if let Some(clean) = &capture.clean {
         let px = pixels(clean);
         let mut out = Vec::with_capacity(rect.area() as usize);
@@ -275,7 +283,22 @@ fn background(
         }
         return Ok(out);
     }
-    let px = pixels(&capture.raster);
+    ring_background(&capture.raster, rect, ring).ok_or(CalibrationError::NoRing)
+}
+
+/// The picture under `rect` as the calibration estimates it with no clean
+/// twin: a quadratic in `(x, y)` per channel, fitted by least squares to
+/// a ring `ring` pixels wide around the rectangle (clipped at the
+/// picture's edges), in 8-bit-scaled units, row-major over `rect`.
+/// `None` when the ring has fewer than 30 pixels.
+///
+/// The calibration's own fit, handed out for the analytics of E12-R4
+/// (`map_regress`, and `scripts/analytics/bias.py`'s check of its Python
+/// restatement) — a developer's measure, not a feature.
+#[doc(hidden)]
+pub fn ring_background(raster: &Raster, rect: PixelRect, ring: u32) -> Option<Vec<[f64; 3]>> {
+    let (w, h) = (raster.width(), raster.height());
+    let px = pixels(raster);
     let (cx, cy) = (
         f64::from(rect.x) + f64::from(rect.width) / 2.0,
         f64::from(rect.y) + f64::from(rect.height) / 2.0,
@@ -300,7 +323,7 @@ fn background(
         }
     }
     if ring_points[0].len() < 30 {
-        return Err(CalibrationError::NoRing);
+        return None;
     }
     let k = [
         fit_quadratic(&ring_points[0]),
@@ -319,7 +342,7 @@ fn background(
             out.push(p);
         }
     }
-    Ok(out)
+    Some(out)
 }
 
 /// Where the mark is: the bounding box of the pixels that stand out of
@@ -692,18 +715,27 @@ impl Draft<'_> {
     /// The catalogue row: `status: provisional`, an exact `rect` row per
     /// size, the largest map as the search's, the logo the mean of the
     /// sizes'. Refused for a linear-light mark — the catalogue would
-    /// refuse it too.
+    /// refuse it too — except under `blend-preview` (E12-R9c), where the
+    /// row says `"model": "linear-light"` and the catalogue of that build
+    /// reads it; sizes that chose different models are refused there.
     pub fn to_json(&self) -> Result<String, CalibrationError> {
         if self.sizes.is_empty() {
             return Err(CalibrationError::NoCaptures);
         }
-        if self
+        let linear = self
             .sizes
             .iter()
-            .any(|(c, _, _)| c.model == BlendModel::LinearLight)
-        {
+            .filter(|(c, _, _)| c.model == BlendModel::LinearLight)
+            .count();
+        let model = if linear == 0 {
+            BlendModel::Encoded
+        } else if !cfg!(feature = "blend-preview") {
             return Err(CalibrationError::LinearLight);
-        }
+        } else if linear == self.sizes.len() {
+            BlendModel::LinearLight
+        } else {
+            return Err(CalibrationError::MixedModels);
+        };
         let k = self.sizes.len() as f32;
         let mut logo = [0f32; 3];
         for (c, _, _) in &self.sizes {
@@ -742,7 +774,7 @@ impl Draft<'_> {
             r#"{{
       "id": "{id}", "vendor": "{vendor}", "product": "{product}", "mark": "{mark}",
       "observed": {{ "from": {observed}, "until": null }}, "status": "provisional",
-      "blend": {{ "model": "encoded", "logo": [{l0}, {l1}, {l2}], "logo_map": null }},
+      "blend": {{ "model": "{model}", "logo": [{l0}, {l1}, {l2}], "logo_map": null }},
       "opaque_above": 0.95,
       "alpha": [ {alpha} ],
       "placements": [ {placements} ],
@@ -755,6 +787,7 @@ impl Draft<'_> {
             vendor = self.vendor,
             product = self.product,
             mark = self.mark,
+            model = model.id(),
             l0 = logo[0].round().clamp(0.0, 255.0),
             l1 = logo[1].round().clamp(0.0, 255.0),
             l2 = logo[2].round().clamp(0.0, 255.0),

@@ -21,3 +21,4 @@ fixtures/image/gemini/*.webp        binary
 # The windows' clean against the CLI's (W9): byte-exact inputs — a UTF-16
 # file, a soft hyphen, a TIFF head — and the table both tests read.
 fixtures/clean-parity/**            -text -diff
+fixtures/image/jpeg-planes/*.jpg    binary

@@ -85,6 +85,41 @@ pub struct Restored {
     /// Lossless source, a row's own canonical map that is not fitted, no
     /// hole, no clamp, no outline: the original values to within one level.
     pub exact: bool,
+    /// How far the result is from the data (D305): the restored samples
+    /// blended back — `α·L + (1 − α)·O` with the `α` and the logo they were
+    /// restored with, at gain 1 — against the stored input, the 95th
+    /// percentile of the distance over every sample with `α` from the noise
+    /// floor to the opaque threshold, in 8-bit levels. About 0 for an
+    /// exact inverse, by identity: half a level of rounding at most. A
+    /// measure, never a verdict.
+    pub consistency_px: f32,
+    /// The samples left out of `consistency_px`, where an error is
+    /// expected: every clamped one (`clamped`, and any of a capture noise
+    /// taken off, D246), and the three colour samples of every hole.
+    pub consistency_excluded: u32,
+    /// The share of DCT coefficients outside their quantisation intervals,
+    /// for a value chosen inside them (D305); none on every path today,
+    /// and then not in the JSON.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consistency_dct: Option<f32>,
+    /// Restored in the planes of a subsampled JPEG (D471, E12-R6), or a
+    /// lossy JPEG whose planes could not be read; `None` on the RGB path,
+    /// and then not in the JSON.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planar: Option<crate::planar::Planar>,
+    /// A smoothed patch is left (D307) — a lossy source, and `texture`
+    /// under [`crate::verify::TEXTURE_RATIO_MIN`] times `texture_around`:
+    /// the restoration is flatter than the picture around it. The mark
+    /// counts as left, as with `texture_left`. Not in the JSON while false,
+    /// so every report where it is not said is what it was.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub smoothed: bool,
+    /// The value chosen inside the codec's interval (E12-R8): how, over
+    /// what noise, in how many rounds. `None` — and not in the JSON — on
+    /// every restoration that was not refined, which is every one the
+    /// product makes until the method is decided (S12).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interval: Option<crate::interval::Interval>,
 }
 
 /// Why a verified mark was not restored.
@@ -104,25 +139,57 @@ pub fn restore(
     verified: &Verified,
     options: &ExamineOptions,
 ) -> Result<Restored, RestoreError> {
+    restore_with(raster, verified, options, 0.0)
+}
+
+/// [`restore`] with every restored sample moved by `levels` (8-bit levels)
+/// after the inverse and before it is written and measured — a departure
+/// from the data that `Restored::consistency_px` has to see (D305). For
+/// tests only; never a feature.
+#[doc(hidden)]
+pub fn restore_off_by(
+    raster: &mut Raster,
+    verified: &Verified,
+    options: &ExamineOptions,
+    levels: f32,
+) -> Result<Restored, RestoreError> {
+    restore_with(raster, verified, options, levels)
+}
+
+fn restore_with(
+    raster: &mut Raster,
+    verified: &Verified,
+    options: &ExamineOptions,
+    levels: f32,
+) -> Result<Restored, RestoreError> {
     if !verified.fits(raster) {
         return Err(RestoreError::Elsewhere);
     }
     let at = verified.pixels();
     let max = f64::from(raster.layout().max());
-    let logo = verified.logo();
+    let law = verified.law();
     let opaque = verified.opaque_above();
     let (mut changed, mut holes, mut clamped) = (0u32, 0u32, 0u32);
+    // D305: per sample restored, (blend(O), I) in 8-bit levels — the blend
+    // the profile's law makes (`Law::forward`; `a·l + (1 − a)·o` for
+    // `encoded` with no bias, as it always was).
+    let to_8 = 255.0 / max;
+    let shift = f64::from(levels) / to_8;
+    let (mut pairs, mut excluded) = (Vec::new(), 0u32);
     for ty in 0..at.height {
         for tx in 0..at.width {
-            let a = verified.values()[(ty * at.width + tx) as usize];
+            let p = (ty * at.width + tx) as usize;
+            let a = verified.values()[p];
             if a < NOISE_FLOOR {
                 continue;
             }
             if a >= opaque {
                 holes += 1;
+                excluded += 3;
                 continue;
             }
             let a = f64::from(a);
+            let logo = verified.logo_at(p);
             let i = raster.at(at.x + tx, at.y + ty);
             let samples = raster.samples_mut();
             let stored = [
@@ -130,13 +197,18 @@ pub fn restore(
                 f64::from(samples[i + 1]),
                 f64::from(samples[i + 2]),
             ];
-            let original = unblend(stored, a, logo);
+            let original = law.inverse(stored, a, logo);
             let mut moved = false;
             for (c, o) in original.into_iter().enumerate() {
+                let v = (o + shift).round().clamp(0.0, max);
                 if o < -0.5 || o > max + 0.5 {
                     clamped += 1;
+                    excluded += 1;
+                } else {
+                    let back = law.forward(v, a, logo[c], c);
+                    pairs.push((back * to_8, stored[c] * to_8));
                 }
-                let v = o.round().clamp(0.0, max) as u16;
+                let v = v as u16;
                 if v != samples[i + c] {
                     samples[i + c] = v;
                     moved = true;
@@ -152,6 +224,7 @@ pub fn restore(
                 continue;
             }
             let (tx, ty) = (p as u32 % at.width, p as u32 / at.width);
+            let logo = verified.logo_at(p);
             let i = raster.at(at.x + tx, at.y + ty);
             let samples = raster.samples_mut();
             let stored = [
@@ -159,9 +232,17 @@ pub fn restore(
                 f64::from(samples[i + 1]),
                 f64::from(samples[i + 2]),
             ];
+            let original = law.inverse(stored, f64::from(a), logo);
             let mut moved = false;
-            for (c, o) in unblend(stored, f64::from(a), logo).into_iter().enumerate() {
-                let v = o.round().clamp(0.0, max) as u16;
+            for (c, o) in original.into_iter().enumerate() {
+                let v = o.round().clamp(0.0, max);
+                if o < -0.5 || o > max + 0.5 {
+                    excluded += 1;
+                } else {
+                    let back = law.forward(v, f64::from(a), logo[c], c);
+                    pairs.push((back * to_8, stored[c] * to_8));
+                }
+                let v = v as u16;
                 if v != samples[i + c] {
                     samples[i + c] = v;
                     moved = true;
@@ -171,6 +252,7 @@ pub fn restore(
         }
     }
     let outline = crate::verify::outline(raster, verified);
+    let consistency = crate::verify::consistency(pairs, excluded);
     Ok(Restored {
         profile: verified.profile().to_owned(),
         rect: at,
@@ -199,6 +281,12 @@ pub fn restore(
             && holes == 0
             && clamped == 0
             && !outline.left(),
+        consistency_px: consistency.px,
+        consistency_excluded: consistency.excluded,
+        consistency_dct: None,
+        planar: None,
+        smoothed: options.source == Fidelity::Lossy && outline.smoothed(),
+        interval: None,
     })
 }
 
@@ -222,12 +310,12 @@ pub fn restore(
 /// own noise, not a capture's — on the outputs it was fitted from it
 /// follows their grain (slopes of 1.3–1.8), on two held out it sits at the
 /// threshold (0.58, 0.62). Not evidence of anything; left out.
-fn drawn_noise(raster: &Raster, verified: &Verified) -> bool {
+pub(crate) fn drawn_noise(raster: &Raster, verified: &Verified) -> bool {
     if verified.fitted() {
         return false;
     }
     let at = verified.pixels();
-    let logo = verified.logo();
+    let law = verified.law();
     let samples = raster.samples();
     let noise = verified.noise();
     let (w, h) = (i64::from(at.width), i64::from(at.height));
@@ -238,11 +326,22 @@ fn drawn_noise(raster: &Raster, verified: &Verified) -> bool {
             .sum::<f64>()
     };
     let lift = |x: i64, y: i64| {
-        let a = f64::from(noise[(y * w + x) as usize]);
+        let p = (y * w + x) as usize;
+        let a = f64::from(noise[p]);
         if a < f64::from(NOISE_FLOOR) {
             return 0.0;
         }
+        let logo = verified.logo_at(p);
         let i = raster.at(at.x + x as u32, at.y + y as u32);
+        if !law.today() {
+            // What the profile's own inverse would take off (E12-R9,
+            // `blend-preview`): the stored value less its restoration.
+            let stored = [0, 1, 2].map(|c| f64::from(samples[i + c]));
+            let o = law.inverse(stored, a, logo);
+            return (0..3)
+                .map(|c| f64::from(crate::raster::LUMA[c]) * (stored[c] - o[c]))
+                .sum::<f64>();
+        }
         (0..3)
             .map(|c| {
                 f64::from(crate::raster::LUMA[c]) * a * (logo[c] - f64::from(samples[i + c]))

@@ -1,11 +1,16 @@
 //! D164: the false-positive gate, in three families.
 //!
-//! * **Negatives** — two thousand procedural pictures with no blend in
+//! * **Negatives** — 2331 procedural pictures with no blend of a mark in
 //!   them: textures, glyphs, flat and bright corners, noise, white
-//!   corners, and opaque look-alikes (sparkles and diamonds drawn hard).
-//!   Not one may be restored, **and not one may be reported** (D235): no
-//!   blend is not a finding. Each is examined as a lossless and as a lossy
-//!   source, whose out-of-range allowance is wider (D237).
+//!   corners, opaque look-alikes (sparkles and diamonds drawn hard), and
+//!   short white **words** in the bottom-right corner (E12-R11 §5, R2
+//!   §4.2's look-alike text), opaque, opaque with a dark outline, or half
+//!   transparent. Not one may be restored, **and not one may be reported**
+//!   (D235): no blend is not a finding. The one exception is the
+//!   half-transparent word, which *is* a white blend: it may be seen, and
+//!   never proved. Each is examined as a lossless and as a lossy source,
+//!   whose out-of-range allowance is wider (D237); the words also under
+//!   the shipped profiles, the vendor maps text has to be told from.
 //! * **Wallpapers** — procedural night skies (`aurora`): soft bright
 //!   ridges and stars, what a sparkle correlates with. Neither restored nor
 //!   reported.
@@ -27,6 +32,38 @@ use wipemark_pixels::{
 };
 
 const SIDE: u32 = 96;
+
+/// The word family's pictures: a word is 30–110 px wide (R2 §4.2), which
+/// the others' 96 cannot hold with a margin.
+const WORD_SIDE: u32 = 160;
+
+/// The negatives, seven slots of `n % 7`: three of bare texture, one each
+/// of an opaque sparkle, an opaque diamond, a white corner and a word.
+/// 2331 is 333 × 7, so the four families that were here before the words
+/// keep the counts they had over 2000 in six slots (999 textures, 333 of
+/// each other), and the words are 333 more.
+const NEGATIVES: u64 = 2331;
+
+/// How a word negative is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Word {
+    /// White, hard-edged: no blend.
+    Opaque,
+    /// White, hard-edged, over a dark one-pixel outline: no blend.
+    Outlined,
+    /// White at a peak of 0.3–0.7: a blend, but not the mark's.
+    Translucent,
+}
+
+/// The word the `n`-th negative carries, if it is one: the seventh slot,
+/// its three styles in turn (111 each).
+fn word_of(n: u64) -> Option<Word> {
+    (n % 7 == 6).then_some(match (n / 7) % 3 {
+        0 => Word::Opaque,
+        1 => Word::Outlined,
+        _ => Word::Translucent,
+    })
+}
 
 /// A diamond `size × size` at `peak`: the right place, the wrong shape.
 fn diamond(size: u32, peak: f32) -> AlphaMap {
@@ -57,20 +94,26 @@ fn somewhere(rng: &mut Rng, size: u32) -> PixelRect {
     }
 }
 
-/// The `n`-th negative: nothing blended into it.
+/// The `n`-th negative: no mark blended into it (a half-transparent word
+/// is a white blend, and not a mark's).
 fn negative(n: u64) -> (String, Raster) {
     let mut rng = Rng::new(n.wrapping_mul(7919) + 3);
     let kind = KINDS[(n % KINDS.len() as u64) as usize];
-    let mut raster = picture(kind, SIDE, SIDE, n + 10_000, Layout::Rgb8);
+    let side = if word_of(n).is_some() {
+        WORD_SIDE
+    } else {
+        SIDE
+    };
+    let mut raster = picture(kind, side, side, n + 10_000, Layout::Rgb8);
     let size = 24 + rng.below(40);
     let at = somewhere(&mut rng, size);
-    let what = match n % 6 {
+    let what: String = match n % 7 {
         // The bare texture.
-        0..=2 => "texture",
+        0..=2 => "texture".into(),
         // An opaque white sparkle.
         3 => {
             stamp_opaque(&mut raster, &sparkle(size, 0.5), at, 0.25, 255.0);
-            "opaque sparkle"
+            "opaque sparkle".into()
         }
         // An opaque diamond.
         4 => {
@@ -81,7 +124,39 @@ fn negative(n: u64) -> (String, Raster) {
                 0.25,
                 rng.range(180.0, 255.0),
             );
-            "opaque diamond"
+            "opaque diamond".into()
+        }
+        // A short white word in the bottom-right corner: two to five
+        // letters, 30–110 px wide, 4–24 px from the edges.
+        6 => {
+            let style = word_of(n).expect("the seventh slot is the word family");
+            let letters: Vec<usize> = (0..2 + rng.below(4))
+                .map(|_| rng.below(LETTERS.len() as u32) as usize)
+                .collect();
+            let width = 30 + rng.below(81);
+            let peak = match style {
+                Word::Translucent => rng.range(0.3, 0.7),
+                Word::Opaque | Word::Outlined => 1.0,
+            };
+            let map = word(&letters, width, peak);
+            let (mx, my) = (4 + rng.below(21), 4 + rng.below(21));
+            let at = PixelRect {
+                x: WORD_SIDE - mx - map.width(),
+                y: WORD_SIDE - my - map.height(),
+                width: map.width(),
+                height: map.height(),
+            };
+            match style {
+                Word::Opaque => stamp_opaque(&mut raster, &map, at, 0.5, 255.0),
+                Word::Outlined => {
+                    let dark = rng.range(0.0, 60.0);
+                    stamp_opaque(&mut raster, &blurred(&map, 1), at, 0.05, dark);
+                    stamp_opaque(&mut raster, &map, at, 0.5, 255.0);
+                }
+                Word::Translucent => composite(&mut raster, &map, at, [255.0; 3]),
+            }
+            let text: String = letters.iter().map(|&i| LETTERS[i].0).collect();
+            format!("{style:?} word {text} {width} px")
         }
         // A white corner.
         _ => {
@@ -99,7 +174,7 @@ fn negative(n: u64) -> (String, Raster) {
                 })
                 .collect();
             raster = Raster::new(SIDE, SIDE, Layout::Rgb8, samples).unwrap();
-            "white corner"
+            "white corner".into()
         }
     };
     (format!("#{n} {kind:?} {what}"), raster)
@@ -185,27 +260,94 @@ fn never_restored(
 #[test]
 fn no_procedural_negative_is_ever_restored() {
     let catalogue = synthetic_catalogue();
+    let shipped = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
     let mut dismissed = 0usize;
-    for n in 0..2000u64 {
+    let mut words = std::collections::BTreeMap::<&str, usize>::new();
+    let (mut word_dismissed, mut seen, mut translucent) = (0usize, 0usize, 0usize);
+    for n in 0..NEGATIVES {
         let (name, original) = negative(n);
-        for options in both_sources() {
-            let report = never_restored(&name, &original, &catalogue, &options);
+        let style = word_of(n);
+        let mut catalogues = vec![&catalogue];
+        if let Some(style) = style {
+            // Not vacuous: the word is there. Dropping the words leaves
+            // the bare texture, and this is what notices.
+            let kind = KINDS[(n % KINDS.len() as u64) as usize];
+            let bare = picture(kind, WORD_SIDE, WORD_SIDE, n + 10_000, Layout::Rgb8);
+            let drawn = bare
+                .samples()
+                .chunks_exact(3)
+                .zip(original.samples().chunks_exact(3))
+                .filter(|(a, b)| a != b)
+                .count();
             assert!(
-                report.found.is_empty(),
-                "{name} ({:?}) was reported: {:#?}",
-                options.source,
-                report.found
+                drawn >= 20,
+                "{name}: only {drawn} pixels of a word were drawn"
             );
-            dismissed += report.dismissed;
+            *words.entry(word_style(style)).or_default() += 1;
+            catalogues.push(shipped);
+        }
+        for (c, cat) in catalogues.into_iter().enumerate() {
+            for options in both_sources() {
+                let report = never_restored(&name, &original, cat, &options);
+                if style == Some(Word::Translucent) {
+                    // A half-transparent white word is a blend: seen is
+                    // allowed (D235), proved never.
+                    assert!(
+                        report
+                            .found
+                            .iter()
+                            .all(|f| matches!(f.verdict, Verdict::Refused(_))),
+                        "{name} ({:?}) was proved a mark: {:#?}",
+                        options.source,
+                        report.found
+                    );
+                    translucent += 1;
+                    seen += usize::from(!report.found.is_empty());
+                } else {
+                    assert!(
+                        report.found.is_empty(),
+                        "{name} ({:?}) was reported: {:#?}",
+                        options.source,
+                        report.found
+                    );
+                }
+                if c == 0 {
+                    dismissed += report.dismissed;
+                }
+                if style.is_some() {
+                    word_dismissed += report.dismissed;
+                }
+            }
         }
     }
     // Not vacuous: the correlation did propose, and the proof dismissed.
     assert!(dismissed > 500, "only {dismissed} proposals were made");
+    assert_eq!(
+        words.values().sum::<usize>() as u64,
+        NEGATIVES / 7,
+        "the word family: {words:?}"
+    );
     println!(
-        "false positives: 2000 negatives x {} profiles x 2 sources: {dismissed} proposals, \
-         every one no blend; 0 reported, 0 restored",
+        "false positives: {NEGATIVES} negatives x {} profiles x 2 sources: {dismissed} proposals, \
+         every one no blend; 0 reported but the half-transparent words, 0 restored",
         catalogue.profiles().len()
     );
+    println!(
+        "words: {words:?} x ({} synthetic + {} shipped profiles) x 2 sources: {word_dismissed} \
+         proposals dismissed; half-transparent: {seen} of {translucent} examinations reported \
+         (seen, not proved); 0 verified, 0 restored",
+        catalogue.profiles().len(),
+        shipped.profiles().len()
+    );
+}
+
+/// A word style's name in the printed counts.
+fn word_style(style: Word) -> &'static str {
+    match style {
+        Word::Opaque => "opaque",
+        Word::Outlined => "outlined",
+        Word::Translucent => "half-transparent",
+    }
 }
 
 #[test]
@@ -297,4 +439,65 @@ fn no_lookalike_blend_is_ever_restored() {
          proved), lowest edge ratio among them {min_ratio:.3}; {by_gain} of {gained} marks \
          at 0.8 or 1.2 refused by their gain; 0 restored"
     );
+}
+
+/// The planar path's proof (D471) did not loosen into restoring what the
+/// RGB path refused: three hundred look-alike blends and three hundred
+/// negatives, each stored as a 4:2:0 JPEG at 90 (`synth::jpeg_planes`) and
+/// examined with those planes, are never restored, and the planes change
+/// no finding into a non-finding or back — only, at most, which proof
+/// refused. The refusals are counted both ways (`--nocapture`). Measured
+/// over all 1000 of each (2026-10-09, before E12-R11 gave the negatives
+/// a word family and so moved which `n` is which negative): 567 refused
+/// by gain and 151 by
+/// edges on both paths, none by the range on either — on these families
+/// the range term decides nothing, and this gate holds the planes to
+/// "never restore", not to the range.
+#[test]
+fn no_negative_or_lookalike_is_restored_from_subsampled_planes() {
+    use wipemark_pixels::synth::jpeg_planes;
+    use wipemark_pixels::{clean_with, Sampling};
+    let catalogue = synthetic_catalogue();
+    let lossy = ExamineOptions {
+        source: Fidelity::Lossy,
+        profiles: None,
+    };
+    let why = |report: &PixelReport| -> Vec<&'static str> {
+        report
+            .found
+            .iter()
+            .map(|f| match f.verdict {
+                Verdict::Verified(_) => "verified",
+                Verdict::Refused(Refusal::Gain { .. }) => "gain",
+                Verdict::Refused(Refusal::Edges { .. }) => "edges",
+                Verdict::Refused(Refusal::OutOfRange { .. }) => "out-of-range",
+                Verdict::Refused(_) => "other",
+            })
+            .collect()
+    };
+    let mut tally: std::collections::BTreeMap<(&str, &str), usize> = Default::default();
+    let pictures = (0..300u64)
+        .map(|n| {
+            let (name, raster, _) = lookalike(n);
+            (name, raster)
+        })
+        .chain((0..300u64).map(negative));
+    for (name, original) in pictures {
+        let (planes, raster) = jpeg_planes(&original, Sampling::H420, 90).unwrap();
+        let mut rgb = raster.clone();
+        let old = clean(&mut rgb, &catalogue, &lossy);
+        let mut planar = raster.clone();
+        let new = clean_with(&mut planar, Some(&planes), &catalogue, &lossy);
+        assert!(
+            new.restored.is_empty(),
+            "{name} was restored from its planes: {:#?}",
+            new.found
+        );
+        assert_eq!(planar, raster, "{name}");
+        assert_eq!(old.found.len(), new.found.len(), "{name}");
+        for (a, b) in why(&old).into_iter().zip(why(&new)) {
+            *tally.entry((a, b)).or_default() += 1;
+        }
+    }
+    println!("4:2:0 q90, 300 look-alikes and 300 negatives: (RGB, planes) -> findings {tally:?}");
 }

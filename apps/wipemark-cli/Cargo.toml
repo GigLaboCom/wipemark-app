@@ -72,7 +72,7 @@ ctrlc.workspace = true
 # `wipemark-image`'s own dev-dependencies — the lock gains edges, no
 # package.
 png = "0.18"
-zune-jpeg = "0.5"
+zune-jpeg = { workspace = true }
 image-webp = "0.2"
 sha2.workspace = true
 # `tests/visible.rs` writes a JPEG to damage its scan; the encoder

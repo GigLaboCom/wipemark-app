@@ -70,6 +70,7 @@ steps:
     environment: *ci_env
     commands:
       - scripts/check-dep-direction.sh
+      - scripts/check-zune-pin.sh
 
   # ── 2. Format. Nightly, because rustfmt.toml uses unstable options
   #       (imports_granularity, group_imports). The pinned stable

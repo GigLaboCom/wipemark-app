@@ -1,0 +1,491 @@
+From 75a9701fc834d3e6b434bbd9ee77d241fcb28a3f Mon Sep 17 00:00:00 2001
+From: denis smpio-ubuntu <denis.yesakov@gmail.com>
+Date: Fri, 9 Oct 2026 08:09:23 +0000
+Subject: [PATCH] =?UTF-8?q?zune-jpeg:=20decode=5Fplanes=20=E2=80=94=20the?=
+ =?UTF-8?q?=20components=20at=20their=20own=20resolution,=20before=20upsam?=
+ =?UTF-8?q?pling=20and=20colour=20conversion,=20and=20the=20quantisation?=
+ =?UTF-8?q?=20tables?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+JpegDecoder::decode_planes runs the decoder's own baseline or progressive
+path with a flag that makes post_process copy each row of MCUs (raw_coeff,
+the IDCT's clamped output) into its component's plane, cropped to
+ceil(W*h/h_max) x ceil(H*v/v_max), instead of upsampling and converting.
+qt_tables are handed out in natural order as u16. Nothing else is made
+public, and no existing call's output changes. See PATCH.md.
+---
+ PATCH.md                         | 138 ++++++++++++++++++++++
+ crates/zune-jpeg/src/decoder.rs  |   9 ++
+ crates/zune-jpeg/src/lib.rs      |   2 +
+ crates/zune-jpeg/src/mcu.rs      |   8 ++
+ crates/zune-jpeg/src/mcu_prog.rs |   2 +
+ crates/zune-jpeg/src/planes.rs   | 196 +++++++++++++++++++++++++++++++
+ 6 files changed, 355 insertions(+)
+ create mode 100644 PATCH.md
+ create mode 100644 crates/zune-jpeg/src/planes.rs
+
+diff --git a/PATCH.md b/PATCH.md
+new file mode 100644
+index 0000000..15ba68f
+--- /dev/null
++++ b/PATCH.md
+@@ -0,0 +1,138 @@
++# `wipemark/planes` — what this branch carries over upstream
++
++This is `etemesi254/zune-image`'s `zune-jpeg` **0.5.15** with one addition:
++a public `JpegDecoder::decode_planes`, which hands out a JPEG's components
++at their own resolution — the IDCT's output, before upsampling and colour
++conversion — and its quantisation tables. Wipemark
++(`GigLaboCom/wipemark-app`) needs them to restore a visible mark at the
++chroma's own resolution (its decisions D301 and D302; its
++`docs/architecture/zune-jpeg-pin.md`). Nothing that `decode`,
++`decode_into` or any other existing call returns changes.
++
++## Base
++
++| | |
++|---|---|
++| crate | `zune-jpeg` 0.5.15, as published on crates.io (`checksum 27bc9d5b…7296`) |
++| upstream commit | `31d81fed7551c8ccea456d9d8e2b1fd8bebb6995` (the `.cargo_vcs_info.json` the published crate carries), `crates/zune-jpeg` |
++| this branch's first commit | the published crate's files, unchanged — `Cargo.toml` is crates.io's normalised manifest (`zune-core` from the registry, no `zune-ppm` dev-dependency), `Cargo.toml.orig` is upstream's, so the crate builds on its own |
++| this branch's second commit | the patch below |
++
++The local checkout this was made in could not clone upstream (a container
++without access to GitHub), so the first commit is the crate's published
++source rather than upstream's history. When the fork is created from
++upstream, the patch is applied to `crates/zune-jpeg` at the
++`zune-jpeg-0.5.15` tag (or `31d81fe`): it touches nothing outside
++`crates/zune-jpeg/src`.
++
++## What the patch adds — the public surface
++
++One new file, `src/planes.rs`, re-exported from `lib.rs`:
++
++```rust
++pub struct JpegPlanes {
++    pub width: usize, pub height: usize,
++    pub components: Vec<PlaneOut>,          // frame order: Y, Cb, Cr (or Y alone)
++    pub qt: [Option<[u16; 64]>; 4],         // by slot, NATURAL (row-major) order
++    pub restart_interval: u16,
++    pub progressive: bool,
++}
++pub struct PlaneOut {
++    pub id: u8, pub h: u8, pub v: u8,       // sampling factors
++    pub qt_index: u8,                       // which slot of `qt`
++    pub width: usize, pub height: usize,    // ceil(W·h/h_max) × ceil(H·v/v_max)
++    pub samples: Vec<u8>,                   // row-major, the IDCT's clamped output
++}
++impl<T: ZByteReaderTrait> JpegDecoder<T> {
++    pub fn decode_planes(&mut self) -> Result<JpegPlanes, DecodeErrors>;
++}
++```
++
++Nothing else was made public: no field, function or module of upstream's
++changed visibility.
++
++## Every function touched
++
++| file | function / item | change |
++|---|---|---|
++| `src/lib.rs` | module list, re-exports | `mod planes;`, `pub use crate::planes::{JpegPlanes, PlaneOut};` |
++| `src/decoder.rs` | `JpegDecoder` | two `pub(crate)` fields: `want_planes: bool`, `planes: Vec<PlaneBuf>` |
++| `src/decoder.rs` | `JpegDecoder::default` | initialises them (`false`, empty) |
++| `src/mcu.rs` | `post_process` | first statement: when `want_planes`, `return self.copy_planes(i)` |
++| `src/mcu.rs` | `decode_mcu_ycbcr_baseline` | a component is `needed` (decoded rather than discarded) also when `want_planes`; the YCbCr→Luma `coeff = 2` adjustment does not apply when `want_planes` |
++| `src/mcu.rs` | `finish_baseline_decoding` | `needed` also when `want_planes` |
++| `src/mcu_prog.rs` | `decode_mcu_ycbcr_progressive` | the `coeff = 2` adjustment does not apply when `want_planes` |
++| `src/mcu_prog.rs` | `finish_progressive_decoding` | `needed` also when `want_planes` |
++| `src/planes.rs` (new) | `JpegPlanes`, `PlaneOut`, `decode_planes`; `pub(crate)` `PlaneBuf`, `copy_planes` | the whole addition |
++
++`want_planes` is set only inside `decode_planes`, and cleared before it
++returns, so every other caller runs upstream's code path unchanged — the
++extra conditions are `|| false` and `&& true` for them.
++
++## How it works
++
++* **`decode_planes`** decodes the headers, reads `qt_tables` back (they are
++  stored un-zigzagged, i.e. in natural order, by `parse_dqt`; each value is
++  checked to fit in `u16`, which a 16-bit DQT always does), sets
++  `want_planes`, and runs the decoder's own `decode_mcu_ycbcr_baseline` or
++  `decode_mcu_ycbcr_progressive` with an empty pixel buffer. The tables are
++  the ones defined before the first scan — the ones
++  `setup_component_params` hands the components; a DQT between later scans
++  is not applied by the decoder either.
++* **How upsampling is skipped.** Every path — baseline interleaved, baseline
++  with one scan per component, progressive — ends each row of MCUs in
++  `post_process`, which upsamples (`worker::upsample`) and converts
++  (`worker::color_convert`). With `want_planes` on, `post_process` instead
++  calls `copy_planes(i)` and returns before either: no upsampler and no
++  colour converter runs, and the pixel buffer is never touched.
++* **How the padding is cropped.** `copy_planes` allocates each plane on the
++  first row of MCUs at `ceil(width · h / h_max) × ceil(height · v /
++  v_max)` — `h_max`/`v_max` as `setup_component_params` (and, for a grey
++  picture with sampling factors, `reset_params`) left them — filled with
++  128, the value `decode` fills rows a damaged scan never reached with.
++  Row of MCUs `i` of a component is its `raw_coeff`: `8 · v` rows of
++  `width_stride` samples (the IDCT's output, clamped to 0–255 by the IDCT
++  itself). Row `r` lands at plane row `i · 8v + r` when that is below the
++  plane's height, and only its first `width` samples are copied: the
++  columns and rows the MCU grid adds past the picture are dropped.
++* **Arithmetic coding** stays refused, as upstream refuses it (`SOF9`–`SOF15`
++  are refused when the frame header is read, before any of this runs).
++* **No coefficients.** The quantised DCT coefficients are not exported.
++
++## Size
++
++The patch commit touches 5 source files and adds this one: `src/planes.rs` new (196
++lines, of which ~80 are documentation), 21 lines added across the four
++existing files, none removed.
++
++## Tests
++
++The crate's own suite (`cargo test`, 22 tests: unit tests and doctests)
++passes unchanged. The patch's tests live in Wipemark, which has the
++fixtures: `crates/wipemark-picture/tests/planes.rs` holds the planes,
++upsampled by an independent restatement of this crate's scalar upsampler
++and colour conversion, to `decode`'s RGB output byte for byte (4:4:4,
++4:2:2, 4:2:0, grey, progressive, restart intervals, one- and two-segment
++DQT, a 16-bit table), the 4:2:0 chroma at quality 100 to the 2 × 2 means of
++the picture it was encoded from, and `qt` to the tables read from the DQT
++segments by a marker walk of its own. `cargo clippy` reports the same 105
++warnings with the patch as without it (none in `planes.rs`).
++
++## Re-carrying onto a new tag
++
++1. Branch from the new `zune-jpeg-<version>` tag (never merge histories).
++2. `git cherry-pick` the patch commit. The touched spots are small and
++   named in the table above; on a conflict, re-apply them by hand:
++   the two fields and their initialisers, the early return at the top of
++   `post_process`, `|| self.want_planes` in the three `needed` conditions,
++   `&& !self.want_planes` in the two `coeff = 2` conditions.
++3. Check what the new version changed around them: that every decoding
++   path still ends each row of MCUs in `post_process`; that `raw_coeff` is
++   still `8 · v` rows of `width_stride` IDCT output; that `qt_tables` is
++   still stored in natural order; that `post_process` still upsamples and
++   converts (and nothing before it does).
++4. Update this file's base table, run this crate's tests and Wipemark's
++   (`cargo test -p wipemark-picture --test planes`, and the pinned-hash
++   test `the_rgb_raster_did_not_move`, which moves only when upstream's own
++   output moved — then it is re-pinned with the reason written down), and
++   pin the new commit in Wipemark's root `Cargo.toml`.
+diff --git a/crates/zune-jpeg/src/decoder.rs b/crates/zune-jpeg/src/decoder.rs
+index c45f631..61201ea 100644
+--- a/crates/zune-jpeg/src/decoder.rs
++++ b/crates/zune-jpeg/src/decoder.rs
+@@ -29,6 +29,7 @@ use crate::huffman::HuffmanTable;
+ use crate::idct::{choose_idct_func, choose_idct_1x1_func, choose_idct_4x4_func};
+ use crate::marker::Marker;
+ use crate::misc::SOFMarkers;
++use crate::planes::PlaneBuf;
+ use crate::upsampler::{
+     choose_horizontal_samp_function, choose_hv_samp_function, choose_v_samp_function,
+     generic_sampler, upsample_no_op
+@@ -157,6 +158,12 @@ pub struct JpegDecoder<T> {
+     pub(crate) coeff:    usize, // Solves some weird bug :)
+     /// Extended XMP segments
+     pub(crate) extended_xmp_segments: Vec<ExtendedXmpSegment>,
++    /// Set by [`decode_planes`](JpegDecoder::decode_planes) for the length
++    /// of its decode: `post_process` copies each row of MCUs into
++    /// `planes` and neither upsamples nor converts (wipemark/planes).
++    pub(crate) want_planes: bool,
++    /// One per component while `want_planes` is on (wipemark/planes).
++    pub(crate) planes: Vec<PlaneBuf>,
+ }
+ 
+ impl<T> JpegDecoder<T>
+@@ -203,6 +210,8 @@ where
+             is_mjpeg:          false,
+             coeff:             1,
+             extended_xmp_segments: vec![],
++            want_planes:       false,
++            planes:            vec![],
+         }
+     }
+     /// Decode a buffer already in memory
+diff --git a/crates/zune-jpeg/src/lib.rs b/crates/zune-jpeg/src/lib.rs
+index c97749e..accf9f5 100644
+--- a/crates/zune-jpeg/src/lib.rs
++++ b/crates/zune-jpeg/src/lib.rs
+@@ -172,6 +172,7 @@ pub use zune_core;
+ pub use crate::components::SampleRatios;
+ pub use crate::decoder::{ImageInfo, JpegDecoder};
+ pub use crate::marker::Marker;
++pub use crate::planes::{JpegPlanes, PlaneOut};
+ mod bitstream;
+ mod color_convert;
+ mod components;
+@@ -187,6 +188,7 @@ mod marker;
+ mod mcu;
+ mod mcu_prog;
+ mod misc;
++mod planes;
+ mod unsafe_utils;
+ mod unsafe_utils_avx2;
+ mod unsafe_utils_neon;
+diff --git a/crates/zune-jpeg/src/mcu.rs b/crates/zune-jpeg/src/mcu.rs
+index 98e6ca1..01ce9c4 100644
+--- a/crates/zune-jpeg/src/mcu.rs
++++ b/crates/zune-jpeg/src/mcu.rs
+@@ -108,6 +108,7 @@ impl<T: ZByteReaderTrait> JpegDecoder<T> {
+             mcu_height = (self.info.height as usize + 7) / 8;
+         }
+         if self.is_interleaved
++            && !self.want_planes
+             && self.input_colorspace.num_components() > 1
+             && self.options.jpeg_get_out_colorspace().num_components() == 1
+             && (self.info.sample_ratio == SampleRatios::V
+@@ -153,6 +154,7 @@ impl<T: ZByteReaderTrait> JpegDecoder<T> {
+                 pos
+             ) == pos
+                 || comp_len == 4
++                || self.want_planes
+             // Special colorspace
+             {
+                 // allocate enough space to hold a whole MCU width
+@@ -345,6 +347,7 @@ impl<T: ZByteReaderTrait> JpegDecoder<T> {
+             ) == pos
+                 || self.input_colorspace == ColorSpace::YCCK
+                 || self.input_colorspace == ColorSpace::CMYK
++                || self.want_planes
+             {
+                 comp.needed = true;
+             } else {
+@@ -789,6 +792,11 @@ impl<T: ZByteReaderTrait> JpegDecoder<T> {
+         &mut self, pixels: &mut [u8], i: usize, mcu_height: usize, width: usize,
+         padded_width: usize, pixels_written: &mut usize, upsampler_scratch_space: &mut [i16]
+     ) -> Result<(), DecodeErrors> {
++        if self.want_planes {
++            // wipemark/planes: the IDCT's output as it is, before any
++            // upsampling or colour conversion.
++            return self.copy_planes(i);
++        }
+         let out_colorspace_components = self.options.jpeg_get_out_colorspace().num_components();
+ 
+         let mut px = *pixels_written;
+diff --git a/crates/zune-jpeg/src/mcu_prog.rs b/crates/zune-jpeg/src/mcu_prog.rs
+index 6f4e1f6..2d153ac 100644
+--- a/crates/zune-jpeg/src/mcu_prog.rs
++++ b/crates/zune-jpeg/src/mcu_prog.rs
+@@ -78,6 +78,7 @@ impl<T: ZByteReaderTrait> JpegDecoder<T> {
+             mcu_height = (self.info.height as usize + 7) / 8;
+         }
+         if self.is_interleaved
++            && !self.want_planes
+             && self.input_colorspace.num_components() > 1
+             && self.options.jpeg_get_out_colorspace().num_components() == 1
+             && (self.info.sample_ratio == SampleRatios::V
+@@ -520,6 +521,7 @@ impl<T: ZByteReaderTrait> JpegDecoder<T> {
+             ) == pos
+                 || self.input_colorspace == ColorSpace::YCCK
+                 || self.input_colorspace == ColorSpace::CMYK
++                || self.want_planes
+             {
+                 // allocate enough space to hold a whole MCU width
+                 // this means we should take into account sampling ratios
+diff --git a/crates/zune-jpeg/src/planes.rs b/crates/zune-jpeg/src/planes.rs
+new file mode 100644
+index 0000000..353b013
+--- /dev/null
++++ b/crates/zune-jpeg/src/planes.rs
+@@ -0,0 +1,196 @@
++/*
++ * Copyright (c) 2023.
++ *
++ * This software is free software;
++ *
++ * You can redistribute it or modify it under terms of the MIT, Apache License or Zlib license
++ */
++
++//! The stored planes of a JPEG: each component at its own resolution, as
++//! the IDCT left it, before any upsampling or colour conversion; and the
++//! quantisation tables.
++//!
++//! Not upstream. Added on `GigLaboCom/zune-image`, branch
++//! `wipemark/planes`, for Wipemark's restoration of a visible mark at the
++//! chroma's own resolution; see `PATCH.md` at the root of the repository.
++
++use alloc::vec;
++use alloc::vec::Vec;
++
++use zune_core::bytestream::ZByteReaderTrait;
++
++use crate::decoder::MAX_COMPONENTS;
++use crate::errors::DecodeErrors;
++use crate::JpegDecoder;
++
++/// A JPEG's components as stored: after dequantisation and the IDCT
++/// (whose output is clamped to 0–255), before upsampling and colour
++/// conversion, each cropped from the MCU padding to its own size.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct JpegPlanes {
++    /// The frame's width, in pixels.
++    pub width:            usize,
++    /// The frame's height, in pixels.
++    pub height:           usize,
++    /// One per component, in frame order: Y, Cb, Cr for a YCbCr picture,
++    /// Y alone for a grey one. What the components mean is the input
++    /// colorspace's ([`JpegDecoder::input_colorspace`]): an Adobe RGB
++    /// JPEG's three are R, G and B.
++    pub components:       Vec<PlaneOut>,
++    /// The quantisation tables by slot (0–3), as the file defined them
++    /// before the first scan, in **natural** (row-major) order — not the
++    /// zigzag order the DQT segment stores them in. A slot the file did
++    /// not define is `None`.
++    pub qt:               [Option<[u16; 64]>; 4],
++    /// The restart interval, in MCUs; 0 when the file has none.
++    pub restart_interval: u16,
++    /// Whether the frame is progressive (SOF2).
++    pub progressive:      bool,
++}
++
++/// One component's plane.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct PlaneOut {
++    /// The component's identifier in the frame header.
++    pub id:       u8,
++    /// Its horizontal sampling factor.
++    pub h:        u8,
++    /// Its vertical sampling factor.
++    pub v:        u8,
++    /// Which quantisation table (slot of [`JpegPlanes::qt`]) it uses.
++    pub qt_index: u8,
++    /// `ceil(width · h / h_max)`: the MCU padding cropped.
++    pub width:    usize,
++    /// `ceil(height · v / v_max)`: the MCU padding cropped.
++    pub height:   usize,
++    /// `width × height` samples, row-major.
++    pub samples:  Vec<u8>,
++}
++
++/// A plane being filled, one row of MCUs at a time.
++pub(crate) struct PlaneBuf {
++    width:   usize,
++    height:  usize,
++    samples: Vec<u8>,
++}
++
++impl<T: ZByteReaderTrait> JpegDecoder<T> {
++    /// Decode the picture to its stored planes rather than to pixels.
++    ///
++    /// The entropy decoding, dequantisation and IDCT are the ones
++    /// [`decode`](Self::decode) runs; what is skipped is everything after
++    /// them — upsampling and colour conversion. A plane is cropped to
++    /// `ceil(width · h / h_max) × ceil(height · v / v_max)`; the samples in
++    /// the MCU padding beyond that are dropped. Rows a damaged scan never
++    /// reached are 128, as `decode` fills them.
++    ///
++    /// Like `decode`, it is called once per decoder.
++    ///
++    /// # Errors
++    /// What [`decode`](Self::decode) refuses (arithmetic coding included),
++    /// and a quantisation value that does not fit in 16 bits.
++    // Sampling factors are 1–4, checked when the frame header is read.
++    #[allow(clippy::cast_possible_truncation)]
++    pub fn decode_planes(&mut self) -> Result<JpegPlanes, DecodeErrors> {
++        self.decode_headers()?;
++
++        // The tables the components take when decoding starts
++        // (`setup_component_params` copies them then), so a DQT between
++        // later scans, which the decoder does not apply either, is not here.
++        let mut qt = [None; MAX_COMPONENTS];
++        for (slot, table) in qt.iter_mut().zip(self.qt_tables.iter()) {
++            if let Some(table) = table {
++                let mut values = [0_u16; 64];
++                for (value, &stored) in values.iter_mut().zip(table.iter()) {
++                    *value = u16::try_from(stored).map_err(|_| {
++                        DecodeErrors::FormatStatic("Quantization value does not fit in 16 bits")
++                    })?;
++                }
++                *slot = Some(values);
++            }
++        }
++
++        self.want_planes = true;
++        self.planes.clear();
++        let mut no_pixels: [u8; 0] = [];
++        let decoded = if self.is_progressive {
++            self.decode_mcu_ycbcr_progressive(&mut no_pixels)
++        } else {
++            self.decode_mcu_ycbcr_baseline(&mut no_pixels)
++        };
++        self.want_planes = false;
++        decoded?;
++
++        let planes = core::mem::take(&mut self.planes);
++        if planes.len() != self.components.len() {
++            return Err(DecodeErrors::FormatStatic("No row of MCUs was decoded"));
++        }
++        let components = self
++            .components
++            .iter()
++            .zip(planes)
++            .map(|(comp, plane)| PlaneOut {
++                id:       comp.id,
++                h:        comp.horizontal_sample as u8,
++                v:        comp.vertical_sample as u8,
++                qt_index: comp.quantization_table_number,
++                width:    plane.width,
++                height:   plane.height,
++                samples:  plane.samples,
++            })
++            .collect();
++
++        Ok(JpegPlanes {
++            width: usize::from(self.info.width),
++            height: usize::from(self.info.height),
++            components,
++            qt,
++            restart_interval: u16::try_from(self.restart_interval).unwrap_or(u16::MAX),
++            progressive: self.is_progressive,
++        })
++    }
++
++    /// Copy row of MCUs `i` of every component — `raw_coeff`, the IDCT's
++    /// output, `width_stride` samples a row and `8 · v` rows — into its
++    /// plane, up to the plane's own width and height. Called by
++    /// `post_process` in place of upsampling and colour conversion.
++    // A sample clamped to 0–255 first.
++    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
++    pub(crate) fn copy_planes(&mut self, i: usize) -> Result<(), DecodeErrors> {
++        let width = usize::from(self.info.width);
++        let height = usize::from(self.info.height);
++        if self.planes.is_empty() {
++            for comp in &self.components {
++                let w = (width * comp.horizontal_sample).div_ceil(self.h_max);
++                let h = (height * comp.vertical_sample).div_ceil(self.v_max);
++                self.planes.push(PlaneBuf {
++                    width:   w,
++                    height:  h,
++                    samples: vec![128; w * h],
++                });
++            }
++        }
++        for (comp, plane) in self.components.iter().zip(self.planes.iter_mut()) {
++            let stride = comp.width_stride;
++            if stride == 0 || plane.width == 0 {
++                continue;
++            }
++            let rows = comp.raw_coeff.len() / stride;
++            for r in 0..rows {
++                let y = i * rows + r;
++                if y >= plane.height {
++                    break;
++                }
++                let source = comp
++                    .raw_coeff
++                    .get(r * stride..r * stride + plane.width)
++                    .ok_or(DecodeErrors::FormatStatic("Plane wider than its row of MCUs"))?;
++                let row = &mut plane.samples[y * plane.width..(y + 1) * plane.width];
++                for (out, &sample) in row.iter_mut().zip(source) {
++                    *out = sample.clamp(0, 255) as u8;
++                }
++            }
++        }
++        Ok(())
++    }
++}
+-- 
+2.39.5
+

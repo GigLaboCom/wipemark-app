@@ -1,0 +1,62 @@
+{
+ "id": "02_skeptical_look-c1024-q95-420",
+ "class": "frames",
+ "variant": "c1024-q95-420",
+ "input_sha256": "36cd21ebaa4fda00d3d50ec1220eed2a021a473225db7c5b292cfd3809d956ff",
+ "inspect": {
+  "exit": 0,
+  "json": {
+   "container": "jpeg",
+   "ai_metadata": false,
+   "c2pa": false,
+   "findings": [],
+   "visible": {
+    "examined": true,
+    "restorable": true,
+    "found": [],
+    "restored": []
+   },
+   "not_established": [
+    "invisible-pixel-marks",
+    "vendor-detector-evasion",
+    "human-authorship",
+    "unknown-mark-schemes"
+   ]
+  }
+ },
+ "clean": {
+  "exit": 0,
+  "json": {
+   "report": {
+    "container": "jpeg",
+    "still_has_ai_metadata": false,
+    "still_has_c2pa": false,
+    "removed": [],
+    "kept": [],
+    "orientation_removed": null,
+    "visible": {
+     "examined": true,
+     "restorable": true,
+     "found": [],
+     "restored": []
+    },
+    "encoding": {
+     "kind": "unchanged"
+    },
+    "marks_left": false,
+    "not_established": [
+     "invisible-pixel-marks",
+     "vendor-detector-evasion",
+     "human-authorship",
+     "unknown-mark-schemes"
+    ]
+   },
+   "written": true
+  },
+  "output_sha256": "36cd21ebaa4fda00d3d50ec1220eed2a021a473225db7c5b292cfd3809d956ff"
+ },
+ "time_s": {
+  "inspect": 0.855,
+  "clean": 0.8484
+ }
+}

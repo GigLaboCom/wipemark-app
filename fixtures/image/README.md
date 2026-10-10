@@ -78,3 +78,18 @@ and the transparent copies — is in Watchword as
 `wipemark-gemini-stickers-2026-10-04` (a stored ZIP). The confetti
 thumbnail carries no mark and is not in it: the fixture *is* the file,
 and its sha256 above is the source's, read on 2026-10-04.
+
+## `jpeg-planes/` — synthetic JPEGs for the stored planes (E12-R3)
+
+Sixteen small JPEGs (827–9 118 bytes) made by `jpeg-planes/make.py` with
+Pillow 12.3.0 from procedural pictures, for
+`crates/wipemark-picture/tests/planes.rs` and the unit test in
+`crates/wipemark-picture/src/decode.rs`: 4:4:4, 4:2:2 and 4:2:0 at the odd
+sizes 37 × 23 and 129 × 65 (where the MCU padding has to be cropped), grey,
+progressive, a restart interval, two quantisation tables in one DQT
+segment, a 16-bit table under SOF1, a known YCbCr picture at quality 100
+(its chroma checked against the 2 × 2 means it was encoded from), and one
+even size, 38 × 24, the only place the decoder reads the MCU padding.
+`make.py`'s header says what each is for; its output lists every file's
+size and sha256, and running it again writes the same bytes with the same
+Pillow. No real picture is among them.

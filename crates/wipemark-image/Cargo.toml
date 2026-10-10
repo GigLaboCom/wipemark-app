@@ -31,7 +31,7 @@ miniz_oxide = "0.8"
 # decodes a pixel, which is the point of it. All four are already in
 # the tree through gpui's image stack.
 png = "0.18"
-zune-jpeg = "0.5"
+zune-jpeg = { workspace = true }
 image-webp = "0.2"
 sha2.workspace = true
 

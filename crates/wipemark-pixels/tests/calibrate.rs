@@ -250,7 +250,28 @@ fn the_grey_captures_choose_the_blend_model() {
         observed_from: None,
         sizes: vec![(&linear, String::from("x.wma"), String::from("0"))],
     };
-    assert_eq!(draft.to_json(), Err(CalibrationError::LinearLight));
+    if cfg!(feature = "blend-preview") {
+        // E12-R9c: the provisional row says what the captures chose, and
+        // the catalogue of this build reads it.
+        let wma = linear.wma().unwrap();
+        let draft = Draft {
+            sizes: vec![(&linear, String::from("linear.wma"), sha256_hex(&wma))],
+            ..draft
+        };
+        let row = draft.to_json().unwrap();
+        assert!(row.contains(r#""model": "linear-light""#), "{row}");
+        let catalogue = Catalogue::parse(
+            &format!("{{ \"schema\": 1, \"profiles\": [{row}] }}"),
+            &|name: &str| (name == "linear.wma").then_some(wma.as_slice()),
+        )
+        .unwrap();
+        assert_eq!(
+            catalogue.profile("test-linear").map(|p| p.model),
+            Some(BlendModel::LinearLight)
+        );
+    } else {
+        assert_eq!(draft.to_json(), Err(CalibrationError::LinearLight));
+    }
 
     let encoded = calibrate(
         &captures(BlendModel::Encoded, false),
@@ -258,6 +279,25 @@ fn the_grey_captures_choose_the_blend_model() {
     )
     .unwrap();
     assert_eq!(encoded.model, BlendModel::Encoded);
+
+    // One profile has one blend: sizes that chose two are refused.
+    let mixed = Draft {
+        id: "test-mixed",
+        vendor: "test",
+        product: "synthetic",
+        mark: "sparkle",
+        observed_from: None,
+        sizes: vec![
+            (&linear, String::from("a.wma"), String::from("0")),
+            (&encoded, String::from("b.wma"), String::from("0")),
+        ],
+    };
+    let expected = if cfg!(feature = "blend-preview") {
+        CalibrationError::MixedModels
+    } else {
+        CalibrationError::LinearLight
+    };
+    assert_eq!(mixed.to_json(), Err(expected));
 }
 
 #[test]

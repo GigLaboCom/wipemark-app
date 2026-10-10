@@ -26,16 +26,37 @@
 #![forbid(unsafe_code)]
 
 mod alpha;
+/// The blend past one logo colour (E12-R9): a bias, a logo colour map and
+/// linear light — built, and read by the catalogue only under the
+/// `blend-preview` feature.
+mod blend;
 mod calibrate;
 mod catalogue;
 mod geometry;
+/// The value chosen inside a lossy codec's interval (E12-R8): reached
+/// through [`clean_refined`] and [`restore_refined`]; the product asks for
+/// DCT-POCS (D472), the bench for any of the three.
+mod interval;
 mod ncc;
+/// The planar inverse of a subsampled JPEG (E12-R6, D471 — the series'
+/// proposed D306). Its types are re-exported below; the rest — the
+/// intermediates a test or the bench reads — is not a surface.
+#[doc(hidden)]
+pub mod planar;
+mod planes;
 mod propose;
 mod raster;
 mod restore;
+/// Synthetic composition for the restoration bench and the tests (D312):
+/// never a feature, and nothing the catalogue can name.
+#[doc(hidden)]
+pub mod synth;
 mod verify;
 
 pub use alpha::{AlphaMap, WmaError, MAGIC};
+pub use blend::{LogoMap, WmlError, WML_MAGIC};
+#[doc(hidden)]
+pub use calibrate::ring_background;
 pub use calibrate::{
     calibrate, replay, Background, BlendModel, CalibrateOptions, Calibration, CalibrationError,
     Capture, Counts, Draft, Replay,
@@ -45,13 +66,27 @@ pub use catalogue::{
     ProfileId, Search, Status, Thresholds, When, EMBEDDED, SCHEMA,
 };
 pub use geometry::{Kernel, PixelRect, SubRect, CAPTURE_NOISE};
-pub use propose::{Placed, REFINE_MARGIN, ROW_FLOOR, SHRUNK};
+#[doc(hidden)]
+pub use interval::{dct8, idct8, indices, smooth};
+pub use interval::{
+    sigma_base, Interval, Method, Refine, RestoreOptions, Space, DCT_ROUNDS, H_BASE, H_SIGMAS,
+    NOISE_RING, PIXEL_ROUNDS, SMOOTH_EPS, SMOOTH_RADIUS, STOP_MOVE, STOP_RATIO, TEXT_RATIO,
+};
+pub use planar::{blend_levels_c, Planar, PlanarScores, DC_SHARE};
+pub use planes::{Plane, Planes, PlanesError, Quant, Sampling};
+#[doc(hidden)]
+pub use propose::{refine_at, Refined};
+pub use propose::{Placed, REFINE_MARGIN, ROW_FLOOR, ROW_PLACE, SHRUNK};
 pub use raster::{Layout, Raster, RasterError};
+#[doc(hidden)]
+pub use restore::restore_off_by;
 pub use restore::{composite, restore, RestoreError, Restored};
 use serde::Serialize;
+#[doc(hidden)]
+pub use verify::{measure_at, Outline};
 pub use verify::{
     Refusal, Scores, Verified, BAND, BLEND_LEVELS, CHROMA_LEVELS, NOISE_FLOOR, NO_BLEND_RATIO,
-    OUTLINE_BOUND, STEP_LEVELS, TEXTURE_LEVELS, TEXTURE_RATIO,
+    OUTLINE_BOUND, STEP_LEVELS, TEXTURE_LEVELS, TEXTURE_RATIO, TEXTURE_RATIO_MIN,
 };
 
 /// The claim this crate adds to the third shelf (D156). The English is
@@ -161,11 +196,44 @@ pub struct Examination {
 /// Propose, verify and choose, for every profile the options name.
 /// Read-only.
 pub fn examine(raster: &Raster, catalogue: &Catalogue, options: &ExamineOptions) -> Examination {
-    examine_pass(raster, catalogue, options, 1)
+    examine_with(raster, None, catalogue, options)
+}
+
+/// [`examine`], given the stored planes the raster was decoded from (D471):
+/// on a lossy source whose planes are subsampled 4:2:0 or 4:2:2, the
+/// out-of-range share is measured in the planes ([`Scores::planar`]).
+/// Every other input — no planes, 4:4:4, a lossless source — is
+/// [`examine`], byte for byte.
+pub fn examine_with(
+    raster: &Raster,
+    planes: Option<&Planes>,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+) -> Examination {
+    let model = planar::route(raster, planes, options);
+    examine_pass(raster, model.as_ref(), catalogue, options, 1)
+}
+
+/// [`examine_with`] on the planar path with the chroma allowance
+/// `levels_c` in place of [`blend_levels_c`]: for the tool that measures
+/// where that allowance should sit (E12-R6), never for a surface. `None`
+/// when the planes would not be taken.
+#[doc(hidden)]
+pub fn examine_planar_at(
+    raster: &Raster,
+    planes: &Planes,
+    levels_c: f64,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+) -> Option<Examination> {
+    planar::route(raster, Some(planes), options)?;
+    let model = planar::Model::new(raster, planes, levels_c)?;
+    Some(examine_pass(raster, Some(&model), catalogue, options, 1))
 }
 
 fn examine_pass(
     raster: &Raster,
+    model: Option<&planar::Model<'_>>,
     catalogue: &Catalogue,
     options: &ExamineOptions,
     pass: u8,
@@ -182,7 +250,7 @@ fn examine_pass(
             continue;
         }
         let mut look = |p: &propose::Proposal| {
-            let f = finding(raster, profile, p, pass);
+            let f = finding(raster, model, profile, p, pass);
             dismissed += usize::from(f.is_none());
             f
         };
@@ -194,12 +262,18 @@ fn examine_pass(
         // mark a pixel off its row, and a row that saw no blend says
         // nothing about the rest of the corner.
         if mine.iter().all(|f| f.verified().is_none()) {
-            if let Some(f) = propose::search(&scene, profile).and_then(|p| look(&p)) {
+            let search = propose::search(&scene, profile);
+            if let Some((p, f)) = search.and_then(|p| look(&p).map(|f| (p, f))) {
                 let same_place = |g: &Finding| match (g.pixels, f.pixels) {
                     (Some(a), Some(b)) => a.iou(b) > 0.3,
                     _ => false,
                 };
-                if f.verified().is_some() {
+                if f.verified().is_some() && mine.iter().any(|g| gain_refused_here(profile, g, &p))
+                {
+                    // D154 through the search (D470): the row's refusal by
+                    // gain is the finding, and the search's proof is not
+                    // taken.
+                } else if f.verified().is_some() {
                     mine.retain(|g| !same_place(g));
                     mine.push(f);
                 } else if !mine.iter().any(same_place) {
@@ -215,15 +289,49 @@ fn examine_pass(
     }
 }
 
+/// D154 through the search (D470, the owner, 2026-10-10): whether `row`,
+/// a finding of `profile`'s, is a placement row that refused its mark **by
+/// gain** at the place the search's `proposal` lands on — the same centre
+/// to within [`ROW_PLACE`] on both axes, whatever the size. There the
+/// search does not prove the mark: an eighth of a pixel off, or a fraction
+/// of a pixel smaller about the same centre, a template is a weaker mark,
+/// and the search's refinement (D236), which goes where the residual at
+/// `k = 1` is least, would find the template that lets a mark drawn at
+/// `k = 0.93` pass for `k = 1` and restore it at 1. Another opacity is
+/// another profile, never a per-picture `k`. A mark the search finds
+/// *elsewhere* — half a pixel off its row, resampled to another size and
+/// place — is not at the row's place, and is proved as it always was; so
+/// is a mark a row refused for any other reason.
+fn gain_refused_here(profile: &Profile, row: &Finding, proposal: &propose::Proposal) -> bool {
+    let (Verdict::Refused(Refusal::Gain { .. }), Placed::Row(i)) = (&row.verdict, row.placed)
+    else {
+        return false;
+    };
+    let Some(placement) = profile.placements.get(i) else {
+        return false;
+    };
+    let centre = |map: usize, rect: SubRect| {
+        let m = profile.map(map);
+        let aspect = m.height() as f32 / m.width() as f32;
+        (rect.x + rect.size / 2.0, rect.y + rect.size * aspect / 2.0)
+    };
+    let (a, b) = (
+        centre(placement.alpha, row.rect),
+        centre(proposal.map, proposal.rect),
+    );
+    (a.0 - b.0).abs() < ROW_PLACE && (a.1 - b.1).abs() < ROW_PLACE
+}
+
 /// One proposal, verified: a finding, or nothing when it is no blend
 /// (D235).
 fn finding(
     raster: &Raster,
+    model: Option<&planar::Model<'_>>,
     profile: &Profile,
     proposal: &propose::Proposal,
     pass: u8,
 ) -> Option<Finding> {
-    let (scores, outcome) = verify::verify(raster, profile, proposal);
+    let (scores, outcome) = verify::verify_with(raster, model, profile, proposal);
     let verdict = match outcome {
         verify::Outcome::Verified(v) => Verdict::Verified(v),
         verify::Outcome::Refused(r) => Verdict::Refused(r),
@@ -301,15 +409,15 @@ pub struct PixelReport {
 
 impl PixelReport {
     /// Whether a mark was seen and is still there: a blend refused,
-    /// restored around holes, or restored with its outline (D238) or a
-    /// texture (D250) left. A proposal that was no blend is not here to
+    /// restored around holes, or restored with its outline (D238), a
+    /// texture (D250) or a smoothed patch (D307) left. A proposal that was no blend is not here to
     /// count (D235).
     pub fn marks_left(&self) -> bool {
         self.found.iter().any(|f| f.verified().is_none())
             || self
                 .restored
                 .iter()
-                .any(|r| r.holes > 0 || r.outline_left || r.texture_left)
+                .any(|r| r.holes > 0 || r.outline_left || r.texture_left || r.smoothed)
     }
 
     /// One line of ASCII JSON. Field names are a format.
@@ -392,11 +500,60 @@ impl<'a> FindingJson<'a> {
 /// first) supersedes that refusal: it is listed under the proof, not left
 /// standing as a mark.
 pub fn clean(raster: &mut Raster, catalogue: &Catalogue, options: &ExamineOptions) -> PixelReport {
-    let first = examine_pass(raster, catalogue, options, 1);
+    clean_with(raster, None, catalogue, options)
+}
+
+/// [`clean`], given the stored planes the raster was decoded from (D471):
+/// where [`examine_with`] takes the planar path, a verified mark is
+/// restored in the planes ([`Restored::planar`]); the second look (D165)
+/// is over the restored RGB raster, whose planes no longer mean anything,
+/// and takes the old path. Every other input is [`clean`], byte for byte.
+pub fn clean_with(
+    raster: &mut Raster,
+    planes: Option<&Planes>,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+) -> PixelReport {
+    clean_refined(
+        raster,
+        planes,
+        catalogue,
+        options,
+        &RestoreOptions::default(),
+    )
+}
+
+/// [`clean_with`], every mark the first pass restores refined by
+/// `restore.refine` (E12-R8): on a lossy source, the restored value chosen
+/// inside the codec's interval ([`Restored::interval`]). The second pass
+/// (D165) restores as [`clean_with`] does — its raster is no longer the
+/// file's, so there is no interval left to choose in. With
+/// [`Refine::None`], and on a lossless source whatever is asked (S6), it is
+/// [`clean_with`], byte for byte. `wipemark_picture::clean` calls it with
+/// [`Refine::Dct`] (D472); the bench with any method.
+pub fn clean_refined(
+    raster: &mut Raster,
+    planes: Option<&Planes>,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+    restore_options: &RestoreOptions,
+) -> PixelReport {
+    let model = planar::route(raster, planes, options);
+    let first = examine_pass(raster, model.as_ref(), catalogue, options, 1);
+    let input = (restore_options.refine != Refine::None).then(|| raster.clone());
     let mut restored = Vec::new();
     for f in &first.findings {
         if let Some(v) = f.verified() {
-            if let Ok(r) = restore(raster, v, options) {
+            let r = restore_one(
+                raster,
+                input.as_ref(),
+                planes,
+                model.as_ref(),
+                v,
+                options,
+                restore_options,
+            );
+            if let Ok(r) = r {
                 restored.push(r);
             }
         }
@@ -404,7 +561,7 @@ pub fn clean(raster: &mut Raster, catalogue: &Catalogue, options: &ExamineOption
     let mut found = first.findings;
     let mut dismissed = first.dismissed;
     if !restored.is_empty() {
-        let second = examine_pass(raster, catalogue, options, 2);
+        let second = examine_pass(raster, None, catalogue, options, 2);
         dismissed += second.dismissed;
         for mut f in second.findings {
             let overlaps = |g: &Finding, by: f32| matches!((g.pixels, f.pixels), (Some(a), Some(b)) if a.iou(b) > by);
@@ -444,6 +601,62 @@ pub fn clean(raster: &mut Raster, catalogue: &Catalogue, options: &ExamineOption
         dismissed,
         not_established: not_established::shelf(),
     }
+}
+
+/// One verified mark restored — in the planes on the planar route, in RGB
+/// otherwise — and then refined over `input`, the raster as the file
+/// decoded it, when one is given.
+fn restore_one(
+    raster: &mut Raster,
+    input: Option<&Raster>,
+    planes: Option<&Planes>,
+    model: Option<&planar::Model<'_>>,
+    verified: &Verified,
+    options: &ExamineOptions,
+    restore_options: &RestoreOptions,
+) -> Result<Restored, RestoreError> {
+    // A `linear-light` profile (R9c, `blend-preview`) was proved in RGB and
+    // is restored there: it is not linear in the planes.
+    let r = match model.filter(|_| verified.law().linear_in_codes()) {
+        Some(m) => planar::restore(raster, m, verified, options),
+        None => restore(raster, verified, options),
+    }?;
+    Ok(match input {
+        Some(input) => interval::refine(
+            raster,
+            input,
+            planes,
+            verified,
+            options,
+            restore_options.refine,
+            r,
+        ),
+        None => r,
+    })
+}
+
+/// [`restore`] of one verified mark with `restore_options` (E12-R8): in the
+/// planes when `planes` take the planar route (D471), refined by
+/// `restore_options.refine` on a lossy source. With the defaults it is
+/// [`restore`], or the planar inverse on that route.
+pub fn restore_refined(
+    raster: &mut Raster,
+    planes: Option<&Planes>,
+    verified: &Verified,
+    options: &ExamineOptions,
+    restore_options: &RestoreOptions,
+) -> Result<Restored, RestoreError> {
+    let model = planar::route(raster, planes, options);
+    let input = (restore_options.refine != Refine::None).then(|| raster.clone());
+    restore_one(
+        raster,
+        input.as_ref(),
+        planes,
+        model.as_ref(),
+        verified,
+        options,
+        restore_options,
+    )
 }
 
 /// `map` resampled to width `size` at the sub-pixel phase `(fx, fy)`, as

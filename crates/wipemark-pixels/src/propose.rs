@@ -15,7 +15,7 @@
 //! hair higher is not a better restoration.
 
 use crate::alpha::AlphaMap;
-use crate::catalogue::{Anchor, Profile};
+use crate::catalogue::{Anchor, Catalogue, Profile};
 use crate::geometry::{shape, template, Kernel, PixelRect, SubRect};
 use crate::ncc::{ncc, Centred, Integral};
 use crate::raster::Raster;
@@ -93,6 +93,17 @@ impl<'a> Scene<'a> {
 /// rounding-level wobble never moves a mark.
 pub const REFINE_MARGIN: f64 = 0.10;
 
+/// How near a search's place must be to a placement row's for it to be
+/// **the row's place** (D470): both centres within this, in pixels, on
+/// each axis. The sweeps put an origin on eighths of a pixel and a size on
+/// eighths, so a centre falls on sixteenths: an eighth either way — the
+/// refinement's finest step, which is all the search moved a mark drawn
+/// weaker than its profile at its own row (E12-R5: 0 to 0.125 px, the size
+/// shrunk by up to 0.875 about the centre) — is the row's place, and a
+/// quarter — a mark a quarter or half a pixel off its row — is not. The
+/// bound sits between the two, at three sixteenths.
+pub const ROW_PLACE: f32 = 0.1875;
+
 /// A row is a place the vendor's own rule names, so it is *looked at* on
 /// less correlation than the search asks for — the search's own coarse
 /// floor, half of `min_ncc` (D236): a high-contrast texture under a mark
@@ -111,42 +122,46 @@ pub const ROW_FLOOR: f32 = 0.5;
 /// (`a_resampled_second_mark_is_refused_not_restored`).
 pub const SHRUNK: f32 = 0.4;
 
+/// Where row `i` of `profile` puts its mark in this picture, at its own
+/// rectangle: `None` when its `when` does not match the size or the
+/// rectangle does not fit.
+fn row_rect(scene: &Scene<'_>, profile: &Profile, i: usize) -> Option<SubRect> {
+    let row = profile.placements.get(i)?;
+    if !row.when.matches(scene.width(), scene.height()) {
+        return None;
+    }
+    let map = profile.map(row.alpha);
+    match row.anchor {
+        Anchor::Corner { corner, margin } => {
+            let (x, y) = corner.origin(
+                scene.width(),
+                scene.height(),
+                map.width(),
+                map.height(),
+                margin,
+            )?;
+            Some(SubRect {
+                x: x as f32,
+                y: y as f32,
+                size: map.width() as f32,
+            })
+        }
+        Anchor::Rect(r) => r.inside(scene.width(), scene.height()).then_some(SubRect {
+            x: r.x as f32,
+            y: r.y as f32,
+            size: r.width as f32,
+        }),
+    }
+}
+
 /// Every row's proposal for one profile, each at the row's own rectangle.
 pub(crate) fn rows(scene: &Scene<'_>, profile: &Profile) -> Vec<Proposal> {
     let mut found = Vec::new();
     for (i, row) in profile.placements.iter().enumerate() {
-        if !row.when.matches(scene.width(), scene.height()) {
+        let Some(rect) = row_rect(scene, profile, i) else {
             continue;
-        }
-        let map = profile.map(row.alpha);
-        let rect = match row.anchor {
-            Anchor::Corner { corner, margin } => {
-                let Some((x, y)) = corner.origin(
-                    scene.width(),
-                    scene.height(),
-                    map.width(),
-                    map.height(),
-                    margin,
-                ) else {
-                    continue;
-                };
-                SubRect {
-                    x: x as f32,
-                    y: y as f32,
-                    size: map.width() as f32,
-                }
-            }
-            Anchor::Rect(r) => {
-                if !r.inside(scene.width(), scene.height()) {
-                    continue;
-                }
-                SubRect {
-                    x: r.x as f32,
-                    y: r.y as f32,
-                    size: r.width as f32,
-                }
-            }
         };
+        let map = profile.map(row.alpha);
         if let Some(score) = scene.score(map, rect) {
             if score >= profile.min_ncc * ROW_FLOOR {
                 found.push(Proposal {
@@ -198,12 +213,42 @@ fn refine(
     search: usize,
     base: SubRect,
 ) -> (SubRect, usize, Kernel) {
+    let r = refinement(scene, profile, search, base);
+    (r.rect, map_for(profile, r.rect.size, search), r.kernel)
+}
+
+/// What [`refine`] saw: the place it takes (`rect`, `kernel`), and beside
+/// it the best place the sweeps found whether or not it cleared
+/// [`REFINE_MARGIN`], with both residuals — `None` when `base` itself
+/// cannot be measured, and then nothing moves.
+struct Refinement {
+    rect: SubRect,
+    kernel: Kernel,
+    best: SubRect,
+    best_kernel: Kernel,
+    at_base: Option<f64>,
+    at_best: Option<f64>,
+    /// `rect` is `best`: the move cleared the margin.
+    moved: bool,
+}
+
+/// [`refine`]'s sweeps, with everything they saw: the one body both the
+/// search and [`refine_at`] run.
+fn refinement(scene: &Scene<'_>, profile: &Profile, search: usize, base: SubRect) -> Refinement {
     let left = |r: SubRect, kernel: Kernel| {
         let index = map_for(profile, r.size, search);
         residual(scene.raster, profile, profile.map(index), r, kernel)
     };
     let Some(start) = left(base, Kernel::Area) else {
-        return (base, map_for(profile, base.size, search), Kernel::Area);
+        return Refinement {
+            rect: base,
+            kernel: Kernel::Area,
+            best: base,
+            best_kernel: Kernel::Area,
+            at_base: None,
+            at_best: None,
+            moved: false,
+        };
     };
     let mut best = (base, Kernel::Area, start);
     let sweep = |centre: SubRect,
@@ -239,12 +284,82 @@ fn refine(
     }
     let (at, kernel) = (best.0, best.1);
     sweep(at, 0.125, 1, kernel, &mut best);
-    let (rect, kernel) = if best.2 <= start * (1.0 - REFINE_MARGIN) {
+    let moved = best.2 <= start * (1.0 - REFINE_MARGIN);
+    let (rect, kernel) = if moved {
         (best.0, best.1)
     } else {
         (base, Kernel::Area)
     };
-    (rect, map_for(profile, rect.size, search), kernel)
+    Refinement {
+        rect,
+        kernel,
+        moved,
+        best: best.0,
+        best_kernel: best.1,
+        at_base: Some(start),
+        at_best: Some(best.2),
+    }
+}
+
+/// What [`refine_at`] found around a rectangle: the best place the
+/// search's own refinement reaches from it and the residual there, the
+/// residual at the rectangle itself, and whether the search would have
+/// taken the move. A developer's measure (E12-R4, `forced_search`), not
+/// a feature.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Refined {
+    /// The lowest residual the sweeps reached — kept even when it did not
+    /// clear [`REFINE_MARGIN`], so a shift under the margin is still seen.
+    pub rect: SubRect,
+    /// The filter at `rect`.
+    pub kernel: Kernel,
+    /// The residual at the rectangle asked about, by the area integral.
+    pub residual_at: f64,
+    /// The residual at `rect`.
+    pub residual_refined: f64,
+    /// Whether the search would move to `rect`: its residual is at most
+    /// `1 − REFINE_MARGIN` of `residual_at`. When false the search keeps
+    /// the rectangle asked about.
+    pub kept_by_margin: bool,
+}
+
+/// The search's sub-pixel refinement, run from `rect` as though NCC had
+/// proposed it there: the very sweeps the search runs (the residual the
+/// second proof leaves, never NCC — NCC moved exact rows by a hair, D236),
+/// drawn with the map of the placement row whose own rectangle `rect` is
+/// in this raster, or the profile's search map when no row's is.
+/// Read-only: it restores nothing and proves nothing. `None` for a
+/// profile the catalogue does not hold, or a rectangle whose template
+/// does not fit the picture or has no contour.
+///
+/// For measuring how far the rows sit from where the residual would put
+/// a mark (E12-R4 §4.2, `crates/wipemark-picture/examples/forced_search.rs`)
+/// — the product never refines a row (D236).
+#[doc(hidden)]
+pub fn refine_at(
+    raster: &Raster,
+    catalogue: &Catalogue,
+    profile: &str,
+    rect: SubRect,
+) -> Option<Refined> {
+    let profile = catalogue.profile(profile)?;
+    let scene = Scene::new(raster);
+    let map = profile
+        .placements
+        .iter()
+        .enumerate()
+        .find(|(i, _)| row_rect(&scene, profile, *i) == Some(rect))
+        .map(|(_, row)| row.alpha)
+        .or_else(|| profile.search.as_ref().map(|s| s.alpha))?;
+    let r = refinement(&scene, profile, map, rect);
+    Some(Refined {
+        rect: r.best,
+        kernel: r.best_kernel,
+        residual_at: r.at_base?,
+        residual_refined: r.at_best?,
+        kept_by_margin: r.moved,
+    })
 }
 
 /// One coarse candidate of the search.

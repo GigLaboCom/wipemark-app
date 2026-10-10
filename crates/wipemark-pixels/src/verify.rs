@@ -25,6 +25,8 @@
 
 use serde::Serialize;
 
+use crate::blend::{template_logos, Colours, Law};
+use crate::calibrate::BlendModel;
 use crate::catalogue::Profile;
 use crate::geometry::{template_and_noise, template_with, Kernel, PixelRect, SubRect};
 use crate::propose::Proposal;
@@ -65,10 +67,15 @@ pub struct Scores {
     pub gain: f32,
     /// `E(1)/E(0)`.
     pub edge_ratio: f32,
-    /// The share of samples out of range at `k = 1`.
+    /// The share of samples out of range at `k = 1` — on the planar path
+    /// (D471), the share of pixels whose Y or chroma block is.
     pub out_of_range: f32,
     /// Pixels at or above the opaque threshold: never divided.
     pub holes: u32,
+    /// On the planar path (D471), the share's two terms; `None`, and not
+    /// in the JSON, on the RGB path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planar: Option<crate::planar::PlanarScores>,
 }
 
 /// A proposal that passed both proofs — the only thing [`crate::restore`]
@@ -88,8 +95,14 @@ pub struct Verified {
     rect: SubRect,
     at: PixelRect,
     values: Vec<f32>,
-    /// The logo per channel, in the raster's stored units.
-    logo: [f64; 3],
+    /// The logo per channel, in the raster's stored units — and per pixel
+    /// of the template when the profile has a logo colour map (R9b).
+    /// Boxed: with it inline a `Verdict` is 232 bytes against a refusal's
+    /// 8 (`clippy::large_enum_variant`).
+    colours: Box<Colours>,
+    /// The model and the bias (R9a, R9c): `Law::today` on every profile
+    /// without `blend-preview`.
+    law: Law,
     opaque_above: f32,
     gain: f32,
     edge_ratio: f32,
@@ -141,8 +154,32 @@ impl Verified {
         &self.values
     }
 
+    /// The profile's one logo colour, in stored units.
     pub(crate) fn logo(&self) -> [f64; 3] {
-        self.logo
+        self.colours.logo
+    }
+
+    /// The logo at template pixel `p` (row-major over [`Verified::pixels`]):
+    /// the one colour, or the logo colour map's there (R9b).
+    pub(crate) fn logo_at(&self, p: usize) -> [f64; 3] {
+        self.colours.at(p)
+    }
+
+    /// The template's colour per pixel, when the profile has a logo colour
+    /// map (R9b); `None` for one colour.
+    pub(crate) fn logos(&self) -> Option<&[[f64; 3]]> {
+        self.colours.per_pixel.as_deref()
+    }
+
+    pub(crate) fn law(&self) -> Law {
+        self.law
+    }
+
+    /// The reverse blend at template pixel `p`, unrounded and unclamped:
+    /// [`Law::inverse`] with the logo there — for `encoded` with no bias,
+    /// [`crate::restore::unblend`] itself.
+    pub(crate) fn unblend(&self, stored: [f64; 3], a: f64, p: usize) -> [f64; 3] {
+        self.law.inverse(stored, a, self.logo_at(p))
     }
 
     pub(crate) fn opaque_above(&self) -> f32 {
@@ -225,12 +262,24 @@ struct Grid {
     pixels: Vec<[f64; 3]>,
     edges: Vec<(usize, f32)>,
     logo: [f64; 3],
+    /// The logo per grid pixel, when the template has one per pixel (R9b);
+    /// the one colour on the ring.
+    logos: Option<Vec<[f64; 3]>>,
+    law: Law,
     max: f64,
     opaque: f64,
 }
 
 impl Grid {
-    fn new(raster: &Raster, values: &[f32], at: PixelRect, opaque: f32, logo: [f64; 3]) -> Self {
+    fn new(
+        raster: &Raster,
+        values: &[f32],
+        at: PixelRect,
+        opaque: f32,
+        colours: &Colours,
+        law: Law,
+    ) -> Self {
+        let logo = colours.logo;
         let samples = raster.samples();
         let gx0 = at.x.saturating_sub(1);
         let gy0 = at.y.saturating_sub(1);
@@ -239,11 +288,16 @@ impl Grid {
         let (gw, gh) = ((gx1 - gx0) as usize, (gy1 - gy0) as usize);
         let mut alpha = vec![0f32; gw * gh];
         let mut pixels = vec![[0f64; 3]; gw * gh];
+        let mut logos = colours.per_pixel.as_ref().map(|_| vec![logo; gw * gh]);
         for gy in 0..gh {
             for gx in 0..gw {
                 let (x, y) = (gx0 + gx as u32, gy0 + gy as u32);
                 if x >= at.x && y >= at.y && x < at.x + at.width && y < at.y + at.height {
-                    alpha[gy * gw + gx] = values[((y - at.y) * at.width + (x - at.x)) as usize];
+                    let t = ((y - at.y) * at.width + (x - at.x)) as usize;
+                    alpha[gy * gw + gx] = values[t];
+                    if let Some(l) = logos.as_mut() {
+                        l[gy * gw + gx] = colours.at(t);
+                    }
                 }
                 let i = raster.at(x, y);
                 pixels[gy * gw + gx] = [
@@ -278,8 +332,18 @@ impl Grid {
             pixels,
             edges,
             logo,
+            logos,
+            law,
             max: f64::from(raster.layout().max()),
             opaque: f64::from(opaque),
+        }
+    }
+
+    /// The logo at grid pixel `p`.
+    fn logo(&self, p: usize) -> [f64; 3] {
+        match &self.logos {
+            Some(l) => l[p],
+            None => self.logo,
         }
     }
 
@@ -290,8 +354,9 @@ impl Grid {
             let o = inverse(
                 self.pixels[p],
                 f64::from(self.alpha[p]) * k,
-                self.logo,
+                self.logo(p),
                 self.opaque,
+                self.law,
             );
             *l =
                 (f64::from(LUMA[0]) * o[0] + f64::from(LUMA[1]) * o[1] + f64::from(LUMA[2]) * o[2])
@@ -328,8 +393,19 @@ pub(crate) fn residual(
         return None;
     }
     let max = f64::from(raster.layout().max());
-    let logo = profile.logo.map(|c| f64::from(c) * max / 255.0);
-    let grid = Grid::new(raster, &shape.values, at, profile.opaque_above, logo);
+    let colours = Colours {
+        logo: profile.logo.map(|c| f64::from(c) * max / 255.0),
+        per_pixel: template_logos(profile, map, rect, kernel, max),
+    };
+    let law = Law::of(profile, max);
+    let grid = Grid::new(
+        raster,
+        &shape.values,
+        at,
+        profile.opaque_above,
+        &colours,
+        law,
+    );
     let weight: f64 = grid.edges.iter().map(|&(_, g)| f64::from(g)).sum();
     let mut luma = vec![0f64; grid.pixels.len()];
     (weight > 0.0).then(|| grid.energy(1.0, &mut luma) / weight)
@@ -337,8 +413,20 @@ pub(crate) fn residual(
 
 /// The second proof over one proposal: the numbers, and the outcome.
 /// `None` for the numbers when the outcome came before any was measured.
+#[cfg(test)]
 pub(crate) fn verify(
     raster: &Raster,
+    profile: &Profile,
+    proposal: &Proposal,
+) -> (Option<Scores>, Outcome) {
+    verify_with(raster, None, profile, proposal)
+}
+
+/// [`verify`], with the out-of-range share measured in the planes when
+/// `model` is the planar path's (D471).
+pub(crate) fn verify_with(
+    raster: &Raster,
+    model: Option<&crate::planar::Model<'_>>,
     profile: &Profile,
     proposal: &Proposal,
 ) -> (Option<Scores>, Outcome) {
@@ -384,8 +472,12 @@ pub(crate) fn verify(
         return (None, Outcome::Refused(Refusal::Opaque { holes }));
     }
 
-    let logo = profile.logo.map(|c| f64::from(c) * max / 255.0);
-    let grid = Grid::new(raster, &shape.values, at, opaque, logo);
+    let colours = Colours {
+        logo: profile.logo.map(|c| f64::from(c) * max / 255.0),
+        per_pixel: template_logos(profile, map, proposal.rect, proposal.kernel, max),
+    };
+    let law = Law::of(profile, max);
+    let grid = Grid::new(raster, &shape.values, at, opaque, &colours, law);
     let mut energy = [0f64; STEPS + 1];
     let mut luma = vec![0f64; grid.pixels.len()];
     for (i, e) in energy.iter_mut().enumerate() {
@@ -420,16 +512,13 @@ pub(crate) fn verify(
             continue;
         }
         let a = f64::from(a);
-        for v in inverse(grid.pixels[p], a, logo, f64::from(opaque)) {
+        // `Law::out_of_range`: for `encoded` with no bias, the gap of
+        // `restore::unblend` outside the range times `1 − α`, as it was;
+        // the interval moved by a bias (D308), and measured in light for
+        // `linear-light` (D311), under `blend-preview`.
+        for outside in law.out_of_range(grid.pixels[p], a, grid.logo(p), allowance) {
             total += 1;
-            let gap = if v < 0.0 {
-                -v * (1.0 - a)
-            } else if v > max {
-                (v - max) * (1.0 - a)
-            } else {
-                0.0
-            };
-            if gap > allowance {
+            if outside {
                 out += 1;
             }
         }
@@ -439,12 +528,24 @@ pub(crate) fn verify(
     } else {
         out as f32 / total as f32
     };
+    // In the planes the file stored, when they are known and subsampled
+    // (D471): the share the decision uses, and its two terms.
+    // A `linear-light` blend is not linear in the planes' code values: it
+    // is proved in RGB, as on every other route (R9c).
+    let (out_of_range, planar) = match model.filter(|_| law.model == BlendModel::Encoded) {
+        Some(m) => {
+            let (share, terms) = m.out_of_range(&shape.values, at, &colours, law, opaque);
+            (share, Some(terms))
+        }
+        None => (out_of_range, None),
+    };
 
     let scores = Scores {
         gain,
         edge_ratio,
         out_of_range,
         holes,
+        planar,
     };
     let t = profile.thresholds;
     let outcome = if best_ratio > NO_BLEND_RATIO || edge_ratio > 1.0 {
@@ -471,7 +572,8 @@ pub(crate) fn verify(
             rect: proposal.rect,
             at,
             values: shape.values,
-            logo,
+            colours: Box::new(colours),
+            law,
             opaque_above: opaque,
             gain,
             edge_ratio,
@@ -546,10 +648,23 @@ pub const TEXTURE_LEVELS: f32 = 5.5;
 /// [`TEXTURE_LEVELS`]), 2.63–2.95 at JPEG 4:4:4 95, about 2.5 at 97.
 pub const TEXTURE_RATIO: f32 = 2.0;
 
+/// Under this many times the roughness of the picture around the mark, a
+/// restoration on a lossy source is too smooth: a patch flatter than its
+/// surroundings, which is a mark left as plainly as a checker is (D307,
+/// E12-R8). The lower bound beside [`TEXTURE_RATIO`]'s upper one: a value
+/// chosen inside the codec's interval (`interval.rs`) takes the checker
+/// away by smoothing, and smoothing can overshoot. `[tunable]` — the
+/// spec's 0.8 (`06-recon-changes.md` §2.4); on today's path every lossy
+/// restoration of the committed crops reads 2.62 or more through `clean`
+/// and 1.76 or more through the planar inverse (the E12-R8 report). Only
+/// a lossy source is held to it (D251's reason).
+pub const TEXTURE_RATIO_MIN: f32 = 0.8;
+
 /// What a restoration left along the mark's contour, three ways (D238,
-/// D244, D247).
+/// D244, D247). Public for [`measure_at`] alone (E12-R12), a developer's
+/// measure: the product hands it out only inside [`crate::Restored`].
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Outline {
+pub struct Outline {
     /// The contour's energy on the restored raster, less what the texture
     /// around the mark would put there, as a share of the energy the mark
     /// had before (D238). Relative: on a flat picture a ring of twenty
@@ -592,6 +707,12 @@ impl Outline {
     pub fn textured(&self) -> bool {
         self.texture > TEXTURE_LEVELS.max(TEXTURE_RATIO * self.texture_around)
     }
+
+    /// A roughness under [`TEXTURE_RATIO_MIN`] times the roughness around
+    /// the mark (D307): a patch smoother than the picture around it.
+    pub fn smoothed(&self) -> bool {
+        self.texture < TEXTURE_RATIO_MIN * self.texture_around
+    }
 }
 
 /// What a restoration left along the mark's contour (D238, D244). The
@@ -612,7 +733,8 @@ pub(crate) fn outline(raster: &Raster, verified: &Verified) -> Outline {
             &verified.values,
             verified.at,
             verified.opaque_above,
-            verified.logo,
+            &verified.colours,
+            verified.law,
         );
         let weight: f64 = grid.edges.iter().map(|&(_, g)| f64::from(g)).sum();
         let mut luma = vec![0f64; grid.pixels.len()];
@@ -621,6 +743,103 @@ pub(crate) fn outline(raster: &Raster, verified: &Verified) -> Outline {
         ((after - weight * texture).max(0.0) / verified.contour) as f32
     };
     Outline { share, ..steps }
+}
+
+/// [`outline`]'s measures over a rectangle **nothing was restored in**
+/// (E12-R12 §4.1): what a restoration that handed this very picture back
+/// would be told — the clean picture's share of the measures every bound
+/// is set against. `map` is brought to `rect` by `kernel` as `verify`
+/// brings it (the template, its capture noise taken out), and `outline`
+/// runs as it runs after a restoration, with two things a restoration
+/// would have had standing in:
+///
+/// * **the contour the mark had** (the share's denominator, `E(0)` before
+///   the restoration): the contour energy of this template drawn here with
+///   the profile's logo — [`crate::composite`], rounded as a file stores
+///   it, over a copy of the rectangle and its one-pixel ring — which is
+///   the stored file a perfect restoration would have started from;
+/// * **the pixels the restoration changed** (the set `texture` is taken
+///   over): the template's support, `α` from [`NOISE_FLOOR`] to under the
+///   profile's `opaque_above` — the pixels a restoration of this map would
+///   write. It is the set `outline` takes after a real restoration too,
+///   which counts the faint ones the inverse rounds back to themselves.
+///
+/// `None` when the template does not fit `rect` or the picture. A measure
+/// for `examples/measure_clean.rs`, never a verdict: the bounds are
+/// [`Outline::left`] and [`Outline::textured`], the latter on a lossy
+/// source only, as `restore` applies it.
+#[doc(hidden)]
+pub fn measure_at(
+    raster: &Raster,
+    profile: &Profile,
+    map: &crate::alpha::AlphaMap,
+    rect: SubRect,
+    kernel: Kernel,
+) -> Option<Outline> {
+    let (shape, at, noise) = template_and_noise(map, rect, kernel)?;
+    if !at.inside(raster.width(), raster.height()) {
+        return None;
+    }
+    let max = f64::from(raster.layout().max());
+    let colours = Colours {
+        logo: profile.logo.map(|c| f64::from(c) * max / 255.0),
+        per_pixel: template_logos(profile, map, rect, kernel, max),
+    };
+    let law = Law::of(profile, max);
+    let opaque = profile.opaque_above;
+    // The rectangle and its ring — all `Grid` reads — copied, and the
+    // template drawn over the copy.
+    let (x0, y0) = (at.x.saturating_sub(1), at.y.saturating_sub(1));
+    let x1 = (at.x + at.width + 1).min(raster.width());
+    let y1 = (at.y + at.height + 1).min(raster.height());
+    let mut samples = Vec::new();
+    for y in y0..y1 {
+        let row = raster.at(x0, y)..raster.at(x1 - 1, y) + raster.layout().channels();
+        samples.extend_from_slice(&raster.samples()[row]);
+    }
+    let mut drawn = Raster::new(x1 - x0, y1 - y0, raster.layout(), samples).ok()?;
+    let local = PixelRect {
+        x: at.x - x0,
+        y: at.y - y0,
+        ..at
+    };
+    let mark = crate::alpha::AlphaMap::new(
+        at.width,
+        at.height,
+        shape.values.iter().map(|v| v.clamp(0.0, 1.0)).collect(),
+    )
+    .ok()?;
+    if law.today() && colours.per_pixel.is_none() {
+        crate::restore::composite(&mut drawn, &mark, local, profile.logo);
+    } else {
+        // The profile's own blend (E12-R9, `blend-preview`): the bias, the
+        // logo per pixel, the model.
+        crate::blend::draw(&mut drawn, &mark, local, &colours, law);
+    }
+    let grid = Grid::new(&drawn, &shape.values, local, opaque, &colours, law);
+    let contour = grid.energy(0.0, &mut vec![0f64; grid.pixels.len()]);
+    // `outline` reads the template, its place, the logo, the opaque
+    // threshold and the contour; the rest is what no proof measured.
+    let unrestored = Verified {
+        profile: profile.id.clone(),
+        rect,
+        at,
+        values: shape.values,
+        colours: Box::new(colours),
+        law,
+        opaque_above: opaque,
+        gain: 1.0,
+        edge_ratio: 0.0,
+        holes: 0,
+        resampled: false,
+        searched: false,
+        fitted: false,
+        noise,
+        width: raster.width(),
+        height: raster.height(),
+        contour,
+    };
+    Some(outline(raster, &unrestored))
 }
 
 /// The faint band's step against the picture around it, per channel and
@@ -749,6 +968,37 @@ fn percentile(values: &mut [f64], p: f64) -> f64 {
     values[((values.len() - 1) as f64 * p).round() as usize]
 }
 
+/// How far a restoration is from the data (D305): over `pairs` — per
+/// sample, the restored value blended back with the very `α`, logo and
+/// gain the restoration used, beside the stored value it was restored
+/// from, both in 8-bit levels — the 95th percentile of their distance;
+/// 0 for none. `excluded` is what the caller left out (clamped samples
+/// and holes), handed back beside it. Written once, for every path that
+/// restores: the RGB raster's here, a JPEG's planes later (Y and chroma
+/// at their own resolutions, one percentile over both). A measure: no
+/// bound, no verdict.
+pub(crate) fn consistency(
+    pairs: impl IntoIterator<Item = (f64, f64)>,
+    excluded: u32,
+) -> Consistency {
+    let mut distance: Vec<f64> = pairs
+        .into_iter()
+        .map(|(blended, stored)| (blended - stored).abs())
+        .collect();
+    Consistency {
+        px: percentile(&mut distance, 0.95) as f32,
+        excluded,
+    }
+}
+
+/// [`consistency`]'s answer: `Restored::consistency_px` and
+/// `Restored::consistency_excluded`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Consistency {
+    pub px: f32,
+    pub excluded: u32,
+}
+
 /// The mean luma gradient (central differences, luma in [0, 1]) over the
 /// pixels two to eight outside `at`, inside the picture.
 fn texture_around(raster: &Raster, at: PixelRect) -> f64 {
@@ -785,20 +1035,21 @@ fn texture_around(raster: &Raster, at: PixelRect) -> f64 {
 }
 
 /// [`crate::restore::unblend`] — GWT's reverse blend, written once —
-/// unclamped; the input itself where `a` is at or above the opaque
-/// threshold, which is never divided.
-fn inverse(i: [f64; 3], a: f64, logo: [f64; 3], opaque: f64) -> [f64; 3] {
+/// unclamped, through the profile's law ([`Law::inverse`], which is
+/// `unblend` itself for `encoded` with no bias); the input itself where
+/// `a` is at or above the opaque threshold, which is never divided.
+fn inverse(i: [f64; 3], a: f64, logo: [f64; 3], opaque: f64, law: Law) -> [f64; 3] {
     if a <= 0.0 || a >= opaque {
         return i;
     }
-    crate::restore::unblend(i, a, logo)
+    law.inverse(i, a, logo)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::raster::Layout;
-    use crate::{restore, ExamineOptions};
+    use crate::{restore, ExamineOptions, Restored};
 
     /// A one-pixel proof over a stored value, the logo white, `α` given.
     fn one(alpha: f32) -> Verified {
@@ -816,7 +1067,15 @@ mod tests {
                 height: 1,
             },
             values: vec![alpha],
-            logo: [255.0; 3],
+            colours: Box::new(Colours {
+                logo: [255.0; 3],
+                per_pixel: None,
+            }),
+            law: Law {
+                model: BlendModel::Encoded,
+                bias: None,
+                max: 255.0,
+            },
             opaque_above: 0.95,
             gain: 1.0,
             edge_ratio: 0.0,
@@ -1014,6 +1273,80 @@ mod tests {
         assert!(rougher.textured(), "{rougher:?}");
     }
 
+    /// A grey 32 × 32 picture under a 16-pixel mark at (8, 8) with `α`
+    /// 0.5 throughout and a white logo, stored as the blend of a grain
+    /// over grey 101: every fourth pixel each way lifted, by `mark` levels
+    /// under the mark and by `around` in the pixels around it — both even,
+    /// so the blend is a whole level and the restoration gives the grain
+    /// back exactly. Restored at `source`.
+    fn restored_grain(mark: i32, around: i32, source: crate::Fidelity) -> Restored {
+        let mut samples = Vec::with_capacity(32 * 32 * 3);
+        for y in 0..32u32 {
+            for x in 0..32u32 {
+                let inside = (8..24).contains(&x) && (8..24).contains(&y);
+                let lift = match (x % 4 == 0 && y % 4 == 0, inside) {
+                    (false, _) => 0,
+                    (true, true) => mark,
+                    (true, false) => around,
+                };
+                let v = 101 + lift;
+                let stored = if inside { (255 + v) / 2 } else { v };
+                samples.extend([stored as u8; 3]);
+            }
+        }
+        let verified = Verified {
+            at: PixelRect {
+                x: 8,
+                y: 8,
+                width: 16,
+                height: 16,
+            },
+            values: vec![0.5; 16 * 16],
+            noise: vec![0.0; 16 * 16],
+            width: 32,
+            height: 32,
+            ..one(0.5)
+        };
+        let mut raster = Raster::from_u8(32, 32, Layout::Rgb8, &samples).unwrap();
+        let options = ExamineOptions {
+            source,
+            profiles: None,
+        };
+        restore(&mut raster, &verified, &options).unwrap()
+    }
+
+    /// D307: a restoration on a lossy source whose roughness is half the
+    /// picture's around it — a patch flatter than its surroundings — is
+    /// said (`smoothed`) and counts as a mark left; on a lossless source
+    /// the same patch is the picture's own and is not (D251's reason). At
+    /// the bound's other side, 0.8 of the surroundings and over, nothing
+    /// is said.
+    #[test]
+    fn a_patch_smoother_than_its_surroundings_is_said() {
+        let report = |r: Restored| crate::PixelReport {
+            found: Vec::new(),
+            restored: vec![r],
+            dismissed: 0,
+            not_established: crate::not_established::shelf(),
+        };
+        let soap = restored_grain(4, 8, crate::Fidelity::Lossy);
+        assert!((soap.texture - 4.0).abs() < 1e-3, "{soap:?}");
+        assert!((soap.texture_around - 8.0).abs() < 1e-3, "{soap:?}");
+        assert!(soap.smoothed && !soap.texture_left, "{soap:?}");
+        assert!(report(soap).marks_left());
+        let lossless = restored_grain(4, 8, crate::Fidelity::Lossless);
+        assert!(!lossless.smoothed, "{lossless:?}");
+        assert!(!report(lossless).marks_left());
+        // 8 under the mark against 10 around: 0.8, at the bound, not said.
+        let at = restored_grain(8, 10, crate::Fidelity::Lossy);
+        assert!(
+            (at.texture / at.texture_around - 0.8).abs() < 1e-3,
+            "{at:?}"
+        );
+        assert!(!at.smoothed, "{at:?}");
+        assert!(!report(at).marks_left());
+    }
+
     /// The inverse is rounded to the nearest level, as GWT's is — not
     /// truncated: `(189 − 0.3·255)/0.7` is 160.71 and comes back 161;
     /// `(188 − 0.3·255)/0.7` is 159.29 and comes back 159.
@@ -1024,5 +1357,43 @@ mod tests {
             restore(&mut raster, &one(0.3), &ExamineOptions::default()).unwrap();
             assert_eq!(raster.samples(), &[original; 3], "{stored}");
         }
+    }
+
+    /// D305's measure: the distance either way, the 95th percentile by
+    /// nearest rank — one sample off in twenty is the percentile, one in a
+    /// hundred is not — 0 with nothing to measure, and the excluded count
+    /// handed back as it came.
+    #[test]
+    fn consistency_is_the_95th_percentile_of_the_distance() {
+        let pairs = |off: usize, n: usize, by: f64| {
+            (0..n).map(move |i| {
+                let stored = 100.0 + i as f64 % 7.0;
+                let d = if i < off { by } else { 0.25 };
+                (stored + if i % 2 == 0 { d } else { -d }, stored)
+            })
+        };
+        assert_eq!(consistency(pairs(0, 100, 0.0), 4).px, 0.25);
+        assert_eq!(consistency(pairs(10, 100, -3.0), 0).px, 3.0);
+        assert_eq!(consistency(pairs(1, 100, 3.0), 0).px, 0.25);
+        let none = consistency(std::iter::empty(), 7);
+        assert_eq!(
+            none,
+            Consistency {
+                px: 0.0,
+                excluded: 7
+            }
+        );
+        assert_eq!(consistency(pairs(0, 3, 0.0), 4).excluded, 4);
+    }
+
+    /// One pixel at `α` 0.3 under a white logo is restored, and blended
+    /// back lands within the rounding of what was stored: the inverse at
+    /// 160.71 is written as 161, which blends back to 189.2.
+    #[test]
+    fn a_restored_pixel_blends_back_to_its_input() {
+        let mut raster = Raster::from_u8(1, 1, Layout::Rgb8, &[189; 3]).unwrap();
+        let r = restore(&mut raster, &one(0.3), &ExamineOptions::default()).unwrap();
+        assert!((r.consistency_px - 0.2).abs() < 1e-4, "{r:?}");
+        assert_eq!(r.consistency_excluded, 0);
     }
 }

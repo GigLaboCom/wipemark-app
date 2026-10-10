@@ -7,12 +7,15 @@
 mod pixels_support;
 
 use pixels_support::{composite_at, picture, small_row, synthetic_catalogue, synthetic_v1, Kind};
-use wipemark_image::{reframe, StripOptions};
+use wipemark_image::{reframe, ImageContainer, StripOptions};
 use wipemark_picture::{
-    clean, decode, encode_like, inspect, prove, psnr, Encoding, PictureError, PictureOptions,
-    Proof, Source, Visible, JPEG_QUALITY, PSNR_FLOOR,
+    clean, decode, decode_with_planes, encode_like, inspect, prove, psnr, Encoding, PictureError,
+    PictureOptions, Proof, Source, Visible, JPEG_QUALITY, PSNR_FLOOR,
 };
-use wipemark_pixels::{Catalogue, ExamineOptions, Layout, PixelRect, Raster};
+use wipemark_pixels::planar::invert;
+use wipemark_pixels::{
+    clean_with, Catalogue, ExamineOptions, Layout, PixelRect, Raster, NOISE_FLOOR,
+};
 
 const W: u32 = 320;
 const H: u32 = 240;
@@ -161,13 +164,17 @@ fn a_marked_jpeg_is_restored_and_re_encoded() {
                 assert_eq!(report.restored.len(), 1, "{name}");
                 let r = &report.restored[0];
                 assert!(!r.exact, "{name}: a lossy source is never exact");
-                // No outline and no hole; but the codec's error under the
-                // mark, amplified by the inverse, is a texture left — 6.3
-                // to 6.7 levels against 2.5 to 2.6 around it — and the
-                // mark counts as left (D250).
+                // No outline and no hole. The codec's error under the
+                // mark, amplified by the inverse, was a texture left — 6.3
+                // to 6.7 levels against 2.5 to 2.6 around it (D250); the
+                // product's DCT-POCS (D472) chooses the value inside the
+                // file's intervals and takes it under the bound, and no
+                // mark is left.
                 assert!(r.holes == 0 && !r.outline_left, "{name}: {r:?}");
-                assert!(r.texture_left, "{name}: {r:?}");
-                assert!(report.marks_left(), "{name}");
+                let method = r.interval.map(|i| i.method);
+                assert_eq!(method, Some(wipemark_pixels::Method::Dct), "{name}: {r:?}");
+                assert!(!r.texture_left && !r.smoothed, "{name}: {r:?}");
+                assert!(!report.marks_left(), "{name}");
             }
             Visible::NotExamined(why) => panic!("{name}: {why:?}"),
         }
@@ -399,4 +406,111 @@ fn the_lossy_proof_refuses_a_distant_output() {
         ),
         Ok(())
     );
+}
+
+fn gemini(name: &str) -> Vec<u8> {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/image/gemini")
+        .join(name);
+    std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+fn shipped() -> PictureOptions<'static> {
+    PictureOptions {
+        scope: wipemark_image::Scope::AiProvenance,
+        catalogue: Some(Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"))),
+    }
+}
+
+/// `inspect` and `clean` measure one out-of-range share for one file on
+/// the planar path (D471): the scores the decision used, and its two
+/// terms, are the same through both. `victory-1025-q95-420.jpg` is the
+/// crop the RGB path refuses by its 16-pixel grid (1.06 %, D252).
+#[test]
+fn inspect_and_clean_measure_one_out_of_range() {
+    let bytes = gemini("victory-1025-q95-420.jpg");
+    let inspected = inspect(&bytes, &shipped()).unwrap();
+    let (_, cleaned) = clean(&bytes, &shipped()).unwrap();
+    let first = |v: &Visible| match v {
+        Visible::Examined { report, .. } => report
+            .found
+            .iter()
+            .find(|f| f.pass == 1)
+            .and_then(|f| f.scores)
+            .unwrap_or_else(|| panic!("{report:#?}")),
+        other @ Visible::NotExamined(_) => panic!("{other:?}"),
+    };
+    let (a, b) = (first(&inspected.visible), first(&cleaned.visible));
+    assert!(a.planar.is_some(), "inspect took the RGB path: {a:?}");
+    assert_eq!(a.out_of_range, b.out_of_range);
+    assert_eq!(a.planar, b.planar);
+    assert_eq!(a, b);
+}
+
+/// A planar restoration writes nothing the restoration would not have
+/// touched (§4.2): every pixel that differs from the decoder's is inside
+/// the mark's rectangle, is no hole, and has `α` at the noise floor or
+/// over, or lies in a chroma block whose mean `α` is — that mean taken
+/// here, over the block's four pixels, not by the code under test.
+#[test]
+fn nothing_outside_the_mark_moved() {
+    let catalogue = Catalogue::shipped().unwrap();
+    for name in ["victory-1040-q95-420.jpg", "torch-1025-q95-420.jpg"] {
+        let bytes = gemini(name);
+        let container = ImageContainer::sniff(&bytes).unwrap();
+        let d = decode_with_planes(&bytes, container).unwrap().unwrap();
+        let planes = d.planes.as_ref().unwrap();
+        let options = ExamineOptions {
+            source: d.fidelity,
+            profiles: None,
+        };
+        let mut restored = d.raster.clone();
+        let report = clean_with(&mut restored, Some(planes), catalogue, &options);
+        let [r] = report.restored.as_slice() else {
+            panic!("{name}: {report:#?}")
+        };
+        let verified = report
+            .found
+            .iter()
+            .find_map(|f| f.verified())
+            .unwrap_or_else(|| panic!("{name}"));
+        let inverse = invert(&d.raster, planes, verified).unwrap();
+        let block_mean = |x: u32, y: u32| {
+            let (bx, by) = (x / 2 * 2, y / 2 * 2);
+            [(0, 0), (1, 0), (0, 1), (1, 1)]
+                .iter()
+                .map(|&(dx, dy)| inverse.alpha_at(bx + dx, by + dy))
+                .sum::<f64>()
+                / 4.0
+        };
+        let (w, floor) = (d.raster.width(), f64::from(NOISE_FLOOR));
+        let mut moved = 0;
+        for (p, (a, b)) in d
+            .raster
+            .samples()
+            .chunks_exact(3)
+            .zip(restored.samples().chunks_exact(3))
+            .enumerate()
+        {
+            if a == b {
+                continue;
+            }
+            moved += 1;
+            let (x, y) = (p as u32 % w, p as u32 / w);
+            let rect = r.rect;
+            assert!(
+                x >= rect.x && y >= rect.y && x < rect.x + rect.width && y < rect.y + rect.height,
+                "{name}: ({x}, {y}) outside {rect:?}"
+            );
+            assert!(!inverse.hole(x, y), "{name}: a hole moved at ({x}, {y})");
+            assert!(
+                inverse.alpha_at(x, y) >= floor || block_mean(x, y) >= floor,
+                "{name}: ({x}, {y}) moved with α {} and ᾱ {}",
+                inverse.alpha_at(x, y),
+                block_mean(x, y)
+            );
+        }
+        assert_eq!(moved, r.changed as usize, "{name}");
+        assert!(moved > 3000, "{name}: {moved}");
+    }
 }

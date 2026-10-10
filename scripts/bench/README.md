@@ -1,0 +1,346 @@
+# The restoration bench (E12-R5)
+
+Level A of the E12-R series: a known mark composited over a known
+background, degraded the way a user's file is, run through **the user's
+path**, and compared with the background in the mark's ROI. Level B is R1's
+regression over real files (`scripts/regress.py`, `golden/`); a change to
+the restoration passes both (`docs/plan/E12-R-recon.md` §4). The plan is
+`docs/plan/E12-R5-recon-bench.md`; the decisions are D304 (the manifest)
+and D312 (where the bench and `synth` live).
+
+Asked for by the coordinator on 2026-10-09, from the owner's spec
+`wipemark-recon-spec-2026-10-08` (`05-recon-bench.md`).
+
+## The pieces
+
+| what | where | runs on |
+|---|---|---|
+| the composites' maths: `composite_with`, the blend models, `to_linear`/`from_linear` | `wipemark_pixels::synth` (`#[doc(hidden)]`) | the Rust gates |
+| the generator, the run, the metrics | `crates/wipemark-picture/examples/recon_bench.rs` (`pin`, `gen`, `run`, `configs`) | anywhere with cargo |
+| Pillow's degradations | `scripts/bench/encode.py` | Python + Pillow 12.3.0 |
+| the tables and the gates A1–A7 | `scripts/bench/report.py` | Python, stdlib only |
+| the backgrounds, pinned | `bench/manifest.json` (committed) | — |
+| a stand-in profile for the tests (not a vendor's) | `scripts/bench/wordmark.py` → `fixtures/marks/synthetic-wordmark/` | Python, stdlib only |
+| a catalogue file (`--catalogue`) | `crates/wipemark-picture/examples/support/catalogue.rs` | the Rust gates |
+| a run | `bench/out/<run>/` (ignored by git) | — |
+
+No Rust gate depends on Python, and the bench is not a CI job (§7). Its
+metrics (PSNR, SSIM, CIEDE2000 against Sharma's data) and its generator
+are held by the example's own tests, which `cargo test -p wipemark-picture`
+runs.
+
+## What a run is
+
+* **Backgrounds.** A background is a 512 × 512 **tile** of content in the
+  bottom-right corner of a canvas of the row's size; the rest of the canvas
+  is flat at the tile's mean. Every row, the search's 320-pixel box, the
+  ROI and an exported crop lie on the tile. Three groups:
+  * `flat` and `text` are generated from a seed, with arithmetic alone, so
+    the tile's sha256 that `bench/manifest.json` pins is the same on every
+    machine. An index `i` asks for the tone `i % 6` — **midtone** (grey 40–60
+    %), **saturated** (a channel at 0–4), **white**, **black**,
+    **sticker-green** (the corner of the owner's first-generation stickers,
+    about (7, 150, 58), where D247/D250/D252 were measured), **other** — and
+    the kind `(i / 6) % 5`: `flat`, `dither`, `gradient`, `value-noise`,
+    `shapes`; `glyphs`, `dense-glyphs`, `ui`, `lines`, `sheet`. The tone
+    actually under each row's mark is measured and recorded (`zones`).
+  * `photo` is a crop of one of the owner's photographs (R2), resized to the
+    tile. The pictures never enter git: the manifest names the Watchword key,
+    each file's path and its sha256 (D304).
+* **Rows.** `v1-48` (1024²), `v1-96` (2048², GWT's own 96 map — restored with
+  the shipped catalogue whose V1 large row names that map instead of the
+  measured one, so that `exact` is a true self-test), `v1-96-measured`
+  (2048², the shipped row), `v2-36` (1024²), `v2-96` (2048²), `v2-96-r48`
+  (1376 × 768, V2's 96 map resampled to 48 — the shipped row, never exact).
+  Each place is the shipped catalogue's first row for that size.
+* **Cases.** Per background and row: the mark blended in code values
+  (`encoded`, what every profile declares) and in linear light, both at
+  `k = 1`; and, on the canonical rows, `encoded` at `k = 0.93` (`R-k`, D154).
+  The mark is drawn as the vendor draws it (`drawn`, D241), with the profile's
+  logo, rounded half away from zero.
+* **Slices.** `png`; `jpeg444-q95`, `-q90` by Pillow **and** by `image`'s
+  encoder (the one Wipemark writes with); `jpeg420-q95`, `-q90`, `-q85`,
+  `-q75` by Pillow (the `image` encoder writes 4:4:4 only, so its 4:2:0
+  column is empty); `webp-lossy-q90`; `resize-0.9`, `resize-1.1` (bicubic,
+  then PNG); `jpeg420-q90+resize-0.9`. The encoders are reported apart.
+* **The run** per file and config: `decode_with_planes` →
+  the config's pixels pass with the case's catalogue → `encode_like` →
+  `reframe` → `prove`, as `wipemark_picture::clean` runs them. In the ROI
+  (the mark's box and 4 pixels): `psnr_roi`, `ssim_roi` (luma, window 7),
+  `de2000_roi` of the **restored raster** against the background (and the
+  same for the input, and the PSNR of the written file); the measures of
+  `Restored`; the detection — found, verdict, refusal, the rect error
+  against the composited place; the CLI's exit.
+* **Configs**, named after the steps. `R0` is the RGB road with no
+  refinement — the product's until the owner's decisions of 2026-10-10;
+  **`R8d` is the product since** (the planes, D471, and DCT-POCS, D472).
+  Every config proves a mark as the product does, D470 included (the
+  search does not prove a mark at the place of a row that refused it by
+  gain). R6/R8/R9 add theirs as configs of the example (S12), never as
+  catalogue rows. **`R6`** (E12-R6, D471) is
+  `wipemark_pixels::clean_with` given the decoded planes: a lossy JPEG
+  subsampled 4:2:0 or 4:2:2 is proved and restored in its planes, every
+  other file is R0's to the byte; its restorations carry `measures.planar`
+  (`sampling`, `max_alpha_dev_in_block`, `holes_chroma`) and its scores
+  `detection.scores.planar` (`y`, `chroma`). Run it beside R0 —
+  `run … --config R0 --config R6` — and gate it with
+  `report.py gates RESULTS --candidate R6 --route lossy --targets jpeg420-q95,jpeg420-q90,jpeg420-q85,jpeg420-q75,jpeg420-q90+resize-0.9`.
+  **`R8d`, `R8p`, `R8w`** (E12-R8) are `wipemark_pixels::clean_refined`
+  with `Refine::Dct`, `Pixel` or `Wiener`: R6's route, then on a lossy
+  file the restored value chosen inside the codec's interval — DCT-POCS
+  (JPEG with planes only), pixel POCS, one Wiener step; a `png` file is
+  R0's to the byte (A4). Their restorations carry `measures.interval`
+  (`method`, `space`, `sigma_base`, `text`, `iterations`), `measures.smoothed`
+  (D307) and, for `R8d`, `measures.consistency_dct` (0 by construction).
+  Run them beside R0 and R6 — `run … --config R0 --config R6 --config R8d
+  --config R8p --config R8w` — read `report.py report`'s §10 (texture
+  under 5.5 on `jpeg444-q95`, the soap check) and gate each against R6 on
+  4:2:0 and R0 elsewhere: `report.py gates RESULTS --candidate R8d
+  --baseline R6 --route lossy --targets jpeg420-q95,jpeg420-q90,jpeg420-q85,jpeg420-q75`
+  and `report.py gates RESULTS --candidate R8d --baseline R0 --route lossy
+  --targets jpeg444-q95,jpeg444-q90,webp-lossy-q90`, and the same for
+  `R8p` and `R8w`.
+
+## In the container: the smoke run
+
+```sh
+cargo build --release -p wipemark-picture --example recon_bench
+B=target/release/examples/recon_bench
+$B gen --manifest bench/manifest.json --out bench/out/smoke --sample 6
+python3 scripts/bench/encode.py bench/out/smoke
+$B run --in bench/out/smoke --config R0 --out bench/out/smoke/results.jsonl
+python3 scripts/bench/report.py report bench/out/smoke/results.jsonl --out bench/out/smoke/report.md
+```
+
+`--sample 6` takes six backgrounds of each group, one of each tone. Its
+figures prove that the pipeline works; they are not results.
+
+## On the host: the R0 run, in order
+
+0. **Build** at the commit under test, with the zune-jpeg fork R3 needs
+   (`docs/architecture/zune-jpeg-pin.md`):
+   `cargo build --release -p wipemark-picture --example recon_bench --locked`.
+1. **Self-checks** — all three must pass before anything else:
+   `cargo test -p wipemark-picture --example recon_bench --locked`,
+   `python3 scripts/bench/encode.py selftest`,
+   `python3 scripts/bench/report.py selftest`.
+2. **The photographs** (when R2 has filed `wipemark-bench-backgrounds-<date>`):
+   download the ZIP, check its sha256, unpack it into a folder outside git
+   (`bench/out/photos/` is ignored), put the key and the ZIP's sha256 in the
+   `photo` group of `bench/manifest.json`, and pin:
+   `$B pin --manifest bench/manifest.json --photos bench/out/photos`.
+   It fills the group's `files` (each path, its sha256, `crop: null` = the
+   centre square — edit a crop to aim at sky, skin, foliage, bokeh, then pin
+   again) and every background's zones. Commit the manifest. Without R2, run
+   with `--groups flat,text` and say so.
+3. **Generate.** `$B gen --manifest bench/manifest.json --out bench/out/r0-<date> --sample 30 [--photos bench/out/photos]`.
+   `gen` first re-makes every generated tile and **refuses** one whose sha256
+   is not the pinned one: the host's tiles must be the container's to the
+   byte. A refusal is a finding (a platform difference in the generator) —
+   stop and report it.
+4. **Pillow's variants**, with Pillow 12.3.0 / libjpeg 6.2 (it refuses
+   another): `python3 scripts/bench/encode.py bench/out/r0-<date>`.
+5. **Run R0** and export the crops R10 reads:
+   `$B run --in bench/out/r0-<date> --config R0 --out bench/out/r0-<date>/results.jsonl --export-crops bench/out/r0-<date>/crops`.
+   It prints the files per slice and encoder and the wall time, and writes
+   `results.jsonl.run.json` (the commit, the time, the jobs).
+6. **The report**: `python3 scripts/bench/report.py report bench/out/r0-<date>/results.jsonl --out <report>.md`.
+
+**The time** (§6.2, `[tunable]` 30 minutes). Measured in the container: a
+file costs about 1.0–1.3 s of one core (the search runs on every file whose
+row is not proved; a restored file is examined three times). A background
+is 16 cases × 13 files, about 216 core-seconds; a sample of `N` per group
+over three groups is `3N` backgrounds: `--sample 30` is about 19 500
+core-seconds, 27 minutes on 12 cores. All 300 backgrounds is about 18
+core-hours. (`photo` is sampled by index too; its tones are whatever the
+photographs hold.) If the run takes longer than 30 minutes, lower `N` and
+state it; the sample is fixed by the seed and stratified by tone. Disk:
+about 18 MB per background.
+
+### What the host should see
+
+* **§6, the self-test**: every canonical file restored with nothing clamped
+  is `exact` — 100 %. A clamp (a fractional logo over a channel at 0) is
+  counted apart, and a white tone is usually not found at all (the mark is
+  under a level or two there). If a restored, unclamped canonical file is
+  not exact, **the generator is wrong**: fix it before anything uses the
+  bench (§6.3).
+* **§5, the real failures** on `sticker-green` and `v1-96-measured`, Pillow
+  (the smoke's figures, to be confirmed): 4:2:0 q95 restored with chroma
+  6.7–8.6 (D247: 7.40–8.37); 4:4:4 q95 texture 8.2–9.0 (D250: 8.59–9.22);
+  4:2:0 q90 refused out of range at 0.8–2.1 % (D252: 10 of 21 at
+  1.02–1.38 %). The bench refuses 4:2:0 q95 more often than the 21 real
+  files were (5 of 12 here, 0 of 21 there): §6.4 asks why before anything
+  uses it.
+* **§7, `R-k`**: most `k = 0.93` marks refused by their gain, and some
+  proved by the search after their row refused them — the finding of
+  E12-R5's report, "D154 through the search".
+* **§8**: Pillow and `image` within 0.3 dB on `jpeg444-*`.
+* **§1, `consist. p95`** (E12-R7, D305): the restoration blended back
+  against its input, the p95 over restored files of `consistency_px`, in
+  8-bit levels. R0's inverse is exact by construction, so every slice is
+  at most 1 (rounding: about 0.25); the line under the table names any
+  slice over it. One over it on R0 is a defect of the inverse, not of
+  the slice.
+
+## The gates (§4.6)
+
+`report.py gates RESULTS --candidate <config> --route {lossy,model} --targets <slices>`
+evaluates, against R0 on the same files:
+
+| | gate |
+|---|---|
+| A1 | target slices: median `psnr_roi` +0.5 dB at least **and** p5 no worse |
+| A2 | non-target slices: median −0.1 dB, p5 −0.2 dB at most |
+| A3 | group `text`: no slice loses more than 0.3 dB (median or p5) |
+| A4 | route `lossy`: on `png` the restored raster is byte-equal to R0's, file by file |
+| A5 | the blend-model matrix: each inverse wins on its own model's composites and loses on the other's |
+| A6 | `exact` on `png` canonical (restored, nothing clamped): 100 % and R0's flags for `lossy`; ≥ 99 % for `model` |
+| A7 | detection: the share found and the median rect error no worse than R0's |
+
+Only the vendor's blend (`encoded`, `k = 1`) enters A1–A3 and A7; the
+linear-light composites are A5's, the `R-k` ones §7's. Every threshold is a
+`[tunable]` at the top of `report.py` and moves only with a line in a
+report.
+
+## Any profile: the bench for Grok (E12-R12 §4.2, stage 4b)
+
+The mark is data, so the bench takes a **profile**, not "Gemini" (added
+2026-10-09, before any Grok profile exists; `docs/plan/reports/E12-R12-stage4b-tools-2026-10-09.md`).
+
+* **`gen --profile ID`**: a Gemini id keeps that profile's rows of the table
+  above; any other id — in the shipped catalogue, or in the file
+  `--catalogue` names — gets rows read off **its own placements**: one per
+  size (`--sizes WxH,…`, or the least size each placement answers for, 1024
+  where its `when` says nothing), each the profile's first placement at that
+  size as the product takes it; `canonical` when that row is at its map's
+  own size with a map not fitted (so `exact` is a true self-test), `shipped`
+  otherwise. Row ids are `<map>-<W>x<H>`. A tile goes in the canvas's
+  corner nearest the mark (bottom-right for every Gemini row).
+* **`--catalogue FILE`** (gen and run): a catalogue in the shipped one's
+  schema — the shape R11 §4.3 commits a provisional profile in, a row with
+  `status: "provisional"` and its maps pinned by sha256 — its `.wma` maps
+  beside it (or one folder down), the shipped assets found by name. The run's
+  `manifest.json` records the file and its sha256; `run` reads the same file
+  again and refuses one whose sha256 moved. The catalogue keeps refusing
+  `linear-light` and `logo_map` (R11 needs R9 first for those).
+* **The degradations a vendor hands out** (R2 stage 0): `gen --slices a,b`
+  or `gen --degradations FILE`, a small JSON file —
+  `{"schema": 1, "profile": "<id>", "slices": ["png", "jpeg420-q85", …], "comment": "…"}`
+  (`fixtures/marks/synthetic-wordmark/degradations.json` is the shape).
+  Besides §4.3's slices, any `jpeg444-qNN` / `jpeg420-qNN` (NN 1–100) is a
+  slice: `image` writes the 4:4:4 ones, Pillow both. The run's
+  `manifest.json` records the list; `encode.py` writes those alone (and the
+  resized truths they need), and `run` takes them unless `--slices` says
+  otherwise. If Grok hands out JPEG 4:2:0, that is the main slice and `png`
+  is only the map's self-test.
+* **The matrix (A5)** is made for every row of every profile: each case is
+  composited `encoded` and `linear-light` (and `R-k` on a canonical row).
+  `report.py report RESULTS --profile 'grok-*'` reports one profile's lines
+  out of a concatenation; §0 names the profiles and the catalogue file.
+* **The stand-in.** `fixtures/marks/synthetic-wordmark/` holds a text-like
+  72 × 24 map of straight strokes (`scripts/bench/wordmark.py`, no font),
+  profile `fixture-wordmark`, pinned like every asset. It is a fixture, not
+  a vendor's mark; the example's tests run it from `gen` to its result lines
+  (`a_profile_from_a_catalogue_file_runs_from_gen_to_its_result_lines`).
+
+### The Grok runbook (host)
+
+Nothing here runs before R11 has left a provisional profile (its `.wma` and
+its catalogue row) and R2 stage 0 has said what Grok hands out.
+
+0. **Build** with the zune-jpeg fork (`docs/architecture/zune-jpeg-pin.md`),
+   at the commit under test:
+   `cargo build --release -p wipemark-picture --example recon_bench --locked`
+   (every config, R6 and R8 included, is in every build).
+1. **The degradation list**: `bench/degradations/grok.json` from R2 stage
+   0's facts table, committed with the report that names them.
+2. **Generate R0-grok's run** with the provisional catalogue:
+   `$B gen --manifest bench/manifest.json --out bench/out/grok-<date> --sample 30 --catalogue <dir>/marks.v1.json --profile <grok id> --degradations bench/degradations/grok.json`
+   (`--sizes` for the (size, aspect) pairs stage 0 found, when the rows'
+   least sizes are not those).
+3. `python3 scripts/bench/encode.py bench/out/grok-<date>`.
+4. **R0-grok, and every accepted config on it unchanged**:
+   `$B run --in bench/out/grok-<date> --config R0 --config R6 --config R8d --config R8p --config R8w --out bench/out/grok-<date>/results.jsonl`
+   (the catalogue is read back from the run's manifest).
+5. `python3 scripts/bench/report.py report bench/out/grok-<date>/results.jsonl --out <report>.md`:
+   §1 per slice, §2 the matrix (more important here than for Gemini: the
+   model was chosen on captures from the same corpus), §5 whether Grok's
+   real failures are reproduced by their order of magnitude. The gates as
+   for Gemini, against R0 on the same run.
+6. Once the profile is accepted, the regression's Grok baseline
+   (`scripts/regress.py`'s header, "The Grok runbook").
+
+## E12-R9: the blend past one colour, with R4's numbers
+
+R9's three sub-steps — a bias (R9a, D308), a logo colour per pixel (R9b,
+D313), linear light (R9c, D311), all proposed — are code behind the
+`blend-preview` feature (`docs/architecture/visible-marks.md`, "A mark is
+data"). Nothing in the repository carries R4's values: the host writes
+them into **one profile row in a file**, and the bench reads that file, so
+plugging in a measured `b`, a regressed `L(p)` or the linear model is an
+edit to a JSON file, not to the code. Build:
+
+```sh
+cargo build --release -p wipemark-picture --example recon_bench --features blend-preview --locked
+B=target/release/examples/recon_bench
+$B configs          # R9a, R9b, R9c are listed only in this build
+```
+
+**The row.** Copy V1's row out of `manifests/marks.v1.json` into
+`bench/r9/<sub-step>/row.json` (one JSON object, the same schema), keep its
+`id` (`gemini-sparkle-v1`) so it takes the shipped row's place, and change
+only its `blend`:
+
+| sub-step | the row's `blend` | from |
+|---|---|---|
+| R9a | `{ "model": "encoded", "logo": [252.1, 253.5, 252.8], "logo_map": null, "bias": [b_r, b_g, b_b] }` | R4 §4.3, `scripts/analytics/bias.py`'s `b` per channel |
+| R9b | `{ "model": "encoded", "logo": [252.1, 253.5, 252.8], "logo_map": { "asset": "gemini-v1-96-regressed.wml", "sha256": "…", "size": [96, 96] } }`, and `alpha` / `placements` / `search` naming only the 96 maps (a logo colour map must be the size of every map its row lists) | R4 §4.4: `python3 scripts/bench/wml.py from-tsv <map_regress-out>/pixels.tsv --logo 252.1,253.5,252.8 --out bench/r9/r9b/gemini-v1-96-regressed.wml` prints the sha256 and the `blend` |
+| R9c | `{ "model": "linear-light", "logo": […], "logo_map": null }` with the `alpha` and `logo` a linear-light calibration wrote (`examples/calibrate.rs` on `gemini-midtone`'s greys writes such a row under `blend-preview`) | R4 §4.3/§4.4 and the calibration (D311's three agreements) |
+
+Every `.wma` and `.wml` in the row file's folder is read before the shipped
+ones, so a regressed `α` map (`map_regress`'s `alpha_reg.wma`, pinned with
+its sha256 in the row's `alpha`) goes beside it too. `run` refuses a row
+that does not read, and an R9 config whose row carries nothing it measures.
+
+**Level A.** The composites carry the effect the sub-step models — `gen`'s
+flags draw it, with the same row's numbers, into a run of its own:
+
+```sh
+# R9a: R5's composites with the bias, and with the bias truncated.
+$B gen --manifest bench/manifest.json --out bench/out/r9a-<date> --sample 30 --bias b_r,b_g,b_b
+$B gen --manifest bench/manifest.json --out bench/out/r9a-trunc-<date> --sample 30 --bias b_r,b_g,b_b --rounding truncate
+# R9b: the regressed L(p) drawn on the rows whose map is its size.
+$B gen --manifest bench/manifest.json --out bench/out/r9b-<date> --sample 30 --rows v1-96,v1-96-measured \
+    --logo-map bench/r9/r9b/gemini-v1-96-regressed.wml
+# R9c: R5's own composites already hold both models (A5's matrix).
+python3 scripts/bench/encode.py bench/out/r9a-<date>     # and every other run
+$B run --in bench/out/r9a-<date> --config R0 --config R9a --blend-row bench/r9/r9a/row.json \
+    --out bench/out/r9a-<date>/results.jsonl
+python3 scripts/bench/report.py gates bench/out/r9a-<date>/results.jsonl --candidate R9a --route model --targets png
+```
+
+and the same for `r9a-trunc`, `r9b` (`--config R9b`, `--blend-row
+bench/r9/r9b/row.json`; A1 on the `sat-*` and `black`-like tones by ΔE,
+`report.py report`'s per-tone table) and R9c over an ordinary run
+(`--config R0 --config R9c --blend-row bench/r9/r9c/row.json`; the
+report's §2 is the matrix, `gates … --candidate R9c` checks A5). Without a
+bias, a truncation or a map, `gen` writes what it wrote before R9, byte for
+byte, `meta.json` included; with one, `meta.json`'s `blend` says it and an
+`exact` expectation becomes `restored`. A2 (R9a/R9b): an R9 config on an
+R0 run with `"bias": null` / no map must equal R0 file for file.
+
+`--blend-row` and `--catalogue` (R12's road, "Any profile") compose: with
+both, the row replaces its id's row in the `--catalogue` file rather than
+in the shipped catalogue, and its assets are looked for beside the row,
+then beside the file, then among the shipped ones — so a Grok profile
+that exists only as a file is measured by R9's configs unchanged. A
+`--catalogue` file whose row carries a `bias` or a `logo_map` (`.wml`
+beside it) loads only in a `blend-preview` build, and is refused by name
+otherwise.
+
+**Level B** is R1's `--route model` with a CLI built `--features
+wipemark-picture/blend-preview` over a `manifests/marks.v1.json` carrying
+the same row (a local edit, never committed until the decision is taken),
+on `recon-png` (M2) and `gemini-midtone`'s **held-out** files (M3), and
+the negatives (G1).

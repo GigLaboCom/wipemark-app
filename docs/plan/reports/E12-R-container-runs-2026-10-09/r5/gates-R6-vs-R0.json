@@ -1,0 +1,319 @@
+{
+  "candidate": "R6",
+  "baseline": "R0",
+  "route": "lossy",
+  "targets": [
+    "jpeg420-q95",
+    "jpeg420-q90"
+  ],
+  "ok": true,
+  "gates": [
+    {
+      "gate": "A1",
+      "ok": true,
+      "slices": [
+        {
+          "slice": "jpeg420-q90",
+          "ok": true,
+          "median_delta": 7.525199999999998,
+          "p5_delta": 0.956294999999999,
+          "mean_delta": 2.4996086111111104
+        },
+        {
+          "slice": "jpeg420-q95",
+          "ok": true,
+          "median_delta": 5.061850000000007,
+          "p5_delta": 1.7627500000000005,
+          "mean_delta": 2.327116944444441
+        }
+      ]
+    },
+    {
+      "gate": "A2",
+      "ok": true,
+      "slices": [
+        {
+          "slice": "jpeg420-q75",
+          "ok": true,
+          "median_delta": 0.6332999999999984,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "jpeg420-q85",
+          "ok": true,
+          "median_delta": 6.465049999999998,
+          "p5_delta": 0.7642299999999995
+        },
+        {
+          "slice": "jpeg420-q90+resize-0.9",
+          "ok": true,
+          "median_delta": 2.446399999999997,
+          "p5_delta": 0.03833500000000001
+        },
+        {
+          "slice": "jpeg444-q90",
+          "ok": true,
+          "median_delta": 0.0,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "jpeg444-q95",
+          "ok": true,
+          "median_delta": 0.0,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "png",
+          "ok": true,
+          "median_delta": 0.0,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "resize-0.9",
+          "ok": true,
+          "median_delta": 0.0,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "resize-1.1",
+          "ok": true,
+          "median_delta": 0.0,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "webp-lossy-q90",
+          "ok": true,
+          "median_delta": 0.0,
+          "p5_delta": 0.0
+        }
+      ]
+    },
+    {
+      "gate": "A3",
+      "ok": true,
+      "slices": [
+        {
+          "slice": "jpeg420-q75",
+          "ok": true,
+          "median_delta": 0.0,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "jpeg420-q85",
+          "ok": true,
+          "median_delta": 0.765500000000003,
+          "p5_delta": 0.4902899999999999
+        },
+        {
+          "slice": "jpeg420-q90",
+          "ok": true,
+          "median_delta": 1.1414500000000025,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "jpeg420-q90+resize-0.9",
+          "ok": true,
+          "median_delta": 0.38560000000000016,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "jpeg420-q95",
+          "ok": true,
+          "median_delta": 4.234250000000003,
+          "p5_delta": 1.2395900000000015
+        },
+        {
+          "slice": "jpeg444-q90",
+          "ok": true,
+          "median_delta": 0.0,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "jpeg444-q95",
+          "ok": true,
+          "median_delta": 0.0,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "png",
+          "ok": true,
+          "median_delta": 0.0,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "resize-0.9",
+          "ok": true,
+          "median_delta": 0.0,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "resize-1.1",
+          "ok": true,
+          "median_delta": 0.0,
+          "p5_delta": 0.0
+        },
+        {
+          "slice": "webp-lossy-q90",
+          "ok": true,
+          "median_delta": 0.0,
+          "p5_delta": 0.0
+        }
+      ]
+    },
+    {
+      "gate": "A4",
+      "ok": true,
+      "files": 960,
+      "moved": []
+    },
+    {
+      "gate": "A5",
+      "ok": true,
+      "why": "both inverses are encoded: the matrix needs one of each"
+    },
+    {
+      "gate": "A6",
+      "ok": true,
+      "exact_share": 1.0,
+      "n": 146
+    },
+    {
+      "gate": "A7",
+      "ok": true,
+      "slices": [
+        {
+          "slice": "jpeg420-q75",
+          "ok": true,
+          "found": [
+            0.8305555555555556,
+            0.8305555555555556
+          ],
+          "rect_error": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "slice": "jpeg420-q85",
+          "ok": true,
+          "found": [
+            0.8333333333333334,
+            0.8333333333333334
+          ],
+          "rect_error": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "slice": "jpeg420-q90",
+          "ok": true,
+          "found": [
+            0.8472222222222222,
+            0.8472222222222222
+          ],
+          "rect_error": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "slice": "jpeg420-q90+resize-0.9",
+          "ok": true,
+          "found": [
+            0.7083333333333334,
+            0.7083333333333334
+          ],
+          "rect_error": [
+            0.0938,
+            0.0938
+          ]
+        },
+        {
+          "slice": "jpeg420-q95",
+          "ok": true,
+          "found": [
+            0.8583333333333333,
+            0.8583333333333333
+          ],
+          "rect_error": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "slice": "jpeg444-q90",
+          "ok": true,
+          "found": [
+            0.8444444444444444,
+            0.8444444444444444
+          ],
+          "rect_error": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "slice": "jpeg444-q95",
+          "ok": true,
+          "found": [
+            0.8541666666666666,
+            0.8541666666666666
+          ],
+          "rect_error": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "slice": "png",
+          "ok": true,
+          "found": [
+            0.8722222222222222,
+            0.8722222222222222
+          ],
+          "rect_error": [
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "slice": "resize-0.9",
+          "ok": true,
+          "found": [
+            0.7305555555555555,
+            0.7305555555555555
+          ],
+          "rect_error": [
+            0.0938,
+            0.0938
+          ]
+        },
+        {
+          "slice": "resize-1.1",
+          "ok": true,
+          "found": [
+            0.6972222222222222,
+            0.6972222222222222
+          ],
+          "rect_error": [
+            0.0625,
+            0.0625
+          ]
+        },
+        {
+          "slice": "webp-lossy-q90",
+          "ok": true,
+          "found": [
+            0.8361111111111111,
+            0.8361111111111111
+          ],
+          "rect_error": [
+            0.0,
+            0.0
+          ]
+        }
+      ]
+    }
+  ]
+}

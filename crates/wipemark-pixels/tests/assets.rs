@@ -188,16 +188,18 @@ fn a_tampered_asset_is_refused_by_name() {
 
 /// The schema is checked before a profile exists: a blend model this
 /// version does not implement, and a placement naming a map the profile
-/// does not list, are refusals naming the profile.
+/// does not list, are refusals naming the profile. (`linear-light` is
+/// read under `blend-preview`, E12-R9c: there it is not a refusal.)
 #[test]
 fn the_catalogue_refuses_linear_light_and_unknown_maps() {
     let v1 = synthetic_v1();
     let mut assets = Vec::new();
     let row = profile_json(&v1, &mut assets, 32);
-    for (from, to) in [
-        ("\"encoded\"", "\"linear-light\""),
-        ("\"alpha\": \"small\"", "\"alpha\": \"medium\""),
-    ] {
+    let mut cases = vec![("\"alpha\": \"small\"", "\"alpha\": \"medium\"")];
+    if !cfg!(feature = "blend-preview") {
+        cases.push(("\"encoded\"", "\"linear-light\""));
+    }
+    for (from, to) in cases {
         let bad = row.replace(from, to);
         assert_ne!(bad, row, "{from} is not in the row");
         match parse_with(&[bad], &assets) {
@@ -205,4 +207,53 @@ fn the_catalogue_refuses_linear_light_and_unknown_maps() {
             other => panic!("{to}: {other:?}"),
         }
     }
+}
+
+/// E12-R9b, under `blend-preview`: a logo colour map is an asset like an
+/// opacity map — named by file, pinned by sha256 and re-hashed on load. A
+/// flipped byte in it is a refusal that names the asset, even where the
+/// flipped file would still read as a logo colour map.
+#[cfg(feature = "blend-preview")]
+#[test]
+fn a_logo_map_asset_is_pinned() {
+    use wipemark_pixels::LogoMap;
+
+    let v1 = synthetic_v1();
+    // Both maps at the small map's size: a logo colour map must be the
+    // size of every opacity map its profile lists.
+    let one = Synthetic {
+        id: v1.id,
+        small: v1.small.clone(),
+        large: v1.small,
+    };
+    let mut assets = Vec::new();
+    let row = profile_json(&one, &mut assets, 32);
+    let wml = LogoMap::new(48, 48, vec![[250.0, 251.0, 252.0]; 48 * 48])
+        .unwrap()
+        .write()
+        .unwrap();
+    let sha = sha256_hex(&wml);
+    let row = row.replace(
+        r#""logo_map": null"#,
+        &format!(r#""logo_map": {{ "asset": "logo.wml", "sha256": "{sha}", "size": [48, 48] }}"#),
+    );
+    assert!(row.contains("logo.wml"));
+    assets.push((String::from("logo.wml"), wml));
+    let read = parse_with(std::slice::from_ref(&row), &assets).unwrap();
+    assert!(read.profiles()[0].logo_map.is_some());
+
+    // The last sample's high byte, flipped: blue's 252 is stored as
+    // 0xFCFC and becomes 0xFDFC, a blue of 253.0 — a map that still reads.
+    let last = assets.len() - 1;
+    let end = assets[last].1.len() - 1;
+    assets[last].1[end] ^= 1;
+    assert!(LogoMap::read(&assets[last].1).is_ok());
+    assert_eq!(
+        parse_with(&[row], &assets).unwrap_err(),
+        CatalogueError::Asset {
+            profile: v1.id.into(),
+            id: "logo.wml".into(),
+            problem: AssetProblem::Hash,
+        }
+    );
 }

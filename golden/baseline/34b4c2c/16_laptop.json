@@ -1,0 +1,197 @@
+{
+ "id": "16_laptop",
+ "class": "recon-png",
+ "variant": "png",
+ "input_sha256": "882b1318a691f7811dbcc9c60694ab25175416d4164d44e11507c473a5f00bb9",
+ "inspect": {
+  "exit": 1,
+  "json": {
+   "container": "png",
+   "ai_metadata": true,
+   "c2pa": true,
+   "findings": [
+    {
+     "kind": "c2pa",
+     "chunk": "caBX",
+     "key": null,
+     "offset": 33,
+     "length": 7791,
+     "ai": true,
+     "c2pa": true,
+     "evidence": [
+      {
+       "signal": "c2pa-manifest",
+       "generator": null,
+       "source_type": null,
+       "field": "C2PA",
+       "matched": "caBX"
+      }
+     ]
+    }
+   ],
+   "visible": {
+    "examined": true,
+    "restorable": true,
+    "found": [
+     {
+      "profile": "gemini-sparkle-v1",
+      "vendor": "google",
+      "product": "gemini",
+      "pass": 1,
+      "rect": {
+       "x": 1888.0,
+       "y": 1888.0,
+       "size": 96.0
+      },
+      "pixels": {
+       "x": 1888,
+       "y": 1888,
+       "width": 96,
+       "height": 96
+      },
+      "placed": "row",
+      "row": 0,
+      "kernel": "area",
+      "ncc": 0.999789,
+      "verdict": "verified",
+      "refusal": null,
+      "scores": {
+       "gain": 1.0,
+       "edge_ratio": 0.017900657,
+       "out_of_range": 0.0,
+       "holes": 0
+      },
+      "also_tried": []
+     }
+    ],
+    "restored": []
+   },
+   "not_established": [
+    "invisible-pixel-marks",
+    "vendor-detector-evasion",
+    "human-authorship",
+    "unknown-mark-schemes"
+   ]
+  }
+ },
+ "clean": {
+  "exit": 1,
+  "json": {
+   "report": {
+    "container": "png",
+    "still_has_ai_metadata": false,
+    "still_has_c2pa": false,
+    "removed": [
+     {
+      "kind": "c2pa",
+      "chunk": "caBX",
+      "key": null,
+      "offset": 33,
+      "length": 7791,
+      "ai": true,
+      "c2pa": true,
+      "evidence": [
+       {
+        "signal": "c2pa-manifest",
+        "generator": null,
+        "source_type": null,
+        "field": "C2PA",
+        "matched": "caBX"
+       }
+      ]
+     }
+    ],
+    "kept": [],
+    "orientation_removed": null,
+    "visible": {
+     "examined": true,
+     "restorable": true,
+     "found": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "vendor": "google",
+       "product": "gemini",
+       "pass": 1,
+       "rect": {
+        "x": 1888.0,
+        "y": 1888.0,
+        "size": 96.0
+       },
+       "pixels": {
+        "x": 1888,
+        "y": 1888,
+        "width": 96,
+        "height": 96
+       },
+       "placed": "row",
+       "row": 0,
+       "kernel": "area",
+       "ncc": 0.999789,
+       "verdict": "verified",
+       "refusal": null,
+       "scores": {
+        "gain": 1.0,
+        "edge_ratio": 0.017900657,
+        "out_of_range": 0.0,
+        "holes": 0
+       },
+       "also_tried": []
+      }
+     ],
+     "restored": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "rect": {
+        "x": 1888,
+        "y": 1888,
+        "width": 96,
+        "height": 96
+       },
+       "changed": 3441,
+       "holes": 0,
+       "clamped": 0,
+       "outline": 0.0014710238,
+       "steps": [
+        -0.21557373,
+        0.089808784,
+        0.27763087
+       ],
+       "step": 0.019911136,
+       "chroma": 0.2221813,
+       "outline_left": false,
+       "texture": 1.8626139,
+       "texture_around": 1.7313143,
+       "texture_left": false,
+       "noise": false,
+       "lossy": false,
+       "fitted": true,
+       "resampled": false,
+       "searched": false,
+       "exact": false,
+       "consistency_px": 0.24389102,
+       "consistency_excluded": 0
+      }
+     ]
+    },
+    "encoding": {
+     "kind": "png",
+     "colour_changed": false,
+     "interlace_dropped": false
+    },
+    "marks_left": false,
+    "not_established": [
+     "invisible-pixel-marks",
+     "vendor-detector-evasion",
+     "human-authorship",
+     "unknown-mark-schemes"
+    ]
+   },
+   "written": true
+  },
+  "output_sha256": "dfc1d619138c7126dfcd66596b48ed35ae5ec568708e86156b394d3a931ccac2"
+ },
+ "time_s": {
+  "inspect": 0.789,
+  "clean": 2.9083
+ }
+}

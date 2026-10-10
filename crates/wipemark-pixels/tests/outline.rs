@@ -18,8 +18,9 @@ mod support;
 use image::imageops::FilterType;
 use support::*;
 use wipemark_pixels::{
-    clean, composite, resampled, Catalogue, ExamineOptions, Fidelity, Layout, PixelRect, Raster,
-    BAND, NOISE_FLOOR, OUTLINE_BOUND, STEP_LEVELS, TEXTURE_LEVELS, TEXTURE_RATIO,
+    clean, composite, drawn, measure_at, resampled, Anchor, Catalogue, ExamineOptions, Fidelity,
+    Kernel, Layout, PixelRect, Raster, SubRect, BAND, NOISE_FLOOR, OUTLINE_BOUND, STEP_LEVELS,
+    TEXTURE_LEVELS, TEXTURE_RATIO,
 };
 
 const LARGE: (u32, u32) = (704, 384);
@@ -236,4 +237,159 @@ fn a_shrunk_and_compressed_mark_is_restored_within_the_outline_bound() {
         said, 1,
         "the flat bilinear case at 90 is the one outline left"
     );
+}
+
+/// E12-R12 §5: `measure_at` restates nothing. A clean picture `P` is the
+/// restoration of a composite (a mark at a row's own place over a
+/// procedural picture, undone); composited again where it was, the very
+/// bytes come back, and restored again, `P` comes back to the byte — a
+/// **null restoration**, the one a picture with no mark can be given (a
+/// profile at zero opacity has no support, `verify` calls it no blend, and
+/// only `verify` builds a `Verified`). What `outline` measured after it,
+/// `measure_at` measures over `P` with nothing restored: the share against
+/// the contour a mark drawn there would have had, the band's steps, the
+/// roughness under the map's support and around it — equal to the bit, and
+/// the verdicts with them, on either fidelity.
+#[test]
+fn measure_at_on_a_clean_picture_is_what_outline_measures_after_a_null_restoration() {
+    let shipped = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
+    let (w, h) = (1100u32, 1100u32);
+    let mut compared = 0;
+    for id in ["gemini-sparkle-v1", "gemini-sparkle-v2"] {
+        let profile = shipped.profile(id).unwrap();
+        // The large row: V1's fitted map 64 in, V2's canonical one 192 in.
+        let row = &profile.placements[0];
+        let map = profile.map(row.alpha);
+        let Anchor::Corner { margin, .. } = row.anchor else {
+            panic!("{id}: the large row is a corner row")
+        };
+        let at = PixelRect {
+            x: w - margin[0] - map.width(),
+            y: h - margin[1] - map.height(),
+            width: map.width(),
+            height: map.height(),
+        };
+        let mark = drawn(map);
+        for (kind, seed) in [
+            (Kind::Gradient, 3),
+            (Kind::ValueNoise, 5),
+            (Kind::Fractal, 7),
+            (Kind::Flat, 11),
+        ] {
+            for source in [Fidelity::Lossless, Fidelity::Lossy] {
+                let name = format!("{id} {kind:?} {source:?}");
+                let options = ExamineOptions {
+                    source,
+                    profiles: Some(vec![id.to_string()]),
+                };
+                let mut marked = picture(kind, w, h, seed, Layout::Rgb8);
+                composite(&mut marked, &mark, at, profile.logo);
+                let first = marked.clone();
+                let mut clean_picture = marked;
+                let report = clean(&mut clean_picture, shipped, &options);
+                assert_eq!(report.restored.len(), 1, "{name}: {:#?}", report.found);
+
+                // The null restoration: the clean picture's composite is the
+                // composite it was restored from, and its restoration is the
+                // clean picture to the byte.
+                let mut again = clean_picture.clone();
+                composite(&mut again, &mark, at, profile.logo);
+                assert!(again == first, "{name}: the composite comes back");
+                let report = clean(&mut again, shipped, &options);
+                assert!(again == clean_picture, "{name}: a null restoration");
+                assert_eq!(report.restored.len(), 1, "{name}: {:#?}", report.found);
+                let r = &report.restored[0];
+                let f = report
+                    .found
+                    .iter()
+                    .find(|f| f.verified().is_some())
+                    .unwrap();
+
+                let m = measure_at(&clean_picture, profile, map, f.rect, f.kernel)
+                    .unwrap_or_else(|| panic!("{name}: measured nothing"));
+                println!(
+                    "{name}: share {:.4} step {:+.3} chroma {:.3} texture {:.3} around {:.3}",
+                    m.share, m.step, m.chroma, m.texture, m.texture_around
+                );
+                assert_eq!(m.share, r.outline, "{name}: share");
+                assert_eq!(m.steps, r.steps, "{name}: steps");
+                assert_eq!(m.step, r.step, "{name}: step");
+                assert_eq!(m.chroma, r.chroma, "{name}: chroma");
+                assert_eq!(m.texture, r.texture, "{name}: texture");
+                assert_eq!(m.texture_around, r.texture_around, "{name}: around");
+                assert_eq!(m.left(), r.outline_left, "{name}: left");
+                assert_eq!(
+                    source == Fidelity::Lossy && m.textured(),
+                    r.texture_left,
+                    "{name}: texture left"
+                );
+                compared += 1;
+            }
+        }
+    }
+    assert_eq!(compared, 16);
+}
+
+/// `measure_at` against figures it was handed, not against the code it
+/// shares: on a flat grey picture with every third pixel each way lifted
+/// by six grey levels, the roughness under the map's support and around it
+/// is six — in `(Y, Cb, Cr)`, where a grey lift is all luma; in RGB it
+/// would be √3 times that — and nothing is left. With the faint band alone
+/// lifted by three grey levels instead, the luma step is three, the colour
+/// step none, and an outline is said: the band is the template's pixels in
+/// [`BAND`], where the map's own drawn values put them. A flat picture has
+/// no contour of its own, so its share is none.
+#[test]
+fn measure_at_reads_a_grain_and_a_step_it_was_given() {
+    let shipped = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
+    let v2 = shipped.profile("gemini-sparkle-v2").unwrap();
+    let (_, map) = v2.maps.iter().find(|(id, _)| id == "gemini-v2-96").unwrap();
+    let template = drawn(map);
+    let (w, h, x0, y0) = (240u32, 200u32, 70u32, 50u32);
+    let rect = SubRect {
+        x: x0 as f32,
+        y: y0 as f32,
+        size: map.width() as f32,
+    };
+    let flat = |lift: &dyn Fn(u32, u32) -> u8| {
+        let mut bytes = Vec::with_capacity((w * h * 3) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                bytes.extend([128 + lift(x, y); 3]);
+            }
+        }
+        Raster::from_u8(w, h, Layout::Rgb8, &bytes).unwrap()
+    };
+
+    let plain = flat(&|_, _| 0);
+    let m = measure_at(&plain, v2, map, rect, Kernel::Area).unwrap();
+    assert_eq!(
+        (m.share, m.step, m.chroma, m.texture),
+        (0.0, 0.0, 0.0, 0.0),
+        "{m:?}"
+    );
+
+    let grain = flat(&|x, y| if x % 3 == 0 && y % 3 == 0 { 6 } else { 0 });
+    let m = measure_at(&grain, v2, map, rect, Kernel::Area).unwrap();
+    assert!((m.texture - 6.0).abs() < 1e-3, "{m:?}");
+    assert!((m.texture_around - 6.0).abs() < 1e-3, "{m:?}");
+    assert!(m.chroma < 1e-3 && m.step.abs() < 1.0, "{m:?}");
+    assert!(!m.textured() && !m.left(), "{m:?}");
+
+    let in_band = |x: u32, y: u32| {
+        let (tx, ty) = (i64::from(x) - i64::from(x0), i64::from(y) - i64::from(y0));
+        (BAND[0]..=BAND[1]).contains(&template.get(tx, ty))
+    };
+    let band = flat(&|x, y| if in_band(x, y) { 3 } else { 0 });
+    let m = measure_at(&band, v2, map, rect, Kernel::Area).unwrap();
+    assert!((m.step - 3.0).abs() < 1e-3, "{m:?}");
+    assert!(m.chroma < 1e-3 && m.spread == 0.0, "{m:?}");
+    assert!(m.left(), "{m:?}");
+
+    // A rectangle past the picture's edge is not measured.
+    let outside = SubRect {
+        x: (w - 10) as f32,
+        ..rect
+    };
+    assert!(measure_at(&grain, v2, map, outside, Kernel::Area).is_none());
 }

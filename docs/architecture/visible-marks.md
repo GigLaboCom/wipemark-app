@@ -31,7 +31,8 @@ between them. A profile is: an id (a format: ASCII, never renamed, never
 translated), vendor, product and mark (identifiers, shown beside a
 finding, never inside a sentence), `observed`, `status`, the blend
 (`encoded` with a logo colour; `linear-light` refused until a calibration
-needs it, D152; `logo_map` refused in this version), `opaque_above`, its
+needs it, D152; `logo_map` refused in this version; `bias` not a field —
+all three read only under `blend-preview`, below), `opaque_above`, its
 opacity maps, its placement rows, its search, `detect.min_ncc` and the
 three `verify` limits, and `source` for provenance.
 
@@ -46,6 +47,55 @@ all little-endian; α = sample / (2^depth − 1)
 
 GWT's four maps are depth 8, `sample = max(R, G, B)` of the PNG they came
 from (`marks/README.md`); a calibrated map (E12-2) is depth 16.
+
+**The blend past one colour (E12-R9) — built, not opened.** Three schema
+additions exist as code and are read by the catalogue **only** in a build
+with the `blend-preview` feature of `wipemark-pixels` (forwarded by
+`wipemark-picture` under the same name); their
+decisions are proposed and none is taken:
+
+* **`blend.bias`** (R9a, D308): `[b_r, b_g, b_b]` in stored 8-bit levels,
+  scaled to the layout as the logo is, added by the vendor where the mark
+  is drawn (`α > 0`). The inverse takes it off first, `O = (I − α·L −
+  b)/(1 − α)`, and the out-of-range interval moves with it, `[α·L + b,
+  α·L + b + (1 − α)·max]`. Absent or `null` is no bias, never a zero added
+  (A2, `a_profile_without_a_bias_is_byte_for_byte_todays`); a channel at
+  ±255 or past it is refused.
+* **`blend.logo_map`** (R9b, D313): `{ "asset", "sha256", "size" }`, a
+  **`.wml`** under `marks/` compiled in beside the `.wma` files and pinned
+  and re-hashed the same way (`a_logo_map_asset_is_pinned`), the size of
+  every opacity map the profile lists:
+
+  ```
+  "WML1" | u16 width | u16 height | u8 depth (16) | R plane | G plane | B plane
+  each plane width × height u16 samples, row-major; all little-endian; L = sample · 255 / 65535
+  ```
+
+  `L(p)` is brought to a template as the composite draws it — `α·L` and
+  `α` resampled alike, one divided by the other — and the proof, the
+  restoration, the outline's stand-in (`measure_at`) and the capture noise
+  read the pixel's own colour. In the planes (R6) it goes through JFIF's
+  matrix per pixel, and a chroma block's is its pixels' `α`-weighted mean.
+  `scripts/bench/wml.py` writes one from `map_regress`'s `pixels.tsv`.
+* **`"model": "linear-light"`** (R9c, D311): the inverse in light,
+  `O = from_lin((lin(I) − α·lin(L))/(1 − α))`, the sRGB curve continued
+  past its range so an unclamped inverse still says by how much; the
+  out-of-range share measured in light, the allowance of eight stored
+  levels converted at each stored value by the curve's own slope. A
+  linear-light blend is not linear in a JPEG's code values, so it never
+  takes the planar path (R6) and is never refined inside the interval
+  (R8): it is proved and restored in RGB. A calibration whose greys chose
+  it writes a provisional row that says so, and that row loads.
+
+Without the feature every one of the three is refused as it was before the
+code existed — `bias` as an unknown field, the other two by name — and
+every shipped profile restores byte for byte as it did
+(`the_catalogue_still_refuses_what_was_not_built`). No shipped profile
+carries any of them: the values are R4's runs on `gemini-midtone`, which
+do not exist yet. The tests are `crates/wipemark-pixels/tests/blend.rs`;
+the bench's `R9a`, `R9b` and `R9c` (`scripts/bench/README.md`) are how the
+host measures each. A sub-step whose condition (R9 §1) fails is closed and
+its code removed; the feature goes when the decisions land.
 
 **`Catalogue::shipped()`** parses once (`OnceLock`) and returns
 `Result<&'static Catalogue, &'static CatalogueError>` — the choice the plan
@@ -123,6 +173,22 @@ them.
      `E(0)` moves with the shape as much as the residual does. A mark half
      a pixel off its row comes back within a level
      (`a_mark_half_a_pixel_off_its_row_is_proved_by_the_search`).
+   * **The search never proves what its row refused by gain** (D470, the
+     owner, 2026-10-10 — D154 held through the search). When the search
+     proves a mark at the place of a row of the same profile that refused
+     it by `Refusal::Gain` — both centres within `ROW_PLACE`, 3/16 of a
+     pixel, on each axis, whatever the size — the proof is not taken and
+     the row's refusal is the finding. An eighth of a pixel off, or shrunk
+     about the same centre, a template is a weaker mark, and the
+     refinement, which goes where the residual at `k = 1` is least, found
+     the one that let a mark drawn at `k = 0.93` pass for `k = 1`
+     (E12-R5's finding: 13–16 % of such marks on the bench, restored 12–25
+     levels off). Another opacity is another profile, never a per-picture
+     `k`. A mark a quarter or half a pixel off its row, a resampled mark at
+     another place and size, and a mark its row refused for another reason
+     are proved as before (`a_k_of_0_93_is_refused_by_a_k_of_1_profile`;
+     `a_weaker_mark_through_the_rows_and_the_search` reads 0 proved by
+     the search at `k` 0.90–0.95). On the 413-file corpus it moved nothing.
    * **A map at a sub-pixel place and size** is the area-weighted mean of
      the map samples each pixel's footprint covers — an exact integral of
      the map read as constant per sample (the plan proposed a 4×4
@@ -217,9 +283,34 @@ the proposals that were no blend, is a count for gates and is not in it):
   "placed":"row","row":1,"ncc":…,"verdict":"verified","refusal":null,
   "scores":{"gain":…,"edge_ratio":…,"out_of_range":…,"holes":0},
   "also_tried":[{"profile":"…","verified":false,"refusal":{"why":"gain","k":…}}]}],
- "restored":[{"profile":"…","rect":{…},"changed":…,"holes":0,"clamped":0,"exact":true}],
+ "restored":[{"profile":"…","rect":{…},"changed":…,"holes":0,"clamped":0,…,"exact":true,
+  "consistency_px":0.24,"consistency_excluded":0}],
  "not_established":["invisible-pixel-marks","vendor-detector-evasion","human-authorship","unknown-mark-schemes"]}
 ```
+
+**How far the result is from the data** (D305, E12-R7). Every
+restoration carries `consistency_px`: the restored samples blended back
+— `α·L + (1 − α)·O`, with the `α` (after any resampling), the logo and
+the gain 1 the restoration used — against the stored input **before**
+the restoration, `|blend(O) − I|`, the 95th percentile over every sample
+with `α` from `NOISE_FLOOR` to `opaque_above` (the capture noise a
+restoration took off too, D246), in 8-bit levels whatever the depth.
+`consistency_excluded` counts the samples left out because an error is
+expected there: every clamped one, and the three colour samples of every
+hole. For an exact inverse it is about 0 by identity — half a level of
+rounding at most, 0.24–0.25 on the fourteen crops in
+`fixtures/image/gemini/` whether PNG, JPEG or WebP
+(`tests/consistency.rs` in `wipemark-picture`) — so it is the cheapest
+test that an inverse is still an inverse; for a value chosen inside a
+codec's interval (R8) it is bounded by the interval, and for a model it
+says how far the model moved from what the file says. It is a measure:
+no bound, no verdict, no exit code and no `*_left` flag reads it.
+`consistency_dct`, the share of DCT coefficients outside their
+quantisation intervals, is written by DCT-POCS alone (E12-R8, below); it
+is absent from the JSON everywhere else. After a refinement both
+measures are taken on the refined result, through the same function. The measure is written once (`verify::consistency`, over pairs
+of a blended-back value and a stored one), for the planar inverse to
+call over Y and chroma too.
 
 **The third shelf** (D156): `not_established::ID` =
 `invisible-pixel-marks`, "invisible marks in the picture's pixels — not
@@ -368,16 +459,24 @@ traces; the proof here is stricter and the map and the logo are measured.
   it or a map drawn at another size or a sub-pixel offset;
   `Restored.searched` is a mark placed by the search. Each is said by
   name, and nothing is said by elimination.
-* **Known limitation: a subsampled JPEG under 95 is often not
-  restored.** A 4:2:0 JPEG's colour error in the band can take the
-  inverse past the out-of-range allowance (`BLEND_LEVELS`, 8 stored
-  levels) on more than the profile's 1 % of the samples. On the vendor's
-  2048 × 2048 files at 4:2:0 95 none is refused; at 90, 10 of 21 are
-  (shares 1.02–1.38 %). Which ones depends on where the codec's 16-pixel
-  blocks fall on the mark, not on the code: see D252. That is honest —
-  the mark is said to be left and `clean` exits 3 — but the commonest
-  JPEG is the one this release restores least. Restoring the colour at
-  the chroma's own resolution is the road, and not taken here.
+* **Known limitation, since D471 and D472: a JPEG under 95 is restored,
+  and a band is said.** On the RGB path a 4:2:0 JPEG's colour error in the
+  band took the inverse past the out-of-range allowance on more than 1 %
+  of the samples — at 90, 10 of the vendor's 21 originals were refused
+  (1.02–1.38 %, by where the 16-pixel blocks fall, D252). In the planes
+  (D471) that share is measured where the codec stored it, and on the
+  regression's corpus (level B, `docs/plan/reports/E12-R-decided-2026-10-10.md`)
+  no 4:2:0 original at 85, 90 or 95 is refused any more. What is said
+  instead: at 95, 4:2:0 and 4:4:4, 20 of 21 come out with nothing left
+  (the 21st is `crying`, the flattened copy whose outline is said as a
+  PNG too); at 90 (4:2:0 and 4:4:4) and 85 (4:2:0), 20 of 21 are restored
+  with an **outline** said — the faint band's luma step or share (D238,
+  D244), not the colour fringe and not the texture — and exit 3; at 75,
+  20 of 21 are refused by their row's gain (`k*` 0.94: the codec moved
+  the contour) and the 21st is restored with an outline and a texture
+  said. 285 of the corpus's 413 files exited 3 before the decisions, 195
+  after. A 4:2:0 JPEG whose planes do not read still takes the RGB path
+  and D252 holds for it.
 
 ## What the fourth host verification taught (D250–D253)
 
@@ -463,7 +562,8 @@ level of luma or `CHROMA_LEVELS` **4.0** levels of colour difference and
 the picture's own spread in each (D238, D244, D247); a texture is left,
 on a lossy source, past `TEXTURE_LEVELS` **5.5** levels of roughness and
 `TEXTURE_RATIO` **2.0** times the roughness around the mark (D250,
-D251). Measured on the synthetic pair and the shipped maps
+D251), and a smoothed patch is left, on a lossy source, under
+`TEXTURE_RATIO_MIN` **0.8** times it (D307, E12-R8). Measured on the synthetic pair and the shipped maps
 (2026-10-04, `--nocapture`):
 
 | | |
@@ -617,6 +717,234 @@ never decodes) and `wipemark-pixels` (which never reads a file). Plan:
   the encoding, `marks_left`, and the picture's shelf with
   `invisible-pixel-marks` first.
 
+## The planes of a JPEG (E12-R3)
+
+A JPEG stores its colour at its own resolution — half the width and
+height at 4:2:0 — and the raster above is the decoder's upsampling of it.
+`wipemark_picture::Decoded` carries, beside that raster, what the file
+stored (D302):
+
+* **`Decoded.planes: Option<wipemark_pixels::Planes>`**, filled by
+  **`decode_with_planes`** — `Some` for a JPEG of three YCbCr components;
+  `None` for grey, CMYK, an RGB-coded JPEG, a PNG or a WebP, and for a
+  JPEG whose planes could not be read, which is not a refusal. They are
+  read by a second decoder over the same bytes (a second entropy pass),
+  through `zune-jpeg`'s raw output (`JpegDecoder::raw_output`, upstream
+  `dev`, unreleased) cropped from its 8 × 8-padded buffers, with the
+  tables from the one getter our fork adds (D301,
+  [zune-jpeg-pin.md](zune-jpeg-pin.md)). **`decode` leaves them `None`**:
+  the second decode costs ×1.43 of the first on the 21 stickers at 2048,
+  JPEG 95 4:2:0 — over the ×1.10 the step allowed — so they are taken
+  only when a caller needs them. Since D471 that is the product's
+  `clean` and `inspect`, which decode every JPEG with them; the proof
+  re-reads the output with `decode` and no planes. The RGB raster is the
+  same through both roads (`the_rgb_raster_did_not_move`).
+* **`Planes`** (`crates/wipemark-pixels/src/planes.rs`) is a value, not a
+  codec: the picture's size, its `Sampling` (`H444`, `H422`, `H420`,
+  `Gray`, or `Other` with the factors), the planes Y, Cb, Cr — each
+  `ceil(W·h/h_max) × ceil(H·v/v_max)`, the IDCT's output with the MCU
+  padding cropped, 0–255 in `u16` as a raster's samples are — and `Quant`,
+  the luma table and the one Cb and Cr share, in natural order.
+  `Planes::new` refuses sizes the sampling does not make. A JPEG whose Cb
+  and Cr are quantised by two different tables gets no planes (`Quant` has
+  one chroma table); two slots holding the same values are one table.
+* **`Planes::to_rgb`** restates the decoder's scalar upsampler (the
+  triangle filter, vertical then horizontal at 4:2:0) and its 14-bit
+  colour conversion, and is the decoder's raster **to the byte** on every
+  odd size and every whole number of MCUs. On an even side that is not
+  one, the last column or row differs where the decoder read the MCU
+  padding (up to 9 levels at 38 × 24; see zune-jpeg-pin.md §4). It is
+  what the planar inverse (R6) will write back through, inside a mark's
+  rectangle only.
+* **Cost.** `decode_with_planes` against `decode` as it was at
+  `4b5ba17`: ×1.431 summed over the 21 (890.6 ms against 622.2 ms; 22–33
+  ms a file before, 31–46 after), against ×1.404 for R3's own patch timed
+  beside it; of what the planes add, the raw decode is about 203 ms and
+  the crop 43 (`examples/planes_cost.rs`). `decode` itself costs what it
+  cost on `zune-jpeg` 0.5.15. `crates/wipemark-picture/examples/planes_speed.rs`
+  through `docs/plan/reports/E12-R3-raw-output-against-r3.sh`, aarch64, in
+  the E12-R3 raw-output report (R3's first figure, ×1.397, is in the E12-R3
+  report).
+
+## The planar inverse (E12-R6) — the product's road (D471)
+
+`crates/wipemark-pixels/src/planar.rs`. **D471** (the owner, 2026-10-10 —
+the series' proposed D306, taken with the per-plane interval) puts it on
+the product's road: `wipemark_picture::clean` and `inspect` decode a JPEG
+with its planes and call `wipemark_pixels::clean_refined` /
+`examine_with` with them, so the CLI, the MCP tools and the windows'
+clean prove and restore a 4:2:0 or 4:2:2 mark in the planes
+(`the_product_takes_the_planes_on_a_subsampled_jpeg`). The
+`planar-preview` feature that held it off the road until then is gone.
+`wipemark_picture::clean_bytes_with_planes` (`#[doc(hidden)]`) is the
+planar inverse without D472's refinement, for the tests and tools that
+measure it alone; `recon_bench --config R6` is the same. Plan:
+[`docs/plan/E12-R6-planar-inverse.md`](../plan/E12-R6-planar-inverse.md).
+
+* **The model.** JFIF's YCbCr is affine in RGB, so the blend keeps its form
+  per plane: `Y_I = α·L_Y + (1 − α)·Y_O` at full resolution, and the
+  encoder's block average of chroma is `ᾱ·L_C + (1 − ᾱ)·C_O,sub` with
+  `ᾱ` the block's mean `α` — exact when `C_O` is constant over the block,
+  off by at most `max_B|C_O − mean_B C_O| · max_B|α − ᾱ|` otherwise. So Y
+  is inverted per pixel with `α`, Cb and Cr per block with `ᾱ`, unrounded;
+  the chroma is upsampled by the decoder's own triangle filter (in reals),
+  recombined by the decoder's own constants, rounded once and clamped once
+  — and written **only** inside the mark's rectangle, where `α` or the
+  block's `ᾱ` is at the noise floor or over, and not a hole (`α` or `ᾱ` at
+  `opaque_above`). Everything else stays the decoder's RGB, which is what
+  `prove`'s `outside_unchanged` holds (`nothing_outside_the_mark_moved`).
+  The capture noise (D246) and the outline, step, colour step and texture
+  are taken as the RGB restoration takes them.
+* **The proof in the same model** (D471). Out of range is counted per
+  pixel of the support: out when its Y lies outside
+  `[α·L_Y, α·L_Y + (1 − α)·255]` by more than `BLEND_LEVELS` (8), or its
+  chroma block's Cb or Cr outside `[ᾱ·L_C, ᾱ·L_C + (1 − ᾱ)·255]` by more
+  than `blend_levels_c` = 8 + `DC_SHARE` (0.5, `[tunable]`) × the chroma
+  table's DC step (9 at quality 95, 9.5 at 90, 10.5 at 85). The bound stays
+  1 %. `k*` and `E(1)/E(0)` stay on luma, unchanged. `Scores.planar`
+  carries the two terms (`y`, `chroma`); `out_of_range` is the share with
+  either.
+* **The route** is narrow: a lossy source, planes known, subsampled 4:2:0
+  or 4:2:2, the raster's size, 8-bit RGB. 4:4:4 (the RGB model already
+  matches), PNG, WebP and a JPEG without planes take the old path byte for
+  byte (`a_444_jpeg_and_a_png_take_the_old_path_byte_for_byte`). The second
+  pass (D165) and `prove`'s re-examination of the 4:4:4 output are RGB.
+* **What it does to the committed crops** (`examples/planar_measure.rs`):
+  the 4:2:0 fringe (D247) goes from `chroma` 7.40–8.43 to 0.22–0.80 at 95
+  and 98, under `CHROMA_LEVELS` on every one, and `victory-1025-q95-420`,
+  refused by its grid on the RGB path (1.06 %, D252), is proved with a
+  share of 0. The texture (D250) falls but stays: 10.3 → 6.7–7.0 at 4:2:0
+  95, over `TEXTURE_LEVELS` — R8's step. Pillow 4:2:0 and 4:2:2 variants
+  of three PNG crops at 85–95, on and off the 16-pixel grid
+  (`docs/plan/reports/E12-R6-variants.py`), that the RGB path refuses out
+  of range (1.03–2.17 %) are all proved, with a share of 0, and each still
+  ends with a mark left: the texture on every one, and at 90 and under the
+  luma step of D244 on most.
+* **Known weakness, measured.** The per-plane intervals do not see the RGB
+  cube. On the stickers' saturated green (Cb ≈ 104, Cr ≈ 65, far from 0
+  and 255) both terms read 0 at any chroma allowance from 1 to 16 levels,
+  while the same inverse brought to RGB lies outside the cube by more than
+  8 stored levels on 1.13–1.95 % of the pixels at 4:2:0 q90 — about the
+  RGB path's share. And a white blend at 0.7–0.9 of the mark's opacity,
+  which the RGB path refuses out of range at 23–63 % on every flat colour
+  tried, reads 0 in the planes on that green, on cyan and on magenta
+  (`measure_where_the_chroma_allowance_stops_seeing_a_lookalike`); its
+  gain still refuses it. What lifts D252's refusals is as much the looser
+  interval as the better model. See the E12-R6 report, Q1. The owner took
+  the per-plane interval knowing it (D471): the cube share stays a
+  **measure** — `examples/planar_measure.rs` and the bench report it — and
+  decides nothing.
+* `Restored.planar` (`{"sampling","max_alpha_dev_in_block","holes_chroma"}`,
+  or `"unavailable"`) and `Scores.planar` (`{"y","chroma"}`) are skipped
+  in the JSON when `None`: every report off this path (4:4:4, PNG, WebP)
+  is byte for byte what it was. `planar::invert` keeps every intermediate (`Y_I`, `Y_O`,
+  `α`; per block `ᾱ`, Cb and Cr in and out) and `Inverse::blend_back`
+  gives the pairs a consistency measure (D305) takes in the planes.
+
+## The value inside the interval (E12-R8) — DCT-POCS is the product's (D472)
+
+`crates/wipemark-pixels/src/interval.rs`. A lossy codec stored, for every
+coefficient, an interval, and the decoded value is one point of it; the
+inverse amplifies the codec's error by `1/(1 − α)`, which on a 4:4:4 JPEG
+at 95 is the checker D250 says. On a **lossy** source, after the
+inverse (R6's on a subsampled JPEG, R0's elsewhere), the restored value
+is moved — never outside what the file says — towards the one whose
+restoration has the least block structure. **On a lossless source nothing
+runs** (S6). **D472** (the owner, 2026-10-10): `wipemark_picture::clean`
+refines by **DCT-POCS** (`wipemark_picture::REFINE = Refine::Dct`), with
+no flag and no environment variable; it runs where a JPEG's planes were
+read, and a lossy WebP or a JPEG whose planes did not read keeps the
+inverse's value (`the_product_refines_by_dct_pocs_whatever_the_environment_says`).
+Pixel POCS and Wiener stay in the library for `recon_bench --config
+R8p|R8w` and `clean_bytes_refined`; nothing in the product reaches them.
+Plan:
+[`docs/plan/E12-R8-value-inside-the-interval.md`](../plan/E12-R8-value-inside-the-interval.md).
+
+* **The working space is the file's.** A JPEG whose planes are read is
+  refined in them — Y at full resolution with `α`, Cb and Cr at their own
+  with the block's `ᾱ` (R6's model; at 4:4:4 a block is a pixel) — and
+  written back through R6's `Inverse::rgb_at`, the decoder's upsampler and
+  colour constants, rounded and clamped once; a lossy WebP or a JPEG whose
+  planes did not read is refined in RGB. Only the samples the restoration
+  writes move; the rest are the file's and hold the result to it (the
+  "ring at `r = 1`"). `Restored.interval.space` says which
+  (`"ycbcr"`/`"rgb"`).
+* **The shared parts.** `sigma_base`, the noise of the input: over the
+  ring two to eight samples outside the mark's rectangle,
+  `1.4826 · median|ΔI| / √20` per channel (`Δ` the 3 × 3 Laplacian). `P_S`,
+  the smoothness: He's guided filter of the estimate by itself, radius 4
+  and `eps` (4 levels)², `o' = r·o + (1 − r)·GF(o)` with `r = (1 − α)²`;
+  radius 2 and half the `eps` on "text", when the restored samples'
+  Laplacian energy (each weighted by `1 − α`) is over 1.5 times the ring's
+  (`Restored.interval.text`).
+  The region is the mark's rectangle widened to the codec's grid (8 pixels
+  at 4:4:4, 16 at 4:2:0) and eight samples around it; `dct8`/`idct8` are
+  the orthonormal 8 × 8 DCT-II (JPEG's FDCT) in `f64`.
+* **DCT-POCS** (`Refine::Dct`, R4d; JPEG with planes only). Per whole
+  8 × 8 block of every plane that holds a sample the restoration writes:
+  the interval of every coefficient, `[(q − ½)·Q, (q + ½)·Q]` with
+  `q = round(DCT(I − 128)/Q)` recomputed from the decoded plane (R3
+  exports no coefficients); `P_D` composites the estimate forward,
+  clamps its coefficients into their intervals, transforms back, puts
+  every sample the restoration does not write back to the file's, and
+  repeats until both hold (to 10⁻⁶), then unblends. Up to 4 rounds of
+  `P_S` then `P_D`, so the last operation is always `P_D`, and
+  `Restored.consistency_dct` — the share of coefficients outside their
+  intervals by more than 10⁻⁴ — is 0 by construction (a block at the
+  grid's edge, not whole, is left unrefined).
+* **Pixel POCS** (`Refine::Pixel`, R3): the interval per sample
+  `I ± h`, `h = 0.5 + 2·σ_base`, carried through the inverse; up to 3
+  rounds of `P_S` then the clamp. `consistency_px ≤ 2h`.
+* **Wiener** (`Refine::Wiener`, R3w): one step,
+  `O = O₀·s/(s + n) + P_S(O₀)·n/(s + n)`, `n = σ²/(1 − α)²`, `s` the
+  variance of the ring's Laplacian over `√20`.
+* **When it stops.** Before each round, when the roughness against the
+  picture around the mark is in `[0.8, 1.2]`; after one, when the estimate
+  moved less than 0.1 level at p95; and **a round that leaves the
+  restoration under 0.8 of its surroundings is taken back** — the round
+  before it, which ended on `P_D` too, is kept (a deviation from the plan:
+  without it DCT-POCS at radius 4 ended three 4:2:0 crops at 0.47–0.50,
+  `no_refinement_ends_smoother_than_its_surroundings`).
+  `Restored.interval.iterations` counts the rounds kept.
+* **After it**, every measure is taken again on the refined raster — the
+  outline, steps, texture, `smoothed`, `changed`, `clamped` — and
+  `consistency_px` through R7's one function, in the planes on R6's path
+  and in RGB on R0's.
+* **D307, live everywhere.** `TEXTURE_RATIO_MIN` 0.8: on a lossy source a
+  restoration whose roughness is under 0.8 of the picture's around it is a
+  patch flatter than its surroundings; `Restored.smoothed`, counted in
+  `marks_left` (exit 3) and said by the CLI and the window's Report
+  (`cli-image-visible-smoothed`). No committed crop comes near it,
+  through the inverse alone or through the product's DCT-POCS
+  (`no_restoration_is_smoothed`), and on the 413-file corpus no
+  restoration is smoothed. Absent from the JSON while false; `interval`
+  is absent while `None` — on every lossless picture and every lossy
+  WebP — and present on every restoration of a JPEG whose planes read.
+* **What it does to the committed crops** (`tests/interval.rs` in
+  `wipemark-picture`, `measure_the_methods_on_the_committed_crops`): with
+  DCT-POCS every JPEG crop restored ends under `TEXTURE_LEVELS` — the
+  4:4:4 95 torch from 9.04 to 2.87, the 4:2:0 95 crops from R6's
+  6.66–6.96 to 2.26–3.33, the 98s to 1.63–1.84 — at 0.82–1.20 of its
+  surroundings, its step, colour step and outline no worse; pixel POCS
+  and Wiener leave 1.89–6.95 and 2.42–8.17, over the bound on 3 and 4 of
+  the 7 (their interval is the ring's noise, 0.33 levels or less on these
+  flat greens, far under the codec's error under the mark). The lossy WebP crop, with no planes, gets no
+  DCT-POCS, and pixel POCS and Wiener barely move it (`σ_base` 0).
+* **Known weaknesses, measured.** The indices recomputed from the decoded
+  planes are the file's on 100 % of R3's fixtures at 85 and 90 but on
+  97.3–99.2 % of the stickers at 95 and 98 — 99.4–99.9 % of the misses at
+  a step of 1 or 2, where the decoder's rounding to a level moves an
+  index (`the_recomputed_coefficients_are_the_files`, which reads each
+  file's own coefficients); exporting them from the decoder (R3) would
+  close it. The "text" rule takes every committed crop for text
+  (`interval.text` true on all seven refined JPEGs: the codec's error
+  amplified under the mark, and what is left of its edges, read as
+  strokes against a ring the codec flattened), so all of them are refined
+  at radius 2; on synthetic strokes under the mark DCT-POCS is
+  2.5–3.6 dB nearer the truth than R0 at either radius
+  (`text_is_not_smoothed_away`) — the data projection, not the radius,
+  keeps the strokes.
+
 ## Surfaces (E12-5)
 
 The command line and the MCP server carry the visible pass on every
@@ -654,7 +982,8 @@ removed"); plan: [`docs/plan/E12-5-surfaces.md`](../plan/E12-5-surfaces.md).
 
 * **V2 rows for the 512-pixel tier and the 1:4 and 1:8 shapes** — GWT's
   formula does not reach them; a capture of each would.
-* **Other vendors** (E12-6), **reconstruction** (E12-7); restoring a
-  `logo_map` or a linear-light mark. The windows clean a picture through
+* **Other vendors** (E12-6), **reconstruction** (E12-7); restoring with a
+  bias, a `logo_map` or a linear-light mark outside the `blend-preview`
+  build (E12-R9, above). The windows clean a picture through
   `wipemark-picture` since E7 — the queue's and the panel's Clean, with
   the picture's report and its three shelves.

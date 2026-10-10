@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/GigLaboCom/wipemark-app/golden/manifest.schema.json",
+  "title": "The regression corpus (golden/manifest.json), schema 1",
+  "description": "D304: a corpus is named, never committed. scripts/regress.py `validate` checks these same rules without a schema library; a rule changed here is changed there.",
+  "type": "object",
+  "required": ["schema", "sources", "recipes", "files"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": 1 },
+    "comment": { "type": "string" },
+    "sources": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "description": "A dated Watchword FILE: a stored ZIP, its sha256 checked before it is unpacked.",
+            "type": "object",
+            "required": ["key"],
+            "additionalProperties": false,
+            "properties": {
+              "key": { "type": "string", "pattern": "^wipemark-" },
+              "sha256": { "$ref": "#/$defs/sha256OrNull" },
+              "comment": { "type": "string" }
+            }
+          },
+          {
+            "description": "A folder of this repository (the committed fixtures).",
+            "type": "object",
+            "required": ["repo"],
+            "additionalProperties": false,
+            "properties": {
+              "repo": { "$ref": "#/$defs/relativePath" },
+              "comment": { "type": "string" }
+            }
+          }
+        ]
+      }
+    },
+    "recipes": {
+      "type": "object",
+      "required": ["pillow", "libjpeg", "mkset"],
+      "properties": {
+        "pillow": { "type": "string" },
+        "libjpeg": { "type": "string" },
+        "mkset": { "type": "string" }
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "class", "variant"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "allOf": [{ "$ref": "#/$defs/name" }, { "not": { "enum": ["index", "summary", "reproduce"] } }] },
+          "class": {
+            "enum": ["recon-png", "recon-jpeg-444", "recon-jpeg-420", "recon-webp", "recon-resized",
+                     "frames", "transparent", "alt", "negative", "gemini-midtone", "held-out"]
+          },
+          "variant": { "type": "string", "minLength": 1 },
+          "source": { "$ref": "#/$defs/name" },
+          "path": { "$ref": "#/$defs/relativePath" },
+          "derived": {
+            "type": "object",
+            "required": ["from", "recipe"],
+            "additionalProperties": false,
+            "properties": {
+              "from": { "$ref": "#/$defs/name" },
+              "recipe": { "enum": ["jpeg", "png"] },
+              "quality": { "type": "integer", "minimum": 1, "maximum": 100 },
+              "subsampling": { "enum": ["4:4:4", "4:2:2", "4:2:0"] },
+              "crop": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 4, "maxItems": 4,
+                        "description": "[x0, y0, x1, y1], applied after convert(\"RGB\") and before any resize" },
+              "resize": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "minItems": 2, "maxItems": 2,
+                          "description": "[width, height], bicubic" }
+            },
+            "if": { "properties": { "recipe": { "const": "jpeg" } } },
+            "then": { "required": ["quality", "subsampling"] },
+            "else": { "not": { "anyOf": [{ "required": ["quality"] }, { "required": ["subsampling"] }] } }
+          },
+          "sha256": { "$ref": "#/$defs/sha256OrNull" },
+          "expect": {
+            "description": "Written by `regress.py baseline`, read by `run`; never typed by hand.",
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "required": ["inspect_exit", "clean_exit", "verified"],
+                "additionalProperties": false,
+                "properties": {
+                  "inspect_exit": { "enum": [0, 1, 2, 3] },
+                  "clean_exit": { "enum": [0, 1, 2, 3] },
+                  "verified": { "type": "integer", "minimum": 0 }
+                }
+              }
+            ]
+          },
+          "comment": { "type": "string" }
+        },
+        "oneOf": [
+          { "required": ["source", "path"], "not": { "required": ["derived"] } },
+          { "required": ["derived"], "not": { "anyOf": [{ "required": ["source"] }, { "required": ["path"] }] } }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$" },
+    "relativePath": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+$" },
+    "sha256OrNull": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[0-9a-f]{64}$" }] }
+  }
+}

@@ -34,11 +34,14 @@ mod decode;
 mod encode;
 mod scan;
 
-pub use decode::{decode, Decoded, PngInfo, Skip, Source};
+pub use decode::{decode, decode_with_planes, Decoded, PngInfo, Skip, Source};
 pub use encode::{encode_like, Encoding, JPEG_QUALITY};
 pub use scan::{walk as walk_jpeg_scan, Scan};
 use wipemark_image::{ImageContainer, ImageError, ImageReport, Scope, StripOptions, StripReport};
-use wipemark_pixels::{Catalogue, ExamineOptions, Fidelity, PixelRect, PixelReport, Raster};
+use wipemark_pixels::{
+    Catalogue, ExamineOptions, Fidelity, PixelRect, PixelReport, Planar, Raster, Refine,
+    RestoreOptions,
+};
 
 /// What [`clean`] does with a picture.
 #[derive(Debug, Clone, Copy, Default)]
@@ -262,14 +265,16 @@ fn catalogue<'a>(options: &PictureOptions<'a>) -> Option<&'a Catalogue> {
 
 /// Both passes, read-only.
 ///
-/// The one error is the container's: pixels that do not decode are a
+/// A JPEG is decoded with its planes ([`decode_with_planes`]): a 4:2:0 or
+/// 4:2:2 mark is proved in them (D471), every other picture as it always
+/// was. The one error is the container's: pixels that do not decode are a
 /// value ([`NotExamined::Decode`]).
 pub fn inspect(
     bytes: &[u8],
     options: &PictureOptions<'_>,
 ) -> Result<PictureInspection, ImageError> {
     let metadata = wipemark_image::inspect(bytes)?;
-    let Ok(decoded) = decode(bytes, metadata.container) else {
+    let Ok(decoded) = decode_with_planes(bytes, metadata.container) else {
         return Ok(PictureInspection {
             metadata,
             visible: Visible::NotExamined(NotExamined::Decode),
@@ -279,8 +284,9 @@ pub fn inspect(
         (Err(Skip::Animated), _) => Visible::NotExamined(NotExamined::Animated),
         (_, None) => Visible::NotExamined(NotExamined::Catalogue),
         (Ok(decoded), Some(cat)) => {
-            let exam = wipemark_pixels::examine(
+            let exam = wipemark_pixels::examine_with(
                 &decoded.raster,
+                decoded.planes.as_ref(),
                 cat,
                 &ExamineOptions {
                     source: decoded.fidelity,
@@ -301,10 +307,59 @@ pub fn inspect(
     Ok(PictureInspection { metadata, visible })
 }
 
+/// How the product refines a restoration on a lossy source (D472, the
+/// owner, 2026-10-10): **DCT-POCS** — the restored value moved, inside the
+/// JPEG's own quantisation intervals, towards the one with the least block
+/// structure ([`wipemark_pixels::Method::Dct`]). It runs where a JPEG's
+/// planes were read; on a lossless source it never runs (S6), and on a
+/// lossy WebP or a JPEG whose planes did not read it has no intervals and
+/// leaves the restoration as it was. No environment variable or flag
+/// changes it; the other two methods are the bench's (`R8p`, `R8w`).
+pub const REFINE: Refine = Refine::Dct;
+
 /// Both passes, one writer, proved. See the crate's documentation.
+///
+/// A JPEG is decoded with its planes: a 4:2:0 or 4:2:2 mark is proved and
+/// restored in them (D471), and a restoration on a lossy JPEG is refined
+/// by [`REFINE`] (D472). A 4:4:4 JPEG is restored in RGB and refined; a
+/// lossless picture is what it always was, byte for byte.
 pub fn clean(
     bytes: &[u8],
     options: &PictureOptions<'_>,
+) -> Result<(Vec<u8>, PictureReport), PictureError> {
+    clean_bytes_refined(bytes, options, &RestoreOptions { refine: REFINE })
+}
+
+/// [`clean`] without the refinement: the planar inverse alone (E12-R6) —
+/// a 4:2:0 or 4:2:2 mark restored in the planes and left there, the value
+/// the inverse gives. For the tests and the tools that measure the planar
+/// inverse apart from [`REFINE`]; not a surface.
+#[doc(hidden)]
+pub fn clean_bytes_with_planes(
+    bytes: &[u8],
+    options: &PictureOptions<'_>,
+) -> Result<(Vec<u8>, PictureReport), PictureError> {
+    clean_bytes_refined(bytes, options, &RestoreOptions::default())
+}
+
+/// [`clean`] with every restoration refined by `restore` in place of
+/// [`REFINE`] (E12-R8, [`wipemark_pixels::clean_refined`]): the value
+/// chosen inside a lossy codec's interval by any of the three methods,
+/// then encoded, reframed and proved as [`clean`] does. For the tests and
+/// the bench; not a surface.
+#[doc(hidden)]
+pub fn clean_bytes_refined(
+    bytes: &[u8],
+    options: &PictureOptions<'_>,
+    restore: &RestoreOptions,
+) -> Result<(Vec<u8>, PictureReport), PictureError> {
+    clean_by(bytes, options, restore)
+}
+
+fn clean_by(
+    bytes: &[u8],
+    options: &PictureOptions<'_>,
+    restore: &RestoreOptions,
 ) -> Result<(Vec<u8>, PictureReport), PictureError> {
     let metadata = wipemark_image::inspect(bytes)?;
     let container = metadata.container;
@@ -323,7 +378,7 @@ pub fn clean(
             },
         ))
     };
-    let decoded = match decode(bytes, container) {
+    let decoded = match decode_with_planes(bytes, container) {
         Err(PictureError::Decode { .. }) => {
             return unchanged(Visible::NotExamined(NotExamined::Decode))
         }
@@ -339,7 +394,8 @@ pub fn clean(
         profiles: None,
     };
     if !restorable(&decoded.source) {
-        let exam = wipemark_pixels::examine(&decoded.raster, cat, &examine);
+        let exam =
+            wipemark_pixels::examine_with(&decoded.raster, decoded.planes.as_ref(), cat, &examine);
         return unchanged(Visible::Examined {
             report: PixelReport {
                 found: exam.findings,
@@ -351,7 +407,23 @@ pub fn clean(
         });
     }
     let mut restored = decoded.raster.clone();
-    let report = wipemark_pixels::clean(&mut restored, cat, &examine);
+    let mut report = wipemark_pixels::clean_refined(
+        &mut restored,
+        decoded.planes.as_ref(),
+        cat,
+        &examine,
+        restore,
+    );
+    // A restoration of a lossy three-component JPEG whose planes could not
+    // be read says so (D471): it was made in RGB, as before the planes.
+    if decoded.planes.is_none()
+        && decoded.source == (Source::Jpeg { components: 3 })
+        && decoded.fidelity == Fidelity::Lossy
+    {
+        for r in report.restored.iter_mut().filter(|r| r.planar.is_none()) {
+            r.planar = Some(Planar::Unavailable);
+        }
+    }
     if report.restored.is_empty() {
         return unchanged(Visible::Examined {
             report,
