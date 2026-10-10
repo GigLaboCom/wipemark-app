@@ -180,6 +180,44 @@ impl<'store> Settings<'store> {
             })
     }
 
+    /// Write several rows at once — each key set to its value, or deleted
+    /// for `None` — **all of them or none**: one transaction, rolled back
+    /// whole when any statement fails. What a set that is one thing needs:
+    /// a template profile laid onto the working set (E4-9, D512) is never
+    /// half of one on disk either.
+    pub fn write_together(&self, changes: &[(String, Option<serde_json::Value>)]) -> Result<()> {
+        let mut connection = self.store.lock();
+        let transaction = connection.transaction().map_err(|source| Error::Together {
+            what: "begin",
+            source,
+        })?;
+        for (key, value) in changes {
+            let written = match value {
+                Some(value) => {
+                    let encoded = serde_json::to_string(value).map_err(|source| Error::Encode {
+                        key: key.clone(),
+                        source,
+                    })?;
+                    transaction.execute(
+                        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+                         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                        (key, &encoded),
+                    )
+                }
+                None => transaction.execute("DELETE FROM settings WHERE key = ?1", [key]),
+            };
+            // Dropping the transaction unfinished rolls every write back.
+            written.map_err(|source| Error::Write {
+                key: key.clone(),
+                source,
+            })?;
+        }
+        transaction.commit().map_err(|source| Error::Together {
+            what: "commit",
+            source,
+        })
+    }
+
     /// Forget one preference. Deleting a key that was never written is
     /// not an error — the caller's intent is "there should be no value
     /// here", and there is not.
@@ -357,6 +395,51 @@ mod tests {
         store.settings().set("theme", "dark").expect("write");
         store.settings().delete("theme").expect("delete");
         assert_eq!(store.settings().get::<String>("theme").expect("read"), None);
+    }
+
+    /// Rows written together land together or not at all: a statement that
+    /// fails part way leaves no row of the set behind — the one before it
+    /// included.
+    #[test]
+    fn rows_written_together_are_all_written_or_none() {
+        let store = Store::in_memory().expect("open");
+        store.settings().set("gone", "here").expect("write");
+        store
+            .settings()
+            .write_together(&[
+                ("a".to_owned(), Some(serde_json::json!(1))),
+                ("gone".to_owned(), None),
+            ])
+            .expect("together");
+        assert_eq!(store.settings().get::<u32>("a").expect("read"), Some(1));
+        assert_eq!(store.settings().get::<String>("gone").expect("read"), None);
+
+        store
+            .lock()
+            .execute_batch(
+                "CREATE TRIGGER refuse BEFORE INSERT ON settings WHEN NEW.key = 'c'
+                 BEGIN SELECT RAISE(ABORT, 'refused'); END;",
+            )
+            .expect("a statement that fails");
+        let failed = store.settings().write_together(&[
+            ("b".to_owned(), Some(serde_json::json!(2))),
+            ("a".to_owned(), None),
+            ("c".to_owned(), Some(serde_json::json!(3))),
+        ]);
+        assert!(
+            matches!(failed, Err(Error::Write { ref key, .. }) if key == "c"),
+            "{failed:?}"
+        );
+        assert_eq!(
+            store.settings().get::<u32>("b").expect("read"),
+            None,
+            "not half"
+        );
+        assert_eq!(
+            store.settings().get::<u32>("a").expect("read"),
+            Some(1),
+            "not half"
+        );
     }
 
     /// `all` is what a startup uses: one query, and a single unreadable

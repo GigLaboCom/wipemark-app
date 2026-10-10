@@ -337,6 +337,11 @@ pub(crate) fn rewrite_outcome(report: &serde_json::Value, exit: Exit) -> Outcome
         model: report["best_effort"]["engine"]["model_id"]
             .as_str()
             .map(ToOwned::to_owned),
+        // The template profile the report names (E4-9, D516): an id,
+        // never a template's text (D312).
+        profile: report["best_effort"]["profile"]
+            .as_str()
+            .map(ToOwned::to_owned),
         ..Outcome::default()
     }
 }
@@ -352,6 +357,23 @@ mod tests {
         DRAFT
             .with(|slot| slot.borrow_mut().take())
             .expect("a draft")
+    }
+
+    /// E4-9 (D516): the command's own row names the template profile its
+    /// report names — an id, never a template.
+    #[test]
+    fn the_rows_outcome_names_the_reports_profile() {
+        let report = serde_json::json!({
+            "verifiable": {"before": {"findings": []}},
+            "best_effort": {
+                "profile": "legal",
+                "engine": {"model_id": "m"},
+                "totals": {"chunks": 1, "rewritten": 1, "kept_source": 0},
+            },
+        });
+        let outcome = super::rewrite_outcome(&report, Exit::Clean);
+        assert_eq!(outcome.profile.as_deref(), Some("legal"));
+        assert_eq!(outcome.verdict, "rewritten");
     }
 
     #[test]

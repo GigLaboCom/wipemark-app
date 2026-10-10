@@ -78,6 +78,13 @@ pub struct Options {
     pub pivot: Option<Lang>,
     /// The template rows that parsed (D74).
     pub overrides: Overrides,
+    /// Which template profile `overrides` are, as the surface that started
+    /// the job decided it — a profile's id, or `custom` (E4-9, D516): what
+    /// the report says. `None` when nobody said; the report then names the
+    /// built-in the overrides equal, or `custom`. A label only — the
+    /// fingerprint leaves it out, because the templates themselves are in
+    /// it (D116).
+    pub profile: Option<String>,
     /// The length guard's two windows (D95): 0.6–1.6 for a chunk of
     /// twenty words or more, 0.5–2.0 below by default.
     pub length: LengthWindows,
@@ -97,6 +104,7 @@ impl Options {
             sampling: SamplingParams::default(),
             pivot: None,
             overrides: Overrides::new(),
+            profile: None,
             length: LengthWindows::default(),
         }
     }
@@ -686,6 +694,10 @@ fn run(
         intensity: options.intensity,
         effort: options.effort,
         base_seed: options.base_seed,
+        profile: options
+            .profile
+            .clone()
+            .unwrap_or_else(|| crate::prompt::profile::label_built_in(&options.overrides)),
         scorer: Scorer::Divergence,
         chunks: reports,
         not_established: JobReport::shelf(),

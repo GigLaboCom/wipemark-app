@@ -215,6 +215,11 @@ pub struct Outcome {
     /// The model that rewrote it, by its own name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// The template profile its templates came from — the id the job's
+    /// report names, or `custom` (E4-9, D516). An id, never a template's
+    /// text (D312).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
     /// When the result was last saved from the Compare window, edited by
     /// hand — milliseconds since the epoch, UTC (E7-9, D417). `None` for a
     /// result as the clean or the rewrite made it. That it was edited, and

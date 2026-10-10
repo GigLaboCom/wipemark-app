@@ -388,6 +388,68 @@ fn a_paste_is_rewritten_into_its_row_and_nowhere_on_disk(cx: &mut TestAppContext
     );
 }
 
+/// E4-9 (D516): a row's Rewrite runs the working set the Rewriting page laid
+/// — a profile of the person's here, which the pipeline alone could not
+/// name — and both its report and its journal row name the profile; the row
+/// carries the id and never a template's text (D312).
+#[gpui::test]
+fn a_windows_rewrite_names_its_template_profile_in_the_report_and_the_row(cx: &mut TestAppContext) {
+    use wipemark_pipeline::lang::Lang;
+    use wipemark_pipeline::prompt::{Override, Overrides, Role, Slot, Tactic};
+
+    let scratch = Scratch::new("profile-row");
+    let work = work(swapping());
+    let user = Slot::new(Lang::En, Tactic::Paraphrase, 1, Role::User).expect("a slot");
+    let mut slots = Overrides::new();
+    slots.insert(
+        user,
+        Override::by_hand(user, "Say it again, for lawyers. {PROTECTED}\n{TEXT}"),
+    );
+    assert!(matches!(
+        crate::prompts::profiles::import(work.journal.store(), "Legal", slots, 1),
+        crate::prompts::profiles::Kept::Stored { .. }
+    ));
+    assert!(matches!(
+        crate::prompts::profiles::apply(work.journal.store(), "legal", None),
+        crate::prompts::profiles::Applied::Done { .. }
+    ));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| {
+        queue.land(vec![Handed::Text(PARAGRAPH.to_owned())], cx)
+    });
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the push", |_| !work.queue.items().is_empty());
+    let view = work.queue.items()[0].clone();
+    until(cx, "the end", |cx| status(&queue, cx) == "rewritten");
+    let result = work.queue.result(view.id).expect("row").expect("a result");
+    assert_eq!(
+        result["report"]["best_effort"]["profile"],
+        serde_json::json!("legal")
+    );
+    until(cx, "the journal", |_| {
+        work.journal
+            .rows()
+            .first()
+            .is_some_and(|row| row.state == "done")
+    });
+    let row = work.journal.rows()[0].clone();
+    assert_eq!(
+        Entry::from_json(&row.entry)
+            .outcome
+            .and_then(|outcome| outcome.profile)
+            .as_deref(),
+        Some("legal")
+    );
+    assert!(
+        !row.entry.contains("for lawyers"),
+        "the row kept a template's text: {}",
+        row.entry
+    );
+}
+
 /// R3: in place sets the original aside first, as the windows' clean does.
 #[gpui::test]
 fn in_place_sets_the_original_aside(cx: &mut TestAppContext) {

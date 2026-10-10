@@ -111,7 +111,7 @@ fn the_dry_run_prints_every_part_in_order_and_writes_nothing() {
         let layers = if id == "qwen38-27b" { "40" } else { "-1" };
         for name in [id.to_owned(), format!("{id}+voice")] {
             let variant = if name.ends_with("+voice") {
-                " --variant crates/wipemark-pipeline/bench/variants/keep-voice"
+                " --variant keep-voice"
             } else {
                 ""
             };

@@ -534,8 +534,8 @@ E5-2, with the MCP tool it reaches (E4-6a; the plan document
 wipemark-cli rewrite <path|-> [-o <out>|-o -|--in-place [--no-original]]
     [--tactic paraphrase|humanize|back_translate] [--intensity light|moderate|strong]
     [--candidates N] [--rounds N] [--format plain|markdown|html]
-    [--aggressive] [--nfkc] [--prompts <file.json>] [--seed N] [--json]
-    [--no-record]
+    [--aggressive] [--nfkc] [--prompts <file.json>] [--profile <id|name>]
+    [--seed N] [--json] [--no-record]
 ```
 
 **Two roads, never both.** When the application runs, its MCP server
@@ -583,7 +583,21 @@ without it every run gets a fresh one (D83), and the report says which.
 to a template's text or D74's object), laid over the rows the application
 saved; a template that breaks a rule exits 2 naming the row and the rule,
 before anything is read or sent — and goes to the application with the
-call when it is the application that rewrites.
+call when it is the application that rewrites. It also takes a file a
+template profile was exported to (E4-9, D514) — `{"format": 1, "name",
+"slots": {<row key>: {"text", "based_on", "origin"}}}`, told apart by its
+`format` key, which no rows object can have; a format this version does not
+read exits 2 naming the file. `--profile <id|name>` runs a template profile
+**in place of** the saved rows (D515): a built-in one's id — `shipped`,
+`keep-voice` — or the id or name of one saved on the Rewriting page, read
+from the application's database read-only (the built-ins need none). It is
+laid by the one rule; `--prompts` lays over it; an id or name no profile
+has, or a slot it cannot lay — a key this version does not have, or a rule
+broken against the model's window — exits 2 before anything is read, naming
+it. Through the application the call carries the profile's id
+(`"profile"`), and the application lays it against its engine's window. The
+report's `best_effort.profile` names the profile the templates came from, or
+`custom` (D516); the command's own journal row carries the same id.
 
 **Output** is `clean`'s shape with its own name: beside the input as
 **`name.rewritten.ext`** (В8, E4-6b — a format change: until E4-6b a

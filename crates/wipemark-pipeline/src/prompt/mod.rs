@@ -23,6 +23,8 @@
 //!   `system` and `prompt` of a [`wipemark_engine::ChatRequest`] (D66).
 //! * [`validate`](mod@validate) — what is wrong with an edited template, as values (D74).
 //! * [`row`] — the spelling of an override's settings row and its JSON value.
+//! * [`profile`] — a whole set of overrides kept, chosen and shared under a
+//!   name: the built-ins the product ships and a person's rows (E4-9).
 //! * [`adapt`] — asking a model to adapt a template into another language,
 //!   and checking what came back; never called on its own (Q-B22).
 //! * [`clean`] — what is taken off a model's answer before it is judged,
@@ -37,6 +39,7 @@
 pub mod adapt;
 pub mod choose;
 pub mod clean;
+pub mod profile;
 pub mod render;
 pub mod row;
 pub mod shipped;

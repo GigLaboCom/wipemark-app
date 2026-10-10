@@ -42,6 +42,13 @@
 //! application's own store — the rows the Settings window will write
 //! (E4-6b), read by `wipemark_pipeline::prompt::row` the same way the CLI
 //! reads them. A row this build cannot read is the shipped template.
+//!
+//! A call that names a template profile (`"profile": "<id>"`, E4-9, D515)
+//! runs that profile **instead of** the saved rows — laid by the one rule
+//! against the window on duty, refused whole with the slot and the rule —
+//! and its `templates` lay over it by the same rule. An id no profile has
+//! is a refusal naming it, never the saved rows in its place. Whatever ran,
+//! the job's report names the profile it came from, or `custom` (D516).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -53,6 +60,7 @@ use wipemark_pipeline::asked::{Asked, NotOffered};
 use wipemark_pipeline::cost::Executor;
 use wipemark_pipeline::job::plan;
 use wipemark_pipeline::lang::Lang;
+use wipemark_pipeline::prompt::profile::{self, Profile};
 use wipemark_pipeline::prompt::row::{self, Laid};
 use wipemark_pipeline::prompt::Overrides;
 use wipemark_pipeline::{Document, Ending, JobId, PipelineError, Refused};
@@ -96,6 +104,9 @@ pub struct Call {
     /// only (D75): row keys to a template's text or D74's object. Empty for
     /// none.
     pub templates: Map<String, Value>,
+    /// A template profile's id, run instead of the saved rows (E4-9);
+    /// `None` for the saved rows.
+    pub profile: Option<String>,
     /// Answer the price and run nothing.
     pub dry_run: bool,
     /// Whether the call is a row in the journal — `"record": false` says
@@ -178,6 +189,12 @@ pub enum Unrun {
     NotOffered(NotOffered),
     /// A template the caller handed in was refused.
     Templates(Laid),
+    /// The template profile the call named is not one this application has
+    /// (E4-9).
+    UnknownProfile(String),
+    /// The template profile the call named cannot be laid: a slot this
+    /// build cannot read, or one the rule refuses against the window on duty.
+    Profile { id: String, laid: Laid },
     /// The job did not start.
     Refused(Refused),
     /// The job failed.
@@ -269,11 +286,18 @@ impl Rewriter {
         &self.engine
     }
 
-    /// The overrides and the pivot, read off the store — or none.
-    fn rows(&self) -> (Overrides, Option<Lang>) {
+    /// The saved set — the overrides, the pivot, every template profile and
+    /// the hint — read off the store; with no store, nothing saved and the
+    /// built-in profiles.
+    fn rows(&self) -> Saved {
         match &self.store {
-            Some(store) => saved_rows(store),
-            None => (Overrides::new(), None),
+            Some(store) => saved(store),
+            None => Saved {
+                overrides: Overrides::new(),
+                pivot: None,
+                profiles: profile::all_from(std::iter::empty()),
+                hint: None,
+            },
         }
     }
 
@@ -281,14 +305,22 @@ impl Rewriter {
     /// client has hung up; it is asked between the job's events and every
     /// [`LOOK`] while the job is quiet.
     pub fn run(&self, call: Call, asker: &Asker, gone: &dyn Fn() -> bool) -> Result<Done, Unrun> {
-        let (mut overrides, pivot) = self.rows();
+        let saved = self.rows();
         // Against the window of the engine on duty (E4-6c, D330): a
         // template over a tenth of it is `too-long`, as the Settings page
         // refuses it. An endpoint's window is the server's business —
         // `None`, never guessed — and so is nothing on duty: then that rule
         // is not asked, and every other one is.
         let window = self.engine.described().ok().and_then(|info| info.ctx_len);
+        let (mut overrides, hint) = match &call.profile {
+            None => (saved.overrides.clone(), saved.hint.clone()),
+            Some(id) => (laid(&saved.profiles, id, window)?, Some(id.clone())),
+        };
         row::lay_over_within(&mut overrides, &call.templates, window).map_err(Unrun::Templates)?;
+        // What the report says the templates are (D516): the profile they
+        // render like — the named one first — or `custom`.
+        let label = profile::label(&saved.profiles, hint.as_deref(), &overrides);
+        let pivot = saved.pivot;
         let document = Document {
             text: call.text,
             format: call.asked.format,
@@ -298,9 +330,7 @@ impl Rewriter {
         }
         if let Some(work) = &self.work {
             let executor = self.engine.pace().executor.unwrap_or(Executor::LocalCpu);
-            let options = call
-                .asked
-                .options(executor, overrides, pivot)
+            let options = labelled(call.asked.options(executor, overrides, pivot), label)
                 .map_err(Unrun::NotOffered)?;
             return self.queued(work, document, options, call.record, asker, gone);
         }
@@ -309,9 +339,7 @@ impl Rewriter {
         // executor below is the executor of the engine this job holds.
         let job = wipemark_pipeline::block_on(self.engine.for_job()).map_err(Unrun::of_engine)?;
         let executor = self.engine.pace().executor.unwrap_or(Executor::LocalCpu);
-        let options = call
-            .asked
-            .options(executor, overrides, pivot)
+        let options = labelled(call.asked.options(executor, overrides, pivot), label)
             .map_err(Unrun::NotOffered)?;
         let id = JobId(NEXT_JOB.fetch_add(1, Ordering::Relaxed));
         let bytes = document.text.len();
@@ -659,16 +687,42 @@ impl Rewriter {
     }
 }
 
-/// The template overrides and the pivot the Settings window saved, read
-/// off `store` — what every rewrite in the application runs with, an
-/// agent's and a window's alike. A row this build cannot read is the
-/// shipped template. Blocking: it reads every settings row.
-pub fn saved_rows(store: &wipemark_store::Store) -> (Overrides, Option<Lang>) {
+/// What the Settings window saved, as one read: the working set's
+/// overrides, the pivot, every template profile and the hint.
+#[derive(Debug, Clone)]
+pub struct Saved {
+    pub overrides: Overrides,
+    pub pivot: Option<Lang>,
+    /// The built-ins first, then the person's.
+    pub profiles: Vec<Profile>,
+    /// The `rewrite.profile` row — a hint (D511).
+    pub hint: Option<String>,
+}
+
+impl Saved {
+    /// What a job's report says the working set is (D516): the profile it
+    /// renders like, or `custom`.
+    pub fn label(&self) -> String {
+        profile::label(&self.profiles, self.hint.as_deref(), &self.overrides)
+    }
+}
+
+/// The template overrides, the pivot and the template profiles the
+/// Settings window saved, read off `store` in one scan — what every rewrite
+/// in the application runs with, an agent's and a window's alike. A row
+/// this build cannot read is the shipped template. Blocking: it reads every
+/// settings row.
+pub fn saved(store: &wipemark_store::Store) -> Saved {
     let rows = match store.settings().all() {
         Ok(rows) => rows,
         Err(error) => {
             tracing::warn!(%error, "the template rows could not be read; the shipped ones are used");
-            return (Overrides::new(), None);
+            return Saved {
+                overrides: Overrides::new(),
+                pivot: None,
+                profiles: profile::all_from(std::iter::empty()),
+                hint: None,
+            };
         }
     };
     let (overrides, unread) =
@@ -679,5 +733,36 @@ pub fn saved_rows(store: &wipemark_store::Store) -> (Overrides, Option<Lang>) {
             "template rows this build cannot read; the shipped templates are used for them"
         );
     }
-    (overrides, row::pivot_of(rows.get(row::PIVOT_KEY)))
+    Saved {
+        overrides,
+        pivot: row::pivot_of(rows.get(row::PIVOT_KEY)),
+        profiles: profile::all_from(rows.iter().map(|(key, value)| (key.as_str(), value))),
+        hint: rows
+            .get(profile::ACTIVE_KEY)
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned),
+    }
+}
+
+/// The overrides template profile `id` lays, by the one rule against
+/// `window` — or the refusal: an id nobody has, or the slot it cannot lay
+/// (E4-9, D512, D515). Never the saved rows in its place.
+pub fn laid(profiles: &[Profile], id: &str, window: Option<u32>) -> Result<Overrides, Unrun> {
+    let found = profile::find(profiles, id).ok_or_else(|| Unrun::UnknownProfile(id.to_owned()))?;
+    found.admitted(window).map_err(|laid| Unrun::Profile {
+        id: id.to_owned(),
+        laid,
+    })
+}
+
+/// Options carrying the profile's label (D516).
+fn labelled(
+    options: Result<wipemark_pipeline::Options, NotOffered>,
+    label: String,
+) -> Result<wipemark_pipeline::Options, NotOffered> {
+    options.map(|mut options| {
+        options.profile = Some(label);
+        options
+    })
 }

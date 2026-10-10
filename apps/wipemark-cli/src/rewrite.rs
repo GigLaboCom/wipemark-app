@@ -27,6 +27,17 @@
 //! after that (the file written, the report, the exit code) reads that one
 //! form, so the two cannot report differently.
 //!
+//! # Which templates (E4-9)
+//!
+//! The application's saved rows — read-only, as every row here is — unless
+//! `--profile` names a template profile, which then runs in their place:
+//! a built-in one's id (`shipped`, `keep-voice`) or the id or name of one
+//! saved on the Rewriting page, laid whole by the one rule or refused,
+//! naming the slot (D515). `--prompts` lays over either, and takes D74's
+//! rows or a file a profile was exported to — told apart by its `format`
+//! (D514). The report names the profile its templates came from, or
+//! `custom` (D516).
+//!
 //! # The exit code (H17)
 //!
 //! `3` when any chunk kept its source — not every part was rewritten,
@@ -52,6 +63,7 @@ use wipemark_pipeline::cost::Executor;
 use wipemark_pipeline::job::plan;
 use wipemark_pipeline::lang::Lang;
 use wipemark_pipeline::prepare::TextFormat;
+use wipemark_pipeline::prompt::profile::{self, FileRefusal, Profile};
 use wipemark_pipeline::prompt::row::{self, Laid};
 use wipemark_pipeline::prompt::{Intensity, Overrides, Tactic};
 use wipemark_pipeline::{Document, Ending, Event, JobId, PipelineError, Stage};
@@ -76,6 +88,8 @@ pub(crate) struct Flags<'a> {
     pub aggressive: bool,
     pub nfkc: bool,
     pub prompts: Option<&'a Path>,
+    /// `--profile`: a template profile's id or name (E4-9).
+    pub profile: Option<&'a str>,
     pub seed: Option<u64>,
     pub json: bool,
     /// Whether the run leaves a row in the application's journal — `false`
@@ -197,11 +211,38 @@ pub(crate) fn rewrite_with(flags: &Flags, io: &mut Io, roads: &Roads) -> Exit {
     // asked. Every rule but `too-long` is asked here; that one is asked by
     // whoever runs the job — this command against its own model's window
     // (`by_this_command`), the application against its engine's.
-    let (mut overrides, pivot) = saved_rows(roads.layout);
+    let saved = saved_rows(roads.layout);
+    // `--profile` runs a template profile in place of the saved rows
+    // (D515): found by its id or its name, laid whole or refused naming the
+    // slot — never the saved rows in its place.
+    let chosen = match flags.profile {
+        None => None,
+        Some(asked) => match profile::by_name(&saved.profiles, asked) {
+            Some(found) => Some(found.clone()),
+            None => {
+                let line = t_args(Message::CliProfileUnknown, &args!("profile" => asked));
+                return run::refused(io, "rewrite", path, &line, "unknown profile", Exit::Usage);
+            }
+        },
+    };
+    let (mut overrides, hint) = match &chosen {
+        None => (saved.overrides.clone(), saved.hint.clone()),
+        Some(found) => match found.admitted(None) {
+            Ok(laid) => (laid, Some(found.id.clone())),
+            Err(laid) => {
+                let line = profile_line(&found.id, &laid);
+                return run::refused(io, "rewrite", path, &line, "profile refused", Exit::Usage);
+            }
+        },
+    };
     if let Err(laid) = row::lay_over(&mut overrides, &templates) {
         let line = laid_line(flags.prompts, laid);
         return run::refused(io, "rewrite", path, &line, "template refused", Exit::Usage);
     }
+    // What the report says the templates are (D516): the profile they
+    // render like — the chosen one first — or `custom`.
+    let profile_label = profile::label(&saved.profiles, hint.as_deref(), &overrides);
+    let pivot = saved.pivot;
 
     let source = Source::of(path);
     let label = run::label_of(&source, path);
@@ -245,12 +286,15 @@ pub(crate) fn rewrite_with(flags: &Flags, io: &mut Io, roads: &Roads) -> Exit {
         text: &read.text,
         asked: &asked,
         templates: &templates,
+        profile: chosen.as_ref().map(|found| found.id.as_str()),
         record: flags.record,
         meta: meta_of(&source, read.text.len()),
     };
     let laid = Laying {
         templates: &templates,
         prompts: flags.prompts,
+        profile: chosen.as_ref(),
+        label: &profile_label,
         path,
     };
     let rewritten = match roads.layout.and_then(app::find) {
@@ -338,11 +382,37 @@ fn laid_line(prompts: Option<&Path>, laid: Laid) -> String {
 
 /// The caller's templates as this command's own road needs them again:
 /// laid once more against its model's window, and refused in the words
-/// the first lay refuses in.
+/// the first lay refuses in — with the profile `--profile` chose, asked of
+/// the same window, and the report's word for the set.
 struct Laying<'a> {
     templates: &'a Map<String, Value>,
     prompts: Option<&'a Path>,
+    profile: Option<&'a Profile>,
+    label: &'a str,
     path: &'a str,
+}
+
+/// The sentence that refuses a template profile: the slot it cannot lay,
+/// and why, in the words the Rewriting page greys it with.
+fn profile_line(id: &str, laid: &Laid) -> String {
+    let reason = match laid {
+        Laid::UnknownRow { key } => t_args(
+            Message::PromptsProfileReasonUnknownRow,
+            &args!("key" => key.as_str()),
+        ),
+        Laid::Unreadable { key } => t_args(
+            Message::PromptsProfileReasonUnreadable,
+            &args!("key" => key.as_str()),
+        ),
+        Laid::Breaks { key, rule } => t_args(
+            Message::PromptsProfileReasonBreaks,
+            &args!("key" => key.as_str(), "rule" => *rule),
+        ),
+    };
+    t_args(
+        Message::CliProfileRefused,
+        &args!("profile" => id, "reason" => reason),
+    )
 }
 
 /// `--prompts`: the file's rows, or the sentence that refuses it.
@@ -355,6 +425,22 @@ fn templates_of(file: &Path) -> Result<Map<String, Value>, String> {
         )
     })?;
     match serde_json::from_slice::<Value>(&bytes) {
+        // A file a template profile was exported to (D514): it says its
+        // format, which no rows object can — every key of one is a row's.
+        Ok(file) if profile::is_file(&file) => profile::file_rows(&file).map_err(|refused| {
+            let reason = match refused {
+                FileRefusal::Format(format) => t_args(
+                    Message::PromptsProfileFileFormat,
+                    &args!("format" => format.to_string()),
+                ),
+                FileRefusal::NoSlots => t(Message::PromptsProfileFileNoSlots),
+                _ => t(Message::PromptsProfileFileNotTemplates),
+            };
+            t_args(
+                Message::CliPromptsFileRefused,
+                &args!("path" => shown.as_str(), "reason" => reason),
+            )
+        }),
         Ok(Value::Object(rows)) => Ok(rows),
         Ok(_) => Err(t_args(
             Message::CliPromptsNotRows,
@@ -367,10 +453,20 @@ fn templates_of(file: &Path) -> Result<Map<String, Value>, String> {
     }
 }
 
-/// The template overrides and the pivot the application saved, read-only.
-/// No database, or one that will not open, is none: every slot is the
-/// shipped template and the pivot the default.
-fn saved_rows(layout: Option<&Layout>) -> (Overrides, Option<Lang>) {
+/// What the application saved, read-only: the template overrides, the
+/// pivot, every template profile — the built-in ones first — and the hint.
+struct Saved {
+    overrides: Overrides,
+    pivot: Option<Lang>,
+    profiles: Vec<Profile>,
+    hint: Option<String>,
+}
+
+/// The template overrides, the pivot and the template profiles the
+/// application saved, read-only. No database, or one that will not open, is
+/// none: every slot is the shipped template, the pivot the default, and the
+/// profiles the built-in ones.
+fn saved_rows(layout: Option<&Layout>) -> Saved {
     let rows = layout
         .and_then(|layout| {
             wipemark_store::Store::open_read_only(layout.db_path())
@@ -387,7 +483,16 @@ fn saved_rows(layout: Option<&Layout>) -> (Overrides, Option<Lang>) {
             "template rows this build cannot read; the shipped templates are used for them"
         );
     }
-    (overrides, row::pivot_of(rows.get(row::PIVOT_KEY)))
+    Saved {
+        overrides,
+        pivot: row::pivot_of(rows.get(row::PIVOT_KEY)),
+        profiles: profile::all_from(rows.iter().map(|(key, value)| (key.as_str(), value))),
+        hint: rows
+            .get(profile::ACTIVE_KEY)
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(ToOwned::to_owned),
+    }
 }
 
 /// What one run asks the application.
@@ -395,6 +500,8 @@ struct Call<'a> {
     text: &'a str,
     asked: &'a Asked,
     templates: &'a Map<String, Value>,
+    /// `--profile`'s template profile, by the id it was found under.
+    profile: Option<&'a str>,
     /// `--no-record` is `false` (В6): the application keeps no row.
     record: bool,
     /// The `tools/call` params' `_meta`: who asks and what the document is
@@ -427,6 +534,7 @@ fn call_arguments(
     text: &str,
     asked: &Asked,
     templates: &Map<String, Value>,
+    profile: Option<&str>,
     record: bool,
 ) -> Value {
     let mut arguments = json!({
@@ -450,6 +558,9 @@ fn call_arguments(
     if !templates.is_empty() {
         arguments["templates"] = Value::Object(templates.clone());
     }
+    if let Some(id) = profile {
+        arguments["profile"] = json!(id);
+    }
     arguments
 }
 
@@ -462,7 +573,13 @@ fn by_the_application(
     roads: &Roads,
     io: &mut Io,
 ) -> Result<Rewritten, Option<Exit>> {
-    let arguments = call_arguments(call.text, call.asked, call.templates, call.record);
+    let arguments = call_arguments(
+        call.text,
+        call.asked,
+        call.templates,
+        call.profile,
+        call.record,
+    );
     if roads.terminal {
         // The price before the run (D61), asked of the application — which
         // knows its engine and the rate its last Check measured. A price is
@@ -584,14 +701,31 @@ fn by_this_command(
     let (engine, executor) = (roads.own)(roads.layout, io).inspect_err(|_| {
         journal::note(|draft| draft.failed = Some("engine"));
     })?;
+    // The profile `--profile` chose, against the window this engine will
+    // load with (E4-9, D512): the rule it was laid by, the window added.
+    let window = engine.info().ctx_len;
+    if let Some(Err(refused)) = laid.profile.map(|found| found.admitted(window)) {
+        journal::discard();
+        let id = laid
+            .profile
+            .map(|found| found.id.as_str())
+            .unwrap_or_default();
+        let line = profile_line(id, &refused);
+        return Err(run::refused(
+            io,
+            "rewrite",
+            laid.path,
+            &line,
+            "profile refused",
+            Exit::Usage,
+        ));
+    }
     // The caller's templates against the window this engine will load
     // with — the catalogue's `ctx` for the chosen model (E4-6c, D330): a
     // template over a tenth of it is `too-long`, as the Settings page and
     // the application's MCP tool refuse it. Laid again over rows that
     // already hold them, so nothing but the window is asked anew.
-    if let Err(refused) =
-        row::lay_over_within(&mut overrides, laid.templates, engine.info().ctx_len)
-    {
+    if let Err(refused) = row::lay_over_within(&mut overrides, laid.templates, window) {
         // A template refused is not a document's status on any road: the
         // application refuses it before it records anything, and so does
         // this command (D360).
@@ -617,6 +751,10 @@ fn by_this_command(
             document,
             options: asked
                 .options(executor, overrides, pivot)
+                .map(|mut options| {
+                    options.profile = Some(laid.label.to_owned());
+                    options
+                })
                 .map_err(|_| Exit::Usage)?,
         },
         roads,
@@ -1399,6 +1537,7 @@ mod tests {
             aggressive: false,
             nfkc: false,
             prompts: None,
+            profile: None,
             seed: Some(11),
             json,
             record: true,
@@ -1556,6 +1695,212 @@ mod tests {
         assert!(!stdout.is_empty(), "{stderr}");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A scratch data directory of its own, removed when dropped.
+    struct DataDir(std::path::PathBuf);
+
+    impl DataDir {
+        fn new(name: &str) -> DataDir {
+            let dir = std::env::temp_dir().join(format!(
+                "wipemark-cli-{name}-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("a scratch folder");
+            DataDir(dir)
+        }
+
+        /// What "read-only" is held to: the database's bytes, and its
+        /// write-ahead log's — a write lands there first in WAL mode. The
+        /// index SQLite keeps beside a WAL database (`-shm`), which any read
+        /// opens, is not a row and is left out.
+        fn files(&self) -> std::collections::BTreeMap<String, Vec<u8>> {
+            std::fs::read_dir(&self.0)
+                .expect("list")
+                .map(|entry| entry.expect("an entry").path())
+                .filter(|path| !path.to_string_lossy().ends_with("-shm"))
+                .map(|path| {
+                    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                    let bytes = std::fs::read(&path).unwrap_or_default();
+                    (name, bytes)
+                })
+                .filter(|(name, bytes)| !(name.ends_with("-wal") && bytes.is_empty()))
+                .collect()
+        }
+    }
+
+    impl Drop for DataDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// The test the task names (E4-9, D515): `--profile` finds a template
+    /// profile by its name in the application's database and runs it in
+    /// place of the saved rows — reading that database and writing nothing
+    /// to it, not a byte of any file beside it — and the report names it.
+    /// A name no profile has is refused before anything is asked.
+    #[test]
+    fn the_clis_profile_reads_rows_read_only() {
+        use wipemark_pipeline::prompt::profile::Profile;
+        use wipemark_pipeline::prompt::{Override, Role, Slot};
+
+        let data = DataDir::new("profile");
+        let layout = Layout::with_root(&data.0);
+        {
+            let store = wipemark_store::Store::open(layout.db_path()).expect("the database");
+            let user = Slot::new(Lang::En, Tactic::Paraphrase, 1, Role::User).expect("a slot");
+            let mut slots = Overrides::new();
+            slots.insert(
+                user,
+                Override::by_hand(user, "Say it again for lawyers. {PROTECTED}\n{TEXT}"),
+            );
+            let legal = Profile::new("Legal", slots, Some(1)).expect("a profile");
+            store
+                .settings()
+                .set(&profile::key(&legal.id), &legal.to_value())
+                .expect("the profile's row");
+            // A saved working row the profile runs in place of.
+            store
+                .settings()
+                .set(
+                    &row::key(user),
+                    &serde_json::from_str::<Value>(
+                        &Override::by_hand(user, "The saved one.\n{TEXT}").to_json(),
+                    )
+                    .expect("JSON"),
+                )
+                .expect("a working row");
+        }
+        let before = data.files();
+
+        let interrupted = AtomicBool::new(false);
+        let engine = FakeEngine::answering(|req, _| swapped(req));
+        let asked = engine.clone();
+        let own = move |_: Option<&Layout>,
+                        _: &mut Io|
+              -> Result<(Arc<dyn RewriteEngine>, Executor), Exit> {
+            Ok((Arc::new(engine.clone()), Executor::LocalCpu))
+        };
+        let roads = Roads {
+            layout: Some(&layout),
+            terminal: false,
+            interrupted: &interrupted,
+            own: &own,
+        };
+        let by_name = Flags {
+            profile: Some("legal"),
+            ..flags(true)
+        };
+        let (exit, stdout, stderr) = run(PARAGRAPH.as_bytes(), |io| {
+            rewrite_with(&by_name, io, &roads)
+        });
+        assert_eq!(exit, Exit::Clean, "{stderr}");
+        let answer: Value = serde_json::from_str(&stdout).expect("one JSON line");
+        assert_eq!(answer["report"]["best_effort"]["profile"], json!("legal"));
+        assert!(
+            asked
+                .asked()
+                .iter()
+                .all(|req| req.prompt.contains("Say it again for lawyers.")),
+            "the profile's template, not the saved row, was sent"
+        );
+        assert_eq!(data.files(), before, "the database was written to");
+
+        let unknown = Flags {
+            profile: Some("nobody"),
+            ..flags(false)
+        };
+        let asked_before = asked.asked().len();
+        let (exit, stdout, stderr) = run(PARAGRAPH.as_bytes(), |io| {
+            rewrite_with(&unknown, io, &roads)
+        });
+        assert_eq!(exit, Exit::Usage, "{stderr}");
+        assert!(stderr.contains("nobody"), "{stderr}");
+        assert!(stdout.is_empty());
+        assert_eq!(asked.asked().len(), asked_before, "nothing was asked");
+
+        // A built-in one needs no database at all.
+        let alone = Roads {
+            layout: None,
+            ..roads
+        };
+        let keep_voice = Flags {
+            profile: Some("keep-voice"),
+            ..flags(true)
+        };
+        let (exit, stdout, stderr) = run(PARAGRAPH.as_bytes(), |io| {
+            rewrite_with(&keep_voice, io, &alone)
+        });
+        assert_eq!(exit, Exit::Clean, "{stderr}");
+        let answer: Value = serde_json::from_str(&stdout).expect("one JSON line");
+        assert_eq!(
+            answer["report"]["best_effort"]["profile"],
+            json!("keep-voice")
+        );
+        assert_eq!(data.files(), before);
+    }
+
+    /// D514: `--prompts` takes a file a template profile was exported to —
+    /// told apart from D74's rows by its `format` — and refuses one whose
+    /// format this version does not read, naming the file.
+    #[test]
+    fn prompts_takes_an_exported_profile_and_refuses_a_format_it_cannot_read() {
+        use wipemark_pipeline::prompt::{Override, Role, Slot};
+
+        let data = DataDir::new("prompts-file");
+        let user = Slot::new(Lang::En, Tactic::Paraphrase, 1, Role::User).expect("a slot");
+        let mut slots = Overrides::new();
+        slots.insert(
+            user,
+            Override::by_hand(user, "Say it again, from a file. {PROTECTED}\n{TEXT}"),
+        );
+        let file = data.0.join("Shared.wipemark-templates.json");
+        std::fs::write(&file, profile::export("Shared", &slots)).expect("the file");
+
+        let interrupted = AtomicBool::new(false);
+        let engine = FakeEngine::answering(|req, _| swapped(req));
+        let asked = engine.clone();
+        let own = move |_: Option<&Layout>,
+                        _: &mut Io|
+              -> Result<(Arc<dyn RewriteEngine>, Executor), Exit> {
+            Ok((Arc::new(engine.clone()), Executor::LocalCpu))
+        };
+        let roads = Roads {
+            layout: None,
+            terminal: false,
+            interrupted: &interrupted,
+            own: &own,
+        };
+        let with_file = Flags {
+            prompts: Some(&file),
+            ..flags(true)
+        };
+        let (exit, stdout, stderr) = run(PARAGRAPH.as_bytes(), |io| {
+            rewrite_with(&with_file, io, &roads)
+        });
+        assert_eq!(exit, Exit::Clean, "{stderr}");
+        let answer: Value = serde_json::from_str(&stdout).expect("one JSON line");
+        assert_eq!(answer["report"]["best_effort"]["profile"], json!("custom"));
+        assert!(asked
+            .asked()
+            .iter()
+            .all(|req| req.prompt.contains("from a file")));
+
+        let mut later: Value =
+            serde_json::from_str(&std::fs::read_to_string(&file).expect("read")).expect("JSON");
+        later["format"] = json!(2);
+        std::fs::write(&file, later.to_string()).expect("a later format");
+        let (exit, _, stderr) = run(PARAGRAPH.as_bytes(), |io| {
+            rewrite_with(&with_file, io, &roads)
+        });
+        assert_eq!(exit, Exit::Usage, "{stderr}");
+        assert!(
+            stderr.contains("Shared.wipemark-templates.json"),
+            "{stderr}"
+        );
     }
 
     #[test]

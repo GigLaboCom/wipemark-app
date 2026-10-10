@@ -43,6 +43,7 @@ use wipemark_i18n::LanguagePreference;
 use wipemark_models::manifest::{Manifest, Role};
 use wipemark_models::user::{self, UserModel};
 use wipemark_pipeline::lang::Lang;
+use wipemark_pipeline::prompt::profile::{self as template_profile, Profile as TemplateProfile};
 use wipemark_pipeline::prompt::row::{self, Override};
 use wipemark_pipeline::prompt::{Overrides, Slot};
 use wipemark_store::Store;
@@ -356,6 +357,21 @@ pub const JOURNAL_KEEP_DAYS_DEFAULT: u32 = 7;
 /// see [`PROMPTS_PREFIX`].
 pub const REWRITE_PIVOT_KEY: &str = wipemark_pipeline::prompt::row::PIVOT_KEY;
 
+/// Which template profile the working set was last laid from or saved as
+/// (E4-9): a profile's id — a built-in's or a person's — or no row. A
+/// **hint**, as `engine.profile` is: what decides which profile the
+/// Rewriting page is on is a comparison of the texts (D511). A preference
+/// with a widget, so in [`PERSISTED`]; the profiles themselves are rows
+/// under [`PROMPT_PROFILES_PREFIX`], which are not.
+pub const REWRITE_PROFILE_KEY: &str = wipemark_pipeline::prompt::profile::ACTIVE_KEY;
+
+/// The namespace every template profile a person saved is filed under,
+/// `prompts.profiles.<id>` (E4-9) — list entries with dynamic keys, like
+/// [`ENGINE_PROFILES_PREFIX`], deliberately **not** in [`PERSISTED`];
+/// `a_template_profile_row_is_never_a_preference_row` keeps it so.
+#[cfg(test)]
+pub const PROMPT_PROFILES_PREFIX: &str = wipemark_pipeline::prompt::profile::PREFIX;
+
 /// The first segment of every template override's key,
 /// `prompts.<lang>.<tactic>.<step>.<role>` — dynamic keys like
 /// [`ENGINE_PROFILES_PREFIX`], deliberately **not** in [`PERSISTED`]:
@@ -419,7 +435,7 @@ pub fn model_key(role: Role) -> &'static str {
 /// below name their own key — and `-D warnings` fails a bin target on
 /// dead code. Same idiom as `TrayCommand::ALL`.
 #[cfg(test)]
-pub const PERSISTED: [&str; 38] = [
+pub const PERSISTED: [&str; 39] = [
     THEME_KEY,
     LANGUAGE_KEY,
     WINDOW_SCREEN_KEY,
@@ -461,6 +477,8 @@ pub const PERSISTED: [&str; 38] = [
     JOURNAL_KEEP_DAYS_KEY,
     // E4-6c
     REWRITE_PIVOT_KEY,
+    // E4-9
+    REWRITE_PROFILE_KEY,
 ];
 
 /// Everything one launch reads before there is a window to show it in.
@@ -1801,6 +1819,38 @@ pub fn forget_prompt(store: &Store, slot: Slot) -> Result<()> {
     Ok(())
 }
 
+// ## E4-9 — template profiles.
+
+/// Every template profile — the built-ins first, then a person's by name —
+/// read through the reader the command line and the MCP server use
+/// (`profile::all_from`). A row that is not a profile at all is logged by
+/// how many and **left** where it is; a profile with a slot this build
+/// cannot read is listed, and never applied (D512).
+pub fn read_prompt_profiles(store: &Store) -> Vec<TemplateProfile> {
+    match store.settings().all() {
+        Ok(rows) => {
+            template_profile::all_from(rows.iter().map(|(key, value)| (key.as_str(), value)))
+        }
+        Err(error) => {
+            tracing::warn!(%error, "could not read the template profiles; only the built-in ones are listed");
+            template_profile::all_from(std::iter::empty())
+        }
+    }
+}
+
+/// The template profile last laid or saved — a hint (D511). An empty or
+/// unreadable row reads as none and is left.
+pub fn read_active_prompt_profile(store: &Store) -> Option<String> {
+    read_string(store, REWRITE_PROFILE_KEY).filter(|id| !id.is_empty())
+}
+
+/// The row a person's template profile is written as, under its key — a
+/// change for `Settings::write_together`, which every write of one goes
+/// through so the profile and the hint beside it land together.
+pub fn prompt_profile_row(saved: &TemplateProfile) -> (String, Option<serde_json::Value>) {
+    (template_profile::key(&saved.id), Some(saved.to_value()))
+}
+
 #[cfg(test)]
 mod prompt_rows_tests {
     use serde_json::json;
@@ -1880,6 +1930,23 @@ mod prompt_rows_tests {
             assert!(!key.starts_with(ENGINE_PROFILES_PREFIX));
         }
         assert!(PERSISTED.contains(&REWRITE_PIVOT_KEY), "D331");
+    }
+
+    /// E4-9: a template profile is a list entry with a dynamic key, never a
+    /// preference — no `PERSISTED` key lives under its prefix, and the
+    /// active profile's row, which is one, lives outside it.
+    #[test]
+    fn a_template_profile_row_is_never_a_preference_row() {
+        use super::{PROMPT_PROFILES_PREFIX, REWRITE_PROFILE_KEY};
+        for key in PERSISTED {
+            assert!(
+                !key.starts_with(PROMPT_PROFILES_PREFIX),
+                "the preference {key} lives inside the profiles' namespace"
+            );
+        }
+        assert!(PERSISTED.contains(&REWRITE_PROFILE_KEY));
+        assert!(!REWRITE_PROFILE_KEY.starts_with(PROMPTS_PREFIX));
+        assert!(row::parse_key(&format!("{PROMPT_PROFILES_PREFIX}legal")).is_none());
     }
 
     /// A row this build cannot read is seen — JSON or not — and left in
