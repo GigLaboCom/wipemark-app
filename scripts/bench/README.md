@@ -273,6 +273,11 @@ its catalogue row) and R2 stage 0 has said what Grok hands out.
 
 ## E12-R9: the blend past one colour, with R4's numbers
 
+> **Parked: no fresh Gemini target (D520, D521; 2026-10-10).** R4's
+> numbers were to come from `gemini-midtone`, dropped when Gemini's new
+> outputs came without a visible mark. The configs below stay buildable
+> behind `blend-preview` and are not run; nothing shipped reads them.
+
 R9's three sub-steps — a bias (R9a, D497), a logo colour per pixel (R9b,
 D502), linear light (R9c, D500), all proposed — are code behind the
 `blend-preview` feature (`docs/architecture/visible-marks.md`, "A mark is

@@ -7,7 +7,8 @@ Step E12-R9 of the E12-R series (`docs/plan/E12-R9-blend-model-changes.md`
 §4, R9b), dispatched by the coordinator on 2026-10-09 with the owner's
 instruction that R9's code be finished before its evidence exists. R9b's
 `L(p)` comes from R4's `map_regress` on `gemini-midtone` (held-out files
-left out), which writes it as three columns of `pixels.tsv`; the catalogue
+left out — parked: that set was dropped on 2026-10-10, D520, D521), which
+writes it as three columns of `pixels.tsv`; the catalogue
 reads it only as a `.wml` asset (`crates/wipemark-pixels/src/blend.rs`)
 pinned by sha256. This turns the one into the other, so the host can plug
 R4's measured map into `recon_bench gen --logo-map` and `run --blend-row`

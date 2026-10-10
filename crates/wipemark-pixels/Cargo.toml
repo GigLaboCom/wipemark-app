@@ -34,8 +34,8 @@ thiserror.workspace = true
 # each exactly as it did before the code existed, and every shipped
 # profile restores byte for byte as it did. `wipemark-picture` forwards it
 # as its own `blend-preview`; the bench's `R9a`/`R9b`/`R9c` configs need
-# it. A sub-step whose condition fails (R9 §1) is closed and its code
-# removed; the coordinator removes the feature once the decisions land.
+# it. Parked, 2026-10-10 (D521): no fresh Gemini target (D520), so no
+# sub-step's condition can be measured; the code is kept here, not removed.
 blend-preview = []
 
 [dev-dependencies]
