@@ -64,15 +64,20 @@ runs.
   column is empty); `webp-lossy-q90`; `resize-0.9`, `resize-1.1` (bicubic,
   then PNG); `jpeg420-q90+resize-0.9`. The encoders are reported apart.
 * **The run** per file and config: `decode_with_planes` →
-  `wipemark_pixels::clean` with the case's catalogue → `encode_like` →
+  the config's pixels pass with the case's catalogue → `encode_like` →
   `reframe` → `prove`, as `wipemark_picture::clean` runs them. In the ROI
   (the mark's box and 4 pixels): `psnr_roi`, `ssim_roi` (luma, window 7),
   `de2000_roi` of the **restored raster** against the background (and the
   same for the input, and the PSNR of the written file); the measures of
   `Restored`; the detection — found, verdict, refusal, the rect error
   against the composited place; the CLI's exit.
-* **Configs.** `R0` is the product today. R6/R8/R9 add theirs as configs of
-  the example (S12), never as catalogue rows. **`R6`** (E12-R6, D306) is
+* **Configs**, named after the steps. `R0` is the RGB road with no
+  refinement — the product's until the owner's decisions of 2026-10-10;
+  **`R8d` is the product since** (the planes, D471, and DCT-POCS, D472).
+  Every config proves a mark as the product does, D470 included (the
+  search does not prove a mark at the place of a row that refused it by
+  gain). R6/R8/R9 add theirs as configs of the example (S12), never as
+  catalogue rows. **`R6`** (E12-R6, D471) is
   `wipemark_pixels::clean_with` given the decoded planes: a lossy JPEG
   subsampled 4:2:0 or 4:2:2 is proved and restored in its planes, every
   other file is R0's to the byte; its restorations carry `measures.planar`
@@ -247,8 +252,7 @@ its catalogue row) and R2 stage 0 has said what Grok hands out.
 0. **Build** with the zune-jpeg fork (`docs/architecture/zune-jpeg-pin.md`),
    at the commit under test:
    `cargo build --release -p wipemark-picture --example recon_bench --locked`
-   (and `--features wipemark-picture/planar-preview` for the R6/R8 configs'
-   `WIPEMARK_INTERVAL` road, as for Gemini).
+   (every config, R6 and R8 included, is in every build).
 1. **The degradation list**: `bench/degradations/grok.json` from R2 stage
    0's facts table, committed with the report that names them.
 2. **Generate R0-grok's run** with the provisional catalogue:

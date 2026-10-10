@@ -57,10 +57,11 @@ What it does
   the encoder, so a small example of `wipemark-picture`
   (`examples/export_crops.rs`, `--crop-tool`, by default
   `<the CLI's tree>/target/release/examples/export_crops`) runs the user's
-  path over the file again with `--crop-planar` and `--crop-refine` — give
-  the ones the CLI was built and run with (a `planar-preview` build and
-  `WIPEMARK_INTERVAL`; the default is the product today, no planes and no
-  refinement) — and writes `DIR/<id>__<n>/` (`input.png`, `recon.png`,
+  path over the file again with `--crop-planar` and `--crop-refine` — the
+  default is the product's since the owner's decisions of 2026-10-10, the
+  planes and DCT-POCS (`true`, `dct`; D471, D472); `false`/`none` is the
+  road a CLI built before them took — and writes `DIR/<id>__<n>/`
+  (`input.png`, `recon.png`,
   `alpha.pgm`, `meta.json`, which names the file's class and variant) and
   `DIR/index.json` (the tool, its settings, the commit, the crops per
   file). `--crop-pad` is the context around the ROI (64; LaMa asks 128).
@@ -1461,11 +1462,11 @@ def crop_tool_of(cli, given=None, tree=None):
     return os.path.join(cli_tree_of(cli, tree), "target", "release", "examples", "export_crops")
 
 
-def export_crops(corpus, entries, tool, out_dir, planar="false", refine="none", pad=64, tree=None):
+def export_crops(corpus, entries, tool, out_dir, planar="true", refine="dct", pad=64, tree=None):
     """`--export-crops` (E12-R10): the restoration's crops of every file, by `examples/export_crops.rs`."""
     if not os.path.isfile(tool) or not os.access(tool, os.X_OK):
         raise Refusal(f"{tool}: not an executable crop tool "
-                      "(cargo build --release -p wipemark-picture --example export_crops [--features planar-preview])")
+                      "(cargo build --release -p wipemark-picture --example export_crops)")
     if planar not in ("true", "false") or refine not in ("none", "dct", "pixel", "wiener"):
         raise Refusal(f"--crop-planar {planar} / --crop-refine {refine}: true|false and none|dct|pixel|wiener")
     files = corpus.materialise(entries)
@@ -2243,8 +2244,10 @@ def parser():
     def crop_args(s):
         s.add_argument("--export-crops", help="E12-R10: write the restoration's crops of every file here")
         s.add_argument("--crop-tool", help="the export_crops example (default: <CLI tree>/target/release/examples/export_crops)")
-        s.add_argument("--crop-planar", default="false", help="true for the planar inverse (R6), as the CLI was built")
-        s.add_argument("--crop-refine", default="none", help="none|dct|pixel|wiener, as WIPEMARK_INTERVAL was set (R8)")
+        s.add_argument("--crop-planar", default="true",
+                       help="true for the planar inverse (R6; the product's since D471), false for the RGB road before it")
+        s.add_argument("--crop-refine", default="dct",
+                       help="none|dct|pixel|wiener (R8); dct is the product's since D472, none the road before it")
         s.add_argument("--crop-pad", type=int, default=64, help="pixels of context around the ROI (LaMa asks 128)")
 
     s = sub.add_parser("fetch")

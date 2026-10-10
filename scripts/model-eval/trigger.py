@@ -43,10 +43,11 @@ the step alone are shown apart and not counted: FDnCNN removes noise; it
 does not add texture or move a band.
 
 The run is also checked for what it says about the CLI: the share of 4:2:0
-restorations carrying `planar` (R6, D306) and of lossy restorations
+restorations carrying `planar` (R6, D471) and of lossy restorations
 carrying `interval` (R8). None of either is a warning in the report — the
-trigger is to be measured **with the accepted R6/R8 in the CLI** (a
-`planar-preview` build, `WIPEMARK_INTERVAL` set), never on R0.
+trigger is to be measured **with the accepted R6/R8 in the CLI** — any
+release CLI built at or after the owner's decisions of 2026-10-10 (the
+planes, D471; DCT-POCS, D472) — never on R0.
 
 `lama` (§3.1) reads R11 stage 1's hole shares — `invariance.csv` as R11's
   `scripts/grok/invariance.py run` writes it (one row per pair: `source`,
@@ -80,8 +81,8 @@ What it needs
 -------------
 Python 3.10+ and numpy (through `evalkit.py`, whose helpers it shares;
 none of the model's packages). An R1 run made by a release CLI
-built with `--features wipemark-picture/planar-preview` and run with
-`WIPEMARK_INTERVAL` set to the method R8 kept (`scripts/regress.py run`).
+built at or after the owner's decisions of 2026-10-10, which carries R6
+and R8's DCT-POCS by default (`scripts/regress.py run`).
 
 What its output means
 ---------------------
@@ -256,7 +257,7 @@ def fdncnn_report(runs, rows, check, ab, run, line):
            f"* lossy restorations carrying `interval` (R8): {check['interval']} of {check['restorations_lossy']}"]
     if not (check["looks_like_r6"] and check["looks_like_r8"]):
         md.append("* **warning**: the run does not look like it was made with the accepted R6/R8 in the CLI "
-                  "(a `planar-preview` build with `WIPEMARK_INTERVAL`). The trigger is measured after R*, never on R0.")
+                  "(a release CLI built at or after D471/D472). The trigger is measured after R*, never on R0.")
     md += ["", "## Verdict", "", line, ""]
     return "\n".join(md)
 

@@ -49,6 +49,11 @@ What it does
      check, `texture / texture_around ≥ 0.8` on at least 95 % of every
      restored lossy file — each said pass or fail. A1–A7 stay `gates`'.
 
+The configs are named after the steps: `R0` is the RGB road with no
+refinement, the product's until the owner's decisions of 2026-10-10;
+`R8d` is the product's since (D471, D472). "Δ to R0" is against the road
+before the decisions.
+
 `gates` evaluates A1–A7 for `--candidate` against `--baseline` (R0) on the
 `--route` (`lossy` or `model`) with `--targets` (slices, globs allowed) and
 writes them as JSON and a table. `selftest` runs fake results through every

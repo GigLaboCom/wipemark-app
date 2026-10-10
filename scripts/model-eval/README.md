@@ -44,8 +44,8 @@ Crops come from two places, in one layout (`evalkit.py`'s header):
 2. **The FDnCNN trigger** (§2.1), on R1 with the accepted R*:
 
    ```sh
-   cargo build --release -p wipemark-cli --features wipemark-picture/planar-preview --locked
-   WIPEMARK_INTERVAL=<the method R8 kept> python3 scripts/regress.py run --cli target/release/wipemark-cli \
+   cargo build --release -p wipemark-cli --locked     # R6 and R8's DCT-POCS are the product's since D471/D472
+   python3 scripts/regress.py run --cli target/release/wipemark-cli \
        --baseline golden/baseline/<commit>/ --route lossy --select recon-jpeg-444 --select recon-jpeg-420 \
        --out reports/regress-r10-<date>/
    python3 scripts/model-eval/trigger.py fdncnn --run reports/regress-r10-<date>/ \
