@@ -326,6 +326,12 @@ impl Section {
             .into_iter()
             .filter(move |setting| setting.section() == self)
     }
+
+    /// The rows drawn: [`Section::rows`] less a row whose feature is not
+    /// offered — the draft's (D504, `wipemark_models::DRAFTS_OFFERED`).
+    pub fn shown_rows(self) -> impl Iterator<Item = Setting> {
+        self.rows().filter(|setting| setting.shown())
+    }
 }
 
 /// One row of one section.
@@ -383,6 +389,13 @@ pub enum Setting {
 }
 
 impl Setting {
+    /// Whether the row is drawn: every row but the draft's while no draft
+    /// is offered (D504). It stays in [`Setting::ALL`] and its key in
+    /// `config::PERSISTED`, so turning drafts on again is one constant.
+    pub fn shown(self) -> bool {
+        self != Setting::EngineSpeculative || wipemark_models::DRAFTS_OFFERED
+    }
+
     /// Every row, in the order the window shows them.
     ///
     /// The Engine rows are in the order a configuration is built:
@@ -2600,7 +2613,8 @@ impl Preferences {
                 on_disk: &on_disk,
                 host: self.host,
                 serves: self.serves,
-                speculative: self.local.speculative,
+                // D504: no draft is offered, whatever the row says.
+                speculative: self.local.speculative && wipemark_models::DRAFTS_OFFERED,
             },
             role,
             // The pin, when the command line named one. Nothing else
@@ -4761,7 +4775,7 @@ impl SettingsView {
         let border = theme.border;
         let muted = theme.muted_foreground;
 
-        v_flex().children(section.rows().enumerate().map(|(index, setting)| {
+        v_flex().children(section.shown_rows().enumerate().map(|(index, setting)| {
             v_flex()
                 .gap_1()
                 .py_4()
@@ -6459,6 +6473,10 @@ impl SettingsView {
                             .catalogue()
                             .models
                             .iter()
+                            // D504: a draft has no card while none is offered.
+                            .filter(|entry| {
+                                wipemark_models::DRAFTS_OFFERED || !entry.serves(Role::Draft)
+                            })
                             .map(|entry| self.model_card(entry, cx)),
                     )
                     // E8-1: the models the person added, among the
@@ -6871,6 +6889,8 @@ impl SettingsView {
         // decodes beside it, and why not; a draft's own card says what it
         // is for.
         let draft_line = match on_duty {
+            // D504: nothing is said of a draft while none is offered.
+            _ if !wipemark_models::DRAFTS_OFFERED => None,
             Some(local) => models::draft_line(
                 &local.draft,
                 engine_host::hosted(cx).and_then(|host| host.read(cx).draft_outcome()),
@@ -9286,6 +9306,26 @@ mod tests {
     fn every_row_is_reachable_from_the_sidebar() {
         let reachable: Vec<Setting> = Section::ALL.into_iter().flat_map(Section::rows).collect();
         assert_eq!(reachable, Setting::ALL.to_vec());
+    }
+
+    /// D504: while no draft is offered its row is not drawn, and every other
+    /// row is.
+    #[test]
+    fn the_drafts_row_is_drawn_only_while_drafts_are_offered() {
+        let drawn: Vec<Setting> = Section::ALL
+            .into_iter()
+            .flat_map(Section::shown_rows)
+            .collect();
+        assert_eq!(
+            drawn.contains(&Setting::EngineSpeculative),
+            wipemark_models::DRAFTS_OFFERED
+        );
+        let others = Setting::ALL
+            .into_iter()
+            .filter(|setting| *setting != Setting::EngineSpeculative);
+        for setting in others {
+            assert!(drawn.contains(&setting), "{setting:?} is not drawn");
+        }
     }
 
     /// Every row reads as something, in whatever language the suite

@@ -1861,6 +1861,15 @@ fn models_list_puts_the_draft_under_its_model() {
     let output = scratch.run(&["models", "list"]);
     assert_eq!(code(&output), 0, "{}", stderr(&output));
     let text = stdout(&output);
+    if !wipemark_models::DRAFTS_OFFERED {
+        // D504: no draft is offered, so none is listed and no model names one.
+        assert!(!text.contains(DRAFT), "a draft is listed:\n{text}");
+        let output = scratch.run(&["models", "list", "--json"]);
+        assert_eq!(code(&output), 0, "{}", stderr(&output));
+        let answer = json(&output);
+        assert!(!answer.to_string().contains(DRAFT), "{answer}");
+        return;
+    }
     let lines: Vec<&str> = text.lines().collect();
     let at = lines
         .iter()

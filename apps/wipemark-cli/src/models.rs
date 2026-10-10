@@ -129,7 +129,9 @@ impl Place {
         let speculative = store
             .as_ref()
             .and_then(|store| store.settings().get::<bool>(SPECULATIVE_KEY).ok().flatten())
-            .unwrap_or(false);
+            .unwrap_or(false)
+            // D504: no draft is offered, whatever the row says.
+            && wipemark_models::DRAFTS_OFFERED;
         let chosen = row(MODEL_REWRITE_KEY).filter(|id| {
             catalogue
                 .get(id)
@@ -358,6 +360,8 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
         .catalogue
         .models
         .iter()
+        // D504: a draft is not listed while none is offered.
+        .filter(|entry| wipemark_models::DRAFTS_OFFERED || !entry.serves(Role::Draft))
         .map(|entry| {
             let state = survey
                 .located
@@ -409,7 +413,11 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                 if let Some(target) = &entry.draft_for {
                     value["draft_for"] = target.as_str().into();
                 }
-                if let Some(draft) = context.catalogue.draft_for(&entry.id) {
+                if let Some(draft) = context
+                    .catalogue
+                    .draft_for(&entry.id)
+                    .filter(|_| wipemark_models::DRAFTS_OFFERED)
+                {
                     value["draft"] = draft.id.as_str().into();
                 }
                 match state {

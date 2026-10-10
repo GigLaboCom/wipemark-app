@@ -886,6 +886,7 @@ tell a decision from an accident.
 | **D489** | **What "lossless" promises** (F2): every token kept is the target's own sample given the tokens before it; greedy text is the target's — held byte for byte by the live gate (b) in en/ru/de — and a sampled text is another draw of the same distribution, because a block decoded at once is not bit-identical to tokens decoded one by one. The Engine row says so without "exactly". | The draft's card ("greedy output matches the target model exactly, and sampling preserves its distribution"); `docs/architecture/local-engine.md`, "A draft model". |
 | **D490–D502** | *(proposed by the E12-R series, 2026-10-08, as D301–D313; renumbered in order at the merge into `feat`, 2026-10-10, where D300–D306 and D310–D326 are other decisions — `reports/merge-feat-2026-10-10.md`)* D490 `zune-jpeg` from the fork `GigLaboCom/zune-image` (amended 2026-10-09: a git dependency at rev `e8d24f7e`, not a `[patch.crates-io]`); D491 `wipemark_pixels::Planes` and `Decoded.planes`; D492 regression routes `lossy`/`model`/`detect` and their gates; D493 a corpus is a dated Watchword ZIP with its manifest in git; D494 `consistency_px`/`consistency_dct` in `Restored`; D495 out of range by planes for 4:2:0/4:2:2 (amends D240, D252); D496 `TEXTURE_RATIO_MIN` 0.8; D497 a bias as profile data (conditional); D498 bounds as profile data (conditional); D499 restored vs reconstructed; D500 D152 revisited only on three agreements; D501 every file-reading developer tool is a `wipemark-picture` example, `synth` `#[doc(hidden)]` in `wipemark-pixels`; D502 a logo colour map `.wml` as profile data (E12-R9, conditional) | [E12-R-recon.md](E12-R-recon.md) §5.2, each with the step that confirms or amends it. The owner's decisions of 2026-10-08 that the series records as taken are S1–S12 there (§5.1). **D495 was taken on 2026-10-10 as D471**, beside D470 and D472 (above). |
 | **D503** | **`engine.local.speculative` off by default** (amends D485, 2026-10-10): measured on the owner's host (RTX 5070 Ti, Vulkan, the prebuilt `b10731`), Qwen3.8 27B with its DFlash2 draft wrote 17.7 tokens a second against 33.6 without (live gate (c), acceptance 3.03 a step; en ≈ 4.3, ru ≈ 1.3, de ≈ 1.6), the greedy text byte for byte the same (live gate (b), en/ru/de). The row stays, so the draft can be tried; it is turned on by default again only once a draft is measured faster. | the coordinator, on the owner's word ("делай то что нужно"); `scripts/verify/e2-dflash2/host-check.sh`, `crates/wipemark-pipeline/bench/results/dflash-2026-10-10/` |
+| **D504** | **No draft is offered, and every surface of one is hidden** (2026-10-10, after D503): `wipemark_models::DRAFTS_OFFERED = false` — the Models page has no card for a draft and says nothing of one on its model's card, the Engine page does not draw the Faster decoding row (`Setting::shown`; the row stays in `Setting::ALL` and its key in `config::PERSISTED`), `wipemark-cli models list` and its `--json` name no draft, and nothing loads one whatever the row says. The code and its tests stay whole; one constant turns it back on. | the owner: "закоментить все места в ui чтобы даже не видны были"; DFlash2 measured twice as slow on the owner's host (D503) |
 
 ---
 
@@ -975,6 +976,19 @@ from: what already exists (with `file:line`), what to build, the basis,
 the gate the overview set, and the open edges.
 
 ### E2 — engines (`wipemark-engine`)
+
+- **Fix. DFlash2 makes Qwen3.8 27B slower, not faster** (2026-10-10, D503,
+  D504). Live gate on the owner's RTX 5070 Ti, Vulkan, prebuilt `b10731`:
+  greedy text byte for byte the same with and without the draft (en, ru,
+  de), but 17.7 tokens a second with it against 33.6 without, 3.03 tokens
+  accepted a step (en ≈ 4.3, ru ≈ 1.3, de ≈ 1.6). Every surface of a draft is
+  hidden (`wipemark_models::DRAFTS_OFFERED = false`). To find out: llama.cpp's
+  own `llama-server --spec-type draft-dflash` at the same pin, Vulkan, the same
+  two files — if it is faster, the port does something per step that the
+  impl does not (the recurrent snapshots, the layer inputs read back to the
+  host, a decode too many); if it is as slow, DFlash2 does not pay on Vulkan
+  with a hybrid target, and CUDA or another draft is the question. Results of
+  the corpus run: `crates/wipemark-pipeline/bench/results/dflash-2026-10-10/`.
 
 - **Exists.** `RewriteEngine` (`crates/wipemark-engine/src/lib.rs:138`:
   `info`, `complete`, `warmup`, `unload`), `EngineInfo` with

@@ -41,7 +41,9 @@ pub use beacon::Beacon;
 pub use gguf::{GgufError, Header, KvShape, NotOffered, Offer};
 pub use host::{default_for_role, fit, fit_mb, Fit, Host};
 pub use layout::{data_dir, model_dir, models_dir, Layout, LayoutError, BUNDLE_ID};
-pub use manifest::{FileSpec, Format, Manifest, ManifestError, MemSpec, ModelEntry, Role, Status};
+pub use manifest::{
+    FileSpec, Format, Manifest, ManifestError, MemSpec, ModelEntry, Role, Status, DRAFTS_OFFERED,
+};
 pub use scan::{weights_under, Found};
 pub use store::{
     partial, Cancel, Downloads, Event, Hashing, Located, Progress, State, StoreError, Survey,

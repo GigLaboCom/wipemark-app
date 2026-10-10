@@ -97,6 +97,23 @@ pub enum ManifestError {
     TwoDrafts { target: String },
 }
 
+/// Whether a speculative draft (`Role::Draft`, E2-dflash2) is offered to
+/// anyone: listed on the Models page and by `wipemark-cli models list`, its
+/// Engine row shown, and loaded beside its model.
+///
+/// **Off, and every surface hidden (D504).** The code is whole and tested,
+/// and the live gate on the owner's host (RTX 5070 Ti, Vulkan, the prebuilt
+/// llama.cpp `b10731`, 2026-10-10) held its one promise — greedy text byte
+/// for byte the same with and without the draft, in en, ru and de — but the
+/// draft made Qwen3.8 27B **slower**: 17.7 tokens a second against 33.6,
+/// with 3.03 tokens accepted a step (en ≈ 4.3, ru ≈ 1.3, de ≈ 1.6). Either
+/// the port does something per step that llama.cpp's own loop does not, or
+/// DFlash2 does not pay on Vulkan with a recurrent target; which one is not
+/// known yet (`scripts/verify/e2-dflash2/host-check.sh`,
+/// `crates/wipemark-pipeline/bench/results/dflash-2026-10-10/`). Turned on
+/// again only once a draft is measured faster on a machine of ours.
+pub const DRAFTS_OFFERED: bool = false;
+
 /// What a model is *for*.
 ///
 /// The purpose classification. A model may serve several roles — a
