@@ -154,8 +154,8 @@ pub struct LocalPolicy {
     /// Ask the operating system to keep the weights in RAM.
     pub lock: bool,
     /// Decode with the model's speculative draft when one is downloaded
-    /// for it (`engine.local.speculative`, on by default — E2-dflash2,
-    /// D485).
+    /// for it (`engine.local.speculative`, off by default — E2-dflash2,
+    /// D485, D503).
     pub speculative: bool,
 }
 
@@ -165,7 +165,7 @@ impl Default for LocalPolicy {
             keeping: Keeping::OnDemand,
             idle_minutes: 15,
             lock: false,
-            speculative: true,
+            speculative: false,
         }
     }
 }

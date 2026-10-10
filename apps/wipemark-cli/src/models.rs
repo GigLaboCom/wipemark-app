@@ -83,8 +83,8 @@ pub(crate) struct Place {
     pub(crate) added: Vec<UserModel>,
     /// The Engine page's `engine.local.speculative` (D485, D488): whether
     /// the chosen model decodes with its draft when one is downloaded. A
-    /// value this build cannot read is the default, on, as the application
-    /// reads it.
+    /// value this build cannot read is the default, off (D503), as the
+    /// application reads it.
     pub(crate) speculative: bool,
 }
 
@@ -129,7 +129,7 @@ impl Place {
         let speculative = store
             .as_ref()
             .and_then(|store| store.settings().get::<bool>(SPECULATIVE_KEY).ok().flatten())
-            .unwrap_or(true);
+            .unwrap_or(false);
         let chosen = row(MODEL_REWRITE_KEY).filter(|id| {
             catalogue
                 .get(id)

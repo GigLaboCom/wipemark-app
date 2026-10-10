@@ -854,6 +854,7 @@ cargo test -p wipemark-engine --features llama-native --locked -- --ignored --te
 | D487 | One bar for both reads, each its share of the bytes; the measured RSS covers both models. |
 | D488 | The command line lists the draft under its model and rewrites with it by the same row, read-only. |
 | D489 | "Lossless" means every token kept is the target's own sample: greedy text is the target's (held by the live gate), sampled text another draw of the same distribution. |
+| D503 | `engine.local.speculative` is **off** by default (amends D485): on the owner's RTX 5070 Ti under Vulkan the draft made Qwen3.8 27B slower — 17.7 tokens a second against 33.6, the greedy text unchanged; it is on again by default only once a draft is measured faster. |
 
 ## What was left behind, and why
 

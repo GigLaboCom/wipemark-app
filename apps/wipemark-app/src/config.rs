@@ -172,9 +172,10 @@ pub const ENGINE_LOCAL_IDLE_KEY: &str = "engine.local.idle_minutes";
 pub const ENGINE_LOCAL_MLOCK_KEY: &str = "engine.local.mlock";
 
 /// Whether the local model decodes with its speculative draft when one is
-/// downloaded for it (E2-dflash2, D485). On by default: the draft changes
-/// how fast the model writes and never what a greedy decode writes, and a
-/// machine without the draft loads the model alone either way.
+/// downloaded for it (E2-dflash2, D485). Off by default (D503): measured on
+/// the owner's RTX 5070 Ti under Vulkan, Qwen3.8 27B wrote 17.7 tokens a
+/// second with its DFlash2 draft and 33.6 without, the greedy text the same;
+/// the row is the way to try it until a draft is measured faster.
 pub const ENGINE_LOCAL_SPECULATIVE_KEY: &str = "engine.local.speculative";
 
 /// The namespace every saved profile is filed under.
@@ -2573,10 +2574,10 @@ mod tests {
                 keeping: Keeping::OnDemand,
                 idle_minutes: 15,
                 lock: false,
-                speculative: true,
+                speculative: false,
             },
             "a fresh install loads a model when it is needed and keeps it fifteen minutes, \
-             with its draft when there is one"
+             without its draft until it is asked for (D503)"
         );
 
         write_local_keep(&store, Keeping::Resident).expect("keep");

@@ -5710,7 +5710,7 @@ impl SettingsView {
     }
 
     /// The switch that locks the model in RAM.
-    /// `engine.local.speculative` (D485): a switch, on by default. Takes
+    /// `engine.local.speculative` (D485): a switch, off by default (D503). Takes
     /// effect at the next load — the engine is rebuilt with or without the
     /// draft, as for the lock.
     fn speculative_switch(&self, cx: &Context<Self>) -> impl IntoElement {

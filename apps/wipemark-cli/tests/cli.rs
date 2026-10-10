@@ -1851,7 +1851,7 @@ fn models_sizes_are_spelled_in_the_languages_decimals() {
 
 /// E2-dflash2 (D488): Qwen3.8's draft is listed under the model it drafts
 /// for, says it is never used on its own, and says when the application's
-/// row keeps it from being used at all; `--json` names each from the
+/// row keeps it from being used at all — by default since D503; `--json` names each from the
 /// other.
 #[test]
 fn models_list_puts_the_draft_under_its_model() {
@@ -1873,7 +1873,8 @@ fn models_list_puts_the_draft_under_its_model() {
     );
     assert!(under.contains(TARGET), "{under}");
     assert!(under.contains("never used on its own"), "{under}");
-    assert!(!under.contains("faster decoding is off"), "{under}");
+    // No row: off by default (D503).
+    assert!(under.contains("faster decoding is off"), "{under}");
     assert_eq!(
         lines.iter().filter(|line| line.contains(DRAFT)).count(),
         1,
@@ -1892,13 +1893,13 @@ fn models_list_puts_the_draft_under_its_model() {
     assert_eq!(model(&answer, TARGET)["draft"], DRAFT, "{answer}");
     assert!(model(&answer, SMALL).get("draft").is_none(), "{answer}");
 
-    // The application's row off: the draft is said to be unused.
+    // The application's row on: the draft is no longer said to be unused.
     std::fs::create_dir_all(scratch.data()).expect("the data directory");
     let store =
         wipemark_store::Store::open(scratch.data().join("wipemark.db")).expect("a database");
     store
         .settings()
-        .set("engine.local.speculative", &false)
+        .set("engine.local.speculative", &true)
         .expect("a row");
     drop(store);
     let output = scratch.run(&["models", "list"]);
@@ -1908,7 +1909,7 @@ fn models_list_puts_the_draft_under_its_model() {
         .lines()
         .find(|line| line.starts_with(&format!("  {DRAFT} ")))
         .unwrap_or_else(|| panic!("the draft is not listed:\n{text}"));
-    assert!(under.contains("faster decoding is off"), "{under}");
+    assert!(!under.contains("faster decoding is off"), "{under}");
 }
 
 /// Every catalogue entry is listed with what is on this machine for it:

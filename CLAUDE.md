@@ -1719,7 +1719,8 @@ Anything that needed more than a rule to explain is in `docs/`;
   from llama.cpp's `common` at the pin): every kept token is the model's own
   sample, so greedy text is the model's and the live gate holds it byte for
   byte; a draft that cannot run beside the model is refused by name and the
-  model loaded alone. Its seven `llama-ext.h` calls go through a C++ shim of
+  model loaded alone. It is off unless the Engine page's Faster decoding row
+  is turned on (D503): measured on Vulkan, it slowed Qwen3.8 27B by half. Its seven `llama-ext.h` calls go through a C++ shim of
   declarations, never a mangled name, and a pin bump re-reads that header
   (`PIN.md`, step 5b). Gemma 4 and
   Qwen3.8 run locally: their chat templates are rendered by
@@ -2220,9 +2221,12 @@ its result, one question at a time, "…, then edited" (D447) and Report… of
 a journal row greyed (D448), both at a default the owner may switch. **E2-dflash2** — DFlash2 speculative decoding for Qwen3.8 27B, its draft
 as a catalogue entry tied to the model, the Engine page's **Faster
 decoding** row, the command line and the bench's `--draft` (D480–D489) — is
-merged (2026-10-10); how much faster it is, and that greedy text stays the
-model's byte for byte, are the host's live gate and `bench/run-dflash.sh`
-(`docs/plan/reports/E2-dflash2-2026-10-10.md`, the host's checklist). **The E12-R series** (`plan/recon-2026-10-08`, the restoration measured,
+merged (2026-10-10). On the owner's host (RTX 5070 Ti, Vulkan) the live
+gate holds greedy text byte for byte in en, ru and de, and the draft makes
+the model **slower** — 17.7 tokens a second against 33.6, acceptance 3.03 a
+step (en ≈ 4.3, ru ≈ 1.3, de ≈ 1.6) — so the row is **off by default**
+(D503) until a draft is measured faster; `bench/run-dflash.sh` over the
+corpus is in `crates/wipemark-pipeline/bench/results/dflash-2026-10-10/`. **The E12-R series** (`plan/recon-2026-10-08`, the restoration measured,
 then made more precise) is merged (`recon/decided`, 2026-10-10): R1 and
 R3–R8 are done, R12's stage 4a is done, and the tools of R2, R9 (behind
 `blend-preview`), R10, R11 and R12's stage 4b are written; R3 reads
