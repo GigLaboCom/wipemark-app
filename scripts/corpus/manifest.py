@@ -7,25 +7,39 @@ Step E12-R2 of the E12-R series (`docs/plan/E12-R2-corpora.md` §4–§5),
 filed 2026-10-08 by the coordinator from the owner's spec
 `wipemark-recon-spec-2026-10-08` (`02-data-collection.md`,
 `08-grok-evaluation.md` §1; the owner's S2 and S5), the container part
-written 2026-10-09. Three sets — `gemini-midtone`, `negative`, `grok` — are
-the owner's pictures, which never enter git (D493): a set is a stored ZIP
+written 2026-10-09. Two sets — `negative`, `grok` — are the owner's
+pictures, which never enter git (D493): a set is a stored ZIP
 under a dated Watchword key, and its manifest in git
 (`corpus/<set>/manifest.json`) names the key, the path inside the ZIP and
 each file's sha256. This script writes and checks those manifests, so the
 host can run R2 the day the owner delivers. `scripts/corpus/README.md` is
 the runbook and the manifest's field table.
 
+**The E12-R close-out, 2026-10-10** (the coordinator's task
+`wipemark-task-recon-closeout-grok-ready-2026-10-10`): the third set,
+`gemini-midtone`, is **dropped** (D520 — Gemini's new outputs carry no
+visible mark, the owner, 2026-10-10), and with it the ring check over a
+catalogue row and `--on-fail move`, which only it used. The ring check now
+serves Grok's calibration captures instead (R11 §4.2), around the rectangle
+the stage-0 sidecar gives. `grok` reads the capture guide's folders (`web`,
+`x`, `api`, `video` — `docs/plan/E12-R-grok-capture-guide.md`) beside the
+long names, takes a file's background group from its name when the sidecar
+does not give one, marks every by-hand cell nobody filled "to fill", and
+writes a sidecar template; `captures` writes Grok's `captures.toml`. A
+stratum now holds out ⌈n/5⌉ of its n files — at least one (D525, the
+pending question D6's first option).
+
 What it does
 ------------
 * `add` — rows for the files named (or listed in a TSV): id, path inside
   the set's folder (= inside the ZIP), sha256, profile, size, group,
-  generation date, `held_out`, the batch that wrote the row; for a
-  background group of `gemini-midtone`, `scripts/corpus/ring.py`'s check
-  and its numbers (§4.1). A file that fails the check is refused — nothing
-  is added — unless `--on-fail move`, which files it under the group the
-  check names (`gradient`, `texture`) with `moved_from`, or lists it under
-  `dropped`. A file already a row is skipped; a path already a row with
-  other bytes is refused (D493); the same bytes twice are one row.
+  generation date, `held_out`, the batch that wrote the row; for a Grok
+  capture filed under a flat group (`black`, `white`, `gray-*`, `sat-*`)
+  with its mark's rectangle known, `scripts/corpus/ring.py`'s check around
+  that rectangle and its numbers (R11 §4.2) — recorded, never a refusal: a
+  capture that fails it stays a row and is left out of `captures`. A file
+  already a row is skipped; a path already a row with other bytes is
+  refused (D493); the same bytes twice are one row.
 * `build` — `add` over every picture under `--root` not yet in the
   manifest, the group read from its folder (`<group>/<file>`) and the
   profile from the folder above it when that names one
@@ -34,8 +48,10 @@ What it does
   is decided **once, when the row is written, and never again**. The
   rows a run adds are sorted by sha256 within each stratum (the group; for
   Grok, the source and the group) and numbered on from the rows the
-  stratum already has: the 5th, 10th, 15th … of the stratum is held out.
-  So a group always holds out ⌊n/5⌋ of its n files, a file held out stays
+  stratum already has: the 1st, 6th, 11th … of the stratum is held out
+  (D525: ⌈n/5⌉, at least one — the pending question D6's first option;
+  until 2026-10-10 the 5th, 10th …, which held out none of a group of
+  four). So a group always holds out ⌈n/5⌉ of its n files, a file held out stays
   held out and a file in training stays in training however the set grows,
   and the choice inside one run depends on the bytes, never on a name or a
   listing's order. What it does depend on is how the files were batched —
@@ -55,19 +71,20 @@ What it does
   the key and the ZIP's sha256 into the manifest; a set that grows is a
   new ZIP under a new key, and the old key moves to `previous`.
 * `captures` — a `captures.toml` in the shape of
-  `crates/wipemark-pixels/examples/captures.example.toml` for one profile:
-  `black`, `white` and `gray-*` (as `grey`) per size, leaving out the
-  held-out files, a file that failed the ring check, and a file
-  `inspect` found `unverified` or has not checked (`--unchecked` keeps the
-  last). Each path is relative to the folder the TOML is written in, as
-  `calibrate` reads it. A size without a black, a white or a grey capture
-  is said, since `calibrate` cannot fit it.
+  `crates/wipemark-pixels/examples/captures.example.toml` for one Grok
+  source (`--profile grok.com` or `web`): `black`, `white` and `gray-*` (as
+  `grey`) per size, leaving out the held-out files, a file that failed the
+  ring check, a clip and a file whose mark the sidecar says is absent. The
+  profile it drafts is `grok-<web|x|api|video>` (`--id` names another),
+  vendor `xai`. Each path is relative to the folder the TOML is written in,
+  as `calibrate` reads it. A size without a black, a white or a grey capture
+  is said, since `calibrate` cannot fit it. (No `inspect` verdict is asked
+  for: no profile of the catalogue describes the mark yet, so "verified"
+  could not mean anything.)
 * `inspect` — the second check of §4.1: `wipemark-cli inspect --json` on
   every row (sha256 checked first), recorded as `inspect` in the row:
-  `verified` when the row's profile was verified (any profile, outside
-  `gemini-midtone`), else `unverified` — such a file stays in the set,
-  is material for R4 §4, and never calibrates. On `negative`, a
-  `verified` is a known false positive (R1 G1).
+  `verified` when any profile was verified, else `unverified`. On
+  `negative`, a `verified` is a known false positive (R1 G1).
 * `grok` — stage 0 (§4.3): per file under `--root` the facts its bytes
   give — format; for a JPEG its subsampling and quantisation tables, read
   off its SOF and DQT markers (`wipemark-cli inspect --json` does not carry
@@ -76,30 +93,39 @@ What it does
   `ffprobe` when it is installed, otherwise "not available" — and the
   by-hand fields from a sidecar the host fills (`.toml` or `.csv`: corner,
   margin, mark size, kind, colour, shadow/outline, source, date, the
-  background group, whether a clip's mark looks static). Renders the stage-0
-  table of §4.3 as Markdown — one row per source, then every file — and
-  says whether the gate holds (all four sources described: a mark answer,
-  a format, a position). `--manifest` writes the rows into
+  background group, whether a clip's mark looks static). A file's source
+  is its top folder — `grok.com`, `grok-in-x`, `xai-api`,
+  `grok-imagine-video`, or the capture guide's `web`, `x`, `api`, `video`
+  — and its background group, when the sidecar says none, the start of its
+  name (`black-01.png`, `gray-50-3.jpg`, `dark-…` for black, `light-…` for
+  white, `mid-…` for gray-50, `photo-…` for content; anything else is
+  content). Renders the stage-0 table of §4.3 as Markdown — one row per
+  source, then every file, every by-hand cell nobody filled "to fill" —
+  and says whether the gate holds (all four sources described: a mark
+  answer, a format, a position). `--manifest` writes the rows into
   `corpus/grok/manifest.json` too; `--cli` adds whether the file carries
-  C2PA or AI metadata.
+  C2PA or AI metadata; `--template PATH` writes a sidecar listing every
+  file the sidecar does not, its by-hand fields empty and its background
+  as read from its name, for a person to fill.
 * `selftest` — no corpus, no CLI: synthetic pictures in a temporary folder;
   every case of R2 §5 and the rest (below).
 
 How to run it
 -------------
-    python3 scripts/corpus/manifest.py build    --manifest corpus/gemini-midtone/manifest.json --root <set dir> \
-                                                --set gemini-midtone --generated 2026-10-12 [--on-fail move]
-    python3 scripts/corpus/manifest.py add      --manifest … --root <set dir> [--set …] --group gray-50 \
-                                                --profile gemini-sparkle-v1 --generated 2026-10-12 FILE …
+    python3 scripts/corpus/manifest.py build    --manifest corpus/negative/manifest.json --root <set dir> \
+                                                --set negative --generated 2026-10-12
+    python3 scripts/corpus/manifest.py add      --manifest … --root <set dir> [--set …] --group unmarked \
+                                                --generated 2026-10-12 FILE …
     python3 scripts/corpus/manifest.py add      --manifest … --root <set dir> --list batch.tsv
     python3 scripts/corpus/manifest.py inspect  --manifest … --root <set dir> --cli target/release/wipemark-cli
     python3 scripts/corpus/manifest.py verify   --manifest … (--root <set dir> | --zip <set>.zip) [--source NAME]
     python3 scripts/corpus/manifest.py zip      --manifest … --root <set dir> --out <set>.zip [--source NAME] \
-                                                [--key wipemark-corpus-gemini-midtone-<date>]
-    python3 scripts/corpus/manifest.py captures --manifest … --root <set dir> --profile gemini-sparkle-v1 \
-                                                [--id ID] [--out <dir>/captures.toml]
-    python3 scripts/corpus/manifest.py grok     --root <grok dir> --sidecar grok.toml --out stage0.md \
-                                                [--manifest corpus/grok/manifest.json] [--cli …]
+                                                [--key wipemark-corpus-negative-<date>]
+    python3 scripts/corpus/manifest.py captures --manifest corpus/grok/manifest.json --root <grok dir> \
+                                                --profile web [--id ID] [--out <dir>/captures.toml]
+    python3 scripts/corpus/manifest.py grok     --root <grok dir> [--sidecar grok.toml] --out stage0.md \
+                                                [--manifest corpus/grok/manifest.json] [--cli …] \
+                                                [--template grok.toml.template]
     python3 scripts/corpus/manifest.py selftest
 
 The TSV of `add --list` has a header and the columns `path`, `group`,
@@ -116,13 +142,13 @@ Nothing in the repository depends on this script or on Python.
 What its output means
 ---------------------
 Each command says what it wrote, one line per file that needs a person
-(refused, moved, dropped, unverified, left out). The manifest is written
-only when the whole command succeeded. `grok` writes the stage-0 table
+(refused, unverified, left out). The manifest is written only when the
+whole command succeeded. `grok` writes the stage-0 table
 (§4.3's artefact is that table, filed as
 `docs/plan/reports/E12-R2-grok-stage0-<date>.md`). Exit codes are the
 repository's: **0** done, **1** a selftest failed, **2** usage or a refusal
-(a sha256 that differs from its row, a deflated ZIP, a file that fails the
-ring check, a manifest that is not valid), **3** attention — a ZIP member
+(a sha256 that differs from its row, a deflated ZIP, a manifest that is not
+valid), **3** attention — a ZIP member
 no row names, a stage-0 table whose gate does not hold yet.
 """
 
@@ -152,12 +178,22 @@ EVERY = 5  # §4.1: every fifth file of a stratum is held out — 20 %
 PICTURES = (".png", ".jpg", ".jpeg", ".webp")
 CLIPS = (".mp4", ".mov", ".webm", ".mkv", ".m4v")
 GROK_SOURCES = ("grok.com", "grok-in-x", "xai-api", "grok-imagine-video")
+# The capture guide's folders (docs/plan/E12-R-grok-capture-guide.md): one short word per source, which is also
+# the second half of the profile id a calibration drafts (`grok-web` …).
+SHORT = {"grok.com": "web", "grok-in-x": "x", "xai-api": "api", "grok-imagine-video": "video"}
+ALIASES = {v: k for k, v in SHORT.items()}
+PRODUCT = {"grok.com": "imagine", "grok-in-x": "grok-in-x", "xai-api": "api", "grok-imagine-video": "imagine-video"}
+# A file's background group from the start of its name, when the sidecar gives none (the capture guide's scheme).
+NAME_GROUPS = [(g, g) for g in sorted(ring.GROUPS, key=len, reverse=True)] + [
+    ("grey-25", "gray-25"), ("grey-50", "gray-50"), ("grey-75", "gray-75"), ("dark", "black"), ("light", "white"),
+    ("midtone", "gray-50"), ("mid", "gray-50"), ("grey", "gray-50"), ("gray", "gray-50"), ("photo", "content"),
+    ("content", "content")]
+# `gemini-midtone` was the third set until 2026-10-10: dropped by D520 (Gemini's new outputs carry no visible
+# mark — the owner), with the ring check over a catalogue row and `--on-fail move` that only it used.
 SETS = {
-    "gemini-midtone": {"groups": ring.GROUPS, "profiles": ("gemini-sparkle-v1", "gemini-sparkle-v2"),
-                       "ring": True, "by": ["group"]},
     "negative": {"groups": ("unmarked", "look-alike", "youtube-heretic"), "profiles": (None,),
                  "ring": False, "by": ["group"]},
-    "grok": {"groups": ring.GROUPS + ("content",), "profiles": GROK_SOURCES, "ring": False,
+    "grok": {"groups": ring.GROUPS + ("content",), "profiles": GROK_SOURCES, "ring": True,
              "by": ["profile", "group"]},
 }
 BACKGROUND = {"black": "black", "white": "white", "gray-25": "grey", "gray-50": "grey", "gray-75": "grey"}
@@ -212,7 +248,8 @@ def new_manifest(set_name):
                    "Written by scripts/corpus/manifest.py; see scripts/corpus/README.md.",
         "held_out": {"every": EVERY, "by": SETS[set_name]["by"],
                      "rule": "decided once, when a row is written: a run's new rows sorted by sha256 within "
-                             "their stratum and numbered on from the rows it has; every fifth is held out"},
+                             "their stratum and numbered on from the rows it has; the 1st, 6th, 11th … is held "
+                             "out — ceil(n/5), at least one (D525)"},
         "sources": {},
         "files": [],
         "dropped": [],
@@ -305,13 +342,15 @@ def stratum(row, by):
 
 def assign_held_out(m, new_rows):
     """§4.1's 20 %: a run's new rows sorted by sha256 within their stratum,
-    numbered on from the rows the stratum already has; the 5th, 10th, … is
-    held out. Rows already in the manifest are never looked at again."""
+    numbered on from the rows the stratum already has; the 1st, 6th, 11th …
+    is held out, so a stratum of n holds out ⌈n/5⌉ — one even of a group of
+    fewer than five (D525, the pending question D6's first option). Rows
+    already in the manifest are never looked at again."""
     every, by = m["held_out"]["every"], m["held_out"]["by"]
     count = collections.Counter(stratum(r, by) for r in m["files"])
     for r in sorted(new_rows, key=lambda r: r["sha256"]):
         k = stratum(r, by)
-        r["held_out"] = count[k] % every == every - 1
+        r["held_out"] = count[k] % every == 0
         count[k] += 1
 
 
@@ -323,18 +362,18 @@ def fresh_id(ids, rel, group):
     raise Refusal(f"{rel}: no free id")
 
 
-def add_files(m, root, items, on_fail="refuse"):
+def add_files(m, root, items):
     """Rows for `items` (dicts: path, group, profile, generated, and
-    optionally source, tier, app, note, size, extra). Returns (new rows,
-    lines to say). Raises Refusal — and changes nothing a caller saves —
-    when any file is refused."""
+    optionally source, tier, app, note, size, rect, extra). Returns (new
+    rows, lines to say). Raises Refusal — and changes nothing a caller saves
+    — when any file is refused."""
     spec = SETS[m["set"]]
     by_path = {(r["source"], r["path"]): r for r in m["files"]}
     by_sha = {r["sha256"]: r for r in m["files"]}
     dropped = {d["sha256"] for d in m["dropped"]}
     batch = 1 + max((r.get("batch", 0) for r in m["files"]), default=0)
     ids = {r["id"] for r in m["files"]}
-    new, said, failures, seen, drops = [], [], [], {}, []
+    new, said, seen = [], [], {}
     for it in items:
         path = it["path"]
         source = it.get("source") or m["set"]
@@ -366,38 +405,27 @@ def add_files(m, root, items, on_fail="refuse"):
         generated = it.get("generated")
         if generated is None or not DATE.match(str(generated)):
             raise Refusal(f"{rel}: the generation date {generated!r} is not YYYY-MM-DD (or `unknown`, said on purpose)")
-        ring_rec, moved_from = None, None
-        if spec["ring"] and group in ring.GROUPS:
+        ring_rec = None
+        if spec["ring"] and group in ring.FLAT_GROUPS and it.get("rect"):
+            # R11 §4.2: a calibration capture qualifies when the background around the mark is flat. Recorded,
+            # never a refusal — a stage-0 row is a fact; `captures` leaves out a capture that fails.
             try:
-                r = ring.measure(path, profile, group)
+                r = ring.measure_rect(path, it["rect"], group)
             except ring.Refusal as e:
-                raise Refusal(f"{rel}: {e}")
-            if not r["pass"]:
-                if on_fail == "refuse":
-                    failures.append(f"{rel}: {group} fails the ring check (spread {r['spread']}, residual "
-                                    f"{r['residual_max']}, looks like {r['looks_like']}): it could move to {r['move_to']}")
-                    continue
-                if r["move_to"] == "drop":
-                    drops.append({"path": rel, "sha256": sha, "group": group, "spread": r["spread"],
-                                  "residual_max": r["residual_max"], "why": f"fails {group}'s ring check and is "
-                                  "neither a gradient nor an even texture"})
-                    seen[sha] = rel
-                    said.append(f"{rel}: dropped — fails {group}, neither a gradient nor a texture")
-                    continue
-                moved_from, group = group, r["move_to"]
-                r = ring.measure(path, profile, group)
-                said.append(f"{rel}: fails {moved_from}; moved to {group}")
-            ring_rec = {k: r[k] for k in ("row", "rect", "resample", "ring", "mean", "sd", "residual", "spread",
-                                          "residual_max", "pass", "looks_like", "notes")}
-            for n in r["notes"]:
-                said.append(f"{rel}: note: {n}")
+                said.append(f"{rel}: no ring check: {e}")
+            else:
+                ring_rec = {k: r[k] for k in ("rect", "ring", "mean", "sd", "residual", "spread", "residual_max",
+                                              "pass", "looks_like", "notes")}
+                if not r["pass"]:
+                    said.append(f"{rel}: fails {group}'s ring check (spread {r['spread']}, looks like "
+                                f"{r['looks_like']}): left out of the captures")
+                for n in r["notes"]:
+                    said.append(f"{rel}: note: {n}")
         size = it["size"] if "size" in it else picture_size(path)
         rid = fresh_id(ids, rel, group)
         ids.add(rid)
         row = {"id": rid, "source": source, "path": rel, "sha256": sha, "profile": profile, "size": size,
                "group": group}
-        if moved_from:
-            row["moved_from"] = moved_from
         row.update({"generated": generated, "held_out": None, "batch": batch, "ring": ring_rec})
         for k in ("tier", "app", "note"):
             if it.get(k):
@@ -405,13 +433,10 @@ def add_files(m, root, items, on_fail="refuse"):
         row.update(it.get("extra") or {})
         new.append(row)
         seen[sha] = rel
-    if failures:
-        raise Refusal("\n".join(failures) + "\nnothing was added; `--on-fail move` files them where the check says")
     for source in {it.get("source") or m["set"] for it in items}:
         m["sources"].setdefault(source, {"key": None, "sha256": None, "previous": []})
     assign_held_out(m, new)
     m["files"].extend(new)
-    m["dropped"].extend(drops)
     for r in new:
         said.append(f"{r['path']}: row {r['id']}, {r['group']}" + (", held out" if r["held_out"] else ""))
     return new, said
@@ -516,24 +541,33 @@ def toml_str(s):
     return json.dumps(str(s))  # JSON's escapes are TOML basic-string escapes
 
 
-def captures_toml(m, root, profile, cid=None, out_dir=None, unchecked=False, source_name=None):
-    """(text, left out, warnings)."""
-    p = ring.profile_of(profile)
+def grok_source(name):
+    """A Grok source by its long name or the capture guide's short one; None for anything else."""
+    return name if name in GROK_SOURCES else ALIASES.get(name)
+
+
+def captures_toml(m, root, profile, cid=None, out_dir=None, source_name=None):
+    """(text, left out, warnings) — Grok's calibration input for one source (R11 §4.2, Path A)."""
+    if m["set"] != "grok":
+        raise Refusal(f"captures are written for the grok set, not {m['set']} (gemini-midtone, the other set "
+                      "that had them, was dropped: D520)")
+    source = grok_source(profile)
+    if source is None:
+        raise Refusal(f"--profile {profile!r}: one of {', '.join(GROK_SOURCES)} or {', '.join(ALIASES)}")
+    p = {"vendor": "xai", "product": PRODUCT[source], "mark": "wordmark"}
     out_dir = out_dir or root
     chosen, left_out = [], []
     for r in m["files"]:
         bg = BACKGROUND.get(r["group"])
-        if r["profile"] != profile or bg is None:
+        if r["profile"] != source or bg is None or (r.get("facts") or {}).get("kind") == "clip":
             continue
         why = None
         if r["held_out"]:
             why = "held out"
+        elif str((r.get("stage0") or {}).get("mark", "")).lower() == "no":
+            why = "no mark, the sidecar says"
         elif r.get("ring") is not None and not r["ring"].get("pass"):
             why = "failed the ring check"
-        elif r.get("inspect") is None and not unchecked:
-            why = "not checked by `inspect` yet"
-        elif r.get("inspect") is not None and r["inspect"].get("verdict") != "verified":
-            why = "unverified"
         if why:
             left_out.append((r["path"], why))
             continue
@@ -544,11 +578,11 @@ def captures_toml(m, root, profile, cid=None, out_dir=None, unchecked=False, sou
         "# Captures for `cargo run --release -p wipemark-pixels --example calibrate -- <this dir> --out <dir>`.",
         "#",
         f"# Written by scripts/corpus/manifest.py captures from {source_name or 'the manifest'} (set {m['set']},",
-        f"# profile {profile}): black, white and gray-* per size; held-out, unverified and failed files left out",
-        "# (E12-R2 §4.1). Original downloads only, as the template asks. Calibrate runs on it once; the gate is",
-        "# that it runs with no format error. Its numbers belong to R4 and R9.",
+        f"# source {source}): black, white and gray-* per size; held-out files, captures that failed the ring",
+        "# check and captures with no mark left out (E12-R11 §4.2, Path A). Original downloads only, as the",
+        "# template asks. Its numbers are R11's stage 2; the row it drafts is provisional (D526).",
         "",
-        f"id = {toml_str(cid or profile + '-midtone')}",
+        f"id = {toml_str(cid or 'grok-' + SHORT[source])}",
         f"vendor = {toml_str(p['vendor'])}",
         f"product = {toml_str(p['product'])}",
         f"mark = {toml_str(p['mark'])}",
@@ -574,7 +608,7 @@ def captures_toml(m, root, profile, cid=None, out_dir=None, unchecked=False, sou
             if r["generated"] != "unknown":
                 lines.append(f"date = {toml_str(r['generated'])}")
     if not chosen:
-        warnings.append(f"no capture of {profile} qualifies")
+        warnings.append(f"no capture of {source} qualifies")
     return "\n".join(lines) + "\n", left_out, warnings
 
 
@@ -824,6 +858,15 @@ def counted(values, limit=6):
     return ", ".join(items) + (f", … ({len(c) - limit} more)" if len(c) > limit else "")
 
 
+TO_FILL = "to fill"  # a by-hand cell nobody filled yet (the stage-0 table's columns a person fills by eye)
+
+
+def filled(values):
+    """`counted` for a by-hand column: "to fill" where nobody filled it."""
+    c = counted(values)
+    return TO_FILL if c == "—" else c
+
+
 def mark_answer(values):
     v = {str(x).lower() for x in values if x}
     if "varies" in v or "it varies" in v or {"yes", "no"} <= v:
@@ -832,7 +875,36 @@ def mark_answer(values):
         return "yes"
     if v == {"no"} or v == {"no", "unsure"}:
         return "no"
-    return "unsure" if v else "not filled"
+    return "unsure" if v else TO_FILL
+
+
+def group_from_name(path):
+    """The background group a file's name starts with (the capture guide's scheme), else `content`."""
+    stem = os.path.splitext(os.path.basename(path))[0].lower()
+    for prefix, group in NAME_GROUPS:
+        if stem == prefix or (stem.startswith(prefix) and not stem[len(prefix)].isalpha()):
+            return group
+    return "content"
+
+
+NUMS = re.compile(r"-?\d+")
+
+
+def rect_of(hand_fields, size):
+    """The mark's [x, y, w, h] from the sidecar's corner, margin and mark size on a picture of `size`, or None.
+    The margin is in from the corner to the mark's box, as a catalogue row's (`Corner::origin`)."""
+    corner = (hand_fields.get("corner") or "").strip().lower()
+    margin = [int(v) for v in NUMS.findall(hand_fields.get("margin") or "")]
+    mark = [int(v) for v in NUMS.findall(hand_fields.get("mark_size") or "")]
+    if not size or corner not in ("top-left", "top-right", "bottom-left", "bottom-right") or len(margin) != 2 \
+            or len(mark) != 2 or min(mark) <= 0:
+        return None
+    (W, H), (mx, my), (w, h) = size, margin, mark
+    x = mx if corner.endswith("left") else W - mx - w
+    y = my if corner.startswith("top") else H - my - h
+    if x < 0 or y < 0 or x + w > W or y + h > H:
+        return None
+    return [x, y, w, h]
 
 
 def stage0(records, date):
@@ -853,12 +925,12 @@ def stage0(records, date):
             continue
         answer = mark_answer(r["hand"].get("mark") for r in rs)
         corners = [" ".join(x for x in (r["hand"].get("corner"), r["hand"].get("margin")) if x) for r in rs]
-        cells = [source, answer, counted(r["hand"].get("kind") for r in rs), counted(r["facts"]["format"] for r in rs),
+        cells = [source, answer, filled(r["hand"].get("kind") for r in rs), counted(r["facts"]["format"] for r in rs),
                  counted(jpeg_cell(r["facts"]) for r in rs),
                  counted((f"{r['facts']['size'][0]}×{r['facts']['size'][1]} ({aspect(r['facts']['size'])})"
                           if r["facts"].get("size") else None) for r in rs),
-                 counted(corners), counted(r["hand"].get("mark_size") for r in rs),
-                 counted(r["hand"].get("shadow") for r in rs)]
+                 filled(corners), filled(r["hand"].get("mark_size") for r in rs),
+                 filled(r["hand"].get("shadow") for r in rs)]
         out.append("| " + " | ".join(c.replace("|", "/") for c in cells) + " |")
         if answer not in ("yes", "no", "it varies"):
             gate.append(f"{source}: the mark? column is {answer}")
@@ -874,19 +946,22 @@ def stage0(records, date):
                 cells = [c.get("codec"), c.get("fps"), f"{c.get('width')}×{c.get('height')}", c.get("duration"), c.get("frames")]
             else:
                 cells = [f"not available ({c.get('why')})", "—", "—", "—", "—"]
-            out.append("| " + " | ".join(str(x if x is not None else "—") for x in [r["path"]] + cells + [r["hand"].get("static") or "not filled"]) + " |")
+            out.append("| " + " | ".join(str(x if x is not None else "—") for x in [r["path"]] + cells + [r["hand"].get("static") or TO_FILL]) + " |")
     out += ["", "## Every file", "",
             "| file | source | mark | kind | format | subsampling / quality | size (aspect) | corner, margin | mark size | colour | shadow / outline | background | metadata | date | note |",
             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in records:
         f, h = r["facts"], r["hand"]
         size = f"{f['size'][0]}×{f['size'][1]} ({aspect(f['size'])})" if f.get("size") else "—"
-        cells = [r["path"], r["source"], h.get("mark"), h.get("kind"), f["format"], jpeg_cell(f), size,
-                 " ".join(x for x in (h.get("corner"), h.get("margin")) if x), h.get("mark_size"), h.get("colour"),
-                 h.get("shadow"), h.get("background"), f.get("metadata"), h.get("date"), h.get("note")]
+        by_hand = [h.get("mark"), h.get("kind")]
+        place = [" ".join(x for x in (h.get("corner"), h.get("margin")) if x), h.get("mark_size"), h.get("colour"),
+                 h.get("shadow")]
+        cells = ([r["path"], r["source"]] + [c or TO_FILL for c in by_hand] + [f["format"], jpeg_cell(f), size]
+                 + [c or TO_FILL for c in place]
+                 + [h.get("background") or f"{r['group']} (from the name)", f.get("metadata"), h.get("date"), h.get("note")])
         out.append("| " + " | ".join((str(c) if c else "—").replace("|", "/") for c in cells) + " |")
     unfilled = [r["path"] for r in records if not r["in_sidecar"]]
-    out += ["", f"Files with no sidecar entry (by-hand fields not filled): {len(unfilled)}"
+    out += ["", f"Files with no sidecar entry (by-hand fields \"{TO_FILL}\"): {len(unfilled)}"
             + (" — " + ", ".join(unfilled[:20]) + (" …" if len(unfilled) > 20 else "") if unfilled else "")]
     out += ["", "**Gate (§4.3)**: " + ("met — every source has a mark answer, a format and a rough position."
                                        if not gate else "not met — " + "; ".join(gate) + ".")]
@@ -921,7 +996,7 @@ def cmd_add(args):
                    "tier": args.tier, "app": args.app, "note": args.note, "source": args.source} for p in args.files]
     if not items:
         raise Refusal("nothing to add: FILE … or --list")
-    _, said = add_files(m, args.root, items, args.on_fail)
+    _, said = add_files(m, args.root, items)
     save_manifest(args.manifest, m)
     say(said)
     print(f"{args.manifest}: {len(m['files'])} row(s); commit it")
@@ -959,7 +1034,7 @@ def cmd_build(args):
                       f"({', '.join(spec['groups'])}): " + ", ".join(unknown[:10]))
     if not items:
         raise Refusal(f"no picture under {args.root}")
-    _, said = add_files(m, args.root, items, args.on_fail)
+    _, said = add_files(m, args.root, items)
     save_manifest(args.manifest, m)
     say(said)
     print(f"{args.manifest}: {len(m['files'])} row(s); commit it")
@@ -996,7 +1071,7 @@ def cmd_captures(args):
     m = load_manifest(args.manifest)
     out = args.out or os.path.join(args.root, "captures.toml")
     text, left_out, warnings = captures_toml(m, args.root, args.profile, args.id, os.path.dirname(os.path.abspath(out)),
-                                             args.unchecked, os.path.relpath(args.manifest))
+                                             os.path.relpath(args.manifest))
     with open(out, "w") as f:
         f.write(text)
     for path, why in left_out:
@@ -1021,8 +1096,7 @@ def cmd_inspect(args):
                 raise Refusal(f"{r['path']}: sha256 is not its row's — refused (D493); nothing was recorded")
             code, j = cli_inspect(args.cli, p, env)
             found = findings_of(j)
-            want = r["profile"] if m["set"] == "gemini-midtone" else None
-            ok = any(f["verdict"] == "verified" and (want is None or f["profile"] == want) for f in found)
+            ok = any(f["verdict"] == "verified" for f in found)
             r["inspect"] = {"verdict": "verified" if ok else "unverified", "found": found, "exit": code,
                             "json": j is not None, "cli": version}
             seen = ", ".join(f"{f['profile']} {f['verdict']}" for f in found)
@@ -1032,7 +1106,7 @@ def cmd_inspect(args):
     if m["set"] == "negative":
         print(f"{len(positives)} negative(s) verified — each a known false positive to name in the report (R1 G1)")
     else:
-        print(f"{len(unverified)} unverified — they stay in the set and never calibrate (§4.1)")
+        print(f"{len(unverified)} unverified")
     return 0
 
 
@@ -1056,7 +1130,7 @@ def cmd_grok(args):
                 e = side.get(rel)
                 h = {k: hand(e.get(k)) for k in HAND} if e else {}
                 top = rel.split("/")[0]
-                source = h.get("source") or (top if top in GROK_SOURCES else "unknown")
+                source = grok_source(h.get("source") or top) or "unknown"
                 f = facts_of(path)
                 if env is not None and f["kind"] == "picture":
                     code, j = cli_inspect(args.cli, path, env)
@@ -1065,7 +1139,9 @@ def cmd_grok(args):
                     else:
                         tags = [t for t, k in (("C2PA", "c2pa"), ("AI metadata", "ai_metadata")) if j.get(k)]
                         f["metadata"] = ", ".join(tags) or "none"
-                records.append({"path": rel, "abs": path, "source": source, "facts": f, "hand": h, "in_sidecar": e is not None})
+                group = h.get("background") if h.get("background") in ring.GROUPS else group_from_name(rel)
+                records.append({"path": rel, "abs": path, "source": source, "facts": f, "hand": h,
+                                "in_sidecar": e is not None, "group": group})
     finally:
         if tmp:
             tmp.cleanup()
@@ -1075,9 +1151,28 @@ def cmd_grok(args):
     if not records:
         raise Refusal(f"no picture or clip under {args.root}")
     text, met = stage0(records, args.date)
+    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w") as f:
         f.write(text)
     print(f"{args.out}: {len(records)} file(s); gate {'met' if met else 'not met'}")
+    if args.template:
+        todo = [r for r in records if not r["in_sidecar"]]
+        lines = ["# The stage-0 sidecar's by-hand fields, one [[file]] per capture no sidecar entry names yet.",
+                 "# Written by scripts/corpus/manifest.py grok --template; fill what you see, by eye, and save it",
+                 "# as grok.toml beside the captures (docs/plan/E12-R-grok-capture-guide.md). An empty field is",
+                 "# \"to fill\" in the table. mark: yes | no | unsure | varies; corner: bottom-right | bottom-left |",
+                 "# top-right | top-left; margin and mark_size in pixels [x, y] / [w, h]; kind: wordmark | icon | other;",
+                 "# shadow: none | shadow | outline | both; static (clips): yes | no.", ""]
+        for r in todo:
+            lines += ["[[file]]", f"path = {toml_str(r['path'])}", 'date = ""', 'mark = ""', 'corner = ""',
+                      "# margin = [0, 0]", "# mark_size = [0, 0]", 'kind = ""', 'colour = ""', 'shadow = ""',
+                      f"background = {toml_str(r['group'])}"]
+            if r["facts"]["kind"] == "clip":
+                lines.append('static = ""')
+            lines += ['note = ""', ""]
+        with open(args.template, "w") as f:
+            f.write("\n".join(lines))
+        print(f"{args.template}: {len(todo)} file(s) to fill by hand")
     if args.manifest:
         m = open_or_new(args.manifest, "grok")
         unknown = [r["path"] for r in records if r["source"] not in GROK_SOURCES]
@@ -1085,11 +1180,11 @@ def cmd_grok(args):
             raise Refusal(f"no source for {', '.join(unknown[:10])}: a folder named for one of {GROK_SOURCES}, or `source` in the sidecar")
         items = []
         for r in records:
-            bg = r["hand"].get("background")
-            items.append({"path": r["abs"], "group": bg if bg in ring.GROUPS else "content", "profile": r["source"],
+            items.append({"path": r["abs"], "group": r["group"], "profile": r["source"],
                           "generated": r["hand"].get("date") or "unknown", "note": r["hand"].get("note"),
                           "source": "grok-video" if r["facts"]["kind"] == "clip" else "grok",
                           "size": r["facts"].get("size"),
+                          "rect": rect_of(r["hand"], r["facts"].get("size")) if r["facts"]["kind"] == "picture" else None,
                           "extra": {"facts": r["facts"], "stage0": {k: v for k, v in r["hand"].items() if v and k not in ("date", "note")}}})
         _, said = add_files(m, args.root, items)
         by_path = {r["path"]: r for r in records}
@@ -1144,74 +1239,87 @@ def _quiet(argv):
 
 
 GREY = (123, 123, 123)
-V1 = "gemini-sparkle-v1"
 
 
 def t_the_held_out_choice_never_moves_when_a_file_is_added():
     with tempfile.TemporaryDirectory(prefix="manifest-selftest-") as tmp:
         root = os.path.join(tmp, "set")
-        g = os.path.join(root, V1, "gray-50")
+        g = os.path.join(root, "unmarked")
         names = {}
         for k in range(10):
             names[f"f{k:02d}.png"] = _write(os.path.join(g, f"f{k:02d}.png"), _png(_flat(GREY, k)))
         ma, mb = os.path.join(tmp, "a.json"), os.path.join(tmp, "b.json")
-        base = ["--root", root, "--set", "gemini-midtone", "--generated", "2026-10-09"]
+        base = ["--root", root, "--set", "negative", "--generated", "2026-10-09"]
         assert _quiet(["build", "--manifest", ma] + base) == 0
-        assert _quiet(["add", "--manifest", mb, "--group", "gray-50", "--profile", V1] + base
+        assert _quiet(["add", "--manifest", mb, "--group", "unmarked"] + base
                       + [os.path.join(g, n) for n in sorted(names, reverse=True)]) == 0
         held = lambda m: {r["sha256"] for r in m["files"] if r["held_out"]}  # noqa: E731
         a, b = load_manifest(ma), load_manifest(mb)
         rank = sorted(names.values())
-        assert held(a) == {rank[4], rank[9]}, "the 5th and 10th by sha256 are held out"
+        assert held(a) == {rank[0], rank[5]}, "the 1st and 6th by sha256 are held out (D525)"
         assert held(b) == held(a), "the listing's order does not choose"
         before = {r["sha256"]: r["held_out"] for r in a["files"]}
-        # Six more, each sorting before the first held-out file by sha256 and before every file by name.
+        # Six more, each sorting before every file of the first run by sha256 and before every file by name.
         new, k = [], 100
         while len(new) < 6:
             data = _png(_flat(GREY, k))
             k += 1
             assert k < 5000, "no candidate sorts low enough"
-            if sha256_bytes(data) < rank[4]:
+            if sha256_bytes(data) < rank[0]:
                 new.append(_write(os.path.join(g, f"000-new-{len(new)}.png"), data))
         assert _quiet(["build", "--manifest", ma] + base) == 0
         after = {r["sha256"]: r["held_out"] for r in load_manifest(ma)["files"]}
         assert all(after[s] == v for s, v in before.items()), "a decided row moved"
-        assert len(after) == 16 and sum(after.values()) == 16 // 5
-        assert {s for s in new if after[s]} == {sorted(new)[4]}, "the new run's choice is by sha256 too"
+        assert len(after) == 16 and sum(after.values()) == -(-16 // 5)
+        assert {s for s in new if after[s]} == {sorted(new)[0], sorted(new)[5]}, "the new run's choice is by sha256 too"
+
+
+def t_a_group_of_fewer_than_five_holds_out_one():
+    """D525 (the pending question D6's first option): ⌈n/5⌉, at least one — a group of fewer than five used to
+    hold out none, and the held-out proof (P1) then had nothing to run on."""
+    with tempfile.TemporaryDirectory(prefix="manifest-selftest-") as tmp:
+        root = os.path.join(tmp, "set")
+        for group, n in (("unmarked", 1), ("look-alike", 3), ("youtube-heretic", 6)):
+            for k in range(n):
+                _write(os.path.join(root, group, f"{group}-{k}.png"), _png(_flat((40 + 30 * n, 90, 90), k)))
+        mp = os.path.join(tmp, "m.json")
+        assert _quiet(["build", "--manifest", mp, "--root", root, "--set", "negative", "--generated", "2026-10-09"]) == 0
+        held = collections.Counter(r["group"] for r in load_manifest(mp)["files"] if r["held_out"])
+        assert held == {"unmarked": 1, "look-alike": 1, "youtube-heretic": 2}, held
 
 
 def t_a_file_whose_sha_differs_from_its_row_is_refused():
     with tempfile.TemporaryDirectory(prefix="manifest-selftest-") as tmp:
         root = os.path.join(tmp, "set")
-        g = os.path.join(root, V1, "gray-50")
+        g = os.path.join(root, "unmarked")
         for k in range(3):
             _write(os.path.join(g, f"f{k}.png"), _png(_flat(GREY, k)))
         mp = os.path.join(tmp, "m.json")
-        assert _quiet(["build", "--manifest", mp, "--root", root, "--set", "gemini-midtone", "--generated", "2026-10-09"]) == 0
+        assert _quiet(["build", "--manifest", mp, "--root", root, "--set", "negative", "--generated", "2026-10-09"]) == 0
         assert _quiet(["verify", "--manifest", mp, "--root", root]) == 0
         _write(os.path.join(g, "f1.png"), _png(_flat((124, 124, 124), 1)))
         assert _quiet(["verify", "--manifest", mp, "--root", root]) == 2, "a changed file is refused"
         problems, _ = verify(load_manifest(mp), root=root)
         assert len(problems) == 1 and "f1.png" in problems[0], problems
-        assert _quiet(["add", "--manifest", mp, "--root", root, "--group", "gray-50", "--profile", V1,
+        assert _quiet(["add", "--manifest", mp, "--root", root, "--group", "unmarked",
                        "--generated", "2026-10-09", os.path.join(g, "f1.png")]) == 2, "a changed file is not re-added"
 
 
 def t_a_stored_zip_round_trips_and_a_deflated_one_is_refused():
     with tempfile.TemporaryDirectory(prefix="manifest-selftest-") as tmp:
         root = os.path.join(tmp, "set")
-        g = os.path.join(root, V1, "white")
+        g = os.path.join(root, "look-alike")
         for k in range(3):
             _write(os.path.join(g, f"w{k}.png"), _png(_flat((252, 252, 252), k)))
         mp = os.path.join(tmp, "m.json")
-        assert _quiet(["build", "--manifest", mp, "--root", root, "--set", "gemini-midtone", "--generated", "2026-10-09"]) == 0
+        assert _quiet(["build", "--manifest", mp, "--root", root, "--set", "negative", "--generated", "2026-10-09"]) == 0
         z1, z2, z3 = (os.path.join(tmp, n) for n in ("a.zip", "b.zip", "deflated.zip"))
-        key = "wipemark-corpus-gemini-midtone-2026-10-09"
+        key = "wipemark-corpus-negative-2026-10-09"
         assert _quiet(["zip", "--manifest", mp, "--root", root, "--out", z1, "--key", key]) == 0
         assert _quiet(["zip", "--manifest", mp, "--root", root, "--out", z2]) == 0
         assert sha256_file(z1) == sha256_file(z2), "the same set is the same ZIP"
         m = load_manifest(mp)
-        assert m["sources"]["gemini-midtone"] == {"key": key, "sha256": sha256_file(z1), "previous": []}
+        assert m["sources"]["negative"] == {"key": key, "sha256": sha256_file(z1), "previous": []}
         with open(z1, "rb") as f:
             raw = f.read()
         with zipfile.ZipFile(z1) as zf:
@@ -1230,71 +1338,77 @@ def t_a_stored_zip_round_trips_and_a_deflated_one_is_refused():
         # The stored rule alone: with the source's pin out of the way, the
         # deflated ZIP's members are its only problems (its bytes are right).
         unpinned = json.loads(json.dumps(m))
-        unpinned["sources"]["gemini-midtone"]["sha256"] = None
+        unpinned["sources"]["negative"]["sha256"] = None
         problems, _ = verify(unpinned, zip_path=z3)
         assert problems and all("not stored" in p for p in problems), problems
 
 
-def t_the_captures_toml_parses_and_has_the_examples_keys():
+def _grok_capture(colour, k, w=320, h=200, rect=(24, 156, 72, 24), busy=False):
+    """A flat Grok stand-in of `colour` with a white half-transparent bar where the mark is — or, `busy`, noise
+    in the ring around it — and `k` in bits along its top row so every one is other bytes."""
     import numpy as np
+    a = np.empty((h, w, 3), dtype=np.float64)
+    a[:, :] = colour
+    x, y, mw, mh = rect
+    if busy:
+        rng = np.random.default_rng(k + 1)
+        a[y - 8:y + mh + 8, x - 8:x + mw + 8] = np.clip(np.array(colour) + rng.normal(0, 50, (mh + 16, mw + 16, 3)), 0, 255)
+    a[y:y + mh, x:x + mw] = 0.5 * 255 + 0.5 * a[y:y + mh, x:x + mw]
+    for bit in range(16):
+        if (k + 1) >> bit & 1:
+            a[0, bit, :] = 255 - a[0, bit, :]
+    return np.rint(a).astype(np.uint8)
+
+
+def t_the_captures_toml_parses_and_has_the_examples_keys():
+    """Grok's calibration input (R11 §4.2, Path A): written from the stage-0 manifest, in the template's keys,
+    the capture guide's short folder names read, the group from the file's name, held-out files, a capture
+    whose ring is not flat and one with no mark left out."""
     import tomllib
     with tempfile.TemporaryDirectory(prefix="manifest-selftest-") as tmp:
-        root = os.path.join(tmp, "set")
-        d = os.path.join(root, V1)
-        for k in range(2):
-            _write(os.path.join(d, "black", f"b{k}.png"), _png(_flat((3, 3, 3), k)))
-            _write(os.path.join(d, "white", f"w{k}.png"), _png(_flat((252, 252, 252), k)))
-        for k in range(5):
-            _write(os.path.join(d, "gray-50", f"g{k}.png"), _png(_flat(GREY, k)))
-        _write(os.path.join(d, "sat-red", "r0.png"), _png(_flat((220, 4, 30), 0)))
-        ramp = np.repeat(np.repeat((40 + 0.6 * np.arange(256)).astype(np.uint8)[None, :, None], 256, axis=0), 3, axis=2)
-        _write(os.path.join(d, "gradient", "ramp.png"), _png(np.ascontiguousarray(ramp)))
-        mp = os.path.join(tmp, "m.json")
-        assert _quiet(["build", "--manifest", mp, "--root", root, "--set", "gemini-midtone", "--generated", "2026-10-09",
-                       "--tier", "free", "--app", "web"]) == 0
+        root = os.path.join(tmp, "captures")
+        web = os.path.join(root, "web")
+        for k in range(3):
+            _write(os.path.join(web, f"black-{k}.png"), _png(_grok_capture((3, 3, 3), k)))
+            _write(os.path.join(web, f"white-{k}.png"), _png(_grok_capture((252, 252, 252), k)))
+        for k in range(6):
+            _write(os.path.join(web, f"gray-50-{k}.png"), _png(_grok_capture(GREY, k)))
+        _write(os.path.join(web, "dark-busy.png"), _png(_grok_capture((3, 3, 3), 50, busy=True)))
+        _write(os.path.join(web, "white-nomark.png"), _png(_grok_capture((250, 250, 250), 60)))
+        _write(os.path.join(web, "photo-1.png"), _png(_grok_capture((90, 140, 30), 70)))
+        sidecar = os.path.join(tmp, "grok.toml")
+        with open(sidecar, "w") as f:
+            for n in sorted(os.listdir(web)):
+                mark = "no" if "nomark" in n else "yes"
+                f.write(f'[[file]]\npath = "web/{n}"\ndate = "2026-10-10"\nmark = "{mark}"\ncorner = "bottom-left"\nmargin = [24, 20]\n'
+                        'mark_size = [72, 24]\nkind = "wordmark"\n')
+        md, mp = os.path.join(tmp, "stage0.md"), os.path.join(tmp, "manifest.json")
+        assert _quiet(["grok", "--root", root, "--sidecar", sidecar, "--out", md, "--manifest", mp, "--date", "2026-10-10"]) == 3
         m = load_manifest(mp)
-        for r in m["files"]:
-            r["inspect"] = {"verdict": "verified"}
-        unverified = next(r for r in m["files"] if r["group"] == "black")
-        unverified["inspect"] = {"verdict": "unverified"}
-        save_manifest(mp, m)
-        assert _quiet(["captures", "--manifest", mp, "--root", root, "--profile", V1]) == 0
-        with open(os.path.join(root, "captures.toml"), "rb") as f:
+        by = {r["path"]: r for r in m["files"]}
+        assert by["web/black-0.png"]["profile"] == "grok.com" and by["web/dark-busy.png"]["group"] == "black"
+        assert by["web/photo-1.png"]["group"] == "content" and by["web/gray-50-3.png"]["group"] == "gray-50"
+        assert by["web/black-1.png"]["ring"]["pass"] and by["web/black-1.png"]["ring"]["rect"] == [24, 156, 72, 24]
+        assert not by["web/dark-busy.png"]["ring"]["pass"], "a busy ring fails the flat group"
+        out = os.path.join(root, "captures.toml")
+        assert _quiet(["captures", "--manifest", mp, "--root", root, "--profile", "web", "--out", out]) == 0
+        with open(out, "rb") as f:
             doc = tomllib.load(f)
         with open(EXAMPLE, "rb") as f:
             example = tomllib.load(f)
         assert set(doc) == set(example), (sorted(doc), sorted(example))
-        flat_keys = {k for c in example["capture"] if "clean" not in c for k in c}
+        assert doc["id"] == "grok-web" and doc["vendor"] == "xai", doc["id"]
+        flat_keys = {k for c in example["capture"] if "clean" not in c for k in c} - {"tier", "app"}
         caps = doc["capture"]
         assert all(set(c) == flat_keys for c in caps), [sorted(c) for c in caps]
         files = {c["file"] for c in caps}
         held = {r["path"] for r in m["files"] if r["held_out"]}
-        assert len(held) == 1 and not files & held, "the held-out file is left out"
-        assert unverified["path"] not in files, "an unverified file never calibrates"
+        assert held and not files & held, "the held-out files are left out"
+        assert "web/dark-busy.png" not in files, "a capture whose ring is not flat never calibrates"
+        assert "web/white-nomark.png" not in files, "a capture with no mark never calibrates"
         assert {c["background"] for c in caps} == {"black", "white", "grey"}
-        assert len(caps) == 1 + 2 + 4 and all(os.path.isfile(os.path.join(root, f)) for f in files)
-
-
-def t_a_failed_ring_check_moves_the_file_and_the_manifest_says_so():
-    import numpy as np
-    with tempfile.TemporaryDirectory(prefix="manifest-selftest-") as tmp:
-        root = os.path.join(tmp, "set")
-        ramp = np.repeat(np.repeat((40 + 0.6 * np.arange(256)).astype(np.uint8)[None, :, None], 256, axis=0), 3, axis=2)
-        p = os.path.join(root, "r.png")
-        _write(p, _png(np.ascontiguousarray(ramp)))
-        side = _flat((128, 128, 128), 0)
-        rng = np.random.default_rng(3)
-        side[168:232, 224:232, :] = np.clip(128 + rng.normal(0, 60, (64, 8, 3)), 0, 255).astype(np.uint8)
-        q = os.path.join(root, "s.png")
-        _write(q, _png(side))
-        mp = os.path.join(tmp, "m.json")
-        common = ["add", "--manifest", mp, "--root", root, "--set", "gemini-midtone", "--group", "gray-50",
-                  "--profile", V1, "--generated", "2026-10-09", p, q]
-        assert _quiet(common) == 2 and not os.path.exists(mp), "a failing file is refused, nothing written"
-        assert _quiet(common + ["--on-fail", "move"]) == 0
-        m = load_manifest(mp)
-        assert [(r["path"], r["group"], r.get("moved_from")) for r in m["files"]] == [("r.png", "gradient", "gray-50")]
-        assert [d["path"] for d in m["dropped"]] == ["s.png"]
+        assert all(os.path.isfile(os.path.join(root, f)) for f in files)
+        assert _quiet(["captures", "--manifest", mp, "--root", root, "--profile", "gemini-sparkle-v1"]) == 2
 
 
 def t_a_jpegs_subsampling_and_tables_are_read_from_its_markers():
@@ -1322,6 +1436,7 @@ def t_the_grok_table_names_every_source():
         pic(1024, 1024).save(os.path.join(root, "grok.com", "b.png"))
         pic(800, 450).save(os.path.join(root, "grok-in-x", "c.jpg"), quality=95, subsampling="4:4:4")
         pic(512, 512).save(os.path.join(root, "xai-api", "d.png"))
+        pic(640, 360).save(os.path.join(root, "grok.com", "dark-07.png"))  # no sidecar entry: "to fill"
         _write(os.path.join(root, "grok-imagine-video", "e.mp4"), b"\x00\x00\x00\x18ftypmp42" + bytes(64))
         sidecar = os.path.join(tmp, "grok.toml")
         entry = ('[[file]]\npath = "{p}"\ndate = "2026-10-09"\nmark = "{m}"\ncorner = "bottom-right"\n'
@@ -1333,9 +1448,17 @@ def t_the_grok_table_names_every_source():
                 f.write(entry.format(p=p, m=mk, x=""))
             f.write(entry.format(p="grok-imagine-video/e.mp4", m="yes", x='static = "yes"'))
         md, mp = os.path.join(tmp, "stage0.md"), os.path.join(tmp, "manifest.json")
-        assert _quiet(["grok", "--root", root, "--sidecar", sidecar, "--out", md, "--manifest", mp, "--date", "2026-10-09"]) == 0
+        tpl = os.path.join(tmp, "grok.toml.template")
+        assert _quiet(["grok", "--root", root, "--sidecar", sidecar, "--out", md, "--manifest", mp, "--date", "2026-10-09",
+                       "--template", tpl]) == 0
         with open(md) as f:
             text = f.read()
+        lone = next(line for line in text.splitlines() if line.startswith("| grok.com/dark-07.png |"))
+        assert lone.split(" | ").count("to fill") == 6 and "black (from the name)" in lone, lone
+        import tomllib
+        with open(tpl, "rb") as f:
+            todo = tomllib.load(f)["file"]
+        assert [(e["path"], e["background"], e["mark"]) for e in todo] == [("grok.com/dark-07.png", "black", "")], todo
         rows = {line.split(" | ")[0][2:]: line for line in text.splitlines() if line.startswith("| ") and " | " in line}
         assert all(s in rows for s in GROK_SOURCES), sorted(rows)
         assert rows["grok.com"].startswith("| grok.com | yes |") and "4:2:0 q90 (IJG)" in rows["grok.com"]
@@ -1344,7 +1467,7 @@ def t_the_grok_table_names_every_source():
         assert "not available" in text or shutil.which("ffprobe"), "a clip with no ffprobe is said, not a failure"
         assert "**Gate (§4.3)**: met" in text
         m = load_manifest(mp)
-        assert len(m["files"]) == 5 and {r["source"] for r in m["files"]} == {"grok", "grok-video"}
+        assert len(m["files"]) == 6 and {r["source"] for r in m["files"]} == {"grok", "grok-video"}
         a = next(r for r in m["files"] if r["path"] == "grok.com/a.jpg")
         assert a["facts"]["jpeg"]["subsampling"] == "4:2:0" and a["profile"] == "grok.com" and a["group"] == "gray-50"
         shutil.rmtree(os.path.join(root, "grok-in-x"))
@@ -1359,10 +1482,10 @@ def t_the_grok_table_names_every_source():
 
 TESTS = [
     t_the_held_out_choice_never_moves_when_a_file_is_added,
+    t_a_group_of_fewer_than_five_holds_out_one,
     t_a_file_whose_sha_differs_from_its_row_is_refused,
     t_a_stored_zip_round_trips_and_a_deflated_one_is_refused,
     t_the_captures_toml_parses_and_has_the_examples_keys,
-    t_a_failed_ring_check_moves_the_file_and_the_manifest_says_so,
     t_a_jpegs_subsampling_and_tables_are_read_from_its_markers,
     t_the_grok_table_names_every_source,
 ]
@@ -1400,7 +1523,6 @@ def main(argv=None):
         p.add_argument("--tier")
         p.add_argument("--app")
         p.add_argument("--source", help="the ZIP the files go in (default: the set's name)")
-        p.add_argument("--on-fail", choices=("refuse", "move"), default="refuse")
         if name == "add":
             p.add_argument("files", nargs="*")
             p.add_argument("--group")
@@ -1421,10 +1543,10 @@ def main(argv=None):
     p.add_argument("--force", action="store_true")
     p = sub.add_parser("captures")
     common(p)
-    p.add_argument("--profile", required=True)
-    p.add_argument("--id")
+    p.add_argument("--profile", required=True, help="the Grok source: grok.com, grok-in-x, xai-api, grok-imagine-video, "
+                                                   "or web, x, api, video")
+    p.add_argument("--id", help="the drafted profile's id (default grok-<web|x|api|video>)")
     p.add_argument("--out")
-    p.add_argument("--unchecked", action="store_true", help="keep files `inspect` has not checked")
     p = sub.add_parser("inspect")
     common(p)
     p.add_argument("--cli", required=True)
@@ -1436,6 +1558,7 @@ def main(argv=None):
     p.add_argument("--manifest")
     p.add_argument("--cli")
     p.add_argument("--date", default="(undated)")
+    p.add_argument("--template", help="write a sidecar to fill for every file the sidecar does not name")
     sub.add_parser("selftest")
     args = ap.parse_args(argv)
     try:

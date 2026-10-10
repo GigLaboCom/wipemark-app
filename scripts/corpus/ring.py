@@ -66,9 +66,17 @@ How to run it
     python3 scripts/corpus/ring.py PICTURE.png [MORE.png …] --profile gemini-sparkle-v1 --group gray-50
     python3 scripts/corpus/ring.py PICTURE.png --profile gemini-sparkle-v2 --group black --json
     python3 scripts/corpus/ring.py PICTURE.png --profile gemini-sparkle-v1 --group white --row 1 --ring 8
+    python3 scripts/corpus/ring.py PICTURE.png --rect 48,1036,72,24 --group black
     python3 scripts/corpus/ring.py selftest
 
-`manifest.py` imports `measure` from this file (same folder).
+`--rect x,y,w,h` (added by the E12-R close-out, 2026-10-10) replaces step 1
+for a vendor no catalogue profile describes yet: the rectangle is the one a
+person read off the capture (Grok's stage-0 sidecar), and steps 2–5 are the
+same. `manifest.py` imports `measure_rect` from this file (same folder) and
+runs it on every Grok capture filed under a flat group (R11 §4.2);
+`measure` — §4.1's check over a catalogue row — had `gemini-midtone` as its
+caller, a set dropped on 2026-10-10 (D520: Gemini's new outputs carry no
+visible mark), and stays for a profile's corner.
 
 What it needs
 -------------
@@ -308,13 +316,34 @@ def measure(path, profile_id, group, ring=RING, row=None):
     H, W, _ = img.shape
     profile = profile_of(profile_id)
     i, (x, y, w, h, resample) = the_row(profile, W, H, row)
-    m = measure_ring(img, (x, y, w, h), ring)
+    return _checked(path, img, (x, y, w, h), group, ring, {"profile": profile_id, "row": i, "resample": resample})
+
+
+def measure_rect(path, rect, group, ring=RING):
+    """The same check around a rectangle given outright — the mark's place a
+    person read off a capture (the stage-0 sidecar's corner, margin and mark
+    size), for a vendor no catalogue profile describes yet (Grok, R11 §4.2:
+    "a capture qualifies when the background spread in the zone is under 8
+    levels"; the E12-R close-out, 2026-10-10)."""
+    if group not in GROUPS:
+        raise Refusal(f"group {group!r}: one of {', '.join(GROUPS)}")
+    img = load(path)
+    H, W, _ = img.shape
+    x, y, w, h = (int(v) for v in rect)
+    if w <= 0 or h <= 0 or x < 0 or y < 0 or x + w > W or y + h > H:
+        raise Refusal(f"{path}: the rectangle {(x, y, w, h)} is not inside {W}×{H}")
+    return _checked(path, img, (x, y, w, h), group, ring, {"profile": None, "row": None, "resample": False})
+
+
+def _checked(path, img, rect, group, ring, where):
+    H, W, _ = img.shape
+    m = measure_ring(img, rect, ring)
     if m is None:
-        raise Refusal(f"{path}: no ring around {(x, y, w, h)} inside {W}×{H}")
+        raise Refusal(f"{path}: no ring around {tuple(rect)} inside {W}×{H}")
     ok, move_to, notes = verdict(group, m)
     return {
-        "file": path, "size": [W, H], "profile": profile_id, "row": i, "rect": [x, y, w, h],
-        "resample": resample, "ring": ring, "ring_pixels": m["n"], "group": group,
+        "file": path, "size": [W, H], "profile": where["profile"], "row": where["row"], "rect": list(rect),
+        "resample": where["resample"], "ring": ring, "ring_pixels": m["n"], "group": group,
         "mean": [round(v, 3) for v in m["mean"]], "sd": [round(v, 3) for v in m["sd"]],
         "residual": [round(v, 3) for v in m["residual"]],
         "spread": round(max(m["sd"]), 3), "residual_max": round(max(m["residual"]), 3),
@@ -326,7 +355,8 @@ def measure(path, profile_id, group, ring=RING, row=None):
 def line(r):
     ch = "  ".join(f"{CHANNELS[c]} {r['mean'][c]:6.1f} ± {r['sd'][c]:5.2f} ({r['residual'][c]:4.2f})" for c in range(3))
     head = f"{'pass' if r['pass'] else 'FAIL'}  {r['file']}  {r['group']}"
-    rect = f"row {r['row']} {tuple(r['rect'])}{' resampled' if r['resample'] else ''}"
+    rect = (f"row {r['row']} {tuple(r['rect'])}{' resampled' if r['resample'] else ''}" if r["row"] is not None
+            else f"rect {tuple(r['rect'])}")
     tail = f"looks like {r['looks_like']}" + (f"; move to {r['move_to']}" if r["move_to"] else "")
     out = f"{head}\n      {rect}, ring {r['ring']} px ({r['ring_pixels']}): {ch}; {tail}"
     for n in r["notes"]:
@@ -432,6 +462,24 @@ def selftest():
         s = run("v2-half.png", small, "white", profile="gemini-sparkle-v2")
         check(s["pass"] and s["resample"] and s["rect"] == [1232, 624, 48, 48], "a resampled V2 row is measured on its own rect")
 
+        # measure_rect: the same rule around a rectangle a person gave (a Grok capture, no profile).
+        at = (60, 420, 72, 24)
+        bl = with_zone(busy(512, 8), at, lambda yy, xx: 3.0 + rng.normal(0, 1.0, yy.shape + (3,)))
+        p = os.path.join(tmp, "grok-black.png")
+        write_png(p, bl)
+        mr = measure_rect(p, at, "black")
+        check(mr["pass"] and mr["looks_like"] == "black" and mr["rect"] == list(at) and mr["row"] is None,
+              f"a_flat_ring_around_a_given_rectangle_passes ({mr['spread']})")
+        busy_p = os.path.join(tmp, "grok-busy.png")
+        write_png(busy_p, busy(512, 9))
+        mb = measure_rect(busy_p, at, "black")
+        check(not mb["pass"], f"a busy ring around a given rectangle fails a flat group (spread {mb['spread']})")
+        try:
+            measure_rect(p, (500, 500, 72, 24), "black")
+            check(False, "a rectangle outside the picture is refused")
+        except Refusal:
+            check(True, "a rectangle outside the picture is refused")
+
         out = json.loads(json.dumps([a, b]))
         check(set(out[0]) >= {"mean", "sd", "residual", "spread", "rect", "row", "pass", "move_to", "looks_like"},
               "the JSON carries every field manifest.py records")
@@ -445,16 +493,27 @@ def main(argv=None):
         return selftest()
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("pictures", nargs="+")
-    ap.add_argument("--profile", required=True, help="a catalogue profile id, e.g. gemini-sparkle-v1")
+    ap.add_argument("--profile", help="a catalogue profile id, e.g. gemini-sparkle-v1")
+    ap.add_argument("--rect", help="x,y,w,h — the mark's rectangle given outright (a vendor with no profile yet)")
     ap.add_argument("--group", required=True, choices=GROUPS)
     ap.add_argument("--ring", type=int, default=RING)
     ap.add_argument("--row", type=int, help="this placement row, not the first that answers")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
+    if bool(args.profile) == bool(args.rect):
+        ap.error("one of --profile or --rect")
+    rect = None
+    if args.rect:
+        try:
+            rect = [int(v) for v in args.rect.split(",")]
+            assert len(rect) == 4
+        except (ValueError, AssertionError):
+            ap.error("--rect is x,y,w,h")
     results, refused = [], 0
     for p in args.pictures:
         try:
-            results.append(measure(p, args.profile, args.group, args.ring, args.row))
+            results.append(measure_rect(p, rect, args.group, args.ring) if rect
+                           else measure(p, args.profile, args.group, args.ring, args.row))
         except Refusal as e:
             print(f"refused: {e}", file=sys.stderr)
             refused += 1
