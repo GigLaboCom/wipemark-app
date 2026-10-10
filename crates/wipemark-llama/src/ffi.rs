@@ -1088,7 +1088,7 @@ fn target_facts(target: &Weights) -> TargetFacts {
     // SAFETY: model and vocabulary valid for the borrow; plain reads.
     unsafe {
         TargetFacts {
-            vocab_type: i32::try_from(sys::llama_vocab_type(target.vocab)).unwrap_or(-1),
+            vocab_type: i64::from(sys::llama_vocab_type(target.vocab)),
             n_vocab: sys::llama_vocab_n_tokens(target.vocab),
             mask: Some(sys::llama_vocab_mask(target.vocab)).filter(|&mask| mask >= 0),
             n_embd: sys::llama_model_n_embd(target.model),
@@ -1114,7 +1114,7 @@ fn draft_facts(draft: &Weights, target: &Weights, architecture: Option<String>) 
         (
             ext::wipemark_ext_model_dflash_selector_top_k(draft.model),
             layer_ids,
-            i32::try_from(sys::llama_vocab_type(draft.vocab)).unwrap_or(-1),
+            i64::from(sys::llama_vocab_type(draft.vocab)),
             sys::llama_vocab_n_tokens(draft.vocab),
             Some(sys::llama_vocab_mask(draft.vocab)).filter(|&mask| mask >= 0),
             sys::llama_model_n_embd(draft.model),

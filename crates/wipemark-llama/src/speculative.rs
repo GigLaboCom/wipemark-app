@@ -92,8 +92,9 @@ pub enum DraftRefusal {
 /// What the target model is, for [`judge`]: read off the loaded model.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetFacts {
-    /// `llama_vocab_type`.
-    pub vocab_type: i32,
+    /// `llama_vocab_type` — an `i64`, because bindgen gives the enum
+    /// another integer type on each platform.
+    pub vocab_type: i64,
     pub n_vocab: i32,
     /// `llama_vocab_mask`, `None` when the vocabulary has no mask token.
     pub mask: Option<i32>,
@@ -120,7 +121,7 @@ pub struct DraftFacts {
     pub n_embd_out: i32,
     /// `llama_model_target_layer_ids`.
     pub layer_ids: Vec<i32>,
-    pub vocab_type: i32,
+    pub vocab_type: i64,
     pub n_vocab: i32,
     pub mask: Option<i32>,
     /// The first token id, from [`VOCAB_CHECK_FROM`] and other than the
