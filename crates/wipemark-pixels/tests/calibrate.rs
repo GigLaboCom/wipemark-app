@@ -333,6 +333,51 @@ fn an_opaque_mark_needs_reconstruction() {
     assert!(c.needs_reconstruction);
 }
 
+/// D529: a drafted profile searches at the corner its mark is in — every
+/// corner, not always the bottom-right one — and the row it drafts loads.
+#[test]
+fn a_drafted_search_sits_at_the_corner_of_its_mark() {
+    let c = calibrate(
+        &captures(BlendModel::Encoded, false),
+        &CalibrateOptions::default(),
+    )
+    .unwrap();
+    let wma = c.wma().unwrap();
+    let sha = sha256_hex(&wma);
+    let (w, h) = (c.rect.width, c.rect.height);
+    for (x, y, corner) in [
+        (W - w - 20, H - h - 20, "bottom-right"),
+        (20, H - h - 20, "bottom-left"),
+        (W - w - 20, 20, "top-right"),
+        (20, 20, "top-left"),
+    ] {
+        let mut moved = c.clone();
+        moved.rect = PixelRect {
+            x,
+            y,
+            width: w,
+            height: h,
+        };
+        assert_eq!(moved.corner(), corner);
+        let draft = Draft {
+            id: "test-corner",
+            vendor: "test",
+            product: "synthetic",
+            mark: "sparkle",
+            observed_from: None,
+            sizes: vec![(&moved, String::from("calibrated.wma"), sha.clone())],
+        };
+        let row = draft.to_json().unwrap();
+        let value: serde_json::Value = serde_json::from_str(&row).unwrap();
+        assert_eq!(value["search"]["corner"], corner, "{row}");
+        Catalogue::parse(
+            &format!("{{ \"schema\": 1, \"profiles\": [{row}] }}"),
+            &|name: &str| (name == "calibrated.wma").then_some(wma.as_slice()),
+        )
+        .unwrap();
+    }
+}
+
 /// The profile drafted from a calibration finds, proves and restores the
 /// mark on the captures it came from and on pictures it never saw.
 #[test]
