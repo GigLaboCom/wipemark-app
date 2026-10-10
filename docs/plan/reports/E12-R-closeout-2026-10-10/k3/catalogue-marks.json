@@ -1,0 +1,100 @@
+{
+  "schema": 1,
+  "profiles": [
+    {
+      "id": "standin-web",
+      "vendor": "xai",
+      "product": "imagine",
+      "mark": "wordmark",
+      "observed": {
+        "from": "2026-10",
+        "until": null
+      },
+      "status": "provisional",
+      "blend": {
+        "model": "encoded",
+        "logo": [
+          255,
+          255,
+          255
+        ],
+        "logo_map": null
+      },
+      "opaque_above": 0.95,
+      "alpha": [
+        {
+          "id": "standin-web-1100x1100",
+          "asset": "standin-web-1100x1100.wma",
+          "sha256": "14a0ef7826297f7ad24fe4674e356e09080eae2566b8d5c83f385f4cec10c204",
+          "size": [
+            82,
+            38
+          ]
+        },
+        {
+          "id": "standin-web-1280x720",
+          "asset": "standin-web-1280x720.wma",
+          "sha256": "2c990b54ef0a982dbf53091e4d807412f74af2932e266ac9d036bf53dcda9c39",
+          "size": [
+            82,
+            38
+          ]
+        }
+      ],
+      "placements": [
+        {
+          "when": {
+            "width": 1100,
+            "height": 1100
+          },
+          "rect": [
+            41,
+            1029,
+            82,
+            38
+          ],
+          "alpha": "standin-web-1100x1100"
+        },
+        {
+          "when": {
+            "width": 1280,
+            "height": 720
+          },
+          "rect": [
+            17,
+            669,
+            82,
+            38
+          ],
+          "alpha": "standin-web-1280x720"
+        }
+      ],
+      "search": {
+        "corner": "bottom-left",
+        "within": [
+          320,
+          320
+        ],
+        "sizes": [
+          24,
+          160
+        ],
+        "alpha": "standin-web-1280x720"
+      },
+      "detect": {
+        "min_ncc": 0.7
+      },
+      "verify": {
+        "gain": 0.06,
+        "edge_ratio": 0.3,
+        "out_of_range": 0.01
+      },
+      "source": {
+        "from": "calibration",
+        "commit": null,
+        "licence": null,
+        "copyright": null
+      }
+    }
+  ]
+}
