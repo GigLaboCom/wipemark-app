@@ -77,7 +77,16 @@ if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx mn-embed-fleet || pgre
 fi
 say "embed-server stopped; to restore it: sudo systemctl start mn-embed-fleet.service"
 
-# 2. The GPU to ourselves.
+# 2. The GPU to ourselves — and working: a driver upgraded under the running kernel module
+#    (NVML "Driver/library version mismatch") leaves Vulkan without the card, and llama.cpp then
+#    decodes on the CPU at ~1 tok/s without a word (2026-10-10). Checked again before every part.
+gpu_ok() {
+  nvidia-smi -L >/dev/null 2>&1 || {
+    echo "host-voice-run.sh: nvidia-smi fails — the driver does not answer (reboot after a driver upgrade?)" >&2
+    return 1
+  }
+}
+gpu_ok || exit 2
 busy=$(nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader)
 if [ -n "$busy" ]; then
   echo "host-voice-run.sh: the GPU is in use: $busy" >&2
@@ -121,6 +130,7 @@ LOG=$OUT/host.log
 } 2>&1 | tee -a "$LOG"
 [ "$ESTIMATE" = 1 ] && exit 0
 for part in "${PARTS[@]}"; do
+  gpu_ok 2>&1 | tee -a "$LOG" || exit 2
   say "part $part: start" | tee -a "$LOG"
   crates/wipemark-pipeline/bench/run-voice.sh --out "$OUT" "$part" 2>&1 | tee -a "$LOG"
   say "part $part: end" | tee -a "$LOG"
