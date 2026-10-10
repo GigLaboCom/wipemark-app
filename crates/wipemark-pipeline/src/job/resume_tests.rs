@@ -324,6 +324,75 @@ fn another_engine_discards_every_record() {
     assert_eq!(scripted.asked().len(), 5);
 }
 
+/// D483: the draft beside a local model is part of the engine's identity.
+/// A chunk decided with a draft is, under sampling, another draw than one
+/// decided without — so a job resumed after the draft was downloaded,
+/// removed, refused or switched off forgets every record, and one resumed
+/// under the same draft keeps them.
+#[test]
+fn a_job_resumed_under_another_draft_discards_every_record() {
+    let document = document(&source());
+    let options = options();
+    let info = engine().info();
+    let planned = plan(&document, &options, &info).expect("planned");
+    let with = |draft: Option<&str>| wipemark_engine::EngineInfo {
+        draft: draft.map(str::to_owned),
+        ..info.clone()
+    };
+    let none = fingerprint(&document, &options, &with(None), &planned);
+    let one = fingerprint(&document, &options, &with(Some("1a25c568")), &planned);
+    let other = fingerprint(&document, &options, &with(Some("26d47ca2")), &planned);
+    assert_ne!(none, one, "a draft beside the model moved nothing");
+    assert_ne!(one, other, "another draft moved nothing");
+    assert_eq!(
+        one,
+        fingerprint(&document, &options, &with(Some("1a25c568")), &planned)
+    );
+
+    // Records decided with no draft, resumed with one: every chunk asked.
+    let (_, records) = whole();
+    let scripted = engine();
+    let (_handle, receiver) = start_resumable(
+        JobId(5),
+        document.clone(),
+        options.clone(),
+        Arc::new(Drafted(scripted.clone(), "1a25c568")),
+        records[..2].to_vec(),
+    )
+    .expect("starts");
+    let events = events_of(&receiver);
+    assert_eq!(resumed(&events), Some((0, 2)));
+    assert_eq!(scripted.asked().len(), 5);
+}
+
+/// The scripted engine with a draft beside it.
+struct Drafted(FakeEngine, &'static str);
+
+#[wipemark_engine::async_trait]
+impl wipemark_engine::RewriteEngine for Drafted {
+    fn info(&self) -> wipemark_engine::EngineInfo {
+        wipemark_engine::EngineInfo {
+            draft: Some(self.1.to_owned()),
+            ..self.0.info()
+        }
+    }
+
+    async fn complete(
+        &self,
+        req: ChatRequest,
+        sink: wipemark_engine::TokenSink,
+        cancel: wipemark_engine::CancellationToken,
+    ) -> Result<wipemark_engine::Completion, wipemark_engine::EngineError> {
+        self.0.complete(req, sink, cancel).await
+    }
+
+    async fn warmup(&self) -> Result<(), wipemark_engine::EngineError> {
+        Ok(())
+    }
+
+    async fn unload(&self) {}
+}
+
 /// The scripted engine under another model id.
 struct Renamed(FakeEngine);
 

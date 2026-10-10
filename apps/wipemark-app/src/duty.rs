@@ -84,7 +84,7 @@ use wipemark_engine::{
 };
 use wipemark_i18n::{t, Message};
 use wipemark_models::host::{fit, fit_mb, Fit, Host};
-use wipemark_models::manifest::{Format, Manifest, Role};
+use wipemark_models::manifest::{Format, Manifest, ModelEntry, Role};
 use wipemark_models::store::State;
 use wipemark_models::user::UserModel;
 use wipemark_secret::Secret;
@@ -267,6 +267,9 @@ pub struct Roster<'a> {
     pub host: Option<Host>,
     /// Which side the user asked for, and in what order.
     pub serves: Serves,
+    /// The Engine page's `engine.local.speculative`: whether a model on this
+    /// machine decodes with its draft when one is downloaded (D485).
+    pub speculative: bool,
 }
 
 /// The saved profile a set of settings came from.
@@ -302,6 +305,63 @@ pub struct Local {
     /// the surface as something to say, not as a reason to withhold a
     /// performer.
     pub fit: Fit,
+    /// Whether a speculative draft decodes beside it, and why not when
+    /// not (E2-dflash2, D485).
+    pub draft: Speculation,
+}
+
+/// Whether a speculative draft decodes beside the model on this machine
+/// (E2-dflash2, D485), decided with the rest of the duty from what the
+/// roster already holds: the catalogue's draft for the model, what is on
+/// the disk, the row, and the machine's memory. The model is on duty
+/// either way — a draft only makes it faster — and the load may still
+/// refuse a draft this says goes beside it (the engine says why then).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Speculation {
+    /// The draft is loaded beside the model.
+    Beside(DraftFile),
+    /// The model is loaded alone.
+    Alone(NoDraft),
+}
+
+impl Speculation {
+    /// The draft that goes beside the model, when one does.
+    pub fn beside(&self) -> Option<&DraftFile> {
+        match self {
+            Speculation::Beside(draft) => Some(draft),
+            Speculation::Alone(_) => None,
+        }
+    }
+}
+
+/// A draft on this machine, whole.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DraftFile {
+    /// The catalogue id.
+    pub id: String,
+    pub display: String,
+    pub weights: PathBuf,
+    /// What the catalogue pins it to: its identity in a job's fingerprint
+    /// (D483).
+    pub sha256: String,
+}
+
+/// Why a model on this machine decodes without a draft.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoDraft {
+    /// The catalogue has none for it: nothing to say.
+    NoneMade,
+    /// The Engine page's row is off.
+    Off,
+    /// The catalogue has one, and it is not on this machine, whole.
+    NotHere {
+        id: String,
+        display: String,
+        state: State,
+    },
+    /// This machine has no room for the model and its draft together, by
+    /// the catalogue's figures — `need_mb` is both.
+    NoRoom { need_mb: u64, have_mb: u64 },
 }
 
 /// An endpoint over HTTP.
@@ -353,6 +413,7 @@ impl Performer {
                 model_id: local.id.clone(),
                 local: true,
                 ctx_len: Some(local.ctx),
+                draft: local.draft.beside().map(|draft| draft.sha256.clone()),
             },
             Performer::Endpoint(remote) => EngineInfo {
                 vendor: vendor_of(&remote.origin, remote.provider),
@@ -363,6 +424,7 @@ impl Performer {
                 // endpoint reports, and until then unknown stays
                 // unknown.
                 ctx_len: None,
+                draft: None,
             },
         }
     }
@@ -629,7 +691,51 @@ fn this_machine(roster: &Roster, role: Role) -> Result<Performer, Vacancy> {
         fit: roster
             .host
             .map_or(Fit::Unknown, |machine| fit(entry, machine)),
+        draft: speculation(roster, entry),
     }))
+}
+
+/// Whether the catalogue's draft for `entry` goes beside it (D485). In
+/// the order a person would want to be told: there is none, the row is
+/// off, it is not here, there is no room for both. A machine not yet read
+/// has room — unknown is never "no".
+fn speculation(roster: &Roster, entry: &ModelEntry) -> Speculation {
+    let Some(draft) = roster.catalogue.draft_for(&entry.id) else {
+        return Speculation::Alone(NoDraft::NoneMade);
+    };
+    if !roster.speculative {
+        return Speculation::Alone(NoDraft::Off);
+    }
+    let found = roster.on_disk.get(&draft.id);
+    let state = found.map_or(State::Absent, |on_disk| on_disk.state.clone());
+    let whole = matches!(state, State::Present { .. });
+    let (Some(weights), Some(sha256)) = (
+        found
+            .and_then(|on_disk| on_disk.weights.clone())
+            .filter(|_| whole),
+        draft.primary_file().and_then(|file| file.sha256.clone()),
+    ) else {
+        return Speculation::Alone(NoDraft::NotHere {
+            id: draft.id.clone(),
+            display: draft.display.clone(),
+            state,
+        });
+    };
+    let need_mb = entry.mem.min_ram_mb.saturating_add(draft.mem.min_ram_mb);
+    if let Some(host) = roster.host {
+        if matches!(fit_mb(need_mb, host), Fit::TooBig { .. }) {
+            return Speculation::Alone(NoDraft::NoRoom {
+                need_mb,
+                have_mb: host.total_ram_mb,
+            });
+        }
+    }
+    Speculation::Beside(DraftFile {
+        id: draft.id.clone(),
+        display: draft.display.clone(),
+        weights,
+        sha256,
+    })
 }
 
 /// A model the person added, chosen for `role` (E8-1): handed out exactly
@@ -674,6 +780,9 @@ fn added_model(roster: &Roster, role: Role, added: &UserModel) -> Result<Perform
         fit: roster
             .host
             .map_or(Fit::Unknown, |machine| fit_mb(need, machine)),
+        // A file the person added has no draft: a draft is tied to the
+        // catalogue model it was trained for (D484).
+        draft: Speculation::Alone(NoDraft::NoneMade),
     }))
 }
 
@@ -867,7 +976,7 @@ fn machine_engine(
     machine: &Local,
     local: &LocalOptions,
 ) -> Result<Arc<dyn RewriteEngine>, EngineError> {
-    use wipemark_engine::{LoadParams, LocalConfig};
+    use wipemark_engine::{DraftConfig, LoadParams, LocalConfig};
 
     Ok(Arc::new(wipemark_engine::LocalEngine::new(LocalConfig {
         model_id: machine.id.clone(),
@@ -878,6 +987,11 @@ fn machine_engine(
             ..LoadParams::default()
         },
         available_mb: available_mb(local.host, local.gpu),
+        draft: machine.draft.beside().map(|draft| DraftConfig {
+            id: draft.id.clone(),
+            weights: draft.weights.clone(),
+            sha256: draft.sha256.clone(),
+        }),
     })))
 }
 
@@ -903,6 +1017,146 @@ mod tests {
     const REWRITER: &str = "qwen3-4b-instruct-2507-ud-q4";
     /// A model the person added (E8-1).
     const ADDED: &str = "user-gemma-4-12b-my-copy";
+    /// The catalogue's model with a draft, and the draft (E2-dflash2).
+    const QWEN38: &str = "qwen3.8-27b-ud-iq3s";
+    const DRAFT: &str = "qwen3.8-27b-dflash2-q4km";
+    const DRAFT_SHA256: &str = "1a25c56858e1ebe93f2718ac1d49d1151f9323325c1bbfd6209370f4db131ebd";
+
+    fn a_machine_of(total_ram_mb: u64) -> Host {
+        Host {
+            total_ram_mb,
+            available_ram_mb: total_ram_mb / 2,
+            vram_mb: None,
+            unified_memory: false,
+        }
+    }
+
+    /// D485: Qwen3.8 27B on this machine, its draft downloaded and whole,
+    /// the row on: the draft goes beside it, and the engine's identity
+    /// names it (D483).
+    #[test]
+    fn the_draft_goes_beside_its_model_when_it_is_here() {
+        let present = State::Present {
+            bytes: 1_143_006_816,
+        };
+        for host in [None, Some(a_machine_of(65_536))] {
+            let mut bench = Bench::new().with_qwen38(present.clone());
+            bench.host = host;
+            let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
+            let served = local(&duty);
+            assert_eq!(served.id, QWEN38);
+            let draft = served
+                .draft
+                .beside()
+                .unwrap_or_else(|| panic!("no draft beside it on {host:?}: {:?}", served.draft));
+            assert_eq!(draft.id, DRAFT);
+            assert_eq!(draft.sha256, DRAFT_SHA256);
+            assert_eq!(
+                draft.weights,
+                PathBuf::from("/models/draft/Qwen3.8-27B-DFlash2-Q4_K_M.gguf")
+            );
+            assert_eq!(
+                duty.performer().expect("assigned").info().draft.as_deref(),
+                Some(DRAFT_SHA256)
+            );
+        }
+    }
+
+    /// D485: without the draft the model is still on duty — a draft only
+    /// makes it faster — and the duty names the one reason it runs alone.
+    #[test]
+    fn the_model_runs_alone_and_the_duty_says_why() {
+        let present = State::Present {
+            bytes: 1_143_006_816,
+        };
+        let mut off = Bench::new().with_qwen38(present.clone());
+        off.speculative = false;
+        let duty = on_duty(&off.roster(), Role::Rewrite, Pick::Live);
+        assert_eq!(local(&duty).draft, Speculation::Alone(NoDraft::Off));
+        assert_eq!(duty.performer().expect("assigned").info().draft, None);
+
+        for state in [
+            State::Absent,
+            State::Partial {
+                done_bytes: 1,
+                total_bytes: 1_143_006_816,
+            },
+            State::Corrupt {
+                reason: "sha256 mismatch".to_owned(),
+            },
+        ] {
+            let bench = Bench::new().with_qwen38(state.clone());
+            let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
+            match &local(&duty).draft {
+                Speculation::Alone(NoDraft::NotHere {
+                    id, state: said, ..
+                }) => {
+                    assert_eq!(id, DRAFT);
+                    assert_eq!(said, &state);
+                }
+                other => panic!("a draft {state:?} went beside the model: {other:?}"),
+            }
+        }
+
+        // 16 GB: room for the model (14 336 MB), not for both (17 152).
+        let mut cramped = Bench::new().with_qwen38(present);
+        cramped.host = Some(a_machine_of(16_384));
+        let duty = on_duty(&cramped.roster(), Role::Rewrite, Pick::Live);
+        assert_eq!(local(&duty).id, QWEN38, "the model is still on duty");
+        assert_eq!(
+            local(&duty).draft,
+            Speculation::Alone(NoDraft::NoRoom {
+                need_mb: 14_336 + 2_816,
+                have_mb: 16_384
+            })
+        );
+
+        // A model the catalogue has no draft for has nothing to say.
+        let other = Bench::new().with_a_local_rewriter();
+        let duty = on_duty(&other.roster(), Role::Rewrite, Pick::Live);
+        assert_eq!(local(&duty).draft, Speculation::Alone(NoDraft::NoneMade));
+    }
+
+    /// D484: the draft is never on duty — chosen for rewriting by a row
+    /// written by hand, it is a model that does not serve the role.
+    #[test]
+    fn the_draft_is_never_on_duty() {
+        let mut bench = Bench::new().with_qwen38(State::Present { bytes: 1 });
+        bench.chosen.insert(Role::Rewrite, DRAFT.to_owned());
+        let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
+        assert!(
+            matches!(&duty, Duty::Vacant(Vacancy::ModelDoesNotServe { id }) if id == DRAFT),
+            "{duty:?}"
+        );
+    }
+
+    /// The engine for Qwen3.8 is built with its draft, and names it; with
+    /// the row off, without (D483, D485).
+    #[cfg(feature = "local-llama")]
+    #[test]
+    fn engine_for_hands_the_draft_to_the_local_engine() {
+        let present = State::Present { bytes: 1 };
+        let bench = Bench::new().with_qwen38(present.clone());
+        let duty = on_duty(&bench.roster(), Role::Rewrite, Pick::Live);
+        let engine = engine_for(
+            duty.performer().expect("assigned"),
+            &LocalOptions::default(),
+            None,
+        )
+        .expect("a build with the local engine hands one out");
+        assert_eq!(engine.info().draft.as_deref(), Some(DRAFT_SHA256));
+
+        let mut off = Bench::new().with_qwen38(present);
+        off.speculative = false;
+        let duty = on_duty(&off.roster(), Role::Rewrite, Pick::Live);
+        let engine = engine_for(
+            duty.performer().expect("assigned"),
+            &LocalOptions::default(),
+            None,
+        )
+        .expect("built");
+        assert_eq!(engine.info().draft, None);
+    }
 
     /// Everything a roster borrows, owned in one place so a test can
     /// state the two facts it is about and inherit the rest.
@@ -918,6 +1172,7 @@ mod tests {
         on_disk: BTreeMap<String, OnDisk>,
         host: Option<Host>,
         serves: Serves,
+        speculative: bool,
     }
 
     impl Bench {
@@ -935,6 +1190,7 @@ mod tests {
                 on_disk: BTreeMap::new(),
                 host: None,
                 serves: Serves::default(),
+                speculative: true,
             }
         }
 
@@ -992,6 +1248,31 @@ mod tests {
             self
         }
 
+        /// Qwen3.8 27B on this machine and chosen for the role, its
+        /// DFlash2 draft in `draft` (E2-dflash2).
+        fn with_qwen38(mut self, draft: State) -> Self {
+            self.chosen.insert(Role::Rewrite, QWEN38.to_owned());
+            self.on_disk.insert(
+                QWEN38.to_owned(),
+                OnDisk {
+                    state: State::Present {
+                        bytes: 12_040_883_104,
+                    },
+                    weights: Some(PathBuf::from("/models/qwen38/Qwen3.8-27B-UD-IQ3_S.gguf")),
+                },
+            );
+            self.on_disk.insert(
+                DRAFT.to_owned(),
+                OnDisk {
+                    state: draft,
+                    weights: Some(PathBuf::from(
+                        "/models/draft/Qwen3.8-27B-DFlash2-Q4_K_M.gguf",
+                    )),
+                },
+            );
+            self
+        }
+
         fn with_engine(mut self, provider: Provider, url: &str) -> Self {
             self.live.provider = provider;
             self.live.base_url = BaseUrl::parse(url).expect("a test URL is one");
@@ -1013,6 +1294,7 @@ mod tests {
                 on_disk: &self.on_disk,
                 host: self.host,
                 serves: self.serves,
+                speculative: self.speculative,
             }
         }
     }

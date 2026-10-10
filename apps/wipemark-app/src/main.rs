@@ -2159,6 +2159,7 @@ mod tests {
             ctx: 8192,
             vendor: wipemark_core::Vendor::OpenLlm,
             fit: wipemark_models::host::Fit::Unknown,
+            draft: duty::Speculation::Alone(duty::NoDraft::NoneMade),
         }));
         let idle = status_line(&machine, &Loaded::No);
         let loading = status_line(&machine, &Loaded::Loading);

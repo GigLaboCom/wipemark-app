@@ -3289,6 +3289,7 @@ mod tests {
             ctx: 8192,
             vendor: Vendor::OpenLlm,
             fit: wipemark_models::host::Fit::Unknown,
+            draft: duty::Speculation::Alone(duty::NoDraft::NoneMade),
         })
     }
 

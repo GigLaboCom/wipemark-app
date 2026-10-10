@@ -662,6 +662,9 @@ settings-engine-idle-minutes = { $count ->
         [one] { $count } minute
        *[other] { $count } minutes
     }
+# E2-dflash2 (D485): a speculative draft beside the local model.
+settings-engine-speculative-title = Faster decoding with a draft model
+settings-engine-speculative-description = When a draft model is downloaded for the chosen model, it is loaded beside it and proposes several words at a time, which the model checks in one step. It changes how fast the model writes, not what it is asked or how its answer is checked: at the lowest temperature the text is the model's own, and at higher ones every word is still the model's own choice, though not always the same one. Without a draft, or without room for both, the model runs alone, and its card on the Models page says why. Takes effect at the next load.
 settings-engine-advanced = Advanced
 settings-engine-lock-title = Keep the model in RAM (do not let the system page it out)
 settings-engine-lock-description = The first request after a quiet spell is then not slowed by reading the model back from disk; the cost is that memory, which no other program can borrow while the model is loaded. A system that refuses the lock loads the model anyway and says so in the log.
@@ -990,6 +993,27 @@ settings-models-foreign = A file at { $path } has this model's name but not its 
 settings-models-foreign-part = A partial file at { $path } is one { -brand-name } has no record of — another tool's download in progress, or one whose record no longer matches it — so it neither resumes nor removes it; move it away to download this model here.
 # The card of the model on duty while it is read into memory (F1).
 settings-models-loading = Loading into memory — { $percent } % read…
+# E2-dflash2: the line on the card of a model with a draft. $draft is the
+# draft's display name; $reason is one of the draft-refusal-… sentences.
+settings-models-draft-ready = Faster decoding: { $draft } is downloaded and is loaded beside this model.
+settings-models-draft-decoding = Faster decoding: { $draft } decodes beside this model.
+settings-models-draft-refused = Its draft was not loaded, so this model runs alone: { $reason }
+settings-models-draft-off = Faster decoding is off on the Engine page, so this model runs without its draft.
+settings-models-draft-absent = Download { $draft } below to make this model decode faster.
+settings-models-draft-no-room = This machine has no room for this model and its draft together (about { $need } MB), so it runs alone.
+# The line on a draft's own card. $model is the display name of the model
+# it drafts for.
+settings-models-draft-for = Not a model that rewrites: a draft for { $model }, loaded beside it when faster decoding is on, to make it write faster.
+# Why a draft was not loaded beside its model.
+draft-refusal-not-dflash = the file is not a DFlash draft model.
+draft-refusal-dflash1 = it is a DFlash 1 draft, and only DFlash2 drafts are run.
+draft-refusal-malformed = its block, selector or layer list is not one this build reads.
+draft-refusal-vocabulary = its vocabulary is not this model's.
+draft-refusal-hidden-size = it was trained for a model of another size.
+draft-refusal-layers = it reads layers this model does not have.
+draft-refusal-no-rollback = this build cannot roll this model's recurrent state back by a rejected block.
+draft-refusal-load = it could not be loaded; the log says why.
+draft-refusal-no-room = together they need about { $need } MB, and { $have } MB is available.
 # $reason is the store's own words, never localized.
 settings-models-failed = The download stopped: { $reason }
 settings-models-stopped = Stopped. What was downloaded is kept, and the next attempt carries on from it.
@@ -1633,6 +1657,10 @@ image-defect-inflate-limit = a compressed text decompresses past the limit this 
 cli-models-folder = Models folder: { $path }
 cli-models-entry = { $id } · { $name } · { $roles } · { $size } · { $state } · { $fit }
 cli-models-chosen = chosen for rewriting
+# E2-dflash2: a draft, listed under the model it drafts for. $target is
+# that model's id.
+cli-models-draft-entry = { $id } · { $name } · a draft for { $target }, never used on its own · { $size } · { $state }
+cli-models-draft-off = not used: faster decoding is off in the application
 # A catalogue model found in the folder other than where a download
 # puts it (D302). $path is below the folder.
 cli-models-found-at = found at { $path }

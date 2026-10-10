@@ -92,8 +92,9 @@ use std::time::{Duration, Instant};
 use gpui::{App, AppContext as _, Context, Entity, Global, Subscription, Task};
 use wipemark_engine::http::KeyFault;
 use wipemark_engine::{
-    async_trait, CancellationToken, ChatRefusal, ChatRequest, Completion, EngineError, EngineInfo,
-    LoadProgress, LoadSink, RewriteEngine, SamplingParams, TokenSink, Unavailable,
+    async_trait, CancellationToken, ChatRefusal, ChatRequest, Completion, DraftRefusal,
+    EngineError, EngineInfo, LoadProgress, LoadSink, RewriteEngine, SamplingParams, TokenSink,
+    Unavailable,
 };
 use wipemark_i18n::{args, t_args, Message};
 use wipemark_models::manifest::Role;
@@ -144,7 +145,7 @@ impl Keeping {
     }
 }
 
-/// The Engine page's three rows for the model on this machine, as values.
+/// The Engine page's four rows for the model on this machine, as values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LocalPolicy {
     pub keeping: Keeping,
@@ -152,6 +153,10 @@ pub struct LocalPolicy {
     pub idle_minutes: u32,
     /// Ask the operating system to keep the weights in RAM.
     pub lock: bool,
+    /// Decode with the model's speculative draft when one is downloaded
+    /// for it (`engine.local.speculative`, on by default — E2-dflash2,
+    /// D485).
+    pub speculative: bool,
 }
 
 impl Default for LocalPolicy {
@@ -160,6 +165,7 @@ impl Default for LocalPolicy {
             keeping: Keeping::OnDemand,
             idle_minutes: 15,
             lock: false,
+            speculative: true,
         }
     }
 }
@@ -989,6 +995,9 @@ enum Wanted {
         ctx: u32,
         lock: bool,
         available_mb: Option<u64>,
+        /// The draft that goes beside it (E2-dflash2): the row turned on or
+        /// off, or the draft downloaded or removed, is another engine.
+        draft: Option<PathBuf>,
     },
 }
 
@@ -1029,6 +1038,7 @@ impl Reading {
                 ctx: local.ctx,
                 lock: self.options.lock,
                 available_mb: duty::available_mb(self.options.host, self.options.gpu),
+                draft: local.draft.beside().map(|draft| draft.weights.clone()),
             },
         }
     }
@@ -1068,6 +1078,9 @@ pub struct EngineHost {
     /// How much of the weights the load under way has read, 0 to 1, or
     /// `None` when no load is under way (F1).
     loading: Option<f32>,
+    /// What the last load said of the draft asked to go beside the model
+    /// (E2-dflash2): `None` when it asked for none, or has not said yet.
+    draft: Option<Result<(), DraftRefusal>>,
     check: Check,
     /// The observer of the preferences, while there is one.
     preferences: Option<Subscription>,
@@ -1145,6 +1158,7 @@ impl EngineHost {
             idle: None,
             deferred: Vec::new(),
             loading: None,
+            draft: None,
             check: Check::Idle,
             preferences: None,
             _quit: quit,
@@ -1174,11 +1188,35 @@ impl EngineHost {
         }
         let before = self.loading.map(percent);
         self.loading = match told {
-            LoadProgress::Reading(fraction) => Some(fraction.clamp(0.0, 1.0)),
+            // A load starting forgets what the last one said of a draft.
+            LoadProgress::Reading(fraction) => {
+                if self.loading.is_none() {
+                    self.draft = None;
+                }
+                Some(fraction.clamp(0.0, 1.0))
+            }
+            LoadProgress::Draft(outcome) => {
+                self.draft = Some(outcome);
+                cx.notify();
+                return;
+            }
             LoadProgress::Ended => None,
         };
         if self.loading.map(percent) != before {
             cx.notify();
+        }
+    }
+
+    /// What the load of the model in memory said of its draft
+    /// (E2-dflash2): `Ok` when the draft decodes beside it, the refusal
+    /// when it was loaded alone — and `None` while nothing is loaded, or
+    /// the load asked for no draft. The Models card of the model on duty
+    /// says it.
+    pub fn draft_outcome(&self) -> Option<Result<(), DraftRefusal>> {
+        if matches!(self.loaded, Loaded::Yes { .. }) {
+            self.draft
+        } else {
+            None
         }
     }
 
@@ -1569,10 +1607,11 @@ fn built(performer: &Performer, options: &LocalOptions) -> Slot {
         Ok(engine) => {
             let info = engine.info();
             match performer {
-                Performer::Machine(_) => tracing::info!(
+                Performer::Machine(local) => tracing::info!(
                     model = info.model_id,
                     lock = options.lock,
                     available_mb = ?duty::available_mb(options.host, options.gpu),
+                    draft = local.draft.beside().map(|draft| draft.id.as_str()),
                     "engine built for the rewrite duty"
                 ),
                 Performer::Endpoint(remote) => tracing::info!(
@@ -2030,6 +2069,7 @@ mod tests {
                 model_id: "probe".to_owned(),
                 local: true,
                 ctx_len: Some(512),
+                draft: None,
             }
         }
 
@@ -2044,6 +2084,7 @@ mod tests {
                 text: "ready".to_owned(),
                 tokens_out: 1,
                 finish: FinishReason::Stop,
+                drafted: None,
             })
         }
 
@@ -2649,6 +2690,7 @@ mod tests {
                 model_id: "double".to_owned(),
                 local: true,
                 ctx_len: Some(512),
+                draft: None,
             }
         }
 
@@ -2668,6 +2710,7 @@ mod tests {
                 text: "one two three".to_owned(),
                 tokens_out: 3,
                 finish: FinishReason::Stop,
+                drafted: None,
             })
         }
 
@@ -2702,6 +2745,7 @@ mod tests {
                         ctx: 512,
                         vendor: Vendor::OpenLlm,
                         fit: wipemark_models::host::Fit::Unknown,
+                        draft: duty::Speculation::Alone(duty::NoDraft::NoneMade),
                     })),
                     options: LocalOptions::default(),
                     // Started on demand, so this build's own engine is
@@ -2711,6 +2755,7 @@ mod tests {
                         keeping: Keeping::OnDemand,
                         idle_minutes: 1,
                         lock: false,
+                        speculative: true,
                     },
                     known: true,
                     key_saves: 0,
@@ -2736,6 +2781,9 @@ mod tests {
     struct Loader {
         sink: Mutex<Option<LoadSink>>,
         gate: flume::Receiver<()>,
+        /// What the next load says of a draft, when it says anything
+        /// (E2-dflash2).
+        draft: Mutex<Option<Result<(), DraftRefusal>>>,
     }
 
     impl Loader {
@@ -2759,6 +2807,7 @@ mod tests {
                 model_id: "loader".to_owned(),
                 local: true,
                 ctx_len: Some(512),
+                draft: None,
             }
         }
 
@@ -2772,6 +2821,7 @@ mod tests {
                 text: String::new(),
                 tokens_out: 0,
                 finish: FinishReason::Stop,
+                drafted: None,
             })
         }
 
@@ -2780,6 +2830,10 @@ mod tests {
             self.tell(LoadProgress::Reading(0.5));
             let _ = self.gate.recv_async().await;
             self.tell(LoadProgress::Reading(1.0));
+            let draft = *self.draft.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(outcome) = draft {
+                self.tell(LoadProgress::Draft(outcome));
+            }
             self.tell(LoadProgress::Ended);
             Ok(())
         }
@@ -2802,6 +2856,7 @@ mod tests {
         let loader = Arc::new(Loader {
             sink: Mutex::new(None),
             gate,
+            draft: Mutex::new(None),
         });
         let host = host_over(loader, Keeping::OnDemand, cx);
 
@@ -2837,6 +2892,7 @@ mod tests {
         let first = Arc::new(Loader {
             sink: Mutex::new(None),
             gate,
+            draft: Mutex::new(None),
         });
         let host = host_over(first, Keeping::OnDemand, cx);
         host.update(cx, |host, cx| host.load(cx));
@@ -2846,6 +2902,7 @@ mod tests {
         let second = Arc::new(Loader {
             sink: Mutex::new(None),
             gate,
+            draft: Mutex::new(None),
         });
         host.update(cx, |host, cx| {
             host.handle.set(Slot::Engine(second));
@@ -2882,6 +2939,7 @@ mod tests {
         let loader = Arc::new(Loader {
             sink: Mutex::new(None),
             gate,
+            draft: Mutex::new(None),
         });
         let host = host_over(loader, Keeping::OnDemand, cx);
         host.update(cx, |host, cx| host.load(cx));
@@ -2902,6 +2960,59 @@ mod tests {
         release.send(()).expect("the double waits");
         cx.run_until_parked();
         assert_eq!(host.read_with(cx, |host, _| host.load_progress()), None);
+    }
+
+    /// E2-dflash2: what a load said of the draft reaches the host — the
+    /// Models card of the model on duty reads it — while that model is in
+    /// memory, and only then; a later load that asked for no draft forgets
+    /// it. Red with the `Draft` arm of `load_told` storing nothing, or with
+    /// the reset at a load's start deleted.
+    #[gpui::test]
+    fn the_host_keeps_what_the_load_said_of_the_draft(cx: &mut gpui::TestAppContext) {
+        let (release, gate) = flume::unbounded();
+        let loader = Arc::new(Loader {
+            sink: Mutex::new(None),
+            gate,
+            draft: Mutex::new(Some(Err(DraftRefusal::Vocabulary))),
+        });
+        let host = host_over(
+            Arc::clone(&loader) as Arc<dyn RewriteEngine>,
+            Keeping::OnDemand,
+            cx,
+        );
+        host.update(cx, |host, cx| host.load(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            host.read_with(cx, |host, _| host.draft_outcome()),
+            None,
+            "said before the model was loaded"
+        );
+        release.send(()).expect("the double waits");
+        cx.run_until_parked();
+        assert_eq!(
+            host.read_with(cx, |host, _| host.draft_outcome()),
+            Some(Err(DraftRefusal::Vocabulary))
+        );
+
+        host.update(cx, |host, cx| host.unload_now(cx));
+        cx.run_until_parked();
+        assert_eq!(
+            host.read_with(cx, |host, _| host.draft_outcome()),
+            None,
+            "said of a model no longer in memory"
+        );
+
+        // The next load asks for no draft: nothing of the last one's is
+        // said of it.
+        *loader.draft.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        host.update(cx, |host, cx| host.load(cx));
+        release.send(()).expect("the double waits");
+        cx.run_until_parked();
+        assert!(matches!(
+            host.read_with(cx, |host, _| host.loaded().clone()),
+            Loaded::Yes { .. }
+        ));
+        assert_eq!(host.read_with(cx, |host, _| host.draft_outcome()), None);
     }
 
     #[test]
@@ -3220,6 +3331,7 @@ mod tests {
             keeping: Keeping::OnDemand,
             idle_minutes: 1,
             lock: false,
+            speculative: true,
         };
         assert_eq!(
             policy.keep(),
