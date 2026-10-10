@@ -1,0 +1,26 @@
+[package]
+name = "wipemark-llama"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "A synchronous, safe layer over llama.cpp: load a GGUF, render its chat template, generate with a per-call seed, stop on a flag."
+
+[features]
+# DEFAULT = shim. Every constructor refuses with `LlamaError::NotBuilt`;
+# the pure parts (the UTF-8 stitcher, the memory refusal, the KV-cache
+# arithmetic) work in both builds. Needs no C++ toolchain (D47).
+default = []
+# The real engine: builds llama.cpp through wipemark-llama-sys and
+# compiles the `ffi` module.
+native = ["wipemark-llama-sys/native"]
+
+[dependencies]
+wipemark-llama-sys.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

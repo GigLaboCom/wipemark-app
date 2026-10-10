@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "models": [
+    {
+      "id": "gemma-3-12b-it-qat-ud-q4",
+      "display": "Gemma 3 12B Instruct (QAT, UD-Q4_K_XL)",
+      "roles": ["rewrite"],
+      "format": "gguf",
+      "status": "stable",
+      "files": [
+        {
+          "url": "hf://unsloth/gemma-3-12b-it-qat-GGUF@858acec7ec0541a46c39985c95d3b52d8f3ab183/gemma-3-12b-it-qat-UD-Q4_K_XL.gguf",
+          "sha256": "da98f81c86916ed1c76b3eeda56b25cb7b8352b01093e2edb8028110fe2cb53b",
+          "size_bytes": 7432229248
+        }
+      ],
+      "mem": { "min_ram_mb": 9216, "min_vram_mb": 9216 },
+      "ctx_default": 8192,
+      "quant": "UD-Q4_K_XL",
+      "quality_tier": 8,
+      "license": "gemma",
+      "langs": ["multi"],
+      "vendor": "open-llm",
+      "notes": "Quantization-aware training, not a post-hoc quantization: the damage is trained around rather than measured after. Estimated memory is 7089 MiB of weights, about 832 MiB of KV cache at 8192 tokens (Gemma 3 interleaves five 1024-token local layers per global one, so long contexts cost far less than the layer count suggests), and roughly 1.3 GiB of compute buffer and runtime overhead. Weights are the ungated unsloth mirror because google/gemma-3-12b-it-qat-q4_0-gguf is gated 'manual' on Hugging Face and a downloader with no account cannot fetch it. Gemma is Google's open-weight family, run locally under the user's control."
+    },
+    {
+      "id": "gemma-4-12b-it-qat-ud-q4",
+      "display": "Gemma 4 12B Instruct (QAT, UD-Q4_K_XL)",
+      "roles": ["rewrite"],
+      "format": "gguf",
+      "status": "stable",
+      "files": [
+        {
+          "url": "hf://unsloth/gemma-4-12B-it-qat-GGUF@f18012b8f690e563b7f872cb764b4cb3de90b14a/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "sha256": "cc9ff072e0a8203429ed854e6662c17a6c2bc1e5dca5b475dd4736caaacbc165",
+          "size_bytes": 6716355328
+        }
+      ],
+      "mem": { "min_ram_mb": 8704, "min_vram_mb": 8704 },
+      "ctx_default": 8192,
+      "quant": "UD-Q4_K_XL",
+      "quality_tier": 9,
+      "license": "gemma",
+      "langs": ["multi"],
+      "vendor": "open-llm",
+      "notes": "Pinned to commit f18012b8, the last whose file is the one the local engine was measured on (E2-4: all 48 layers offloaded, 57 tokens a second); the repository's later re-upload carries an updated chat template that has not been checked against the renderer. Gemma 4's chat format is rendered by wipemark_llama::chat with thinking off (D181), because llama.cpp's built-in list does not know it. Memory: 6405 MiB of weights, about 832 MiB of context cache at 8192 tokens (Gemma 4 keeps Gemma 3's sliding 1024-token layers, so the cache is taken as Gemma 3 12B's) and about 1.3 GiB of compute buffer and overhead, rounded up to 8704 MiB. The header-based estimate over-states this model's cache several times over (its sliding layers are counted as full), which is why the figure is set here rather than computed; the resident memory measured after a load (D55) is the number to check it against."
+    },
+    {
+      "id": "qwen3-4b-instruct-2507-ud-q4",
+      "display": "Qwen3 4B Instruct 2507 (UD-Q4_K_XL)",
+      "roles": ["rewrite"],
+      "format": "gguf",
+      "status": "stable",
+      "files": [
+        {
+          "url": "hf://unsloth/Qwen3-4B-Instruct-2507-GGUF@a06e946bb6b655725eafa393f4a9745d460374c9/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf",
+          "sha256": "4bbe1f2f8ebe69fad3be8e15d69f220b06448a9dd26f82d7d81cce88ebfc39fd",
+          "size_bytes": 2546340960
+        }
+      ],
+      "mem": { "min_ram_mb": 4608, "min_vram_mb": 4608 },
+      "ctx_default": 8192,
+      "quant": "UD-Q4_K_XL",
+      "quality_tier": 5,
+      "license": "apache-2.0",
+      "langs": ["multi"],
+      "vendor": "open-llm",
+      "notes": "4.0B parameters, 3.6B of them outside the embeddings. The 2507 Instruct build and not the hybrid Qwen3-4B on purpose: the hybrid reasons before it answers, and the measurement recorded in docs/sdd/layer-b-rewrite-reference.md is 9894 completion tokens against 12 for the same rewrite. A rewriter that thinks out loud is paying for tokens nobody reads. Estimated memory is 2429 MiB of weights, 1152 MiB of KV cache at 8192 tokens, and about 1 GiB of compute buffer and overhead."
+    },
+    {
+      "id": "qwen3.8-27b-ud-iq3s",
+      "display": "Qwen3.8 27B (UD-IQ3_S)",
+      "roles": ["rewrite"],
+      "format": "gguf",
+      "status": "stable",
+      "files": [
+        {
+          "url": "hf://unsloth/Qwen3.8-27B-GGUF@4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-IQ3_S.gguf",
+          "sha256": "d847e2c1e4aa276e4b7b8e9ad7628050e61e165d49ab995407bc36677a6f3864",
+          "size_bytes": 12040883104
+        }
+      ],
+      "mem": { "min_ram_mb": 14336, "min_vram_mb": 14336 },
+      "ctx_default": 8192,
+      "quant": "UD-IQ3_S",
+      "quality_tier": 10,
+      "license": "apache-2.0",
+      "langs": ["multi"],
+      "vendor": "open-llm",
+      "notes": "27B parameters at unsloth's dynamic IQ3_S, about 3.6 bits a weight. A hybrid model whose chat template has a thinking switch: wipemark_llama::chat renders it with thinking off (D182), because llama.cpp's built-in ChatML opener is the template's thinking-on. Memory: 11 483 MiB of weights, and the rest of 14 GiB for the context cache at 8192 tokens, the compute buffer and the process around them. Measured in E2-4 on a 16 GB card: 62 of its 65 layers fitted beside another process, at 10.9 tokens a second; the application asks llama.cpp for every layer on the GPU, so a card that cannot hold the whole model refuses the load (LoadFailed) rather than splitting it."
+    },
+    {
+      "id": "qwen3.8-27b-dflash2-q4km",
+      "display": "DFlash2 draft for Qwen3.8 27B (Q4_K_M)",
+      "roles": ["draft"],
+      "draft_for": "qwen3.8-27b-ud-iq3s",
+      "format": "gguf",
+      "status": "stable",
+      "files": [
+        {
+          "url": "hf://z-lab/Qwen3.8-27B-DFlash2-GGUF@2d9571f8ce46e151f61c6499c99dee6079e1d610/Qwen3.8-27B-DFlash2-Q4_K_M.gguf",
+          "sha256": "1a25c56858e1ebe93f2718ac1d49d1151f9323325c1bbfd6209370f4db131ebd",
+          "size_bytes": 1143006816
+        }
+      ],
+      "mem": { "min_ram_mb": 2816, "min_vram_mb": 2816 },
+      "ctx_default": 8192,
+      "quant": "Q4_K_M",
+      "quality_tier": 1,
+      "license": "apache-2.0",
+      "langs": ["multi"],
+      "vendor": "open-llm",
+      "notes": "Not a model that writes: a DFlash2 block-diffusion draft trained for Qwen3.8 27B, which proposes up to seven tokens a step for that model to verify in one decode (E2-dflash2, D484). With greedy decoding the text is the model's own; with sampling every token is still the model's draw. Q4_K_M because the card measures it at least as well as Q8_0 (acceptance length 5.39 against 5.13, eight GSM8K prompts) and it is the smallest; the mirror of incoai/Qwen3.8-27B-DFlash2-GGUF, pinned at 2d9571f8, its sha256 and size read off Hugging Face's tree API and its resolve endpoint. Memory, from the two models' config.json: 1091 MiB of weights; 160 MiB of KV cache at 8192 tokens (five layers of eight 128-wide KV heads, F16 — four of five are sliding 2048-token layers, so less in practice); 1047 MiB for the seven extra snapshots of Qwen3.8's recurrent state the model keeps to roll back a rejected block (48 Gated DeltaNet layers of about 3.1 MiB each); 200 MiB for the five layer inputs the draft reads (5 x 5120 x 2048 floats); and about 300 MiB of compute buffer — 2798, rounded up to 2816, on top of the model's own figure."
+    }
+  ]
+}

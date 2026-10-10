@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "profiles": [
+    {
+      "id": "gemini-sparkle-v1",
+      "vendor": "google",
+      "product": "gemini",
+      "mark": "sparkle",
+      "observed": { "from": null, "until": "2026-05" },
+      "status": "stable",
+      "blend": { "model": "encoded", "logo": [252.1, 253.5, 252.8], "logo_map": null },
+      "opaque_above": 0.95,
+      "alpha": [
+        { "id": "gemini-v1-48", "asset": "gemini-v1-48.wma", "sha256": "b32ca0dc3d0f4357d18bc6ab20da18ca38351791c4fd9d34375796962f74a563", "size": [48, 48] },
+        { "id": "gemini-v1-96", "asset": "gemini-v1-96.wma", "sha256": "3fa762cb5d3eb50063ebc9a39a4415c8e46b5bc1b8a18165bdb6921883c30712", "size": [96, 96] },
+        { "id": "gemini-v1-96-measured", "asset": "gemini-v1-96-measured.wma", "sha256": "07b4bec41466b967f3c47776bcdac31a06d1ffaad64bf9dec56d2b68a51dda84", "size": [96, 96], "fitted": true }
+      ],
+      "placements": [
+        { "when": { "min_width": 1025, "min_height": 1025 }, "corner": "bottom-right", "margin": [64, 64], "alpha": "gemini-v1-96-measured" },
+        { "when": {}, "corner": "bottom-right", "margin": [32, 32], "alpha": "gemini-v1-48" }
+      ],
+      "search": { "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "gemini-v1-96-measured" },
+      "detect": { "min_ncc": 0.70 },
+      "verify": { "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 },
+      "source": { "from": "allenk/GeminiWatermarkTool", "commit": "7c6a99f", "licence": "MIT", "copyright": "Copyright (c) 2024 AllenK (Kwyshell)" }
+    },
+    {
+      "id": "gemini-sparkle-v2",
+      "vendor": "google",
+      "product": "gemini",
+      "mark": "sparkle",
+      "observed": { "from": "2026-05", "until": null },
+      "status": "stable",
+      "blend": { "model": "encoded", "logo": [255, 255, 255], "logo_map": null },
+      "opaque_above": 0.95,
+      "alpha": [
+        { "id": "gemini-v2-36", "asset": "gemini-v2-36.wma", "sha256": "6f35dfec8fd71c641098f5c5d4844951fc1aeb023662fc47b6f820d66fedd50c", "size": [36, 36] },
+        { "id": "gemini-v2-96", "asset": "gemini-v2-96.wma", "sha256": "0df84d4b3002e98abb35e3ed974f69bc0968ca2985a87b3b14d2ab66de8ada41", "size": [96, 96] }
+      ],
+      "placements": [
+        { "when": { "min_width": 1025, "min_height": 1025 }, "corner": "bottom-right", "margin": [192, 192], "alpha": "gemini-v2-96" },
+        { "when": { "width": 1024, "height": 1024 }, "corner": "bottom-right", "margin": [71, 71], "alpha": "gemini-v2-36" },
+        { "when": { "width": 848, "height": 1264 }, "rect": [716, 1132, 44, 44], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1264, "height": 848 }, "rect": [1132, 716, 44, 44], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 896, "height": 1200 }, "rect": [770, 1074, 42, 42], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1200, "height": 896 }, "rect": [1074, 770, 42, 42], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 928, "height": 1152 }, "corner": "bottom-right", "margin": [80, 80], "alpha": "gemini-v2-36" },
+        { "when": { "width": 1152, "height": 928 }, "corner": "bottom-right", "margin": [80, 80], "alpha": "gemini-v2-36" },
+        { "when": { "width": 768, "height": 1376 }, "rect": [624, 1232, 48, 48], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1376, "height": 768 }, "rect": [1232, 624, 48, 48], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1584, "height": 672 }, "rect": [1424, 512, 53, 53], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 832, "height": 1248 }, "rect": [701, 1117, 44, 44], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1248, "height": 832 }, "rect": [1117, 701, 44, 44], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 864, "height": 1184 }, "rect": [740, 1060, 41, 41], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1184, "height": 864 }, "rect": [1060, 740, 41, 41], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 896, "height": 1152 }, "corner": "bottom-right", "margin": [80, 80], "alpha": "gemini-v2-36" },
+        { "when": { "width": 1152, "height": 896 }, "corner": "bottom-right", "margin": [80, 80], "alpha": "gemini-v2-36" },
+        { "when": { "width": 768, "height": 1344 }, "rect": [627, 1203, 47, 47], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1344, "height": 768 }, "rect": [1203, 627, 47, 47], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1536, "height": 672 }, "rect": [1380, 516, 52, 52], "alpha": "gemini-v2-96", "resample": true },
+        { "when": { "width": 1024, "height": 559 }, "corner": "bottom-right", "margin": [70, 70], "alpha": "gemini-v2-36" }
+      ],
+      "search": { "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "gemini-v2-96" },
+      "detect": { "min_ncc": 0.70 },
+      "verify": { "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 },
+      "source": { "from": "allenk/GeminiWatermarkTool", "commit": "7c6a99f", "licence": "MIT", "copyright": "Copyright (c) 2024 AllenK (Kwyshell)" }
+    }
+  ]
+}

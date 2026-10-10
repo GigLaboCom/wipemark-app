@@ -1,0 +1,106 @@
+# The register proxy's list for English — what `bench report` counts as a
+# formal word when a rewrite brings in one the source did not have
+# (examples/bench/measure.rs, `register_new`; docs/architecture/prompt-bench.md,
+# "Voice"). A proxy, not a judgement: a word here can be plain in context,
+# and a rewrite can turn formal with words that are not here. It is only
+# ever compared between runs on the same corpus.
+#
+# One entry a line, lower case:
+#   word      the word itself
+#   stem*     any word that begins with the stem
+#   -suffix   any word that ends with the suffix and has at least three
+#             letters before it
+# A word counts when it matches and no word of the source begins with the
+# same five letters (the whole word, when shorter) — a crude stem, so the
+# source's own word in another form is not a shift.
+
+# Verbs a plain text says more simply ("has", "use", "help", "start", "show").
+possess*
+utiliz*
+utilis*
+facilitat*
+necessitat*
+commenc*
+endeavo*
+ascertain*
+constitut*
+demonstrat*
+acquir*
+obtain*
+reside
+resides
+resided
+residing
+deem
+deems
+deemed
+pertain*
+assist
+assists
+assisted
+assisting
+require
+requires
+required
+requiring
+purchase*
+inquir*
+enquir*
+terminat*
+comprise*
+entail*
+exhibit*
+perceiv*
+procure*
+render
+renders
+rendered
+rendering
+
+# Connectives and adverbs of the formal register.
+thereby
+therein
+thereof
+hereby
+herein
+whereby
+wherein
+consequently
+subsequently
+accordingly
+furthermore
+moreover
+nevertheless
+nonetheless
+notwithstanding
+henceforth
+hence
+thus
+therefore
+whilst
+amongst
+regarding
+aforementioned
+approximately
+numerous
+sufficient*
+prior
+individual*
+additionally
+merely
+solely
+predominantly
+
+# Nominalisation suffixes ("is smart" -> "possesses intelligence").
+-tion
+-tions
+-sion
+-sions
+-ity
+-ities
+-ance
+-ances
+-ence
+-ences
+-ment
+-ments

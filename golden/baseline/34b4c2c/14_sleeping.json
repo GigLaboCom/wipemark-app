@@ -1,0 +1,197 @@
+{
+ "id": "14_sleeping",
+ "class": "recon-png",
+ "variant": "png",
+ "input_sha256": "febf6ce30eb997caa86b5f6398a59694b9cd5c10bcd0698a56c88b613414c466",
+ "inspect": {
+  "exit": 1,
+  "json": {
+   "container": "png",
+   "ai_metadata": true,
+   "c2pa": true,
+   "findings": [
+    {
+     "kind": "c2pa",
+     "chunk": "caBX",
+     "key": null,
+     "offset": 33,
+     "length": 7791,
+     "ai": true,
+     "c2pa": true,
+     "evidence": [
+      {
+       "signal": "c2pa-manifest",
+       "generator": null,
+       "source_type": null,
+       "field": "C2PA",
+       "matched": "caBX"
+      }
+     ]
+    }
+   ],
+   "visible": {
+    "examined": true,
+    "restorable": true,
+    "found": [
+     {
+      "profile": "gemini-sparkle-v1",
+      "vendor": "google",
+      "product": "gemini",
+      "pass": 1,
+      "rect": {
+       "x": 1888.0,
+       "y": 1888.0,
+       "size": 96.0
+      },
+      "pixels": {
+       "x": 1888,
+       "y": 1888,
+       "width": 96,
+       "height": 96
+      },
+      "placed": "row",
+      "row": 0,
+      "kernel": "area",
+      "ncc": 0.99988097,
+      "verdict": "verified",
+      "refusal": null,
+      "scores": {
+       "gain": 1.0,
+       "edge_ratio": 0.013919811,
+       "out_of_range": 0.0,
+       "holes": 0
+      },
+      "also_tried": []
+     }
+    ],
+    "restored": []
+   },
+   "not_established": [
+    "invisible-pixel-marks",
+    "vendor-detector-evasion",
+    "human-authorship",
+    "unknown-mark-schemes"
+   ]
+  }
+ },
+ "clean": {
+  "exit": 1,
+  "json": {
+   "report": {
+    "container": "png",
+    "still_has_ai_metadata": false,
+    "still_has_c2pa": false,
+    "removed": [
+     {
+      "kind": "c2pa",
+      "chunk": "caBX",
+      "key": null,
+      "offset": 33,
+      "length": 7791,
+      "ai": true,
+      "c2pa": true,
+      "evidence": [
+       {
+        "signal": "c2pa-manifest",
+        "generator": null,
+        "source_type": null,
+        "field": "C2PA",
+        "matched": "caBX"
+       }
+      ]
+     }
+    ],
+    "kept": [],
+    "orientation_removed": null,
+    "visible": {
+     "examined": true,
+     "restorable": true,
+     "found": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "vendor": "google",
+       "product": "gemini",
+       "pass": 1,
+       "rect": {
+        "x": 1888.0,
+        "y": 1888.0,
+        "size": 96.0
+       },
+       "pixels": {
+        "x": 1888,
+        "y": 1888,
+        "width": 96,
+        "height": 96
+       },
+       "placed": "row",
+       "row": 0,
+       "kernel": "area",
+       "ncc": 0.99988097,
+       "verdict": "verified",
+       "refusal": null,
+       "scores": {
+        "gain": 1.0,
+        "edge_ratio": 0.013919811,
+        "out_of_range": 0.0,
+        "holes": 0
+       },
+       "also_tried": []
+      }
+     ],
+     "restored": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "rect": {
+        "x": 1888,
+        "y": 1888,
+        "width": 96,
+        "height": 96
+       },
+       "changed": 3441,
+       "holes": 0,
+       "clamped": 0,
+       "outline": 0.0022317213,
+       "steps": [
+        0.35122135,
+        -0.29523706,
+        0.18183185
+       ],
+       "step": -0.047560148,
+       "chroma": 0.31251097,
+       "outline_left": false,
+       "texture": 1.6438739,
+       "texture_around": 1.4232745,
+       "texture_left": false,
+       "noise": false,
+       "lossy": false,
+       "fitted": true,
+       "resampled": false,
+       "searched": false,
+       "exact": false,
+       "consistency_px": 0.24433024,
+       "consistency_excluded": 0
+      }
+     ]
+    },
+    "encoding": {
+     "kind": "png",
+     "colour_changed": false,
+     "interlace_dropped": false
+    },
+    "marks_left": false,
+    "not_established": [
+     "invisible-pixel-marks",
+     "vendor-detector-evasion",
+     "human-authorship",
+     "unknown-mark-schemes"
+    ]
+   },
+   "written": true
+  },
+  "output_sha256": "b7c05d9d94814ca0c1dc0ca9f941892a0e9366940b9fb3411d5e2df4e8759640"
+ },
+ "time_s": {
+  "inspect": 0.7245,
+  "clean": 2.6782
+ }
+}

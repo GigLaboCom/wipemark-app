@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "profiles": [
+    {
+      "id": "fixture-wordmark",
+      "vendor": "fixture",
+      "product": "bench",
+      "mark": "wordmark",
+      "observed": {
+        "from": null,
+        "until": null
+      },
+      "status": "provisional",
+      "blend": {
+        "model": "encoded",
+        "logo": [
+          255,
+          255,
+          255
+        ],
+        "logo_map": null
+      },
+      "opaque_above": 0.95,
+      "alpha": [
+        {
+          "id": "fixture-wordmark-72x24",
+          "asset": "fixture-wordmark-72x24.wma",
+          "sha256": "d9ba632c5c3f277810f26520565736cac5f7222b9e95c4d75afb53d463ea6241",
+          "size": [
+            72,
+            24
+          ]
+        }
+      ],
+      "placements": [
+        {
+          "when": {
+            "min_width": 1025,
+            "min_height": 1025
+          },
+          "corner": "bottom-left",
+          "margin": [
+            48,
+            40
+          ],
+          "alpha": "fixture-wordmark-72x24"
+        },
+        {
+          "when": {},
+          "corner": "bottom-left",
+          "margin": [
+            24,
+            20
+          ],
+          "alpha": "fixture-wordmark-72x24"
+        }
+      ],
+      "search": {
+        "corner": "bottom-left",
+        "within": [
+          320,
+          320
+        ],
+        "sizes": [
+          36,
+          144
+        ],
+        "alpha": "fixture-wordmark-72x24"
+      },
+      "detect": {
+        "min_ncc": 0.7
+      },
+      "verify": {
+        "gain": 0.06,
+        "edge_ratio": 0.3,
+        "out_of_range": 0.01
+      },
+      "source": {
+        "from": "scripts/bench/wordmark.py",
+        "commit": null,
+        "licence": null,
+        "copyright": null
+      }
+    }
+  ]
+}

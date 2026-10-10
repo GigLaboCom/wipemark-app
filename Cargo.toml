@@ -1,0 +1,258 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/wipemark-core",
+    "crates/wipemark-i18n",
+    "crates/wipemark-engine",
+    "crates/wipemark-llama-sys",
+    "crates/wipemark-llama",
+    "crates/wipemark-models",
+    "crates/wipemark-pipeline",
+    "crates/wipemark-queue",
+    "crates/wipemark-image",
+    "crates/wipemark-pixels",
+    "crates/wipemark-picture",
+    "crates/wipemark-intake",
+    "crates/wipemark-license",
+    "crates/wipemark-log",
+    "crates/wipemark-store",
+    "crates/wipemark-secret",
+    "apps/wipemark-app",
+    "apps/wipemark-cli",
+]
+# The submodule is its own workspace and must not be pulled into ours.
+exclude = ["vendor/gpui-component"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+# Commercial product with an activation flow (spec §8), not an open
+# licence. `LicenseRef-` is the SPDX form for a non-listed licence; the
+# EULA text itself lands with epic E9.
+license = "LicenseRef-Proprietary"
+publish = false
+repository = "https://github.com/heretic-tools/wipemark"
+authors = ["Wipemark contributors"]
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+# `chrono` is the timer feature: it is what gives every line a local
+# wall-clock timestamp with milliseconds, the same shape
+# heretic-lazy-shot writes. chrono is already in the tree via gpui.
+tracing-subscriber = { version = "0.3", features = ["env-filter", "chrono"] }
+# Local time for the log file name and the age half of the rotation
+# rule. `clock` + `std` only — no serde, no oldtime.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+# The local database (crates/wipemark-store). `bundled` compiles the
+# SQLite amalgamation in rather than linking whatever libsqlite3 the
+# host ships: a desktop product cannot require the user to have one new
+# enough for WAL and `ON CONFLICT`, and a macOS .app that links the
+# system library is a notarization problem waiting for an OS release to
+# move it. It is one C file and it is cached like any other build.
+rusqlite = { version = "0.32", features = ["bundled"] }
+clap = { version = "4", features = ["derive"] }
+# Platform data/config dirs. Same crate heretic-amuse-merge uses, so the
+# two products resolve their paths through one implementation.
+directories = "6"
+# The GPUI executor and tokio cannot await each other's futures. Every
+# long operation therefore returns a flume Receiver that the GPUI side
+# polls from `cx.spawn` (spec §1.2) — flume is one of the few channels
+# that is both sync-usable and async-awaitable from either side.
+flume = "0.11"
+async-trait = "0.1"
+# Localization. Project Fluent is the format (asymmetric plurals,
+# per-locale selectors, bidi isolation) and `fluent-langneg` is the
+# standard BCP-47 negotiation algorithm; `unic-langid` is the language
+# tag type both of them speak. Catalogues are embedded with the same
+# rust-embed the app already uses for icons, so a packaged .app needs no
+# `i18n/` directory beside the executable. See crates/wipemark-i18n.
+fluent-bundle = "0.16"
+fluent-syntax = "0.12"
+# Pinned to 0.13, not 0.14: 0.14 moved to `icu_locid` for its language
+# tag type while fluent-bundle 0.16 still speaks `unic-langid`, and
+# mixing them means converting every tag through a string. 0.13 is the
+# unic-langid line and the same pair `i18n-embed` ships.
+fluent-langneg = "0.13"
+unic-langid = { version = "0.9", features = ["macros"] }
+# Reads LANG/LC_ALL on unix, the user's preferred languages on macOS and
+# Windows. Already in the tree via gpui, so this pins no new build.
+sys-locale = "0.3"
+rust-embed = { version = "8", features = ["interpolate-folder-path", "include-exclude"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+# CancellationToken threads through every engine and pipeline call.
+tokio-util = "0.7"
+# Build-dependencies of wipemark-llama-sys only, and only under its
+# `native` feature: cmake drives the llama.cpp build, bindgen reads its
+# headers. The same pins heretic-mnemoria's engine built with (D45). The
+# default build graph compiles neither.
+bindgen = "0.71"
+cmake = "0.1"
+# The staging shim of wipemark-llama-sys (`shim/ext.cpp`, D480): the C++
+# that makes `src/llama-ext.h` reachable from Rust, compiled under `native`
+# only. Already in the tree through `cmake`.
+cc = "1"
+# Also wipemark-llama-sys's, also only under `native` (E2-5): the prebuilt
+# llama.cpp archive is unpacked in its build script — after `sha2` below
+# has checked it against the pin. Pure Rust, so a prebuilt build needs no
+# C toolchain for them; `flate2` is already in the tree, `tar` brings only
+# `filetime` (`xattr` is off: the archive carries none).
+flate2 = "1"
+tar = { version = "0.4", default-features = false }
+
+# The model downloader (crates/wipemark-models/src/store.rs). Blocking on
+# purpose: a download runs on its own thread and reports through a
+# `flume` channel, which is the shape every long operation in this
+# product already has — an async client would drag a second runtime in
+# beside GPUI's for no gain. `default-features = false` drops `gzip`:
+# a GGUF file is already compressed, and a `Content-Encoding` on the wire
+# makes the byte counter and the `Range` resume both wrong. The trust
+# roots come from the operating system rather than a baked-in bundle, so
+# a machine behind a corporate TLS proxy can still fetch a model.
+ureq = { version = "3.4", default-features = false, features = ["rustls", "platform-verifier"] }
+# Verifies a downloaded file against the manifest's sha256. On Linux
+# already in the tree via gpui's dependencies (gpui-pre-linux's `oo7`), so
+# there it pins no new build; on macOS and Windows since gpui-pre 0.3.8 it
+# is ours alone.
+sha2 = "0.10"
+hex = "0.4"
+# Total RAM, and the free space on the volume the weights land on — both
+# cross-platform, both consulted before a multi-gigabyte download starts.
+# Ours alone since gpui-pre 0.3.8 (the old zed pin pulled it in through
+# `zed-scap`).
+sysinfo = "0.31"
+# Ctrl-C for `wipemark-cli models pull`: the first press cancels the
+# download through `wipemark_models::Cancel`, so the `.part` is flushed and
+# kept and the run exits 2 saying how to resume. std has no portable way
+# to install a signal handler, and a hand-written one would be the only
+# `unsafe` in the CLI. The CLI is its only user.
+ctrlc = "3"
+
+# GPUI comes from the `gpui-pre` snapshots of Zed's GPUI crates on
+# crates.io — what upstream gpui-kit itself builds on (gpui-kit #2929) —
+# at **exactly** the version the vendored component's manifest pins
+# (`vendor/gpui-component/Cargo.toml`, `[workspace.dependencies]`). The
+# alias keeps `use gpui::…` working: every snapshot crate keeps its
+# original `[lib]` name. An exact pin on both sides is one package; two
+# different exact versions of a 0.3.x crate cannot coexist in one graph,
+# so Cargo refuses to resolve rather than building two `gpui`s.
+# `scripts/check-gpui-pin.sh` is the gate: `=x.y.z` here, one version,
+# equal to the component's, and one copy of each `gpui-pre*` crate in the
+# lock with no zed git source. A bump moves this and the submodule
+# together, never one alone. See docs/architecture/gpui-pin.md.
+#
+# The snapshot carries nothing of ours. Both X11 bugs the old zed pin needed
+# a fork for are upstream in it: the stale first frame (zed #62081) and,
+# through the deferred appearance callback (zed #61789), the portal's
+# `RefCell already mutably borrowed` panic. `scripts/check-gpui-pin.sh`
+# reads the resolved sources for both, so a snapshot that loses either is
+# a red gate rather than a window that misbehaves. See
+# docs/architecture/gpui-pin.md §2.
+gpui = { package = "gpui-pre", version = "=0.3.8" }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.8", features = ["font-kit", "x11", "wayland", "runtime_shaders"] }
+
+# gpui-component is vendored as a submodule under vendor/gpui-component —
+# upstream `longbridge/gpui-kit`, branch `next` — and referenced by path
+# (see CONTRIBUTING.md). Its library is `crates/component`, beside
+# `crates/base` (`gpui-base`), since upstream split `crates/ui`. Its own
+# `gpui` requirements are the same exact `gpui-pre` pins as ours, so
+# nothing rewrites the submodule any more.
+gpui-component = { path = "vendor/gpui-component/crates/component" }
+# The component's foundation crate, already in the tree through it. The
+# app takes it as a dev-dependency only, for one public number the
+# component does not re-export: the priority its popups defer at, which
+# `dialog::MODAL_PRIORITY` has to stay above (apps/wipemark-app/src/dialog.rs).
+gpui-base = { path = "vendor/gpui-component/crates/base" }
+
+# zune-jpeg comes from our fork of the zune-image monorepo,
+# GigLaboCom/zune-image, branch `raw-quantization-tables` (protected
+# against deletion and force-push): upstream `dev` at 002706a8, which has
+# a JPEG's raw post-IDCT planes (`JpegDecoder::raw_output`,
+# etemesi254/zune-image #379, #386, #440) but no release with them yet,
+# plus one getter of ours, `RawDecodeSession::quantization_tables`
+# (offered upstream as #488). Its zune-core comes with it, by path, from
+# the same rev — the crates of ours that take zune-jpeg name zune-core
+# only through `zune_jpeg::zune_core`, so they see one.
+#
+# A git dependency, not a `[patch.crates-io]`: zune-jpeg there is
+# 0.5.16-rc2, and a patched crates-io package shares its semver slot
+# ("0.5") with crates.io's 0.5.15, which `image` 0.25.10 (our JPEG
+# encoder, and GPUI's image stack) asks for as "^0.5.5" — a pre-release
+# does not match that, and Cargo answered by downgrading `image` to
+# 0.25.8. A git source is a package of its own: `image` keeps crates.io's
+# 0.5.15 and every crate of ours gets the fork's. `version` makes Cargo
+# check the fork still is the pre-release this was written for. The fork
+# goes once upstream releases raw output with the getter. D490;
+# docs/architecture/zune-jpeg-pin.md.
+zune-jpeg = { git = "https://github.com/GigLaboCom/zune-image", rev = "e8d24f7e6007d74116bffe320ffff639e47eb702", version = "=0.5.16-rc2" }
+
+wipemark-core = { path = "crates/wipemark-core" }
+wipemark-i18n = { path = "crates/wipemark-i18n" }
+wipemark-engine = { path = "crates/wipemark-engine" }
+wipemark-llama-sys = { path = "crates/wipemark-llama-sys" }
+wipemark-llama = { path = "crates/wipemark-llama" }
+wipemark-models = { path = "crates/wipemark-models" }
+wipemark-pipeline = { path = "crates/wipemark-pipeline" }
+wipemark-queue = { path = "crates/wipemark-queue" }
+wipemark-image = { path = "crates/wipemark-image" }
+wipemark-pixels = { path = "crates/wipemark-pixels" }
+wipemark-picture = { path = "crates/wipemark-picture" }
+wipemark-intake = { path = "crates/wipemark-intake" }
+wipemark-license = { path = "crates/wipemark-license" }
+wipemark-log = { path = "crates/wipemark-log" }
+wipemark-store = { path = "crates/wipemark-store" }
+wipemark-secret = { path = "crates/wipemark-secret" }
+
+# Lints — adapted from qdrant, via heretic-mnemoria and
+# heretic-amuse-merge. Kept identical to Merge on purpose: code that
+# moves between the two repos should not have to be re-linted.
+[workspace.lints.clippy]
+cast_lossless = "warn"
+doc_link_with_quotes = "warn"
+enum_glob_use = "warn"
+explicit_into_iter_loop = "warn"
+filter_map_next = "warn"
+flat_map_option = "warn"
+from_iter_instead_of_collect = "warn"
+implicit_clone = "warn"
+inconsistent_struct_constructor = "warn"
+inefficient_to_string = "warn"
+manual_is_variant_and = "warn"
+manual_let_else = "warn"
+needless_continue = "warn"
+needless_raw_string_hashes = "warn"
+ptr_as_ptr = "warn"
+ref_option_ref = "warn"
+uninlined_format_args = "warn"
+unnecessary_wraps = "warn"
+unused_self = "warn"
+used_underscore_binding = "warn"
+match_wildcard_for_single_variants = "warn"
+needless_pass_by_ref_mut = "warn"
+unused_async = "warn"
+
+[workspace.lints.rustdoc]
+private_intra_doc_links = "allow"
+
+# A debug build of a GPUI app is unusable if the framework itself is
+# unoptimised — scrolling drops to single-digit FPS. Cost is paid once
+# per gpui bump, not per edit of our own crates.
+[profile.dev.package]
+# Profile keys are *package* names: the snapshot's, not the `[lib]`
+# names they keep. A key that matches nothing is only a warning.
+gpui-pre = { opt-level = 3 }
+gpui-pre-platform = { opt-level = 3 }
+gpui-pre-macros = { opt-level = 3 }
+# The NCC and verification loops of a visible-mark search are orders of
+# magnitude slower unoptimised, and the false-positive suite runs two
+# thousand of them: optimised in every profile, like the framework above.
+wipemark-pixels = { opt-level = 3 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+

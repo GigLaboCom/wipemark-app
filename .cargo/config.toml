@@ -1,0 +1,16 @@
+# Cargo fetches `gpui` from a git URL. Its built-in libgit2 transport
+# cannot handle two things that are normal on a developer machine here:
+#
+#   * a global `url."git@github.com:".insteadOf https://github.com/`
+#     rewrite, which sends the fetch over SSH, where libgit2 only tries
+#     ssh-agent and fails with "no authentication methods succeeded" if
+#     the agent has no identities loaded;
+#   * credential helpers (osxkeychain, gh auth) that the git CLI uses
+#     and libgit2 does not.
+#
+# Delegating to the git CLI makes cargo behave exactly like `git clone`
+# does for the same URL, on a laptop and in CI alike. The cost is a
+# slightly slower fetch; the alternative is a first build that fails
+# with an authentication error against a public repository.
+[net]
+git-fetch-with-cli = true

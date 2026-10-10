@@ -1,0 +1,216 @@
+[package]
+name = "wipemark-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Wipemark — native GPUI desktop app"
+
+[[bin]]
+name = "wipemark"
+path = "src/main.rs"
+
+[dependencies]
+# Named directly, and only under `llama-native`, for one thing: its
+# `links` metadata reaches this package's build script only through a direct
+# dependency, and build.rs puts llama.cpp's library directory on this
+# binary's rpath. Nothing in src/ uses it.
+wipemark-llama-sys = { workspace = true, optional = true }
+gpui.workspace = true
+gpui_platform.workspace = true
+gpui-component.workspace = true
+wipemark-core.workspace = true
+wipemark-i18n.workspace = true
+wipemark-engine.workspace = true
+wipemark-models.workspace = true
+wipemark-pipeline.workspace = true
+wipemark-license.workspace = true
+wipemark-store.workspace = true
+# The batch queue (E4-6b): every rewrite — a window's, an agent's, the
+# command line's through the application — is one of its items, one at a
+# time, persisted per chunk, on the engine on duty when the item starts.
+wipemark-queue.workspace = true
+# What was dropped, and what it turns out to be. A leaf with no
+# dependencies of its own — see crates/wipemark-intake: the panel, the
+# main window, the CLI and the MCP server all ask the same question, and
+# this is the one place it is answered.
+wipemark-intake.workspace = true
+# The MCP tools `inspect_image` and `clean_image`: a PNG, JPEG or WebP's
+# metadata blocks, found and removed, every pixel byte left as it was; the
+# report is the library's own JSON.
+wipemark-image.workspace = true
+# And the visible marks in its pixels: `wipemark-picture` runs both passes
+# with one writer, `wipemark-pixels` is the report it hands back.
+wipemark-picture.workspace = true
+wipemark-pixels.workspace = true
+# The image an MCP client sends and the one `clean_image` returns travel
+# as base64 inside JSON. Already in the lock (0.22.1) through gpui's
+# `usvg`, so this pins no new build — the task's rule was to write the
+# sixty lines only if nothing in the lock had them.
+base64 = "0.22"
+# The API key, and only the API key. Every other preference is a row in
+# wipemark.db; a credential goes to the operating system's own store.
+# See src/engine.rs and docs/architecture/engine-settings.md.
+wipemark-secret.workspace = true
+anyhow.workspace = true
+toml.workspace = true
+# The Settings window's remembered rectangle, which goes into the store
+# as JSON. See src/window_state.rs — it is four named numbers rather
+# than a `Bounds<Pixels>` because it is a file format.
+serde = { workspace = true, features = ["derive"] }
+# The MCP connection snippets (src/mcp.rs). Built as JSON values and
+# serialized, rather than assembled with `format!`, so that what a user
+# pastes into a client's configuration file is valid by construction
+# rather than by review. Already in the tree via wipemark-store.
+serde_json.workspace = true
+# The menu-bar item hands its clicks back through a channel: the
+# callback muda calls has no application state in scope, and no way to
+# be given any. See src/tray.rs.
+flume.workspace = true
+# The "Arrived" column of the queue (src/queue.rs): a local wall-clock
+# time for each row. The same pin the log uses for its timestamps, and
+# already in the tree through it.
+chrono.workspace = true
+# Decodes the embedded tray template: `tray_icon::Icon` takes raw RGBA
+# and nothing else. Already in the tree via gpui's `image`, and the
+# version tray-icon itself pulls.
+png = "0.17"
+# The Compare window's finer marks (src/compare.rs) go to the editor
+# through gpui-component's document-colour provider, whose answer is
+# spelled in these types — a position, a range, a colour — and which
+# gpui-component takes but does not re-export. The same pin it uses,
+# so the two are one type; already in the tree through it.
+lsp-types = "0.97"
+tracing.workspace = true
+# The memory the process holds once a model is loaded (src/engine_host.rs,
+# D55): measured, not estimated. The same pin `wipemark-models` probes the
+# machine with, and already in the tree through it.
+sysinfo.workspace = true
+# The rotating file, the stderr mirror and the panic hook. The app
+# does not build a subscriber itself — see `init_logging` in main.rs
+# and docs/architecture/logging.md.
+wipemark-log.workspace = true
+# Bakes assets/icons/*.svg into the binary. A packaged .app has no
+# assets/ directory beside the executable, so an AssetSource that
+# reads from disk works under `cargo run` and paints nothing once
+# bundled. See src/assets.rs.
+rust-embed = { version = "8", features = ["interpolate-folder-path", "include-exclude"] }
+
+[dev-dependencies]
+# `test-support` is what makes `#[gpui::test]`, `add_empty_window` and
+# `debug_bounds` exist — the icon size regression can only be caught
+# by measuring what actually painted.
+gpui = { workspace = true, features = ["test-support"] }
+# `gpui_base::POPUP_PRIORITY`, which gpui-component does not re-export:
+# the gate on `dialog::MODAL_PRIORITY` reads it rather than a copy of it,
+# so a bump that moves it is a red test. Already in the tree through
+# gpui-component, at the same path.
+gpui-base.workspace = true
+
+# macOS-only, and these are affordances rather than features: the Dock
+# icon of an unbundled dev build (src/dock_icon.rs), the window moves and
+# the drop target. gpui already pulls the objc2 crates in at these exact
+# versions, so they cost no build time. The tray and the shortcut are in
+# the table after this one, shared with Linux.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+# `NSScreen` and `NSEvent` answer which display the pointer is on and
+# what each display is called (src/screen.rs); `NSView` and `NSWindow`
+# are the two calls that move a window, which GPUI's `PlatformWindow`
+# has no method for on any backend. Every one of these is a feature gpui
+# already turns on — naming them here is what keeps this crate building
+# the day it stops.
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication",
+    # The drop zone (src/pasteboard.rs): the destination protocol, the
+    # pasteboard it reads, and the per-item accessors. GPUI registers
+    # its window for filenames and nothing else, so text and images are
+    # refused by AppKit before an event exists — these four features are
+    # what it takes to answer a drag ourselves.
+    "NSDragging",
+    "NSPasteboard",
+    "NSPasteboardItem",
+    "NSEvent",
+    "NSImage",
+    "NSResponder",
+    "NSScreen",
+    "NSView",
+    "NSWindow",
+] }
+objc2-foundation = { version = "0.3", features = ["NSData", "NSGeometry", "NSString", "NSArray"] }
+# The `NSView` GPUI opened a window with, which is the only handle it
+# hands out. See `screen::translate`. Already in the tree via gpui, at
+# the version gpui itself pins.
+raw-window-handle = "0.6"
+
+# The menu-bar item (src/tray.rs) and the system-wide shortcut
+# (src/hotkey.rs), on macOS and on Linux. Windows wants a win32 message
+# pump on the registering thread, which a GPUI process does not run
+# there yet — E10.
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+# The crate Tauri's own tray is built on, which is what heretic-lazy-shot
+# uses one layer up. It brings `muda` for the menu, re-exported as
+# `tray_icon::menu` — depending on it twice is how the two drift. On
+# Linux it is libayatana-appindicator over GTK 3, on a thread of its own
+# running its own GTK main loop (D340). No default features: the one
+# default, `libxdo`, serves muda's predefined Copy/Cut/Paste items, which
+# this menu does not have, and would add a system library to link.
+tray-icon = { version = "0.21", default-features = false }
+# System-wide shortcuts (src/hotkey.rs). The crate Tauri's own
+# global-shortcut plugin is built on and a sibling of `muda`, so the
+# event-handler-into-a-channel shape is the tray's. On macOS it registers
+# through Carbon's `RegisterEventHotKey`, which needs no Accessibility
+# permission; on Linux through an X11 key grab on a thread of its own,
+# asked only in an X11 session (D346). Its `keyboard-types` is the one
+# `muda` already pulls.
+global-hotkey = "0.7"
+
+# Linux only: the GTK thread the tray lives on (src/tray.rs, D340).
+# `gtk` is the version `muda` already builds its menus with, so this is
+# one GTK, not two; its `gio` asks the session bus whether anything will
+# draw the item (D341). `libloading` is the version `libappindicator-sys`
+# loads the indicator library with — asked here first, because that
+# crate panics when the library is missing (D341).
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+libloading = "0.7"
+
+[features]
+default = []
+# Forwarded to the engine crate. `local-llama` compiles the local engine
+# over a shim that refuses every load (no C++ toolchain); `llama-native`
+# builds llama.cpp and links it in.
+local-llama = ["wipemark-engine/local-llama"]
+llama-native = ["local-llama", "wipemark-engine/llama-native", "dep:wipemark-llama-sys"]
+
+# cargo-bundle / cargo-packager metadata (epic E10). The identifier is
+# the same string `wipemark-models::layout::BUNDLE_ID` derives the data
+# directory and keychain service from — changing one without the other
+# strands every existing install.
+#
+# `icon` paths are relative to this crate root and every one of them is
+# generated — run `icons/create-icons.sh` from the repo root rather than
+# editing a PNG by hand. The .icns is listed first because cargo-bundle
+# copies a pre-built one through verbatim on macOS instead of rebuilding
+# a lossier one from the PNGs; the PNGs are what the .deb path reads
+# dimensions from to lay out its hicolor tree. `icon.ico` is installed
+# alongside them but deliberately not listed: the deb bundler has no
+# case for that extension. It is there for cargo-packager and for the
+# Windows resource script E10 adds.
+[package.metadata.bundle]
+name = "Wipemark"
+identifier = "com.GigLabo.wipemark"
+short_description = "Strips AI provenance marks from your own content."
+category = "public.app-category.productivity"
+icon = [
+    "assets/icon/icon.icns",
+    "assets/icon/32x32.png",
+    "assets/icon/128x128.png",
+    "assets/icon/128x128@2x.png",
+    "assets/icon/icon.png",
+]
+
+[lints]
+workspace = true

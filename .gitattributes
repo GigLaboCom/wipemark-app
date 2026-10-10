@@ -1,0 +1,24 @@
+# Unicode data, crates/wipemark-core/ucd/: byte-exact, because
+# SHA256SUMS hashes these bytes and build.rs refuses a carriage return;
+# and never diffed, because a version bump is megabytes nobody reads —
+# the checksum file (diffable) and the suite are what gets reviewed.
+crates/wipemark-core/ucd/**/*.txt   -text -diff
+crates/wipemark-core/ucd/SHA256SUMS -text
+
+# Fixtures are byte-exact: a normalised line ending is a changed fixture
+# (fixtures/README.md, rule 1). E1-3 adds the files.
+fixtures/text/**                    -text
+
+# Image fixtures (E11-1): byte-exact containers whose CRCs, RIFF sizes
+# and marker lengths are the point. Never normalised, never diffed.
+fixtures/image/*.jpg                binary
+fixtures/image/*.png                binary
+fixtures/image/*.webp               binary
+fixtures/image/gemini/*.jpg         binary
+fixtures/image/gemini/*.png         binary
+fixtures/image/gemini/*.webp        binary
+
+# The windows' clean against the CLI's (W9): byte-exact inputs — a UTF-16
+# file, a soft hyphen, a TIFF head — and the table both tests read.
+fixtures/clean-parity/**            -text -diff
+fixtures/image/jpeg-planes/*.jpg    binary

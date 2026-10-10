@@ -1,0 +1,5 @@
+Extract an outline of the text between the markers: every claim, fact, number, name and placeholder, in order, as short bullet points without full sentences. Leave nothing out. Output only the outline.
+
+{TEXT}
+
+Output only the bullet points: no heading, and no text written from them.

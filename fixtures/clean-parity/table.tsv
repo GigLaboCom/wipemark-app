@@ -1,0 +1,29 @@
+# The windows' clean against the CLI's, one input per line (W9, D285).
+# Read by two tests that share no code:
+#   apps/wipemark-cli/tests/parity.rs runs `wipemark-cli clean <input> -o <out>`
+#     and holds its exit code and whether it wrote to the cli_* columns, and
+#     its bytes to the library at the CLI's defaults;
+#   apps/wipemark-app/src/clean.rs, `the_windows_clean_to_the_clis_table`,
+#     runs `clean::clean_one` and holds the CLI exit its outcome comes to and
+#     whether it wrote to the same row, its own verdict (`Verdict::id()`) to
+#     app_verdict, and its bytes to the same library.
+# Which side reads which column: cli_exit both; cli_writes the CLI's alone;
+# app_writes and app_verdict the window's alone (the CLI's test reads past
+# them); the last column is for a person.
+# A change to either side's rule turns that side's test red until this
+# table is changed — and then the other side's, until it follows.
+# input is relative to fixtures/. Columns are separated by one tab.
+#
+# input	cli_exit	cli_writes	app_writes	app_verdict	why the app differs
+clean-parity/marked.md	1	yes	yes	cleaned	-
+clean-parity/plain.md	0	yes	no	nothing-found	D260: nothing found, nothing written
+clean-parity/utf16.txt	1	yes	yes	cleaned	-
+clean-parity/softhyphen.txt	0	yes	yes	cleaned	-
+clean-parity/homoglyph.txt	1	yes	no	partly	D263: a kept homoglyph changes nothing
+clean-parity/scan.tif	2	no	no	not-cleaned	-
+image/gemini/torch-1025.png	1	yes	yes	cleaned	-
+image/gemini/crying-1025.png	3	yes	yes	partly	-
+image/gemini/crying-transparent-1025.png	3	yes	no	partly	D262: an output identical to its input
+image/gemini/cut-out-confetti-256.webp	0	yes	no	nothing-found	D260: nothing found, nothing written
+image/c2pa-jumbf.jpg	1	yes	yes	cleaned	-
+image/xmp-provenance.jpg	1	yes	yes	cleaned	-

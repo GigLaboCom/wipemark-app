@@ -1,0 +1,130 @@
+{
+ "id": "16_laptop-c1025-q90-420",
+ "class": "frames",
+ "variant": "c1025-q90-420",
+ "input_sha256": "585284020d56ebdbdd20f2cc11c802884c6564e77eee3070b1eb26339b45b539",
+ "inspect": {
+  "exit": 1,
+  "json": {
+   "container": "jpeg",
+   "ai_metadata": false,
+   "c2pa": false,
+   "findings": [],
+   "visible": {
+    "examined": true,
+    "restorable": true,
+    "found": [
+     {
+      "profile": "gemini-sparkle-v1",
+      "vendor": "google",
+      "product": "gemini",
+      "pass": 1,
+      "rect": {
+       "x": 865.0,
+       "y": 865.0,
+       "size": 96.0
+      },
+      "pixels": {
+       "x": 865,
+       "y": 865,
+       "width": 96,
+       "height": 96
+      },
+      "placed": "row",
+      "row": 0,
+      "kernel": "area",
+      "ncc": 0.9988475,
+      "verdict": "refused",
+      "refusal": {
+       "why": "out-of-range",
+       "share": 0.010168507
+      },
+      "scores": {
+       "gain": 1.0,
+       "edge_ratio": 0.1282349,
+       "out_of_range": 0.010168507,
+       "holes": 0
+      },
+      "also_tried": []
+     }
+    ],
+    "restored": []
+   },
+   "not_established": [
+    "invisible-pixel-marks",
+    "vendor-detector-evasion",
+    "human-authorship",
+    "unknown-mark-schemes"
+   ]
+  }
+ },
+ "clean": {
+  "exit": 3,
+  "json": {
+   "report": {
+    "container": "jpeg",
+    "still_has_ai_metadata": false,
+    "still_has_c2pa": false,
+    "removed": [],
+    "kept": [],
+    "orientation_removed": null,
+    "visible": {
+     "examined": true,
+     "restorable": true,
+     "found": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "vendor": "google",
+       "product": "gemini",
+       "pass": 1,
+       "rect": {
+        "x": 865.0,
+        "y": 865.0,
+        "size": 96.0
+       },
+       "pixels": {
+        "x": 865,
+        "y": 865,
+        "width": 96,
+        "height": 96
+       },
+       "placed": "row",
+       "row": 0,
+       "kernel": "area",
+       "ncc": 0.9988475,
+       "verdict": "refused",
+       "refusal": {
+        "why": "out-of-range",
+        "share": 0.010168507
+       },
+       "scores": {
+        "gain": 1.0,
+        "edge_ratio": 0.1282349,
+        "out_of_range": 0.010168507,
+        "holes": 0
+       },
+       "also_tried": []
+      }
+     ],
+     "restored": []
+    },
+    "encoding": {
+     "kind": "unchanged"
+    },
+    "marks_left": true,
+    "not_established": [
+     "invisible-pixel-marks",
+     "vendor-detector-evasion",
+     "human-authorship",
+     "unknown-mark-schemes"
+    ]
+   },
+   "written": true
+  },
+  "output_sha256": "585284020d56ebdbdd20f2cc11c802884c6564e77eee3070b1eb26339b45b539"
+ },
+ "time_s": {
+  "inspect": 0.8179,
+  "clean": 0.8121
+ }
+}

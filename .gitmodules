@@ -1,0 +1,4 @@
+[submodule "vendor/gpui-component"]
+	path = vendor/gpui-component
+	url = https://github.com/longbridge/gpui-kit.git
+	branch = next

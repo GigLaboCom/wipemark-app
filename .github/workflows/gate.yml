@@ -1,0 +1,291 @@
+# wipemark — the gate on GitHub Actions.
+#
+# The lane that reports on pushes and pull requests today. It runs the
+# same gates `.woodpecker/gate.yaml` lists (the self-hosted lane, which
+# has never reported a status) and CLAUDE.md's "Gates" section states,
+# with `--locked` everywhere: a `Cargo.lock` that moved under an edit is
+# a red lane here and a green laptop.
+#
+#   gate    — the four gates (nightly rustfmt over crates/ and apps/ only,
+#             clippy -D warnings, the workspace tests, the dependency
+#             direction) and the CI-only feature lines (`--no-default-
+#             features`, `local-llama` over the shim) — the prompt bench
+#             among them, an example only `local-llama` builds (E4-8).
+#   native  — llama.cpp at the pin, **prebuilt** (E2-5): the release
+#             archive of GigLaboCom/llama-cpp-prebuilt for this target,
+#             downloaded and checked against the sha256 in
+#             crates/wipemark-llama-sys/src/pin.rs by the build script (CPU
+#             variants + Vulkan, the backends a Linux release ships), then
+#             clippy and the model-free tests of wipemark-llama and
+#             wipemark-engine under `llama-native`, and the ggml devices the
+#             archive's backends registered — the CPU: ggml-vulkan loads,
+#             finds only Mesa's software driver, and offers no device for a
+#             CPU-type one. No cmake, no clang, no glslc: only the Vulkan
+#             loader the archive's README asks for. No GPU and no model on a hosted
+#             runner: the `--ignored` live gate is not run here and still
+#             runs by hand (docs/architecture/local-engine.md, "Running the
+#             native gates"). The source build has its own workflow,
+#             llama-source.yml.
+#   macos   — the platform the GUI targets first, linted and tested:
+#             clippy -D warnings over the workspace (the first lint the
+#             `cfg(target_os = "macos")` code gets — Linux never compiles
+#             it), the workspace tests, the `local-llama` tests over the
+#             shim, and llama.cpp at the pin, prebuilt with Metal, with
+#             clippy and the model-free tests over it. The tray, the global
+#             shortcut, the pasteboard drop target, the clipboard peek, the
+#             display watch and the AppKit window move run nowhere else. No
+#             model on a hosted runner: the `--ignored` live gate still runs
+#             by hand.
+name: gate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: gate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Keeps the dependency cache without the bulky incremental/ dir.
+  CARGO_INCREMENTAL: "0"
+  # Debug info is most of a GPUI target directory and nothing a gate
+  # reads; a hosted runner has ~14 GB free before it is cleared.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  gate:
+    name: gate (fmt, clippy, test, deps, features)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+            /usr/share/swift /usr/local/julia* /opt/microsoft/msedge \
+            /usr/local/share/chromium /usr/local/share/powershell
+          sudo docker image prune --all --force > /dev/null || true
+          df -h /
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The component (upstream gpui-kit, branch `next`) is a submodule;
+      # `sync` first, because a cached checkout keeps the URL it was cloned
+      # with and the submodule moved to longbridge/gpui-kit on 2026-10-07.
+      - name: Submodule
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+          git -C vendor/gpui-component log --oneline -1
+
+      - name: Dependency direction
+        run: scripts/check-dep-direction.sh
+
+      # One GPUI: `gpui-pre` at the component's exact version, once in the
+      # lock, all from crates.io, no zed git source — and the resolved
+      # sources still carrying the upstream X11 fixes the windows rely on
+      # (#62081, #61789). Replaces the retired pin script.
+      - name: GPUI pin
+        run: scripts/check-gpui-pin.sh
+
+      # Every crate of ours on the zune-jpeg fork's one rev (D490): a member
+      # that names its own zune-jpeg, a [patch] or a local path builds and
+      # quietly decodes with something else.
+      - name: zune-jpeg pin
+        run: scripts/check-zune-pin.sh
+
+      - name: Toolchains
+        run: |
+          # The pinned stable from rust-toolchain.toml, with its components.
+          rustup toolchain install
+          rustup show active-toolchain
+          # Nightly for rustfmt only: rustfmt.toml uses unstable options.
+          rustup toolchain install nightly --component rustfmt --profile minimal
+
+      # Not `cargo fmt --all`: that reaches into vendor/gpui-component,
+      # which is upstream's code formatted to upstream's rules.
+      - name: rustfmt (nightly)
+        run: rustup run nightly rustfmt --edition 2021 --check $(find crates apps -name '*.rs')
+
+      # The system libraries GPUI needs on Linux: the woodpecker list,
+      # plus what a clean Ubuntu runner turns out to lack.
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libxcb1-dev libx11-xcb-dev libx11-dev \
+            libfontconfig1-dev libfreetype-dev libssl-dev libzstd-dev libasound2-dev \
+            libvulkan1 mesa-vulkan-drivers \
+            libgtk-3-dev libayatana-appindicator3-dev
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: gate
+          cache-on-failure: true
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: test
+        run: cargo test --workspace --locked
+
+      - name: check --no-default-features
+        run: cargo check --workspace --no-default-features --locked
+
+      - name: check --features local-llama
+        run: cargo check --workspace --features local-llama --locked
+
+      # The local engine's refusals over the shim, and `engine_for` handing
+      # out a `LocalEngine` — neither is run by the workspace test.
+      - name: test wipemark-engine --features local-llama
+        run: cargo test -p wipemark-engine --features local-llama --locked
+
+      - name: test wipemark-app --features local-llama
+        run: cargo test -p wipemark-app --features local-llama --locked
+
+      # The prompt bench (`examples/bench`, `required-features =
+      # ["local-llama"]`) is in no target the lines above build: linted and
+      # its unit tests run here over the shim (E4-8, V4; D428).
+      - name: clippy the bench (local-llama, examples)
+        run: cargo clippy -p wipemark-pipeline --features local-llama --examples --locked -- -D warnings
+
+      - name: test the bench (local-llama, examples)
+        run: cargo test -p wipemark-pipeline --features local-llama --examples --locked
+
+      - name: Disk left
+        if: always()
+        run: df -h /
+
+  native:
+    name: native (llama.cpp prebuilt + Vulkan, model-free)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The workspace manifest names the submodule's crates, so cargo
+      # needs it checked out even for `-p wipemark-llama`.
+      - name: Submodule
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+
+      # What the archive needs at run time (its README): libgomp and
+      # libstdc++ are on the image; the Vulkan loader and a driver (Mesa's
+      # lavapipe, on a runner with no GPU) are not.
+      - name: Vulkan runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native
+          cache-on-failure: true
+
+      - name: clippy (llama-native)
+        run: cargo clippy -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --all-targets --locked -- -D warnings
+
+      - name: test (llama-native, model-free)
+        run: cargo test -p wipemark-llama-sys -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked
+
+      # The devices ggml registered from the archive's backends/, printed.
+      # The CPU only, on a runner with no GPU: ggml-vulkan skips a CPU-type
+      # Vulkan device (Mesa's lavapipe, installed above so the backend's
+      # instance code runs); a GPU machine lists `Vulkan0` (the live gate).
+      - name: ggml devices
+        run: cargo test -p wipemark-llama --features native --locked --test native the_runtime_reports_at_least_the_cpu_backend -- --nocapture
+
+  macos:
+    name: macos (clippy, tests, llama-native prebuilt with Metal)
+    runs-on: macos-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Submodule
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+
+      # What the runner is: a hosted Apple Silicon VM. Whether it exposes
+      # a Metal device is printed here and again by the native runtime
+      # test below, which names every ggml device it registered.
+      - name: Machine
+        run: |
+          sw_vers
+          sysctl -n machdep.cpu.brand_string hw.memsize
+          system_profiler SPDisplaysDataType || true
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos
+          cache-on-failure: true
+
+      # The steps after this one run even when an earlier one failed
+      # (`!cancelled()`), so one run reports every red line on this
+      # platform rather than the first; the job is still red.
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: test
+        if: ${{ !cancelled() }}
+        run: cargo test --workspace --locked --no-fail-fast
+
+      - name: test wipemark-engine --features local-llama
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-engine --features local-llama --locked --no-fail-fast
+
+      - name: test wipemark-app --features local-llama
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-app --features local-llama --locked --no-fail-fast
+
+      - name: clippy (llama-native, Metal)
+        if: ${{ !cancelled() }}
+        run: cargo clippy -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --all-targets --locked -- -D warnings
+
+      - name: test (llama-native, Metal, model-free)
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-llama-sys -p wipemark-llama -p wipemark-engine --features wipemark-engine/llama-native --locked --no-fail-fast
+
+      # The archive's dylibs are `@rpath/…` install names: a `wipemark`
+      # built with them starts only through the LC_RPATH its build.rs
+      # writes. Run with DYLD_* removed, as a user's double click runs it.
+      - name: standalone (llama-native, prebuilt dylibs)
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-app --features llama-native --locked --test standalone --no-fail-fast
+
+      # The devices ggml registered on this runner, printed: whether the
+      # Metal backend found a GPU here is a fact about the runner, and
+      # the native tests pass on CPU alone.
+      - name: ggml devices
+        if: ${{ !cancelled() }}
+        run: cargo test -p wipemark-llama --features native --locked --test native the_runtime_reports_at_least_the_cpu_backend -- --nocapture
+
+      - name: Disk left
+        if: always()
+        run: df -h /

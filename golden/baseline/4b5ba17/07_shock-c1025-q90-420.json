@@ -1,0 +1,130 @@
+{
+ "id": "07_shock-c1025-q90-420",
+ "class": "frames",
+ "variant": "c1025-q90-420",
+ "input_sha256": "83692cb4ada6019274d305d03915713c88eee673cac45007eb057643d7e6d428",
+ "inspect": {
+  "exit": 1,
+  "json": {
+   "container": "jpeg",
+   "ai_metadata": false,
+   "c2pa": false,
+   "findings": [],
+   "visible": {
+    "examined": true,
+    "restorable": true,
+    "found": [
+     {
+      "profile": "gemini-sparkle-v1",
+      "vendor": "google",
+      "product": "gemini",
+      "pass": 1,
+      "rect": {
+       "x": 865.0,
+       "y": 865.0,
+       "size": 96.0
+      },
+      "pixels": {
+       "x": 865,
+       "y": 865,
+       "width": 96,
+       "height": 96
+      },
+      "placed": "row",
+      "row": 0,
+      "kernel": "area",
+      "ncc": 0.99883425,
+      "verdict": "refused",
+      "refusal": {
+       "why": "out-of-range",
+       "share": 0.012589579
+      },
+      "scores": {
+       "gain": 1.0,
+       "edge_ratio": 0.13094379,
+       "out_of_range": 0.012589579,
+       "holes": 0
+      },
+      "also_tried": []
+     }
+    ],
+    "restored": []
+   },
+   "not_established": [
+    "invisible-pixel-marks",
+    "vendor-detector-evasion",
+    "human-authorship",
+    "unknown-mark-schemes"
+   ]
+  }
+ },
+ "clean": {
+  "exit": 3,
+  "json": {
+   "report": {
+    "container": "jpeg",
+    "still_has_ai_metadata": false,
+    "still_has_c2pa": false,
+    "removed": [],
+    "kept": [],
+    "orientation_removed": null,
+    "visible": {
+     "examined": true,
+     "restorable": true,
+     "found": [
+      {
+       "profile": "gemini-sparkle-v1",
+       "vendor": "google",
+       "product": "gemini",
+       "pass": 1,
+       "rect": {
+        "x": 865.0,
+        "y": 865.0,
+        "size": 96.0
+       },
+       "pixels": {
+        "x": 865,
+        "y": 865,
+        "width": 96,
+        "height": 96
+       },
+       "placed": "row",
+       "row": 0,
+       "kernel": "area",
+       "ncc": 0.99883425,
+       "verdict": "refused",
+       "refusal": {
+        "why": "out-of-range",
+        "share": 0.012589579
+       },
+       "scores": {
+        "gain": 1.0,
+        "edge_ratio": 0.13094379,
+        "out_of_range": 0.012589579,
+        "holes": 0
+       },
+       "also_tried": []
+      }
+     ],
+     "restored": []
+    },
+    "encoding": {
+     "kind": "unchanged"
+    },
+    "marks_left": true,
+    "not_established": [
+     "invisible-pixel-marks",
+     "vendor-detector-evasion",
+     "human-authorship",
+     "unknown-mark-schemes"
+    ]
+   },
+   "written": true
+  },
+  "output_sha256": "83692cb4ada6019274d305d03915713c88eee673cac45007eb057643d7e6d428"
+ },
+ "time_s": {
+  "inspect": 0.8295,
+  "clean": 0.8513
+ }
+}

@@ -1,0 +1,73 @@
+From bd0118ac79abb6841f8ce49b3766d624ff6127c4 Mon Sep 17 00:00:00 2001
+From: des <denis.yesakov@gmail.com>
+Date: Thu, 30 Apr 2026 23:41:06 +0200
+Subject: [PATCH 2/3] input: add editor.gutter.background htheme key (P2)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+HighlightThemeStyle gains an optional editor_gutter_background field,
+parsed from the htheme key "editor.gutter.background" via the same
+serde rename pattern as the surrounding editor.* keys. The gutter
+background paint in input/element.rs reads the field first, falling
+back to editor_background() when unset — so themes that don't supply
+the new key render exactly as before.
+
+This decouples the gutter background from the editor background,
+which Sub-epic E's heretic-side bridge wires to a separate DNA token
+(editor.gutter.background) so the merge UI can tint the gutter
+independently of the text background.
+
+Patch P2 of Sub-epic E (line decorations, fork-and-merge-back).
+---
+ crates/ui/src/highlighter/registry.rs |  4 ++++
+ crates/ui/src/input/element.rs        | 11 ++++++++++-
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/crates/ui/src/highlighter/registry.rs b/crates/ui/src/highlighter/registry.rs
+index 983f60f9..81c8a031 100644
+--- a/crates/ui/src/highlighter/registry.rs
++++ b/crates/ui/src/highlighter/registry.rs
+@@ -423,6 +423,10 @@ pub struct HighlightThemeStyle {
+     pub editor_active_line_number: Option<Hsla>,
+     #[serde(rename = "editor.invisible")]
+     pub editor_invisible: Option<Hsla>,
++    /// Optional background color for the gutter (line-number column).
++    /// Falls back to [`Self::editor_background`] when unset.
++    #[serde(rename = "editor.gutter.background")]
++    pub editor_gutter_background: Option<Hsla>,
+     #[serde(flatten)]
+     pub status: StatusColors,
+     #[serde(rename = "syntax")]
+diff --git a/crates/ui/src/input/element.rs b/crates/ui/src/input/element.rs
+index df53319e..19f2eaac 100644
+--- a/crates/ui/src/input/element.rs
++++ b/crates/ui/src/input/element.rs
+@@ -2057,6 +2057,15 @@ impl Element for TextElement {
+         if let Some(line_numbers) = prepaint.line_numbers.as_ref() {
+             offset_y += invisible_top_padding;
+ 
++            // Gutter background: prefer the dedicated `editor.gutter.background`
++            // theme key (Sub-epic E), fall back to the editor background so
++            // existing themes render unchanged.
++            let gutter_bg = cx
++                .theme()
++                .highlight_theme
++                .style
++                .editor_gutter_background
++                .unwrap_or_else(|| cx.theme().editor_background());
+             window.paint_quad(fill(
+                 Bounds {
+                     origin: input_bounds.origin,
+@@ -2065,7 +2074,7 @@ impl Element for TextElement {
+                         input_bounds.size.height + prepaint.ghost_lines_height,
+                     ),
+                 },
+-                cx.theme().editor_background(),
++                gutter_bg,
+             ));
+ 
+             // Each item is the normal lines.
+-- 
+2.54.0 (Apple Git-157)
+

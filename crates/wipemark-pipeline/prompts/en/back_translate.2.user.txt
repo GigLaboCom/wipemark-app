@@ -1,0 +1,5 @@
+Translate the text between the markers into English as a native speaker would write it, in natural phrasing. Keep the meaning, the facts, the numbers and the names.
+
+{PREV_CONTEXT}
+
+{TEXT}
