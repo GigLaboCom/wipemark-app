@@ -2261,7 +2261,9 @@ upstream zune-jpeg's raw output through the fork's getter
 the search does not prove a mark its row refused by gain, a 4:2:0/4:2:2
 JPEG is proved and restored in its planes, and DCT-POCS refines a lossy
 JPEG's restoration, on the product's road (`planar-preview` removed).
-What remains of it is not code: the Gemini question (new generations come
-unmarked, `docs/plan/E12-R2-corpora.md` §3), the corpora, and the smaller
-questions in `docs/plan/E12-R-pending-decisions-2026-10-10.md` section D. E1 and E3 parallelise in separate worktrees; E5 lands before
+Gemini's visible mark is gone from new generations (the owner,
+2026-10-10: no more pictures will come), so `gemini-midtone` is dropped and
+R4 §4.3–4.4 and R9 are not done (`docs/plan/E12-R2-corpora.md` §3); the
+shipped profiles stay for the pictures already out. What remains of it is not
+code: the other corpora and the smaller questions in `docs/plan/E12-R-pending-decisions-2026-10-10.md` section D. E1 and E3 parallelise in separate worktrees; E5 lands before
 E6 and gives agents a usable product before the GUI exists.

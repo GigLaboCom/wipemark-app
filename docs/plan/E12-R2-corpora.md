@@ -174,6 +174,13 @@ Three sets, each one blocking later steps. No crate changes.
 > cannot be collected: R4 §4.3–§4.4 and R9 (which wait for it) close on the
 > bench's synthetic composites or not at all, and the shipped profiles
 > stay what they are for the pictures already out there.
+>
+> **Closed, the same day (the owner):** "it is over, there will be no
+> pictures, since there is no watermark any more." §4.1 (`gemini-midtone`)
+> is dropped; R4 §4.3–§4.4 and R9 are not done (R9's code stays behind
+> `blend-preview` until the owner answers D4 of
+> `E12-R-pending-decisions-2026-10-10.md`); the shipped Gemini profiles stay
+> for the pictures already handed out.
 
 | fact | where |
 |---|---|

@@ -106,6 +106,10 @@ unmarked — probably re-saved). Options:
   dropped from R2; the shipped profiles stay for the pictures already out;
 * c. wait and try again later.
 
+**Decided 2026-10-10 — b.** The owner: "it is over, there will be no pictures,
+since there is no watermark any more." `gemini-midtone` is dropped from R2;
+R4 §4.3–§4.4 and R9 are not done; the shipped profiles stay.
+
 ## D. The steps' smaller questions
 
 | # | question | options |
