@@ -254,7 +254,11 @@ its catalogue row) and R2 stage 0 has said what Grok hands out.
    `cargo build --release -p wipemark-picture --example recon_bench --locked`
    (every config, R6 and R8 included, is in every build).
 1. **The degradation list**: `bench/degradations/grok.json` from R2 stage
-   0's facts table, committed with the report that names them.
+   0's facts table, committed with the report that names them (its home by
+   D527; a starting list is committed until stage 0 lands, and
+   `scripts/grok/run.sh` writes the list stage 0's facts give beside its
+   run and says when the committed one differs — `run.sh` also does steps
+   2–4 below on its proposed `--catalogue` file, at a smaller sample).
 2. **Generate R0-grok's run** with the provisional catalogue:
    `$B gen --manifest bench/manifest.json --out bench/out/grok-<date> --sample 30 --catalogue <dir>/marks.v1.json --profile <grok id> --degradations bench/degradations/grok.json`
    (`--sizes` for the (size, aspect) pairs stage 0 found, when the rows'
