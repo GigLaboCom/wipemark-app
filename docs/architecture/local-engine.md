@@ -734,7 +734,10 @@ every other. The target's context beside a draft asks for `n_max`
 snapshots (llama.cpp's `need_n_rs_seq`), and a recurrent or hybrid target
 granted fewer (`llama_n_rs_seq`) is refused the draft by name
 (`DraftRefusal::NoRollback`) rather than decoded from a state that was
-not rolled back.
+not rolled back. A context with the snapshots that llama.cpp cannot
+create — a card with no room for them beside the draft's weights — is the
+draft's refusal (`Load`), not the load's: the draft is freed and the model
+gets the context it would have alone.
 
 ### What is refused, and what is said (D481, D485)
 

@@ -506,8 +506,15 @@ impl Session {
             }
         };
         // A snapshot of the recurrent state for every token a block may
-        // hand back (`need_n_rs_seq` in llama.cpp's `common`).
-        let ctx = Context::new(&weights, params, plan.n_max)?;
+        // hand back (`need_n_rs_seq` in llama.cpp's `common`). A context with
+        // them that cannot be created — a card with no room for the
+        // snapshots beside the draft's weights — is the draft's refusal, not
+        // the load's: the draft goes, and the model gets a context without
+        // them, as it would alone.
+        let Ok(ctx) = Context::new(&weights, params, plan.n_max) else {
+            drop(draft_weights);
+            return alone(weights, DraftRefusal::Load);
+        };
         // SAFETY: model and context valid for this function; plain reads.
         let (recurrent, granted) = unsafe {
             (
