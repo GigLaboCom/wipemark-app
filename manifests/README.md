@@ -49,12 +49,34 @@ with `user-`: that prefix names a model the person added from a file
 ### `roles` — the purpose classification
 
 A model serves a *purpose*, and some models serve two, so this is a list
-rather than a single `task`. The five roles are `rewrite`, `detect`,
-`fill-mask`, `embed` and `pixel`; each one traces to something this
-repository already describes, and only `rewrite` ships an entry in v1.
+rather than a single `task`. The six roles are `rewrite`, `detect`,
+`fill-mask`, `embed`, `pixel` and `draft`; each one traces to something
+this repository already describes, and `rewrite` and `draft` ship entries
+in v1 — a draft only beside its target (below).
 Adding the first entry for another role is caught by
 `a_role_the_catalogue_serves_has_a_row` — a model nobody can select is a
 download with no purpose.
+
+### `draft_for` — a draft is tied to the one model it drafts for
+
+A speculative draft (E2-dflash2, D484) serves `draft` and nothing else, and
+names its target's id in `draft_for`:
+
+```json
+  "roles": ["draft"],
+  "draft_for": "qwen3.8-27b-ud-iq3s",
+```
+
+Nobody chooses a draft: it decodes beside its target when the Engine page's
+**Faster decoding** row is on and it is downloaded, and not at all
+otherwise. So it is in no selector, never recommended and never on duty —
+and the parser holds the shape: a draft names a target the catalogue has,
+which rewrites; an entry that names a target is a draft and nothing else;
+and a model has one draft at most (`a_draft_is_tied_to_one_rewriter`). Its
+`mem` is what loading it beside its target **adds** — its weights, its
+cache, and whatever the target keeps for it (recurrent-state snapshots,
+the layer inputs the draft reads) — which `host::fit` adds to the
+target's.
 
 ### `url` — pinned, always
 

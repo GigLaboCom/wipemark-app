@@ -88,6 +88,29 @@
       "langs": ["multi"],
       "vendor": "open-llm",
       "notes": "27B parameters at unsloth's dynamic IQ3_S, about 3.6 bits a weight. A hybrid model whose chat template has a thinking switch: wipemark_llama::chat renders it with thinking off (D182), because llama.cpp's built-in ChatML opener is the template's thinking-on. Memory: 11 483 MiB of weights, and the rest of 14 GiB for the context cache at 8192 tokens, the compute buffer and the process around them. Measured in E2-4 on a 16 GB card: 62 of its 65 layers fitted beside another process, at 10.9 tokens a second; the application asks llama.cpp for every layer on the GPU, so a card that cannot hold the whole model refuses the load (LoadFailed) rather than splitting it."
+    },
+    {
+      "id": "qwen3.8-27b-dflash2-q4km",
+      "display": "DFlash2 draft for Qwen3.8 27B (Q4_K_M)",
+      "roles": ["draft"],
+      "draft_for": "qwen3.8-27b-ud-iq3s",
+      "format": "gguf",
+      "status": "stable",
+      "files": [
+        {
+          "url": "hf://z-lab/Qwen3.8-27B-DFlash2-GGUF@2d9571f8ce46e151f61c6499c99dee6079e1d610/Qwen3.8-27B-DFlash2-Q4_K_M.gguf",
+          "sha256": "1a25c56858e1ebe93f2718ac1d49d1151f9323325c1bbfd6209370f4db131ebd",
+          "size_bytes": 1143006816
+        }
+      ],
+      "mem": { "min_ram_mb": 2816, "min_vram_mb": 2816 },
+      "ctx_default": 8192,
+      "quant": "Q4_K_M",
+      "quality_tier": 1,
+      "license": "apache-2.0",
+      "langs": ["multi"],
+      "vendor": "open-llm",
+      "notes": "Not a model that writes: a DFlash2 block-diffusion draft trained for Qwen3.8 27B, which proposes up to seven tokens a step for that model to verify in one decode (E2-dflash2, D484). With greedy decoding the text is the model's own; with sampling every token is still the model's draw. Q4_K_M because the card measures it at least as well as Q8_0 (acceptance length 5.39 against 5.13, eight GSM8K prompts) and it is the smallest; the mirror of incoai/Qwen3.8-27B-DFlash2-GGUF, pinned at 2d9571f8, its sha256 and size read off Hugging Face's tree API and its resolve endpoint. Memory, from the two models' config.json: 1091 MiB of weights; 160 MiB of KV cache at 8192 tokens (five layers of eight 128-wide KV heads, F16 — four of five are sliding 2048-token layers, so less in practice); 1047 MiB for the seven extra snapshots of Qwen3.8's recurrent state the model keeps to roll back a rejected block (48 Gated DeltaNet layers of about 3.1 MiB each); 200 MiB for the five layer inputs the draft reads (5 x 5120 x 2048 floats); and about 300 MiB of compute buffer — 2798, rounded up to 2816, on top of the model's own figure."
     }
   ]
 }

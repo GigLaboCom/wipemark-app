@@ -19,6 +19,17 @@
 //! entries ship in v1; the others exist so that adding one later is a
 //! JSON edit rather than a schema break.
 //!
+//! # A draft is tied to its target (E2-dflash2, D484)
+//!
+//! [`Role::Draft`] is the one role nobody chooses a model for: a
+//! speculative draft decodes beside the one model it was trained for, and
+//! its entry names that model in [`ModelEntry::draft_for`]. It serves that
+//! role and nothing else — so it is in no rewrite selector, never
+//! recommended or adopted for one, and never on duty — while it is
+//! downloaded, verified and removed like any entry. [`Manifest::parse`]
+//! holds both halves: a draft names a target the catalogue has, which
+//! rewrites, and an entry that names a target is a draft.
+//!
 //! # Trust
 //!
 //! The embedded copy is trusted because it is compiled into the binary.
@@ -74,6 +85,16 @@ pub enum ManifestError {
     NoFiles(String),
     #[error("model {id:?}: {reason}")]
     BadFile { id: String, reason: String },
+    /// A draft entry with no `draft_for`, or `draft_for` on an entry that
+    /// is not a draft and nothing else (D484).
+    #[error("model {0:?}: a draft serves `draft` alone and names its target in `draft_for`")]
+    UntiedDraft(String),
+    /// `draft_for` names no entry, or one that does not rewrite.
+    #[error("draft {id:?} is for {target:?}, which the catalogue does not have as a rewriter")]
+    DraftForNothing { id: String, target: String },
+    /// Two drafts for one model: which one decodes would be a guess.
+    #[error("{target:?} has two drafts")]
+    TwoDrafts { target: String },
 }
 
 /// What a model is *for*.
@@ -99,15 +120,20 @@ pub enum Role {
     Embed,
     /// Phase 2b pixel-domain work (epic E11). No v1 entry uses it.
     Pixel,
+    /// A speculative draft for one model, named by the entry's
+    /// [`ModelEntry::draft_for`]: it proposes, its target decides, and it
+    /// never writes a word alone (E2-dflash2, D484).
+    Draft,
 }
 
 impl Role {
-    pub const ALL: [Role; 5] = [
+    pub const ALL: [Role; 6] = [
         Role::Rewrite,
         Role::Detect,
         Role::FillMask,
         Role::Embed,
         Role::Pixel,
+        Role::Draft,
     ];
 
     /// The stable id. A **format** — it appears in the manifest, so it
@@ -120,6 +146,7 @@ impl Role {
             Role::FillMask => "fill-mask",
             Role::Embed => "embed",
             Role::Pixel => "pixel",
+            Role::Draft => "draft",
         }
     }
 
@@ -133,6 +160,14 @@ impl Role {
     #[must_use]
     pub fn is_text(self) -> bool {
         !matches!(self, Role::Pixel)
+    }
+
+    /// True for a role a person chooses a model for. A draft is not one: it
+    /// is tied to the model it was trained for ([`ModelEntry::draft_for`]),
+    /// and decodes beside it or not at all (D484).
+    #[must_use]
+    pub fn is_chosen(self) -> bool {
+        !matches!(self, Role::Draft)
     }
 }
 
@@ -300,6 +335,10 @@ pub struct ModelEntry {
     pub vendor: String,
     #[serde(default)]
     pub notes: String,
+    /// For a [`Role::Draft`] entry, the id of the one model it drafts for;
+    /// `None` for every other entry (D484).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft_for: Option<String>,
 }
 
 impl ModelEntry {
@@ -404,7 +443,49 @@ impl Manifest {
             }
             seen.push(id);
         }
+        manifest.check_drafts()?;
         Ok(manifest)
+    }
+
+    /// D484: a draft serves `draft` alone and names a target this
+    /// catalogue has, which rewrites; an entry that names a target is a
+    /// draft; and a model has one draft at most.
+    fn check_drafts(&self) -> Result<(), ManifestError> {
+        let mut targets: Vec<&str> = Vec::new();
+        for entry in &self.models {
+            let drafts = entry.serves(Role::Draft);
+            match (&entry.draft_for, drafts) {
+                (None, false) => continue,
+                (Some(_), true) if entry.roles == [Role::Draft] => {}
+                _ => return Err(ManifestError::UntiedDraft(entry.id.clone())),
+            }
+            let target = entry.draft_for.as_deref().unwrap_or_default();
+            if !self
+                .get(target)
+                .is_some_and(|target| target.serves(Role::Rewrite) && target.draft_for.is_none())
+            {
+                return Err(ManifestError::DraftForNothing {
+                    id: entry.id.clone(),
+                    target: target.to_owned(),
+                });
+            }
+            if targets.contains(&target) {
+                return Err(ManifestError::TwoDrafts {
+                    target: target.to_owned(),
+                });
+            }
+            targets.push(target);
+        }
+        Ok(())
+    }
+
+    /// The draft that decodes beside `target`, when the catalogue has one
+    /// (D484).
+    #[must_use]
+    pub fn draft_for(&self, target: &str) -> Option<&ModelEntry> {
+        self.models
+            .iter()
+            .find(|entry| entry.draft_for.as_deref() == Some(target))
     }
 
     /// The catalogue compiled into this binary.
@@ -567,6 +648,99 @@ mod tests {
         for entry in rewriters {
             assert_eq!(entry.status, Status::Stable);
         }
+    }
+
+    /// D484: the shipped draft is Qwen3.8 27B's, it serves `draft` and
+    /// nothing else, and so it is offered for no role a person chooses —
+    /// never a rewriter, never a default.
+    #[test]
+    fn the_shipped_draft_is_qwen38s_and_rewrites_nothing() {
+        let manifest = Manifest::embedded().expect("embedded manifest");
+        let draft = manifest
+            .draft_for("qwen3.8-27b-ud-iq3s")
+            .expect("Qwen3.8 27B has a draft");
+        assert_eq!(draft.id, "qwen3.8-27b-dflash2-q4km");
+        assert_eq!(draft.roles, [Role::Draft]);
+        assert_eq!(draft.quant.as_deref(), Some("Q4_K_M"));
+        let file = draft.primary_file().expect("a file");
+        assert!(file
+            .url
+            .contains("@2d9571f8ce46e151f61c6499c99dee6079e1d610/"));
+        assert_eq!(file.size_bytes, 1_143_006_816);
+        for role in Role::ALL.into_iter().filter(|role| role.is_chosen()) {
+            assert!(
+                manifest
+                    .for_role(role)
+                    .iter()
+                    .all(|entry| entry.id != draft.id),
+                "the draft is offered for {role:?}"
+            );
+        }
+        assert!(!Role::Draft.is_chosen());
+        // No other model has one.
+        for model in manifest.for_role(Role::Rewrite) {
+            if model.id != "qwen3.8-27b-ud-iq3s" {
+                assert!(manifest.draft_for(&model.id).is_none(), "{}", model.id);
+            }
+        }
+    }
+
+    /// D484: a draft is tied to one rewriter the catalogue has, and an
+    /// entry tied to a target is a draft and nothing else.
+    #[test]
+    fn a_draft_is_tied_to_one_rewriter() {
+        let draft = |id: &str, target: &str| {
+            entry(id).replace(
+                r#""roles": ["rewrite"],"#,
+                &format!(r#""roles": ["draft"], "draft_for": "{target}","#),
+            )
+        };
+        assert!(catalogue(&[entry("m1"), draft("d1", "m1")]).is_ok());
+        assert!(matches!(
+            catalogue(&[entry("m1"), draft("d1", "m2")]).unwrap_err(),
+            ManifestError::DraftForNothing { id, target } if id == "d1" && target == "m2"
+        ));
+        // A target that does not rewrite, or is itself a draft.
+        let embedder = entry("m1").replace(r#""roles": ["rewrite"]"#, r#""roles": ["embed"]"#);
+        assert!(matches!(
+            catalogue(&[embedder, draft("d1", "m1")]).unwrap_err(),
+            ManifestError::DraftForNothing { .. }
+        ));
+        assert!(matches!(
+            catalogue(&[entry("m1"), draft("d1", "m1"), draft("d2", "d1")]).unwrap_err(),
+            ManifestError::DraftForNothing { .. }
+        ));
+        // A draft with no target; a target named by a non-draft; a draft
+        // that rewrites too.
+        let untied = entry("d1").replace(r#""roles": ["rewrite"]"#, r#""roles": ["draft"]"#);
+        assert!(matches!(
+            catalogue(&[entry("m1"), untied]).unwrap_err(),
+            ManifestError::UntiedDraft(id) if id == "d1"
+        ));
+        let tied_rewriter = entry("m2").replace(
+            r#""roles": ["rewrite"],"#,
+            r#""roles": ["rewrite"], "draft_for": "m1","#,
+        );
+        assert!(matches!(
+            catalogue(&[entry("m1"), tied_rewriter]).unwrap_err(),
+            ManifestError::UntiedDraft(id) if id == "m2"
+        ));
+        let both = entry("d1").replace(
+            r#""roles": ["rewrite"],"#,
+            r#""roles": ["rewrite", "draft"], "draft_for": "m1","#,
+        );
+        assert!(matches!(
+            catalogue(&[entry("m1"), both]).unwrap_err(),
+            ManifestError::UntiedDraft(_)
+        ));
+        // Two drafts for one model.
+        assert!(matches!(
+            catalogue(&[entry("m1"), draft("d1", "m1"), draft("d2", "m1")]).unwrap_err(),
+            ManifestError::TwoDrafts { target } if target == "m1"
+        ));
+        let manifest = catalogue(&[entry("m1"), draft("d1", "m1")]).expect("valid");
+        assert_eq!(manifest.draft_for("m1").map(|d| d.id.as_str()), Some("d1"));
+        assert!(manifest.draft_for("d1").is_none());
     }
 
     #[test]
