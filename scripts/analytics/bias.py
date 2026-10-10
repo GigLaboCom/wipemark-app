@@ -14,7 +14,9 @@ off by `b/(1 − α)`. This script measures the residual
 estimated (the faint edge, `0.02 <= α <= 0.15`), binned by the brightness of
 that original, so a constant shows as one number and anything else as a
 shape. It runs on R2's `gemini-midtone` (backgrounds of every brightness);
-it waits for that set.
+it waited for that set. **Not run (D520, 2026-10-10):** the set was dropped
+when Gemini's new outputs came without a visible mark, so R4 §4.3 is
+closed; the script stays for a second vendor's mark.
 
 What it does
 ------------

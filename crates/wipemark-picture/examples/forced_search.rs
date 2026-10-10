@@ -53,7 +53,8 @@
 //!
 //! `list.tsv` is `path<TAB>group[<TAB>held_out]`, one picture a line, `#`
 //! comments and a `path…` header allowed — what `scripts/analytics/bias.py
-//! list` writes from `corpus/gemini-midtone/manifest.json`.
+//! list` writes from a corpus manifest (it was `gemini-midtone`'s, a set
+//! dropped on 2026-10-10 by D520; `scripts/regress.py list` writes one too).
 //!
 //! **What it needs.** Nothing beyond this workspace. The pictures are the
 //! host's: R1's `recon-png` (the owner's 21 stickers,

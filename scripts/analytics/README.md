@@ -5,7 +5,9 @@ Step E12-R4 of the E12-R series
 Before any change to the blend model, the map, the rows or `L`, four
 questions are answered from real files, as numbers and not as opinions;
 R9's three changes (R2b, R-lm, R-lin) exist only if these answers ask for
-them, and Q-R1 goes to the owner only if §4.2 says so. These are
+them, and Q-R1 goes to the owner only if §4.2 says so. **§4.3 and §4.4
+are not run (D520, 2026-10-10):** they needed `gemini-midtone`, dropped when
+Gemini's new outputs came without a visible mark; their tools stay. These are
 developer tools (D162): no catalogue string, no settings row, no CLI flag.
 They run on the **host** — the owner's pictures never go into git, and CI
 has neither the corpus nor Python. Every script opens with the header

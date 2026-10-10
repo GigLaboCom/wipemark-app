@@ -45,7 +45,7 @@ fixtures (`fixtures/image/gemini/`, 14 crops) are a `repo` source.
 | `transparent` | the 19 cut-outs + two fixtures | `transparent` refusals or no finding; expectations unchanged |
 | `alt` | the 2 alternates | expectations unchanged |
 | `negative` | R2 §2: ≥ 60 real pictures with no mark, each also at 4:2:0 q90 and q85 | zero found, zero verified, zero restored, `clean` exit 0, pixels not written |
-| `gemini-midtone` | R2 §1, when it lands | M3's target |
+| ~~`gemini-midtone`~~ | dropped (D520, 2026-10-10): Gemini's new outputs carry no visible mark | — (M3 dropped with it) |
 | `held-out` | a second golden set's marked files its profile was not fitted on (R11's held-out 20 %; E12-R12 §4.2) | lossless or lossy by the variant (`…png` lossless); a proof lost is G4's fail |
 
 **A second golden set** — `golden/grok/` for Grok (E12-R12 §4.2) — has the
@@ -62,8 +62,8 @@ profiles lose none — is `regress.py diff --a <Gemini baseline before> --b
 (F1, F2); see `scripts/regress.py`'s header.
 
 `transparent` and `alt` are added on the host with `pin --add` (their paths
-inside the ZIP are written nowhere in this repository); `negative` and
-`gemini-midtone` wait for R2.
+inside the ZIP are written nowhere in this repository); `negative` waits
+for R2 (`gemini-midtone`, which waited too, was dropped by D520).
 
 A **derived** file is rebuilt from its parent by `mkset.py`'s recipe
 (`scripts/verify/images/round4-ebf421a/mkset.py`): `Image.open(f).convert("RGB")`,
@@ -127,7 +127,7 @@ the written file's own proof, in the code.
 | route | for | gates |
 |---|---|---|
 | `lossy` | the lossy branch only (R6, R8) | **L1** every lossless output byte-equal and its JSON equal; **L2** on JPEG/WebP the target improves and every other measure is not worse; **L3** every out-of-range refusal lifted is listed, and one lifted into exit 3 is attention; **L4** G1 on the JPEG negatives on its own line |
-| `model` | the lossless path moves (R9) | **M1** PNG outputs move; **M2** `step` and `outline` grow on no `recon-png`; **M3** `gemini-midtone`'s target improves on 80 %; **M4** level A (R5's bench, not here) |
+| `model` | the lossless path moves (R9) | **M1** PNG outputs move; **M2** `step` and `outline` grow on no `recon-png`; ~~**M3**~~ dropped with `gemini-midtone` (D520); **M4** level A (R5's bench, not here) |
 | `detect` | proposals, rows, search, kernel | **D1** 1024 is the target, 1025 and 1040 are not lost; **D2** a verified `rect` moves ⅛ px at most off the targets; **D3** G1 with the JPEG negatives; **D4** `recon-png` byte-equal where `rect` did not move |
 | `all` | a change on more than one route | the three together; `lossy,detect` names two |
 

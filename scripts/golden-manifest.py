@@ -34,7 +34,9 @@ What it does
 `transparent` (19 cut-outs) and `alt` (2 alternates) are not listed by
 name, because their paths inside the ZIP are not written down anywhere in
 this repository: the host adds them from the ZIP with `regress.py pin
---add`. `negative` waits for R2's corpus (§6.5), `gemini-midtone` for R2 §1.
+--add`. `negative` waits for R2's corpus (§6.5); `gemini-midtone`, which
+waited for R2 §1, was dropped on 2026-10-10 (D520: Gemini's new outputs
+carry no visible mark).
 
 How to run it
 -------------

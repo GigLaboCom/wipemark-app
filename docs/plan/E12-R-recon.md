@@ -10,6 +10,7 @@
 | Decisions        | **proposed D490–D502** (§5; proposed as D301–D313, renumbered at the merge into `feat` on 2026-10-10, where D300–D306 and D310–D326 are other decisions); the owner's decisions of 2026-10-08, **S1–S12**, are recorded in §5.1 as taken                                               |
 | Owner questions  | **Q-R1 … Q-R9** (§6)                                                                                                                                                                    |
 | Size             | ~6–8 weeks across twelve steps. Most of it is measurement. Three steps change what a user gets: R6, R7 and R8; R9 changes it only on the evidence R4 produces                           |
+| Status           | **The Gemini line is closed (2026-10-10, D520):** Gemini's new outputs carry no visible mark (the owner); the shipped V1/V2 profiles and maps stay, so every picture already made is still found and restored, and metadata is removed as before; `gemini-midtone` (R2 §4.1) is dropped, R4 §4.3–§4.4 and R9's level A are not run, R9's code is parked behind `blend-preview` (D521). The series now turns to Grok: the owner's capture guide and one command from a folder of captures to a proposed profile ([E12-R-closeout-grok-ready.md](E12-R-closeout-grok-ready.md), [E12-R-grok-capture-guide.md](E12-R-grok-capture-guide.md), D522–D529) |
 
 ## 1. Why this series exists
 
@@ -48,14 +49,14 @@ carries Grok from nothing to a profile (R11, R12).
 | step | document | what | runs on | depends on | size |
 |---|---|---|---|---|---|
 | **R1** | [E12-R1-regression-harness.md](E12-R1-regression-harness.md) | `golden/manifest.json`, `scripts/regress.py` (`baseline`/`run`/`diff`), gates by route (`lossy`/`model`/`detect`), the baseline at the series' base commit | container (the script, its self-test) + host (the baseline) | R2's negatives (60 at least) | ~3 days |
-| **R2** | [E12-R2-corpora.md](E12-R2-corpora.md) | Gemini on varied backgrounds (`gemini-midtone`), negatives from three sources, Grok stage 0 (captures and the facts table), their manifests and the background check | **owner** (generations) + host (checks, manifests, uploads) | — (first, beside R1 and R3) | ~1 week of the owner's time, ~1 day host |
+| **R2** | [E12-R2-corpora.md](E12-R2-corpora.md) | ~~Gemini on varied backgrounds (`gemini-midtone`)~~ (dropped, D520), negatives from three sources, Grok stage 0 (captures and the facts table), their manifests and the background check | **owner** (generations) + host (checks, manifests, uploads) | — (first, beside R1 and R3) | ~1 week of the owner's time, ~1 day host |
 | **R3** | [E12-R3-jpeg-planes.md](E12-R3-jpeg-planes.md) | a `zune-jpeg` fork that hands out the planes before upsampling and the quantisation tables; `wipemark_pixels::Planes`; `Decoded.planes`; the upsampler held to the decoder's | owner (creates the fork repository) + container | — | ~4 days |
-| **R4** | [E12-R4-corpus-analytics.md](E12-R4-corpus-analytics.md) | four questions answered by numbers before any change: `k`'s stability, row offsets, a constant bias, whether `L(p)` is identifiable; `examples/forced_search.rs`, `examples/map_regress.rs`, `scripts/analytics/` | container (the tools) + host (the runs) | R1, R2 (§3 and §4 of it wait for `gemini-midtone`) | ~4 days |
+| **R4** | [E12-R4-corpus-analytics.md](E12-R4-corpus-analytics.md) | four questions answered by numbers before any change: `k`'s stability, row offsets, a constant bias, whether `L(p)` is identifiable; `examples/forced_search.rs`, `examples/map_regress.rs`, `scripts/analytics/` | container (the tools) + host (the runs) | R1, R2 (§3 and §4 of it waited for `gemini-midtone`: not run, D520) | ~4 days |
 | **R5** | [E12-R5-recon-bench.md](E12-R5-recon-bench.md) | `recon_bench`: synthetic marks over known backgrounds, every degradation through both encoders, PSNR/SSIM/ΔE2000 in the ROI, the blend-model matrix, gates of level A | container (the bench) + host (the run, the backgrounds) | R1, R3 | ~5 days |
 | **R6** | [E12-R6-planar-inverse.md](E12-R6-planar-inverse.md) | **R4 of the spec**: the inverse of a 4:2:0/4:2:2 JPEG by planes — luma at full resolution, chroma at its own with the block-mean `ᾱ`; out of range measured in the same model (D495) | container + host verification | R3, R5, R1 | ~5 days |
 | **R7** | [E12-R7-consistency.md](E12-R7-consistency.md) | `consistency_px` and `consistency_dct` in `Restored` and the JSON (D494): the restored picture blended back against the input | container | R5 (to report it), before or beside R6 | ~1 day |
 | **R8** | [E12-R8-value-inside-the-interval.md](E12-R8-value-inside-the-interval.md) | **R4d / R3 / R3w of the spec**: on a lossy source, the restored value chosen inside the codec's interval — DCT-POCS, pixel POCS or Wiener, one kept by the bench; `TEXTURE_RATIO_MIN` (D496) | container + host verification | R6, R7 | ~1–2 weeks |
-| **R9** | [E12-R9-blend-model-changes.md](E12-R9-blend-model-changes.md) | **R2b, R-lm, R-lin of the spec**, each only if R4 asks for it: a bias in the profile (D497), a per-pixel logo colour, the linear-light blend (D500) | container + host verification | R4's verdicts, R5 | 0 to ~2 weeks |
+| **R9** | [E12-R9-blend-model-changes.md](E12-R9-blend-model-changes.md) | **R2b, R-lm, R-lin of the spec**, each only if R4 asks for it: a bias in the profile (D497), a per-pixel logo colour, the linear-light blend (D500) — **parked (D521)**: no fresh Gemini target | container + host verification | R4's verdicts, R5 | 0 to ~2 weeks |
 | **R10** | [E12-R10-model-evaluation.md](E12-R10-model-evaluation.md) | FDnCNN and LaMa evaluated outside Rust, at a stated point and by a stated trigger; "not needed" is a result | host (Python, `scripts/model-eval/`) | R6, R8 (Gemini); R11 (Grok) | ~3 days per model run |
 | **R11** | [E12-R11-grok-map.md](E12-R11-grok-map.md) | Grok stages 1–3: invariance and holes, the map by captures and by regression, the profile proved on held-out | host + container (the profile row) | R2 §3, R4's tools | ~1–2 weeks |
 | **R12** | [E12-R12-grok-thresholds-and-support.md](E12-R12-grok-thresholds-and-support.md) | Grok stages 4–5: the measures on clean pictures (`examples/measure_clean.rs`, for Gemini too), thresholds, the bench and the regression for Grok, the conditions for saying Grok is supported | host + container | R11, R5, R1 | ~1 week |
@@ -179,6 +180,27 @@ The step reports of 2026-10-08/09 use the new numbers too.
 | **D500** | D152 (`encoded`) is revisited only on **three agreements**: the calibration on grey captures chooses `linear-light`, R4's residual grows with `Ô` monotonically, and R5's matrix shows the linear inverse winning on linear composites and losing on encoded ones. The experiment's result is recorded either way | spec 06 §6, S9, D-new-8 | R9 |
 | **D501** | Every developer tool that reads a picture file (the bench, `forced_search`, `map_regress`, `measure_clean`) is an example of **`wipemark-picture`**. The synthetic composition helpers (`composite_with`, the blend models, `to_linear`/`from_linear`) live in `wipemark_pixels::synth`, `#[doc(hidden)]`. The catalogue keeps refusing `linear-light` and `logo_map` until R9 says otherwise | §3 rows 4, 5; D162 (developer tools are not a surface) | R4, R5, R12 |
 | **D502** | *(proposed by E12-R9, conditional on R4 §4.4)* A profile may carry a **`logo_map`**: a `.wml` asset named by `{asset, sha256, size}`, hashed against its pin before it is read and the size of every opacity map its profile lists; the inverse and the proof read the logo's colour `L(p)` per template pixel wherever they read `L` (in the planes, through JFIF's matrix for Y and as the `α`-weighted block mean for chroma). Behind `blend-preview` until taken; no shipped profile carries one | spec 06 §4, R9b; `reports/E12-R9-2026-10-09.md` | R9 |
+
+### 5.3 Taken at the close-out — D520 onward (2026-10-10)
+
+The coordinator's task `wipemark-task-recon-closeout-grok-ready-2026-10-10`
+([E12-R-closeout-grok-ready.md](E12-R-closeout-grok-ready.md)); report
+[reports/E12-R-closeout-2026-10-10.md](reports/E12-R-closeout-2026-10-10.md).
+Every one is built at a default the owner may override; the rows are in
+`docs/plan/README.md` §4 too.
+
+| D | decision | step |
+|---|---|---|
+| **D520** | The Gemini line is closed (pending C, option b): Gemini's new outputs carry no visible mark (the owner, 2026-10-10); the V1/V2 profiles and maps stay; metadata removal is unchanged; `gemini-midtone` is dropped from R2, `manifest.py`, `regress.py`, the golden schema and README, and R1's M3; R4 §4.3–§4.4 and R9's level A are not run | R1, R2, R4, R9 |
+| **D521** | R9a/b/c stay behind `blend-preview`, parked, not removed (pending D4) | R9 |
+| **D522** | The soap check's share is 90 %, the ratio 0.8 unchanged (pending B1) | R5, R8 |
+| **D523** | The measures' bounds stay constants; D498 stays proposed (pending B2) | R12 |
+| **D524** | The search's `k* = 1.06` on resampled files is noted in R4's report; nothing changes (pending B3) | R4 |
+| **D525** | The steps' smaller questions at their first options (pending D1–D12; D4, D9, D10 as D521, D526, D527): ⌈n/5⌉ held out, F2 excused by a declared target on the detect route, the rest as built; D5 not built | R2, R10, R11, R12 |
+| **D526** | A provisional Grok profile is a `--catalogue` file until P1–P5 accept it, never the shipped catalogue (pending D9) | R11, R12 |
+| **D527** | Grok's degradation list lives at `bench/degradations/grok.json` (pending D10) | R12 |
+| **D528** | Grok's captures are one folder, `grok-captures/<web|x|api|video>/`, a background group read from the start of a file's name; a calibration drafts `grok-<web|x|api|video>`, vendor `xai`; `scripts/grok/run.sh` takes the folder to a proposed profile | R2, R11, R12 |
+| **D529** | A drafted profile's search sits at the corner nearest its rows' marks, not always bottom-right | R11 |
 
 ## 6. Questions for the owner
 
