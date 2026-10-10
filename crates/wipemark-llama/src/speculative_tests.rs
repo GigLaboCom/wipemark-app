@@ -294,18 +294,31 @@ fn the_budget_is_never_overshot_by_a_block() {
 }
 
 /// The window bounds a block as well: near its end the draft is asked for
-/// less, and no block is decoded past it (the fake asserts it).
+/// less, no block is decoded past it (the fake asserts it), and the
+/// generation ends there — with a budget the caller did not clip to the
+/// window, as `Model::generate` does, so the window is the only bound.
 #[test]
 fn no_block_reaches_past_the_window() {
     let cancel = AtomicBool::new(false);
-    let mut fake = Fake::new(greedy, knows(greedy, usize::MAX));
-    fake.n_ctx = 20;
-    let budget = Budget {
-        n_ctx: 20,
-        ..budget(&cancel, 11)
-    };
-    let (out, _) = run(&mut fake, &PROMPT, &budget);
-    assert_eq!(out, alone(greedy, &PROMPT, 11).0);
+    for right in [usize::MAX, 0, 3] {
+        let mut fake = Fake::new(greedy, knows(greedy, right));
+        fake.n_ctx = 20;
+        let budget = Budget {
+            n_ctx: 20,
+            ..budget(&cancel, 100)
+        };
+        let (out, ended) = run(&mut fake, &PROMPT, &budget);
+        // Positions 0..8 hold the prompt but its last token; a block may
+        // start at 8 through 19, and the token its last position samples is
+        // kept: 12 tokens.
+        assert_eq!(
+            out,
+            alone(greedy, &PROMPT, 12).0,
+            "a draft right {right} times"
+        );
+        assert_eq!(ended.finish, Finish::Length);
+        assert!(fake.kv.len() <= 20);
+    }
 }
 
 /// The end of the generation inside a block stops there: nothing the

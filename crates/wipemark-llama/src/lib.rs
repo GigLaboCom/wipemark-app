@@ -11,7 +11,9 @@
 //! each piece of text to a callback ([`Model::generate`]), stop when an
 //! `AtomicBool` says so, estimate the memory a load needs before making it
 //! ([`estimate`], [`refusal`]), and report which ggml backends registered
-//! ([`Runtime`]).
+//! ([`Runtime`]). Beside a model, load a DFlash2 draft and decode with it
+//! ([`Model::load_drafted`], [`speculative`]): the model verifies the
+//! draft's blocks, and every token kept is its own (E2-dflash2).
 //!
 //! Nothing here is about the product: no vendor, no report, no catalogue,
 //! no sentence for a person. Errors are values.

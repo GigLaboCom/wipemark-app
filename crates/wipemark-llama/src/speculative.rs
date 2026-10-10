@@ -430,7 +430,9 @@ pub fn generate(
 
     let mut last = first_last;
     ended.finish = loop {
-        if ended.tokens_out >= budget.max_tokens {
+        // The tokens asked for, or the window: a block's first position
+        // must be in it, whatever budget the caller handed over.
+        if ended.tokens_out >= budget.max_tokens || n_past >= budget.n_ctx {
             break Finish::Length;
         }
         if cancelled() {
