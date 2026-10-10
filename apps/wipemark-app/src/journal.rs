@@ -586,6 +586,9 @@ pub fn rewrite_end(end: &End, caller: bool) -> (Outcome, Option<Delivered>) {
                 rewritten: Some(totals.rewritten),
                 kept_source: Some(totals.kept_source),
                 model: Some(done.report.engine.model_id.clone()),
+                // The template profile the job's report names (E4-9, D516):
+                // an id, never a template's text (D312).
+                profile: Some(done.report.profile.clone()),
                 ..Outcome::default()
             };
             let delivered = if caller {

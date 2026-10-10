@@ -198,6 +198,10 @@ enum Action {
         nfkc: bool,
         #[arg(long)]
         prompts: Option<PathBuf>,
+        /// A template profile's id or name (E4-9): it runs instead of the
+        /// saved templates, and `--prompts` lays over it.
+        #[arg(long)]
+        profile: Option<String>,
         #[arg(long)]
         seed: Option<u64>,
         #[arg(long)]
@@ -266,7 +270,7 @@ const TACTICS: [&str; 5] = [
 /// is set per subcommand: `inspect`, `clean` and `rewrite` take `-` for
 /// stdin and `audit` takes a folder, and help that offered it everywhere
 /// would be help that lies.
-const ARGUMENT_HELP: [(&str, Message); 24] = [
+const ARGUMENT_HELP: [(&str, Message); 25] = [
     ("path", Message::CliArgPath),
     ("out", Message::CliArgOut),
     ("in_place", Message::CliArgInPlace),
@@ -281,6 +285,7 @@ const ARGUMENT_HELP: [(&str, Message); 24] = [
     ("rounds", Message::CliArgRounds),
     ("format", Message::CliArgFormat),
     ("prompts", Message::CliArgPrompts),
+    ("profile", Message::CliArgProfile),
     ("seed", Message::CliArgSeed),
     ("id", Message::CliArgId),
     ("dir", Message::CliArgDir),
@@ -632,6 +637,7 @@ fn main() -> ExitCode {
             aggressive,
             nfkc,
             prompts,
+            profile,
             seed,
             json,
             no_record,
@@ -652,6 +658,7 @@ fn main() -> ExitCode {
                 aggressive: *aggressive,
                 nfkc: *nfkc,
                 prompts: prompts.as_deref(),
+                profile: profile.as_deref(),
                 seed: *seed,
                 json: *json,
                 record: !*no_record,

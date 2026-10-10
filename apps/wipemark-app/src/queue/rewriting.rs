@@ -1083,7 +1083,11 @@ pub(super) fn asked(format: TextFormat) -> Asked {
 /// The rows' rewrites, built: the template rows read, a text with no file
 /// read and decoded, each one priced. Blocking.
 fn build(work: &Work, asked_for: Vec<(u64, Arrival, Destination, Whereto)>) -> Vec<Built> {
-    let (overrides, pivot) = crate::mcp::rewrite::saved_rows(work.journal.store());
+    // The working set as the Rewriting page saved it, and what it is — the
+    // profile it renders like, or `custom` — for the report (E4-9, D516).
+    let saved = crate::mcp::rewrite::saved(work.journal.store());
+    let label = saved.label();
+    let (overrides, pivot) = (saved.overrides, saved.pivot);
     let pace = work.engine.pace();
     let executor = pace.executor.unwrap_or(Executor::LocalCpu);
     let info = work.engine.described().ok();
@@ -1104,7 +1108,12 @@ fn build(work: &Work, asked_for: Vec<(u64, Arrival, Destination, Whereto)>) -> V
                 }
             }
             let format = format_of(arrival.intake.format);
-            let options = asked(format).options(executor, overrides.clone(), pivot);
+            let options = asked(format)
+                .options(executor, overrides.clone(), pivot)
+                .map(|mut options| {
+                    options.profile = Some(label.clone());
+                    options
+                });
             let text = clean::text_of(&arrival);
             let planned = match (&text, &options, &info) {
                 (Ok(text), Ok(options), Some(info)) => plan(
@@ -1222,7 +1231,8 @@ pub(super) fn refused_template(
 /// What rewriting `things` would cost, summed (D61). Blocking: it reads
 /// each document. A rate never measured leaves the time unknown.
 fn price_of(work: &Work, things: &[Arrival], away: Option<String>) -> Price {
-    let (overrides, pivot) = crate::mcp::rewrite::saved_rows(work.journal.store());
+    let saved = crate::mcp::rewrite::saved(work.journal.store());
+    let (overrides, pivot) = (saved.overrides, saved.pivot);
     let pace = work.engine.pace();
     let executor = pace.executor.unwrap_or(Executor::LocalCpu);
     let info = work.engine.described().ok();

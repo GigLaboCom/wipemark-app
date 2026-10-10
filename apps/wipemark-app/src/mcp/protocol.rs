@@ -417,6 +417,19 @@ impl Tool {
                 }),
             );
             properties.insert(
+                "profile".to_owned(),
+                json!({
+                    "type": "string",
+                    "description": "A template profile to rewrite with instead of the templates \
+                                    the application saved: shipped, keep-voice, or the id of one \
+                                    saved on its Rewriting page. It is laid whole or refused - an \
+                                    id no profile has is refused by name, never replaced by the \
+                                    saved templates - and templates lays over it. The report's \
+                                    best_effort.profile names the profile the templates came \
+                                    from, or custom.",
+                }),
+            );
+            properties.insert(
                 "dry_run".to_owned(),
                 json!({
                     "type": "boolean",
@@ -521,6 +534,7 @@ impl Tool {
                 "nfkc",
                 "seed",
                 "templates",
+                "profile",
                 "dry_run",
                 "record",
             ],
@@ -546,7 +560,7 @@ impl Tool {
                  `intensity` (light, moderate or strong), `candidates` and `rounds` (1 to 8), \
                  `format` (plain, markdown or html), `aggressive`, `nfkc`, `dry_run` and `record` \
                  (true or false), `seed` (a whole number), `templates` (an object of template \
-                 rows)"
+                 rows), `profile` (a template profile's id)"
             }
         }
     }
@@ -943,6 +957,29 @@ fn unrun_said(unrun: &Unrun) -> String {
         Unrun::Templates(Laid::Breaks { key, rule }) => {
             format!("the template `{}` breaks the rule `{rule}`", spelled(key))
         }
+        Unrun::UnknownProfile(id) => format!(
+            "`profile` names `{}`, which is no template profile this application has: the \
+             built-in ones are shipped and keep-voice, and the others are the ids of the profiles \
+             saved on its Rewriting page",
+            spelled(id)
+        ),
+        Unrun::Profile { id, laid } => {
+            let why = match laid {
+                Laid::UnknownRow { key } => {
+                    format!("`{}` is not a template row this build has", spelled(key))
+                }
+                Laid::Unreadable { key } => {
+                    format!("`{}` is not a template this build can read", spelled(key))
+                }
+                Laid::Breaks { key, rule } => {
+                    format!("the template `{}` breaks the rule `{rule}`", spelled(key))
+                }
+            };
+            format!(
+                "the template profile `{}` cannot be used, and nothing ran: {why}",
+                spelled(id)
+            )
+        }
         Unrun::Refused(why) => format!("the job did not start: {}", spelled(&why.to_string())),
         Unrun::Failed(error) => format!("the job failed: {}", spelled(&error.to_string())),
         Unrun::Stopped(Some(Stop::HungUp)) => {
@@ -1107,6 +1144,17 @@ fn read_rewrite(arguments: &Map<String, Value>) -> Result<rewrite::Call, Vec<Pro
             Map::new()
         }
     };
+    let profile = match arguments.get("profile") {
+        None => None,
+        Some(Value::String(id)) => Some(id.clone()),
+        Some(_) => {
+            problems.push(Problem::WrongType {
+                name: "profile",
+                wants: "a template profile's id, as a string",
+            });
+            None
+        }
+    };
 
     let mut extra: Vec<&String> = arguments
         .keys()
@@ -1129,6 +1177,7 @@ fn read_rewrite(arguments: &Map<String, Value>) -> Result<rewrite::Call, Vec<Pro
                 seed,
             },
             templates,
+            profile,
             dry_run,
             record,
         }),
@@ -2362,6 +2411,55 @@ pub(crate) mod tests {
             assert!(text.contains(named), "{arguments}: {text}");
         }
         assert!(inbox.is_empty(), "a refused call started a job");
+    }
+
+    /// The test the task names (E4-9, D515, D516): `profile` runs a template
+    /// profile instead of the saved rows. An id no profile has is refused by
+    /// name — never the saved rows in its place — and nothing runs; a
+    /// profile laid is what the model is sent and what the report names;
+    /// `templates` lays over it, and the set is then `custom`.
+    #[test]
+    fn a_call_names_a_template_profile_and_an_unknown_one_is_refused() {
+        let engine = FakeEngine::answering(|req, _| swapped(req));
+        let (services, inbox) = serving(engine.clone());
+        for (arguments, named) in [
+            (
+                json!({"text": PARAGRAPH, "profile": "nobody"}),
+                "`profile` names `nobody`, which is no template profile",
+            ),
+            (
+                json!({"text": PARAGRAPH, "profile": 7}),
+                "`profile` must be a template profile's id",
+            ),
+        ] {
+            let text = refusal_text(&rewritten(&services, &arguments.to_string(), &|| false));
+            assert!(text.contains(named), "{arguments}: {text}");
+        }
+        assert!(inbox.is_empty(), "a refused call started a job");
+        assert!(engine.asked().is_empty(), "a refused call asked the model");
+
+        let report_of = |arguments: Value| {
+            let response = rewritten(&services, &arguments.to_string(), &|| false);
+            assert_eq!(response["result"]["isError"], json!(false), "{response}");
+            response["result"]["structuredContent"]["report"].clone()
+        };
+        let report = report_of(json!({"text": PARAGRAPH, "profile": "keep-voice"}));
+        assert_eq!(report["best_effort"]["profile"], json!("keep-voice"));
+        assert!(
+            engine.asked().iter().all(|req| req
+                .system
+                .as_deref()
+                .is_some_and(|system| system.contains("- Keep the author's voice:"))),
+            "every request carried keep-voice's rule"
+        );
+        let over = report_of(json!({
+            "text": PARAGRAPH,
+            "profile": "keep-voice",
+            "templates": {"prompts.en.paraphrase.1.user": "Say it again. {PROTECTED}\n{TEXT}"},
+        }));
+        assert_eq!(over["best_effort"]["profile"], json!("custom"));
+        let saved = report_of(json!({"text": PARAGRAPH}));
+        assert_eq!(saved["best_effort"]["profile"], json!("shipped"));
     }
 
     /// A `FakeEngine` that does not say its window — an endpoint's, which

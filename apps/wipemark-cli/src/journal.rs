@@ -337,6 +337,11 @@ pub(crate) fn rewrite_outcome(report: &serde_json::Value, exit: Exit) -> Outcome
         model: report["best_effort"]["engine"]["model_id"]
             .as_str()
             .map(ToOwned::to_owned),
+        // The template profile the report names (E4-9, D516): an id,
+        // never a template's text (D312).
+        profile: report["best_effort"]["profile"]
+            .as_str()
+            .map(ToOwned::to_owned),
         ..Outcome::default()
     }
 }

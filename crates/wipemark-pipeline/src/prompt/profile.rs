@@ -274,6 +274,11 @@ impl Profile {
                 }),
             }
         }
+        // In key order, whatever order the map keeps (serde_json's
+        // `preserve_order` is on in some builds and not in others): the
+        // first of them is the refusal said, and it is the same in every
+        // build.
+        unread.sort_by(|left, right| left.key.cmp(&right.key));
         Some(Profile {
             id: id.to_owned(),
             kind: Kind::Saved {
@@ -989,16 +994,12 @@ mod tests {
         assert_eq!(value["format"], json!(1));
         assert_eq!(value["name"], json!("Legal"));
         let shared = &value["slots"][row::key(de)];
-        assert_eq!(
-            shared
-                .as_object()
-                .map(|o| o.keys().cloned().collect::<Vec<_>>()),
-            Some(vec![
-                "based_on".to_owned(),
-                "origin".to_owned(),
-                "text".to_owned()
-            ])
-        );
+        let mut fields: Vec<String> = shared
+            .as_object()
+            .map(|object| object.keys().cloned().collect())
+            .unwrap_or_default();
+        fields.sort();
+        assert_eq!(fields, ["based_on", "origin", "text"]);
         assert_eq!(shared["origin"], json!("machine"), "machine stays machine");
         assert!(!file.contains("adapted_from"));
 
