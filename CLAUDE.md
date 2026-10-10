@@ -813,6 +813,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   queue's pause and states from memory, never a row per frame (D359).
   Compare of a rewritten row opens on the rewrite as delivered, never
   called "better" (`compare_of_a_rewritten_row_is_the_delivered_text`).
+  A result edited in Compare and saved as typed reads "…, then edited"
+  wherever its verdict is said — badge, tooltip, the Report and its
+  Markdown copy (D447, built at the default; the alternative is Layer A
+  over the edit). Report… of a row the journal keeps is greyed with its
+  reason (D448).
   A window's rewrite is an agent's call with no arguments — paraphrase,
   the default intensity, the saved templates and pivot (D323). See
   `docs/architecture/queue.md`, "Rewriting".
@@ -836,7 +841,10 @@ Anything that needed more than a rule to explain is in `docs/`;
   lives in the batch queue's row only while it is queued or running, or
   when that row is the result's one home (a paste), and an agent's item is
   removed the moment its answer goes back (D313). One row per document,
-  its action the last asked (D320). Rows of another process are noticed by
+  its action the last asked (D320). An edit mark from a Compare window
+  names the result it is about — its action and its home — and lands only
+  while that is the row's latest result, checked by the row and in the SQL
+  (D442); an entry this build cannot read is left as it is (D444). Rows of another process are noticed by
   `PRAGMA data_version` once a second, the application's own by a notes
   channel (D316); a launch settles what the last run left (D317). An
   agent's or the CLI's call waiting for its rewrite ends as a refusal if
@@ -1008,7 +1016,10 @@ Anything that needed more than a rule to explain is in `docs/`;
   the leading pane's top — a row and a fraction — line for line in a
   shared stretch and in proportion through a changed passage (D380,
   D381); a scroll is seen by each editor's notification and by a look
-  after every painted frame (D386), a follower's landing is told from a
+  after every painted frame (D386) — a thumb drag included: the bar
+  notifies the editor's own view, and the panes stand level in the frame
+  either moves, measured on the first frame painted (D449); a wrapped
+  result that leads is followed a frame late — a follower's landing is told from a
   lead by what was asked (D382), the result leads the cursor follow
   (D383), and a wrapped result lines up approximately (D384); an ask is
   consumed or dropped by the end of the frame that lays it out (D432), and
@@ -1025,7 +1036,18 @@ Anything that needed more than a rule to explain is in `docs/`;
   of the result's strip and ⌘S, and, with `compare.autosave` (on by
   default, read when a window opens), a moment after typing stops and as
   the window closes; without it, a close with edits not saved asks Save /
-  Discard / Cancel. `compare/save.rs` is the rule — over the result's own
+  Discard / Cancel. ⌘Q and the tray's Quit ask no window, so each window
+  saves at quit what autosave would have saved — synchronously in its
+  `on_app_quit` callback, by the stamp it holds, never over a home that
+  changed — and waits for the journal's writer (D440). A Save that cleans
+  asks the row where its result lives first, and a row cleaned since the
+  window opened is asked about — Overwrite / Keep theirs / Cancel — never
+  cleaned over (D441). The changed-on-disk check sits after the staging,
+  just before the rename (`inplace::write_atomically_if`); a write between
+  that read and the rename is still replaced, and nothing is locked (D443).
+  One question at a time: a standing one is never replaced (D445). Closing
+  with edits and nowhere to save asks — Copy and close, Discard, Cancel
+  (D446). `compare/save.rs` is the rule — over the result's own
   file, into the row of a paste, or, when nothing was written yet, a Clean
   of the pane's text in the one line of cleans (`clean::save_one`,
   `Cleaner::ask_with`) — never over the original, never through a
@@ -2064,6 +2086,7 @@ What exists so far:
 | `wipemark-compare-mirrored-report-2026-10-09` | FILE | its report: M1–M6, D460–D467, five red checks, gates 1794/0/7, CI green; merged into `feat` 2026-10-09; the host's window checklist (screenshots, both layouts, the row flipped live) in it |
 | `wipemark-task-models-pipeline-followups-2026-10-09` | FILE | a task for an agent: the speech tags read in three kinds (E8's Medium, at a default), `macOS-only` no identifier (at a default), E8-1's last Lows, a non-blocking open of a model file, Gemma 4's re-upload looked at, the plan's stale rows; D450–D459, on `fix/models-pipeline-followups` |
 | `wipemark-models-pipeline-followups-report-2026-10-09` | FILE | the report of `wipemark-task-models-pipeline-followups-2026-10-09`: M1–M11, D450–D455, 14 of 14 red, gates 1795/0/7, CI green; Gemma 4 stays at `f18012b8` (HEAD only re-templates tool calls); merged into `feat` 2026-10-09 |
+| `wipemark-compare-followups-report-2026-10-09` | FILE | the report of `wipemark-task-compare-followups-2026-10-09` and its addendum C16: C1–C8, C12, C13, C15, C16 done, D440–D449, 15 of 15 red, gates 1819/0/7, CI green; merged into `feat` 2026-10-10 (`d0a4c76`); its host checklist (seven window checks) in it |
 | `wipemark-status-2026-10-04` | FILE | where the project stood on 2026-10-04: E4-1…E4-5 and E4-6a landed, what the prompt bench found, the owner's open questions, what is next |
 | `wipemark-status-2026-10-05` | FILE | where the project stood at the end of 2026-10-05: images rounds 3–5, E7 merged, the X11 first frame fixed through `GigLaboCom/zed`, and the plan of pull requests and branches (`docs/plan/README.md` §2.1) — PR #1 and what comes next, in order |
 | `wipemark-status-2026-10-06` | TEXT | where the project stood at the end of 2026-10-06: E7 follow-ups X1–X14 and Y1–Y9 merged, Z1–Z3 filed, mutation tables dropped for `coverage.yml` (on `main` and by hand), what is next |
@@ -2132,7 +2155,11 @@ D460–D467, merged 2026-10-09): the submodule on gpui-kit `next`
 `d9b7c421`, where the owner's #3416 and #3417 are merged. **The
 models-and-pipeline follow-ups** are merged too (D450–D455, 2026-10-09):
 speech tags read in three kinds and `macOS-only` no identifier, both at a
-default the owner may override, and E8-1's last Lows. In
+default the owner may override, and E8-1's last Lows. **Compare's
+follow-ups** are merged (D440–D449, 2026-10-10): an edit saved at quit, a
+row cleaned since the window opened asked about, an edit mark that names
+its result, one question at a time, "…, then edited" (D447) and Report… of
+a journal row greyed (D448), both at a default the owner may switch. In
 progress: the E12-R series (`plan/recon-2026-10-08`, the restoration
 measured, then made more precise) — R1, R3, R4, R5 done in the container
 on `recon/r1-r5`, R3 being moved onto upstream zune-jpeg's raw output on
