@@ -46,8 +46,11 @@ What it does
      `consistency_dct`;
      then §6.2's two checks per config — `texture` under 5.5 on
      `jpeg444-q95` on at least 80 % of the restored files, and the soap
-     check, `texture / texture_around ≥ 0.8` on at least 95 % of every
+     check, `texture / texture_around ≥ 0.8` on at least 90 % of every
      restored lossy file — each said pass or fail. A1–A7 stay `gates`'.
+     (The soap check's share was §6.2's 95 % until 2026-10-10; R0 itself
+     reads 93.0 % on the bench, so nothing could pass it — D522 set it at
+     90 %, the 0.8 ratio unchanged; the E12-R close-out.)
 
 The configs are named after the steps: `R0` is the RGB road with no
 refinement, the product's until the owner's decisions of 2026-10-10;
@@ -127,7 +130,8 @@ DEFAULT_TARGETS = ["jpeg420-q95", "jpeg420-q90", "jpeg444-q95"]
 R8_TEXTURE_SLICE = "jpeg444-q95"
 R8_TEXTURE_SHARE = 0.8    # on that slice, texture under TEXTURE_BOUND on at least this share of restored files
 SOAP_RATIO = 0.8          # D496: texture / texture_around at least this (TEXTURE_RATIO_MIN)…
-SOAP_SHARE = 0.95         # …on at least this share of the restored lossy files (the soap check)
+SOAP_SHARE = 0.90         # …on at least this share of the restored lossy files (the soap check; D522 — §6.2's 0.95
+                          # failed R0 itself, 93.0 % on the bench of 2026-10-09: a bound nothing passes is no bound)
 LOSSY_SLICES = ["jpeg*", "webp-lossy*"]
 
 
@@ -802,13 +806,17 @@ def selftest():
     expect("90 % under the bound passes R8's texture check",
            checks[0]["ok"] and abs(checks[0]["share"] - 0.9) < 1e-9)
     expect("every ratio at 1 or over passes the soap check", checks[1]["ok"])
-    soapy = [fake("R8d", "jpeg420-q95", 42.0, i, texture=1.5 if i < 2 else 3.0, around=3.0, interval=rounds,
-                  smoothed=i < 2) for i in range(20)]
-    expect("two in twenty at half their surroundings fail the soap check", r8_checks(soapy, "R8d")[1]["ok"] is False)
+    def soapy_with(bad):
+        return [fake("R8d", "jpeg420-q95", 42.0, i, texture=1.5 if i < bad else 3.0, around=3.0, interval=rounds,
+                     smoothed=i < bad) for i in range(20)]
+    soapy = soapy_with(3)
+    expect("three in twenty at half their surroundings fail the soap check", r8_checks(soapy, "R8d")[1]["ok"] is False)
+    # D522: the share is 90 % — two in twenty (90 %) pass, and R0's own 93 % of 2026-10-09 would.
+    expect("two in twenty (90 %) pass the soap check at D522's share", r8_checks(soapy_with(2), "R8d")[1]["ok"] is True)
     expect("a config with no restored lossy file says nothing", r8_checks(soapy, "R0")[1]["ok"] is None)
-    md_r8 = report(r8 + soapy, {}, target)
+    md_r8 = report(r8 + soapy_with(4), {}, target)
     expect("§10 names each check's verdict", "R8d: texture < 5.5 on jpeg444-q95: 90.0 %" in md_r8
-           and "(the soap check): 93.3 % of 30 (needs 95 %) — **fail**" in md_r8)
+           and "(the soap check): 86.7 % of 30 (needs 90 %) — **fail**" in md_r8)
     expect("§10's table counts the smoothed", "| R8d | jpeg420-q95 | pillow | 20 |" in md_r8)
     # E12-R12 stage 4b: any profile. The report and the gates read the lines, whatever mark made them; §0 names
     # the profiles; --profile keeps one profile's lines out of a concatenation.
