@@ -100,8 +100,16 @@ fn none() -> FluentArgs<'static> {
     FluentArgs::new()
 }
 
-/// Build the sheet for one clean of one thing.
+/// Build the sheet for one clean of one thing — as it says its own
+/// outcome's edit; [`sheet_edited`] is what a window builds.
+#[cfg(test)]
 pub fn sheet(say: Say, intake: &Intake, outcome: &Outcome) -> Sheet {
+    sheet_edited(say, intake, outcome, outcome.edited)
+}
+
+/// [`sheet`], for a result `edited` by hand and saved as typed — by the
+/// Save that cleaned it, or a save over its result since (D447).
+pub fn sheet_edited(say: Say, intake: &Intake, outcome: &Outcome, edited: bool) -> Sheet {
     let title = wording::title_of_in(say, intake);
 
     let mut what = vec![wording::kind_label_in(say, intake.kind)];
@@ -138,6 +146,12 @@ pub fn sheet(say: Say, intake: &Intake, outcome: &Outcome) -> Sheet {
         happened.extend(wording::went_in(say, outcome).into_iter().map(Line::top));
     } else if outcome.text.is_some() {
         happened.push(Line::top(say(Message::QueueWentAsText, &none())));
+    }
+    // Edited by hand and saved as typed: nothing ran over the edits
+    // (D447). In the window and in Copy as Markdown; Copy JSON is the
+    // library's report, a format, and does not move.
+    if edited {
+        happened.push(Line::top(say(Message::WindowReportEdited, &none())));
     }
 
     let (mut verifiable, mut best_effort) = match &outcome.report {
@@ -722,15 +736,20 @@ pub struct ReportView {
 impl EventEmitter<Answer> for ReportView {}
 
 impl ReportView {
+    /// `edited`: the result was edited by hand and saved as typed since
+    /// the clean (D447) — said under "what happened", here and in the
+    /// Markdown copy.
     pub fn new(
         intake: &Intake,
         outcome: &Outcome,
+        edited: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::with_words(
+        Self::build(
             intake,
             outcome,
+            edited,
             &wording::window,
             &wording::plain,
             window,
@@ -742,9 +761,22 @@ impl ReportView {
     /// its Markdown copy is written in (`plain`) handed in — what lets a
     /// test hand it a window's real `Rendering::Ui` rather than the
     /// process's default.
+    #[cfg(test)]
     pub fn with_words(
         intake: &Intake,
         outcome: &Outcome,
+        shown: Say,
+        plain: Say,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::build(intake, outcome, outcome.edited, shown, plain, window, cx)
+    }
+
+    fn build(
+        intake: &Intake,
+        outcome: &Outcome,
+        edited: bool,
         shown: Say,
         plain: Say,
         window: &mut Window,
@@ -754,9 +786,9 @@ impl ReportView {
         focus.focus(window, cx);
         Self {
             focus,
-            sheet: sheet(shown, intake, outcome),
+            sheet: sheet_edited(shown, intake, outcome, edited),
             json: outcome.report.as_ref().map(Report::to_json),
-            markdown: markdown(plain, &sheet(plain, intake, outcome)),
+            markdown: markdown(plain, &sheet_edited(plain, intake, outcome, edited)),
             copied: None,
             armed: true,
         }

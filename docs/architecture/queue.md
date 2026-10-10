@@ -210,6 +210,38 @@ handed both words (`ReportView::with_words`), so a test gives it a real
 `Rendering::Ui` for the window and proves the copy is not in it (D276).
 Escape, the backdrop and Close are one answer.
 
+**A result edited after the clean** (D447). A result saved edited — by a
+Save in Compare that cleaned it, or a save over its result since — says
+so wherever its verdict is said: the row's badge is the verdict's
+"…, then edited" (*Cleaned, then edited*, *Partly cleaned, then edited*,
+*Rewritten, then edited*, *Partly rewritten, then edited*), in the
+verdict's colour, through one pure `wording::edited`; its tooltip, and
+the sheet's "what happened" in the window and in Copy as Markdown, add
+that the edits were saved as typed and nothing checked them for marks.
+Copy JSON does not move. A row is edited when its clean's outcome says so,
+when its journal entry has `outcome.edited`, or when a mark landed this
+session (`Row::edited_at`, gone with the next clean or rewrite of the
+row). Built at the default; the alternative, for the owner — Layer A run
+over the edit before it is written, the verdict honest without a new word
+at the cost of characters typed on purpose — is in
+`docs/architecture/compare.md`, "What a save does not do".
+
+**Report… of a row the journal keeps** (D448). The dialog is a clean of
+this session's: `report_of` answers `Status::Done` only. A row of an
+earlier session, of the command line, of an agent, and every rewrite is
+`Status::Recorded`, and its Report… is greyed **with its reason under
+it**, the way Clean's is (D269): the full report is kept by the window
+that made it, and for this row the list keeps a summary, which its
+status says (`queue::why_no_report`,
+`report_of_a_journal_row_is_greyed_with_its_reason`). Built at the
+default. The journal holds metadata only (D312) — counts, never the
+characters — so a sheet built from it would put on its *verifiable*
+shelf what nothing backs, and there would be no `to_json()` to copy.
+**The alternative**, for the owner: enable it with what the journal
+holds — arrived and happened from the entry, the counts, "the full report
+was not kept" on the verifiable shelf, the third shelf from
+`not_established::ids()`, Copy JSON greyed.
+
 ## Rewriting (E4-6b)
 
 ```
@@ -479,7 +511,11 @@ things land; with rewrite chosen and the engine on duty not on this
 machine, each arrival asks once before anything is sent. A row nobody has
 asked to process says **Not started**, its tooltip naming what would
 process it — never "Waiting", which the owner read as "something will
-process it" (D318). "Queued" is only ever a row in a line.
+process it" (D318). "Queued" is only ever a row in a line. A drop of
+several files that would be sent away is one question naming every row
+and the endpoint; nothing is pushed until it is answered, and a yes
+pushes them with that endpoint as their consent
+(`a_drop_that_would_be_sent_away_is_asked_about_first`).
 
 ## The journal (E4-6b)
 
@@ -511,7 +547,11 @@ own number stays the element id (two id spaces). A row says who asked
   second (D316). Polled rather than awaited: a GPUI task woken from
   another thread is a wake the window's executor did not schedule.
 * **One row per document** (D320): cleaned and then rewritten is one row,
-  whose action is the last asked.
+  whose action is the last asked. So an edit mark from a Compare window
+  names the result it is about — the action and where it lives — and
+  lands only while that is still the row's latest result, checked by the
+  row and again in the SQL (D442); an entry this build cannot read is left
+  as it is (D444).
 * **A row names its item before the item can start** (D358): a window's
   rewrite is reserved an id (`Queue::reserve`), its row is written "queued"
   with that id on the writer's thread, and only then is the item pushed

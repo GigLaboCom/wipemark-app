@@ -166,12 +166,13 @@ generate_linux() {
 
 # ─── Menu-bar / system-tray silhouettes ───────────────────────────────────────
 #
-# Two variants because only macOS has template images: there, black ink
-# on transparency is handed to the OS with `icon_as_template`, and the
-# menu bar inverts it for us. Windows and Linux have no such thing, so
-# E10's tray for those platforms picks the black or the white file by
-# reading the system theme at runtime — which is why the white one is
-# generated now, long before anything reads it.
+# Black and white variants, of which the application reads one: the
+# black 64 px, installed below as the template. On macOS it is handed to
+# the OS with `icon_as_template` and the menu bar inverts it for us; on
+# Linux `tray::panel_image` derives the icon from that same template at
+# run time — the broom white over a dark outline (D342,
+# docs/architecture/tray.md) — rather than picking a file by theme. The
+# white files and the smaller sizes are read by nothing.
 generate_tray() {
     echo "=== tray ==="
     local tray_dir="$SCRIPT_DIR/tray"
@@ -245,9 +246,10 @@ install_app() {
     echo "  installed into $dest/"
 
     # Only the template source is installed. `include_bytes!` is what
-    # puts a file in the binary, and today src/tray.rs embeds exactly
-    # this one; the white variant and the smaller sizes stay in
-    # icons/tray/ until E10 has a Windows or Linux tray to read them.
+    # puts a file in the binary, and src/tray.rs embeds exactly this one,
+    # for every platform (D342); the white variant and the smaller sizes
+    # stay in icons/tray/, read by nothing. The README beside it is not
+    # written here: it is edited by hand.
     local tray_dest="$REPO_DIR/apps/wipemark-app/assets/tray"
     mkdir -p "$tray_dest"
     /bin/cp "$SCRIPT_DIR/tray/tray_black_64.png" "$tray_dest/tray-template.png"

@@ -143,31 +143,26 @@ const COLUMNS: &str = "id, origin, action, state, item, arrived, ended, entry";
 
 /// `entry` with `outcome.edited` set to `at`, everything else as it was —
 /// as JSON values rather than as [`crate::entry::Entry`], so that a field a
-/// newer build wrote survives this one's write. An entry that is not a JSON
-/// object is one this build cannot read; it becomes an object saying only
-/// this, which is what reading it already gave (`Entry::from_json`).
-fn edited_at(entry: &str, at: i64) -> String {
+/// newer build wrote survives this one's write. `None` for an entry this
+/// build cannot read — not a JSON object, or one whose `outcome` is there
+/// and is not an object: such a row is left as it is, as a preference
+/// this build cannot use is left in its row (D444). An entry with no
+/// `outcome` gets one.
+fn edited_at(entry: &str, at: i64) -> Option<String> {
     use serde_json::{Map, Value};
-    let mut value: Value = serde_json::from_str(entry).unwrap_or(Value::Null);
-    if !value.is_object() {
-        value = Value::Object(Map::new());
-    }
+    let mut value: Value = serde_json::from_str(entry).ok()?;
     let outcome = value
-        .as_object_mut()
-        .expect("made an object above")
+        .as_object_mut()?
         .entry("outcome")
-        .or_insert_with(|| Value::Object(Map::new()));
-    if !outcome.is_object() {
-        *outcome = Value::Object(Map::new());
-    }
-    let outcome = outcome.as_object_mut().expect("made an object above");
+        .or_insert_with(|| Value::Object(Map::new()))
+        .as_object_mut()?;
     // An outcome needs its verdict to read back; one written here, for a
     // row that had none, says it has none yet.
     outcome
         .entry("verdict")
         .or_insert_with(|| Value::String(String::new()));
     outcome.insert("edited".to_owned(), Value::from(at));
-    value.to_string()
+    Some(value.to_string())
 }
 
 impl<'store> Journal<'store> {
@@ -211,15 +206,19 @@ impl<'store> Journal<'store> {
     /// Say in row `id`'s entry that its result was saved edited at `at`
     /// (milliseconds since the epoch) — `outcome.edited`, and nothing else
     /// of the entry touched, a field this build does not know included
-    /// (E7-9, D417). `false` when there is no such row. The entry is read
-    /// and written under one lock, so no other write of this store lands
-    /// between the two.
-    pub fn mark_edited(&self, id: i64, at: i64) -> Result<bool> {
+    /// (E7-9, D417). Only while the row's last action is `action`: a mark
+    /// names the result it is about, and a row asked for something else
+    /// since — a clean's window saved after the row was rewritten — is not
+    /// marked (D442). `false` when there is no such row, when its action
+    /// is another, and when its entry is one this build cannot read, which
+    /// is left as it is (D444). The entry is read and written under one
+    /// lock, so no other write of this store lands between the two.
+    pub fn mark_edited(&self, id: i64, at: i64, action: &str) -> Result<bool> {
         let connection = self.store.lock();
         let entry: Option<String> = connection
             .query_row(
-                "SELECT entry FROM journal WHERE id = ?1",
-                params![id],
+                "SELECT entry FROM journal WHERE id = ?1 AND action = ?2",
+                params![id, action],
                 |row| row.get(0),
             )
             .optional()
@@ -227,10 +226,13 @@ impl<'store> Journal<'store> {
         let Some(entry) = entry else {
             return Ok(false);
         };
+        let Some(entry) = edited_at(&entry, at) else {
+            return Ok(false);
+        };
         connection
             .execute(
-                "UPDATE journal SET entry = ?2 WHERE id = ?1",
-                params![id, edited_at(&entry, at)],
+                "UPDATE journal SET entry = ?2 WHERE id = ?1 AND action = ?3",
+                params![id, entry, action],
             )
             .map(|changed| changed > 0)
             .map_err(failed("mark edited"))
@@ -443,7 +445,7 @@ mod tests {
                 ..new_row("done", 1, Some(2))
             })
             .expect("insert");
-        assert!(journal.mark_edited(id, 77).expect("mark"));
+        assert!(journal.mark_edited(id, 77, "clean").expect("mark"));
 
         let written = journal.row(id).expect("row").expect("still there").entry;
         let value: serde_json::Value = serde_json::from_str(&written).expect("json");
@@ -460,11 +462,11 @@ mod tests {
         assert!(read.result.is_some(), "the result went: {written}");
 
         // A later save moves the mark; an entry with no outcome gets one.
-        assert!(journal.mark_edited(id, 78).expect("mark again"));
+        assert!(journal.mark_edited(id, 78, "clean").expect("mark again"));
         let bare = journal
             .insert(&new_row("done", 3, Some(4)))
             .expect("insert");
-        assert!(journal.mark_edited(bare, 5).expect("mark"));
+        assert!(journal.mark_edited(bare, 5, "clean").expect("mark"));
         let bare = Entry::from_json(&journal.row(bare).expect("row").expect("row").entry);
         assert_eq!(bare.outcome.and_then(|o| o.edited), Some(5));
         assert_eq!(
@@ -475,9 +477,60 @@ mod tests {
         );
 
         assert!(
-            !journal.mark_edited(9_999, 1).expect("no row"),
+            !journal.mark_edited(9_999, 1, "clean").expect("no row"),
             "a row that is gone"
         );
+    }
+
+    /// An entry this build cannot read is left as it is by an edit mark
+    /// (D444): not an object, or an `outcome` that is not one — each byte
+    /// for byte after `mark_edited`, which says `false`. Make `edited_at`
+    /// replace what it cannot read, as it did, and every row here is red.
+    #[test]
+    fn an_entry_this_build_cannot_read_is_left_as_it_is_by_an_edit_mark() {
+        let store = Store::in_memory().expect("open");
+        let journal = store.journal();
+        for entry in ["[1,2]", "\"x\"", r#"{"outcome":7}"#, "not json"] {
+            let id = journal
+                .insert(&NewRow {
+                    entry,
+                    ..new_row("done", 1, Some(2))
+                })
+                .expect("insert");
+            assert!(
+                !journal.mark_edited(id, 9, "clean").expect("mark"),
+                "{entry} was said marked"
+            );
+            assert_eq!(
+                journal.row(id).expect("row").expect("still there").entry,
+                entry,
+                "{entry} was rewritten"
+            );
+        }
+    }
+
+    /// An edit mark lands only on the action it names (D442): a row whose
+    /// last action is a rewrite is not marked by a clean's save, and is by
+    /// a rewrite's. Drop `AND action` from the SQL and the clean's mark
+    /// lands on the rewrite's entry: red.
+    #[test]
+    fn an_edit_mark_lands_only_on_the_action_it_names() {
+        let store = Store::in_memory().expect("open");
+        let journal = store.journal();
+        let id = journal
+            .insert(&NewRow {
+                action: "rewrite",
+                entry: r#"{"outcome":{"verdict":"rewritten"}}"#,
+                ..new_row("done", 1, Some(2))
+            })
+            .expect("insert");
+        assert!(!journal.mark_edited(id, 5, "clean").expect("mark"));
+        let entry = journal.row(id).expect("row").expect("row").entry;
+        assert!(!entry.contains("edited"), "a clean's mark landed: {entry}");
+        assert!(journal.mark_edited(id, 6, "rewrite").expect("mark"));
+        let entry = journal.row(id).expect("row").expect("row").entry;
+        let value: serde_json::Value = serde_json::from_str(&entry).expect("json");
+        assert_eq!(value["outcome"]["edited"], 6);
     }
 
     #[test]

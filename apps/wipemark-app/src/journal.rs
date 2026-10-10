@@ -141,11 +141,18 @@ impl Journal {
     }
 
     /// Mark row `id`'s result as saved, edited, at `at` — `outcome.edited`
-    /// and nothing else of the row (D417). Blocking.
-    pub fn mark_edited(&self, id: i64, at: i64) {
-        match self.store.journal().mark_edited(id, at) {
+    /// and nothing else of the row (D417) — while the row's last action is
+    /// `action` (D442). Blocking.
+    pub fn mark_edited(&self, id: i64, at: i64, action: Action) {
+        match self.store.journal().mark_edited(id, at, action.as_str()) {
             Ok(true) => self.say(Note::Changed),
-            Ok(false) => {}
+            Ok(false) => {
+                tracing::info!(
+                    id,
+                    action = action.as_str(),
+                    "an edit mark found no entry of its action to land on"
+                );
+            }
             Err(error) => tracing::warn!(%error, id, "the journal could not mark an edit"),
         }
     }
@@ -270,10 +277,13 @@ impl Journal {
                                 journal.remove(id);
                             }
                         }
-                        Command::Edited { key, at } => {
+                        Command::Edited { key, at, action } => {
                             if let Some(&id) = ids.get(&key) {
-                                journal.mark_edited(id, at);
+                                journal.mark_edited(id, at, action);
                             }
+                        }
+                        Command::Flushed(done) => {
+                            let _ = done.send(());
                         }
                         #[cfg(test)]
                         Command::Gate(gate) => {
@@ -324,11 +334,15 @@ enum Command {
     Forget {
         key: u64,
     },
-    /// Row `key`'s result was saved, edited, at `at` (D417).
+    /// Row `key`'s result — of `action` — was saved, edited, at `at`
+    /// (D417, D442).
     Edited {
         key: u64,
         at: i64,
+        action: Action,
     },
+    /// Everything asked before this is written: say so (D440).
+    Flushed(flume::Sender<()>),
     /// Wait for the test to say go: the writer held still, so a test can
     /// see what lands while it is.
     #[cfg(test)]
@@ -391,9 +405,20 @@ impl Writer {
 
     /// Row `key`'s result was saved from the Compare window, edited, at
     /// `at` (milliseconds since the epoch): a mark in its outcome, written
-    /// in its turn after everything asked before it (D417).
-    pub fn edited(&self, key: u64, at: i64) {
-        let _ = self.commands.send(Command::Edited { key, at });
+    /// in its turn after everything asked before it (D417) — and only
+    /// while the row's last action is still `action` (D442).
+    pub fn edited(&self, key: u64, at: i64, action: Action) {
+        let _ = self.commands.send(Command::Edited { key, at, action });
+    }
+
+    /// Answered once everything asked of this writer before it is written
+    /// — what a window's quit awaits, inside GPUI's budget, so a mark sent
+    /// at quit is in the database before the process ends (D440). A writer
+    /// whose thread is gone answers at once: the receiver disconnects.
+    pub fn flushed(&self) -> flume::Receiver<()> {
+        let (done, flushed) = flume::bounded(1);
+        let _ = self.commands.send(Command::Flushed(done));
+        flushed
     }
 }
 

@@ -13,7 +13,7 @@ use wipemark_intake::Handed;
 use wipemark_pipeline::cost::Executor;
 use wipemark_pipeline::{Event, JobId, Stage};
 use wipemark_queue::{Destination, Durability, ItemId, QueueEvent as BatchEvent, Source};
-use wipemark_store::entry::{Delivered, Entry, Origin, Phase};
+use wipemark_store::entry::{Action, Delivered, Entry, Origin, Phase};
 use wipemark_store::Store;
 
 use super::tests::{queue_with, statuses, Scratch};
@@ -706,6 +706,185 @@ fn process_what_arrives_puts_a_drop_straight_in_a_line(cx: &mut TestAppContext) 
     work.queue.resume();
 }
 
+/// В1 with an endpoint on duty: a drop that would be sent away is asked
+/// about first — one question naming both rows and the endpoint, nothing
+/// pushed, both rows *Not started* — and a yes pushes them with that
+/// endpoint as their consent; a second drop answered with nothing stays
+/// where it is. Make the Rewrite arm of `process_arrivals` push straight
+/// away and the documents are in the line before anybody was asked: red.
+#[gpui::test]
+fn a_drop_that_would_be_sent_away_is_asked_about_first(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("arrival-away");
+    let first = scratch.file("a.md", PARAGRAPH.as_bytes());
+    let second = scratch.file("b.md", PARAGRAPH.as_bytes());
+    let third = scratch.file("c.md", PARAGRAPH.as_bytes());
+    let work = work(swapping());
+    work.queue.pause();
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    endpoint_on_duty(&preferences, cx);
+    preferences.update(cx, |preferences, cx| {
+        preferences.select_on_arrival(super::OnArrival::Rewrite, cx);
+    });
+
+    type Heard = Vec<(Vec<u64>, String, Option<PathBuf>)>;
+    let heard: Arc<std::sync::Mutex<Heard>> = Arc::default();
+    let hearing = Arc::clone(&heard);
+    cx.update(|_, cx| {
+        cx.subscribe(&queue, move |_, event: &QueueEvent, _| {
+            if let QueueEvent::SendAway {
+                ids,
+                host,
+                replacing,
+            } = event
+            {
+                hearing
+                    .lock()
+                    .expect("lock")
+                    .push((ids.clone(), host.clone(), replacing.clone()));
+            }
+        })
+        .detach();
+    });
+
+    // Two files in one drop: one question.
+    queue.update(cx, |queue, cx| queue.hand(vec![first, second], cx));
+    cx.run_until_parked();
+    std::thread::sleep(Duration::from_millis(100));
+    cx.run_until_parked();
+    assert!(
+        work.queue.items().is_empty(),
+        "a drop went before it was asked about"
+    );
+    assert_eq!(statuses(&queue, cx), vec!["waiting", "waiting"]);
+    let asked = heard.lock().expect("lock").clone();
+    assert_eq!(asked.len(), 1, "not asked once: {asked:?}");
+    let both = ids(&queue, cx);
+    let mut named = asked[0].0.clone();
+    named.sort_unstable();
+    let mut expected = both.clone();
+    expected.sort_unstable();
+    assert_eq!(named, expected, "the question does not name both rows");
+    assert_eq!(asked[0].1, "https://y.example.com");
+    assert_eq!(asked[0].2, None);
+
+    queue.update(cx, |queue, cx| {
+        queue.agreed(
+            &asked[0].0,
+            super::Road::Arrivals,
+            wipemark_queue::Whereto::Away(asked[0].1.clone()),
+            cx,
+        )
+    });
+    until(cx, "the pushes", |_| work.queue.items().len() == 2);
+    for item in work.queue.items() {
+        assert_eq!(
+            item.consent,
+            Some(wipemark_queue::Whereto::Away(asked[0].1.clone())),
+            "{item:?}"
+        );
+    }
+
+    // A second drop, answered with nothing: it stays unpushed.
+    queue.update(cx, |queue, cx| queue.hand(vec![third], cx));
+    cx.run_until_parked();
+    std::thread::sleep(Duration::from_millis(100));
+    cx.run_until_parked();
+    assert_eq!(
+        heard.lock().expect("lock").len(),
+        2,
+        "the second drop was not asked about"
+    );
+    assert_eq!(
+        work.queue.items().len(),
+        2,
+        "the unanswered drop was pushed"
+    );
+    assert_eq!(statuses(&queue, cx)[2], "waiting");
+    work.queue.resume();
+}
+
+/// An edit mark names what it is about (D442): a window opened on a
+/// row's clean, saved after the row was rewritten, is the rewrite's entry
+/// no more — nothing is marked, the row does not read "…, then edited",
+/// and the save itself stands. A save of the rewrite marks the rewrite.
+/// Drop the action check from `told_by_compare` and the row says the
+/// rewrite was edited: red.
+#[gpui::test]
+fn a_save_marks_the_entry_it_was_opened_on_and_not_a_later_one(cx: &mut TestAppContext) {
+    use crate::compare::{Home, Told};
+
+    let scratch = Scratch::new("mark-names");
+    let source = scratch.file("article.md", PARAGRAPH.as_bytes());
+    let work = work(swapping());
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| queue.hand(vec![source.clone()], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    let cleaned_text = PARAGRAPH.replacen(' ', "\u{200B} ", 1);
+    std::fs::write(&source, &cleaned_text).expect("a mark to clean");
+    queue.update(cx, |queue, cx| queue.clean(&[id], cx));
+    until(cx, "the clean", |cx| status(&queue, cx) == "cleaned");
+    let cleaned = scratch.0.join("article.cleaned.md");
+    assert!(cleaned.exists());
+
+    // The row is rewritten after a window opened on its clean.
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the rewrite", |cx| status(&queue, cx) == "rewritten");
+    until(cx, "the journal", |_| {
+        work.journal
+            .rows()
+            .first()
+            .is_some_and(|row| row.state == "done" && row.action == "rewrite")
+    });
+    let flushed = |queue: &gpui::Entity<Queue>, cx: &mut VisualTestContext| {
+        let done = cx.update(|_, cx| queue.read(cx).writer.as_ref().map(journal::Writer::flushed));
+        done.expect("a writer")
+            .recv_timeout(Duration::from_secs(10))
+            .expect("flushed");
+    };
+    let edited = |work: &Work| {
+        work.journal
+            .rows()
+            .first()
+            .and_then(|row| Entry::from_json(&row.entry).outcome)
+            .and_then(|outcome| outcome.edited)
+    };
+
+    // The clean's window saves: the save stands, nothing is marked.
+    let clean = Told::Saved {
+        action: Action::Clean,
+        home: Home::File(cleaned.clone()),
+    };
+    assert!(queue.update(cx, |queue, cx| queue.told_by_compare(id, clean, cx)));
+    flushed(&queue, cx);
+    assert_eq!(edited(&work), None, "the rewrite's entry was marked");
+    assert_eq!(
+        cx.update(|_, cx| queue.read(cx).status_words(id))
+            .map(|(word, _)| word),
+        Some(t(Message::QueueStatusRewritten)),
+        "the row says its rewrite was edited"
+    );
+
+    // The rewrite's own window saves: marked.
+    let rewritten = scratch.0.join("article.rewritten.md");
+    let rewrite = Told::Saved {
+        action: Action::Rewrite,
+        home: Home::File(rewritten),
+    };
+    assert!(queue.update(cx, |queue, cx| queue.told_by_compare(id, rewrite, cx)));
+    flushed(&queue, cx);
+    assert!(
+        edited(&work).is_some(),
+        "the rewrite's own save was not marked"
+    );
+    assert_eq!(
+        cx.update(|_, cx| queue.read(cx).status_words(id))
+            .map(|(word, _)| word),
+        Some(t(Message::QueueStatusRewrittenEdited))
+    );
+}
+
 // ## The host verification's fixes (D355–D364)
 
 /// D356 (M2): a journal row naming a FIFO — what `clean /dev/stdin` or
@@ -1365,7 +1544,7 @@ fn the_duty_is_asked_once_per_draw_of_the_rows(cx: &mut TestAppContext) {
 /// Compare read (D412), and a row that holds no text will not take one.
 #[gpui::test]
 fn a_cleaned_row_opens_compare_on_its_result_and_a_paste_keeps_its_edit(cx: &mut TestAppContext) {
-    use crate::compare::{CleanedTo, Made, Told};
+    use crate::compare::{CleanedTo, Home, Made, Told};
     use crate::retention::Destination as Goes;
 
     let scratch = Scratch::new("compare-cleaned");
@@ -1437,7 +1616,14 @@ fn a_cleaned_row_opens_compare_on_its_result_and_a_paste_keeps_its_edit(cx: &mut
         queue.told_by_compare(all[0], Told::Text("x".to_owned()), cx)
     });
     assert!(!took, "a file's row took a text");
-    assert!(!queue.update(cx, |queue, cx| queue.told_by_compare(999, Told::Saved, cx)));
+    assert!(!queue.update(cx, |queue, cx| queue.told_by_compare(
+        999,
+        Told::Saved {
+            action: Action::Clean,
+            home: Home::File(PathBuf::from("/nowhere"))
+        },
+        cx
+    )));
 
     // A Save that cleans asks first, and a row being rewritten or in the
     // line says no — the rule its own Clean keeps (D411).
@@ -1470,7 +1656,7 @@ fn a_cleaned_row_opens_compare_on_its_result_and_a_paste_keeps_its_edit(cx: &mut
 fn a_save_that_cleans_moves_the_row_and_marks_its_journal(cx: &mut TestAppContext) {
     use wipemark_store::entry::Entry;
 
-    use crate::compare::Told;
+    use crate::compare::{Home, Told};
 
     let scratch = Scratch::new("compare-save-clean");
     let source = scratch.file("s.md", PARAGRAPH.as_bytes());
@@ -1513,7 +1699,11 @@ fn a_save_that_cleans_moves_the_row_and_marks_its_journal(cx: &mut TestAppContex
     // A later save over that file, told through the row: marked again.
     let first = edited(&work).expect("marked");
     std::thread::sleep(Duration::from_millis(5));
-    assert!(queue.update(cx, |queue, cx| queue.told_by_compare(id, Told::Saved, cx)));
+    let saved = Told::Saved {
+        action: Action::Clean,
+        home: Home::File(scratch.0.join("s.cleaned.md")),
+    };
+    assert!(queue.update(cx, |queue, cx| queue.told_by_compare(id, saved, cx)));
     until(cx, "the journal's second mark", |_| {
         edited(&work).is_some_and(|at| at > first)
     });

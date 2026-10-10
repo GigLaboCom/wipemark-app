@@ -195,6 +195,21 @@ pub fn verdict_badge(verdict: &Verdict) -> (Message, Badge) {
     }
 }
 
+/// A verdict's word for a result that was then edited by hand in Compare
+/// and saved as typed (D447): "Cleaned, then edited", "Rewritten, then
+/// edited" and their partly forms — the same badge colour, because what
+/// the clean found is unchanged; what moved is that nothing checked the
+/// edits for marks. A word no edit can follow maps to itself. Pure.
+pub fn edited(word: Message) -> Message {
+    match word {
+        Message::QueueStatusCleaned => Message::QueueStatusCleanedEdited,
+        Message::QueueStatusPartly => Message::QueueStatusPartlyEdited,
+        Message::QueueStatusRewritten => Message::QueueStatusRewrittenEdited,
+        Message::QueueStatusPartlyRewritten => Message::QueueStatusPartlyRewrittenEdited,
+        other => other,
+    }
+}
+
 /// How a line is put into words: [`window`] for what a window draws,
 /// [`plain`] for what leaves it as text (a copied report), or a
 /// per-language `Localizer` in a test — never `wipemark_i18n::init`,
@@ -665,6 +680,59 @@ mod tests {
     /// The names a person needs are in the sentence: the result's file
     /// name beside a file, the set-aside name when a file is replaced,
     /// the folder when results go into one.
+    /// A result edited by hand and saved as typed never reads as plainly
+    /// cleaned or rewritten (D447): every verdict word an edit can follow
+    /// becomes its "…, then edited" form — a different sentence in every
+    /// language — and one no edit can follow stays itself. A recorded
+    /// clean and rewrite say it the same way. Make `edited` hand back its
+    /// argument and every row here is red.
+    #[test]
+    fn an_edited_result_never_reads_as_plainly_cleaned() {
+        use wipemark_i18n::{t, Message};
+        use wipemark_store::entry::{Action, Outcome as Recorded, Phase};
+
+        use super::{edited, recorded_badge, verdict_badge};
+
+        let then_edited = [
+            Message::QueueStatusCleanedEdited,
+            Message::QueueStatusPartlyEdited,
+            Message::QueueStatusRewrittenEdited,
+            Message::QueueStatusPartlyRewrittenEdited,
+        ];
+        for verdict in [
+            Verdict::NothingFound,
+            Verdict::Cleaned,
+            Verdict::Partly(Left::Kept),
+            Verdict::NotCleaned(Refusal::Exists(PathBuf::from("x.cleaned.md"))),
+        ] {
+            let (word, _) = verdict_badge(&verdict);
+            match &verdict {
+                Verdict::Cleaned | Verdict::Partly(_) => {
+                    let said = edited(word);
+                    assert!(then_edited.contains(&said), "{verdict:?}");
+                    assert_ne!(t(said), t(word), "{verdict:?} reads as it did");
+                }
+                _ => assert_eq!(edited(word), word, "{verdict:?}"),
+            }
+        }
+        for (action, verdict) in [
+            (Action::Clean, "cleaned"),
+            (Action::Clean, "partly"),
+            (Action::Rewrite, "rewritten"),
+            (Action::Rewrite, "partly"),
+        ] {
+            let outcome = Recorded {
+                verdict: verdict.to_owned(),
+                edited: Some(1),
+                ..Recorded::default()
+            };
+            let (word, _) = recorded_badge(action, Phase::Done, Some(&outcome));
+            let said = edited(word);
+            assert!(then_edited.contains(&said), "{action:?} {verdict}");
+            assert_ne!(t(said), t(word), "{action:?} {verdict}");
+        }
+    }
+
     #[test]
     fn the_sentence_names_the_file_it_is_about() {
         let beside = would_happen(&Plan::File(Written::Beside(PathBuf::from(
