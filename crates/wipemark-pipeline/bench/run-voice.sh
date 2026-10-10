@@ -5,8 +5,10 @@
 # What it is for
 #   The coordinator's task docs/plan/E4-8-bench-voice.md (Watchword
 #   `wipemark-task-bench-voice-2026-10-08`, written 2026-10-08 for the owner)
-#   asks whether the keep-voice rule (crates/wipemark-pipeline/bench/variants/
-#   keep-voice) should become the shipped templates. On one article and one
+#   asks whether the keep-voice rule (crates/wipemark-pipeline/prompts/
+#   profiles/keep-voice since E4-9, the built-in template profile "Keep
+#   voice"; bench/variants/keep-voice before) should become the shipped
+#   templates. On one article and one
 #   model it brought the second person back at no cost in pairs left
 #   (docs/plan/reports/divergence-vs-upstream-2026-10-07.md); this run asks
 #   the same of the four local models over the whole en/ru/de corpus, and
@@ -34,7 +36,7 @@
 #      model's second part.
 #   4. For each model, one at a time: the shipped templates (`--name <id>`)
 #      and the keep-voice variant (`--name <id>+voice`, `--variant
-#      bench/variants/keep-voice`), on the same seeds, over the corpus with
+#      keep-voice` — the built-in profile, by its id), on the same seeds, over the corpus with
 #      `--every 3` (every special case and a third of the prose and machine
 #      text, as E4-5 ran Qwen3.8), every language, the grid
 #      `paraphrase:light,moderate,strong:4;humanize:moderate,strong:2` — the
@@ -91,7 +93,9 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 cd "$ROOT"
 BENCH_DIR=crates/wipemark-pipeline/bench
-VARIANT=$BENCH_DIR/variants/keep-voice
+# The built-in template profile, by its id (E4-9, D510): the bench reads it
+# compiled in, held to the rule a variant directory is held to.
+VARIANT=keep-voice
 GRID='paraphrase:light,moderate,strong:4;humanize:moderate,strong:2'
 EVERY=3
 MODELS="qwen3-4b gemma3-12b gemma4-12b qwen38-27b"

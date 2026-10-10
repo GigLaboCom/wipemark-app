@@ -11,6 +11,7 @@ use super::resume::{fingerprint, fingerprint_under};
 use super::{plan, start, start_resumable, Decided, Document, Options, Outcome};
 use crate::cost::{Effort, Executor};
 use crate::prepare::TextFormat;
+use crate::prompt::profile::BuiltIn;
 use crate::report::ChunkOutcome;
 use crate::select::{Rules, RULES};
 use crate::{Event, JobId};
@@ -363,6 +364,77 @@ fn a_job_resumed_under_another_draft_discards_every_record() {
     let events = events_of(&receiver);
     assert_eq!(resumed(&events), Some((0, 2)));
     assert_eq!(scripted.asked().len(), 5);
+}
+
+/// E4-9 (D516): a job resumed under another template profile forgets every
+/// record — its templates are in the fingerprint (D116) — and the profile's
+/// name alone is a label: the same templates under a name given since carry
+/// their records.
+#[test]
+fn a_job_resumed_under_another_profile_forgets_its_records() {
+    let (_, records) = whole();
+    let mut keep_voice = options();
+    keep_voice.overrides = BuiltIn::KeepVoice.slots();
+    keep_voice.profile = Some(BuiltIn::KeepVoice.id().to_owned());
+    let fresh = engine();
+    let events = resumable(
+        &fresh,
+        document(&source()),
+        keep_voice,
+        records[..2].to_vec(),
+    );
+    assert_eq!(
+        resumed(&events),
+        Some((0, 2)),
+        "decided under shipped, resumed under keep-voice"
+    );
+    assert_eq!(fresh.asked().len(), 5, "every chunk again");
+    assert_eq!(outcome(&events).report.profile, "keep-voice");
+
+    let mut named = options();
+    named.profile = Some("named-since".to_owned());
+    let fresh = engine();
+    let events = resumable(&fresh, document(&source()), named, records[..2].to_vec());
+    assert_eq!(
+        resumed(&events),
+        Some((2, 0)),
+        "the same templates, a new name"
+    );
+    assert_eq!(outcome(&events).report.profile, "named-since");
+}
+
+/// D516: the report says which profile its templates came from — the
+/// surface's word when it said one, else the built-in they equal, else
+/// `custom` — beside the template versions it already records.
+#[test]
+fn the_report_names_the_profile_its_templates_came_from() {
+    let profile_of = |options: Options| {
+        let events = resumable(&engine(), document(&source()), options, Vec::new());
+        let value = outcome(&events).report.to_value();
+        value["best_effort"]["profile"].clone()
+    };
+    assert_eq!(profile_of(options()), serde_json::json!("shipped"));
+    let mut keep_voice = options();
+    keep_voice.overrides = BuiltIn::KeepVoice.slots();
+    assert_eq!(
+        profile_of(keep_voice.clone()),
+        serde_json::json!("keep-voice")
+    );
+    let mut edited = keep_voice.clone();
+    let slot = crate::prompt::Slot::new(
+        crate::lang::Lang::En,
+        crate::prompt::Tactic::Paraphrase,
+        1,
+        crate::prompt::Role::User,
+    )
+    .expect("a slot");
+    edited.overrides.insert(
+        slot,
+        crate::prompt::Override::by_hand(slot, "Say it again, plainly.\n{TEXT}"),
+    );
+    assert_eq!(profile_of(edited.clone()), serde_json::json!("custom"));
+    edited.profile = Some("legal".to_owned());
+    assert_eq!(profile_of(edited), serde_json::json!("legal"));
 }
 
 /// The scripted engine with a draft beside it.

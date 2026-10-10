@@ -201,6 +201,15 @@ pub enum Error {
     #[error("listing settings")]
     List(#[source] rusqlite::Error),
 
+    /// The transaction around several settings rows written together could
+    /// not begin or end; `what` names which. Nothing of it was written.
+    #[error("writing settings together: {what}")]
+    Together {
+        what: &'static str,
+        #[source]
+        source: rusqlite::Error,
+    },
+
     /// A queue statement failed; `what` names which, never a value.
     #[error("the queue: {what}")]
     Queue {

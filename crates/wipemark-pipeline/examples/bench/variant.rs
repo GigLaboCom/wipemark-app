@@ -3,7 +3,10 @@
 //! takes (D74) — and is held to the one rule an edit is held to,
 //! `prompt::row::admit` (D330): beside the other turn of its step as it will
 //! be used, with the window the bench runs in. A variant that wins can then
-//! be shipped as it is (D427).
+//! be shipped as it is (D427) — as a built-in template profile (E4-9, D510),
+//! which `--variant` names by its id as well: `--variant keep-voice` is the
+//! profile compiled in from `prompts/profiles/keep-voice/`, held to the same
+//! rule with the same window. A directory of that name is `./keep-voice`.
 //!
 //! Shared with `tests/bench_variants.rs` by `#[path]`, so the test walks
 //! `bench/variants/` with the bench's own reader rather than a copy of it.
@@ -12,7 +15,8 @@ use std::fmt;
 use std::path::Path;
 
 use wipemark_pipeline::lang::Lang;
-use wipemark_pipeline::prompt::{admit, Override, Overrides, Problem, Role, Slot, Tactic};
+use wipemark_pipeline::prompt::profile::BuiltIn;
+use wipemark_pipeline::prompt::{admit, row, Override, Overrides, Problem, Role, Slot, Tactic};
 
 /// Why a variant cannot be run.
 #[derive(Debug)]
@@ -48,6 +52,22 @@ fn slot_of(lang: Lang, name: &str) -> Option<Slot> {
     )
 }
 
+/// `--variant <id or dir>`: a built-in template profile by its id, else the
+/// directory — each held to the rule [`load`] holds a directory to.
+pub fn named(variant: &str, ctx_len: Option<u32>) -> Result<(Overrides, Vec<String>), Refused> {
+    match BuiltIn::parse(variant) {
+        Some(built_in) => {
+            let rows = built_in
+                .slots()
+                .iter()
+                .map(|(slot, row)| (row::key(slot), slot, row.clone()))
+                .collect();
+            admitted(rows, ctx_len)
+        }
+        None => load(Path::new(variant), ctx_len),
+    }
+}
+
 /// Every override under `dir`, each admitted beside the others with the
 /// window `ctx_len`; the warnings `admit` gave come back beside them (a
 /// warning does not refuse an edit, so it does not refuse a variant).
@@ -81,6 +101,15 @@ pub fn load(dir: &Path, ctx_len: Option<u32>) -> Result<(Overrides, Vec<String>)
             rows.push((shown(&file), slot, Override::by_hand(slot, text)));
         }
     }
+    admitted(rows, ctx_len)
+}
+
+/// `rows` as overrides, each admitted beside the others with the window
+/// `ctx_len`, the warnings beside them.
+fn admitted(
+    rows: Vec<(String, Slot, Override)>,
+    ctx_len: Option<u32>,
+) -> Result<(Overrides, Vec<String>), Refused> {
     let mut overrides = Overrides::new();
     for (_, slot, row) in &rows {
         overrides.insert(*slot, row.clone());

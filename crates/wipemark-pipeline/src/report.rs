@@ -333,6 +333,10 @@ pub struct JobReport {
     pub intensity: Intensity,
     pub effort: Effort,
     pub base_seed: u64,
+    /// Which template profile the templates came from — its id, or
+    /// `custom` for a set that equals none (E4-9, D516). A field added, so
+    /// [`REPORT_VERSION`] stays.
+    pub profile: String,
     pub scorer: Scorer,
     pub chunks: Vec<ChunkReport>,
     /// The third shelf: never empty.
@@ -401,6 +405,7 @@ impl JobReport {
                 "candidates": self.effort.candidates,
                 "rounds": self.effort.rounds,
                 "base_seed": self.base_seed,
+                "profile": self.profile,
                 "seed_rule": "base_seed + (chunk * rounds + round - 1) * candidates + candidate - 1",
                 "scorer": self.scorer.as_str(),
                 "selection": {

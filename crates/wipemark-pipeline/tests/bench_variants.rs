@@ -1,5 +1,8 @@
 //! The prompt bench's template variants (`bench/variants/<name>/`) are
-//! templates the product would admit (E4-8, V2; D427).
+//! templates the product would admit (E4-8, V2; D427) — and so is a
+//! built-in template profile (`prompts/profiles/<id>/`, E4-9, D510), which
+//! is a variant that won and is shipped to be chosen: `--variant keep-voice`
+//! reads it by its id.
 //!
 //! A variant is run as overrides — the road a user's edited template takes —
 //! and a variant that wins is shipped as it is, so every file under
@@ -13,6 +16,7 @@
 use std::path::{Path, PathBuf};
 
 use wipemark_pipeline::lang::Lang;
+use wipemark_pipeline::prompt::profile::BuiltIn;
 use wipemark_pipeline::prompt::{shipped, Role, Slot, Tactic};
 
 #[path = "../examples/bench/variant.rs"]
@@ -42,9 +46,32 @@ fn every_variant_is_admitted_as_an_edit_would_be() {
         names.push(dir.file_name().unwrap().to_string_lossy().into_owned());
     }
     names.sort();
-    assert!(
-        names.iter().any(|n| n == "keep-voice"),
-        "the walk saw the variants: {names:?}"
+    assert_eq!(
+        names,
+        [
+            "numbers-in-digits",
+            "reminder-after-text",
+            "structural-text-only"
+        ],
+        "the walk saw the variants; keep-voice is a built-in profile now (D510)"
+    );
+}
+
+/// `--variant <id>` is the built-in profile, held to the rule a directory is
+/// held to — what the bench runs and what the product applies are one set.
+#[test]
+fn a_variant_named_by_a_profile_id_is_the_built_in_profile() {
+    for built_in in BuiltIn::ALL {
+        let (overrides, warnings) = variant::named(built_in.id(), CTX)
+            .unwrap_or_else(|refused| panic!("{}: {refused}", built_in.id()));
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(overrides, built_in.slots(), "{}", built_in.id());
+    }
+    let directory = variants().join("numbers-in-digits");
+    let by_path = variant::named(&directory.display().to_string(), CTX).expect("a directory");
+    assert_eq!(
+        by_path.0,
+        variant::load(&directory, CTX).expect("the same").0
     );
 }
 
@@ -61,8 +88,7 @@ fn rule(lang: Lang) -> &'static str {
 #[test]
 fn keep_voice_is_the_shipped_contract_plus_one_rule_for_paraphrase_and_humanize_in_every_language()
 {
-    let (overrides, warnings) =
-        variant::load(&variants().join("keep-voice"), CTX).expect("keep-voice is admitted");
+    let (overrides, warnings) = variant::named("keep-voice", CTX).expect("keep-voice is admitted");
     assert!(warnings.is_empty(), "{warnings:?}");
     let mut touched = Vec::new();
     for slot in Slot::all() {

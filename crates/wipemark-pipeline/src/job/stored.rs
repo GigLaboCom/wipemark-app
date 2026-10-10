@@ -67,6 +67,7 @@ impl Options {
             },
             "pivot": self.pivot.map(Lang::as_str),
             "overrides": overrides,
+            "profile": self.profile,
             "length": { "min": self.length.long.min, "max": self.length.long.max },
             "length_short": { "min": self.length.short.min, "max": self.length.short.max },
         })
@@ -132,6 +133,11 @@ impl Options {
                     .ok_or_else(|| field("pivot"))?,
             ),
         };
+        // Absent in a row an earlier build wrote: nobody said (E4-9).
+        let profile = match value.get("profile") {
+            None | Some(Value::Null) => None,
+            Some(id) => Some(id.as_str().ok_or_else(|| field("profile"))?.to_owned()),
+        };
         let mut overrides = Overrides::new();
         for (key, row) in at(&["overrides"])?
             .as_object()
@@ -188,6 +194,7 @@ impl Options {
             },
             pivot,
             overrides,
+            profile,
             length: {
                 let long = LengthDriftGuard {
                     min: float(&["length", "min"])?,
@@ -253,6 +260,7 @@ mod tests {
         options.sampling.max_tokens = Some(512);
         options.pivot = Some(Lang::De);
         options.overrides = overrides;
+        options.profile = Some("legal".to_owned());
         options.length.long.min = 0.4;
         options.length.long.max = 2.5;
         options.length.short.min = 0.3;
@@ -269,6 +277,25 @@ mod tests {
             // The fingerprint reads `Debug`: equal values, equal text.
             assert_eq!(format!("{back:?}"), format!("{options:?}"));
         }
+    }
+
+    /// E4-9: a row an earlier build wrote has no `profile` — nobody said,
+    /// and it reads as that rather than as an error.
+    #[test]
+    fn stored_options_without_a_profile_read_as_nobody_said() {
+        let mut value: serde_json::Value =
+            serde_json::from_str(&unusual().to_json()).expect("json");
+        assert_eq!(value["profile"], serde_json::json!("legal"));
+        value.as_object_mut().expect("object").remove("profile");
+        let back = Options::from_json(&value.to_string()).expect("an earlier row reads");
+        assert_eq!(back.profile, None);
+        value["profile"] = serde_json::json!(7);
+        assert_eq!(
+            Options::from_json(&value.to_string()),
+            Err(OptionsError::Field {
+                field: "profile".to_owned()
+            })
+        );
     }
 
     #[test]

@@ -30,7 +30,7 @@ usage: bench <mode> [--flag value]...
   run     --local <gguf> [--draft <gguf>] | --endpoint <base URL> [--reasoning none|off]
           --name <model id> --out <records.jsonl>
           [--grid <spec>] [--langs en,ru] [--items en-pd-01,...] [--every n] [--ctx 8192]
-          [--gpu-layers n] [--corpus <dir>] [--variant <dir>]
+          [--gpu-layers n] [--corpus <dir>] [--variant <profile id or dir>]
           [--temperature t] [--top-p p] [--min-p p] [--base-seed n]
   whole   --local <gguf> | --endpoint <URL>  --name <model id>
           --doc <file> --prompt <instruction file> --out <records.jsonl>

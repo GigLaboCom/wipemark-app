@@ -185,6 +185,12 @@ impl Decided {
 /// rungs with their templates. A new build that changes a shipped
 /// template changes the rungs, and one that changes a rule changes
 /// `RULES` — either way the fingerprint, and every record is forgotten.
+///
+/// The one field left out is `options.profile` (E4-9): a label for the
+/// report, not something a decision was made from — the templates it names
+/// are hashed with the overrides, so a job resumed under another profile
+/// forgets its records (`a_job_resumed_under_another_profile_forgets_its_records`),
+/// and the same templates under a name given since do not.
 pub(crate) fn fingerprint(
     document: &Document,
     options: &Options,
@@ -213,6 +219,10 @@ pub(super) fn fingerprint_under(
     part(env!("CARGO_PKG_VERSION").as_bytes());
     part(format_id(document.format).as_bytes());
     part(document.text.as_bytes());
+    let options = Options {
+        profile: None,
+        ..options.clone()
+    };
     part(format!("{options:?}").as_bytes());
     part(format!("{info:?}").as_bytes());
     part(format!("{:?}", planned.budget).as_bytes());

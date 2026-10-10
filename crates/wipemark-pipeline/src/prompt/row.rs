@@ -48,7 +48,9 @@ pub fn pivot_of(value: Option<&Value>) -> Option<Lang> {
 /// whose key is handed back so the caller can log how many. Such a row is
 /// left exactly where it is and its slot uses the shipped template: the
 /// repository's rule for any row a build cannot read. Rows with any
-/// other key are not overrides and are passed over.
+/// other key are not overrides and are passed over — and so is a template
+/// profile's, `prompts.profiles.<id>` (E4-9), which is a list entry and not
+/// a slot.
 ///
 /// A value is D74's object, as the settings table stores JSON; a string
 /// holding that object is read as well, since a row written as text by
@@ -59,7 +61,7 @@ pub fn overrides_from<'a>(
     let mut overrides = Overrides::new();
     let mut unread = Vec::new();
     for (key, value) in rows {
-        if !key.starts_with(&format!("{PREFIX}.")) {
+        if !key.starts_with(&format!("{PREFIX}.")) || key.starts_with(super::profile::PREFIX) {
             continue;
         }
         let parsed = parse_key(key).and_then(|slot| {

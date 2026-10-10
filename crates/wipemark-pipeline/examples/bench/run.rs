@@ -382,9 +382,9 @@ fn attempts(args: &Args, plan_only: bool) -> Option<(usize, usize, usize)> {
     let (model, engine) = engine::from_args(args);
     let info = engine.info();
     let done = done(&out);
-    let overrides = args.value("--variant").map(|dir| {
-        let (overrides, warnings) = variant::load(Path::new(&dir), info.ctx_len)
-            .unwrap_or_else(|refused| panic!("--variant {dir}: {refused}"));
+    let overrides = args.value("--variant").map(|named| {
+        let (overrides, warnings) = variant::named(&named, info.ctx_len)
+            .unwrap_or_else(|refused| panic!("--variant {named}: {refused}"));
         for warning in warnings {
             eprintln!("variant {warning}");
         }
