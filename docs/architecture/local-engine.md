@@ -25,7 +25,10 @@ wipemark-engine ──(local-llama)──► wipemark-llama ──► wipemark-l
   release of it by default, or a cmake + bindgen build of the source
   (below, "Where llama.cpp comes from"). Without the feature the crate is
   an empty shim that needs no C++ toolchain. No hand-written `unsafe`; no
-  wipemark dependency.
+  wipemark dependency. Under `native` it also compiles `shim/ext.cpp`, the
+  seven staging calls of `src/llama-ext.h` a DFlash2 draft needs, and
+  declares their `extern "C"` wrappers in `ext` (below, "A draft model",
+  D480).
 * **`crates/wipemark-llama`** is a **synchronous**, safe API over it:
   `Model::load`, `chat_prompt` (the GGUF's own template), `count_tokens`,
   `generate` (a per-call seed, each piece of text handed to a callback,
@@ -631,6 +634,224 @@ model: the live gate does not assert them.
   handle also carries the `Pace` — the executor of the engine on duty and
   the rate its last Check measured — which prices a job before it runs.
 
+## A draft model (E2-dflash2, D480–D489)
+
+Qwen3.8 27B — the catalogue's `qwen3.8-27b-ud-iq3s`, the best local
+rewriter — writes about a paragraph in two seconds on this owner's host.
+A **draft** makes it faster without making it another model: DFlash2
+(`z-lab/Qwen3.8-27B-DFlash2-GGUF`, the catalogue's
+`qwen3.8-27b-dflash2-q4km`, 1.1 GB at Q4_K_M) is a small block-diffusion
+model trained for Qwen3.8 27B. It reads the target's hidden states — the
+inputs of the five target layers it names — injected into its own
+attention, proposes a whole block of tokens in **one** forward pass, and
+the target verifies the block in **one** decode. Its card measures an
+acceptance length of 5.39 tokens a step on eight GSM8K prompts, against a
+Q4_K_M target; it gives no tokens a second, and this repository has
+measured none yet — that is the host's live gate (c) and
+`bench/run-dflash.sh`.
+
+### What it changes, and what it never changes (D489)
+
+Every token kept is the **target's own sample**, from its own logits, with
+the call's own sampler chain: at each position of the verified block the
+target samples, and the draft's token is kept only when it is the token
+the target sampled. The first disagreement ends the step with the
+target's token (`speculative::accept`, llama.cpp's
+`common_sampler_sample_and_accept_n`). The chain draws once per token kept
+and never for a token thrown away, so a seed (D49, D83) is spent exactly
+as without a draft (`the_chain_draws_once_per_token_kept`).
+
+* **What it changes:** how fast the model writes — and, with sampling,
+  which draw a seed lands on: a block of eight decoded at once is not
+  bit-identical to eight decodes of one, so a sampled text with a draft is
+  another sample of the same distribution, not the same text. Greedy
+  output is the target's own; the live gate (b) holds it byte for byte
+  over a paragraph in English, Russian and German. A near-tie under
+  greedy decoding could in principle flip the same way, which is why (b)
+  is a gate and not an assumption.
+* **What it never changes:** the prompt, the templates, the guards, the
+  language check, the no-op floor, the selection — the loop
+  (`docs/architecture/pipeline.md`) sees completions, and a completion
+  with a draft is one of the target's.
+
+So the queue's fingerprint (D116) carries the draft's identity (D483):
+`EngineInfo::draft`, the draft's sha256 as the catalogue pins it, or
+`None` — the configured one before a load, the one that loaded after it
+(`None` once refused). The fingerprint hashes `EngineInfo`'s `Debug`, so a
+job resumed after the draft was downloaded, removed, refused or switched
+off forgets every record (`a_job_resumed_under_another_draft_discards_every_record`).
+The report's JSON does not change. One gap is accepted and said: a draft
+whose context llama.cpp fails to create at one load (out of memory) and
+not at the next is the one refusal that may not recur, and records
+decided across such a crash would name a draft that did not decode
+beside every chunk — with greedy decoding the same text, with sampling
+valid draws of the same model.
+
+### How it runs (D482)
+
+`wipemark_llama::speculative` is the port of llama.cpp's
+`common_speculative_impl_draft_dflash` (`common/speculative.cpp` at
+`b10731`, from line 909) and of the loop `examples/speculative-simple`
+drives it with, DFlash2 only. It is synchronous, on the engine's one
+worker, and the arithmetic is behind a trait, `Pair` — decode on the
+target, propose on the draft, sample, cut — so it is tested with fakes
+whose caches are vectors of positions (`speculative_tests.rs`, seventeen
+tests); `ffi::Drafting` is the one `Pair` that is llama.cpp.
+
+1. **The prompt** is decoded on the target but its last token, a batch
+   at a time, and after every batch the inputs of the draft's layers for
+   those positions are copied side by side into a features batch and
+   decoded on the draft — the draft's cache holds the target's features
+   for every position the target has kept (`process`).
+2. **A step** proposes after the last token kept: the draft decodes the
+   noise block `[last, <mask> × n_max]` at `n_past`, all of its rows' nextn
+   output unmasked, and the selector traces one path through the lattice
+   — row *i*: `top_k` candidate ids, then `top_k × top_k` scores given
+   the previous row's pick, the anchor's pick being 0, the first largest
+   winning a tie (`speculative::trace`). The noise block is cut from the
+   draft's cache at once. `n_max` is 7 — the card's `--spec-draft-n-max
+   7` — within the trained block (8 for Qwen3.8's, so 7), and no more
+   than the tokens still wanted or the window left.
+3. **The target verifies** `[last, proposals]` in one decode, every
+   logit kept, the features of the block injected into the draft as in 1;
+   `accept` keeps the agreeing prefix and the target's next token; both
+   caches are cut back to what was kept (`llama_memory_seq_rm` from the
+   new `n_past`).
+4. **Cancel** is read before every step — one step is one verification
+   decode, D184's bound a block at a time — and between the prompt's
+   batches. Dropping the engine waits for its worker as before; the draft
+   is freed before the target, whose context its own reads
+   (`Session`'s field order).
+
+**Qwen3.8 keeps a recurrent state.** It is `qwen35`: 48 Gated DeltaNet
+layers beside 16 attention ones, `llama_model_is_hybrid`. A recurrent
+state cannot be cut back by `seq_rm` alone; at this pin llama.cpp keeps a
+snapshot per token a block may give back when the context is created
+with `n_rs_seq` (`llama-memory-recurrent.cpp`, "partial rollback via
+per-token snapshot index"), for the architectures in
+`llm_arch_supports_rs_rollback` — `qwen35` among them — and grants 0 to
+every other. The target's context beside a draft asks for `n_max`
+snapshots (llama.cpp's `need_n_rs_seq`), and a recurrent or hybrid target
+granted fewer (`llama_n_rs_seq`) is refused the draft by name
+(`DraftRefusal::NoRollback`) rather than decoded from a state that was
+not rolled back.
+
+### What is refused, and what is said (D481, D485)
+
+A draft that cannot run beside a model leaves the model **loaded alone**,
+never a failed load and never a fallback to anything else
+(`speculative::judge`, `rolls_back`): a file that is not `dflash`; a
+DFlash 1 draft (`selector_top_k` 0); a block, selector or layer list this
+loop cannot read (a block of 1, a lattice wider than the hidden size, a
+nextn row of another width than it); another **vocabulary** — another
+type or size, a token whose text differs from id 5 on (llama.cpp's own
+check, the draft's mask token excepted), no mask token, or one the target
+names otherwise — which is the refusal beside Qwen3 4B; another hidden
+size; layers past the target's (llama.cpp asserts it, an abort); and a
+target that cannot roll back. `LoadProgress::Draft` tells the outcome
+before `Ended`; `EngineHost::draft_outcome` keeps it while the model is in
+memory.
+
+Before a load, the duty decides (`duty::Speculation`): the catalogue has
+no draft for the model (nothing said), the Engine page's row is off, the
+draft is not on this machine whole, or the machine has no room for both by
+the catalogue's figures (`fit_mb(model + draft)` is `TooBig`). The engine
+holds the two estimates to the memory a load may claim as well
+(`room_for`). The **Models card** of the model on duty says the one that
+applies — decoding beside it, ready, refused and why, off, absent, no
+room — in en, ru and de; the draft's own card says what it is for.
+
+### Memory (D485, D487)
+
+The catalogue's figure for the draft is what loading it **adds**: 1 091
+MiB of weights, 160 MiB of KV cache at 8 192 tokens (five layers of eight
+128-wide heads, F16, as llama.cpp's own draft context keeps it), 1 047
+MiB for the seven extra snapshots of Qwen3.8's recurrent state, 200 MiB
+for the five layer inputs the draft reads and about 300 MiB of compute —
+2 816 MiB on top of the model's 14 336. The engine's own estimate adds the
+draft's file and its header's cache. The memory shown after a load is the
+process's resident memory, measured (D55): both models are in it. The
+load's bar is one bar (`speculative::on_bar`): the target's read, then the
+draft's, each its share of the two files' bytes.
+
+### The staging API, and why it is a shim (D480)
+
+The loop needs seven functions that are not in `llama.h`:
+`llama_set_embeddings_nextn` (`llama-ext.h:96`),
+`llama_get_embeddings_nextn` (`:105`), `llama_set_embeddings_layer_inp`
+(`:111`), `llama_get_embeddings_layer_inp` (`:115`),
+`llama_model_dflash_selector_top_k` (`:123`),
+`llama_model_target_layer_ids` (`:126`) and
+`llama_model_target_layer_ids_n` (`:128`). `src/llama-ext.h` is a staging
+header ("breaking changes and C++ are allowed"), outside `include/`, and
+its functions have **C++ linkage**: the release exports them as mangled
+names. Calling a mangled name from Rust with `#[link_name]` would make a
+signature moved upstream undefined behaviour; instead
+`crates/wipemark-llama-sys/shim/ext.cpp` redeclares the seven, copied at
+`b10731`, and wraps each in one `extern "C"` call, and `build.rs` compiles
+it with the `cc` crate (C++17) against the linked llama.cpp's headers —
+so a moved signature is an undefined symbol at link time
+(`every_staging_call_resolves_at_link_time` takes each wrapper's address).
+`WIPEMARK_EXT_READ_AT` in the file is the tag it was read at; `build.rs`
+refuses it at any other pin, so a bump re-reads the header
+(`crates/wipemark-llama-sys/PIN.md`, step 5b). Every native build now
+compiles C++; `unsafe` stays in `wipemark_llama::ffi`. `llama_get_ctx_other`,
+`llama_get_embeddings_nextn_ith` and `llama_set_nextn_layer_offset` are
+exported too and not declared: the loop does not call them.
+
+### Where it is decided (D484, D485, D488)
+
+* The draft is a **catalogue entry tied to its target** — `Role::Draft`,
+  `draft_for: "qwen3.8-27b-ud-iq3s"` — downloaded, verified and removed
+  like any entry, and never chosen: in no selector, never recommended or
+  adopted, never on duty, never claimable by a model the person adds
+  (`docs/architecture/model-downloads.md`, "A draft").
+* **`engine.local.speculative`**, on the Engine page after "Unload
+  after", on by default: "Faster decoding with a draft model". Turned off,
+  or the draft downloaded or removed, the engine is another one and the
+  host swaps it in (`Wanted::Machine::draft`).
+* The **command line** lists the draft under its model (`models list`,
+  `draft_for`/`draft` in `--json`) and `rewrite`'s own engine reads the
+  same row, read-only.
+* The **bench** measures it (D486): `bench run --draft <gguf>` and
+  `bench/run-dflash.sh` (`docs/architecture/prompt-bench.md`).
+
+### The live gate (a)–(c)
+
+No hosted lane has the models. On the host, with
+`WIPEMARK_TEST_GGUF_QWEN38` and the new `WIPEMARK_TEST_GGUF_QWEN38_DFLASH`
+(each test skips, saying so, while either is unset — D186):
+
+```sh
+WIPEMARK_TEST_GGUF_QWEN38=/path/Qwen3.8-27B-UD-IQ3_S.gguf \
+WIPEMARK_TEST_GGUF_QWEN38_DFLASH=/path/Qwen3.8-27B-DFlash2-Q4_K_M.gguf \
+WIPEMARK_TEST_GGUF=/path/Qwen3-4B-Instruct-2507-UD-Q4_K_XL.gguf \
+cargo test -p wipemark-engine --features llama-native --locked -- --ignored --test-threads=1 qwen38
+```
+
+* (a) `qwen38s_draft_loads_beside_it_and_is_refused_beside_another_model`
+  — the draft loads beside Qwen3.8 27B and proposes; beside Qwen3 4B
+  (when `WIPEMARK_TEST_GGUF` is set) it is refused, the 4B loaded alone.
+* (b) `qwen38_greedy_text_is_the_same_with_and_without_the_draft` — the
+  lossless claim, held byte for byte in en, ru and de.
+* (c) `qwen38_speed_with_and_without_the_draft` — tokens a second with
+  and without, and the acceptance length, printed and not asserted.
+
+### Decisions D480–D489
+
+| # | decision |
+|---|---|
+| D480 | The staging calls through a C++ shim of declarations, compiled by `wipemark-llama-sys` under `native` with `cc`, refused at another tag than the pin. |
+| D481 | DFlash2 only; DFlash 1, another vocabulary, another hidden size, layers past the target's, or a target that cannot roll back are refused by name — the model loaded alone. |
+| D482 | The loop on the engine's one worker, one sampler chain, sample-and-match acceptance, `n_max` 7 within the block, cancel between verification steps, the draft freed before the target. |
+| D483 | The queue's fingerprint carries the draft's identity, through `EngineInfo::draft`. |
+| D484 | The draft is a catalogue entry for its target, `Role::Draft` with `draft_for`, never on duty or in a selector. |
+| D485 | `engine.local.speculative`, on by default; without the draft, without room for both or with it refused, the model alone — and the Models card says which. |
+| D486 | The bench records the draft and its acceptance, and reports speed with and without; `bench/run-dflash.sh`. |
+| D487 | One bar for both reads, each its share of the bytes; the measured RSS covers both models. |
+| D488 | The command line lists the draft under its model and rewrites with it by the same row, read-only. |
+| D489 | "Lossless" means every token kept is the target's own sample: greedy text is the target's (held by the live gate), sampled text another draw of the same distribution. |
+
 ## What was left behind, and why
 
 | mnemoria piece | why not here |
@@ -660,6 +881,11 @@ is run by hand.
 #    without it only that backend fails and the CPU still runs.
 #    Offline, or to share one copy between target directories:
 #      WIPEMARK_LLAMA_PREBUILT=/abs/path/llama-cpp-b10731-<target>   # an unpacked archive
+
+#    Every native build compiles shim/ext.cpp (D480): a C++17 compiler —
+#    g++ on Ubuntu, clang with Xcode — is needed for the prebuilt one too.
+#    A machine whose glibc is older than the archive's (2.38 for the
+#    Linux ones: Debian 12 has 2.36) links it to nothing; build from source.
 
 # 2. Only for a source build (WIPEMARK_LLAMA_SOURCE=1): cmake ≥ 3.14, a
 #    C++17 compiler, libclang (for bindgen) — Ubuntu: apt install cmake
