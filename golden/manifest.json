@@ -105,7 +105,7 @@
       "sha256": "2bfa389774885d105db9669669a968f378865b66e224a1742889abd241584204",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -118,7 +118,7 @@
       "sha256": "4f14601af46d7a44bebb932548ad8d63aca10cf04804f382ab8d03fc583ab259",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -131,7 +131,7 @@
       "sha256": "f7bd31ce30f752b39026d6b041165df907ab660ef246e0f7b526e7ed0f480e5f",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -157,8 +157,8 @@
       "sha256": "ec3f7054fa42a22ab854a16936b1c647a7cc3845ee579b82ccec13e48786f119",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
-        "verified": 0
+        "clean_exit": 1,
+        "verified": 1
       }
     },
     {
@@ -170,7 +170,7 @@
       "sha256": "e54180d481e71ef2a86abfc5a1ee54d620b4259318fe6b5f93f06d9ab985630e",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -196,7 +196,7 @@
       "sha256": "e001118524d8c47fceb03cb4689fb06308b8cd5600e3707d69b6b27b156df4b4",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -486,7 +486,7 @@
       "sha256": "5cd218db24777fd8b53e2d9f80c2e15275bb3b18da2c0c44f82e519444b809eb",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -520,7 +520,7 @@
       "sha256": "41bc14660801dd75e5f15247ef8c06c9ad06ab5228e25f4ae5ad82d91d6e2cff",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -588,7 +588,7 @@
       "sha256": "4158af734623df2b324f84223ff185f8b7a5200b19b33211f96371d8d8a1b741",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -622,7 +622,7 @@
       "sha256": "55c5b7aa509587ae9666f83051c30e0a1f1f4ad2c6b178f1ae74945a95a6a899",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -640,7 +640,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -657,7 +657,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -690,7 +690,7 @@
       "sha256": "897c0576a90b4b00fff7acc555d35cfd856d25d0234372383a3abeb2389d5be1",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -724,7 +724,7 @@
       "sha256": "dfdd1291c0db961b53bcdf4304f653e2dafb2873d0c873dd572488db1208cec0",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -792,7 +792,7 @@
       "sha256": "db7b9ea9ac5d0812234856a544624059168870b8d7646395c57346f8c0623d50",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -826,7 +826,7 @@
       "sha256": "c335d5d8d8984fe187d084865259237c3710cf20f58ba87397044b21889492ef",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -894,7 +894,7 @@
       "sha256": "8f3118c4491a22af3216d2429bb2fe090f81a151c7fb22fbc5f8608bf36e589b",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -928,7 +928,7 @@
       "sha256": "74148d078fb832a325de0cc23dd9b2ded96a0bd8f6f6e057c3799133eccdc69a",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -946,7 +946,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -963,7 +963,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -996,7 +996,7 @@
       "sha256": "fac6659e51f1de66b90618aa2fa425f36e37b55c3c5ddc0cca6713016a187bf4",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1030,7 +1030,7 @@
       "sha256": "c3c5ce8cab0a372f5b1942ec4df987736ba4fd418bc03e1774b5e06201a63726",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1048,7 +1048,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -1065,7 +1065,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -1098,7 +1098,7 @@
       "sha256": "85a83b9bab09ea0ad6e17f8a391ec7c349fcf6d5bdce348641b275e2f35aeac7",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1132,7 +1132,7 @@
       "sha256": "f68edd57749ee01794c85026bd855d1646a5252f0f56ba46502bef1f6a33dbe7",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1150,7 +1150,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -1167,7 +1167,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -1200,7 +1200,7 @@
       "sha256": "85990e3d1a5df229131d7aa8b12dccc5dc07d21b6808598c7588cc213d550e4f",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1234,7 +1234,7 @@
       "sha256": "310ce56e917bb5a73ebf174196c9f23826da6ff735e371bfc84f9aaf11726191",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1269,7 +1269,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -1302,7 +1302,7 @@
       "sha256": "3e226410281356ef8d037fc0ee137c8bbe4ee270fa87bcc062ac084294565950",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1336,7 +1336,7 @@
       "sha256": "f6d40a09937db01a5f6bde29150017fe01b5f68d0a88600546f3a7fa0207cd44",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1371,7 +1371,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -1404,7 +1404,7 @@
       "sha256": "86fe65ed00c8231cbb6038c593901da9a6bc8ad0f6aa361522b4d5f5356944ed",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1438,7 +1438,7 @@
       "sha256": "9c2861832c4a44dfc6c3be1529ea567b0b8599e81d2da7e6eacf625b1a641bce",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1456,7 +1456,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -1473,7 +1473,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -1506,7 +1506,7 @@
       "sha256": "7eb19de27f9013e0277cfed6886fe2f7e0f26ffb7e56d3fe44ae5a7ef37427d2",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1540,7 +1540,7 @@
       "sha256": "e3112e29ea04bbb3b2a005efb5a67f7c07e3968b6f92bc544a106cf8450cb866",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1558,7 +1558,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -1575,7 +1575,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -1660,7 +1660,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -1676,8 +1676,8 @@
       "sha256": "de5e66de129f19556c6fbc9ab66b666b096b3af4a69fd1d7156e18ba8472a8e6",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
-        "verified": 0
+        "clean_exit": 1,
+        "verified": 1
       }
     },
     {
@@ -1694,7 +1694,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -1710,7 +1710,7 @@
       "sha256": "02a9a0bcf3338c1c010145e5e328bc34f19953816548bff3c2638a2bcc87c805",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1744,7 +1744,7 @@
       "sha256": "9bf57864c93e1fdc42ccec8d1a5abd60cf46b4050b4c3574814e0bb632a3738f",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1812,7 +1812,7 @@
       "sha256": "0f20a05579274c3f2efe13fe56e4ca3cb13c088dfa610d67b38cc86a4e25117c",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1846,7 +1846,7 @@
       "sha256": "dcc4d8435b472ef2937eed918a503b56eeb68635280c19cbdf517e8e72b623b0",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1881,7 +1881,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -1914,7 +1914,7 @@
       "sha256": "4631ee5deff18830afc342f63e6e622397c5914d7923ba6d344ce9e45fd68553",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1948,7 +1948,7 @@
       "sha256": "c44adf4030039c230710be1a8418cc98aa9c0748681172149fda5e98237b4890",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -1983,7 +1983,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -2016,7 +2016,7 @@
       "sha256": "817b9518377ecd169d8a4239da17d2c3057828e3377f92191bd340405f223503",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2050,7 +2050,7 @@
       "sha256": "1b543fcb2e090a35c00337981d4e1b2a4ab84fd91157fe5e10c10dded2df2d86",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2068,7 +2068,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -2085,7 +2085,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -2118,7 +2118,7 @@
       "sha256": "71d9bbf5df8544b7990f52967f921e87d3d286d92d28260f14ccd669268d6610",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2152,7 +2152,7 @@
       "sha256": "ce07d052bf6fe93b3575cd145a7da6d82e6ac783f4f702426d7ed17b71c240cf",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2187,7 +2187,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -2220,7 +2220,7 @@
       "sha256": "c2acd6d30649d3feff24c9050f533128c6b69b70fff3263265faf072ed6ced3d",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2237,7 +2237,7 @@
       "sha256": "7e2376c8ef9671dc20c8691b19750e5f047df46e96d58e4f950478b41c05045c",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2254,7 +2254,7 @@
       "sha256": "75a383259d2b6cade2de1c1a53b30aa50e15314683492d93139612c96f37a6b1",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2271,7 +2271,7 @@
       "sha256": "6bff5b223e5acf302d58266fe29b54e97356e74d3b9e3f4dfa72e90769136fef",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2322,7 +2322,7 @@
       "sha256": "0ae8d8cd78596730b276cd6465e5148a9e21240c1a7e86cea00e8d2ffed78372",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2356,7 +2356,7 @@
       "sha256": "90f11614b06efbaa433f5453e8cdf5fe199b9c770e376658f1f6cea20756989a",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2391,7 +2391,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -2424,7 +2424,7 @@
       "sha256": "58631d7b2884145d744f214051de1ae63b5627424ee93f260b71859c1d4fa82a",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2458,7 +2458,7 @@
       "sha256": "f98fd2cb9505a998ac3613b9a7c8b8837c497060da2f9120ddefa061802999f6",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2476,7 +2476,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -2493,7 +2493,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -2526,7 +2526,7 @@
       "sha256": "ac110db5698fc124f563c318e01891b0cba284d313d146c4416d1ac443dcbab3",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2560,7 +2560,7 @@
       "sha256": "859b34783bc222d0f3fd4a8236cfc572a45490cde3f07812b9de72bc15b7a870",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2578,7 +2578,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -2595,7 +2595,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -2655,7 +2655,7 @@
       "sha256": "dd183502b2039ae1a3d43f175a2b4e6d900850e2b3adaabea8fb3d3bdb49c53c",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2722,7 +2722,7 @@
       "sha256": "3048db22914d5549dfe238cf499405d531ddf2ace3f4e48884ceb2e959350fd1",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2856,7 +2856,7 @@
       "sha256": "a592226df165b01a7bab0dca59455b7567e9c2dc4c79e6297145cc7c8ed9eeee",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2880,7 +2880,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -2923,7 +2923,7 @@
       "sha256": "41f0078ee90e335fd9786d616feb68ba2bdbfaf9493f40360b2f2c765eedd324",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -2947,7 +2947,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -3057,7 +3057,7 @@
       "sha256": "a5e63fe967511da940a3dacf73f8981fb417dc83b33837fa524ea1e9d4cbb24c",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -3124,7 +3124,7 @@
       "sha256": "a601a504650aa6d965ebc7b79419b8be8bead0e9ef6fb6749dc48ddaa897f252",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -3258,7 +3258,7 @@
       "sha256": "95970452fba5b937238f547808e1952b977b6eb31fa1e451110aefc3d0d78148",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -3325,7 +3325,7 @@
       "sha256": "39367fdfacc0e94499e23e6419392ef5f542f71e853a5bb31dc96ee67920bcc0",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -3459,7 +3459,7 @@
       "sha256": "4f14601af46d7a44bebb932548ad8d63aca10cf04804f382ab8d03fc583ab259",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -3483,7 +3483,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -3526,7 +3526,7 @@
       "sha256": "daa7f4132123cf04bdea986322a4ea998d47d0cf56d90be022537e92ebf0bc88",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -3550,7 +3550,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -3660,7 +3660,7 @@
       "sha256": "f33a95eb1457c7eb0d1ca13b412d153e9a74019fd9b624b5bc6890bef441d027",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -3684,7 +3684,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -3727,7 +3727,7 @@
       "sha256": "26282ee75009696bc1cd6b8b10400a0b09fe7fa3586f585f26d1077bf926cb39",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -3751,7 +3751,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -3861,7 +3861,7 @@
       "sha256": "22987c886b6a6a2dd5df77c8c127c0fa63ac72e6bff83415f955169fece45e41",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -3885,7 +3885,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -3928,7 +3928,7 @@
       "sha256": "d60b454d2b084949240b7f708def5c3f2ce732bd19b53f0bfadf32baeea69daa",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -3952,7 +3952,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -4062,7 +4062,7 @@
       "sha256": "aa3761d04991133e7ab69edbb52680286c0540a2d295901f0f0027c60353f96f",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -4086,7 +4086,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -4129,7 +4129,7 @@
       "sha256": "5ca20b631400d1641887b2dabc69be2b6ae339a3b3ca0e00cb68d9d9fa8ccf16",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -4263,7 +4263,7 @@
       "sha256": "b601234d05105253f69ca05fa7ac917f44e8a5fa91871c5492e02d5fdc6f0bde",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -4287,7 +4287,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -4330,7 +4330,7 @@
       "sha256": "2bfa389774885d105db9669669a968f378865b66e224a1742889abd241584204",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -4464,7 +4464,7 @@
       "sha256": "06edfccca170dfd1ce381dbd2ee4de30275fede74743c1ae95a1c000fa992ed7",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -4488,7 +4488,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -4531,7 +4531,7 @@
       "sha256": "724d84686ec156b60ab47aa2f6f3dc9010f9e04cb9c3c56f426ecc1313e70ff6",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -4555,7 +4555,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -4665,8 +4665,8 @@
       "sha256": "b0c01570edbd0d90c27224f1a263e8590f688506dc4da36a858b0c72e339058e",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
-        "verified": 0
+        "clean_exit": 1,
+        "verified": 1
       }
     },
     {
@@ -4689,7 +4689,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -4732,7 +4732,7 @@
       "sha256": "30fa8dc3318ce701576863a0db2a9512f95cb9fbdd770772c34d063a528303bb",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -4756,7 +4756,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -4890,7 +4890,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -4957,7 +4957,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -5067,7 +5067,7 @@
       "sha256": "6f12a35811628d0e3adf46d82784ce250ad707082fb28f639ab62e5dbb7381dd",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -5134,7 +5134,7 @@
       "sha256": "a55edd8d04f39e2347ca0a236f156e4e3260fd09aeede0517796abde71febb57",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -5268,7 +5268,7 @@
       "sha256": "c57361247cd4df052d5837044bc8a0f525f1f4635f4949921332e50df82ce37f",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -5292,7 +5292,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -5335,7 +5335,7 @@
       "sha256": "949346920351d177426ddaf99461fe52dcc6d905167fac19892f2e9283374c16",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -5469,7 +5469,7 @@
       "sha256": "d00327f74767d8dddf83e50ac510910368cc06211922d22b149f67106a56a873",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -5536,7 +5536,7 @@
       "sha256": "a0e3e1c9080d8e51eee0842637013082d3a1d969959405fd5065277cc09643c4",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -5670,7 +5670,7 @@
       "sha256": "626edde5dc71db584c169fa0bb5848057e5546ebf0a3658add37e2cbffb02d4b",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -5694,7 +5694,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -5737,7 +5737,7 @@
       "sha256": "70646b275dc00a56e4831da3eb70702e310a8e74346bd4d8a4aee56ef9a87a26",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -5761,7 +5761,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -5871,7 +5871,7 @@
       "sha256": "e23cdbbc784596f3538de4336d2bfaf51154d9a61c40fdfc9ee5423873b93a10",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -5895,7 +5895,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -5938,7 +5938,7 @@
       "sha256": "cd08a2c841b7d2f640e56f3ff68cd21490d9027558dac8a338f457ffd30104b7",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -6072,7 +6072,7 @@
       "sha256": "b6141d6e7b577df324e6017eca553d83664e83601607fb853c528dab69f684ec",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -6096,7 +6096,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -6139,7 +6139,7 @@
       "sha256": "6c2e4a64142d34472f0725d978ab982bae96576c33901706c67054f339836165",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -6162,7 +6162,7 @@
       "sha256": "dac78b8c8eb8eca02ed8af37ac2f950bf1b37e164b168b6083b993b8f2144083",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -6273,7 +6273,7 @@
       "sha256": "1473fa5ba97ede74df14ecccba53448e4e5a51ff56820842b87c77bc397b0703",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -6297,7 +6297,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -6340,7 +6340,7 @@
       "sha256": "53e55cafeef7b749d2b836e9c562d77238e61d125424bb56807555d95b8de753",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -6474,8 +6474,8 @@
       "sha256": "ec3f7054fa42a22ab854a16936b1c647a7cc3845ee579b82ccec13e48786f119",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
-        "verified": 0
+        "clean_exit": 1,
+        "verified": 1
       }
     },
     {
@@ -6498,7 +6498,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -6541,7 +6541,7 @@
       "sha256": "e001118524d8c47fceb03cb4689fb06308b8cd5600e3707d69b6b27b156df4b4",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -6565,7 +6565,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -6675,7 +6675,7 @@
       "sha256": "66029f75e5d4a807ac8b2e516bf3d88cddafe357ba92c17613fe5c2814cee4a2",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -6699,7 +6699,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {
@@ -6742,7 +6742,7 @@
       "sha256": "d1015288f38df1e0da5a8ee7455a7d2392dc344e6768ae75c41f0f630f855ba1",
       "expect": {
         "inspect_exit": 1,
-        "clean_exit": 3,
+        "clean_exit": 1,
         "verified": 1
       }
     },
@@ -6766,7 +6766,7 @@
       "expect": {
         "inspect_exit": 1,
         "clean_exit": 3,
-        "verified": 0
+        "verified": 1
       }
     },
     {

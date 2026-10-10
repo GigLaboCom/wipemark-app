@@ -16,6 +16,17 @@ neither the corpus nor Python.
 | `cache/` | the unpacked ZIPs and the derived files | **no** (`.gitignore`) |
 | `../reports/regress-<commit>-<date>/` | a run and its `summary.md` | **no** (`.gitignore`) |
 
+**The baselines in the tree.** `baseline/4b5ba17/` is R0's — the series'
+base commit, every D247/D250/D252 figure reproduced (2026-10-09).
+`baseline/34b4c2c/` is the product after the owner's decisions of
+2026-10-10 (D470–D472: the search's gain rule, the planes, DCT-POCS), and
+the manifest's `expect` is **its** since then — so `run --baseline
+golden/baseline/4b5ba17/` is refused as "taken apart" unless the manifest
+is read as it was at `37a301e`. Its `reproduce.json` says FAIL on five
+§6.3 checks by design: those are R0's figures (the 4:4:4 texture, the
+4:2:0 fringe, the q90 refusals), and the decisions removed exactly them —
+`docs/plan/reports/E12-R-decided-2026-10-10.md`.
+
 **The owner's pictures never enter git.** The manifest names the Watchword
 key of each ZIP, the path inside it and each file's sha256; a run checks
 every sha256 before it starts and refuses on a mismatch. Only the committed
