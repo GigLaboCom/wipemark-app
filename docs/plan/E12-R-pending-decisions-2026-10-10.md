@@ -7,9 +7,22 @@ question answered moves to `docs/plan/README.md` §4 (a decision) or §5 (an
 answer) with its number. Figures: `docs/plan/reports/E12-R-container-runs-2026-10-09.md`
 (the bench, level B, the clean measures, the trigger) unless named.
 
+**Decided, 2026-10-10** — the owner: "плоскости, делай все три с
+проверками". A1, A2 and A3 are taken and implemented on `recon/decided`
+(`docs/plan/reports/E12-R-decided-2026-10-10.md`):
+
+| | decision | number |
+|---|---|---|
+| A1 | R8's method: **R8d, DCT-POCS**, the product's by default on a lossy JPEG | **D472** |
+| A2 | D306 **with the per-plane interval**; the RGB-cube share a reported measure, no gate; the planar path is the product's road for 4:2:0 and 4:2:2 | **D471** (the series' proposed D306, which is another decision on `feat`) |
+| A3 | **option a**: the search does not prove a mark where a row of its profile refused it by gain, at that row's place | **D470** |
+
+R8's sub-questions Q1–Q3 under A1 were not answered and stay open; the
+code is as R8 built it. Everything from A4 on is still open.
+
 ## A. The ones that hold the series
 
-### A1. R8: which value inside the codec's interval (R8's method)
+### A1. R8: which value inside the codec's interval (R8's method) — **decided: R8d (D472)**
 
 | option | what it does | figures (bench level A; corpus level B, both with R6) |
 |---|---|---|
@@ -27,7 +40,7 @@ Sub-questions R8 left (its report, §Questions):
 * **Q3** — the text rule reads every committed crop as text: keep, or
   narrow?
 
-### A2. D306: the planar inverse — its out-of-range test (R6's Q1)
+### A2. D306: the planar inverse — its out-of-range test (R6's Q1) — **decided: per-plane interval (D471)**
 
 | option | what it means | figures |
 |---|---|---|
@@ -37,7 +50,7 @@ Sub-questions R8 left (its report, §Questions):
 Also: whether D306 waits for the D154 fix (A3) — R6 roughly doubles the
 search's acceptances of a weaker mark.
 
-### A3. D154: a weaker mark proved by the search
+### A3. D154: a weaker mark proved by the search — **decided: option a (D470)**
 
 The rows refuse a mark drawn at `k = 0.93` by its gain; the search, which
 runs when no row proved anything, moves an eighth of a pixel (or shrinks

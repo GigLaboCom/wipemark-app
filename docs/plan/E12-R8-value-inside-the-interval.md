@@ -9,6 +9,7 @@
 | Runs on          | **container** (code, tests) + **host** (R5 on every JPEG slice, R1 `--route lossy`, the blind A/B if Q-R7 is answered)                  |
 | Files touched    | `crates/wipemark-pixels/src/{interval.rs (new),restore.rs,verify.rs,lib.rs}`, `crates/wipemark-pixels/tests/interval.rs` (new), `crates/wipemark-picture/src/lib.rs` (the switch), `crates/wipemark-picture/examples/recon_bench.rs` (configs `R8d`, `R8p`, `R8w`), `docs/architecture/visible-marks.md`, `docs/architecture/cli.md`, the report |
 | Not touched      | the lossless path (S6), detection, the proof's bounds, the encoder                                                                      |
+| Status           | **Decided 2026-10-10**: the owner took DCT-POCS (R8d) as the product's method, **D472**; it runs by default, and `WIPEMARK_INTERVAL` and the `planar-preview` road below are gone — see `docs/plan/reports/E12-R-decided-2026-10-10.md`. What follows is the step as it was written |
 | Decisions        | **D307** (`TEXTURE_RATIO_MIN`); the choice of one method recorded as a decision row by the coordinator                                  |
 | Size             | ~1–2 weeks (three methods, one kept)                                                                                                     |
 

@@ -9,6 +9,7 @@
 | Runs on          | **container** (code, tests) + **host** (R5 on `jpeg420-*`, R1 `--route lossy`, then the coordinator's decision)                          |
 | Files touched    | `crates/wipemark-pixels/src/{planar.rs (new),verify.rs,restore.rs,lib.rs}`, `crates/wipemark-pixels/tests/planar.rs` (new), `crates/wipemark-picture/src/lib.rs` (the switch, §4.5), `crates/wipemark-picture/examples/recon_bench.rs` (config `R6`), `docs/architecture/visible-marks.md`, `docs/architecture/cli.md` (the JSON), the report |
 | Not touched      | `propose.rs`, the rows, the search, the second pass's logic, `prove`'s floor, the encoder (the output stays 4:4:4 q95)                   |
+| Status           | **Decided 2026-10-10**: the owner took D306 with the per-plane interval, numbered **D471** (D306 is another decision on `feat`); the planar path is the product's road and the `planar-preview` feature below is gone — see `docs/plan/reports/E12-R-decided-2026-10-10.md`. What follows is the step as it was written |
 | Decisions        | **D306** (out of range by planes; amends D240 and D252 for these inputs)                                                                 |
 | Size             | ~5 days                                                                                                                                 |
 

@@ -283,8 +283,8 @@ it sits.
 | `wipemark-log` | the rotating file, the panic hook, `Elided` | real |
 | `wipemark-i18n` | the Fluent catalogues and the `Message` enum `build.rs` generates from them | real |
 | `wipemark-image` | PNG, JPEG and WebP metadata: blocks that tile the file, the AI signals as data, `inspect`/`strip` with the raster unchanged; and `reframe`, the one writer for a picture whose pixels changed (`reframe(x, x) == strip(x)`) | real for PNG/JPEG/WebP (E11-1, E11-3; `reframe` E12-3); TIFF, HEIC/AVIF refused by name (backlog); the CLI and the MCP server call it (E11-2), `wipemark-picture` too, and through it the windows' Clean (E7) |
-| `wipemark-pixels` | visible marks as data: the raster, the `.wma` opacity map, the compiled-in catalogue `manifests/marks.v1.json` with every asset pinned by sha256; propose (rows at their own place, then a search refined to the sub-pixel and to the filter that shrank the mark) → verify (edge energy over the unclamped inverse: proved, a blend not proved, or no blend) → restore, the outline and texture checks, holes, the second pass; calibration (`examples/calibrate.rs`); the report whose shelf leads with `invisible-pixel-marks`. No codec | real (E12-1, E12-2, five rounds of host verification); Gemini V1/V2 from GWT's maps (`marks/gwt/`), V1's large-row map and logo measured from real outputs (`gemini-v1-96-measured`), V2's small rows from GWT's formula; other vendors **E12-6** |
-| `wipemark-picture` | a picture file through both passes: decode to the stored raster, the visible pass, encode like the original, `wipemark_image::reframe`, the proof before a byte is handed back — one writer | real for PNG, WebP (lossless out) and JPEG (re-encoded at quality 95; CMYK examined, never written back) (E12-3, E12-4); the CLI and the MCP tools call it (E12-5), and the windows' Clean and the panel's look at AI-provenance scope (E7); Compare for pictures and the batch queue's picture item are **E12-8** |
+| `wipemark-pixels` | visible marks as data: the raster, the `.wma` opacity map, the compiled-in catalogue `manifests/marks.v1.json` with every asset pinned by sha256; propose (rows at their own place, then a search refined to the sub-pixel and to the filter that shrank the mark, which never proves a mark where its row refused it by gain, D470) → verify (edge energy over the unclamped inverse: proved, a blend not proved, or no blend; for a 4:2:0/4:2:2 JPEG out of range in its planes, D471) → restore (in the planes on that route, D471; then, on a lossy JPEG, the value chosen inside the file's quantisation intervals by DCT-POCS, D472 — pixel POCS and Wiener are the bench's), the outline and texture checks, holes, the second pass; calibration (`examples/calibrate.rs`); the report whose shelf leads with `invisible-pixel-marks`. No codec | real (E12-1, E12-2, five rounds of host verification); Gemini V1/V2 from GWT's maps (`marks/gwt/`), V1's large-row map and logo measured from real outputs (`gemini-v1-96-measured`), V2's small rows from GWT's formula; other vendors **E12-6** |
+| `wipemark-picture` | a picture file through both passes: decode to the stored raster (a JPEG with its planes, D471), the visible pass (a 4:2:0/4:2:2 mark in the planes, D471; DCT-POCS after it on a lossy JPEG, `REFINE`, D472 — no feature, no environment variable), encode like the original, `wipemark_image::reframe`, the proof before a byte is handed back — one writer | real for PNG, WebP (lossless out) and JPEG (re-encoded at quality 95; CMYK examined, never written back) (E12-3, E12-4; the planes and DCT-POCS since the owner's decisions of 2026-10-10); the CLI and the MCP tools call it (E12-5), and the windows' Clean and the panel's look at AI-provenance scope (E7); Compare for pictures and the batch queue's picture item are **E12-8** |
 | `wipemark-intake` | what was handed over — text, bytes or a path — and what it turns out to be; and `inplace`, the one module that writes: a result beside a file or over it, the original set aside first | real |
 | `wipemark-license` | activation, grace, and what a lapse never locks | types; **E9** |
 
@@ -1531,14 +1531,19 @@ Anything that needed more than a rule to explain is in `docs/`;
   `manifests/marks.v1.json`, its maps pinned by sha256. NCC proposes: a
   placement row at its own rectangle and **never moved**, and the search,
   refined to an eighth of a pixel, only when no row's mark was proved
-  (D236). Edge energy over the unclamped inverse decides, and there are
+  (D236) — and never proving a mark at the place of a row of its profile
+  that refused it by gain: another opacity is another profile (D470).
+  Edge energy over the unclamped inverse decides, and there are
   three outcomes (D235): **proved**, and restored; **a blend not proved**
   (the gain is not the mark's, the edges do not go far enough, the
   inverse leaves the range), a finding left in place; **no blend**, which
   is not a finding — never reported, never an exit code. Only a
   `Verified` is restored, and an opaque pixel is a hole, never a
   division. Out of range is counted in stored levels, past an allowance
-  of 8 (`BLEND_LEVELS`, D240). After a restoration the outline is held
+  of 8 (`BLEND_LEVELS`, D240) — for a 4:2:0 or 4:2:2 JPEG in its planes,
+  where the mark is also restored (D471). On a lossy JPEG the restored
+  value is then chosen inside the file's own quantisation intervals by
+  DCT-POCS (D472). After a restoration the outline is held
   three ways — its share of the mark's contour energy (D238), the faint
   band's step in luma levels against the surroundings and their own
   spread (D244), and the same in colour difference `‖(ΔCb, ΔCr)‖`
@@ -1555,9 +1560,12 @@ Anything that needed more than a rule to explain is in `docs/`;
   nothing is written; nothing restored is `strip`'s output to the byte.
   No flag: a proved mark is removed (the owner, 2026-10-04). The
   picture's third shelf leads with `invisible-pixel-marks`, in every
-  language. The known limitation: a 4:2:0 JPEG under quality 95 is often
-  refused out of range — how often depends on where its blocks fall
-  around the mark — and is then said to be left, exit 3. See
+  language. The known limitation: a JPEG under quality 95 is restored but
+  usually keeps a band — on the corpus's 2048 originals at 90 and 85, 20
+  of 21 are restored with an outline said (the luma step or share, exit 3)
+  and none is refused; at 75, 20 of 21 are refused by their row's gain
+  (`k*` 0.94). A 4:2:0 JPEG whose planes do not read takes the RGB path,
+  where D252's refusals by block alignment still hold. See
   `docs/architecture/visible-marks.md`.
 * **Layer A is never licence-gated.** Any state, expired or invalid,
   keeps the deterministic scrubber available.
