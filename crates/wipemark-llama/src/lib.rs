@@ -50,6 +50,7 @@ mod chat;
 mod generate;
 mod model;
 mod runtime;
+pub mod speculative;
 
 #[cfg(feature = "native")]
 mod ffi;
@@ -57,12 +58,13 @@ mod ffi;
 use std::path::PathBuf;
 
 pub use chat::{chat_support, llama_cpp_family, ChatSupport};
-pub use generate::{Finish, Generated, Sampling, Stitcher};
+pub use generate::{Drafted, Finish, Generated, Sampling, Stitcher};
 pub use model::{
     estimate, kv_bytes_per_token, kv_cache_mb, refusal, KvQuant, KvShape, LoadParams, MemEstimate,
     Model,
 };
 pub use runtime::{search_dirs, BackendInfo, BackendKind, Runtime};
+pub use speculative::DraftRefusal;
 pub use wipemark_llama_sys::pin;
 
 /// Whether this build linked the real ggml and llama.cpp libraries.

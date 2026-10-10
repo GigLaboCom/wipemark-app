@@ -13,6 +13,7 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use crate::generate::{Generated, Sampling};
+use crate::speculative::{DraftRefusal, Plan};
 use crate::LlamaError;
 
 /// KV-cache element type.
@@ -312,6 +313,52 @@ impl Model {
         Ok(Model { session })
     }
 
+    /// [`Model::load_watched`], and the DFlash2 draft at `draft` beside it
+    /// (E2-dflash2): `progress` is told one fraction for both reads, the
+    /// model's then the draft's, each its share of the two files' size.
+    ///
+    /// A draft that cannot run beside this model — not a DFlash2 draft,
+    /// trained for another model, a model whose recurrent state llama.cpp
+    /// cannot roll back by a block, a draft llama.cpp would not load — is
+    /// **not** a failed load: the model is loaded alone and the second
+    /// value says why ([`DraftRefusal`], D481). Everything that fails
+    /// [`Model::load_watched`] fails this, and so does `stop` set during
+    /// either read.
+    pub fn load_drafted(
+        path: &Path,
+        draft: &Path,
+        params: LoadParams,
+        stop: &AtomicBool,
+        progress: &dyn Fn(f32),
+    ) -> Result<(Model, Result<(), DraftRefusal>), LlamaError> {
+        if !path.is_file() {
+            return Err(LlamaError::NoSuchFile(path.to_path_buf()));
+        }
+        let runtime = crate::Runtime::init(&[]);
+        if runtime.backends().is_empty() {
+            return Err(LlamaError::NoBackend {
+                searched: runtime.dirs().to_vec(),
+            });
+        }
+        let started = std::time::Instant::now();
+        let (session, beside) =
+            crate::ffi::Session::load_drafted(path, draft, &params, stop, progress)?;
+        tracing::info!(
+            n_ctx = session.n_ctx(),
+            n_gpu_layers = params.n_gpu_layers,
+            kv = ?params.kv_quant,
+            drafted = beside.is_ok(),
+            elapsed_ms = started.elapsed().as_millis(),
+            "model loaded"
+        );
+        Ok((Model { session }, beside))
+    }
+
+    /// How the draft beside this model runs, when one does.
+    pub fn draft(&self) -> Option<&Plan> {
+        self.session.draft_plan()
+    }
+
     /// The context window llama.cpp created, in tokens.
     pub fn n_ctx(&self) -> u32 {
         self.session.n_ctx()
@@ -400,10 +447,51 @@ impl Model {
         self.session.clear();
         let sampler = self.session.sampler(sampling)?;
 
+        // With a draft beside the model: the same chain, a block a step
+        // (D482). `speculative::generate` decodes the prompt itself.
+        if let Some(n_max) = self.session.draft_plan().map(|plan| plan.n_max) {
+            let n_batch = usize::try_from(self.session.n_batch().max(1)).unwrap_or(1);
+            let budget = crate::speculative::Budget {
+                max_tokens,
+                n_ctx: limit,
+                n_max,
+                n_batch,
+                cancel,
+            };
+            let mut stitcher = Stitcher::new();
+            let mut text = String::new();
+            let ended = self
+                .session
+                .generate_drafted(&tokens, &sampler, &budget, &mut |piece| {
+                    let whole = stitcher.push(piece);
+                    if whole.is_empty() {
+                        return ControlFlow::Continue(());
+                    }
+                    text.push_str(&whole);
+                    on_piece(&whole)
+                });
+            if let Some(ended) = ended {
+                let ended = ended?;
+                let tail = stitcher.finish();
+                if !tail.is_empty() {
+                    text.push_str(&tail);
+                    // The generation is over either way.
+                    let _ = on_piece(&tail);
+                }
+                return Ok(Generated {
+                    text,
+                    tokens_out: ended.tokens_out,
+                    finish: ended.finish,
+                    drafted: Some(ended.drafted),
+                });
+            }
+        }
+
         let mut out = Generated {
             text: String::new(),
             tokens_out: 0,
             finish: Finish::Length,
+            drafted: None,
         };
         let cancelled = || cancel.load(Ordering::Relaxed);
 
@@ -490,6 +578,23 @@ impl Model {
             return Err(LlamaError::NoSuchFile(path.to_path_buf()));
         }
         Err(LlamaError::NotBuilt)
+    }
+
+    /// Refuses as [`Model::load`] does; nothing is read, the draft
+    /// included.
+    pub fn load_drafted(
+        path: &Path,
+        draft: &Path,
+        params: LoadParams,
+        stop: &AtomicBool,
+        progress: &dyn Fn(f32),
+    ) -> Result<(Model, Result<(), DraftRefusal>), LlamaError> {
+        let _ = draft;
+        Self::load_watched(path, params, stop, progress).map(|model| (model, Ok(())))
+    }
+
+    pub fn draft(&self) -> Option<&Plan> {
+        match self.never {}
     }
 
     pub fn n_ctx(&self) -> u32 {

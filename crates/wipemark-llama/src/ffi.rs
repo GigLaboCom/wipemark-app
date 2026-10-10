@@ -23,15 +23,21 @@
 #![allow(unsafe_code)]
 
 use std::ffi::{c_char, c_void, CStr, CString};
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Once;
 
 use wipemark_llama_sys as sys;
+use wipemark_llama_sys::ext;
 
 use crate::generate::Sampling;
 use crate::model::{KvQuant, KvShape, LoadMode, LoadParams};
 use crate::runtime::{classify, BackendInfo};
+use crate::speculative::{
+    self, Budget, DraftFacts, DraftRefusal, Ended, Pair, Plan, TargetFacts, DFLASH_ARCH,
+    VOCAB_CHECK_FROM,
+};
 use crate::LlamaError;
 
 // ----------------------------------------------------------------------------
@@ -331,44 +337,16 @@ impl Drop for Weights {
     }
 }
 
-/// One owned decode state (the KV cache). Freed in `Drop`.
-struct Context {
-    ctx: *mut sys::llama_context,
-}
-
-impl Drop for Context {
-    fn drop(&mut self) {
-        // SAFETY: from `llama_init_from_model`, non-null, freed exactly once.
-        unsafe { sys::llama_free(self.ctx) };
-    }
-}
-
-/// A model and its one context.
-///
-/// Field order is drop order: the context goes before the weights it was
-/// created from.
-pub(crate) struct Session {
-    ctx: Context,
-    weights: Weights,
-}
-
-// SAFETY: both pointers are owned by this one value and never shared; the
-// model is read-only after load. Moving the session to another thread moves
-// every use of them with it, and `Session` is not `Sync`, so two threads
-// never touch them at once.
-unsafe impl Send for Session {}
-
-impl Session {
-    /// Load the weights at `path` and create one context over them. `stop`
-    /// is read as the weights are read, and set aborts the load;
-    /// `progress` is told the fraction read each time llama.cpp reports it.
-    pub(crate) fn load(
+impl Weights {
+    /// Load the weights at `path`. `stop` is read as they are read, and
+    /// set aborts the load; `progress` is told the fraction read each time
+    /// llama.cpp reports it.
+    fn load(
         path: &Path,
         params: &LoadParams,
         stop: &AtomicBool,
         progress: &dyn Fn(f32),
-    ) -> Result<Session, LlamaError> {
-        install_log();
+    ) -> Result<Weights, LlamaError> {
         let c_path = path_cstring(path)?;
         let watch = Watch { stop, progress };
         // SAFETY: `llama_backend_init` is idempotent; the params are a
@@ -404,8 +382,250 @@ impl Session {
         if weights.vocab.is_null() {
             return Err(LlamaError::Load("the model has no vocabulary".to_owned()));
         }
-        let ctx = Context::new(&weights, params)?;
-        Ok(Session { ctx, weights })
+        Ok(weights)
+    }
+}
+
+/// One owned decode state (the KV cache). Freed in `Drop`.
+struct Context {
+    ctx: *mut sys::llama_context,
+}
+
+impl Drop for Context {
+    fn drop(&mut self) {
+        // SAFETY: from `llama_init_from_model`, non-null, freed exactly once.
+        unsafe { sys::llama_free(self.ctx) };
+    }
+}
+
+/// A model and its one context — and, when one was loaded beside it, a
+/// DFlash2 draft (E2-dflash2).
+///
+/// Field order is drop order: the draft goes first — its context reads
+/// the target's (`ctx_other`) — then the context, then the weights it was
+/// created from.
+pub(crate) struct Session {
+    draft: Option<Draft>,
+    ctx: Context,
+    weights: Weights,
+}
+
+// SAFETY: both pointers are owned by this one value and never shared; the
+// model is read-only after load. Moving the session to another thread moves
+// every use of them with it, and `Session` is not `Sync`, so two threads
+// never touch them at once.
+unsafe impl Send for Session {}
+
+impl Session {
+    /// Load the weights at `path` and create one context over them. `stop`
+    /// is read as the weights are read, and set aborts the load;
+    /// `progress` is told the fraction read each time llama.cpp reports it.
+    pub(crate) fn load(
+        path: &Path,
+        params: &LoadParams,
+        stop: &AtomicBool,
+        progress: &dyn Fn(f32),
+    ) -> Result<Session, LlamaError> {
+        install_log();
+        let weights = Weights::load(path, params, stop, progress)?;
+        let ctx = Context::new(&weights, params, 0)?;
+        Ok(Session {
+            draft: None,
+            ctx,
+            weights,
+        })
+    }
+
+    /// Load the weights at `path`, and the DFlash2 draft at `draft` beside
+    /// them (E2-dflash2, D481): one bar for both reads, the target's then
+    /// the draft's, each its share by size (D487).
+    ///
+    /// A draft that cannot run beside this model is a refusal **beside** a
+    /// loaded model, never a failed load: the second half of the answer
+    /// says which, and the session then holds the target alone — with no
+    /// recurrent-state snapshots and no layer extraction it would have kept
+    /// for the draft. Only what would fail a load alone fails this one,
+    /// and so does `stop`, set during either read.
+    pub(crate) fn load_drafted(
+        path: &Path,
+        draft: &Path,
+        params: &LoadParams,
+        stop: &AtomicBool,
+        progress: &dyn Fn(f32),
+    ) -> Result<(Session, Result<(), DraftRefusal>), LlamaError> {
+        install_log();
+        let size = |path: &Path| std::fs::metadata(path).map_or(0, |meta| meta.len());
+        // The header first: a file that is not a DFlash draft is refused
+        // before a byte of it is loaded, and its size is not on the bar.
+        let architecture = header_architecture(draft);
+        let wanted = architecture.as_deref() == Some(DFLASH_ARCH);
+        let (target_bytes, draft_bytes) = (size(path), if wanted { size(draft) } else { 0 });
+        let bar = |reading_draft: bool, fraction: f32| {
+            progress(speculative::on_bar(
+                target_bytes,
+                draft_bytes,
+                reading_draft,
+                fraction,
+            ));
+        };
+        let weights = Weights::load(path, params, stop, &|fraction| bar(false, fraction))?;
+        let alone = |weights: Weights, refusal: DraftRefusal| {
+            tracing::info!(%refusal, "the draft is not run beside the model");
+            let ctx = Context::new(&weights, params, 0)?;
+            Ok((
+                Session {
+                    draft: None,
+                    ctx,
+                    weights,
+                },
+                Err(refusal),
+            ))
+        };
+        if !wanted {
+            let refusal = if architecture.is_some() {
+                DraftRefusal::NotDflash
+            } else {
+                DraftRefusal::Load
+            };
+            return alone(weights, refusal);
+        }
+        let draft_weights =
+            match Weights::load(draft, params, stop, &|fraction| bar(true, fraction)) {
+                Ok(draft_weights) => draft_weights,
+                Err(error) if stop.load(Ordering::SeqCst) => return Err(error),
+                Err(_) => return alone(weights, DraftRefusal::Load),
+            };
+        let plan = match speculative::judge(
+            &target_facts(&weights),
+            &draft_facts(&draft_weights, &weights, architecture),
+        ) {
+            Ok(plan) => plan,
+            Err(refusal) => {
+                drop(draft_weights);
+                return alone(weights, refusal);
+            }
+        };
+        // A snapshot of the recurrent state for every token a block may
+        // hand back (`need_n_rs_seq` in llama.cpp's `common`).
+        let ctx = Context::new(&weights, params, plan.n_max)?;
+        // SAFETY: model and context valid for this function; plain reads.
+        let (recurrent, granted) = unsafe {
+            (
+                sys::llama_model_is_recurrent(weights.model)
+                    || sys::llama_model_is_hybrid(weights.model),
+                sys::llama_n_rs_seq(ctx.ctx),
+            )
+        };
+        if let Err(refusal) = speculative::rolls_back(recurrent, granted, plan.n_max) {
+            drop(draft_weights);
+            // Granted none, so the context holds no snapshot to give back.
+            tracing::info!(%refusal, "the draft is not run beside the model");
+            return Ok((
+                Session {
+                    draft: None,
+                    ctx,
+                    weights,
+                },
+                Err(refusal),
+            ));
+        }
+        let Ok(draft_ctx) = Context::for_draft(&draft_weights, &ctx, &plan) else {
+            drop(draft_weights);
+            // Without the snapshots the draft would have needed.
+            drop(ctx);
+            return alone(weights, DraftRefusal::Load);
+        };
+        // SAFETY: both contexts valid; every layer id was checked against
+        // the target's layer count by `judge` (llama.cpp asserts it), and
+        // the switches take plain values.
+        unsafe {
+            for &layer in &plan.layer_ids {
+                ext::wipemark_ext_set_embeddings_layer_inp(ctx.ctx, layer, true);
+            }
+            // DFlash2 reads its lattice from every row of the block, and
+            // never its logits.
+            ext::wipemark_ext_set_embeddings_nextn(draft_ctx.ctx, true, false);
+            sys::llama_set_causal_attn(draft_ctx.ctx, plan.causal);
+        }
+        // SAFETY: models valid for this function; plain reads.
+        let (mrope, n_vocab, n_embd_target, n_ubatch) = unsafe {
+            (
+                sys::llama_model_rope_type(draft_weights.model)
+                    == sys::llama_rope_type_LLAMA_ROPE_TYPE_MROPE,
+                sys::llama_vocab_n_tokens(weights.vocab),
+                sys::llama_model_n_embd(weights.model),
+                sys::llama_n_ubatch(draft_ctx.ctx),
+            )
+        };
+        tracing::info!(
+            n_max = plan.n_max,
+            top_k = plan.top_k,
+            layers = plan.layer_ids.len(),
+            "a DFlash2 draft decodes beside the model"
+        );
+        Ok((
+            Session {
+                draft: Some(Draft {
+                    ctx: draft_ctx,
+                    weights: draft_weights,
+                    n_vocab,
+                    n_embd_target: usize::try_from(n_embd_target).unwrap_or(0),
+                    mrope,
+                    n_ubatch: usize::try_from(n_ubatch).unwrap_or(1).max(1),
+                    plan,
+                }),
+                ctx,
+                weights,
+            },
+            Ok(()),
+        ))
+    }
+
+    /// How the draft beside the model is run, when there is one.
+    pub(crate) fn draft_plan(&self) -> Option<&Plan> {
+        self.draft.as_ref().map(|draft| &draft.plan)
+    }
+
+    /// Generate with the draft (D482): `speculative::generate` over this
+    /// session as a [`Pair`], each kept token handed to `on_piece` as its
+    /// bytes. `None` when no draft is loaded.
+    pub(crate) fn generate_drafted(
+        &mut self,
+        tokens: &[i32],
+        sampler: &Sampler,
+        budget: &Budget<'_>,
+        on_piece: &mut dyn FnMut(&[u8]) -> ControlFlow<()>,
+    ) -> Option<Result<Ended, LlamaError>> {
+        let Session {
+            draft,
+            ctx,
+            weights,
+        } = self;
+        let draft = draft.as_mut()?;
+        let weights: &Weights = weights;
+        let mut drafting = Drafting {
+            target: ctx,
+            weights,
+            draft,
+            sampler,
+            batch: Batch::default(),
+            block: None,
+        };
+        let mut failed = None;
+        let ended = speculative::generate(&mut drafting, tokens, budget, &mut |token| {
+            let piece = piece_of(weights, token);
+            match piece {
+                Ok(piece) => on_piece(&piece),
+                Err(error) => {
+                    failed = Some(error);
+                    ControlFlow::Break(())
+                }
+            }
+        });
+        Some(match (ended, failed) {
+            (_, Some(error)) | (Err(error), None) => Err(error),
+            (Ok(ended), None) => Ok(ended),
+        })
     }
 
     pub(crate) fn n_ctx(&self) -> u32 {
@@ -427,13 +647,9 @@ impl Session {
     /// Drop everything in the KV cache: the next decode starts at position 0
     /// of an empty context.
     pub(crate) fn clear(&mut self) {
-        // SAFETY: context valid; the memory handle belongs to it. `data =
-        // true` clears the buffers as well as the metadata.
-        unsafe {
-            let mem = sys::llama_get_memory(self.ctx.ctx);
-            if !mem.is_null() {
-                sys::llama_memory_clear(mem, true);
-            }
+        self.ctx.clear();
+        if let Some(draft) = &mut self.draft {
+            draft.ctx.clear();
         }
     }
 
@@ -539,35 +755,7 @@ impl Session {
 
     /// One token's text, as bytes — possibly part of a UTF-8 sequence.
     pub(crate) fn token_to_piece(&self, token: i32) -> Result<Vec<u8>, LlamaError> {
-        let mut buf = vec![0_u8; 64];
-        let mut n = self.piece_into(token, &mut buf)?;
-        if n < 0 {
-            buf = vec![0_u8; n.unsigned_abs() as usize];
-            n = self.piece_into(token, &mut buf)?;
-            if n < 0 {
-                return Err(LlamaError::Inference(
-                    "llama_token_to_piece failed after resizing".to_owned(),
-                ));
-            }
-        }
-        buf.truncate(n.unsigned_abs() as usize);
-        Ok(buf)
-    }
-
-    fn piece_into(&self, token: i32, buf: &mut [u8]) -> Result<i32, LlamaError> {
-        let len = int_len(buf.len())?;
-        // SAFETY: vocabulary valid; the buffer's length is passed. Special
-        // tokens render as nothing (`special = false`).
-        Ok(unsafe {
-            sys::llama_token_to_piece(
-                self.weights.vocab,
-                token,
-                buf.as_mut_ptr().cast(),
-                len,
-                0,
-                false,
-            )
-        })
+        piece_of(&self.weights, token)
     }
 
     /// `messages` (role, content) rendered with the model's own chat
@@ -704,8 +892,12 @@ fn apply_template(
 }
 
 impl Context {
-    /// One single-sequence context over `weights`.
-    fn new(weights: &Weights, params: &LoadParams) -> Result<Context, LlamaError> {
+    /// One single-sequence context over `weights`. `n_rs_seq` is how many
+    /// tokens a recurrent state must be able to give back — 0 but beside a
+    /// draft, which asks for its `n_max` (E2-dflash2); llama.cpp grants
+    /// none to an architecture it cannot roll back, and says so in
+    /// `llama_n_rs_seq`.
+    fn new(weights: &Weights, params: &LoadParams, n_rs_seq: u32) -> Result<Context, LlamaError> {
         let threads = i32::try_from(crate::runtime::threads::decode_threads()).unwrap_or(4);
         let init = |kv: KvQuant| -> *mut sys::llama_context {
             // SAFETY: the model pointer is live; `cparams` is a stack copy;
@@ -714,6 +906,7 @@ impl Context {
                 let mut cparams = sys::llama_context_default_params();
                 cparams.n_ctx = params.n_ctx;
                 cparams.n_seq_max = 1;
+                cparams.n_rs_seq = n_rs_seq;
                 cparams.n_threads = threads;
                 cparams.n_threads_batch = threads;
                 cparams.type_k = ggml_type(kv);
@@ -752,12 +945,465 @@ impl Context {
         }
         Ok(Context { ctx })
     }
+
+    /// The draft's context, bound to the target's (llama.cpp's
+    /// `common_speculative_init_result`): the target's window, no
+    /// snapshots, room for one block's outputs, an F16 cache, and the
+    /// target's context as `ctx_other` — where a draft without its own
+    /// token embeddings or output head reads the target's.
+    fn for_draft(draft: &Weights, target: &Context, plan: &Plan) -> Result<Context, LlamaError> {
+        let threads = i32::try_from(crate::runtime::threads::decode_threads()).unwrap_or(4);
+        let outputs = u32::try_from(plan.block()).unwrap_or(u32::MAX);
+        // SAFETY: both pointers are live; `cparams` is a stack copy; the
+        // result is null-checked below. The draft's context keeps
+        // `target.ctx` and is freed before it (`Session`'s field order).
+        let ctx = unsafe {
+            let mut cparams = sys::llama_context_default_params();
+            cparams.n_ctx = sys::llama_n_ctx(target.ctx);
+            cparams.n_seq_max = 1;
+            cparams.n_rs_seq = 0;
+            cparams.n_outputs_max = outputs;
+            cparams.n_outputs_max_per_seq = 1;
+            cparams.n_threads = threads;
+            cparams.n_threads_batch = threads;
+            cparams.type_k = ggml_type(KvQuant::F16);
+            cparams.type_v = ggml_type(KvQuant::F16);
+            cparams.swa_full = false;
+            cparams.ctx_other = target.ctx;
+            sys::llama_init_from_model(draft.model, cparams)
+        };
+        if ctx.is_null() {
+            return Err(LlamaError::Load(
+                "llama_init_from_model returned null for the draft; llama.cpp's log says why"
+                    .to_owned(),
+            ));
+        }
+        Ok(Context { ctx })
+    }
+
+    /// Drop everything in this context's cache.
+    fn clear(&mut self) {
+        // SAFETY: context valid; the memory handle belongs to it. `data =
+        // true` clears the buffers as well as the metadata.
+        unsafe {
+            let mem = sys::llama_get_memory(self.ctx);
+            if !mem.is_null() {
+                sys::llama_memory_clear(mem, true);
+            }
+        }
+    }
+
+    /// Remove positions `from..` of sequence 0 from the cache. `false` when
+    /// llama.cpp cannot: a recurrent state asked to give back more than
+    /// its snapshots hold.
+    fn cut(&mut self, from: u32) -> bool {
+        let Ok(from) = i32::try_from(from) else {
+            return false;
+        };
+        // SAFETY: context valid; the memory handle belongs to it and is
+        // null-checked.
+        unsafe {
+            let mem = sys::llama_get_memory(self.ctx);
+            !mem.is_null() && sys::llama_memory_seq_rm(mem, 0, from, -1)
+        }
+    }
 }
 
 fn ggml_type(kv: KvQuant) -> sys::ggml_type {
     match kv {
         KvQuant::F16 => sys::ggml_type_GGML_TYPE_F16,
         KvQuant::Q8_0 => sys::ggml_type_GGML_TYPE_Q8_0,
+    }
+}
+
+// ----------------------------------------------------------------------------
+// A DFlash2 draft beside the model (E2-dflash2 F2, D481, D482)
+// ----------------------------------------------------------------------------
+
+/// A draft loaded beside the target: its context — created with the
+/// target's as `ctx_other` — its weights, and how it is run. Field order is
+/// drop order: the context before the weights it was made from.
+pub(crate) struct Draft {
+    ctx: Context,
+    #[expect(
+        dead_code,
+        reason = "held so the weights outlive the context made from them, and are freed after it"
+    )]
+    weights: Weights,
+    plan: Plan,
+    /// The target's vocabulary size: what a lattice candidate must be
+    /// under.
+    n_vocab: i32,
+    /// The target's hidden size: one layer input's width.
+    n_embd_target: usize,
+    /// A draft for an M-RoPE target takes four rows of positions with its
+    /// features.
+    mrope: bool,
+    /// The draft context's physical batch: the features go in at most this
+    /// many positions a decode.
+    n_ubatch: usize,
+}
+
+/// The architecture a GGUF's header declares, read without loading it.
+/// `None` when the file cannot be read as a GGUF, or says nothing.
+fn header_architecture(path: &Path) -> Option<String> {
+    let c_path = path_cstring(path).ok()?;
+    let params = sys::gguf_init_params {
+        no_alloc: true,
+        ctx: std::ptr::null_mut(),
+    };
+    // SAFETY: as in `read_kv_shape` — metadata only, null on failure.
+    let ctx = unsafe { sys::gguf_init_from_file(c_path.as_ptr(), params) };
+    if ctx.is_null() {
+        return None;
+    }
+    Gguf(ctx).string("general.architecture")
+}
+
+/// A metadata value of a loaded model, as llama.cpp renders it to a
+/// string.
+fn meta(model: *const sys::llama_model, key: &str) -> Option<String> {
+    let key = CString::new(key).ok()?;
+    let mut buf = vec![0_u8; 128];
+    // SAFETY: model valid for the caller's borrow; the key is
+    // NUL-terminated; the buffer's length is passed. The result is the
+    // value's length, or negative when the key is absent.
+    let n = unsafe {
+        sys::llama_model_meta_val_str(model, key.as_ptr(), buf.as_mut_ptr().cast(), buf.len())
+    };
+    let n = usize::try_from(n).ok()?;
+    buf.truncate(n.min(buf.len() - 1));
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
+/// What `judge` needs of the target.
+fn target_facts(target: &Weights) -> TargetFacts {
+    // SAFETY: model and vocabulary valid for the borrow; plain reads.
+    unsafe {
+        TargetFacts {
+            vocab_type: i32::try_from(sys::llama_vocab_type(target.vocab)).unwrap_or(-1),
+            n_vocab: sys::llama_vocab_n_tokens(target.vocab),
+            mask: Some(sys::llama_vocab_mask(target.vocab)).filter(|&mask| mask >= 0),
+            n_embd: sys::llama_model_n_embd(target.model),
+            n_layer: sys::llama_model_n_layer(target.model),
+        }
+    }
+}
+
+/// What `judge` needs of the draft — and of its vocabulary against the
+/// target's, compared token by token.
+fn draft_facts(draft: &Weights, target: &Weights, architecture: Option<String>) -> DraftFacts {
+    // SAFETY: model and vocabulary valid for the borrow; plain reads. The
+    // layer ids, when non-null, belong to the model and hold `n` values;
+    // they are copied at once.
+    let (selector_top_k, layer_ids, vocab_type, n_vocab, mask, n_embd, n_embd_out) = unsafe {
+        let ids = ext::wipemark_ext_model_target_layer_ids(draft.model);
+        let n = ext::wipemark_ext_model_target_layer_ids_n(draft.model) as usize;
+        let layer_ids = if ids.is_null() || n == 0 {
+            Vec::new()
+        } else {
+            std::slice::from_raw_parts(ids, n).to_vec()
+        };
+        (
+            ext::wipemark_ext_model_dflash_selector_top_k(draft.model),
+            layer_ids,
+            i32::try_from(sys::llama_vocab_type(draft.vocab)).unwrap_or(-1),
+            sys::llama_vocab_n_tokens(draft.vocab),
+            Some(sys::llama_vocab_mask(draft.vocab)).filter(|&mask| mask >= 0),
+            sys::llama_model_n_embd(draft.model),
+            sys::llama_model_n_embd_out(draft.model),
+        )
+    };
+    // SAFETY: the target's vocabulary is valid for the borrow.
+    let target_n_vocab = unsafe { sys::llama_vocab_n_tokens(target.vocab) };
+    let first_text_mismatch = (n_vocab == target_n_vocab)
+        .then(|| {
+            (VOCAB_CHECK_FROM..n_vocab)
+                .filter(|&id| Some(id) != mask)
+                .find(|&id| token_text(draft, id) != token_text(target, id))
+        })
+        .flatten();
+    DraftFacts {
+        architecture,
+        selector_top_k,
+        // llama.cpp's own default when the key is absent.
+        block_size: meta(draft.model, "dflash.block_size")
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(16),
+        causal: meta(draft.model, "dflash.attention.causal").as_deref() == Some("true"),
+        n_embd,
+        n_embd_out,
+        layer_ids,
+        vocab_type,
+        n_vocab,
+        mask,
+        first_text_mismatch,
+    }
+}
+
+/// A token's text in a vocabulary — what llama.cpp's own compatibility
+/// check compares.
+fn token_text(weights: &Weights, token: i32) -> Option<&CStr> {
+    // SAFETY: vocabulary valid for the borrow, `token` below its size (the
+    // caller's range); the string belongs to the vocabulary, which lives
+    // as long as the borrow the result is tied to.
+    unsafe {
+        let text = sys::llama_vocab_get_text(weights.vocab, token);
+        (!text.is_null()).then(|| CStr::from_ptr(text))
+    }
+}
+
+/// One token's text, as bytes — possibly part of a UTF-8 sequence.
+fn piece_of(weights: &Weights, token: i32) -> Result<Vec<u8>, LlamaError> {
+    let into = |buf: &mut [u8]| -> Result<i32, LlamaError> {
+        let len = int_len(buf.len())?;
+        // SAFETY: vocabulary valid; the buffer's length is passed. Special
+        // tokens render as nothing (`special = false`).
+        Ok(unsafe {
+            sys::llama_token_to_piece(weights.vocab, token, buf.as_mut_ptr().cast(), len, 0, false)
+        })
+    };
+    let mut buf = vec![0_u8; 64];
+    let mut n = into(&mut buf)?;
+    if n < 0 {
+        buf = vec![0_u8; n.unsigned_abs() as usize];
+        n = into(&mut buf)?;
+        if n < 0 {
+            return Err(LlamaError::Inference(
+                "llama_token_to_piece failed after resizing".to_owned(),
+            ));
+        }
+    }
+    buf.truncate(n.unsigned_abs() as usize);
+    Ok(buf)
+}
+
+/// A batch whose buffers this side owns. llama.cpp reads a `llama_batch`
+/// during `llama_decode` and keeps nothing of it, so a struct of pointers
+/// into these vectors, made for that one call, is all it needs — no
+/// `llama_batch_init`, and an M-RoPE draft's four rows of positions are a
+/// longer vector rather than a buffer swapped in with `malloc`.
+#[derive(Default)]
+struct Batch {
+    tokens: Vec<i32>,
+    embd: Vec<f32>,
+    pos: Vec<i32>,
+    logits: Vec<i8>,
+}
+
+impl Batch {
+    /// `tokens` at positions `from..`, every one's logits kept or none.
+    fn of_tokens(&mut self, tokens: &[i32], from: u32, logits: bool) -> Result<(), LlamaError> {
+        self.tokens.clear();
+        self.tokens.extend_from_slice(tokens);
+        self.embd.clear();
+        self.pos.clear();
+        for i in 0..tokens.len() {
+            self.pos.push(position(from, i)?);
+        }
+        self.logits.clear();
+        self.logits.resize(tokens.len(), i8::from(logits));
+        Ok(())
+    }
+
+    /// `n` rows of features of `width` floats, zeroed for the caller to
+    /// fill, at positions `from..` — in four rows of positions for an
+    /// M-RoPE draft (llama.cpp's `process`: the position three times, then
+    /// 0).
+    fn of_features(
+        &mut self,
+        n: usize,
+        width: usize,
+        from: u32,
+        mrope: bool,
+    ) -> Result<(), LlamaError> {
+        self.tokens.clear();
+        self.embd.clear();
+        self.embd.resize(n * width, 0.0);
+        self.pos.clear();
+        let rows = if mrope { 4 } else { 1 };
+        for row in 0..rows {
+            for i in 0..n {
+                self.pos.push(if row == 3 { 0 } else { position(from, i)? });
+            }
+        }
+        self.logits.clear();
+        self.logits.resize(n, 0);
+        Ok(())
+    }
+
+    /// Decode this batch on sequence 0 of `ctx`.
+    fn decode(&mut self, ctx: &mut Context) -> Result<(), LlamaError> {
+        let n = self.logits.len();
+        let n_tokens = int_len(n)?;
+        // One sequence id per row, and one pointer to each: llama.cpp reads
+        // `seq_id[i][0..n_seq_id[i]]`.
+        let mut seq_ids = vec![0_i32; n];
+        let mut seq_ptrs: Vec<*mut i32> = seq_ids.iter_mut().map(std::ptr::from_mut).collect();
+        let mut n_seq_id = vec![1_i32; n];
+        let batch = sys::llama_batch {
+            n_tokens,
+            token: if self.tokens.is_empty() {
+                std::ptr::null_mut()
+            } else {
+                self.tokens.as_mut_ptr()
+            },
+            embd: if self.embd.is_empty() {
+                std::ptr::null_mut()
+            } else {
+                self.embd.as_mut_ptr()
+            },
+            pos: self.pos.as_mut_ptr(),
+            n_seq_id: n_seq_id.as_mut_ptr(),
+            seq_id: seq_ptrs.as_mut_ptr(),
+            logits: self.logits.as_mut_ptr(),
+        };
+        // SAFETY: context valid; every pointer in `batch` points into a
+        // vector of this frame or of `self` holding `n` rows — `pos`
+        // `n` or `4 n`, `embd` `n × width` — all alive and unmoved until
+        // `llama_decode` returns, and llama.cpp keeps none of them.
+        let rc = unsafe { sys::llama_decode(ctx.ctx, batch) };
+        if rc != 0 {
+            return Err(LlamaError::Inference(format!("llama_decode returned {rc}")));
+        }
+        Ok(())
+    }
+}
+
+/// Position `i` of a batch that starts at `from`.
+fn position(from: u32, i: usize) -> Result<i32, LlamaError> {
+    u32::try_from(i)
+        .ok()
+        .and_then(|i| from.checked_add(i))
+        .and_then(|at| i32::try_from(at).ok())
+        .ok_or_else(|| LlamaError::Inference("a position past the window".to_owned()))
+}
+
+/// The target and its draft as `speculative::generate` drives them — the
+/// one [`Pair`] that is llama.cpp (llama.cpp's DFlash `process`, `draft`
+/// and the verification of `examples/speculative-simple`, at the pin).
+struct Drafting<'s> {
+    target: &'s mut Context,
+    weights: &'s Weights,
+    draft: &'s mut Draft,
+    sampler: &'s Sampler,
+    batch: Batch,
+    /// How many tokens the block being verified has, for `sample`.
+    block: Option<usize>,
+}
+
+impl Drafting<'_> {
+    /// Hand the draft the target's features for the `n` positions from
+    /// `from` that the target just decoded: the inputs of the layers the
+    /// draft reads, side by side per token, a physical batch at a time.
+    fn inject(&mut self, n: usize, from: u32) -> Result<(), LlamaError> {
+        let embd = self.draft.n_embd_target;
+        let layers = self.draft.plan.layer_ids.len();
+        let width = layers * embd;
+        let mut done = 0;
+        while done < n {
+            let len = self.draft.n_ubatch.min(n - done);
+            let at = from
+                .checked_add(u32::try_from(done).unwrap_or(u32::MAX))
+                .ok_or_else(|| LlamaError::Inference("a position past the window".to_owned()))?;
+            self.batch.of_features(len, width, at, self.draft.mrope)?;
+            for (k, &layer) in self.draft.plan.layer_ids.iter().enumerate() {
+                // SAFETY: the target's context valid; extraction of `layer`
+                // was turned on at the load (llama.cpp asserts it), and the
+                // last decode was the target's, of `n` tokens: the buffer
+                // holds `n` rows of `embd` floats, owned by the context and
+                // read here, before anything decodes again.
+                let rows = unsafe {
+                    let rows = ext::wipemark_ext_get_embeddings_layer_inp(self.target.ctx, layer);
+                    if rows.is_null() {
+                        return Err(LlamaError::Inference(format!(
+                            "the input of layer {layer} was not kept"
+                        )));
+                    }
+                    std::slice::from_raw_parts(rows, n * embd)
+                };
+                for i in 0..len {
+                    let source = &rows[(done + i) * embd..(done + i + 1) * embd];
+                    let start = i * width + k * embd;
+                    self.batch.embd[start..start + embd].copy_from_slice(source);
+                }
+            }
+            self.batch.decode(&mut self.draft.ctx)?;
+            done += len;
+        }
+        Ok(())
+    }
+}
+
+impl Pair for Drafting<'_> {
+    fn target(&mut self, tokens: &[i32], from: u32, verify: bool) -> Result<(), LlamaError> {
+        self.batch.of_tokens(tokens, from, verify)?;
+        self.batch.decode(&mut *self.target)?;
+        self.block = verify.then_some(tokens.len());
+        self.inject(tokens.len(), from)
+    }
+
+    fn draft(&mut self, last: i32, at: u32) -> Result<Vec<i32>, LlamaError> {
+        let plan = &self.draft.plan;
+        let block = speculative::noise_block(last, plan.mask, plan.n_max);
+        let (n_embd, top_k, n_vocab) = (plan.n_embd, plan.top_k, self.draft.n_vocab);
+        self.batch.of_tokens(&block, at, false)?;
+        let proposed = match self.batch.decode(&mut self.draft.ctx) {
+            // llama.cpp's own answer to a draft that fails: no proposal,
+            // and the target goes on alone for this step.
+            Err(error) => {
+                tracing::warn!(%error, "the draft's decode failed; this step has no proposal");
+                Vec::new()
+            }
+            Ok(()) => {
+                // SAFETY: the draft's context valid; it was decoded just
+                // now with nextn output for every row (unmasked), so the
+                // buffer holds `block.len()` rows of its hidden size —
+                // `judge` held `n_embd_out` to `n_embd`. Read and copied
+                // before anything decodes again.
+                let rows = unsafe {
+                    let rows = ext::wipemark_ext_get_embeddings_nextn(self.draft.ctx.ctx);
+                    (!rows.is_null())
+                        .then(|| std::slice::from_raw_parts(rows, block.len() * n_embd))
+                };
+                rows.map_or_else(Vec::new, |rows| {
+                    speculative::trace(rows, n_embd, top_k, block.len(), n_vocab)
+                })
+            }
+        };
+        // Nothing of the noise block stays in the draft's cache: the
+        // positions are the target's to fill.
+        if !self.draft.ctx.cut(at) {
+            return Err(LlamaError::Inference(
+                "the draft's cache could not be cut back".to_owned(),
+            ));
+        }
+        Ok(proposed)
+    }
+
+    fn sample(&mut self, i: usize) -> i32 {
+        debug_assert!(
+            self.block.is_some_and(|len| i < len),
+            "a sample past the block"
+        );
+        let index = i32::try_from(i).unwrap_or(i32::MAX);
+        // SAFETY: chain and context valid; `index` is a row of the block
+        // the last decode verified, every one of whose logits it kept.
+        unsafe { sys::llama_sampler_sample(self.sampler.0, self.target.ctx, index) }
+    }
+
+    fn cut(&mut self, n_past: u32) -> Result<(), LlamaError> {
+        if !self.target.cut(n_past) || !self.draft.ctx.cut(n_past) {
+            return Err(LlamaError::Inference(
+                "the cache could not be cut back to the tokens kept".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn is_eog(&self, token: i32) -> bool {
+        // SAFETY: vocabulary valid for the borrow.
+        unsafe { sys::llama_vocab_is_eog(self.weights.vocab, token) }
     }
 }
 
@@ -860,4 +1506,81 @@ fn path_cstring(path: &Path) -> Result<CString, LlamaError> {
 /// A length as the `i32` llama.cpp takes, refusing one that would overflow.
 fn int_len(n: usize) -> Result<i32, LlamaError> {
     i32::try_from(n).map_err(|_| LlamaError::Inference(format!("a buffer of {n} is too long")))
+}
+
+#[cfg(test)]
+mod tests {
+    use wipemark_llama_sys::ext;
+
+    use super::{position, Batch};
+
+    /// D480: every staging call resolves at link time. Taking each
+    /// wrapper's address keeps `shim/ext.cpp` in this test binary, and its
+    /// object names the seven `llama-ext.h` functions by the mangled names
+    /// of the signatures it declares — so a declaration that is not the one
+    /// `libllama` exports at the pin fails to link here, before anything
+    /// runs, rather than calling through the wrong type later.
+    #[test]
+    fn every_staging_call_resolves_at_link_time() {
+        let calls: [(&str, *const ()); 7] = [
+            (
+                "set_embeddings_nextn",
+                ext::wipemark_ext_set_embeddings_nextn as *const (),
+            ),
+            (
+                "get_embeddings_nextn",
+                ext::wipemark_ext_get_embeddings_nextn as *const (),
+            ),
+            (
+                "set_embeddings_layer_inp",
+                ext::wipemark_ext_set_embeddings_layer_inp as *const (),
+            ),
+            (
+                "get_embeddings_layer_inp",
+                ext::wipemark_ext_get_embeddings_layer_inp as *const (),
+            ),
+            (
+                "model_dflash_selector_top_k",
+                ext::wipemark_ext_model_dflash_selector_top_k as *const (),
+            ),
+            (
+                "model_target_layer_ids",
+                ext::wipemark_ext_model_target_layer_ids as *const (),
+            ),
+            (
+                "model_target_layer_ids_n",
+                ext::wipemark_ext_model_target_layer_ids_n as *const (),
+            ),
+        ];
+        for (name, address) in calls {
+            assert!(!address.is_null(), "{name} has no address");
+        }
+    }
+
+    /// A batch of features for an M-RoPE draft carries four rows of
+    /// positions — the position three times, then 0 — and one row
+    /// otherwise; a token batch, one row.
+    #[test]
+    fn a_feature_batch_carries_the_positions_its_draft_reads() {
+        let mut batch = Batch::default();
+        batch.of_features(3, 2, 10, true).expect("in range");
+        assert_eq!(batch.pos, vec![10, 11, 12, 10, 11, 12, 10, 11, 12, 0, 0, 0]);
+        assert_eq!(batch.embd.len(), 6);
+        assert_eq!(batch.logits, vec![0, 0, 0]);
+        assert!(batch.tokens.is_empty());
+
+        batch.of_features(2, 4, 0, false).expect("in range");
+        assert_eq!(batch.pos, vec![0, 1]);
+        assert_eq!(batch.embd.len(), 8);
+
+        batch.of_tokens(&[7, 8, 9], 5, true).expect("in range");
+        assert_eq!(batch.pos, vec![5, 6, 7]);
+        assert_eq!(batch.logits, vec![1, 1, 1]);
+        assert!(batch.embd.is_empty());
+        batch.of_tokens(&[7], 5, false).expect("in range");
+        assert_eq!(batch.logits, vec![0]);
+
+        assert!(position(u32::MAX, 1).is_err());
+        assert!(position(i32::MAX as u32, 1).is_err());
+    }
 }
