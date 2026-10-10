@@ -9907,6 +9907,7 @@ name = "wipemark-llama-sys"
 version = "0.1.0"
 dependencies = [
  "bindgen 0.71.1",
+ "cc",
  "cmake",
  "flate2",
  "sha2 0.10.9",
