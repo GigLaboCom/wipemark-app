@@ -27,7 +27,7 @@ mod whole;
 pub const USAGE: &str = "\
 usage: bench <mode> [--flag value]...
 
-  run     --local <gguf> | --endpoint <base URL> [--reasoning none|off]
+  run     --local <gguf> [--draft <gguf>] | --endpoint <base URL> [--reasoning none|off]
           --name <model id> --out <records.jsonl>
           [--grid <spec>] [--langs en,ru] [--items en-pd-01,...] [--every n] [--ctx 8192]
           [--gpu-layers n] [--corpus <dir>] [--variant <dir>]

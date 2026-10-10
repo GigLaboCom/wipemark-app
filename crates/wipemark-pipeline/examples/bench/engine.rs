@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use wipemark_core::Vendor;
 use wipemark_engine::{
-    CancellationToken, ChatRequest, Completion, EngineError, HttpConfig, HttpEngine, HttpProvider,
-    LoadParams, LocalConfig, LocalEngine, Reasoning, RewriteEngine, TokenSink,
+    CancellationToken, ChatRequest, Completion, DraftConfig, EngineError, HttpConfig, HttpEngine,
+    HttpProvider, LoadParams, LocalConfig, LocalEngine, Reasoning, RewriteEngine, TokenSink,
 };
 
 use crate::args::Args;
@@ -50,10 +50,33 @@ pub fn complete(
     answer
 }
 
+/// The sha256 of the file at `path`, lower-case hex: a draft's identity in
+/// a record (D486). Read once, before the run.
+pub fn sha256_of(path: &std::path::Path) -> String {
+    use std::io::Read as _;
+
+    use sha2::{Digest, Sha256};
+
+    let mut file = std::fs::File::open(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0_u8; 1 << 20];
+    loop {
+        let n = file
+            .read(&mut buf)
+            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    hex::encode(hasher.finalize())
+}
+
 /// The engine `args` names: `--local <gguf>` (llama.cpp in this process,
 /// every layer offloaded to whatever GPU backend registered, or
-/// `--gpu-layers <n>` of them — Qwen3.8 27B is 12 GB) or
-/// `--endpoint <base URL>` (an OpenAI-compatible server).
+/// `--gpu-layers <n>` of them — Qwen3.8 27B is 12 GB), with `--draft
+/// <gguf>` beside it (E2-dflash2), or `--endpoint <base URL>` (an
+/// OpenAI-compatible server).
 pub fn from_args(args: &Args) -> (String, Arc<dyn RewriteEngine>) {
     let name = args.value("--name").unwrap_or_else(|| {
         panic!("--name <model id> is required: it keys every record");
@@ -65,6 +88,15 @@ pub fn from_args(args: &Args) -> (String, Arc<dyn RewriteEngine>) {
         let n_gpu_layers: i32 = args
             .value("--gpu-layers")
             .map_or(-1, |v| v.parse().expect("--gpu-layers is a number"));
+        let draft = args.value("--draft").map(|draft| {
+            let weights = PathBuf::from(draft);
+            eprintln!("hashing the draft {} …", weights.display());
+            DraftConfig {
+                id: "draft".to_owned(),
+                sha256: sha256_of(&weights),
+                weights,
+            }
+        });
         let engine = LocalEngine::new(LocalConfig {
             model_id: name.clone(),
             weights: PathBuf::from(path),
@@ -74,9 +106,14 @@ pub fn from_args(args: &Args) -> (String, Arc<dyn RewriteEngine>) {
                 ..LoadParams::default()
             },
             available_mb: None,
+            draft,
         });
         return (name, Arc::new(engine));
     }
+    assert!(
+        args.value("--draft").is_none(),
+        "--draft goes beside a model in this process: name it with --local"
+    );
     if let Some(base) = args.value("--endpoint") {
         let base = base.trim_end_matches('/').to_owned();
         let origin = base.clone();
