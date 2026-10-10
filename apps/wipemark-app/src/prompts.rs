@@ -32,13 +32,17 @@
 //!   arguments — and rule ids, row keys, tactic ids and variable names are
 //!   formats, shown as themselves and never translated.
 //! * [`PromptsPage`] is the view: the list of every slot, the editor of
-//!   the one chosen, and what it says about it.
+//!   the one chosen, and what it says about it — and, at the top of the
+//!   page, the **template profile** the working set is (E4-9, D510–D516):
+//!   choosing one lays its templates onto the rows below, whole or not at
+//!   all, and what is chosen, saved, renamed, exported or imported is
+//!   [`profiles`]'s, with no window in it.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
 
 use gpui::prelude::*;
-use gpui::{div, px, App, Context, Entity, SharedString, Subscription, Window};
+use gpui::{div, px, App, Context, Entity, EventEmitter, SharedString, Subscription, Window};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{InputEvent, Textarea, TextareaState};
 use gpui_component::select::{Select, SelectEvent, SelectState};
@@ -53,6 +57,7 @@ use wipemark_models::manifest::Role as ModelRole;
 use wipemark_pipeline::cost::Executor;
 use wipemark_pipeline::lang::Lang;
 use wipemark_pipeline::prepare::RestoreError;
+use wipemark_pipeline::prompt::profile::Profile;
 use wipemark_pipeline::prompt::row::{self, admit, hash, AdaptedFrom, Admission, Origin, Override};
 use wipemark_pipeline::prompt::shipped::{self, Fragment};
 use wipemark_pipeline::prompt::validate::{BraceSide, Problem, Script, Severity};
@@ -70,6 +75,10 @@ use crate::engine::{self, Choice};
 use crate::engine_host::{self, EngineHandle};
 use crate::icon::IconName;
 use crate::settings::{engine_banner, Preferences, Tone};
+
+pub mod profiles;
+
+use profiles::{Applied, Kept, Shelf, Standing, Unimported};
 
 // ─── Words ───────────────────────────────────────────────────────────
 
@@ -1415,6 +1424,59 @@ fn pivot_choices() -> Vec<Choice<Option<Lang>>> {
     choices
 }
 
+/// Everything the page reads, in one read: every slot's row, the pivot, and
+/// every template profile with the hint.
+struct Snapshot {
+    rows: BTreeMap<Slot, PromptRow>,
+    pivot: PivotRow,
+    shelf: Shelf,
+}
+
+/// Read the page's rows. Blocking: on the background executor.
+fn snapshot(store: &Store) -> Snapshot {
+    Snapshot {
+        rows: config::read_prompt_rows(store),
+        pivot: config::read_pivot(store),
+        shelf: profiles::shelf(store),
+    }
+}
+
+/// What the page asks the Settings window to ask the person: a dialog is the
+/// window's, painted over the whole of it (`crate::dialog`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProfileAsk {
+    /// Choosing `id` over templates that are no saved profile (D513): Save
+    /// as profile, Discard or Cancel.
+    Unsaved { id: String },
+    /// An imported file's name is another profile's: another name, please.
+    ImportName { name: String, slots: Overrides },
+}
+
+impl EventEmitter<ProfileAsk> for PromptsPage {}
+
+/// What the last profile action came to, kept as a value and worded when it
+/// is drawn — in the language on screen then, with the names as they are.
+#[derive(Debug, Clone, PartialEq)]
+enum ProfileSaid {
+    Applied(Applied),
+    /// A Save as, an Update, a Rename, a Duplicate, a Delete or an Import,
+    /// and the message a stored one is said with.
+    Kept(Kept, Message),
+    Exported(std::path::PathBuf),
+    ExportFailed(String),
+    ImportRefused(std::path::PathBuf, Unimported),
+}
+
+/// What the profile row shows, read off the page for the Settings window.
+pub struct ProfileRow {
+    pub standing: Standing,
+    /// The profile the buttons act on — the one the page is on, or the one
+    /// it was laid from.
+    pub subject: Option<Profile>,
+    /// The lines under the row, worded, each with its tone.
+    pub lines: Vec<(Tone, String)>,
+}
+
 /// The Prompts page: every slot, the editor of the one chosen, and what
 /// it says about it. Built with the Settings window and gone with it.
 pub struct PromptsPage {
@@ -1440,6 +1502,13 @@ pub struct PromptsPage {
     /// Presses of Check and Adapt so far: each run's number.
     runs: u64,
     pivot_select: Entity<SelectState<Vec<Choice<Option<Lang>>>>>,
+    /// Every template profile and the hint, once read (E4-9).
+    shelf: Shelf,
+    profile_select: Entity<SelectState<Vec<Choice<String>>>>,
+    /// The window the dropdown's rows were last judged against: they are
+    /// built again only when it moves, never once a frame.
+    profile_window: Option<Option<u32>>,
+    profile_said: Option<ProfileSaid>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -1461,6 +1530,7 @@ impl PromptsPage {
         let editor = cx.new(|cx| TextareaState::new(window, cx).auto_grow(8, 28));
         let pivot_select =
             cx.new(|cx| SelectState::new(pivot_choices(), Some(IndexPath::new(0)), window, cx));
+        let profile_select = cx.new(|cx| SelectState::new(Vec::new(), None, window, cx));
 
         let typed = cx.subscribe_in(&editor, window, |page, _, event: &InputEvent, _, cx| {
             if matches!(event, InputEvent::Change) {
@@ -1480,12 +1550,30 @@ impl PromptsPage {
                 }
             },
         );
+        let chose_profile = cx.subscribe_in(
+            &profile_select,
+            window,
+            |page, _, event: &SelectEvent<Vec<Choice<String>>>, window, cx| {
+                let SelectEvent::Confirm(Some(value)) = event else {
+                    return;
+                };
+                let rows = page.profile_choices(cx);
+                if let Some(id) = engine::from_value(&rows, value) {
+                    page.choose_profile(id, window, cx);
+                }
+            },
+        );
         let watched = engine_host::hosted(cx).map(|host| cx.observe(&host, |_, _, cx| cx.notify()));
-        let preferences_moved = cx.observe(&preferences, |page, _, cx| {
+        let preferences_moved = cx.observe_in(&preferences, window, |page, _, window, cx| {
             page.revalidate(cx);
+            // The window on duty decides which profiles can be laid
+            // (D512): the rows are judged again when it moves.
+            if page.profile_window != Some(page.ctx_len(cx)) {
+                page.sync_profiles(window, cx);
+            }
             cx.notify();
         });
-        let mut subscriptions = vec![typed, chose_pivot, preferences_moved];
+        let mut subscriptions = vec![typed, chose_pivot, chose_profile, preferences_moved];
         subscriptions.extend(watched);
 
         let page = Self {
@@ -1504,6 +1592,10 @@ impl PromptsPage {
             adapting: Activity::Idle,
             runs: 0,
             pivot_select,
+            shelf: Shelf::default(),
+            profile_select,
+            profile_window: None,
+            profile_said: None,
             _subscriptions: subscriptions,
         };
         page.reread(window, cx);
@@ -1516,31 +1608,28 @@ impl PromptsPage {
         let store = self.store.clone();
         let task = cx
             .background_executor()
-            .spawn(async move { (config::read_prompt_rows(&store), config::read_pivot(&store)) });
+            .spawn(async move { snapshot(&store) });
         let window = window.window_handle();
         cx.spawn(async move |page, cx| {
-            let (rows, pivot) = task.await;
+            let read = task.await;
             let _ = cx.update_window(window, |_, window, cx| {
-                let _ = page.update(cx, |page, cx| page.read_back(rows, pivot, window, cx));
+                let _ = page.update(cx, |page, cx| page.read_back(read, window, cx));
             });
         })
         .detach();
     }
 
-    fn read_back(
-        &mut self,
-        rows: BTreeMap<Slot, PromptRow>,
-        pivot: PivotRow,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn read_back(&mut self, read: Snapshot, window: &mut Window, cx: &mut Context<Self>) {
+        let Snapshot { rows, pivot, shelf } = read;
         let first = self.rows.is_none();
         self.rows = Some(rows);
+        self.shelf = shelf;
         let index = engine::row_of(&pivot_choices(), &pivot.chosen);
         self.pivot = pivot;
         self.pivot_select.update(cx, |select, cx| {
             select.set_selected_index(index.map(IndexPath::new), window, cx);
         });
+        self.sync_profiles(window, cx);
         if first {
             self.fill(window, cx);
         } else {
@@ -1642,15 +1731,11 @@ impl PromptsPage {
         let store = self.store.clone();
         let task = cx.background_executor().spawn(async move {
             let said = work(&store);
-            (
-                said,
-                config::read_prompt_rows(&store),
-                config::read_pivot(&store),
-            )
+            (said, snapshot(&store))
         });
         let window = window.window_handle();
         cx.spawn(async move |page, cx| {
-            let (said, rows, pivot) = task.await;
+            let (said, read) = task.await;
             let _ = cx.update_window(window, |_, window, cx| {
                 let _ = page.update(cx, |page, cx| {
                     let refill = refill
@@ -1661,7 +1746,7 @@ impl PromptsPage {
                                 | Said::KeptSource(Ok(()))
                         );
                     page.said = Some(said);
-                    page.read_back(rows, pivot, window, cx);
+                    page.read_back(read, window, cx);
                     if refill {
                         page.fill(window, cx);
                     } else {
@@ -1816,15 +1901,11 @@ impl PromptsPage {
         let task = cx.background_executor().spawn(async move {
             let adapted =
                 adapt_template(handle, store.clone(), source, target, ctx_len, cancel).await;
-            (
-                adapted,
-                config::read_prompt_rows(&store),
-                config::read_pivot(&store),
-            )
+            (adapted, snapshot(&store))
         });
         let window = window.window_handle();
         cx.spawn(async move |page, cx| {
-            let (adapted, rows, pivot) = task.await;
+            let (adapted, read) = task.await;
             let _ = cx.update_window(window, |_, window, cx| {
                 let _ = page.update(cx, |page, cx| {
                     let stored = matches!(
@@ -1838,7 +1919,7 @@ impl PromptsPage {
                     // An unsaved edit in the field is the person's, and an
                     // adaptation that lands does not replace it.
                     let untouched = page.edited(cx) == page.filled;
-                    page.read_back(rows, pivot, window, cx);
+                    page.read_back(read, window, cx);
                     if landed && stored && page.selected == target && untouched {
                         page.fill(window, cx);
                     }
@@ -1850,14 +1931,16 @@ impl PromptsPage {
         cx.notify();
     }
 
-    /// Put the dropdown back into the language on screen.
-    pub fn retranslate(&self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Put the dropdowns back into the language on screen — the built-in
+    /// profiles' names and every greyed row's reason are the catalogue's.
+    pub fn retranslate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let choices = pivot_choices();
         let index = engine::row_of(&choices, &self.pivot.chosen).map(IndexPath::new);
         self.pivot_select.update(cx, |select, cx| {
             select.set_items(choices, window, cx);
             select.set_selected_index(index, window, cx);
         });
+        self.sync_profiles(window, cx);
         cx.notify();
     }
 
@@ -1866,6 +1949,370 @@ impl PromptsPage {
         Select::new(&self.pivot_select)
             .small()
             .menu_width(px(240.0))
+    }
+
+    // ── Template profiles (E4-9) ──
+
+    /// The profile dropdown's rows, judged against the window on duty: a
+    /// profile that cannot be laid is greyed with its slot and its reason
+    /// (D512).
+    fn profile_choices(&self, cx: &App) -> Vec<Choice<String>> {
+        let empty = BTreeMap::new();
+        let rows = self.rows.as_ref().unwrap_or(&empty);
+        profiles::choices(&self.shelf, rows, self.ctx_len(cx))
+    }
+
+    /// Put the dropdown in step with what was read: its rows, and the
+    /// profile the working set is — or no selection, which the placeholder
+    /// reads as "Custom (not saved)" (D511).
+    fn sync_profiles(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.profile_window = Some(self.ctx_len(cx));
+        let choices = self.profile_choices(cx);
+        let index = match self.profile_standing() {
+            Standing::On(id) => engine::row_of(&choices, &id),
+            Standing::Custom { .. } => None,
+        };
+        self.profile_select.update(cx, |select, cx| {
+            select.set_items(choices, window, cx);
+            select.set_selected_index(index.map(IndexPath::new), window, cx);
+        });
+    }
+
+    /// Which profile the working set is (D511).
+    pub fn profile_standing(&self) -> Standing {
+        profiles::standing(&self.shelf, &self.overrides())
+    }
+
+    /// The profile row's dropdown, for the Settings window's row.
+    pub fn profile_control(&self) -> impl IntoElement {
+        Select::new(&self.profile_select)
+            .small()
+            .menu_width(px(320.0))
+            .placeholder(t(Message::PromptsProfileCustom))
+    }
+
+    /// What the profile row shows: where the working set stands, the
+    /// profile the buttons act on, and the lines under it.
+    pub fn profile_row(&self) -> ProfileRow {
+        let standing = self.profile_standing();
+        let subject = standing
+            .subject()
+            .and_then(|id| self.shelf.find(id))
+            .cloned();
+        let mut lines = vec![(
+            Tone::Quiet,
+            say(&profiles::standing_line(&self.shelf, &standing)),
+        )];
+        if let Some(found) = &subject {
+            if let Some(drift) = profiles::drift_line(found) {
+                lines.push((Tone::Warn, say(&drift)));
+            }
+            if found.built_in().is_some() {
+                lines.push((Tone::Quiet, t(Message::PromptsProfileBuiltInNote)));
+            }
+        }
+        if let Some(said) = &self.profile_said {
+            let (tone, line) = self.profile_said_line(said);
+            lines.push((tone, say(&line)));
+        }
+        ProfileRow {
+            standing,
+            subject,
+            lines,
+        }
+    }
+
+    /// The last profile action, worded.
+    fn profile_said_line(&self, said: &ProfileSaid) -> (Tone, Line) {
+        match said {
+            ProfileSaid::Applied(applied) => (
+                match applied {
+                    Applied::Done { .. } => Tone::Good,
+                    Applied::Refused { .. } => Tone::Warn,
+                    Applied::Failed(_) => Tone::Bad,
+                },
+                profiles::applied_line(&self.shelf, applied),
+            ),
+            ProfileSaid::Kept(kept, done) => (
+                match kept {
+                    Kept::Stored { .. } | Kept::Deleted { .. } => Tone::Good,
+                    Kept::Failed(_) => Tone::Bad,
+                    _ => Tone::Warn,
+                },
+                profiles::kept_line(kept, *done),
+            ),
+            ProfileSaid::Exported(path) => (
+                Tone::Good,
+                (
+                    Message::PromptsProfileExported,
+                    args!("path" => path.display().to_string()),
+                ),
+            ),
+            ProfileSaid::ExportFailed(reason) => (
+                Tone::Bad,
+                (
+                    Message::PromptsProfileExportFailed,
+                    args!("reason" => reason.clone()),
+                ),
+            ),
+            ProfileSaid::ImportRefused(path, why) => (
+                Tone::Bad,
+                (
+                    Message::PromptsProfileImportRefused,
+                    args!(
+                        "path" => path.display().to_string(),
+                        "reason" => say(&profiles::unimported_line(why))
+                    ),
+                ),
+            ),
+        }
+    }
+
+    /// The names of the person's profiles, for the dialog that names one.
+    pub fn profile_names(&self) -> Vec<String> {
+        self.shelf
+            .all
+            .iter()
+            .filter_map(|found| found.name().map(str::to_owned))
+            .collect()
+    }
+
+    /// A profile's name as the page shows it.
+    pub fn profile_name(&self, id: &str) -> Option<String> {
+        self.shelf.find(id).map(profiles::display_name)
+    }
+
+    /// A person's profile's name as they typed it; `None` for a built-in.
+    pub fn profile_saved_name(&self, id: &str) -> Option<String> {
+        self.shelf
+            .find(id)
+            .and_then(|found| found.name().map(str::to_owned))
+    }
+
+    /// The dropdown answered. Over a working set that is no saved profile
+    /// the Settings window asks first — Save as profile, Discard or Cancel
+    /// (D513) — and the dropdown goes back to "Custom (not saved)" until it
+    /// is answered.
+    fn choose_profile(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        match self.profile_standing() {
+            Standing::On(on) if on == id => {}
+            Standing::On(_) => self.apply_profile(id, window, cx),
+            Standing::Custom { .. } => {
+                self.sync_profiles(window, cx);
+                cx.emit(ProfileAsk::Unsaved { id });
+            }
+        }
+    }
+
+    /// Run a profile action on the background executor, then read every
+    /// row back. The templates below may have moved: the editor is filled
+    /// again with the slot's text — unless it holds an edit not saved, which
+    /// is the person's and stays, now measured against what is stored.
+    fn profile_act(
+        &self,
+        window: &Window,
+        cx: &Context<Self>,
+        work: impl FnOnce(&Store) -> ProfileSaid + Send + 'static,
+    ) {
+        let store = self.store.clone();
+        let task = cx.background_executor().spawn(async move {
+            let said = work(&store);
+            (said, snapshot(&store))
+        });
+        let window = window.window_handle();
+        cx.spawn(async move |page, cx| {
+            let (said, read) = task.await;
+            let _ = cx.update_window(window, |_, window, cx| {
+                let _ = page.update(cx, |page, cx| {
+                    let untouched = page.edited(cx) == page.filled;
+                    page.profile_said = Some(said);
+                    page.read_back(read, window, cx);
+                    if untouched {
+                        page.fill(window, cx);
+                    } else {
+                        page.filled = page.in_use();
+                        page.revalidate(cx);
+                    }
+                    cx.notify();
+                });
+            });
+        })
+        .detach();
+    }
+
+    /// Now, for a profile's `created`.
+    fn now() -> u64 {
+        u64::try_from(crate::journal::now_ms()).unwrap_or(0)
+    }
+
+    /// Lay profile `id` onto the working set, whole or not at all (D512).
+    pub fn apply_profile(&self, id: String, window: &Window, cx: &Context<Self>) {
+        let ctx_len = self.ctx_len(cx);
+        self.profile_act(window, cx, move |store| {
+            ProfileSaid::Applied(profiles::apply(store, &id, ctx_len))
+        });
+    }
+
+    /// Save the working set as `name` — and, when `then` names a profile,
+    /// lay that one once the save landed: the Save path of the question
+    /// asked before choosing over templates no profile holds (D513).
+    pub fn save_profile_as(
+        &self,
+        name: String,
+        then: Option<String>,
+        window: &Window,
+        cx: &Context<Self>,
+    ) {
+        let ctx_len = self.ctx_len(cx);
+        self.profile_act(window, cx, move |store| {
+            let kept = profiles::save_as(store, &name, Self::now());
+            match (&kept, then) {
+                (Kept::Stored { .. }, Some(id)) => {
+                    ProfileSaid::Applied(profiles::apply(store, &id, ctx_len))
+                }
+                _ => ProfileSaid::Kept(kept, Message::PromptsProfileSaved),
+            }
+        });
+    }
+
+    /// Update a person's profile with the working set.
+    pub fn update_profile(&self, id: String, window: &Window, cx: &Context<Self>) {
+        self.profile_act(window, cx, move |store| {
+            ProfileSaid::Kept(profiles::update(store, &id), Message::PromptsProfileUpdated)
+        });
+    }
+
+    /// Rename a person's profile; its id stays.
+    pub fn rename_profile(&self, id: String, name: String, window: &Window, cx: &Context<Self>) {
+        self.profile_act(window, cx, move |store| {
+            ProfileSaid::Kept(
+                profiles::rename(store, &id, &name),
+                Message::PromptsProfileRenamed,
+            )
+        });
+    }
+
+    /// A new profile of the person's from `id`'s templates.
+    pub fn duplicate_profile(&self, id: String, name: String, window: &Window, cx: &Context<Self>) {
+        self.profile_act(window, cx, move |store| {
+            ProfileSaid::Kept(
+                profiles::duplicate(store, &id, &name, Self::now()),
+                Message::PromptsProfileDuplicated,
+            )
+        });
+    }
+
+    /// Delete a person's profile: its row, never a row of the working set
+    /// (D515).
+    pub fn delete_profile(&self, id: String, window: &Window, cx: &Context<Self>) {
+        self.profile_act(window, cx, move |store| {
+            ProfileSaid::Kept(profiles::delete(store, &id), Message::PromptsProfileDeleted)
+        });
+    }
+
+    /// Keep an imported file's templates as a new profile under `name`.
+    pub fn import_profile_as(
+        &self,
+        name: String,
+        slots: Overrides,
+        window: &Window,
+        cx: &Context<Self>,
+    ) {
+        self.profile_act(window, cx, move |store| {
+            ProfileSaid::Kept(
+                profiles::import(store, &name, slots, Self::now()),
+                Message::PromptsProfileImported,
+            )
+        });
+    }
+
+    /// "Export…": the platform's save dialog — off the GPUI thread, its
+    /// answer awaited — then the file written on the background executor.
+    pub fn export_profile(&self, id: String, window: &Window, cx: &Context<Self>) {
+        let Some((file_name, text)) = profiles::export(&self.shelf, &id) else {
+            return;
+        };
+        let folder = wipemark_models::layout::downloads_dir()
+            .or_else(|| std::env::var_os("HOME").map(std::path::PathBuf::from))
+            .unwrap_or_else(std::env::temp_dir);
+        let picked = cx.prompt_for_new_path(&folder, Some(&file_name));
+        cx.spawn_in(window, async move |page, cx| {
+            let path = match picked.await {
+                Ok(Ok(Some(path))) => path,
+                Ok(Err(error)) => {
+                    tracing::warn!(%error, "the save dialog could not open");
+                    return;
+                }
+                _ => return,
+            };
+            let written = cx
+                .background_executor()
+                .spawn({
+                    let path = path.clone();
+                    async move { profiles::write_export(&path, &text) }
+                })
+                .await;
+            let _ = page.update(cx, |page, cx| {
+                page.profile_said = Some(match written {
+                    Ok(()) => ProfileSaid::Exported(path),
+                    Err(error) => ProfileSaid::ExportFailed(error.to_string()),
+                });
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// "Import…": the platform's file picker, then the file read and
+    /// admitted on the background executor against the window on duty
+    /// (D514). A file refused stores nothing; a name another profile has
+    /// is asked about again by the Settings window.
+    pub fn import_profile(&self, window: &Window, cx: &Context<Self>) {
+        let picked = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some(SharedString::from(t(Message::PromptsProfileImport))),
+        });
+        let ctx_len = self.ctx_len(cx);
+        cx.spawn_in(window, async move |page, cx| {
+            let path = match picked.await {
+                Ok(Ok(Some(paths))) => match paths.into_iter().next() {
+                    Some(path) => path,
+                    None => return,
+                },
+                Ok(Err(error)) => {
+                    tracing::warn!(%error, "the file picker could not open");
+                    return;
+                }
+                _ => return,
+            };
+            let read = cx
+                .background_executor()
+                .spawn({
+                    let path = path.clone();
+                    async move { profiles::read_import(&path, ctx_len) }
+                })
+                .await;
+            let _ = page.update_in(cx, |page, window, cx| match read {
+                Err(why) => {
+                    tracing::info!(reason = ?std::mem::discriminant(&why), "a templates file was refused");
+                    page.profile_said = Some(ProfileSaid::ImportRefused(path, why));
+                    cx.notify();
+                }
+                Ok((name, slots)) => {
+                    let taken = wipemark_pipeline::prompt::profile::reserved(&name)
+                        || wipemark_pipeline::prompt::profile::by_name(&page.shelf.all, &name)
+                            .is_some();
+                    if taken {
+                        cx.emit(ProfileAsk::ImportName { name, slots });
+                    } else {
+                        page.import_profile_as(name, slots, window, cx);
+                    }
+                }
+            });
+        })
+        .detach();
     }
 
     // ── Drawing ──

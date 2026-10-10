@@ -698,7 +698,7 @@ settings-retention-span-forever = bis zum Löschen von Hand
 
 settings-mcp-title = MCP-Server
 settings-mcp-description = Ein Agent kann { -layer-a } über das Model Context Protocol auf seine eigene Ausgabe anwenden und mit der zuständigen Engine umschreiben.
-settings-mcp-tools = Fünf Werkzeuge arbeiten: inspect zeigt, was die { -layer-a } an einem Text ändern würde, clean nimmt diese Änderungen vor und meldet jede mit ihrer Position, inspect_image und clean_image tun dasselbe mit einem PNG, JPEG oder WebP — mit seinen Metadaten und mit den sichtbaren Markierungen in seinen Pixeln, die diese Version kennt und die clean_image entfernt, wenn es sie belegen kann; Markierungen, die kein Auge sieht, werden weder gesucht noch entfernt —, und rewrite lässt die zuständige Engine den Text zwischen zwei Durchgängen der { -layer-a } umschreiben, in derselben Warteschlange wie die Umschreibungen des Hauptfensters — das Dokument geht dorthin, wohin die Seite „Engine“ es schickt. Umschreiben geschieht nach bestem Bemühen, und sein Bericht sagt, was es nicht feststellt. Jede Bereinigung und Umschreibung ist eine Zeile in der Liste des Hauptfensters, es sei denn, der Aufruf sagt record: false.
+settings-mcp-tools = Fünf Werkzeuge arbeiten: inspect zeigt, was die { -layer-a } an einem Text ändern würde, clean nimmt diese Änderungen vor und meldet jede mit ihrer Position, inspect_image und clean_image tun dasselbe mit einem PNG, JPEG oder WebP — mit seinen Metadaten und mit den sichtbaren Markierungen in seinen Pixeln, die diese Version kennt und die clean_image entfernt, wenn es sie belegen kann; Markierungen, die kein Auge sieht, werden weder gesucht noch entfernt —, und rewrite lässt die zuständige Engine den Text zwischen zwei Durchgängen der { -layer-a } umschreiben, in derselben Warteschlange wie die Umschreibungen des Hauptfensters — das Dokument geht dorthin, wohin die Seite „Engine“ es schickt. Umschreiben geschieht nach bestem Bemühen, und sein Bericht sagt, was es nicht feststellt. Jede Bereinigung und Umschreibung ist eine Zeile in der Liste des Hauptfensters, es sei denn, der Aufruf sagt record: false. Umgeschrieben wird mit den Vorlagen der Seite „Umschreiben“ oder mit dem Vorlagenprofil, das das Argument profile nennt.
 
 settings-mcp-status-off = Läuft nicht.
 settings-mcp-status-starting = Startet…
@@ -807,7 +807,8 @@ cli-arg-candidates = Kandidaten je Abschnitt. Ohne Angabe entscheidet, wer umsch
 cli-arg-rounds = Höchstzahl der Durchgänge je Abschnitt. Ohne Angabe bis zu 2, und der zweite nur, wenn kein Kandidat des ersten bestanden hat.
 cli-arg-intensity = Wie weit paraphrase und humanize sich vom Wortlaut entfernen dürfen: light, moderate (Standard) oder strong.
 cli-arg-format = Was der Text ist: plain, markdown oder html. Ohne Angabe das, was die Datei ist; für alles andere plain. In markdown und html wird nur der Fließtext umgeschrieben.
-cli-arg-prompts = Eine JSON-Datei mit Vorlagenzeilen über denen, die die Anwendung gespeichert hat — der Schlüssel einer Zeile und entweder ihr gespeicherter Wert oder der Text der Vorlage. Eine Vorlage, die eine Regel bricht, hält den Lauf an, bevor etwas gesendet wird.
+cli-arg-prompts = Eine JSON-Datei mit Vorlagenzeilen über denen, die die Anwendung gespeichert hat — der Schlüssel einer Zeile und entweder ihr gespeicherter Wert oder der Text der Vorlage —, oder eine Datei, in die ein Vorlagenprofil exportiert wurde. Eine Vorlage, die eine Regel bricht, hält den Lauf an, bevor etwas gesendet wird.
+cli-arg-profile = Ein Vorlagenprofil, mit dem statt der von der Anwendung gespeicherten Vorlagen umgeschrieben wird: die ID eines eingebauten — shipped oder keep-voice — oder die ID oder der Name eines auf der Seite „Umschreiben“ gespeicherten, gelesen aus der Datenbank der Anwendung, in die nichts geschrieben wird. --prompts legt seine Vorlagen darüber.
 cli-arg-seed = Der Basis-Seed. Ohne Angabe bekommt jeder Lauf einen neuen, und ein erneuter Lauf schreibt anders um; der Seed aus einem Bericht, zurückgegeben, wiederholt einen Lauf auf einem Modell dieses Rechners.
 cli-arg-id = Die Id eines Modells: aus dem Katalog oder eines von Ihnen hinzugefügten (user-…).
 cli-arg-model-path = Die GGUF-Datei, die hinzugefügt werden soll.
@@ -1098,6 +1099,9 @@ cli-prompts-unreadable = Die Vorlagendatei { $path } konnte nicht gelesen werden
 cli-prompts-not-rows = Die Vorlagendatei { $path } ist kein JSON-Objekt aus Vorlagenzeilen ({ $reason }). Nichts wurde umgeschrieben.
 cli-prompts-unknown-row = Die Vorlagendatei { $path } nennt { $key }, und diese Vorlagenzeile gibt es in dieser Version nicht. Nichts wurde umgeschrieben.
 cli-prompts-invalid = Die Vorlage { $key } in { $path } bricht die Regel { $rule }. Nichts wurde umgeschrieben.
+cli-profile-unknown = Es gibt kein Vorlagenprofil { $profile }: Die eingebauten sind shipped und keep-voice, die gespeicherten stehen auf der Seite „Umschreiben“. Nichts wurde umgeschrieben.
+cli-profile-refused = Das Vorlagenprofil { $profile } lässt sich nicht verwenden: { $reason }. Nichts wurde umgeschrieben.
+cli-prompts-file-refused = Die Vorlagendatei { $path } lässt sich nicht verwenden: { $reason }. Nichts wurde umgeschrieben.
 
 ## The windows clean (E7)
 
@@ -1373,7 +1377,7 @@ prompts-turn-user = user
 prompts-banner-what = Eine Vorlage ist das, was ein Modell bekommt, um einen Absatz umzuschreiben: ein system-Zug mit den Regeln und ein user-Zug mit der Aufgabe. Gespeichert werden nur Ihre Änderungen; „Auf Auslieferung zurücksetzen“ löscht Ihre.
 prompts-banner-markers = Die Markierungen um den Absatz und seinen Kontext und die Platzhalter ⟦n⟧ schreibt das Produkt selbst; von Hand lassen sie sich nicht schreiben.
 prompts-banner-protected = { $variable } ist einmal pro Schritt nötig, in einem der beiden Züge: Ohne die Regel zu den Platzhaltern wird jeder Absatz mit Code oder einem Link verworfen.
-prompts-banner-same-rows = Die Befehlszeile und Agenten über MCP schreiben mit denselben Vorlagen um. Eine --prompts-Datei der Befehlszeile oder das Argument templates eines Agenten legt für einen Lauf eigene darüber und ändert hier nichts.
+prompts-banner-same-rows = Die Befehlszeile und Agenten über MCP schreiben mit denselben Vorlagen um. Eine --prompts-Datei der Befehlszeile oder das Argument templates eines Agenten legt für einen Lauf eigene darüber, und --profile oder das Argument profile eines Agenten setzt für einen Lauf ein Vorlagenprofil an ihre Stelle; nichts davon ändert hier etwas.
 prompts-banner-away = Ein Umschreiben schickt den zusammengesetzten Prompt mit dem Dokument an { $origin }.
 prompts-variables-title = Variablen
 prompts-var-text = Der Absatz zwischen den Markierungen. Nur im user-Zug, genau einmal im user-Zug jedes Schritts.
@@ -1515,3 +1519,79 @@ prompts-adapt-overtaken = Die Vorlage hat sich geändert, während das Modell si
 prompts-adapt-not-stored = Nichts wurde gespeichert. Was das Modell geschrieben hat:
 prompts-stale-source-keep = Speichern lässt diese Warnung stehen. „Meine behalten“ markiert Ihre als aus der heutigen Vorlage ({ $source }) angepasst.
 prompts-kept-source = Behalten: Ihre gilt jetzt als aus der heutigen Quelle angepasst.
+
+## E4-9
+##
+## Vorlagenprofile auf der Seite „Umschreiben“. Siehe den Kommentar in en-US.
+
+settings-prompts-profile-title = Vorlagenprofil
+settings-prompts-profile-description = Ein ganzer Satz Vorlagen unter einem Namen. Ein gewähltes Profil setzt seine Vorlagen an die Stelle der Vorlagen unten — alle oder keine —, und jedes Umschreiben verwendet die Vorlagen unten.
+prompts-profile-shipped = Ausgeliefert
+prompts-profile-keep-voice = Stimme bewahren
+prompts-profile-custom = Eigene (nicht gespeichert)
+prompts-profile-on = Die Vorlagen unten sind { $name }.
+prompts-profile-custom-since = Die Vorlagen unten waren { $name } und haben sich seitdem geändert. „Aktualisieren“ speichert sie in { $name }, „Als Profil speichern“ unter einem anderen Namen.
+prompts-profile-custom-none = Die Vorlagen unten sind nicht als Profil gespeichert. „Als Profil speichern“ bewahrt sie unter einem Namen.
+prompts-profile-built-in-note = Ein eingebautes Profil lässt sich nicht aktualisieren, umbenennen oder löschen. „Duplizieren“ macht daraus eines von Ihnen.
+prompts-profile-drifted = { $count ->
+        [one] Eine Vorlage von { $name } entstand über einer ausgelieferten Vorlage, die sich seitdem geändert hat.
+       *[other] { $count } Vorlagen von { $name } entstanden über ausgelieferten Vorlagen, die sich seitdem geändert haben.
+    } Es lässt sich trotzdem wählen: Jede solche Vorlage sagt es unten, mit „Meine behalten“.
+prompts-profile-drifted-tag = über älteren Vorlagen entstanden
+prompts-profile-save-as = Als Profil speichern…
+prompts-profile-update = „{ $name }“ aktualisieren
+prompts-profile-rename = Umbenennen…
+prompts-profile-duplicate = Duplizieren…
+prompts-profile-delete = Löschen…
+prompts-profile-export = Exportieren…
+prompts-profile-import = Importieren…
+prompts-profile-reason-unknown-row = die Vorlage { $key } gibt es in dieser Version nicht
+prompts-profile-reason-unreadable = die Vorlage { $key } kann diese Version nicht lesen
+prompts-profile-reason-breaks = die Vorlage { $key } bricht die Regel { $rule }
+prompts-profile-reason-gone = das Profil gibt es nicht mehr
+prompts-profile-reason-unreadable-row = die Zeile { $key } unten kann diese Version nicht lesen, und nur „Auf Auslieferung zurücksetzen“ ersetzt sie
+prompts-profile-applied = { $name } ist in Gebrauch: Seine Vorlagen stehen unten.
+prompts-profile-refused = { $name } wurde nicht gewählt: { $reason }. Unten hat sich nichts geändert.
+prompts-profile-saved = Gespeichert als { $name }.
+prompts-profile-updated = { $name } enthält jetzt die Vorlagen unten.
+prompts-profile-renamed = Umbenannt in { $name }.
+prompts-profile-duplicated = Dupliziert als { $name }. Unten hat sich nichts geändert.
+prompts-profile-imported = Importiert als { $name }. Es steht in der Liste, und unten ändert sich nichts, bis es gewählt wird.
+prompts-profile-deleted = { $name } ist gelöscht. Die Vorlagen unten haben sich nicht geändert.
+prompts-profile-taken = { $name } ist schon der Name eines Profils. Geben Sie einen anderen.
+prompts-profile-reserved = { $name } ist der Name eines eingebauten Profils. Geben Sie einen anderen.
+prompts-profile-unnamed = So lässt sich kein Profil benennen: Ein Name braucht einen Buchstaben oder eine Ziffer, hat höchstens 60 Zeichen und kein unsichtbares Zeichen.
+prompts-profile-exported = Exportiert nach { $path }.
+prompts-profile-export-failed = Die Datei konnte nicht geschrieben werden: { $reason }
+prompts-profile-import-refused = { $path } wurde nicht importiert: { $reason }. Nichts wurde gespeichert.
+prompts-profile-file-unreadable = sie ließ sich nicht lesen ({ $reason })
+prompts-profile-file-not-regular = sie ist keine gewöhnliche Datei
+prompts-profile-file-too-big = sie ist größer, als eine Vorlagendatei sein kann
+prompts-profile-file-not-json = sie ist kein JSON ({ $reason })
+prompts-profile-file-not-templates = sie ist keine Vorlagendatei
+prompts-profile-file-format = sie nennt das Format { $format }, das diese Version nicht liest
+prompts-profile-file-name = sie trägt keinen Namen, den ein Profil haben kann
+prompts-profile-file-no-slots = sie enthält keine Vorlagen
+prompts-profile-name-title = Die Vorlagen als Profil speichern
+prompts-profile-name-body = Jede Vorlage unten wird unter diesem Namen bewahrt. Ein Name aus der Liste ersetzt dieses Profil.
+prompts-profile-name-taken = Eines Ihrer Profile ersetzen:
+prompts-profile-name-confirm = Speichern
+prompts-profile-name-placeholder = Diesem Vorlagensatz einen Namen geben
+prompts-profile-cancel = Abbrechen
+prompts-profile-rename-title = „{ $name }“ umbenennen
+prompts-profile-rename-body = Nur der Name ändert sich; die Vorlagen darin bleiben, wie sie sind.
+prompts-profile-rename-confirm = Umbenennen
+prompts-profile-duplicate-title = „{ $name }“ duplizieren
+prompts-profile-duplicate-body = Ein neues Profil von Ihnen mit denselben Vorlagen. Unten ändert sich nichts.
+prompts-profile-duplicate-confirm = Duplizieren
+prompts-profile-copy-name = { $name } (Kopie)
+prompts-profile-delete-title = „{ $name }“ löschen?
+prompts-profile-delete-body = Nur das gespeicherte Profil verschwindet. Die Vorlagen unten bleiben genau so, wie sie sind.
+prompts-profile-delete-confirm = Löschen
+prompts-profile-unsaved-title = Die Vorlagen unten sind nicht als Profil gespeichert
+prompts-profile-unsaved-body = Wenn Sie „{ $name }“ wählen, ersetzt es sie. Speichern Sie sie zuerst als Profil, oder verwerfen Sie sie.
+prompts-profile-unsaved-save = Als Profil speichern…
+prompts-profile-unsaved-discard = Verwerfen
+prompts-profile-import-title = Der Name „{ $name }“ ist vergeben
+prompts-profile-import-body = Die Vorlagen der Datei werden als neues Profil von Ihnen unter einem anderen Namen bewahrt. Unten ändert sich nichts.
+prompts-profile-import-confirm = Importieren

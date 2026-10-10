@@ -96,7 +96,7 @@ use wipemark_secret::{Secret, Vault};
 
 use crate::compare::{Comparison, Gutters};
 use crate::config::{self, SettingsStore};
-use crate::dialog::{AddModel, Adding, Answer, Chosen, Confirm, Naming};
+use crate::dialog::{AddModel, Adding, Answer, Choose, Chosen, Confirm, Naming, Pick};
 use crate::diff::Grain;
 use crate::duty::{self, Duty, LocalOptions, OnDisk, Performer, Roster, Serves, Vacancy};
 use crate::engine::{
@@ -115,7 +115,8 @@ use crate::models::{Addition, Folder, Offering};
 // dialog's yes or no, and two words that short would read as one.
 use crate::placement::{self, Onto, Origin, Spot, Zone};
 use crate::profile::{self, Profile, Standing};
-use crate::prompts::PromptsPage;
+use crate::prompts::profiles::Standing as ProfileStanding;
+use crate::prompts::{ProfileAsk, PromptsPage};
 use crate::recorder::{Recorder, RecorderEvent};
 use crate::retention::{self, Destination, Homes, Period, Retention};
 use crate::screen::{self, Connected, Screen};
@@ -169,6 +170,16 @@ const SETTLE: Duration = Duration::from_millis(500);
 /// would be six rectangles that are not the six rectangles the
 /// preference means.
 const GRID_HEIGHT: Pixels = px(96.0);
+
+/// The name a copy of `name` is offered under — "Legal (copy)" — rendered
+/// **plain**, without Fluent's isolates: it goes into a field and is stored
+/// as a profile's name, which carries no invisible character (E4-9).
+fn copy_name(name: &str) -> String {
+    wipemark_i18n::t_args_plain(
+        Message::PromptsProfileCopyName,
+        &args!("name" => name.to_owned()),
+    )
+}
 
 /// Width of the right-hand column every control sits in.
 ///
@@ -365,6 +376,10 @@ pub enum Setting {
     EngineTemperature,
     EngineReasoning,
     EngineTimeout,
+    /// E4-9: the template profile the working set is (D511): a dropdown
+    /// over the built-in and saved profiles, its buttons and lines under
+    /// the row (`SettingsView::below`).
+    RewriteProfile,
     /// E4-6c: the pivot of `back_translate` (D60, D331).
     RewritePivot,
     ModelsFolder,
@@ -416,7 +431,7 @@ impl Setting {
     /// *move*: a reader opens the window for the marks. Where the line
     /// numbers sit comes straight after, because it too is about what a
     /// pane shows rather than how it moves.
-    pub const ALL: [Setting; 39] = [
+    pub const ALL: [Setting; 40] = [
         Self::Appearance,
         Self::Language,
         Self::ShortcutShow,
@@ -448,6 +463,8 @@ impl Setting {
         Self::EngineTemperature,
         Self::EngineReasoning,
         Self::EngineTimeout,
+        // E4-9: the profile first — it sets every template below.
+        Self::RewriteProfile,
         Self::RewritePivot,
         Self::ModelsFolder,
         Self::ModelForRewrite,
@@ -491,7 +508,7 @@ impl Setting {
             | Self::EngineTemperature
             | Self::EngineReasoning
             | Self::EngineTimeout => Section::Engine,
-            Self::RewritePivot => Section::Prompts,
+            Self::RewriteProfile | Self::RewritePivot => Section::Prompts,
             Self::ModelsFolder | Self::ModelForRewrite => Section::Models,
             Self::ResultsDestination
             | Self::ResultsFolder
@@ -534,6 +551,7 @@ impl Setting {
             Self::EngineTemperature => Message::SettingsEngineTemperatureTitle,
             Self::EngineReasoning => Message::SettingsEngineReasoningTitle,
             Self::EngineTimeout => Message::SettingsEngineTimeoutTitle,
+            Self::RewriteProfile => Message::SettingsPromptsProfileTitle,
             Self::RewritePivot => Message::SettingsPromptsPivotTitle,
             Self::ModelsFolder => Message::SettingsModelsFolderTitle,
             Self::ModelForRewrite => Message::SettingsModelsRewriteTitle,
@@ -588,6 +606,7 @@ impl Setting {
             Self::EngineTemperature => Message::SettingsEngineTemperatureDescription,
             Self::EngineReasoning => Message::SettingsEngineReasoningDescription,
             Self::EngineTimeout => Message::SettingsEngineTimeoutDescription,
+            Self::RewriteProfile => Message::SettingsPromptsProfileDescription,
             Self::RewritePivot => Message::SettingsPromptsPivotDescription,
             Self::ModelsFolder => Message::SettingsModelsFolderDescription,
             Self::ModelForRewrite => Message::SettingsModelsRewriteDescription,
@@ -657,6 +676,7 @@ impl Setting {
             Self::EngineTemperature => Storage::Row(config::ENGINE_TEMPERATURE_KEY),
             Self::EngineReasoning => Storage::Row(config::ENGINE_REASONING_KEY),
             Self::EngineTimeout => Storage::Row(config::ENGINE_TIMEOUT_KEY),
+            Self::RewriteProfile => Storage::Row(config::REWRITE_PROFILE_KEY),
             Self::RewritePivot => Storage::Row(config::REWRITE_PIVOT_KEY),
             Self::ModelsFolder => Storage::Row(config::MODELS_DIR_KEY),
             Self::ModelForRewrite => Storage::Row(config::MODEL_REWRITE_KEY),
@@ -3683,6 +3703,9 @@ enum Overlay {
     Naming(Entity<Naming>),
     Confirm(Entity<Confirm>),
     AddModel(Entity<AddModel>),
+    /// Two things to do and Cancel — the question asked before a template
+    /// profile is chosen over templates no profile holds (E4-9, D513).
+    Choose(Entity<Choose>),
 }
 
 /// Everything writing the geometry down needs, owned.
@@ -3874,6 +3897,9 @@ struct SettingsView {
     _bind: Subscription,
     _port: Subscription,
     _profile_choice: Subscription,
+    /// What the Rewriting page asks this window to ask (E4-9): a dialog is
+    /// this window's, painted over all of it.
+    _profile_asks: Subscription,
     _serves: Subscription,
     _provider: Subscription,
     _model_choice: Subscription,
@@ -4441,6 +4467,16 @@ impl SettingsView {
             let preferences = preferences.clone();
             cx.new(|cx| PromptsPage::new(preferences, window, cx))
         };
+        let profile_asks = cx.subscribe_in(
+            &prompts,
+            window,
+            |view, _, ask: &ProfileAsk, window, cx| match ask.clone() {
+                ProfileAsk::Unsaved { id } => view.ask_before_choosing(id, window, cx),
+                ProfileAsk::ImportName { name, slots } => {
+                    view.ask_for_an_import_name(name, slots, window, cx);
+                }
+            },
+        );
 
         let host = engine_host::hosted(cx);
         let watched_host = host
@@ -4575,6 +4611,7 @@ impl SettingsView {
             _bind: addressed,
             _port: typed,
             _profile_choice: chose_profile,
+            _profile_asks: profile_asks,
             _serves: chose_serves,
             _provider: chose_provider,
             _model_choice: chose_model,
@@ -4811,7 +4848,18 @@ impl SettingsView {
                         .text_color(muted)
                         .child(SharedString::from(t(setting.description()))),
                 )
+                .children(self.below(setting, cx))
         }))
+    }
+
+    /// What a row shows under its description, across the whole page, when
+    /// its control needs more than the column: the template profile's
+    /// buttons and what they came to (E4-9).
+    fn below(&self, setting: Setting, cx: &Context<Self>) -> Option<AnyElement> {
+        match setting {
+            Setting::RewriteProfile => Some(self.template_profile_block(cx).into_any_element()),
+            _ => None,
+        }
     }
 
     /// The widget on the right of one row.
@@ -4849,6 +4897,7 @@ impl SettingsView {
             Setting::EngineTemperature => number_field(&self.temperature).into_any_element(),
             Setting::EngineReasoning => self.reasoning_selector().into_any_element(),
             Setting::EngineTimeout => number_field(&self.timeout).into_any_element(),
+            Setting::RewriteProfile => self.prompts.read(cx).profile_control().into_any_element(),
             Setting::RewritePivot => self.prompts.read(cx).pivot_control().into_any_element(),
             Setting::ModelsFolder => self.folder_control(cx).into_any_element(),
             Setting::ModelForRewrite => self.model_selector().into_any_element(),
@@ -5473,6 +5522,402 @@ impl SettingsView {
                     preferences.allow_remote(allowed, cx);
                 });
             }))
+    }
+
+    // ── E4-9: the template profile row ──
+
+    /// Under the template profile row: Save as profile…, Update, Rename…,
+    /// Duplicate…, Delete…, Export… and Import…, then where the working set
+    /// stands and what the last of them came to. A built-in profile offers
+    /// Duplicate and Export and nothing that would change it.
+    fn template_profile_block(&self, cx: &Context<Self>) -> impl IntoElement {
+        let page = self.prompts.read(cx);
+        let row = page.profile_row();
+        let any = row.subject.as_ref().map(|found| found.id.clone());
+        let theirs = row
+            .subject
+            .as_ref()
+            .filter(|found| found.built_in().is_none())
+            .map(|found| found.id.clone());
+        let theirs_name = theirs.as_deref().and_then(|id| page.profile_name(id));
+        // Update writes the working set into the profile it was laid from,
+        // so it means something only once the two differ.
+        let updatable = matches!(row.standing, ProfileStanding::Custom { since: Some(_) });
+
+        let mut buttons = h_flex().gap_1().flex_wrap().child(
+            Button::new("template-profile-save-as")
+                .xsmall()
+                .outline()
+                .label(t(Message::PromptsProfileSaveAs))
+                .on_click(cx.listener(|view, _, window, cx| {
+                    view.name_a_template_profile(None, window, cx);
+                })),
+        );
+        if let (Some(id), Some(name)) = (theirs.clone(), theirs_name) {
+            buttons = buttons.child(
+                Button::new("template-profile-update")
+                    .xsmall()
+                    .outline()
+                    .label(t_args(
+                        Message::PromptsProfileUpdate,
+                        &args!("name" => name),
+                    ))
+                    .disabled(!updatable)
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        let id = id.clone();
+                        view.prompts
+                            .update(cx, |page, cx| page.update_profile(id, window, cx));
+                    })),
+            );
+        }
+        let rename = theirs.clone();
+        let duplicate = any.clone();
+        let remove = theirs.clone();
+        let export = any.clone();
+        buttons = buttons
+            .child(
+                Button::new("template-profile-rename")
+                    .xsmall()
+                    .ghost()
+                    .label(t(Message::PromptsProfileRename))
+                    .disabled(rename.is_none())
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        if let Some(id) = rename.clone() {
+                            view.rename_a_template_profile(id, window, cx);
+                        }
+                    })),
+            )
+            .child(
+                Button::new("template-profile-duplicate")
+                    .xsmall()
+                    .ghost()
+                    .label(t(Message::PromptsProfileDuplicate))
+                    .disabled(duplicate.is_none())
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        if let Some(id) = duplicate.clone() {
+                            view.duplicate_a_template_profile(id, window, cx);
+                        }
+                    })),
+            )
+            .child(
+                Button::new("template-profile-delete")
+                    .xsmall()
+                    .ghost()
+                    .label(t(Message::PromptsProfileDelete))
+                    .disabled(remove.is_none())
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        if let Some(id) = remove.clone() {
+                            view.confirm_deleting_a_template_profile(id, window, cx);
+                        }
+                    })),
+            )
+            .child(
+                Button::new("template-profile-export")
+                    .xsmall()
+                    .ghost()
+                    .label(t(Message::PromptsProfileExport))
+                    .disabled(export.is_none())
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        if let Some(id) = export.clone() {
+                            view.prompts
+                                .update(cx, |page, cx| page.export_profile(id, window, cx));
+                        }
+                    })),
+            )
+            .child(
+                Button::new("template-profile-import")
+                    .xsmall()
+                    .ghost()
+                    .label(t(Message::PromptsProfileImport))
+                    .on_click(cx.listener(|view, _, window, cx| {
+                        view.prompts
+                            .update(cx, |page, cx| page.import_profile(window, cx));
+                    })),
+            );
+
+        v_flex()
+            .gap_1()
+            .pt_1()
+            .w_full()
+            .child(buttons)
+            .children(row.lines.into_iter().map(|(tone, line)| {
+                div()
+                    .text_xs()
+                    .text_color(tone.colour(cx))
+                    .child(SharedString::from(line))
+            }))
+    }
+
+    /// Open `dialog`, a name asked for, and do `then` with the name it came
+    /// back with.
+    fn open_naming(
+        &mut self,
+        dialog: Entity<Naming>,
+        then: impl Fn(&mut Self, String, &mut Window, &mut Context<Self>) + 'static,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let watched = cx.subscribe_in(
+            &dialog,
+            window,
+            move |view, _, chosen: &Chosen, window, cx| {
+                if let Chosen::Name(name) = chosen {
+                    then(view, name.clone(), window, cx);
+                }
+                view.close_the_dialog(window, cx);
+            },
+        );
+        self.overlay = Some(Overlay::Naming(dialog));
+        self.answered = Some(watched);
+        cx.notify();
+    }
+
+    /// "Save as profile…": what the templates below are kept as. `then` is
+    /// the profile to lay once they are saved — the Save path of the
+    /// question asked before choosing over templates no profile holds
+    /// (D513).
+    fn name_a_template_profile(
+        &mut self,
+        then: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (taken, starting) = {
+            let page = self.prompts.read(cx);
+            // Templates laid from one of the person's and changed since:
+            // its name, which Save replaces — the dialog's list says so.
+            let starting = match page.profile_standing() {
+                ProfileStanding::Custom { since: Some(id) } => page.profile_saved_name(&id),
+                _ => None,
+            };
+            (page.profile_names(), starting.unwrap_or_default())
+        };
+        let dialog = cx.new(|cx| {
+            Naming::new(
+                t(Message::PromptsProfileNameTitle),
+                vec![t(Message::PromptsProfileNameBody)],
+                t(Message::PromptsProfileNameTaken),
+                taken,
+                t(Message::PromptsProfileNameConfirm),
+                t(Message::PromptsProfileCancel),
+                starting,
+                t(Message::PromptsProfileNamePlaceholder),
+                wipemark_pipeline::prompt::profile::typeable_name,
+                window,
+                cx,
+            )
+        });
+        self.open_naming(
+            dialog,
+            move |view, name, window, cx| {
+                let then = then.clone();
+                view.prompts
+                    .update(cx, |page, cx| page.save_profile_as(name, then, window, cx));
+            },
+            window,
+            cx,
+        );
+    }
+
+    /// "Rename…": a person's profile, its id kept.
+    fn rename_a_template_profile(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(name) = self.prompts.read(cx).profile_name(&id) else {
+            return;
+        };
+        let dialog = cx.new(|cx| {
+            Naming::new(
+                t_args(
+                    Message::PromptsProfileRenameTitle,
+                    &args!("name" => name.clone()),
+                ),
+                vec![t(Message::PromptsProfileRenameBody)],
+                String::new(),
+                Vec::new(),
+                t(Message::PromptsProfileRenameConfirm),
+                t(Message::PromptsProfileCancel),
+                name,
+                t(Message::PromptsProfileNamePlaceholder),
+                wipemark_pipeline::prompt::profile::typeable_name,
+                window,
+                cx,
+            )
+        });
+        self.open_naming(
+            dialog,
+            move |view, name, window, cx| {
+                let id = id.clone();
+                view.prompts
+                    .update(cx, |page, cx| page.rename_profile(id, name, window, cx));
+            },
+            window,
+            cx,
+        );
+    }
+
+    /// "Duplicate…": a new profile of the person's from any profile, a
+    /// built-in's included. Nothing below changes.
+    fn duplicate_a_template_profile(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(name) = self.prompts.read(cx).profile_name(&id) else {
+            return;
+        };
+        let dialog = cx.new(|cx| {
+            Naming::new(
+                t_args(
+                    Message::PromptsProfileDuplicateTitle,
+                    &args!("name" => name.clone()),
+                ),
+                vec![t(Message::PromptsProfileDuplicateBody)],
+                String::new(),
+                Vec::new(),
+                t(Message::PromptsProfileDuplicateConfirm),
+                t(Message::PromptsProfileCancel),
+                copy_name(&name),
+                t(Message::PromptsProfileNamePlaceholder),
+                wipemark_pipeline::prompt::profile::typeable_name,
+                window,
+                cx,
+            )
+        });
+        self.open_naming(
+            dialog,
+            move |view, name, window, cx| {
+                let id = id.clone();
+                view.prompts
+                    .update(cx, |page, cx| page.duplicate_profile(id, name, window, cx));
+            },
+            window,
+            cx,
+        );
+    }
+
+    /// "Delete…": asked, because it cannot be undone by clicking the other
+    /// way — and said to cost a name and never a template (D515).
+    fn confirm_deleting_a_template_profile(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(name) = self.prompts.read(cx).profile_name(&id) else {
+            return;
+        };
+        let dialog = cx.new(|cx| {
+            Confirm::new(
+                t_args(Message::PromptsProfileDeleteTitle, &args!("name" => name)),
+                vec![t(Message::PromptsProfileDeleteBody)],
+                t(Message::PromptsProfileDeleteConfirm),
+                t(Message::PromptsProfileCancel),
+                window,
+                cx,
+            )
+        });
+        let watched = cx.subscribe_in(
+            &dialog,
+            window,
+            move |view, _, answer: &Answer, window, cx| {
+                if *answer == Answer::Accepted {
+                    let id = id.clone();
+                    view.prompts
+                        .update(cx, |page, cx| page.delete_profile(id, window, cx));
+                }
+                view.close_the_dialog(window, cx);
+            },
+        );
+        self.overlay = Some(Overlay::Confirm(dialog));
+        self.answered = Some(watched);
+        cx.notify();
+    }
+
+    /// The question before a profile is chosen over templates no profile
+    /// holds (D513): Save as profile… (Enter — the answer that loses
+    /// nothing), Discard, or Cancel.
+    fn ask_before_choosing(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = self.prompts.read(cx).profile_name(&id) else {
+            return;
+        };
+        let dialog = cx.new(|cx| {
+            Choose::new(
+                t(Message::PromptsProfileUnsavedTitle),
+                vec![t_args(
+                    Message::PromptsProfileUnsavedBody,
+                    &args!("name" => name),
+                )],
+                t(Message::PromptsProfileUnsavedSave),
+                t(Message::PromptsProfileUnsavedDiscard),
+                t(Message::PromptsProfileCancel),
+                Pick::First,
+                window,
+                cx,
+            )
+        });
+        let watched = cx.subscribe_in(&dialog, window, move |view, _, pick: &Pick, window, cx| {
+            view.close_the_dialog(window, cx);
+            let id = id.clone();
+            match pick {
+                // The name is asked next — in a dialog of its own, opened
+                // once this one's answer has finished being delivered.
+                Pick::First => cx.defer_in(window, move |view, window, cx| {
+                    view.name_a_template_profile(Some(id), window, cx);
+                }),
+                Pick::Second => view
+                    .prompts
+                    .update(cx, |page, cx| page.apply_profile(id, window, cx)),
+                Pick::Dismissed => {}
+            }
+        });
+        self.overlay = Some(Overlay::Choose(dialog));
+        self.answered = Some(watched);
+        cx.notify();
+    }
+
+    /// An imported file's name is another profile's: ask for another, and
+    /// keep the file's templates under it — never laid (D514).
+    fn ask_for_an_import_name(
+        &mut self,
+        name: String,
+        slots: wipemark_pipeline::prompt::Overrides,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let dialog = cx.new(|cx| {
+            Naming::new(
+                t_args(
+                    Message::PromptsProfileImportTitle,
+                    &args!("name" => name.clone()),
+                ),
+                vec![t(Message::PromptsProfileImportBody)],
+                String::new(),
+                Vec::new(),
+                t(Message::PromptsProfileImportConfirm),
+                t(Message::PromptsProfileCancel),
+                copy_name(&name),
+                t(Message::PromptsProfileNamePlaceholder),
+                wipemark_pipeline::prompt::profile::typeable_name,
+                window,
+                cx,
+            )
+        });
+        self.open_naming(
+            dialog,
+            move |view, name, window, cx| {
+                let slots = slots.clone();
+                view.prompts.update(cx, |page, cx| {
+                    page.import_profile_as(name, slots, window, cx)
+                });
+            },
+            window,
+            cx,
+        );
     }
 
     /// The Engine page: what this configuration would do, the rows that
@@ -6236,6 +6681,11 @@ impl SettingsView {
             Overlay::AddModel(dialog) => (
                 dialog.clone().into_any_element(),
                 crate::dialog::FIELD_MODAL_PRIORITY,
+            ),
+            // No field and no popup: over everything, as Confirm.
+            Overlay::Choose(dialog) => (
+                dialog.clone().into_any_element(),
+                crate::dialog::MODAL_PRIORITY,
             ),
         };
         Some(deferred(dialog).with_priority(priority).into_any_element())

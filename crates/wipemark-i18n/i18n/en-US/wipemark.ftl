@@ -1194,7 +1194,7 @@ settings-mcp-description = Let an agent run { -layer-a } over its own output, an
 
 # The MCP banner's last line, in every state of the server: what the two
 # tools do, and that nothing rewrites.
-settings-mcp-tools = Five tools run: inspect lists what { -layer-a } would change in a text, clean makes those changes and reports each one with its position, inspect_image and clean_image do the same for a PNG, JPEG or WebP — its metadata, and the visible marks this version knows in its pixels, which clean_image removes when it can prove them; marks no eye sees are neither looked for nor removed — and rewrite has the engine on duty rewrite the text between two passes of { -layer-a }, in the same line as the main window's rewrites — the document goes wherever the Engine page sends it. A rewrite is best-effort, and its report says what it does not establish. Every clean and rewrite is a row in the main window's list unless the call says record: false.
+settings-mcp-tools = Five tools run: inspect lists what { -layer-a } would change in a text, clean makes those changes and reports each one with its position, inspect_image and clean_image do the same for a PNG, JPEG or WebP — its metadata, and the visible marks this version knows in its pixels, which clean_image removes when it can prove them; marks no eye sees are neither looked for nor removed — and rewrite has the engine on duty rewrite the text between two passes of { -layer-a }, in the same line as the main window's rewrites — the document goes wherever the Engine page sends it. A rewrite is best-effort, and its report says what it does not establish. Every clean and rewrite is a row in the main window's list unless the call says record: false. A rewrite runs with the Rewriting page's templates, or with the template profile its profile argument names.
 
 ## What the server is doing right now, in the banner at the top of the
 ## page. Read from the server itself rather than from the switch — the
@@ -1367,7 +1367,8 @@ cli-arg-candidates = Candidates generated per chunk. Without it, whoever rewrite
 cli-arg-rounds = Rewrite rounds per chunk, at most. Without it, up to 2, and the second only when no candidate of the first passed.
 cli-arg-intensity = How far a paraphrase or humanize may move from the wording: light, moderate (the default) or strong.
 cli-arg-format = What the text is: plain, markdown or html. Without it, what the file turns out to be; plain for anything else. In markdown and html only the prose is rewritten.
-cli-arg-prompts = A JSON file of template rows, laid over the ones the application saved — each a row's key and either its saved value or the template's text. A template that breaks a rule stops the run before anything is sent.
+cli-arg-prompts = A JSON file of template rows, laid over the ones the application saved — each a row's key and either its saved value or the template's text — or a file a template profile was exported to. A template that breaks a rule stops the run before anything is sent.
+cli-arg-profile = A template profile to rewrite with in place of the templates the application saved: a built-in one's id — shipped or keep-voice — or the id or name of one saved on the Rewriting page, read from the application's database, which is never written. --prompts lays its templates over it.
 cli-arg-seed = The base seed. Without it every run gets a new one, so running again gives a different rewrite; the seed a report names, given back, repeats a run on a model on this machine.
 cli-arg-id = A model's id: the catalogue's, or one you added (user-…).
 cli-arg-model-path = The GGUF file to add.
@@ -1781,6 +1782,9 @@ cli-prompts-unreadable = The templates file { $path } could not be read: { $reas
 cli-prompts-not-rows = The templates file { $path } is not a JSON object of template rows ({ $reason }). Nothing was rewritten.
 cli-prompts-unknown-row = The templates file { $path } names { $key }, which is not a template row this version has. Nothing was rewritten.
 cli-prompts-invalid = The template { $key } in { $path } breaks the rule { $rule }. Nothing was rewritten.
+cli-profile-unknown = There is no template profile { $profile }: the built-in ones are shipped and keep-voice, and the saved ones are listed on the Rewriting page. Nothing was rewritten.
+cli-profile-refused = The template profile { $profile } cannot be used: { $reason }. Nothing was rewritten.
+cli-prompts-file-refused = The templates file { $path } cannot be used: { $reason }. Nothing was rewritten.
 
 ## The windows clean (E7)
 ##
@@ -2086,7 +2090,7 @@ prompts-turn-user = user
 prompts-banner-what = A template is what a model is sent to rewrite one paragraph: a system turn with the rules and a user turn with the task. Only your changes are stored; Reset to shipped deletes yours.
 prompts-banner-markers = The markers around the paragraph and its context, and the ⟦n⟧ placeholders, are written by the product and cannot be written by hand.
 prompts-banner-protected = { $variable } is required once per step, in either turn: without the rule about placeholders, every paragraph with code or a link is rejected.
-prompts-banner-same-rows = The command line and agents over MCP rewrite with these same templates. A command-line --prompts file or an agent's templates argument lays its own over them for one run and never changes them here.
+prompts-banner-same-rows = The command line and agents over MCP rewrite with these same templates. A command-line --prompts file or an agent's templates argument lays its own over them for one run, and --profile or an agent's profile argument puts a template profile in their place for one run; none of them changes anything here.
 prompts-banner-away = A rewrite sends the rendered prompt, with the document, to { $origin }.
 prompts-variables-title = Variables
 prompts-var-text = The paragraph, between the markers. User turn only, exactly once in each step's user turn.
@@ -2228,3 +2232,86 @@ prompts-adapt-overtaken = This template changed while the model was adapting it,
 prompts-adapt-not-stored = Nothing was saved. What the model wrote:
 prompts-stale-source-keep = A save keeps this warning. Keep mine marks yours as adapted from today's { $source } template.
 prompts-kept-source = Kept: yours is now marked as adapted from today's source.
+
+## E4-9
+##
+## Template profiles on the Rewriting page: a whole set of templates kept,
+## chosen and shared under a name. $name is a profile's name — a built-in
+## one's from `prompts-profile-shipped` / `prompts-profile-keep-voice`, a
+## person's as they typed it. $key is a template row's key and $rule a rule
+## id — formats, never translated. $reason is the system's or a reader's
+## own words; $path a file's path; $format what a file says its format is;
+## $count a number. `prompts-profile-reason-*` and `prompts-profile-file-*`
+## are clauses that end another sentence, so they start in lower case.
+
+settings-prompts-profile-title = Template profile
+settings-prompts-profile-description = A whole set of templates under a name. Choosing one puts its templates in place of the ones below — all of them or none — and every rewrite uses the ones below.
+prompts-profile-shipped = Shipped
+prompts-profile-keep-voice = Keep voice
+prompts-profile-custom = Custom (not saved)
+prompts-profile-on = The templates below are { $name }.
+prompts-profile-custom-since = The templates below were { $name } and have changed since. Update keeps them in { $name }; Save as profile keeps them under another name.
+prompts-profile-custom-none = The templates below are not saved as a profile. Save as profile keeps them under a name.
+prompts-profile-built-in-note = A built-in profile cannot be updated, renamed or deleted. Duplicate makes one of yours from it.
+prompts-profile-drifted = { $count ->
+        [one] One template of { $name } was made over a shipped template that has changed since.
+       *[other] { $count } templates of { $name } were made over shipped templates that have changed since.
+    } It can still be chosen: each such template says so below, with Keep mine.
+prompts-profile-drifted-tag = made over older templates
+prompts-profile-save-as = Save as profile…
+prompts-profile-update = Update “{ $name }”
+prompts-profile-rename = Rename…
+prompts-profile-duplicate = Duplicate…
+prompts-profile-delete = Delete…
+prompts-profile-export = Export…
+prompts-profile-import = Import…
+prompts-profile-reason-unknown-row = { $key } is not a template this version has
+prompts-profile-reason-unreadable = { $key } is not a template this version can read
+prompts-profile-reason-breaks = { $key } breaks the rule { $rule }
+prompts-profile-reason-gone = the profile is no longer there
+prompts-profile-reason-unreadable-row = the row { $key } below is one this version cannot read, and only Reset to shipped replaces it
+prompts-profile-applied = { $name } is in use: its templates are below.
+prompts-profile-refused = { $name } was not chosen: { $reason }. Nothing below changed.
+prompts-profile-saved = Saved as { $name }.
+prompts-profile-updated = { $name } now holds the templates below.
+prompts-profile-renamed = Renamed to { $name }.
+prompts-profile-duplicated = Duplicated as { $name }. Nothing below changed.
+prompts-profile-imported = Imported as { $name }. It is in the list, and nothing below changes until it is chosen.
+prompts-profile-deleted = { $name } is deleted. The templates below did not change.
+prompts-profile-taken = { $name } is already a profile's name. Give another.
+prompts-profile-reserved = { $name } is a built-in profile's name. Give another.
+prompts-profile-unnamed = That cannot name a profile: a name needs a letter or a digit, has at most 60 characters, and carries no invisible character.
+prompts-profile-exported = Exported to { $path }.
+prompts-profile-export-failed = The file could not be written: { $reason }
+prompts-profile-import-refused = { $path } was not imported: { $reason }. Nothing was stored.
+prompts-profile-file-unreadable = it could not be read ({ $reason })
+prompts-profile-file-not-regular = it is not a regular file
+prompts-profile-file-too-big = it is larger than a templates file can be
+prompts-profile-file-not-json = it is not JSON ({ $reason })
+prompts-profile-file-not-templates = it is not a templates file
+prompts-profile-file-format = it says format { $format }, which this version does not read
+prompts-profile-file-name = it carries no name a profile can have
+prompts-profile-file-no-slots = it holds no templates
+prompts-profile-name-title = Save the templates as a profile
+prompts-profile-name-body = Every template below is kept under this name. A name from the list replaces that profile.
+prompts-profile-name-taken = Replace one of yours:
+prompts-profile-name-confirm = Save
+prompts-profile-name-placeholder = Name this set of templates
+prompts-profile-cancel = Cancel
+prompts-profile-rename-title = Rename “{ $name }”
+prompts-profile-rename-body = Only the name changes; its templates stay as they are.
+prompts-profile-rename-confirm = Rename
+prompts-profile-duplicate-title = Duplicate “{ $name }”
+prompts-profile-duplicate-body = A new profile of yours with the same templates. Nothing below changes.
+prompts-profile-duplicate-confirm = Duplicate
+prompts-profile-copy-name = { $name } (copy)
+prompts-profile-delete-title = Delete “{ $name }”?
+prompts-profile-delete-body = Only the saved profile goes. The templates below stay exactly as they are.
+prompts-profile-delete-confirm = Delete
+prompts-profile-unsaved-title = The templates below are not saved as a profile
+prompts-profile-unsaved-body = Choosing “{ $name }” replaces them. Save them as a profile first, or discard them.
+prompts-profile-unsaved-save = Save as profile…
+prompts-profile-unsaved-discard = Discard
+prompts-profile-import-title = The name “{ $name }” is taken
+prompts-profile-import-body = The file's templates are kept as a new profile of yours, under another name. Nothing below changes.
+prompts-profile-import-confirm = Import
