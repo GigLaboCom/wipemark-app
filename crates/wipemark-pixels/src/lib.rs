@@ -76,7 +76,7 @@ pub use planar::{blend_levels_c, Planar, PlanarScores, DC_SHARE};
 pub use planes::{Plane, Planes, PlanesError, Quant, Sampling};
 #[doc(hidden)]
 pub use propose::{refine_at, Refined};
-pub use propose::{Placed, REFINE_MARGIN, ROW_FLOOR, SHRUNK};
+pub use propose::{Placed, REFINE_MARGIN, ROW_FLOOR, ROW_PLACE, SHRUNK};
 pub use raster::{Layout, Raster, RasterError};
 #[doc(hidden)]
 pub use restore::restore_off_by;
@@ -262,12 +262,18 @@ fn examine_pass(
         // mark a pixel off its row, and a row that saw no blend says
         // nothing about the rest of the corner.
         if mine.iter().all(|f| f.verified().is_none()) {
-            if let Some(f) = propose::search(&scene, profile).and_then(|p| look(&p)) {
+            let search = propose::search(&scene, profile);
+            if let Some((p, f)) = search.and_then(|p| look(&p).map(|f| (p, f))) {
                 let same_place = |g: &Finding| match (g.pixels, f.pixels) {
                     (Some(a), Some(b)) => a.iou(b) > 0.3,
                     _ => false,
                 };
-                if f.verified().is_some() {
+                if f.verified().is_some() && mine.iter().any(|g| gain_refused_here(profile, g, &p))
+                {
+                    // D154 through the search (D470): the row's refusal by
+                    // gain is the finding, and the search's proof is not
+                    // taken.
+                } else if f.verified().is_some() {
                     mine.retain(|g| !same_place(g));
                     mine.push(f);
                 } else if !mine.iter().any(same_place) {
@@ -281,6 +287,39 @@ fn examine_pass(
         findings: choose(all),
         dismissed,
     }
+}
+
+/// D154 through the search (D470, the owner, 2026-10-10): whether `row`,
+/// a finding of `profile`'s, is a placement row that refused its mark **by
+/// gain** at the place the search's `proposal` lands on — the same centre
+/// to within [`ROW_PLACE`] on both axes, whatever the size. There the
+/// search does not prove the mark: an eighth of a pixel off, or a fraction
+/// of a pixel smaller about the same centre, a template is a weaker mark,
+/// and the search's refinement (D236), which goes where the residual at
+/// `k = 1` is least, would find the template that lets a mark drawn at
+/// `k = 0.93` pass for `k = 1` and restore it at 1. Another opacity is
+/// another profile, never a per-picture `k`. A mark the search finds
+/// *elsewhere* — half a pixel off its row, resampled to another size and
+/// place — is not at the row's place, and is proved as it always was; so
+/// is a mark a row refused for any other reason.
+fn gain_refused_here(profile: &Profile, row: &Finding, proposal: &propose::Proposal) -> bool {
+    let (Verdict::Refused(Refusal::Gain { .. }), Placed::Row(i)) = (&row.verdict, row.placed)
+    else {
+        return false;
+    };
+    let Some(placement) = profile.placements.get(i) else {
+        return false;
+    };
+    let centre = |map: usize, rect: SubRect| {
+        let m = profile.map(map);
+        let aspect = m.height() as f32 / m.width() as f32;
+        (rect.x + rect.size / 2.0, rect.y + rect.size * aspect / 2.0)
+    };
+    let (a, b) = (
+        centre(placement.alpha, row.rect),
+        centre(proposal.map, proposal.rect),
+    );
+    (a.0 - b.0).abs() < ROW_PLACE && (a.1 - b.1).abs() < ROW_PLACE
 }
 
 /// One proposal, verified: a finding, or nothing when it is no blend

@@ -108,7 +108,11 @@ fn a_mark_a_pixel_off_its_row_is_found_by_the_search() {
 /// *refused* rather than proposing nothing, the search still runs, refines
 /// to the sub-pixel by the residual the second proof leaves, with the map
 /// of the size it lands on, and proves and restores the mark where it is —
-/// within a level.
+/// within a level. Where the row refuses it **by gain** (the half-cancelled
+/// edges vanish at another `k`), this is also the bound of D470 from
+/// the other side: the search does not prove a mark at the place of a row
+/// that refused it by gain, and a quarter or half a pixel off is not that
+/// place ([`wipemark_pixels::ROW_PLACE`]).
 #[test]
 fn a_mark_half_a_pixel_off_its_row_is_proved_by_the_search() {
     let catalogue = synthetic_catalogue();

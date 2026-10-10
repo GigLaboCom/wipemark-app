@@ -583,14 +583,14 @@ fn the_benchs_gain_is_the_gain_a_row_measures() {
 /// per-picture `k`.
 ///
 /// **Red on the code it was written against** (E12-R5, 2026-10-09): the row
-/// refuses the mark by its gain, and then the search — which runs whenever
-/// no row's mark was proved — refines it to an eighth of a pixel off, or a
-/// fraction of a pixel smaller (D236), where the gain lands at 0.96–1.00,
-/// proves it and restores it with `k = 1`. Ignored so the workspace gate
-/// stays what it was; the finding, its figures and the question are in
-/// `docs/plan/reports/E12-R5-2026-10-09.md`. Run it with `--ignored`.
+/// refused the mark by its gain, and then the search — which runs whenever
+/// no row's mark was proved — refined it to an eighth of a pixel off, or a
+/// fraction of a pixel smaller (D236), where the gain landed at 0.96–1.00,
+/// proved it and restored it with `k = 1`. Since D470 (the owner,
+/// 2026-10-10) the search does not prove a mark where a row of its profile
+/// refused it by gain; the finding and its figures are in
+/// `docs/plan/reports/E12-R5-2026-10-09.md`.
 #[test]
-#[ignore = "red today: the search re-proves a mark its row refused by gain (E12-R5 report)"]
 fn a_k_of_0_93_is_refused_by_a_k_of_1_profile() {
     let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
     let side = 1024u32;
@@ -624,7 +624,9 @@ fn a_k_of_0_93_is_refused_by_a_k_of_1_profile() {
                 .unwrap_or_else(|| panic!("{name}: not seen: {:#?}", report.found));
             match f.verdict {
                 Verdict::Refused(Refusal::Gain { k }) => {
-                    assert!((k - 0.93).abs() <= 0.03, "{name}: k* = {k}");
+                    // `k*` is on the sweep's grid of 0.02: 0.90 is 0.03
+                    // from 0.93 in decimals and a hair past it in `f32`.
+                    assert!((k - 0.93).abs() <= 0.03 + 1e-4, "{name}: k* = {k}");
                 }
                 ref other => panic!("{name}: {other:?}"),
             }

@@ -93,6 +93,17 @@ impl<'a> Scene<'a> {
 /// rounding-level wobble never moves a mark.
 pub const REFINE_MARGIN: f64 = 0.10;
 
+/// How near a search's place must be to a placement row's for it to be
+/// **the row's place** (D470): both centres within this, in pixels, on
+/// each axis. The sweeps put an origin on eighths of a pixel and a size on
+/// eighths, so a centre falls on sixteenths: an eighth either way — the
+/// refinement's finest step, which is all the search moved a mark drawn
+/// weaker than its profile at its own row (E12-R5: 0 to 0.125 px, the size
+/// shrunk by up to 0.875 about the centre) — is the row's place, and a
+/// quarter — a mark a quarter or half a pixel off its row — is not. The
+/// bound sits between the two, at three sixteenths.
+pub const ROW_PLACE: f32 = 0.1875;
+
 /// A row is a place the vendor's own rule names, so it is *looked at* on
 /// less correlation than the search asks for — the search's own coarse
 /// floor, half of `min_ncc` (D236): a high-contrast texture under a mark
