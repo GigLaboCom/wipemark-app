@@ -102,3 +102,9 @@ Thumbs.db
 # vendoring goes through .gitmodules so the rev is pinned and the
 # licence is recorded in NOTICE.
 /tmp/
+
+# ── The Grok chain (scripts/grok/run.sh, E12-R close-out) ──────────────
+# A run's folder: stage 0's copy, the ZIPs for Watchword (the owner's
+# captures, never committed — D493), stage 1's maps, the calibrations,
+# the bench. What is committed is the manifest and the stage-0 table.
+/reports/grok-*/

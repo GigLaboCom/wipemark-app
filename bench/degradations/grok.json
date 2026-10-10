@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "profile": null,
+  "slices": ["png", "jpeg420-q95", "jpeg420-q90", "jpeg444-q95", "webp-lossy-q90"],
+  "comment": "Grok's degradation list (D527: its home). A starting list until R2's stage 0 says what Grok hands out: png as the map's self-test, the JPEGs and the lossy WebP a user's file most often is. scripts/grok/run.sh writes the list stage 0's facts give beside its run and says when this one differs; bring this one to the facts then. No profile named, so it serves any Grok source."
+}

@@ -925,12 +925,14 @@ def stage0(records, date):
             continue
         answer = mark_answer(r["hand"].get("mark") for r in rs)
         corners = [" ".join(x for x in (r["hand"].get("corner"), r["hand"].get("margin")) if x) for r in rs]
-        cells = [source, answer, filled(r["hand"].get("kind") for r in rs), counted(r["facts"]["format"] for r in rs),
+        # A source with no mark has no place, kind or outline to fill: those cells are "—", not "to fill".
+        hand_cell = counted if answer == "no" else filled
+        cells = [source, answer, hand_cell(r["hand"].get("kind") for r in rs), counted(r["facts"]["format"] for r in rs),
                  counted(jpeg_cell(r["facts"]) for r in rs),
                  counted((f"{r['facts']['size'][0]}×{r['facts']['size'][1]} ({aspect(r['facts']['size'])})"
                           if r["facts"].get("size") else None) for r in rs),
-                 filled(corners), filled(r["hand"].get("mark_size") for r in rs),
-                 filled(r["hand"].get("shadow") for r in rs)]
+                 hand_cell(corners), hand_cell(r["hand"].get("mark_size") for r in rs),
+                 hand_cell(r["hand"].get("shadow") for r in rs)]
         out.append("| " + " | ".join(c.replace("|", "/") for c in cells) + " |")
         if answer not in ("yes", "no", "it varies"):
             gate.append(f"{source}: the mark? column is {answer}")
@@ -953,11 +955,12 @@ def stage0(records, date):
     for r in records:
         f, h = r["facts"], r["hand"]
         size = f"{f['size'][0]}×{f['size'][1]} ({aspect(f['size'])})" if f.get("size") else "—"
-        by_hand = [h.get("mark"), h.get("kind")]
         place = [" ".join(x for x in (h.get("corner"), h.get("margin")) if x), h.get("mark_size"), h.get("colour"),
                  h.get("shadow")]
-        cells = ([r["path"], r["source"]] + [c or TO_FILL for c in by_hand] + [f["format"], jpeg_cell(f), size]
-                 + [c or TO_FILL for c in place]
+        unmarked = str(h.get("mark") or "").lower() == "no"  # no mark: nothing to place, nothing "to fill"
+        cells = ([r["path"], r["source"], h.get("mark") or TO_FILL, h.get("kind") or (None if unmarked else TO_FILL),
+                  f["format"], jpeg_cell(f), size]
+                 + [c or (None if unmarked else TO_FILL) for c in place]
                  + [h.get("background") or f"{r['group']} (from the name)", f.get("metadata"), h.get("date"), h.get("note")])
         out.append("| " + " | ".join((str(c) if c else "—").replace("|", "/") for c in cells) + " |")
     unfilled = [r["path"] for r in records if not r["in_sidecar"]]
