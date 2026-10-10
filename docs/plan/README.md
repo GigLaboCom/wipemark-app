@@ -989,7 +989,10 @@ the gate the overview set, and the open edges.
   D504). Live gate on the owner's RTX 5070 Ti, Vulkan, prebuilt `b10731`:
   greedy text byte for byte the same with and without the draft (en, ru,
   de), but 17.7 tokens a second with it against 33.6 without, 3.03 tokens
-  accepted a step (en ≈ 4.3, ru ≈ 1.3, de ≈ 1.6). Every surface of a draft is
+  accepted a step (en ≈ 4.3, ru ≈ 1.3, de ≈ 1.6). The bench over the whole
+  corpus (`bench/run-dflash.sh`, 2135 calls each, sampled) agrees: 15.4
+  tokens a second against 32.2, 4.58 s a call against 2.20, 1.63 accepted a
+  step, pass rates the same (`bench/results/dflash-2026-10-10/tables.md`). Every surface of a draft is
   hidden (`wipemark_models::DRAFTS_OFFERED = false`). To find out: llama.cpp's
   own `llama-server --spec-type draft-dflash` at the same pin, Vulkan, the same
   two files — if it is faster, the port does something per step that the
