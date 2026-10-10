@@ -389,14 +389,28 @@ fn a_paste_is_rewritten_into_its_row_and_nowhere_on_disk(cx: &mut TestAppContext
 }
 
 /// E4-9 (D516): a row's Rewrite runs the working set the Rewriting page laid
-/// — Keep voice here — and both its report and its journal row name the
-/// profile; the row carries the id and never a template's text (D312).
+/// — a profile of the person's here, which the pipeline alone could not
+/// name — and both its report and its journal row name the profile; the row
+/// carries the id and never a template's text (D312).
 #[gpui::test]
 fn a_windows_rewrite_names_its_template_profile_in_the_report_and_the_row(cx: &mut TestAppContext) {
+    use wipemark_pipeline::lang::Lang;
+    use wipemark_pipeline::prompt::{Override, Overrides, Role, Slot, Tactic};
+
     let scratch = Scratch::new("profile-row");
     let work = work(swapping());
+    let user = Slot::new(Lang::En, Tactic::Paraphrase, 1, Role::User).expect("a slot");
+    let mut slots = Overrides::new();
+    slots.insert(
+        user,
+        Override::by_hand(user, "Say it again, for lawyers. {PROTECTED}\n{TEXT}"),
+    );
     assert!(matches!(
-        crate::prompts::profiles::apply(work.journal.store(), "keep-voice", None),
+        crate::prompts::profiles::import(work.journal.store(), "Legal", slots, 1),
+        crate::prompts::profiles::Kept::Stored { .. }
+    ));
+    assert!(matches!(
+        crate::prompts::profiles::apply(work.journal.store(), "legal", None),
         crate::prompts::profiles::Applied::Done { .. }
     ));
     let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
@@ -413,7 +427,7 @@ fn a_windows_rewrite_names_its_template_profile_in_the_report_and_the_row(cx: &m
     let result = work.queue.result(view.id).expect("row").expect("a result");
     assert_eq!(
         result["report"]["best_effort"]["profile"],
-        serde_json::json!("keep-voice")
+        serde_json::json!("legal")
     );
     until(cx, "the journal", |_| {
         work.journal
@@ -427,10 +441,10 @@ fn a_windows_rewrite_names_its_template_profile_in_the_report_and_the_row(cx: &m
             .outcome
             .and_then(|outcome| outcome.profile)
             .as_deref(),
-        Some("keep-voice")
+        Some("legal")
     );
     assert!(
-        !row.entry.contains("author's voice"),
+        !row.entry.contains("for lawyers"),
         "the row kept a template's text: {}",
         row.entry
     );

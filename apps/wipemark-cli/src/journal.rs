@@ -359,6 +359,23 @@ mod tests {
             .expect("a draft")
     }
 
+    /// E4-9 (D516): the command's own row names the template profile its
+    /// report names — an id, never a template.
+    #[test]
+    fn the_rows_outcome_names_the_reports_profile() {
+        let report = serde_json::json!({
+            "verifiable": {"before": {"findings": []}},
+            "best_effort": {
+                "profile": "legal",
+                "engine": {"model_id": "m"},
+                "totals": {"chunks": 1, "rewritten": 1, "kept_source": 0},
+            },
+        });
+        let outcome = super::rewrite_outcome(&report, Exit::Clean);
+        assert_eq!(outcome.profile.as_deref(), Some("legal"));
+        assert_eq!(outcome.verdict, "rewritten");
+    }
+
     #[test]
     fn a_verdict_follows_the_exit_code_in_the_windows_words() {
         assert_eq!(verdict(Action::Clean, Exit::Findings), "cleaned");

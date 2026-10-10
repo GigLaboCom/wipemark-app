@@ -175,7 +175,12 @@ const GRID_HEIGHT: Pixels = px(96.0);
 /// **plain**, without Fluent's isolates: it goes into a field and is stored
 /// as a profile's name, which carries no invisible character (E4-9).
 fn copy_name(name: &str) -> String {
-    wipemark_i18n::t_args_plain(
+    wipemark_i18n::with_localizer(|localizer| copy_name_in(localizer, name))
+}
+
+/// [`copy_name`] in `localizer`'s language, plain whatever its rendering.
+fn copy_name_in(localizer: &wipemark_i18n::Localizer, name: &str) -> String {
+    localizer.format_args_plain(
         Message::PromptsProfileCopyName,
         &args!("name" => name.to_owned()),
     )
@@ -11899,5 +11904,33 @@ mod tests {
             _ => panic!("the dialog did not open"),
         });
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// E4-9: the name a copy is offered under goes into a field and is
+    /// stored as a profile's name — in every language, under the window's
+    /// rendering, it carries no bidi isolate and is a name a profile can
+    /// have.
+    #[test]
+    fn a_copy_name_is_a_name_a_profile_can_have() {
+        use wipemark_core::class::class_of;
+        use wipemark_core::UnicodeClass;
+        use wipemark_i18n::{Localizer, Rendering};
+        for language in wipemark_i18n::available_languages() {
+            let ui = Localizer::for_languages(std::slice::from_ref(&language.id), Rendering::Ui);
+            let copy = super::copy_name_in(&ui, "Legal");
+            assert!(
+                !copy
+                    .chars()
+                    .any(|c| class_of(c) == Some(UnicodeClass::BidiControl)),
+                "{}: {}",
+                language.id,
+                copy.escape_debug()
+            );
+            assert!(
+                wipemark_pipeline::prompt::profile::name_ok(&copy),
+                "{}: {copy:?}",
+                language.id
+            );
+        }
     }
 }
