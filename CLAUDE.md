@@ -43,7 +43,11 @@ see `docs/architecture/retention.md` ("How the windows execute it"),
 `docs/architecture/layer-a.md` before assuming anything works. Of Layer B,
 the local engine is llama.cpp in `wipemark-llama{,-sys}` and
 `wipemark_engine::LocalEngine` behind `local-llama`, tested against a real
-GGUF (Qwen3 4B, Gemma 4 12B, Qwen3.8 27B); the application **loads** the
+GGUF (Qwen3 4B, Gemma 4 12B, Qwen3.8 27B) — and, beside Qwen3.8 27B, its
+DFlash2 draft, which proposes up to seven tokens a step for the model to
+verify in one decode when it is downloaded and the Engine page's **Faster
+decoding** row is on (E2-dflash2, `docs/architecture/local-engine.md`, "A
+draft model"); the application **loads** the
 chosen model, telling how far the load has got (D305), keeps it or lets it
 go by the owner's policy (`EngineHost`), and **checks** that it writes;
 see `docs/architecture/local-engine.md`. The endpoint is
@@ -183,7 +187,11 @@ drives on changes to the llama crates, weekly and by hand. The workflow's
 job runs clippy `-D warnings` over the workspace (the only lint
 `cfg(target_os = "macos")` code gets), the workspace and `local-llama`
 tests, and the first two native gates with Metal on an Apple M1 VM, which
-registers a Metal device (`MTL0`). The tray install, the display callback,
+registers a Metal device (`MTL0`). Every `native` build compiles the
+staging shim `crates/wipemark-llama-sys/shim/ext.cpp` with a C++17
+compiler, the prebuilt one included (D480). The prebuilt Linux archives
+need glibc 2.38; on an older one (Debian 12's 2.36) the native gates link
+with `WIPEMARK_LLAMA_SOURCE=1` in a target directory of their own. The tray install, the display callback,
 the AppKit window move, the Dock icon and the panel float are linted there
 but run by no test — they need a main thread with an `NSApplication`. The
 third native gate, the live one, has no hosted lane (no model), so any
@@ -202,7 +210,8 @@ cargo test   -p wipemark-engine --features llama-native --locked -- --ignored --
 
 `WIPEMARK_TEST_GGUF_GEMMA4` / `WIPEMARK_TEST_GGUF_QWEN38` (and
 `WIPEMARK_TEST_GPU_LAYERS_QWEN38`) add the two models' live tests, which
-skip when unset (D186).
+skip when unset (D186). `WIPEMARK_TEST_GGUF_QWEN38_DFLASH` (beside
+`WIPEMARK_TEST_GGUF_QWEN38`) adds the draft's live tests (a)–(c).
 
 ## Working here
 
@@ -310,11 +319,11 @@ it sits.
 | crate | what it owns | today |
 |---|---|---|
 | `wipemark-core` | Layer A: the UCD tables, the Unicode taxonomy, the classifier and scrubber, NFKC, homoglyphs, the guards, the report and its JSON — each report carrying its third shelf as a field, which the JSON writes (D289) | real; the guards are the loop's (E4) |
-| `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP); the load-progress sink (`watch_loads`, `LoadProgress`, `progress::Pacer`, D305); `ChatSupport`, and `Unavailable::ChatFormat` for a chat format this build does not write (D407) | both engines real, handed out by `duty::engine_for`, asked by the Check and by every rewrite |
-| `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`, `src/pin.rs`) | real under `native` — the prebuilt release by default, cmake with `WIPEMARK_LLAMA_SOURCE=1`; an empty shim without it |
-| `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends; the chat-format verdict, `chat_support` — this crate's families, then a port of llama.cpp's detection at the pin, then a refusal by name (D407) | real under `native`; refuses every load without it |
+| `wipemark-engine` | the `RewriteEngine` trait, its errors, `FakeEngine`, `LocalEngine` behind `local-llama`, and `HttpEngine` (Ollama and OpenAI-compatible over HTTP); the load-progress sink (`watch_loads`, `LoadProgress`, `progress::Pacer`, D305); `ChatSupport`, and `Unavailable::ChatFormat` for a chat format this build does not write (D407); `LocalConfig::draft`, a model loaded beside its draft or alone and said (`LoadProgress::Draft`, `DraftRefusal`), the draft's identity in `EngineInfo::draft` (D483, D485) | both engines real, handed out by `duty::engine_for`, asked by the Check and by every rewrite |
+| `wipemark-llama-sys` | llama.cpp's build and its bindings, pinned to one commit (`PIN.md`, `src/pin.rs`); the staging shim `shim/ext.cpp`, seven `src/llama-ext.h` calls wrapped `extern "C"`, refused at another tag than the pin (D480) | real under `native` — the prebuilt release by default, cmake with `WIPEMARK_LLAMA_SOURCE=1`; an empty shim without it |
+| `wipemark-llama` | the safe, synchronous layer over llama.cpp: load, chat template, generate with a per-call seed, cancel, memory estimate, backends; the chat-format verdict, `chat_support` — this crate's families, then a port of llama.cpp's detection at the pin, then a refusal by name (D407); the DFlash2 draft loop, `speculative` — which drafts run beside which model, the selector, sample-and-match acceptance, the KV cut — tested with fakes behind `Pair` (D481, D482) | real under `native`; refuses every load without it |
 | `wipemark-pipeline` | the job state machine, the preparation of a document (formats, protected spans, chunks, language, reassembly), candidates × rounds, the scorers; the prompts (shipped en/ru/de templates, the assembler, validation, adaptations, the clean-up of an answer) and the one rule a stored template is held to — `row::admit`, which the Prompts page, `lay_over` and `lay_over_within` all ask (D330), with no invisible character in any template (`invisible-character`, D369); `prompt::trial`, a template checked on a built-in sample or adapted by the model (D332, D335) | preparation, prompts and the loop real (E4-1…E4-3), the resumable job the queue drives (E4-4), the prompt bench (`examples/bench`, `bench/`, E4-5 — `docs/architecture/prompt-bench.md`, with `--variant`, the sampling flags and a `whole` mode since the divergence research) and its recommendations built (E4-7); its voice measures (second and first person, the ты↔вы / du↔Sie switch, words ×, a register proxy), the judge's voice question, `bench plan`, keep-voice in en/ru/de and the four-model run `bench/run-voice.sh` (E4-8, D420–D429) — the run is the owner's, and keep-voice is not shipped; the windows rewrite through it (E4-6b) and edit its templates (E4-6c) |
-| `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; a catalogue file found anywhere under the folder by name, size and sha256 (D302); what a verify learned as a record under `<data dir>/records`, never beside the weights (D303); a download's **mark** naming the file by its identity, and a `.part` that is ours only when a download opened it (D350, D351); hash progress (`watch_hashes`, D306); the GGUF header, read without a tensor (`gguf`); models the person adds as rows, their ids, estimate and checks (`user`, D400–D402); `store::open_regular`, the one open of a model file — only a regular one, never waiting on a pipe (D455); `fit_mb`; the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
+| `wipemark-models` | the catalogue, every path, what this machine can hold, the verifying downloader; a catalogue file found anywhere under the folder by name, size and sha256 (D302); what a verify learned as a record under `<data dir>/records`, never beside the weights (D303); a download's **mark** naming the file by its identity, and a `.part` that is ours only when a download opened it (D350, D351); hash progress (`watch_hashes`, D306); the GGUF header, read without a tensor (`gguf`); models the person adds as rows, their ids, estimate and checks (`user`, D400–D402); `store::open_regular`, the one open of a model file — only a regular one, never waiting on a pipe (D455); a draft tied to its model (`Role::Draft`, `draft_for`, D484); `fit_mb`; the beacon (`<data dir>/mcp.json`) by which the CLI finds the running application | real |
 | `wipemark-store` | the SQLite file, the `settings` table, the queue's tables and, since schema 3, the document **journal** (`journal`, its vocabulary in `entry` — `Origin`, `Action`, `Phase`, `Entry` — because two applications write it, D312) and `JournalWriter`, the CLI's read-write handle that never creates or migrates (D314); `RowsWriter`, the CLI's write of one namespace of settings rows (`models.user.`), never created or migrated (D404); `Journal::mark_edited`, which says in a row's entry that its result was saved edited, and when — `outcome.edited`, that one field patched and the rest of the entry kept, never what (D417) | real |
 | `wipemark-queue` | the batch queue: items and decided chunks as rows, one job at a time, pause/cancel, resume after a crash, delivery by the item's destination — an in-place delivery a crash cut short after the set-aside finished, not failed (D286); `EngineSource`, asked for an engine as each item starts (D310), a hold rather than a failure while there is none (D311), `reserve`/`push_reserved` so a row names its item before it can end (D358), the consent asked again at start (`whereto`, `QueueEvent::Ask`, `agree`, D361), `paused` and `states` from memory (D359); `save_text`, an edited result saved into a done item's stored text — a rewritten paste's one home — held to the text's digest (D410, D413) | real; the application runs it — the windows' Rewrite, an agent's `rewrite`, the CLI's rewrite through the application (E4-6b); the windows' clean has a line of its own |
 | `wipemark-secret` | the OS credential store, and `Secret` | real |
@@ -341,8 +350,8 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `journal.rs` | the document journal as the application keeps it: the `Writer` thread the windows write through, the MCP connections writing directly, the bookkeeper that writes every queued rewrite's start and end, the launch's settling (D317), the sweep by `journal.keep_days`, `Work` (the queue and the journal together), and `Duty`/`Going` — where an engine would now send a document, for the queue's consent (D361) |
 | `queue/rewriting.rs` | the table's half of E4-6b: a row's Rewrite and Rewrite all pushed to the batch queue with the plan taken at push (D91), the hold, Pause/Resume/Cancel, the statuses, the journal's rows read back as table rows (`rewrite_tests.rs` beside it) |
 | `config.rs` | every preference as a row in `wipemark.db`; the `models.user.<id>` rows of models the person adds |
-| `duty.rs` | who rewrites — an endpoint or this machine — and in what order; `engine_for`, where that becomes an engine; added models on duty (`Roster::added`, `AddedModelNotHere`) |
-| `engine_host.rs` | when the model on this machine is in memory: the keep policy (`decide`), the `EngineHost` that executes it, the Check (for the machine or an endpoint), an endpoint's key read when it is first asked, the `EngineHandle` other threads reach it through, `for_job`'s `JobEngine` that holds a job busy for its whole length — the batch queue's engine source — `when_changed`, which tells the queue the duty moved, the `Pace` a price is measured by, and the load progress an engine tells (`load_progress()`, numbered per engine so an abandoned load's end clears nothing, D305) |
+| `duty.rs` | who rewrites — an endpoint or this machine — and in what order; `engine_for`, where that becomes an engine; added models on duty (`Roster::added`, `AddedModelNotHere`); `Speculation`, whether the model's draft goes beside it and why not (D485) |
+| `engine_host.rs` | when the model on this machine is in memory: the keep policy (`decide`), the `EngineHost` that executes it, the Check (for the machine or an endpoint), an endpoint's key read when it is first asked, the `EngineHandle` other threads reach it through, `for_job`'s `JobEngine` that holds a job busy for its whole length — the batch queue's engine source — `when_changed`, which tells the queue the duty moved, the `Pace` a price is measured by, and the load progress an engine tells (`load_progress()`, numbered per engine so an abandoned load's end clears nothing, D305); `draft_outcome`, what the load said of the draft |
 | `engine.rs` | the Layer B endpoint vocabulary and its refusals |
 | `profile.rs` | endpoint settings saved under a name |
 | `models.rs` | the Models page's vocabulary, the recommendation, the adoption; the card's bar while a download runs, waits or is checked (`models::bar`, D306); a model found elsewhere or another tool's file in the way, each with no button (`Availability::Found`, `Foreign`); what a file is for adding (`Offering`, `Facts`, `Addition`), the add dialog's lines, an added model's card (`UserCard`), the selector's rows across both kinds, the folder's strangers |
@@ -1521,7 +1530,10 @@ Anything that needed more than a rule to explain is in `docs/`;
   `a_role_the_catalogue_serves_has_a_row` turns the day that changes
   into a red suite rather than a catalogue entry nobody can select, and
   `every_shipped_model_is_a_text_model` keeps a `pixel` entry out until
-  there is an engine for one. The selector lists **only what is on the
+  there is an engine for one. One role is never chosen: `draft` (D484) —
+  the entry names the model it drafts for in `draft_for`, is in no
+  selector and never on duty, and `a_draft_is_offered_in_no_selector`
+  replaces `a_role_the_catalogue_serves_has_a_row` for it. The selector lists **only what is on the
   machine**: choosing a model that has not been downloaded is choosing a
   file that does not exist — the catalogue's models on this machine, and
   the added ones whose file is still the one added. Which leaves the question the selector
@@ -1702,7 +1714,14 @@ Anything that needed more than a rule to explain is in `docs/`;
   the old project is named. It is edited here and never synced back. It
   is pinned to **one** llama.cpp commit (`PIN.md`; `build.rs` refuses a
   fetched tree at any other), and a bump is a deliberate commit that runs
-  the native gates and the live gate. The pin is `b10731` (D180), linked as the prebuilt release of that commit (D226); a bump runs the gates from source first, then cuts a release in `llama-cpp-prebuilt` and pins its sha256s in `src/pin.rs`. Gemma 4 and
+  the native gates and the live gate. The pin is `b10731` (D180), linked as the prebuilt release of that commit (D226); a bump runs the gates from source first, then cuts a release in `llama-cpp-prebuilt` and pins its sha256s in `src/pin.rs`. Beside
+  Qwen3.8 27B a DFlash2 draft decodes (`wipemark_llama::speculative`, ported
+  from llama.cpp's `common` at the pin): every kept token is the model's own
+  sample, so greedy text is the model's and the live gate holds it byte for
+  byte; a draft that cannot run beside the model is refused by name and the
+  model loaded alone. Its seven `llama-ext.h` calls go through a C++ shim of
+  declarations, never a mangled name, and a pin bump re-reads that header
+  (`PIN.md`, step 5b). Gemma 4 and
   Qwen3.8 run locally: their chat templates are rendered by
   `wipemark_llama::chat`, thinking off, because `llama_chat_apply_template`
   does not know Gemma 4 and renders Qwen3.8 with thinking on (D181, D182). `unsafe` lives in **one** module,
@@ -1793,7 +1812,7 @@ Anything that needed more than a rule to explain is in `docs/`;
   `kill -9` costs at most the chunk in flight; the next open turns
   `running` into `queued` and hands the rows to `start_resumable`, which
   uses a record only under the same fingerprint — document, format,
-  options, engine, budget, templates and the selection rules
+  options, engine (its draft's identity included, D483), budget, templates and the selection rules
   (`select::RULES`, D116) — and asks the rest. A result goes
   where the item said when it was pushed (its row, beside, a chosen path,
   or in place by a per-run flag), in two phases so a crash between them is
@@ -2126,6 +2145,8 @@ What exists so far:
 | `wipemark-recon-container-runs-report-2026-10-09` | FILE | the host's runs that need no window, done in the container on `recon/r1-r12-raw` (`recon/r3-raw` merged): R1's baseline at `4b5ba17` (D247/D250/D252/S11 reproduced, committed), R4 §4.1–4.2 (k stable, rows right), the bench with R6/R8's level A, the corpus with the `planar-preview` CLI (level B: R6 + R8d 285 → 195 exit 3, no failure), R12's clean measures, R10's trigger (not reached with R6 + R8d) |
 | `wipemark-recon-pending-decisions-2026-10-10` | FILE | `docs/plan/E12-R-pending-decisions-2026-10-10.md`: every decision the series waited on, with its options and figures; A1–A3 since marked decided |
 | `wipemark-recon-decided-report-2026-10-10` | FILE | the owner's three decisions of 2026-10-10 in the product, on `recon/decided`: D470 (the search does not prove a mark its row refused by gain, D154), D471 (the planar inverse with the per-plane interval, `planar-preview` removed), D472 (DCT-POCS by default on a lossy JPEG); every gate green with `--locked`, level B unchanged from R6 + R8d (285 → 195 exit 3, 0 fail), new baseline `golden/baseline/34b4c2c/` |
+| `wipemark-task-dflash2-speculative-2026-10-10` | FILE | the task: DFlash2 speculative decoding for Qwen3.8 27B in the local engine, F1–F5, D480–D489 |
+| `wipemark-dflash2-report-2026-10-10` | FILE | its report: F1–F5 done in the container, the red checks, the gates with the native ones over a source build, CI, the host's checklist |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
@@ -2195,7 +2216,12 @@ default the owner may override, and E8-1's last Lows. **Compare's
 follow-ups** are merged (D440–D449, 2026-10-10): an edit saved at quit, a
 row cleaned since the window opened asked about, an edit mark that names
 its result, one question at a time, "…, then edited" (D447) and Report… of
-a journal row greyed (D448), both at a default the owner may switch. **The E12-R series** (`plan/recon-2026-10-08`, the restoration measured,
+a journal row greyed (D448), both at a default the owner may switch. **E2-dflash2** — DFlash2 speculative decoding for Qwen3.8 27B, its draft
+as a catalogue entry tied to the model, the Engine page's **Faster
+decoding** row, the command line and the bench's `--draft` (D480–D489) — is
+merged (2026-10-10); how much faster it is, and that greedy text stays the
+model's byte for byte, are the host's live gate and `bench/run-dflash.sh`
+(`docs/plan/reports/E2-dflash2-2026-10-10.md`, the host's checklist). **The E12-R series** (`plan/recon-2026-10-08`, the restoration measured,
 then made more precise) is merged (`recon/decided`, 2026-10-10): R1 and
 R3–R8 are done, R12's stage 4a is done, and the tools of R2, R9 (behind
 `blend-preview`), R10, R11 and R12's stage 4b are written; R3 reads
