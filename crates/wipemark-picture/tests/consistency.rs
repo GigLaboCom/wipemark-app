@@ -1,12 +1,16 @@
 //! `consistency_px` on real files (E12-R7, D305): the restored picture,
 //! blended back with the map and the logo it was restored with, against
 //! the stored input — the identity of the inverse, held on the owner's
-//! own Gemini crops (`fixtures/image/gemini/`) as `wipemark_picture::clean`
-//! runs them, PNG, JPEG and WebP alike.
+//! own Gemini crops (`fixtures/image/gemini/`) as the inverse alone
+//! restores them (`clean_bytes_with_planes`: the product's road with the
+//! planes, D471, and without the refinement), PNG, JPEG and WebP alike.
+//! The product's `clean` then refines a lossy JPEG by DCT-POCS (D472),
+//! which chooses another value inside the file's intervals and moves
+//! `consistency_px` by design; `tests/interval.rs` holds that one.
 
 use std::path::PathBuf;
 
-use wipemark_picture::{clean, PictureOptions, Visible};
+use wipemark_picture::{clean_bytes_with_planes, PictureOptions, Visible};
 use wipemark_pixels::Catalogue;
 
 fn shipped() -> PictureOptions<'static> {
@@ -35,7 +39,7 @@ fn an_exact_inverse_is_consistent_to_rounding() {
     let (mut restored, mut lossy) = (0, 0);
     for name in &names {
         let bytes = std::fs::read(dir.join(name)).unwrap();
-        let Ok((_, report)) = clean(&bytes, &shipped()) else {
+        let Ok((_, report)) = clean_bytes_with_planes(&bytes, &shipped()) else {
             continue;
         };
         let Visible::Examined { report, .. } = &report.visible else {
@@ -49,7 +53,7 @@ fn an_exact_inverse_is_consistent_to_rounding() {
             );
             assert!(r.consistency_px <= 1.0, "{name}: {r:?}");
             // In RGB every clamped sample and the three of every hole are
-            // left out. The planar path (E12-R6, `planar-preview` only)
+            // left out. The planar path (D471, a 4:2:0 or 4:2:2 JPEG)
             // leaves out Y pixels and chroma blocks instead, which no
             // count of RGB samples states.
             if r.planar.is_none() {

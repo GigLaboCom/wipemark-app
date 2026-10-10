@@ -9,9 +9,8 @@ mod pixels_support;
 use pixels_support::{composite_at, picture, small_row, synthetic_catalogue, synthetic_v1, Kind};
 use wipemark_image::{reframe, ImageContainer, StripOptions};
 use wipemark_picture::{
-    clean, clean_bytes_with_planes, decode, decode_with_planes, encode_like, inspect,
-    inspect_bytes_with_planes, prove, psnr, Encoding, PictureError, PictureOptions, Proof, Source,
-    Visible, JPEG_QUALITY, PSNR_FLOOR,
+    clean, decode, decode_with_planes, encode_like, inspect, prove, psnr, Encoding, PictureError,
+    PictureOptions, Proof, Source, Visible, JPEG_QUALITY, PSNR_FLOOR,
 };
 use wipemark_pixels::planar::invert;
 use wipemark_pixels::{
@@ -165,13 +164,17 @@ fn a_marked_jpeg_is_restored_and_re_encoded() {
                 assert_eq!(report.restored.len(), 1, "{name}");
                 let r = &report.restored[0];
                 assert!(!r.exact, "{name}: a lossy source is never exact");
-                // No outline and no hole; but the codec's error under the
-                // mark, amplified by the inverse, is a texture left — 6.3
-                // to 6.7 levels against 2.5 to 2.6 around it — and the
-                // mark counts as left (D250).
+                // No outline and no hole. The codec's error under the
+                // mark, amplified by the inverse, was a texture left — 6.3
+                // to 6.7 levels against 2.5 to 2.6 around it (D250); the
+                // product's DCT-POCS (D472) chooses the value inside the
+                // file's intervals and takes it under the bound, and no
+                // mark is left.
                 assert!(r.holes == 0 && !r.outline_left, "{name}: {r:?}");
-                assert!(r.texture_left, "{name}: {r:?}");
-                assert!(report.marks_left(), "{name}");
+                let method = r.interval.map(|i| i.method);
+                assert_eq!(method, Some(wipemark_pixels::Method::Dct), "{name}: {r:?}");
+                assert!(!r.texture_left && !r.smoothed, "{name}: {r:?}");
+                assert!(!report.marks_left(), "{name}");
             }
             Visible::NotExamined(why) => panic!("{name}: {why:?}"),
         }
@@ -420,14 +423,14 @@ fn shipped() -> PictureOptions<'static> {
 }
 
 /// `inspect` and `clean` measure one out-of-range share for one file on
-/// the planar path (D306): the scores the decision used, and its two
+/// the planar path (D471): the scores the decision used, and its two
 /// terms, are the same through both. `victory-1025-q95-420.jpg` is the
 /// crop the RGB path refuses by its 16-pixel grid (1.06 %, D252).
 #[test]
 fn inspect_and_clean_measure_one_out_of_range() {
     let bytes = gemini("victory-1025-q95-420.jpg");
-    let inspected = inspect_bytes_with_planes(&bytes, &shipped()).unwrap();
-    let (_, cleaned) = clean_bytes_with_planes(&bytes, &shipped()).unwrap();
+    let inspected = inspect(&bytes, &shipped()).unwrap();
+    let (_, cleaned) = clean(&bytes, &shipped()).unwrap();
     let first = |v: &Visible| match v {
         Visible::Examined { report, .. } => report
             .found

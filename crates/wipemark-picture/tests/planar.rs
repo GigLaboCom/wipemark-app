@@ -1,8 +1,11 @@
-//! The planar inverse (E12-R6, D306) on real files: the owner's Gemini
+//! The planar inverse (E12-R6, D471) on real files: the owner's Gemini
 //! crops (`fixtures/image/gemini/`), decoded with their planes
 //! (`decode_with_planes`) and cleaned on the planar path
 //! (`clean_bytes_with_planes`, `wipemark_pixels::clean_with`), against the
-//! product's path (`clean`, which takes no planes until D306 is taken).
+//! RGB path (`wipemark_pixels::clean`, the product's road before D471 and
+//! still its road for a JPEG whose planes do not read), and the product's
+//! own `clean`, which takes the planes since D471 and refines after them
+//! (D472).
 
 use std::path::PathBuf;
 
@@ -50,8 +53,8 @@ fn restored(name: &str, report: &PictureReport) -> Restored {
 /// levels on the RGB path — the inverse divides chroma the codec averaged
 /// over 2 × 2 blocks by a full-resolution `α`. Restored in the planes, the
 /// band's colour step falls under the bound, and under what the RGB path
-/// left (R0: the pixels pass with no planes, which is the product's path
-/// until D306 is taken); the restoration says it was planar.
+/// left (R0: the pixels pass with no planes, the product's path before
+/// D471); the restoration says it was planar.
 #[test]
 fn a_420_mark_restored_by_planes_has_less_fringe() {
     let catalogue = Catalogue::shipped().unwrap();
@@ -92,9 +95,11 @@ fn a_420_mark_restored_by_planes_has_less_fringe() {
 
 /// 4:4:4 already matches the RGB model, and a PNG is lossless: both take
 /// the old path whatever planes are handed in — the same raster and the
-/// same JSON as the product's `clean`, through the pixels pass given
-/// planes (4:4:4's own; for the PNG, 4:2:0 planes made from it) and
-/// through the whole file (§4.4, L1).
+/// same JSON as the RGB path, through the pixels pass given planes (4:4:4's
+/// own; for the PNG, 4:2:0 planes made from it) (§4.4, L1). Through the
+/// whole file, the PNG's `clean` is the planar road's byte for byte (no
+/// refinement ever runs on a lossless source, S6); the 4:4:4 JPEG's is
+/// the old restoration refined by DCT-POCS (D472), never planar.
 #[test]
 fn a_444_jpeg_and_a_png_take_the_old_path_byte_for_byte() {
     let catalogue = Catalogue::shipped().unwrap();
@@ -120,10 +125,18 @@ fn a_444_jpeg_and_a_png_take_the_old_path_byte_for_byte() {
         assert_eq!(a.to_json(), b.to_json(), "{name}");
         assert!(!b.to_json().contains("planar"), "{name}");
 
-        let (out_old, report_old) = clean(&bytes, &shipped()).unwrap();
+        let (out_clean, report_clean) = clean(&bytes, &shipped()).unwrap();
         let (out_new, report_new) = clean_bytes_with_planes(&bytes, &shipped()).unwrap();
-        assert!(out_old == out_new, "{name}: the files differ");
-        assert_eq!(report_old.to_json(), report_new.to_json(), "{name}");
+        assert!(!report_new.to_json().contains("planar"), "{name}");
+        assert!(!report_clean.to_json().contains("planar"), "{name}");
+        if d.fidelity == wipemark_pixels::Fidelity::Lossless {
+            assert!(out_clean == out_new, "{name}: the files differ");
+            assert_eq!(report_clean.to_json(), report_new.to_json(), "{name}");
+        } else {
+            let r = restored(name, &report_clean);
+            let method = r.interval.map(|i| i.method);
+            assert_eq!(method, Some(wipemark_pixels::Method::Dct), "{name}: {r:?}");
+        }
     }
 }
 
@@ -147,19 +160,34 @@ fn the_planar_inverse_is_still_an_inverse() {
     }
 }
 
-/// The product's road takes no planes until D306 is taken (S12): a 4:2:0
-/// JPEG cleaned by `clean` is restored in RGB, with no `planar` in its
-/// report — unless this build has `planar-preview`.
+/// The product's road takes the planes (D471, the owner, 2026-10-10): a
+/// 4:2:0 JPEG looked at by `inspect` is proved in its planes, and cleaned
+/// by `clean` is restored in them, the report saying so — with no feature
+/// and nothing asked. `decode` alone, which the proof re-reads the output
+/// with, still hands out no planes.
 #[test]
-fn the_product_takes_the_planes_only_with_the_preview() {
-    let bytes = fixture("victory-1040-q95-420.jpg");
+fn the_product_takes_the_planes_on_a_subsampled_jpeg() {
+    let name = "victory-1040-q95-420.jpg";
+    let bytes = fixture(name);
     let (_, report) = clean(&bytes, &shipped()).unwrap();
-    let r = restored("victory-1040-q95-420.jpg", &report);
-    assert_eq!(
-        r.planar.is_some(),
-        cfg!(feature = "planar-preview"),
-        "{r:?}"
+    let r = restored(name, &report);
+    assert!(
+        matches!(
+            r.planar,
+            Some(Planar::Inverse {
+                sampling: Sampling::H420,
+                ..
+            })
+        ),
+        "{name}: {r:?}"
     );
+    assert!(r.chroma < CHROMA_LEVELS && !r.outline_left, "{name}: {r:?}");
+    let seen = wipemark_picture::inspect(&bytes, &shipped()).unwrap();
+    let Visible::Examined { report, .. } = &seen.visible else {
+        panic!("{name}: {:?}", seen.visible)
+    };
+    let scores = report.found[0].scores.unwrap();
+    assert!(scores.planar.is_some(), "{name}: {scores:?}");
     let container = ImageContainer::sniff(&bytes).unwrap();
     assert!(decode(&bytes, container).unwrap().unwrap().planes.is_none());
 }

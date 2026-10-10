@@ -40,10 +40,12 @@
 //! refined — the codec's intervals are linear in code values and its
 //! blend is not — and keeps the RGB restoration it was given.
 //!
-//! Nothing in the product calls this until the method is decided (S12):
-//! [`crate::clean_refined`] with a [`Refine`] other than `None` is reached
-//! from `recon_bench --config R8d|R8p|R8w` and from `wipemark-picture`'s
-//! `planar-preview` build with `WIPEMARK_INTERVAL` set. Plan:
+//! **DCT-POCS is the product's** (D472, the owner, 2026-10-10):
+//! `wipemark_picture::clean` asks [`crate::clean_refined`] for
+//! [`Refine::Dct`] on every picture, and it runs where a lossy JPEG's
+//! planes were read. Pixel POCS and Wiener stay for the bench's configs
+//! (`recon_bench --config R8p|R8w`); nothing in the product reaches them,
+//! and no environment variable chooses among the three. Plan:
 //! `docs/plan/E12-R8-value-inside-the-interval.md`.
 
 use serde::Serialize;
@@ -56,8 +58,9 @@ use crate::restore::Restored;
 use crate::verify::{consistency, outline, Consistency, Verified, NOISE_FLOOR};
 use crate::{ExamineOptions, Fidelity};
 
-/// How a restoration on a lossy source is refined (E12-R8). `None` is the
-/// product today, and every caller's default.
+/// How a restoration on a lossy source is refined (E12-R8). `None` — the
+/// inverse's own value — is this library's default; the product asks for
+/// [`Refine::Dct`] (`wipemark_picture::REFINE`, D472).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Refine {
     #[default]
@@ -72,7 +75,7 @@ pub enum Refine {
 
 impl Refine {
     /// `none`, `dct`, `pixel` or `wiener` — the spelling of the bench's
-    /// configs and of `WIPEMARK_INTERVAL`.
+    /// configs and of the regression's `--crop-refine`.
     pub fn parse(word: &str) -> Option<Refine> {
         match word {
             "none" => Some(Refine::None),

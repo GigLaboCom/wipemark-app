@@ -1,4 +1,4 @@
-//! The planar inverse (E12-R6, D306) over synthetic subsampled JPEGs: a
+//! The planar inverse (E12-R6, D471) over synthetic subsampled JPEGs: a
 //! mark composited in RGB, its planes made as an IJG encoder would store
 //! them (`synth::jpeg_planes`), the raster the decoder would hand out, and
 //! `examine_with` / `clean_with` given those planes. No codec, no file:
@@ -95,7 +95,7 @@ fn the_block_mean_inverse_recovers_flat_chroma_at_quality_100() {
     );
 }
 
-/// The main test of the weakening (D306): a blend that is **not** the
+/// The main test of the weakening (D471): a blend that is **not** the
 /// profile's — the sparkle at 0.7 of its opacity, white — over a yellow
 /// whose blue is at the floor, saved 4:2:0 at quality 90. Luma alone is
 /// within range of a blend there (a bright Y has room on both sides); the
@@ -213,7 +213,7 @@ fn the_synthetic_encoder_is_ijgs_tables_and_round_trips_at_100() {
     assert!(jpeg_planes(&original, Sampling::Gray, 90).is_none());
 }
 
-/// Where the chroma allowance (`BLEND_LEVELS_C`, D306) stops seeing a
+/// Where the chroma allowance (`BLEND_LEVELS_C`, D471) stops seeing a
 /// blend that is not the profile's: the sparkle at 0.7, 0.8 and 0.9 of its
 /// opacity over six flat colours — the corners of the RGB cube a white
 /// logo can be told on, and the stickers' green — saved 4:2:0 at 95, 90

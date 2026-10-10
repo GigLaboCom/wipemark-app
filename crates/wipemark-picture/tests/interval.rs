@@ -1,9 +1,11 @@
 //! The value chosen inside the codec's interval (E12-R8) on the owner's
 //! own Gemini crops (`fixtures/image/gemini/`): DCT-POCS, pixel POCS and
-//! Wiener against today's restoration (R6's on 4:2:0), through
+//! Wiener against the inverse alone (R6's on 4:2:0), through
 //! `wipemark_picture::clean_bytes_refined` — decode with the planes,
-//! restore, refine, encode, reframe, prove. The synthetic suite is
-//! `wipemark-pixels`' `tests/interval.rs`.
+//! restore, refine, encode, reframe, prove. DCT-POCS is the product's
+//! (D472): `wipemark_picture::clean` is `clean_bytes_refined` with
+//! `Refine::Dct`. The synthetic suite is `wipemark-pixels`'
+//! `tests/interval.rs`.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -49,8 +51,9 @@ fn first(report: &PictureReport) -> Option<&Restored> {
     }
 }
 
-/// The figures of the E12-R8 report: for every lossy crop, today's path
-/// (R0, and R6's planar inverse on 4:2:0) and each method — texture,
+/// The figures of the E12-R8 report: for every lossy crop, the product's
+/// `clean` (R8d since D472), the inverse alone (`base`: R0, and R6's
+/// planar inverse on 4:2:0) and each method — texture,
 /// around, their ratio, the step, the colour step, the outline share,
 /// `consistency_px`, `consistency_dct`, `sigma_base`, the rounds, the mark
 /// left, the milliseconds of the whole clean. Prints; asserts nothing.
@@ -62,13 +65,10 @@ fn first(report: &PictureReport) -> Option<&Restored> {
 #[ignore = "prints the report's figures"]
 fn measure_the_methods_on_the_committed_crops() {
     // `sigma_base` on the decoded raster, around the mark's rectangle as
-    // today's path restores it, for every crop — lossless ones too.
+    // the inverse alone restores it, for every crop — lossless ones too.
     for name in names(&[".png", ".jpg", ".webp"]) {
         let bytes = read(&name);
-        let Some((_, report)) = clean(&bytes, &shipped())
-            .ok()
-            .or_else(|| refined(&bytes, Refine::None))
-        else {
+        let Some((_, report)) = refined(&bytes, Refine::None) else {
             continue;
         };
         let Some(rect) = first(&report)
@@ -97,7 +97,7 @@ fn measure_the_methods_on_the_committed_crops() {
     for name in names(&[".jpg", ".webp"]) {
         let bytes = read(&name);
         for (label, refine) in [
-            ("R0", None),
+            ("clean", None),
             ("base", Some(Refine::None)),
             ("R8d", Some(Refine::Dct)),
             ("R8p", Some(Refine::Pixel)),
@@ -144,20 +144,22 @@ fn measure_the_methods_on_the_committed_crops() {
     }
 }
 
-/// D307 on today's path: no lossy crop's restoration is smoother than
-/// the picture around it — `texture / texture_around` at 0.8 or over on
-/// every one, through `wipemark_picture::clean` as the product runs it and
-/// through the planar inverse — so the lower bound can be live everywhere
-/// and nothing that was written is said differently. `--nocapture` prints
-/// the ratios the E12-R8 report gives.
+/// D307 on the inverse alone and on the product: no lossy crop's
+/// restoration is smoother than the picture around it —
+/// `texture / texture_around` at 0.8 or over on every one, through the
+/// inverse with no refinement (R0, and R6's planar inverse on 4:2:0) and
+/// through `wipemark_picture::clean` as the product runs it, DCT-POCS
+/// after the inverse on a JPEG (D472) — so the lower bound is live
+/// everywhere and nothing the product writes is said to be a smoothed
+/// patch. `--nocapture` prints the ratios the E12-R8 report gives.
 #[test]
-fn no_restoration_on_todays_path_is_smoothed() {
+fn no_restoration_is_smoothed() {
     let mut seen = 0;
     for name in names(&[".jpg", ".webp"]) {
         let bytes = read(&name);
         for (label, out) in [
             ("clean", clean(&bytes, &shipped()).ok()),
-            ("planar", refined(&bytes, Refine::None)),
+            ("inverse", refined(&bytes, Refine::None)),
         ] {
             let Some((_, report)) = out else { continue };
             let Visible::Examined { report, .. } = &report.visible else {
@@ -171,7 +173,9 @@ fn no_restoration_on_todays_path_is_smoothed() {
                 );
                 assert!(r.lossy, "{name}");
                 assert!(!r.smoothed && ratio >= 0.8, "{name} ({label}): {r:?}");
-                assert!(r.interval.is_none(), "{name}");
+                if label == "inverse" {
+                    assert!(r.interval.is_none(), "{name}");
+                }
                 seen += 1;
             }
         }
@@ -179,17 +183,18 @@ fn no_restoration_on_todays_path_is_smoothed() {
     assert!(seen >= 14, "{seen}");
 }
 
-/// The target (D250): the 4:4:4 JPEG at 95, whose 8 × 8 checker today's
-/// restoration leaves at 9 levels of roughness, refined by DCT-POCS comes
-/// under `TEXTURE_LEVELS`, and the step, the colour step and the outline
-/// stay within the regression's tolerances of today's (R1's `not_worse`:
+/// The target (D250): the 4:4:4 JPEG at 95, whose 8 × 8 checker the
+/// inverse alone leaves at 9 levels of roughness, refined by DCT-POCS —
+/// as the product's `clean` refines it (D472) — comes under
+/// `TEXTURE_LEVELS`, and the step, the colour step and the outline stay
+/// within the regression's tolerances of the inverse's (R1's `not_worse`:
 /// `|after| ≤ |before| + max(abs, 5 % of before)`, 0.2 for the steps and
 /// 0.01 for the share). Written, proved, and no mark left.
 #[test]
 fn the_4_4_4_texture_falls_under_its_bound() {
     let bytes = read("torch-1025-q95-444.jpg");
-    let (_, before) = clean(&bytes, &shipped()).unwrap();
-    let (_, after) = refined(&bytes, Refine::Dct).unwrap();
+    let (_, before) = refined(&bytes, Refine::None).unwrap();
+    let (_, after) = clean(&bytes, &shipped()).unwrap();
     let (r0, r8) = (first(&before).unwrap(), first(&after).unwrap());
     println!("R0 {r0:?}\nR8d {r8:?}");
     assert!(r0.texture_left, "{r0:?}");
@@ -617,8 +622,9 @@ fn pixel_pocs_keeps_its_interval() {
     assert!(seen >= 6, "{seen}");
 }
 
-/// S6 on the owner's own PNG crops: whatever refinement is asked, the
-/// bytes written and the report are today's, and nothing says `interval`.
+/// S6 on the owner's own PNG crops: whatever refinement is asked — the
+/// product's (D472) or another — the bytes written and the report are the
+/// inverse's, and nothing says `interval`.
 #[test]
 fn a_lossless_source_is_never_refined() {
     for name in names(&[".png"]) {
@@ -640,17 +646,18 @@ fn a_lossless_source_is_never_refined() {
 
 /// The JSON of a refined restoration says how (`interval`: the method,
 /// the space, the noise, the rounds) and how consistent the value chosen
-/// is with the file's coefficients (`consistency_dct`); today's says
-/// neither, nor `smoothed` while it is false.
+/// is with the file's coefficients (`consistency_dct`); the inverse alone
+/// says neither, nor `smoothed` while it is false. The product's `clean`
+/// writes the refined JSON (D472).
 #[test]
 fn a_refined_restoration_says_how_in_its_json() {
     let bytes = read("torch-1025-q95-444.jpg");
-    let (_, today) = clean(&bytes, &shipped()).unwrap();
-    let json = today.to_json();
+    let (_, alone) = refined(&bytes, Refine::None).unwrap();
+    let json = alone.to_json();
     for key in ["\"interval\"", "\"smoothed\"", "\"consistency_dct\""] {
         assert!(!json.contains(key), "{key}: {json}");
     }
-    let (_, refined) = refined(&bytes, Refine::Dct).unwrap();
+    let (_, refined) = clean(&bytes, &shipped()).unwrap();
     let json = refined.to_json();
     assert!(json.contains(",\"consistency_dct\":0.0,"), "{json}");
     assert!(

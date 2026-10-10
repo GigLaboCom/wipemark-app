@@ -5,9 +5,10 @@
 //! A known mark is composited over a known background, the result is
 //! degraded the way a user's file is (`scripts/bench/encode.py` with
 //! Pillow, and here with `image`'s encoder), and the **user's path** runs
-//! over it — `wipemark_picture::decode_with_planes`, `wipemark_pixels::clean`
-//! with the shipped catalogue, `encode_like`, `reframe` and `prove`, as
-//! `wipemark_picture::clean` runs them. The restored raster is compared with
+//! over it — `wipemark_picture::decode_with_planes`, the config's pixels
+//! pass with the shipped catalogue, `encode_like`, `reframe` and `prove`,
+//! as `wipemark_picture::clean` runs them (whose own pixels pass is
+//! `R8d`'s since the owner's decisions of 2026-10-10). The restored raster is compared with
 //! the background inside the mark's box and four pixels around it (the
 //! ROI): PSNR, SSIM on luma (window 7) and CIEDE2000. Never over the whole
 //! picture. Plan: `docs/plan/E12-R5-recon-bench.md`; the host's commands are
@@ -41,13 +42,17 @@
 //! `sin`, no `pow`: the sha256 the manifest pins must be the same on every
 //! machine); a `photo` tile is cut from one of the owner's photographs.
 //!
-//! **Configs.** `R0` is the product today. A later step adds its switch as
-//! a config of this example (S12), never as a catalogue row: `R6` is the
-//! planar inverse of a subsampled JPEG (E12-R6, D306); `R8d`, `R8p` and
-//! `R8w` choose the restored value inside a lossy codec's interval
-//! (E12-R8) by DCT-POCS, pixel POCS or one Wiener step — each over R6 on a
-//! subsampled JPEG and over R0 elsewhere, and R0's to the byte on a
-//! lossless file.
+//! **Configs.** Named after the steps that built them. `R0` is the RGB
+//! road with no refinement — the product's until the owner's decisions of
+//! 2026-10-10. `R6` is the planar inverse of a subsampled JPEG (E12-R6,
+//! D471); `R8d`, `R8p` and `R8w` choose the restored value inside a lossy
+//! codec's interval (E12-R8) by DCT-POCS, pixel POCS or one Wiener step —
+//! each over R6 on a subsampled JPEG and over R0 elsewhere, and R0's to
+//! the byte on a lossless file. **`R8d` is the product since 2026-10-10**
+//! (D471 and D472: `wipemark_picture::clean`). Every config proves a mark
+//! as the product does, D470 included (the search does not prove a mark
+//! at the place of a row that refused it by gain). A later step adds its
+//! switch as a config of this example (S12), never as a catalogue row.
 //!
 //! **A profile, not "Gemini"** (E12-R12 stage 4b, 2026-10-09). The mark is
 //! data, so the bench takes it as a parameter. With neither `--profile` nor
@@ -1704,9 +1709,9 @@ fn gen_one(
 
 // ───────────────────────────────────────────────────────────── configs
 
-/// A restoration to bench: R0 is the product; a later step adds its
-/// switch here as a parameter of this example (S12), never as a row of
-/// the catalogue.
+/// A restoration to bench: R0 the road before the owner's decisions of
+/// 2026-10-10, R8d the product's since; a later step adds its switch here
+/// as a parameter of this example (S12), never as a row of the catalogue.
 struct Config {
     name: &'static str,
     /// The blend model its inverse assumes — its row of the matrix (A5).
@@ -1724,7 +1729,7 @@ fn r0(
     wipemark_pixels::clean(raster, catalogue, options)
 }
 
-/// E12-R6 (D306): a lossy JPEG subsampled 4:2:0 or 4:2:2 is proved and
+/// E12-R6 (D471): a lossy JPEG subsampled 4:2:0 or 4:2:2 is proved and
 /// restored in its planes — luma at full resolution, chroma at its own
 /// with the block's mean opacity — by `wipemark_pixels::clean_with`; every
 /// other file is R0's to the byte (`clean_with`'s route).
@@ -1787,19 +1792,19 @@ const CONFIGS: &[Config] = &[
     Config {
         name: "R0",
         inverse: BlendModel::Encoded,
-        about: "the product today: wipemark_pixels::clean, the shipped catalogue, encode_like, reframe, prove",
+        about: "the RGB road, no refinement — the product's until 2026-10-10: wipemark_pixels::clean, the shipped catalogue, encode_like, reframe, prove",
         restore: r0,
     },
     Config {
         name: "R6",
         inverse: BlendModel::Encoded,
-        about: "E12-R6, D306: a 4:2:0/4:2:2 JPEG proved and restored in its planes (clean_with); everything else R0",
+        about: "E12-R6, D471: a 4:2:0/4:2:2 JPEG proved and restored in its planes (clean_with); everything else R0",
         restore: r6,
     },
     Config {
         name: "R8d",
         inverse: BlendModel::Encoded,
-        about: "E12-R8: R6/R0, then on a JPEG the value chosen inside the DCT intervals by DCT-POCS (clean_refined, Refine::Dct)",
+        about: "E12-R8, the product since 2026-10-10 (D471, D472): R6/R0, then on a JPEG the value chosen inside the DCT intervals by DCT-POCS (clean_refined, Refine::Dct)",
         restore: r8d,
     },
     Config {
@@ -2782,7 +2787,7 @@ fn one(
             "holes": r.holes, "clamped": r.clamped, "changed": r.changed,
             "exact": r.exact, "lossy": r.lossy, "fitted": r.fitted,
             "resampled": r.resampled, "searched": r.searched, "noise": r.noise,
-            // E12-R6 (D306): the planar restoration's block shape and
+            // E12-R6 (D471): the planar restoration's block shape and
             // `max |α − ᾱ|`; null on the RGB path.
             "planar": r.planar,
             // D305: the restored picture blended back, against the input.

@@ -441,7 +441,7 @@ fn no_lookalike_blend_is_ever_restored() {
     );
 }
 
-/// The planar path's proof (D306) did not loosen into restoring what the
+/// The planar path's proof (D471) did not loosen into restoring what the
 /// RGB path refused: three hundred look-alike blends and three hundred
 /// negatives, each stored as a 4:2:0 JPEG at 90 (`synth::jpeg_planes`) and
 /// examined with those planes, are never restored, and the planes change

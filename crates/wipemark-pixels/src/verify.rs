@@ -68,11 +68,11 @@ pub struct Scores {
     /// `E(1)/E(0)`.
     pub edge_ratio: f32,
     /// The share of samples out of range at `k = 1` — on the planar path
-    /// (D306), the share of pixels whose Y or chroma block is.
+    /// (D471), the share of pixels whose Y or chroma block is.
     pub out_of_range: f32,
     /// Pixels at or above the opaque threshold: never divided.
     pub holes: u32,
-    /// On the planar path (D306), the share's two terms; `None`, and not
+    /// On the planar path (D471), the share's two terms; `None`, and not
     /// in the JSON, on the RGB path.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub planar: Option<crate::planar::PlanarScores>,
@@ -423,7 +423,7 @@ pub(crate) fn verify(
 }
 
 /// [`verify`], with the out-of-range share measured in the planes when
-/// `model` is the planar path's (D306).
+/// `model` is the planar path's (D471).
 pub(crate) fn verify_with(
     raster: &Raster,
     model: Option<&crate::planar::Model<'_>>,
@@ -529,7 +529,7 @@ pub(crate) fn verify_with(
         out as f32 / total as f32
     };
     // In the planes the file stored, when they are known and subsampled
-    // (D306): the share the decision uses, and its two terms.
+    // (D471): the share the decision uses, and its two terms.
     // A `linear-light` blend is not linear in the planes' code values: it
     // is proved in RGB, as on every other route (R9c).
     let (out_of_range, planar) = match model.filter(|_| law.model == BlendModel::Encoded) {

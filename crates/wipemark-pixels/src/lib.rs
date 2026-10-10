@@ -34,13 +34,13 @@ mod calibrate;
 mod catalogue;
 mod geometry;
 /// The value chosen inside a lossy codec's interval (E12-R8): reached
-/// through [`clean_refined`] and [`restore_refined`] only, never by the
-/// product's defaults until the method is decided (S12).
+/// through [`clean_refined`] and [`restore_refined`]; the product asks for
+/// DCT-POCS (D472), the bench for any of the three.
 mod interval;
 mod ncc;
-/// The planar inverse of a subsampled JPEG (E12-R6, D306). Its types are
-/// re-exported below; the rest — the intermediates a test or the bench
-/// reads — is not a surface.
+/// The planar inverse of a subsampled JPEG (E12-R6, D471 — the series'
+/// proposed D306). Its types are re-exported below; the rest — the
+/// intermediates a test or the bench reads — is not a surface.
 #[doc(hidden)]
 pub mod planar;
 mod planes;
@@ -199,7 +199,7 @@ pub fn examine(raster: &Raster, catalogue: &Catalogue, options: &ExamineOptions)
     examine_with(raster, None, catalogue, options)
 }
 
-/// [`examine`], given the stored planes the raster was decoded from (D306):
+/// [`examine`], given the stored planes the raster was decoded from (D471):
 /// on a lossy source whose planes are subsampled 4:2:0 or 4:2:2, the
 /// out-of-range share is measured in the planes ([`Scores::planar`]).
 /// Every other input — no planes, 4:4:4, a lossless source — is
@@ -503,7 +503,7 @@ pub fn clean(raster: &mut Raster, catalogue: &Catalogue, options: &ExamineOption
     clean_with(raster, None, catalogue, options)
 }
 
-/// [`clean`], given the stored planes the raster was decoded from (D306):
+/// [`clean`], given the stored planes the raster was decoded from (D471):
 /// where [`examine_with`] takes the planar path, a verified mark is
 /// restored in the planes ([`Restored::planar`]); the second look (D165)
 /// is over the restored RGB raster, whose planes no longer mean anything,
@@ -529,8 +529,8 @@ pub fn clean_with(
 /// (D165) restores as [`clean_with`] does — its raster is no longer the
 /// file's, so there is no interval left to choose in. With
 /// [`Refine::None`], and on a lossless source whatever is asked (S6), it is
-/// [`clean_with`], byte for byte. For the bench and the `planar-preview`
-/// build until the method is decided (S12); not a surface.
+/// [`clean_with`], byte for byte. `wipemark_picture::clean` calls it with
+/// [`Refine::Dct`] (D472); the bench with any method.
 pub fn clean_refined(
     raster: &mut Raster,
     planes: Option<&Planes>,
@@ -636,7 +636,7 @@ fn restore_one(
 }
 
 /// [`restore`] of one verified mark with `restore_options` (E12-R8): in the
-/// planes when `planes` take the planar route (D306), refined by
+/// planes when `planes` take the planar route (D471), refined by
 /// `restore_options.refine` on a lossy source. With the defaults it is
 /// [`restore`], or the planar inverse on that route.
 pub fn restore_refined(

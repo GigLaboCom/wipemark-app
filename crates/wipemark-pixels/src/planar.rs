@@ -1,4 +1,4 @@
-//! The planar inverse (E12-R6, D306): a JPEG whose chroma was subsampled
+//! The planar inverse (E12-R6, D471): a JPEG whose chroma was subsampled
 //! 4:2:0 or 4:2:2, restored — and proved — in the model it was stored in.
 //!
 //! The vendor blends in RGB, `I = α·L + (1 − α)·O`. The encoder then
@@ -54,7 +54,7 @@ use crate::verify::{Verified, BLEND_LEVELS, NOISE_FLOOR};
 use crate::{ExamineOptions, Fidelity};
 
 /// How much of the chroma table's DC step is added to [`BLEND_LEVELS`]
-/// for a chroma block (D306): `BLEND_LEVELS_C = 8 + Q_C[0]·DC_SHARE`.
+/// for a chroma block (D471): `BLEND_LEVELS_C = 8 + Q_C[0]·DC_SHARE`.
 /// `[tunable]` — the chroma table is coarser than luma's, and a block's
 /// stored mean moves by a fraction of its DC step. See the E12-R6 report
 /// for what was measured.
@@ -66,7 +66,7 @@ pub fn blend_levels_c(planes: &Planes) -> f64 {
     BLEND_LEVELS + f64::from(planes.quant().chroma.map_or(0, |t| t[0])) * DC_SHARE
 }
 
-/// What a restoration in the planes adds to [`Restored`] (D306). Skipped
+/// What a restoration in the planes adds to [`Restored`] (D471). Skipped
 /// in the JSON when `None`, so every other report is what it was.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Planar {
@@ -108,7 +108,7 @@ impl Serialize for Planar {
     }
 }
 
-/// The out-of-range share's two terms on the planar path (D306), each
+/// The out-of-range share's two terms on the planar path (D471), each
 /// over the same pixels as the share: those with a Y out of range, and
 /// those whose chroma block is. [`crate::Scores::out_of_range`] is the
 /// pixels with either.
@@ -166,7 +166,7 @@ impl<'a> Model<'a> {
         })
     }
 
-    /// The out-of-range share at `k = 1` in the planes (D306), over the
+    /// The out-of-range share at `k = 1` in the planes (D471), over the
     /// template's pixels with `NOISE_FLOOR ≤ α < opaque`: the share with
     /// a Y outside `[α·L_Y, α·L_Y + (1 − α)·255]` by more than
     /// [`BLEND_LEVELS`] or a chroma block whose Cb or Cr is outside

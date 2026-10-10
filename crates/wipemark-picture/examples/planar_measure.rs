@@ -1,4 +1,4 @@
-//! The planar inverse against the RGB one, file by file (E12-R6, D306) — a
+//! The planar inverse against the RGB one, file by file (E12-R6, D471) — a
 //! developer's tool, not a surface (D162, D312).
 //!
 //! Asked for by the E12-R6 step document (`docs/plan/E12-R6-planar-inverse.md`

@@ -102,7 +102,7 @@ pub struct Restored {
     /// and then not in the JSON.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub consistency_dct: Option<f32>,
-    /// Restored in the planes of a subsampled JPEG (D306, E12-R6), or a
+    /// Restored in the planes of a subsampled JPEG (D471, E12-R6), or a
     /// lossy JPEG whose planes could not be read; `None` on the RGB path,
     /// and then not in the JSON.
     #[serde(skip_serializing_if = "Option::is_none")]

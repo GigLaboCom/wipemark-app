@@ -1,15 +1,18 @@
-//! `WIPEMARK_INTERVAL` (E12-R8) is read by a `planar-preview` build
-//! alone: the product's own `clean` never refines, whatever the
-//! environment says. A test binary of its own, because it sets a process
-//! variable every `clean` reads in that build.
+//! The product's refinement (D472, the owner, 2026-10-10): `clean`
+//! refines a restoration on a lossy JPEG by DCT-POCS, by default and
+//! whatever the environment says — `WIPEMARK_INTERVAL`, which a
+//! `planar-preview` build read until the decisions landed, is read by
+//! nothing now. A test binary of its own, because it sets a process
+//! variable.
 
 use std::path::PathBuf;
 
-use wipemark_picture::{clean, PictureOptions, Visible};
-use wipemark_pixels::{Catalogue, Method};
+use wipemark_picture::{clean, PictureOptions, Visible, REFINE};
+use wipemark_pixels::{Catalogue, Method, Refine};
 
 #[test]
-fn the_product_refines_only_in_the_preview_and_only_when_asked() {
+fn the_product_refines_by_dct_pocs_whatever_the_environment_says() {
+    assert_eq!(REFINE, Refine::Dct);
     let bytes = std::fs::read(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../fixtures/image/gemini/torch-1025-q95-444.jpg"),
@@ -30,16 +33,15 @@ fn the_product_refines_only_in_the_preview_and_only_when_asked() {
         };
         report.restored[0].interval.map(|i| i.method)
     };
-    assert_eq!(interval(None), None);
-    assert_eq!(interval(Some("none")), None);
-    assert_eq!(interval(Some("blur")), None);
-    let preview = cfg!(feature = "planar-preview");
-    for (word, method) in [
-        ("dct", Method::Dct),
-        ("pixel", Method::Pixel),
-        ("wiener", Method::Wiener),
+    for value in [
+        None,
+        Some("none"),
+        Some("dct"),
+        Some("pixel"),
+        Some("wiener"),
+        Some("blur"),
     ] {
-        assert_eq!(interval(Some(word)), preview.then_some(method), "{word}");
+        assert_eq!(interval(value), Some(Method::Dct), "{value:?}");
     }
     std::env::remove_var("WIPEMARK_INTERVAL");
 }

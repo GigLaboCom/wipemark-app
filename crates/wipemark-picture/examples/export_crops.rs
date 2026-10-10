@@ -10,8 +10,10 @@
 //! 95). This example runs the user's path over one file —
 //! `wipemark_picture::decode_with_planes`, `wipemark_pixels::clean_refined`
 //! with the shipped catalogue, the planar inverse and the refinement as
-//! asked (the accepted R6/R8 in the CLI are `--planar true --refine <the
-//! method>`) — and writes, per restoration, the folder R10's scripts read
+//! asked — by default the product's since the owner's decisions of
+//! 2026-10-10, `--planar true --refine dct` (D471, D472); `--planar false
+//! --refine none` is the road before them — and writes, per restoration,
+//! the folder R10's scripts read
 //! (`scripts/model-eval/evalkit.py`): `input.png`, `recon.png`,
 //! `alpha.pgm` (16-bit), `meta.json`. No `gt.png`: a real file has no
 //! truth. `scripts/regress.py run --export-crops DIR --crop-tool <this
@@ -25,7 +27,7 @@
 //! approximation, and `meta.json` says so (`alpha_kernel`).
 //!
 //! ```sh
-//! cargo build --release -p wipemark-picture --example export_crops [--features planar-preview]
+//! cargo build --release -p wipemark-picture --example export_crops
 //! target/release/examples/export_crops --in FILE --out DIR [--id ID] [--pad 64] \
 //!     [--planar true|false] [--refine none|dct|pixel|wiener] [--class C] [--variant V]
 //! ```
@@ -96,11 +98,11 @@ fn main() {
             .unwrap_or_else(|_| refuse(&format!("--pad {p}: not a number")))
     });
     let planar = match args.get("planar").map(String::as_str) {
-        None | Some("false") => false,
-        Some("true") => true,
+        Some("false") => false,
+        None | Some("true") => true,
         Some(other) => refuse(&format!("--planar {other}: true or false")),
     };
-    let refine_word = args.get("refine").map_or("none", String::as_str);
+    let refine_word = args.get("refine").map_or("dct", String::as_str);
     let refine = Refine::parse(refine_word).unwrap_or_else(|| {
         refuse(&format!(
             "--refine {refine_word}: none, dct, pixel or wiener"
