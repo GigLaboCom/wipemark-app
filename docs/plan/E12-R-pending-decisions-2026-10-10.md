@@ -170,7 +170,7 @@ said):**
 * D9 — decided as **D526**, a `--catalogue` file until accepted — the task's default, not the row's first option: a provisional profile in the shipped catalogue would be examined on every user's picture before P1–P5.
 * D10 — decided at the default as **D527**: `bench/degradations/grok.json`.
 * D11 — decided at the default, D525: a file the change names as its target (`--target found@…`/`rect@…`) on the detect route excuses F2, said as attention (`scripts/regress.py`, `a_profile_filter_makes_p5_a_diff`).
-* D12 — see the close-out report, D525.
+* D12 — decided at the default, D525: the word family is also examined under a synthetic wordmark profile (`test-wordmark`, four letters of the same face at a bottom-right row), and every other half-transparent word is drawn at that row as the mark's letters with one changed; 72 of 666 half-transparent examinations are now seen (refused), none proved — R11-M9's assertion has findings to bite on (`crates/wipemark-pixels/tests/false_positives.rs`). The negatives' printed counts moved: 3424 proposals over the 2331, 516 dismissed on the words.
 
 ## E. Housekeeping
 
