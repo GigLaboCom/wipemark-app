@@ -1123,17 +1123,36 @@ fn own_engine(
             ),
         ));
     }
+    // E2-dflash2 (D485, D488): the chosen model's draft, by the
+    // application's row, read only when this machine answers — a whole
+    // file the catalogue pins, beside a model of the catalogue's.
+    let draft = || {
+        let entry = entry.as_ref().filter(|_| place.speculative)?;
+        let draft = catalogue.draft_for(&entry.id)?;
+        if !matches!(downloads.state(draft), State::Present { .. }) {
+            tracing::info!(draft = %draft.id, "the chosen model's draft is not on this machine");
+            return None;
+        }
+        Some(Draft {
+            id: draft.id.clone(),
+            weights: downloads.weights_path(draft)?,
+            sha256: draft.primary_file()?.sha256.clone()?,
+            need_mb: entry.mem.min_ram_mb.saturating_add(draft.mem.min_ram_mb),
+        })
+    };
     match (decision, chosen, weights) {
-        (Decision::Machine, Some((id, ctx)), Some(weights)) => match built(&id, ctx, weights) {
-            Ok(built) => Ok(built),
-            Err(why) => Err(say(
-                io,
-                t_args(
-                    Message::CliRewriteUnavailable,
-                    &args!("reason" => refusal_line(&why)),
-                ),
-            )),
-        },
+        (Decision::Machine, Some((id, ctx)), Some(weights)) => {
+            match built(&id, ctx, weights, draft()) {
+                Ok(built) => Ok(built),
+                Err(why) => Err(say(
+                    io,
+                    t_args(
+                        Message::CliRewriteUnavailable,
+                        &args!("reason" => refusal_line(&why)),
+                    ),
+                )),
+            }
+        }
         (Decision::NeedsAppForEndpoint, ..) => Err(say(io, t(Message::CliRewriteNeedsAppEndpoint))),
         (Decision::NeedsAppForFallback, ..) => Err(say(io, t(Message::CliRewriteNeedsAppFallback))),
         (Decision::ModelNotHere, Some((id, _)), _) => Err(say(
@@ -1144,9 +1163,27 @@ fn own_engine(
     }
 }
 
+/// A model's draft on this machine, whole (E2-dflash2), and what the
+/// catalogue says the model and the draft need together.
+#[cfg_attr(
+    not(feature = "local-llama"),
+    allow(
+        dead_code,
+        reason = "read by the local engine, which this build has not"
+    )
+)]
+struct Draft {
+    id: String,
+    weights: std::path::PathBuf,
+    sha256: String,
+    need_mb: u64,
+}
+
 /// The local engine over `weights`, and its executor (H3): a GPU when a
 /// non-CPU backend registered, the CPU otherwise. Blocking — the backends
-/// are registered here — which a command line can afford.
+/// are registered here — which a command line can afford. `draft` goes
+/// beside the model when this machine has room for both by the
+/// catalogue's figures, the application's rule (D485).
 #[cfg(feature = "local-llama")]
 #[allow(
     clippy::unnecessary_wraps,
@@ -1156,14 +1193,29 @@ fn built(
     id: &str,
     ctx: u32,
     weights: std::path::PathBuf,
+    draft: Option<Draft>,
 ) -> Result<(Arc<dyn RewriteEngine>, Executor), Unavailable> {
-    use wipemark_engine::{has_gpu_backend, LoadParams, LocalConfig, LocalEngine};
+    use wipemark_engine::{has_gpu_backend, DraftConfig, LoadParams, LocalConfig, LocalEngine};
 
     let gpu = has_gpu_backend();
     let host = wipemark_models::Host::probe();
     // The application's rule (`duty::available_mb`), restated: the total
     // RAM, and only where RAM is the pool the model competes for.
     let available_mb = (host.unified_memory || !gpu).then_some(host.total_ram_mb);
+    let draft = draft.filter(|draft| {
+        let room = !matches!(
+            wipemark_models::fit_mb(draft.need_mb, host),
+            wipemark_models::Fit::TooBig { .. }
+        );
+        if !room {
+            tracing::info!(
+                draft = %draft.id,
+                need_mb = draft.need_mb,
+                "no room for the model and its draft together; the model runs alone"
+            );
+        }
+        room
+    });
     let engine = LocalEngine::new(LocalConfig {
         model_id: id.to_owned(),
         weights,
@@ -1172,6 +1224,11 @@ fn built(
             ..LoadParams::default()
         },
         available_mb,
+        draft: draft.map(|draft| DraftConfig {
+            id: draft.id,
+            weights: draft.weights,
+            sha256: draft.sha256,
+        }),
     });
     let executor = if gpu {
         Executor::LocalGpu
@@ -1186,6 +1243,7 @@ fn built(
     _id: &str,
     _ctx: u32,
     _weights: std::path::PathBuf,
+    _draft: Option<Draft>,
 ) -> Result<(Arc<dyn RewriteEngine>, Executor), Unavailable> {
     Err(Unavailable::NotBuilt)
 }

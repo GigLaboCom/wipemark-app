@@ -1849,6 +1849,68 @@ fn models_sizes_are_spelled_in_the_languages_decimals() {
     }
 }
 
+/// E2-dflash2 (D488): Qwen3.8's draft is listed under the model it drafts
+/// for, says it is never used on its own, and says when the application's
+/// row keeps it from being used at all; `--json` names each from the
+/// other.
+#[test]
+fn models_list_puts_the_draft_under_its_model() {
+    const TARGET: &str = "qwen3.8-27b-ud-iq3s";
+    const DRAFT: &str = "qwen3.8-27b-dflash2-q4km";
+    let scratch = Scratch::new("models-draft");
+    let output = scratch.run(&["models", "list"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let text = stdout(&output);
+    let lines: Vec<&str> = text.lines().collect();
+    let at = lines
+        .iter()
+        .position(|line| line.starts_with(TARGET))
+        .unwrap_or_else(|| panic!("{TARGET} is not listed:\n{text}"));
+    let under = lines.get(at + 1).copied().unwrap_or_default();
+    assert!(
+        under.starts_with(&format!("  {DRAFT} ")),
+        "the draft is not under its model:\n{text}"
+    );
+    assert!(under.contains(TARGET), "{under}");
+    assert!(under.contains("never used on its own"), "{under}");
+    assert!(!under.contains("faster decoding is off"), "{under}");
+    assert_eq!(
+        lines.iter().filter(|line| line.contains(DRAFT)).count(),
+        1,
+        "the draft is listed twice:\n{text}"
+    );
+
+    let output = scratch.run(&["models", "list", "--json"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let answer = json(&output);
+    assert_eq!(model(&answer, DRAFT)["draft_for"], TARGET, "{answer}");
+    assert_eq!(
+        model(&answer, DRAFT)["roles"],
+        serde_json::json!(["draft"]),
+        "{answer}"
+    );
+    assert_eq!(model(&answer, TARGET)["draft"], DRAFT, "{answer}");
+    assert!(model(&answer, SMALL).get("draft").is_none(), "{answer}");
+
+    // The application's row off: the draft is said to be unused.
+    std::fs::create_dir_all(scratch.data()).expect("the data directory");
+    let store =
+        wipemark_store::Store::open(scratch.data().join("wipemark.db")).expect("a database");
+    store
+        .settings()
+        .set("engine.local.speculative", &false)
+        .expect("a row");
+    drop(store);
+    let output = scratch.run(&["models", "list"]);
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let text = stdout(&output);
+    let under = text
+        .lines()
+        .find(|line| line.starts_with(&format!("  {DRAFT} ")))
+        .unwrap_or_else(|| panic!("the draft is not listed:\n{text}"));
+    assert!(under.contains("faster decoding is off"), "{under}");
+}
+
 /// Every catalogue entry is listed with what is on this machine for it:
 /// nothing, a partial download, or a file that does not match — and a
 /// weight file the catalogue does not know is listed after, unverified.
