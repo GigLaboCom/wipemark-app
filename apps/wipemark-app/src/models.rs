@@ -59,7 +59,7 @@ use std::path::{Path, PathBuf};
 
 use gpui::SharedString;
 use gpui_component::Sizable as _;
-use wipemark_engine::{ChatRefusal, ChatSupport};
+use wipemark_engine::{ChatRefusal, ChatSupport, DraftRefusal};
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_models::gguf::{GgufError, Header, KvShape, NotOffered, Offer};
 use wipemark_models::host::{default_for_role, fit, fit_mb, Fit, Host};
@@ -68,6 +68,7 @@ use wipemark_models::scan::{format_of, Found};
 use wipemark_models::store::{Progress, State};
 use wipemark_models::user::{self, UserModel, UserState};
 
+use crate::duty::{NoDraft, Speculation};
 use crate::engine::Choice;
 
 /// The roles this build offers a choice for.
@@ -388,6 +389,71 @@ pub fn card(
         fit: host.map_or(Fit::Unknown, |host| fit(entry, host)),
         availability,
     }
+}
+
+/// The line about a draft on the card of the model on duty (E2-dflash2,
+/// D485): whether one decodes beside it, and why not when not. `outcome` is
+/// what the load of the model in memory said of the draft — `None` before
+/// a load, and then a draft the duty sends along is said as ready. `None`
+/// for a model the catalogue has no draft for: nothing to say.
+pub fn draft_line(
+    speculation: &Speculation,
+    outcome: Option<Result<(), DraftRefusal>>,
+) -> Option<String> {
+    Some(match speculation {
+        Speculation::Beside(draft) => match outcome {
+            None => t_args(
+                Message::SettingsModelsDraftReady,
+                &args!("draft" => draft.display.as_str()),
+            ),
+            Some(Ok(())) => t_args(
+                Message::SettingsModelsDraftDecoding,
+                &args!("draft" => draft.display.as_str()),
+            ),
+            Some(Err(why)) => t_args(
+                Message::SettingsModelsDraftRefused,
+                &args!("reason" => draft_refusal_line(why)),
+            ),
+        },
+        Speculation::Alone(NoDraft::NoneMade) => return None,
+        Speculation::Alone(NoDraft::Off) => t(Message::SettingsModelsDraftOff),
+        Speculation::Alone(NoDraft::NotHere { display, .. }) => t_args(
+            Message::SettingsModelsDraftAbsent,
+            &args!("draft" => display.as_str()),
+        ),
+        Speculation::Alone(NoDraft::NoRoom { need_mb, .. }) => t_args(
+            Message::SettingsModelsDraftNoRoom,
+            &args!("need" => need_mb.to_string()),
+        ),
+    })
+}
+
+/// Why a draft was not loaded beside its model, as a sentence (D481).
+pub fn draft_refusal_line(why: DraftRefusal) -> String {
+    match why {
+        DraftRefusal::NotDflash => t(Message::DraftRefusalNotDflash),
+        DraftRefusal::Dflash1 => t(Message::DraftRefusalDflash1),
+        DraftRefusal::Malformed => t(Message::DraftRefusalMalformed),
+        DraftRefusal::Vocabulary => t(Message::DraftRefusalVocabulary),
+        DraftRefusal::HiddenSize => t(Message::DraftRefusalHiddenSize),
+        DraftRefusal::Layers => t(Message::DraftRefusalLayers),
+        DraftRefusal::NoRollback => t(Message::DraftRefusalNoRollback),
+        DraftRefusal::Load => t(Message::DraftRefusalLoad),
+        DraftRefusal::NoRoom { need_mb, have_mb } => t_args(
+            Message::DraftRefusalNoRoom,
+            &args!("need" => need_mb.to_string(), "have" => have_mb.to_string()),
+        ),
+    }
+}
+
+/// The line on a draft's own card (D484): what it is for, and that it
+/// never rewrites alone. `None` for every entry that is not a draft.
+pub fn draft_for_line(catalogue: &Manifest, entry: &ModelEntry) -> Option<String> {
+    let target = catalogue.get(entry.draft_for.as_deref()?)?;
+    Some(t_args(
+        Message::SettingsModelsDraftFor,
+        &args!("model" => target.display.as_str()),
+    ))
 }
 
 /// Which entry to point a first-time user at, when nothing is chosen.
@@ -1198,19 +1264,20 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
 
+    use wipemark_engine::DraftRefusal;
     use wipemark_i18n::{args, t, t_args, Message};
     use wipemark_models::gguf::{synthetic, synthetic_chat_model, Meta, NotOffered};
     use wipemark_models::host::{Fit, Host};
-    use wipemark_models::manifest::Role;
+    use wipemark_models::manifest::{Manifest, ModelEntry, Role};
     use wipemark_models::scan::Found;
     use wipemark_models::store::{Progress, State};
     use wipemark_models::user::{UserEntry, UserModel, UserState};
 
     use super::{
-        adopted, bytes_label, card, catalogue, choosable, ctx_typed, dialog_lines, folder_line,
-        folder_typed, found_row, installed_for, memory_lines, model_choices, recommended,
-        strangers, user_card, Availability, Folder, Offering, Standing, Typed, UserAction,
-        ADDABLE_ROLES, SHIPPED_ROLES,
+        adopted, bytes_label, card, catalogue, choosable, ctx_typed, dialog_lines, draft_for_line,
+        draft_line, draft_refusal_line, folder_line, folder_typed, found_row, installed_for,
+        memory_lines, model_choices, recommended, strangers, user_card, Availability, Folder,
+        Offering, Standing, Typed, UserAction, ADDABLE_ROLES, SHIPPED_ROLES,
     };
 
     const CHATML: &str =
@@ -1792,10 +1859,14 @@ mod tests {
 
     /// The page offers a choice for every role the catalogue actually
     /// serves. A model nobody can select is a download with no purpose.
+    ///
+    /// A draft is the one entry with no row of its own (D484): nobody
+    /// chooses it, it is tied to the model it drafts for, and it has a
+    /// purpose without a selection — `a_draft_is_offered_in_no_selector`.
     #[test]
     fn a_role_the_catalogue_serves_has_a_row() {
         let catalogue = catalogue();
-        for role in Role::ALL {
+        for role in Role::ALL.into_iter().filter(|role| role.is_chosen()) {
             let served = !catalogue.for_role(role).is_empty();
             assert_eq!(
                 served,
@@ -1804,6 +1875,137 @@ mod tests {
                  (or the other way round)",
                 role.id()
             );
+        }
+    }
+
+    /// D484: the draft is downloaded like any entry, and never offered for
+    /// any role a person chooses a model for — not while it is on this
+    /// machine, not as a recommendation, not by a download that arrives
+    /// first.
+    #[test]
+    fn a_draft_is_offered_in_no_selector() {
+        let catalogue = catalogue();
+        let draft = catalogue
+            .draft_for("qwen3.8-27b-ud-iq3s")
+            .expect("the catalogue ships Qwen3.8's draft");
+        let mut states: BTreeMap<String, State> = catalogue
+            .models
+            .iter()
+            .map(|entry| (entry.id.clone(), State::Present { bytes: 1 }))
+            .collect();
+        states.insert(draft.id.clone(), State::Present { bytes: 1 });
+        for role in Role::ALL.into_iter().filter(|role| role.is_chosen()) {
+            let offered = choosable(
+                &catalogue,
+                role,
+                &states,
+                &[],
+                &BTreeMap::new(),
+                &BTreeMap::new(),
+            );
+            assert!(
+                offered.iter().all(|choice| choice.id != draft.id),
+                "the draft is offered for {role:?}"
+            );
+            assert!(adopted(&catalogue, role, None, &draft.id).is_none());
+            for host in [Some(roomy()), None] {
+                assert!(recommended(&catalogue, role, host, None)
+                    .is_none_or(|best| best.id != draft.id));
+            }
+        }
+        // Its card is a card like any other, and says what it is for.
+        let card = card(draft, Some(roomy()), &State::Absent, None, None);
+        assert_eq!(card.availability, Availability::Absent);
+        let line = draft_for_line(&catalogue, draft).expect("a draft's line");
+        assert!(line.contains("Qwen3.8 27B"), "{line}");
+        assert!(draft_for_line(&catalogue, a_rewriter_entry(&catalogue)).is_none());
+    }
+
+    fn a_rewriter_entry(catalogue: &Manifest) -> &ModelEntry {
+        catalogue.for_role(Role::Rewrite)[0]
+    }
+
+    /// D485: the card of the model on duty says whether its draft decodes
+    /// beside it — and, when not, the one reason that applies.
+    #[test]
+    fn the_card_says_whether_the_draft_decodes_and_why_not() {
+        use crate::duty::{DraftFile, NoDraft, Speculation};
+
+        let beside = Speculation::Beside(DraftFile {
+            id: "qwen3.8-27b-dflash2-q4km".to_owned(),
+            display: "DFlash2 draft".to_owned(),
+            weights: PathBuf::from("/m/d.gguf"),
+            sha256: "1a25".to_owned(),
+        });
+        let ready = draft_line(&beside, None).expect("said");
+        let decoding = draft_line(&beside, Some(Ok(()))).expect("said");
+        let refused = draft_line(&beside, Some(Err(DraftRefusal::Vocabulary))).expect("said");
+        assert!(ready.contains("DFlash2 draft"));
+        assert!(decoding.contains("DFlash2 draft"));
+        assert_ne!(ready, decoding);
+        assert!(
+            refused.contains(&draft_refusal_line(DraftRefusal::Vocabulary)),
+            "{refused}"
+        );
+        let no_room = draft_refusal_line(DraftRefusal::NoRoom {
+            need_mb: 17_152,
+            have_mb: 16_384,
+        });
+        assert!(
+            no_room.contains("17152") && no_room.contains("16384"),
+            "{no_room}"
+        );
+
+        assert_eq!(
+            draft_line(&Speculation::Alone(NoDraft::NoneMade), None),
+            None
+        );
+        let off = draft_line(&Speculation::Alone(NoDraft::Off), None).expect("said");
+        let absent = draft_line(
+            &Speculation::Alone(NoDraft::NotHere {
+                id: "d".to_owned(),
+                display: "DFlash2 draft".to_owned(),
+                state: State::Absent,
+            }),
+            None,
+        )
+        .expect("said");
+        let cramped = draft_line(
+            &Speculation::Alone(NoDraft::NoRoom {
+                need_mb: 17_152,
+                have_mb: 16_384,
+            }),
+            None,
+        )
+        .expect("said");
+        assert!(absent.contains("DFlash2 draft"));
+        assert!(cramped.contains("17152"));
+        let lines = [ready, decoding, refused, off, absent, cramped];
+        for (i, a) in lines.iter().enumerate() {
+            for b in &lines[i + 1..] {
+                assert_ne!(a, b, "two states read the same");
+            }
+        }
+        // Every refusal has a sentence of its own.
+        let reasons = [
+            DraftRefusal::NotDflash,
+            DraftRefusal::Dflash1,
+            DraftRefusal::Malformed,
+            DraftRefusal::Vocabulary,
+            DraftRefusal::HiddenSize,
+            DraftRefusal::Layers,
+            DraftRefusal::NoRollback,
+            DraftRefusal::Load,
+            DraftRefusal::NoRoom {
+                need_mb: 1,
+                have_mb: 0,
+            },
+        ]
+        .map(draft_refusal_line);
+        for (i, a) in reasons.iter().enumerate() {
+            for b in &reasons[i + 1..] {
+                assert_ne!(a, b);
+            }
         }
     }
 

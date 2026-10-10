@@ -196,6 +196,15 @@ $B report --in "qwen3-4b=runs/qwen3-4b.jsonl,qwen3-4b+numbers=runs/v-numbers-qwe
 $B run … --corpus tmp/divergence/corpus --temperature 0.7 --top-p 0.8 --base-seed 7 --out runs/t07.jsonl
 $B whole --local … --name qwen38-whole --doc article.md --prompt instruction.txt --samples 3 --ctx 12288 --out runs/whole.jsonl
 
+# A draft beside the model (E2-dflash2, D486): the draft is hashed, a run whose draft was not
+# loaded beside the model is refused, and every attempt records `draft` (its sha256),
+# `accepted_per_step` and its calls' `drafted` counts; `report` adds "Speed with and without a
+# draft (every call)" — calls, tokens out, s / call, tokens/s, accepted / step, tokens / step:
+cargo run -p wipemark-pipeline --features llama-native --example bench -- run \
+    --local $MODELS/Qwen3.8-27B-UD-IQ3_S.gguf --draft $MODELS/Qwen3.8-27B-DFlash2-Q4_K_M.gguf \
+    --name qwen38-27b+dflash2 --out runs/qwen38-27b+dflash2.jsonl --every 3
+# Both runs, without and with the draft, and the report: bench/run-dflash.sh (--dry-run first).
+
 # What a run or a judge would make, counted with no model loaded (E4-8):
 # one line, attempts=<n> calls=<n> done=<n>.
 $B plan --of run --local … --name qwen3-4b --out runs/qwen3-4b.jsonl --every 3

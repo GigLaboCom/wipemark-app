@@ -1861,6 +1861,7 @@ mod tests {
             langs: vec!["en".into()],
             vendor: "open-llm".into(),
             notes: String::new(),
+            draft_for: None,
         }
     }
 

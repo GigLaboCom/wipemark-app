@@ -130,6 +130,33 @@ The load's progress callback is now ours (`keep_loading`): a set flag
 abandons a load between tensors, which is what bounds the wait of a
 `LocalEngine` dropped during a load.
 
+### The staging shim (E2-dflash2, D480)
+
+DFlash2's draft loop (`wipemark_llama`, ported from llama.cpp's
+`common/speculative.cpp` at this tag) calls seven functions that are not
+in `llama.h`. They are declared in `src/llama-ext.h`, a staging header
+("breaking changes and C++ are allowed … everything here should be
+considered WIP"), with **C++ linkage**, and the release exports them under
+their mangled names (`_Z30llama_set_embeddings_layer_inpP13llama_contextjb`
+and six more). `shim/ext.cpp` redeclares exactly those seven, copied from
+the header at `b10731` with each one's line named, and wraps each in an
+`extern "C"` function of one call; `build.rs` compiles it with the `cc`
+crate (C++17) against the linked llama.cpp's `include/` — the archive's,
+or the fetched tree's in a source build — and links it ahead of
+`libllama`. A signature that moved upstream is then an undefined symbol at
+link time, never a call through the wrong type, which is what calling the
+mangled names from Rust with `#[link_name]` would be.
+
+Two consequences:
+
+* **Every `native` build compiles C++ now**, the prebuilt one included.
+  The CI images have `g++` (the `native` job, Ubuntu) and the macOS VM has
+  `clang` (the `macos` job); a Windows source build uses MSVC's `cl`.
+* **A bump re-reads `src/llama-ext.h`.** The shim carries
+  `#define WIPEMARK_EXT_READ_AT "b10731"`, and `build.rs` refuses to
+  compile it at any other pin (`the_staging_shim_was_read_at_the_pin`
+  says the same in every build). Step 5b below.
+
 ## Bump procedure
 
 A bump changes the native code every local rewrite runs on. It is a
@@ -149,6 +176,12 @@ deliberate event, done in one commit:
 5. Check that the API `wipemark-llama`'s `ffi` module calls is unchanged in
    `include/llama.h` at **L** — when the header and the code disagree, the
    header wins. `git diff <old> <L> -- include/llama.h` is the list.
+5b. Read `src/llama-ext.h` at **L** and bring every declaration in
+   `shim/ext.cpp` to it — the seven functions DFlash2's loop calls, and the
+   loop itself against `common/speculative.cpp`'s
+   `common_speculative_impl_draft_dflash` at **L** — then set
+   `WIPEMARK_EXT_READ_AT` to **L**'s tag. `build.rs` refuses the build until
+   then.
 6. Check that `src/llama-chat.cpp` at **L** has not learnt a family
    `wipemark_llama::chat` renders itself; when it has, decide which one
    renders it, and say so here.
@@ -176,3 +209,4 @@ deliberate event, done in one commit:
 | 2026-10-03 | `ggml-0.15.1+llama-d8a24cc` | carried over unchanged into wipemark (D45, D48); the whisper.cpp leg dropped |
 | 2026-10-04 | `ggml-0.22.0+llama-0eadefe` (`b10731`) | E2-4: Gemma 4 and Qwen3.8 on the local engine (D96); the split-inputs override dropped |
 | 2026-10-04 | `ggml-0.22.0+llama-0eadefe` (`b10731`), unchanged | E2-5: linked prebuilt by default — release `b10731` of `GigLaboCom/llama-cpp-prebuilt`, four archive sha256 pinned (D226–D234) |
+| 2026-10-10 | `ggml-0.22.0+llama-0eadefe` (`b10731`), unchanged | E2-dflash2: the staging shim `shim/ext.cpp` compiled against the same release (D480) — every native build now needs a C++ compiler |

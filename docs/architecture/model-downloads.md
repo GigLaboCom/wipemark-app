@@ -22,6 +22,7 @@ state it can be in.
 | `gemma-4-12b-it-qat-ud-q4` | 6.7 GB | ~8704 MB | gemma | 9 |
 | `gemma-3-12b-it-qat-ud-q4` | 7.4 GB | ~9216 MB | gemma | 8 |
 | `qwen3-4b-instruct-2507-ud-q4` | 2.5 GB | ~4608 MB | apache-2.0 | 5 |
+| `qwen3.8-27b-dflash2-q4km` — a draft, not a rewriter (below) | 1.1 GB | ~2816 MB beside Qwen3.8 | apache-2.0 | — |
 
 Since E8-1 (U6, D403) the catalogue also carries the two models the owner
 runs: **Qwen3.8 27B UD-IQ3_S** and **Gemma 4 12B it QAT UD-Q4_K_XL**,
@@ -67,10 +68,54 @@ locally, under the user's control. Gemma is Google's open-weight family,
 and the entry's `notes` says so rather than letting the vendor field
 imply a lineage it does not describe.
 
+### A draft (E2-dflash2, D484)
+
+Since E2-dflash2 the catalogue also ships **`qwen3.8-27b-dflash2-q4km`**:
+`z-lab/Qwen3.8-27B-DFlash2-GGUF` (the mirror of
+`incoai/Qwen3.8-27B-DFlash2-GGUF`) at `2d9571f8`,
+`Qwen3.8-27B-DFlash2-Q4_K_M.gguf`, 1 143 006 816 bytes, sha256
+`1a25c56858e1ebe93f2718ac1d49d1151f9323325c1bbfd6209370f4db131ebd` — read
+off Hugging Face's tree API (`/api/models/<repo>/tree/<commit>`, the `lfs`
+fields) and confirmed by the resolve endpoint's `x-linked-etag` and
+`x-linked-size`, a HEAD with no body; nothing was downloaded to write it.
+Q4_K_M because the card measures it at least as well as Q8_0 (an
+acceptance length of 5.39 against 5.13 over eight GSM8K prompts) and it is
+the smallest of the three files.
+
+It is not a model that writes. A DFlash2 draft proposes up to seven tokens
+a step for Qwen3.8 27B to verify in one decode
+([local-engine.md](local-engine.md), "A draft model"): it is **tied** to
+that model — `"roles": ["draft"]`, `"draft_for": "qwen3.8-27b-ud-iq3s"`
+— and `Manifest::parse` holds the tie (a draft names a rewriter the
+catalogue has, an entry that names a target is a draft and nothing else,
+one draft per model: `a_draft_is_tied_to_one_rewriter`). Nobody chooses
+it:
+
+* it is in **no selector** — `Role::is_chosen` is false for `draft`, so
+  `a_role_the_catalogue_serves_has_a_row` walks the chosen roles, and
+  `a_draft_is_offered_in_no_selector` holds that no role a person
+  chooses for lists it, recommends it or adopts it when its download
+  finishes first; `every_shipped_model_is_a_text_model` still holds —
+  `draft` is a text role;
+* it is **never on duty** — a `models.rewrite` row naming it, written by
+  hand, is a model that does not serve the role
+  (`the_draft_is_never_on_duty`);
+* a model the person adds may not claim it — a file of theirs has no
+  model it was trained for.
+
+It **is** downloaded, verified, resumed and removed like any entry — its
+card on the Models page has Download and Remove, and `remove` follows the
+mark rule (D350) — and `wipemark-cli models pull qwen3.8-27b-dflash2-q4km`
+fetches it. Its card says what it is for; the card of Qwen3.8 27B, while it
+is on duty, says whether the draft decodes beside it and, when not, why.
+Its `mem` is what loading it beside its target **adds** (2 816 MiB, the
+arithmetic in its `notes`), and `host::fit` judges the two together before
+the draft is sent along (D485).
+
 ## Roles: the purpose classification
 
 An entry declares a **list** of roles, not one task, because a model
-serves a purpose and some models serve two. The five:
+serves a purpose and some models serve two. The six:
 
 | role | what it is for | ships |
 |---|---|---|
@@ -79,6 +124,7 @@ serves a purpose and some models serve two. The five:
 | `fill-mask` | the `mlm` tactic, recorded in the SDD as a deliberate gap | no |
 | `embed` | the similarity floor that stops a no-op rewrite shipping | no |
 | `pixel` | phase 2b image work (E11) | no |
+| `draft` | a speculative draft for the one model `draft_for` names — never chosen (D484) | yes, beside Qwen3.8 27B |
 
 Every one of them names something this repository already describes.
 The choice is made **per role** — `models.rewrite` is a settings row,
@@ -90,7 +136,9 @@ Two gates hold the classification together:
 `every_shipped_model_is_a_text_model` (v1 ships no `pixel` entry,
 because there is no engine for one) and
 `a_role_the_catalogue_serves_has_a_row` (a role with a catalogue entry
-and no way to select it is a download with no purpose).
+and no way to select it is a download with no purpose). `draft` is the
+one role with no row: its purpose is its target, and
+`a_draft_is_offered_in_no_selector` is its gate instead.
 
 ## The catalogue is data, and it is checked
 

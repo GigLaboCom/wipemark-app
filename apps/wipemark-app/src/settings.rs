@@ -352,6 +352,9 @@ pub enum Setting {
     EngineServes,
     EngineKeep,
     EngineIdle,
+    /// E2-dflash2: decode with the model's draft when one is downloaded
+    /// (D485).
+    EngineSpeculative,
     EngineLock,
     EngineProfile,
     EngineProvider,
@@ -413,7 +416,7 @@ impl Setting {
     /// *move*: a reader opens the window for the marks. Where the line
     /// numbers sit comes straight after, because it too is about what a
     /// pane shows rather than how it moves.
-    pub const ALL: [Setting; 38] = [
+    pub const ALL: [Setting; 39] = [
         Self::Appearance,
         Self::Language,
         Self::ShortcutShow,
@@ -433,6 +436,8 @@ impl Setting {
         Self::EngineServes,
         Self::EngineKeep,
         Self::EngineIdle,
+        // E2-dflash2
+        Self::EngineSpeculative,
         Self::EngineLock,
         Self::EngineProfile,
         Self::EngineProvider,
@@ -475,6 +480,7 @@ impl Setting {
             Self::EngineServes
             | Self::EngineKeep
             | Self::EngineIdle
+            | Self::EngineSpeculative
             | Self::EngineLock
             | Self::EngineProfile
             | Self::EngineProvider
@@ -517,6 +523,7 @@ impl Setting {
             Self::EngineServes => Message::SettingsEngineServesTitle,
             Self::EngineKeep => Message::SettingsEngineKeepTitle,
             Self::EngineIdle => Message::SettingsEngineIdleTitle,
+            Self::EngineSpeculative => Message::SettingsEngineSpeculativeTitle,
             Self::EngineLock => Message::SettingsEngineLockTitle,
             Self::EngineProfile => Message::SettingsEngineProfileTitle,
             Self::EngineProvider => Message::SettingsEngineProviderTitle,
@@ -570,6 +577,7 @@ impl Setting {
             Self::EngineServes => Message::SettingsEngineServesDescription,
             Self::EngineKeep => Message::SettingsEngineKeepDescription,
             Self::EngineIdle => Message::SettingsEngineIdleDescription,
+            Self::EngineSpeculative => Message::SettingsEngineSpeculativeDescription,
             Self::EngineLock => Message::SettingsEngineLockDescription,
             Self::EngineProfile => Message::SettingsEngineProfileDescription,
             Self::EngineProvider => Message::SettingsEngineProviderDescription,
@@ -638,6 +646,7 @@ impl Setting {
             Self::EngineServes => Storage::Row(config::ENGINE_SERVES_KEY),
             Self::EngineKeep => Storage::Row(config::ENGINE_LOCAL_KEEP_KEY),
             Self::EngineIdle => Storage::Row(config::ENGINE_LOCAL_IDLE_KEY),
+            Self::EngineSpeculative => Storage::Row(config::ENGINE_LOCAL_SPECULATIVE_KEY),
             Self::EngineLock => Storage::Row(config::ENGINE_LOCAL_MLOCK_KEY),
             Self::EngineProfile => Storage::Row(config::ENGINE_PROFILE_KEY),
             Self::EngineProvider => Storage::Row(config::ENGINE_PROVIDER_KEY),
@@ -2089,6 +2098,20 @@ impl Preferences {
         self.persist(cx, move |store| config::write_local_mlock(store, lock));
     }
 
+    /// Decode with the model's draft when one is downloaded, or not
+    /// (D485). Takes effect at the next load: the duty names another
+    /// engine, and the host swaps it in — unloading a loaded model first.
+    pub fn select_speculative(&mut self, speculative: bool, cx: &mut Context<Self>) {
+        if self.local.speculative == speculative {
+            return;
+        }
+        self.local.speculative = speculative;
+        cx.notify();
+        self.persist(cx, move |store| {
+            config::write_local_speculative(store, speculative)
+        });
+    }
+
     /// The catalogue this build ships.
     pub fn catalogue(&self) -> &Manifest {
         &self.catalogue
@@ -2577,6 +2600,7 @@ impl Preferences {
                 on_disk: &on_disk,
                 host: self.host,
                 serves: self.serves,
+                speculative: self.local.speculative,
             },
             role,
             // The pin, when the command line named one. Nothing else
@@ -4814,6 +4838,7 @@ impl SettingsView {
             Setting::EngineServes => self.serves_selector().into_any_element(),
             Setting::EngineKeep => self.keep_choice(cx).into_any_element(),
             Setting::EngineIdle => self.idle_selector(cx).into_any_element(),
+            Setting::EngineSpeculative => self.speculative_switch(cx).into_any_element(),
             Setting::EngineLock => self.lock_switch(cx).into_any_element(),
             Setting::EngineProfile => self.profile_control(cx).into_any_element(),
             Setting::EngineProvider => self.provider_selector().into_any_element(),
@@ -5685,6 +5710,21 @@ impl SettingsView {
     }
 
     /// The switch that locks the model in RAM.
+    /// `engine.local.speculative` (D485): a switch, on by default. Takes
+    /// effect at the next load — the engine is rebuilt with or without the
+    /// draft, as for the lock.
+    fn speculative_switch(&self, cx: &Context<Self>) -> impl IntoElement {
+        let speculative = self.preferences.read(cx).local_policy().speculative;
+        Switch::new("engine-speculative")
+            .checked(speculative)
+            .on_click(cx.listener(|view, speculative: &bool, _, cx| {
+                let speculative = *speculative;
+                view.preferences.update(cx, |preferences, cx| {
+                    preferences.select_speculative(speculative, cx);
+                });
+            }))
+    }
+
     fn lock_switch(&self, cx: &Context<Self>) -> impl IntoElement {
         let lock = self.preferences.read(cx).local_policy().lock;
         Switch::new("engine-lock")
@@ -6817,14 +6857,26 @@ impl SettingsView {
         let elsewhere = preferences.any_download_running() && !card.availability.is_running();
         let chosen = preferences.rewrite_model() == Some(entry.id.as_str());
         // F1: the card of the model on duty, while it is read into memory.
-        let on_duty = matches!(
-            preferences.duty(Role::Rewrite).performer(),
-            Some(Performer::Machine(local)) if local.id == entry.id
-        );
+        let duty = preferences.duty(Role::Rewrite);
+        let on_duty = match duty.performer() {
+            Some(Performer::Machine(local)) if local.id == entry.id => Some(local),
+            _ => None,
+        };
         let reading = on_duty
+            .is_some()
             .then(|| engine_host::hosted(cx).and_then(|host| host.read(cx).load_progress()))
             .flatten()
             .and_then(|progress| load_shown(None, Some(progress)));
+        // E2-dflash2 (D485): the model on duty says whether its draft
+        // decodes beside it, and why not; a draft's own card says what it
+        // is for.
+        let draft_line = match on_duty {
+            Some(local) => models::draft_line(
+                &local.draft,
+                engine_host::hosted(cx).and_then(|host| host.read(cx).draft_outcome()),
+            ),
+            None => models::draft_for_line(preferences.catalogue(), entry),
+        };
         // The catalogue's own answer to "which of these", shown only
         // while the question is still open — see `models::recommended`.
         let suggested = models::recommended(
@@ -6955,6 +7007,12 @@ impl SettingsView {
                         None => card.line(),
                     })),
             )
+            .children(draft_line.map(|line| {
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(line))
+            }))
             // The download's bar, or the check's (F1a, F1b) — the text
             // above keeps the bytes beside it.
             .children(reading.is_none().then(|| models::bar(&card)).flatten())
@@ -9300,6 +9358,7 @@ mod tests {
                 on_disk: &on_disk,
                 host: None,
                 serves: Serves::default(),
+                speculative: true,
             },
             Role::Rewrite,
             duty::Pick::Live,
@@ -9351,6 +9410,7 @@ mod tests {
                 on_disk: &on_disk,
                 host: None,
                 serves: Serves::default(),
+                speculative: true,
             },
             Role::Rewrite,
             duty::Pick::Live,
@@ -9424,6 +9484,7 @@ mod tests {
                 on_disk: &on_disk,
                 host: None,
                 serves: Serves::EndpointFirst,
+                speculative: true,
             },
             Role::Rewrite,
             duty::Pick::Live,

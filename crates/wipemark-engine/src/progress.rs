@@ -16,6 +16,11 @@ use std::time::{Duration, Instant};
 pub enum LoadProgress {
     /// The fraction of the weights read so far, from 0.0 to 1.0.
     Reading(f32),
+    /// What became of the speculative draft asked to load beside the model
+    /// (E2-dflash2): `Ok` when it decodes beside it, the refusal when the
+    /// model was loaded alone. Told once, before [`LoadProgress::Ended`],
+    /// by a load that asked for a draft — and only by one.
+    Draft(Result<(), crate::DraftRefusal>),
     /// The load is over: loaded, refused or stopped. Nothing more is
     /// read until the next load says [`LoadProgress::Reading`] again.
     Ended,

@@ -24,7 +24,11 @@
 //!   bindgen — and the bindings are re-exported from this crate's root.
 //!
 //! No hand-written `unsafe` lives here: every call site is in
-//! `wipemark_llama::ffi`.
+//! `wipemark_llama::ffi`. The one hand-written declaration block is
+//! [`ext`] (native only): seven functions of llama.cpp's staging header
+//! `src/llama-ext.h`, which has C++ linkage and which bindgen does not
+//! read, reached through `shim/ext.cpp` — a C++ file of declarations, one
+//! `extern "C"` call each, compiled by `build.rs` (E2-dflash2, D480).
 
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
@@ -77,6 +81,12 @@ mod bindings {
 
 #[cfg(wipemark_llama_native)]
 pub use bindings::*;
+
+/// The staging calls of `src/llama-ext.h` a DFlash2 draft needs, through
+/// the C++ shim `shim/ext.cpp` that `build.rs` compiles (D480). Only in a
+/// native build, like the bindings.
+#[cfg(wipemark_llama_native)]
+pub mod ext;
 
 #[cfg(test)]
 mod tests {
@@ -235,6 +245,65 @@ mod tests {
             out.extend(line.chars().filter(|c| !c.is_whitespace()));
         }
         out
+    }
+
+    /// D480: the shim's declarations are copies of `src/llama-ext.h` at one
+    /// tag, and that header promises nothing between releases. The tag it
+    /// was read at is the pin's — `build.rs` refuses to compile it
+    /// otherwise, and this says so in every build, the shim one included.
+    #[test]
+    fn the_staging_shim_was_read_at_the_pin() {
+        let shim = include_str!("../shim/ext.cpp");
+        let read_at = shim
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("#define WIPEMARK_EXT_READ_AT"))
+            .map(|rest| rest.trim().trim_matches('"'));
+        assert_eq!(
+            read_at,
+            Some(pin::LLAMA_TAG),
+            "shim/ext.cpp was read at another llama.cpp than the pin; re-read src/llama-ext.h"
+        );
+        assert!(
+            shim.contains(pin::LLAMA_COMMIT),
+            "shim/ext.cpp does not name the commit {} it was read at",
+            pin::LLAMA_COMMIT
+        );
+    }
+
+    /// D480: what `shim/ext.cpp` defines and what `src/ext.rs` declares are
+    /// one list of names — a wrapper added to one side only is a link error
+    /// on one road and dead C++ on the other.
+    #[test]
+    fn the_shim_and_its_rust_declarations_name_the_same_calls() {
+        fn names(text: &str, after: &str) -> Vec<String> {
+            let mut out: Vec<String> = text
+                .match_indices(after)
+                .map(|(at, _)| {
+                    text[at..]
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                        .collect()
+                })
+                .collect();
+            out.sort();
+            out.dedup();
+            out
+        }
+        let defined = names(include_str!("../shim/ext.cpp"), "wipemark_ext_");
+        let declared = names(include_str!("ext.rs"), "wipemark_ext_");
+        assert_eq!(defined, declared);
+        assert_eq!(defined.len(), 7, "{defined:?}");
+        // Each wraps the llama-ext.h function of its own name.
+        let shim = include_str!("../shim/ext.cpp");
+        for name in &defined {
+            let wrapped = name.replacen("wipemark_ext_", "llama_", 1);
+            let call = format!(" {wrapped}(");
+            assert!(
+                shim.lines()
+                    .any(|line| line.starts_with("LLAMA_API") && line.contains(&call)),
+                "{name} wraps no declaration of {wrapped}"
+            );
+        }
     }
 
     #[test]

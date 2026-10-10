@@ -371,6 +371,14 @@ but the models the person adds — below, and D404.
 when it names one of them that serves `rewrite`; a row naming one since
 forgotten reads as nothing chosen.
 
+**A draft, under its model (E2-dflash2, D488).** Qwen3.8 27B's DFlash2
+draft (`qwen3.8-27b-dflash2-q4km`, `roles: ["draft"]`) is listed on the
+line after the model it drafts for, indented, saying it is never used on
+its own — and, while the application's `engine.local.speculative` row is
+`false`, that faster decoding is off; `--json` gives the draft
+`draft_for` and its model `draft` (`models_list_puts_the_draft_under_its_model`).
+It is pulled, verified and removed like any entry.
+
 **`list [--json]`.** Every entry: id, name, roles, size, the state on
 this machine (`present` — every file matches, **wherever under the folder
 it was found** (D302); `absent`; `partial` with how far, which `pull`
@@ -553,7 +561,12 @@ loaded the same way at its own context while its file is the one that was
 added; a file that changed or is gone is refused at 2 by name, naming
 `models verify` (`rewrite_refuses_an_added_model_whose_file_changed`). A
 model whose chat format this build does not write is refused by name when
-it is loaded (D407). The rows decide before any model file is looked at: a
+it is loaded (D407). The model's DFlash2 draft goes beside it by the
+application's row `engine.local.speculative`, read-only — absent or
+unreadable counts as on, as the application reads it — when the catalogue
+has a draft for the chosen model, it is whole on this machine and the
+catalogue's figures leave room for both (D485, D488); a draft llama.cpp
+refuses at the load leaves the model to run alone, as in the window. The rows decide before any model file is looked at: a
 refusal the endpoint's row makes reads nothing, where it used to read a
 touched added model in full on the way to refusing
 (`rewrite_reads_no_model_when_it_will_refuse`, D435); a look that does read

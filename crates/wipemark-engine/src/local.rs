@@ -44,12 +44,15 @@ use std::sync::{Arc, Mutex, PoisonError};
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 use wipemark_core::Vendor;
-use wipemark_llama::{estimate, refusal, Finish, LlamaError, LoadParams, Model, Runtime, Sampling};
+use wipemark_llama::{
+    estimate, refusal, Finish, KvQuant, LlamaError, LoadParams, Model, Runtime, Sampling,
+};
 
 use crate::progress::Pacer;
 use crate::{
-    ChatRefusal, ChatRequest, ChatSupport, Completion, EngineError, EngineInfo, FinishReason,
-    LoadProgress, LoadSink, RewriteEngine, SamplingParams, TokenSink, Unavailable,
+    ChatRefusal, ChatRequest, ChatSupport, Completion, DraftRefusal, Drafted, EngineError,
+    EngineInfo, FinishReason, LoadProgress, LoadSink, RewriteEngine, SamplingParams, TokenSink,
+    Unavailable,
 };
 
 /// Where the worker tells how a load is going — set by
@@ -73,7 +76,27 @@ pub struct LocalConfig {
     /// estimate is larger is refused before llama.cpp allocates anything
     /// (D50). `None` is unknown, and unknown refuses nothing.
     pub available_mb: Option<u64>,
+    /// A speculative draft to load beside the model (E2-dflash2), or
+    /// `None`. A draft that cannot run beside it leaves the model loaded
+    /// alone and says why ([`LoadProgress::Draft`]), never fails the load.
+    pub draft: Option<DraftConfig>,
 }
+
+/// A DFlash2 draft for the model a [`LocalConfig`] loads (E2-dflash2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DraftConfig {
+    /// Its catalogue id.
+    pub id: String,
+    /// The GGUF on disk, verified against the catalogue.
+    pub weights: PathBuf,
+    /// The sha256 the catalogue pins it to: the identity
+    /// [`EngineInfo::draft`] carries (D483).
+    pub sha256: String,
+}
+
+/// The draft identity the engine reports: the configured one until a load
+/// says otherwise (D483), shared with the worker.
+type DraftNow = Arc<Mutex<Option<String>>>;
 
 /// One job for the worker.
 enum Job {
@@ -99,6 +122,9 @@ enum Job {
 #[derive(Debug)]
 pub struct LocalEngine {
     info: EngineInfo,
+    /// Which draft decodes beside the model — [`EngineInfo::draft`] — as
+    /// the last load left it.
+    draft_now: DraftNow,
     /// `None` only inside `Drop`, which closes the channel by taking it.
     jobs: Option<flume::Sender<Job>>,
     /// Set by `Drop`: the worker stops what it is doing and runs nothing
@@ -118,20 +144,26 @@ impl LocalEngine {
     /// module docs): at most one decode step, or the tensor being read, and
     /// the free of the model.
     pub fn new(config: LocalConfig) -> LocalEngine {
+        let draft_now: DraftNow =
+            Arc::new(Mutex::new(config.draft.as_ref().map(|d| d.sha256.clone())));
         let info = EngineInfo {
             vendor: Vendor::OpenLlm,
             model_id: config.model_id.clone(),
             local: true,
             ctx_len: Some(config.load.n_ctx),
+            draft: None,
         };
         let (jobs, inbox) = flume::unbounded::<Job>();
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let loads: Loads = Arc::default();
         let worker_loads = Arc::clone(&loads);
+        let worker_draft = Arc::clone(&draft_now);
         let spawned = std::thread::Builder::new()
             .name("wipemark-llama".to_owned())
-            .spawn(move || Worker::new(config, worker_stop, worker_loads).run(&inbox));
+            .spawn(move || {
+                Worker::new(config, worker_stop, worker_loads, worker_draft).run(&inbox);
+            });
         let worker = match spawned {
             Ok(worker) => Some(worker),
             Err(e) => {
@@ -144,6 +176,7 @@ impl LocalEngine {
         };
         LocalEngine {
             info,
+            draft_now,
             jobs: Some(jobs),
             stop,
             worker,
@@ -206,7 +239,14 @@ pub fn has_gpu_backend() -> bool {
 #[async_trait]
 impl RewriteEngine for LocalEngine {
     fn info(&self) -> EngineInfo {
-        self.info.clone()
+        EngineInfo {
+            draft: self
+                .draft_now
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone(),
+            ..self.info.clone()
+        }
     }
 
     /// Hand the request to the worker and wait for it.
@@ -287,15 +327,18 @@ struct Worker {
     stop: Arc<AtomicBool>,
     /// The engine's: where a load is told.
     loads: Loads,
+    /// The engine's: which draft the last load put beside the model.
+    draft_now: DraftNow,
 }
 
 impl Worker {
-    fn new(config: LocalConfig, stop: Arc<AtomicBool>, loads: Loads) -> Self {
+    fn new(config: LocalConfig, stop: Arc<AtomicBool>, loads: Loads, draft_now: DraftNow) -> Self {
         Self {
             config,
             model: None,
             stop,
             loads,
+            draft_now,
         }
     }
 
@@ -355,7 +398,17 @@ impl Worker {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone();
-            self.model = Some(load(&self.config, &self.stop, sink.as_ref())?);
+            let (model, beside) = load(&self.config, &self.stop, sink.as_ref())?;
+            // What decodes now: the draft when it loaded beside the model,
+            // nothing when it was refused or never asked for (D483).
+            *self
+                .draft_now
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = match beside {
+                Some(Ok(())) => self.config.draft.as_ref().map(|d| d.sha256.clone()),
+                Some(Err(_)) | None => None,
+            };
+            self.model = Some(model);
         }
         self.model.as_mut().ok_or_else(stopped)
     }
@@ -396,6 +449,7 @@ impl Worker {
             text_bytes = generated.text.len(),
             tokens_out = generated.tokens_out,
             finish = ?generated.finish,
+            drafted = ?generated.drafted,
             elapsed_ms = started.elapsed().as_millis(),
             "local completion"
         );
@@ -408,6 +462,11 @@ impl Worker {
             text: generated.text,
             tokens_out: generated.tokens_out,
             finish,
+            drafted: generated.drafted.map(|d| Drafted {
+                steps: d.steps,
+                proposed: d.proposed,
+                accepted: d.accepted,
+            }),
         })
     }
 }
@@ -415,14 +474,23 @@ impl Worker {
 /// The refusals, in order, then the load: the file, the memory (when the
 /// caller knows it), the build. `stop` abandons a load under way; `sink`,
 /// when there is one, is told the fraction read, paced, and the end.
+///
+/// With a draft configured (E2-dflash2), the model is loaded beside it —
+/// one bar for both reads — or alone, and the second value says which:
+/// `Some(Ok(()))` beside it, `Some(Err(why))` alone and why, `None` when no
+/// draft was asked for. A draft the memory has no room for beside the
+/// model is refused before either is read (D485); the model alone is then
+/// held to the memory as before.
 fn load(
     config: &LocalConfig,
     stop: &AtomicBool,
     sink: Option<&LoadSink>,
-) -> Result<Model, EngineError> {
+) -> Result<(Model, Option<Result<(), DraftRefusal>>), EngineError> {
     if !config.weights.is_file() {
         return Err(engine_error(LlamaError::NoSuchFile(config.weights.clone())));
     }
+    let mut draft = config.draft.as_ref();
+    let mut beside = None;
     if let Some(available_mb) = config.available_mb {
         let estimate = estimate(&config.weights, &config.load).map_err(engine_error)?;
         if let Some(refused) = refusal(&estimate, available_mb) {
@@ -434,14 +502,25 @@ fn load(
             );
             return Err(engine_error(refused));
         }
+        if let Some(wanted) = draft {
+            let draft_mb = draft_estimate_mb(wanted, &config.load);
+            if let Err(refused) = room_for(estimate.total_mb(), draft_mb, available_mb) {
+                tracing::info!(
+                    model = %config.model_id,
+                    draft = %wanted.id,
+                    %refused,
+                    "the draft is not loaded beside the model"
+                );
+                beside = Some(Err(refused));
+                draft = None;
+            }
+        }
     }
-    let Some(sink) = sink else {
-        let model =
-            Model::load_unless(&config.weights, config.load.clone(), stop).map_err(engine_error)?;
-        return writable(model);
-    };
     let pacer = Mutex::new(Pacer::new());
     let tell = |fraction: f32| {
+        let Some(sink) = sink else {
+            return;
+        };
         let admitted = pacer
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -451,11 +530,78 @@ fn load(
         }
     };
     tell(0.0);
-    let loaded = Model::load_watched(&config.weights, config.load.clone(), stop, &tell);
-    // However it ended, it is over: a bar left on screen over a refused or
-    // stopped load would say something is still being read.
-    let _ = sink.send(LoadProgress::Ended);
-    writable(loaded.map_err(engine_error)?)
+    let loaded = match draft {
+        Some(wanted) => Model::load_drafted(
+            &config.weights,
+            &wanted.weights,
+            config.load.clone(),
+            stop,
+            &tell,
+        )
+        .map(|(model, outcome)| {
+            beside = Some(outcome.map_err(draft_refusal));
+            model
+        }),
+        None => Model::load_watched(&config.weights, config.load.clone(), stop, &tell),
+    };
+    if let Some(sink) = sink {
+        // What became of the draft, when one was asked for — and then the
+        // end, however the load ended: a bar left on screen over a refused
+        // or stopped load would say something is still being read.
+        if loaded.is_ok() {
+            if let Some(outcome) = beside {
+                let _ = sink.send(LoadProgress::Draft(outcome));
+            }
+        }
+        let _ = sink.send(LoadProgress::Ended);
+    }
+    let model = writable(loaded.map_err(engine_error)?)?;
+    Ok((model, beside))
+}
+
+/// Whether a draft of `draft_mb` fits beside a model of `model_mb` in
+/// `available_mb` (D485). Pure. The model alone has already been held to
+/// the memory; this is only whether the draft goes beside it — exactly
+/// what is available fits, as for the model (D50).
+fn room_for(model_mb: u64, draft_mb: u64, available_mb: u64) -> Result<(), DraftRefusal> {
+    let need_mb = model_mb.saturating_add(draft_mb);
+    if need_mb > available_mb {
+        return Err(DraftRefusal::NoRoom {
+            need_mb,
+            have_mb: available_mb,
+        });
+    }
+    Ok(())
+}
+
+/// What a draft adds to a load, in MiB, as far as the engine can estimate
+/// it: its weights and its cache at the model's window, F16 as llama.cpp's
+/// own draft context keeps it. An estimate that cannot be made (a shim
+/// build, a header that will not read) adds the file's size alone.
+fn draft_estimate_mb(draft: &DraftConfig, load: &LoadParams) -> u64 {
+    let params = LoadParams {
+        kv_quant: KvQuant::F16,
+        ..load.clone()
+    };
+    estimate(&draft.weights, &params).map_or_else(
+        |_| std::fs::metadata(&draft.weights).map_or(0, |meta| meta.len().div_ceil(1024 * 1024)),
+        |estimate| estimate.total_mb(),
+    )
+}
+
+/// The llama layer's refusal of a draft, in this crate's words.
+fn draft_refusal(why: wipemark_llama::DraftRefusal) -> DraftRefusal {
+    use wipemark_llama::DraftRefusal as Llama;
+    match why {
+        Llama::NotDflash => DraftRefusal::NotDflash,
+        Llama::Dflash1 => DraftRefusal::Dflash1,
+        Llama::Malformed => DraftRefusal::Malformed,
+        Llama::Vocabulary => DraftRefusal::Vocabulary,
+        Llama::HiddenSize => DraftRefusal::HiddenSize,
+        Llama::Layers => DraftRefusal::Layers,
+        Llama::NoRollback => DraftRefusal::NoRollback,
+        Llama::Load => DraftRefusal::Load,
+    }
 }
 
 /// `model`, when a conversation can be written for it — and otherwise the
@@ -547,7 +693,7 @@ mod tests {
     use tokio_util::sync::CancellationToken;
     use wipemark_llama::LoadParams;
 
-    use super::{sampling_of, LocalConfig, LocalEngine, TOP_K};
+    use super::{sampling_of, DraftConfig, LocalConfig, LocalEngine, TOP_K};
     use crate::{ChatRequest, EngineError, RewriteEngine, SamplingParams, Unavailable};
 
     fn config(weights: PathBuf) -> LocalConfig {
@@ -559,6 +705,7 @@ mod tests {
                 ..LoadParams::default()
             },
             available_mb: None,
+            draft: None,
         }
     }
 
@@ -721,6 +868,72 @@ mod tests {
         let second = sampling_of(&unseeded, 8192);
         assert_eq!(first.seed, 0);
         assert_eq!(first, second);
+    }
+
+    /// D485: a draft goes beside the model only when both fit; the model
+    /// alone is loaded otherwise, with both numbers said.
+    #[test]
+    fn a_draft_with_no_room_beside_the_model_is_refused_with_both_numbers() {
+        use super::room_for;
+        use crate::DraftRefusal;
+
+        assert_eq!(room_for(14_336, 2_816, 32_768), Ok(()));
+        assert_eq!(room_for(14_336, 2_816, 17_152), Ok(()), "exactly fits");
+        assert_eq!(
+            room_for(14_336, 2_816, 16_384),
+            Err(DraftRefusal::NoRoom {
+                need_mb: 17_152,
+                have_mb: 16_384
+            })
+        );
+        assert!(room_for(u64::MAX, 1, u64::MAX - 1).is_err());
+    }
+
+    /// D483: the engine's identity names the draft it was built with — the
+    /// queue's fingerprint hashes it — and a model with none names none.
+    #[test]
+    fn the_engine_names_the_draft_it_was_built_with() {
+        let plain = LocalEngine::new(config(PathBuf::from("/nonexistent.gguf")));
+        assert_eq!(plain.info().draft, None);
+
+        let drafted = LocalEngine::new(LocalConfig {
+            draft: Some(DraftConfig {
+                id: "qwen3.8-27b-dflash2-q4km".to_owned(),
+                weights: PathBuf::from("/nonexistent-draft.gguf"),
+                sha256: "1a25c568".to_owned(),
+            }),
+            ..config(PathBuf::from("/nonexistent.gguf"))
+        });
+        assert_eq!(drafted.info().draft.as_deref(), Some("1a25c568"));
+        assert_ne!(plain.info(), drafted.info());
+    }
+
+    /// A shim build refuses the model however a draft is configured: the
+    /// whole load is refused for the build, and no draft outcome is told
+    /// for a load that never read a byte.
+    #[cfg(not(feature = "llama-native"))]
+    #[tokio::test]
+    async fn a_shim_build_refuses_a_drafted_load_as_a_plain_one() {
+        use crate::LoadProgress;
+        let weights = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let engine = LocalEngine::new(LocalConfig {
+            draft: Some(DraftConfig {
+                id: "d".to_owned(),
+                weights: weights.clone(),
+                sha256: "s".to_owned(),
+            }),
+            ..config(weights)
+        });
+        let (sink, told) = flume::unbounded();
+        engine.watch_loads(crate::LoadSink::new(sink, 3));
+        match engine.warmup().await {
+            Err(EngineError::Unavailable(Unavailable::NotBuilt)) => {}
+            other => panic!("a shim warmup must refuse, got {other:?}"),
+        }
+        assert_eq!(
+            told.drain().collect::<Vec<_>>(),
+            [(3, LoadProgress::Reading(0.0)), (3, LoadProgress::Ended)]
+        );
     }
 
     #[test]

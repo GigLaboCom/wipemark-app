@@ -171,6 +171,12 @@ pub const ENGINE_LOCAL_IDLE_KEY: &str = "engine.local.idle_minutes";
 /// Whether the local model's pages are locked in RAM (`use_mlock`).
 pub const ENGINE_LOCAL_MLOCK_KEY: &str = "engine.local.mlock";
 
+/// Whether the local model decodes with its speculative draft when one is
+/// downloaded for it (E2-dflash2, D485). On by default: the draft changes
+/// how fast the model writes and never what a greedy decode writes, and a
+/// machine without the draft loads the model alone either way.
+pub const ENGINE_LOCAL_SPECULATIVE_KEY: &str = "engine.local.speculative";
+
 /// The namespace every saved profile is filed under.
 ///
 /// One row per profile — `engine.profiles.<id>` — because that is the
@@ -382,6 +388,9 @@ pub fn model_key(role: Role) -> &'static str {
         Role::FillMask => "models.fill_mask",
         Role::Embed => "models.embed",
         Role::Pixel => "models.pixel",
+        // Nobody chooses a draft — it is tied to its model (D484) — so
+        // nothing writes this row; it is spelled so the match is whole.
+        Role::Draft => "models.draft",
     }
 }
 
@@ -409,7 +418,7 @@ pub fn model_key(role: Role) -> &'static str {
 /// below name their own key — and `-D warnings` fails a bin target on
 /// dead code. Same idiom as `TrayCommand::ALL`.
 #[cfg(test)]
-pub const PERSISTED: [&str; 37] = [
+pub const PERSISTED: [&str; 38] = [
     THEME_KEY,
     LANGUAGE_KEY,
     WINDOW_SCREEN_KEY,
@@ -442,6 +451,8 @@ pub const PERSISTED: [&str; 37] = [
     ENGINE_LOCAL_KEEP_KEY,
     ENGINE_LOCAL_IDLE_KEY,
     ENGINE_LOCAL_MLOCK_KEY,
+    // E2-dflash2
+    ENGINE_LOCAL_SPECULATIVE_KEY,
     MODEL_REWRITE_KEY,
     MODELS_DIR_KEY,
     // ## E4-6b
@@ -1436,8 +1447,9 @@ pub fn read_engine_serves(store: &Store) -> Serves {
     }
 }
 
-/// Read the local model's three rows, falling back to a model loaded when
-/// it is needed, unloaded after fifteen idle minutes, and not locked.
+/// Read the local model's four rows, falling back to a model loaded when
+/// it is needed, unloaded after fifteen idle minutes, not locked, and
+/// decoded with its draft when one is downloaded.
 ///
 /// The bargain every row here keeps: a value this build cannot use —
 /// `"forever"` in the keep row, 7 in the minutes row — is read as the
@@ -1469,6 +1481,8 @@ pub fn read_local(store: &Store) -> LocalPolicy {
         keeping,
         idle_minutes,
         lock: read_json::<bool>(store, ENGINE_LOCAL_MLOCK_KEY).unwrap_or(defaults.lock),
+        speculative: read_json::<bool>(store, ENGINE_LOCAL_SPECULATIVE_KEY)
+            .unwrap_or(defaults.speculative),
     }
 }
 
@@ -1487,6 +1501,14 @@ pub fn write_local_idle(store: &Store, minutes: u32) -> Result<()> {
 /// Persist whether the local model is locked in RAM.
 pub fn write_local_mlock(store: &Store, lock: bool) -> Result<()> {
     store.settings().set(ENGINE_LOCAL_MLOCK_KEY, &lock)?;
+    Ok(())
+}
+
+/// Persist whether the local model decodes with its draft (D485).
+pub fn write_local_speculative(store: &Store, speculative: bool) -> Result<()> {
+    store
+        .settings()
+        .set(ENGINE_LOCAL_SPECULATIVE_KEY, &speculative)?;
     Ok(())
 }
 
@@ -1924,16 +1946,16 @@ mod tests {
         write_engine_base_url, write_engine_model, write_engine_provider, write_engine_reasoning,
         write_engine_temperature, write_engine_timeout, write_hotkey, write_keep_for,
         write_keep_originals, write_keep_results, write_language, write_local_idle,
-        write_local_keep, write_local_mlock, write_mcp_bind, write_mcp_enabled, write_mcp_port,
-        write_model, write_models_dir, write_profile, write_results_destination,
-        write_results_folder, write_setup_done, write_theme, write_user_model,
-        COMPARE_AUTOSAVE_KEY, COMPARE_FOLLOW_KEY, COMPARE_GRAIN_KEY, COMPARE_GUTTERS_KEY,
-        COMPARE_SYNC_SCROLL_KEY, ENGINE_BASE_URL_KEY, ENGINE_LOCAL_IDLE_KEY, ENGINE_LOCAL_KEEP_KEY,
-        ENGINE_LOCAL_MLOCK_KEY, ENGINE_PROFILES_PREFIX, ENGINE_PROVIDER_KEY,
-        ENGINE_TEMPERATURE_KEY, HOTKEY_PANEL_KEY, HOTKEY_SHOW_KEY, KEEP_FOR_KEY,
-        KEEP_ORIGINALS_KEY, LANGUAGE_KEY, MCP_BIND_KEY, MCP_PORT_KEY, MODELS_DIR_KEY,
-        MODELS_USER_PREFIX, MODEL_REWRITE_KEY, PERSISTED, RESULTS_DESTINATION_KEY,
-        RESULTS_FOLDER_KEY, SETUP_DONE_KEY, THEME_KEY,
+        write_local_keep, write_local_mlock, write_local_speculative, write_mcp_bind,
+        write_mcp_enabled, write_mcp_port, write_model, write_models_dir, write_profile,
+        write_results_destination, write_results_folder, write_setup_done, write_theme,
+        write_user_model, COMPARE_AUTOSAVE_KEY, COMPARE_FOLLOW_KEY, COMPARE_GRAIN_KEY,
+        COMPARE_GUTTERS_KEY, COMPARE_SYNC_SCROLL_KEY, ENGINE_BASE_URL_KEY, ENGINE_LOCAL_IDLE_KEY,
+        ENGINE_LOCAL_KEEP_KEY, ENGINE_LOCAL_MLOCK_KEY, ENGINE_LOCAL_SPECULATIVE_KEY,
+        ENGINE_PROFILES_PREFIX, ENGINE_PROVIDER_KEY, ENGINE_TEMPERATURE_KEY, HOTKEY_PANEL_KEY,
+        HOTKEY_SHOW_KEY, KEEP_FOR_KEY, KEEP_ORIGINALS_KEY, LANGUAGE_KEY, MCP_BIND_KEY,
+        MCP_PORT_KEY, MODELS_DIR_KEY, MODELS_USER_PREFIX, MODEL_REWRITE_KEY, PERSISTED,
+        RESULTS_DESTINATION_KEY, RESULTS_FOLDER_KEY, SETUP_DONE_KEY, THEME_KEY,
     };
     use crate::compare::{Comparison, Gutters};
     use crate::diff::Grain;
@@ -2551,13 +2573,16 @@ mod tests {
                 keeping: Keeping::OnDemand,
                 idle_minutes: 15,
                 lock: false,
+                speculative: true,
             },
-            "a fresh install loads a model when it is needed and keeps it fifteen minutes"
+            "a fresh install loads a model when it is needed and keeps it fifteen minutes, \
+             with its draft when there is one"
         );
 
         write_local_keep(&store, Keeping::Resident).expect("keep");
         write_local_idle(&store, 60).expect("idle");
         write_local_mlock(&store, true).expect("lock");
+        write_local_speculative(&store, false).expect("speculative");
         drop(store);
         let store = Store::open(&path).expect("reopen");
         assert_eq!(
@@ -2566,6 +2591,7 @@ mod tests {
                 keeping: Keeping::Resident,
                 idle_minutes: 60,
                 lock: true,
+                speculative: false,
             }
         );
         // Spelled as the format, so a database client can read it.
@@ -2592,6 +2618,10 @@ mod tests {
             .settings()
             .set(ENGINE_LOCAL_MLOCK_KEY, "yes")
             .expect("seed");
+        store
+            .settings()
+            .set(ENGINE_LOCAL_SPECULATIVE_KEY, "sometimes")
+            .expect("seed");
         assert_eq!(read_local(&store), LocalPolicy::default());
         assert_eq!(
             store
@@ -2616,6 +2646,14 @@ mod tests {
                 .expect("read"),
             Some("yes".to_owned()),
             "an unusable lock row was rewritten"
+        );
+        assert_eq!(
+            store
+                .settings()
+                .get::<String>(ENGINE_LOCAL_SPECULATIVE_KEY)
+                .expect("read"),
+            Some("sometimes".to_owned()),
+            "an unusable draft row was rewritten"
         );
     }
 

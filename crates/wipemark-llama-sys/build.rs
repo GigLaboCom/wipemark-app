@@ -42,6 +42,11 @@
 //!   A prebuilt build copies the archive's `bindings.rs` there instead — the
 //!   same bindgen invocation, run by the producer on that target.
 //!
+//! Either way, `shim/ext.cpp` — the staging calls of `src/llama-ext.h` a
+//! DFlash2 draft needs, which bindgen does not see — is then compiled with
+//! the `cc` crate against the linked headers (`mod shim`, D480), and
+//! refused when it was read at another tag than the pin.
+//!
 //! Two quirks of the pinned tree, both contained in `mod source`:
 //!   1. ggml's `ggml/CMakeLists.txt` force-sets `GGML_STANDALONE=ON` when it
 //!      is the top-level project and then `configure_file(ggml.pc.in)` — but
@@ -63,6 +68,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/pin.rs");
     println!("cargo:rerun-if-changed=wrapper/wrapper.h");
+    println!("cargo:rerun-if-changed=shim/ext.cpp");
 
     #[cfg(feature = "native")]
     native::build();
@@ -105,6 +111,9 @@ mod native {
         pub dll_dir: Option<PathBuf>,
         /// The run-time-loaded backends (`Runtime::init`'s last directory).
         pub backends_dir: PathBuf,
+        /// Where `llama.h` and the ggml headers it includes are: what the
+        /// staging shim is compiled against (`mod shim`, D480).
+        pub include_dirs: Vec<PathBuf>,
     }
 
     pub fn build() {
@@ -122,6 +131,9 @@ mod native {
             Origin::Override(root) => super::prebuilt::from_dir(&root, &target, &out_dir),
             Origin::Release(sha256) => super::prebuilt::from_release(&target, sha256, &out_dir),
         };
+        // Before `emit`: the shim's static library goes on the link line
+        // ahead of `libllama`, which resolves its calls.
+        super::shim::compile(&built.include_dirs);
         emit(&built, &out_dir);
     }
 
@@ -427,8 +439,8 @@ mod prebuilt {
             root.is_dir(),
             "wipemark-llama-sys: {PREBUILT_VAR}={} does not exist or is not a directory. Point \
              it at the directory a llama-cpp-prebuilt archive unpacks into ({}/, holding lib/, \
-             backends/, bindings.rs and PROVENANCE.txt), or unset it to download the pinned \
-             release.",
+             backends/, include/, bindings.rs and PROVENANCE.txt), or unset it to download the \
+             pinned release.",
             root.display(),
             pin::prebuilt_name(target)
         );
@@ -463,6 +475,8 @@ mod prebuilt {
         for (entry, dir) in [
             ("lib", true),
             ("backends", true),
+            // The headers the staging shim is compiled against (D480).
+            ("include", true),
             (BINDINGS, false),
             (PROVENANCE, false),
         ] {
@@ -523,6 +537,7 @@ mod prebuilt {
             lib_dirs: vec![linkable.join("lib")],
             dll_dir: windows_target().then(|| root.join("bin")),
             backends_dir: linkable.join("backends"),
+            include_dirs: vec![root.join("include")],
         }
     }
 
@@ -839,6 +854,11 @@ mod source {
             lib_dirs,
             dll_dir: windows_target().then(|| ggml_prefix.join("bin")),
             backends_dir,
+            // What bindgen read `llama.h` with.
+            include_dirs: vec![
+                ggml_prefix.join("include"),
+                vendor.join("llama.cpp").join("include"),
+            ],
         }
     }
 
@@ -1072,5 +1092,58 @@ Libs: -L${libdir} -lggml
         bindings
             .write_to_file(out_dir.join("bindings.rs"))
             .expect("wipemark-llama-sys: write bindings.rs failed");
+    }
+}
+
+/// The staging shim (E2-dflash2 F1, D480): `shim/ext.cpp`, the seven
+/// `src/llama-ext.h` functions DFlash2's draft loop calls, redeclared with
+/// C++ linkage and wrapped `extern "C"`, compiled with the `cc` crate
+/// (C++17) against the linked llama.cpp's headers and linked as a static
+/// library ahead of `libllama`.
+///
+/// A C++ compiler is therefore part of every `native` build, the prebuilt
+/// one included (`PIN.md`).
+#[cfg(feature = "native")]
+mod shim {
+    use std::path::PathBuf;
+
+    use crate::pin;
+
+    const FILE: &str = "shim/ext.cpp";
+    const READ_AT: &str = "#define WIPEMARK_EXT_READ_AT";
+
+    /// Refuse a shim read at another tag than the pin, then compile it.
+    ///
+    /// The declarations in it are copies of `src/llama-ext.h` at one tag,
+    /// and that header carries no stability promise: a bump of the pin
+    /// that did not re-read it would link whatever the new release
+    /// exports under the old names — or fail to, with a message about a
+    /// mangled symbol. The `WIPEMARK_EXT_READ_AT` line is where the re-read
+    /// is recorded; this is what makes a bump stop until it is.
+    pub fn compile(include_dirs: &[PathBuf]) {
+        let source = std::fs::read_to_string(FILE)
+            .unwrap_or_else(|e| panic!("wipemark-llama-sys: cannot read {FILE}: {e}"));
+        let read_at = source
+            .lines()
+            .find_map(|line| line.trim().strip_prefix(READ_AT))
+            .map(|rest| rest.trim().trim_matches('"').to_owned());
+        match read_at.as_deref() {
+            Some(tag) if tag == pin::LLAMA_TAG => {}
+            Some(tag) => panic!(
+                "wipemark-llama-sys: {FILE} was read against llama.cpp {tag}'s src/llama-ext.h; \
+                 the pin is {} ({}). Read src/llama-ext.h at the pin, bring every declaration in \
+                 {FILE} to it, and set WIPEMARK_EXT_READ_AT to \"{}\".",
+                pin::LLAMA_TAG,
+                pin::LLAMA_COMMIT,
+                pin::LLAMA_TAG
+            ),
+            None => panic!("wipemark-llama-sys: {FILE} has no `{READ_AT} \"<tag>\"` line"),
+        }
+        let mut build = cc::Build::new();
+        build.cpp(true).std("c++17").file(FILE);
+        for dir in include_dirs {
+            build.include(dir);
+        }
+        build.compile("wipemark_llama_ext");
     }
 }

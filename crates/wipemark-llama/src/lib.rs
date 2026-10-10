@@ -11,7 +11,9 @@
 //! each piece of text to a callback ([`Model::generate`]), stop when an
 //! `AtomicBool` says so, estimate the memory a load needs before making it
 //! ([`estimate`], [`refusal`]), and report which ggml backends registered
-//! ([`Runtime`]).
+//! ([`Runtime`]). Beside a model, load a DFlash2 draft and decode with it
+//! ([`Model::load_drafted`], [`speculative`]): the model verifies the
+//! draft's blocks, and every token kept is its own (E2-dflash2).
 //!
 //! Nothing here is about the product: no vendor, no report, no catalogue,
 //! no sentence for a person. Errors are values.
@@ -50,6 +52,7 @@ mod chat;
 mod generate;
 mod model;
 mod runtime;
+pub mod speculative;
 
 #[cfg(feature = "native")]
 mod ffi;
@@ -57,12 +60,13 @@ mod ffi;
 use std::path::PathBuf;
 
 pub use chat::{chat_support, llama_cpp_family, ChatSupport};
-pub use generate::{Finish, Generated, Sampling, Stitcher};
+pub use generate::{Drafted, Finish, Generated, Sampling, Stitcher};
 pub use model::{
     estimate, kv_bytes_per_token, kv_cache_mb, refusal, KvQuant, KvShape, LoadParams, MemEstimate,
     Model,
 };
 pub use runtime::{search_dirs, BackendInfo, BackendKind, Runtime};
+pub use speculative::DraftRefusal;
 pub use wipemark_llama_sys::pin;
 
 /// Whether this build linked the real ggml and llama.cpp libraries.

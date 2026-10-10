@@ -227,6 +227,39 @@ fn steps_tokens(r: &Value) -> u64 {
         .unwrap_or(0)
 }
 
+/// Speed over every call of `rs` (D486): calls, tokens out, seconds a call
+/// and tokens a second — the prompt's prefill included, as in the speed
+/// table above — and, over the calls a draft decoded beside the model, the
+/// tokens it had accepted per verification step and the tokens kept per
+/// step, the target's own included (the draft card's "acceptance length").
+fn draft_speed(rs: &[&Value]) -> Value {
+    let (mut calls, mut tokens, mut secs) = (0_u64, 0_u64, 0.0_f64);
+    for r in rs {
+        for step in r["steps"].as_array().into_iter().flatten() {
+            calls += 1;
+            tokens += step["tokens_out"].as_u64().unwrap_or(0);
+            secs += step["secs"].as_f64().unwrap_or(0.0);
+        }
+    }
+    let sum = |field: &str| -> u64 { rs.iter().filter_map(|r| r[field].as_u64()).sum() };
+    let (steps, accepted) = (sum("draft_steps"), sum("draft_accepted"));
+    let per = |n: u64, d: u64| -> Value {
+        if d == 0 {
+            Value::Null
+        } else {
+            json!(round3(n as f64 / d as f64))
+        }
+    };
+    json!({
+        "calls": calls,
+        "tokens_out": tokens,
+        "secs_per_call": if calls == 0 { Value::Null } else { json!(round3(secs / calls as f64)) },
+        "tokens_per_second": if secs == 0.0 { Value::Null } else { json!(round3(tokens as f64 / secs)) },
+        "accepted_per_step": per(accepted, steps),
+        "tokens_per_step": per(accepted + steps, steps),
+    })
+}
+
 /// Every attempt measure of §1.3 over `rs`.
 fn metrics(rs: &[&Value]) -> Value {
     let n = rs.len();
@@ -605,6 +638,55 @@ pub fn tables(
         speed.push(json!({"model": model, "order": i, "attempts": x["attempts"], "tokens_per_call": x["tokens_per_call"], "secs_per_attempt": x["secs_per_attempt"], "tokens_per_second": x["tokens_per_second"]}));
     }
     summary.insert("speed".into(), Value::Array(speed));
+
+    // E2-dflash2 (D486): per model, with and without a draft — every call.
+    let _ = writeln!(md, "\n### Speed with and without a draft (every call)\n");
+    let _ = writeln!(
+        md,
+        "| model | draft | calls | tokens out | s / call | tokens/s (incl. prompt) | accepted / step | tokens / step |"
+    );
+    let _ = writeln!(md, "|---|---|---|---|---|---|---|---|");
+    let mut by_draft: BTreeMap<(usize, String), Vec<&Value>> = BTreeMap::new();
+    for r in &records {
+        let m = models.iter().position(|m| m == s(r, "model")).unwrap_or(0);
+        by_draft
+            .entry((m, r["draft"].as_str().unwrap_or("").to_owned()))
+            .or_default()
+            .push(r);
+    }
+    let mut drafted = Vec::new();
+    for ((m, draft), rs) in &by_draft {
+        let x = draft_speed(rs);
+        let shown = if draft.is_empty() {
+            "none".to_owned()
+        } else {
+            draft.chars().take(12).collect()
+        };
+        let num = |v: &Value, places: usize| {
+            v.as_f64()
+                .map_or_else(|| "–".to_owned(), |v| format!("{v:.places$}"))
+        };
+        let _ = writeln!(
+            md,
+            "| {} | {shown} | {} | {} | {} | {} | {} | {} |",
+            models[*m],
+            x["calls"],
+            x["tokens_out"],
+            num(&x["secs_per_call"], 2),
+            num(&x["tokens_per_second"], 1),
+            num(&x["accepted_per_step"], 2),
+            num(&x["tokens_per_step"], 2),
+        );
+        let mut row = x;
+        row["model"] = json!(models[*m]);
+        row["draft"] = if draft.is_empty() {
+            Value::Null
+        } else {
+            json!(draft)
+        };
+        drafted.push(row);
+    }
+    summary.insert("speed_draft".into(), Value::Array(drafted));
 
     // By kind, paraphrase moderate.
     let kinds = [
@@ -1404,6 +1486,48 @@ mod tests {
             .find(|line| line.starts_with(&start))
             .unwrap_or_else(|| panic!("no row for {policy} in\n{table}"))
             .to_owned()
+    }
+
+    /// D486: one model run without its draft and with it — the speed table
+    /// puts the two side by side, every call counted, and the draft's
+    /// acceptance read off the counts the records carry; a record made
+    /// before the draft fields reads as run without one.
+    #[test]
+    fn the_speed_table_puts_a_run_with_its_draft_beside_one_without() {
+        let mut without = record("en-mx-01", 1, SOURCE, Some("One can fix it."), 0.5);
+        without["steps"] = json!([
+            {"step": 1, "tokens_out": 30, "secs": 3.0},
+            {"step": 2, "tokens_out": 30, "secs": 3.0}
+        ]);
+        let mut with = record("en-mx-01", 1, SOURCE, Some("One can fix it."), 0.5);
+        with["draft"] = json!("1a25c56858e1ebe93f2718ac1d49d1151f9323325c1bbfd6209370f4db131ebd");
+        with["steps"] = json!([
+            {"step": 1, "tokens_out": 30, "secs": 1.0,
+             "drafted": {"steps": 6, "proposed": 42, "accepted": 24}},
+            {"step": 2, "tokens_out": 30, "secs": 1.0,
+             "drafted": {"steps": 6, "proposed": 42, "accepted": 24}}
+        ]);
+        with["draft_steps"] = json!(12);
+        with["draft_proposed"] = json!(84);
+        with["draft_accepted"] = json!(48);
+        with["accepted_per_step"] = json!(4.0);
+        let (md, summary) = tables(vec![without, with], &[], None);
+        let table = md
+            .split("\n### ")
+            .find(|section| section.starts_with("Speed with and without a draft"))
+            .expect("the draft speed table");
+        assert!(
+            table.contains("| m | none | 2 | 60 | 3.00 | 10.0 | – | – |"),
+            "{table}"
+        );
+        assert!(
+            table.contains("| m | 1a25c56858e1 | 2 | 60 | 1.00 | 30.0 | 4.00 | 5.00 |"),
+            "{table}"
+        );
+        let rows = summary["speed_draft"].as_array().expect("rows");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["draft"], Value::Null);
+        assert_eq!(rows[1]["tokens_per_step"], 5.0);
     }
 
     #[test]

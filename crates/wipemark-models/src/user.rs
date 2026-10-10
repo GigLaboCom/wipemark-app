@@ -195,7 +195,14 @@ impl UserEntry {
         if !typeable_name(&self.name) || self.name.trim().is_empty() {
             return Err("its name is empty, too long or has a control character".to_owned());
         }
-        if self.roles.is_empty() || !self.roles.iter().all(|role| role.is_text()) {
+        // Nor a draft: a draft is tied to the catalogue model it was
+        // trained for, and a file the person adds has no such tie (D484).
+        if self.roles.is_empty()
+            || !self
+                .roles
+                .iter()
+                .all(|role| role.is_text() && role.is_chosen())
+        {
             return Err("it names no role a text model serves".to_owned());
         }
         if self.ctx == 0 {
@@ -732,6 +739,14 @@ mod tests {
             "user-m",
             &UserEntry {
                 roles: vec![Role::Pixel],
+                ..good.clone()
+            }
+        ));
+        // A draft is tied to a catalogue model; an added file never is.
+        assert!(refused(
+            "user-m",
+            &UserEntry {
+                roles: vec![Role::Draft],
                 ..good.clone()
             }
         ));

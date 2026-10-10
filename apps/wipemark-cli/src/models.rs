@@ -65,6 +65,9 @@ use crate::Exit;
 /// The rows, spelled as the application spells them. Formats.
 const MODELS_DIR_KEY: &str = "models.dir";
 const MODEL_REWRITE_KEY: &str = "models.rewrite";
+/// Whether a model decodes with its draft when one is downloaded
+/// (E2-dflash2, D485) — on unless the row says `false`.
+const SPECULATIVE_KEY: &str = "engine.local.speculative";
 
 /// A terminal's progress line is redrawn no more often than this.
 const REDRAW_EVERY: Duration = Duration::from_millis(500);
@@ -78,6 +81,11 @@ pub(crate) struct Place {
     pub(crate) chosen: Option<String>,
     /// The models the person added, as their rows say.
     pub(crate) added: Vec<UserModel>,
+    /// The Engine page's `engine.local.speculative` (D485, D488): whether
+    /// the chosen model decodes with its draft when one is downloaded. A
+    /// value this build cannot read is the default, on, as the application
+    /// reads it.
+    pub(crate) speculative: bool,
 }
 
 /// The models the person added, from the rows of `store` — a row this build
@@ -118,6 +126,10 @@ impl Place {
             .filter(|path| path.is_absolute())
             .unwrap_or_else(|| layout.models_dir());
         let added = read_added(store.as_ref());
+        let speculative = store
+            .as_ref()
+            .and_then(|store| store.settings().get::<bool>(SPECULATIVE_KEY).ok().flatten())
+            .unwrap_or(true);
         let chosen = row(MODEL_REWRITE_KEY).filter(|id| {
             catalogue
                 .get(id)
@@ -130,6 +142,7 @@ impl Place {
             folder,
             chosen,
             added,
+            speculative,
         }
     }
 }
@@ -391,6 +404,14 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                 if let Some(at) = foreign_at(entry) {
                     value["foreign_at"] = at.into();
                 }
+                // E2-dflash2 (D488): a draft names its model, and the model
+                // its draft.
+                if let Some(target) = &entry.draft_for {
+                    value["draft_for"] = target.as_str().into();
+                }
+                if let Some(draft) = context.catalogue.draft_for(&entry.id) {
+                    value["draft"] = draft.id.as_str().into();
+                }
                 match state {
                     State::Absent => value["state"] = "absent".into(),
                     State::Partial {
@@ -464,7 +485,50 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
             Message::CliModelsFolder,
             &args!("path" => folder.display().to_string()),
         )];
-        for (entry, state, fit, chosen) in &rows {
+        let state_said = |state: &State| match state {
+            State::Absent => say(Message::CliModelsStateAbsent, &FluentArgs::new()),
+            State::Partial {
+                done_bytes,
+                total_bytes,
+            } => say(
+                Message::CliModelsStatePartial,
+                &args!("percent" => percent(*done_bytes, *total_bytes).to_string()),
+            ),
+            State::Present { .. } => say(Message::CliModelsStatePresent, &FluentArgs::new()),
+            State::Corrupt { .. } => say(Message::CliModelsStateMismatch, &FluentArgs::new()),
+        };
+        // A draft is listed under the model it drafts for (D488), indented,
+        // and says when the application's row keeps it from being used.
+        let draft_line = |draft: &ModelEntry, state: &State| -> String {
+            let mut line = format!(
+                "  {}",
+                say(
+                    Message::CliModelsDraftEntry,
+                    &args!(
+                        "id" => draft.id.as_str(),
+                        "name" => draft.display.as_str(),
+                        "target" => draft.draft_for.as_deref().unwrap_or_default(),
+                        "size" => say(
+                            Message::CliModelsSize,
+                            &args!("gigabytes" => gigabytes(draft.total_bytes())),
+                        ),
+                        "state" => state_said(state),
+                    ),
+                )
+            );
+            if !context.place.speculative {
+                line.push_str(" · ");
+                line.push_str(&say(Message::CliModelsDraftOff, &FluentArgs::new()));
+            }
+            line
+        };
+        let tied = |entry: &ModelEntry| {
+            entry
+                .draft_for
+                .as_deref()
+                .is_some_and(|target| context.catalogue.get(target).is_some())
+        };
+        for (entry, state, fit, chosen) in rows.iter().filter(|(entry, ..)| !tied(entry)) {
             let state = match state {
                 State::Absent => say(Message::CliModelsStateAbsent, &FluentArgs::new()),
                 State::Partial {
@@ -512,6 +576,12 @@ pub(crate) fn list(json: bool, io: &mut Io) -> Exit {
                 line.push_str(&say(Message::CliModelsChosen, &FluentArgs::new()));
             }
             lines.push(line);
+            for (draft, state, ..) in rows
+                .iter()
+                .filter(|(draft, ..)| draft.draft_for.as_deref() == Some(entry.id.as_str()))
+            {
+                lines.push(draft_line(draft, state));
+            }
         }
         for (model, state, fit, chosen) in &added_rows {
             let state = match state {

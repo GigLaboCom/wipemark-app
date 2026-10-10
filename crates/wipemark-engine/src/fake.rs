@@ -160,6 +160,7 @@ impl RewriteEngine for FakeEngine {
             model_id: self.model_id.clone(),
             local: true,
             ctx_len: Some(self.ctx_len),
+            draft: None,
         }
     }
 
@@ -231,6 +232,7 @@ impl RewriteEngine for FakeEngine {
             } else {
                 FinishReason::Stop
             },
+            drafted: None,
         })
     }
 

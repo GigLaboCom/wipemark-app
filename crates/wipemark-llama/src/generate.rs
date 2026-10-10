@@ -38,6 +38,44 @@ pub struct Generated {
     /// Tokens sampled, end-of-generation token excluded.
     pub tokens_out: u32,
     pub finish: Finish,
+    /// What the draft did, when one decoded beside the model (E2-dflash2);
+    /// `None` for a model loaded alone.
+    pub drafted: Option<Drafted>,
+}
+
+/// What a draft did for one generation (E2-dflash2, D486): the
+/// verification steps it proposed a block for, the tokens it proposed and
+/// the tokens the target kept of them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Drafted {
+    /// Steps whose block carried at least one proposed token.
+    pub steps: u32,
+    pub proposed: u32,
+    pub accepted: u32,
+}
+
+impl Drafted {
+    /// Proposed tokens the target kept, per step — `None` before a step.
+    pub fn accepted_per_step(&self) -> Option<f64> {
+        (self.steps > 0).then(|| f64::from(self.accepted) / f64::from(self.steps))
+    }
+
+    /// Tokens kept per step, the target's own included: the "acceptance
+    /// length" of the draft's model card (5.39 for its Q4_K_M), and
+    /// llama.cpp's "mean acc len".
+    pub fn tokens_per_step(&self) -> Option<f64> {
+        (self.steps > 0).then(|| f64::from(self.accepted + self.steps) / f64::from(self.steps))
+    }
+
+    /// Both counts together, for a run of many generations.
+    #[must_use]
+    pub fn plus(self, other: Drafted) -> Drafted {
+        Drafted {
+            steps: self.steps.saturating_add(other.steps),
+            proposed: self.proposed.saturating_add(other.proposed),
+            accepted: self.accepted.saturating_add(other.accepted),
+        }
+    }
 }
 
 /// Why a generation ended.

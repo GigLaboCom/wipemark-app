@@ -197,6 +197,13 @@ pub fn attempt(
             "tokens_out": completion.tokens_out,
             "finish": finish(completion.finish),
             "secs": secs,
+            // E2-dflash2 (D486): what a draft beside the model did for
+            // this call.
+            "drafted": completion.drafted.map_or(Value::Null, |d| json!({
+                "steps": d.steps,
+                "proposed": d.proposed,
+                "accepted": d.accepted,
+            })),
         }));
         match completion.finish {
             FinishReason::Stop => {}
@@ -213,11 +220,22 @@ pub fn attempt(
         text = cleaned.text;
     }
 
+    let drafted = drafted_of(&steps);
     let mut record = json!({
         "chunk_text": chunk.text,
         "placeholders": chunk.protected.len(),
         "steps": steps,
     });
+    if let Some((verified, proposed, accepted)) = drafted {
+        record["draft_steps"] = json!(verified);
+        record["draft_proposed"] = json!(proposed);
+        record["draft_accepted"] = json!(accepted);
+        record["accepted_per_step"] = if verified == 0 {
+            Value::Null
+        } else {
+            json!(f64::from(accepted) / f64::from(verified))
+        };
+    }
     if verdict_of.is_none() {
         let layer_a = wipemark_core::clean(&text, &options.layer_a);
         let answer = layer_a.text;
@@ -263,6 +281,26 @@ pub fn attempt(
     record["verdict"] = json!(verdict_of.as_ref().map_or("passed", Rejection::kind));
     record["rejection"] = verdict_of.as_ref().map_or(Value::Null, rejection_value);
     record
+}
+
+/// What the draft did over an attempt's calls — verification steps, tokens
+/// proposed, tokens accepted — or `None` when no call had a draft beside
+/// the model (D486).
+fn drafted_of(steps: &[Value]) -> Option<(u32, u32, u32)> {
+    let mut seen = false;
+    let mut total = (0_u32, 0_u32, 0_u32);
+    for step in steps {
+        let drafted = &step["drafted"];
+        if drafted.is_null() {
+            continue;
+        }
+        seen = true;
+        let n = |field: &str| u32::try_from(drafted[field].as_u64().unwrap_or(0)).unwrap_or(0);
+        total.0 += n("steps");
+        total.1 += n("proposed");
+        total.2 += n("accepted");
+    }
+    seen.then_some(total)
 }
 
 /// The keys already in `path`, so a run that was stopped picks up where
@@ -428,6 +466,17 @@ fn attempts(args: &Args, plan_only: bool) -> Option<(usize, usize, usize)> {
         Ok(()) => eprintln!("loaded in {:.1}s", started.elapsed().as_secs_f32()),
         Err(error) => panic!("the engine did not load: {error:?}"),
     }
+    // E2-dflash2 (D486): the draft every record names is the one that
+    // loaded. One asked for and refused would label a run made without it.
+    let draft = engine.info().draft;
+    if args.value("--draft").is_some() {
+        match &draft {
+            Some(sha256) => eprintln!("the draft {sha256} decodes beside the model"),
+            None => panic!(
+                "--draft was given and the draft was not loaded beside the model; the log says why"
+            ),
+        }
+    }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -465,6 +514,9 @@ fn attempts(args: &Args, plan_only: bool) -> Option<(usize, usize, usize)> {
             "temperature": options.sampling.temperature,
             "top_p": options.sampling.top_p,
             "secs": secs,
+            // E2-dflash2 (D486): the draft beside the model — its sha256 —
+            // or null.
+            "draft": draft,
             "injection": match (&item.inject, record["answer"].as_str()) {
                 (Some(inject), Some(answer)) => json!(measure::obeyed(inject, &chunk.text, answer)),
                 (Some(_), None) => json!(false),
@@ -506,6 +558,21 @@ mod tests {
     use wipemark_pipeline::lang::Lang;
 
     use super::*;
+
+    /// D486: an attempt's draft figures are its calls' added up; an
+    /// attempt with no draft beside the model has none, not zeros.
+    #[test]
+    fn an_attempts_draft_figures_are_its_calls_added_up() {
+        let plain = vec![json!({"step": 1, "tokens_out": 9, "drafted": null})];
+        assert_eq!(drafted_of(&plain), None);
+        let drafted = vec![
+            json!({"step": 1, "drafted": {"steps": 3, "proposed": 21, "accepted": 12}}),
+            json!({"step": 2, "drafted": {"steps": 2, "proposed": 14, "accepted": 2}}),
+        ];
+        assert_eq!(drafted_of(&drafted), Some((5, 35, 14)));
+        let none_proposed = vec![json!({"drafted": {"steps": 0, "proposed": 0, "accepted": 0}})];
+        assert_eq!(drafted_of(&none_proposed), Some((0, 0, 0)));
+    }
 
     #[test]
     fn plan_counts_every_step_of_every_attempt_and_loads_nothing() {

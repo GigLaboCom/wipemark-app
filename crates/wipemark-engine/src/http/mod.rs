@@ -170,6 +170,8 @@ impl RewriteEngine for HttpEngine {
             local: self.config.on_this_machine,
             // The server's business, and not asked for (spec §7).
             ctx_len: None,
+            // A draft an endpoint runs is the server's business too.
+            draft: None,
         }
     }
 
