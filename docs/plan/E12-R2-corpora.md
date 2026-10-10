@@ -163,6 +163,18 @@ Three sets, each one blocking later steps. No crate changes.
 
 ## §3 What is true today (at `4b5ba17`)
 
+> **2026-10-10, the owner: Gemini no longer puts its visible mark on new
+> generations** — tried for `gemini-midtone`, the outputs came back without
+> the sparkle; why is not known (a change on Google's side, an account or
+> tier, the app against the API?). **To check** before §4.1 is asked of
+> anyone: one fresh output through `wipemark-cli inspect --json` (is there
+> a visible finding? which metadata — C2PA, IPTC `trainedAlgorithmicMedia`,
+> SynthID says nothing visible), and the same prompt in the Gemini app, the
+> free tier and the API. If the mark is gone for good, `gemini-midtone`
+> cannot be collected: R4 §4.3–§4.4 and R9 (which wait for it) close on the
+> bench's synthetic composites or not at all, and the shipped profiles
+> stay what they are for the pictures already out there.
+
 | fact | where |
 |---|---|
 | `gemini-v1-96-measured` was fitted (least squares) over **19** outputs, 2 more kept out of the fit, with the logo from **22**; every one has a **saturated green** corner (`R, B ≈ 0`, high `G`) | `docs/architecture/visible-marks.md` 236–266; `measure_map.rs` |
