@@ -26,7 +26,7 @@ that variant ships ("Voice" below;
 | the bench | `crates/wipemark-pipeline/examples/bench/` — an `examples/` binary, `required-features = ["local-llama"]` (compiles over the shim and refuses at load there; runs a GGUF under `llama-native`, or any OpenAI-compatible endpoint) |
 | the corpus | `crates/wipemark-pipeline/bench/corpus/{en,ru,de}.txt` — 41 + 40 + 40 items |
 | the results | `crates/wipemark-pipeline/bench/results/summary.json` — every aggregate below, machine-readable; the raw records (one JSON line per attempt, texts included) stay out of git (`.gitignore` keeps a run directory's `runs/` and `judge.jsonl` out) |
-| the variants | `crates/wipemark-pipeline/bench/variants/<name>/<lang>/<tactic>.<step>.<role>.txt` — template overrides `run --variant` lays over the shipped set, each admitted by `prompt::row::admit` as an edit would be (D427); `tests/bench_variants.rs` walks them all |
+| the variants | `crates/wipemark-pipeline/bench/variants/<name>/<lang>/<tactic>.<step>.<role>.txt` — template overrides `run --variant` lays over the shipped set, each admitted by `prompt::row::admit` as an edit would be (D427); `tests/bench_variants.rs` walks them all. `--variant <id>` also runs a **built-in template profile** (E4-9, D510) — `keep-voice`, compiled in from `crates/wipemark-pipeline/prompts/profiles/keep-voice/` since 2026-10-10 — held to the same rule with the same window; a directory of that name is `./keep-voice` |
 | the register lists | `crates/wipemark-pipeline/bench/register/{en,ru,de}.txt` — the voice measures' register proxy, data (D421) |
 | the voice run | `crates/wipemark-pipeline/bench/run-voice.sh` — four models, the shipped templates beside keep-voice, judged and reported (D426) |
 
@@ -351,10 +351,12 @@ cause it (−2 "you", +2 % words, −8 points of pairs left), on one article.
 
 ### keep-voice in three languages
 
-`bench/variants/keep-voice/{en,ru,de}/{paraphrase,humanize}.1.system.txt`
-— each the shipped system turn with one rule added after "do not add
-claims", admitted by `row::admit` and walked by `tests/bench_variants.rs`
-(D424):
+`prompts/profiles/keep-voice/{en,ru,de}/{paraphrase,humanize}.1.system.txt`
+(in `bench/variants/keep-voice/` until E4-9 made it the built-in template
+profile "Keep voice", D510 — the person chooses it on the Rewriting page;
+the shipped templates are unchanged) — each the shipped system turn with
+one rule added after "do not add claims", admitted by `row::admit` and
+walked by `tests/bench_variants.rs` (D424):
 
 - **paraphrase**: speak to the reader as the text does (if it says "you",
   so do you; ru «ты»/«вы», de duzen/siezen as the text does), keep its tone
@@ -375,7 +377,7 @@ claims", admitted by `row::admit` and walked by `tests/bench_variants.rs`
 
 **keep-voice-light** is not a variant (D425): intensity is a fragment the
 grid sets, and a variant carries slots only, so `--grid
-"paraphrase:light:4" --variant …/keep-voice` is the research's "voice +
+"paraphrase:light:4" --variant keep-voice` is the research's "voice +
 light" — and `run-voice.sh`'s grid has "light" in it.
 
 ### The run on the host

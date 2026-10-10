@@ -360,6 +360,117 @@ run the shipped template.
 | D368 | A save keeps the source hash an adaptation recorded, as it keeps `based_on`; the stale-source warning has its own **Keep mine** (`keep_mine_source`), and the page says a save leaves it | the two drifts were acknowledged differently — one by asking, one silently by any save (L4); the explicit acknowledgement is the one D333 already chose for the shipped text |
 | D369 | `validate` refuses a character Layer A removes at its defaults (R9 `invisible-character`) in any template, typed or adapted — the shipped ones pass — and `adapt_with` runs Layer A over the model's answer before it is judged | a zero-width character or a bidi control from a model, or pasted by hand, was stored unseen and sent with every rewrite — the very marks the product removes (L6) |
 
+## Template profiles (E4-9)
+
+A **template profile** is a whole set of templates kept, chosen and shared
+under a name: a name and an override per slot it changes, the shipped
+template for every slot it does not (`wipemark_pipeline::prompt::profile`;
+the page's side is `apps/wipemark-app/src/prompts/profiles.rs`). The task
+is `docs/plan/E4-9-template-profiles.md`; it asked for D490–D499, which the
+E12-R series had already taken (D490–D502, renumbered at the merge of
+2026-10-10), so its decisions are **D510–D516** below, in the task's order.
+
+**Two kinds.** The **built-in** ones are compiled in from
+`crates/wipemark-pipeline/prompts/profiles/<id>/`, the layout of a bench
+variant (`<lang>/<tactic>.<step>.<role>.txt`, a text trimmed at the end as a
+shipped one is): **Shipped** (`shipped`, no override at all) and **Keep
+voice** (`keep-voice`, the voice run's rule for paraphrase and humanize in
+en, ru and de — moved here from `bench/variants/`). Each built-in slot
+records the hash of the shipped template it was written over;
+`a_built_in_profile_is_made_from_todays_shipped_templates` goes red the day
+a shipped template moves and the built-in has not been looked at again.
+A **person's** profile is a row `prompts.profiles.<id>` =
+`{name, created, slots: {<slot key>: <D74 object>}}`, one row each, its id
+made by `id_of` once, at creation, the way `engine.profiles.<id>` is. A slot
+this build cannot read is kept as stored — written back untouched by a
+Rename or an Update — and makes the profile one that is listed, greyed, and
+never laid. `row::overrides_from` passes over `prompts.profiles.*` by name:
+`profiles` is not a language.
+
+**What is used is still the working set.** Every rewrite reads the
+`prompts.<lang>.…` rows the editor saves, as before (`mcp::rewrite::saved`,
+D323). A profile is laid **onto** them: choosing one writes its slots, empties
+the others, and records the hint `rewrite.profile` — all in one transaction
+(`Settings::write_together`) — or writes nothing (D512). Which profile the
+page is on is computed from the rows (D511): the profile whose every slot
+renders from the same text, the hinted one first among equals, otherwise
+"Custom (not saved)".
+
+**The row.** At the top of the Rewriting page, `Setting::RewriteProfile`
+(`rewrite.profile` in `config::PERSISTED`): a dropdown — the built-ins
+first, then the person's by name, a profile that cannot be laid against the
+window on duty greyed with its slot and reason — and under the description
+**Save as profile…**, **Update “name”** (when the rows were laid from one of
+the person's and have changed since), **Rename…**, **Duplicate…**,
+**Delete…**, **Export…** and **Import…**, then where the rows stand and what
+the last action came to. A built-in offers Duplicate and Export and nothing
+that would change it. Choosing over rows that equal no profile asks first
+— Save as profile (Enter), Discard, Cancel (D513). Delete removes the saved
+copy and the hint when it named it, and touches no working row
+(`delete_touches_no_working_row`). A profile whose slot was made over an
+older shipped template is laid with its `based_on`, so that slot says it
+fell behind, with Keep mine (D336); the dropdown marks such a profile.
+
+**Sharing.** Export writes `<name>.wipemark-templates.json` through the
+platform's save dialog:
+
+```json
+{
+  "format": 1,
+  "name": "Legal texts",
+  "slots": {
+    "prompts.en.paraphrase.1.user": {
+      "text": "…",
+      "based_on": "9c4252d3981e7e38",
+      "origin": "hand"
+    }
+  }
+}
+```
+
+No `adapted_from` (it names a template on this machine) and nothing else
+about the machine; the file name's suffix and every key are formats. Import
+reads a regular file of at most 1 MiB, admits every slot by the one rule
+against the window on duty, beside the file's own other slots, and refuses
+it **whole on the first error** — an invisible character by its rule's
+name, `invisible-character` — storing nothing; a name that carries a
+character Layer A removes is refused too. A file admitted lands as a new
+profile of the person's, **not laid**; a name another profile has asks for
+another (D514).
+
+**Every surface.** The window's Rewrite and Rewrite all, and an agent's
+`rewrite`, run the working set. MCP `rewrite` takes `"profile": "<id>"`
+and runs that profile in place of the saved rows; the CLI takes
+`--profile <id or name>`, read from the database read-only. Either is laid
+by the one rule against the window of whoever rewrites; `templates` /
+`--prompts` lay over it; an id no profile has, or a slot the profile cannot
+lay, is a refusal naming it — never the saved rows in its place (D515).
+`--prompts` also takes an exported file, told apart by its `format` key. The
+job's report says which profile its templates came from —
+`best_effort.profile`, the id or `custom` — and the journal row carries the
+same id in `outcome.profile`, never a template's text (D516).
+
+**A window note.** `too-long` holds a template to a tenth of the model's
+window, estimated at three bytes a token. Keep voice's Russian contract is
+569 estimated tokens (the shipped one 429), so Keep voice is greyed on an
+engine whose window is under 5,690 tokens — every slot is asked, whatever
+the document's language, because a profile is laid whole. Both shipped
+models' 8,192 hold it.
+
+### Decisions D510–D516
+
+The task's D490–D496, in order; D517–D519 are unused.
+
+| # | decision | why |
+|---|---|---|
+| D510 | Two built-in profiles, **Shipped** and **Keep voice**, compiled in from `prompts/profiles/<id>/`; keep-voice **moved** there from `bench/variants/` (one copy, never two), each slot recording the shipped hash it was written over; the bench's `--variant` takes a built-in's id as well as a directory, and `run-voice.sh` and `scripts/verify/e4-8/candidates-run.sh` say `--variant keep-voice`. The other three variants stay experiments | the task's default: keep-voice won paraphrase on the voice run and is to be chosen, not imposed; a copy would drift from the bench's; a recorded hash makes a built-in's drift seen the way an override's is |
+| D511 | The page is on the profile whose every slot renders from the same **text** as the working set (shipped where either has no row), the hint `rewrite.profile` first among equals; else "Custom (not saved)". The hint is only that: one naming a profile that is gone or that the rows no longer equal is no name on screen. Profiles are rows on the shape of the endpoint profiles — `id_of` once at creation, Rename keeps the id, Delete costs a name and never a working row | what runs is the text; `based_on` and `origin` are bookkeeping that Keep mine moves without changing a word; the endpoint profiles' rules (`profile::standing`) are the ones a person already knows |
+| D512 | A profile is laid **whole or not at all**: `Profile::admitted` is `row::lay_over_within` over nothing, against the window of the engine on duty; a slot this build cannot read refuses it, and so does a working row this build cannot read where the profile has a template (only Reset replaces such a row, D366); the rows and the hint are written in one transaction (`Settings::write_together`). Shipped empties every readable row and leaves an unreadable one, which reads as shipped already | the one rule (D330) — `the_page_and_lay_over_admit_the_same_profile`; half a profile on disk is a set nobody chose |
+| D513 | Choosing over rows that equal no profile asks — **Save as profile…** (Enter; then the chosen one is laid), **Discard**, **Cancel** — through `dialog::Choose`. Save as with a name one of the person's profiles has replaces it (the dialog lists them); a built-in's name is refused | the only unsaved state that can be lost is a set that is no profile; Enter must be the answer that loses nothing; the endpoint page's Save already replaces by name |
+| D514 | The shared file is `{format: 1, name, slots: {<key>: {text, based_on, origin}}}`, no `adapted_from`; read back by the one rule against the window on duty, refused whole on the first error (in key order), an invisible character by its rule's name, a name carrying anything Layer A removes refused; a regular file of at most 1 MiB; it lands as a new profile, **not laid**, and a taken name asks for another. A built-in is exported under the name the page shows it by. `--prompts` takes it beside D74's rows, told apart by its `format` key — no key of a rows object can be one, every one is `prompts.…` | a shared file is the one road for a template from someone else, so it gets the strictest reading the page has; an import that changed the working set would be a template nobody looked at, in use |
+| D515 | MCP `rewrite` takes `"profile": "<id>"` (exact), the CLI `--profile <id or name>` (read-only from the database; the built-ins with none); either is laid **in place of** the saved rows, against the window of whoever rewrites, and `templates` / `--prompts` lay over it. An unknown id, or a slot it cannot lay, is a refusal naming it — never the saved rows instead. Through the application the CLI sends the id it found | a caller who named a set and got another would have a job reported as theirs that was not; the CLI never writes a row (D314) |
+| D516 | The job report gains `best_effort.profile` — the id of the profile the templates render like (the named or hinted one first), or `custom` — a field added, so `REPORT_VERSION` stays 2; Layer A's shelves are untouched (`the_json_of_a_real_report_is_what_it_was_before_the_shelf_was_a_field` holds). `Options.profile` carries it, stored with a queue item (absent in an earlier row: nobody said, and the report then names the built-in the overrides equal, or `custom`) and **left out of the fingerprint**, which hashes the templates themselves — a job resumed under another profile forgets its records, under a new name for the same templates keeps them. The journal row's `outcome.profile` is the report's id, never a template (D312) | the report already records each template's version; which set it was is what a person reading it asks first |
+
 ## Cleaning an answer (D67)
 
 `clean_response(raw, input)` takes off only what is unambiguous, and only

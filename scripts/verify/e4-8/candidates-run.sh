@@ -36,7 +36,9 @@ cd "$ROOT"
 OUT=${1:-crates/wipemark-pipeline/bench/results/voice-2026-10-10}
 GRID='paraphrase:light,moderate,strong:4;humanize:moderate,strong:2'
 EVERY=3
-VARIANT=crates/wipemark-pipeline/bench/variants/keep-voice
+# The built-in template profile, by its id (E4-9, 2026-10-10): keep-voice
+# moved from bench/variants/ to prompts/profiles/, and the bench reads it there.
+VARIANT=keep-voice
 JUDGE=/mnt/data/mnemoria/models/gemma-4-12b-qat-ud-q4/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
 JUDGE_NAME=gemma4-12b-judge
 MODELS=(
