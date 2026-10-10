@@ -205,23 +205,61 @@ fn an_outline_left_is_said_and_exits_three() {
     assert!(restored["step"].as_f64().unwrap() < -1.0, "{restored}");
 }
 
-/// The same sticker saved as most JPEGs are, 4:2:0: restored, and the
-/// colour fringe the inverse leaves along the mark's edge — luma alone
-/// calls it clean — is said, the mark counted as left, exit 3 (D247).
+/// A sticker saved as JPEG — 4:2:0, as most are, and 4:4:4 — at 95: the
+/// mark is proved and restored with nothing left, exit 1. The 4:2:0 one is
+/// restored in its planes (D471: the colour fringe the RGB inverse left,
+/// 7.4–8.4 levels, is gone); both are refined inside the file's
+/// quantisation intervals by DCT-POCS (D472: the 4:4:4 one's 8 × 8
+/// checker is gone). The JSON says how.
+#[test]
+fn a_jpeg_at_95_is_restored_in_its_planes_and_refined_with_nothing_left() {
+    let scratch = Scratch::new("planes");
+    for (name, planar) in [
+        ("torch-1025-q95-420.jpg", true),
+        ("torch-1025-q95-444.jpg", false),
+    ] {
+        scratch.file("art.jpg", &real(name));
+        let output = scratch.run(&["clean", "art.jpg", "-o", "out.jpg"]);
+        let said = stdout(&output);
+        assert_eq!(code(&output), 1, "{name}: {said}");
+        assert!(said.contains("pixels restored"), "{name}: {said}");
+        assert!(!said.contains("is left"), "{name}: {said}");
+        let answer = json(&scratch.run(&["clean", "art.jpg", "-o", "j.jpg", "--json"]));
+        assert_eq!(answer["report"]["marks_left"], Value::Bool(false), "{name}");
+        let restored = &answer["report"]["visible"]["restored"][0];
+        assert_eq!(restored["interval"]["method"], "dct", "{name}: {restored}");
+        assert_eq!(restored["planar"].is_object(), planar, "{name}: {restored}");
+        assert!(
+            restored["chroma"].as_f64().unwrap() < 4.0,
+            "{name}: {restored}"
+        );
+        assert_eq!(
+            restored["texture_left"],
+            Value::Bool(false),
+            "{name}: {restored}"
+        );
+    }
+}
+
+/// A sticker saved as lossy WebP (VP8 keeps colour at half the
+/// resolution, and a WebP has no intervals for DCT-POCS to choose in):
+/// restored, and the colour fringe the inverse leaves along the mark's
+/// edge — luma alone calls it clean — is said, the mark counted as left,
+/// exit 3 (D247). Until D471 a 4:2:0 JPEG at 95 was this test's picture.
 #[test]
 fn a_fringe_left_in_colour_is_said_and_exits_three() {
     let scratch = Scratch::new("fringe");
-    scratch.file("art.jpg", &real("torch-1025-q95-420.jpg"));
-    let output = scratch.run(&["clean", "art.jpg"]);
+    scratch.file("art.webp", &real("scroll-1040-q90.webp"));
+    let output = scratch.run(&["clean", "art.webp"]);
     let said = stdout(&output);
     assert_eq!(code(&output), 3, "{said}");
     assert!(said.contains("An outline of the mark is left"), "{said}");
-    let answer = json(&scratch.run(&["clean", "art.jpg", "-o", "j.jpg", "--json"]));
+    let answer = json(&scratch.run(&["clean", "art.webp", "-o", "j.webp", "--json"]));
     let restored = &answer["report"]["visible"]["restored"][0];
     assert_eq!(restored["outline_left"], Value::Bool(true));
     assert!(restored["step"].as_f64().unwrap().abs() < 1.0, "{restored}");
     assert!(restored["chroma"].as_f64().unwrap() > 4.0, "{restored}");
-    // The figure in the sentence is the farthest channel's — red, +11 —
+    // The figure in the sentence is the farthest channel's — red, +9 —
     // not the luma's, which is under a level and would call it clean.
     let line = said
         .lines()
@@ -236,35 +274,34 @@ fn a_fringe_left_in_colour_is_said_and_exits_three() {
     assert!(figure > 8.0, "{line}");
 }
 
-/// The same picture saved as JPEG 4:4:4 at 95: no outline — its band is
-/// within the bounds on average — but the codec's error, amplified by the
-/// inverse, is an 8 × 8 checker along the mark's contour, three times as
-/// rough as the picture around it. Said, as a percentile beside the same
-/// around it, never a bound, in each language's decimals; the mark counts
-/// as left and the exit is 3 (D250).
+/// The codec's error, amplified by the inverse, left along the mark's
+/// contour as a texture several times as rough as the picture around it:
+/// said, as a percentile beside the same around it, never a bound, in each
+/// language's decimals; the mark counts as left and the exit is 3 (D250).
+/// Until D472 a 4:4:4 JPEG at 95 was this test's picture; DCT-POCS now
+/// takes its checker away, and the lossy WebP — no intervals to choose in
+/// — is where a texture is still left (with its colour fringe, above).
 #[test]
-fn a_texture_left_on_a_jpeg_is_said_and_exits_three() {
+fn a_texture_left_on_a_lossy_picture_is_said_and_exits_three() {
     let scratch = Scratch::new("texture");
-    scratch.file("art.jpg", &real("torch-1025-q95-444.jpg"));
-    let output = scratch.run(&["clean", "art.jpg"]);
+    scratch.file("art.webp", &real("scroll-1040-q90.webp"));
+    let output = scratch.run(&["clean", "art.webp"]);
     let said = stdout(&output);
     assert_eq!(code(&output), 3, "{said}");
     assert!(
         said.contains("A texture is left along the mark's edge"),
         "{said}"
     );
-    assert!(!said.contains("An outline of the mark is left"), "{said}");
-    let answer = json(&scratch.run(&["clean", "art.jpg", "-o", "j.jpg", "--json"]));
+    let answer = json(&scratch.run(&["clean", "art.webp", "-o", "j.webp", "--json"]));
     let restored = &answer["report"]["visible"]["restored"][0];
     assert_eq!(restored["texture_left"], Value::Bool(true), "{restored}");
-    assert_eq!(restored["outline_left"], Value::Bool(false), "{restored}");
     let (texture, around) = (
         restored["texture"].as_f64().unwrap(),
         restored["texture_around"].as_f64().unwrap(),
     );
     assert!(texture > 2.0 * around && texture > 8.0, "{restored}");
     // The figures in the sentence are the restoration's roughness — about
-    // 9 — and then the surroundings', about 3.3: not the other way round.
+    // 10 — and then the surroundings', about 1.9: not the other way round.
     let line = said
         .lines()
         .find(|line| line.contains("A texture is left"))
@@ -279,7 +316,7 @@ fn a_texture_left_on_a_jpeg_is_said_and_exits_three() {
     assert!(figure("lie ") > 8.0, "{line}");
     assert!(figure("against ") < 4.0, "{line}");
     for (language, grain) in [("ru", "зернистость"), ("de", "Körnung")] {
-        let output = scratch.run_in(language, &["clean", "art.jpg", "-o", "out.jpg"]);
+        let output = scratch.run_in(language, &["clean", "art.webp", "-o", "out.webp"]);
         let said = stdout(&output);
         assert_eq!(code(&output), 3, "{language}: {said}");
         let line = said
