@@ -78,7 +78,7 @@ WEAK = "a_weaker_mark_resized_with_its_picture_is_refused_by_the_search"
 MUTATIONS = [
     M("search-held-to-no-band",
       [(VERIFY, "crate::Placed::Searched => profile.search_band(proposal.rect.size),",
-        "crate::Placed::Searched => None,")],
+        "crate::Placed::Searched => None::<crate::catalogue::GainBand>,")],
       cargo_test("wipemark-picture", "search_gain", WEAK), WEAK,
       "D530: the search's proof is held to the band its template's width falls in"),
     M("shipped-without-bands",
