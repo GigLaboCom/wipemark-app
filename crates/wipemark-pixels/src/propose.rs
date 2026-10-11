@@ -1,4 +1,7 @@
-//! The first proof: where a profile's mark could be. Exact placement rows
+//! The first proof: where a profile's mark could be — by a correlation
+//! signed by the side of the picture the profile's logo is on (D570), so a
+//! black mark over a light picture is proposed as a white one over a dark
+//! picture always was. Exact placement rows
 //! first, each at **its own rectangle** — never moved, so a row's mark is
 //! restored where the row says it is, and looked at on half the NCC the
 //! search needs ([`ROW_FLOOR`], D236); the bounded search when no
@@ -15,7 +18,7 @@
 //! hair higher is not a better restoration.
 
 use crate::alpha::AlphaMap;
-use crate::catalogue::{Anchor, Catalogue, Profile};
+use crate::catalogue::{Anchor, Catalogue, Profile, Side};
 use crate::geometry::{shape, template, Kernel, PixelRect, SubRect};
 use crate::ncc::{ncc, Centred, Integral};
 use crate::raster::Raster;
@@ -71,20 +74,15 @@ impl<'a> Scene<'a> {
         self.raster.height()
     }
 
-    /// The NCC of `map` at the sub-pixel rectangle, `None` when it does
-    /// not lie inside the picture.
-    fn score(&self, map: &AlphaMap, rect: SubRect) -> Option<f32> {
+    /// The NCC of `map` at the sub-pixel rectangle, signed by the
+    /// profile's [`Side`] (D570), `None` when it does not lie inside the
+    /// picture.
+    fn score(&self, map: &AlphaMap, rect: SubRect, side: Side) -> Option<f32> {
         let (shape, at) = template(map, rect)?;
         if !at.inside(self.width(), self.height()) {
             return None;
         }
-        Some(ncc(
-            &self.luma,
-            &self.integral,
-            &Centred::of(&shape),
-            at.x,
-            at.y,
-        ))
+        Some(side.sign() * ncc(&self.luma, &self.integral, &Centred::of(&shape), at.x, at.y))
     }
 }
 
@@ -162,7 +160,7 @@ pub(crate) fn rows(scene: &Scene<'_>, profile: &Profile) -> Vec<Proposal> {
             continue;
         };
         let map = profile.map(row.alpha);
-        if let Some(score) = scene.score(map, rect) {
+        if let Some(score) = scene.score(map, rect, profile.side()) {
             if score >= profile.min_ncc * ROW_FLOOR {
                 found.push(Proposal {
                     map: row.alpha,
@@ -399,6 +397,7 @@ pub(crate) fn search_place(scene: &Scene<'_>, profile: &Profile) -> Option<(SubR
     let map = profile.map(s.alpha);
     let region = s.corner.region(scene.width(), scene.height(), s.within);
     let floor = profile.min_ncc * 0.5;
+    let sign = profile.side().sign();
     let mut coarse: Vec<Candidate> = Vec::new();
     let mut size = s.sizes[0];
     while size <= s.sizes[1] {
@@ -414,7 +413,7 @@ pub(crate) fn search_place(scene: &Scene<'_>, profile: &Profile) -> Option<(SubR
         while y + sh.height <= region.y + region.height {
             let mut x = region.x;
             while x + sh.width <= region.x + region.width {
-                let score = ncc(&scene.luma, &scene.integral, &centred, x, y);
+                let score = sign * ncc(&scene.luma, &scene.integral, &centred, x, y);
                 if score >= floor {
                     coarse.push(Candidate {
                         score,
@@ -469,7 +468,7 @@ pub(crate) fn search_place(scene: &Scene<'_>, profile: &Profile) -> Option<(SubR
                     if !at.inside(scene.width(), scene.height()) {
                         continue;
                     }
-                    let score = ncc(&scene.luma, &scene.integral, &centred, at.x, at.y);
+                    let score = sign * ncc(&scene.luma, &scene.integral, &centred, at.x, at.y);
                     if best.is_none_or(|(_, b)| score > b) {
                         let rect = SubRect {
                             x: at.x as f32,
@@ -492,7 +491,9 @@ pub(crate) fn search(scene: &Scene<'_>, profile: &Profile) -> Option<Proposal> {
     let s = profile.search.as_ref()?;
     let (rect, score) = search_place(scene, profile)?;
     let (rect, index, kernel) = refine(scene, profile, s.alpha, rect);
-    let score = scene.score(profile.map(index), rect).unwrap_or(score);
+    let score = scene
+        .score(profile.map(index), rect, profile.side())
+        .unwrap_or(score);
     Some(Proposal {
         map: index,
         rect,

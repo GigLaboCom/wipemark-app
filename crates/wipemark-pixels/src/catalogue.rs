@@ -321,6 +321,46 @@ impl Profile {
             .find(|b| b.under.is_none_or(|u| width < u))
             .copied()
     }
+
+    /// Which side of the picture this profile's mark is on (D570): darker
+    /// when the logo's luma is under the middle of the range, lighter
+    /// otherwise — the side the proposal's correlation is signed by.
+    pub fn side(&self) -> Side {
+        let [r, g, b] = self.logo;
+        if 0.299 * r + 0.587 * g + 0.114 * b < 127.5 {
+            Side::Darker
+        } else {
+            Side::Lighter
+        }
+    }
+}
+
+/// The side of the picture a mark is drawn on (D570). A blend moves a
+/// pixel toward its logo, `I − O = α·(L − O)`, so a mark correlates with
+/// its map positively over a picture darker than its logo and negatively
+/// over one lighter. A vendor draws each logo where it shows — Grok its
+/// black wordmark over light pictures, its white one over dark — so the
+/// side is the profile's, fixed by its logo: a window's own mean would
+/// turn a Gemini logo of 252–255 dark on a near-white corner, and Gemini's
+/// proposals are kept as they were by construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    /// The logo is lighter than the pictures it is drawn on: every profile
+    /// before D570.
+    Lighter,
+    /// The logo is darker: the correlation is taken with its sign turned.
+    Darker,
+}
+
+impl Side {
+    /// What the correlation is multiplied by: `1` for a lighter mark — the
+    /// proposal as it always was, to the bit — `−1` for a darker one.
+    pub fn sign(self) -> f32 {
+        match self {
+            Side::Lighter => 1.0,
+            Side::Darker => -1.0,
+        }
+    }
 }
 
 /// How far the search's refinement moves a size from where NCC put it
