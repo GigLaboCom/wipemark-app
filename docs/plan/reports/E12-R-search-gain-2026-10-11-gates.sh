@@ -59,6 +59,9 @@ cd "$(dirname "$0")/../../.." || exit 2
 L=${1:?a log directory}
 mkdir -p "$L"
 CARGO=${CARGO:-cargo}
+# The scripts call `cargo` by name (check-gpui-pin.sh does): the one named
+# by CARGO comes first on PATH, so a wrapper earlier on it is not asked.
+PATH="$(dirname "$(command -v "$CARGO")"):$PATH"
 c() { "$CARGO" "$@"; }
 run() {
   local name=$1

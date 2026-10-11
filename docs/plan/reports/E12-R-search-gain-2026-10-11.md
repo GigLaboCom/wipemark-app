@@ -236,11 +236,15 @@ what the band format `[{"window": [lo, 1.06]}]` gives;
 ## 5. The regression over the real corpus
 
 `scripts/regress.py run --route all` against `golden/baseline/34b4c2c/`,
-the release CLI at the branch's head: VERDICT. Corpus gates: G2 ok (exit 3:
-195 before, 195 after), G1 ok (0 files), L4/D3 ok. **Exit or `written`
-changed: none. Fail: none.** The 63 resized findings are all searched,
-verified and restored as before (§1: `k*` 1.04–1.06, inside the large band).
-The baseline was not regenerated.
+the release CLI at `04471c5` (the gates' run): **pass**
+([`regress-summary.md`](E12-R-search-gain-2026-10-11/regress-summary.md)).
+Corpus gates: G2 ok (exit 3: 195 before, 195 after), G1 ok (0 files), L4/D3
+ok. **Exit or `written` changed: none. Attention: none. Fail: none.** The 63
+resized findings are all searched, verified and restored as before (§1:
+`k*` 1.04–1.06, inside the large band). The baseline was not regenerated. (A
+first run at `598ec44`, made while the bench ran beside it, read
+"attention" on time alone — ×2–3 on every file, the machine shared — with
+nothing else moved.)
 
 ## 6. Tests and red checks
 
@@ -273,9 +277,24 @@ New tests:
 
 Red checks — `E12-R-search-gain-2026-10-11-red.py`, each protection deleted
 once, its test run, put back
-([`red.tsv`](E12-R-search-gain-2026-10-11/red.tsv)):
+([`red.tsv`](E12-R-search-gain-2026-10-11/red.tsv)), **9 of 9 red**, the
+named test failing in each:
 
-RED
+| check | the protection deleted | red test |
+|---|---|---|
+| `search-held-to-no-band` | `gain_holds` asks no band for the search | `a_weaker_mark_resized_with_its_picture_is_refused_by_the_search` |
+| `shipped-without-bands` | both `gain` fields removed from `marks.v1.json` | the same |
+| `native-held-too` | `search_band` holds a template at a map's own width too | `a_band_holds_a_resampled_template_and_never_one_at_its_maps_size` |
+| `large-band-short` | V1's large band ends at 1.04 | `the_vendors_mark_resized_with_its_picture_is_still_proved_by_the_search` |
+| `small-band-raised` | V2's small band starts at 0.98 | `a_shrunk_and_compressed_mark_is_restored_within_the_outline_bound` |
+| `window-reversed-read` | a window's `lo <= hi` not checked | `a_search_gain_band_is_read_or_refused_by_name` |
+| `under-unordered-read` | an `under` not checked against the band before | the same |
+| `open-band-not-last-read` | a band without `under` before another not refused | the same |
+| `bench-file-not-in-place` | `run --catalogue` over the Gemini rows keeps the shipped catalogue | `a_catalogue_file_takes_the_shipped_ones_place` |
+
+The first run of `search-held-to-no-band` did not compile (`None` with no
+type); the edit was given its type and run again, red — the table's line is
+the second run.
 
 ## 7. Left open
 
@@ -297,7 +316,31 @@ RED
 
 ## 8. Gates
 
-GATES
+`E12-R-search-gain-2026-10-11-gates.sh`, once, at `04471c5`, toolchain
+1.95.0, everything `--locked`:
+
+| gate | result |
+|---|---|
+| nightly rustfmt `--check` over every `.rs` under crates/ and apps/ | exit 0 |
+| clippy `--workspace --all-targets -D warnings` | exit 0 |
+| test `--workspace` | **1991 passed, 0 failed, 11 ignored** |
+| `check-dep-direction.sh`, `check-gpui-pin.sh`, `check-zune-pin.sh` | exit 0, exit 0, exit 0 |
+| check `--no-default-features`; check `--features local-llama` | exit 0; exit 0 |
+| engine tests with `local-llama` | 43 passed, 0 failed, 1 ignored |
+| app tests with `local-llama` | 763 passed, 0 failed, 2 ignored |
+| pipeline examples with `local-llama`: clippy; tests | exit 0; 28 passed, 0 failed |
+| pixels + picture without `blend-preview`: clippy, tests, examples | exit 0; **207 passed, 0 failed, 6 ignored**; exit 0 |
+| pixels + picture with `blend-preview`: clippy, tests, examples | exit 0; **215 passed, 0 failed, 6 ignored**; exit 0 |
+| release CLI and examples; `calibrate` | exit 0; exit 0 |
+| every Python file compiles; every selftest under scripts/ (regress, bench ×4, corpus ×2, grok ×4, model-eval ×7, analytics ×3 — `search_gain.py` new) and the report's tally | exit 0 each |
+| `scripts/analytics/selfcheck.sh` | exit 0 |
+| regression against `golden/baseline/34b4c2c/`, `--route all` | **pass** (§5) |
+
+`check-gpui-pin.sh` ran once more by hand: in the gates' run it called
+`cargo` by name and met this container's wrapper rather than the toolchain
+(`ssh-exec: SSH_HOST is not set`, exit 2); with the toolchain first on
+`PATH` it passes (`gpui pin ok … x11 fixes ok`). The script now puts
+`$CARGO`'s folder first on `PATH`.
 
 ## 9. CI
 
