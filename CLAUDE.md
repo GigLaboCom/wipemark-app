@@ -93,10 +93,11 @@ git submodule update --init --recursive
 ```
 
 The submodule is upstream **`longbridge/gpui-kit`**, branch **`next`**,
-at `d9b7c421` — our three pull requests merged there: the line
+at `24ded30c` — our four pull requests merged there: the line
 decorations, gpui-kit#3359 (2026-10-07; `docs/sdd/line-decorations.md`
 §4.1), a scroll bar on the left, #3416, and mirrored gutters for a
-side-by-side diff, #3417 (both 2026-10-09; E7-10, D460). Nothing of ours
+side-by-side diff, #3417 (both 2026-10-09; E7-10, D460), and the text
+clipped to its own side of the gutter, #3426 (2026-10-11). Nothing of ours
 is carried on it. GPUI is the **`gpui-pre`** snapshots on
 crates.io at exactly the component's version (`=0.3.8`, zed `279fe07`),
 so the graph holds one GPUI by construction; `scripts/check-gpui-pin.sh`
@@ -2170,6 +2171,7 @@ What exists so far:
 | `wipemark-merge-feat-report-2026-10-10` | FILE | the merge of 2026-10-10 into `feat/e0-e6-shell` (`de7559d`): the E12-R series (`recon/decided`) and E2-dflash2; the series' D301–D313 renumbered D490–D502 (they collided with the trunk's); every gate green on toolchain 1.95.0 (workspace 1947/0/11), the regression against `golden/baseline/34b4c2c/` passing; what the host still runs |
 | `wipemark-task-dflash2-speculative-2026-10-10` | FILE | the task: DFlash2 speculative decoding for Qwen3.8 27B in the local engine, F1–F5, D480–D489 |
 | `wipemark-dflash2-report-2026-10-10` | FILE | its report: F1–F5 done in the container, the red checks, the gates with the native ones over a source build, CI, the host's checklist |
+| `wipemark-dflash2-host-report-2026-10-10` | TEXT | the draft on the owner's host: the live gate byte for byte, the corpus bench 15.4 tokens a second with the draft against 32.2 without; D503/D504 stand |
 | `wipemark-task-recon-closeout-grok-ready-2026-10-10` | FILE | a task for an agent: close the Gemini line (G1–G6) and make Grok one folder away (K1–K4), D520–D539, on `recon/closeout-grok-ready` |
 | `wipemark-recon-closeout-report-2026-10-10` | FILE | its report: G1–G6 and K1–K4 done, D520–D529, the bench rerun after D470 (0 proved by the search at a row's place, unchanged on resampled slices), the regression against `34b4c2c` pass 413/413, 18 of 18 red, gates 1984/0/11, CI green; merged into `feat` 2026-10-11 |
 

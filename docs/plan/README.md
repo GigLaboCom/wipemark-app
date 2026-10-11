@@ -1447,7 +1447,9 @@ the gate the overview set, and the open edges.
   text area's painting (lines, selections, document colours, ghost lines)
   to the text area — gpui-kit **#3426** from `glani:editor-clip-text`
   (`7eaf7a76`, 2026-10-09; the test reads what was painted and goes red
-  without the clip), then the submodule bumped. Checked on this host with
+  without the clip), then the submodule bumped. **Done**: merged into
+  `next` as `24ded30c` on 2026-10-11, with the maintainer's commit that
+  clips under a gutter without line numbers too; the submodule is on it. Checked on this host with
   the submodule at `7eaf7a76`: the dark shots read right. Shots: `target/e7-10-shots/` from
   `scripts/verify/e7-10/shots.sh`.
 - **Build. A row's action is a button, not only a menu item** (the owner,
