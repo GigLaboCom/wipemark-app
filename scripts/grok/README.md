@@ -22,6 +22,7 @@ with what a person has to look at. The header of `run.sh` has every option.
 | `run.sh` | the chain above |
 | `chain.py` | its helpers (`catalogue`, `degradations`, `summary`) and its self-test: `run.sh` end to end on stand-ins |
 | `first-look.py` | the first look from a handful of real outputs (2026-10-11): where the mark is and the size/margin laws, which variant (dark/light) each picture carries, the dark map from a flat picture, a provisional two-profile `--catalogue` file (`look`); the product on the pictures through it, with an inverted and a control measurement (`product`). Report: `docs/plan/reports/E12-R11-grok-first-look-2026-10-11.md` |
+| `gwt-way.py` | Grok's mark taken off GeminiWatermarkTool's way — the inverse, then FDnCNN — against ours (2026-10-11): GWT's embedded network against KAIR's weights (`weights`), the real pictures through GWT's two rules and R10's (`pictures`), the bench's dark variant through negated backgrounds (`invert`), GWT's rules over bench crops (`crops`) and the table with R10's gates (`verdict`). Report: `docs/plan/reports/E12-R10-grok-fdncnn-2026-10-11.md` |
 | `cli-with-profile.sh` | a scratch `wipemark-cli` built from `HEAD` with a `--catalogue` file's profiles compiled in — the CLI `run.sh --cli-with-profile` waits for |
 | `render.py` | stand-in captures — the synthetic wordmark fixture (`fixtures/marks/synthetic-wordmark/`, not Grok's mark) over flat and textured backgrounds, in the guide's layout, with a sidecar |
 

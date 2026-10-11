@@ -79,6 +79,29 @@ and the transparent copies — is in Watchword as
 thumbnail carries no mark and is not in it: the fixture *is* the file,
 and its sha256 above is the source's, read on 2026-10-04.
 
+## `grok/x/` — real Grok outputs, as X handed them out
+
+Five of the first Grok outputs the owner collected on 2026-10-11, the
+files exactly as downloaded (names are X's media ids): progressive JPEG,
+4:2:0, an `APP0` and nothing else, every one with the same quantisation
+tables — libjpeg's at quality 95, so X's re-encode decodes like Pillow's
+`quality=95, subsampling=2` (checked: `scripts/grok/gwt-way.py`'s report,
+`docs/plan/reports/E12-R10-grok-fdncnn-2026-10-11.md`). The owner asked on
+2026-10-11 that pictures may be committed as examples where a script needs
+them; until then (D493, the first look) they stayed out of git. The mark is
+the slashed circle and "Grok" bottom-right, width 0.0832 × the picture's,
+dark (a black logo) on a light corner and light (a white one) on a dark
+corner (`docs/plan/reports/E12-R11-grok-first-look-2026-10-11.md`). No test
+reads them yet; `scripts/grok/first-look.py` and `gwt-way.py` do.
+
+| file | bytes | sha256 | size | under the mark | variant |
+|---|---:|---|---|---|---|
+| `HUVfLiSW0AEtmX_.jpeg` | 332 660 | `8e63edab2dd6b86ca01d8cfca813342cc5c45c8d537c0c2b66ddcbd482b35e67` | 1792 × 1008 | flat light grey (≈ 201), ring noise ≈ 1 level — first-look's reference | dark |
+| `HUVe9s_XkAAwxck.jpeg` | 732 485 | `7db4d175d50664995dfd8e0bbf33793df89d908d6eceb4e4c3a5801d85e36c33` | 1600 × 1200 | red fabric with a cream stripe, textured | dark |
+| `HUVfYqgWkAAOhiJ.jpeg` | 369 213 | `1ce6fe267427ba34a55d187eec761163ac45125641294d3743aa87ed21d323d9` | 784 × 1168 | flat-ish blue | light |
+| `HUS9M6_W8AAkLdd.jpeg` | 587 382 | `7da20b6ccdb9764800a5c5778ae674e6e78972e9f231e79e5fdca1ff8fc8a7f3` | 1792 × 1008 | dark brown texture | light |
+| `HUS9M6oX0AERoMb.jpeg` | 614 420 | `e4da860583857cef05ca6df9c7aa017d9f412e0f7639e5c2b4380f698bc145f7` | 1728 × 1152 | beige plaster | dark |
+
 ## `jpeg-planes/` — synthetic JPEGs for the stored planes (E12-R3)
 
 Sixteen small JPEGs (827–9 118 bytes) made by `jpeg-planes/make.py` with

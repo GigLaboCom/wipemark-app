@@ -148,8 +148,8 @@ composite that is checked is ours.
 
 | what | where it comes from | sha256 |
 |---|---|---|
-| `fdncnn_color.pth` | https://github.com/cszn/KAIR/releases/download/v1.0/fdncnn_color.pth (KAIR's model zoo) | *to fill in* |
-| KAIR, the network the export restates | https://github.com/cszn/KAIR, `models/network_dncnn.py` (`class FDnCNN`) | commit *to fill in* (`--kair-commit`) |
+| `fdncnn_color.pth` | https://github.com/cszn/KAIR/releases/download/v1.0/fdncnn_color.pth (KAIR's model zoo) | `777dfba5d17a76de96229ac894376632fbb8fc6e33bff01355a75009448c68df` (read 2026-10-11, `docs/plan/reports/E12-R10-grok-fdncnn-2026-10-11.md`) |
+| KAIR, the network the export restates | https://github.com/cszn/KAIR, `models/network_dncnn.py` (`class FDnCNN`) | commit `fc1732f4a4514e42ce15e5b3a1e18c828af47a1e` (`--kair-commit`) |
 | `big-lama` (folder: `config.yaml`, `models/best.ckpt`) | LaMa's README, "Download pre-trained models" (`big-lama.zip`) | `best.ckpt` *to fill in*; `config.yaml` *to fill in* |
 | advimman/lama | https://github.com/advimman/lama | commit *to fill in* |
 
