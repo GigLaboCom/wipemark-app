@@ -88,7 +88,14 @@ fn the_shipped_catalogue_reads() {
         let p = catalogue.profile(id).unwrap();
         p.placements
             .iter()
-            .map(|r| (r.when, r.anchor, p.map(r.alpha).width(), p.map(r.alpha).height()))
+            .map(|r| {
+                (
+                    r.when,
+                    r.anchor,
+                    p.map(r.alpha).width(),
+                    p.map(r.alpha).height(),
+                )
+            })
             .collect::<Vec<_>>()
     };
     assert_eq!(rows("grok-x-dark"), rows("grok-x-light"));
@@ -173,8 +180,9 @@ fn every_asset_matches_its_catalogue_hash() {
             seen += 1;
         }
     }
-    // GWT's four, and V1's 96 measured from real outputs (D243).
-    assert_eq!(seen, 5);
+    // GWT's four, V1's 96 measured from real outputs (D243), and Grok on X's
+    // twelve — six sizes, two colours (D572).
+    assert_eq!(seen, 17);
 }
 
 /// A shipped map composited onto generated pictures comes back off to
