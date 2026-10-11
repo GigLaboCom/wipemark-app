@@ -1,5 +1,14 @@
 # `scripts/grok/` — stage 1: is there one mark?
 
+**Local only — never in CI** (the owner, 2026-10-11). CI (`.github/workflows/gate.yml`)
+runs only the necessary checks: formatting, clippy, the workspace's Rust tests and
+the dependency guards. Everything here that is heavy — the restoration bench, the
+model runs, a scratch CLI build, downloads (weights, GWT's clone), anything over the
+owner's pictures — is run by hand, on this machine or the host, and its figures go
+into a report beside the script that made them. A workflow step that runs one of
+these is not to be added. Each script's `selftest` is light (no weights, no corpus)
+and is run locally before a push.
+
 ## The one command (the E12-R close-out, 2026-10-10; D528)
 
 ```sh

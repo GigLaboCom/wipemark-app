@@ -35,6 +35,8 @@
 #  5. N4: the table (gwt-way.py verdict) and R10 §2.5's line (report.md of
 #     fdncnn_run.py over R8d).
 #
+# Local only: never a CI step (the owner, 2026-10-11) — CI runs only the Rust gates.
+#
 # How to run it
 # -------------
 #   docs/plan/reports/E12-R10-grok-fdncnn-2026-10-11.sh

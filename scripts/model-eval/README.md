@@ -9,6 +9,15 @@ has one). Nothing here goes into the product: no Rust, no catalogue model
 (D166; R10 §7). A pixel a model made is *reconstructed*, never *restored*
 (D499).
 
+**Local only — never in CI** (the owner, 2026-10-11). CI (`.github/workflows/gate.yml`)
+runs only the necessary checks: formatting, clippy, the workspace's Rust tests and
+the dependency guards. Everything here that is heavy — the restoration bench, the
+model runs, a scratch CLI build, downloads (weights, GWT's clone), anything over the
+owner's pictures — is run by hand, on this machine or the host, and its figures go
+into a report beside the script that made them. A workflow step that runs one of
+these is not to be added. Each script's `selftest` is light (no weights, no corpus)
+and is run locally before a push.
+
 The scripts were written on 2026-10-09, ahead of the runs, because the owner
 asked for all code work to be finished before the steps are unblocked. They
 were written in a container with numpy and Pillow and **without** torch,
