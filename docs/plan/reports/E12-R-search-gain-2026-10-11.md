@@ -344,7 +344,11 @@ the second run.
 
 ## 9. CI
 
-CI
+`.github/workflows/gate.yml` on the push of `recon/search-gain-resampled`
+at the report's commit (run 38137059108): **gate** (fmt, clippy, test,
+deps, features) success, **macos** (clippy, tests, llama-native prebuilt
+with Metal) success, **native** (llama.cpp prebuilt + Vulkan, model-free)
+success. The commit that adds this paragraph changes this file alone.
 
 ## 10. Wanted CLAUDE.md edits
 
