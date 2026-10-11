@@ -33,7 +33,8 @@ finding, never inside a sentence), `observed`, `status`, the blend
 (`encoded` with a logo colour; `linear-light` refused until a calibration
 needs it, D152; `logo_map` refused in this version; `bias` not a field —
 all three read only under `blend-preview`, below), `opaque_above`, its
-opacity maps, its placement rows, its search, `detect.min_ncc` and the
+opacity maps, its placement rows, its search (with its `gain` bands, D530,
+below), `detect.min_ncc` and the
 three `verify` limits, and `source` for provenance.
 
 **What is known of Gemini's mark, dated (D520).** Every Gemini output the
@@ -208,6 +209,46 @@ them.
      are proved as before (`a_k_of_0_93_is_refused_by_a_k_of_1_profile`;
      `a_weaker_mark_through_the_rows_and_the_search` reads 0 proved by
      the search at `k` 0.90–0.95). On the 413-file corpus it moved nothing.
+   * **A resampled mark has gain bands of its own** (D530, the owner,
+     2026-10-11 — D470's intent for a mark at no row's place). A mark
+     resized with its picture is at no row's place, so D470 never holds
+     it, and the search measures its gain through two biases that both
+     push `k*` up: the refinement goes where the residual at `k = 1` is
+     least (a weaker mark drifts up by 0.02–0.10), and a picture resized
+     bicubically sharpens a large mark against the area-drawn template
+     (a mark at `k = 1` reads 1.02–1.06 at 86–106 pixels; the corpus's 63
+     resized stickers all read 1.04–1.06, D524). A mark drawn at 0.93
+     then reads 0.96–1.00 and was proved and restored at 1 (148 and 165
+     of R5's 720, E12-R's close-out G4). So a profile's `search` carries
+     **`gain`**, a list of bands by the template's width: a search's proof
+     of a template more than `NATIVE_REACH` (1.125 px, the refinement's
+     own reach) from every map the profile lists must have `k*` inside
+     the window of the first band whose `under` is above the width — a
+     band with no `under` takes the rest; a template at a map's own size
+     (cropped, or a pixel off its row) and a row are held to `verify.gain`
+     as before. Both Gemini profiles ship
+
+     ```json
+     "gain": [ { "under": 64, "window": [0.96, 1.06] }, { "window": [1.02, 1.06] } ]
+     ```
+
+     — from 64 pixels up, a resampled mark is proved at 1.02–1.06 and a
+     weaker one is refused by its gain, seen and left; under 64 the window
+     is a row's (`|k* − 1| ≤ 0.06` reads 0.96–1.06 on the sweep's grid:
+     0.94 is a hair past 0.06 in `f32`), because there no window separates:
+     a small mark at `k = 1` shrunk or resized reads 0.96–1.02 and one at
+     0.93 0.96–1.02 too (`a_shrunk_and_compressed_mark_is_restored_within_the_outline_bound`
+     reads 0.96). Absent, `null` or `[]` is no band — the product before
+     D530, byte for byte. A window is two gains from above 0 to 1.6, the
+     lower first, both ends inclusive on the 0.02 grid; an `under` is a
+     width above the band before; a bad value is refused by name with the
+     catalogue (`a_search_gain_band_is_read_or_refused_by_name`). Another
+     value is tried with no rebuild through a catalogue file:
+     `recon_bench run --catalogue FILE` over the Gemini rows (the file in
+     the shipped one's place) and `search_gain --catalogue FILE` over real
+     files; the product reads only the compiled-in catalogue (D162). The
+     tests are `crates/wipemark-picture/tests/search_gain.rs`; the figures
+     `docs/plan/reports/E12-R-search-gain-2026-10-11.md`.
    * **A map at a sub-pixel place and size** is the area-weighted mean of
      the map samples each pixel's footprint covers — an exact integral of
      the map read as constant per sample (the plan proposed a 4×4
@@ -570,7 +611,8 @@ traces; the proof here is stricter and the map and the logo are measured.
 ## Thresholds
 
 The shipped profiles carry `min_ncc` **0.70** (a row: half of it),
-`gain` **0.06**, `edge_ratio` **0.30**, `out_of_range` **0.01**,
+`gain` **0.06** (the search, for a resampled template of 64 pixels or more:
+**1.02–1.06**, D530), `edge_ratio` **0.30**, `out_of_range` **0.01**,
 `opaque_above` **0.95**; the classification adds `NO_BLEND_RATIO` **0.8**
 (D235) and the out-of-range allowance `BLEND_LEVELS` **8** stored levels
 (D240); a template drops the capture's noise under `CAPTURE_NOISE`

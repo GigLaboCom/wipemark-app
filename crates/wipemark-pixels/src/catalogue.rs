@@ -36,6 +36,10 @@ pub const EMBEDDED: &str = include_str!("../../../manifests/marks.v1.json");
 /// The only schema this build reads.
 pub const SCHEMA: u32 = 1;
 
+/// The highest gain the second proof sweeps (`verify.rs`): a search's gain
+/// window (D530) ends at or under it.
+const MAX_GAIN: f32 = 1.6;
+
 // `ASSETS`: every `.wma` and `.wml` under `marks/`, by file name,
 // compiled in by `build.rs`. A catalogue row names the file; a file nobody names is
 // carried and never read.
@@ -214,6 +218,24 @@ pub struct Search {
     pub within: [u32; 2],
     pub sizes: [u32; 2],
     pub alpha: usize,
+    /// The windows `k*` must fall in for the **search** to prove a mark
+    /// it found resampled (D530), by the template's width: see
+    /// [`Profile::search_band`]. Empty — the field absent, `null` or `[]`
+    /// — is the second proof as it is for a row, `|k* − 1| ≤
+    /// verify.gain`, exactly as before D530. A row is never held to it.
+    pub gain: Vec<GainBand>,
+}
+
+/// One band of a search's gain windows (D530): the templates it takes, by
+/// width, and the gains it accepts there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GainBand {
+    /// The band takes a template narrower than this many pixels, and no
+    /// band before it took; `None` takes every width that is left.
+    pub under: Option<f32>,
+    /// `[lo, hi]`: the gains accepted, both ends inclusive on the second
+    /// proof's grid of 0.02.
+    pub window: [f32; 2],
 }
 
 /// The second proof's limits (D154).
@@ -276,6 +298,65 @@ impl Profile {
     pub fn map(&self, index: usize) -> &AlphaMap {
         &self.maps[index].1
     }
+
+    /// The search's gain band a template `width` pixels wide is held to
+    /// (D530): `None` when the profile's search has no bands, or when the
+    /// width is within [`NATIVE_REACH`] of a map the profile lists — a mark
+    /// at its own size, a pixel off its row or cropped, which the
+    /// refinement reaches from that size and which no picture's resampling
+    /// moved — or when no band takes the width. Otherwise the first band
+    /// whose `under` is above the width.
+    pub fn search_band(&self, width: f32) -> Option<GainBand> {
+        let search = self.search.as_ref()?;
+        let native = self
+            .maps
+            .iter()
+            .any(|(_, m)| (m.width() as f32 - width).abs() <= NATIVE_REACH);
+        if native {
+            return None;
+        }
+        search
+            .gain
+            .iter()
+            .find(|b| b.under.is_none_or(|u| width < u))
+            .copied()
+    }
+}
+
+/// How far the search's refinement moves a size from where NCC put it
+/// (D236): a quarter-pixel grid a pixel either way, then an eighth around
+/// the best. A template within this of a map's own width is that map at its
+/// own size as far as the search can tell (D530).
+pub const NATIVE_REACH: f32 = 1.125;
+
+/// A search's gain bands, checked (D530): every window two gains from
+/// above 0 to the sweep's 1.6, the lower first; every `under` a width above
+/// 0, each above the one before; a band with no `under` the last.
+fn gain_bands(rows: &[GainBandJson]) -> Result<Vec<GainBand>, &'static str> {
+    let mut out: Vec<GainBand> = Vec::with_capacity(rows.len());
+    for (i, b) in rows.iter().enumerate() {
+        let [lo, hi] = b.window;
+        if !(lo.is_finite() && hi.is_finite() && lo > 0.0 && lo <= hi && hi <= MAX_GAIN) {
+            return Err(
+                "a search gain window is not two gains from above 0 to 1.6, the lower first",
+            );
+        }
+        if let Some(u) = b.under {
+            let above = out.last().and_then(|p| p.under).is_none_or(|p| u > p);
+            if !(u.is_finite() && u > 0.0 && above) {
+                return Err(
+                    "a search gain band's under is not a width above 0 and above the band before",
+                );
+            }
+        } else if i + 1 != rows.len() {
+            return Err("a search gain band without under is not the last");
+        }
+        out.push(GainBand {
+            under: b.under,
+            window: b.window,
+        });
+    }
+    Ok(out)
 }
 
 /// Every profile this build knows.
@@ -432,6 +513,18 @@ struct SearchJson {
     within: [u32; 2],
     sizes: [u32; 2],
     alpha: String,
+    /// The search's gain windows by width (D530); absent, `null` or `[]`
+    /// is none.
+    #[serde(default)]
+    gain: Option<Vec<GainBandJson>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GainBandJson {
+    #[serde(default)]
+    under: Option<f32>,
+    window: [f32; 2],
 }
 
 #[derive(Deserialize)]
@@ -652,12 +745,14 @@ fn profile<'a>(
             if s.sizes[0] < 8 || s.sizes[0] > s.sizes[1] || s.within[0] == 0 || s.within[1] == 0 {
                 return Err(bad("the search's sizes or box are empty"));
             }
+            let gain = gain_bands(s.gain.as_deref().unwrap_or_default()).map_err(bad)?;
             Some(Search {
                 corner: Corner::parse(&s.corner)
                     .ok_or_else(|| bad("the search names an unknown corner"))?,
                 within: s.within,
                 sizes: s.sizes,
                 alpha,
+                gain,
             })
         }
     };
@@ -793,6 +888,119 @@ mod tests {
             "logo.wml" => Some(logos),
             _ => None,
         })
+    }
+
+    /// A catalogue of one profile over one 2 × 2 map with a search whose
+    /// `gain` is `gain` (the JSON after `"gain": `, or no field at all for
+    /// `None`).
+    fn parse_search(gain: Option<&str>) -> Result<Catalogue, CatalogueError> {
+        let map = AlphaMap::new(2, 2, vec![0.0, 0.25, 0.5, 0.75])
+            .unwrap()
+            .write(8)
+            .unwrap();
+        let map_sha = hex(&map);
+        let gain = gain.map_or(String::new(), |g| format!(r#", "gain": {g}"#));
+        let json = format!(
+            r#"{{ "schema": 1, "profiles": [{{
+      "id": "test", "vendor": "test", "product": "synthetic", "mark": "sparkle",
+      "observed": {{ "from": null, "until": null }}, "status": "stable",
+      "blend": {{ "model": "encoded", "logo": [255, 255, 255], "logo_map": null }},
+      "opaque_above": 0.95,
+      "alpha": [ {{ "id": "small", "asset": "small.wma", "sha256": "{map_sha}", "size": [2, 2] }} ],
+      "placements": [],
+      "search": {{ "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "small"{gain} }},
+      "detect": {{ "min_ncc": 0.70 }},
+      "verify": {{ "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 }},
+      "source": null
+    }}] }}"#
+        );
+        Catalogue::parse(&json, &|name: &str| {
+            (name == "small.wma").then_some(map.as_slice())
+        })
+    }
+
+    /// D530: a search's gain bands are data. Absent, `null` and `[]` are no
+    /// band — the second proof as for a row, the product before D530; bands
+    /// are read in order; a value the second proof could not use is refused
+    /// by name, never read as something else.
+    #[test]
+    fn a_search_gain_band_is_read_or_refused_by_name() {
+        let bands = |c: Catalogue| c.profiles()[0].search.as_ref().unwrap().gain.clone();
+        for none in [None, Some("null"), Some("[]")] {
+            assert_eq!(bands(parse_search(none).unwrap()), vec![], "{none:?}");
+        }
+        let two = r#"[ { "under": 64, "window": [0.98, 1.06] }, { "window": [1.02, 1.06] } ]"#;
+        assert_eq!(
+            bands(parse_search(Some(two)).unwrap()),
+            vec![
+                GainBand {
+                    under: Some(64.0),
+                    window: [0.98, 1.06]
+                },
+                GainBand {
+                    under: None,
+                    window: [1.02, 1.06]
+                },
+            ]
+        );
+        let refused = |why: &'static str| CatalogueError::Profile {
+            id: String::from("test"),
+            why,
+        };
+        let window = "a search gain window is not two gains from above 0 to 1.6, the lower first";
+        let under = "a search gain band's under is not a width above 0 and above the band before";
+        for (gain, why) in [
+            (r#"[ { "window": [1.06, 1.02] } ]"#, window),
+            (r#"[ { "window": [0, 1.06] } ]"#, window),
+            (r#"[ { "window": [1.0, 1.7] } ]"#, window),
+            (r#"[ { "under": 0, "window": [1.0, 1.06] } ]"#, under),
+            (
+                r#"[ { "under": 64, "window": [1.0, 1.06] }, { "under": 32, "window": [1.0, 1.06] } ]"#,
+                under,
+            ),
+            (
+                r#"[ { "window": [1.0, 1.06] }, { "under": 64, "window": [1.0, 1.06] } ]"#,
+                "a search gain band without under is not the last",
+            ),
+        ] {
+            assert_eq!(
+                parse_search(Some(gain)).unwrap_err(),
+                refused(why),
+                "{gain}"
+            );
+        }
+        // A band is an object of two fields; anything else is the schema's.
+        for gain in [
+            "[1.0, 1.06]",
+            r#"[ { "window": [1.0, 1.06], "over": 3 } ]"#,
+            r#"[ { "under": 64 } ]"#,
+        ] {
+            assert!(
+                matches!(parse_search(Some(gain)), Err(CatalogueError::Json(_))),
+                "{gain}"
+            );
+        }
+    }
+
+    /// D530: a template within the refinement's reach of a map's own width
+    /// is that map at its own size — a mark cropped or a pixel off its row —
+    /// and is held to no band; a resampled one takes the first band whose
+    /// `under` is above its width.
+    #[test]
+    fn a_band_holds_a_resampled_template_and_never_one_at_its_maps_size() {
+        let two = r#"[ { "under": 64, "window": [0.98, 1.06] }, { "window": [1.02, 1.06] } ]"#;
+        let c = parse_search(Some(two)).unwrap();
+        let p = &c.profiles()[0];
+        // The map is 2 pixels wide.
+        for native in [2.0, 2.0 + NATIVE_REACH, 2.0 - NATIVE_REACH] {
+            assert_eq!(p.search_band(native), None, "{native}");
+        }
+        assert_eq!(p.search_band(3.25).map(|b| b.window), Some([0.98, 1.06]));
+        assert_eq!(p.search_band(63.9).map(|b| b.window), Some([0.98, 1.06]));
+        assert_eq!(p.search_band(64.0).map(|b| b.window), Some([1.02, 1.06]));
+        let one = r#"[ { "under": 64, "window": [0.98, 1.06] } ]"#;
+        let c = parse_search(Some(one)).unwrap();
+        assert_eq!(c.profiles()[0].search_band(86.0), None);
     }
 
     /// E12-R9: the three changes are code, and none of them is open. A

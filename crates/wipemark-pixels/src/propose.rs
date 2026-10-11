@@ -19,7 +19,7 @@ use crate::catalogue::{Anchor, Catalogue, Profile};
 use crate::geometry::{shape, template, Kernel, PixelRect, SubRect};
 use crate::ncc::{ncc, Centred, Integral};
 use crate::raster::Raster;
-use crate::verify::residual;
+use crate::verify::{residual_over, AT_ONE};
 
 /// How a proposal was placed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,9 +235,29 @@ struct Refinement {
 /// [`refine`]'s sweeps, with everything they saw: the one body both the
 /// search and [`refine_at`] run.
 fn refinement(scene: &Scene<'_>, profile: &Profile, search: usize, base: SubRect) -> Refinement {
+    refinement_by(scene, profile, search, base, AT_ONE)
+}
+
+/// [`refinement`], minimising the residual over the sweep's `steps` of
+/// gain rather than at `k = 1` alone: [`AT_ONE`] is the search's own.
+fn refinement_by(
+    scene: &Scene<'_>,
+    profile: &Profile,
+    search: usize,
+    base: SubRect,
+    steps: std::ops::RangeInclusive<usize>,
+) -> Refinement {
     let left = |r: SubRect, kernel: Kernel| {
         let index = map_for(profile, r.size, search);
-        residual(scene.raster, profile, profile.map(index), r, kernel)
+        residual_over(
+            scene.raster,
+            profile,
+            profile.map(index),
+            r,
+            kernel,
+            steps.clone(),
+        )
+        .map(|(r, _)| r)
     };
     let Some(start) = left(base, Kernel::Area) else {
         return Refinement {
@@ -371,11 +391,10 @@ struct Candidate {
     stride: u32,
 }
 
-/// The bounded search: coarse over the profile's corner box, the five
-/// best distinct candidates, a fine whole-pixel pass around each; the
-/// best is proposed when it reaches `min_ncc`, with the profile's own map
-/// of that size when it has one, after the sub-pixel refinement.
-pub(crate) fn search(scene: &Scene<'_>, profile: &Profile) -> Option<Proposal> {
+/// The search's whole-pixel place: coarse over the profile's corner box,
+/// the five best distinct candidates, a fine whole-pixel pass around each;
+/// the best, with its NCC, when it reaches `min_ncc`.
+pub(crate) fn search_place(scene: &Scene<'_>, profile: &Profile) -> Option<(SubRect, f32)> {
     let s = profile.search.as_ref()?;
     let map = profile.map(s.alpha);
     let region = s.corner.region(scene.width(), scene.height(), s.within);
@@ -464,9 +483,14 @@ pub(crate) fn search(scene: &Scene<'_>, profile: &Profile) -> Option<Proposal> {
         }
     }
     let (rect, score) = best?;
-    if score < profile.min_ncc {
-        return None;
-    }
+    (score >= profile.min_ncc).then_some((rect, score))
+}
+
+/// The bounded search: [`search_place`], refined (D236); the best is
+/// proposed with the profile's own map of that size when it has one.
+pub(crate) fn search(scene: &Scene<'_>, profile: &Profile) -> Option<Proposal> {
+    let s = profile.search.as_ref()?;
+    let (rect, score) = search_place(scene, profile)?;
     let (rect, index, kernel) = refine(scene, profile, s.alpha, rect);
     let score = scene.score(profile.map(index), rect).unwrap_or(score);
     Some(Proposal {
@@ -478,5 +502,39 @@ pub(crate) fn search(scene: &Scene<'_>, profile: &Profile) -> Option<Proposal> {
         // its own size and a whole-pixel offset it is not resampled.
         resample: false,
         kernel,
+    })
+}
+
+/// The search's three places for a measure (`trace_search`): the
+/// whole-pixel place NCC chose, the place the refinement by the residual
+/// at `k = 1` takes (the product's, D236), and the place a refinement by
+/// the residual at the gain the picture shows (`k` from 0.80 to 1.20)
+/// would take. Each a proposal as the search would hand it to the second
+/// proof.
+pub(crate) struct Trace {
+    pub ncc: f32,
+    pub base: Proposal,
+    pub refined: Proposal,
+    pub free: Proposal,
+}
+
+pub(crate) fn search_trace(scene: &Scene<'_>, profile: &Profile) -> Option<Trace> {
+    let s = profile.search.as_ref()?;
+    let (rect, ncc) = search_place(scene, profile)?;
+    let proposal = |rect: SubRect, kernel: Kernel| Proposal {
+        map: map_for(profile, rect.size, s.alpha),
+        rect,
+        placed: Placed::Searched,
+        ncc,
+        resample: false,
+        kernel,
+    };
+    let at_one = refinement(scene, profile, s.alpha, rect);
+    let free = refinement_by(scene, profile, s.alpha, rect, crate::verify::NEAR_ONE);
+    Some(Trace {
+        ncc,
+        base: proposal(rect, Kernel::Area),
+        refined: proposal(at_one.rect, at_one.kernel),
+        free: proposal(free.rect, free.kernel),
     })
 }

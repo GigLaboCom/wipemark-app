@@ -40,6 +40,11 @@ const EDGE: f32 = 1e-4;
 /// `k = 1` exactly at `i = 50`.
 const STEPS: usize = 80;
 const ONE: usize = 50;
+/// The sweep's step of `k = 1` alone: what the search refines by (D236).
+pub(crate) const AT_ONE: std::ops::RangeInclusive<usize> = ONE..=ONE;
+/// The sweep's steps from `k = 0.80` to `1.20`: the gains a measure of
+/// the gain a picture shows looks over.
+pub(crate) const NEAR_ONE: std::ops::RangeInclusive<usize> = 40..=60;
 
 /// Why a proposal was not accepted. Each carries the number that failed;
 /// [`Scores`] beside it carries all of them.
@@ -381,13 +386,19 @@ impl Grid {
 /// outline is too. (`E(1)/E(0)` is not compared across places: `E(0)`
 /// moves with the shape as much as the residual does.) `None` where the
 /// template does not fit or has no contour.
-pub(crate) fn residual(
+///
+/// Over `steps` of the sweep (`k = i/50`) the least `E(k)/Σ|∇α|` and
+/// that `k`: [`AT_ONE`] is the residual at the mark's own opacity, the
+/// search's (D236); [`NEAR_ONE`] the residual at the gain the picture
+/// shows, a measure (`search_trace`).
+pub(crate) fn residual_over(
     raster: &Raster,
     profile: &Profile,
     map: &crate::alpha::AlphaMap,
     rect: SubRect,
     kernel: Kernel,
-) -> Option<f64> {
+    steps: std::ops::RangeInclusive<usize>,
+) -> Option<(f64, f32)> {
     let (shape, at) = template_with(map, rect, kernel)?;
     if !at.inside(raster.width(), raster.height()) {
         return None;
@@ -407,8 +418,16 @@ pub(crate) fn residual(
         law,
     );
     let weight: f64 = grid.edges.iter().map(|&(_, g)| f64::from(g)).sum();
+    if weight <= 0.0 {
+        return None;
+    }
     let mut luma = vec![0f64; grid.pixels.len()];
-    (weight > 0.0).then(|| grid.energy(1.0, &mut luma) / weight)
+    steps
+        .map(|i| {
+            let k = i as f64 / ONE as f64;
+            (grid.energy(k, &mut luma) / weight, k as f32)
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
 }
 
 /// The second proof over one proposal: the numbers, and the outcome.
@@ -556,7 +575,7 @@ pub(crate) fn verify_with(
         // the blend itself — a cut-out sticker's confetti under its
         // transparent corner is no blend, and is no finding (D235).
         Outcome::Refused(Refusal::Transparent)
-    } else if (gain - 1.0).abs() > t.gain {
+    } else if !gain_holds(profile, proposal, star) {
         Outcome::Refused(Refusal::Gain { k: gain })
     } else if edge_ratio > t.edge_ratio {
         Outcome::Refused(Refusal::Edges { ratio: edge_ratio })
@@ -588,6 +607,28 @@ pub(crate) fn verify_with(
         })
     };
     (Some(scores), outcome)
+}
+
+/// Whether `k* = star/50` is a gain the second proof accepts for this
+/// proposal: for the search, the window of the gain band its template's
+/// width falls in (D530, [`Profile::search_band`]) — both ends inclusive on
+/// the sweep's grid; otherwise, and always for a row, `|k* − 1| ≤
+/// verify.gain`, as before D530.
+fn gain_holds(profile: &Profile, proposal: &Proposal, star: usize) -> bool {
+    let band = match proposal.placed {
+        crate::Placed::Searched => profile.search_band(proposal.rect.size),
+        crate::Placed::Row(_) => None,
+    };
+    match band.map(|b| b.window) {
+        Some([lo, hi]) => {
+            // The ends on the sweep's steps, a hair inward of a decimal
+            // written in the catalogue: 1.00 is step 50, never 49.
+            let lo = (f64::from(lo) * ONE as f64 - 1e-3).ceil();
+            let hi = (f64::from(hi) * ONE as f64 + 1e-3).floor();
+            (lo..=hi).contains(&(star as f64))
+        }
+        None => (star as f32 / ONE as f32 - 1.0).abs() <= profile.thresholds.gain,
+    }
 }
 
 /// Over this, an outline is left (D238): a fifth of the mark's own

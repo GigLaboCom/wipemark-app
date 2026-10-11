@@ -74,6 +74,13 @@ to 15–25 levels off (E12-R5's table).
 | b. the search's gain tolerance tighter than the row's | narrows it, does not close it |
 | c. leave it; the outline check catches part of it | today's behaviour |
 
+**Extended 2026-10-11, D530**: option a reaches a mark at a row's place;
+a mark resized with its picture is at none (the close-out's G4: 148 and
+165 of 720 still proved by the search). Its gain is held by `search.gain`
+bands in the catalogue instead — option b made data and size-aware: from
+64 pixels up `[1.02, 1.06]`, under 64 a row's window
+([`reports/E12-R-search-gain-2026-10-11.md`](reports/E12-R-search-gain-2026-10-11.md)).
+
 ### A4. Merge the series into `feat` — **done 2026-10-10** (`docs/plan/reports/merge-feat-2026-10-10.md`)
 
 | option | |
@@ -112,6 +119,15 @@ widen for the search alone; look at it with A3.
 **Decided at the default, D524**: noted in R4's report
 ([`reports/E12-R4-2026-10-09.md`](reports/E12-R4-2026-10-09.md), "The
 search's `k*` on resampled files"); nothing changes.
+
+**Amended 2026-10-11, D530** (the owner's question, with A3 — "do it the
+better way, and if possible under a parameter"): the 1.04–1.06 is the
+search's own upward bias on a resampled large mark, and a mark drawn at
+0.93 reads 0.96–1.00 there, so from 64 pixels up the search proves a
+resampled mark only at 1.02–1.06 — a band of `search.gain` in the
+catalogue, not code, the 63 resized stickers all kept. Under 64 pixels no
+window separates the two and the band is a row's. The figures:
+[`reports/E12-R-search-gain-2026-10-11.md`](reports/E12-R-search-gain-2026-10-11.md).
 
 ## C. The Gemini question (2026-10-10)
 
