@@ -331,7 +331,7 @@ it sits.
 | `wipemark-log` | the rotating file, the panic hook, `Elided` | real |
 | `wipemark-i18n` | the Fluent catalogues and the `Message` enum `build.rs` generates from them | real |
 | `wipemark-image` | PNG, JPEG and WebP metadata: blocks that tile the file, the AI signals as data, `inspect`/`strip` with the raster unchanged; and `reframe`, the one writer for a picture whose pixels changed (`reframe(x, x) == strip(x)`) | real for PNG/JPEG/WebP (E11-1, E11-3; `reframe` E12-3); TIFF, HEIC/AVIF refused by name (backlog); the CLI and the MCP server call it (E11-2), `wipemark-picture` too, and through it the windows' Clean (E7) |
-| `wipemark-pixels` | visible marks as data: the raster, the `.wma` opacity map, the compiled-in catalogue `manifests/marks.v1.json` with every asset pinned by sha256; propose (rows at their own place, then a search refined to the sub-pixel and to the filter that shrank the mark, which never proves a mark where its row refused it by gain, D470) → verify (edge energy over the unclamped inverse: proved, a blend not proved, or no blend; for a 4:2:0/4:2:2 JPEG out of range in its planes, D471) → restore (in the planes on that route, D471; then, on a lossy JPEG, the value chosen inside the file's quantisation intervals by DCT-POCS, D472 — pixel POCS and Wiener are the bench's), the outline and texture checks, holes, the second pass; calibration (`examples/calibrate.rs`); the report whose shelf leads with `invisible-pixel-marks`. No codec | real (E12-1, E12-2, five rounds of host verification); Gemini V1/V2 from GWT's maps (`marks/gwt/`), V1's large-row map and logo measured from real outputs (`gemini-v1-96-measured`), V2's small rows from GWT's formula — kept for the pictures already out, Gemini's outputs since 2026-10 carrying no visible mark (D520); other vendors **E12-6**, Grok one folder away (`scripts/grok/run.sh`, D528) |
+| `wipemark-pixels` | visible marks as data: the raster, the `.wma` opacity map, the compiled-in catalogue `manifests/marks.v1.json` with every asset pinned by sha256; propose (rows at their own place, then a search refined to the sub-pixel and to the filter that shrank the mark, which never proves a mark where its row refused it by gain, D470, and proves a resampled one only inside its width's gain band, `search.gain`, `Profile::search_band`, D530) → verify (edge energy over the unclamped inverse: proved, a blend not proved, or no blend; for a 4:2:0/4:2:2 JPEG out of range in its planes, D471) → restore (in the planes on that route, D471; then, on a lossy JPEG, the value chosen inside the file's quantisation intervals by DCT-POCS, D472 — pixel POCS and Wiener are the bench's), the outline and texture checks, holes, the second pass; calibration (`examples/calibrate.rs`); the report whose shelf leads with `invisible-pixel-marks`. No codec | real (E12-1, E12-2, five rounds of host verification); Gemini V1/V2 from GWT's maps (`marks/gwt/`), V1's large-row map and logo measured from real outputs (`gemini-v1-96-measured`), V2's small rows from GWT's formula — kept for the pictures already out, Gemini's outputs since 2026-10 carrying no visible mark (D520); other vendors **E12-6**, Grok one folder away (`scripts/grok/run.sh`, D528) |
 | `wipemark-picture` | a picture file through both passes: decode to the stored raster (a JPEG with its planes, D471), the visible pass (a 4:2:0/4:2:2 mark in the planes, D471; DCT-POCS after it on a lossy JPEG, `REFINE`, D472 — no feature, no environment variable), encode like the original, `wipemark_image::reframe`, the proof before a byte is handed back — one writer | real for PNG, WebP (lossless out) and JPEG (re-encoded at quality 95; CMYK examined, never written back) (E12-3, E12-4; the planes and DCT-POCS since the owner's decisions of 2026-10-10); the CLI and the MCP tools call it (E12-5), and the windows' Clean and the panel's look at AI-provenance scope (E7); Compare for pictures and the batch queue's picture item are **E12-8** |
 | `wipemark-intake` | what was handed over — text, bytes or a path — and what it turns out to be (`Handed::is_nothing`: an empty or ASCII-white-space text is no item, D301; no head read from a FIFO, terminal, socket or device, D356); and `inplace`, the one module that writes: a result beside a file or over it, the original set aside first, a new file only where nothing is (`write_new`) | real |
 | `wipemark-license` | activation, grace, and what a lapse never locks | types; **E9** |
@@ -1938,7 +1938,11 @@ Anything that needed more than a rule to explain is in `docs/`;
   placement row at its own rectangle and **never moved**, and the search,
   refined to an eighth of a pixel, only when no row's mark was proved
   (D236) — and never proving a mark at the place of a row of its profile
-  that refused it by gain: another opacity is another profile (D470).
+  that refused it by gain: another opacity is another profile (D470). A
+  mark resized with its picture is held by the profile's search gain bands
+  instead (D530, `search.gain` in `manifests/marks.v1.json`): from 64 pixels
+  up a resampled mark is proved only at `k*` 1.02–1.06, under 64 as a row
+  is; the field absent is the product before D530.
   Edge energy over the unclamped inverse decides, and there are
   three outcomes (D235): **proved**, and restored; **a blend not proved**
   (the gain is not the mark's, the edges do not go far enough, the
@@ -2174,6 +2178,11 @@ What exists so far:
 | `wipemark-dflash2-host-report-2026-10-10` | TEXT | the draft on the owner's host: the live gate byte for byte, the corpus bench 15.4 tokens a second with the draft against 32.2 without; D503/D504 stand |
 | `wipemark-task-recon-closeout-grok-ready-2026-10-10` | FILE | a task for an agent: close the Gemini line (G1–G6) and make Grok one folder away (K1–K4), D520–D539, on `recon/closeout-grok-ready` |
 | `wipemark-recon-closeout-report-2026-10-10` | FILE | its report: G1–G6 and K1–K4 done, D520–D529, the bench rerun after D470 (0 proved by the search at a row's place, unchanged on resampled slices), the regression against `34b4c2c` pass 413/413, 18 of 18 red, gates 1984/0/11, CI green; merged into `feat` 2026-10-11 |
+| `wipemark-recon-search-gain-report-2026-10-11` | FILE | D530, the search's gain bands for a resized mark: `search.gain` in the catalogue (absent is the product before), from 64 px up `[1.02, 1.06]`, under 64 a row's window; weak resized marks proved by the search 165 → 50 (R8d; the large ones 0), true marks lost 5 of 524, real resized findings 63 of 63 kept, the regression against `34b4c2c` pass, 9 of 9 red, gates 1991/0/11, CI green; merged into `feat` 2026-10-11 |
+| `wipemark-task-recon-grok-first-look-2026-10-11` | FILE | a task for an agent: Grok's mark from the owner's first pictures — where, which variant, a provisional two-profile `--catalogue` file, the product on them; on `recon/grok-first-look` |
+| `wipemark-recon-grok-first-look-report-2026-10-11` | FILE | its report: width 0.0832·W, margins constant, a dark (black logo) and a light (white logo) variant of one shape, α ≈ 0.36, no hole; the product proves none of the five (a dark mark is never proposed — D540 proposed; the light ones refused by edges or range); what the owner should capture next; not merged |
+| `wipemark-task-recon-grok-fdncnn-2026-10-11` | FILE | a task for an agent: Grok's mark the way GeminiWatermarkTool takes it off (the inverse, then FDnCNN), measured by R10; on `recon/grok-fdncnn` |
+| `wipemark-recon-grok-fdncnn-report-2026-10-112` | FILE | its report (the key's `2` is Watchword's collision suffix; `…-2026-10-11` is the same report before its CI section): GWT's denoiser is KAIR's FDnCNN in FP16; FDnCNN gives no precision after R8d; GWT's σ-15 rule gains 2.7–6.1 dB by smoothing and fails F3 and F5; the five pictures as `fixtures/image/grok-x/`; heavy runs local only; CI green; not merged |
 
 The snapshot is a *copy*: `docs/` is the source of truth for anything
 durable, and a copy that is edited in Watchword instead is two documents
@@ -2246,7 +2255,8 @@ its result, one question at a time, "…, then edited" (D447) and Report… of
 a journal row greyed (D448), both at a default the owner may switch.
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice
 choosable, the shipped templates unchanged. The next free decision block is
-**D530** (D490–D502 and D520–D529 are E12-R's, D503–D504 the draft's). **E2-dflash2** — DFlash2 speculative decoding for Qwen3.8 27B, its draft
+**D531** (D490–D502 and D520–D530 are E12-R's, D503–D504 the draft's; D540–D549
+are the Grok first look's — D540 proposed — and D550–D559 its FDnCNN step's, none taken). **E2-dflash2** — DFlash2 speculative decoding for Qwen3.8 27B, its draft
 as a catalogue entry tied to the model, the Engine page's **Faster
 decoding** row, the command line and the bench's `--draft` (D480–D489) — is
 merged (2026-10-10). On the owner's host (RTX 5070 Ti, Vulkan) the live
@@ -2279,5 +2289,9 @@ is one folder away — the owner's capture guide
 `grok-captures/<web|x|api|video>/` through stage 0 and R11's stages 1–3 to a
 provisional `--catalogue` profile (D526–D529). What remains is the owner's: the
 captures, the stage-0 table's hand columns, the ZIP upload, then the host runs
-R11 and R12 owe (`docs/plan/reports/E12-R-closeout-2026-10-10.md`, K4). E1 and E3 parallelise in separate worktrees; E5 lands before
+R11 and R12 owe (`docs/plan/reports/E12-R-closeout-2026-10-10.md`, K4). **D530** is merged too (`recon/search-gain-resampled`, 2026-10-11):
+the search proves a resized mark only inside its width's gain band (`search.gain`
+in the catalogue; absent is the product before), every real resized finding kept
+(`docs/plan/reports/E12-R-search-gain-2026-10-11.md`). Grok's first look and its
+FDnCNN step (`recon/grok-first-look`, `recon/grok-fdncnn`) are pushed, not merged. E1 and E3 parallelise in separate worktrees; E5 lands before
 E6 and gives agents a usable product before the GUI exists.
