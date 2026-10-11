@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use support::*;
 use wipemark_pixels::{
     clean, composite, drawn, shipped_assets, AlphaMap, AssetProblem, Catalogue, CatalogueError,
-    ExamineOptions, Layout, PixelRect, EMBEDDED,
+    ExamineOptions, Layout, PixelRect, Side, EMBEDDED,
 };
 
 /// The four PNGs as GWT embeds them, by their sha256 (the plan's §3).
@@ -50,12 +50,57 @@ fn gwt_dir() -> PathBuf {
 fn the_shipped_catalogue_reads() {
     let catalogue = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
     let ids: Vec<_> = catalogue.profiles().iter().map(|p| p.id.as_str()).collect();
-    assert_eq!(ids, ["gemini-sparkle-v1", "gemini-sparkle-v2"]);
-    for p in catalogue.profiles() {
+    assert_eq!(
+        ids,
+        [
+            "gemini-sparkle-v1",
+            "gemini-sparkle-v2",
+            "grok-x-dark",
+            "grok-x-light"
+        ]
+    );
+    for p in catalogue.profiles().iter().filter(|p| p.vendor == "xai") {
+        // Grok on X (D571): one wordmark in two colours — black over light
+        // pictures, white over dark — every map fitted from the owner's
+        // pictures (D245), no hole, and the dark one proposed on its own
+        // side (D570).
+        assert_eq!(p.product, "grok", "{}", p.id);
+        let (logo, side) = if p.id == "grok-x-dark" {
+            ([0.0; 3], Side::Darker)
+        } else {
+            ([255.0; 3], Side::Lighter)
+        };
+        assert_eq!((p.logo, p.side()), (logo, side), "{}", p.id);
+        assert!(
+            !p.maps.is_empty() && p.fitted.iter().all(|&f| f),
+            "{}",
+            p.id
+        );
+        assert!(p.maps.iter().all(|(_, m)| m.peak() < 0.5), "{}", p.id);
+        assert_eq!(p.thresholds.gain, 0.06, "{}", p.id);
+        assert_eq!(p.thresholds.edge_ratio, 0.30, "{}", p.id);
+        assert_eq!(p.thresholds.out_of_range, 0.01, "{}", p.id);
+        assert_eq!((p.min_ncc, p.opaque_above), (0.70, 0.95), "{}", p.id);
+    }
+    // A map per size and colour (D572): the two profiles answer for the same
+    // sizes at the same places, each with its own colour's map.
+    let rows = |id: &str| {
+        let p = catalogue.profile(id).unwrap();
+        p.placements
+            .iter()
+            .map(|r| (r.when, r.anchor, p.map(r.alpha).width(), p.map(r.alpha).height()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rows("grok-x-dark"), rows("grok-x-light"));
+    assert_eq!(rows("grok-x-dark").len(), 6);
+    for p in catalogue.profiles().iter().filter(|p| p.vendor != "xai") {
         assert_eq!(
             (p.vendor.as_str(), p.product.as_str()),
             ("google", "gemini")
         );
+        // Every Gemini logo is lighter than the pictures it is drawn on: its
+        // proposals are the correlation as it always was (D570).
+        assert_eq!(p.side(), Side::Lighter, "{}", p.id);
         // V1's logo is the colour measured on 22 real outputs (D242);
         // V2's has no real output to measure yet, and is GWT's white.
         let logo = if p.id == "gemini-sparkle-v1" {
