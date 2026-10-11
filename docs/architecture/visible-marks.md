@@ -1039,11 +1039,84 @@ removed"); plan: [`docs/plan/E12-5-surfaces.md`](../plan/E12-5-surfaces.md).
   shelf is gated in every language
   (`the_picture_shelf_is_never_empty_in_any_language`).
 
+## Grok on X (E12-6, D570–D573)
+
+Grok stamps a visible mark on the pictures it makes **in X** only — grok.com
+and the API carry metadata, which the metadata pass removes, and no visible
+mark (the owner, 2026-10-11). It is a slashed circle and "Grok" in the
+bottom-right corner, about 0.083 of the picture's width, one shape and one
+opacity (α ≈ 0.36 at the strokes' core, 0.41–0.42 at most, no hole) in two
+colours: **black over light pictures, white over dark ones** — the switch
+somewhere between luma 71 and 160. The owner wants it taken off as Gemini's
+is: a proved mark is removed, with no flag (the owner, 2026-10-04 and
+2026-10-11).
+
+* **Two profiles, a map per size and colour.** `grok-x-dark` (logo
+  `[0, 0, 0]`) and `grok-x-light` (logo `[255, 255, 255]`) in
+  `manifests/marks.v1.json`, `vendor` `xai`, `product` `grok`, `status`
+  `provisional`, a corner row per size X has handed out, at its measured
+  place (`crates/wipemark-pixels/marks/grok/README.md`, D571, D572). The two
+  colours have one opacity and not one shape: a black and a white picture of
+  one size agree at the core and part on the soft edge, the white mark
+  thinner (0.90–0.93 of the black one's map). So each profile has its own
+  maps — measured where a flat picture of its colour exists; for the black
+  mark elsewhere the 1792×1008 map drawn where the picture put the mark
+  (NCC 0.995 against the measured ones); for the white mark elsewhere the
+  black map through the **colour curve**, the white α as a function of the
+  black one, measured on the pairs (made without one, RMS 0.010 on it against
+  0.034–0.038 untransformed). Every map is fitted (D245), never claimed
+  exact. The limits are the shipped ones — `min_ncc` 0.70, gain 0.06, edges
+  0.30, range 0.01, `opaque_above` 0.95. D571 puts the profiles in the
+  product, which D526 had kept to a `--catalogue` file, for X's mark only.
+* **A mark darker than the picture is proposed** (D570). A blend moves a
+  pixel toward its logo, `I − O = α·(L − O)`, so a black mark correlates
+  with its map *negatively*; the proposal's NCC was signed and proposed only
+  the positive side, so no black mark was ever a finding. `Profile::side`
+  says which side a profile's logo is on (darker when its luma is under the
+  middle of the range), and the rows' and the search's correlation is
+  multiplied by `Side::sign` — `1` for every Gemini profile, whose
+  proposals are unchanged to the bit, `−1` for `grok-x-dark`. Every later
+  stage already took the logo as the profile gives it, and was read for
+  it, not assumed: the gain sweep and the edges invert `(I − kαL)/(1 − kα)`;
+  the range is `[α·L, α·L + (1 − α)·max]` in RGB and in the planes; the
+  outline's share, its step (`|step|`), its colour step (`hypot`) and the
+  texture are magnitudes; the capture noise's slope is a regression; the
+  restoration, the planar inverse and DCT-POCS's interval all unblend with
+  `L`. `tests/dark_logo.rs` holds it: a black mark over a light picture
+  proposed, proved and restored at its row and by the search, in a 4:2:0
+  JPEG's planes and inside the codec's interval too; a black look-alike —
+  another word, the same word at 0.72 of its opacity — never proved, the
+  second refused by its gain at the row; and each side proposing only its
+  own marks.
+* **A size X has not handed out is not proved** (D573). The search over the
+  corner (`within` 320 × 160, widths 32–216, the profile's own 1792×1008
+  map, only ever drawn down) is the only road to a size with no row, and on
+  the owner's pictures with their rows taken away it proves no mark of
+  another size: at 65 px it sees the mark and refuses it by its gain
+  (`k*` 1.08–1.10 — Grok draws its small mark sharper than the large one
+  drawn down), at 97–102 px its coarse grid (a stride of a sixteenth of the
+  width, sizes four pixels apart) misses the wordmark's thin strokes and it
+  proposes nothing. A picture of the new size gives its row. `search.gain`
+  is not set (D573): Grok's resampled marks read `k*` 0.96–1.06 (not
+  Gemini's 1.02–1.06), a weaker mark resized reads the same, and D530's
+  bands would keep 29 of 94 weak proofs while dropping 94 of 204 true ones.
+  A weaker mark at its row is never proved (D470); resized, 15 of 720 are
+  restored and said clean — the outline catches the other 79 — an open
+  question the report states.
+* **What a flat X picture comes to.** On the owner's pictures every mark at
+  a row is proved and taken off with no outline (share ≤ 0.004, step ≤ 0.3
+  levels). On white the result is clean (exit 1). On black and on the grey
+  `clean` says a smoothed patch is left (D496) and exits 3: on flat black
+  what is left around the strokes is the JPEG's own halo of the mark, outside
+  its map, rougher than the restored strokes; on the flat grey DCT-POCS makes
+  the restored patch smoother than the JPEG noise around it. Neither rule is
+  loosened. The figures are in `docs/plan/reports/E12-6-grok-x-2026-10-11.md`.
+
 ## Not here yet
 
 * **V2 rows for the 512-pixel tier and the 1:4 and 1:8 shapes** — GWT's
   formula does not reach them; a capture of each would.
-* **Other vendors** (E12-6), **reconstruction** (E12-7); restoring with a
+* **Other vendors** than Gemini and Grok on X (E12-6), **reconstruction** (E12-7); restoring with a
   bias, a `logo_map` or a linear-light mark outside the `blend-preview`
   build (E12-R9, above). The windows clean a picture through
   `wipemark-picture` since E7 — the queue's and the panel's Clean, with

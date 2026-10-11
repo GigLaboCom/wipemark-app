@@ -378,6 +378,34 @@ mod tests {
         assert_eq!(again["visible"]["found"], serde_json::json!([]), "{again}");
     }
 
+    /// One of the owner's pictures from Grok on X (`fixtures/image/grok-x/`,
+    /// the white wordmark over a textured blue, 784 × 1168) through
+    /// `clean_image`: the mark is proved by its own profile, named as the
+    /// catalogue names it, taken off with no outline and no mark left, and
+    /// what comes back carries none (D570, D571).
+    #[test]
+    fn a_real_grok_mark_from_x_comes_off_over_mcp() {
+        let bytes = fixture("grok-x/HUVfYqgWkAAOhiJ.jpeg");
+        let answer: serde_json::Value =
+            serde_json::from_str(&clean(&bytes, Scope::AiProvenance).unwrap()).unwrap();
+        let report = &answer["report"];
+        assert_eq!(report["marks_left"], serde_json::json!(false), "{report}");
+        let found = &report["visible"]["found"][0];
+        assert_eq!(
+            (&found["profile"], &found["vendor"], &found["product"]),
+            (
+                &serde_json::json!("grok-x-light"),
+                &serde_json::json!("xai"),
+                &serde_json::json!("grok")
+            )
+        );
+        assert_eq!(found["verdict"], "verified");
+        assert_eq!(report["not_established"][0], "invisible-pixel-marks");
+        let out = decode(answer["data"].as_str().unwrap()).unwrap();
+        let again: serde_json::Value = serde_json::from_str(&inspect(&out).unwrap()).unwrap();
+        assert_eq!(again["visible"]["found"], serde_json::json!([]), "{again}");
+    }
+
     fn fixture(name: &str) -> Vec<u8> {
         let path = format!("{}/../../fixtures/image/{name}", env!("CARGO_MANIFEST_DIR"));
         std::fs::read(&path).unwrap_or_else(|error| panic!("{path}: {error}"))

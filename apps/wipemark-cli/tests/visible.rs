@@ -104,6 +104,67 @@ fn real(name: &str) -> Vec<u8> {
     std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
+/// One of the owner's pictures from Grok on X, from `fixtures/image/grok-x/`.
+fn grok(name: &str) -> Vec<u8> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/image/grok-x")
+        .join(name);
+    std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// Grok's black wordmark on X over a flat grey (D570, D571): proved at its
+/// row, named by its profile, vendor and product — formats, never
+/// translated — inside the catalogue's own sentences in every language, the
+/// third shelf leading with the pixel claim.
+#[test]
+fn a_grok_mark_from_x_is_proved_and_said_in_every_language() {
+    let scratch = Scratch::new("grok");
+    scratch.file("x.jpeg", &grok("HUVfLiSW0AEtmX_.jpeg"));
+    for (language, proved) in [("en-US", "proved:"), ("ru", "доказана:"), ("de", "belegt:")]
+    {
+        let output = scratch.run_in(language, &["inspect", "x.jpeg"]);
+        assert_eq!(code(&output), 1, "{language}: {}", stdout(&output));
+        let said = stdout(&output);
+        assert!(
+            said.contains("grok-x-dark (xai, grok)"),
+            "{language}: {said}"
+        );
+        assert!(said.contains(proved), "{language}: {said}");
+    }
+    let report = json(&scratch.run(&["inspect", "x.jpeg", "--json"]));
+    let found = &report["visible"]["found"][0];
+    assert_eq!(
+        (&found["profile"], &found["vendor"], &found["product"]),
+        (
+            &Value::from("grok-x-dark"),
+            &Value::from("xai"),
+            &Value::from("grok")
+        )
+    );
+    assert_eq!(found["verdict"], "verified");
+    assert_eq!(found["placed"], "row");
+    assert_eq!(report["not_established"][0], "invisible-pixel-marks");
+}
+
+/// Grok's white wordmark on X over a textured blue (784 × 1168), restored
+/// with the map measured on the owner's black captures of that size:
+/// `clean` exits 1 — a mark found and taken off — and the result, looked
+/// at again, carries none.
+#[test]
+fn a_grok_mark_from_x_comes_off() {
+    let scratch = Scratch::new("grok-clean");
+    scratch.file("x.jpeg", &grok("HUVfYqgWkAAOhiJ.jpeg"));
+    let output = scratch.run(&["clean", "x.jpeg", "-o", "out.jpeg", "--json"]);
+    assert_eq!(code(&output), 1, "{}", stdout(&output));
+    let report = json(&output);
+    let visible = &report["report"]["visible"];
+    assert_eq!(visible["found"][0]["profile"], "grok-x-light", "{report}");
+    assert_eq!(visible["found"][0]["verdict"], "verified", "{report}");
+    assert_eq!(visible["restored"][0]["outline_left"], Value::Bool(false));
+    let again = json(&scratch.run(&["inspect", "out.jpeg", "--json"]));
+    assert_eq!(again["visible"]["found"], Value::Array(vec![]), "{again}");
+}
+
 /// The vendor's mark at its large row (margin 64, the 96 map), on a
 /// first-generation output — not `crying`, a re-saved copy whose restored
 /// mark leaves an outline (`an_outline_left_is_said_and_exits_three`).
