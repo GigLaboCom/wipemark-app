@@ -275,9 +275,15 @@ class Crop:
         if isinstance(self.meta.get("logo"), list):
             return [float(v) for v in self.meta["logo"]]
         p = profile(self.meta.get("profile"))
-        if not p:
-            raise Refusal(f"{self.dir}: no logo — meta.json names no profile the catalogue knows")
-        return [float(v) for v in p["blend"]["logo"]]
+        if p:
+            return [float(v) for v in p["blend"]["logo"]]
+        # A profile of a `--catalogue` file (R12b; Grok's provisional ones,
+        # 2026-10-11) is not in the shipped catalogue: the bench's crop carries
+        # the logo it was drawn with, which is that profile's.
+        drawn = (self.meta.get("blend") or {}).get("logo")
+        if isinstance(drawn, list):
+            return [float(v) for v in drawn]
+        raise Refusal(f"{self.dir}: no logo — meta.json names no profile the catalogue knows")
 
     @property
     def holes(self):
@@ -835,8 +841,25 @@ def _t_a_pgm_and_runs_round_trip():
     assert np.array_equal(rle_decode(rle_encode(m), 5, 7), m)
 
 
+def _t_a_catalogue_files_profile_takes_the_logo_it_was_drawn_with():
+    z = np.zeros((4, 4, 3), np.uint8)
+    a = np.zeros((4, 4))
+    shipped = Crop.of({"profile": "gemini-sparkle-v1"}, z, z, a)
+    assert shipped.logo == [float(v) for v in profile("gemini-sparkle-v1")["blend"]["logo"]], "a shipped profile's logo"
+    grok = Crop.of({"profile": "grok-x-dark", "blend": {"logo": [0.0, 0.0, 0.0]}}, z, z, a)
+    assert grok.logo == [0.0, 0.0, 0.0], "a --catalogue profile did not take the drawn logo"
+    try:
+        Crop.of({"profile": "nobody"}, z, z, a).logo
+    except Refusal:
+        pass
+    else:
+        raise AssertionError("a crop with no logo anywhere was not refused")
+
+
 def selftest():
     return run_cases([
+        ("a_catalogue_files_profile_takes_the_logo_it_was_drawn_with",
+         _t_a_catalogue_files_profile_takes_the_logo_it_was_drawn_with),
         ("ciede2000_is_sharmas", _t_ciede2000_is_sharmas),
         ("psnr_of_one_level_is_48_13", _t_psnr_of_one_level_is_48_13),
         ("sigma_base_reads_white_noise_as_its_sigma", _t_sigma_base_reads_white_noise_as_its_sigma),

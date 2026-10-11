@@ -63,7 +63,7 @@ pub use calibrate::{
 };
 pub use catalogue::{
     shipped_assets, Anchor, AssetProblem, Catalogue, CatalogueError, Corner, GainBand, Placement,
-    Profile, ProfileId, Search, Status, Thresholds, When, EMBEDDED, NATIVE_REACH, SCHEMA,
+    Profile, ProfileId, Search, Side, Status, Thresholds, When, EMBEDDED, NATIVE_REACH, SCHEMA,
 };
 pub use geometry::{Kernel, PixelRect, SubRect, CAPTURE_NOISE};
 #[doc(hidden)]

@@ -1,5 +1,14 @@
 # `scripts/grok/` — stage 1: is there one mark?
 
+**Local only — never in CI** (the owner, 2026-10-11). CI (`.github/workflows/gate.yml`)
+runs only the necessary checks: formatting, clippy, the workspace's Rust tests and
+the dependency guards. Everything here that is heavy — the restoration bench, the
+model runs, a scratch CLI build, downloads (weights, GWT's clone), anything over the
+owner's pictures — is run by hand, on this machine or the host, and its figures go
+into a report beside the script that made them. A workflow step that runs one of
+these is not to be added. Each script's `selftest` is light (no weights, no corpus)
+and is run locally before a push.
+
 ## The one command (the E12-R close-out, 2026-10-10; D528)
 
 ```sh
@@ -21,6 +30,14 @@ with what a person has to look at. The header of `run.sh` has every option.
 |---|---|
 | `run.sh` | the chain above |
 | `chain.py` | its helpers (`catalogue`, `degradations`, `summary`) and its self-test: `run.sh` end to end on stand-ins |
+| `first-look.py` | the first look from a handful of real outputs (2026-10-11): where the mark is and the size/margin laws, which variant (dark/light) each picture carries, the dark map from a flat picture, a provisional two-profile `--catalogue` file (`look`); the product on the pictures through it, with an inverted and a control measurement (`product`). Report: `docs/plan/reports/E12-R11-grok-first-look-2026-10-11.md` |
+| `gwt-way.py` | Grok's mark taken off GeminiWatermarkTool's way — the inverse, then FDnCNN — against ours (2026-10-11): GWT's embedded network against KAIR's weights (`weights`), the real pictures through GWT's two rules and R10's (`pictures`), the bench's dark variant through negated backgrounds (`invert`), GWT's rules over bench crops (`crops`) and the table with R10's gates (`verdict`). Report: `docs/plan/reports/E12-R10-grok-fdncnn-2026-10-11.md` |
+| `captures-check.py` | the owner's first captures from X by the prompts of 2026-10-11 (`wipemark-grok-generation-prompts-2026-10-11`, `-v2-`) checked against what they asked: the file (format, size and nearest ratio, JPEG sampling, libjpeg quality, every block, EXIF/XMP/C2PA), the size or orientation asked against the one given, the mark found and the corner under it (`ring.py`'s criterion, a gradient, a vignette), α read directly off a flat black or white corner against the first look's map, pairs of one size compared, the scene's place; a sheet of the corners ×4 (`check`, `selftest`). Report: `docs/plan/reports/E12-R11-grok-captures-check-2026-10-11.md` |
+| `fit-maps.py` | the shipped maps of Grok on X (`grok-x-dark`, `grok-x-light`, D571, D572): one per picture size, the white mark read off flat black captures, the black one off flat white (or the first look's grey), both of one size averaged when they are one shape, a size with no flat capture drawn from the 1792 map; writes `crates/wipemark-pixels/marks/grok/*.wma` and the rows' numbers (`fit`, `selftest`). Its run and every map's source: `crates/wipemark-pixels/marks/grok/README.md` |
+| `bench-counts.py` | the restoration bench's counts for the shipped Grok profiles (G5): per slice and per size, proved, restored, refused by reason, not found, a mark left after a restoration and why, the PSNR over the ROI (`selftest`) |
+| `weak-resized.py` | whether the search proves a weaker Grok mark (`k = 0.93`) on a resized picture (D573): the bench's own canvases and maps, drawn at `k` and at 1, resized as the bench's slice, through the real CLI (`selftest`) |
+| `time-cli.py` | `wipemark-cli inspect`'s time on a picture, CLI against CLI — what the Grok profiles cost (G5) (`selftest`) |
+| `cli-with-profile.sh` | a scratch `wipemark-cli` built from `HEAD` with a `--catalogue` file's profiles compiled in — the CLI `run.sh --cli-with-profile` waits for |
 | `render.py` | stand-in captures — the synthetic wordmark fixture (`fixtures/marks/synthetic-wordmark/`, not Grok's mark) over flat and textured backgrounds, in the guide's layout, with a sidecar |
 
 ```sh

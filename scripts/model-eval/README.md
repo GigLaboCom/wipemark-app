@@ -9,6 +9,15 @@ has one). Nothing here goes into the product: no Rust, no catalogue model
 (D166; R10 §7). A pixel a model made is *reconstructed*, never *restored*
 (D499).
 
+**Local only — never in CI** (the owner, 2026-10-11). CI (`.github/workflows/gate.yml`)
+runs only the necessary checks: formatting, clippy, the workspace's Rust tests and
+the dependency guards. Everything here that is heavy — the restoration bench, the
+model runs, a scratch CLI build, downloads (weights, GWT's clone), anything over the
+owner's pictures — is run by hand, on this machine or the host, and its figures go
+into a report beside the script that made them. A workflow step that runs one of
+these is not to be added. Each script's `selftest` is light (no weights, no corpus)
+and is run locally before a push.
+
 The scripts were written on 2026-10-09, ahead of the runs, because the owner
 asked for all code work to be finished before the steps are unblocked. They
 were written in a container with numpy and Pillow and **without** torch,
@@ -148,8 +157,8 @@ composite that is checked is ours.
 
 | what | where it comes from | sha256 |
 |---|---|---|
-| `fdncnn_color.pth` | https://github.com/cszn/KAIR/releases/download/v1.0/fdncnn_color.pth (KAIR's model zoo) | *to fill in* |
-| KAIR, the network the export restates | https://github.com/cszn/KAIR, `models/network_dncnn.py` (`class FDnCNN`) | commit *to fill in* (`--kair-commit`) |
+| `fdncnn_color.pth` | https://github.com/cszn/KAIR/releases/download/v1.0/fdncnn_color.pth (KAIR's model zoo) | `777dfba5d17a76de96229ac894376632fbb8fc6e33bff01355a75009448c68df` (read 2026-10-11, `docs/plan/reports/E12-R10-grok-fdncnn-2026-10-11.md`) |
+| KAIR, the network the export restates | https://github.com/cszn/KAIR, `models/network_dncnn.py` (`class FDnCNN`) | commit `fc1732f4a4514e42ce15e5b3a1e18c828af47a1e` (`--kair-commit`) |
 | `big-lama` (folder: `config.yaml`, `models/best.ckpt`) | LaMa's README, "Download pre-trained models" (`big-lama.zip`) | `best.ckpt` *to fill in*; `config.yaml` *to fill in* |
 | advimman/lama | https://github.com/advimman/lama | commit *to fill in* |
 

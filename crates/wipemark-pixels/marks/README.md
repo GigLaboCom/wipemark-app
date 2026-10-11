@@ -60,3 +60,13 @@ one (D243). It is data measured here, not taken from GWT. Its catalogue
 entry says `"fitted": true` (D245): a restoration with it is held to the
 picture around the mark and never claimed exact, and what its denoising
 drops is the fit's own noise, never looked for in a picture (D246).
+
+## `grok/` — Grok's wordmark on X, measured from the owner's pictures
+
+Twelve 16-bit maps — one per colour (`grok-x-dark`, `grok-x-light`) and per
+picture size X has handed out (1792×1008, 1728×1152, 1600×1200, 1168×784,
+1152×1712, 784×1168), D571, D572: measured on flat corners of the owner's
+pictures where one of that colour exists, the black map drawn from the
+1792×1008 one and the white map derived from the black through the colour
+curve where none does. Every one is `"fitted": true` (D245). How each was
+made, from which picture, and its sha256: [`grok/README.md`](grok/README.md).

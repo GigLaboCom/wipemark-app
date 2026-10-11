@@ -27,7 +27,11 @@ use support::Kind;
 /// that reproduces the product before D530.
 fn with_bands(bands: Option<Value>) -> Catalogue {
     let mut doc: Value = serde_json::from_str(EMBEDDED).unwrap();
+    // Gemini's searches only: Grok's carry no bands (D573) and stay as shipped.
     for p in doc["profiles"].as_array_mut().unwrap() {
+        if p["vendor"] != "google" {
+            continue;
+        }
         let search = p["search"].as_object_mut().unwrap();
         match &bands {
             Some(b) => {
@@ -143,11 +147,20 @@ fn shipped_bands() -> Value {
 /// The bands the shipped catalogue gives both Gemini profiles' searches
 /// (D530): a resampled template under 64 pixels is proved at `k*` from 0.96
 /// to 1.06 — the window a row has, as the sweep's grid reads it — and a
-/// wider one from 1.02 to 1.06.
+/// wider one from 1.02 to 1.06. Grok's searches carry none (D573): its
+/// resampled marks read `k*` around 0.98, where those bands would drop them.
 #[test]
 fn the_shipped_searches_carry_d530s_bands() {
     let shipped = Catalogue::shipped().unwrap();
-    for p in shipped.profiles() {
+    for p in shipped.profiles().iter().filter(|p| p.vendor == "xai") {
+        assert_eq!(
+            p.search.as_ref().map(|s| s.gain.clone()),
+            Some(vec![]),
+            "{}",
+            p.id
+        );
+    }
+    for p in shipped.profiles().iter().filter(|p| p.vendor == "google") {
         assert_eq!(
             p.search.as_ref().map(|s| s.gain.clone()),
             Some(vec![
