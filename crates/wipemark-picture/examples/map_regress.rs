@@ -16,8 +16,9 @@
 //! **What it does.**
 //!
 //! 1. Reads a list of pictures with their group and whether each is held
-//!    out (R2's `gemini-midtone`, `corpus/gemini-midtone/manifest.json`,
-//!    through `scripts/analytics/bias.py list`). Decodes each as every
+//!    out (R2's `gemini-midtone` was the input, dropped on 2026-10-10 by
+//!    D520; R11 §4.2's Path B for Grok is the next, through
+//!    `scripts/analytics/bias.py list`). Decodes each as every
 //!    surface does. A file whose size the named row does not answer for is
 //!    skipped and counted.
 //! 2. Takes the row's own rectangle — the map at its own size, at the

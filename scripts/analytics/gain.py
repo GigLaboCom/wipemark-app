@@ -21,7 +21,8 @@ What it does
    (`golden/baseline/<commit>/<id>.json`, the shape `scripts/regress.py`
    writes — `class`, `variant` and the CLI's `inspect` JSON), or a folder of
    bare `wipemark-cli inspect --json` outputs. `--class` keeps only those
-   classes (default: `recon-png` and `gemini-midtone`, §4.1's input);
+   classes (default: `recon-png`, §4.1's input — and `gemini-midtone`,
+   a class dropped on 2026-10-10 by D520, which therefore matches nothing);
    `--variant` only those variants (`recon-png:png` is the 21 originals,
    `fixture-png` the four committed crops of four of them).
 2. Takes every pass-1 finding of the visible pass: its profile, its row

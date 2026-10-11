@@ -57,8 +57,9 @@
         "properties": {
           "id": { "allOf": [{ "$ref": "#/$defs/name" }, { "not": { "enum": ["index", "summary", "reproduce"] } }] },
           "class": {
+            "description": "gemini-midtone was a class until 2026-10-10, dropped by D520: Gemini's new outputs carry no visible mark, so the set will never exist",
             "enum": ["recon-png", "recon-jpeg-444", "recon-jpeg-420", "recon-webp", "recon-resized",
-                     "frames", "transparent", "alt", "negative", "gemini-midtone", "held-out"]
+                     "frames", "transparent", "alt", "negative", "held-out"]
           },
           "variant": { "type": "string", "minLength": 1 },
           "source": { "$ref": "#/$defs/name" },

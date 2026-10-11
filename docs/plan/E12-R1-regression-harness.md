@@ -217,7 +217,7 @@ The classes (spec 01 §1.1). The minimum to start is marked ●.
 | `transparent` | the 19 cut-outs | `Transparent` or no finding |
 | `alt` | the 2 alternates | — |
 | ● `negative` | R2 §2: ≥ 60 real pictures with no mark, and each at 4:2:0 q90 and q85 | **zero `verified`, zero restored, `clean` exit 0 with nothing written** |
-| `gemini-midtone` | R2 §1, when it lands | — |
+| ~~`gemini-midtone`~~ | dropped (D520, 2026-10-10): Gemini's new outputs carry no visible mark, so R2 §1 will never land | — |
 
 ### 4.2 `scripts/regress.py`
 
@@ -308,7 +308,7 @@ All of these are `[tunable]`.
 |---|---|
 | M1 | PNG outputs move, as they should; L1 does not apply |
 | M2 | `step` and `outline` on `recon-png` grow on no file |
-| M3 | `gemini-midtone`: the target measure improves on at least 80 % of files `[tunable]` |
+| ~~M3~~ | *dropped (D520): its corpus was `gemini-midtone`.* `regress.py` notes "M3: dropped" on the model route |
 | M4 | level A passes (R5 §6, A5 the matrix) |
 
 **Route `detect`** (`propose.rs`, rows, search, kernel):
@@ -367,7 +367,7 @@ Record each mutation in the report, once.
 
 * Any change to a crate.
 * The 1024 miss itself (S11: a `detect` change of its own).
-* `gemini-midtone` before R2 §1 exists.
+* `gemini-midtone` — dropped (D520).
 * A CI job (no corpus, no Python).
 
 ## §8 Basis

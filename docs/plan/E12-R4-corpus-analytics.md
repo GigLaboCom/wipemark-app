@@ -229,6 +229,8 @@ textures apart, since a shift shows best there.
 
 ### 4.3 §3 of the question — a constant bias `b` (`scripts/analytics/bias.py`, waits for `gemini-midtone`)
 
+> **Not run (D520, 2026-10-10)**: Gemini's new outputs carry no visible mark (the owner), so `gemini-midtone` will never exist. This sub-step is closed; `bias.py` stays a tool.
+
 * **Pixels used**: in the mark's zone, those where the original is well
   estimated, `0.02 ≤ α ≤ 0.15` `[tunable]`.
 * **The estimate of the original**: `Ô` is the ring's quadratic (as
@@ -249,6 +251,8 @@ What is expected (not a fact): D240 saw stored values up to 6 levels
 a constant, so §4.4 is where it should land.
 
 ### 4.4 §4 of the question — is `L(p)` identifiable? (`examples/map_regress.rs`, waits for `gemini-midtone`)
+
+> **Not run (D520, 2026-10-10)**: Gemini's new outputs carry no visible mark (the owner), so `gemini-midtone` will never exist. This sub-step is closed; `map_regress` stays, as R11 §4.2's Path B for Grok.
 
 **The trap** (why the 19 + 2 green outputs cannot answer it). `L_c(p) =
 I_c/α(p)` where `O_c ≈ 0` uses the `α` of `gemini-v1-96-measured`, which

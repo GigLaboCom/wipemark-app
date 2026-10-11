@@ -10,7 +10,9 @@
 //!   half-transparent word, which *is* a white blend: it may be seen, and
 //!   never proved. Each is examined as a lossless and as a lossy source,
 //!   whose out-of-range allowance is wider (D237); the words also under
-//!   the shipped profiles, the vendor maps text has to be told from.
+//!   the shipped profiles, the vendor maps text has to be told from, and
+//!   under a synthetic wordmark at a row where every other half-transparent
+//!   word is drawn, so one *is* seen (D525).
 //! * **Wallpapers** — procedural night skies (`aurora`): soft bright
 //!   ridges and stars, what a sparkle correlates with. Neither restored nor
 //!   reported.
@@ -53,6 +55,47 @@ enum Word {
     Outlined,
     /// White at a peak of 0.3–0.7: a blend, but not the mark's.
     Translucent,
+}
+
+/// The wordmark the word family is also examined under (D525, the pending
+/// question D12's first option, 2026-10-10): four letters of the same
+/// bitmap face, 72 px wide at 0.5, at a bottom-right row 8 px in — the
+/// shape a vendor's text mark has. Every other half-transparent word is
+/// drawn at that row in that face, so the profile *sees* it and the
+/// assertion that a half-transparent word is never proved has something to
+/// bite on (before, 0 of 444 examinations saw one: R11-M9 could not fail).
+const WORDMARK: [usize; 4] = [2, 8, 7, 4]; // G R O K
+const WORDMARK_WIDTH: u32 = 72;
+const WORDMARK_MARGIN: u32 = 8;
+
+fn wordmark_map() -> AlphaMap {
+    quantised(&word(&WORDMARK, WORDMARK_WIDTH, 0.5))
+}
+
+/// A catalogue of one synthetic wordmark profile at its row (a test
+/// stand-in for a vendor's text mark, not anyone's mark).
+fn wordmark_catalogue() -> Catalogue {
+    let map = wordmark_map();
+    let bytes = map.write(8).unwrap();
+    let (w, h) = (map.width(), map.height());
+    let json = format!(
+        r#"{{
+      "id": "test-wordmark", "vendor": "test", "product": "synthetic", "mark": "wordmark",
+      "observed": {{ "from": null, "until": null }}, "status": "stable",
+      "blend": {{ "model": "encoded", "logo": [255, 255, 255], "logo_map": null }},
+      "opaque_above": 0.95,
+      "alpha": [ {{ "id": "word", "asset": "test-wordmark.wma", "sha256": "{sha}", "size": [{w}, {h}] }} ],
+      "placements": [ {{ "when": {{}}, "corner": "bottom-right", "margin": [{m}, {m}], "alpha": "word" }} ],
+      "search": {{ "corner": "bottom-right", "within": [{side}, {side}], "sizes": [36, 144], "alpha": "word" }},
+      "detect": {{ "min_ncc": 0.70 }},
+      "verify": {{ "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 }},
+      "source": null
+    }}"#,
+        sha = sha256_hex(&bytes),
+        m = WORDMARK_MARGIN,
+        side = WORD_SIDE,
+    );
+    parse_with(&[json], &[(String::from("test-wordmark.wma"), bytes)]).unwrap()
 }
 
 /// The word the `n`-th negative carries, if it is one: the seventh slot,
@@ -138,8 +181,25 @@ fn negative(n: u64) -> (String, Raster) {
                 Word::Translucent => rng.range(0.3, 0.7),
                 Word::Opaque | Word::Outlined => 1.0,
             };
+            // Every other half-transparent word sits where the wordmark
+            // profile looks, in its face and at its width, and spells
+            // something else: the mark's four letters with one changed —
+            // the closest a word can come without being the mark.
+            let at_row = style == Word::Translucent && (n / 21) % 2 == 1;
+            let (letters, width) = if at_row {
+                let mut l = WORDMARK.to_vec();
+                let i = rng.below(4) as usize;
+                l[i] = (l[i] + 1 + rng.below(LETTERS.len() as u32 - 1) as usize) % LETTERS.len();
+                (l, WORDMARK_WIDTH)
+            } else {
+                (letters, width)
+            };
             let map = word(&letters, width, peak);
-            let (mx, my) = (4 + rng.below(21), 4 + rng.below(21));
+            let (mx, my) = if at_row {
+                (WORDMARK_MARGIN, WORDMARK_MARGIN)
+            } else {
+                (4 + rng.below(21), 4 + rng.below(21))
+            };
             let at = PixelRect {
                 x: WORD_SIDE - mx - map.width(),
                 y: WORD_SIDE - my - map.height(),
@@ -261,9 +321,11 @@ fn never_restored(
 fn no_procedural_negative_is_ever_restored() {
     let catalogue = synthetic_catalogue();
     let shipped = Catalogue::shipped().unwrap_or_else(|e| panic!("{e}"));
+    let wordmark = wordmark_catalogue();
     let mut dismissed = 0usize;
     let mut words = std::collections::BTreeMap::<&str, usize>::new();
     let (mut word_dismissed, mut seen, mut translucent) = (0usize, 0usize, 0usize);
+    let mut seen_by_wordmark = 0usize;
     for n in 0..NEGATIVES {
         let (name, original) = negative(n);
         let style = word_of(n);
@@ -285,6 +347,7 @@ fn no_procedural_negative_is_ever_restored() {
             );
             *words.entry(word_style(style)).or_default() += 1;
             catalogues.push(shipped);
+            catalogues.push(&wordmark);
         }
         for (c, cat) in catalogues.into_iter().enumerate() {
             for options in both_sources() {
@@ -303,6 +366,9 @@ fn no_procedural_negative_is_ever_restored() {
                     );
                     translucent += 1;
                     seen += usize::from(!report.found.is_empty());
+                    if std::ptr::eq(cat, &wordmark) {
+                        seen_by_wordmark += usize::from(!report.found.is_empty());
+                    }
                 } else {
                     assert!(
                         report.found.is_empty(),
@@ -322,6 +388,12 @@ fn no_procedural_negative_is_ever_restored() {
     }
     // Not vacuous: the correlation did propose, and the proof dismissed.
     assert!(dismissed > 500, "only {dismissed} proposals were made");
+    // Not vacuous either: a half-transparent word the wordmark profile sees
+    // exists, so "seen, never proved" is asserted on real findings (D525).
+    assert!(
+        seen_by_wordmark > 0,
+        "no half-transparent word was seen by the wordmark profile"
+    );
     assert_eq!(
         words.values().sum::<usize>() as u64,
         NEGATIVES / 7,
@@ -333,9 +405,9 @@ fn no_procedural_negative_is_ever_restored() {
         catalogue.profiles().len()
     );
     println!(
-        "words: {words:?} x ({} synthetic + {} shipped profiles) x 2 sources: {word_dismissed} \
+        "words: {words:?} x ({} synthetic + {} shipped profiles + the wordmark) x 2 sources: {word_dismissed} \
          proposals dismissed; half-transparent: {seen} of {translucent} examinations reported \
-         (seen, not proved); 0 verified, 0 restored",
+         (seen, not proved), {seen_by_wordmark} by the wordmark profile; 0 verified, 0 restored",
         catalogue.profiles().len(),
         shipped.profiles().len()
     );

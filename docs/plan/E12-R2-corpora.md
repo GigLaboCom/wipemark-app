@@ -143,10 +143,12 @@ as above.
 
 Three sets, each one blocking later steps. No crate changes.
 
-* **`gemini-midtone`** — Gemini outputs whose corner under the mark is grey,
-  black, white, saturated in a channel other than green, a gradient or a
-  texture. On a single background (green, today) `α` and `L` cannot be
-  separated and the blend model cannot be told apart.
+* ~~**`gemini-midtone`**~~ — *dropped (D520, 2026-10-10): Gemini's new
+  outputs carry no visible mark, so the set cannot be collected.* It was:
+  Gemini outputs whose corner under the mark is grey, black, white,
+  saturated in a channel other than green, a gradient or a texture. On a
+  single background (green) `α` and `L` cannot be separated and the blend
+  model cannot be told apart.
 * **`negative`** — real pictures with no mark, from three sources.
 * **`grok`** — stage 0: what Grok's mark is, where and in what format, from
   each of four sources. Nothing about it is known today.
@@ -193,7 +195,15 @@ Three sets, each one blocking later steps. No crate changes.
 
 ## §4 Deliverables
 
-### 4.1 `gemini-midtone` (the owner generates; the host checks)
+### 4.1 `gemini-midtone` (the owner generates; the host checks) — **dropped (D520)**
+
+> **Dropped, 2026-10-10 (D520).** Gemini's new outputs carry no visible
+> mark (the owner, §3), so this set will never exist. What follows is kept
+> as the record of what was asked. Its tooling moved: `scripts/corpus/`
+> no longer knows the set (`manifest.py`'s sets are `negative` and
+> `grok`), and `ring.py`'s check now gates Grok's calibration captures
+> around the rectangle the stage-0 sidecar gives (§4.3, R11 §4.2). The
+> shipped Gemini profiles stay for the pictures already made.
 
 At least **30** outputs, **50** wanted. The prompt is free; what matters is
 the corner. The zone under the mark, with a margin of 1.5× the mark's size,
@@ -257,6 +267,12 @@ fails (R1 G1).
 
 ### 4.3 `grok` — stage 0 (the owner captures; the host tabulates)
 
+> **2026-10-10:** the owner's half is
+> [`E12-R-grok-capture-guide.md`](E12-R-grok-capture-guide.md) — what to
+> generate, how to save it, where to put it — and the host's half is one
+> command, `scripts/grok/run.sh <captures dir>`, which runs this section's
+> `manifest.py grok` and everything R11 and R12b built after it (D528).
+
 | source | how many | note |
 |---|---|---|
 | grok.com (Imagine, the web UI) | ≥ 50 | 4–5 aspect ratios, 2–3 sizes |
@@ -297,7 +313,7 @@ API with no mark is a product fact (Q-R5) and changes nothing technical.
 
 | set | Watchword FILE (stored ZIP) | manifest in git |
 |---|---|---|
-| `gemini-midtone` | `wipemark-corpus-gemini-midtone-<date>` | `corpus/gemini-midtone/manifest.json` |
+| ~~`gemini-midtone`~~ | dropped (D520) | — |
 | `negative` | `wipemark-corpus-negative-<date>` | `corpus/negative/manifest.json` (and its rows in `golden/manifest.json`) |
 | `grok` | `wipemark-corpus-grok-<date>` (stills) and `wipemark-corpus-grok-video-<date>` | `corpus/grok/manifest.json` |
 
@@ -323,10 +339,7 @@ synthetic PNGs are written to a temporary directory.
 
 ## §6 Acceptance
 
-1. `gemini-midtone`: at least 30 files, at least 3 per group, both profiles
-   represented. Every file is checked by `ring.py` and `inspect`. The
-   `captures.toml` is formed, and `calibrate` runs on it with no format
-   error.
+1. ~~`gemini-midtone`~~ — dropped (D520); nothing to accept.
 2. `negative`: at least 60 files, at least 20 per source. The baseline (R1)
    shows zero `verified`, or the known false positives are named.
 3. `grok`: the stage-0 table is filled for all four sources.

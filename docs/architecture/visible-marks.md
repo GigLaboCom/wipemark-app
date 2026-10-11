@@ -36,6 +36,21 @@ all three read only under `blend-preview`, below), `opaque_above`, its
 opacity maps, its placement rows, its search, `detect.min_ncc` and the
 three `verify` limits, and `source` for provenance.
 
+**What is known of Gemini's mark, dated (D520).** Every Gemini output the
+owner made up to April 2026 carries the visible sparkle (the 42 stickers of
+`wipemark-gemini-stickers-2026-10-04`, all V1 but one re-saved file). On
+2026-10-10 the owner reported that the Gemini outputs made that month came
+back **without** it — why is not known, and nothing here says it is gone
+for every Gemini picture, tier or surface; it says that new outputs the
+owner made in 2026-10 had none. So the two Gemini profiles and their maps
+**stay as they are**: every picture already made with the mark is still
+found, proved and restored the way this page describes. The metadata
+Gemini writes (C2PA, IPTC, XMP) is removed as before
+([`images.md`](images.md)); that half never depended on the sparkle. What
+was waiting for a fresh Gemini corpus is closed rather than run: the
+`gemini-midtone` set (R2 §4.1), the bias and `L(p)` questions (R4
+§4.3–§4.4) and R9's level A (`docs/plan/E12-R-closeout-grok-ready.md`).
+
 **The opacity maps** are `.wma` files under `crates/wipemark-pixels/marks/`,
 compiled in by `build.rs` (a table from file name to bytes) and pinned by
 sha256 in the catalogue:
@@ -91,11 +106,15 @@ Without the feature every one of the three is refused as it was before the
 code existed — `bias` as an unknown field, the other two by name — and
 every shipped profile restores byte for byte as it did
 (`the_catalogue_still_refuses_what_was_not_built`). No shipped profile
-carries any of them: the values are R4's runs on `gemini-midtone`, which
-do not exist yet. The tests are `crates/wipemark-pixels/tests/blend.rs`;
-the bench's `R9a`, `R9b` and `R9c` (`scripts/bench/README.md`) are how the
-host measures each. A sub-step whose condition (R9 §1) fails is closed and
-its code removed; the feature goes when the decisions land.
+carries any of them. **All three are parked** (D521, 2026-10-10): their
+values were to come from R4's runs on `gemini-midtone`, a set that will
+not exist now that Gemini's new outputs carry no visible mark (D520), so no
+fresh Gemini target remains to open them on. The code is kept behind the
+feature rather than removed — the cheaper of the two to undo, and R11 §4.2
+names R9b and R9c as the first steps if a second vendor's mark turns out
+to have two colours or to blend in light. The tests are
+`crates/wipemark-pixels/tests/blend.rs`; the bench's `R9a`, `R9b` and
+`R9c` (`scripts/bench/README.md`) are how the host would measure each.
 
 **`Catalogue::shipped()`** parses once (`OnceLock`) and returns
 `Result<&'static Catalogue, &'static CatalogueError>` — the choice the plan

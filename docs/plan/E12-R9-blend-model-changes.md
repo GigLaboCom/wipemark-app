@@ -11,6 +11,7 @@
 | Not touched      | detection, the lossy branch (R6, R8)                                                                                                    |
 | Decisions        | **D497** (a bias as profile data), **D500** (D152 revisited only on three agreements); R-lm's decision row if it lands                  |
 | Size             | **0** if R4 says "not needed" three times; ~3 days per sub-step that starts                                                              |
+| Status           | **Parked, 2026-10-10 (D521).** The code of R9a, R9b and R9c was built ahead of R4's evidence (`reports/E12-R9-2026-10-09.md`) and stays behind `blend-preview`; the evidence will not come, because `gemini-midtone` was dropped (D520: Gemini's new outputs carry no visible mark). Nothing shipped changes. Kept rather than removed — the agent who wrote it advised removal; keeping is the cheaper of the two to undo, and R11 §4.2 names R9b and R9c as the first steps if Grok's mark needs them |
 
 ## §0 Ground rules — identical in every document of the E12-R series
 
@@ -184,6 +185,8 @@ for as an error in the experiment.
 
 ### R9a — a bias (D497)
 
+> **Parked: no fresh Gemini target (D520, D521).** Built behind `blend-preview`; R4 §4.3, its condition, is not run.
+
 * **Schema.** `blend.bias: Option<[f32; 3]>` in stored 8-bit levels,
   scaled to the layout, as `logo` is. `None` is today.
 * **Inverse.** `O = (I − α·L − b)/(1 − α)` in `unblend` and `inverse`.
@@ -195,6 +198,10 @@ for as an error in the experiment.
   `step` falls. Without a bias there must be **no effect** (A2).
 
 ### R9b — a per-pixel logo colour
+
+> **Parked: no fresh Gemini target (D520, D521).** Built behind `blend-preview` (D502 proposed); R4 §4.4, its
+> condition, is not run. The pending question D5 (a second map for the 48
+> px row) is not built either (D525).
 
 * **Schema.** The catalogue accepts `logo_map`: an asset id naming a
   three-plane 16-bit file of `L(p)`. It is a new asset kind, `.wml`, beside
@@ -211,6 +218,10 @@ for as an error in the experiment.
   rejection.
 
 ### R9c — linear light (D500)
+
+> **Parked: no fresh Gemini target (D520, D521).** Built behind `blend-preview`; its three agreements need
+> `gemini-midtone`'s greys, which will not exist. A Grok calibration that
+> chooses `linear-light` (R11 §4.2) is where it would be asked again.
 
 * **Schema.** The catalogue accepts `"model": "linear-light"`.
 * **Inverse.** `I_lin = to_linear(I)`, `L_lin = to_linear(L)`, `O_lin =

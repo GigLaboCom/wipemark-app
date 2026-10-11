@@ -83,7 +83,8 @@
 //! `jpeg444-qNN`/`jpeg420-qNN` (a JPEG at that quality; `image` writes the
 //! 4:4:4 ones, Pillow both).
 //!
-//! In a build with `blend-preview` (E12-R9), `R9a`, `R9b`
+//! In a build with `blend-preview` (E12-R9; parked: no fresh Gemini target,
+//! D520, D521), `R9a`, `R9b`
 //! and `R9c` are R0's path with a catalogue whose profile row is the one
 //! `run --blend-row FILE` names — a bias, a logo colour map, linear light —
 //! and `gen --bias`, `--rounding` and `--logo-map` draw the composites

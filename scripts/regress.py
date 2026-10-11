@@ -48,7 +48,8 @@ What it does
   (`outline`, `step`, `chroma`, `texture` from `restored[]`;
   `out_of_range` from `found[].scores`; `holes`, `clamped`;
   `consistency_px`, D494, where both sides carry it) and the time, under
-  G1–G4 on every route and L1–L4, M1–M4, D1–D4 by route; writes
+  G1–G4 on every route and L1–L4, M1, M2, M4 (M3 dropped with `gemini-midtone`, D520), D1–D4 by
+  route; writes
   `summary.json` and `summary.md`.
 * `--export-crops DIR` on `baseline` and `run` (added by E12-R10,
   2026-10-09, for `scripts/model-eval/`) — after the CLI's run, per file
@@ -125,7 +126,8 @@ corpus with none of them says so and checks nothing.
 `--profile GLOB` and `--foreign GLOB` (run, diff; repeated or
 comma-separated; E12-R12 stage 4b) tell one vendor's findings from
 another's. `--profile 'gemini-*'` makes every gate read those profiles'
-findings and restorations alone, and adds **F2**: a file whose found or
+findings and restorations alone, and adds **F2** (a declared `found@`/`rect@` target on the detect route
+excuses it, said — D525): a file whose found or
 verified count of them fell fails. `--foreign 'grok-*'` adds **F1**: a file
 with any finding of those profiles after the change fails, and so does the
 corpus gate. Together they are R11's P5 as a diff: the Gemini corpus, a
@@ -214,7 +216,7 @@ TOLERANCE = {
 }
 OUT_OF_RANGE_POINTS = 0.001  # G3: a share may grow by 0.1 percentage points
 RECT_PX = 0.125  # D2: a verified rect may move by an eighth of a pixel
-MIDTONE_SHARE = 0.8  # M3: the target improves on at least this share of files
+# MIDTONE_SHARE (M3's 0.8) went with `gemini-midtone` (D520).
 SLOW = 1.5  # §4.2 (6): slower than this × the baseline is attention
 TIME_FLOOR_S = 0.25  # … for a file that took at least this long before (timer noise)
 GROWTH_EPS = 1e-6  # M2: "grows" means by more than this
@@ -230,15 +232,17 @@ MEASURES = ["outline", "step", "chroma", "texture", "out_of_range", "holes", "cl
 WHY_OUT_OF_RANGE = "out-of-range"
 WHY_TRANSPARENT = "transparent"
 TOL_MEASURES = list(TOLERANCE)
+# `gemini-midtone` was a class (R2 §4.1, M3's corpus) until 2026-10-10: dropped by D520 — Gemini's new outputs
+# carry no visible mark (the owner), so the set will never exist.
 CLASSES = [
     "recon-png", "recon-jpeg-444", "recon-jpeg-420", "recon-webp", "recon-resized",
-    "frames", "transparent", "alt", "negative", "gemini-midtone",
+    "frames", "transparent", "alt", "negative",
     # E12-R12 §4.2 (stage 4b, 2026-10-09): a second golden set's files that R11 held out at collection — marked
     # files its profile was not fitted on (P1–P3), judged lossless or lossy by their variant, like `frames`.
     "held-out",
 ]
 # The classes whose fidelity is their variant's: `…png` is lossless, anything else lossy.
-BY_VARIANT = ("frames", "recon-resized", "negative", "gemini-midtone", "held-out")
+BY_VARIANT = ("frames", "recon-resized", "negative", "held-out")
 # §6.3's figures are the Gemini stickers' (D247/D250/D252): the baseline checks them over that ZIP's files and those
 # derived from them, and over nothing else — a second golden set (`--golden golden/grok`) was never measured on them.
 REPRODUCE_KEY = "wipemark-gemini-stickers-2026-10-04"
@@ -891,7 +895,7 @@ def compare(before, after, routes, targets=(), new_fields=frozenset(), profiles=
               "known_false_positives": [], "missing": [], "new": [], "notes": [],
               "new_fields": {n: 0 for n in sorted(new_fields)},
               "profiles": list(profiles) if profiles else None, "foreign": list(foreign) if foreign else None}
-    foreign_files, lost_files = [], []
+    foreign_files, lost_files, excused_files = [], [], []
     level_of = {"pass": 0, "attention": 1, "fail": 2}
 
     for fid in sorted(set(before) | set(after)):
@@ -1017,11 +1021,18 @@ def compare(before, after, routes, targets=(), new_fields=frozenset(), profiles=
                 foreign_files.append(fid)
                 say("fail", f"F1: {ff['found']} finding(s) of a foreign profile ({', '.join(foreign)}): "
                             f"verified {ff['verified']}, restored {ff['restored']}")
-        # F2 — the selected profiles (`--profile`) lose no finding and no proof: P5's other half.
+        # F2 — the selected profiles (`--profile`) lose no finding and no proof: P5's other half. A file the change
+        # names as its target (`--target found@…` or `rect@…`) on the detect route is excused, named, as D2 is on
+        # its targets (D525: the pending question D11's first option).
         if profiles and (fb["found"] < fa["found"] or fb["verified"] < fa["verified"]):
-            lost_files.append(fid)
-            say("fail", f"F2: the selected profiles ({', '.join(profiles)}) lost a finding: found "
-                        f"{fa['found']}→{fb['found']}, verified {fa['verified']}→{fb['verified']}")
+            lost = (f"found {fa['found']}→{fb['found']}, verified {fa['verified']}→{fb['verified']}")
+            if "detect" in routes and (targets_of(targets, "found", rec) or targets_of(targets, "rect", rec)):
+                excused_files.append(fid)
+                say("attention", f"F2: the selected profiles ({', '.join(profiles)}) lost a finding on a declared "
+                                 f"target ({lost}): excused, as D2 is on its targets")
+            else:
+                lost_files.append(fid)
+                say("fail", f"F2: the selected profiles ({', '.join(profiles)}) lost a finding: {lost}")
 
         lossless = is_lossless(cls, variant)
         moved = rect_moved(fa, fb)
@@ -1093,25 +1104,15 @@ def compare(before, after, routes, targets=(), new_fields=frozenset(), profiles=
                                  "ok": not foreign_files}
     if profiles:
         corpus["gates"]["F2"] = {"profiles": ",".join(profiles), "files_that_lost": len(lost_files),
+                                 "excused_on_targets": len(excused_files),
                                  "ok": not lost_files}
     if "lossy" in routes or "detect" in routes:
         jneg = [f for f in neg if is_lossy(f["class"], f["variant"])]
         corpus["gates"]["L4/D3"] = {"files": len(jneg), "verified_after": sum(f.get("verified", {}).get("after", 0) for f in jneg),
                                     "ok": all(f["gate"] != "fail" for f in jneg)}
     if "model" in routes:
-        mid = [f for f in files if f["class"] == "gemini-midtone"]
-        tmeas = [t for t in targets if t["measure"] in TOL_MEASURES and t["sel"][0] == "class" and t["sel"][1] == "gemini-midtone"]
-        if not mid:
-            corpus["notes"].append("M3: no gemini-midtone in the corpus — not checked")
-        elif not tmeas:
-            corpus["notes"].append("M3: no target measure named for gemini-midtone (--target MEASURE@gemini-midtone) — not checked")
-        else:
-            for t in tmeas:
-                pairs = [f["measures"][t["measure"]] for f in mid if t["measure"] in f.get("measures", {})
-                         and f["measures"][t["measure"]]["before"] is not None and f["measures"][t["measure"]]["after"] is not None]
-                better = sum(1 for mm in pairs if abs(mm["after"]) < abs(mm["before"]))
-                share = better / len(pairs) if pairs else 0.0
-                corpus["gates"][f"M3 {t['measure']}"] = {"improved": better, "of": len(pairs), "share": round(share, 4), "ok": share >= MIDTONE_SHARE}
+        corpus["notes"].append("M3: dropped (D520) — its corpus was gemini-midtone, and Gemini's new outputs carry no "
+                               "visible mark; the model route is M1, M2 and M4")
         corpus["notes"].append("M4: level A is R5's bench (A5, the matrix) — not checked here")
     for n, count in corpus["new_fields"].items():
         corpus["notes"].append(f"new field `{n}` (--new-fields): added on {count} of {len(files)} files"
@@ -2022,6 +2023,18 @@ def t_a_profile_filter_makes_p5_a_diff():
     f = one(files, "s")
     assert f["gate"] == "fail" and has(f, "F2: the selected profiles (gemini-*) lost a finding"), f
     assert corpus["gates"]["F2"]["ok"] is False
+    # D525 (D11's first option): a file the change names as its target is excused on the detect route, said;
+    # off the detect route, or with no target naming it, the same loss still fails.
+    target = [parse_target("found@id=s")]
+    files, corpus = compare(by_id(before), by_id(instead), {"detect"}, targets=target, profiles=gemini)
+    f = one(files, "s")
+    assert f["gate"] == "attention" and has(f, "F2: the selected profiles (gemini-*) lost a finding on a declared target"), f
+    assert corpus["gates"]["F2"]["ok"] is True and corpus["gates"]["F2"]["excused_on_targets"] == 1, corpus["gates"]
+    files, corpus = compare(by_id(before), by_id(instead), {"lossy"}, targets=target, profiles=gemini)
+    assert one(files, "s")["gate"] == "fail" and corpus["gates"]["F2"]["ok"] is False, "a target excuses on detect alone"
+    other = [parse_target("found@id=t")]
+    files, corpus = compare(by_id(before), by_id(instead), {"detect"}, targets=other, profiles=gemini)
+    assert one(files, "s")["gate"] == "fail", "a target naming another file excuses nothing"
     # Against itself, with both: pass.
     files, corpus = compare(by_id(before), by_id(before), parse_routes("all"), profiles=gemini, foreign=grok)
     assert corpus["verdict"] == "pass" and all(x["gate"] == "pass" for x in files), (files, corpus)

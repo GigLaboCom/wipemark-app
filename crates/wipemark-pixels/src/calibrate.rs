@@ -690,6 +690,21 @@ impl Calibration {
         self.alpha.write(16).map_err(|_| CalibrationError::Map)
     }
 
+    /// The picture's corner nearest the mark — the one a profile drafted
+    /// from this calibration searches (D529): the quadrant the rectangle's
+    /// centre falls in, `bottom-right` on a tie.
+    pub fn corner(&self) -> &'static str {
+        // Twice the centre against the whole size: no rounding.
+        let left = 2 * u64::from(self.rect.x) + u64::from(self.rect.width) < u64::from(self.width);
+        let top = 2 * u64::from(self.rect.y) + u64::from(self.rect.height) < u64::from(self.height);
+        match (top, left) {
+            (true, true) => "top-left",
+            (true, false) => "top-right",
+            (false, true) => "bottom-left",
+            (false, false) => "bottom-right",
+        }
+    }
+
     /// The exact placement row for this size, naming the map `map_id`.
     pub fn placement_json(&self, map_id: &str) -> String {
         format!(
@@ -713,8 +728,9 @@ pub struct Draft<'a> {
 
 impl Draft<'_> {
     /// The catalogue row: `status: provisional`, an exact `rect` row per
-    /// size, the largest map as the search's, the logo the mean of the
-    /// sizes'. Refused for a linear-light mark — the catalogue would
+    /// size, the largest map as the search's — at the corner nearest that
+    /// size's mark (D529; it was always `bottom-right`, a box a mark at
+    /// another corner never falls in) — the logo the mean of the sizes'. Refused for a linear-light mark — the catalogue would
     /// refuse it too — except under `blend-preview` (E12-R9c), where the
     /// row says `"model": "linear-light"` and the catalogue of that build
     /// reads it; sizes that chose different models are refused there.
@@ -778,7 +794,7 @@ impl Draft<'_> {
       "opaque_above": 0.95,
       "alpha": [ {alpha} ],
       "placements": [ {placements} ],
-      "search": {{ "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "{search}" }},
+      "search": {{ "corner": "{corner}", "within": [320, 320], "sizes": [24, 160], "alpha": "{search}" }},
       "detect": {{ "min_ncc": 0.70 }},
       "verify": {{ "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 }},
       "source": {{ "from": "calibration", "commit": null, "licence": null, "copyright": null }}
@@ -794,6 +810,7 @@ impl Draft<'_> {
             alpha = alpha.join(", "),
             placements = placements.join(", "),
             search = map_id(largest),
+            corner = largest.corner(),
         ))
     }
 }

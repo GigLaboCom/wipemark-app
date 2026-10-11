@@ -1,5 +1,38 @@
 # `scripts/grok/` — stage 1: is there one mark?
 
+## The one command (the E12-R close-out, 2026-10-10; D528)
+
+```sh
+scripts/grok/run.sh <captures dir> [--out reports/grok-<date>/] [--cli-with-profile PATH] …
+```
+
+From a folder of the owner's captures, laid out as
+[`docs/plan/E12-R-grok-capture-guide.md`](../../docs/plan/E12-R-grok-capture-guide.md)
+says (`web/`, `x/`, `api/`, `video/`, an optional `grok.toml`), through R2's
+stage 0 (`scripts/corpus/manifest.py grok`), the stored ZIP for Watchword,
+stage 1 below, R11's stages 2–3 (`manifest.py captures`, `calibrate`) to a
+proposed **`--catalogue` file** (never the shipped catalogue, D526), and R12b's
+bench and clean measures on it (`recon_bench --profile`, `measure_clean`,
+the degradation list `bench/degradations/grok.json` or the one stage 0's
+facts give, D527). Each step runs or is refused by name; `summary.md` ends
+with what a person has to look at. The header of `run.sh` has every option.
+
+| tool | what |
+|---|---|
+| `run.sh` | the chain above |
+| `chain.py` | its helpers (`catalogue`, `degradations`, `summary`) and its self-test: `run.sh` end to end on stand-ins |
+| `render.py` | stand-in captures — the synthetic wordmark fixture (`fixtures/marks/synthetic-wordmark/`, not Grok's mark) over flat and textured backgrounds, in the guide's layout, with a sidecar |
+
+```sh
+python3 scripts/grok/render.py selftest
+python3 scripts/grok/chain.py selftest    # needs the release CLI and the examples built
+```
+
+`docs/plan/reports/E12-R-closeout-2026-10-10-k3.sh` is the end-to-end run
+on stand-ins the close-out report quotes.
+
+## Stage 1, the tools
+
 Step E12-R11 of the E12-R series
 ([`docs/plan/E12-R11-grok-map.md`](../../docs/plan/E12-R11-grok-map.md) §4.1).
 Before a map, a profile or a threshold, stage 1 asks whether each source

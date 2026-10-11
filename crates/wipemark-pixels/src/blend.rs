@@ -7,6 +7,14 @@
 //! here reduces to the arithmetic the crate had before, operation for
 //! operation (A2: `a_profile_without_a_bias_is_byte_for_byte_todays`).
 //!
+//! **Parked: no fresh Gemini target (D520, D521; 2026-10-10).** Each of
+//! R9a, R9b and R9c waited for R4's runs on `gemini-midtone`, which was
+//! dropped when Gemini's new outputs came without a visible mark. The code
+//! stays behind `blend-preview` rather than being removed: nothing shipped
+//! reads it, keeping it is the cheaper choice to undo, and R11 §4.2 names
+//! a logo colour map and the linear-light blend as the first steps should
+//! a second vendor's mark need them.
+//!
 //! The forward model, per colour channel, where the mark is drawn
 //! (`α > 0`), in stored units:
 //!
