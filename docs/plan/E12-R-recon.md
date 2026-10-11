@@ -201,6 +201,7 @@ Every one is built at a default the owner may override; the rows are in
 | **D527** | Grok's degradation list lives at `bench/degradations/grok.json` (pending D10) | R12 |
 | **D528** | Grok's captures are one folder, `grok-captures/<web|x|api|video>/`, a background group read from the start of a file's name; a calibration drafts `grok-<web|x|api|video>`, vendor `xai`; `scripts/grok/run.sh` takes the folder to a proposed profile | R2, R11, R12 |
 | **D529** | A drafted profile's search sits at the corner nearest its rows' marks, not always bottom-right | R11 |
+| **D530** | (2026-10-11, the owner's question; amends D524) A resampled mark has gain bands of its own: a profile's `search.gain`, `k*` windows by the template's width, data in the catalogue; Gemini ships under 64 px [0.96, 1.06], from 64 px up [1.02, 1.06]; absent is the product before it ([report](reports/E12-R-search-gain-2026-10-11.md)) | R5, R4 |
 
 ## 6. Questions for the owner
 
