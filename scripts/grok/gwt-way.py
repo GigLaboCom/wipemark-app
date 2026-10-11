@@ -88,7 +88,7 @@ From the repository's root, with the venv R10's README describes (torch only
 for `weights`, onnxruntime for `pictures` and `crops`):
 
     python3 scripts/grok/gwt-way.py weights --gwt <GWT checkout> --pth <fdncnn_color.pth> --out <json>
-    python3 scripts/grok/gwt-way.py pictures fixtures/image/grok/x/*.jpeg \\
+    python3 scripts/grok/gwt-way.py pictures fixtures/image/grok-x/*.jpeg \\
         --look reports/grok-first-look-2026-10-11/look.json \\
         --catalogue reports/grok-first-look-2026-10-11/catalogue/marks.json \\
         --model <fdncnn_color.onnx> --out reports/grok-fdncnn-<date>/pictures [--product DIR]

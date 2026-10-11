@@ -86,7 +86,7 @@ git -C "$GWT" checkout -q 7c6a99f2c3df97eb3c430ef87a0c962aea5cb80e
   --pth "$D/model_zoo/fdncnn_color.pth" --out "$D/weights.json"
 
 # 2 — the first look's catalogue and the product's column
-X=fixtures/image/grok/x
+X=fixtures/image/grok-x
 P="$X/HUVfLiSW0AEtmX_.jpeg $X/HUVe9s_XkAAwxck.jpeg $X/HUVfYqgWkAAOhiJ.jpeg $X/HUS9M6_W8AAkLdd.jpeg $X/HUS9M6oX0AERoMb.jpeg"
 # shellcheck disable=SC2086
 [ -f "$CAT" ] || "$V" scripts/grok/first-look.py look $P --date 2026-10-11 --out "$FL"   # the first look's own command (the reference first)
@@ -94,7 +94,7 @@ P="$X/HUVfLiSW0AEtmX_.jpeg $X/HUVe9s_XkAAwxck.jpeg $X/HUVfYqgWkAAOhiJ.jpeg $X/HU
 "$V" scripts/grok/first-look.py product $P --cli "$D/cli/wipemark-cli" --date 2026-10-11 --out "$D/product" --look "$FL/look.json" --invert-dark
 
 # 3 — N2
-"$V" scripts/grok/gwt-way.py pictures fixtures/image/grok/x/*.jpeg --look "$FL/look.json" --catalogue "$CAT" \
+"$V" scripts/grok/gwt-way.py pictures fixtures/image/grok-x/*.jpeg --look "$FL/look.json" --catalogue "$CAT" \
   --model "$D/model_zoo/fdncnn_color.onnx" --out "$D/pictures" --product "$D/product/product"
 
 # 4 — N3

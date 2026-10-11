@@ -79,7 +79,7 @@ and the transparent copies — is in Watchword as
 thumbnail carries no mark and is not in it: the fixture *is* the file,
 and its sha256 above is the source's, read on 2026-10-04.
 
-## `grok/x/` — real Grok outputs, as X handed them out
+## `grok-x/` — real Grok outputs, as X handed them out
 
 Five of the first Grok outputs the owner collected on 2026-10-11, the
 files exactly as downloaded (names are X's media ids): progressive JPEG,
@@ -91,8 +91,9 @@ tables — libjpeg's at quality 95, so X's re-encode decodes like Pillow's
 them; until then (D493, the first look) they stayed out of git. The mark is
 the slashed circle and "Grok" bottom-right, width 0.0832 × the picture's,
 dark (a black logo) on a light corner and light (a white one) on a dark
-corner (`docs/plan/reports/E12-R11-grok-first-look-2026-10-11.md`). No test
-reads them yet; `scripts/grok/first-look.py` and `gwt-way.py` do.
+corner (`docs/plan/reports/E12-R11-grok-first-look-2026-10-11.md`). `wipemark-image`'s
+`blocks_tile_the_file` walks them (every byte in one block), as it walks every
+folder here; `scripts/grok/first-look.py` and `gwt-way.py` read them.
 
 | file | bytes | sha256 | size | under the mark | variant |
 |---|---:|---|---|---|---|
