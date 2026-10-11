@@ -50,6 +50,7 @@ mkdir -p "$out/inspect" "$out/gain" "$out/bias" "$out/regress" "$out/ohat"
 echo "== 1. self-tests"
 python3 "$here/gain.py" selftest
 python3 "$here/bias.py" selftest
+python3 "$here/search_gain.py" selftest
 "$bin/examples/forced_search" --selftest
 "$bin/examples/map_regress" --selftest
 

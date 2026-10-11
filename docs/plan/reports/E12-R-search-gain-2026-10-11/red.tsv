@@ -1,0 +1,10 @@
+id	verdict	exit	named case failing	seconds
+search-held-to-no-band	red	101	yes	12
+shipped-without-bands	red	101	yes	9
+native-held-too	red	101	yes	9
+large-band-short	red	101	yes	8
+small-band-raised	red	101	yes	8
+window-reversed-read	red	101	yes	5
+under-unordered-read	red	101	yes	5
+open-band-not-last-read	red	101	yes	5
+bench-file-not-in-place	red	101	yes	9

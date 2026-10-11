@@ -1,0 +1,31 @@
+{
+  "cases": 960,
+  "catalogue": {
+    "file": "bench/out/sg/catalogues/0.98/marks.json",
+    "in_place_of": "shipped",
+    "sha256": "355d78fbf890fe54360b0ff8355e43c456cc0fc6aa20d76943576b2abd93d4fb"
+  },
+  "commit": "918e314cfef956de86009479e0b674198475f7cc+dirty",
+  "configs": [
+    {
+      "about": "the RGB road, no refinement — the product's until 2026-10-10: wipemark_pixels::clean, the shipped catalogue, encode_like, reframe, prove",
+      "inverse": "encoded",
+      "name": "R0"
+    },
+    {
+      "about": "E12-R8, the product since 2026-10-10 (D471, D472): R6/R0, then on a JPEG the value chosen inside the DCT intervals by DCT-POCS (clean_refined, Refine::Dct)",
+      "inverse": "encoded",
+      "name": "R8d"
+    }
+  ],
+  "in": "bench/out/sg",
+  "jobs": 12,
+  "per_slice": {
+    "jpeg420-q90+resize-0.9 pillow": 1920,
+    "resize-0.9 pillow": 1920,
+    "resize-1.1 pillow": 1920
+  },
+  "results": 5760,
+  "schema": 1,
+  "seconds": 740.7
+}

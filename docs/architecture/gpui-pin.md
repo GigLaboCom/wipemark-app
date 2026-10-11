@@ -27,8 +27,8 @@ Cargo.toml ── gpui, gpui_platform ──► crates.io: gpui-pre, gpui-pre-pl
    │                                    every one from crates.io as published — nothing patched)
    │
    └── gpui-component (path) ──► vendor/gpui-component/crates/component
-                                   longbridge/gpui-kit, branch next @ d9b7c421
-                                   (#3359 + #3416 + #3417 over main 8d8cc671)
+                                   longbridge/gpui-kit, branch next @ 24ded30c
+                                   (#3359 + #3416 + #3417 + #3426 over main 8d8cc671)
                                    its own gpui: gpui-pre =0.3.8 — the same package
 ```
 
@@ -60,16 +60,19 @@ rely on (§2). It replaces
 `scripts/pin-gpui-component.sh`, which now only says it is retired.
 
 **The vendored component.** `vendor/gpui-component` is a submodule of
-**`longbridge/gpui-kit`** itself, branch **`next`**, at **`d9b7c421`**
-(2026-10-09, D460): `main` at `8d8cc671` plus three pull requests of the
-owner's, as merged — #3359 (`f8429177`, 2026-10-07), our line
+**`longbridge/gpui-kit`** itself, branch **`next`**, at **`24ded30c`**
+(2026-10-11; `d9b7c421` from 2026-10-09, D460): `main` at `8d8cc671` plus
+four pull requests of the owner's, as merged — #3359 (`f8429177`, 2026-10-07), our line
 decorations (`docs/sdd/line-decorations.md` §4.1); #3416 (`63068d0f`), a
 vertical scroll bar on the left (`ScrollbarPlacement`); and #3417
 (`d9b7c421`), the editor's gutter on either side with its columns in a
 chosen order (`gutter_side`, `gutter_order`) — the two the Compare
 window's mirrored layout is built on (`docs/architecture/compare.md`,
-"Where the gutters sit"). `next` held nothing beyond `d9b7c421` when it
-was pinned, and neither of the two later commits touched a manifest:
+"Where the gutters sit"); and #3426 (`24ded30c`, 2026-10-11), the text
+clipped to its own side of the gutter, so a dark theme's translucent
+gutter no longer shows scrolled text through it. `next` held nothing
+beyond `24ded30c` when it was pinned, and none of the later commits
+touched a manifest:
 `gpui-pre` stayed `=0.3.8`. Upstream split the old `crates/ui` into
 `crates/component` (`gpui-component`), `crates/base` (`gpui-base`),
 `crates/kit` and more, so the root manifest's path is
@@ -481,6 +484,20 @@ bump" had nothing to do. heretic-amuse-merge is not in lockstep for
 this one (step 8): it does not use the new API. What the two commits moved
 in our tests is in `docs/plan/reports/E7-10-compare-mirrored-2026-10-09.md`.
 
+### The bump of 2026-10-11: #3426
+
+The submodule from `d9b7c421` to `24ded30c` on gpui-kit `next` — #3426
+alone (`git log d9b7c421..24ded30c`), one file,
+`crates/base/src/input/base/element.rs`: the editor's lines, selections,
+document colours and ghost lines painted under a content mask that ends
+at the gutter. The maintainer added one commit to it before the merge
+(`31442191`): a gutter without line numbers — the fold icons and the
+margin — clips the text too, and the test runs both. The component only:
+`gpui-pre` unchanged at `=0.3.8`, no manifest, `Cargo.lock` not touched,
+`scripts/check-gpui-pin.sh` green. It closes the Compare window's dark
+theme finding (`docs/plan/README.md` §7 E7, "the line numbers are
+painted over visible text").
+
 ### The next bump
 
 1. **The component.** Move the submodule to the gpui-kit commit that
@@ -560,7 +577,8 @@ in our tests is in `docs/plan/reports/E7-10-compare-mirrored-2026-10-09.md`.
 
 - `next` at `f8429177`, the commit the submodule pinned from 2026-10-07 to 2026-10-09 (#3359 merged): <https://github.com/longbridge/gpui-kit/commit/f8429177ce6516f0dc7a0a2c2d15767affce82bd>
 - #3416, scrollbar: Let the vertical scrollbar sit on the left side: <https://github.com/longbridge/gpui-kit/pull/3416>, `63068d0f`: <https://github.com/longbridge/gpui-kit/commit/63068d0fe0b33b2104c66c9963708c7486e5cc6f>
-- #3417, editor: Support mirrored gutters for side-by-side diffs: <https://github.com/longbridge/gpui-kit/pull/3417>, `d9b7c421` — the commit the submodule pins since 2026-10-09: <https://github.com/longbridge/gpui-kit/commit/d9b7c4219a93cc8a95e92d4a4f2f880bab26fb22>
+- #3417, editor: Support mirrored gutters for side-by-side diffs: <https://github.com/longbridge/gpui-kit/pull/3417>, `d9b7c421` — the commit the submodule pinned from 2026-10-09 to 2026-10-11: <https://github.com/longbridge/gpui-kit/commit/d9b7c4219a93cc8a95e92d4a4f2f880bab26fb22>
+- #3426, editor: Clip the text to its own side of the gutter: <https://github.com/longbridge/gpui-kit/pull/3426>, `24ded30c` — the commit the submodule pins since 2026-10-11: <https://github.com/longbridge/gpui-kit/commit/24ded30c4c5770585755652ada7e90a6e620f520>
 - the maintainer's Editor Diff story at `d9b7c421`, the calls Compare makes: <https://github.com/longbridge/gpui-kit/blob/d9b7c4219a93cc8a95e92d4a4f2f880bab26fb22/crates/story/src/stories/editor_diff_story.rs>
 
 **crates.io**

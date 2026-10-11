@@ -19,7 +19,7 @@
         { "when": { "min_width": 1025, "min_height": 1025 }, "corner": "bottom-right", "margin": [64, 64], "alpha": "gemini-v1-96-measured" },
         { "when": {}, "corner": "bottom-right", "margin": [32, 32], "alpha": "gemini-v1-48" }
       ],
-      "search": { "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "gemini-v1-96-measured" },
+      "search": { "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "gemini-v1-96-measured", "gain": [ { "under": 64, "window": [0.96, 1.06] }, { "window": [1.02, 1.06] } ] },
       "detect": { "min_ncc": 0.70 },
       "verify": { "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 },
       "source": { "from": "allenk/GeminiWatermarkTool", "commit": "7c6a99f", "licence": "MIT", "copyright": "Copyright (c) 2024 AllenK (Kwyshell)" }
@@ -60,7 +60,7 @@
         { "when": { "width": 1536, "height": 672 }, "rect": [1380, 516, 52, 52], "alpha": "gemini-v2-96", "resample": true },
         { "when": { "width": 1024, "height": 559 }, "corner": "bottom-right", "margin": [70, 70], "alpha": "gemini-v2-36" }
       ],
-      "search": { "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "gemini-v2-96" },
+      "search": { "corner": "bottom-right", "within": [320, 320], "sizes": [24, 160], "alpha": "gemini-v2-96", "gain": [ { "under": 64, "window": [0.96, 1.06] }, { "window": [1.02, 1.06] } ] },
       "detect": { "min_ncc": 0.70 },
       "verify": { "gain": 0.06, "edge_ratio": 0.30, "out_of_range": 0.01 },
       "source": { "from": "allenk/GeminiWatermarkTool", "commit": "7c6a99f", "licence": "MIT", "copyright": "Copyright (c) 2024 AllenK (Kwyshell)" }

@@ -19,6 +19,7 @@ has neither the corpus nor Python. Every script opens with the header
 | §4.2 are the rows where the marks are? (D236) | `crates/wipemark-picture/examples/forced_search.rs` over the `#[doc(hidden)]` hook `wipemark_pixels::refine_at` | pictures | the 21 originals (R1's cache); `gemini-midtone` for its groups |
 | §4.3 a constant bias `b`? | `bias.py` | pictures + a list with groups | `gemini-midtone` |
 | §4.4 can `L(p)` be told from `α(p)`? (D240, `logo_map`) | `crates/wipemark-picture/examples/map_regress.rs` | pictures + a list with groups and `held_out` | `gemini-midtone` |
+| D530 (2026-10-11): the gain the search sees on a resampled mark, and what a `search.gain` setting keeps | `crates/wipemark-picture/examples/search_gain.rs` over the `#[doc(hidden)]` hook `wipemark_pixels::trace_search`, then `search_gain.py` | a bench run (`recon_bench gen` + `encode.py`) or a `regress.py list` | nothing |
 | the container's self-check | `selfcheck.sh` | synthesis and `fixtures/image/gemini/` | nothing |
 
 `bias.py list` turns R2's `corpus/gemini-midtone/manifest.json` into the
@@ -39,6 +40,7 @@ report's, written by whoever looked at the figures.
 ```sh
 python3 scripts/analytics/gain.py selftest
 python3 scripts/analytics/bias.py selftest
+python3 scripts/analytics/search_gain.py selftest
 cargo run --release -p wipemark-picture --example forced_search -- --selftest
 cargo run --release -p wipemark-picture --example map_regress -- --selftest
 cargo build --release -p wipemark-cli -p wipemark-picture --examples --locked
