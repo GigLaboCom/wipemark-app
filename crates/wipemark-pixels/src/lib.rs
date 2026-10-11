@@ -62,8 +62,8 @@ pub use calibrate::{
     Capture, Counts, Draft, Replay,
 };
 pub use catalogue::{
-    shipped_assets, Anchor, AssetProblem, Catalogue, CatalogueError, Corner, Placement, Profile,
-    ProfileId, Search, Status, Thresholds, When, EMBEDDED, SCHEMA,
+    shipped_assets, Anchor, AssetProblem, Catalogue, CatalogueError, Corner, GainBand, Placement,
+    Profile, ProfileId, Search, Status, Thresholds, When, EMBEDDED, NATIVE_REACH, SCHEMA,
 };
 pub use geometry::{Kernel, PixelRect, SubRect, CAPTURE_NOISE};
 #[doc(hidden)]
@@ -320,6 +320,64 @@ fn gain_refused_here(profile: &Profile, row: &Finding, proposal: &propose::Propo
         centre(proposal.map, proposal.rect),
     );
     (a.0 - b.0).abs() < ROW_PLACE && (a.1 - b.1).abs() < ROW_PLACE
+}
+
+/// One of the search's places, as `trace_search` measured it.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Traced {
+    pub rect: SubRect,
+    pub kernel: Kernel,
+    /// The second proof's numbers there; `None` when it measured none.
+    pub scores: Option<Scores>,
+    /// Whether the second proof proved the mark there.
+    pub verified: bool,
+}
+
+/// What the search of one profile saw (D530's measure): NCC's whole-pixel
+/// place, the refined place the product proves at, and the place a
+/// refinement by the gain the picture shows would take.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SearchTrace {
+    pub ncc: f32,
+    pub base: Traced,
+    pub refined: Traced,
+    pub free: Traced,
+}
+
+/// The search of `profile` over `raster`, measured at its three places —
+/// a developer's measure (`examples/search_gain.rs`), not a verdict; it
+/// runs whether or not a row's mark was proved. `None` for a profile the
+/// catalogue does not hold, with no search, or whose search proposes
+/// nothing.
+#[doc(hidden)]
+pub fn trace_search(
+    raster: &Raster,
+    planes: Option<&Planes>,
+    catalogue: &Catalogue,
+    options: &ExamineOptions,
+    profile: &str,
+) -> Option<SearchTrace> {
+    let profile = catalogue.profile(profile)?;
+    let model = planar::route(raster, planes, options);
+    let scene = propose::Scene::new(raster);
+    let t = propose::search_trace(&scene, profile)?;
+    let traced = |p: &propose::Proposal| {
+        let (scores, outcome) = verify::verify_with(raster, model.as_ref(), profile, p);
+        Traced {
+            rect: p.rect,
+            kernel: p.kernel,
+            scores,
+            verified: matches!(outcome, verify::Outcome::Verified(_)),
+        }
+    };
+    Some(SearchTrace {
+        ncc: t.ncc,
+        base: traced(&t.base),
+        refined: traced(&t.refined),
+        free: traced(&t.free),
+    })
 }
 
 /// One proposal, verified: a finding, or nothing when it is no blend

@@ -148,3 +148,22 @@ Llama 3.x 8B, Mistral Nemo 12B. Two of them ship today, chosen so that a
 12 GB machine and a workstation are each offered something rather than
 the same thing with a warning beside it — see
 `docs/architecture/model-downloads.md`.
+
+# The mark catalogue
+
+`marks.v1.json`, beside `models.v1.json`, is the catalogue of visible marks, compiled into
+`wipemark-pixels` and documented field by field in
+`docs/architecture/visible-marks.md` ("A mark is data"). One field is a
+tuning knob rather than a fact about the vendor, so it is named here:
+a profile's `search.gain` (D530) — the gain bands a mark the search found
+resampled must fall in, by the template's width:
+
+```json
+"gain": [ { "under": 64, "window": [0.96, 1.06] }, { "window": [1.02, 1.06] } ]
+```
+
+Absent, `null` or `[]` is no band: the second proof as for a row, the
+product before D530. Changing it is a JSON edit; trying another value
+needs no rebuild — `recon_bench run --catalogue <copy>` over the bench's
+Gemini rows, `search_gain --catalogue <copy>` over real files
+(`docs/plan/reports/E12-R-search-gain-2026-10-11.md`).

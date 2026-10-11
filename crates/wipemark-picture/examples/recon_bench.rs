@@ -72,6 +72,12 @@
 //! row, so the matrix (A5) exists for any profile. The run's
 //! `manifest.json` records the profiles, the catalogue file and its sha256;
 //! `run` reads the same file again (or `--catalogue`) and refuses another.
+//! Over a run generated **without** a catalogue file — the Gemini rows —
+//! `run --catalogue FILE` puts the file in the shipped catalogue's place
+//! (D530, 2026-10-11), its GWT twin made from it by the same one-row edit:
+//! a copy of `manifests/marks.v1.json` with another value in it (a search's
+//! `gain` bands, say) is tried on the bench with no rebuild, and the run's
+//! `.run.json` records the file, its sha256 and `"in_place_of": "shipped"`.
 //! So `R0-grok` is `R0` over a run generated with `--catalogue <grok> --profile
 //! <grok id>`, and every config runs on it unchanged.
 //!
@@ -789,22 +795,35 @@ struct Catalogues {
 impl Catalogues {
     fn load() -> Catalogues {
         let shipped = Catalogue::shipped().unwrap_or_else(|e| refuse(&e.to_string()));
-        let from = "\"margin\": [64, 64], \"alpha\": \"gemini-v1-96-measured\"";
-        if EMBEDDED.matches(from).count() != 1 {
-            refuse("the shipped catalogue's V1 large row is not where the bench expects it");
-        }
-        let json = EMBEDDED.replace(from, "\"margin\": [64, 64], \"alpha\": \"gemini-v1-96\"");
-        let gwt = Catalogue::parse(&json, &|name: &str| {
-            wipemark_pixels::shipped_assets()
-                .find(|(n, _)| *n == name)
-                .map(|(_, b)| b)
-        })
-        .unwrap_or_else(|e| refuse(&e.to_string()));
         Catalogues {
             shipped,
-            gwt,
+            gwt: gwt_twin(EMBEDDED, &[]),
             file: None,
         }
+    }
+
+    /// The catalogues with the file `path` in the shipped one's place
+    /// (D530, `run --catalogue` over a run generated without one): the
+    /// Gemini rows restored by that file — a copy of `marks.v1.json` with
+    /// another `search.gain`, say — and its GWT twin made from it by the
+    /// same one-row edit. What a run records of it, too.
+    fn in_place_of_shipped(path: &Path) -> (Catalogues, Value) {
+        let json = std::fs::read_to_string(path)
+            .unwrap_or_else(|e| refuse(&format!("{}: {e}", path.display())));
+        let dirs = [catalogue_file::folder_of(path)];
+        let shipped = catalogue_file::parse_with(&json, &dirs)
+            .unwrap_or_else(|e| refuse(&format!("{}: {e}", path.display())));
+        let catalogues = Catalogues {
+            shipped: Box::leak(Box::new(shipped)),
+            gwt: gwt_twin(&json, &dirs),
+            file: None,
+        };
+        let record = json!({
+            "file": path.to_string_lossy(),
+            "sha256": sha256_hex(json.as_bytes()),
+            "in_place_of": "shipped",
+        });
+        (catalogues, record)
     }
 
     fn of(&self, cat: Cat) -> &Catalogue {
@@ -816,6 +835,30 @@ impl Catalogues {
             }),
         }
     }
+}
+
+/// A catalogue's GWT twin: `json` with V1's large row — `margin` [64, 64]
+/// and the measured map — naming GWT's own 96 map instead, its assets in
+/// `dirs` or shipped. Read as JSON, so a copy written in another layout
+/// has the same twin.
+fn gwt_twin(json: &str, dirs: &[&Path]) -> Catalogue {
+    let mut doc: Value = serde_json::from_str(json).unwrap_or_else(|e| refuse(&e.to_string()));
+    let mut edited = 0;
+    for p in doc["profiles"].as_array_mut().into_iter().flatten() {
+        if p["id"] != V1 {
+            continue;
+        }
+        for row in p["placements"].as_array_mut().into_iter().flatten() {
+            if row["margin"] == json!([64, 64]) && row["alpha"] == "gemini-v1-96-measured" {
+                row["alpha"] = json!("gemini-v1-96");
+                edited += 1;
+            }
+        }
+    }
+    if edited != 1 {
+        refuse("the catalogue's V1 large row is not where the bench expects it");
+    }
+    catalogue_file::parse_with(&doc.to_string(), dirs).unwrap_or_else(|e| refuse(&e))
 }
 
 /// `--catalogue FILE`: the catalogues with that file read beside them, and
@@ -2461,7 +2504,14 @@ fn run(args: &Args) {
             .as_ref()
             .and_then(|c| c["file"].as_str().map(PathBuf::from))
     });
-    let (catalogues, catalogue_record) = with_file(Catalogues::load(), catalogue_path.as_deref());
+    // A run generated without a catalogue file restores the Gemini rows
+    // with the shipped catalogue; `run --catalogue FILE` puts the file in
+    // its place (D530) — the road to try another value of the catalogue's
+    // with no rebuild.
+    let (catalogues, catalogue_record) = match (&generated_with, catalogue_path.as_deref()) {
+        (None, Some(path)) => Catalogues::in_place_of_shipped(path),
+        _ => with_file(Catalogues::load(), catalogue_path.as_deref()),
+    };
     if let Some(want) = &generated_with {
         if want["sha256"] != catalogue_record["sha256"] {
             refuse(&format!(
@@ -3211,6 +3261,39 @@ mod tests {
         assert_eq!(v1(c.shipped), "gemini-v1-96-measured");
         assert_eq!(v1(&c.gwt), "gemini-v1-96");
         assert_eq!(c.shipped.profile(V2), c.gwt.profile(V2));
+    }
+
+    /// D530: `run --catalogue FILE` over the Gemini rows puts the file in
+    /// the shipped catalogue's place — a copy of `marks.v1.json` with the
+    /// search's gain bands removed restores with no band — and its GWT twin
+    /// is made from the file, differing from it in V1's large row alone,
+    /// however the copy is laid out.
+    #[test]
+    fn a_catalogue_file_takes_the_shipped_ones_place() {
+        let mut doc: Value = serde_json::from_str(EMBEDDED).unwrap();
+        for p in doc["profiles"].as_array_mut().unwrap() {
+            p["search"].as_object_mut().unwrap().remove("gain");
+        }
+        let dir = std::env::temp_dir().join(format!("recon-bench-in-place-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("marks.json");
+        std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+        let (c, record) = Catalogues::in_place_of_shipped(&path);
+        assert_eq!(record["in_place_of"], "shipped");
+        for id in [V1, V2] {
+            let gain = |cat: &Catalogue| cat.profile(id).unwrap().search.clone().unwrap().gain;
+            assert!(gain(c.shipped).is_empty(), "{id}");
+            assert!(gain(&c.gwt).is_empty(), "{id}");
+            assert!(!gain(Catalogues::load().shipped).is_empty(), "{id}");
+        }
+        let v1 = |cat: &Catalogue| {
+            let p = cat.profile(V1).unwrap();
+            p.maps[p.placements[0].alpha].0.clone()
+        };
+        assert_eq!(v1(c.shipped), "gemini-v1-96-measured");
+        assert_eq!(v1(&c.gwt), "gemini-v1-96");
+        assert_eq!(c.shipped.profile(V2), c.gwt.profile(V2));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The stand-in profile of `fixtures/marks/synthetic-wordmark/` — a
