@@ -171,6 +171,18 @@ cell. The panel floats above this window either way — that is what
 something a person checks against the *screen*, not against the
 preferences window they were reading a moment ago.
 
+**The window is picked up by the whole lit cell** (D648). The chip in a
+chosen cell is 26×18 points; a press anywhere else in the cell — the
+rectangle that reads as "the window" — used to start nothing and log
+nothing, which is what acceptance F12 saw ("dragging the window chip onto
+a zone does nothing", under XWayland). The chosen cell now carries the
+same `on_drag(DraggedWindow)` as the chip (the chip, inside, still hears
+its own press first; a press with no movement is still the cell's click),
+and a window put somewhere by hand is drawn no smaller than 24×16 points
+(`MANUAL_CHIP`). Reproduced and checked on an Xvfb of our own with XTest
+(`scripts/verify/linux-placement/xtest.py`, `placement-drag.sh`); not under
+a window manager.
+
 Only a drop. The cells are also a row of buttons, because a preference
 that can only be changed by dragging is a preference somebody cannot
 change, and a keyboard user works along them comparing two corners — a
@@ -348,10 +360,13 @@ with a timestamp of zero by taking the current time (`window_activate`),
 so the window should come forward rather than ask for attention — read in
 mutter's source, not seen live here (the owner's checklist has it).
 
-**The system-wide shortcut** stays off in a Wayland session, XWayland
-included (`hotkey::x11_session`, D346): a grab there hears only keys typed
-into other X11 windows. The row says so in its own words now
-(`hotkey-unavailable-wayland`, D618) instead of "not on this platform".
+**The system-wide shortcut**: on GNOME, in either session type, it is
+GNOME's own custom keyboard shortcut running `wipemark --panel`, handed to
+the running instance over its socket (D641–D647,
+`docs/architecture/hotkeys.md`). In a Wayland session that is not GNOME's
+it stays off, XWayland included (`hotkey::x11_session`, D346): a grab
+there hears only keys typed into other X11 windows, and the row says so
+(`hotkey-unavailable-wayland`, D618).
 
 ## Watching the displays
 

@@ -13,6 +13,8 @@ behind it, rebuilt on gpui-component parts.
 | `apps/wipemark-app/src/keys.rs` | the badge a chord is painted in, and what goes between its keys |
 | `config.rs` → `hotkey.<action>` | one row per `hotkey::Action`, the chord as text, `""` for none |
 | `main.rs` → `install_hotkeys` | registers what is stored, follows every change, performs a press |
+| `apps/wipemark-app/src/gnome.rs` | GNOME's own custom keyboard shortcuts as the registrar on GNOME: the accelerator, the command, the list edit, who already holds the keys (D641–D647) |
+| `apps/wipemark-app/src/instance.rs` | one Wipemark per data directory: a second launch's `--panel` or `--show` handed to the running one (D646) |
 
 | action | what a press does | shipped chord |
 |---|---|---|
@@ -88,7 +90,8 @@ Function keys are not exempt.
 
 ## The recorder
 
-Click the field and it listens. Hold modifiers and it previews them
+Click the field and it listens — and, on Linux, the action's shortcut is
+taken away from the desktop until it lets go (below, D649). Hold modifiers and it previews them
 (`⌥⇧…`). Press a key and it records the chord and stops. Escape keeps
 what was there; Backspace and Delete forget it; a click anywhere else
 is Escape. Escape and Tab cannot be pressed *into* a recorder, so while
@@ -135,6 +138,29 @@ on would be a keyboard that stopped working, so the control's own
 `mousedown` listener, in GPUI. It sits on the whole control rather
 than on the field, or the two buttons under the field would be
 "outside".
+
+### While it listens, the shortcut is not registered (D649)
+
+On Linux a recorder that listens takes its action's registration away:
+the GNOME entry is removed (or the X grab released), so the keys it held
+reach the field — re-recording the current chord, or trying one GNOME
+holds, would otherwise fire the shortcut instead of being heard. When the
+recorder lets go, the row's chord is asked for again: the chord just
+recorded, the old one after Escape or a click elsewhere, nothing after
+Backspace. That is heretic-lazy-shot's flow — in Settings, unregister,
+assign, leave, register — at the grain of one field rather than one tab.
+
+The recorder emits `RecorderEvent::Listening(true)` when it starts and
+`Listening(false)` once it is idle again (after `Changed`, after the
+modifiers are up); `Preferences::recording_shortcut` keeps which action,
+and `Preferences::shortcut_held` — `hotkey::held_for_desktop`, nothing for
+the action being recorded, the row's chord otherwise — is what
+`main::install_hotkeys` follows through `hotkey::Follower`. A recorder
+dropped while it listens (its window closed under it) ends the suspension
+(`observe_release`). macOS is unchanged (`SUSPEND_WHILE_RECORDING`).
+`the_recorder_releases_the_keys_on_entry_and_asks_again_on_leaving` is the
+gate; `scripts/verify/gnome-hotkey/private-gsettings.sh` step g drives it
+live.
 
 ## The row is the request; the registration is the answer
 
@@ -199,7 +225,7 @@ before anybody can record it.
 
 ## Platforms
 
-macOS and Linux under X11, through `global-hotkey` 0.7 — the crate
+macOS and Linux under X11 outside GNOME, through `global-hotkey` 0.7 — the crate
 Tauri's own plugin is built on, a sibling of the `muda` the tray uses,
 and a dependency on exactly the platforms `tray-icon` is one. On macOS
 it registers through Carbon's `RegisterEventHotKey`, which needs no
@@ -242,7 +268,78 @@ are tested over a desktop double that holds every request
 `the_registrar_releases_the_old_chord_first_and_answers_in_order`).
 
 Windows wants a message loop on the registering thread (E10), and a
-Wayland session has no API this build uses; there `hotkey::install`
-returns `None` and every row says the shortcut is stored and not
-registered (`hotkey-unavailable`), because a preference that silently
-did nothing would be worse than one that says so.
+Wayland session that is not GNOME's has no API this build uses; there
+`hotkey::install` returns `None` and every row says the shortcut is
+stored and not registered (`hotkey-unavailable`,
+`hotkey-unavailable-wayland`), because a preference that silently did
+nothing would be worse than one that says so.
+
+### GNOME: its own custom keyboard shortcut (D641–D647)
+
+Acceptance F11 (2026-10-12, Ubuntu 24.04, GNOME Shell 46 on Wayland): the
+panel could not be summoned from the keyboard. Under XWayland — the
+default on Linux since D611 — an X grab hears only keys typed into other
+X11 clients, and GNOME 46 has no `org.freedesktop.portal.GlobalShortcuts`
+(it came in 48). GNOME has always had the other road, the one its own
+Settings › Keyboard › Custom Shortcuts writes, and on GNOME — **either
+session type**, `hotkey::road`, `XDG_CURRENT_DESKTOP` naming `GNOME` —
+that is the registrar (`gnome::Keybindings`, on the `wipemark-hotkeys`
+thread):
+
+* **One entry per action with a chord**, at
+  `/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/wipemark-panel/`
+  (and `wipemark-show/`): `name` from the catalogue (`hotkey-gnome-name-*`,
+  plain text — "Wipemark — panel"), `binding` in GNOME's accelerator
+  spelling (`gnome::accelerator`: `CmdOrCtrl+Alt+D` → `<Control><Alt>d`,
+  D642), and `command`.
+* **The command** is the program that would start us, then the action's
+  flag: `$APPIMAGE` inside an AppImage, `current_exe()` otherwise, behind
+  `env WIPEMARK_DATA_DIR=<dir>` when that variable is set, quoted for
+  `g_shell_parse_argv` where it must be (D643). `--panel`, and `--show` for
+  the main window.
+* **The list** (`org.gnome.settings-daemon.plugins.media-keys
+  custom-keybindings`) is edited, never replaced: ours appended after
+  everyone else's, ours alone taken out, our keys reset (D644).
+* **A chord GNOME already grabs is refused by name** (D645): the window
+  manager's, the shell's, mutter's, the media keys' and every other custom
+  shortcut's accelerators are read first and compared by what they grab;
+  a match is `Registration::TakenInGnome { name, setting }` — "Not set:
+  GNOME already uses these keys for "Hide all normal windows"
+  (org.gnome.desktop.wm.keybindings show-desktop)" — and nothing of ours
+  is left on the old keys. On Ubuntu that is the shipped Ctrl+Alt+D.
+* **Every launch asserts it again** — the command may name an AppImage
+  that has moved — and **a quit leaves it**, so the keys start Wipemark
+  with its panel. Uninstalling leaves the entry in the person's GNOME
+  settings: they remove it in Settings › Keyboard › Custom Shortcuts (a
+  `.deb`'s `postrm` cannot reach a user's dconf). The sentence under the
+  field says both.
+* **The `gsettings` command**, each call bounded at 5 s, never from the
+  GPUI thread. No dependency: gio is in the lock through gtk, but a process
+  call is what a test double stands in for — every rule above is tested
+  over `gnome::tests::Fake`, never a real `gsettings`. No GNOME custom
+  shortcuts at all (no `gsettings`, no media-keys schema) is
+  `Registration::NoGnome` (`hotkey-unavailable-gnome`).
+
+**A press is a second launch.** GNOME runs `wipemark --panel`; a launch
+whose whole request is `--panel` or `--show` first connects to
+`<data dir>/wipemark.sock` (`instance.rs`, D646) — mode 0600, or
+`$XDG_RUNTIME_DIR/wipemark-<hash>.sock` when the data directory's path is
+too long for a socket — and, answered `ok`, exits 0: the running instance
+toggles its panel (or brings the main window forward), the way the
+Carbon or X11 press does. With nothing running the launch starts, and its
+`--panel` opens the panel. Not MCP, which is off by default.
+
+**Why GNOME's road under X11 too** (D647): a grab of a key mutter already
+holds is refused with a bare `BadAccess`, where GNOME's lists let the row
+name the holder, and only GNOME's shortcut starts Wipemark when it is not
+running — so the two session types behave alike. The X11 grab stays for
+X11 sessions that are not GNOME's; macOS is unchanged.
+
+The live check is `scripts/verify/gnome-hotkey/private-gsettings.sh`: a
+private session bus, a private dconf (`XDG_CONFIG_HOME`,
+`XDG_RUNTIME_DIR`), an Xvfb, the real `gsettings` and the real
+application — the entry written, the stranger's kept, Ctrl+Alt+D refused
+as Show desktop's, `--panel` handed over in ~20 ms, the binding left at
+quit, the recorder's order driven with XTest — and the owner's own
+`dconf dump` of the media keys and the window manager's keybindings
+compared before and after.

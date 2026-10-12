@@ -41,14 +41,17 @@
 //!
 //! # Platforms
 //!
-//! macOS today, through `global-hotkey` — the crate Tauri's own plugin
-//! is built on, a sibling of the `muda` the tray already uses, and it
-//! registers through Carbon's `RegisterEventHotKey`, which needs no
-//! Accessibility permission. Linux wants an X11 connection and Windows
-//! a message loop on the registering thread; both are E10 work beside
-//! the tray's, and until then [`install`] returns `None` and the row
-//! says the shortcut is stored but not registered. A preference that
-//! silently did nothing would be worse than one that says so.
+//! macOS through `global-hotkey` — the crate Tauri's own plugin is built
+//! on, a sibling of the `muda` the tray already uses, and it registers
+//! through Carbon's `RegisterEventHotKey`, which needs no Accessibility
+//! permission. On GNOME — either session type — a custom keyboard
+//! shortcut of GNOME's own that runs `wipemark --panel`
+//! ([`crate::gnome`], D641). Elsewhere on Linux an X11 key grab, in an
+//! X11 session only (D346). Windows wants a message loop on the
+//! registering thread (E10); there, and in a Wayland session that is not
+//! GNOME's, [`install`] returns `None` and the row says the shortcut is
+//! stored but not registered. A preference that silently did nothing
+//! would be worse than one that says so.
 
 use std::fmt;
 
@@ -630,8 +633,31 @@ pub enum Registration {
         )
     )]
     Refused(String),
-    /// This build cannot register one here: Windows (E10), or a Linux session that is not X11 (D346).
+    /// This build cannot register one here: Windows (E10), or a Linux session that is neither
+    /// GNOME's nor X11 (D346, D647).
     Unavailable,
+    /// GNOME's own custom shortcut runs Wipemark with the action's flag
+    /// (D641): it works from any application, and starts Wipemark when it
+    /// is not running.
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(dead_code, reason = "only GNOME on Linux answers this")
+    )]
+    InGnome,
+    /// GNOME already grabs these keys for something else, named as its
+    /// Settings names it, and where it is set (D645). Nothing was written.
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(dead_code, reason = "only GNOME on Linux answers this")
+    )]
+    TakenInGnome { name: String, setting: String },
+    /// A GNOME session with no custom shortcuts this build can set —
+    /// `gsettings` or the media keys' schema is missing.
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(dead_code, reason = "only GNOME on Linux answers this")
+    )]
+    NoGnome,
 }
 
 /// One registration asked for, and one answer.
@@ -730,6 +756,28 @@ impl<D: Desktop> Assigner<D> {
     }
 }
 
+/// What the registrar's thread asks: given a chord for an action, or
+/// none, make the desktop say so — and say what it said. An X11 grab
+/// ([`Assigner`]) or GNOME's custom shortcuts ([`crate::gnome::Keybindings`]).
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+trait Assign {
+    fn assign(&mut self, action: Action, chord: Option<Hotkey>) -> Registration;
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+impl<D: Desktop> Assign for Assigner<D> {
+    fn assign(&mut self, action: Action, chord: Option<Hotkey>) -> Registration {
+        Assigner::assign(self, action, chord)
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl<G: crate::gnome::Gsettings> Assign for crate::gnome::Keybindings<G> {
+    fn assign(&mut self, action: Action, chord: Option<Hotkey>) -> Registration {
+        crate::gnome::Keybindings::assign(self, action, chord)
+    }
+}
+
 /// How a request reaches the desktop.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 enum Road {
@@ -793,9 +841,8 @@ impl Registrar {
             reason = "macOS asks on the main thread (`Road::Here`); its tests drive this road"
         )
     )]
-    fn threaded<D: Desktop + Send + 'static>(
-        desktop: D,
-        ids: Ids,
+    fn threaded<A: Assign + Send + 'static>(
+        mut assigner: A,
         presses: flume::Receiver<Action>,
     ) -> Registrar {
         let (requests, asked) = flume::unbounded::<(Action, Option<Hotkey>)>();
@@ -803,11 +850,6 @@ impl Registrar {
         let spawned = std::thread::Builder::new()
             .name("wipemark-hotkeys".to_owned())
             .spawn(move || {
-                let mut assigner = Assigner {
-                    desktop,
-                    live: std::collections::BTreeMap::new(),
-                    ids,
-                };
                 // Ends when the registrar is dropped; the desktop's
                 // grabs go with the manager, on this thread.
                 while let Ok((action, chord)) = asked.recv() {
@@ -827,6 +869,30 @@ impl Registrar {
             answers,
             presses,
         }
+    }
+
+    /// A registrar that grabs keys from the desktop — `global-hotkey`'s
+    /// manager, or a test's double — on a thread of its own.
+    #[cfg_attr(
+        target_os = "macos",
+        allow(
+            dead_code,
+            reason = "macOS asks on the main thread (`Road::Here`); its tests drive this road"
+        )
+    )]
+    fn grabbing<D: Desktop + Send + 'static>(
+        desktop: D,
+        ids: Ids,
+        presses: flume::Receiver<Action>,
+    ) -> Registrar {
+        Self::threaded(
+            Assigner {
+                desktop,
+                live: std::collections::BTreeMap::new(),
+                ids,
+            },
+            presses,
+        )
     }
 
     /// A receiver for the presses. Cheap to clone; `main` takes one and
@@ -887,9 +953,10 @@ impl Registrar {
 /// failed to install is not a reason to fail a launch.
 ///
 /// `compositor` is `App::compositor_name` — what GPUI draws through. On
-/// Linux the registrar is an X11 key grab on a thread `global-hotkey`
-/// starts, so it is asked for only where [`x11_session`] says the
-/// keyboard is X11's (D346).
+/// Linux, GNOME's own custom keyboard shortcuts where the session is
+/// GNOME's, in either session type ([`road`], D641, D647); otherwise an
+/// X11 key grab on a thread `global-hotkey` starts, asked for only where
+/// [`x11_session`] says the keyboard is X11's (D346).
 ///
 /// Must be called on the main thread, from inside
 /// `gpui_platform::application().run(…)`, and only once: `global-hotkey`
@@ -899,6 +966,27 @@ impl Registrar {
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub fn install(compositor: &str) -> Option<Registrar> {
     use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
+
+    // GNOME first, in either session type (D641, D647): its own custom
+    // shortcut grabs the keys in the compositor, so it hears them under
+    // Wayland, under XWayland and under X11 alike, and it starts Wipemark
+    // when Wipemark is not running. A press arrives as a second launch
+    // over the instance socket (`crate::instance`), not on `presses`.
+    #[cfg(target_os = "linux")]
+    if road(
+        compositor,
+        std::env::var_os("XDG_SESSION_TYPE").as_deref(),
+        std::env::var_os("XDG_CURRENT_DESKTOP").as_deref(),
+    ) == Some(Desktops::Gnome)
+    {
+        tracing::info!("system-wide shortcuts through GNOME's custom keyboard shortcuts");
+        let keybindings = crate::gnome::Keybindings::new(
+            crate::gnome::Command,
+            crate::gnome::Launcher::here(),
+            crate::gnome::names(),
+        );
+        return Some(Registrar::threaded(keybindings, flume::unbounded().1));
+    }
 
     // Asked before the manager exists: on Linux `new` starts a thread
     // that connects to X11 and dies quietly when it cannot, after which
@@ -951,7 +1039,7 @@ pub fn install(compositor: &str) -> Option<Registrar> {
     // On X11 every request waits for `global-hotkey`'s own thread, so it
     // is made from a thread of ours and never from GPUI's (B1).
     #[cfg(target_os = "linux")]
-    let registrar = Registrar::threaded(manager, ids, presses);
+    let registrar = Registrar::grabbing(manager, ids, presses);
     #[cfg(target_os = "macos")]
     let registrar = {
         let (answer, answers) = flume::unbounded();
@@ -975,6 +1063,83 @@ pub fn install(compositor: &str) -> Option<Registrar> {
 pub fn install(_compositor: &str) -> Option<Registrar> {
     tracing::debug!("no system-wide shortcuts on this platform yet — E10");
     None
+}
+
+/// What registers a system-wide shortcut on a Linux desktop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Desktops {
+    /// GNOME's own custom keyboard shortcuts (D641).
+    Gnome,
+    /// An X11 key grab, in an X11 session (D346).
+    X11Grab,
+}
+
+/// Which road a Linux session's shortcut takes, or `None` for none (D647).
+///
+/// GNOME is asked first, whatever the session type: its custom shortcut is
+/// grabbed by the compositor, so it hears the keyboard under Wayland and
+/// XWayland, where an X grab hears only other X11 clients — and under X11
+/// it is still the better road, because mutter's own bindings are GNOME's
+/// to refuse by name, and the shortcut starts Wipemark when it is not
+/// running. Elsewhere an X11 grab, only where it hears the keyboard.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(dead_code, reason = "only Linux asks; tested everywhere")
+)]
+pub fn road(
+    compositor: &str,
+    session_type: Option<&std::ffi::OsStr>,
+    current_desktop: Option<&std::ffi::OsStr>,
+) -> Option<Desktops> {
+    if crate::gnome::is_gnome(current_desktop) {
+        Some(Desktops::Gnome)
+    } else if x11_session(compositor, session_type) {
+        Some(Desktops::X11Grab)
+    } else {
+        None
+    }
+}
+
+/// What the desktop should hold for an action: its row's chord — or
+/// nothing while somebody is recording a new one for it, so the old keys
+/// reach the recorder rather than GNOME or the X grab (D649).
+pub fn held_for_desktop(row: Option<Hotkey>, recording: bool) -> Option<Hotkey> {
+    if recording {
+        None
+    } else {
+        row
+    }
+}
+
+/// What the registrar has been asked for so far, so a repaint is not a
+/// re-registration: `Preferences` notifies for every theme click, and
+/// each of those must not unregister and register the shortcut again.
+#[derive(Debug, Default)]
+pub struct Follower {
+    asked: std::collections::BTreeMap<Action, Option<Hotkey>>,
+}
+
+impl Follower {
+    /// The requests that bring the desktop into line with `wanted`, in
+    /// [`Action::ALL`] order — only for the actions whose wish moved since
+    /// the last time. The first call asks for every action, which is the
+    /// launch's re-assertion: a binding's command may name a program that
+    /// has moved (a new AppImage) since it was written.
+    pub fn moved(
+        &mut self,
+        wanted: impl Fn(Action) -> Option<Hotkey>,
+    ) -> Vec<(Action, Option<Hotkey>)> {
+        let mut asks = Vec::new();
+        for action in Action::ALL {
+            let chord = wanted(action);
+            if self.asked.get(&action) == Some(&chord) {
+                continue;
+            }
+            self.asked.insert(action, chord);
+            asks.push((action, chord));
+        }
+        asks
+    }
 }
 
 /// Whether a system-wide X11 key grab would hear the keyboard (D346).
@@ -1311,6 +1476,82 @@ mod tests {
         assert!(!x11_session("headless", Some(OsStr::new("x11"))));
     }
 
+    /// D647: on Linux, GNOME's custom shortcut in either session type —
+    /// Wayland, XWayland, X11 — and the X11 grab only outside GNOME, only
+    /// where it hears the keyboard. Red with the GNOME check after the X11
+    /// one: a GNOME X11 session would grab with X.
+    #[test]
+    fn gnome_takes_the_shortcut_in_every_session_type() {
+        use std::ffi::OsStr;
+
+        let gnome = Some(OsStr::new("ubuntu:GNOME"));
+        for (compositor, session) in [("X11", "wayland"), ("Wayland", "wayland"), ("X11", "x11")] {
+            assert_eq!(
+                road(compositor, Some(OsStr::new(session)), gnome),
+                Some(Desktops::Gnome),
+                "{compositor} in a {session} session"
+            );
+        }
+        let kde = Some(OsStr::new("KDE"));
+        assert_eq!(
+            road("X11", Some(OsStr::new("x11")), kde),
+            Some(Desktops::X11Grab)
+        );
+        assert_eq!(road("X11", Some(OsStr::new("wayland")), kde), None);
+        assert_eq!(road("Wayland", Some(OsStr::new("wayland")), None), None);
+    }
+
+    /// D649: entering the recorder takes the action's registration away;
+    /// recording a chord asks the desktop for nothing yet; leaving asks for
+    /// the new chord. Escape asks for the old one again, Backspace leaves
+    /// nothing registered, and a repaint asks for nothing. Red with
+    /// `held_for_desktop` ignoring the recorder: entering would leave the
+    /// old keys with GNOME, and the chord could not be recorded again.
+    #[test]
+    fn the_recorder_releases_the_keys_on_entry_and_asks_again_on_leaving() {
+        use std::cell::Cell;
+
+        let d = chord("CmdOrCtrl+Alt+D");
+        let w = chord("CmdOrCtrl+Alt+W");
+        let row = Cell::new(Some(d));
+        let recording = Cell::new(false);
+        let mut follower = Follower::default();
+        let mut step = || {
+            follower.moved(|action| match action {
+                Action::Panel => held_for_desktop(row.get(), recording.get()),
+                Action::Show => None,
+            })
+        };
+
+        // The launch asks for every action: the re-assertion.
+        assert_eq!(step(), [(Action::Show, None), (Action::Panel, Some(d))]);
+        assert_eq!(step(), [], "a repaint asked again");
+
+        // Click the field: unregistered.
+        recording.set(true);
+        assert_eq!(step(), [(Action::Panel, None)]);
+        // A chord is recorded while it still listens: nothing yet.
+        row.set(Some(w));
+        assert_eq!(step(), []);
+        // It lets go: the new chord.
+        recording.set(false);
+        assert_eq!(step(), [(Action::Panel, Some(w))]);
+
+        // Escape: the old chord again.
+        recording.set(true);
+        assert_eq!(step(), [(Action::Panel, None)]);
+        recording.set(false);
+        assert_eq!(step(), [(Action::Panel, Some(w))]);
+
+        // Backspace: nothing, and nothing asked on leaving.
+        recording.set(true);
+        assert_eq!(step(), [(Action::Panel, None)]);
+        row.set(None);
+        assert_eq!(step(), []);
+        recording.set(false);
+        assert_eq!(step(), []);
+    }
+
     /// A desktop that writes down what it was asked, holds every request
     /// until the test lets it go — X11's wait, made as long as a test
     /// wants — and refuses one chord.
@@ -1363,7 +1604,7 @@ mod tests {
     #[test]
     fn asking_for_a_shortcut_never_waits_for_the_desktop() {
         let (release, gate) = flume::unbounded();
-        let mut registrar = Registrar::threaded(
+        let mut registrar = Registrar::grabbing(
             Slow {
                 calls: std::sync::Arc::default(),
                 gate,
@@ -1404,7 +1645,7 @@ mod tests {
         let calls: std::sync::Arc<std::sync::Mutex<Vec<(&'static str, u32)>>> =
             std::sync::Arc::default();
         let ids = Ids::default();
-        let mut registrar = Registrar::threaded(
+        let mut registrar = Registrar::grabbing(
             Slow {
                 calls: calls.clone(),
                 gate,

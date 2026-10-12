@@ -154,6 +154,11 @@ hotkey-registered = Aktiv aus jeder Anwendung, solange { -brand-name } läuft.
 hotkey-refused = Das System hat es nicht angenommen: { $reason }
 hotkey-unavailable = Gespeichert, aber nicht aktiv: systemweite Tastenkürzel gibt es auf dieser Plattform noch nicht.
 hotkey-unavailable-wayland = Gespeichert, aber nicht aktiv: In einer Wayland-Sitzung hört { -brand-name } kein Tastenkürzel, das in anderen Anwendungen gedrückt wird.
+hotkey-gnome-name-panel = { -brand-name } — Panel
+hotkey-gnome-name-show = { -brand-name } — nach vorn holen
+hotkey-registered-gnome = In den Tastenkürzeln von GNOME eingetragen: wirkt aus jeder Anwendung und startet { -brand-name }, wenn es nicht läuft. Es bleibt dort, auch nachdem { -brand-name } beendet ist; entfernen lässt es sich unter Einstellungen › Tastatur › Eigene Tastenkürzel.
+hotkey-taken-gnome = Nicht eingetragen: GNOME verwendet diese Tasten bereits für „{ $name }“ ({ $setting }). Andere Tasten aufnehmen oder diese unter Einstellungen › Tastatur freigeben.
+hotkey-unavailable-gnome = Gespeichert, aber nicht aktiv: Dieses GNOME bietet keine eigenen Tastenkürzel, die { -brand-name } eintragen könnte.
 
 ## Bereiche der Seitenleiste
 

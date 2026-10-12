@@ -1085,6 +1085,9 @@ pub struct Preferences {
     /// which owns the registrar, for the reason [`Status`] is filled by
     /// the server: the row is the request and this is the answer.
     registrations: BTreeMap<hotkey::Action, Registration>,
+    /// The action whose shortcut is being recorded right now, if one is:
+    /// the desktop holds nothing for it until the recorder lets go (D649).
+    recording: Option<hotkey::Action>,
     /// Whether the setup walk-through has been finished or skipped
     /// once. `main` reads the stored value to decide whether the main
     /// window opens it; this copy is what keeps [`setup_through`]
@@ -1519,6 +1522,7 @@ impl Preferences {
             // once the registrar exists — which is after the window,
             // for the reason the tray is.
             registrations: BTreeMap::new(),
+            recording: None,
             setup_done,
             setup_asked: 0,
             retention,
@@ -1791,6 +1795,40 @@ impl Preferences {
     /// The chord bound to `action`, if one is.
     pub fn shortcut(&self, action: hotkey::Action) -> Option<Hotkey> {
         self.hotkeys.get(&action).copied()
+    }
+
+    /// What the desktop should hold for `action` now: its chord, or
+    /// nothing while a recorder is listening for a new one — so the keys
+    /// it held reach the recorder and not GNOME or an X grab, and are
+    /// recordable again (D649). What `main::install_hotkeys` follows.
+    pub fn shortcut_held(&self, action: hotkey::Action) -> Option<Hotkey> {
+        hotkey::held_for_desktop(
+            self.shortcut(action),
+            SUSPEND_WHILE_RECORDING && self.recording == Some(action),
+        )
+    }
+
+    /// A recorder for `action` started listening, or let go. Entering it
+    /// releases the action's registration; leaving it asks for whatever
+    /// the row holds by then — the new chord, or the old one after
+    /// Escape (D649).
+    pub fn recording_shortcut(
+        &mut self,
+        action: hotkey::Action,
+        listening: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let recording = if listening {
+            Some(action)
+        } else if self.recording == Some(action) {
+            None
+        } else {
+            return;
+        };
+        if self.recording != recording {
+            self.recording = recording;
+            cx.notify();
+        }
     }
 
     /// What the desktop said about the chord bound to `action`.
@@ -3774,6 +3812,20 @@ enum Overlay {
 /// Everything writing the geometry down needs, owned.
 type Remembered = (SettingsStore, Screen, Bounds<Pixels>);
 
+/// Whether a recorder that is listening takes its action's registration
+/// away until it lets go (D649). Linux, where GNOME's binding and an X grab
+/// would otherwise take the very keys being recorded; macOS is unchanged.
+const SUSPEND_WHILE_RECORDING: bool = cfg!(target_os = "linux");
+
+/// The smallest the window is drawn on a card when it was put somewhere by
+/// hand: the chip is the handle a person presses to pick the window up, and
+/// at a 3840-point display's scale a 420-point panel would be a handle a
+/// few pixels wide (D648).
+const MANUAL_CHIP: Size<Pixels> = Size {
+    width: px(24.0),
+    height: px(16.0),
+};
+
 /// A window being dragged across a display's grid of zones.
 ///
 /// It carries nothing, and that is the design: where it lands decides
@@ -4075,7 +4127,15 @@ impl SettingsView {
                 &recorder,
                 window,
                 move |view, recorder, event: &RecorderEvent, _, cx| {
-                    let RecorderEvent::Changed(chord) = *event;
+                    let chord = match *event {
+                        RecorderEvent::Listening(listening) => {
+                            view.preferences.update(cx, |preferences, cx| {
+                                preferences.recording_shortcut(action, listening, cx);
+                            });
+                            return;
+                        }
+                        RecorderEvent::Changed(chord) => chord,
+                    };
                     let previous = view.preferences.read(cx).shortcut(action);
                     let refused = view.preferences.update(cx, |preferences, cx| {
                         preferences.assign_shortcut(action, chord, cx)
@@ -4088,6 +4148,14 @@ impl SettingsView {
                     }
                 },
             ));
+            // A recorder that goes while it listens — the window closed
+            // under it — must not leave the registration taken away.
+            preferences.update(cx, |_, cx| {
+                cx.observe_release(&recorder, move |preferences, _, cx| {
+                    preferences.recording_shortcut(action, false, cx);
+                })
+                .detach();
+            });
             shortcuts.insert(action, recorder);
         }
 
@@ -5058,6 +5126,15 @@ impl SettingsView {
                 )),
                 muted,
             )),
+            Registration::InGnome => Some((t(Message::HotkeyRegisteredGnome), muted)),
+            Registration::TakenInGnome { name, setting } => Some((
+                t_args(
+                    Message::HotkeyTakenGnome,
+                    &args!("name" => name.clone(), "setting" => setting.clone()),
+                ),
+                danger,
+            )),
+            Registration::NoGnome => Some((t(Message::HotkeyUnavailableGnome), muted)),
         };
         v_flex()
             .gap_1()
@@ -8488,20 +8565,22 @@ fn zone_grid(
                 GRID_HEIGHT.as_f32(),
             );
 
+            // Small enough to be lost at this scale otherwise: a
+            // 420-point panel on a 3840-point display is four pixels of
+            // card — and the chip is what a person has to press to pick
+            // the window up, so it is never smaller than a thing a
+            // pointer lands on (D648).
+            let chip_size = size(
+                px(across_width.max(MANUAL_CHIP.width.as_f32())),
+                px(across_height.max(MANUAL_CHIP.height.as_f32())),
+            );
             div()
                 .absolute()
                 .left(px(left))
                 .top(px(top))
-                // Small enough to be lost at this scale otherwise: a
-                // 420-point panel on a 3840-point display is four
-                // pixels of card.
-                .w(px(across_width.max(14.0)))
-                .h(px(across_height.max(10.0)))
-                .child(chip(
-                    index,
-                    size(px(across_width.max(14.0)), px(across_height.max(10.0))),
-                    cx,
-                ))
+                .w(chip_size.width)
+                .h(chip_size.height)
+                .child(chip(index, chip_size, cx))
         }))
 }
 
@@ -8529,12 +8608,25 @@ fn zone_cell(
     let theme = cx.theme();
     let taken = chosen == Some(zone);
 
+    let name = format!("cell-{index}-{}", zone.id());
     div()
+        .id(SharedString::from(name.clone()))
+        .debug_selector(move || name.clone())
         .flex_1()
         .h_full()
         // The same gutter `zone_grid` draws between the rows.
         .when(divider, |cell| {
             cell.border_l_1().border_color(theme.background)
+        })
+        // The lit cell *is* the window, as far as a hand can tell: it is
+        // picked up anywhere in it, not only by the 26-point chip drawn in
+        // its middle. A press beside the chip started nothing, logged
+        // nothing and looked exactly like a drag that did not work
+        // (acceptance F12, D648). The chip inside still starts the same
+        // drag — it is the first to hear the press — and a press with no
+        // movement is still the button's click.
+        .when(taken && placeable, |cell| {
+            cell.on_drag(DraggedWindow, |_, _, _, cx| cx.new(|_| WindowChip))
         })
         // The cell the window would land in, while it is in the
         // air. Without it a drag is six identical rectangles and a
@@ -8582,6 +8674,7 @@ fn chip(index: usize, dimensions: Size<Pixels>, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
     v_flex()
         .id(SharedString::from(format!("chip-{index}")))
+        .debug_selector(move || format!("chip-{index}"))
         .flex_none()
         .w(dimensions.width)
         .h(dimensions.height)
@@ -12292,6 +12385,167 @@ mod tests {
         assert_eq!(
             kept.read_with(main, |view, cx| view.api_key.read(cx).value().to_string()),
             "sk-half-typed"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The Placement page over one display, in a window of its own: the
+    /// preferences and the page's own context, with the display read.
+    fn placement_page<'a>(
+        cx: &'a mut gpui::TestAppContext,
+        root: &std::path::Path,
+        close_after_drop: bool,
+    ) -> (Entity<Preferences>, &'a mut gpui::VisualTestContext) {
+        cx.update(gpui_component::init);
+        cx.update(crate::dialog::init);
+        let (preferences, vcx) = added_bench(cx, root);
+        let display = Connected {
+            screen: Screen {
+                id: gpui::DisplayId::new(1),
+                key: Some("display-under-test".to_owned()),
+                visible: Bounds::new(point(px(0.0), px(0.0)), size(px(1920.0), px(1080.0))),
+            },
+            name: Some("Test".to_owned()),
+            primary: true,
+        };
+        preferences.update(vcx, |preferences, cx| {
+            preferences.screens_changed(vec![display], cx);
+            preferences.close_after_drop(close_after_drop, cx);
+        });
+        vcx.run_until_parked();
+        let shown = preferences.clone();
+        let (_, page) = cx.add_window_view(move |window, cx| {
+            SettingsView::new(shown, None, Some(Section::Placement), window, cx)
+        });
+        page.run_until_parked();
+        (preferences, page)
+    }
+
+    /// The zone the page's one display holds, or `None` for a hand's.
+    fn zone_held(
+        preferences: &Entity<Preferences>,
+        page: &mut gpui::VisualTestContext,
+    ) -> Option<Zone> {
+        // Through the app and not the window: a drop may have closed it.
+        gpui::TestAppContext::update(page, |cx| {
+            let preferences = preferences.read(cx);
+            let screen = preferences.screens()[0].screen.clone();
+            match preferences.spot_of(&screen).at {
+                placement::Answer::Zone(zone) => Some(zone),
+                placement::Answer::Manual => None,
+            }
+        })
+    }
+
+    /// A person's drag: press at `from`, move there in steps, release.
+    fn drag(
+        page: &mut gpui::VisualTestContext,
+        from: gpui::Point<Pixels>,
+        to: gpui::Point<Pixels>,
+    ) {
+        let none = gpui::Modifiers::default();
+        page.simulate_mouse_move(from, None, none);
+        page.simulate_mouse_down(from, gpui::MouseButton::Left, none);
+        for step in 1..=8 {
+            let along = step as f32 / 8.0;
+            let at = point(
+                from.x + (to.x - from.x) * along,
+                from.y + (to.y - from.y) * along,
+            );
+            page.simulate_mouse_move(at, gpui::MouseButton::Left, none);
+        }
+        page.simulate_mouse_up(to, gpui::MouseButton::Left, none);
+        page.run_until_parked();
+    }
+
+    /// F12, D648: the lit cell is the window — a press anywhere in it picks
+    /// the window up, not only one on the chip in its middle, and the drop
+    /// on another cell puts the window there. Before, a press beside the
+    /// chip started nothing and logged nothing; remove the cell's `on_drag`
+    /// and the zone stays where it was: red.
+    #[gpui::test]
+    fn the_window_is_picked_up_anywhere_in_its_cell(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("placement-drag");
+        let (preferences, page) = placement_page(cx, &root, false);
+        assert_eq!(zone_held(&preferences, page), Some(Zone::BottomRight));
+
+        let lit = page
+            .debug_bounds("cell-0-bottom-right")
+            .expect("the lit cell");
+        let chip = page.debug_bounds("chip-0").expect("the chip in it");
+        let target = page
+            .debug_bounds("cell-0-top-left")
+            .expect("the top-left cell");
+        // Inside the lit cell, and clear of the chip by a few points.
+        let beside = point(lit.origin.x + px(3.0), lit.origin.y + px(3.0));
+        assert!(
+            lit.contains(&beside) && !chip.contains(&beside),
+            "{lit:?} {chip:?}"
+        );
+
+        drag(page, beside, target.center());
+        assert_eq!(
+            zone_held(&preferences, page),
+            Some(Zone::TopLeft),
+            "a press beside the chip did not pick the window up"
+        );
+
+        // And by the chip itself, as before.
+        let chip = page.debug_bounds("chip-0").expect("the chip, moved");
+        let target = page
+            .debug_bounds("cell-0-bottom-centre")
+            .expect("the bottom-centre cell");
+        drag(page, chip.center(), target.center());
+        assert_eq!(zone_held(&preferences, page), Some(Zone::BottomCentre));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A cell that is not lit is not a handle: a press there and a drag
+    /// to another cell neither moves the window nor counts as a click on
+    /// either cell.
+    #[gpui::test]
+    fn an_empty_cell_is_not_a_handle(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("placement-empty-cell");
+        let (preferences, page) = placement_page(cx, &root, false);
+        let empty = page
+            .debug_bounds("cell-0-top-centre")
+            .expect("an empty cell");
+        let target = page
+            .debug_bounds("cell-0-top-left")
+            .expect("another empty cell");
+        drag(page, empty.center(), target.center());
+        assert_eq!(zone_held(&preferences, page), Some(Zone::BottomRight));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// "Close after a drop" closes the Settings window after a drop, and
+    /// after a drop only: a click on a cell chooses it and leaves the
+    /// window open.
+    #[gpui::test]
+    fn close_after_a_drop_closes_on_a_drop_and_not_on_a_click(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("placement-close");
+        let (preferences, page) = placement_page(cx, &root, true);
+        let target = page
+            .debug_bounds("cell-0-top-right")
+            .expect("the top-right cell");
+        page.simulate_click(target.center(), gpui::Modifiers::default());
+        page.run_until_parked();
+        assert_eq!(zone_held(&preferences, page), Some(Zone::TopRight));
+        let open = page.update(|window, _| window.window_handle());
+        assert!(
+            gpui::TestAppContext::update(page, |cx| cx.windows().contains(&open)),
+            "a click closed the window"
+        );
+
+        let lit = page.debug_bounds("cell-0-top-right").expect("the lit cell");
+        let target = page
+            .debug_bounds("cell-0-bottom-left")
+            .expect("the bottom-left cell");
+        drag(page, lit.center(), target.center());
+        assert_eq!(zone_held(&preferences, page), Some(Zone::BottomLeft));
+        assert!(
+            !gpui::TestAppContext::update(page, |cx| cx.windows().contains(&open)),
+            "a drop left the window open"
         );
         std::fs::remove_dir_all(&root).ok();
     }
