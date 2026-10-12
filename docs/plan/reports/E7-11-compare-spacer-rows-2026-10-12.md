@@ -26,7 +26,9 @@
 напротив подстраивается сразу; выключите перенос — всё как было. В gpui-kit
 это два pull request'а из форка `glani`, открытые черновиками по слову
 владельца — longbridge/gpui-kit#3465 и #3466, со скриншотами — и пример
-`cargo run -p example-editor-spacers`.
+`cargo run -p example-editor-spacers`. По слову владельца ветка влита в
+`feat` до апстрима: подмодуль на форке `glani/gpui-component`
+`editor-spacer-rows` (`c65870fd`), пока апстрим не примет оба PR (D675).
 
 Task: Watchword `wipemark-task-compare-spacer-rows-2026-10-12` (the
 coordinator, for acceptance step A6). Built on `e7/compare-spacer-rows` from
@@ -703,9 +705,12 @@ both out.
   number to move. A paragraph split in two, or two merged, pairs one and
   leaves the other beside filler (IntelliJ groups them; ours are one to one).
 - **Upstream review**: #3465 and #3466 out of draft when the owner says so
-  (the issue above is not filed); after the merge, the submodule back on
-  `longbridge/gpui-kit` `next` and `.gitmodules` restored, and only then the
-  merge into `feat` (D675).
+  (the issue above is not filed). The branch is merged into `feat` already,
+  on the owner's word, with the submodule on the fork (`cecdbce`, D675
+  amended); when upstream merges both, the submodule goes back to
+  `longbridge/gpui-kit` `next` and `.gitmodules` with it. Until then
+  `editor-spacer-rows` takes a review's changes on top, never by a
+  force-push, and the pin follows.
 - **The host check**: Watchword `wipemark-task-compare-spacer-rows-host-check-2026-10-12`.
 - Unchanged and not touched: a wrapped pane's horizontal scroll bar is not
   drawn (the library's), and the original's toolbar strip stays blank.
@@ -720,18 +725,32 @@ Not edited (the task's rule). Sentences to change:
    however its position is read (D433)." with the paragraph now in
    `docs/architecture/rules.md` from "**Long lines wrap on both sides, padded
    level**" to "(D432)."
-2. In "First command after any clone or submodule update", after "Nothing of
-   ours is carried on it.": "**Except on `e7/compare-spacer-rows`**, until
-   upstream merges U1 and U2: its submodule points at `glani/gpui-component`
-   `editor-spacer-rows` (`.gitmodules` changed on that branch alone, D675)."
+2. In "First command after any clone or submodule update", replace "The
+   submodule is upstream **`longbridge/gpui-kit`**, branch **`next`**, at
+   `24ded30c` — our four pull requests merged there: … Nothing of ours is
+   carried on it." with: "The submodule is the owner's fork
+   **`glani/gpui-component`**, branch **`editor-spacer-rows`**, at
+   `c65870fd`: upstream `longbridge/gpui-kit` `next` at `24ded30c` — our four
+   earlier pull requests merged there (…, as before) — with two more of ours
+   on top, still open upstream: gpui-kit #3465 (the editor's display-row map)
+   and #3466 (spacer rows, the story's wrap and `examples/editor_spacers`).
+   Carried until upstream merges them, then back on `longbridge/gpui-kit`
+   `next` (D675). The fork's branch is never force-pushed while `feat` pins
+   it."
 3. In "Epic order", after the Compare follow-ups: "**E7-11, Compare's panes
-   wrapped and padded level** (D670–D678) is built on `e7/compare-spacer-rows`,
-   not merged: it waits for gpui-kit to merge U1 (`editor-display-row-map`)
-   and U2 (`editor-spacer-rows`) from the `glani` fork; `compare.wrap` is
-   off by default until a wrapped resize fits a frame (D677)." And the next
-   free decision block: **D679**.
-4. In the Watchword table: `wipemark-task-compare-spacer-rows-2026-10-12`
-   (FILE, the task), `wipemark-compare-spacer-rows-report-2026-10-12` (FILE,
-   this report), `wipemark-compare-spacer-rows-screenshots-2026-10-12` (FILE,
-   the pictures), `wipemark-task-compare-spacer-rows-host-check-2026-10-12`
+   wrapped and padded level** (D670–D679) is merged into `feat`
+   (2026-10-12, on the owner's word, before upstream): both panes wrap or
+   neither (`compare.wrap`, off by default until a wrapped resize fits a
+   frame, D677), the shorter side of every pair padded with gpui-kit's spacer
+   rows from the fork, and inside a changed passage paragraphs paired by
+   their words (D679)." The next free decision block stays **D702**
+   (D680–D689 of the spacer-rows block unused).
+4. In "Where things are", the `diff.rs` row: after "word against word or
+   character against character", add "; inside a changed passage, its lines
+   paired by their words and padded level (`Diff::padding`, D670, D679)".
+5. In the Watchword table: `wipemark-task-compare-spacer-rows-2026-10-12`
+   (FILE, the task), `wipemark-compare-spacer-rows-report-2026-10-12-merged`
+   (FILE, this report as merged; `…-report-2026-10-12` and `…-12-prs` are
+   earlier copies), `wipemark-compare-spacer-rows-screenshots-2026-10-12`
+   (FILE, the pictures), `wipemark-task-compare-spacer-rows-host-check-2026-10-12`
    (FILE, the host check).
