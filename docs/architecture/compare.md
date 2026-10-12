@@ -862,6 +862,37 @@ applies. Undo and Redo stay enabled: the editor keeps its history to
 itself, and a button that guessed at it would grey out the one press
 that would have worked.
 
+### Copy all (2026-10-12, D630–D634)
+
+**Copy all** sits in the clipboard group, after Copy, and puts the whole
+result on the clipboard in one press, whatever is selected (the owner,
+2026-10-12). The library has no action for it, so it is the strip's
+second exception beside Save — and it keeps the strip's shape: an
+action of ours, `result::CopyAll` (`wipemark::CopyAll`), handled on the
+result component's own node under its own key context
+(`result::CONTEXT`, `ResultEditor`), and pressed the way every button
+on the strip is pressed, by focusing the editor and dispatching it. The
+tooltip asks the window what `CopyAll` is bound to there, as the others
+do; nothing binds it yet, and a shortcut is one `KeyBinding` away
+(D630).
+
+It copies the pane's text **as it stands, edits included** — the very
+string Save writes, byte for byte, nothing localized or cleaned on the
+way (D631). The main window's **Copy the result** copies the same
+result as last delivered or saved, so the two agree once an edit is
+saved: `a_cleaned_paste_is_saved_into_its_row` presses Copy all after
+the save and finds on the clipboard the text the row was told, which is
+what `result_text` then hands Copy the result. It reads the text and
+writes the clipboard and nothing else: the cursor, the selection and
+the scroll stay where they were (D632,
+`copy_all_copies_the_whole_text_and_moves_nothing`, red with the write
+deleted, with the handler unwired, and with a press that takes the road
+of Select All and Copy). Over an empty pane it is greyed with its
+reason as the tooltip, and its action leaves the clipboard alone (D633,
+`copy_all_waits_for_text`). Its glyph is the page of lines
+(`file-lines.svg`), not Copy's two pages, so the two buttons side by
+side can be told apart (D634).
+
 ## What it is not
 
 * **Not placed.** It opens centred over the main window and is

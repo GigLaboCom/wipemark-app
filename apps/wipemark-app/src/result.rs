@@ -47,6 +47,34 @@
 //! cannot mean two different things here either
 //! (`the_strip_s_save_is_the_window_s_action`).
 //!
+//! # One operation the library has no action for
+//!
+//! **Copy all** (the owner, 2026-10-12; D630) puts the whole text on the
+//! clipboard in one press, with nothing selected — Copy copies a
+//! selection, and Select All before it moves the cursor and the selection
+//! the person left. `gpui_component::input` has no action for it, so this
+//! is the strip's second exception beside Save, and it keeps the strip's
+//! shape rather than becoming a plain button: [`CopyAll`] is an action of
+//! **ours**, handled on this component's own node — the root of the view,
+//! under its own key context [`CONTEXT`] — and the button presses it the
+//! way the strip presses every operation, by focusing the editor and
+//! dispatching it, so it climbs from the editor to the handler as a
+//! keystroke would. Nothing binds it yet; a shortcut is one `KeyBinding`
+//! in [`CONTEXT`] away, and the tooltip already asks the window what the
+//! action is bound to there, as the others do. The handler is reached
+//! only from inside a result: no other editor in the application has the
+//! node it sits on.
+//!
+//! What it copies is the pane's text **as it stands, edits included** —
+//! [`ResultEditor::text`], the very string the Compare window's Save
+//! writes (D631) — byte for byte, line endings and invisible characters
+//! the person left included: it is their text, and no catalogue touches it
+//! on the way. The row's **Copy the result** in the main window copies the
+//! same result as last delivered or saved, so the two agree once an edit
+//! is saved. It reads the text and writes the clipboard and nothing else:
+//! the cursor, the selection and the scroll are where they were (D632,
+//! `copy_all_copies_the_whole_text_and_moves_nothing`).
+//!
 //! # What is available, and what is always on
 //!
 //! Cut and Copy are greyed while nothing is selected and Paste while
@@ -54,14 +82,17 @@
 //! menu applies. Undo and Redo stay enabled: the editor keeps its
 //! history to itself, and a button that guessed at it would grey out
 //! the one press that would have worked. Pressing either with nothing
-//! to do does nothing, which is what the keystroke does.
+//! to do does nothing, which is what the keystroke does. Copy all is
+//! greyed while the text is empty, its tooltip saying so rather than
+//! what it would have done, as Save's does (D633); its action, reached
+//! some other way over an empty text, leaves the clipboard alone.
 
 use std::rc::Rc;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, rems, Action, AnyElement, App, ClickEvent, Context, Entity, EventEmitter, Pixels,
-    SharedString, Subscription, Window,
+    actions, div, px, rems, Action, AnyElement, App, ClickEvent, ClipboardItem, Context, Entity,
+    EventEmitter, Pixels, SharedString, Subscription, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{
@@ -79,6 +110,21 @@ use crate::icon::IconName;
 /// tooltips ask about, so that they show the shortcut that would fire
 /// *here* and not one bound somewhere else.
 const INPUT_CONTEXT: &str = "Input";
+
+/// The key context of this component's own node, where [`CopyAll`] is
+/// handled — and so where a shortcut for it would be bound, and what its
+/// tooltip asks about. See the module docs, "One operation the library
+/// has no action for".
+pub const CONTEXT: &str = "ResultEditor";
+
+actions!(
+    wipemark,
+    [
+        /// Put the whole result on the clipboard, selection or none, and
+        /// move nothing. Ours, because the library has no such action.
+        CopyAll
+    ]
+);
 
 /// One of the editor's operations, as a button.
 ///
@@ -446,6 +492,58 @@ impl ResultEditor {
         }
     }
 
+    /// Whether Copy all does anything right now: not over an empty text.
+    pub fn can_copy_all(&self, cx: &App) -> bool {
+        self.state.read(cx).text().len() > 0
+    }
+
+    /// Press Copy all: focus the editor and dispatch [`CopyAll`] from
+    /// there, the road every button on the strip takes — the action
+    /// climbs from the editor to this component's node, where
+    /// [`copy_all`](Self::copy_all) answers it. Focusing moves neither the
+    /// cursor nor the selection.
+    pub fn press_copy_all(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.focus(window, cx);
+        window.dispatch_action(Box::new(CopyAll), cx);
+    }
+
+    /// The handler: the whole text, as it stands, onto the clipboard —
+    /// read, never touched, so the cursor, the selection and the scroll
+    /// stay where they are. An empty text leaves the clipboard alone: a
+    /// press with nothing to copy must not throw away what was there.
+    fn copy_all(&mut self, _: &CopyAll, _: &mut Window, cx: &mut Context<Self>) {
+        let text = self.text(cx);
+        if text.is_empty() {
+            return;
+        }
+        // The person's own text: no catalogue touches it on the way.
+        cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
+    }
+
+    /// Copy all's button: in the clipboard group, after Copy. Its glyph is
+    /// a page of lines rather than Copy's two pages, so the two can be told
+    /// apart side by side (D634).
+    fn copy_all_button(&self, cx: &Context<Self>) -> Button {
+        let button = Button::new(COPY_ALL_ID)
+            .ghost()
+            .xsmall()
+            .icon(COPY_ALL_ICON)
+            .disabled(!self.can_copy_all(cx))
+            .on_click(cx.listener(|editor, _: &ClickEvent, window, cx| {
+                editor.press_copy_all(window, cx);
+            }));
+        if self.can_copy_all(cx) {
+            button.tooltip_with_action(
+                SharedString::from(t(Message::ResultCopyAll)),
+                &CopyAll,
+                Some(CONTEXT),
+            )
+        } else {
+            // A greyed button says why, not what it would have done.
+            button.tooltip(SharedString::from(t(Message::ResultCopyAllEmpty)))
+        }
+    }
+
     /// Whether `view` is on.
     pub fn shows(&self, view: View) -> bool {
         match view {
@@ -533,6 +631,9 @@ impl ResultEditor {
                         editor.perform(command, window, cx);
                     })),
             );
+            if command == Command::Copy {
+                strip = strip.child(self.copy_all_button(cx));
+            }
         }
 
         strip = strip.child(div().flex_1());
@@ -565,6 +666,13 @@ impl ResultEditor {
 /// the gate.
 pub const TOOLBAR_HEIGHT: Pixels = px(25.);
 
+/// Copy all's element id, stable across frames.
+const COPY_ALL_ID: &str = "result-copy-all";
+
+/// Copy all's glyph — a page of lines, the whole text, beside Copy's two
+/// pages (D634).
+const COPY_ALL_ICON: IconName = IconName::FileLines;
+
 /// The library's editor as a pane of prose: the form-field chrome off
 /// (this editor is the whole pane), and the interface's own font at the
 /// size and row height a text field has, rather than the editor's
@@ -595,6 +703,8 @@ fn separator(cx: &App) -> AnyElement {
 impl Render for ResultEditor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
+            .key_context(CONTEXT)
+            .on_action(cx.listener(Self::copy_all))
             .size_full()
             .child(self.toolbar(cx))
             .child(div().flex_1().min_h(px(0.0)).child(pane(&self.state, cx)))
@@ -799,6 +909,122 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(heard.get(), 2, "a reset from outside was not announced");
         assert_eq!(cx.update(|_, cx| editor.read(cx).text(cx)).as_ref(), "c\n");
+    }
+
+    /// Copy all puts the pane's whole text on the clipboard — the text as
+    /// it stands, an edit made in the pane included — whatever is selected,
+    /// and moves nothing: the selection, the cursor and the scroll are what
+    /// they were before the press (D631, D632). Goes red with the clipboard
+    /// write in `copy_all` deleted, and with the press taking the road of
+    /// Select All and Copy.
+    #[gpui::test]
+    fn copy_all_copies_the_whole_text_and_moves_nothing(cx: &mut TestAppContext) {
+        let (editor, cx) = window_with(cx, "one\ntwo\nthree\n");
+
+        // An edit, so the text copied is the pane's and not the one it
+        // opened on; then a selection of part of a line, which Copy would
+        // copy and Copy all must not.
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                editor.focus(window, cx);
+                editor
+                    .state
+                    .update(cx, |state, cx| state.insert("zero\n", window, cx));
+                editor
+                    .state
+                    .update(cx, |state, cx| state.set_selected_range(6..8, cx));
+            });
+            cx.write_to_clipboard(ClipboardItem::new_string("before".to_owned()));
+        });
+        cx.run_until_parked();
+        let before = cx.update(|_, cx| {
+            let state = editor.read(cx).state.read(cx);
+            (
+                state.selected_range(),
+                state.cursor(),
+                state.scroll_offset(),
+            )
+        });
+        assert_eq!(before.0, 6..8, "the selection was not set up");
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| editor.press_copy_all(window, cx));
+        });
+        cx.run_until_parked();
+
+        let copied = cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text()));
+        assert_eq!(
+            copied.as_deref(),
+            Some("zero\none\ntwo\nthree\n"),
+            "Copy all did not put the pane's whole text, the edit included, on the clipboard"
+        );
+        let after = cx.update(|_, cx| {
+            let state = editor.read(cx).state.read(cx);
+            (
+                state.selected_range(),
+                state.cursor(),
+                state.scroll_offset(),
+            )
+        });
+        assert_eq!(
+            after, before,
+            "Copy all moved the selection, the cursor or the scroll"
+        );
+        assert_eq!(
+            cx.update(|_, cx| editor.read(cx).text(cx)).as_ref(),
+            "zero\none\ntwo\nthree\n",
+            "Copy all changed the text"
+        );
+    }
+
+    /// Over an empty pane Copy all is greyed, and its action, reached some
+    /// other way, leaves what the clipboard held where it was (D633).
+    #[gpui::test]
+    fn copy_all_waits_for_text(cx: &mut TestAppContext) {
+        let (editor, cx) = window_with(cx, "");
+        cx.update(|_, cx| {
+            assert!(
+                !editor.read(cx).can_copy_all(cx),
+                "an empty pane offered Copy all"
+            );
+            cx.write_to_clipboard(ClipboardItem::new_string("kept".to_owned()));
+        });
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| editor.press_copy_all(window, cx));
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text()))
+                .as_deref(),
+            Some("kept"),
+            "Copy all over nothing threw the clipboard away"
+        );
+
+        cx.update(|window, cx| {
+            editor.update(cx, |editor, cx| {
+                editor.focus(window, cx);
+                editor
+                    .state
+                    .update(cx, |state, cx| state.insert("a", window, cx));
+            });
+        });
+        cx.run_until_parked();
+        assert!(
+            cx.update(|_, cx| editor.read(cx).can_copy_all(cx)),
+            "a typed character did not enable Copy all"
+        );
+    }
+
+    /// Copy all is ours, not the library's — the one action on the strip
+    /// that is not `input::…` — and it is its own button: a glyph and an
+    /// id no command has.
+    #[test]
+    fn copy_all_is_its_own_button() {
+        assert_eq!(CopyAll.name(), "wipemark::CopyAll");
+        assert!(Command::ALL
+            .iter()
+            .all(|command| command.icon() != COPY_ALL_ICON && command.id() != COPY_ALL_ID));
+        assert!(View::ALL.iter().all(|view| view.id() != COPY_ALL_ID));
     }
 
     /// Cut and Copy answer to the selection, the way the library's own
