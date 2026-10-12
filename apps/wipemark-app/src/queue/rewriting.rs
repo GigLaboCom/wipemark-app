@@ -198,6 +198,7 @@ impl Queue {
         self.rows
             .retain(|row| row.entry.is_none_or(|id| present.contains(&id)));
         let mut added = Vec::new();
+        let mut listed: Vec<&'static str> = Vec::new();
         for record in rows {
             let entry = Entry::from_json(&record.entry);
             let phase = Phase::parse(&record.state).unwrap_or(Phase::Done);
@@ -224,6 +225,7 @@ impl Queue {
                 continue;
             }
             let id = clean::number();
+            listed.push(origin.as_str());
             if let Some(writer) = &self.writer {
                 writer.adopt(id, record.id);
             }
@@ -254,6 +256,20 @@ impl Queue {
         // The files of the rows read back with one behind them, each looked
         // at on its own, off this thread, as a drop's are: what it is, and
         // its preview.
+        // Another surface's rows, listed while the window is open — the
+        // origins and nothing else (D316).
+        if initial {
+            let mut origins = listed.clone();
+            origins.sort_unstable();
+            origins.dedup();
+            tracing::info!(
+                rows = listed.len(),
+                ?origins,
+                "the journal's rows are listed at launch"
+            );
+        } else if !listed.is_empty() {
+            tracing::info!(?listed, "rows another surface wrote are listed");
+        }
         for (id, entry) in added {
             self.look_up(id, entry, cx);
         }
