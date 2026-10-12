@@ -760,6 +760,13 @@ impl<D: Desktop> Assigner<D> {
 /// none, make the desktop say so — and say what it said. An X11 grab
 /// ([`Assigner`]) or GNOME's custom shortcuts ([`crate::gnome::Keybindings`]).
 #[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg_attr(
+    target_os = "macos",
+    allow(
+        dead_code,
+        reason = "macOS asks on the main thread (`Road::Here`); its tests drive the thread"
+    )
+)]
 trait Assign {
     fn assign(&mut self, action: Action, chord: Option<Hotkey>) -> Registration;
 }
@@ -1066,6 +1073,10 @@ pub fn install(_compositor: &str) -> Option<Registrar> {
 }
 
 /// What registers a system-wide shortcut on a Linux desktop.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(dead_code, reason = "only Linux asks; tested everywhere")
+)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Desktops {
     /// GNOME's own custom keyboard shortcuts (D641).

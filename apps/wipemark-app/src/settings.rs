@@ -12424,7 +12424,7 @@ mod tests {
     /// The zone the page's one display holds, or `None` for a hand's.
     fn zone_held(
         preferences: &Entity<Preferences>,
-        page: &mut gpui::VisualTestContext,
+        page: &gpui::VisualTestContext,
     ) -> Option<Zone> {
         // Through the app and not the window: a drop may have closed it.
         gpui::TestAppContext::update(page, |cx| {

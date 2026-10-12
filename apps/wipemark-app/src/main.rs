@@ -1853,7 +1853,7 @@ fn answer_summonses(
     path: &std::path::Path,
     window: WindowHandle<Root>,
     preferences: Entity<Preferences>,
-    cx: &mut App,
+    cx: &App,
 ) {
     let Some((listening, summonses)) = instance::listen(path) else {
         return;
