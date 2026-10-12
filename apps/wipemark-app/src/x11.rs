@@ -69,6 +69,7 @@ x11rb::atom_manager! {
         _NET_WORKAREA,
         _NET_CURRENT_DESKTOP,
         _NET_WM_ICON,
+        _MOTIF_WM_HINTS,
     }
 }
 
@@ -304,6 +305,9 @@ enum Ask {
     Icon {
         window: u32,
     },
+    NoMaximize {
+        window: u32,
+    },
     Float {
         window: u32,
     },
@@ -450,6 +454,12 @@ impl X11 {
     /// Give `window` the application's icon (`_NET_WM_ICON`).
     pub fn icon(&self, window: u32) {
         let _ = self.asks.send(Ask::Icon { window });
+    }
+
+    /// Take away `window`'s maximize: the window manager's button and its
+    /// function (a double click on the title bar), every other kept.
+    pub fn no_maximize(&self, window: u32) {
+        let _ = self.asks.send(Ask::NoMaximize { window });
     }
 
     /// Keep `window` above other windows and on every workspace.
@@ -694,6 +704,16 @@ fn answer(
             );
             let _ = conn.flush();
         }
+        Ask::NoMaximize { window } => {
+            let _ = conn.change_property32(
+                PropMode::REPLACE,
+                window,
+                atoms._MOTIF_WM_HINTS,
+                atoms._MOTIF_WM_HINTS,
+                &motif_without_maximize(),
+            );
+            let _ = conn.flush();
+        }
         Ask::Float { window } => {
             let message = ClientMessageEvent::new(
                 32,
@@ -747,6 +767,25 @@ fn argb_of(png: &[u8]) -> Option<Vec<u32>> {
         u32::from(p[3]) << 24 | u32::from(p[0]) << 16 | u32::from(p[1]) << 8 | u32::from(p[2])
     }));
     Some(cardinals)
+}
+
+/// `_MOTIF_WM_HINTS` for a window with every function and decoration but
+/// maximize: the flags say functions and decorations are given, and the
+/// `ALL` bit in each makes the bits beside it the ones taken away. Pure.
+pub fn motif_without_maximize() -> [u32; 5] {
+    const FUNCTIONS: u32 = 1;
+    const DECORATIONS: u32 = 2;
+    const FUNC_ALL: u32 = 1;
+    const FUNC_MAXIMIZE: u32 = 16;
+    const DECOR_ALL: u32 = 1;
+    const DECOR_MAXIMIZE: u32 = 64;
+    [
+        FUNCTIONS | DECORATIONS,
+        FUNC_ALL | FUNC_MAXIMIZE,
+        DECOR_ALL | DECOR_MAXIMIZE,
+        0,
+        0,
+    ]
 }
 
 /// Give `window` the application's icon, when GPUI draws it through X11.
@@ -918,6 +957,18 @@ mod tests {
     /// The icon a window is given carries all three sizes, opaque where
     /// the artwork is: a PNG that stopped decoding would leave a dock
     /// showing a generic icon with nothing said.
+    #[test]
+    fn the_panel_keeps_every_function_but_maximize() {
+        let [flags, functions, decorations, _, _] = motif_without_maximize();
+        assert_eq!(flags, 3, "functions and decorations are both given");
+        assert_eq!(functions, 1 | 16, "all functions, maximize taken away");
+        assert_eq!(
+            decorations,
+            1 | 64,
+            "all decorations, the maximize button taken away"
+        );
+    }
+
     #[test]
     fn the_window_icon_carries_every_size() {
         let icon = icon_cardinals();

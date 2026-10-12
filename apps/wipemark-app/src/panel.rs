@@ -239,6 +239,14 @@ pub fn show(preferences: &Entity<Preferences>, cx: &mut App) {
     let opened = cx.open_window(window_options(bounds, display), move |window, cx| {
         #[cfg(target_os = "linux")]
         crate::x11::give_icon(window);
+        // A summoned panel is placed, never maximized: no maximize button
+        // and no maximize by a double click on the window manager's bar
+        // (the owner, 2026-10-12, D660). macOS draws it with no title bar,
+        // and under native Wayland it has none either.
+        #[cfg(target_os = "linux")]
+        if let (Some(x11), Some(xid)) = (crate::x11::get(), crate::x11::xid(window)) {
+            x11.no_maximize(xid);
+        }
         let view = cx.new(|cx| PanelView::new(held, window, cx));
         cx.new(|cx| Root::new(view, window, cx))
     });
