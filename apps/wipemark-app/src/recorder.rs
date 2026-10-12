@@ -87,6 +87,13 @@ pub enum RecorderEvent {
     /// The user recorded a chord, or cleared the one that was there.
     /// The owner decides whether to keep it — see [`Recorder::refuse`].
     Changed(Option<Hotkey>),
+    /// The recorder started listening (`true`) or let the keyboard go
+    /// (`false`). While it listens, the owner takes the action's
+    /// registration away, so the keys it held reach the field rather than
+    /// GNOME or an X grab; once it lets go, the owner asks for whatever the
+    /// row holds — the new chord, or the old one after Escape (D649).
+    /// `Changed` comes before the `false`.
+    Listening(bool),
 }
 
 /// Where the recorder is between a click and a chord.
@@ -184,7 +191,12 @@ impl Recorder {
             return;
         }
         self.focus.focus(window, cx);
+        let was = self.phase;
         self.phase = Phase::Listening;
+        // A click while settling is the same listening, not a new one.
+        if was == Phase::Idle {
+            cx.emit(RecorderEvent::Listening(true));
+        }
         self.held = held;
         self.note = None;
         if self.intercept.is_none() {
@@ -228,6 +240,7 @@ impl Recorder {
         self.held = Modifiers::default();
         self.intercept = None;
         tracing::debug!("shortcut recorder released the keyboard");
+        cx.emit(RecorderEvent::Listening(false));
         cx.notify();
     }
 

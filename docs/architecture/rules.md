@@ -228,7 +228,8 @@
   preferences window you were reading. Only a *drop* — the cells are
   also a row of buttons somebody works along from the keyboard comparing
   two corners, and a window that vanished on the first press would make
-  the second impossible.
+  the second impossible. The window is picked up by the whole lit cell,
+  not only by the chip drawn in it (D648).
   `placement::spot_for` and `placement::where_it_goes` are the two
   places those states are read. The rows are outside `config::PERSISTED` and outside
   `Setting::ALL`, which `every_persisted_preference_has_a_row` walks in
@@ -562,10 +563,22 @@
   table of key *names* stays upstream's, and `keys.rs` is the only file
   in this repository that imports `Kbd`. Registration is
   `global-hotkey` — Tauri's own plugin's crate, a sibling of `muda`,
-  Carbon `RegisterEventHotKey` with no Accessibility prompt on macOS, and
-  on Linux an X11 key grab, asked for only where GPUI draws through X11
-  and `XDG_SESSION_TYPE` is not `wayland` (D346, `x11_session`; elsewhere
-  the row says *Stored, and not active*); the row is the request and
+  Carbon `RegisterEventHotKey` with no Accessibility prompt on macOS; on
+  **GNOME**, in either session type, one of GNOME's own custom keyboard
+  shortcuts (`apps/wipemark-app/src/gnome.rs`, D641–D647), written with
+  `gsettings` under `…/custom-keybindings/wipemark-<action>/`, running
+  `wipemark --panel` (or `--show`) — `$APPIMAGE` inside an AppImage,
+  `WIPEMARK_DATA_DIR` carried through `env` — asserted again at every
+  launch and left at quit, a chord GNOME already grabs refused with the
+  holder's name; elsewhere on Linux an X11 key grab, asked for only where
+  GPUI draws through X11 and `XDG_SESSION_TYPE` is not `wayland` (D346,
+  `x11_session`; elsewhere the row says *Stored, and not active*). A
+  launch whose whole request is `--panel` or `--show` hands it to the
+  running instance over `<data dir>/wipemark.sock` and exits 0
+  (`apps/wipemark-app/src/instance.rs`, D646). While the recorder listens
+  its action's registration is taken away, and the row's chord is asked
+  for again when it lets go — the new one, or the old after Escape (D649,
+  Linux). The row is the request and
   `Registration` is the desktop's answer, shown under the field, so a
   refused chord is not a preference that quietly does nothing.
   `main::install_hotkeys` owns the registrar, follows every change (old
@@ -573,9 +586,10 @@
   `flume` channel. Asking never waits for the desktop: on Linux a thread
   of its own (`wipemark-hotkeys`) owns the manager and answers on
   `Registrar::answers`, which `install_hotkeys` polls (B1,
-  `asking_for_a_shortcut_never_waits_for_the_desktop`). On GNOME the
-  shipped Ctrl+Alt+D is one of *Show desktop*'s bindings, so expect it
-  refused there and record another. **One
+  `asking_for_a_shortcut_never_waits_for_the_desktop`). On Ubuntu's GNOME
+  the shipped Ctrl+Alt+D is one of *Show desktop*'s bindings ("Hide all
+  normal windows"), so it is refused there by that name and a person
+  records another. **One
   shipped chord, and it is the panel's**: `hotkey::PANEL_DEFAULT` is
   ⌘⌥D (`CmdOrCtrl+Alt+D`), because a window you *summon* over somebody
   else's document is useless if it has to be found in Settings first —

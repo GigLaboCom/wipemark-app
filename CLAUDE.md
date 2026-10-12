@@ -249,6 +249,7 @@ made against something other than the real installation:
 | `--import=<path>` | puts a file in the queue at startup, once per flag — what a drop or the Import button does, so a check of the table does not start by driving a file picker. |
 | `--compare=<path>` | opens the Compare window on a file at startup, once per flag — what a row's Actions menu does, so a check of two panes of text does not start by driving a menu. |
 | `--clean=<path>` | puts a file in the queue and cleans it at startup, once per flag — Import followed by the row's Clean, so a check of what a clean writes does not start by driving a file picker and a menu. The result goes where the Retention page says; a file that cannot be cleaned still lands, as a row whose badge says why (D268). |
+| `--panel`, `--show` | summon the panel, or bring the main window forward. With an instance already running for the same data directory, a launch whose whole request is one of these hands it over `<data dir>/wipemark.sock` and exits 0 — the command GNOME's shortcut runs (D646). |
 | `--version` | prints `wipemark <version>` and exits before the database, the MCP port or a window — what `tests/standalone.rs` runs to prove a binary built with `llama-native` finds llama.cpp's libraries without cargo's loader path. |
 
 Seeding a scratch database is `sqlite3 $WIPEMARK_DATA_DIR/wipemark.db`
@@ -333,6 +334,7 @@ the gate test named there is what holds each one.
 - The MCP server validates `Origin`, steps past a taken port, and refuses a call it cannot run as a result with `isError`, never an empty report.
 - The CLI finds the application by its beacon, loopback only. Exit codes: `0` clean, `1` findings, `2` usage or refusal, `3` partial (3 beats 1).
 - The close button only hides while there is a way back (a tray).
+- The system-wide shortcut is recorded, never typed. Entering the recorder unregisters it and leaving registers it (D649). On GNOME, in either session type, it is one of GNOME's own custom shortcuts, written with `gsettings` (`gnome.rs`, D641–D647); elsewhere under X11 it is an X11 grab; on macOS it is Carbon. On Ubuntu the shipped Ctrl+Alt+D is GNOME's "Hide all normal windows", and is refused by that name.
 
 **Process**
 - Every script stays in the repository with a header saying what it is for.

@@ -287,6 +287,20 @@ hotkey-unavailable = Stored, and not active: system-wide shortcuts are not avail
 # In a Wayland session — natively or through XWayland — a key grab hears
 # only what is typed into another X11 window, so none is made.
 hotkey-unavailable-wayland = Stored, and not active: in a Wayland session { -brand-name } cannot hear a shortcut pressed in other applications.
+# On GNOME the shortcut is one of GNOME's own custom keyboard shortcuts,
+# which runs Wipemark with the action's flag (D641). These two are the
+# names it is listed under in GNOME's Settings › Keyboard › Custom
+# Shortcuts — plain text, written into GNOME's settings.
+hotkey-gnome-name-panel = { -brand-name } — panel
+hotkey-gnome-name-show = { -brand-name } — bring forward
+# Under the field when GNOME took it. It stays in GNOME after the
+# application quits, so that the keys start it with its panel.
+hotkey-registered-gnome = Set in GNOME's keyboard shortcuts: works from any application, and starts { -brand-name } when it is not running. It stays there after { -brand-name } quits; Settings › Keyboard › Custom Shortcuts can remove it.
+# $name is what GNOME's Settings calls the shortcut already on these keys
+# ("Hide all normal windows" for Ctrl+Alt+D on Ubuntu); $setting is where
+# it is set, as gsettings names it.
+hotkey-taken-gnome = Not set: GNOME already uses these keys for "{ $name }" ({ $setting }). Record other keys, or free these in Settings › Keyboard.
+hotkey-unavailable-gnome = Stored, and not active: this GNOME offers no custom keyboard shortcuts { -brand-name } can set.
 
 ## The sections, as the sidebar lists them.
 ##

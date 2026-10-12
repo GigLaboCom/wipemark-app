@@ -247,6 +247,17 @@ libstdc++6, libvulkan1, libxcb1, libxkbcommon-x11-0, libxkbcommon0,
 libayatana-appindicator3-1`. `/usr/share/doc/wipemark/copyright` is NOTICE.
 `WIPEMARK_DEB_MAINTAINER` sets the Maintainer field.
 
+**What a removal leaves in a person's GNOME settings** (D643). On GNOME the
+system-wide shortcut is a custom keyboard shortcut of GNOME's own, written into
+the user's dconf (`…/custom-keybindings/wipemark-panel/`) and left there when
+the application quits, so the keys start it with its panel. `apt-get remove`
+cannot take it away — a package's `postrm` runs as root, outside every user's
+session and dconf — and nor can deleting an AppImage. The entry then runs a
+program that is not there; the person removes it in Settings › Keyboard ›
+Custom Shortcuts ("Wipemark — panel"), which the sentence under the shortcut's
+field says. It writes with the `gsettings` command (`libglib2.0-bin`, on every
+GNOME desktop); without it the row says GNOME offers no shortcut it can set.
+
 ## What is not here
 
 A `.tar.gz` (D609: the AppImage is the portable artifact; the AppDir is that

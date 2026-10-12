@@ -49,10 +49,17 @@ mod drop;
 mod duty;
 mod engine;
 mod engine_host;
+// GNOME's own custom keyboard shortcuts, as the system-wide shortcut's
+// registrar on GNOME (D641).
+mod gnome;
 mod hotkey;
 mod icon;
 #[cfg(target_os = "linux")]
 mod integrate;
+// One Wipemark per data directory: a second launch that only summons hands
+// the summons to the first over a local socket (D646).
+#[cfg(unix)]
+mod instance;
 mod journal;
 mod keys;
 mod language;
@@ -87,7 +94,6 @@ mod wording;
 mod x11;
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -1046,6 +1052,14 @@ const PROFILE_FLAG: &str = "--profile=";
 /// not a mode.
 const PANEL_FLAG: &str = "--panel";
 
+/// The flag that brings the main window forward.
+///
+/// `--show`. On its own it starts the application as a plain launch does;
+/// its point is the second launch — the command GNOME's custom shortcut for
+/// [`hotkey::Action::Show`] runs — which hands the request to the running
+/// instance rather than starting a second one (D646).
+const SHOW_FLAG: &str = "--show";
+
 /// The flag that puts a file in the queue at startup.
 ///
 /// `--import=<path>`, once per file. What a drop or the Import button
@@ -1111,6 +1125,15 @@ struct Launch {
     profile: Option<String>,
     /// Whether the panel was asked for.
     panel: bool,
+    /// Whether the main window was asked for by name (`--show`).
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(
+            dead_code,
+            reason = "only a Linux launch hands it to a running instance"
+        )
+    )]
+    show: bool,
     /// Whether the setup walk-through was asked for.
     setup: bool,
     /// Whether only the version was asked for.
@@ -1123,6 +1146,34 @@ struct Launch {
     /// The files to open Compare windows on, in the order they were
     /// named.
     compare: Vec<PathBuf>,
+}
+
+#[cfg(target_os = "linux")]
+impl Launch {
+    /// What this launch would hand a running instance, if all it asks for
+    /// is a summons — `--panel` or `--show` and nothing else. A launch that
+    /// asks for anything more (a file, a page, a profile, the walk-through)
+    /// starts as it always did (D646). The panel wins over the window: it
+    /// is the one a shortcut is for.
+    fn summons(&self) -> Option<instance::Summons> {
+        let only_a_summons = self.settings.is_none()
+            && self.profile.is_none()
+            && !self.setup
+            && !self.version
+            && self.import.is_empty()
+            && self.clean.is_empty()
+            && self.compare.is_empty();
+        if !only_a_summons {
+            return None;
+        }
+        if self.panel {
+            Some(instance::Summons::Panel)
+        } else if self.show {
+            Some(instance::Summons::Show)
+        } else {
+            None
+        }
+    }
 }
 
 /// What the command line hands the main window to put in its queue.
@@ -1139,6 +1190,10 @@ fn launch_from(arguments: impl IntoIterator<Item = String>) -> Launch {
     for argument in arguments {
         if argument == PANEL_FLAG {
             launch.panel = true;
+            continue;
+        }
+        if argument == SHOW_FLAG {
+            launch.show = true;
             continue;
         }
         if argument == SETUP_FLAG {
@@ -1351,6 +1406,36 @@ fn main() {
         // A format, read by scripts: never localized.
         println!("wipemark {}", env!("CARGO_PKG_VERSION"));
         return;
+    }
+
+    // Where this data directory's running instance listens, and — for a
+    // launch that only summons — the summons handed to it, before anything
+    // opens the database or a window: answered, this process has done its
+    // job (D646). Linux only: GNOME's shortcut is the launch this is for,
+    // and macOS keeps one instance through LaunchServices.
+    #[cfg(target_os = "linux")]
+    let socket = layout.as_ref().ok().and_then(|layout| {
+        instance::socket_path(
+            layout.root(),
+            std::env::var_os("XDG_RUNTIME_DIR")
+                .as_deref()
+                .map(std::path::Path::new),
+        )
+    });
+    #[cfg(target_os = "linux")]
+    if let (Some(summons), Some(path)) = (launch.summons(), socket.as_deref()) {
+        match instance::forward(path, summons) {
+            Ok(()) => {
+                tracing::info!(
+                    summons = summons.word(),
+                    "handed to the running instance; this launch ends here"
+                );
+                return;
+            }
+            Err(error) => {
+                tracing::info!(%error, "no running instance took the summons; starting");
+            }
+        }
     }
 
     // Opened before the app starts, and after logging, so that the one
@@ -1578,6 +1663,10 @@ fn main() {
             install_tray(preference, window, preferences.clone(), cx);
             install_hotkeys(window, preferences.clone(), cx);
             take_beacon_at_quit(beacon_at_quit, cx);
+            #[cfg(target_os = "linux")]
+            if let Some(path) = socket.as_deref() {
+                answer_summonses(path, window, preferences.clone(), cx);
+            }
 
             // Kept copies past their period go once a launch, by the
             // time in their own names — off this thread, because a
@@ -1715,7 +1804,7 @@ fn install_hotkeys(window: WindowHandle<Root>, preferences: Entity<Preferences>,
     // unregister and re-register the shortcut.
     let mut following = Following {
         registrar,
-        asked: BTreeMap::new(),
+        follower: hotkey::Follower::default(),
     };
     following.follow(&preferences, cx);
     cx.observe(&preferences, move |preferences, cx| {
@@ -1760,23 +1849,60 @@ fn install_hotkeys(window: WindowHandle<Root>, preferences: Entity<Preferences>,
 /// The registrar and what it was last asked for.
 struct Following {
     registrar: hotkey::Registrar,
-    asked: BTreeMap<hotkey::Action, Option<hotkey::Hotkey>>,
+    follower: hotkey::Follower,
 }
 
 impl Following {
-    /// Bring the registrations into line with the rows, asking only for
-    /// the ones that moved. The answers come back on the registrar's own
-    /// channel, never by waiting here (B1).
+    /// Bring the registrations into line with what the desktop should
+    /// hold — each row's chord, or nothing for one being recorded (D649) —
+    /// asking only for the ones that moved. The answers come back on the
+    /// registrar's own channel, never by waiting here (B1).
     fn follow(&mut self, preferences: &Entity<Preferences>, cx: &App) {
-        for action in hotkey::Action::ALL {
-            let wanted = preferences.read(cx).shortcut(action);
-            if self.asked.get(&action) == Some(&wanted) {
-                continue;
-            }
-            self.registrar.ask(action, wanted);
-            self.asked.insert(action, wanted);
+        let preferences = preferences.read(cx);
+        for (action, chord) in self
+            .follower
+            .moved(|action| preferences.shortcut_held(action))
+        {
+            self.registrar.ask(action, chord);
         }
     }
+}
+
+/// Answer a second launch's summons — the GNOME shortcut's `wipemark
+/// --panel`, or `--show` — for as long as the application runs (D646).
+///
+/// The socket is listened on by a thread of its own; a summons crosses
+/// here over a channel and is performed the way the X11 or Carbon
+/// shortcut's press is: the panel toggled, or the main window brought
+/// forward. The socket file is taken away at quit when it is still ours,
+/// so the next launch does not first knock on a door nobody answers.
+#[cfg(target_os = "linux")]
+fn answer_summonses(
+    path: &std::path::Path,
+    window: WindowHandle<Root>,
+    preferences: Entity<Preferences>,
+    cx: &App,
+) {
+    let Some((listening, summonses)) = instance::listen(path) else {
+        return;
+    };
+    cx.on_app_quit(move |_| {
+        listening.remove();
+        async {}
+    })
+    .detach();
+    cx.spawn(async move |cx| {
+        while let Ok(summons) = summonses.recv_async().await {
+            cx.update(|cx| match summons {
+                instance::Summons::Show => show_main_window(window, cx),
+                instance::Summons::Panel => {
+                    cx.activate(true);
+                    panel::toggle(&preferences, cx);
+                }
+            });
+        }
+    })
+    .detach();
 }
 
 /// Take the MCP server's beacon away as the application quits.
@@ -2057,6 +2183,41 @@ mod tests {
 
     /// `--setup` is what a fresh install does by itself, on demand — so
     /// a check of the first launch does not start by clearing a row.
+    /// D646: a launch whose whole request is a summons hands it to a
+    /// running instance; one that asks for anything more starts as it
+    /// always did — a file to import must not be handed away as "show the
+    /// window". Red with `summons` ignoring the other flags.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn only_a_launch_that_only_summons_is_handed_over() {
+        use crate::instance::Summons;
+
+        assert_eq!(launch(&["--panel"]).summons(), Some(Summons::Panel));
+        assert_eq!(launch(&["--show"]).summons(), Some(Summons::Show));
+        assert_eq!(
+            launch(&["--show", "--panel"]).summons(),
+            Some(Summons::Panel),
+            "the panel is what a shortcut is for"
+        );
+        // LaunchServices' and anything else unknown are ignored, as ever.
+        assert_eq!(
+            launch(&["-psn_0_1234", "--panel"]).summons(),
+            Some(Summons::Panel)
+        );
+        assert_eq!(launch(&[]).summons(), None);
+        for more in [
+            "--settings",
+            "--settings=placement",
+            "--setup",
+            "--profile=work",
+            "--import=/tmp/a.txt",
+            "--clean=/tmp/a.txt",
+            "--compare=/tmp/a.txt",
+        ] {
+            assert_eq!(launch(&["--panel", more]).summons(), None, "{more}");
+        }
+    }
+
     #[test]
     fn the_walk_through_can_be_asked_for_on_the_command_line() {
         assert!(launch(&["--setup"]).setup);
