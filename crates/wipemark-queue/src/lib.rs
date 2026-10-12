@@ -48,9 +48,12 @@
 //! Where the item said when it was pushed ([`Destination`]): its row, a
 //! new file — beside the source as `name.rewritten.ext` (В8), or a path
 //! somebody chose, never the source itself, and never over a file already
-//! there unless the item said to replace it — or, by a per-run flag only,
-//! over the source with the original set aside first. The queue reads no
-//! Retention row; the surface that pushes does.
+//! there unless the item said to replace it — a file of the row's own
+//! (`name.rewritten.ext` when it was free, `name.rewritten-<id>.ext`
+//! otherwise, the next of its own names when a name is taken by the time
+//! it is written; D635, D636), or, by a per-run flag only, over the source
+//! with the original set aside first. The queue reads no Retention row;
+//! the surface that pushes does.
 //!
 //! # What it keeps
 //!

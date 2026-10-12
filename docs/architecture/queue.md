@@ -36,7 +36,7 @@ keeps the shape and changes what a row is about:
 | `id LIKE '%…%'`, `key_word LIKE '%…%'` | the same, in memory: substrings, case-insensitive for the keyword | three remembered digits find the row |
 | `ORDER BY id DESC` | newest first, and the Arrived header flips it | the thing just dropped is the thing being looked for |
 | page size persisted as a setting | page size kept for the session | a persisted preference here is a row with a Settings widget (`every_persisted_preference_has_a_row`), and the size of a table is not yet worth one |
-| Actions: open, copy path, beautify, edit, OCR, delete | Actions: **Clean**, **open with the default app**, **Compare with the result**, and once cleaned **open**, **show** and **copy the result**, the **Report…**, and **Replace the existing result** when a clean was refused for one | what can be done to one thing that arrived; an item that cannot apply to a row is disabled, not absent (a row with no file behind it opens nothing) |
+| Actions: open, copy path, beautify, edit, OCR, delete | Actions: **Clean**, **open with the default app**, **Compare with the result**, and once cleaned **open**, **show** and **copy the result** and the **Report…** — a result whose name was taken goes under the row's own, `name.cleaned-<id>.ext` (D635) | what can be done to one thing that arrived; an item that cannot apply to a row is disabled, not absent (a row with no file behind it opens nothing) |
 | `assign_keyword` over MCP | a Keyword column and filter, and nothing that assigns one | the MCP tool that will assign one does not exist yet; the column is here so the day it lands is a tool change and not a table change |
 
 ## How things get in
@@ -137,8 +137,9 @@ item (gpui-component's menu items have no tooltip, D269).
 the queue's rows and the panel's Clean wait in the same line. A decoded
 picture is hundreds of megabytes; a row's plan means something only if the
 cleans start in the order they were asked for; and two cleans of one file
-to one destination, from two windows, must end as one result and one
-"already there" rather than two writes. The clean itself is
+to one destination, from two windows, must end as two results — the plain
+`name.cleaned.ext` and the second row's own `name.cleaned-<id>.ext`
+(D635) — rather than one written over the other. The clean itself is
 `clean::clean_one` on the background executor — no read, decode or write
 on the thread that draws. **The plan is taken when the row's clean
 starts**, from `Preferences::plan_for`: a Retention change made while a row
@@ -161,11 +162,21 @@ it is read (D287) — see `retention.md`, "How the windows execute it".
 Once done, the Name cell's note says where the result went
 (`wording::went`) and the hover card says what happened instead of what
 would. The Actions menu opens the result, shows it in its folder, copies
-it when it came back as text (the person's own text, no catalogue), opens
-the **Report…**, and — only when the clean was refused because a result
-was already there (D261) — **Replace the existing result**, which cleans
-again and writes over that one file (`clean::replace_one`, D270). The
-original is never the file replaced.
+it when it came back as text (the person's own text, no catalogue), and
+opens the **Report…**. Every one of them names the file the result really
+took — `name.cleaned-<id>.ext` when the plain name was taken (D635); so
+does the journal entry's `result.path`.
+
+**Every row gets its own result** (D635–D639, the owner's answer to F10
+and Q-C4). A clean or a rewrite from a window never writes over a file
+and never fails because a result's name is taken: the first result of a
+file keeps the plain name, and every other one is named for its row —
+`name.cleaned-<id>.ext`, `name.rewritten-<id>.ext`, `<id>` the journal id
+the ID column shows. "Replace the existing result", which answered the
+old refusal (D261, D270, D357), is gone (D638). The rules — what counts
+as taken, when a name is claimed, what delivery does when a claimed name
+is taken after all, the corner cases and what a future redo of a row
+reads — are `retention.md`, "Every row gets its own result".
 
 **Compare saves into the row** (E7-9). A row's Compare opens on its
 result as it stands once a clean put one somewhere (`cleaned_for`,
@@ -288,18 +299,19 @@ What a window asks of the model is an agent's call with no arguments
 duty takes, Layer A at its defaults, the template rows the Settings window
 saved. Where the result goes is the Retention page's plan taken **at
 push**, not at start (R3, D91): `name.rewritten.ext` beside the file (В8),
-the same name in the results folder — each a *new* file, refused where one
-is already (`Destination::New`, D261, D319), with Replace the existing
-result for that one file — in place with the original set aside, or, for a
-thing with no file behind it, the queue's row (`Destination::Row`), shown
-and copied from there until the row is removed. A file already where the
-result would go is found **when the row is pushed** (D357), off the GPUI
-thread with the rest of the build: the row is *Rewrite failed* at once, its
-tooltip naming the file, nothing is pushed and nothing runs, and Replace the
-existing result pushes `Destination::File` for that one file. The publish
-still refuses a file that appears while the job runs (D284); that rewrite's
-text is not kept for a later Replace — the check at push makes the race a
-moment wide, and Replace runs the job again.
+the same name in the results folder — each a *new* file **of the row's
+own** (`Destination::Own`, D635) — in place with the original set aside,
+or, for a thing with no file behind it, the queue's row
+(`Destination::Row`), shown and copied from there until the row is
+removed. The name is **claimed when the row is pushed** (D636), off the
+GPUI thread with the rest of the build: the plain `name.rewritten.ext`
+when nothing is on disk under it and no item still waiting or running —
+nor a row of the same push — claims it, the row's own
+`name.rewritten-<id>.ext` otherwise (the tag read from the row's journal
+writer, D637). Nothing is refused for a taken name any more (D357 is
+superseded). At delivery a name taken after all moves the result on to
+the next of the row's own names, each published by `write_new`, and the
+end carries the path it really took, which the journal records.
 
 **A saved template the rules refuse refuses the push** (D374, L-h). The
 templates the job will use are checked as the row is built: with the
@@ -316,20 +328,10 @@ the command line and an agent's call refuse a template they are handed.
 where the person agreed the document may go — this machine, or an
 endpoint's origin — as the duty stood when they asked: a row's Rewrite,
 Rewrite all whose price said "here" or "sent away", a drop asked about once
-(В1), a **Replace the existing result** (D393) — the duty's destination,
-and nothing else (D430, below). A window push without a consent cannot be
-built: with nothing on duty there is nowhere the person agreed to, and
-nothing is pushed. Replace of a rewrite refused over a file
-already there is a Rewrite by the same road — greyed, its reason under it,
-when a Rewrite would be (nothing on duty, in the engine handle's words), and
-asked "Send … to …?" first when the document would leave this machine
-(`QueueEvent::SendAway { replacing }`, yes is `Queue::agreed` by
-`Road::Replace`); it
-differs from a Rewrite only in where its result goes. Before D393 it skipped
-both, and with nothing on duty it pushed an item with no consent — an item
-the queue never asks about — which then went to whatever endpoint was put
-on duty later (`replace_with_nothing_on_duty_pushes_nothing`,
-`replace_asks_before_a_document_leaves_the_machine`). The engine is bound when each item starts, so the duty can move while
+(В1) — the duty's destination, and nothing else (D430, below). A window
+push without a consent cannot be built: with nothing on duty there is
+nowhere the person agreed to, and nothing is pushed. (Replace the existing
+result took the same road, D393, until D638 took it away.) The engine is bound when each item starts, so the duty can move while
 items wait. Before an item starts on an endpoint other than the one it was
 consented to (here → away, or one origin → another), the queue **holds and
 asks once** (`QueueEvent::Ask`, the window's Confirm "Send the waiting
@@ -396,15 +398,15 @@ preferences, as a person must.
 **The duty once per draw of the rows** (D452, the follow-ups' verification).
 Asking `Queue::going` builds a `Roster` — the installed, weights and added
 maps cloned — and runs `duty::on_duty`, and a row asked it up to three
-times (its Rewrite button, the menu's Rewrite, Replace's reason), every row
+times (its Rewrite button, the menu's Rewrite, and, until D638, Replace's reason), every row
 on screen, every frame. The rows of a draw now share one answer:
 `Queue::vacancy` is taken once in `render`, where the list's processor is
 made, and each row reads its Rewrite's reason through
 `why_not_rewrite_given(id, vacant)` — the pure `why_not_rewrite` over it.
 Not inside the processor: the list calls it three times a draw (a row
 measured in its layout and again in its prepaint, then the rows on screen),
-which would be three asks. The callers outside a draw — Replace and
-"Process what arrives" — keep `why_not_rewrite(id, cx)`, and Rewrite all
+which would be three asks. The callers outside a draw — "Process what
+arrives" — keep `why_not_rewrite(id, cx)`, and Rewrite all
 its own `vacancy`
 (`the_duty_is_asked_once_per_draw_of_the_rows`: one ask for a draw of
 twenty rows; one a row asks seventeen times — two rows measured, fifteen on
@@ -412,15 +414,15 @@ screen — and the code before asked two or three times a row).
 
 **A yes records the question's destination** (D431, A-L1). Every question
 asked before rewrites go names where they would go — Rewrite all's price
-(`price.away`), a drop's and a Replace's "Send … to …?" — and its yes is
+(`price.away`), a drop's "Send … to …?" — and its yes is
 `Queue::agreed(ids, road, asked)`, the destination it named. That is the
 consent recorded, never the duty as it stands at the yes: a duty moved
 while the question was open made the record name a place nobody was asked
 about. If the duty no longer sends a rewrite to `asked`, the yes pushes
-nothing and the road (`Road::Price`, `Arrivals`, `Replace`) runs again with
+nothing and the road (`Road::Price`, `Arrivals`) runs again with
 the duty as it stands — asking again where that road asks (a price, a
 document leaving this machine), pushing at once where a fresh press would
-push without a question (a drop or a Replace that now stays here)
+push without a question (a drop that now stays here)
 (`a_yes_records_where_its_question_said_and_no_other`).
 
 **A change of engine waited for is said** (D434, A-L5). While a change of

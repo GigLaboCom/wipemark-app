@@ -359,7 +359,7 @@ panel-drop-mismatch = Named { $named }, and the contents are { $found }.
 # page's choices, read against this one thing. $name is a file name
 # and $folder a folder, both as the operating system spells them;
 # $period is one of the `settings-retention-span-*` lines.
-panel-drop-result-beside = Its result would go beside it, as { $name }; the file itself would not be touched.
+panel-drop-result-beside = Its result would go beside it, as { $name } — or under a name of its own if that one is taken; the file itself would not be touched.
 panel-drop-result-into-file = Its result would go into { $folder }; the file itself would not be touched.
 panel-drop-result-into = Its result would go into { $folder }.
 panel-drop-result-over = Its result would take its place, once the original had been set aside as { $name }.
@@ -1143,8 +1143,8 @@ settings-retention-description = Where a result goes, what happens to the file i
 # The banner's first line: where results go, in the three states the
 # row can be in. $folder is the results folder as the operating system
 # spells it.
-settings-retention-beside = Results are written beside the file, as name.cleaned.ext; the file itself is never touched.
-settings-retention-into = Results are written into { $folder }; the file itself is never touched.
+settings-retention-beside = Results are written beside the file, as name.cleaned.ext — or, when that name is taken, as name.cleaned-<id>.ext, the row's own; the file itself, and anything already there, is never touched.
+settings-retention-into = Results are written into { $folder }, under the row's own name when the plain one is taken; the file itself is never touched.
 settings-retention-over = A file is replaced by its result once the original has been set aside as name.original.ext — and an original already there is never overwritten.
 # The second line: what is kept of the things that have no file. $folder
 # is Wipemark's own folder; $period is one of the `settings-retention-span-*`
@@ -1157,7 +1157,7 @@ settings-retention-keeps-both = The original and the result of a paste or a drag
 settings-retention-pending = The windows follow these rules: a clean takes them when it starts, a rewrite when it is queued — it is written where they said then, after a restart too. The command line and agents read none of them — the command line is told where a result goes on each run, and an agent gets its result back.
 
 settings-retention-destination-title = Where results go
-settings-retention-destination-description = Beside the file writes name.cleaned.ext next to it and leaves the file as it is. The results folder is the one below. In place of the file replaces it — after the original has been set aside as name.original.ext, and never over an original already there.
+settings-retention-destination-description = Beside the file writes name.cleaned.ext next to it — name.cleaned-<id>.ext, named for its row, when that name is taken — and leaves the file as it is. The results folder is the one below. In place of the file replaces it — after the original has been set aside as name.original.ext, and never over an original already there.
 settings-retention-destination-beside = Beside the file
 settings-retention-destination-folder = In the results folder
 settings-retention-destination-replace = In place of the file
@@ -1832,7 +1832,6 @@ queue-action-clean-busy = It is already in line to be cleaned.
 queue-action-open-result = Open the result
 queue-action-reveal-result = Show the result in its folder
 queue-action-copy-result = Copy the result
-queue-action-replace = Replace the existing result
 queue-went-written = Written as { $name }
 queue-went-replaced = Written over the existing { $name }
 queue-went-in-place = Written in place of the file
@@ -1866,7 +1865,7 @@ clean-refused-picture-decode = Its pixels could not be decoded, so it was not cl
 clean-refused-picture-encode = The restored picture could not be written back, so nothing was written.
 clean-refused-picture-proof = The result failed its own check, so nothing was written. This is a fault in this version.
 clean-refused-still-marked = The result would still carry AI provenance metadata, so it was not written.
-clean-refused-exists = { $name } is already there and was left as it is. To write over it, choose Replace the existing result in the Actions menu.
+clean-refused-exists = { $name } and every name of this row's own after it are taken, and all were left as they are. Nothing was written.
 clean-refused-original-exists = { $name } is already there: an original set aside before is never overwritten, so nothing was changed.
 clean-refused-link = { $name } is a symbolic link, and In place of the file replaces a file, not a link — so nothing was changed. Clean the file it points to, or choose another place for results on the Retention page.
 clean-refused-same-file = The result would have landed on the file itself, so nothing was written.
@@ -2059,7 +2058,6 @@ cli-journal-unwritable = Nothing was recorded in the application's journal: its 
 ## $path is a file's path, $host and $was an endpoint's origin, never
 ## translated.
 queue-action-remove-waited = An agent or the command line is waiting for this rewrite. Cancel it first: the caller is told, and the row can then be removed.
-queue-said-rewrite-exists = A file is already at { $path }, and a rewrite never writes over a file it did not make. Nothing was rewritten; “Replace the existing result” in the Actions menu writes over that one file.
 rewrite-consent-title = { $count ->
         [one] Send the waiting document to { $host }?
        *[other] Send the { $count } waiting documents to { $host }?

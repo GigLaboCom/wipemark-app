@@ -208,9 +208,11 @@ again). Enter is Cancel: Overwrite writes over somebody's text, and a key
 pressed out of habit must never be that
 (`enter_on_a_three_way_question_is_the_safe_choice`). The batch queue's
 row is held to its text the same way. A Save that cleans meets a taken
-name as a clean does, and asks the same question: Overwrite replaces that
-one file (D261's Replace, asked by the person), Keep theirs makes that
-file the result's home.
+name as a clean does: it passes it by, unasked, and writes the row's own
+`name.cleaned-<id>.ext` (D635) — which is from then on the result's home,
+whatever its number. The question it asked before (Overwrite replacing
+that one file, Keep theirs making it the home) is asked now only when
+every one of the row's own names is taken too (`Refusal::Exists`).
 
 **Where the check sits** (D443). The check is made **after** the
 temporary is staged and synced, immediately before the rename over the

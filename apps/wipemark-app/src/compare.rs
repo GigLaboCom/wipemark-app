@@ -433,7 +433,13 @@ pub struct Link {
     /// was asked before — what a quit awaits after its last mark (D440).
     /// `None` with no writer to wait for.
     pub flushed: Flushed,
+    /// What the row's own result is named by when a Save that cleans finds
+    /// the plain name taken — the row's journal id (D635, D637).
+    pub tag: TagOf,
 }
+
+/// What [`Link::tag`] is: the row's tag, as the row knows it now.
+pub type TagOf = Rc<dyn Fn(&App) -> journal::Tag>;
 
 /// What [`Link::home`] is: where the row's clean put its result now, and
 /// the original set aside.
@@ -2371,9 +2377,18 @@ impl CompareView {
                     self.saved(Err(NotSaved::Busy), window, cx);
                     return;
                 }
+                // Named for the row when the plain name is taken (D635): the
+                // row's own tag, or — a window `--compare=` opened, whose
+                // journal row is written only once it has saved — this
+                // window's own number.
+                let key = self.saving.key;
+                let tag = match &self.saving.link {
+                    Some(link) => (link.tag)(cx),
+                    None => journal::Tag::Number(key),
+                };
                 let asked = match (Cleaner::existing(cx), self.saving.arrival.clone()) {
                     (Some(line), Some(arrival)) => line.update(cx, |line, cx| {
-                        line.ask_with(self.saving.key, arrival, replacing, Some(text), cx)
+                        line.ask_with(key, arrival, tag, replacing, Some(text), cx)
                     }),
                     _ => false,
                 };
@@ -3974,7 +3989,7 @@ mod tests {
             };
             assert_eq!(arrival.intake.encoding, Some(encoding), "{name}");
             let plan = retention::plan(&Source::of(&arrival.intake), &Retention::default(), &homes);
-            let outcome = clean_one(&arrival, &plan, 1, chrono::Utc::now());
+            let outcome = clean_one(&arrival, &plan, 1, "1", chrono::Utc::now());
             assert!(
                 matches!(outcome.verdict, Verdict::NotCleaned(_)),
                 "{name}: {:?}",
@@ -4036,7 +4051,7 @@ mod tests {
                 matches!(&plan, Plan::File(Written::Beside(_))),
                 "the default plan is not beside the file: {plan:?}"
             );
-            let outcome = clean_one(&arrival, &plan, 1, chrono::Utc::now());
+            let outcome = clean_one(&arrival, &plan, 1, "1", chrono::Utc::now());
             assert!(
                 matches!(outcome.verdict, Verdict::Cleaned),
                 "{name}: {:?}",
@@ -5497,6 +5512,7 @@ mod tests {
             }),
             home: Rc::new(|_| None),
             flushed: Rc::new(|_| None),
+            tag: Rc::new(|_| journal::Tag::Id(27)),
         };
         (link, heard)
     }
@@ -5514,6 +5530,7 @@ mod tests {
             told: Rc::new(|told, _| told != Told::Cleans),
             home: Rc::new(|_| None),
             flushed: Rc::new(|_| None),
+            tag: Rc::new(|_| journal::Tag::Id(27)),
         };
         let (view, _, cx) = saving_window(
             cx,
@@ -5568,7 +5585,7 @@ mod tests {
             handed,
         };
         let plan = retention::plan(&Source::of(&arrival.intake), &Retention::default(), homes);
-        let outcome = clean_one(&arrival, &plan, 1, chrono::Utc::now());
+        let outcome = clean_one(&arrival, &plan, 1, "1", chrono::Utc::now());
         assert!(
             matches!(outcome.verdict, Verdict::Cleaned),
             "{:?}",
@@ -5746,10 +5763,11 @@ mod tests {
 
     /// Nothing written yet: Save is a Clean of the pane's text, by the
     /// plan the row's Clean takes when it starts (D411). A file already
-    /// where the result goes is asked about and left byte for byte;
-    /// Overwrite replaces that one file, and from then on Save writes over
-    /// it. The original is never written. Ask the line without the text
-    /// and the result is the clean's, not the edit: red.
+    /// where the result goes is left byte for byte, unasked, and the save
+    /// takes the row's own name, `x.cleaned-<id>.md`, as a clean does
+    /// (D635); from then on Save writes over that file, the row's own,
+    /// whatever its name. The original is never written. Ask the line
+    /// without the text and the result is the clean's, not the edit: red.
     #[gpui::test]
     fn an_unwritten_row_saves_as_a_clean_would(cx: &mut TestAppContext) {
         let scratch = Scratch::new("save-unwritten");
@@ -5778,27 +5796,20 @@ mod tests {
 
         type_in(&view, "# Notes\n\nMine.\n", cx);
         quiet(cx);
+        let own = scratch.0.join("x.cleaned-27.md");
         assert_eq!(
             std::fs::read(&taken).expect("taken"),
             b"somebody's own file"
         );
         assert!(
-            cx.update(|_, cx| view.read(cx).saving.question.is_some()),
-            "a taken name was not asked about"
+            cx.update(|_, cx| view.read(cx).saving.question.is_none()),
+            "a taken name was asked about rather than passed by"
         );
-        assert!(line_under_the_result(&view, cx).starts_with(
-            &t_args(Message::CompareStatusNotSaved, &args!("reason" => ""))
-                .trim_end()
-                .to_owned()
-        ));
-
-        // Overwrite: that one file, replaced with the edit.
-        answer(&view, dialog::Pick::First, cx);
-        assert_eq!(std::fs::read(&taken).expect("taken"), b"# Notes\n\nMine.\n");
+        assert_eq!(std::fs::read(&own).expect("own"), b"# Notes\n\nMine.\n");
         assert_eq!(std::fs::read(&source).expect("source"), MARKED.as_bytes());
         assert_eq!(
             cx.update(|_, cx| view.read(cx).target.clone()),
-            Ok(Target::File(taken.clone())),
+            Ok(Target::File(own.clone())),
             "the next save does not go where this one went"
         );
         assert!(
@@ -5806,18 +5817,22 @@ mod tests {
             "a Save that cleans is the line's to tell"
         );
 
-        // From now on, over that file — told to the row.
+        // From now on, over that file — the row's own — told to the row.
         type_in(&view, "# Notes\n\nMine, again.\n", cx);
         quiet(cx);
         assert_eq!(
-            std::fs::read(&taken).expect("taken"),
+            std::fs::read(&own).expect("own"),
             b"# Notes\n\nMine, again.\n"
+        );
+        assert_eq!(
+            std::fs::read(&taken).expect("taken"),
+            b"somebody's own file"
         );
         assert_eq!(
             *heard.borrow(),
             vec![Told::Saved {
                 action: Action::Clean,
-                home: Home::File(taken.clone())
+                home: Home::File(own.clone())
             }]
         );
         assert_eq!(std::fs::read(&source).expect("source"), MARKED.as_bytes());

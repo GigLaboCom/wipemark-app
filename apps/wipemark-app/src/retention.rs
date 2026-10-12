@@ -57,7 +57,7 @@ use wipemark_i18n::{t, Message};
 /// The result and set-aside names. They live in `wipemark_intake::name`
 /// because the CLI writes results too and must not depend on this crate
 /// (D10); re-exported so every caller here keeps its spelling.
-pub use wipemark_intake::name::{with_infix, ORIGINAL_INFIX, RESULT_INFIX, REWRITTEN_INFIX};
+pub use wipemark_intake::name::{with_infix, ORIGINAL_INFIX, RESULT_INFIX};
 use wipemark_intake::{Intake, Kind};
 
 use crate::engine::Choice;
@@ -446,25 +446,35 @@ fn file_name(path: &Path) -> String {
 /// plan is taken at its start (D283); the Retention page says so.
 ///
 /// Beside the file is `name.rewritten.ext` (В8) and into the results
-/// folder the same name there — each a **new** file, refused where one is
-/// already (D261); over the file is in place with the original set aside
-/// first, never without (the windows never replace without setting the
-/// original aside); a thing with no file behind it keeps its result in the
-/// queue's row, shown and copied from there. `None` for a folder, which is
-/// not rewritten whole.
+/// folder the same name there — each a **new** file of the row's own
+/// (`Destination::Own`, D635): the plain name when it is free, the row's
+/// own `name.rewritten-<id>.ext` otherwise, never over a file already
+/// there and never refused for one. The tag is the row's and is filled in,
+/// and the plain name kept or given up, where the request is built — the
+/// claim (D636); here it is empty and the plain name asked for. Over the
+/// file is in place with the original set aside first, never without (the
+/// windows never replace without setting the original aside), and a taken
+/// `name.original.ext` is still refused there; a thing with no file behind
+/// it keeps its result in the queue's row, shown and copied from there.
+/// `None` for a folder, which is not rewritten whole.
 pub fn rewrite_destination(
     plan: &Plan,
     source: Option<&Path>,
 ) -> Option<wipemark_queue::Destination> {
     use wipemark_queue::{Destination as Goes, Keep};
-    let rewritten = || {
+    let own = |folder: &Path| {
         let name = source?.file_name()?.to_string_lossy().into_owned();
-        Some(with_infix(&name, REWRITTEN_INFIX))
+        Some(Goes::Own {
+            folder: folder.to_path_buf(),
+            name,
+            tag: String::new(),
+            plain: true,
+        })
     };
     match plan {
         Plan::EachFileIn(_) => None,
-        Plan::File(Written::Beside(_)) => Some(Goes::New(source?.with_file_name(rewritten()?))),
-        Plan::File(Written::Into { folder, .. }) => Some(Goes::New(folder.join(rewritten()?))),
+        Plan::File(Written::Beside(_)) => own(source?.parent()?),
+        Plan::File(Written::Into { folder, .. }) => own(folder),
         Plan::File(Written::Over { .. }) => Some(Goes::InPlace(Keep::Original)),
         Plan::File(Written::AsText) | Plan::Loose { .. } => Some(Goes::Row),
     }
@@ -804,8 +814,9 @@ mod tests {
 
     /// Each plan, as the batch queue stores it for a rewrite (R3): beside
     /// is `name.rewritten.ext` and the results folder the same name there,
-    /// both new files; over the file is in place with the original set
-    /// aside; a paste stays in the queue's row; a folder is not rewritten.
+    /// both new files of the row's own (D635) — the tag left for the claim
+    /// to fill; over the file is in place with the original set aside; a
+    /// paste stays in the queue's row; a folder is not rewritten.
     #[test]
     fn every_plan_is_a_rewrite_destination() {
         use wipemark_queue::{Destination as Goes, Keep};
@@ -815,18 +826,24 @@ mod tests {
             results: PathBuf::from("/Users/me/Downloads"),
             kept: PathBuf::from("/data/kept"),
         };
+        let own = |folder: &str| Goes::Own {
+            folder: PathBuf::from(folder),
+            name: "article.md".to_owned(),
+            tag: String::new(),
+            plain: true,
+        };
         let file = Source::File(source.clone());
         let mut retention = Retention::default();
+        let beside = super::rewrite_destination(&plan(&file, &retention, &homes), Some(&source));
+        assert_eq!(beside, Some(own("/notes")));
         assert_eq!(
-            super::rewrite_destination(&plan(&file, &retention, &homes), Some(&source)),
-            Some(Goes::New(PathBuf::from("/notes/article.rewritten.md")))
+            beside.and_then(|goes| goes.file()),
+            Some(PathBuf::from("/notes/article.rewritten.md"))
         );
         retention.destination = Destination::Folder;
         assert_eq!(
             super::rewrite_destination(&plan(&file, &retention, &homes), Some(&source)),
-            Some(Goes::New(PathBuf::from(
-                "/Users/me/Downloads/article.rewritten.md"
-            )))
+            Some(own("/Users/me/Downloads"))
         );
         retention.destination = Destination::Replace;
         assert_eq!(

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 use wipemark_intake::inplace::Keep;
-use wipemark_intake::name::{with_infix, REWRITTEN_INFIX};
+use wipemark_intake::name::{own_names, with_infix, REWRITTEN_INFIX};
 use wipemark_pipeline::prepare::TextFormat;
 use wipemark_pipeline::Options;
 
@@ -40,16 +40,36 @@ pub enum Destination {
     /// short of a path somebody chose.
     Row,
     /// A file at this path, never the source itself, **replacing** what is
-    /// there — a path somebody chose for this run, or the one result a
-    /// window was asked by name to replace ("Replace the existing result",
-    /// D270).
+    /// there — a path somebody chose for this run, or (stage two's redo)
+    /// a row's own earlier result, named by the row. No window pushes one
+    /// since "Replace the existing result" went (D638).
     File(PathBuf),
     /// A **new** file at this path — beside the source by
     /// [`Destination::beside`], or in a folder — and only where nothing is:
     /// a file already there is somebody's and is refused
-    /// ([`crate::Undelivered::Exists`], D261), the way a window's clean
-    /// refuses one. Never the source itself.
+    /// ([`crate::Undelivered::Exists`]). Never the source itself. A
+    /// caller that names one file and wants a refusal over it; the windows
+    /// push [`Destination::Own`] (D635).
     New(PathBuf),
+    /// A new file of **the row's own** in `folder` (D635, D636): `name`
+    /// with the rewritten infix — the plain `name.rewritten.ext` when
+    /// `plain`, the name the surface claimed for it at push because nothing
+    /// was there and no other item claimed it — otherwise, and whenever the
+    /// plain name was taken by the time the result is written,
+    /// `name.rewritten-<tag>.ext`, `tag` being the row's id; then
+    /// `-<tag>-2` … for the day that name is not the row's alone
+    /// ([`wipemark_intake::name::own_names`]). Every name is tried by
+    /// `write_new`: nothing is written over, and a taken name is never a
+    /// failure until every one of them is ([`crate::Undelivered::Exists`]).
+    /// Where it went is the end's [`crate::Written::path`].
+    Own {
+        folder: PathBuf,
+        /// The source's file name, which the infix goes into.
+        name: String,
+        /// The row's id — the journal's, the one the table shows.
+        tag: String,
+        plain: bool,
+    },
     /// Over the source, the original set aside first unless
     /// [`Keep::Nothing`]. A per-run flag, never a preference (Retention
     /// rule 2): a surface passes it only when the person asked for this
@@ -68,11 +88,34 @@ impl Destination {
         ))
     }
 
-    /// The file a result goes to, for a destination that names one.
-    pub fn file(&self) -> Option<&Path> {
+    /// The file a result goes to, for a destination that names one — for
+    /// [`Destination::Own`], the name it claimed: the first it will try.
+    pub fn file(&self) -> Option<PathBuf> {
         match self {
-            Destination::File(path) | Destination::New(path) => Some(path),
+            Destination::File(path) | Destination::New(path) => Some(path.clone()),
+            Destination::Own { .. } => self.names().next(),
             Destination::Row | Destination::InPlace(_) => None,
+        }
+    }
+
+    /// Every name a result to this destination may take, in the order they
+    /// are tried: the one path of [`Destination::File`] and
+    /// [`Destination::New`], the row's own names of [`Destination::Own`],
+    /// none for the others.
+    pub fn names(&self) -> Box<dyn Iterator<Item = PathBuf> + '_> {
+        match self {
+            Destination::File(path) | Destination::New(path) => {
+                Box::new(std::iter::once(path.clone()))
+            }
+            Destination::Own {
+                folder,
+                name,
+                tag,
+                plain,
+            } => Box::new(
+                own_names(name, REWRITTEN_INFIX, tag, *plain).map(|name| folder.join(name)),
+            ),
+            Destination::Row | Destination::InPlace(_) => Box::new(std::iter::empty()),
         }
     }
 }
@@ -143,6 +186,10 @@ pub enum Refused {
     /// In place needs a file to replace.
     #[error("in place needs a file, and the source is text")]
     NoFileToReplace,
+    /// A row's own result is named after its file, and the source is text;
+    /// or the destination has no name or no tag to name it by.
+    #[error("a result named after a file needs a file, a name and a tag")]
+    NoFileToName,
     /// A destination that is the source: "beside" must never mean "over".
     #[error("the destination is the source")]
     OverTheSource,
@@ -173,6 +220,25 @@ pub(crate) fn check(request: &Request) -> Result<(), Refused> {
             }
         }
         (_, Destination::File(destination) | Destination::New(destination)) => unicode(destination),
+        // A row's own result is a file beside a file: it needs one to be
+        // named after, and a name with a tag — never the source.
+        (Source::Text(_), Destination::Own { .. }) => Err(Refused::NoFileToName),
+        (
+            Source::File(source),
+            destination @ Destination::Own {
+                folder, name, tag, ..
+            },
+        ) => {
+            unicode(folder)?;
+            if name.is_empty() || tag.is_empty() {
+                return Err(Refused::NoFileToName);
+            }
+            if destination.names().any(|path| path == *source) {
+                Err(Refused::OverTheSource)
+            } else {
+                Ok(())
+            }
+        }
         _ => Ok(()),
     }
 }
@@ -220,6 +286,17 @@ pub(crate) fn to_row(request: &Request) -> String {
         Destination::Row => json!("row"),
         Destination::File(path) => json!({ "file": path_text(path) }),
         Destination::New(path) => json!({ "new": path_text(path) }),
+        Destination::Own {
+            folder,
+            name,
+            tag,
+            plain,
+        } => json!({ "own": {
+            "folder": path_text(folder),
+            "name": name,
+            "tag": tag,
+            "plain": plain,
+        } }),
         Destination::InPlace(keep) => json!({ "in_place": keep_id(*keep) }),
     };
     let options: Value = serde_json::from_str(&request.options.to_json()).unwrap_or(Value::Null);
@@ -262,6 +339,33 @@ pub(crate) fn from_row(text: &str) -> Result<Request, Unusable> {
         .ok_or(field("format"))?;
     let destination = match value.get("destination").ok_or(field("destination"))? {
         Value::String(row) if row == "row" => Destination::Row,
+        Value::Object(object) if object.len() == 1 && object.contains_key("own") => {
+            let own = object.get("own").and_then(Value::as_object);
+            let text = |key: &str| {
+                own.and_then(|own| own.get(key))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            };
+            match (
+                text("folder"),
+                text("name"),
+                text("tag"),
+                own.and_then(|own| own.get("plain"))
+                    .and_then(Value::as_bool),
+            ) {
+                (Some(folder), Some(name), Some(tag), Some(plain))
+                    if own.map(|own| own.len()) == Some(4) =>
+                {
+                    Destination::Own {
+                        folder: PathBuf::from(folder),
+                        name,
+                        tag,
+                        plain,
+                    }
+                }
+                _ => return Err(field("destination")),
+            }
+        }
         Value::Object(object) if object.len() == 1 => {
             match (
                 object.get("file"),
@@ -328,6 +432,10 @@ mod tests {
                 Source::File(PathBuf::from("/notes/a.md")),
                 Destination::File(PathBuf::from("/out/a.md")),
             ),
+            (
+                Source::File(PathBuf::from("/notes/a.md")),
+                own("/notes", "a.md", "27", false),
+            ),
         ] {
             let request = request(source, destination);
             assert_eq!(from_row(&to_row(&request)), Ok(request));
@@ -353,6 +461,68 @@ mod tests {
             Some(Destination::New(PathBuf::from("/n/x.rewritten.md")))
         );
         assert_eq!(Destination::beside(Path::new("/")), None);
+    }
+
+    fn own(folder: &str, name: &str, tag: &str, plain: bool) -> Destination {
+        Destination::Own {
+            folder: PathBuf::from(folder),
+            name: name.to_owned(),
+            tag: tag.to_owned(),
+            plain,
+        }
+    }
+
+    /// A row's own result claims the plain name when it may, its own
+    /// otherwise, and names every name it would try after — none of them
+    /// the source; a text has no name to give it, and a row with no tag no
+    /// name of its own (D635, D636).
+    #[test]
+    fn a_rows_own_result_names_the_row() {
+        let plain = own("/n", "x.md", "27", true);
+        assert_eq!(plain.file(), Some(PathBuf::from("/n/x.rewritten.md")));
+        let names: Vec<PathBuf> = plain.names().take(3).collect();
+        assert_eq!(
+            names,
+            [
+                "/n/x.rewritten.md",
+                "/n/x.rewritten-27.md",
+                "/n/x.rewritten-27-2.md"
+            ]
+            .map(PathBuf::from)
+        );
+        let claimed = own("/n", "x.md", "27", false);
+        assert_eq!(claimed.file(), Some(PathBuf::from("/n/x.rewritten-27.md")));
+        let file = |path: &str| Source::File(PathBuf::from(path));
+        assert_eq!(check(&request(file("/n/x.md"), claimed.clone())), Ok(()));
+        assert_eq!(
+            check(&request(
+                file("/n/x.rewritten-27.md"),
+                own("/n", "x.rewritten-27.md", "27", false)
+            )),
+            Ok(()),
+            "x.rewritten-27.rewritten-27.md is not its source"
+        );
+        assert_eq!(
+            check(&request(
+                file("/n/x.rewritten-27.md"),
+                own("/n", "x.md", "27", false)
+            )),
+            Err(Refused::OverTheSource)
+        );
+        assert_eq!(
+            check(&request(Source::Text("t".to_owned()), claimed)),
+            Err(Refused::NoFileToName)
+        );
+        assert_eq!(
+            check(&request(file("/n/x.md"), own("/n", "x.md", "", false))),
+            Err(Refused::NoFileToName)
+        );
+        // A row this build cannot read in full is not obeyed.
+        assert!(from_row(
+            &to_row(&request(file("/n/x.md"), own("/n", "x.md", "27", true)))
+                .replace("\"plain\":true", "\"plain\":\"yes\"")
+        )
+        .is_err());
     }
 
     #[test]

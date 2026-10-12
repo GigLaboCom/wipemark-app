@@ -748,6 +748,69 @@ fn a_saved_edit_replaces_a_done_rows_text_and_nothing_else() {
     );
 }
 
+/// Every row its own result (D635, D636): the same file rewritten four
+/// times over writes four files and fails none — the plain name for the
+/// first that claimed it, the row's own for one that claimed that, the
+/// row's own when the plain name it claimed was taken by the time it was
+/// written, and past a stranger's file that holds the row's own name —
+/// every file already there left byte for byte. Turn `write_first_free`
+/// back into one `write_new` of the claimed name and the third and fourth
+/// fail as `exists`: red.
+#[test]
+fn every_row_gets_its_own_result_and_none_fails_for_a_taken_name() {
+    let scratch = Scratch::new("own");
+    let engine = engine(None);
+    let queue = in_memory(&engine);
+    let events = queue.events();
+    let source = scratch.path("x.md");
+    std::fs::write(&source, document()).expect("source");
+    let stranger = scratch.path("x.rewritten-14.md");
+    std::fs::write(&stranger, "somebody's\n").expect("stranger");
+    let own = |tag: &str, plain: bool| Destination::Own {
+        folder: scratch.0.clone(),
+        name: "x.md".to_owned(),
+        tag: tag.to_owned(),
+        plain,
+    };
+    let items: Vec<ItemId> = [("11", true), ("12", false), ("13", true), ("14", false)]
+        .into_iter()
+        .map(|(tag, plain)| {
+            queue
+                .push(file_request(&source, own(tag, plain)))
+                .expect("pushed")
+        })
+        .collect();
+    let mut written = Vec::new();
+    for item in items {
+        let done = done(end_of(&events, item));
+        let path = done.written.expect("written").path;
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("result"),
+            done.text,
+            "{}",
+            path.display()
+        );
+        written.push(path.file_name().unwrap().to_string_lossy().into_owned());
+    }
+    assert_eq!(
+        written,
+        [
+            "x.rewritten.md",
+            "x.rewritten-12.md",
+            "x.rewritten-13.md",
+            "x.rewritten-14-2.md"
+        ]
+    );
+    assert_eq!(
+        std::fs::read_to_string(&stranger).expect("stranger"),
+        "somebody's\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&source).expect("source"),
+        document()
+    );
+}
+
 #[test]
 fn a_database_that_will_not_open_is_left_alone_and_the_queue_runs_in_memory() {
     let scratch = Scratch::new("garbage");

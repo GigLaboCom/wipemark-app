@@ -605,8 +605,9 @@ report's `best_effort.profile` names the profile the templates came from, or
 rewrite was written to the clean's `name.cleaned.ext`, so a clean and a
 rewrite of one file overwrote each other), `-o`, stdout, or `--in-place`
 through `wipemark_intake::inplace`. A result already at
-`name.rewritten.ext` is **refused**, as the windows refuse one (D261,
-D362): exit 2 before the input is read or anything is sent, with a sentence
+`name.rewritten.ext` is **refused** (where a window, since D635, writes the
+row's own `name.rewritten-<id>.ext` instead —
+`retention.md`, "Every row gets its own result"; D362): exit 2 before the input is read or anything is sent, with a sentence
 naming `-o` (another file, or that one by name — `-o` is the person's word
 and replaces) and `--in-place`; the existing file is left byte for byte.
 The write itself is `inplace::write_new`, which refuses a file that

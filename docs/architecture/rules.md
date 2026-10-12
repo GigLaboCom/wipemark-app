@@ -374,9 +374,10 @@
   than absent on a row with no file behind it), Compare, Open the
   result, Show the result in its folder, Copy the result and **Report…**
   (`report.rs`, painted by the shell over the whole window, D274) — each
-  greyed until there is something behind it — and **Replace the existing
-  result** (D270), enabled only on a row refused because its result was
-  already there. A preview never reads a whole file: sixteen
+  greyed until there is something behind it. There is no **Replace the
+  existing result** any more (D638): a row whose result's name is taken
+  writes its own, `name.cleaned-<id>.ext` (D635), and every sentence about
+  the row names that file. A preview never reads a whole file: sixteen
   kilobytes for an excerpt, and no thumbnail past `IMAGE_LIMIT` (32 MB)
   because a decoded image is four bytes a pixel whatever the file cost
   (`an_image_past_the_limit_gets_no_thumbnail`). `Encoding::Other` is
@@ -406,11 +407,13 @@
   failing the item, and the hold lifts on a duty change or Resume, never
   by a retry loop (D311). The plan is taken at **push** (D91), unlike a
   clean's at start: `retention::rewrite_destination` — beside as
-  `name.rewritten.ext`, a new file only where nothing is
-  (`Destination::New`, D319), in place with the original set aside, a
-  paste into its own row — and a file already where the result would go
-  makes the row *Rewrite failed* at once, nothing pushed, with Replace the
-  existing result pushing a replace of that one file (D357). **Consent is
+  `name.rewritten.ext`, a new file of the row's own (`Destination::Own`,
+  D635), in place with the original set aside, a paste into its own row.
+  The name is **claimed at push** (D636): the plain one when nothing is
+  there and no item still waiting or running claims it, the row's own
+  `name.rewritten-<id>.ext` otherwise, `<id>` its journal id (D637); a name
+  taken after all moves the result on to the next of its own names at
+  delivery, and nothing fails for a taken name (D357 superseded). **Consent is
   taken at push and asked again at start** (D361): a window's push records
   where the person agreed the document may go (here, or that endpoint), and
   before such an item starts the queue asks where an engine would now send
@@ -1235,7 +1238,17 @@
   last extension and appended when there is no stem, and never
   collapsed — `x.cleaned.md` dropped again is `x.cleaned.cleaned.md`,
   because collapsing would make "beside" mean "over"
-  (`a_result_beside_a_file_is_never_the_file_itself`). *Into the
+  (`a_result_beside_a_file_is_never_the_file_itself`). In the windows
+  **every row gets its own result** (D635): the first result of a file
+  keeps the plain name, and a name already taken — on disk, or claimed by
+  a row still waiting or running — gives the row `name.cleaned-<id>.ext`
+  or `name.rewritten-<id>.ext`, `<id>` its journal id, published by
+  `write_new` so a file that appears meanwhile moves it on again (D636);
+  nothing is written over and nothing is refused for a taken name. The
+  command line still refuses one, exit 2 (D362, D598). A row owns its
+  result by its id — the journal's `result.path` is the real name — which
+  is what a future redo of the row replaces, and nothing else
+  (`retention.md`, "Every row gets its own result"). *Into the
   results folder* is the second choice, and the folder defaults to the
   platform's **Downloads** — a user's documents do not go under
   `Application Support`. *In place of the file* is the third and it is
@@ -1309,8 +1322,10 @@
   policy stated once, because it lives inside a binary and cannot be
   imported. Where it differs from the CLI it writes *less*: nothing found
   is nothing written (D260); a file already where the result would go is
-  refused and left byte for byte, and only **Replace the existing result**
-  writes over that one named file (D261, D270); a result identical to its
+  left byte for byte and the row writes its own `name.cleaned-<id>.ext`
+  instead, where the CLI exits 2 — the parity table's declared deviation
+  on its `taken` rows (D635, D639; D261's refusal and D270's Replace are
+  gone); a result identical to its
   input is never written, whatever the verdict (D262); a text is `Cleaned`
   when it changed and `Partly` when a kept look-alike is all there is
   (D263); a picture whose metadata is still marked is never written, as

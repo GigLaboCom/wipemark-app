@@ -191,7 +191,7 @@ panel-drop-more = … und { $count ->
 panel-drop-by-name = Nach dem Namen geurteilt — der Inhalt sagt weder das eine noch das andere.
 panel-drop-mismatch = Der Name verspricht { $named }, der Inhalt ist { $found }.
 
-panel-drop-result-beside = Das Ergebnis käme daneben, als { $name }; die Datei selbst bliebe unberührt.
+panel-drop-result-beside = Das Ergebnis käme daneben, als { $name } — oder unter eigenem Namen, wenn dieser vergeben ist; die Datei selbst bliebe unberührt.
 panel-drop-result-into-file = Das Ergebnis käme nach { $folder }; die Datei selbst bliebe unberührt.
 panel-drop-result-into = Das Ergebnis käme nach { $folder }.
 panel-drop-result-over = Das Ergebnis träte an seine Stelle, sobald das Original als { $name } beiseitegelegt wäre.
@@ -663,8 +663,8 @@ models-not-offered-unreadable = Ihr Header ließ sich nicht lesen: { $reason }
 settings-retention-title = Was aufbewahrt wird
 settings-retention-description = Wohin ein Ergebnis geht, was mit der Datei geschieht, aus der es stammt, und ob { -brand-name } eine Kopie von dem behält, was ohne Datei ankam.
 
-settings-retention-beside = Ergebnisse werden neben die Datei geschrieben, als name.cleaned.ext; die Datei selbst wird nie angerührt.
-settings-retention-into = Ergebnisse werden nach { $folder } geschrieben; die Datei selbst wird nie angerührt.
+settings-retention-beside = Ergebnisse werden neben die Datei geschrieben, als name.cleaned.ext — oder, wenn der Name vergeben ist, als name.cleaned-<id>.ext, der eigene Name der Zeile; die Datei selbst und was schon daneben liegt, wird nie angerührt.
+settings-retention-into = Ergebnisse werden nach { $folder } geschrieben, unter dem eigenen Namen der Zeile, wenn der übliche vergeben ist; die Datei selbst wird nie angerührt.
 settings-retention-over = Eine Datei wird durch ihr Ergebnis ersetzt, sobald das Original als name.original.ext beiseitegelegt ist — und ein bereits vorhandenes Original wird nie überschrieben.
 settings-retention-keeps-nothing = Was ohne Datei ankommt — Eingefügtes, aus einem Browser Gezogenes — wird nicht aufbewahrt, sobald das Ergebnis es ersetzt hat.
 settings-retention-keeps-originals = Das Original von Eingefügtem oder Gezogenem bleibt in { $folder } { $period } erhalten, wenn das Bereinigen daran etwas geändert hat; Ergebnisse nicht.
@@ -673,7 +673,7 @@ settings-retention-keeps-both = Original und Ergebnis von Eingefügtem oder Gezo
 settings-retention-pending = Die Fenster folgen diesen Regeln: eine Bereinigung nimmt sie, wenn sie beginnt, eine Umschreibung, wenn sie eingereiht wird — geschrieben wird, wohin sie damals sagten, auch nach einem Neustart. Die Kommandozeile und Agenten lesen keine davon — der Kommandozeile wird bei jedem Aufruf gesagt, wohin ihr Ergebnis geht, und ein Agent bekommt sein Ergebnis zurück.
 
 settings-retention-destination-title = Wohin Ergebnisse gehen
-settings-retention-destination-description = „Neben die Datei“ schreibt name.cleaned.ext daneben und lässt die Datei, wie sie ist. Der Ergebnisordner ist der unten. „Anstelle der Datei“ ersetzt sie — nachdem das Original als name.original.ext beiseitegelegt wurde, und nie über ein bereits vorhandenes Original.
+settings-retention-destination-description = „Neben die Datei“ schreibt name.cleaned.ext daneben — oder name.cleaned-<id>.ext nach der Zeile, wenn der Name vergeben ist — und lässt die Datei, wie sie ist. Der Ergebnisordner ist der unten. „Anstelle der Datei“ ersetzt sie — nachdem das Original als name.original.ext beiseitegelegt wurde, und nie über ein bereits vorhandenes Original.
 settings-retention-destination-beside = Neben die Datei
 settings-retention-destination-folder = In den Ergebnisordner
 settings-retention-destination-replace = Anstelle der Datei
@@ -1133,7 +1133,6 @@ queue-action-clean-busy = Das steht schon zur Bereinigung an.
 queue-action-open-result = Ergebnis öffnen
 queue-action-reveal-result = Ergebnis im Ordner zeigen
 queue-action-copy-result = Ergebnis kopieren
-queue-action-replace = Vorhandenes Ergebnis ersetzen
 queue-went-written = Geschrieben als { $name }
 queue-went-replaced = Über das vorhandene { $name } geschrieben
 queue-went-in-place = Anstelle der Datei geschrieben
@@ -1167,7 +1166,7 @@ clean-refused-picture-decode = Die Pixel ließen sich nicht dekodieren, also wur
 clean-refused-picture-encode = Das wiederhergestellte Bild ließ sich nicht zurückschreiben, also wurde nichts geschrieben.
 clean-refused-picture-proof = Das Ergebnis hat seine eigene Prüfung nicht bestanden, also wurde nichts geschrieben. Das ist ein Fehler dieser Version.
 clean-refused-still-marked = Das Ergebnis trüge noch Metadaten zur KI-Herkunft, also wurde es nicht geschrieben.
-clean-refused-exists = { $name } ist schon da und blieb, wie es war. Um es zu überschreiben, wählen Sie „Vorhandenes Ergebnis ersetzen“ im Menü „Aktionen“.
+clean-refused-exists = { $name } und alle eigenen Namen dieser Zeile danach sind vergeben; alles blieb, wie es war. Nichts wurde geschrieben.
 clean-refused-original-exists = { $name } ist schon da: Ein früher beiseitegelegtes Original wird nie überschrieben, also wurde nichts geändert.
 clean-refused-link = { $name } ist ein symbolischer Link, und „Anstelle der Datei“ ersetzt eine Datei, keinen Link – also wurde nichts geändert. Bereinigen Sie die Datei, auf die er zeigt, oder wählen Sie auf der Seite „Aufbewahrung“ einen anderen Ort für Ergebnisse.
 clean-refused-same-file = Das Ergebnis wäre auf der Datei selbst gelandet, also wurde nichts geschrieben.
@@ -1344,7 +1343,6 @@ cli-journal-unwritable = Im Journal der Anwendung wurde nichts festgehalten: in 
 
 ## E4-6b — the host verification's fixes
 queue-action-remove-waited = Ein Agent oder die Kommandozeile wartet auf diese Umschreibung. Brechen Sie sie zuerst ab: Der Aufrufer erfährt es, und danach lässt sich die Zeile entfernen.
-queue-said-rewrite-exists = Unter { $path } liegt schon eine Datei, und eine Umschreibung schreibt nie über eine Datei, die sie nicht selbst angelegt hat. Nichts wurde umgeschrieben; „Vorhandenes Ergebnis ersetzen“ im Menü „Aktionen“ schreibt über genau diese Datei.
 rewrite-consent-title = { $count ->
         [one] Das wartende Dokument an { $host } senden?
        *[other] Die { $count } wartenden Dokumente an { $host } senden?
