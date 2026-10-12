@@ -255,6 +255,10 @@ impl Shell {
         });
 
         let queue = cx.new(|cx| Queue::new(preferences.clone(), window, cx));
+        // The one list: the panel hands every drop to it, and it outlives
+        // this window so a drop there lands while this one is hidden,
+        // minimised or gone (D690).
+        cx.set_global(crate::queue::Table(queue.clone()));
         let clipboard = cx.new(Clipboard::new);
         let watched = cx.observe(&clipboard, |_, _, cx| cx.notify());
         // The one refresh the other desktops get (macOS polls as well):

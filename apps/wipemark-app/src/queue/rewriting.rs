@@ -135,7 +135,8 @@ impl Queue {
                         row.entry = Some(id);
                         cx.notify();
                     }
-                    // Another window's row — the panel's: read it in.
+                    // Not a row of this table's: a writer of another
+                    // window's, if one ever writes again — read it in.
                     None => self.read_journal(cx),
                 }
             }
@@ -197,6 +198,7 @@ impl Queue {
         self.rows
             .retain(|row| row.entry.is_none_or(|id| present.contains(&id)));
         let mut added = Vec::new();
+        let mut listed: Vec<&'static str> = Vec::new();
         for record in rows {
             let entry = Entry::from_json(&record.entry);
             let phase = Phase::parse(&record.state).unwrap_or(Phase::Done);
@@ -215,10 +217,15 @@ impl Queue {
                 }
                 continue;
             }
-            if !initial && matches!(origin, Origin::Window | Origin::LaunchFlag) {
+            // This table's own rows — this window's, a launch flag's, and
+            // the panel's, which this table writes too (D690) — are on
+            // their way here already, and a read that lands before the
+            // writer has named one must not list it twice.
+            if !initial && matches!(origin, Origin::Window | Origin::LaunchFlag | Origin::Panel) {
                 continue;
             }
             let id = clean::number();
+            listed.push(origin.as_str());
             if let Some(writer) = &self.writer {
                 writer.adopt(id, record.id);
             }
@@ -249,6 +256,20 @@ impl Queue {
         // The files of the rows read back with one behind them, each looked
         // at on its own, off this thread, as a drop's are: what it is, and
         // its preview.
+        // Another surface's rows, listed while the window is open — the
+        // origins and nothing else (D316).
+        if initial {
+            let mut origins = listed.clone();
+            origins.sort_unstable();
+            origins.dedup();
+            tracing::info!(
+                rows = listed.len(),
+                ?origins,
+                "the journal's rows are listed at launch"
+            );
+        } else if !listed.is_empty() {
+            tracing::info!(?listed, "rows another surface wrote are listed");
+        }
         for (id, entry) in added {
             self.look_up(id, entry, cx);
         }
@@ -1256,4 +1277,58 @@ fn price_of(work: &Work, things: &[Arrival], away: Option<String>) -> Price {
         };
     }
     price
+}
+
+#[cfg(test)]
+mod tests {
+    use wipemark_store::entry::Origin;
+    use wipemark_store::JournalRow;
+
+    use super::super::tests::{queue_with, Scratch};
+
+    /// D690: a read of the journal that lands before this table's writer
+    /// has named a row of its own — the panel's, a window's, a launch
+    /// flag's, all written by this table — lists none of them: each is on
+    /// its way already, and listing it would be the thing twice. Another
+    /// surface's row is listed.
+    #[gpui::test]
+    fn a_read_never_lists_a_row_of_this_tables_own(cx: &mut gpui::TestAppContext) {
+        let scratch = Scratch::new("merge-own");
+        let (queue, _, cx) = queue_with(cx, &scratch, None);
+        let row = |id: i64, origin: &str| JournalRow {
+            id,
+            origin: origin.to_owned(),
+            action: "clean".to_owned(),
+            state: "waiting".to_owned(),
+            item: None,
+            arrived: 0,
+            ended: None,
+            entry: "{}".to_owned(),
+        };
+        queue.update(cx, |queue, cx| {
+            queue.merge(
+                vec![
+                    row(1, "panel"),
+                    row(2, "window"),
+                    row(3, "launch-flag"),
+                    row(4, "agent"),
+                ],
+                false,
+                cx,
+            );
+        });
+        let origins = cx.update(|_, cx| {
+            let queue = queue.read(cx);
+            queue
+                .ids()
+                .into_iter()
+                .map(|id| queue.origin_of(id))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(
+            origins,
+            [Some(Origin::Agent)],
+            "a read listed a row this table writes itself"
+        );
+    }
 }

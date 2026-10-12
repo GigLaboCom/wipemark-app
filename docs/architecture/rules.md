@@ -181,7 +181,17 @@
   each with the plan taken at its own start (D279), handed to the
   application's one line of cleans (`cleaner.rs`, D283) — the line the
   main window's cleans wait in too, so the two windows never run two
-  cleans at once. What the missing `Titled` bit takes away with it is the zoom: a
+  cleans at once. **What it caught is a row of the one list** (the
+  owner, 2026-10-12): every drop — files, pictures, text — is handed to
+  the main window's table the moment it lands (`Queue::take_from_panel`,
+  origin `panel`, D690), the table a global (`queue::Table`) that outlives
+  its window, so the row lands with the main window hidden or minimised;
+  Clean asks the table's `Queue::clean` for those rows, no second row
+  (D691), and what the panel says of a thing is read from its row
+  (`Queue::standing`, D692), so a clean from either window reads in both.
+  It **clears itself** — on the next drop, and after `ui.panel.clear_after`
+  seconds with nothing running for its things (a Placement row, a minute
+  by default, D693, D694) — and clearing never takes a row. What the missing `Titled` bit takes away with it is the zoom: a
   full-size content view makes the whole top of a titled window a
   title-bar region, and a double-click there maximized the one window
   whose point is that it is small. The **main window** opens centred and is dragged
@@ -452,7 +462,9 @@
   schema 3, `apps/wipemark-app/src/journal.rs` — read at launch, so its
   rows survive a restart, swept by `journal.keep_days` (7, a Retention
   row), Remove and Clear finished taking rows out. A row is written for a
-  drop, a paste, an import, the panel, `--import=`/`--clean=`, every MCP
+  drop, a paste, an import, a drop on the panel — when it lands, by the
+  main window's table, never a second at its Clean (D690, D691) —
+  `--import=`/`--clean=`, every MCP
   `clean`, `clean_image` and `rewrite`, and every CLI `clean` and
   `rewrite` — through the application when it runs (`params._meta` in,
   `result._meta["wipemark/journal"]` out, D321), on its own

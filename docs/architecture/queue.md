@@ -87,7 +87,9 @@ That event is `Landed`, and it carries **its own drop**. The panel reads
 screen is — and the queue reads the event, because a second drop while
 the first is still being read off a slow disk must not lose the first
 from a list. `every_drop_lands_even_when_overtaken` is the gate, and it
-went red with the old rule.
+went red with the old rule. The panel reads its own catcher's event too,
+for the same reason, and hands every drop — files, a picture, text — to
+this table (`Queue::take_from_panel`, D690; "The panel's drops" below).
 
 ## The preview
 
@@ -585,6 +587,41 @@ own number stays the element id (two id spaces). A row says who asked
   column says the date before the time for a row from another day (D363).
 * **An agent's text** goes back to the agent and its queue row is removed
   the moment it has (D313).
+
+### The panel's drops (D690–D694)
+
+Until 2026-10-12 a drop on the panel was a row only once its Clean was
+pressed, and then a row the panel wrote itself, which the table read back
+— a thing dropped and looked at was in no list (the owner's acceptance of
+0.1.0). Now:
+
+* **Every drop on the panel is rows of this table at once** (D690). The
+  panel's catcher hears every `Landed` — overtaken or not, files, pictures
+  and text alike, so a text drag needs nothing more once it arrives as
+  `Handed::Text` — and hands it to `Queue::take_from_panel`, the road a
+  drop on the main window takes one step later: one row per thing, its
+  journal row written by the table's writer, origin `panel` ("From the
+  panel"), and "Process what arrives" applied as to any drop. The table is
+  a global (`queue::Table`) holding the entity, so it outlives its window:
+  with the main window hidden by the tray or minimised the row lands, and
+  shows when it is next opened. A read of the journal never lists a row
+  this table writes itself — a window's, a launch flag's, the panel's —
+  before its writer has named it (`a_read_never_lists_a_row_of_this_tables_own`).
+* **The panel's Clean is that row's Clean** (D691): it asks
+  `Queue::clean` for the rows its things became — the one line of cleans
+  (D283), each by the plan at its start (D279) — and no second row is made.
+* **What the panel says of a thing is the row's** (D692): it reads
+  `Queue::standing(id)` — waiting, cleaning, being rewritten, cleaned with
+  its outcome, gone — and redraws when the table does, so a clean asked
+  from the main window's row reads on the panel too. The panel's own look
+  (its findings line, D278) stays the panel's: a look is not a status.
+* **The panel clears itself** (D693, D694): a new drop replaces what it
+  shows; and after `ui.panel.clear_after` seconds (Settings › Placement,
+  *Clear the panel*: 15 s, a minute — the default — 5 minutes, never) with
+  nothing running for its things — no look out, no clean or rewrite of its
+  rows — it lets go of the drop and shows the invitation. The period counts
+  from the moment the last thing stopped. Clearing never takes a row out of
+  the list or the journal.
 
 ## What it does not do yet
 
