@@ -20,8 +20,9 @@
 ползунком обе стороны — они идут вместе; поменяйте ширину окна и
 разделитель — через кадр снова вровень; наберите текст в результате — абзац
 напротив подстраивается сразу; выключите перенос — всё как было. В gpui-kit
-это два pull request'а из форка `glani` (они ещё не открыты, только
-черновики внутри форка для CI) и пример `cargo run -p example-editor-spacers`.
+это два pull request'а из форка `glani`, открытые черновиками по слову
+владельца — longbridge/gpui-kit#3465 и #3466, со скриншотами — и пример
+`cargo run -p example-editor-spacers`.
 
 Task: Watchword `wipemark-task-compare-spacer-rows-2026-10-12` (the
 coordinator, for acceptance step A6). Built on `e7/compare-spacer-rows` from
@@ -259,11 +260,17 @@ unpadded pane left for the estimate to serve.
 
 ## The upstream texts
 
-Not filed: the owner opens them, or tells the coordinator to. Both pull
-requests go from `glani:<branch>` with "Allow edits from maintainers" on,
-`des <denis.yesakov@gmail.com>` the only author (CLAUDE.md). Screenshots for
-U2 are to be taken from the story on a real display (the host check), and put
-on `GigLaboCom/gpui-component` `pr-assets` as before.
+The two pull requests are open **as drafts**, on the owner's word
+(2026-10-12): longbridge/gpui-kit#3465 (`glani:editor-display-row-map`) and
+#3466 (`glani:editor-spacer-rows`, on top of #3465), into `next`, "Allow
+edits from maintainers" on, `des <denis.yesakov@gmail.com>` the only author
+(CLAUDE.md), the texts below with the hard wraps joined. #3466's screenshots
+are on `GigLaboCom/gpui-component` `pr-assets` (`b6420d7`,
+`screenshots/spacer-rows-*.png`), drawn in the container by
+`scripts/verify/e7-11/kit-shots.sh` — the story wrapped with its spacer
+providers taken away as the "before"; its "Passed `cargo run`" box stays
+unticked until the story has been run on a display (the host check). The
+issue below is not filed.
 
 ### The issue for U2 (the research's advice: propose before writing)
 
@@ -614,8 +621,8 @@ both out.
   dynamic programme over the block, bounded like `CELLS`) would keep a
   paragraph put in among rewritten ones from shifting the pairs below it.
   Both the padding and the word marks would take it.
-- **Upstream review**: the issue and the two pull requests above, filed from
-  the fork when the owner says so; after the merge, the submodule back on
+- **Upstream review**: #3465 and #3466 out of draft when the owner says so
+  (the issue above is not filed); after the merge, the submodule back on
   `longbridge/gpui-kit` `next` and `.gitmodules` restored, and only then the
   merge into `feat` (D675).
 - **The host check**: Watchword `wipemark-task-compare-spacer-rows-host-check-2026-10-12`.
