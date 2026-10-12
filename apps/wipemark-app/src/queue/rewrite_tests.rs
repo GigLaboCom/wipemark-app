@@ -150,9 +150,18 @@ fn a_rows_rewrite_is_one_item_with_its_source_format_and_destination(cx: &mut Te
     let items = work.queue.items();
     assert_eq!(items.len(), 1, "one row, one item");
     assert_eq!(items[0].source, wipemark_queue::Shown::File(source.clone()));
+    // The first rewrite of the file keeps the plain name (D635).
+    assert!(
+        matches!(
+            &items[0].destination,
+            Some(Destination::Own { plain: true, .. })
+        ),
+        "{:?}",
+        items[0].destination
+    );
     assert_eq!(
-        items[0].destination,
-        Some(Destination::New(scratch.0.join("article.rewritten.md")))
+        items[0].destination.as_ref().and_then(Destination::file),
+        Some(scratch.0.join("article.rewritten.md"))
     );
     let stored = work.journal.store().queue().rows().expect("rows");
     assert!(
@@ -788,21 +797,16 @@ fn a_drop_that_would_be_sent_away_is_asked_about_first(cx: &mut TestAppContext) 
         preferences.select_on_arrival(super::OnArrival::Rewrite, cx);
     });
 
-    type Heard = Vec<(Vec<u64>, String, Option<PathBuf>)>;
+    type Heard = Vec<(Vec<u64>, String)>;
     let heard: Arc<std::sync::Mutex<Heard>> = Arc::default();
     let hearing = Arc::clone(&heard);
     cx.update(|_, cx| {
         cx.subscribe(&queue, move |_, event: &QueueEvent, _| {
-            if let QueueEvent::SendAway {
-                ids,
-                host,
-                replacing,
-            } = event
-            {
+            if let QueueEvent::SendAway { ids, host } = event {
                 hearing
                     .lock()
                     .expect("lock")
-                    .push((ids.clone(), host.clone(), replacing.clone()));
+                    .push((ids.clone(), host.clone()));
             }
         })
         .detach();
@@ -827,7 +831,6 @@ fn a_drop_that_would_be_sent_away_is_asked_about_first(cx: &mut TestAppContext) 
     expected.sort_unstable();
     assert_eq!(named, expected, "the question does not name both rows");
     assert_eq!(asked[0].1, "https://y.example.com");
-    assert_eq!(asked[0].2, None);
 
     queue.update(cx, |queue, cx| {
         queue.agreed(
@@ -1014,47 +1017,152 @@ fn a_journal_row_naming_a_fifo_never_blocks_the_read(cx: &mut TestAppContext) {
     );
 }
 
-/// D357 (M3): Rewrite of a row whose `name.rewritten.ext` is already there
-/// is refused at once — nothing pushed, nothing run — with Replace offered;
-/// Replace then rewrites over that one file.
+/// The owner's F10 (D635, D636, superseding D357): one file dropped three
+/// times, Rewrite all — three rows pushed together — writes three results
+/// and fails none. The first claims the plain `name.rewritten.ext`, the
+/// others claim their own `name.rewritten-<id>.ext`, the `<id>` each row's
+/// journal id, the one its ID column shows; the journal's `result.path` of
+/// each row is the name its file really took. Take the claim out of
+/// `build` (every row claims the plain name) and the second and third
+/// move on at delivery instead — but drop `write_first_free` from the
+/// delivery too, and they fail as `exists`: red.
 #[gpui::test]
-fn a_rewrite_over_an_existing_result_is_refused_before_it_runs(cx: &mut TestAppContext) {
-    let scratch = Scratch::new("rewrite-exists");
+fn rows_of_one_file_rewritten_together_each_get_their_own_result(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("rewrite-own");
     let source = scratch.file("article.md", PARAGRAPH.as_bytes());
-    let existing = scratch.file("article.rewritten.md", b"somebody's own file");
     let work = work(swapping());
+    work.queue.pause();
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| {
+        queue.hand(vec![source.clone(), source.clone(), source.clone()], cx)
+    });
+    cx.run_until_parked();
+    until(cx, "the journal ids", |cx| {
+        queue.read_with(cx, |queue, _| {
+            queue.rows.iter().all(|row| row.entry.is_some())
+        })
+    });
+    let rows = ids(&queue, cx);
+    assert_eq!(rows.len(), 3);
+    queue.update(cx, |queue, cx| queue.rewrite(&rows, cx));
+    until(cx, "the pushes", |_| work.queue.items().len() == 3);
+
+    // Claimed at push, while nothing has run: one plain, two the rows' own.
+    let entries: Vec<i64> = cx.update(|_, cx| {
+        queue
+            .read(cx)
+            .rows
+            .iter()
+            .map(|row| row.entry.expect("an id"))
+            .collect()
+    });
+    let mut claimed: Vec<PathBuf> = work
+        .queue
+        .items()
+        .iter()
+        .filter_map(|item| item.destination.as_ref().and_then(Destination::file))
+        .collect();
+    claimed.sort();
+    // The first row pushed claims the plain name; the others their own.
+    let own = |id: i64| {
+        scratch.0.join(wipemark_intake::name::with_tag(
+            "article.md",
+            "rewritten",
+            &id.to_string(),
+        ))
+    };
+    let mut expected = vec![
+        scratch.0.join("article.rewritten.md"),
+        own(entries[1]),
+        own(entries[2]),
+    ];
+    expected.sort();
+    assert_eq!(
+        claimed, expected,
+        "two rows claimed one name, or not their own"
+    );
+
+    work.queue.resume();
+    until(cx, "the ends", |cx| {
+        statuses(&queue, cx)
+            .iter()
+            .all(|status| *status == "rewritten")
+    });
+    let mut on_disk: Vec<PathBuf> = std::fs::read_dir(&scratch.0)
+        .expect("list")
+        .map(|entry| entry.expect("entry").path())
+        .filter(|path| path.to_string_lossy().contains(".rewritten"))
+        .collect();
+    on_disk.sort();
+    assert_eq!(on_disk, claimed, "a result is not where its row claimed");
+    assert_eq!(std::fs::read_to_string(&source).expect("read"), PARAGRAPH);
+
+    // Every journal row names the file its rewrite really took.
+    until(cx, "the journal", |_| {
+        work.journal
+            .rows()
+            .iter()
+            .filter(|row| row.state == "done")
+            .count()
+            == 3
+    });
+    let mut journaled: Vec<PathBuf> = work
+        .journal
+        .rows()
+        .iter()
+        .filter_map(|row| match Entry::from_json(&row.entry).result {
+            Some(Delivered::File { path, .. }) => Some(PathBuf::from(path)),
+            _ => None,
+        })
+        .collect();
+    journaled.sort();
+    assert_eq!(journaled, claimed);
+}
+
+/// A file that appears where a rewrite claimed the plain name — after the
+/// push, before the job ends — moves the result on to the row's own name
+/// at delivery, and is left byte for byte (D636).
+#[gpui::test]
+fn a_file_that_appears_after_the_push_moves_the_rewrite_on(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("rewrite-appears");
+    let source = scratch.file("article.md", PARAGRAPH.as_bytes());
+    let work = work(swapping());
+    work.queue.pause();
     let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
     here_on_duty(&preferences, cx);
     queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
     cx.run_until_parked();
+    until(cx, "the journal id", |cx| {
+        queue.read_with(cx, |queue, _| queue.rows[0].entry.is_some())
+    });
     let id = ids(&queue, cx)[0];
     queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
-    until(cx, "the refusal", |cx| {
-        status(&queue, cx) == "rewrite-failed"
-    });
-    assert!(work.queue.states().is_empty(), "an item was pushed and run");
+    until(cx, "the push", |_| !work.queue.items().is_empty());
+    let plain = scratch.0.join("article.rewritten.md");
     assert_eq!(
-        cx.update(|_, cx| queue.read(cx).rows[0].existing.clone()),
-        Some(existing.clone())
+        work.queue.items()[0]
+            .destination
+            .as_ref()
+            .and_then(Destination::file),
+        Some(plain.clone())
     );
-    assert_eq!(
-        std::fs::read(&existing).expect("read"),
-        b"somebody's own file"
-    );
-
-    queue.update(cx, |queue, cx| queue.replace(id, cx));
-    until(cx, "the replacement", |cx| {
-        status(&queue, cx) == "rewritten"
-    });
-    let items = work.queue.items();
-    assert_eq!(items.len(), 1);
-    assert_eq!(
-        items[0].destination,
-        Some(Destination::File(existing.clone()))
-    );
+    let appeared = scratch.file("article.rewritten.md", b"appeared meanwhile");
+    work.queue.resume();
+    until(cx, "the end", |cx| status(&queue, cx) == "rewritten");
+    let entry = cx.update(|_, cx| queue.read(cx).rows[0].entry.expect("an id"));
+    let own = scratch.0.join(wipemark_intake::name::with_tag(
+        "article.md",
+        "rewritten",
+        &entry.to_string(),
+    ));
     assert_ne!(
-        std::fs::read(&existing).expect("read"),
-        b"somebody's own file"
+        std::fs::read(&own).expect("the row's own"),
+        b"appeared meanwhile"
+    );
+    assert_eq!(
+        std::fs::read(&appeared).expect("read"),
+        b"appeared meanwhile"
     );
 }
 
@@ -1254,20 +1362,6 @@ fn the_window_reads_no_row_to_say_the_queue_is_paused(cx: &mut TestAppContext) {
 
 // ## The consent follow-ups (D393–D397)
 
-/// A row whose rewrite was refused over a file already there: `existing`
-/// named, the row otherwise as a person sees it, waiting.
-fn refused_over(
-    queue: &gpui::Entity<Queue>,
-    existing: &std::path::Path,
-    cx: &mut VisualTestContext,
-) -> u64 {
-    let id = ids(queue, cx)[0];
-    queue.update(cx, |queue, _| {
-        queue.rows[0].existing = Some(existing.to_path_buf());
-    });
-    id
-}
-
 /// Put an endpoint that is not this machine on duty, alone.
 fn endpoint_on_duty(
     preferences: &gpui::Entity<crate::settings::Preferences>,
@@ -1284,113 +1378,6 @@ fn endpoint_on_duty(
         preferences.select_model("m".to_owned(), cx);
     });
     cx.run_until_parked();
-}
-
-/// D393 (M-A): with nothing on duty, "Replace the existing result" is
-/// greyed with the reason a Rewrite is, and pressed anyway it pushes
-/// nothing — no item waits with no consent of the person's, to go to
-/// whatever endpoint is put on duty later. Let Replace bypass the Rewrite's
-/// checks and push with nothing on duty, as it did, and an item is pushed:
-/// red.
-#[gpui::test]
-fn replace_with_nothing_on_duty_pushes_nothing(cx: &mut TestAppContext) {
-    let scratch = Scratch::new("replace-vacant");
-    let source = scratch.file("article.md", PARAGRAPH.as_bytes());
-    let existing = scratch.file("article.rewritten.md", b"somebody's own file");
-    let work = work_over(Arc::new(Store::in_memory().expect("memory")), None);
-    let (queue, _, cx) = queue_with(cx, &scratch, Some(work.clone()));
-    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
-    cx.run_until_parked();
-    let id = refused_over(&queue, &existing, cx);
-
-    let why = cx.update(|_, cx| queue.read(cx).why_not_rewrite(id, cx));
-    assert!(why.is_some(), "Replace is not greyed with nothing on duty");
-    queue.update(cx, |queue, cx| queue.replace(id, cx));
-    cx.run_until_parked();
-    std::thread::sleep(Duration::from_millis(100));
-    cx.run_until_parked();
-    assert!(
-        work.queue.items().is_empty(),
-        "a replace was pushed with nothing on duty"
-    );
-    assert_eq!(status(&queue, cx), "waiting");
-    assert_eq!(
-        std::fs::read(&existing).expect("read"),
-        b"somebody's own file"
-    );
-}
-
-/// D393 (M-A): with an endpoint on duty that is not this machine, Replace
-/// asks the question a Rewrite of an arrival asks before the document is
-/// sent away (В1), pushes nothing until it is answered, and yes pushes the
-/// replace with that endpoint as the person's consent. Push the replace
-/// straight away, as it did, and an item is in the line before anybody was
-/// asked: red.
-#[gpui::test]
-fn replace_asks_before_a_document_leaves_the_machine(cx: &mut TestAppContext) {
-    let scratch = Scratch::new("replace-away");
-    let source = scratch.file("article.md", PARAGRAPH.as_bytes());
-    let existing = scratch.file("article.rewritten.md", b"somebody's own file");
-    let work = work(swapping());
-    work.queue.pause();
-    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
-    endpoint_on_duty(&preferences, cx);
-    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
-    cx.run_until_parked();
-    let id = refused_over(&queue, &existing, cx);
-
-    type Heard = Vec<(Vec<u64>, String, Option<PathBuf>)>;
-    let heard: Arc<std::sync::Mutex<Heard>> = Arc::default();
-    let hearing = Arc::clone(&heard);
-    cx.update(|_, cx| {
-        cx.subscribe(&queue, move |_, event: &QueueEvent, _| {
-            if let QueueEvent::SendAway {
-                ids,
-                host,
-                replacing,
-            } = event
-            {
-                hearing
-                    .lock()
-                    .expect("lock")
-                    .push((ids.clone(), host.clone(), replacing.clone()));
-            }
-        })
-        .detach();
-    });
-    queue.update(cx, |queue, cx| queue.replace(id, cx));
-    cx.run_until_parked();
-    std::thread::sleep(Duration::from_millis(100));
-    cx.run_until_parked();
-    assert!(
-        work.queue.items().is_empty(),
-        "the replace went before it was asked about"
-    );
-    let asked = heard.lock().expect("lock").clone();
-    assert_eq!(asked.len(), 1, "the question was not asked once: {asked:?}");
-    assert_eq!(asked[0].0, vec![id]);
-    assert_eq!(asked[0].2.as_deref(), Some(existing.as_path()));
-
-    queue.update(cx, |queue, cx| {
-        queue.agreed(
-            &[id],
-            super::Road::Replace(existing.clone()),
-            wipemark_queue::Whereto::Away(asked[0].1.clone()),
-            cx,
-        )
-    });
-    until(cx, "the push", |_| !work.queue.items().is_empty());
-    let items = work.queue.items();
-    assert_eq!(
-        items[0].destination,
-        Some(Destination::File(existing.clone()))
-    );
-    assert!(
-        matches!(&items[0].consent, Some(wipemark_queue::Whereto::Away(host)) if *host == asked[0].1),
-        "the consent is not the endpoint asked about: {:?}",
-        items[0].consent
-    );
-    work.queue.resume();
 }
 
 // ## One fact for consent, and the question's own destination (D430–D434)
@@ -1446,23 +1433,23 @@ fn a_duty_turned_to_nobody_agrees_to_nothing_while_its_swap_waits(cx: &mut TestA
 }
 
 /// D431 (A-L1): a yes records the destination its question named. Asked
-/// whether a Replace may go to Y, the person answers after the duty moved
+/// whether a drop may go to Y, the person answers after the duty moved
 /// to Z: the yes pushes nothing, and the question is asked again, naming
 /// Z; a yes to that one pushes, agreed to Z. Record the duty as it stands
 /// at the yes, as before, and the first yes puts the item in the line
-/// agreed to Z, which nobody was asked about: red.
+/// agreed to Z, which nobody was asked about: red. (Asked of a Replace
+/// until D638 took Replace away; a drop takes the same road.)
 #[gpui::test]
 fn a_yes_records_where_its_question_said_and_no_other(cx: &mut TestAppContext) {
     let scratch = Scratch::new("consent-yes");
     let source = scratch.file("article.md", PARAGRAPH.as_bytes());
-    let existing = scratch.file("article.rewritten.md", b"somebody's own file");
     let work = work(swapping());
     work.queue.pause();
     let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
     endpoint_on_duty(&preferences, cx);
-    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
-    cx.run_until_parked();
-    let id = refused_over(&queue, &existing, cx);
+    preferences.update(cx, |preferences, cx| {
+        preferences.select_on_arrival(super::OnArrival::Rewrite, cx);
+    });
 
     let heard: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
     let hearing = Arc::clone(&heard);
@@ -1474,8 +1461,11 @@ fn a_yes_records_where_its_question_said_and_no_other(cx: &mut TestAppContext) {
         })
         .detach();
     });
-    queue.update(cx, |queue, cx| queue.replace(id, cx));
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
     cx.run_until_parked();
+    std::thread::sleep(Duration::from_millis(100));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
     let y = heard.lock().expect("lock")[0].clone();
 
     // The duty moves while the question is open.
@@ -1489,7 +1479,7 @@ fn a_yes_records_where_its_question_said_and_no_other(cx: &mut TestAppContext) {
     queue.update(cx, |queue, cx| {
         queue.agreed(
             &[id],
-            super::Road::Replace(existing.clone()),
+            super::Road::Arrivals,
             wipemark_queue::Whereto::Away(y.clone()),
             cx,
         )
@@ -1519,7 +1509,7 @@ fn a_yes_records_where_its_question_said_and_no_other(cx: &mut TestAppContext) {
     queue.update(cx, |queue, cx| {
         queue.agreed(
             &[id],
-            super::Road::Replace(existing.clone()),
+            super::Road::Arrivals,
             wipemark_queue::Whereto::Away(z.clone()),
             cx,
         )
@@ -1736,7 +1726,14 @@ fn a_save_that_cleans_moves_the_row_and_marks_its_journal(cx: &mut TestAppContex
     let line = cx.update(|_, cx| queue.read(cx).cleaner.clone());
     let edit = "An edited result, as the person typed it.\n";
     let asked = line.update(cx, |line, cx| {
-        line.ask_with(id, arrival, None, Some(Arc::from(edit)), cx)
+        line.ask_with(
+            id,
+            arrival,
+            crate::journal::Tag::Number(id),
+            None,
+            Some(Arc::from(edit)),
+            cx,
+        )
     });
     assert!(asked);
     cx.run_until_parked();

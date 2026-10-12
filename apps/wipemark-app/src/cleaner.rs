@@ -1,20 +1,23 @@
 //! The one line every window's cleans wait in.
 //!
-//! The queue's Clean, Clean all, `--clean=` and Replace, and the panel's
-//! Clean, all hand their cleans to **one** [`Cleaner`] per application —
-//! a GPUI global — and it runs them **one at a time**, first asked first
-//! done, whichever window asked (D283).
+//! The queue's Clean, Clean all and `--clean=`, the panel's Clean and the
+//! Compare window's Save that cleans all hand their cleans to **one**
+//! [`Cleaner`] per application — a GPUI global — and it runs them **one at
+//! a time**, first asked first done, whichever window asked (D283).
 //!
 //! One at a time for two reasons. A picture is decoded whole and its raster
 //! copied to be restored: two at once is two of those in memory, which is
 //! what [`crate::clean::PICTURE_LIMIT`] was sized against (D264). And two
 //! cleans of the same file to the same destination — the queue's and the
 //! panel's, a click apart — would both find the destination free and both
-//! write it, the second silently replacing the first: D261 broken inside
-//! one process. In one line the second finds the first's result there and
-//! is refused like any other existing file. (Across processes — the CLI,
-//! a second launch — the write itself refuses: `wipemark_intake::inplace`
-//! publishes a new file without replacing one that appeared, D284.)
+//! claim it. In one line the second finds the first's result there and
+//! takes the row's own name, `name.cleaned-<id>.ext` (D635): the line is
+//! what a clean's claim on a name is, since a clean's plan is taken when it
+//! starts and nothing else in this process writes a clean's result while it
+//! runs (D636). (Across processes — the CLI, a second launch — the write
+//! itself refuses a taken name: `wipemark_intake::inplace` publishes a new
+//! file without replacing one that appeared, D284, and the clean moves on
+//! to its next name.)
 //!
 //! A clean's plan is taken from the Retention page **when it starts**
 //! (D279), so a choice changed while it waited applies to it. Everything a
@@ -43,14 +46,15 @@ use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Global};
 
 use crate::clean::{self, Outcome};
 use crate::drop::Arrival;
+pub use crate::journal::Tag;
 use crate::retention::Plan;
 use crate::settings::Preferences;
 
-/// What runs one clean: [`clean::clean_one`], [`clean::replace_one`]
-/// when there is a result to replace, or [`clean::save_one`] when the
-/// result is a text edited in the Compare window (D411). A field of the
-/// [`Cleaner`] so that a test can hand it one that panics.
-type Run = fn(&Arrival, &Plan, u64, DateTime<Utc>, Option<&Path>, Option<&str>) -> Outcome;
+/// What runs one clean: [`clean::clean_one`], or [`clean::save_one`] when
+/// the result is a text edited in the Compare window (D411). A field of the
+/// [`Cleaner`] so that a test can hand it one that panics. The `&str` is
+/// the row's tag, resolved (D637).
+type Run = fn(&Arrival, &Plan, u64, &str, DateTime<Utc>, Option<&Path>, Option<&str>) -> Outcome;
 
 /// What takes a clean's plan: [`Preferences::plan_for`]. A field of the
 /// [`Cleaner`] for the reason [`Run`] is.
@@ -60,25 +64,28 @@ fn run(
     arrival: &Arrival,
     plan: &Plan,
     id: u64,
+    tag: &str,
     now: DateTime<Utc>,
     replacing: Option<&Path>,
     edited: Option<&str>,
 ) -> Outcome {
-    match (edited, replacing) {
-        (Some(edited), _) => clean::save_one(arrival, plan, id, now, replacing, edited),
-        (None, Some(existing)) => clean::replace_one(arrival, plan, id, now, existing),
-        (None, None) => clean::clean_one(arrival, plan, id, now),
+    match edited {
+        Some(edited) => clean::save_one(arrival, plan, id, tag, now, replacing, edited),
+        None => clean::clean_one(arrival, plan, id, tag, now),
     }
 }
 
 /// One clean asked for: the number it is filed under — a queue row's id, a
-/// panel clean's number, both from [`clean::number`] — the one existing
-/// result it may write over when it was asked for by "Replace the existing
-/// result", and, for the Compare window's Save of a text nothing was
-/// written for yet, that text as the result (D411).
+/// panel clean's number, both from [`clean::number`] — the tag its result
+/// is named by when the plain name is taken, the row's journal id (D635,
+/// D637), and, for the Compare window's Save of a text nothing was written
+/// for yet, that text as the result (D411) and the one existing result it
+/// may write over, the row's own, when the person answered Overwrite
+/// (D441).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
     pub id: u64,
+    pub tag: Tag,
     pub replacing: Option<PathBuf>,
     pub edited: Option<Arc<str>>,
 }
@@ -184,25 +191,23 @@ impl Cleaner {
 
     /// Put a clean of `arrival`, filed as `id`, at the back of the line,
     /// and start it if nothing is running. `false`, and nothing asked, when
-    /// `id` is already in the line: nothing is cleaned twice at once.
-    pub fn ask(
-        &mut self,
-        id: u64,
-        arrival: Arrival,
-        replacing: Option<PathBuf>,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        self.ask_with(id, arrival, replacing, None, cx)
+    /// `id` is already in the line: nothing is cleaned twice at once. `tag`
+    /// names the row's own result when the plan's name is taken (D635) —
+    /// [`Tag::of`] the row.
+    pub fn ask(&mut self, id: u64, arrival: Arrival, tag: Tag, cx: &mut Context<Self>) -> bool {
+        self.ask_with(id, arrival, tag, None, None, cx)
     }
 
     /// [`Cleaner::ask`], with the result given: `edited`, the Compare
     /// window's text, written by the plan taken when it starts as a clean's
-    /// would be (D411). The window and the row hear its `Started` and
-    /// `Finished` like any other clean's.
+    /// would be (D411), over `replacing` when the person named it (D441).
+    /// The window and the row hear its `Started` and `Finished` like any
+    /// other clean's.
     pub fn ask_with(
         &mut self,
         id: u64,
         arrival: Arrival,
+        tag: Tag,
         replacing: Option<PathBuf>,
         edited: Option<Arc<str>>,
         cx: &mut Context<Self>,
@@ -213,6 +218,7 @@ impl Cleaner {
         self.things.insert(id, arrival);
         self.line.push(Job {
             id,
+            tag,
             replacing,
             edited,
         });
@@ -286,10 +292,15 @@ impl Cleaner {
                         let now = Utc::now();
                         // Caught here, so that the line hears of it (D288).
                         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            // Read here, where blocking is allowed: the
+                            // row's writer answers once its row is in
+                            // (D637).
+                            let tag = job.tag.resolve();
                             run(
                                 &arrival,
                                 &plan,
                                 id,
+                                &tag,
                                 now,
                                 job.replacing.as_deref(),
                                 job.edited.as_deref(),
@@ -333,6 +344,7 @@ mod tests {
     fn one_clean_runs_at_a_time_in_the_order_asked() {
         let job = |id| Job {
             id,
+            tag: Tag::Number(id),
             replacing: None,
             edited: None,
         };
@@ -442,6 +454,7 @@ mod tests {
         arrival: &Arrival,
         plan: &Plan,
         id: u64,
+        tag: &str,
         now: DateTime<Utc>,
         replacing: Option<&Path>,
         edited: Option<&str>,
@@ -450,7 +463,7 @@ mod tests {
         if named.is_some_and(|name| name == "panics.md") {
             panic!("a fault in this version, on purpose");
         }
-        run(arrival, plan, id, now, replacing, edited)
+        run(arrival, plan, id, tag, now, replacing, edited)
     }
 
     /// A clean that panics finishes as a failure of its own, and the clean
@@ -467,8 +480,18 @@ mod tests {
         let (first, second) = (clean::number(), clean::number());
         cleaner.update(cx, |cleaner, cx| {
             cleaner.run = panics_on_one;
-            assert!(cleaner.ask(first, arrival(Handed::Path(panics.clone())), None, cx));
-            assert!(cleaner.ask(second, arrival(Handed::Path(after.clone())), None, cx));
+            assert!(cleaner.ask(
+                first,
+                arrival(Handed::Path(panics.clone())),
+                Tag::Number(first),
+                cx
+            ));
+            assert!(cleaner.ask(
+                second,
+                arrival(Handed::Path(after.clone())),
+                Tag::Number(second),
+                cx
+            ));
         });
         cx.run_until_parked();
         let outcomes: Vec<(u64, String)> = events
@@ -516,8 +539,18 @@ mod tests {
         let (first, second) = (clean::number(), clean::number());
         cleaner.update(cx, |cleaner, cx| {
             cleaner.plan = plan_panics_on_one;
-            assert!(cleaner.ask(first, arrival(Handed::Path(panics.clone())), None, cx));
-            assert!(cleaner.ask(second, arrival(Handed::Path(after.clone())), None, cx));
+            assert!(cleaner.ask(
+                first,
+                arrival(Handed::Path(panics.clone())),
+                Tag::Number(first),
+                cx
+            ));
+            assert!(cleaner.ask(
+                second,
+                arrival(Handed::Path(after.clone())),
+                Tag::Number(second),
+                cx
+            ));
         });
         cx.run_until_parked();
         let outcomes: Vec<(u64, String)> = events
@@ -556,7 +589,12 @@ mod tests {
         cleaner.update(cx, |cleaner, cx| {
             cleaner.plan = plan_panics_on_one;
             for (id, name) in ids.iter().zip(names) {
-                assert!(cleaner.ask(*id, arrival(Handed::Path(scratch.0.join(name))), None, cx));
+                assert!(cleaner.ask(
+                    *id,
+                    arrival(Handed::Path(scratch.0.join(name))),
+                    Tag::Number(*id),
+                    cx
+                ));
             }
             assert_eq!(cleaner.progress(), Some((1, 3)));
         });
@@ -592,21 +630,23 @@ mod tests {
 
     /// The panel's ask waits while the queue's runs, and two asks for the
     /// same file to the same destination — a click apart, from two
-    /// windows — end as one `Cleaned` and one `Exists`: the second finds
-    /// the first's result there. Never two writes.
+    /// windows — end as two `Cleaned`, each its own result: the second
+    /// finds the first's result there and takes its row's own name, the
+    /// tag its row is known by (D635). Never one over the other.
     #[gpui::test]
-    fn two_windows_cleaning_one_file_write_it_once(cx: &mut TestAppContext) {
+    fn two_windows_cleaning_one_file_write_two_results(cx: &mut TestAppContext) {
         let scratch = Scratch::new("once");
         let source = scratch.0.join("x.md");
         std::fs::write(&source, "A zero\u{200B}width space.\n").expect("source");
         let (cleaner, events, cx) = line_in(cx, &scratch);
 
         let (queue_row, panel_clean) = (clean::number(), clean::number());
+        let thing = || arrival(Handed::Path(source.clone()));
         cleaner.update(cx, |cleaner, cx| {
-            assert!(cleaner.ask(queue_row, arrival(Handed::Path(source.clone())), None, cx));
-            assert!(cleaner.ask(panel_clean, arrival(Handed::Path(source.clone())), None, cx));
+            assert!(cleaner.ask(queue_row, thing(), Tag::Id(51), cx));
+            assert!(cleaner.ask(panel_clean, thing(), Tag::Id(52), cx));
             // The same clean asked again while it waits: not asked twice.
-            assert!(!cleaner.ask(panel_clean, arrival(Handed::Path(source.clone())), None, cx));
+            assert!(!cleaner.ask(panel_clean, thing(), Tag::Id(52), cx));
         });
         let waiting = cx.update(|_, cx| {
             let cleaner = cleaner.read(cx);
@@ -631,10 +671,7 @@ mod tests {
                 Event::Started(_) => None,
             })
             .collect();
-        assert_eq!(
-            outcomes,
-            [(queue_row, "cleaned"), (panel_clean, "not-cleaned")]
-        );
+        assert_eq!(outcomes, [(queue_row, "cleaned"), (panel_clean, "cleaned")]);
         let started: Vec<u64> = events
             .borrow()
             .iter()
@@ -644,16 +681,20 @@ mod tests {
             })
             .collect();
         assert_eq!(started, [queue_row, panel_clean]);
-        let second = events.borrow().iter().find_map(|event| match event {
-            Event::Finished(id, outcome) if *id == panel_clean => Some(outcome.clone()),
-            _ => None,
-        });
-        assert!(
-            matches!(
-                second.as_deref().map(|outcome| &outcome.verdict),
-                Some(clean::Verdict::NotCleaned(clean::Refusal::Exists(_)))
-            ),
-            "{second:?}"
+        let written: Vec<Option<PathBuf>> = events
+            .borrow()
+            .iter()
+            .filter_map(|event| match event {
+                Event::Finished(_, outcome) => Some(outcome.written.clone()),
+                Event::Started(_) => None,
+            })
+            .collect();
+        assert_eq!(
+            written,
+            [
+                Some(scratch.0.join("x.cleaned.md")),
+                Some(scratch.0.join("x.cleaned-52.md"))
+            ]
         );
         assert_eq!(cx.update(|_, cx| cleaner.read(cx).progress()), None);
     }

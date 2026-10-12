@@ -304,22 +304,13 @@ impl Shell {
                     );
                 }
                 // A drop the switch would send away is asked about once (В1).
-                // A Replace that would send the document away, the same
-                // question (D393).
-                QueueEvent::SendAway {
-                    ids,
-                    host,
-                    replacing,
-                } => {
+                QueueEvent::SendAway { ids, host } => {
                     let title = t_args(
                         Message::RewriteSendTitle,
                         &args!("count" => ids.len(), "host" => host.clone()),
                     );
                     let body = vec![t(Message::RewriteSendBody)];
-                    let road = match replacing {
-                        Some(existing) => Road::Replace(existing.clone()),
-                        None => Road::Arrivals,
-                    };
+                    let road = Road::Arrivals;
                     let going = wipemark_queue::Whereto::Away(host.clone());
                     shell.ask(
                         Asked::rewrite(title, body, Message::RewriteSendGo, ids, road, going),

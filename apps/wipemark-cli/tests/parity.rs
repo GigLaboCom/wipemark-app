@@ -24,7 +24,8 @@ fn fixtures() -> PathBuf {
 /// One row of the table.
 struct Row {
     input: String,
-    /// A file already where the result goes beside the input (D598).
+    /// A file already where the result goes beside the input (D598): the
+    /// CLI refuses it, where a window writes the row's own name (D635).
     taken: bool,
     cli_exit: i32,
     cli_writes: bool,
@@ -159,4 +160,14 @@ fn taken(row: &Row, input: &Path, name: &str, out: &Path) {
         "{} (taken): the CLI's write is not the table's",
         row.input
     );
+    // A window writes the row's own `name.cleaned-<id>.ext` here (D635);
+    // the command line writes nothing at all — no name of its own either.
+    if !row.cli_writes {
+        let entries = std::fs::read_dir(&folder).expect("the folder").count();
+        assert_eq!(
+            entries, 2,
+            "{} (taken): the CLI wrote a file under another name",
+            row.input
+        );
+    }
 }

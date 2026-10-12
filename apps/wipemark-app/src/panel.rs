@@ -677,9 +677,12 @@ impl PanelView {
                     },
                 )
             });
+            // Asked of the writer when the result is written, after the
+            // row below is in (D637).
+            let tag = crate::journal::Tag::of(number, None, self.writer.as_ref());
             if self
                 .cleaner
-                .update(cx, |cleaner, cx| cleaner.ask(number, thing, None, cx))
+                .update(cx, |cleaner, cx| cleaner.ask(number, thing, tag, cx))
             {
                 self.asked.insert(number, (arrivals.clone(), index));
                 if let Some((writer, row)) = row {

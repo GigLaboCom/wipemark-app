@@ -177,6 +177,47 @@ pub fn with_infix(name: &str, infix: &str) -> String {
     }
 }
 
+/// How many names past the row's own a result looks at before it gives up
+/// ([`own_names`]): `-<tag>-2` … `-<tag>-100`. A row's own name is taken
+/// only by a file this row did not write under it a moment ago — a
+/// database that was reset, a copy from another machine — or by this row's
+/// own earlier result, so a hundred is far past what happens; past it the
+/// write is refused as taken rather than looking for ever.
+pub const OWN_LIMIT: u32 = 100;
+
+/// `report.md` + `rewritten` + `42` → `report.rewritten-42.md`: a result
+/// named for the row that made it (D635). The tag goes **after the infix**
+/// and before the extension, by [`with_infix`]'s own rules — so a name
+/// with no extension or no stem takes it at the end (`README.cleaned-42`,
+/// `.bashrc.cleaned-42`), and `x.cleaned.md` dropped again is
+/// `x.cleaned.cleaned-42.md`. A format, like the infix.
+pub fn with_tag(name: &str, infix: &str, tag: &str) -> String {
+    with_infix(name, &format!("{infix}-{tag}"))
+}
+
+/// The names a row's own result may take, in the order they are tried
+/// (D635, D636): the plain `name.<infix>.ext` first when `plain`, then the
+/// row's own `name.<infix>-<tag>.ext`, then `-<tag>-2` …
+/// `-<tag>-`[`OWN_LIMIT`].
+///
+/// The windows give every row a result of its own, whatever else is there:
+/// the first result of a file keeps the name a script looks for, and every
+/// other one is named for its row, whose id no other row has. The names
+/// past the row's own are for the day that id is not alone — see
+/// [`OWN_LIMIT`]. Never `name` itself: every name here carries an infix.
+pub fn own_names<'a>(
+    name: &'a str,
+    infix: &'a str,
+    tag: &'a str,
+    plain: bool,
+) -> impl Iterator<Item = String> + 'a {
+    plain
+        .then(|| with_infix(name, infix))
+        .into_iter()
+        .chain(std::iter::once(with_tag(name, infix, tag)))
+        .chain((2..=OWN_LIMIT).map(move |n| with_tag(name, infix, &format!("{tag}-{n}"))))
+}
+
 /// What the name claims, if anything.
 ///
 /// Takes a file name rather than a path — the caller has already
@@ -280,8 +321,60 @@ fn unescape(text: &str) -> String {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{of, path_in, with_infix, ORIGINAL_INFIX, RESULT_INFIX, REWRITTEN_INFIX};
+    use super::{
+        of, own_names, path_in, with_infix, with_tag, ORIGINAL_INFIX, OWN_LIMIT, RESULT_INFIX,
+        REWRITTEN_INFIX,
+    };
     use crate::format::Format;
+
+    /// The row's tag goes after the infix and before the extension, by
+    /// `with_infix`'s rules for every shape of name (D635): a name with an
+    /// extension, none, a dotfile, one that already carries the infix, a
+    /// long one, and the thousandth row.
+    #[test]
+    fn a_tag_goes_after_the_infix() {
+        assert_eq!(
+            with_tag("rewrite-en.md", REWRITTEN_INFIX, "27"),
+            "rewrite-en.rewritten-27.md"
+        );
+        assert_eq!(
+            with_tag("x.rewritten.md", REWRITTEN_INFIX, "3"),
+            "x.rewritten.rewritten-3.md"
+        );
+        assert_eq!(
+            with_tag("archive.tar.gz", RESULT_INFIX, "8"),
+            "archive.tar.cleaned-8.gz"
+        );
+        assert_eq!(with_tag("README", RESULT_INFIX, "8"), "README.cleaned-8");
+        assert_eq!(with_tag(".bashrc", RESULT_INFIX, "8"), ".bashrc.cleaned-8");
+        assert_eq!(with_tag("x.md", RESULT_INFIX, "1000"), "x.cleaned-1000.md");
+        let long = format!("{}.md", "n".repeat(240));
+        assert_eq!(
+            with_tag(&long, RESULT_INFIX, "12"),
+            format!("{}.cleaned-12.md", "n".repeat(240))
+        );
+    }
+
+    /// The order a row's result tries its names in: the plain one only when
+    /// asked, then the row's own, then the row's own numbered — every one a
+    /// different name, none the input, and the list bounded.
+    #[test]
+    fn a_rows_own_names_come_in_order_and_end() {
+        let names: Vec<String> = own_names("x.md", RESULT_INFIX, "7", true).collect();
+        assert_eq!(
+            names[..3],
+            ["x.cleaned.md", "x.cleaned-7.md", "x.cleaned-7-2.md"]
+        );
+        assert_eq!(names.len(), OWN_LIMIT as usize + 1);
+        assert_eq!(names.last().map(String::as_str), Some("x.cleaned-7-100.md"));
+        let unique: std::collections::HashSet<&String> = names.iter().collect();
+        assert_eq!(unique.len(), names.len());
+        assert!(!names.iter().any(|name| name == "x.md"));
+
+        let claimed: Vec<String> = own_names("x.md", REWRITTEN_INFIX, "7", false).collect();
+        assert_eq!(claimed[0], "x.rewritten-7.md");
+        assert_eq!(claimed.len(), OWN_LIMIT as usize);
+    }
 
     #[test]
     fn a_result_is_named_after_its_file() {

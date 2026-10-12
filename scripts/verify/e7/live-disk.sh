@@ -9,7 +9,9 @@
 #   check by automation"). `docs/plan/reports/E7-windows-clean-live-check.md`
 #   has fourteen cases; the ones whose outcome is a file on disk can be run
 #   without touching the window. This runs them: cases 1, 2, 3, 4, 5, 6, 8,
-#   9 (both runs) and the first half of 10.
+#   9 (both runs) and the first half of 10. Case 10 changed with D635
+#   (2026-10-12, `feat/own-result-per-row`): an existing result is left and
+#   the row writes its own `marked.cleaned-1.md` rather than being refused.
 #
 # What it does, per case
 #   1. Makes a fresh WIPEMARK_DATA_DIR (never the real one) with a
@@ -219,12 +221,16 @@ row "9b outcome" "not-cleaned" "$(outcomes "$D")"
 row "9b inplace.md untouched" "same" "$(same "$W/inplace.md" "$W/marked.md")"
 row "9b inplace.original.md untouched" "same" "$(same "$W/inplace.original.md" "$W/marked.md")"
 
-# -- 10, first half. An existing result refused ----------------------------------
+# -- 10, first half. An existing result left; the row writes its own -------------
+# Since D635 (2026-10-12) a window no longer refuses a taken name: the file
+# there is left as it is and the row writes `name.cleaned-<id>.ext`, `<id>`
+# its journal id — 1, the first row of this fresh database.
 echo junk > "$W/marked.cleaned.md"
 D=$WORK/data10; seed "$D"
 launch "$D" 1 --clean="$W/marked.md"
-row "10 outcome" "not-cleaned" "$(outcomes "$D")"
+row "10 outcome" "cleaned" "$(outcomes "$D")"
 row "10 marked.cleaned.md still junk" "junk" "$(cat "$W/marked.cleaned.md")"
+row "10 marked.cleaned-1.md = CLI" "same" "$(same "$W/marked.cleaned-1.md" "$WORK/cli/marked.md")"
 
 # -- the logs: shapes only -------------------------------------------------------
 ALL=$(for d in "$WORK"/data*; do clean_lines "$d"; done)

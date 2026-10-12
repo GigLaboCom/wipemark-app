@@ -80,7 +80,9 @@ default.
    `wipemark_intake::name` (with `RESULT_INFIX` and `ORIGINAL_INFIX`;
    `retention.rs` re-exports them) so the two applications cannot spell
    a result differently — and, as rule 3 says, the CLI reads none of the
-   rows on this page.
+   rows on this page. A window whose plain name is taken writes the
+   row's own `name.cleaned-<id>.ext` instead, the CLI refuses it — see
+   "Every row gets its own result" below (D635).
 
 2. **Replacing is never destructive.** The third destination replaces
    the file — a cleaned document with the same name is what a document
@@ -243,29 +245,109 @@ after a restart too. Beside the file a rewrite is `name.rewritten.ext`
 same name there; in place with the original set aside; a paste's rewrite
 stays in the queue's row. `retention::rewrite_destination` is the map, and
 `every_plan_is_a_rewrite_destination` its gate. The page's banner says
-both rules. A new file's name already taken is found when the rewrite is
-pushed, not after the job (D357): the row is refused at once and Replace
-the existing result offered, as a clean's is (D261, D270); the publish's
-own refusal (D284) still covers a file that appears while the job runs.
-The command line's default `name.rewritten.ext` refuses one the same way
-(D362).
+both rules. A rewrite's result is a file **of the row's own**
+(`Destination::Own`, below); the command line's default
+`name.rewritten.ext` still refuses a taken name, exit 2 (D362).
+
+### Every row gets its own result (D635–D639)
+
+The owner dropped one file six times on purpose and pressed Rewrite all
+(acceptance F10, 2026-10-12): six rows are fine, and **each row gets its
+own result, whatever else is there**. So in the windows — the main
+window's table, the panel, `--clean=`, Compare's Save that cleans — a
+clean or a rewrite **never writes over a file and never fails because a
+result's name is taken** (D635, answering Q-C4 and superseding D261's
+refusal and D357's refusal at push):
+
+* **The first result of a file keeps the plain name** —
+  `name.cleaned.ext`, `name.rewritten.ext`, beside the file or in the
+  results folder — when nothing is there and no row still waiting or
+  running claims it.
+* **Otherwise the row writes `name.cleaned-<id>.ext` /
+  `name.rewritten-<id>.ext`**, `<id>` the row's **journal id**, the one
+  its ID column shows (`wipemark_intake::name::with_tag`). The tag goes
+  after the infix and before the extension by `with_infix`'s own rules:
+  `README.cleaned-42`, `.bashrc.cleaned-42`, `x.cleaned.cleaned-42.md`
+  for `x.cleaned.md` dropped again, `x.cleaned-1000.md` for the
+  thousandth row. No two rows share a journal id (`AUTOINCREMENT`), so
+  two rows pushed together cannot collide and nothing is counted.
+* Should even the row's own name be taken — a file that names a row of
+  a database since reset, or this row's own earlier result when the row
+  is cleaned or rewritten again — the row takes `-<id>-2`, `-<id>-3` …
+  up to `-<id>-100` (`own_names`, `OWN_LIMIT`), and only past those is
+  it refused as `exists`, every file left as it was (D636).
+* **Claimed when the plan is taken** (D636). A clean's plan is taken when
+  it starts (D283), and the one line of cleans *is* its claim: nothing
+  else in the application writes a clean's result while it runs, so the
+  clean publishes the first free name of its own and moves on past a taken
+  one. A rewrite's plan is taken when it is pushed (D91): the request is
+  built off the GPUI thread, and there the row keeps the plain name only
+  when nothing is on disk under it and no item of the batch queue still
+  waiting or running — nor a row pushed in the same batch — claims it;
+  otherwise its `Destination::Own` names its own tag. **At delivery** a
+  name taken after all — a file another program wrote meanwhile, an
+  item another push claimed in the same moment — moves the result on to
+  the next of its own names (`inplace::write_first_free`, each name by
+  `write_new`): nothing is overwritten and nothing fails for it. A crash
+  between the write and the end is finished by the first of the row's
+  names that holds the result's bytes (`deliver::redeliver`).
+* **The tag is known before the name is written** (D637). A window
+  learns its row's journal id only when the journal's writer says so,
+  and `--clean=`, a drop processed on arrival and the panel's Clean ask
+  before that. So the tag is a `journal::Tag`: the id when the window
+  knows it, otherwise asked of the writer that recorded the row through
+  that writer's own line (`Writer::id_of`) at the moment the name is
+  written — on the background, after the row's insert, never before.
+  The window's own number is the answer only when the journal has no row
+  for it (a database that would not take one; a Compare window opened by
+  `--compare=` before its first save).
+* **A name too long** with its tag (the plain one fits, the tagged one
+  passes the file system's 255 bytes) fails as a write at that name, as a
+  plain name too long always did; nothing is shortened (D639).
+* **In place is unchanged**: a taken `name.original.ext` is still
+  refused, because an original is never renamed or overwritten.
+* **The command line is unchanged**: `wipemark-cli clean` and `rewrite`
+  refuse a taken `name.cleaned.ext` / `name.rewritten.ext` with exit 2
+  (D362, D598), and `-o` names the file. The parity table
+  (`fixtures/clean-parity/table.tsv`) declares the difference on its
+  `taken` rows: the CLI exits 2 and writes nothing; a window writes the
+  row's own name (D639).
+* **"Replace the existing result" is gone** (D638): it answered a refusal
+  that no longer happens.
+
+**A row owns its result by its id.** The journal entry's `result.path`
+is the name the result really took, `-<id>` and all — a clean's from its
+`Outcome::written`, a rewrite's from the batch queue's end, which carries
+the path delivery wrote (the item's `Destination::Own` is the name it
+*claimed*, and its stored result's `written` the name it *took*). The row
+keeps that entry across a restart, and a `-<id>` name carries the row in
+the file name too. So a future **redo** of a row — clean or rewrite it
+again automatically, over its own earlier result — finds that result by
+the row (`Row::written()` in `queue.rs`: this session's outcome, or the
+journal entry's `result.path` read back) and replaces **that file and
+only that one**: through `clean::save_one`'s `replacing` road for a clean,
+or a push with `Destination::File(own)` for a rewrite. The first result's
+plain name carries no id; its link is the journal's `result.path` alone,
+and it lasts as long as the row does — Remove and the journal's sweep
+(`journal.keep_days`) end the link and leave the file.
 
 `clean::clean_one` is the one road from a plan to the disk, run on the
 background executor, one clean at a time across the application: the
 queue's cleans and the panel's wait in one line, `cleaner::Cleaner`
 (D283). Two cleans of the same file to the same destination therefore
-end as one result and one refusal, never as two writes:
+end as two results, the first under the plain name and the second under
+its row's own, never as one over the other:
 
 * **Rule 1, beside.** `name.cleaned.ext`, or into the results folder,
-  written only where nothing is: a file already there is refused and
-  left byte for byte (D261), and **Replace the existing result** is the
-  one explicit way over it (`clean::replace_one`, D270). "Only where
-  nothing is" is the write's own rule, not just a check before it:
+  written only where nothing is: a file already there is left byte for
+  byte and the row takes its own name (D635). "Only where nothing is" is
+  the write's own rule, not just a check before it:
   `wipemark_intake::inplace::write_new` publishes the result by a hard
   link, which the operating system refuses when a file has taken the name
-  meanwhile — the CLI's, a second launch's (D284). A file system without
-  hard links gets a `create_new` copy, which refuses a taken name too. A result
-  identical to its input is never written (D260, D262).
+  meanwhile — the CLI's, a second launch's (D284) — and the clean moves on
+  to its next name. A file system without hard links gets a `create_new`
+  copy, which refuses a taken name too. A result identical to its input
+  is never written (D260, D262).
 * **Rule 2, in place.** `wipemark_intake::inplace::replace` with
   `Keep::Original` — the CLI's own call: the file gets its second name,
   `name.original.ext`, first, by a hard link that is refused when the name
@@ -310,9 +392,10 @@ file, never over the file it came from, never through a symbolic link,
 and only while the file still holds what the window read, unless the
 person says Overwrite (D413). A result not written yet is a clean:
 `clean::save_one`, in the one line, by the plan taken when it starts,
-with every refusal of `clean_one` — a taken name refused unless the
-person names it, in place only with the original set aside first, an
-edited text identical to its source never written (D262) — and the
+with every rule of `clean_one` — a taken name passed by for the row's
+own (D635), or written over when the person names it (Overwrite, D441),
+in place only with the original set aside first, an edited text
+identical to its source never written (D262) — and the
 kept copies the plan asks for, made then and not refreshed by a later
 save (D419).
 

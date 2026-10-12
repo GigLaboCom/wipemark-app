@@ -30,10 +30,17 @@
 //!
 //! By the [`Plan`] taken when the clean starts, and by no other road. A
 //! file is written beside its source or into the results folder only
-//! where nothing is — **a file already there is refused and left byte for
-//! byte** (D261) — and the source itself is replaced only under
-//! [`Written::Over`], through `wipemark_intake::inplace::replace` with the
-//! original set aside first. The windows never replace without setting
+//! where nothing is, and **every row gets a result of its own** (D635,
+//! superseding D261): the plan's `name.cleaned.ext` when it is free,
+//! otherwise the row's own `name.cleaned-<id>.ext` — `<id>` the row's
+//! journal id, its [`crate::journal::Tag`] — each name published by
+//! `write_new`, so a file already there, or one that appeared since, is
+//! passed by and left byte for byte, never written over and never a
+//! refusal ([`wipemark_intake::name::own_names`], D636). The source itself
+//! is replaced only under [`Written::Over`], through
+//! `wipemark_intake::inplace::replace` with the original set aside first,
+//! and a taken `name.original.ext` is still refused there: an original is
+//! never renamed or overwritten. The windows never replace without setting
 //! the original aside: "no original" is a per-run flag of the CLI's and
 //! never a window's.
 //!
@@ -211,7 +218,11 @@ pub enum Refusal {
     Picture(PictureError),
     /// The result would still carry AI provenance metadata. Never written.
     StillMarked { ai_metadata: bool, c2pa: bool },
-    /// A file is already where the result would go (D261).
+    /// Every name the result could take is taken — the plain one, the
+    /// row's own and its numbered ones past it (D636) — or, for a plan
+    /// that names one file only, that one is; the path is the first.
+    /// Since D635 a row's result steps past a taken name rather than
+    /// stopping at it, so this is the end of a hundred names, not of one.
     Exists(PathBuf),
     /// `name.original.ext` is already there: the first original is the
     /// original.
@@ -290,10 +301,12 @@ pub struct Outcome {
     /// Present whenever a layer ran — on a refusal to write as well, so the
     /// report can say what was found.
     pub report: Option<Report>,
-    /// Where the result is now.
+    /// Where the result is now — the name it really took, `-<id>` and all
+    /// (D635): what the row, the Report, the journal's `result.path` and
+    /// Compare's next save read.
     pub written: Option<PathBuf>,
     /// Whether `written` replaced a result already there — only ever when
-    /// the row asked for it by name ([`replace_one`]).
+    /// the Compare window's Save asked for it by name ([`save_one`]).
     pub replaced: bool,
     /// Where the source was set aside, under [`Written::Over`].
     pub set_aside: Option<PathBuf>,
@@ -420,9 +433,17 @@ fn restored(report: &PictureReport) -> bool {
 /// [`Written`], the kept folder in its [`Kept`] — so nothing else is
 /// asked for. `row` and `now` name what this clean invents — a result's name when
 /// the thing came without one, a kept directory — so that both are
-/// deterministic for a given row and clock reading.
-pub fn clean_one(arrival: &Arrival, plan: &Plan, row: u64, now: DateTime<Utc>) -> Outcome {
-    logged(row, run(arrival, plan, row, now, None, None))
+/// deterministic for a given row and clock reading. `tag` is the row's
+/// journal id, resolved ([`crate::journal::Tag::resolve`]): what the result
+/// is named by when the plan's name is taken (D635).
+pub fn clean_one(
+    arrival: &Arrival,
+    plan: &Plan,
+    row: u64,
+    tag: &str,
+    now: DateTime<Utc>,
+) -> Outcome {
+    logged(row, run(arrival, plan, row, tag, now, None, None))
 }
 
 /// A clean whose result is `edited` — the Compare window's Save of a text
@@ -431,38 +452,26 @@ pub fn clean_one(arrival: &Arrival, plan: &Plan, row: u64, now: DateTime<Utc>) -
 /// Everything of [`clean_one`] but the layer's output: the same read,
 /// which decides again from the bytes and refuses what a clean refuses —
 /// not text, past the limit, not decodable, in place of a symbolic link
-/// (D287) — the same plan and its refusals, a file already where the
-/// result would go included (D261), unless it is the one `replacing`
-/// names, the same kept copies, and the result in the encoding the source
-/// arrived in. Layer A still runs over the source, for the report: what
-/// the original held is what the Report says. A text identical to its
-/// source is not written, as a clean's never is (D262).
+/// (D287) — the same plan, the same result of the row's own past a taken
+/// name (D635), the same kept copies, and the result in the encoding the
+/// source arrived in. `replacing` is the one file it may write over: the
+/// row's own result, named by the person who answered Overwrite (D441).
+/// Layer A still runs over the source, for the report: what the original
+/// held is what the Report says. A text identical to its source is not
+/// written, as a clean's never is (D262).
 pub fn save_one(
     arrival: &Arrival,
     plan: &Plan,
     row: u64,
+    tag: &str,
     now: DateTime<Utc>,
     replacing: Option<&Path>,
     edited: &str,
 ) -> Outcome {
-    logged(row, run(arrival, plan, row, now, replacing, Some(edited)))
-}
-
-/// Clean one thing again, and write its result over `existing` — the one
-/// file a first clean refused to replace (D261), named by the person who
-/// asked. **Blocking.**
-///
-/// Only that file: if the plan taken now puts the result somewhere else, a
-/// file there is refused as it always is, and the source itself is never
-/// the file replaced.
-pub fn replace_one(
-    arrival: &Arrival,
-    plan: &Plan,
-    row: u64,
-    now: DateTime<Utc>,
-    existing: &Path,
-) -> Outcome {
-    logged(row, run(arrival, plan, row, now, Some(existing), None))
+    logged(
+        row,
+        run(arrival, plan, row, tag, now, replacing, Some(edited)),
+    )
 }
 
 /// What a clean that panicked comes to (D288): a failure of its own, and
@@ -683,6 +692,7 @@ fn run(
     arrival: &Arrival,
     plan: &Plan,
     row: u64,
+    tag: &str,
     now: DateTime<Utc>,
     replacing: Option<&Path>,
     edited: Option<&str>,
@@ -819,23 +829,27 @@ fn run(
             _ => outcome.verdict = Verdict::NotCleaned(Refusal::Nowhere),
         },
         Written::Beside(destination) => {
-            match write_new(destination, &bytes, read.path.as_deref(), replacing) {
-                Ok(replaced) => {
-                    outcome.written = Some(destination.clone());
+            let names = own_names(destination, base_name(arrival).as_deref(), tag);
+            match publish(&names, &bytes, read.path.as_deref(), replacing) {
+                Ok((path, replaced)) => {
+                    outcome.written = Some(path);
                     outcome.replaced = replaced;
                 }
                 Err(verdict) => outcome.verdict = verdict,
             }
         }
         Written::Into { folder, name } => {
-            let name = match name {
-                Some(name) => name.clone(),
-                None => invented_name(row, now, ext),
+            let (destination, base) = match name {
+                Some(name) => (folder.join(name), base_name(arrival)),
+                None => {
+                    let base = invented_base(row, now, ext);
+                    (folder.join(invented_name(row, now, ext)), Some(base))
+                }
             };
-            let destination = folder.join(name);
-            match write_new(&destination, &bytes, read.path.as_deref(), replacing) {
-                Ok(replaced) => {
-                    outcome.written = Some(destination);
+            let names = own_names(&destination, base.as_deref(), tag);
+            match publish(&names, &bytes, read.path.as_deref(), replacing) {
+                Ok((path, replaced)) => {
+                    outcome.written = Some(path);
                     outcome.replaced = replaced;
                 }
                 Err(verdict) => outcome.verdict = verdict,
@@ -902,49 +916,103 @@ fn replace_failed(failure: inplace::Failure, file: &Path) -> Verdict {
     }
 }
 
-/// Write a result where no file is: never over one already there (D261)
-/// unless it is the very file `replacing` names, and never over its own
-/// source, named or not. `Ok(true)` when a file was replaced.
-fn write_new(
-    destination: &Path,
+/// The name the thing that arrived is called by, which a result's name is
+/// made from: a file's own name, or the name bytes came with.
+fn base_name(arrival: &Arrival) -> Option<String> {
+    match &arrival.intake.path {
+        Some(path) => path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned()),
+        None => arrival.intake.name.clone(),
+    }
+}
+
+/// Every name a result planned for `destination` may take, in order (D635,
+/// D636): the plan's own `name.cleaned.ext` first, then the row's
+/// `name.cleaned-<tag>.ext` and its numbered ones — when `destination` is
+/// the plain result of `base`, which every plan's is. A destination made
+/// some other way names itself alone.
+fn own_names(destination: &Path, base: Option<&str>, tag: &str) -> Vec<PathBuf> {
+    let folder = destination.parent();
+    let plain = |base: &str| {
+        destination
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy() == with_infix(base, RESULT_INFIX))
+    };
+    match (base, folder) {
+        (Some(base), Some(folder)) if plain(base) && !tag.is_empty() => {
+            wipemark_intake::name::own_names(base, RESULT_INFIX, tag, true)
+                .map(|name| folder.join(name))
+                .collect()
+        }
+        _ => vec![destination.to_owned()],
+    }
+}
+
+/// Write a result under the first of `names` where nothing is (D635,
+/// D636): never over a file already there — passed by, and left byte for
+/// byte — unless it is the very file `replacing` names, one of these, and
+/// never over its own source, named or not. Where it went, and whether a
+/// file was replaced.
+///
+/// No check comes before a publish for anything to race with: each name is
+/// published by `write_new`, which the operating system refuses when the
+/// name is taken — by a file put there a moment ago by another process, a
+/// link that points nowhere (D284) — and a refused name moves the result
+/// on to the next.
+fn publish(
+    names: &[PathBuf],
     bytes: &[u8],
     source: Option<&Path>,
     replacing: Option<&Path>,
-) -> Result<bool, Verdict> {
-    if source.is_some_and(|source| inplace::same_file(source, destination)) {
-        return Err(Verdict::NotCleaned(Refusal::SameFile(
-            destination.to_owned(),
-        )));
+) -> Result<(PathBuf, bool), Verdict> {
+    let first = names.first().cloned().unwrap_or_default();
+    let is_source = |path: &Path| source.is_some_and(|source| inplace::same_file(source, path));
+    // A plan that names one file names it on purpose: its source there is
+    // refused, as ever. In a row's own names the source is a taken name
+    // like any other, and passed by.
+    if names.len() == 1 && is_source(&first) {
+        return Err(Verdict::NotCleaned(Refusal::SameFile(first)));
     }
-    // Over a file only when it is the one `replacing` names. Everywhere
-    // else the publish itself refuses whatever has the name — a file put
-    // there a moment ago by another process, a link that points nowhere —
-    // and that refusal is the one protection (D261, D284): no check comes
-    // before it for anything to race with.
-    let replaces = replacing == Some(destination) && std::fs::symlink_metadata(destination).is_ok();
-    let written = if replaces {
-        inplace::write_atomically(destination, bytes, source)
-    } else {
-        inplace::write_new(destination, bytes, source)
-    };
-    match written {
-        Ok(()) => Ok(replaces),
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            Err(Verdict::NotCleaned(Refusal::Exists(destination.to_owned())))
+    if let Some(replacing) = replacing.filter(|replacing| {
+        names.iter().any(|name| name == replacing)
+            && std::fs::symlink_metadata(replacing).is_ok()
+            && !is_source(replacing)
+    }) {
+        return match inplace::write_atomically(replacing, bytes, source) {
+            Ok(()) => Ok((replacing.to_owned(), true)),
+            Err(error) => Err(Verdict::Failed(Failure::Write {
+                path: replacing.to_owned(),
+                error: Error::from(&error),
+            })),
+        };
+    }
+    match inplace::write_first_free(names.iter().cloned(), bytes, source) {
+        Ok(path) => Ok((path, false)),
+        Err((_, error)) if error.kind() == io::ErrorKind::AlreadyExists => {
+            Err(Verdict::NotCleaned(Refusal::Exists(first)))
         }
-        Err(error) => Err(Verdict::Failed(Failure::Write {
-            path: destination.to_owned(),
+        // Said of the name it stopped at: a name that fits when plain and
+        // is too long with the row's tag stops there (D639).
+        Err((path, error)) => Err(Verdict::Failed(Failure::Write {
+            path,
             error: Error::from(&error),
         })),
     }
 }
 
-/// The name a result gets when the thing came with none:
-/// `wipemark-<yyyymmdd-hhmmss>-<row>.cleaned.<ext>`, the time on this
-/// machine's clock as a person reads it.
-pub fn invented_name(row: u64, now: DateTime<Utc>, ext: &str) -> String {
+/// What a result is named after when the thing came with no name:
+/// `wipemark-<yyyymmdd-hhmmss>-<row>.<ext>`, the time on this machine's
+/// clock as a person reads it.
+fn invented_base(row: u64, now: DateTime<Utc>, ext: &str) -> String {
     let stamp = now.with_timezone(&Local).format("%Y%m%d-%H%M%S");
-    with_infix(&format!("wipemark-{stamp}-{row}.{ext}"), RESULT_INFIX)
+    format!("wipemark-{stamp}-{row}.{ext}")
+}
+
+/// The name a result gets when the thing came with none:
+/// `wipemark-<yyyymmdd-hhmmss>-<row>.cleaned.<ext>`.
+pub fn invented_name(row: u64, now: DateTime<Utc>, ext: &str) -> String {
+    with_infix(&invented_base(row, now, ext), RESULT_INFIX)
 }
 
 /// The extension a result or a kept copy of this format is written with.
@@ -1257,7 +1325,7 @@ mod tests {
 
     /// Clean `arrival` under `retention`, the way a row would.
     fn clean(arrival: &Arrival, retention: &Retention, homes: &Homes) -> Outcome {
-        clean_one(arrival, &planned(arrival, retention, homes), 7, now())
+        clean_one(arrival, &planned(arrival, retention, homes), 7, "27", now())
     }
 
     /// The panel's look, by the plan a clean at the defaults would take.
@@ -1446,66 +1514,184 @@ mod tests {
         assert_eq!(names(&scratch.0), ["plain.md"]);
     }
 
-    /// A file already where the result would go is refused, and left byte
-    /// for byte (D261).
+    /// A file already where the result would go is left byte for byte, and
+    /// the row gets a result of its own beside it, named for its journal id
+    /// (D635, superseding D261's refusal). Put `write_new` of the plan's one
+    /// name back in `publish` and this is a refusal: red.
     #[test]
-    fn an_existing_result_is_refused_and_left_alone() {
+    fn an_existing_result_is_left_alone_and_the_row_gets_its_own() {
         let scratch = Scratch::new("exists");
         let source = scratch.file("x.md", MARKED.as_bytes());
         let existing = scratch.file("x.cleaned.md", b"somebody's own file");
+        let outcome = clean(
+            &arrival(Handed::Path(source.clone())),
+            &Retention::default(),
+            &scratch.homes(),
+        );
+        assert!(
+            matches!(outcome.verdict, Verdict::Cleaned),
+            "{:?}",
+            outcome.verdict
+        );
+        let own = scratch.0.join("x.cleaned-27.md");
+        assert_eq!(outcome.written.as_deref(), Some(own.as_path()));
+        assert!(!outcome.replaced);
+        assert_eq!(read(&existing), b"somebody's own file");
+        assert_eq!(read(&source), MARKED.as_bytes());
+        assert_eq!(
+            read(&own),
+            wipemark_core::clean(MARKED, &Options::default())
+                .text
+                .as_bytes()
+        );
+        assert_eq!(
+            names(&scratch.0),
+            ["x.cleaned-27.md", "x.cleaned.md", "x.md"]
+        );
+    }
+
+    /// The owner's six drops of one file (F10), cleaned: the first row
+    /// takes the plain name, every other row its own — two rows, two
+    /// files, no failure — and a row cleaned again takes the next of its
+    /// own names rather than its earlier result's (D635, D636).
+    #[test]
+    fn rows_of_one_file_each_get_their_own_result() {
+        let scratch = Scratch::new("rows");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let thing = arrival(Handed::Path(source));
+        let plan = planned(&thing, &Retention::default(), &scratch.homes());
+        let written: Vec<PathBuf> = [(1, "41"), (2, "42"), (3, "43"), (2, "42")]
+            .into_iter()
+            .map(|(row, tag)| {
+                let outcome = clean_one(&thing, &plan, row, tag, now());
+                assert!(
+                    matches!(outcome.verdict, Verdict::Cleaned),
+                    "{:?}",
+                    outcome.verdict
+                );
+                outcome.written.expect("written")
+            })
+            .collect();
+        let named: Vec<String> = written
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            named,
+            [
+                "x.cleaned.md",
+                "x.cleaned-42.md",
+                "x.cleaned-43.md",
+                "x.cleaned-42-2.md"
+            ]
+        );
+    }
+
+    /// A file that appears between the plan and the write — the plan is
+    /// taken when the clean starts, the name is free then — moves the row
+    /// on to its own name, and the file that appeared is left alone (D636).
+    /// Into the results folder the same: the folder's name, then the row's.
+    #[test]
+    fn a_file_that_appears_after_the_plan_moves_the_row_on() {
+        let scratch = Scratch::new("appears");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let thing = arrival(Handed::Path(source));
+        let plan = planned(&thing, &Retention::default(), &scratch.homes());
+        assert_eq!(
+            plan,
+            Plan::File(Written::Beside(scratch.0.join("x.cleaned.md")))
+        );
+        let appeared = scratch.file("x.cleaned.md", b"appeared meanwhile");
+        let outcome = clean_one(&thing, &plan, 7, "27", now());
+        assert_eq!(
+            outcome.written.as_deref(),
+            Some(scratch.0.join("x.cleaned-27.md").as_path())
+        );
+        assert_eq!(read(&appeared), b"appeared meanwhile");
+
+        let into = Retention {
+            destination: Destination::Folder,
+            ..Retention::default()
+        };
+        let homes = scratch.homes();
+        std::fs::create_dir_all(&homes.results).expect("results");
+        let plan = planned(&thing, &into, &homes);
+        let first = clean_one(&thing, &plan, 8, "28", now());
+        let second = clean_one(&thing, &plan, 9, "29", now());
+        assert_eq!(
+            [first.written, second.written],
+            [
+                Some(homes.results.join("x.cleaned.md")),
+                Some(homes.results.join("x.cleaned-29.md"))
+            ]
+        );
+    }
+
+    /// The corner cases of a row's own name, through a clean: a name that
+    /// already carries the infix, a dotfile, a name with no extension —
+    /// each takes the tag after the infix — and a name that fits plain and
+    /// is too long with the tag, which fails at that name as a write, and
+    /// writes over nothing (D639).
+    #[test]
+    fn a_rows_own_name_has_the_tag_after_the_infix() {
+        let scratch = Scratch::new("corners");
+        for (name, taken, own) in [
+            (
+                "x.cleaned.md",
+                "x.cleaned.cleaned.md",
+                "x.cleaned.cleaned-27.md",
+            ),
+            (".notes", ".notes.cleaned", ".notes.cleaned-27"),
+            ("README", "README.cleaned", "README.cleaned-27"),
+        ] {
+            let source = scratch.file(name, MARKED.as_bytes());
+            scratch.file(taken, b"theirs");
+            let outcome = clean(
+                &arrival(Handed::Path(source)),
+                &Retention::default(),
+                &scratch.homes(),
+            );
+            assert_eq!(
+                outcome.written.as_deref(),
+                Some(scratch.0.join(own).as_path()),
+                "{name}: {:?}",
+                outcome.verdict
+            );
+            assert_eq!(read(&scratch.0.join(taken)), b"theirs", "{name}");
+        }
+
+        // 255 bytes is the longest name most file systems take: the plain
+        // result fits, the row's own does not.
+        let long = format!("{}.md", "n".repeat(255 - ".cleaned.md".len() - 3));
+        let source = scratch.file(&long, MARKED.as_bytes());
+        let plain = wipemark_intake::name::with_infix(&long, RESULT_INFIX);
+        assert_eq!(plain.len(), 252);
+        scratch.file(&plain, b"theirs");
         let outcome = clean(
             &arrival(Handed::Path(source)),
             &Retention::default(),
             &scratch.homes(),
         );
+        let own = scratch
+            .0
+            .join(wipemark_intake::name::with_tag(&long, RESULT_INFIX, "27"));
         assert!(
-            matches!(&outcome.verdict, Verdict::NotCleaned(Refusal::Exists(path)) if *path == existing),
+            matches!(&outcome.verdict, Verdict::Failed(Failure::Write { path, .. }) if *path == own),
             "{:?}",
             outcome.verdict
         );
-        assert_eq!(outcome.written, None);
-        assert!(!outcome.replaced);
-        assert_eq!(read(&existing), b"somebody's own file");
+        assert_eq!(read(&scratch.0.join(&plain)), b"theirs");
     }
 
-    /// "Replace the existing result" writes over the one file it names,
-    /// and says so; a different file in the way is refused as ever, and
-    /// the source is never the file replaced, even when it is the one
-    /// named.
+    /// A plan whose one name is its source — a results folder that is the
+    /// source's own folder, under the source's own name — is refused as
+    /// ever, and the source never replaced: a row's own names are only for
+    /// the names a plan makes.
     #[test]
-    fn a_result_is_replaced_only_where_it_was_named() {
-        let scratch = Scratch::new("replace");
+    fn a_plan_that_names_its_source_is_refused() {
+        let scratch = Scratch::new("onto-source");
         let source = scratch.file("x.md", MARKED.as_bytes());
-        let existing = scratch.file("x.cleaned.md", b"somebody's own file");
         let arrival = arrival(Handed::Path(source.clone()));
-        let plan = planned(&arrival, &Retention::default(), &scratch.homes());
-
-        let elsewhere = scratch.0.join("y.cleaned.md");
-        let refused = replace_one(&arrival, &plan, 7, now(), &elsewhere);
-        assert!(
-            matches!(&refused.verdict, Verdict::NotCleaned(Refusal::Exists(path)) if *path == existing),
-            "{:?}",
-            refused.verdict
-        );
-        assert_eq!(read(&existing), b"somebody's own file");
-
-        let replaced = replace_one(&arrival, &plan, 7, now(), &existing);
-        assert!(
-            matches!(replaced.verdict, Verdict::Cleaned),
-            "{:?}",
-            replaced.verdict
-        );
-        assert!(replaced.replaced);
-        assert_eq!(replaced.written.as_deref(), Some(existing.as_path()));
-        assert_eq!(
-            read(&existing),
-            wipemark_core::clean(MARKED, &Options::default())
-                .text
-                .as_bytes()
-        );
-        assert_eq!(read(&source), MARKED.as_bytes(), "the source moved");
-
-        // Named the source itself, under a plan that would land on it.
         let into = Retention {
             destination: Destination::Folder,
             folder: Some(scratch.0.clone()),
@@ -1515,13 +1701,14 @@ mod tests {
         if let Plan::File(Written::Into { name, .. }) = &mut onto_source {
             *name = Some(String::from("x.md"));
         }
-        let refused = replace_one(&arrival, &onto_source, 7, now(), &source);
+        let refused = clean_one(&arrival, &onto_source, 7, "27", now());
         assert!(
             matches!(refused.verdict, Verdict::NotCleaned(Refusal::SameFile(_))),
             "{:?}",
             refused.verdict
         );
         assert_eq!(read(&source), MARKED.as_bytes(), "the source was replaced");
+        assert_eq!(names(&scratch.0), ["x.md"]);
     }
 
     // -- a Save that cleans (E7-9) ---------------------------------------
@@ -1542,21 +1729,26 @@ mod tests {
         let plan = planned(&arrival, &Retention::default(), &scratch.homes());
         let edited = "\u{FEFF}# Notes\n\nEdited by hand — kept as typed.\n";
 
-        let beside = scratch.0.join("x.cleaned.md");
+        // A taken name is passed by: the save takes the row's own (D635).
+        let beside = scratch.0.join("x.cleaned-27.md");
         let taken = scratch.file("x.cleaned.md", b"somebody's own file");
-        let refused = save_one(&arrival, &plan, 7, now(), None, edited);
+        let first = save_one(&arrival, &plan, 7, "27", now(), None, "first\n");
         assert!(
-            matches!(&refused.verdict, Verdict::NotCleaned(Refusal::Exists(path)) if *path == taken),
+            matches!(first.verdict, Verdict::Cleaned),
             "{:?}",
-            refused.verdict
+            first.verdict
         );
+        assert!(!first.replaced);
+        assert_eq!(first.written.as_deref(), Some(beside.as_path()));
         assert_eq!(
             read(&taken),
             b"somebody's own file",
             "a taken name was written"
         );
 
-        let saved = save_one(&arrival, &plan, 7, now(), Some(&taken), edited);
+        // Over the row's own result only when it is the one named — what
+        // Overwrite answers (D441).
+        let saved = save_one(&arrival, &plan, 7, "27", now(), Some(&beside), edited);
         assert!(
             matches!(saved.verdict, Verdict::Cleaned),
             "{:?}",
@@ -1565,6 +1757,7 @@ mod tests {
         assert!(saved.edited, "the outcome does not say it was edited");
         assert!(saved.replaced);
         assert_eq!(saved.written.as_deref(), Some(beside.as_path()));
+        assert_eq!(read(&taken), b"somebody's own file");
         assert_eq!(
             read(&beside),
             encoded(edited, Encoding::Utf16Le),
@@ -1587,7 +1780,7 @@ mod tests {
 
         // A clean's outcome is never marked edited.
         std::fs::remove_file(&beside).expect("remove");
-        let cleaned = clean_one(&arrival, &plan, 7, now());
+        let cleaned = clean_one(&arrival, &plan, 7, "27", now());
         assert!(!cleaned.edited);
     }
 
@@ -1601,7 +1794,7 @@ mod tests {
         let source = scratch.file("x.md", MARKED.as_bytes());
         let arrival_of_file = arrival(Handed::Path(source.clone()));
         let plan = planned(&arrival_of_file, &Retention::default(), &scratch.homes());
-        let same = save_one(&arrival_of_file, &plan, 7, now(), None, MARKED);
+        let same = save_one(&arrival_of_file, &plan, 7, "27", now(), None, MARKED);
         assert!(
             matches!(same.verdict, Verdict::NothingFound),
             "{:?}",
@@ -1615,7 +1808,7 @@ mod tests {
             ..Retention::default()
         };
         let plan = planned(&arrival_of_file, &over, &scratch.homes());
-        let saved = save_one(&arrival_of_file, &plan, 7, now(), None, "edited\n");
+        let saved = save_one(&arrival_of_file, &plan, 7, "27", now(), None, "edited\n");
         assert!(
             matches!(saved.verdict, Verdict::Cleaned),
             "{:?}",
@@ -1628,7 +1821,7 @@ mod tests {
 
         let paste = arrival(Handed::Text(MARKED.to_owned()));
         let plan = planned(&paste, &Retention::default(), &scratch.homes());
-        let saved = save_one(&paste, &plan, 8, now(), None, "pasted, edited\n");
+        let saved = save_one(&paste, &plan, 8, "28", now(), None, "pasted, edited\n");
         assert!(
             matches!(saved.verdict, Verdict::Cleaned),
             "{:?}",
@@ -1795,7 +1988,13 @@ mod tests {
             file: other.clone(),
             set_aside_as: scratch.0.join("other.original.md"),
         });
-        let outcome = clean_one(&arrival(Handed::Path(source.clone())), &wrong, 7, now());
+        let outcome = clean_one(
+            &arrival(Handed::Path(source.clone())),
+            &wrong,
+            7,
+            "27",
+            now(),
+        );
         assert!(
             matches!(outcome.verdict, Verdict::NotCleaned(Refusal::Nowhere)),
             "{:?}",
@@ -1808,8 +2007,8 @@ mod tests {
     }
 
     /// A dangling link where the result would go is something in the way:
-    /// refused as existing, and the link left exactly as it was — never
-    /// followed to create the file it points at.
+    /// a taken name, passed by for the row's own (D635), and the link left
+    /// exactly as it was — never followed to create the file it points at.
     #[cfg(unix)]
     #[test]
     fn a_dangling_link_where_the_result_goes_is_in_the_way() {
@@ -1823,14 +2022,46 @@ mod tests {
             &Retention::default(),
             &scratch.homes(),
         );
-        assert!(
-            matches!(&outcome.verdict, Verdict::NotCleaned(Refusal::Exists(path)) if *path == link),
+        assert_eq!(
+            outcome.written.as_deref(),
+            Some(scratch.0.join("x.cleaned-27.md").as_path()),
             "{:?}",
             outcome.verdict
         );
         assert_eq!(std::fs::read_link(&link).expect("still a link"), target);
         assert!(!target.exists());
-        assert_eq!(names(&scratch.0), ["x.cleaned.md", "x.md"]);
+        assert_eq!(
+            names(&scratch.0),
+            ["x.cleaned-27.md", "x.cleaned.md", "x.md"]
+        );
+    }
+
+    /// Every one of a row's names taken — a hundred of them, which nothing
+    /// short of a folder filled on purpose does — is a refusal at last, and
+    /// every file left as it was (D636).
+    #[test]
+    fn every_name_taken_is_a_refusal_and_nothing_is_written_over() {
+        let scratch = Scratch::new("all-taken");
+        let source = scratch.file("x.md", MARKED.as_bytes());
+        let taken: Vec<String> =
+            wipemark_intake::name::own_names("x.md", RESULT_INFIX, "27", true).collect();
+        for name in &taken {
+            scratch.file(name, b"theirs");
+        }
+        let outcome = clean(
+            &arrival(Handed::Path(source)),
+            &Retention::default(),
+            &scratch.homes(),
+        );
+        assert!(
+            matches!(&outcome.verdict, Verdict::NotCleaned(Refusal::Exists(path)) if *path == scratch.0.join("x.cleaned.md")),
+            "{:?}",
+            outcome.verdict
+        );
+        assert_eq!(outcome.written, None);
+        assert!(taken
+            .iter()
+            .all(|name| read(&scratch.0.join(name)) == b"theirs"));
     }
 
     /// Keeping sweeps: a kept directory past its period is gone after the
@@ -1903,7 +2134,13 @@ mod tests {
             folder: scratch.0.clone(),
             name: Some("y.cleaned.md".to_owned()),
         });
-        let outcome = clean_one(&arrival(Handed::Path(source.clone())), &wrong, 7, now());
+        let outcome = clean_one(
+            &arrival(Handed::Path(source.clone())),
+            &wrong,
+            7,
+            "27",
+            now(),
+        );
         assert!(
             matches!(outcome.verdict, Verdict::NotCleaned(Refusal::SameFile(_))),
             "{:?}",
@@ -2672,7 +2909,7 @@ mod tests {
                 folder: folder.clone(),
                 name: Some(String::from("Payroll-Kv3Name.md")),
             });
-            let refused = clean_one(&dropped, &onto_source, 7, now());
+            let refused = clean_one(&dropped, &onto_source, 7, "27", now());
             assert!(
                 matches!(refused.verdict, Verdict::NotCleaned(Refusal::SameFile(_))),
                 "{:?}",
@@ -2961,9 +3198,6 @@ mod tests {
     fn cli_exit_of(outcome: &Outcome) -> i32 {
         match (&outcome.report, &outcome.verdict) {
             (_, Verdict::NotCleaned(Refusal::NotCleanable(_))) => 2,
-            // A result already where this one would go: the CLI refuses it
-            // before the read, as a window refuses it at the write (D598).
-            (_, Verdict::NotCleaned(Refusal::Exists(_))) => 2,
             (_, Verdict::NotCleaned(Refusal::StillMarked { .. })) => 3,
             (Some(Report::Text(report)), _) => i32::from(report.suspicious),
             (Some(Report::Picture(_)), Verdict::NothingFound) => 0,
@@ -2980,6 +3214,13 @@ mod tests {
     /// that differ are the declared deviations, named in the table — and
     /// what it writes is the library's answer at the CLI's defaults, the
     /// answer the CLI's half holds the binary's bytes to.
+    ///
+    /// A `taken` row is the declared deviation of D635: the CLI exits 2 and
+    /// writes nothing (D362, D598), and a window writes the row's own
+    /// `name.cleaned-<id>.ext` beside the taken file, which it leaves byte
+    /// for byte. Its `cli_exit` is the CLI's alone; the window's clean of a
+    /// taken row is held to the exit of the same input's `fresh` row — it is
+    /// the fresh clean, under the row's own name.
     #[test]
     fn the_windows_clean_to_the_clis_table() {
         let fixtures = PathBuf::from(format!("{}/../../fixtures", env!("CARGO_MANIFEST_DIR")));
@@ -2989,6 +3230,7 @@ mod tests {
         let taken = Scratch::new("parity-taken");
         let someones = b"an edit saved in Compare\n";
         let mut rows = 0;
+        let mut fresh_exit = std::collections::HashMap::new();
         for line in table.lines() {
             if line.starts_with('#') || line.trim().is_empty() {
                 continue;
@@ -3022,9 +3264,24 @@ mod tests {
                 &Retention::default(),
                 &scratch.homes(),
             );
+            let window_exit = match place {
+                "taken" => {
+                    assert_eq!(
+                        cli_exit, 2,
+                        "{input} (taken): the CLI refuses a taken name (D362, D598)"
+                    );
+                    *fresh_exit
+                        .get(input)
+                        .unwrap_or_else(|| panic!("{input} (taken): no fresh row above it"))
+                }
+                _ => {
+                    fresh_exit.insert(input, cli_exit);
+                    cli_exit
+                }
+            };
             assert_eq!(
                 cli_exit_of(&outcome),
-                cli_exit,
+                window_exit,
                 "{input}: a window's clean is not what the CLI exits with: {:?}",
                 outcome.verdict
             );
@@ -3043,11 +3300,19 @@ mod tests {
                 outcome.verdict
             );
             if let Some(beside) = &beside {
-                assert_eq!(
-                    read(beside) != someones,
-                    app_writes,
-                    "{input} (taken): written over"
-                );
+                assert_eq!(read(beside), someones, "{input} (taken): written over");
+                if app_writes {
+                    let own = wipemark_intake::name::with_tag(
+                        &name,
+                        wipemark_intake::name::RESULT_INFIX,
+                        "27",
+                    );
+                    assert_eq!(
+                        outcome.written.as_deref(),
+                        Some(taken.0.join(own).as_path()),
+                        "{input} (taken): not the row's own name"
+                    );
+                }
             }
             if let Some(written) = &outcome.written {
                 let expected = match outcome.report {

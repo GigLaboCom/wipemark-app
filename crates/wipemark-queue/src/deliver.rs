@@ -36,7 +36,10 @@ pub enum Undelivered {
     /// The source has no name to put an infix into.
     Unnamed,
     /// A file is already where a new one was to go: somebody's, and left
-    /// byte for byte (D261). A surface offers to replace it.
+    /// byte for byte. For [`Destination::New`], the one path it names; for
+    /// [`Destination::Own`], every name of the row's own was taken
+    /// ([`wipemark_intake::name::OWN_LIMIT`]), and this is the one it
+    /// claimed (D636).
     Exists(PathBuf),
     /// The write failed; the source is where it was.
     Write { kind: io::ErrorKind },
@@ -112,6 +115,30 @@ pub(crate) fn deliver(
                 Err(error) => Err(Undelivered::Write { kind: error.kind() }),
             }
         }
+        Destination::Own { .. } => {
+            let Source::File(source) = source else {
+                // Refused at push; a row edited by hand is not obeyed.
+                return Err(Undelivered::Unnamed);
+            };
+            // The row's own names, in order, each published by `write_new`:
+            // a name taken since it was claimed — by another row's result, a
+            // file another program wrote — moves the result on to the next
+            // rather than over it (D636). A name that is the source is
+            // taken, and passed by like any other.
+            let names = destination
+                .names()
+                .filter(|path| !inplace::same_file(source, path));
+            match inplace::write_first_free(names, &bytes, Some(source)) {
+                Ok(path) => Ok(Some(Written {
+                    path,
+                    original: None,
+                })),
+                Err((_, error)) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    Err(Undelivered::Exists(destination.file().unwrap_or_default()))
+                }
+                Err((_, error)) => Err(Undelivered::Write { kind: error.kind() }),
+            }
+        }
         Destination::InPlace(keep) => {
             let Source::File(path) = source else {
                 // Refused at push; a row edited by hand is not obeyed.
@@ -158,6 +185,28 @@ pub(crate) fn redeliver(
             } else {
                 Err(Undelivered::Exists(path.clone()))
             };
+        }
+    }
+    // A row's own result the crash fell after: the first of its names that
+    // holds the result's bytes is where it went; a name that holds anything
+    // else is somebody's, and passed by; the first free one is where the
+    // delivery had not got to, and `deliver` writes it there.
+    if let Destination::Own { .. } = destination {
+        let bytes = wipemark_intake::text::encode(text, encoding);
+        for path in destination.names() {
+            match std::fs::read(&path) {
+                Ok(current) if current == bytes => {
+                    return Ok(Some(Written {
+                        path,
+                        original: None,
+                    }))
+                }
+                // Somebody's — or a link, or something that will not read.
+                Ok(_) => {}
+                Err(_) if std::fs::symlink_metadata(&path).is_ok() => {}
+                // Free: where the delivery had not got to.
+                Err(_) => break,
+            }
         }
     }
     if let (Source::File(path), Destination::InPlace(Keep::Original)) = (source, destination) {
@@ -218,5 +267,81 @@ fn replace(path: &Path, bytes: &[u8], keep: Keep) -> Result<Option<Written>, Und
             Err(Undelivered::Write { kind: error.kind() })
         }
         Err(inplace::Failure::Stranded { original, .. }) => Err(Undelivered::Stranded { original }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use wipemark_intake::Encoding;
+
+    use super::{deliver, redeliver, Written};
+    use crate::item::{Destination, Source};
+
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(label: &str) -> Self {
+            let dir = std::env::temp_dir()
+                .join(format!("wipemark-deliver-{label}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("scratch");
+            Self(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn own(scratch: &Scratch) -> Destination {
+        Destination::Own {
+            folder: scratch.0.clone(),
+            name: "x.md".to_owned(),
+            tag: "9".to_owned(),
+            plain: true,
+        }
+    }
+
+    fn written(path: PathBuf) -> Written {
+        Written {
+            path,
+            original: None,
+        }
+    }
+
+    /// A crash after a row's own result was written finds it where it went
+    /// — past a name somebody else's file holds — and writes nothing again;
+    /// a crash before finishes it at the first free name (D636).
+    #[test]
+    fn a_rows_own_result_is_finished_where_it_went() {
+        let scratch = Scratch::new("own");
+        let source = Source::File(scratch.0.join("x.md"));
+        std::fs::write(scratch.0.join("x.md"), "marked\n").expect("source");
+        let plain = scratch.0.join("x.rewritten.md");
+        std::fs::write(&plain, "somebody's\n").expect("theirs");
+
+        let delivered = deliver(&source, &own(&scratch), "ours\n", Encoding::Utf8, false);
+        let ours = scratch.0.join("x.rewritten-9.md");
+        assert_eq!(delivered, Ok(Some(written(ours.clone()))));
+        let again = redeliver(&source, &own(&scratch), "ours\n", Encoding::Utf8);
+        assert_eq!(
+            again,
+            Ok(Some(written(ours.clone()))),
+            "written twice, or lost"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&plain).expect("theirs"),
+            "somebody's\n"
+        );
+        assert!(!scratch.0.join("x.rewritten-9-2.md").exists());
+
+        std::fs::remove_file(&ours).expect("remove");
+        let finished = redeliver(&source, &own(&scratch), "ours\n", Encoding::Utf8);
+        assert_eq!(finished, Ok(Some(written(ours.clone()))));
+        assert_eq!(std::fs::read_to_string(&ours).expect("ours"), "ours\n");
     }
 }

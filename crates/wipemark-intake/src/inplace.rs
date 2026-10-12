@@ -290,6 +290,35 @@ pub fn write_new(destination: &Path, bytes: &[u8], model: Option<&Path>) -> io::
     )
 }
 
+/// Write `bytes` under the first of `names` where nothing is, and say
+/// which (D636): each tried by [`write_new`], so a name taken a moment ago
+/// — by another process, by a file that appeared since the name was chosen
+/// — moves the write on to the next rather than over it. A name already
+/// visibly taken is passed by before anything is staged for it. An error
+/// other than a taken name stops at once (a folder that cannot be written
+/// is that for every name), with the name it stopped at; every name taken
+/// is `AlreadyExists`, with the last. Blocking.
+pub fn write_first_free(
+    names: impl IntoIterator<Item = PathBuf>,
+    bytes: &[u8],
+    model: Option<&Path>,
+) -> Result<PathBuf, (PathBuf, io::Error)> {
+    let mut last = PathBuf::new();
+    for destination in names {
+        if std::fs::symlink_metadata(&destination).is_ok() {
+            last = destination;
+            continue;
+        }
+        match write_new(&destination, bytes, model) {
+            Ok(()) => return Ok(destination),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => last = destination,
+            Err(error) => return Err((destination, error)),
+        }
+    }
+    let taken = io::Error::new(io::ErrorKind::AlreadyExists, "every name is taken");
+    Err((last, taken))
+}
+
 /// [`write_new`] with the link and the fallback's copy handed in, so that
 /// a test can take hard links away, or make the copy fail part way.
 fn write_new_with(
@@ -453,8 +482,8 @@ mod tests {
 
     use super::{
         copy, original_beside, replace, replace_with, temporary_for, write_atomically,
-        write_atomically_if, write_atomically_with, write_new, write_new_with, Failure, Keep,
-        Replaced,
+        write_atomically_if, write_atomically_with, write_first_free, write_new, write_new_with,
+        Failure, Keep, Replaced,
     };
 
     struct Scratch(PathBuf);
@@ -753,6 +782,55 @@ mod tests {
         std::fs::write(&taken, b"theirs").expect("write");
         assert!(write_new(&taken, b"ours", None).is_err());
         assert_eq!(read(&taken), b"theirs");
+    }
+
+    /// The first free name is the one written, every taken one — a file, a
+    /// link that points nowhere — left exactly as it was; every name taken
+    /// is `AlreadyExists`, and a folder that cannot be written stops at
+    /// once rather than trying every name (D636).
+    #[test]
+    fn the_first_free_name_is_written_and_no_other() {
+        let scratch = Scratch::new("first-free");
+        let names = || {
+            ["x.cleaned.md", "x.cleaned-7.md", "x.cleaned-7-2.md"].map(|name| scratch.0.join(name))
+        };
+        std::fs::write(scratch.0.join("x.cleaned.md"), b"theirs").expect("write");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(scratch.0.join("nowhere"), scratch.0.join("x.cleaned-7.md"))
+            .expect("link");
+        #[cfg(not(unix))]
+        std::fs::write(scratch.0.join("x.cleaned-7.md"), b"theirs too").expect("write");
+        let written = write_first_free(names(), b"ours", None).expect("written");
+        assert_eq!(written, scratch.0.join("x.cleaned-7-2.md"));
+        assert_eq!(read(&written), b"ours");
+        assert_eq!(read(&scratch.0.join("x.cleaned.md")), b"theirs");
+        assert!(
+            !scratch.0.join("nowhere").exists(),
+            "written through a link"
+        );
+
+        let refused = write_first_free(names(), b"again", None);
+        assert_eq!(
+            refused
+                .as_ref()
+                .map_err(|(path, error)| (path.clone(), error.kind())),
+            Err((written.clone(), io::ErrorKind::AlreadyExists))
+        );
+        assert_eq!(read(&written), b"ours", "a taken name was written over");
+
+        let missing = scratch.0.join("missing/a.md");
+        let nowhere = [missing.clone(), scratch.0.join("b.md")];
+        let refused = write_first_free(nowhere, b"ours", None);
+        assert_eq!(
+            refused
+                .as_ref()
+                .map_err(|(path, error)| (path.clone(), error.kind())),
+            Err((missing, io::ErrorKind::NotFound))
+        );
+        assert!(
+            !scratch.0.join("b.md").exists(),
+            "went on past a folder it cannot write"
+        );
     }
 
     #[test]

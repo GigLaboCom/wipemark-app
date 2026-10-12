@@ -285,6 +285,9 @@ impl Journal {
                         Command::Flushed(done) => {
                             let _ = done.send(());
                         }
+                        Command::IdOf { key, answer } => {
+                            let _ = answer.send(ids.get(&key).copied());
+                        }
                         #[cfg(test)]
                         Command::Gate(gate) => {
                             let _ = gate.recv();
@@ -343,6 +346,12 @@ enum Command {
     },
     /// Everything asked before this is written: say so (D440).
     Flushed(flume::Sender<()>),
+    /// Which journal row `key` is, once everything asked before this is
+    /// written (D637).
+    IdOf {
+        key: u64,
+        answer: flume::Sender<Option<i64>>,
+    },
     /// Wait for the test to say go: the writer held still, so a test can
     /// see what lands while it is.
     #[cfg(test)]
@@ -411,6 +420,29 @@ impl Writer {
         let _ = self.commands.send(Command::Edited { key, at, action });
     }
 
+    /// Which journal row the window's row `key` is, answered **in order**
+    /// — after every row asked of this writer before it is written (D637).
+    /// What a result of the row's own is named by: a clean or a rewrite of
+    /// a row the window recorded a moment ago asks this, and is answered
+    /// once that row has its id. `None` when the journal would not take
+    /// the row; a writer whose thread is gone answers nothing, and the
+    /// receiver disconnects.
+    pub fn id_of(&self, key: u64) -> flume::Receiver<Option<i64>> {
+        let (answer, answered) = flume::bounded(1);
+        let _ = self.commands.send(Command::IdOf { key, answer });
+        answered
+    }
+
+    /// The tag a result of row `key`'s own is named by, asked of this
+    /// writer when the result is written ([`Tag::Asked`]).
+    pub fn tag(&self, key: u64) -> Tag {
+        Tag::Asked {
+            writer: self.clone(),
+            key,
+            read: Arc::default(),
+        }
+    }
+
     /// Answered once everything asked of this writer before it is written
     /// — what a window's quit awaits, inside GPUI's budget, so a mark sent
     /// at quit is in the database before the process ends (D440). A writer
@@ -421,6 +453,98 @@ impl Writer {
         flushed
     }
 }
+
+/// What a result of a row's own is named by, when its plain name is taken
+/// (D635, D637): `name.cleaned-<id>.ext`, `name.rewritten-<id>.ext`, the
+/// `<id>` the **journal's** — the one the table's ID column shows, the one
+/// an agent names the document by, and unique for the life of the database
+/// (`AUTOINCREMENT`), so two rows can never claim one name and the file
+/// names its row for whoever reads it.
+///
+/// A window knows its row's journal id only once the writer has said which
+/// ([`Note::Recorded`]), and a clean or a rewrite may be asked for before
+/// that — `--clean=`, a drop processed on arrival, the panel's Clean, which
+/// records its row a moment after it asks. So the tag is asked of the
+/// writer that recorded the row, through that writer's own line
+/// ([`Writer::id_of`]), **when the result is about to be written** — on
+/// the background, long after the window's turn that recorded the row has
+/// ended: the answer comes after the row's insert, never before.
+#[derive(Clone)]
+pub enum Tag {
+    /// Known already: the row's journal id.
+    Id(i64),
+    /// To be asked of the row's writer under the window's number `key` —
+    /// which is also the answer when the journal has no row for it (a
+    /// database that would not take one, a writer that is gone).
+    Asked {
+        writer: Writer,
+        key: u64,
+        /// The answer once read — every clone of the tag reads the same.
+        read: Arc<OnceLock<String>>,
+    },
+    /// No journal at all: the window's own number for the row.
+    Number(u64),
+}
+
+impl std::fmt::Debug for Tag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Tag::Id(id) => f.debug_tuple("Id").field(id).finish(),
+            Tag::Asked { key, read, .. } => f
+                .debug_struct("Asked")
+                .field("key", key)
+                .field("read", &read.get())
+                .finish_non_exhaustive(),
+            Tag::Number(number) => f.debug_tuple("Number").field(number).finish(),
+        }
+    }
+}
+
+impl Tag {
+    /// How long a tag waits for the writer — a database that hangs must not
+    /// hang a clean with it. Past it, the row's own number.
+    const PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
+
+    /// The tag of row `key`: its journal id when the window knows it, asked
+    /// of `writer` when there is one, the window's number otherwise.
+    pub fn of(key: u64, entry: Option<i64>, writer: Option<&Writer>) -> Tag {
+        match (entry, writer) {
+            (Some(id), _) => Tag::Id(id),
+            (None, Some(writer)) => writer.tag(key),
+            (None, None) => Tag::Number(key),
+        }
+    }
+
+    /// The tag as a file name spells it. **Blocking**, for [`Tag::Asked`]:
+    /// called on the background, where the result is written.
+    pub fn resolve(&self) -> String {
+        match self {
+            Tag::Id(id) => id.to_string(),
+            Tag::Number(number) => number.to_string(),
+            Tag::Asked { writer, key, read } => read
+                .get_or_init(|| match writer.id_of(*key).recv_timeout(Self::PATIENCE) {
+                    Ok(Some(id)) => id.to_string(),
+                    _ => key.to_string(),
+                })
+                .clone(),
+        }
+    }
+}
+
+impl PartialEq for Tag {
+    /// Two tags are one when they would name a row alike as far as can be
+    /// told without asking: the same id, or the same window number.
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Tag::Id(a), Tag::Id(b)) => a == b,
+            (Tag::Number(a), Tag::Number(b)) => a == b,
+            (Tag::Asked { key: a, .. }, Tag::Asked { key: b, .. }) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Tag {}
 
 /// The batch queue and the journal, as everything that rewrites reaches
 /// them: the main window, the panel, the MCP server.
@@ -931,6 +1055,51 @@ fn end_as(journal: &Journal, row: Option<&JournalRow>, phase: Phase, reason: &st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A row's tag is its journal id, read through the writer that
+    /// recorded it **after** the row is in — even when the tag was made
+    /// before the window asked the row to be recorded, as the panel's Clean
+    /// makes it (D637); a row the journal has not got is named by the
+    /// window's own number; a tag read twice reads the same. Ask the
+    /// writer when the tag is made rather than when it is read and the
+    /// panel's tag is the number, not the id: red.
+    #[test]
+    fn a_tag_is_the_rows_journal_id_asked_in_order() {
+        let journal = Journal::new(Arc::new(Store::in_memory().expect("memory")));
+        let writer = journal.writer();
+        let gate = writer.gate();
+        let early = writer.tag(41);
+        writer.record(
+            41,
+            Written {
+                origin: Origin::Panel,
+                action: Action::Clean,
+                phase: Phase::Queued,
+                item: None,
+                arrived: 1,
+                ended: None,
+                entry: Entry::default(),
+            },
+        );
+        drop(gate);
+        let resolved = early.resolve();
+        let _ = writer.flushed().recv();
+        let id = journal.rows().first().map(|row| row.id).expect("the row");
+        assert_ne!(id, 41, "the test cannot tell the id from the number");
+        assert_eq!(resolved, id.to_string());
+        assert_eq!(
+            early.clone().resolve(),
+            resolved,
+            "read twice, read two ways"
+        );
+        assert_eq!(
+            writer.tag(99).resolve(),
+            "99",
+            "a row the journal has not got"
+        );
+        assert_eq!(Tag::of(7, Some(12), Some(&writer)).resolve(), "12");
+        assert_eq!(Tag::of(7, None, None).resolve(), "7");
+    }
 
     fn row(
         id: i64,

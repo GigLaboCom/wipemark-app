@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use chrono::TimeZone as _;
 use gpui::Context;
 use wipemark_i18n::{args, t, t_args, Message};
+use wipemark_intake::name::{with_infix, REWRITTEN_INFIX};
 use wipemark_intake::{Format, Handed};
 use wipemark_models::manifest::Role;
 use wipemark_pipeline::asked::Asked;
@@ -20,8 +21,7 @@ use wipemark_pipeline::prepare::TextFormat;
 use wipemark_pipeline::prompt::{Intensity, Tactic};
 use wipemark_pipeline::{Document, Event, Stage};
 use wipemark_queue::{
-    Destination, End, Failure, ItemId, QueueEvent as BatchEvent, Request, Source, State,
-    Undelivered, Whereto,
+    Destination, End, ItemId, QueueEvent as BatchEvent, Request, Source, State, Whereto,
 };
 use wipemark_store::entry::{Action, Entry, Origin, Phase};
 use wipemark_store::JournalRow;
@@ -54,13 +54,11 @@ struct Built {
     consent: Whereto,
 }
 
-/// Why a row's rewrite was not put in the line.
+/// Why a row's rewrite was not put in the line. A file already where the
+/// result would go is no reason since D635, which superseded D357: the row
+/// claims a name of its own instead.
 enum Unqueued {
-    /// A file is already where the result would go — said at once, with
-    /// "Replace the existing result" offered, rather than after the whole
-    /// job (D357).
-    Exists(PathBuf),
-    /// Anything else, by its id.
+    /// By its id.
     Refused(String),
 }
 
@@ -238,7 +236,6 @@ impl Queue {
                 look: Look::of_entry(&entry),
                 item: record.item.map(ItemId),
                 price: None,
-                existing: None,
                 edited: None,
                 edited_at: None,
                 keyword: None,
@@ -326,13 +323,6 @@ impl Queue {
                         End::Done(_) | End::Delivered { .. } => Phase::Done,
                         End::Failed(_) => Phase::Failed,
                         End::Cancelled => Phase::Cancelled,
-                    };
-                    row.existing = match &end {
-                        End::Failed(failure) => match failure.as_ref() {
-                            Failure::Undelivered(Undelivered::Exists(path)) => Some(path.clone()),
-                            _ => None,
-                        },
-                        _ => None,
                     };
                     // A new result: an edit saved over an earlier one is not
                     // this one's (D447).
@@ -483,28 +473,16 @@ impl Queue {
         }
     }
 
-    /// "Replace the existing result" of a rewrite refused over a file
-    /// already there: a Rewrite of row `id` over that one file, by the
-    /// Rewrite's own road — greyed when a Rewrite would be, and asked
-    /// about first when the document would leave this machine (D393).
-    pub(super) fn replace_rewrite(&mut self, id: u64, existing: PathBuf, cx: &mut Context<Self>) {
-        if self.why_not_rewrite(id, cx).is_some() {
-            return;
-        }
-        self.send_or_push(&[id], Some(existing), cx);
-    }
-
-    /// Rewrite rows `ids` — over `replacing`, for a Replace — where the duty
-    /// sends them now: asked about first when they would leave this machine
-    /// (В1, D393), the question naming where; pushed at once when they stay.
-    fn send_or_push(&mut self, ids: &[u64], replacing: Option<PathBuf>, cx: &mut Context<Self>) {
+    /// Rewrite rows `ids` where the duty sends them now: asked about first
+    /// when they would leave this machine (В1), the question naming where;
+    /// pushed at once when they stay.
+    fn send_or_push(&mut self, ids: &[u64], cx: &mut Context<Self>) {
         match self.going(cx) {
             Ok(Whereto::Away(host)) => cx.emit(QueueEvent::SendAway {
                 ids: ids.to_vec(),
                 host,
-                replacing,
             }),
-            Ok(Whereto::Here) => self.push_rewrites(ids, replacing, Whereto::Here, cx),
+            Ok(Whereto::Here) => self.push_rewrites(ids, Whereto::Here, cx),
             Err(_) => {}
         }
     }
@@ -518,24 +496,13 @@ impl Queue {
     /// pushes nothing, and the road runs again with the duty as it stands,
     /// asking again where that road asks (a price, a document leaving this
     /// machine) and pushing where a fresh press would push without a
-    /// question (a drop or a Replace that now stays here).
+    /// question (a drop that now stays here).
     pub fn agreed(&mut self, ids: &[u64], road: Road, asked: Whereto, cx: &mut Context<Self>) {
         match self.going(cx) {
-            Ok(now) if now == asked => {
-                let replacing = match &road {
-                    Road::Replace(existing) => Some(existing.clone()),
-                    Road::Price | Road::Arrivals => None,
-                };
-                self.push_rewrites(ids, replacing, asked, cx);
-            }
+            Ok(now) if now == asked => self.push_rewrites(ids, asked, cx),
             Ok(_) | Err(_) => match road {
                 Road::Price => self.ask_price(ids.to_vec(), cx),
-                Road::Arrivals => self.send_or_push(ids, None, cx),
-                Road::Replace(existing) => {
-                    if let [id] = ids {
-                        self.replace_rewrite(*id, existing, cx);
-                    }
-                }
+                Road::Arrivals => self.send_or_push(ids, cx),
             },
         }
     }
@@ -599,7 +566,7 @@ impl Queue {
                 }
                 // A document a drop would send away is asked about once,
                 // per arrival, before it goes (В1).
-                self.send_or_push(&rewritable, None, cx);
+                self.send_or_push(&rewritable, cx);
             }
         }
     }
@@ -642,30 +609,23 @@ impl Queue {
     /// whose button is the consent, its tooltip naming where.
     pub fn rewrite(&mut self, ids: &[u64], cx: &mut Context<Self>) {
         if let Ok(now) = self.going(cx) {
-            self.push_rewrites(ids, None, now, cx);
+            self.push_rewrites(ids, now, cx);
         }
     }
 
     /// Push rows `ids` to the batch queue, each with the Retention plan
-    /// taken **now** (D91) — or, for "Replace the existing result", over
-    /// that one named file.
+    /// taken **now** (D91), and each claiming a result of its own when it
+    /// is built (D635, D636): the plain `name.rewritten.ext` when nothing is
+    /// there and no item still waiting or running claims it, the row's own
+    /// `name.rewritten-<id>.ext` otherwise.
     ///
     /// Every road here is the person's in a window — a row's Rewrite,
-    /// Rewrite all, a drop, Replace — and every one carries `consent`,
-    /// where they agreed the document may go: the duty's destination when
-    /// they pressed, or the one the question they said yes to named (D361,
+    /// Rewrite all, a drop — and every one carries `consent`, where they
+    /// agreed the document may go: the duty's destination when they
+    /// pressed, or the one the question they said yes to named (D361,
     /// D431). With nothing on duty there is no such place: nothing is
-    /// pushed, and the rows stay as they were (D393, D430). A replace takes
-    /// the same road as a Rewrite — the same vacancy check, the same
-    /// question before a document leaves — and differs only in where its
-    /// result goes.
-    pub(super) fn push_rewrites(
-        &mut self,
-        ids: &[u64],
-        replacing: Option<PathBuf>,
-        consent: Whereto,
-        cx: &mut Context<Self>,
-    ) {
+    /// pushed, and the rows stay as they were (D393, D430).
+    pub(super) fn push_rewrites(&mut self, ids: &[u64], consent: Whereto, cx: &mut Context<Self>) {
         let Some(work) = self.work.clone() else {
             return;
         };
@@ -679,8 +639,6 @@ impl Queue {
             let Some(row) = self.rows.iter().find(|row| row.id == id) else {
                 continue;
             };
-            // "Replace" asks again of a row whose rewrite ended refused, and
-            // is held to every rule a Rewrite is (D393).
             if super::why_not_rewrite(&row.status, row.cleanable(), vacant.clone()).is_some() {
                 continue;
             }
@@ -691,19 +649,25 @@ impl Queue {
                 Handed::Path(path) => Some(path.clone()),
                 Handed::Text(_) | Handed::Bytes { .. } => None,
             };
-            let destination = match &replacing {
-                Some(existing) => Some(Destination::File(existing.clone())),
-                None => retention::rewrite_destination(&plan_of(&arrival), source.as_deref()),
-            };
+            let destination = retention::rewrite_destination(&plan_of(&arrival), source.as_deref());
             let Some(destination) = destination else {
                 continue;
             };
-            asked.push((id, arrival, destination, consent.clone()));
+            // Named by the row's journal id, asked of its writer when the
+            // window does not know it yet (D637) and read where the request
+            // is built, off this thread.
+            let tag = journal::Tag::of(id, row.entry, self.writer.as_ref());
+            asked.push(Wanted {
+                id,
+                arrival,
+                destination,
+                tag,
+                consent: consent.clone(),
+            });
         }
-        for (id, _, _, _) in &asked {
-            if let Some(row) = self.rows.iter_mut().find(|row| row.id == *id) {
+        for one in &asked {
+            if let Some(row) = self.rows.iter_mut().find(|row| row.id == one.id) {
                 row.status = Status::RewriteQueued;
-                row.existing = None;
                 row.edited_at = None;
             }
         }
@@ -772,39 +736,6 @@ impl Queue {
                         ),
                         _ => push(),
                     }
-                }
-                Err(Unqueued::Exists(path)) => {
-                    // Refused at once, as the windows' clean refuses one
-                    // (D261, D357): nothing ran, and Replace is offered.
-                    let outcome = wipemark_store::entry::Outcome {
-                        verdict: "failed".to_owned(),
-                        reason: Some("exists".to_owned()),
-                        ..Default::default()
-                    };
-                    if let (Some(writer), Some(arrival)) = (&self.writer, &row.arrival) {
-                        let mut entry = journal::entry_of(arrival);
-                        entry.outcome = Some(outcome.clone());
-                        entry.result = Some(wipemark_store::entry::Delivered::Nowhere);
-                        writer.change(
-                            id,
-                            Written {
-                                origin: row.origin,
-                                action: Action::Rewrite,
-                                phase: Phase::Failed,
-                                item: None,
-                                arrived: 0,
-                                ended: Some(journal::now_ms()),
-                                entry,
-                            },
-                        );
-                    }
-                    row.existing = Some(path);
-                    row.status = Status::Recorded(Box::new(Said {
-                        action: Action::Rewrite,
-                        phase: Phase::Failed,
-                        outcome: Some(outcome),
-                        result: None,
-                    }));
                 }
                 Err(Unqueued::Refused(reason)) => {
                     tracing::warn!(id, "a rewrite could not be queued");
@@ -1080,9 +1011,67 @@ pub(super) fn asked(format: TextFormat) -> Asked {
     }
 }
 
+/// One row's rewrite as the window asked for it, to be built off the GPUI
+/// thread.
+struct Wanted {
+    id: u64,
+    arrival: Arrival,
+    /// By the plan taken at push (D91) — the row's own result not claimed
+    /// yet: that is [`claim`]'s, where the request is built.
+    destination: Destination,
+    /// What the row's own result is named by (D637).
+    tag: journal::Tag,
+    consent: Whereto,
+}
+
+/// A row's own result, claimed (D635, D636): the tag read — blocking, the
+/// writer answering once the row is in — and the plain name kept only when
+/// nothing is there and nothing else claims it: an item of the batch queue
+/// still waiting or running, or a row pushed with this one. `claimed` is
+/// that set, and the name this row takes is added to it.
+fn claim(
+    destination: Destination,
+    tag: &journal::Tag,
+    claimed: &mut HashSet<PathBuf>,
+) -> Destination {
+    let Destination::Own {
+        folder,
+        name,
+        plain,
+        ..
+    } = destination
+    else {
+        return destination;
+    };
+    let plain_name = folder.join(with_infix(&name, REWRITTEN_INFIX));
+    let free = !claimed.contains(&plain_name) && std::fs::symlink_metadata(&plain_name).is_err();
+    let own = Destination::Own {
+        folder,
+        name,
+        tag: tag.resolve(),
+        plain: plain && free,
+    };
+    if let Some(taken) = own.file() {
+        claimed.insert(taken);
+    }
+    own
+}
+
+/// The names the batch queue's items still waiting or running have claimed
+/// (D636): what a row pushed now must not claim too.
+fn claimed_by_items(queue: &wipemark_queue::Queue) -> HashSet<PathBuf> {
+    queue
+        .items()
+        .into_iter()
+        .filter(|view| !view.state.is_end())
+        .filter_map(|view| view.destination.as_ref().and_then(Destination::file))
+        .collect()
+}
+
 /// The rows' rewrites, built: the template rows read, a text with no file
-/// read and decoded, each one priced. Blocking.
-fn build(work: &Work, asked_for: Vec<(u64, Arrival, Destination, Whereto)>) -> Vec<Built> {
+/// read and decoded, each one priced, each one's own result claimed.
+/// Blocking.
+fn build(work: &Work, asked_for: Vec<Wanted>) -> Vec<Built> {
     // The working set as the Rewriting page saved it, and what it is — the
     // profile it renders like, or `custom` — for the report (E4-9, D516).
     let saved = crate::mcp::rewrite::saved(work.journal.store());
@@ -1091,22 +1080,23 @@ fn build(work: &Work, asked_for: Vec<(u64, Arrival, Destination, Whereto)>) -> V
     let pace = work.engine.pace();
     let executor = pace.executor.unwrap_or(Executor::LocalCpu);
     let info = work.engine.described().ok();
+    // What items still waiting or running have claimed, and what each row
+    // here claims in its turn: two rows pushed together never claim one
+    // name (D636). A file already there is no refusal any more (D635,
+    // superseding D357): the row claims its own name instead, and a file
+    // that appears while the job runs moves it on again at delivery.
+    let mut claimed = claimed_by_items(&work.queue);
     asked_for
         .into_iter()
-        .map(|(id, arrival, destination, consent)| {
-            // A new file where one already is: refused now, before anything
-            // is read or run (D357). The publish still refuses a file that
-            // appears while the job runs (D284).
-            if let Destination::New(path) = &destination {
-                if std::fs::symlink_metadata(path).is_ok() {
-                    return Built {
-                        id,
-                        request: Err(Unqueued::Exists(path.clone())),
-                        price: None,
-                        consent,
-                    };
-                }
-            }
+        .map(|wanted| {
+            let Wanted {
+                id,
+                arrival,
+                destination,
+                tag,
+                consent,
+            } = wanted;
+            let destination = claim(destination, &tag, &mut claimed);
             let format = format_of(arrival.intake.format);
             let options = asked(format)
                 .options(executor, overrides.clone(), pivot)

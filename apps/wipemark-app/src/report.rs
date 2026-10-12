@@ -1020,7 +1020,7 @@ mod tests {
         };
         let plan = retention::plan(&Source::of(&arrival.intake), &Retention::default(), &homes);
         let now = Utc.with_ymd_and_hms(2026, 10, 5, 13, 46, 2).unwrap();
-        let outcome = clean::clean_one(&arrival, &plan, 7, now);
+        let outcome = clean::clean_one(&arrival, &plan, 7, "7", now);
         (arrival, outcome)
     }
 

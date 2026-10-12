@@ -13,8 +13,13 @@
 # place: `fresh`, nothing where the result goes — the CLI runs with
 #   `-o <out>` into an empty folder, a window beside the input; or
 #   `taken`, a file already where the result goes beside the input —
-#   both sides run beside and leave that file byte for byte (D261, D362,
-#   D598), so cli_writes and app_writes say whether it was written over.
+#   both sides run beside and leave that file byte for byte. The CLI
+#   refuses before the read (2, nothing written; D362, D598); a window
+#   writes the row's own `name.cleaned-<id>.ext` beside it (D635, the
+#   declared deviation), so on a taken row cli_writes says whether the CLI
+#   wrote at all and app_writes whether the window wrote its own result.
+#   A taken row's cli_exit is the CLI's alone: the window's test holds its
+#   clean to the exit of the same input's fresh row, which must come above.
 #   A taken place with nothing to find is no row: the CLI refuses before
 #   the read (2), a window reads, finds nothing and writes nothing (D260).
 # A change to either side's rule turns that side's test red until this
@@ -34,5 +39,5 @@ image/gemini/crying-transparent-1025.png	fresh	3	yes	no	partly	D262: an output i
 image/gemini/cut-out-confetti-256.webp	fresh	0	yes	no	nothing-found	D260: nothing found, nothing written
 image/c2pa-jumbf.jpg	fresh	1	yes	yes	cleaned	-
 image/xmp-provenance.jpg	fresh	1	yes	yes	cleaned	-
-clean-parity/marked.md	taken	2	no	no	not-cleaned	-
-image/gemini/torch-1025.png	taken	2	no	no	not-cleaned	-
+clean-parity/marked.md	taken	2	no	yes	cleaned	D635: a window writes the row's own marked.cleaned-<id>.md beside the taken file; the CLI refuses (D362, D598)
+image/gemini/torch-1025.png	taken	2	no	yes	cleaned	D635: a window writes the row's own torch-1025.cleaned-<id>.png beside the taken file; the CLI refuses (D362, D598)
