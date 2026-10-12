@@ -298,6 +298,7 @@
   open is never repositioned by a topology change: the user put it
   there, and `screen::contained` catches a rectangle that no longer fits
   the next time one opens.
+* **Every way in behaves the same in every window** (the owner, 2026-10-12, after a day of fixing the main window's drop, then the panel's, then text's, each time one window behind the other). Drag and drop, Paste and Import take a file, a picture or a text identically in the main window and the panel — and in every window that takes things later — on every platform. That means the same accepted kinds and order, the same full-content overlay (`drop::overlay`), and one road (`Catcher::land` → the shared list), with the same log lines. A change to one window's intake goes into the shared code or into every window at once, and the parity test (`docs/plan/README.md` §7 E7, "Intake parity") holds them together.
 * **GPUI accepts files and nothing else, so the drop target is ours.**
   Its macOS window registers for exactly one pasteboard type —
   `NSFilenamesPboardType`, `gpui_macos::window` — and answers
