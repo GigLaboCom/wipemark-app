@@ -240,7 +240,14 @@ pub(crate) fn clean(ask: &Ask, picture: &Picture, io: &mut Io) -> Exit {
             Source::File(input) => Some(input.as_path()),
             Source::Stdin => None,
         };
-        if let Err(error) = inplace::write_atomically(file, &bytes, model) {
+        if let Err(error) = destination.write(file, &bytes, model) {
+            // A result that appeared since the check before the read
+            // (D598).
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                let line = run::exists_line("clean", file);
+                journal::note(|draft| draft.failed = Some("exists"));
+                return run::refused(io, "clean", path, &line, "result exists", Exit::Usage);
+            }
             let line = run::say(
                 Message::CliWriteFailed,
                 &args!(

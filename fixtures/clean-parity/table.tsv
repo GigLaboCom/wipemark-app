@@ -10,20 +10,29 @@
 # Which side reads which column: cli_exit both; cli_writes the CLI's alone;
 # app_writes and app_verdict the window's alone (the CLI's test reads past
 # them); the last column is for a person.
+# place: `fresh`, nothing where the result goes — the CLI runs with
+#   `-o <out>` into an empty folder, a window beside the input; or
+#   `taken`, a file already where the result goes beside the input —
+#   both sides run beside and leave that file byte for byte (D261, D362,
+#   D598), so cli_writes and app_writes say whether it was written over.
+#   A taken place with nothing to find is no row: the CLI refuses before
+#   the read (2), a window reads, finds nothing and writes nothing (D260).
 # A change to either side's rule turns that side's test red until this
 # table is changed — and then the other side's, until it follows.
 # input is relative to fixtures/. Columns are separated by one tab.
 #
-# input	cli_exit	cli_writes	app_writes	app_verdict	why the app differs
-clean-parity/marked.md	1	yes	yes	cleaned	-
-clean-parity/plain.md	0	yes	no	nothing-found	D260: nothing found, nothing written
-clean-parity/utf16.txt	1	yes	yes	cleaned	-
-clean-parity/softhyphen.txt	0	yes	yes	cleaned	-
-clean-parity/homoglyph.txt	1	yes	no	partly	D263: a kept homoglyph changes nothing
-clean-parity/scan.tif	2	no	no	not-cleaned	-
-image/gemini/torch-1025.png	1	yes	yes	cleaned	-
-image/gemini/crying-1025.png	3	yes	yes	partly	-
-image/gemini/crying-transparent-1025.png	3	yes	no	partly	D262: an output identical to its input
-image/gemini/cut-out-confetti-256.webp	0	yes	no	nothing-found	D260: nothing found, nothing written
-image/c2pa-jumbf.jpg	1	yes	yes	cleaned	-
-image/xmp-provenance.jpg	1	yes	yes	cleaned	-
+# input	place	cli_exit	cli_writes	app_writes	app_verdict	why the app differs
+clean-parity/marked.md	fresh	1	yes	yes	cleaned	-
+clean-parity/plain.md	fresh	0	yes	no	nothing-found	D260: nothing found, nothing written
+clean-parity/utf16.txt	fresh	1	yes	yes	cleaned	-
+clean-parity/softhyphen.txt	fresh	0	yes	yes	cleaned	-
+clean-parity/homoglyph.txt	fresh	1	yes	no	partly	D263: a kept homoglyph changes nothing
+clean-parity/scan.tif	fresh	2	no	no	not-cleaned	-
+image/gemini/torch-1025.png	fresh	1	yes	yes	cleaned	-
+image/gemini/crying-1025.png	fresh	3	yes	yes	partly	-
+image/gemini/crying-transparent-1025.png	fresh	3	yes	no	partly	D262: an output identical to its input
+image/gemini/cut-out-confetti-256.webp	fresh	0	yes	no	nothing-found	D260: nothing found, nothing written
+image/c2pa-jumbf.jpg	fresh	1	yes	yes	cleaned	-
+image/xmp-provenance.jpg	fresh	1	yes	yes	cleaned	-
+clean-parity/marked.md	taken	2	no	no	not-cleaned	-
+image/gemini/torch-1025.png	taken	2	no	no	not-cleaned	-

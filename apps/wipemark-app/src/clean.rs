@@ -2961,6 +2961,9 @@ mod tests {
     fn cli_exit_of(outcome: &Outcome) -> i32 {
         match (&outcome.report, &outcome.verdict) {
             (_, Verdict::NotCleaned(Refusal::NotCleanable(_))) => 2,
+            // A result already where this one would go: the CLI refuses it
+            // before the read, as a window refuses it at the write (D598).
+            (_, Verdict::NotCleaned(Refusal::Exists(_))) => 2,
             (_, Verdict::NotCleaned(Refusal::StillMarked { .. })) => 3,
             (Some(Report::Text(report)), _) => i32::from(report.suspicious),
             (Some(Report::Picture(_)), Verdict::NothingFound) => 0,
@@ -2983,6 +2986,8 @@ mod tests {
         let table =
             std::fs::read_to_string(fixtures.join("clean-parity/table.tsv")).expect("table");
         let scratch = Scratch::new("parity");
+        let taken = Scratch::new("parity-taken");
+        let someones = b"an edit saved in Compare\n";
         let mut rows = 0;
         for line in table.lines() {
             if line.starts_with('#') || line.trim().is_empty() {
@@ -2990,16 +2995,28 @@ mod tests {
             }
             rows += 1;
             let columns: Vec<&str> = line.split('\t').collect();
-            assert_eq!(columns.len(), 6, "{line:?}");
-            let (input, cli_exit, app_writes, app_verdict) = (
+            assert_eq!(columns.len(), 7, "{line:?}");
+            let (input, place, cli_exit, app_writes, app_verdict) = (
                 columns[0],
-                columns[1].parse::<i32>().expect("an exit"),
-                columns[3] == "yes",
-                columns[4],
+                columns[1],
+                columns[2].parse::<i32>().expect("an exit"),
+                columns[4] == "yes",
+                columns[5],
             );
             let name = Path::new(input).file_name().unwrap().to_string_lossy();
             let bytes = read(&fixtures.join(input));
-            let source = scratch.file(&name, &bytes);
+            // A `taken` row: a file already where the result goes beside
+            // the input, in a folder of its own (D598).
+            let (source, beside) = if place == "taken" {
+                let beside =
+                    wipemark_intake::name::with_infix(&name, wipemark_intake::name::RESULT_INFIX);
+                (
+                    taken.file(&name, &bytes),
+                    Some(taken.file(&beside, someones)),
+                )
+            } else {
+                (scratch.file(&name, &bytes), None)
+            };
             let outcome = clean(
                 &arrival(Handed::Path(source)),
                 &Retention::default(),
@@ -3025,6 +3042,13 @@ mod tests {
                 "{input}: {:?}",
                 outcome.verdict
             );
+            if let Some(beside) = &beside {
+                assert_eq!(
+                    read(beside) != someones,
+                    app_writes,
+                    "{input} (taken): written over"
+                );
+            }
             if let Some(written) = &outcome.written {
                 let expected = match outcome.report {
                     Some(Report::Picture(_)) => {

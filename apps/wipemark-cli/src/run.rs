@@ -105,6 +105,30 @@ impl Destination {
             Self::Stdout | Self::InPlace(..) => None,
         }
     }
+
+    /// Write a result to [`file`](Self::file). Beside the input is a new
+    /// file only — a result already there was refused before the read,
+    /// and one that appeared since is refused here, at the publish
+    /// (`AlreadyExists`) — because a result can hold an edit saved in
+    /// Compare (D362, D598). `-o` is the person's word and replaces.
+    pub(crate) fn write(&self, file: &Path, bytes: &[u8], model: Option<&Path>) -> io::Result<()> {
+        match self {
+            Self::Beside(_) => inplace::write_new(file, bytes, model),
+            _ => inplace::write_atomically(file, bytes, model),
+        }
+    }
+}
+
+/// What `command` says about a result already at `file`, beside its input:
+/// it is not written over; `-o` names another file, `--in-place` replaces
+/// the input itself (D362, D598).
+pub(crate) fn exists_line(command: &str, file: &Path) -> String {
+    let message = if command == "rewrite" {
+        Message::CliRewrittenExists
+    } else {
+        Message::CliCleanedExists
+    };
+    t_args(message, &args!("path" => file.display().to_string()))
 }
 
 /// `inspect <path|-> [--json]`. Never writes a file.
@@ -312,7 +336,12 @@ pub(crate) fn clean(flags: &Clean, io: &mut Io) -> Exit {
             Source::File(input) => Some(input.as_path()),
             Source::Stdin => None,
         };
-        if let Err(error) = inplace::write_atomically(file, &bytes, model) {
+        if let Err(error) = destination.write(file, &bytes, model) {
+            if error.kind() == io::ErrorKind::AlreadyExists {
+                let line = exists_line("clean", file);
+                journal::note(|draft| draft.failed = Some("exists"));
+                return refused(io, "clean", path, &line, "result exists", Exit::Usage);
+            }
             let line = t_args(
                 Message::CliWriteFailed,
                 &args!(
@@ -516,15 +545,14 @@ pub(crate) fn destination(
             (Source::File(input), None) => match input.file_name() {
                 Some(name) => {
                     let beside = input.with_file_name(with_infix(&name.to_string_lossy(), infix));
-                    // A rewrite never writes over a file already there —
-                    // one a window wrote, or anybody's — as the windows
-                    // refuse it (D261, D362): `-o` names another, and
-                    // `--in-place` replaces the input itself.
-                    if command == "rewrite" && std::fs::symlink_metadata(&beside).is_ok() {
-                        let line = t_args(
-                            Message::CliRewrittenExists,
-                            &args!("path" => beside.display().to_string()),
-                        );
+                    // Neither a clean nor a rewrite writes over a file
+                    // already there — one a window wrote, an edit saved in
+                    // Compare over it (D410), or anybody's — as the windows
+                    // refuse it (D261, D362, D598): `-o` names another, and
+                    // `--in-place` replaces the input itself. Before the
+                    // read, so a refusal costs nothing.
+                    if std::fs::symlink_metadata(&beside).is_ok() {
+                        let line = exists_line(command, &beside);
                         return Err(refused(
                             io,
                             command,
@@ -852,5 +880,32 @@ mod tests {
         assert_eq!(exit, Exit::Partial);
         assert!(stdout.is_empty());
         assert!(!stderr.is_empty());
+    }
+
+    /// D598: beside is a new file only — one that appeared after the check
+    /// before the read is refused at the publish and left as it is — while
+    /// `-o` is the person's word and replaces. Make `write` atomic for
+    /// beside too and the file is written over: red.
+    #[test]
+    fn beside_never_writes_over_a_file_that_appeared_and_out_replaces() {
+        use super::Destination;
+        let folder =
+            std::env::temp_dir().join(format!("wipemark-cli-write-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).expect("scratch");
+        let file = folder.join("note.cleaned.md");
+        std::fs::write(&file, b"an edit").expect("someone's file");
+
+        let beside = Destination::Beside(file.clone());
+        let refused = beside
+            .write(&file, b"cleaned", None)
+            .expect_err("written over");
+        assert_eq!(refused.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&file).expect("read"), b"an edit");
+
+        let out = Destination::Out(file.clone());
+        out.write(&file, b"cleaned", None).expect("-o replaces");
+        assert_eq!(std::fs::read(&file).expect("read"), b"cleaned");
+        std::fs::remove_dir_all(&folder).ok();
     }
 }

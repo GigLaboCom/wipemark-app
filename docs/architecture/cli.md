@@ -29,14 +29,14 @@ it in E7). Layer A itself is `docs/architecture/layer-a.md`.
 |---|---|---|---|
 | `inspect <path\|->` | 0 · 1 · 2 (missing, folder) · 3 (unreadable, not text, 8-bit, invalid) | the report | a note when the name lies; the refusal |
 | `inspect --json` | as above | `InspectReport::to_json()` | as above |
-| `clean <path>` (beside, `-o file`) | 0 · 1 (by the **input**) · 2 · 3 (also: the result could not be written) | the report | note, refusal |
+| `clean <path>` (beside, `-o file`) | 0 · 1 (by the **input**) · 2 (also: beside, a result already at `name.cleaned.ext` — before the read, the file left byte for byte; `-o` replaces, D598) · 3 (also: the result could not be written) | the report | note, refusal |
 | `clean … -o -`, `clean -` | as above | the cleaned text | the report, note, refusal |
 | `clean --json` | as above | `{"report","written"}` or `{"report","text"}` | note, refusal |
 | `clean --in-place [--no-original]` | 0 · 1 · 2 (stdin, a link, `-o`, an original already set aside, a replacement that could not be written) · 3 (unreadable input) | the report | note, refusal |
 | `clean --in-place --json` | as above | `{"report","written":{"path","original"\|null}\|null}` | note, refusal |
 | `inspect <picture>` | 0 (no block is AI provenance, no visible mark seen) · 1 (a block is, or a visible mark was seen) · 2 (TIFF, HEIC, AVIF: not in this version yet) · 3 (a picture this version could not read, or pixels that should have been examined and were not; 3 beats 1) | the report | a note when the name lies; the refusal |
 | `inspect <picture> --json` | as above | `PictureInspection::to_json()` | as above |
-| `clean <picture>` (beside, `-o file`, `--in-place`) | 0 (the input carried neither provenance nor a mark) · 1 (it did, and the result carries neither) · 2 (as `inspect`; a flag for text; an MPF index a removal would leave wrong; an animation to write back; every refusal of `clean` on a text) · **3 (could not be read; the result would still carry AI provenance metadata — nothing written; a visible mark left in the result — written with what could be done; pixels not examined; a restored picture that failed its own check — nothing written)** | the report | note, refusal |
+| `clean <picture>` (beside, `-o file`, `--in-place`) | 0 (the input carried neither provenance nor a mark) · 1 (it did, and the result carries neither) · 2 (as `inspect`; a flag for text; an MPF index a removal would leave wrong; an animation to write back; every refusal of `clean` on a text, a result already beside it included) · **3 (could not be read; the result would still carry AI provenance metadata — nothing written; a visible mark left in the result — written with what could be done; pixels not examined; a restored picture that failed its own check — nothing written)** | the report | note, refusal |
 | `clean <picture> -o -`, `clean -` | as above, and 2 when stdout is a terminal or with `--json` | the image's bytes | the report, note, refusal |
 | `clean <picture> --json` | as above | `{"report":<PictureReport>,"written"}` | note, refusal |
 | `audit <dir>` | 0 · 1 · 2 (not there, not a folder, `--json` with `--sarif`) · **3 when any file could not be read, findings or not** | files with findings, the summary, the unreadable files, the third shelf | refusal |
@@ -149,7 +149,8 @@ otherwise — camera EXIF is not a finding (D131).
 under **`--all-metadata`** — every block but colour, camera data and EXIF
 orientation included; the report says when a removed EXIF block carried the picture's rotation (`orientation_removed`, either scope). Colour
 profiles are kept by both. The output goes where a text's does — beside
-the input as `name.cleaned.ext`, `-o`, standard output, or `--in-place
+the input as `name.cleaned.ext` (refused when one is already there, D598),
+`-o`, standard output, or `--in-place
 [--no-original]` through `wipemark_intake::inplace` (nothing removed is
 nothing touched: no set-aside, no write). The exit is the **input's**, as a
 text's is: 1 when it carried AI provenance, 0 when not. `still_has_c2pa`
@@ -609,8 +610,11 @@ D362): exit 2 before the input is read or anything is sent, with a sentence
 naming `-o` (another file, or that one by name — `-o` is the person's word
 and replaces) and `--in-place`; the existing file is left byte for byte.
 The write itself is `inplace::write_new`, which refuses a file that
-appeared while the model worked (exit 2, the same sentence). `clean` keeps
-replacing its own `name.cleaned.ext`, which the parity table pins. The human
+appeared while the model worked (exit 2, the same sentence). `clean` does
+the same with its own `name.cleaned.ext` since D598 (acceptance F4: an edit
+saved in Compare lives in that file, D410): refused before the read, a text
+and a picture alike, the write `write_new`; the parity table's `taken` rows
+pin it on both sides. The human
 report says what Layer A found in the input, how many paragraphs were
 rewritten and how many kept their cleaned original, that Layer B is
 best-effort, the seed, where the result went, who rewrote it and the third

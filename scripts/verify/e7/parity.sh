@@ -169,8 +169,11 @@ while IFS=$'\t' read -r n verdict written _id; do
 done < "$PARITY_DIR/app.tsv"
 if [ -f "$TABLE" ]; then
   printf '\n| table.tsv row | CLI exit (table / measured) | CLI writes (table / measured) | app writes (table / measured) | app verdict (table / measured) | |\n|---|---|---|---|---|---|\n'
-  grep -v '^#' "$TABLE" | while IFS=$'\t' read -r input t_exit t_cli t_app t_verdict _why; do
+  grep -v '^#' "$TABLE" | while IFS=$'\t' read -r input place t_exit t_cli t_app t_verdict _why; do
     [ -n "$input" ] || continue
+    # A `taken` row (D598) is a result already beside the input; this
+    # script cleans into empty folders, so only the tests measure it.
+    [ "$place" = taken ] && continue
     n="table-$(basename "$input")"
     m_exit=${EXIT[$n]:-?}
     if [ -f "$PARITY_DIR/cli/$n" ]; then m_cli=yes; else m_cli=no; fi

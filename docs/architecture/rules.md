@@ -1612,8 +1612,11 @@
   naming `-o` and `--in-place`, the write itself `write_new` so a file that
   appears meanwhile is refused too (D362,
   `a_rewrite_never_writes_over_a_rewritten_file_already_there`); `-o` is
-  the person's word and replaces, and `clean`'s `name.cleaned.ext` is
-  unchanged (the parity table pins it). `wipemark_models::beacon`,
+  the person's word and replaces. `clean`'s `name.cleaned.ext` is held to
+  the same rule since D598 (an edit saved in Compare lives there, D410):
+  refused before the read, `write_new` at the publish, a text and a
+  picture alike (`a_clean_never_writes_over_a_cleaned_file_already_there`,
+  the parity table's `taken` rows). `wipemark_models::beacon`,
   `apps/wipemark-cli/src/app.rs`.
 * **Exit codes are the CLI's interface, and there are four.** `0`
   clean, `1` findings, `2` usage or a refusal, `3` partial. The third

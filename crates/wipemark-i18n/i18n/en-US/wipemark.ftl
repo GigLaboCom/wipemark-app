@@ -1358,7 +1358,7 @@ cli-command-audit = Walk a folder and report every text file in it that carries 
 
 cli-arg-path-or-stdin = File to read, or `-` for stdin.
 cli-arg-path = File to read.
-cli-arg-out = Output file, or `-` for standard output. Defaults to `<name>.cleaned.<ext>` beside the input, and to standard output when the input is standard input; in-place needs an explicit flag, never a default.
+cli-arg-out = Output file, or `-` for standard output. Defaults to `<name>.cleaned.<ext>` beside the input — never over one already there — and to standard output when the input is standard input; in-place needs an explicit flag, never a default.
 cli-arg-nfkc = Apply NFKC normalisation (off by default — it rewrites more than provenance marks).
 cli-arg-aggressive = Also replace a letter borrowed from another script inside a word (a homoglyph). Such letters are reported either way; higher false-positive rate, hence opt-in.
 cli-arg-json = Machine-readable JSON instead of prose.
@@ -1754,7 +1754,7 @@ cli-rewrite-added-model-not-here = The model chosen for rewriting, { $id }, is o
 cli-rewrite-unavailable = Nothing was rewritten: { $reason }
 cli-rewrite-failed = Nothing was rewritten: the job failed ({ $reason }).
 cli-rewrite-cancelled = Cancelled. Nothing was written.
-cli-rewrite-lost = The application stopped answering before the rewrite came back. Nothing was written; it may still be finishing the job.
+cli-rewrite-lost = The application stopped answering before the rewrite came back. Nothing was written. If the application was closed or stopped, this rewrite will not be finished — run the command again.
 cli-rewrite-app-refused = The running application did not rewrite: { $reason }
 cli-rewrite-served-app = Rewritten by the running { -brand-name } application, on the engine it has on duty.
 cli-rewrite-served-here = Rewritten by this command, on the model chosen for rewriting.
@@ -2061,6 +2061,7 @@ rewrite-consent-go = Send them
 status-rewrites-asking = Rewrites wait for your answer: send them to { $host }?
 queue-status-asking-tooltip = Waiting for your answer: the engine on duty would send it to { $host }, which is not where it was asked to go.
 cli-rewritten-exists = { $path } is already there, and a rewrite never writes over a file it did not make. Name another file with -o, or replace the input itself with --in-place, which sets the original aside first. Nothing was rewritten.
+cli-cleaned-exists = { $path } is already there, and a clean never writes over a result already there — it may hold an edit. Name another file with -o, or replace the input itself with --in-place, which sets the original aside first. Nothing was cleaned.
 
 ## E4-6c
 ##

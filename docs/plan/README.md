@@ -922,6 +922,8 @@ tell a decision from an accident.
 | **D595** | *(F2)* **Settings reopens at the rectangle and on the section it had, and only when nothing typed would be lost**: no dialog, no API key typed and not saved, both folder fields as last committed, no template edited and not saved, no check or adaptation running (`SettingsView::loses_nothing`); otherwise it stays and is activated. The new window opens before the old one is removed (GPUI quits a Linux process when its last window closes), and its rectangle is written as ⌘W writes it. | The owner: a half-typed field may be lost only if no other road exists — there is one, keeping the window. `an_open_settings_window_is_reopened_where_it_was` (two reopens, no growth), `a_settings_window_holding_a_typed_key_is_not_reopened`. |
 | **D596** | *(F2)* **Compare reopens on the subject asked for, at its rectangle, only when it would lose nothing** — no edit unsaved, no save under way, no question standing (`CompareView::loses_nothing`, what `may_close` says yes to without asking); otherwise it stays and is activated. | Compare never loses an edit (D415, D440). `an_open_compare_window_is_reopened_only_when_it_loses_nothing`. |
 | **D597** | *(F2; coordinator's choice, the owner may switch)* **The main window is never reopened.** Show (tray, shortcut) and the walk-through's request keep `activate_window`: under Wayland GNOME answers "Wipemark is ready" rather than raising it. | The table's drop target, the questions it is asking (Rewrite all's price, the queue's consent, D364) and the window handles the tray, `⌘,` and the hotkeys hold are the window's; a reopen would drop them. |
+| **D598** | *(acceptance F4, the owner, 2026-10-12)* **`wipemark-cli clean` never writes over a result already beside its input**, as `rewrite` does (D362) and the windows do (D261): `name.cleaned.ext` already there is exit 2 **before the read**, in a catalogue sentence naming `-o` and `--in-place` (`cli-cleaned-exists`, en/ru/de), the file left byte for byte; the write itself is `inplace::write_new` (`Destination::write`), so one that appears meanwhile is refused too; a text and a picture alike. `-o <file>` is the person's word and replaces; `-o -` and standard input are unchanged. The parity table gains a `place` column and two `taken` rows (text, picture) both sides read; a taken place with nothing to find is no row — the CLI refuses before the read, a window finds nothing and writes nothing (D260). | A result edited in Compare is saved over that very file (D410), and a second `clean` threw the edit away. `a_clean_never_writes_over_a_cleaned_file_already_there`, `beside_never_writes_over_a_file_that_appeared_and_out_replaces`, `a_cleaned_file_already_there_is_refused_with_both_ways_past_it`, the parity table's `taken` rows. |
+| **D599** | *(acceptance F6, the owner, 2026-10-12)* **When the application stops answering during a rewrite, the command line promises nothing**: "Nothing was written. If the application was closed or stopped, this rewrite will not be finished — run the command again." (`cli-rewrite-lost`, en/ru/de). | A restarted application removes such an item (D317), so "it may still be finishing the job" was not true. `a_lost_rewrite_is_never_promised_to_finish`. |
 
 ---
 
@@ -1347,6 +1349,11 @@ the gate the overview set, and the open edges.
       with `local-llama` and runs their tests (E4-8, D428).
 
 ### E5 — the rest of the CLI
+
+- **Fix — done** (acceptance F4, F6, 2026-10-12; `fix/linux-titlebar-activate`,
+  D598, D599, [report](reports/linux-titlebar-activate-2026-10-12.md)).
+  `clean` refuses a `name.cleaned.ext` already there, as `rewrite` does;
+  a rewrite the application stopped answering for is said not to finish.
 
 - **Exists.** The whole argument surface and the exit codes
   (`apps/wipemark-cli/src/main.rs:50-60`, `:93-150`), localized help, the

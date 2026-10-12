@@ -195,11 +195,13 @@ fn clean_writes_beside_the_file_and_never_over_it() {
         "the result has the input's permissions"
     );
 
-    // A second run replaces the result rather than stacking a new one.
-    std::fs::write(&result, b"stale").expect("write");
-    assert_eq!(code(&scratch.run(&["clean", "note.md"])), 1);
-    assert_eq!(std::fs::read(&result).expect("the result"), b"ab\n");
+    // A second run neither writes over the result — it may hold an edit
+    // saved in Compare (D598) — nor stacks a new one beside it.
+    std::fs::write(&result, b"an edit").expect("write");
+    assert_eq!(code(&scratch.run(&["clean", "note.md"])), 2);
+    assert_eq!(std::fs::read(&result).expect("the result"), b"an edit");
     assert!(!scratch.path("note.cleaned.cleaned.md").exists());
+    std::fs::write(&result, b"ab\n").expect("write");
 
     // A result cleaned again goes beside *it*.
     assert_eq!(code(&scratch.run(&["clean", "note.cleaned.md"])), 0);
@@ -732,6 +734,71 @@ fn a_rewrite_never_writes_over_a_rewritten_file_already_there() {
     );
 }
 
+/// F4, D598: `clean` refuses a result already beside its input, as
+/// `rewrite` does (D362) and the windows do (D261) — a text and a picture
+/// alike, exit 2 before the read, naming `-o` and `--in-place`, the file
+/// left byte for byte. `-o` is the person's word and replaces. Make the
+/// check before the read `rewrite`'s alone again and this is red.
+#[test]
+fn a_clean_never_writes_over_a_cleaned_file_already_there() {
+    let scratch = Scratch::new("cleaned-exists");
+    scratch.file("note.md", "Hello\u{200B}world\n".as_bytes());
+    scratch.file("note.cleaned.md", b"an edit saved in Compare\n");
+    let picture = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/image/c2pa-jumbf.jpg"),
+    )
+    .expect("the picture");
+    scratch.file("photo.jpg", &picture);
+    scratch.file("photo.cleaned.jpg", b"someone's picture");
+
+    for (input, beside, before) in [
+        (
+            "note.md",
+            "note.cleaned.md",
+            &b"an edit saved in Compare\n"[..],
+        ),
+        ("photo.jpg", "photo.cleaned.jpg", &b"someone's picture"[..]),
+    ] {
+        let output = scratch.run(&["clean", input]);
+        assert_eq!(code(&output), 2, "{input}: {}", stderr(&output));
+        let said = stderr(&output);
+        assert!(said.contains("-o") && said.contains("--in-place"), "{said}");
+        assert!(output.stdout.is_empty(), "{input}");
+        assert_eq!(
+            std::fs::read(scratch.path(beside)).expect("read"),
+            before,
+            "{input}: written over"
+        );
+    }
+
+    // Before the read: an input that cannot be read is refused for the
+    // result already beside it, not for the read.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let sealed = scratch.file("sealed.md", b"unread\n");
+        scratch.file("sealed.cleaned.md", b"kept\n");
+        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o000))
+            .expect("permissions");
+        let output = scratch.run(&["clean", "sealed.md"]);
+        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o644))
+            .expect("permissions");
+        assert_eq!(code(&output), 2, "{}", stderr(&output));
+        assert!(
+            stderr(&output).contains("--in-place"),
+            "refused for the read, not the result: {}",
+            stderr(&output)
+        );
+    }
+
+    let output = scratch.run(&["clean", "note.md", "-o", "note.cleaned.md"]);
+    assert_eq!(code(&output), 1, "{}", stderr(&output));
+    assert_eq!(
+        std::fs::read(scratch.path("note.cleaned.md")).expect("read"),
+        b"Helloworld\n"
+    );
+}
+
 /// With the application serving, this command knows no window — the
 /// application's engine is its business, and its MCP tool asks the window
 /// itself (E4-6c, D330) — so a long `--prompts` template is not refused for
@@ -892,6 +959,7 @@ fn a_clean_leaves_one_row_in_the_journal_and_nothing_else() {
     assert!(!row.entry.contains("Hello"), "the text reached the row");
     assert_eq!(store.settings().all().expect("settings"), settings);
 
+    std::fs::remove_file(scratch.path("note.cleaned.md")).expect("the first result");
     let output = scratch.run(&["clean", "note.md", "--no-record"]);
     assert_eq!(code(&output), 1, "{}", stderr(&output));
     assert_eq!(journal_rows(&store).len(), 1, "--no-record recorded");
