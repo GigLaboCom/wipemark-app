@@ -564,7 +564,37 @@
   returns the titlebar-inclusive frame from `Window::bounds()`. Save one
   and restore the other and the window grows by a titlebar every time it
   opens — 340, 373, 406, 439. `settings::geometry_of` is the conversion,
-  and `the_frame_and_the_content_round_trip` is the gate.
+  and `the_frame_and_the_content_round_trip` is the gate. Under
+  client-side decorations (GNOME on Wayland) the frame *is* the content —
+  our title bar is drawn inside it — so the two are one rectangle and a
+  reopen lands where the window was
+  (`an_open_settings_window_is_reopened_where_it_was`).
+* **A window draws its own title bar only where the desktop draws none.**
+  `apps/wipemark-app/src/chrome.rs`. GNOME's compositor offers no
+  server-side decorations under Wayland; GPUI falls back to client-side
+  ones, and a window that draws no bar cannot be dragged or closed.
+  `chrome::framed` puts gpui-component's `TitleBar` above the main,
+  Settings and Compare windows' content exactly when
+  `window.window_decorations()` is `Decorations::Client` — never on
+  macOS, under X11 or under a compositor that draws the frame, and never
+  on the panel (D590). Its glyphs are the four `window-*` files, the
+  component's own names (D591, `every_window_control_glyph_resolves`).
+  Its × is the desktop's close: every should-close goes through
+  `chrome::on_should_close`, and `chrome::close` asks it before
+  `remove_window` (D592, `the_title_bars_close_is_the_platforms_close`)
+  — gpui-component's default, `remove_window` alone, would skip the
+  tray's minimise, Settings' rectangle and Compare's save-or-ask. The
+  resize band and shadow are `Root`'s `WindowBorder` (D593).
+* **An open window is brought forward by reopening it under Wayland, and
+  only when that loses nothing.** `chrome::forward`: `App::activate` does
+  nothing on Linux; `Window::activate_window` is `_NET_ACTIVE_WINDOW`
+  under X11 and works, and under Wayland an `xdg_activation_v1` token
+  mutter does not honour (D594). So under Wayland `settings::open` and
+  `compare::open` close a window that is open and not in front and open
+  it again at its rectangle (Settings on its section) — the new one first,
+  because GPUI ends a Linux process when its last window closes — and
+  only when `loses_nothing` says so; otherwise they activate as before
+  (D595, D596). The main window is never reopened (D597).
 * **Never open a window or a dialog from inside `WindowHandle::update`.** That call
   checks the `Root` entity *out* of the app for the length of its
   closure, and everything `gpui-component` does with a dialog goes back
@@ -1140,7 +1170,7 @@
   already have is not the expensive half of choosing, and the catalogue
   cannot recommend what nobody vouched for (D406). See
   `docs/architecture/model-downloads.md` and `docs/architecture/user-models.md`.
-* **Only the fifty-six glyphs in `assets/icons/` resolve.** The
+* **Only the sixty glyphs in `assets/icons/` resolve.** The
   application registers `WipemarkAssets` as GPUI's single
   `AssetSource`, so any gpui-component control that paints an icon this
   repository does not ship renders as blank space and logs

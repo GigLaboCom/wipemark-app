@@ -115,7 +115,7 @@ way back, and the hook is registered inside the `Some`
 |---|---|---|
 | macOS | the application hides (`App::hide`); the Dock and the menu bar bring it back | closes |
 | Linux, GPUI on X11 | the main window is **minimized**; Show restores it | closes |
-| Linux, GPUI on Wayland | **closes** | closes |
+| Linux, GPUI on Wayland | **closes** — the title bar's × included (D592) | closes |
 | Windows | — (no tray) | closes |
 
 **D343 — Linux minimizes, and only under X11.** GPUI's `App::hide` is
@@ -131,6 +131,30 @@ brought back by Show, and the close button keeps closing. With the main
 window closed there, the tray still offers the panel, Settings and Quit,
 and GPUI's default on Linux ends the process when its last window
 closes.
+
+**Under GNOME on Wayland the close button is ours to draw** (D590,
+D592). The compositor draws no frame there, so the main window, Settings
+and Compare draw gpui-component's `TitleBar`, and its × runs the same
+should-close the desktop's button would (`chrome::on_should_close`, which
+every hook here registers through, and `chrome::close`): where the hook
+minimizes, the × minimizes; where there is none, it closes.
+
+**Show, and Settings…, while the window is open behind others (D594,
+D595, D597).** `App::activate` does nothing on Linux. Under X11
+`Window::activate_window` is `_NET_ACTIVE_WINDOW`, and the window comes
+forward. Under Wayland it asks for an `xdg_activation_v1` token stamped
+with the last click GPUI saw and the *target* window's surface — a click
+on the indicator is the shell's, not ours — and mutter answers by marking
+the window as wanting attention. So **Settings…** closes an open Settings
+window that is not in front and opens it again where it was (unless
+something typed would be lost), and the same holds for a Compare window
+asked for again. **Show** does not reopen the main window: its table, the
+questions it is asking (Rewrite all's price, the queue's consent) and the
+handles the tray, the shortcut and the hotkeys hold are all the window's,
+and a reopen would drop them. Under Wayland Show keeps asking GPUI's
+activation; GNOME shows "Wipemark is ready", and one click brings it.
+What would fix it is a token taken from the focused surface, which is
+GPUI's to add.
 
 **Closing the main window while Settings is open.** On macOS the whole
 application hides, Settings with it, and Show or the Dock brings both
@@ -185,6 +209,9 @@ after every Theme command; `muda` suppresses the event its own
   StatusNotifier host goes away later (the GNOME extension is turned
   off), the item disappears and the main window's close button still
   minimizes; the window is still in the dock and in Alt+Tab.
+* **Show under Wayland.** It asks for an activation mutter does not
+  honour (D597, above): the main window is marked as wanting attention
+  rather than raised.
 * **Left click.** On Linux a click on the indicator opens the menu; the
   StatusNotifier `Activate` event is not delivered by `tray-icon` there.
 

@@ -94,6 +94,7 @@ use wipemark_models::store::{Cancel, Downloads, Event, Hashing, Progress, State}
 use wipemark_models::user::{UserModel, UserState};
 use wipemark_secret::{Secret, Vault};
 
+use crate::chrome::Forward;
 use crate::compare::{Comparison, Gutters};
 use crate::config::{self, SettingsStore};
 use crate::dialog::{AddModel, Adding, Answer, Choose, Chosen, Confirm, Naming, Pick};
@@ -4577,8 +4578,10 @@ impl SettingsView {
             async {}
         });
 
+        // Through `chrome`, so the title bar this window draws for itself
+        // under client-side decorations closes the same way (D592).
         let this = cx.weak_entity();
-        window.on_window_should_close(cx, move |_, cx| {
+        crate::chrome::on_should_close(window, cx, move |_, cx| {
             if let Some(view) = this.upgrade() {
                 view.read(cx).remember(cx);
             }
@@ -4665,6 +4668,22 @@ impl SettingsView {
         cx.background_executor()
             .spawn(async move { window_state::save(&store, &screen, bounds) })
             .detach();
+    }
+
+    /// Whether closing this window now would lose nothing a person typed
+    /// and nothing stores yet: no dialog standing, no API key typed and
+    /// not saved, no folder typed and not committed, no template edited
+    /// and not saved, no check or adaptation running. Every other field
+    /// writes as it is typed. What a reopen to come forward asks (D595).
+    fn loses_nothing(&self, cx: &App) -> bool {
+        let shown = |field: &Entity<InputState>, path: &Path| {
+            field.read(cx).value().as_ref() == path.display().to_string()
+        };
+        self.overlay.is_none()
+            && self.api_key.read(cx).value().is_empty()
+            && shown(&self.folder, &self.folder_shown)
+            && shown(&self.results_folder, &self.results_shown)
+            && self.prompts.read(cx).loses_nothing(cx)
     }
 
     /// Where this window is and what to file it under, owned so that a
@@ -9280,7 +9299,7 @@ fn geometry_of(window: &Window) -> Bounds<Pixels> {
 }
 
 impl Render for SettingsView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let background = theme.background;
         let foreground = theme.foreground;
@@ -9290,7 +9309,7 @@ impl Render for SettingsView {
         // thing painted. The row below is the page; putting the overlay
         // among *its* children left the sidebar undimmed, because a
         // sibling of the sidebar is not reliably painted over it.
-        div()
+        let content = div()
             .size_full()
             .relative()
             .bg(background)
@@ -9371,7 +9390,10 @@ impl Render for SettingsView {
             // the scrolling section so a dialog is centred on the window
             // rather than on wherever the page happens to be scrolled
             // to.
-            .children(self.dialog())
+            .children(self.dialog());
+        // Where the desktop draws no frame, the window's own title bar,
+        // above the page and outside the dialog's backdrop (D590).
+        crate::chrome::framed(content, || Title::Settings.text(), window)
     }
 }
 
@@ -9392,11 +9414,31 @@ impl Render for SettingsView {
 /// with the sentence that promised Engine still on screen would read
 /// as the button not working. The gear, the shortcut and the menu bar
 /// all pass `None`.
+///
+/// "Bring it forward" is the display server's to answer (D594): under
+/// Wayland an open window that is not in front is closed and opened
+/// again at the rectangle and on the section it had, when that loses
+/// nothing typed (D595); everywhere else, and when it would, it is
+/// activated.
 pub fn open(
     preferences: &Entity<Preferences>,
     main: AnyWindowHandle,
     origin: Origin,
     at: Option<Section>,
+    cx: &mut App,
+) {
+    let forward = crate::chrome::forward(cx);
+    open_with(preferences, main, origin, at, forward, cx);
+}
+
+/// [`open`], told how an open window is brought forward — the display
+/// server's answer in the application, either one in a test.
+fn open_with(
+    preferences: &Entity<Preferences>,
+    main: AnyWindowHandle,
+    origin: Origin,
+    at: Option<Section>,
+    forward: Forward,
     cx: &mut App,
 ) {
     if let Some(open) = cx.try_global::<Opened>() {
@@ -9412,15 +9454,66 @@ pub fn open(
                     cx.notify();
                 });
             }
+            if forward == Forward::Reopen {
+                let front = handle
+                    .update(cx, |_, window, _| window.is_window_active())
+                    .unwrap_or(false);
+                if front {
+                    // Already where it was asked to be: nothing to raise,
+                    // and a reopen would only flicker.
+                    return;
+                }
+                if view.read(cx).loses_nothing(cx) {
+                    let (section, kept) = {
+                        let view = view.read(cx);
+                        (view.section, (view.screen.clone(), view.bounds))
+                    };
+                    // `remove_window` runs no should-close, so the
+                    // rectangle is written here, as ⌘W writes it.
+                    view.read(cx).remember(cx);
+                    // The new window first: GPUI ends a Linux process when
+                    // its last window closes, and with the main window
+                    // closed under Wayland this one is the last.
+                    open_new(preferences, main, origin, Some(section), Some(kept), cx);
+                    if let Err(error) = handle.update(cx, |_, window, _| window.remove_window()) {
+                        tracing::warn!(%error, "could not close the Settings window it replaced");
+                    }
+                    return;
+                }
+                // Something typed would go with the window: it stays, and
+                // the activation GPUI can ask for is asked — on GNOME the
+                // window is marked as wanting attention.
+                tracing::info!(
+                    "the Settings window holds what a reopen would lose; activated instead"
+                );
+            }
             if let Err(error) = handle.update(cx, |_, window, _| window.activate_window()) {
                 tracing::warn!(%error, "could not bring the Settings window forward");
             }
             return;
         }
     }
+    open_new(preferences, main, origin, at, None, cx);
+}
 
-    let store = preferences.read(cx).store();
-    let (screen, bounds) = place(origin, main, &store, cx);
+/// Open a Settings window — where [`place`] puts it, or, for one that
+/// replaces a window being brought forward, at `kept`: the screen and
+/// the rectangle that window had, as it would have remembered them.
+fn open_new(
+    preferences: &Entity<Preferences>,
+    main: AnyWindowHandle,
+    origin: Origin,
+    at: Option<Section>,
+    kept: Option<(Option<Screen>, Bounds<Pixels>)>,
+    cx: &mut App,
+) {
+    let (screen, bounds) = match kept {
+        Some(kept) => kept,
+        None => {
+            let store = preferences.read(cx).store();
+            place(origin, main, &store, cx)
+        }
+    };
     let preferences = preferences.clone();
 
     // The builder below is the only place that holds the new view, and
@@ -11972,5 +12065,127 @@ mod tests {
                 language.id
             );
         }
+    }
+
+    /// The Settings window `open` put up, and the view in it.
+    fn the_open_one(cx: &mut gpui::VisualTestContext) -> (AnyWindowHandle, Entity<SettingsView>) {
+        cx.update(|_, cx| {
+            let opened = cx.global::<Opened>();
+            (opened.window, opened.view.clone())
+        })
+    }
+
+    /// D595: under Wayland a Settings window that is open and behind
+    /// another is closed and opened again — on the section it was on, at
+    /// the rectangle it had — and a second reopen lands where the first
+    /// did: nothing grows by a frame. Make `open_with` activate the window
+    /// it has, as it did before, and the old window is still the one
+    /// there: red.
+    #[gpui::test]
+    fn an_open_settings_window_is_reopened_where_it_was(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("reopen");
+        cx.update(gpui_component::init);
+        cx.update(crate::dialog::init);
+        let (preferences, main) = added_bench(cx, &root);
+        let main_window = main.update(|window, _| window.window_handle());
+        main.update(|_, cx| {
+            open_with(
+                &preferences,
+                main_window,
+                Origin::MainWindow,
+                Some(Section::Mcp),
+                Forward::Activate,
+                cx,
+            )
+        });
+        main.run_until_parked();
+        let (first, _) = the_open_one(main);
+        let resized = size(px(1011.0), px(707.0));
+        gpui::VisualTestContext::from_window(first, main).simulate_resize(resized);
+        main.run_until_parked();
+        let rect = the_open_one(main).1.read_with(main, |view, _| view.bounds);
+        assert_eq!(
+            rect.size, resized,
+            "the window's rectangle was not followed"
+        );
+
+        for round in 1..=2 {
+            // The main window in front: Settings is behind it.
+            main.update(|window, _| window.activate_window());
+            main.run_until_parked();
+            let (before, _) = the_open_one(main);
+            main.update(|_, cx| {
+                open_with(
+                    &preferences,
+                    main_window,
+                    Origin::MainWindow,
+                    None,
+                    Forward::Reopen,
+                    cx,
+                )
+            });
+            main.run_until_parked();
+            let (after, view) = the_open_one(main);
+            assert_ne!(after, before, "round {round}: the window was not reopened");
+            assert!(
+                !main.update(|_, cx| cx.windows().contains(&before)),
+                "round {round}: the window it replaced is still open"
+            );
+            let (section, bounds) = view.read_with(main, |view, _| (view.section, view.bounds));
+            assert_eq!(section, Section::Mcp, "round {round}: the section was lost");
+            assert_eq!(bounds, rect, "round {round}: the rectangle moved or grew");
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D595's other half: a key typed and not saved would go with the
+    /// window, so it is not reopened — the same window stays, the key in
+    /// its field. Make `loses_nothing` say yes and the key is lost: red.
+    #[gpui::test]
+    fn a_settings_window_holding_a_typed_key_is_not_reopened(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("reopen-typed");
+        cx.update(gpui_component::init);
+        cx.update(crate::dialog::init);
+        let (preferences, main) = added_bench(cx, &root);
+        let main_window = main.update(|window, _| window.window_handle());
+        main.update(|_, cx| {
+            open_with(
+                &preferences,
+                main_window,
+                Origin::MainWindow,
+                Some(Section::Engine),
+                Forward::Activate,
+                cx,
+            )
+        });
+        main.run_until_parked();
+        let (first, view) = the_open_one(main);
+        let mut settings = gpui::VisualTestContext::from_window(first, main);
+        settings.update(|window, cx| {
+            let key = view.read(cx).api_key.clone();
+            key.update(cx, |field, cx| field.set_value("sk-half-typed", window, cx));
+        });
+        main.update(|window, _| window.activate_window());
+        main.run_until_parked();
+        assert!(!view.read_with(main, |view, cx| view.loses_nothing(cx)));
+
+        main.update(|_, cx| {
+            open_with(
+                &preferences,
+                main_window,
+                Origin::MainWindow,
+                None,
+                Forward::Reopen,
+                cx,
+            )
+        });
+        main.run_until_parked();
+        let (after, kept) = the_open_one(main);
+        assert_eq!(after, first, "reopened over a key typed and not saved");
+        assert_eq!(
+            kept.read_with(main, |view, cx| view.api_key.read(cx).value().to_string()),
+            "sk-half-typed"
+        );
+        std::fs::remove_dir_all(&root).ok();
     }
 }

@@ -35,6 +35,7 @@
 //! on a network home directory.
 
 mod assets;
+mod chrome;
 mod clean;
 mod cleaner;
 mod clipboard;
@@ -885,14 +886,14 @@ impl Shell {
 }
 
 impl Render for Shell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let background = theme.background;
         let foreground = theme.foreground;
         let border = theme.border;
         let muted = theme.muted_foreground;
 
-        div()
+        let content = div()
             .flex()
             .flex_col()
             .size_full()
@@ -986,7 +987,10 @@ impl Render for Shell {
                 deferred(setup.clone())
                     .with_priority(dialog::MODAL_PRIORITY)
                     .into_any_element()
-            }))
+            }));
+        // Where the desktop draws no frame (GNOME under Wayland), the
+        // window draws its own title bar above all of the above (D590).
+        chrome::framed(content, || Title::Main.text(), window)
     }
 }
 
