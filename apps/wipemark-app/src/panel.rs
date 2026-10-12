@@ -1050,10 +1050,6 @@ impl PanelView {
         let over = self.catcher.read(cx).over();
 
         let area = drop::zone(v_flex(), &self.catcher, cx)
-            // The same overlay as the main window's: a drop anywhere on
-            // the area lands, whatever lies over its lines (F9b).
-            .relative()
-            .child(drop::overlay(&self.catcher, cx))
             .flex_1()
             // Without this a child longer than the window makes the
             // flex item grow instead of clipping, and the dismissal
@@ -1230,6 +1226,11 @@ impl Render for PanelView {
                     )
             })
             .size_full()
+            // The same overlay as the main window's, over the whole panel:
+            // a drop anywhere on it lands — its header, its lines, the
+            // dismissal line — whatever lies over them (F9b, D652).
+            .relative()
+            .child(drop::overlay(&self.catcher, cx))
             .gap_2()
             .p_4()
             .bg(theme.background)
