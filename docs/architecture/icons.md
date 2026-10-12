@@ -10,7 +10,7 @@ look like extra work.
 
 ```
 apps/wipemark-app/
-  assets/icons/*.svg     the committed, curated set — 56 glyphs
+  assets/icons/*.svg     the committed, curated set — 60 glyphs
   build.rs               scans that directory, emits IconName
   src/assets.rs          WipemarkAssets: the rust-embed AssetSource
   src/icon.rs            IconSize, Icon, and the tests
@@ -274,6 +274,7 @@ that still ships in the binary and still has to be licence-audited.
 | `text-width` | the result's toolbar: wrap long lines — a way of looking at the text, not an operation (E7) |
 | `paragraph` | the result's toolbar: show whitespace — the pilcrow every editor uses for "show invisibles" (E7) |
 | `case-sensitive` / `replace` | the editor's own search panel, which `input::Search` opens over the result: its match-case toggle and its replace toggle. Two more files under the component's names, the way `eye-off` is — FA's `font` (a capital A) and `arrow-right-arrow-left` (⇄) — because the panel picks its own icons and paints blank squares, logging `asset not found` once per frame, for names this directory does not ship (E7) |
+| `window-minimize` / `window-maximize` / `window-restore` / `window-close` | the title bar a window draws for itself where the desktop draws none — GNOME under Wayland (F3, D591): gpui-component's `TitleBar` paints its window controls as `gpui_component::IconName::WindowMinimize`, `WindowMaximize`, `WindowRestore` and `WindowClose`, which ask for these four files by name and are the corpus's own names, promoted verbatim; without them the controls are four blank squares (E10) |
 
 Glyphs the product will want and does not yet have —
 `wand-magic-sparkles` for the Layer B rewrite itself, `shield-halved`

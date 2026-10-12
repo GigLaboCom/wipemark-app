@@ -51,7 +51,7 @@ toggles of the editor's search panel.
 scripts/promote-icon.sh broom     # -> broom.svg, IconName::Broom
 ```
 
-The set is deliberately small — fifty-six glyphs, each mapped to a
+The set is deliberately small — sixty glyphs, each mapped to a
 surface that E6–E9 actually builds. Promote a new one when a surface
 needs it, not in anticipation. The script finds the corpus (a pulled
 `dev-staging/`, a `--from` path, `$WIPEMARK_FA_CORPUS`, or another

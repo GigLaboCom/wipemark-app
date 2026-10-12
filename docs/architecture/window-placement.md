@@ -37,7 +37,26 @@ have a reason:
   for the menu bar — and remembers its own rectangle per display
   (`window_state`). A preferences window that jumped into a corner while
   its own grid was being read would be answering a question about a
-  different window.
+  different window. Asked for again while it is open and behind another
+  window, under Wayland it is **closed and opened again** at the
+  rectangle it had and on the section it was on (or the one the request
+  names) — the activation GPUI asks for there is not honoured by mutter
+  — unless that would lose something typed and not yet stored (a dialog,
+  an API key, a folder not committed, a template not saved, a check
+  running), when it stays and is activated (D594, D595,
+  `an_open_settings_window_is_reopened_where_it_was`). The new window is
+  opened before the old one is closed: GPUI ends a Linux process when its
+  last window closes.
+
+**A title bar of their own.** Under client-side decorations (GNOME on
+Wayland) the main, Settings and Compare windows draw gpui-component's
+`TitleBar` at the top of their content (`chrome::framed`, D590); the
+panel never does. The bar is *inside* the content, so the frame and the
+content are one rectangle there — `chrome` measured as `bounds` minus
+`viewport` is zero — and what is saved is what is restored: nothing grows
+on a reopen. The resize band and the shadow around it are
+gpui-component's `Root` (`WindowBorder`, a 20 px client inset), as they
+were before the bar (D593).
 
 The workspace windows will be placed by these choices too when they
 arrive; the banner at the top of the page says what is placed today and

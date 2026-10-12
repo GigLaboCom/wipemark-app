@@ -196,6 +196,7 @@ use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_intake::{Encoding, Handed, Intake, Kind};
 use wipemark_store::entry::Action;
 
+use crate::chrome::Forward;
 use crate::cleaner::{self, Cleaner};
 use crate::diff::{Diff, Grain, Side};
 use crate::icon::{Icon, IconName};
@@ -805,38 +806,84 @@ pub fn open(
     main: AnyWindowHandle,
     cx: &mut App,
 ) {
+    let forward = crate::chrome::forward(cx);
+    open_with(
+        key,
+        subject,
+        comparison,
+        link,
+        preferences,
+        main,
+        forward,
+        cx,
+    );
+}
+
+/// [`open`], told how an open window is brought forward (D594) — the
+/// display server's answer in the application, either one in a test.
+///
+/// Under Wayland a window already open on `key` and not in front is
+/// closed and a new one opened on `subject` — what the person would get
+/// by closing it and asking again, at the rectangle it had — when that
+/// loses nothing (D596); everywhere else, and while it holds an edit not
+/// yet saved, a save under way or a question, it is activated.
+#[allow(clippy::too_many_arguments)]
+fn open_with(
+    key: Option<u64>,
+    subject: Subject,
+    comparison: Comparison,
+    link: Option<Link>,
+    preferences: Option<Entity<Preferences>>,
+    main: AnyWindowHandle,
+    forward: Forward,
+    cx: &mut App,
+) {
+    let mut replacing = None;
     if let Some(key) = key {
         let already = cx
             .try_global::<Opened>()
             .and_then(|opened| opened.0.get(&key).copied())
             .filter(|handle| cx.windows().contains(handle));
         if let Some(handle) = already {
-            if let Err(error) = handle.update(cx, |_, window, _| window.activate_window()) {
-                tracing::warn!(%error, "could not bring a Compare window forward");
+            let (front, loses_nothing, at) = handle
+                .update(cx, |root, window, cx| {
+                    let view = root.downcast::<Root>().ok().and_then(|root| {
+                        root.read(cx).view().clone().downcast::<CompareView>().ok()
+                    });
+                    let loses_nothing = view.is_some_and(|view| view.read(cx).loses_nothing(cx));
+                    (window.is_window_active(), loses_nothing, window.bounds())
+                })
+                .unwrap_or((false, false, Bounds::default()));
+            match forward {
+                Forward::Reopen if front => return,
+                Forward::Reopen if loses_nothing => replacing = Some((handle, at)),
+                _ => {
+                    if forward == Forward::Reopen {
+                        tracing::info!(
+                            "the Compare window holds what a reopen would lose; activated instead"
+                        );
+                    }
+                    if let Err(error) = handle.update(cx, |_, window, _| window.activate_window()) {
+                        tracing::warn!(%error, "could not bring a Compare window forward");
+                    }
+                    return;
+                }
             }
-            return;
         }
     }
 
-    let (screen, bounds) = place(main, cx);
+    let (screen, bounds) = match replacing {
+        Some((handle, at)) => {
+            let screen = handle
+                .update(cx, |_, window, cx| screen::of_window(window, cx))
+                .ok()
+                .flatten();
+            (screen, at)
+        }
+        None => place(main, cx),
+    };
     let opened = cx.open_window(
-        WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitlebarOptions {
-                // The name comes with the text, a moment later.
-                title: Some(
-                    Title::Compare {
-                        name: title::NAME_PENDING,
-                    }
-                    .text()
-                    .into(),
-                ),
-                ..Default::default()
-            }),
-            window_min_size: Some(MIN_SIZE),
-            display_id: screen.as_ref().map(|screen| screen.id),
-            ..Default::default()
-        },
+        window_options(bounds, screen.as_ref()),
         move |window, cx| {
             let view = cx.new(|cx| {
                 CompareView::new(subject, comparison, key, link, preferences, window, cx)
@@ -853,8 +900,39 @@ pub fn open(
                     .insert(key, AnyWindowHandle::from(window));
             }
             cx.activate(true);
+            // The old one after the new: it held nothing to lose, and GPUI
+            // ends a Linux process when its last window closes.
+            if let Some((handle, _)) = replacing {
+                if let Err(error) = handle.update(cx, |_, window, _| window.remove_window()) {
+                    tracing::warn!(%error, "could not close the Compare window it replaced");
+                }
+            }
         }
         Err(error) => tracing::warn!(%error, "could not open the Compare window"),
+    }
+}
+
+/// The Compare window's options: at `bounds` on `screen`.
+pub(crate) fn window_options(bounds: Bounds<Pixels>, screen: Option<&Screen>) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        titlebar: Some(TitlebarOptions {
+            // The name comes with the text, a moment later.
+            title: Some(
+                Title::Compare {
+                    name: title::NAME_PENDING,
+                }
+                .text()
+                .into(),
+            ),
+            ..Default::default()
+        }),
+        window_min_size: Some(MIN_SIZE),
+        display_id: screen.as_ref().map(|screen| screen.id),
+        // What the desktop matches to `wipemark.desktop`: the dock's and
+        // Alt+Tab's icon, `WM_CLASS` on X11, `app_id` on Wayland (D605).
+        app_id: Some(crate::title::APP_ID.into()),
+        ..Default::default()
     }
 }
 
@@ -1458,8 +1536,10 @@ impl CompareView {
         }
         // The window's own close button: closing with unsaved edits saves
         // them or asks, as ⌘W does (S3).
+        // Through `chrome`, so the title bar this window draws for itself
+        // under client-side decorations saves or asks the same way (D592).
         let this = cx.entity().downgrade();
-        window.on_window_should_close(cx, move |window, cx| {
+        crate::chrome::on_should_close(window, cx, move |window, cx| {
             this.update(cx, |view, cx| view.may_close(window, cx))
                 .unwrap_or(true)
         });
@@ -2805,6 +2885,19 @@ impl CompareView {
     /// nowhere to save, edits are asked about too — Copy and close,
     /// Discard, Cancel (D446). A save under way with nothing typed since
     /// it began is waited for rather than asked about (D445).
+    /// Whether closing this window now would lose nothing: what
+    /// [`may_close`](Self::may_close) answers yes to without asking or
+    /// saving — no edit unsaved, no save under way, no question standing.
+    /// What a reopen to come forward asks (D596): Compare never loses an
+    /// edit to one (D415, D440).
+    fn loses_nothing(&self, cx: &App) -> bool {
+        if self.saving.discarded || !matches!(self.state, State::Ready) {
+            return true;
+        }
+        let dirty = *self.current(cx) != *self.saving.saved;
+        !dirty && !self.saving.saver.running() && self.saving.question.is_none()
+    }
+
     fn may_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if self.saving.discarded || !matches!(self.state, State::Ready) {
             return true;
@@ -3138,7 +3231,7 @@ impl Focusable for CompareView {
 }
 
 impl Render for CompareView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
         let ready = matches!(self.state, State::Ready);
@@ -3149,7 +3242,7 @@ impl Render for CompareView {
         let status = self.save_status();
         let failed = self.saving.not_saved.is_some();
 
-        v_flex()
+        let content = v_flex()
             .id("compare")
             .track_focus(&self.focus)
             .key_context(CONTEXT)
@@ -3252,7 +3345,15 @@ impl Render for CompareView {
             )
             .children(self.saving.question.as_ref().map(|(question, _)| {
                 deferred(question.clone()).with_priority(dialog::MODAL_PRIORITY)
-            }))
+            }));
+        // Where the desktop draws no frame, the window's own title bar,
+        // reading what the platform's title reads (D590).
+        let name = if self.name.is_empty() {
+            title::NAME_PENDING
+        } else {
+            &self.name
+        };
+        crate::chrome::framed(content, || Title::Compare { name }.text(), window)
     }
 }
 
@@ -6569,6 +6670,120 @@ mod tests {
         assert_eq!(
             Marks::new(Vec::new(), Side::Result).within(0..10),
             &[] as &[u32]
+        );
+    }
+
+    // -- brought forward on Linux (F2, D596) -----------------------------
+
+    /// The Compare window open on row `key`, and the view in it.
+    fn open_on(cx: &mut TestAppContext, key: u64) -> (AnyWindowHandle, Entity<CompareView>) {
+        let window = cx.update(|cx| cx.global::<Opened>().0[&key]);
+        let view = window
+            .update(cx, |root, _, cx| {
+                root.downcast::<Root>()
+                    .expect("a Root")
+                    .read(cx)
+                    .view()
+                    .clone()
+                    .downcast::<CompareView>()
+                    .expect("a Compare view")
+            })
+            .expect("the window is open");
+        (window, view)
+    }
+
+    /// D596: under Wayland a Compare window open on a row and behind
+    /// another is closed and a new one opened on the subject asked for, at
+    /// the rectangle it had — while it holds nothing to lose. With an edit
+    /// not saved the same window stays, the edit in it: Compare never
+    /// loses an edit to coming forward (D415, D440). Make `open_with`
+    /// activate the window it has and the first half is red; make
+    /// `loses_nothing` say yes and the second is.
+    #[gpui::test]
+    fn an_open_compare_window_is_reopened_only_when_it_loses_nothing(cx: &mut TestAppContext) {
+        struct Main;
+        impl Render for Main {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        cx.update(gpui_component::init);
+        let main: AnyWindowHandle = cx.add_window(|_, _| Main).into();
+        let manual = Comparison {
+            autosave: false,
+            ..Comparison::default()
+        };
+        let subject = || of(Handed::Text(MARKED.to_owned()));
+        let open = |cx: &mut TestAppContext, forward: Forward| {
+            cx.update(|cx| open_with(Some(7), subject(), manual, None, None, main, forward, cx));
+            cx.run_until_parked();
+        };
+        let behind = |cx: &mut TestAppContext| {
+            main.update(cx, |_, window, _| window.activate_window())
+                .expect("the main window is open");
+            cx.run_until_parked();
+        };
+
+        open(cx, Forward::Activate);
+        let (first, _) = open_on(cx, 7);
+        let rect = first
+            .update(cx, |_, window, _| window.bounds())
+            .expect("open");
+
+        behind(cx);
+        open(cx, Forward::Reopen);
+        let (second, view) = open_on(cx, 7);
+        assert_ne!(
+            second, first,
+            "a window with nothing to lose was not reopened"
+        );
+        assert!(
+            !cx.windows().contains(&first),
+            "the window it replaced is open"
+        );
+        assert_eq!(
+            second
+                .update(cx, |_, window, _| window.bounds())
+                .expect("open"),
+            rect,
+            "the rectangle moved"
+        );
+
+        let mut window = gpui::VisualTestContext::from_window(second, cx);
+        type_in(&view, "an edit\n", &mut window);
+        behind(cx);
+        open(cx, Forward::Reopen);
+        let (third, view) = open_on(cx, 7);
+        assert_eq!(third, second, "reopened over an edit not saved");
+        assert_eq!(
+            &*view.read_with(cx, |view, cx| view.current(cx)),
+            "an edit\n",
+            "the edit was lost"
+        );
+    }
+
+    /// D592 in this window: the title bar's close, under client-side
+    /// decorations, is the desktop's — with an edit not saved it keeps the
+    /// window and asks, as `may_close` does. gpui-component's own default
+    /// for that button, `remove_window`, would have dropped the edit.
+    #[gpui::test]
+    fn the_title_bars_close_asks_before_an_edit_goes(cx: &mut TestAppContext) {
+        let manual = Comparison {
+            autosave: false,
+            ..Comparison::default()
+        };
+        let (view, window) = window_with(cx, MARKED, manual);
+        type_in(&view, "kept by the question\n", window);
+        let handle = window.window_handle();
+        window.update(crate::chrome::close);
+        window.run_until_parked();
+        assert!(
+            cx.windows().contains(&handle),
+            "closed over an edit not saved"
+        );
+        assert!(
+            view.read_with(cx, |view, _| view.saving.question.is_some()),
+            "closed without asking"
         );
     }
 }

@@ -1678,6 +1678,14 @@ impl PromptsPage {
         self.editor.read(cx).value().to_string()
     }
 
+    /// Whether the page could go now and lose nothing: no edit the
+    /// editor holds that Save has not stored, and no check or adaptation
+    /// running that going would cancel. What the Settings window asks
+    /// before it closes and reopens itself to come forward (D595).
+    pub fn loses_nothing(&self, cx: &App) -> bool {
+        self.edited(cx) == self.filled && !self.check.running() && !self.adapting.running()
+    }
+
     /// The window of the model on duty, when it is known.
     fn ctx_len(&self, cx: &App) -> Option<u32> {
         self.preferences

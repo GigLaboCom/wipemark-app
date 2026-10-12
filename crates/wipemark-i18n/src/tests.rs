@@ -1121,3 +1121,60 @@ fn a_clamped_count_agrees_with_its_noun() {
         }
     }
 }
+
+/// F6, D599: when the application stops answering during a rewrite, the
+/// command line says nothing will finish it — a restarted application
+/// removes such an item (D317) — and tells the person to run the command
+/// again, in every language. The old sentence ("it may still be finishing
+/// the job") is red here.
+#[test]
+fn a_lost_rewrite_is_never_promised_to_finish() {
+    const PROMISES: [&str; 3] = [
+        "still be finishing",
+        "beendet sie den auftrag noch",
+        "доделывает",
+    ];
+    const AGAIN: [(&str, &str); 3] = [
+        ("en-US", "run the command again"),
+        ("de", "noch einmal"),
+        ("ru", "ещё раз"),
+    ];
+    for language in languages() {
+        let text = only(&language)
+            .format_args(Message::CliRewriteLost, &arguments(Message::CliRewriteLost))
+            .to_lowercase();
+        for promise in PROMISES {
+            assert!(
+                !text.contains(promise),
+                "{language}: promises {promise:?}: {text}"
+            );
+        }
+        let id = language.to_string();
+        let again = AGAIN
+            .iter()
+            .find(|(each, _)| *each == id)
+            .map(|(_, again)| *again)
+            .unwrap_or_else(|| panic!("{language}: no expectation for this language"));
+        assert!(
+            text.contains(again),
+            "{language}: does not say to run it again: {text}"
+        );
+    }
+}
+
+/// F4, D598: the refusal of a result already beside the input names the
+/// two ways past it, `-o` and `--in-place`, in every language — the flags
+/// are formats and never translated.
+#[test]
+fn a_cleaned_file_already_there_is_refused_with_both_ways_past_it() {
+    for language in languages() {
+        let text = only(&language).format_args(
+            Message::CliCleanedExists,
+            &arguments(Message::CliCleanedExists),
+        );
+        assert!(
+            text.contains(" -o") && text.contains("--in-place"),
+            "{language}: {text}"
+        );
+    }
+}

@@ -798,7 +798,7 @@ cli-command-audit = Einen Ordner durchlaufen und jede Textdatei darin mit Funden
 
 cli-arg-path-or-stdin = Zu lesende Datei, oder `-` für die Standardeingabe.
 cli-arg-path = Zu lesende Datei.
-cli-arg-out = Ausgabedatei, oder `-` für die Standardausgabe. Standard ist `<name>.cleaned.<ext>` neben der Eingabe, und die Standardausgabe, wenn die Eingabe die Standardeingabe ist; direktes Überschreiben braucht ein ausdrückliches Flag und ist nie der Standard.
+cli-arg-out = Ausgabedatei, oder `-` für die Standardausgabe. Standard ist `<name>.cleaned.<ext>` neben der Eingabe — nie über eine, die schon da ist —, und die Standardausgabe, wenn die Eingabe die Standardeingabe ist; direktes Überschreiben braucht ein ausdrückliches Flag und ist nie der Standard.
 cli-arg-nfkc = NFKC-Normalisierung anwenden (standardmäßig aus — sie ändert mehr als nur Herkunftsmarkierungen).
 cli-arg-aggressive = Auch einen Buchstaben aus einer anderen Schrift innerhalb eines Wortes ersetzen (ein Homoglyph). Gemeldet werden solche Buchstaben in jedem Fall; höhere Falsch-positiv-Rate, deshalb nur auf Wunsch.
 cli-arg-json = Maschinenlesbares JSON statt Fließtext.
@@ -1071,7 +1071,7 @@ cli-rewrite-added-model-not-here = Das zum Umschreiben gewählte Modell, { $id }
 cli-rewrite-unavailable = Nichts wurde umgeschrieben: { $reason }
 cli-rewrite-failed = Nichts wurde umgeschrieben: Der Auftrag ist fehlgeschlagen ({ $reason }).
 cli-rewrite-cancelled = Abgebrochen. Nichts wurde geschrieben.
-cli-rewrite-lost = Die Anwendung hat aufgehört zu antworten, bevor die Umschreibung zurückkam. Nichts wurde geschrieben; vielleicht beendet sie den Auftrag noch.
+cli-rewrite-lost = Die Anwendung hat aufgehört zu antworten, bevor die Umschreibung zurückkam. Nichts wurde geschrieben. Wurde die Anwendung geschlossen oder beendet, wird diese Umschreibung nicht fertig — führen Sie den Befehl noch einmal aus.
 cli-rewrite-app-refused = Die laufende Anwendung hat nicht umgeschrieben: { $reason }
 cli-rewrite-served-app = Umgeschrieben von der laufenden Anwendung { -brand-name }, mit ihrer zuständigen Engine.
 cli-rewrite-served-here = Umgeschrieben von diesem Befehl, mit dem zum Umschreiben gewählten Modell.
@@ -1352,6 +1352,7 @@ rewrite-consent-go = Senden
 status-rewrites-asking = Umschreibungen warten auf Ihre Antwort: an { $host } senden?
 queue-status-asking-tooltip = Wartet auf Ihre Antwort: Die zuständige Engine würde es an { $host } senden, und dorthin sollte es nicht.
 cli-rewritten-exists = { $path } gibt es schon, und eine Umschreibung schreibt nie über eine Datei, die sie nicht selbst angelegt hat. Nennen Sie mit -o eine andere Datei, oder ersetzen Sie die Eingabe selbst mit --in-place, das das Original vorher beiseitelegt. Nichts wurde umgeschrieben.
+cli-cleaned-exists = { $path } gibt es schon, und eine Bereinigung schreibt nie über ein Ergebnis, das schon da ist — es kann eine Bearbeitung enthalten. Nennen Sie mit -o eine andere Datei, oder ersetzen Sie die Eingabe selbst mit --in-place, das das Original vorher beiseitelegt. Nichts wurde bereinigt.
 
 ## E4-6c
 ##

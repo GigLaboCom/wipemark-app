@@ -949,16 +949,9 @@ fn deliver(
         };
         // Beside is a new file only (D362): one that appeared while the
         // model worked is refused at the publish, as the windows' is.
-        let written = match destination {
-            Destination::Beside(_) => inplace::write_new(file, &bytes, model),
-            _ => inplace::write_atomically(file, &bytes, model),
-        };
-        if let Err(error) = written {
+        if let Err(error) = destination.write(file, &bytes, model) {
             if error.kind() == std::io::ErrorKind::AlreadyExists {
-                let line = t_args(
-                    Message::CliRewrittenExists,
-                    &args!("path" => file.display().to_string()),
-                );
+                let line = run::exists_line("rewrite", file);
                 journal::note(|draft| draft.failed = Some("exists"));
                 return run::refused(io, "rewrite", path, &line, "result exists", Exit::Usage);
             }

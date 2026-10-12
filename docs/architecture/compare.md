@@ -30,6 +30,16 @@ taken out.
   and disabled rather than absent, so the menu is the same shape on
   every row. One window per row: asking twice brings the first
   forward, keyed by the row's id in a global the way the panel's is.
+  Under Wayland "forward" is a reopen (D594, D596): GPUI's activation
+  there carries a token mutter does not honour, so a window open on the
+  row and not in front is closed and a new one opened on what the row
+  holds now, at the rectangle the old one had — only while the old one
+  would lose nothing: no edit unsaved, no save under way, no question
+  standing (`CompareView::loses_nothing`, what `may_close` answers yes
+  to without asking). Holding any of those it stays as it is and GPUI's
+  activation is asked, which GNOME turns into "is ready"; an edit is
+  never lost to coming forward
+  (`an_open_compare_window_is_reopened_only_when_it_loses_nothing`).
 * **A double click on the row** — the desktop's idiom for "open this"
   in a table, and the same item without the menu: both go through
   `queue::compare_row`, so they cannot open a window on two different
@@ -52,7 +62,13 @@ has been read — and the title is built by `title::Title::Compare` as
 plain text: the application's catalogue runs in `Rendering::Ui`, which
 put U+2068/U+2069 around the file name in the window list and the
 screen reader's ear until tails-1 (`docs/architecture/i18n.md`,
-`no_window_title_carries_an_invisible_character`).
+`no_window_title_carries_an_invisible_character`). Where the desktop
+draws no frame — GNOME under Wayland — the window draws gpui-component's
+`TitleBar` over its panes, reading the same plain title, and its close
+button is the desktop's: it runs the window's should-close, so edits are
+saved or asked about exactly as under the desktop's own button and ⌘W
+(`chrome::close`, D590, D592,
+`the_title_bars_close_asks_before_an_edit_goes`).
 
 Either click defers, for the reason `SetupEvent::Open` does: it runs
 inside the main window's update, and `compare::open` measures the main

@@ -35,6 +35,7 @@
 //! on a network home directory.
 
 mod assets;
+mod chrome;
 mod clean;
 mod cleaner;
 mod clipboard;
@@ -89,7 +90,8 @@ use std::sync::Arc;
 use gpui::prelude::*;
 use gpui::{
     deferred, div, px, size, Anchor, AnyWindowHandle, App, Bounds, ClickEvent, Context, Entity,
-    SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowHandle, WindowOptions,
+    Pixels, SharedString, Subscription, TitlebarOptions, Window, WindowBounds, WindowHandle,
+    WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::popover::Popover;
@@ -885,14 +887,14 @@ impl Shell {
 }
 
 impl Render for Shell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let background = theme.background;
         let foreground = theme.foreground;
         let border = theme.border;
         let muted = theme.muted_foreground;
 
-        div()
+        let content = div()
             .flex()
             .flex_col()
             .size_full()
@@ -986,7 +988,25 @@ impl Render for Shell {
                 deferred(setup.clone())
                     .with_priority(dialog::MODAL_PRIORITY)
                     .into_any_element()
-            }))
+            }));
+        // Where the desktop draws no frame (GNOME under Wayland), the
+        // window draws its own title bar above all of the above (D590).
+        chrome::framed(content, || Title::Main.text(), window)
+    }
+}
+
+/// The main window's options: at `bounds`, titled.
+fn main_window_options(bounds: Bounds<Pixels>) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        titlebar: Some(TitlebarOptions {
+            title: Some(Title::Main.text().into()),
+            ..Default::default()
+        }),
+        // What the desktop matches to `wipemark.desktop`: the dock's and
+        // Alt+Tab's icon, `WM_CLASS` on X11, `app_id` on Wayland (D605).
+        app_id: Some(title::APP_ID.into()),
+        ..Default::default()
     }
 }
 
@@ -1432,75 +1452,64 @@ fn main() {
             let kept_home = homes.kept.clone();
             let keep_for = stored.retention.keep_for;
             let beacon_at_quit = beacon.clone();
-            let opened = cx.open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some(Title::Main.text().into()),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-                move |window, cx| {
-                    // After `gpui_component::init`, which hard-sets Light,
-                    // and with the window in hand so System asks the window
-                    // rather than the app for the appearance.
-                    preference.apply(Some(window), cx);
+            let opened = cx.open_window(main_window_options(bounds), move |window, cx| {
+                // After `gpui_component::init`, which hard-sets Light,
+                // and with the window in hand so System asks the window
+                // rather than the app for the appearance.
+                preference.apply(Some(window), cx);
 
-                    // `|cx|` and not `|_|`: `Preferences::new` starts
-                    // the MCP server when the stored preference says
-                    // to, and the events it sends back reach this
-                    // entity from a plain thread through a task spawned
-                    // on this context. The server comes up with the
-                    // application, not with the page that describes it.
-                    let preferences = cx.new(|cx| {
-                        Preferences::new(
-                            stored.clone(),
-                            store.clone(),
-                            vault.clone(),
-                            models_default.clone(),
-                            records_dir.clone(),
-                            homes.clone(),
-                            launch.profile.clone(),
-                            engine_handle.clone(),
-                            beacon.clone(),
-                            cx,
-                        )
-                    });
-                    *slot.borrow_mut() = Some(preferences.clone());
-                    // The one place a model is loaded, kept or dropped. It
-                    // waits for the scan the shell asks for below, so a
-                    // resident model starts loading a second or so after
-                    // the window is up — never before, and never on this
-                    // thread.
-                    let host = engine_host::install(
-                        preferences.clone(),
+                // `|cx|` and not `|_|`: `Preferences::new` starts
+                // the MCP server when the stored preference says
+                // to, and the events it sends back reach this
+                // entity from a plain thread through a task spawned
+                // on this context. The server comes up with the
+                // application, not with the page that describes it.
+                let preferences = cx.new(|cx| {
+                    Preferences::new(
+                        stored.clone(),
+                        store.clone(),
+                        vault.clone(),
+                        models_default.clone(),
+                        records_dir.clone(),
+                        homes.clone(),
+                        launch.profile.clone(),
                         engine_handle.clone(),
-                        engine_inbox.clone(),
+                        beacon.clone(),
                         cx,
-                    );
-                    // The walk-through opens over a fresh install, and
-                    // over any launch that asked for it.
-                    let walk_through = launch.setup || !stored.setup_done;
-                    let arguments = Startup {
-                        import: launch.import.clone(),
-                        clean: launch.clean.clone(),
-                    };
-                    let shell = cx.new(|cx| {
-                        Shell::new(preferences, host, walk_through, arguments, window, cx)
-                    });
+                    )
+                });
+                *slot.borrow_mut() = Some(preferences.clone());
+                // The one place a model is loaded, kept or dropped. It
+                // waits for the scan the shell asks for below, so a
+                // resident model starts loading a second or so after
+                // the window is up — never before, and never on this
+                // thread.
+                let host = engine_host::install(
+                    preferences.clone(),
+                    engine_handle.clone(),
+                    engine_inbox.clone(),
+                    cx,
+                );
+                // The walk-through opens over a fresh install, and
+                // over any launch that asked for it.
+                let walk_through = launch.setup || !stored.setup_done;
+                let arguments = Startup {
+                    import: launch.import.clone(),
+                    clean: launch.clean.clone(),
+                };
+                let shell =
+                    cx.new(|cx| Shell::new(preferences, host, walk_through, arguments, window, cx));
 
-                    // The first level inside a window has to be a Root —
-                    // dialogs, sheets, notifications and tooltips all mount
-                    // through it. Deliberately *not* `.bg(cx.theme()…)`:
-                    // a Root style is a refinement fixed at construction, so
-                    // a background set here survives a theme switch and
-                    // leaves light text on a dark ground. `Shell::render`
-                    // paints the ground instead, once per frame. Upstream's
-                    // own examples build Root the same bare way.
-                    cx.new(|cx| Root::new(shell, window, cx))
-                },
-            );
+                // The first level inside a window has to be a Root —
+                // dialogs, sheets, notifications and tooltips all mount
+                // through it. Deliberately *not* `.bg(cx.theme()…)`:
+                // a Root style is a refinement fixed at construction, so
+                // a background set here survives a theme switch and
+                // leaves light text on a dark ground. `Shell::render`
+                // paints the ground instead, once per frame. Upstream's
+                // own examples build Root the same bare way.
+                cx.new(|cx| Root::new(shell, window, cx))
+            });
 
             let window = match opened {
                 Ok(window) => window,

@@ -889,8 +889,10 @@ fn keep_open_with(
     if button == CloseButton::Closes {
         return Ok(());
     }
+    // Through `chrome`, so the title bar a window draws for itself under
+    // client-side decorations runs this too (D592).
     window.update(cx, |_, window, cx| {
-        window.on_window_should_close(cx, move |window, cx| {
+        crate::chrome::on_should_close(window, cx, move |window, cx| {
             act(button, window, cx);
             false
         });

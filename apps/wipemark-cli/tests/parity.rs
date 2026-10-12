@@ -24,9 +24,14 @@ fn fixtures() -> PathBuf {
 /// One row of the table.
 struct Row {
     input: String,
+    /// A file already where the result goes beside the input (D598).
+    taken: bool,
     cli_exit: i32,
     cli_writes: bool,
 }
+
+/// What is already where a `taken` row's result would go.
+const SOMEONES: &[u8] = b"an edit saved in Compare\n";
 
 fn table() -> Vec<Row> {
     let table = std::fs::read_to_string(fixtures().join("clean-parity/table.tsv")).expect("table");
@@ -35,13 +40,14 @@ fn table() -> Vec<Row> {
         .filter(|line| !line.starts_with('#') && !line.trim().is_empty())
         .map(|line| {
             let columns: Vec<&str> = line.split('\t').collect();
-            // input, cli_exit, cli_writes, then the window's two columns,
-            // read past here, and the person's.
-            assert_eq!(columns.len(), 6, "a row of six columns: {line:?}");
+            // input, place, cli_exit, cli_writes, then the window's two
+            // columns, read past here, and the person's.
+            assert_eq!(columns.len(), 7, "a row of seven columns: {line:?}");
             Row {
                 input: columns[0].to_owned(),
-                cli_exit: columns[1].parse().expect("an exit code"),
-                cli_writes: columns[2] == "yes",
+                taken: columns[1] == "taken",
+                cli_exit: columns[2].parse().expect("an exit code"),
+                cli_writes: columns[3] == "yes",
             }
         })
         .collect()
@@ -79,6 +85,10 @@ fn the_cli_cleans_to_the_windows_table() {
             .expect("a name")
             .to_string_lossy()
             .into_owned();
+        if row.taken {
+            taken(&row, &input, &name, &out);
+            continue;
+        }
         let result = out.join(&name);
         let run = Command::new(env!("CARGO_BIN_EXE_wipemark-cli"))
             .arg("clean")
@@ -114,4 +124,39 @@ fn the_cli_cleans_to_the_windows_table() {
         }
     }
     std::fs::remove_dir_all(&out).ok();
+}
+
+/// A `taken` row: the input copied into a folder of its own with a file
+/// already where its result goes, cleaned beside it with no `-o`.
+fn taken(row: &Row, input: &Path, name: &str, out: &Path) {
+    let folder = out.join(format!("taken-{name}"));
+    std::fs::create_dir_all(&folder).expect("a folder");
+    let copy = folder.join(name);
+    std::fs::copy(input, &copy).expect("the input");
+    let beside = folder.join(wipemark_intake::name::with_infix(
+        name,
+        wipemark_intake::name::RESULT_INFIX,
+    ));
+    std::fs::write(&beside, SOMEONES).expect("someone's file");
+    let run = Command::new(env!("CARGO_BIN_EXE_wipemark-cli"))
+        .arg("clean")
+        .arg(&copy)
+        .env("WIPEMARK_DATA_DIR", out.join("data"))
+        .env("WIPEMARK_LANG", "en-US")
+        .env_remove("WIPEMARK_LOG")
+        .output()
+        .expect("the CLI runs");
+    assert_eq!(
+        run.status.code(),
+        Some(row.cli_exit),
+        "{} (taken): the CLI's exit is not the table's: {}",
+        row.input,
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let left = std::fs::read(&beside).expect("the file beside") == SOMEONES;
+    assert_eq!(
+        !left, row.cli_writes,
+        "{} (taken): the CLI's write is not the table's",
+        row.input
+    );
 }
