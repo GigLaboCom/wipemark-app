@@ -1314,10 +1314,29 @@ fn open_work(
 }
 
 fn main() {
+    // Before anything else, while this is the only thread (D650): no XIM.
+    // GPUI's X11 client asks the input method named by `XMODIFIERS` for
+    // every keystroke, and `zed-xim` panics on a commit it cannot convert
+    // from COMPOUND_TEXT — Cyrillic typed through ibus under XWayland ended
+    // the application (acceptance F14). Without the variable no XIM server is
+    // asked and keys arrive through XKB, every layout included; only an IME's
+    // composition is lost under X11. `WIPEMARK_XIM=1` keeps it.
+    #[cfg(target_os = "linux")]
+    let xim_off = std::env::var_os("WIPEMARK_XIM").is_none_or(|v| v != "1")
+        && std::env::var_os("XMODIFIERS").is_some();
+    #[cfg(target_os = "linux")]
+    if xim_off {
+        std::env::remove_var("XMODIFIERS");
+    }
+
     // Resolved here and not inside `init_logging` so that the block
     // below can reuse it rather than asking the platform twice.
     let layout = Layout::discover();
     init_logging(layout.as_ref().ok());
+    #[cfg(target_os = "linux")]
+    if xim_off {
+        tracing::info!("the X input method is off: XMODIFIERS removed (WIPEMARK_XIM=1 keeps it)");
+    }
 
     // After the subscriber, so that a mistyped section is a warning
     // somebody can find rather than one emitted into nothing.
