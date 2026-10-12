@@ -1,4 +1,4 @@
-// Modified by GigLabo and Denis Esakov, 2026-10-12: a dragged text is read and handed over as a private drop file (vendor/gpui-pre-linux.patch).
+// Modified by GigLabo and Denis Esakov, 2026-10-12: a dragged text is read and handed over as a private drop file, and drag types are ranked by name (vendor/gpui-pre-linux.patch).
 use std::{
     cell::RefCell,
     env,
@@ -1293,6 +1293,41 @@ pub(super) fn read_fd_with_timeout(
 pub(super) const DROPPED_TEXT_LIMIT: usize = 1 << 20;
 
 #[cfg(any(feature = "wayland", feature = "x11"))]
+const DRAG_TYPES: [&str; 6] = [
+    "text/uri-list",
+    "text/plain;charset=utf-8",
+    "utf8_string",
+    "text/plain",
+    "string",
+    "text",
+];
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+pub(super) fn drag_type_rank(name: &str) -> Option<usize> {
+    let name = name
+        .to_ascii_lowercase()
+        .replace([' ', '"'], "")
+        .replace("charset=utf8", "charset=utf-8");
+    DRAG_TYPES.iter().position(|known| *known == name)
+}
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+pub(super) fn drag_types_in_order<T: Copy + PartialEq>(offered: &[(T, String)]) -> Vec<T> {
+    let mut ranked: Vec<(usize, T)> = offered
+        .iter()
+        .filter_map(|(id, name)| drag_type_rank(name).map(|rank| (rank, *id)))
+        .collect();
+    ranked.sort_by_key(|(rank, _)| *rank);
+    let mut types = Vec::new();
+    for (_, id) in ranked {
+        if !types.contains(&id) {
+            types.push(id);
+        }
+    }
+    types
+}
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
 pub(super) enum DroppedPayload {
     Paths(smallvec::SmallVec<[PathBuf; 2]>),
     Text(DroppedText),
@@ -1992,6 +2027,25 @@ mod tests {
 
         fn mode(path: &std::path::Path) -> u32 {
             std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+        }
+
+        #[test]
+        fn drag_types_are_ranked_by_name_whatever_their_case() {
+            use super::super::{drag_type_rank, drag_types_in_order};
+            assert_eq!(drag_type_rank("text/uri-list"), Some(0));
+            assert_eq!(drag_type_rank("text/plain;charset=UTF-8"), Some(1));
+            assert_eq!(drag_type_rank("text/plain; charset=\"utf8\""), Some(1));
+            assert_eq!(drag_type_rank("UTF8_STRING"), Some(2));
+            assert_eq!(drag_type_rank("text/html"), None);
+            let offered = [
+                (1, "text/html".to_string()),
+                (2, "STRING".to_string()),
+                (3, "UTF8_STRING".to_string()),
+                (4, "text/plain;charset=UTF-8".to_string()),
+                (5, "text/uri-list".to_string()),
+                (3, "UTF8_STRING".to_string()),
+            ];
+            assert_eq!(drag_types_in_order(&offered), vec![5, 4, 3, 2]);
         }
 
         #[test]

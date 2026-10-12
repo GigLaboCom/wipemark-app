@@ -168,6 +168,14 @@ application reads back as a text and removes (D653–D659;
 report is `docs/plan/reports/linux-text-drop-2026-10-12.md`). No public
 type of `gpui-pre` changed.
 
+Acceptance F15b, on the owner's GNOME on Wayland under XWayland: types are
+now chosen by name and a refused one falls back to the next, then to
+`TARGETS`; a deferred drop survives mutter's `XdndLeave` right after
+`XdndDrop`; a drag with nothing to read is finished not accepted; and the
+drop's position is `XdndPosition`'s own, not the stale X pointer
+(D696–D701, `drag-and-drop.md`, "Under XWayland"; the report is
+`docs/plan/reports/linux-text-drop-2-2026-10-12.md`).
+
 **How it is checked.** `scripts/check-gpui-pin.sh` allows exactly this
 one `[patch]` entry on a snapshot crate (step 1) and its path package in
 the lock (step 3), and step 5 proves the directory: its `Cargo.toml` must
