@@ -149,8 +149,12 @@ The tray's icon is derived at run time (`tray.rs`, D342) and is not packaged.
 file to match the window to. Under X11 (XWayland is the default, D611) every
 window therefore also carries the icon itself: `_NET_WM_ICON`, the 32, 128 and
 512 px PNGs of `assets/icon/` decoded once on the X thread (`x11::give_icon`,
-called as each of the four windows opens; D640). GNOME shows it in the dock and
-in Alt+Tab with no desktop file. Under native Wayland there is no per-window
+called as each of the four windows opens; D640). Mutter 45 and later no longer show that icon for a window no desktop file
+claims, so an AppImage also **integrates itself** (D651, `integrate.rs`). With
+`$APPIMAGE` set, it writes `~/.local/share/applications/wipemark.desktop`, its
+`Exec` naming the AppImage and a marker line `X-Wipemark-AppImage=true`, and
+the hicolor icons. It rewrites only its own file, and only when the file
+differs. Under native Wayland there is no per-window
 icon a GNOME compositor reads, and only an installed desktop file (the `.deb`,
 or an AppImage integrator) gives one.
 

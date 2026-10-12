@@ -51,6 +51,8 @@ mod engine;
 mod engine_host;
 mod hotkey;
 mod icon;
+#[cfg(target_os = "linux")]
+mod integrate;
 mod journal;
 mod keys;
 mod language;
@@ -1451,6 +1453,9 @@ fn main() {
             if cx.compositor_name() == "X11" {
                 x11::start();
             }
+            // An AppImage writes its own desktop file and icons (D651).
+            #[cfg(target_os = "linux")]
+            integrate::start();
             // Must come before anything else touches a component or a theme.
             gpui_component::init(cx);
             // After it: `bind_keys` wants the keymap that call sets up.
