@@ -80,14 +80,64 @@ fn integrate(home: &Path, appimage: &Path) -> std::io::Result<bool> {
             wrote = true;
         }
     }
+    let hicolor = home.join("icons/hicolor");
+    let mut icons_written = false;
     for (side, png) in ICONS {
-        let path = home.join(format!("icons/hicolor/{side}x{side}/apps/wipemark.png"));
+        let path = hicolor.join(format!("{side}x{side}/apps/wipemark.png"));
         if std::fs::read(&path).ok().as_deref() != Some(png) {
             write(&path, png)?;
-            wrote = true;
+            icons_written = true;
         }
     }
-    Ok(wrote)
+    if icons_written || cache_misses_us(&hicolor) {
+        refresh_cache(&hicolor);
+        wrote = true;
+    }
+    Ok(wrote || icons_written)
+}
+
+/// Whether an `icon-theme.cache` in `hicolor` predates our icons. Another
+/// program's cache — an older AppImage's — makes GTK and the shell look
+/// for `wipemark` in a list that does not have it, and the dock shows a
+/// generic icon (acceptance F13): the cache stays trusted until the
+/// `hicolor` folder itself changes, which writing into its subfolders
+/// does not do.
+fn cache_misses_us(hicolor: &Path) -> bool {
+    let modified = |path: &Path| std::fs::metadata(path).and_then(|m| m.modified()).ok();
+    let Some(cache) = modified(&hicolor.join("icon-theme.cache")) else {
+        return false;
+    };
+    ICONS.iter().any(|(side, _)| {
+        modified(&hicolor.join(format!("{side}x{side}/apps/wipemark.png")))
+            .is_some_and(|icon| icon > cache)
+    })
+}
+
+/// Make an existing `icon-theme.cache` list our icons: rebuild it with
+/// `gtk-update-icon-cache` when the machine has it, otherwise mark the
+/// `hicolor` folder changed so the stale cache is no longer trusted.
+/// Nothing when there is no cache — GTK then reads the folders.
+fn refresh_cache(hicolor: &Path) {
+    if !hicolor.join("icon-theme.cache").exists() {
+        return;
+    }
+    let rebuilt = std::process::Command::new("gtk-update-icon-cache")
+        .args(["-q", "-f", "-t"])
+        .arg(hicolor)
+        .status()
+        .is_ok_and(|status| status.success());
+    if rebuilt {
+        tracing::info!("the user's icon cache was rebuilt to list wipemark");
+        return;
+    }
+    let touched = std::fs::File::open(hicolor)
+        .and_then(|folder| folder.set_modified(std::time::SystemTime::now()));
+    match touched {
+        Ok(()) => tracing::info!(
+            "the user's icon cache is stale now: the hicolor folder was marked changed"
+        ),
+        Err(error) => tracing::warn!(%error, "a stale icon cache may hide wipemark's icon"),
+    }
 }
 
 /// The packaged desktop file with `Exec` and `TryExec` naming `appimage`,
@@ -172,5 +222,28 @@ mod tests {
         assert!(integrate(&home, Path::new("/b/W.AppImage")).unwrap());
         let file = std::fs::read_to_string(home.join("applications/wipemark.desktop")).unwrap();
         assert!(file.contains("Exec=\"/b/W.AppImage\""));
+    }
+
+    #[test]
+    fn a_cache_older_than_our_icons_is_seen_as_missing_them() {
+        let home = scratch("cache");
+        let hicolor = home.join("icons/hicolor");
+        std::fs::create_dir_all(&hicolor).unwrap();
+        std::fs::write(hicolor.join("icon-theme.cache"), b"theirs").unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(hicolor.join("icon-theme.cache"))
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        assert!(!cache_misses_us(&hicolor), "no icon of ours yet");
+        integrate(&home, Path::new("/a/W.AppImage")).unwrap();
+        let cache = std::fs::metadata(hicolor.join("icon-theme.cache")).unwrap();
+        let folder = std::fs::metadata(&hicolor).unwrap();
+        assert!(
+            cache.modified().unwrap() > old || folder.modified().unwrap() > old,
+            "the stale cache was rebuilt or the folder marked changed"
+        );
     }
 }
