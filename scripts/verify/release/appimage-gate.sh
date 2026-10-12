@@ -16,9 +16,10 @@
 #            (APPIMAGE_EXTRACT_AND_RUN, no FUSE in a container):
 #              `--cli --version`, and `wipemark-cli --version` through a link
 #              named wipemark-cli (AppRun's dispatch by $ARGV0);
-#              `wipemark-cli clean <input> -o <out>` over every row of
-#              fixtures/clean-parity/table.tsv, exit and "wrote or not" as
-#              the table's cli_exit and cli_writes say, and over the Grok
+#              `wipemark-cli clean <input> -o <out>` over every `fresh` row
+#              of fixtures/clean-parity/table.tsv, and `clean <input>` beside
+#              a file already there for every `taken` row (D598), exit and
+#              "wrote or not" as the table's cli_exit and cli_writes say, and over the Grok
 #              picture fixtures/image/grok-x/HUVfYqgWkAAOhiJ.jpeg (exit 1,
 #              written: restored clean);
 #              `wipemark-cli inspect` over six inputs with the exits
@@ -106,18 +107,37 @@ same "wipemark-cli --version (a link named wipemark-cli)" "$(/tmp/wipemark-cli -
 
 mkdir -p /tmp/out
 n=0
-rows="$(grep -v '^#' /fixtures/clean-parity/table.tsv | grep -v '^[[:space:]]*$' | cut -f1-3)
-image/grok-x/HUVfYqgWkAAOhiJ.jpeg	1	yes"
-while IFS="$(printf '\t')" read -r input want_exit want_writes; do
+# The table's columns: input, place (fresh | taken, D598), cli_exit,
+# cli_writes, then the window's two and a person's — read as
+# apps/wipemark-cli/tests/parity.rs reads them.
+rows="$(grep -v '^#' /fixtures/clean-parity/table.tsv | grep -v '^[[:space:]]*$' | cut -f1-4)
+image/grok-x/HUVfYqgWkAAOhiJ.jpeg	fresh	1	yes"
+while IFS="$(printf '\t')" read -r input place want_exit want_writes; do
   n=$((n + 1))
-  dest="/tmp/out/$n-$(basename "$input")"
-  "$A" --cli clean "/fixtures/$input" -o "$dest" >"/out/clean-$n.log" 2>&1
-  got=$?
-  wrote=no; [ -e "$dest" ] && wrote=yes
-  if [ "$got" = "$want_exit" ] && [ "$wrote" = "$want_writes" ]; then
-    pass "clean $input: exit $got, wrote $wrote"
+  name="$(basename "$input")"
+  if [ "$place" = taken ]; then
+    # A file already beside the input where the result would go: the CLI
+    # refuses before the read and leaves it byte for byte (D598).
+    dir="/tmp/out/taken-$n"
+    mkdir -p "$dir"
+    cp "/fixtures/$input" "$dir/$name"
+    beside="$dir/${name%.*}.cleaned.${name##*.}"
+    printf 'an edit saved in Compare\n' >"$beside"
+    "$A" --cli clean "$dir/$name" >"/out/clean-$n.log" 2>&1
+    got=$?
+    wrote=yes
+    [ "$(cat "$beside")" = "an edit saved in Compare" ] && wrote=no
   else
-    fail "clean $input: exit $got (want $want_exit), wrote $wrote (want $want_writes)"
+    dest="/tmp/out/$n-$name"
+    "$A" --cli clean "/fixtures/$input" -o "$dest" >"/out/clean-$n.log" 2>&1
+    got=$?
+    wrote=no
+    [ -e "$dest" ] && wrote=yes
+  fi
+  if [ "$got" = "$want_exit" ] && [ "$wrote" = "$want_writes" ]; then
+    pass "clean $input ($place): exit $got, wrote $wrote"
+  else
+    fail "clean $input ($place): exit $got (want $want_exit), wrote $wrote (want $want_writes)"
   fi
 done <<EOF
 $rows

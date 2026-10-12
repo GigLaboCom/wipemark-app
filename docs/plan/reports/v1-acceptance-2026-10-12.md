@@ -28,6 +28,27 @@ Every other finding goes to stage two (`v1-release.md` §4).
 | A10 — MCP | pass (coordinator, the app under Xvfb `:97`, port 5156 for the run, then restored) | MCP is **off by default**: a person turns it on in Settings › MCP (`mcp.enabled`). With it on:<ul><li>`initialize` answers `wipemark 0.1.0`; `tools/list` lists `inspect`, `clean`, `rewrite`, `inspect_image`, `clean_image`.</li><li>`clean` removes U+200B and returns a journal id.</li><li>`clean_image` on the Grok picture finds `grok-x-light (xai, grok)` placed by its row, with `marks_left: false`.</li><li>A wrong argument is refused as a result with `isError: true`, naming `text`.</li><li>A foreign `Origin` gets 403.</li><li>`rewrite` over MCP answers in 2 s with the model loaded.</li><li>The CLI's `rewrite` through the running application says `served_by: application`.</li><li>Each call is a journal row.</li></ul> |
 | A11 — kill -9 | partly (coordinator) | A 12-paragraph rewrite pushed by the CLI through the application, with 9 chunks decided, then `kill -9`. The CLI says "The application stopped answering before the rewrite came back. Nothing was written; it may still be finishing the job." and exits 2. On the next launch: `the queue is loaded items=1 interrupted=1`, and then **the item is removed**: its journal row reads `cancelled`, `interrupted`. That is as built for an agent's or the command line's item, whose caller is gone (D313, D317). Resuming a **window's** rewrite after `kill -9` needs the window and is left for the owner. |
 
+## Fixed before the tag (2026-10-12)
+
+The fixes are merged into `feat` (`9636147`, `dfaf6fc`, `89b8229`, `56f6cc4`).
+The gates on the merged tree:
+
+- rustfmt and clippy clean;
+- workspace tests 2014 passed, 0 failed, 11 ignored;
+- the app with `local-llama`: 775 passed, 0 failed;
+- the dependency, GPUI and zune checks all pass.
+
+The rebuilt AppImage passes 34 of 34 in a clean `ubuntu:24.04` (window
+`WM_CLASS "wipemark", "wipemark"`), and the `.deb` passes 7 of 7.
+
+| finding | what was done | owner's eye check |
+|---|---|---|
+| F2 | D594–D597: under Wayland an open Settings or Compare window is reopened in front when nothing would be lost. The main window is not; the tray's Show there stays a notice from GNOME. | pending |
+| F3 | D590–D593: gpui-component's `TitleBar` where decorations are client-side. | pending |
+| F4 | D598: `clean` refuses an existing `name.cleaned.ext` with exit 2, before the read. | — (tests) |
+| F6 | D599: the sentence says the rewrite will not be finished. | — (tests) |
+| app id | D605: `wipemark` on every window, held to the `.desktop` file by a test. | pending: the dock icon |
+
 ## After the run
 
 - **Remove the downloaded model.** Delete `qwen3.8-27b-ud-iq3s` from
