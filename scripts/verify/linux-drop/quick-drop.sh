@@ -18,6 +18,14 @@
 #   it over as a private drop file that drop.rs reads back as a text and
 #   removes (D653–D659, docs/plan/reports/linux-text-drop-2026-10-12.md).
 #   Steps e–i check that road.
+#   Acceptance F15b (the owner, 2026-10-12, GNOME on Wayland, the
+#   application under XWayland): a text from a Wayland-native application was
+#   refused — every conversion of the chosen type answered with property
+#   None — and a picture dropped on the panel landed at -2025,-5, the X
+#   pointer being stale while a Wayland client drags. Steps j–o check the
+#   fallback through the offered types and TARGETS, a refusal of everything,
+#   mutter's XdndLeave right after XdndDrop, and the position taken from
+#   XdndPosition (D696–D701, docs/plan/reports/linux-text-drop-2-2026-10-12.md).
 #
 # What it does, step by step
 #   1. Starts Xvfb on $XDISPLAY (default :96; refused if taken) and a private
@@ -28,7 +36,7 @@
 #      private, so the application never reaches for GNOME's shortcuts in the
 #      person's own dconf database (D641; added 2026-10-12 with F15).
 #   2. Makes a scratch WIPEMARK_DATA_DIR with `ui.setup.done = true` (no
-#      walk-through over the window) and four small text files A–D.
+#      walk-through over the window) and six small text files A–F.
 #   3. Starts the application with WIPEMARK_LOG=info,gpui_linux=debug and
 #      waits for its "Wipemark" window and for XdndAware on it.
 #   4. Drags with xdnd-source.py, waiting after each for the queue's log line:
@@ -52,6 +60,21 @@
 #        i. `wipemark --panel` (the running application is summoned), then
 #           a text, --mode quick, on the panel — expects
 #           `something was dropped on the panel kinds=[Text]` and no drop file.
+#        j. a text offered as GTK's seven types through XdndTypeList, the
+#           source answering only text/plain — expects two refusals, then a
+#           text row;
+#        k. a text offered as text/html and text/plain;charset=utf-8, the
+#           source answering only UTF8_STRING, which it does not offer but
+#           lists in TARGETS (as mutter does) — expects a text row;
+#        l. a text whose source refuses everything, dropped at once and left
+#           right after (mutter's order) — expects no row, `finished:
+#           refused`, no drop file;
+#        m. a text dropped at once and left right after, its data answered
+#           only then — expects a text row: the leave does not lose the drop;
+#        n. F, the pointer left in the screen's far corner, the position only
+#           in XdndPosition — expects a row naming F;
+#        o. a text on the panel, the pointer far away — expects the panel to
+#           take it.
 #   5. Prints the GPUI drag lines and our drop lines from the log, one line
 #      per step (ok or FAIL), kills everything it started — Xvfb, the bus,
 #      the application — and nothing else.
@@ -61,7 +84,8 @@
 #   (default: $CARGO_TARGET_DIR or target, then release/wipemark). Build it
 #   first: `cargo build --release -p wipemark-app --locked` (on the owner's
 #   host with LIBRARY_PATH pointing at the libxkbcommon-x11.so symlink).
-#   XDISPLAY=:97 picks another display; KEEP=1 keeps the scratch directory.
+#   XDISPLAY=:97 picks another display; KEEP=1 keeps the scratch directory;
+#   SKIP="j k" skips those of steps j–o (to see a later one on an old build).
 #
 # What it needs
 #   Xvfb, xwininfo and xprop (x11-utils), dbus-run-session, python3 with
@@ -69,12 +93,14 @@
 #   (mesa-vulkan-drivers' lvp_icd.json).
 #
 # What its output means
-#   `step a: ok …` … `step i: ok …` and `quick-drop: all nine steps passed`,
+#   `step a: ok …` … `step o: ok …` and `quick-drop: all fifteen steps passed`,
 #   exit 0; a failing step prints FAIL with what was expected and the tail
 #   of the application's log, exit 1; exit 2 when the display or the
 #   application could not be started. On the published crate step a fails
 #   (nothing queued after a quick drop) and step d names C; on the crate
-#   before F15, step e fails (no row for a dragged text).
+#   before F15, step e fails (no row for a dragged text); on the crate before
+#   F15b, step j fails (the refused type is asked for again and again) and
+#   step n fails (the drop lands at the stale pointer, outside the window).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -116,7 +142,7 @@ db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEX
 db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ui.setup.done', 'true')")
 db.commit()
 PY
-for name in A B C D E; do
+for name in A B C D E F; do
     printf 'note %s\n' "$name" >"$work/files/drop-$name.txt"
 done
 
@@ -169,7 +195,7 @@ import json
 row = sqlite3.connect(sys.argv[1]).execute(
     "SELECT entry FROM journal ORDER BY id DESC LIMIT 1").fetchone()
 entry = json.loads(row[0]) if row else {}
-for name in "ABCDE":
+for name in "ABCDEF":
     if f"drop-{name}.txt" in json.dumps(entry):
         print(name)
         break
@@ -253,10 +279,76 @@ for _ in $(seq 1 100); do [ "$(on_panel)" -ge 1 ] && break; sleep 0.1; done
 [ "$(dropped_files)" -eq 0 ] || fail i "a drop file was left behind"
 echo "step i: ok (the panel $panel took a dragged text; no drop file left)"
 
+gtk="text/plain;charset=utf-8,UTF8_STRING,TEXT,STRING,COMPOUND_TEXT,text/plain,text/html"
+run() {
+    case " ${SKIP:-} " in *" $1 "*) echo "step $1: skipped (SKIP)"; return 1 ;; esac
+}
+
+if run j; then
+    before=$(queued)
+    # A text of its own size: a stale XDND_DATA from an earlier drop, read
+    # in place of a refusal, would land with the earlier size.
+    TEXT="$TEXT (the source answers text/plain only)" \
+        text "$window" --mode quick --types "$gtk" --serve-only text/plain || true
+    wait_queued $((before + 1)) || fail j "no row after a text the source served only as text/plain"
+    landed=$(newest)
+    size_j=$(printf '%s' "$TEXT (the source answers text/plain only)" | wc -c)
+    [ "$landed" = "text $size_j" ] || fail j "the newest row is '$landed', not a text of $size_j bytes"
+    grep -q 'text/plain;charset=utf-8 was refused.*requesting UTF8_STRING' "$log" \
+        || fail j "no fallback from text/plain;charset=utf-8 to UTF8_STRING in the log"
+    [ "$(dropped_files)" -eq 0 ] || fail j "a drop file was left behind"
+    echo "step j: ok (two refused types, then text/plain: a text row)"
+fi
+
+if run k; then
+    before=$(queued)
+    text "$window" --mode slow --types "text/html,text/plain;charset=utf-8" --serve-only UTF8_STRING || true
+    wait_queued $((before + 1)) || fail k "no row after a text served only as UTF8_STRING"
+    grep -q 'TARGETS lists \[UTF8_STRING, TARGETS\]' "$log" \
+        || fail k "TARGETS was not asked for, or not read"
+    echo "step k: ok (the type the source serves was found through TARGETS)"
+fi
+
+if run l; then
+    before=$(queued)
+    refused=$(text "$window" --mode quick --types "$gtk" --serve-only none --leave-after-drop || true)
+    echo "$refused"
+    sleep 1
+    [ "$(queued)" -eq "$before" ] || fail l "something was queued from a source that served nothing"
+    echo "$refused" | grep -q 'finished: refused' \
+        || fail l "the source was not told the drop was not accepted"
+    [ "$(dropped_files)" -eq 0 ] || fail l "a drop file was written for nothing"
+    echo "step l: ok (nothing served: no row, XdndFinished not accepted)"
+fi
+
+if run m; then
+    before=$(queued)
+    text "$window" --mode quick --types "$gtk" --leave-after-drop || true
+    wait_queued $((before + 1)) || fail m "a drop followed by XdndLeave before its data was lost"
+    echo "step m: ok (mutter's leave right after the drop did not lose it)"
+fi
+
+if run n; then
+    before=$(queued)
+    drag F slow --stale-pointer || true
+    wait_queued $((before + 1)) || fail n "no row after a drop with the pointer far away"
+    landed=$(newest)
+    [ "$landed" = F ] || fail n "the newest row is '$landed', not F"
+    echo "step n: ok (the position came from XdndPosition, not the stale pointer)"
+fi
+
+if run o; then
+    panel_before=$(on_panel)
+    text "$panel" --mode quick --stale-pointer || true
+    for _ in $(seq 1 100); do [ "$(on_panel)" -gt "$panel_before" ] && break; sleep 0.1; done
+    [ "$(on_panel)" -gt "$panel_before" ] || fail o "the panel did not take a text dropped with the pointer far away"
+    echo "step o: ok (the panel took it at the position XdndPosition said)"
+fi
+
 echo "--- GPUI's drag lines and ours"
 grep -E 'gpui_linux.*(Xdnd|SelectionNotify|dragged)|a drop (arrived|carried)|dragged text|queued count|dropped on the panel' "$log" \
     | sed -E 's/^[0-9-]+ [0-9:.]+ +//' || true
-echo "quick-drop: all nine steps passed"
+echo "quick-drop: all fifteen steps passed"
 INNER
 )
 

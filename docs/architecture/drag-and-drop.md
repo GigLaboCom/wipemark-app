@@ -163,8 +163,8 @@ application reads it back as the text it is (D653–D659):
    `text/uri-list`, `text/plain;charset=utf-8`, `UTF8_STRING`,
    `text/plain` — X11 then `STRING` and `TEXT`, which it always accepted —
    from the three types in `XdndEnter` or, past three, the source's
-   `XdndTypeList` (`xdnd_preferred_atom`), and on Wayland from the offer's
-   types (`DRAG_MIME_TYPES`), the chosen one `accept`ed at enter, which the
+   `XdndTypeList`, and on Wayland from the offer's
+   types — by name since D696 (`platform::drag_type_rank`) — the chosen one `accept`ed at enter, which the
    compositor needs before it sends a drop. A file therefore beats the
    text describing it, as on macOS. A URI list with no `file:` URI in it —
    a link dragged out of a page — is taken as the text of its URIs.
@@ -203,6 +203,46 @@ two together. An image dragged as data (`image/png` from a browser) is
 not taken yet — stage two in the report
 (`docs/plan/reports/linux-text-drop-2026-10-12.md`).
 
+### Under XWayland: a refused type, mutter's leave, and the position
+
+On GNOME on Wayland the application draws through XWayland (D611), and a
+drag out of a Wayland-native application reaches it through **mutter**,
+not through Xwayland: `hw/xwayland` has no selection or DnD bridge, the
+compositor's X window manager is the bridge (`src/wayland/meta-xwayland-dnd.c`,
+`src/x11/meta-x11-selection.c`, read at mutter `gnome-46`). What mutter does
+decides three rules here (acceptance F15b, D696–D701):
+
+- **Its types are the Wayland source's mime types, by name.** `XdndEnter`
+  carries them (three inline, more in `XdndTypeList` on mutter's selection
+  window); a `SelectionRequest` is served when the target's name *equals*
+  one of them, or is `UTF8_STRING` for `text/plain;charset=utf-8` or
+  `STRING` for `text/plain`; `TARGETS` lists the mime types with those two
+  aliases; anything else is refused with property None. So the carried
+  crate chooses by name, case-insensitively and with the charset's
+  spelling folded (D696), falls back through every acceptable offered type
+  and then `TARGETS` when one is refused, asks for each at most once, and
+  honours the notify's property, deleting `XDND_DATA` as it reads it (D697);
+  with nothing left, the drop is finished *not accepted* (D698).
+- **The data comes late, and mutter leaves right after the drop.** A
+  served request is filled from the Wayland source asynchronously
+  (`wl_data_source.send`), and mutter ends its grab — sending `XdndLeave`
+  — as soon as it has sent `XdndDrop`. A drop deferred until its data came
+  (D622) was cleared by that leave; it is now kept until the data arrives
+  (D699), as D623 keeps Wayland's.
+- **The X pointer is stale.** While a Wayland client drags, the X server's
+  pointer is where it last was over an X window, so GPUI's `QueryPointer`
+  placed a drop anywhere (the owner's picture landed at −2025,−5). The
+  position is now `XdndPosition`'s own root coordinates, translated to the
+  window; `QueryPointer` only when the message has none (D700).
+
+Why the owner's source refused *every* conversion of the type mutter
+itself listed is not established: by mutter's code a listed type is
+served, and property None for every request is also what the X server
+answers when `XdndSelection` has no owner. Each refusal now logs the
+selection's owner, so the next report says which. `quick-drop.sh` steps
+j–o hold the rules on Xvfb with a source that refuses, lists in
+`TARGETS`, leaves after the drop and leaves the pointer far away (D701).
+
 ### Seeing a drop in the log
 
 Every drop that reaches a window is one line of ours, from `drop.rs`
@@ -213,14 +253,18 @@ no text (`logging.md`). These are at INFO and are in every log.
 
 GPUI's side of a drag is DEBUG lines in the carried crate (target
 `gpui_linux::linux::x11::client` or `…::wayland::client`), one per
-protocol step and never per mouse move: on X11 `XdndEnter from 0x…: N
-types offered, taking text/uri-list` (or `taking text`, or `no supported
-type`), `XdndPosition: requested the dragged file list` (once per drag),
-`SelectionNotify: N paths, Enter` (or `1 text, …`), `XdndDrop at
-Point { … } on 0x…` or `XdndDrop: deferred until the file list arrives`
-then `XdndDrop: the deferred drop completed at … on 0x…`, `XdndLeave`; on
-Wayland `drag enter: reading the dragged text/uri-list` (or the text type
-it chose), `drag enter: read N paths` or `read text`, `drag drop at …` or
+protocol step and never per mouse move: on X11 `XdndEnter from 0x…:
+offered [text/plain;charset=utf-8, UTF8_STRING, …], taking <name>` (or
+`no supported type`), `XdndPosition: requested <name>` (once per type),
+`SelectionNotify: <name> gave N paths, Enter` (or `gave 1 text, …`) or
+`SelectionNotify: <name> was refused (property None; selection owner
+0x…); requesting <next>` — then `TARGETS lists [...]`, `no other type to
+ask for` or `the deferred drop finished, not accepted` — `XdndDrop at
+Point { … } (root Some((x, y))) on 0x…` or `XdndDrop: deferred until the
+file list arrives` then `XdndDrop: the deferred drop completed at …`,
+`XdndLeave after a deferred drop: kept until its data arrives`,
+`XdndLeave`; on Wayland `drag enter: offered [...], accepting and reading
+<mime>`, `drag enter: read N paths` or `read text`, `drag drop at …` or
 `drag drop: deferred until the file list arrives` then `drag drop: the
 deferred drop completed`, `drag leave`. A text adds `dragged text read: N
 bytes` and, at the drop, `dragged text written to its drop file: N
@@ -238,7 +282,7 @@ WIPEMARK_LOG=info,gpui_linux=debug wipemark
 `WIPEMARK_LOG=debug` shows them too, buried under the renderer's. A drop
 that shows GPUI's lines and none of ours was lost between GPUI and the
 zone; one that shows neither never reached the window.
-`scripts/verify/linux-drop/quick-drop.sh` drives all nine cases on a
+`scripts/verify/linux-drop/quick-drop.sh` drives all fifteen cases on a
 virtual display and prints both kinds of line.
 
 ## What arrives, and in what order it is read

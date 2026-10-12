@@ -1,4 +1,4 @@
-// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file (vendor/gpui-pre-linux.patch).
+// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; the offer's types are ranked by name (vendor/gpui-pre-linux.patch).
 use std::{
     cell::{RefCell, RefMut},
     hash::Hash,
@@ -86,8 +86,8 @@ use super::{
 
 use crate::linux::{
     DOUBLE_CLICK_INTERVAL, DroppedPayload, DroppedText, LinuxCommon, LinuxKeyboardLayout,
-    PIPE_READ_TIMEOUT, SCROLL_LINES, capslock_from_xkb, cursor_style_to_icon_names,
-    get_xkb_compose_state, is_within_click_distance, keystroke_from_xkb,
+    PIPE_READ_TIMEOUT, SCROLL_LINES, capslock_from_xkb, cursor_style_to_icon_names, drag_type_rank,
+    drag_types_in_order, get_xkb_compose_state, is_within_click_distance, keystroke_from_xkb,
     keystroke_underlying_dead_key, modifiers_from_xkb, new_xkb_context, open_uri_internal,
     read_fd_with_timeout, reveal_path_internal,
     wayland::{
@@ -418,13 +418,6 @@ struct DragState<DataOffer = wl_data_offer::WlDataOffer, Window = WaylandWindowS
     pending_drop: Option<(u64, Point<Pixels>)>,
     text: Option<DroppedText>,
 }
-
-const DRAG_MIME_TYPES: [&str; 4] = [
-    FILE_LIST_MIME_TYPE,
-    "text/plain;charset=utf-8",
-    "UTF8_STRING",
-    "text/plain",
-];
 
 impl<DataOffer, Window> DragState<DataOffer, Window> {
     fn begin_uri_read(&mut self) -> u64 {
@@ -2870,24 +2863,32 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                     };
                     let uri_read_generation = state.drag.begin_uri_read();
                     state.drag.position = Point::new(x.into(), y.into());
-                    let mime_type = state
+                    let offered: Vec<(usize, String)> = state
                         .data_offers
                         .iter()
                         .find(|offer| offer.inner.id() == data_offer.id())
-                        .and_then(|offer| {
-                            DRAG_MIME_TYPES
-                                .into_iter()
-                                .find(|mime_type| offer.has_mime_type(mime_type))
-                        })
-                        .unwrap_or(FILE_LIST_MIME_TYPE);
-                    log::debug!("drag enter: reading the dragged {mime_type}");
+                        .map(|offer| offer.mime_types().iter().cloned().enumerate().collect())
+                        .unwrap_or_default();
+                    let mime_type = drag_types_in_order(&offered).first().map_or_else(
+                        || FILE_LIST_MIME_TYPE.to_string(),
+                        |i| offered[*i].1.clone(),
+                    );
+                    let uri_list = drag_type_rank(&mime_type) == Some(0);
+                    log::debug!(
+                        "drag enter: offered [{}], accepting and reading {mime_type}",
+                        offered
+                            .iter()
+                            .map(|(_, mime)| mime.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
 
                     const ACTIONS: DndAction = DndAction::Copy;
                     data_offer.set_actions(ACTIONS, ACTIONS);
-                    data_offer.accept(serial, Some(mime_type.to_string()));
+                    data_offer.accept(serial, Some(mime_type.clone()));
 
                     let pipe = Pipe::new().unwrap();
-                    data_offer.receive(mime_type.to_string(), unsafe {
+                    data_offer.receive(mime_type, unsafe {
                         BorrowedFd::borrow_raw(pipe.write.as_raw_fd())
                     });
                     let fd = pipe.read;
@@ -2914,8 +2915,7 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                                 }
                             };
 
-                            let payload =
-                                DroppedPayload::read(buffer, mime_type == FILE_LIST_MIME_TYPE);
+                            let payload = DroppedPayload::read(buffer, uri_list);
                             let position = Point::new(x.into(), y.into());
                             let Some(payload) = payload else {
                                 log::debug!("drag enter: read nothing");
