@@ -1,6 +1,6 @@
 # The panel's shortcut under GNOME, and the Placement page's drag — 2026-10-12
 
-*Branch `fix/gnome-hotkey-placement-drag` from `feat/e0-e6-shell` (`02577ee`).
+*Branch `fix/gnome-hotkey-placement-drag` from `feat/e0-e6-shell` (`177bfaa`).
 Acceptance findings F11 and F12 (`v1-acceptance-2026-10-12.md`). Decisions
 D641–D649 (`docs/plan/README.md` §4). Not merged.*
 
