@@ -24,8 +24,15 @@ KDE и на macOS ничего не изменилось — там рамку �
 закрывается, чтобы ничего не потерять, — тогда GNOME только покажет «окно
 готово». Главное окно по «Показать» из трея под Wayland по-прежнему не
 выходит вперёд (GNOME показывает «Wipemark готов»): пересоздать его
-означало бы потерять открытые в нём вопросы. Проверить глазами — по списку
-в конце.
+означало бы потерять открытые в нём вопросы. Ещё два исправления командной
+строки: `wipemark-cli clean x.md` больше не перезаписывает уже лежащий
+рядом `x.cleaned.md` (там может быть правка из «Сравнения») — отказ с кодом
+2 до чтения файла, с подсказкой про `-o` и `--in-place`, для текста и для
+картинки; `-o файл` по-прежнему заменяет. И если приложение перестало
+отвечать во время переписывания, команда теперь честно говорит, что
+ничего не записано и что, если приложение закрыли или остановили, эта
+перезапись не будет закончена — запустите команду ещё раз. Проверить
+глазами — по списку в конце.
 
 ## F3 — no title bar under GNOME Wayland
 
@@ -156,10 +163,85 @@ click — is GPUI's to add.
 * macOS: `forward` is `Activate`, `draws_title_bar` is false — the code
   paths are the ones before this branch.
 
+## F4 — `wipemark-cli clean` wrote over an existing `name.cleaned.ext`
+
+Added to the branch at the owner's word (2026-10-12), after a rebase onto
+`feat` `04e9b1d`.
+
+* `run::destination` now refuses a result already beside the input for
+  `clean` as it did for `rewrite` (D362): exit 2 **before the read**, the
+  file left byte for byte, in a new catalogue sentence
+  `cli-cleaned-exists` (en/ru/de) naming `-o` and `--in-place`
+  (`run::exists_line` picks `rewrite`'s or `clean`'s). Pictures take the
+  same road, since `destination` runs before `read_any` decides text or
+  picture.
+* The write itself is `Destination::write`: `inplace::write_new` beside,
+  `write_atomically` for `-o`. A result that appears between the check and
+  the publish is refused at the publish (`AlreadyExists` → the same
+  sentence, exit 2), for a text (`run.rs`), a picture (`image.rs`) and a
+  rewrite (`rewrite.rs`, which now shares the helper).
+* `-o <file>` is the person's word and replaces; `-o -` and standard input
+  are unchanged.
+* `--out`'s help says the default beside never goes over one already there
+  (en/ru/de).
+* The parity table (`fixtures/clean-parity/table.tsv`) gains a `place`
+  column (`fresh` | `taken`) and two `taken` rows — `marked.md` and
+  `torch-1025.png`, both 2 / no / no / `not-cleaned`. The CLI's half runs
+  a `taken` row beside the input with no `-o` and holds the file there to
+  its bytes; the application's half (`clean::tests::the_windows_clean_to_the_clis_table`)
+  runs `clean_one` with the file already there and holds the same, mapping
+  `Refusal::Exists` to the CLI's 2. **No declared deviation appeared or
+  disappeared**: the table had none about an existing result (its rows all
+  ran into empty places), and the windows already refused (D261). One case
+  is *not* a row and is said in the table's header: a taken place with
+  nothing to find — the CLI refuses before the read (2), a window reads,
+  finds nothing and writes nothing (D260, 0). `scripts/verify/e7/parity.sh`
+  reads the new column and skips `taken` rows (it cleans into empty
+  folders).
+* `docs/architecture/cli.md` (the exit table for `clean <path>` and
+  `clean <picture>`, the `rewrite` and picture paragraphs) and
+  `docs/architecture/rules.md` say so.
+* The existing test `clean_writes_beside_the_file_and_never_over_it`
+  (`tests/cli.rs`, "A second run replaces the result") asserted the old behaviour and now asserts the
+  refusal; `a_clean_leaves_one_row_in_the_journal_and_nothing_else`
+  removes its first result before its second run.
+
+## F6 — the CLI's sentence when the application stops answering
+
+`cli-rewrite-lost` (said by `rewrite.rs` on `Unheard::Lost`) promised "it
+may still be finishing the job"; a restarted application removes such an
+item (D317). Now, in en/ru/de: "The application stopped answering before
+the rewrite came back. Nothing was written. If the application was closed
+or stopped, this rewrite will not be finished — run the command again."
+No epic number; `no_language_promises_more_than_the_product_does` is green
+(D599).
+
+## The application's id on every window (D605, from `e10/appimage`)
+
+The AppImage work found that no window set `WindowOptions::app_id`, so
+GPUI set no `WM_CLASS` under X11 and no `xdg_toplevel` `app_id` under
+Wayland, and GNOME could not match our windows to `wipemark.desktop` — a
+generic icon in the dock and in Alt+Tab. (The same id is what GPUI's
+Wayland activation stamps on its token, D594.)
+
+* `title::APP_ID = "wipemark"`, its doc saying it must equal the `.desktop`
+  file's name, its `StartupWMClass` and its `Icon` (D605).
+* Every window's options are now built by one function each, and each
+  sets `app_id: Some(APP_ID)`: `main::main_window_options`,
+  `settings::window_options`, `compare::window_options`,
+  `panel::window_options` (the literals moved there whole, comments with
+  them).
+* `title::tests::every_window_carries_the_app_id` calls all four and holds
+  each to `APP_ID`; with the panel's `app_id` set to `None` it is red.
+* The `.desktop` file is `e10/appimage`'s and is not on this branch; the
+  test that its `StartupWMClass` and `Icon` equal `APP_ID` is the
+  coordinator's when the branches meet.
+
 ## Decisions
 
-D590–D597, rows in `docs/plan/README.md` §4; the two §7 E10 bullets are
-marked done (F2 for Settings and Compare, with D597 named).
+D590–D599, rows in `docs/plan/README.md` §4; the two §7 E10 bullets are
+marked done (F2 for Settings and Compare, with D597 named), and §7 E5 has
+a done bullet for F4 and F6.
 `docs/architecture/rules.md` (two new rules and a note under the
 content/frame rule), `tray.md`, `window-placement.md` and `compare.md`
 describe the behaviour.
@@ -176,6 +258,10 @@ back:
 | `SettingsView::loses_nothing` ignores a typed API key | `settings::…::a_settings_window_holding_a_typed_key_is_not_reopened` |
 | `CompareView::loses_nothing` always yes | `compare::…::an_open_compare_window_is_reopened_only_when_it_loses_nothing` ("reopened over an edit not saved") |
 | `assets/icons/window-close.svg` removed | `chrome::…::every_window_control_glyph_resolves` ("icons/window-close.svg is not shipped") |
+| F4: the check before the read `rewrite`'s alone again | `tests/cli.rs::a_clean_never_writes_over_a_cleaned_file_already_there` (an unreadable input is refused for the read, exit 3, not for the result) |
+| F4: `Destination::write` atomic beside too | `run::tests::beside_never_writes_over_a_file_that_appeared_and_out_replaces` |
+| F4: the window's `Refusal::Exists` mapped to another exit than the CLI's | `clean::tests::the_windows_clean_to_the_clis_table` |
+| F6: `cli-rewrite-lost` put back to "it may still be finishing the job" (en-US) | `wipemark-i18n::tests::a_lost_rewrite_is_never_promised_to_finish` |
 
 `a_title_bar_is_drawn_only_under_client_side_decorations`,
 `only_wayland_reopens_a_window_to_bring_it_forward` and
@@ -188,7 +274,23 @@ Wayland session is the owner's look below.
 
 ## Gates
 
-GATES_PLACEHOLDER
+All on `b759f8e` (the branch rebased onto `feat` `04e9b1d`), once, with
+`--locked`, `CARGO_TARGET_DIR` in the worktree, `LIBRARY_PATH` holding the
+`libxkbcommon-x11.so` link:
+
+| gate | result |
+|---|---|
+| `rustup run nightly rustfmt --edition 2021 --check` over `crates` and `apps` | clean |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
+| `cargo test --workspace --locked` | **2013 passed, 0 failed, 11 ignored** |
+| `cargo test -p wipemark-app --features local-llama --locked` | **775 passed, 0 failed, 2 ignored** |
+| `scripts/check-dep-direction.sh` | ok |
+| `scripts/check-gpui-pin.sh` | ok (one GPUI from crates.io, the X11 guards) |
+| `scripts/check-zune-pin.sh` | ok |
+
+Port 5056 was free during the run: `a_port_something_else_holds_is_stepped_past`
+passed. The release binaries below were built with `llama-native` (the
+pinned prebuilt llama.cpp). No other CI lane was run here.
 
 ## Deviations
 
@@ -204,7 +306,14 @@ GATES_PLACEHOLDER
 
 ## Release binary for the owner
 
-RELEASE_PLACEHOLDER
+`cargo build --release --locked --features llama-native -p wipemark-app -p wipemark-cli`
+at `b759f8e`, in the worktree's own target directory:
+
+* `/home/denis/denis-ubuntu/sources/wipemark-app/.claude/worktrees/agent-a8fcd70e429e3e917/target/release/wipemark` — the application (`wipemark --version` → `wipemark 0.1.0`)
+* `/home/denis/denis-ubuntu/sources/wipemark-app/.claude/worktrees/agent-a8fcd70e429e3e917/target/release/wipemark-cli`
+
+Run from a terminal with `LIBRARY_PATH` unset is fine — the link-time
+symlink is not needed at run time.
 
 ## Checklist for the owner (GNOME, Wayland)
 
@@ -241,3 +350,10 @@ holds MCP port 5056.
 9. **X11**: `env -u WAYLAND_DISPLAY <binary>` — every window has exactly
    one title bar, the desktop's; the gear brings an open Settings forward
    by activation (no reopen).
+10. **Command line (F4, F6)**: `wipemark-cli clean x.md` twice — the second
+    exits 2 naming `-o` and `--in-place`, `x.cleaned.md` untouched;
+    `-o x.cleaned.md` replaces it. (F6's sentence needs the application
+    killed during a rewrite; it reads the new text in all three languages.)
+11. **Dock icon (D605)**: once `wipemark.desktop` from `e10/appimage` is
+    installed, the dock and Alt+Tab show Wipemark's icon, not a generic one
+    — on this branch alone there is no `.desktop` file to match.
