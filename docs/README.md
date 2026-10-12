@@ -6,6 +6,7 @@
 | [architecture/rules.md](architecture/rules.md) | every rule that is not visible in the code, in full — moved from `CLAUDE.md` on 2026-10-12, which keeps a one-line index |
 | [architecture/map.md](architecture/map.md) | every crate and every application module and what it owns — moved from `CLAUDE.md` |
 | [plan/v1-release.md](plan/v1-release.md) | the first release, 0.1.0: what ships, the release lane, the owner's acceptance, stage two (D580–D583) |
+| [architecture/packaging.md](architecture/packaging.md) | the Linux release (E10, D600–D609): the pinned builder image, the AppImage's and the .deb's layout, the excludelist and the declared floor, the icons and the app_id, the notices from `Cargo.lock`, and the gates that start both on clean Ubuntu 24.04 |
 | [plan/history.md](plan/history.md) | what exists in detail and the epic order with every merge — moved from `CLAUDE.md` |
 | [watchword.md](watchword.md) | every Watchword entry: specs, tasks, reports, statuses — moved from `CLAUDE.md` |
 | [architecture/skeleton.md](architecture/skeleton.md) | what epic E0 built, the decisions it had to make, and what is deliberately absent |

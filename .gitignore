@@ -108,3 +108,7 @@ Thumbs.db
 # captures, never committed — D493), stage 1's maps, the calibrations,
 # the bench. What is committed is the manifest and the stage-0 table.
 /reports/grok-*/
+
+# The Linux builder's pinned tools (ci/linux-builder/fetch-tools.sh): downloaded
+# and checked against ci/linux-builder/tools.sha256, never committed.
+/ci/linux-builder/vendor/

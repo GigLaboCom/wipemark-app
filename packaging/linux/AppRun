@@ -1,0 +1,33 @@
+#!/bin/sh
+# AppRun — what the Wipemark AppImage runs (D603, D604).
+#
+# Who asked: the owner, 2026-10-12, an AppImage like MnemoVi's. Unlike
+# MnemoVi's, this is not linuxdeploy's generated script: there is no GTK,
+# GStreamer or WebKit inside to point at, so it sets no environment at all.
+# The binaries find llama.cpp through their own rpath ($ORIGIN, written by
+# scripts/release/linux/appdir.sh) and its backends beside themselves, where
+# wipemark_llama::Runtime looks first.
+#
+# Which program runs:
+#   Wipemark.AppImage [args]            the application (`wipemark`)
+#   Wipemark.AppImage --cli [args]      the command line (`wipemark-cli`)
+#   a link named wipemark-cli to the AppImage, run as `wipemark-cli [args]`
+#                                       the command line, by the name it was
+#                                       called (the runtime sets $ARGV0)
+# `--cli` is taken only as the first argument and is not passed on; every
+# other argument goes to the program unchanged.
+set -e
+
+here="$(dirname "$(readlink -f "$0")")"
+lib="$here/usr/lib/wipemark"
+
+case "$(basename "${ARGV0:-$0}")" in
+  wipemark-cli|wipemark-cli.*) exec "$lib/wipemark-cli" "$@" ;;
+esac
+
+if [ "${1:-}" = "--cli" ]; then
+  shift
+  exec "$lib/wipemark-cli" "$@"
+fi
+
+exec "$lib/wipemark" "$@"

@@ -13,7 +13,7 @@ D580–D589. `feat/e0-e6-shell` at `e648dc6` is the release candidate's base.*
 
 **Что я выбрал** (меняется одним словом):
 
-- **Платформы.** Linux x86_64 (`.deb` и архив) и macOS на Apple Silicon (`.dmg`).
+- **Платформы.** Linux x86_64 (AppImage и `.deb`, D609) и macOS на Apple Silicon (`.dmg`).
   Windows уходит во второй этап.
 - **Без лицензии и активации.** Версия 0.1.0 бесплатная. Лицензия (E9) уходит
   во второй этап. Очистку лицензия не закрывала бы и так.
@@ -59,23 +59,26 @@ default.
 
 **D583 — platforms.** Linux x86_64 and macOS arm64:
 
-- **Linux.** A `.deb` and a `.tar.gz`. Built on Ubuntu 24.04, because the
-  prebuilt llama.cpp needs glibc 2.38.
+- **Linux.** An **AppImage** and a `.deb` (D609, the owner on 2026-10-12: an
+  AppImage like MnemoVi's — it replaces the `.tar.gz`). Built on Ubuntu 24.04
+  in a pinned image, because the prebuilt llama.cpp needs glibc 2.38; the
+  floor the artifacts state is glibc 2.39 (D604). How:
+  [packaging.md](../architecture/packaging.md).
 - **macOS.** A `.app` inside a `.dmg`. Signed and notarized when the
   `APPLE_*` secrets exist; otherwise unsigned, and the release notes say so.
 
-Windows, AppImage, Flatpak and a glibc 2.36 build are stage two.
+Windows, Flatpak and a glibc 2.36 build are stage two.
 
 ## 2. What has to be built for delivery (task `wipemark-task-v1-release-lane-2026-10-11`)
 
 | | |
 |---|---|
-| **P1** | `.github/workflows/release.yml`, on a `wipemark-v*` tag and by hand (`workflow_dispatch`, which builds without publishing). It builds `wipemark` and `wipemark-cli` with `--features llama-native --locked --release` on `ubuntu-24.04` and `macos-14`. |
-| **P2** | **The Linux packages.** A `.deb` installs: <ul><li>`/usr/bin/wipemark` and `/usr/bin/wipemark-cli`;</li><li>llama.cpp's shared libraries under `/usr/lib/wipemark/`, through the rpath;</li><li>the `.desktop` file and the hicolor icons.</li></ul> It depends on `libgtk-3-0`, `libayatana-appindicator3-1`, `libxkbcommon-x11-0` and `libvulkan1`. A `.tar.gz` carries the same tree. |
+| **P1** | `.github/workflows/release.yml`, on a `wipemark-v*` tag and by hand (`workflow_dispatch`, which builds without publishing). It builds `wipemark` and `wipemark-cli` with `--features llama-native --locked --release` on `ubuntu-24.04` and `macos-14`. **Linux job: written** (D609) — the builder image, the AppImage and the .deb, both install gates, a draft release on a tag; not yet run on GitHub. macOS joins it. |
+| **P2** | **The Linux packages — built** (`e10/appimage`, D600–D609; [report](reports/E10-appimage-2026-10-12.md)). `Wipemark-0.1.0-x86_64.AppImage` and `wipemark_0.1.0_amd64.deb`, one tree: <ul><li>`wipemark` and `wipemark-cli` in `/usr/lib/wipemark/` beside llama.cpp's libraries and backends, rpath `$ORIGIN`, links in `/usr/bin/`;</li><li>the `.desktop` file, the full hicolor set and AppStream metainfo;</li><li>NOTICE and THIRD-PARTY.md.</li></ul> The AppImage carries `libgomp`, `libxkbcommon-x11` and `libxcb-xkb` and runs the CLI by `--cli` or a link named `wipemark-cli`; the .deb declares them instead, its Depends computed from what the binaries NEED (`libgtk-3-0t64`, `libxkbcommon-x11-0`, `libvulkan1`, `libgomp1` among them) plus `libayatana-appindicator3-1`. Open: the windows' `app_id` (D605). |
 | **P3** | **The macOS bundle.** `Wipemark.app`: <ul><li>llama.cpp's dylibs in `Contents/Frameworks`;</li><li>`wipemark-cli` beside the app binary;</li><li>the icon from `assets/icon/icon.icns`.</li></ul> It ships as a `.dmg`. `codesign` with hardened runtime and `notarytool` run only when the secrets exist. |
-| **P4** | `tests/standalone.rs`'s check run on the **packaged** binaries: `wipemark --version` finds llama.cpp without cargo's loader path. |
-| **P5** | **Licences.** A `THIRD-PARTY.md` generated from `Cargo.lock` (cargo-about or cargo-license) and shipped beside `NOTICE`. It adds llama.cpp (MIT) and says that model weights are downloaded, not shipped. A script under `scripts/release/` makes the file. |
-| **P6** | **Smoke test on a clean machine**, as a script under `scripts/verify/release/`. Install the `.deb` in a fresh `ubuntu:24.04` container, then: <ul><li>`wipemark --version`;</li><li>`wipemark-cli inspect` and `clean` over `fixtures/clean-parity` and one Gemini and one Grok fixture, exits as the parity table says;</li><li>`wipemark` started under Xvfb for ten seconds with a scratch `WIPEMARK_DATA_DIR`: it starts, binds MCP, writes its beacon and exits on SIGTERM.</li></ul> On macOS the same CLI part on the runner. |
+| **P4** | `tests/standalone.rs`'s check run on the **packaged** binaries: `wipemark --version` finds llama.cpp without cargo's loader path. **Linux: done** — `scripts/release/linux/build.sh` runs both `--version`s from the packed AppImage, the gates below from the AppImage and the installed .deb. |
+| **P5** | **Licences — done for Linux** (D606). `THIRD-PARTY.md` is generated from `Cargo.lock` by `scripts/release/third-party.py` (from `cargo metadata`, no extra tool) and shipped beside `NOTICE`; it adds llama.cpp (MIT), the carried system libraries' copyright files, and says that model weights are downloaded, not shipped. |
+| **P6** | **Smoke test on a clean machine**, as a script under `scripts/verify/release/` — **Linux: done** (D607): `appimage-gate.sh` (32 checks, the CLI on a bare ubuntu:24.04, the application on the declared floor under Xvfb) and `deb-gate.sh` (7 checks). The plan as written: Install the `.deb` in a fresh `ubuntu:24.04` container, then: <ul><li>`wipemark --version`;</li><li>`wipemark-cli inspect` and `clean` over `fixtures/clean-parity` and one Gemini and one Grok fixture, exits as the parity table says;</li><li>`wipemark` started under Xvfb for ten seconds with a scratch `WIPEMARK_DATA_DIR`: it starts, binds MCP, writes its beacon and exits on SIGTERM.</li></ul> On macOS the same CLI part on the runner. |
 | **P7** | **Release notes**, `docs/release/0.1.0.md`: <ul><li>what it does;</li><li>install on each platform (and the unsigned-macOS step if it applies);</li><li>where data lives;</li><li>known limitations, which is §4's list in plain words.</li></ul> README gets an "Install" section. |
 | **P8** | **The size of each artifact**, recorded in the report. No budget gate yet. |
 
@@ -130,7 +133,7 @@ release notes' "known limitations" and the next iteration's backlog.
 - **E9, licensing**: activation, trial, offline grace, the signed manifest.
 - **E10, the rest of packaging:**
   - Windows (tray, shortcut, installer);
-  - AppImage or Flatpak;
+  - Flatpak;
   - a build for glibc older than 2.38;
   - Wayland's close button and shortcut;
   - auto-update;
