@@ -23,3 +23,9 @@ fixtures/image/grok-x/*.jpeg        binary
 # file, a soft hyphen, a TIFF head — and the table both tests read.
 fixtures/clean-parity/**            -text -diff
 fixtures/image/jpeg-planes/*.jpg    binary
+
+# The carried gpui-pre-linux is the published crate byte for byte plus its
+# patch: scripts/check-gpui-pin.sh compares the bytes, so no checkout may
+# normalise a line ending in either (D621).
+vendor/gpui-pre-linux/**            -text
+vendor/gpui-pre-linux.patch         -text
