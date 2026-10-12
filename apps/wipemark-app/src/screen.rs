@@ -104,6 +104,7 @@ impl Chrome {
     }
 
     /// A client's size, from its frame's.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub fn shrink(self, frame: Size<Pixels>) -> Size<Pixels> {
         size(
             frame.width - self.left - self.right,

@@ -26,6 +26,9 @@
 //! `WAYLAND_DISPLAY` this way, so they still start as native Wayland
 //! clients rather than being pushed onto XWayland with us.
 
+// Everything here is Linux's; elsewhere only the tests reach it.
+#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+
 use std::ffi::OsStr;
 
 /// The variable that keeps native Wayland. A **format**: documented to
