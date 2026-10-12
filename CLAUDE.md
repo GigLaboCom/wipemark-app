@@ -94,6 +94,7 @@ cargo test  -p wipemark-engine --features local-llama --locked
 cargo test  -p wipemark-app    --features local-llama --locked
 cargo clippy -p wipemark-pipeline --features local-llama --examples --locked -- -D warnings
 cargo test   -p wipemark-pipeline --features local-llama --examples --locked
+cargo test   -p gpui-pre-linux --locked          # the carried crate is not a member
 ```
 
 Coverage is a workflow of its own, `.github/workflows/coverage.yml`: on
@@ -213,8 +214,14 @@ cargo test -p wipemark-app duty::           # one module's tests
 cargo test -p wipemark-app -- --nocapture   # with the log lines
 ```
 
-**On X11 nothing is carried any more.** GPUI is `gpui-pre 0.3.8` (zed
-`279fe07`). The stale first frame — a new window showing a piece of the
+**One GPUI crate is carried: `gpui-pre-linux`.** GPUI is `gpui-pre 0.3.8` (zed
+`279fe07`) from crates.io, except `gpui-pre-linux`. That crate is carried as
+`vendor/gpui-pre-linux`: the published crate plus `vendor/gpui-pre-linux.patch`,
+through `[patch.crates-io]`. The patch keeps a file dropped before GPUI has
+read its file list from being lost on X11 or Wayland (acceptance F9,
+D620–D627). `scripts/check-gpui-pin.sh` fails on anything else in that
+directory; `docs/architecture/gpui-pin.md` §2 says how to change or drop
+it. The stale first frame — a new window showing a piece of the
 screen until the mouse moved, because its `MapNotify` stayed in x11rb's
 queue — is upstream #62081 (`f4178619ac`), in the snapshot. The
 `RefCell already mutably borrowed` panic on the desktop portal's
@@ -349,8 +356,13 @@ owner's word (PR #1). The next step is **0.1.0**
 acceptance is under way
 ([reports/v1-acceptance-2026-10-12.md](docs/plan/reports/v1-acceptance-2026-10-12.md)).
 
-On Linux the windows now draw their own title bar where the desktop draws
-none, through gpui-component's `TitleBar` (`chrome.rs`, D590–D597). Every
+On Linux the application runs under **XWayland by default**, through GPUI's
+own platform choice (`WIPEMARK_WAYLAND=1` keeps native Wayland, D611). There
+it moves, floats and reads monitors through an X connection of its own
+(`x11.rs`, D612–D616), and the panel lands in its Placement zone. Under
+native Wayland the Placement page says the desktop decides (D617). Where
+decorations are client-side, the windows draw gpui-component's `TitleBar`
+(`chrome.rs`, D590–D597). Every
 window names the application `wipemark`, the same as the `.desktop` file
 (D605). The Linux AppImage and the `.deb` are built by
 `scripts/release/linux/build.sh` in a pinned builder
@@ -362,6 +374,13 @@ Denis Esakov, D610). The source is public, use is free except for a
 competing commercial product, and each version becomes Apache-2.0 after two
 years.
 
+**Every row gets its own result** in the windows. A row writes the plain
+`name.cleaned.ext`/`name.rewritten.ext` when it is free, and
+`name.cleaned-<row id>.ext` otherwise. Nothing is overwritten, and
+*Replace the existing result* is gone (D635–D639). The command line still
+refuses a taken name (exit 2). The result's toolbar in Compare has
+**Copy all** (D630–D634).
+
 Everything else is stage two (§4 of the release plan). The next free
-decision block is **D611** (D531–D569 stay free for the recon line). The
+decision block is **D640** (D531–D569 stay free for the recon line). The
 history of every merge is [docs/plan/history.md](docs/plan/history.md).
