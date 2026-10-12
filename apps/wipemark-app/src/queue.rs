@@ -90,8 +90,20 @@
 //! every row is a row of it, read back at launch, so the list survives a
 //! restart (В3) — a row's own Remove, Clear finished on the toolbar, and
 //! the keep period on the Retention page take rows away. Rows other
-//! surfaces wrote — the panel, an agent, the command line — appear without
-//! a click, and say who asked. A row keeps metadata after its end (В4):
+//! surfaces wrote — an agent, the command line — appear without a click,
+//! and say who asked.
+//!
+//! # The panel's drops are rows here (D690)
+//!
+//! A drop on the panel is handed to this table the moment it lands
+//! ([`Queue::take_from_panel`]), down the road a drop on this window takes
+//! — one row per thing, its journal row written by this table's writer
+//! with the origin `panel` — whether this window is in front, hidden by
+//! the tray or minimised: the table is a global ([`Table`]) and outlives
+//! its window. The panel keeps the rows' ids; its Clean asks this table's
+//! [`Queue::clean`] for them, and what it shows of each is read back from
+//! the row ([`Queue::standing`]), so a clean asked from either window is
+//! one row and one status in both (D691, D692). A row keeps metadata after its end (В4):
 //! a thing with no file behind it cannot be processed again once it ended
 //! or the application restarted, and its menu says why.
 //!
@@ -925,6 +937,57 @@ pub struct Queue {
     goings: std::cell::Cell<usize>,
 }
 
+/// The main window's table, as the panel reaches it (D690): a strong
+/// handle, so the list outlives its window — a drop on the panel still
+/// lands as a row while the main window is hidden, minimised or gone.
+/// Set once, by the shell that builds the table.
+pub struct Table(pub Entity<Queue>);
+
+impl gpui::Global for Table {}
+
+impl Table {
+    /// The table, when a shell has built one.
+    pub fn of(cx: &App) -> Option<Entity<Queue>> {
+        cx.try_global::<Table>().map(|table| table.0.clone())
+    }
+}
+
+/// Where a row stands, as the panel reads it for the thing it shows
+/// (D692): one fact with the row's own status.
+#[derive(Debug, Clone)]
+pub enum Standing {
+    /// No such row: removed from the list, or never made.
+    Gone,
+    /// Nothing asked of it yet: Clean may take it.
+    Waiting,
+    /// In the line of cleans, or being cleaned now.
+    Cleaning,
+    /// In the batch queue, or being rewritten now.
+    Rewriting,
+    /// Cleaned, refused or failed — what the clean came to.
+    Cleaned(Arc<Outcome>),
+    /// Anything else the list says of it — a rewrite that ended.
+    Elsewhere,
+}
+
+impl PartialEq for Standing {
+    /// Two standings are one when they are the same state — and, cleaned,
+    /// the same clean's outcome.
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Standing::Cleaned(a), Standing::Cleaned(b)) => Arc::ptr_eq(a, b),
+            _ => std::mem::discriminant(self) == std::mem::discriminant(other),
+        }
+    }
+}
+
+impl Standing {
+    /// Whether something runs for it: a clean or a rewrite.
+    pub fn running(&self) -> bool {
+        matches!(self, Standing::Cleaning | Standing::Rewriting)
+    }
+}
+
 impl Queue {
     /// Where a drop on this window lands — the table's zone and the
     /// window's overlay share it.
@@ -1037,6 +1100,19 @@ impl Queue {
         queue
     }
 
+    /// A table over a detached catcher, for another window's test — the
+    /// panel's, which hands its drops here (D690).
+    #[cfg(test)]
+    pub(crate) fn for_tests(
+        preferences: Entity<Preferences>,
+        work: Option<Work>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let catcher = cx.new(|_| Catcher::detached());
+        Self::with_catcher(preferences, catcher, work, window, cx)
+    }
+
     /// Hand paths down the road a drop takes — the command line's way
     /// in, and the one the Import button uses once the picker answers.
     pub fn hand(&self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
@@ -1120,15 +1196,39 @@ impl Queue {
         shown(&self.keys(), &self.filter, self.order)
     }
 
-    /// Something landed: list it now, and find out what it looks like
-    /// afterwards.
+    /// Something landed on this window: list it now, and find out what it
+    /// looks like afterwards.
     fn take(&mut self, arrivals: Arc<[Arrival]>, cx: &mut Context<Self>) {
+        self.take_as(arrivals, None, cx);
+    }
+
+    /// Something was dropped on the panel: list it here as a drop on this
+    /// window is, one row per thing, its journal row's origin `panel`
+    /// (D690). The rows' ids, in the order of `arrivals` — what the panel
+    /// keeps to show each row and to clean it (D691). A drop that carried
+    /// nothing is no row, and no id.
+    pub fn take_from_panel(
+        &mut self,
+        arrivals: Arc<[Arrival]>,
+        cx: &mut Context<Self>,
+    ) -> Vec<u64> {
+        self.take_as(arrivals, Some(Origin::Panel), cx)
+    }
+
+    /// List what landed, under `origin` when a surface other than this
+    /// window handed it over, and say which rows it became.
+    fn take_as(
+        &mut self,
+        arrivals: Arc<[Arrival]>,
+        handed_by: Option<Origin>,
+        cx: &mut Context<Self>,
+    ) -> Vec<u64> {
         if arrivals.is_empty() {
             // A drop that carried nothing this machine could read. The
             // panel has a sentence for it; a table has nothing to add a
             // row for, and the log line is the record.
             tracing::info!("a drop carried nothing that could be listed");
-            return;
+            return Vec::new();
         }
 
         // One number per thing across the windows (D280): the panel's
@@ -1137,17 +1237,20 @@ impl Queue {
         let now = Local::now();
         let arrived_ms = journal::now_ms();
         for (arrival, &id) in arrivals.iter().zip(&ids) {
-            // Named on the application's command line, or handed over in
-            // the window.
-            let origin = match &arrival.handed {
-                Handed::Path(path) => match self.from_flag.iter().position(|named| named == path) {
-                    Some(at) => {
-                        self.from_flag.remove(at);
-                        Origin::LaunchFlag
+            // Handed over on the panel, named on the application's command
+            // line, or handed over in the window.
+            let origin = match (handed_by, &arrival.handed) {
+                (Some(origin), _) => origin,
+                (None, Handed::Path(path)) => {
+                    match self.from_flag.iter().position(|named| named == path) {
+                        Some(at) => {
+                            self.from_flag.remove(at);
+                            Origin::LaunchFlag
+                        }
+                        None => Origin::Window,
                     }
-                    None => Origin::Window,
-                },
-                Handed::Text(_) | Handed::Bytes { .. } => Origin::Window,
+                }
+                (None, Handed::Text(_) | Handed::Bytes { .. }) => Origin::Window,
             };
             if let Some(writer) = &self.writer {
                 writer.record(
@@ -1179,9 +1282,15 @@ impl Queue {
                 status: Status::Waiting,
             });
         }
-        // The rows `--clean=` asked for, each path once.
+        // The rows `--clean=` asked for, each path once — never one the
+        // panel handed over, which no flag named.
         let mut asked = Vec::new();
-        for row in &self.rows[self.rows.len() - arrivals.len()..] {
+        let flagged = if handed_by.is_none() {
+            arrivals.len()
+        } else {
+            0
+        };
+        for row in &self.rows[self.rows.len() - flagged..] {
             if let Some(Handed::Path(path)) = row.arrival.as_ref().map(|arrival| &arrival.handed) {
                 if let Some(at) = self.to_clean.iter().position(|wanted| wanted == path) {
                     self.to_clean.remove(at);
@@ -1204,7 +1313,12 @@ impl Queue {
         // carried what arrived would be the document in a file the
         // product wrote. See `wipemark_log::Elided`.
         let kinds: Vec<Kind> = arrivals.iter().map(|arrival| arrival.intake.kind).collect();
-        tracing::info!(count = arrivals.len(), ?kinds, "queued");
+        tracing::info!(
+            count = arrivals.len(),
+            ?kinds,
+            origin = handed_by.unwrap_or(Origin::Window).as_str(),
+            "queued"
+        );
 
         // Go to where the newest row is: the first page with the newest
         // on top, the last with the oldest — unless a filter hides it,
@@ -1224,6 +1338,7 @@ impl Queue {
         // The previews, off the thread that draws — a text preview reads
         // a file, and the file may be on a network volume. They land by
         // id, so a row removed in the meantime is simply not found.
+        let listed = ids.clone();
         cx.spawn(async move |queue, cx| {
             let previews: Vec<Preview> = cx
                 .background_executor()
@@ -1246,6 +1361,7 @@ impl Queue {
                 .ok();
         })
         .detach();
+        listed
     }
 
     /// Empty both fields and show everything again, from the first
@@ -1373,6 +1489,34 @@ impl Queue {
         Some((word, sentence))
     }
 
+    /// Where row `id` stands — what the panel shows of a thing it handed
+    /// over, read from the row itself (D692).
+    pub fn standing(&self, id: u64) -> Standing {
+        let Some(row) = self.rows.iter().find(|row| row.id == id) else {
+            return Standing::Gone;
+        };
+        match &row.status {
+            Status::Waiting => Standing::Waiting,
+            Status::Queued | Status::Cleaning => Standing::Cleaning,
+            Status::RewriteQueued | Status::Rewriting(_) => Standing::Rewriting,
+            Status::Done(outcome) => Standing::Cleaned(outcome.clone()),
+            Status::Recorded(said) if !said.phase.is_end() => match said.action {
+                Action::Rewrite => Standing::Rewriting,
+                _ => Standing::Cleaning,
+            },
+            Status::Recorded(_) => Standing::Elsewhere,
+        }
+    }
+
+    /// Who handed row `id` over, if it is here.
+    #[cfg(test)]
+    pub fn origin_of(&self, id: u64) -> Option<Origin> {
+        self.rows
+            .iter()
+            .find(|row| row.id == id)
+            .map(|row| row.origin)
+    }
+
     /// The status of row `id`, if it is here.
     #[cfg(test)]
     pub fn status_of(&self, id: u64) -> Option<&Status> {
@@ -1388,8 +1532,8 @@ impl Queue {
         self.rows.iter().map(|row| row.id).collect()
     }
 
-    /// What the line said about one of this queue's rows — a clean of the
-    /// panel's is not a row here, and is not heard.
+    /// What the line said about one of this queue's rows — the panel's
+    /// included, whose cleans this table asks (D691).
     fn heard(&mut self, event: &cleaner::Event, cx: &mut Context<Self>) {
         let (id, status) = match event {
             cleaner::Event::Started(id) => (*id, Status::Cleaning),
@@ -1543,6 +1687,11 @@ fn holds(row: &Row, work: Option<&Work>, action: Action, home: &Home) -> bool {
 #[cfg(test)]
 mod rewrite_tests;
 mod rewriting;
+
+/// How often the table looks at the journal's notes — what a test of
+/// another window waits for its rows by.
+#[cfg(test)]
+pub(crate) const TICK: std::time::Duration = rewriting::TICK;
 
 /// Copy the result: row `id`'s cleaned text onto the clipboard. The
 /// person's own text, cleaned: no catalogue touches it on the way there.

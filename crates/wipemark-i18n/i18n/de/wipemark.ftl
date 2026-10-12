@@ -345,6 +345,14 @@ settings-placement-system-decides = Auf diesem Desktop bestimmt das System, wo e
 
 settings-placement-close-title = Nach dem Ablegen schließen
 settings-placement-close-description = Wird das Fenster auf einen Bildschirmteil gezogen, schließt sich dieses Fenster, damit sichtbar wird, wo es gelandet ist. Ein Klick auf einen Teil lässt dieses Fenster offen.
+settings-panel-clear-title = Panel leeren
+settings-panel-clear-description = Wird so lange nichts angesehen oder bereinigt, lässt das Panel los, was darauf abgelegt wurde, und lädt zum nächsten Ablegen ein. Was abgelegt wurde, bleibt in jedem Fall in der Liste des Hauptfensters.
+settings-panel-clear-seconds = Nach { $count } Sekunden
+settings-panel-clear-minutes = { $count ->
+        [one] Nach einer Minute
+       *[other] Nach { $count } Minuten
+    }
+settings-panel-clear-never = Nie
 
 settings-placement-screen-title = Öffnen auf
 settings-placement-screen-description = Der aktive Bildschirm ist der, auf dem der Zeiger steht, wenn das Fenster aufgeht. Der primäre ist der, auf dem der Schreibtisch die Menüleiste zeigt, wo der Zeiger auch sein mag.
