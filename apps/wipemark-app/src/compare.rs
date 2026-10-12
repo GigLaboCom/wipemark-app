@@ -6263,6 +6263,21 @@ mod tests {
             let line = line_under_the_result(&view, window);
             if took {
                 assert!(!window.update(|_, cx| view.read(cx).saving.dirty), "{line}");
+                // Copy all on the strip copies the text the row was told —
+                // the text the row's Copy the result hands out from now on
+                // (D631; `result_text` in the queue's tests).
+                window.update(|w, cx| {
+                    let pane = view.read(cx).result.clone();
+                    pane.update(cx, |pane, cx| pane.press_copy_all(w, cx));
+                });
+                window.run_until_parked();
+                assert_eq!(
+                    window
+                        .update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text()))
+                        .as_deref(),
+                    Some("pasted, edited\n"),
+                    "Copy all and the row's Copy the result disagree"
+                );
             } else {
                 assert_eq!(
                     line,

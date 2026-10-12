@@ -261,7 +261,7 @@ that still ships in the binary and still has to be licence-audited.
 | `paste` | the toolbar's Paste button — what is on the clipboard, down a drop's road (E6); the result's toolbar, `input::Paste` (E7) |
 | `circle-question` | the toolbar's Help popover; the queue's glyph for a thing nothing recognised (E6) |
 | `arrow-up-right-from-square` | the queue's Actions menu: open with the default app (E6) — lazy-shot's `ExternalLink` |
-| `file-lines` | the queue's glyph for text and documents with no preview (E6) |
+| `file-lines` | the queue's glyph for text and documents with no preview (E6); the row's Report… (E7); the result's toolbar, Copy all — the whole text, beside Copy's two pages (D634) |
 | `image` | the queue's glyph for a picture this binary cannot decode, or one past the thumbnail limit (E6) |
 | `film` | the queue's glyph for sound and video (E6) |
 | `chevron-up` / `chevron-down` | the queue's Arrived header: which way the rows run (E6); `chevron-down` was already the disclosure glyph and the page-size menu's |
