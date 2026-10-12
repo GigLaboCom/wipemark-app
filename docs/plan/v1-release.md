@@ -88,6 +88,16 @@ Rules for P1–P8 are the repository's (CLAUDE.md):
 - `main` untouched by the agent; the tag and the merge of PR #1 are the
   coordinator's, after the owner's yes.
 
+## 2a. The product's own licence — open (found 2026-10-12)
+
+| | |
+|---|---|
+| **What is declared** | `Cargo.toml`: `license = "LicenseRef-Proprietary"` ("the EULA text itself lands with epic E9"). The AppStream metainfo on `e10/appimage`: `LicenseRef-proprietary`. `NOTICE`: "Copyright 2026 Wipemark contributors". |
+| **What is missing** | No `LICENSE` or EULA text exists anywhere, so the AppImage and the `.deb` ship with no terms of use. The copyright holder is not a legal entity. |
+| **The repository is public** | `GigLaboCom/wipemark-app` is **PUBLIC** on GitHub, with no licence: every line of source is readable and forkable. In law it is all rights reserved, but in practice it is open. MnemoVi's repository is private, and it publishes through its own release service (`scripts/ci/releases-publish.sh` in `mnemoria-lvkb`). A release on a public repository's GitHub Releases is public; on a private one it is not downloadable at all. |
+| **Dependencies** | No copyleft binds the binary. <ul><li>The GPL-licensed crates are dual-licensed (`self_cell`: Apache-2.0 OR GPL-2.0; `r-efi`: MIT/Apache/LGPL).</li><li>MPL-2.0: `option-ext` ships unmodified; `cbindgen` is a build tool; `dwrote` is Windows only.</li><li>llama.cpp is MIT; the icons are CC BY 4.0 (`NOTICE`).</li><li>Model weights are not shipped.</li><li>`THIRD-PARTY.md`: 729 crates.</li></ul> |
+| **Owner decisions** | <ol><li>The repository: private (like MnemoVi), or public on purpose (source-available).</li><li>Where 0.1.0 is downloaded from: GitHub Releases, or the release service MnemoVi uses.</li><li>The copyright holder's legal name.</li><li>The EULA for 0.1.0: proprietary, free of charge, no warranty. The coordinator drafts it and the owner (or a lawyer) approves; it ships as `LICENSE` in the packages and is shown in the About/first launch later (E9).</li></ol> |
+
 ## 3. Acceptance (the owner, on the packaged build)
 
 Run on the `.deb` installed on the owner's host, and on the `.dmg` if there
