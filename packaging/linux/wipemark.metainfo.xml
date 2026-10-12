@@ -10,7 +10,7 @@
 <component type="desktop-application">
   <id>com.giglabo.wipemark</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>LicenseRef-proprietary</project_license>
+  <project_license>FSL-1.1-ALv2</project_license>
   <name>Wipemark</name>
   <summary>Strips AI provenance marks from your own content</summary>
   <description>

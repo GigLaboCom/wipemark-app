@@ -143,4 +143,21 @@ mod tests {
             "the .desktop file is wipemark.desktop"
         );
     }
+
+    /// The desktop file the packages install is the one the windows name:
+    /// its `StartupWMClass` and `Icon` are [`APP_ID`](super::APP_ID)
+    /// (D605). Rename either side and the dock shows a generic icon.
+    #[test]
+    fn the_desktop_file_names_the_app_id() {
+        let desktop = include_str!("../../../packaging/linux/wipemark.desktop");
+        let value = |key: &str| {
+            desktop
+                .lines()
+                .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
+                .map(str::trim)
+        };
+        assert_eq!(value("StartupWMClass"), Some(super::APP_ID));
+        assert_eq!(value("Icon"), Some(super::APP_ID));
+        assert_eq!(value("Exec"), Some(super::APP_ID));
+    }
 }

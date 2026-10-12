@@ -268,7 +268,7 @@ Sixteen libraries under `crates/`, two applications under `apps/`;
 | `wipemark-picture` | a picture file through both passes, one writer |
 | `wipemark-intake` | what was handed over and what it is; `inplace`, the one module that writes |
 | `wipemark-i18n`, `wipemark-log`, `wipemark-secret` | catalogues, the rotating log, the credential store |
-| `wipemark-license` | types only (E9 is stage two) |
+| `wipemark-license` | types only (E9 is stage two); the product's own licence is `LICENSE.md`, FSL-1.1-ALv2 |
 
 `apps/wipemark-app/src/` holds most decisions (one file per concern —
 `main.rs`, `queue.rs`, `compare.rs`, `settings.rs`, `duty.rs`,
@@ -343,10 +343,25 @@ Unmark" survives only in keys; the product is Wipemark (Q1, 2026-09-21).
 
 ## Where it stands
 
-`feat/e0-e6-shell` carries everything; `main` is touched only by the
+`feat/e0-e6-shell` carries everything. `main` is touched only by the
 owner's word (PR #1). The next step is **0.1.0**
-([docs/plan/v1-release.md](docs/plan/v1-release.md), D580–D583): the tree
-as it is plus packaging (`e10/release-lane`, D584+), then the owner's
-acceptance. Everything else is stage two (§4 there). The next free
-decision block is **D531**; the history of every merge is
-[docs/plan/history.md](docs/plan/history.md).
+([docs/plan/v1-release.md](docs/plan/v1-release.md), D580–D583); the owner's
+acceptance is under way
+([reports/v1-acceptance-2026-10-12.md](docs/plan/reports/v1-acceptance-2026-10-12.md)).
+
+On Linux the windows now draw their own title bar where the desktop draws
+none, through gpui-component's `TitleBar` (`chrome.rs`, D590–D597). Every
+window names the application `wipemark`, the same as the `.desktop` file
+(D605). The Linux AppImage and the `.deb` are built by
+`scripts/release/linux/build.sh` in a pinned builder
+([docs/architecture/packaging.md](docs/architecture/packaging.md),
+D600–D609).
+
+**The licence is `FSL-1.1-ALv2`** (`LICENSE.md`, Copyright 2026 GigLabo and
+Denis Esakov, D610). The source is public, use is free except for a
+competing commercial product, and each version becomes Apache-2.0 after two
+years.
+
+Everything else is stage two (§4 of the release plan). The next free
+decision block is **D611** (D531–D569 stay free for the recon line). The
+history of every merge is [docs/plan/history.md](docs/plan/history.md).

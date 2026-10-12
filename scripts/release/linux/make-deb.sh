@@ -13,7 +13,8 @@
 #   1. copies <AppDir>/usr to <root>/usr, without the SHIP libraries
 #      (excludelist-policy) and without their copyright copies;
 #   2. writes /usr/share/doc/wipemark/copyright (Debian's place for it) from
-#      NOTICE, keeping NOTICE and THIRD-PARTY.md beside it;
+#      NOTICE followed by LICENSE.md, keeping NOTICE, LICENSE.md and
+#      THIRD-PARTY.md beside it;
 #   3. writes DEBIAN/control. Depends is COMPUTED, not listed: every soname
 #      an ELF of the package NEEDs and the package does not hold is looked up
 #      with dpkg on the builder, and its package is declared — so a library
@@ -49,7 +50,8 @@ done < <(awk '!/^#/ && $2 == "SHIP" {print $1}' "$here/excludelist-policy" | sor
 rm -rf "$root/usr/share/doc/wipemark/third-party"
 
 # 2. Debian's copyright file.
-cp "$root/usr/share/doc/wipemark/NOTICE" "$root/usr/share/doc/wipemark/copyright"
+{ cat "$root/usr/share/doc/wipemark/NOTICE"; printf '\n'; cat "$root/usr/share/doc/wipemark/LICENSE.md"; } \
+  > "$root/usr/share/doc/wipemark/copyright"
 
 # 3. control, with Depends from what the ELFs NEED.
 is_elf() { [ "$(head -c 4 "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')" = "7f454c46" ]; }

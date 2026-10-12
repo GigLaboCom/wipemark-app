@@ -23,7 +23,8 @@
 #      (16 to 512 and the scalable SVG, from icons/linux/hicolor) and, at the
 #      AppDir's root, AppRun, the desktop file, the 256 px icon and .DirIcon
 #      as a RELATIVE link (MnemoVi's points at its build machine's path);
-#   5. installs NOTICE under usr/share/doc/wipemark/.
+#   5. installs NOTICE and LICENSE.md (FSL-1.1-ALv2, D610) under
+#      usr/share/doc/wipemark/.
 #   The libraries the AppImage carries from the system (libgomp) are added by
 #   bundle-libs.sh, after this; the notices by build.sh.
 #
@@ -102,7 +103,8 @@ install -m 0644 "$pkg/wipemark.desktop" "$appdir/wipemark.desktop"
 install -m 0644 "$icons/256x256/apps/wipemark.png" "$appdir/wipemark.png"
 ln -s wipemark.png "$appdir/.DirIcon"
 
-# 5. Wipemark's own notice.
+# 5. Wipemark's own notice and licence.
 install -m 0644 "$repo/NOTICE" "$appdir/usr/share/doc/wipemark/NOTICE"
+install -m 0644 "$repo/LICENSE.md" "$appdir/usr/share/doc/wipemark/LICENSE.md"
 
 echo "==> AppDir laid out: $appdir"
