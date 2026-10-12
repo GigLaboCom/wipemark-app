@@ -219,7 +219,9 @@ cargo test -p wipemark-app -- --nocapture   # with the log lines
 `vendor/gpui-pre-linux`: the published crate plus `vendor/gpui-pre-linux.patch`,
 through `[patch.crates-io]`. The patch keeps a file dropped before GPUI has
 read its file list from being lost on X11 or Wayland (acceptance F9,
-D620–D627). `scripts/check-gpui-pin.sh` fails on anything else in that
+D620–D627). It also takes a dragged text: the text is handed over as a
+private drop file that `drop.rs` reads back as a text and removes
+(acceptance F15, D653–D659). `scripts/check-gpui-pin.sh` fails on anything else in that
 directory; `docs/architecture/gpui-pin.md` §2 says how to change or drop
 it. The stale first frame — a new window showing a piece of the
 screen until the mouse moved, because its `MapNotify` stayed in x11rb's
@@ -334,6 +336,7 @@ the gate test named there is what holds each one.
 - The MCP server validates `Origin`, steps past a taken port, and refuses a call it cannot run as a result with `isError`, never an empty report.
 - The CLI finds the application by its beacon, loopback only. Exit codes: `0` clean, `1` findings, `2` usage or refusal, `3` partial (3 beats 1).
 - The close button only hides while there is a way back (a tray).
+- **One shared list.** Rows from the main window, the panel, MCP and the CLI are one journal, shown in the main window's table. A panel drop is handed to the table as it lands (`Queue::take_from_panel`, origin `panel`). The panel's Clean acts on that row, never making a second (D690–D692). The panel clears itself on the next drop and after `ui.panel.clear_after` seconds with nothing running (D693, D694). Test launches of the app on the owner's machine isolate GNOME config: a private `XDG_CONFIG_HOME`, no `XDG_CURRENT_DESKTOP` (D641 writes gsettings).
 - The system-wide shortcut is recorded, never typed. Entering the recorder unregisters it and leaving registers it (D649). On GNOME, in either session type, it is one of GNOME's own custom shortcuts, written with `gsettings` (`gnome.rs`, D641–D647); elsewhere under X11 it is an X11 grab; on macOS it is Carbon. On Ubuntu the shipped Ctrl+Alt+D is GNOME's "Hide all normal windows", and is refused by that name.
 
 **Process**
@@ -384,5 +387,5 @@ refuses a taken name (exit 2). The result's toolbar in Compare has
 **Copy all** (D630–D634).
 
 Everything else is stage two (§4 of the release plan). The next free
-decision block is **D661** (D653–D659 are `fix/linux-text-drop`'s, D670–D689 the spacer-rows task's) (D531–D569 stay free for the recon line). The
+decision block is **D696** (D670–D689 are the spacer-rows task's) (D531–D569 stay free for the recon line). The
 history of every merge is [docs/plan/history.md](docs/plan/history.md).
