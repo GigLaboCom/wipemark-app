@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- What a software centre reads about Wipemark (D603). The component id is
+     the bundle identifier (apps/wipemark-app/Cargo.toml,
+     [package.metadata.bundle]) in lower case, which AppStream requires of the
+     domain part; the launchable is the desktop file, whose name is the app_id
+     the windows carry (D605). The homepage is the repository the release
+     workflow publishes to — the owner's to change once there is a public
+     page. Checked by appstreamcli, offline, in
+     scripts/release/linux/build.sh. -->
+<component type="desktop-application">
+  <id>com.giglabo.wipemark</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <name>Wipemark</name>
+  <summary>Strips AI provenance marks from your own content</summary>
+  <description>
+    <p>
+      Wipemark finds and removes the provenance marks AI tools leave in text
+      and pictures you made with them: invisible Unicode characters and
+      look-alike letters in text, provenance metadata in PNG, JPEG and WebP,
+      and the visible marks of Gemini and Grok on X.
+    </p>
+    <p>
+      Cleaning is deterministic and runs on this computer. Rewriting a text
+      runs a language model on this computer, or on an endpoint you choose.
+      A command-line tool and an MCP server for agents come with it.
+    </p>
+  </description>
+  <url type="homepage">https://github.com/GigLaboCom/wipemark-app</url>
+  <launchable type="desktop-id">wipemark.desktop</launchable>
+  <provides>
+    <binary>wipemark</binary>
+    <binary>wipemark-cli</binary>
+  </provides>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <developer id="com.giglabo">
+    <name>GigLabo</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-10-12"/>
+  </releases>
+</component>

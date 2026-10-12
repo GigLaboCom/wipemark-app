@@ -1,0 +1,85 @@
+# What the Wipemark AppImage carries, and what it takes from the machine (D604).
+#
+# Who asked: the owner, 2026-10-12 — an AppImage like MnemoVi's, with an
+# excludelist policy decided and recorded. MnemoVi's
+# scripts/ci/appimage-excludelist-policy is the model, and its lesson is the
+# rule here: every library we carry is one more chance to shadow something the
+# machine's own graphics driver or desktop needs (its libwayland-client broke
+# Fedora's mesa), so carry only what is not tied to the machine AND is not
+# already there on any machine the AppImage claims to run on.
+#
+# Read by scripts/release/linux/bundle-libs.sh, which walks the NEEDED closure
+# of every ELF in the AppDir and requires every soname to be either in the
+# AppDir already (ours: the two programs, llama.cpp's three libraries and its
+# backends), or named here. A soname named nowhere fails the build: a new
+# dependency is a decision, never a default.
+#
+# THE DECLARED FLOOR. The AppImage runs on a desktop that has:
+#   * glibc >= 2.39 and libstdc++ >= GCC 13 (glibc-floor, libstdcxx-floor —
+#     Ubuntu 24.04, Debian 13, Fedora 40 and newer);
+#   * GTK 3 (libgtk-3-0), which brings glib, gdk-pixbuf, libxkbcommon, libxcb,
+#     libX11, libwayland-client, fontconfig and freetype with it;
+#   * a Vulkan loader and driver (libvulkan1 and an ICD — Mesa's, NVIDIA's).
+#     GPUI draws through wgpu, which dlopens them; a desktop without one
+#     cannot draw a GPUI window whatever we carry;
+#   * for the tray only, libayatana-appindicator3-1 — dlopened at run time
+#     (tray.rs, D341); without it there is no tray and the close button
+#     closes, which the application already handles.
+# wipemark-cli needs none of the desktop: glibc, libstdc++, libgcc_s and what
+# the AppImage carries. scripts/verify/release/appimage-gate.sh runs it on a
+# bare ubuntu:24.04, and the application on ubuntu:24.04 plus exactly
+# { libgtk-3-0 libvulkan1 mesa-vulkan-drivers xvfb } — the floor above and an
+# X server, nothing else.
+#
+# FORMAT:  <soname> <HOST|SHIP> <why>
+#   HOST — never carried: tied to the machine, or the floor supplies it.
+#   SHIP — copied from the builder (Ubuntu 24.04) into usr/lib/wipemark/,
+#          found there through the $ORIGIN runpath every ELF of ours has.
+# A soname repeated on several lines is one entry with a longer reason.
+
+# ---- glibc and the toolchain runtime: the machine's by definition ----------
+ld-linux-x86-64.so.2  HOST  the loader
+libc.so.6             HOST  glibc must match the loader that mapped the process
+libm.so.6             HOST  glibc
+libdl.so.2            HOST  glibc
+libpthread.so.0       HOST  glibc
+librt.so.1            HOST  glibc
+libgcc_s.so.1         HOST  the unwinder, paired with the machine's libstdc++
+libstdc++.so.6        HOST  carrying it shadows the C++ runtime the machine's
+libstdc++.so.6        HOST  graphics driver was built against; its floor is
+libstdc++.so.6        HOST  gated instead (libstdcxx-floor)
+
+# ---- the desktop: GTK 3 and what it brings ---------------------------------
+libgtk-3.so.0         HOST  the tray's thread (tray.rs, D340). Carrying GTK means
+libgtk-3.so.0         HOST  carrying its themes, input-method modules and
+libgtk-3.so.0         HOST  pixbuf loaders and pointing it at them (MnemoVi
+libgtk-3.so.0         HOST  needs linuxdeploy-plugin-gtk for that); a desktop
+libgtk-3.so.0         HOST  without GTK 3 is below the floor, said in the docs
+libgdk-3.so.0         HOST  GTK 3
+libgdk_pixbuf-2.0.so.0 HOST GTK 3 depends on it
+libgio-2.0.so.0       HOST  glib, which GTK 3 is built against; never shadowed
+libgobject-2.0.so.0   HOST  glib
+libglib-2.0.so.0      HOST  glib
+libxkbcommon.so.0     HOST  reads the machine's XKB data; GTK 3 depends on it
+libxcb.so.1           HOST  the X client library; GTK 3 brings it, and an X
+libxcb.so.1           HOST  server that is not the machine's is not a thing
+
+# ---- carried: not tied to the machine, and not supplied by the floor --------
+libxkbcommon-x11.so.0 SHIP  NEEDED by `wipemark` before main(); GTK 3 does not
+libxkbcommon-x11.so.0 SHIP  depend on it, so a GNOME-on-Wayland machine may not
+libxkbcommon-x11.so.0 SHIP  have it. A thin layer over the machine's
+libxkbcommon-x11.so.0 SHIP  libxkbcommon (the compatible direction: ours is
+libxkbcommon-x11.so.0 SHIP  older than the core it calls)
+libxcb-xkb.so.1       SHIP  what libxkbcommon-x11 NEEDs; an X extension's wire
+libxcb-xkb.so.1       SHIP  protocol, no machine state
+libgomp.so.1          SHIP  OpenMP, NEEDED by libggml-base and every CPU
+libgomp.so.1          SHIP  backend. Not on a bare Ubuntu or Debian (MnemoVi's
+libgomp.so.1          SHIP  .deb gate found it satisfied only by accident);
+libgomp.so.1          SHIP  GCC's runtime, no machine state. GPL-3.0 with the
+libgomp.so.1          SHIP  GCC Runtime Library Exception; its copyright file
+libgomp.so.1          SHIP  ships beside THIRD-PARTY.md
+
+# ---- the GPU: never carried --------------------------------------------------
+libvulkan.so.1        HOST  NEEDED by the Vulkan backend, dlopened by wgpu. The
+libvulkan.so.1        HOST  loader finds the machine's drivers; a driver cannot
+libvulkan.so.1        HOST  be carried, so neither is its loader
