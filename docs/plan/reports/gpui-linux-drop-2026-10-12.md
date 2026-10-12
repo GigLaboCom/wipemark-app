@@ -246,11 +246,44 @@ host. Its fix is held by the four unit tests over `DragState`, the same seam
 
 ## 6. Gates
 
-GATES
+Once, at the end, on the tree of `daaa40c`, with
+`docs/plan/reports/gpui-linux-drop-2026-10-12-gates.sh` (every CLAUDE.md
+gate, `--locked`, the CI-only checks, and the carried crate's tests):
+
+```
+fmt                            exit 0
+clippy                         exit 0
+test-workspace                 exit 0  2015 passed, 0 failed, 11 ignored
+dep-direction                  exit 0
+gpui-pin                       exit 0
+zune-pin                       exit 0
+check-no-default               exit 0
+check-local-llama              exit 0
+test-engine-local-llama        exit 0  43 passed, 0 failed, 1 ignored
+test-app-local-llama           exit 0  777 passed, 0 failed, 2 ignored
+clippy-pipeline-examples       exit 0
+test-pipeline-examples         exit 0  28 passed, 0 failed, 0 ignored
+test-gpui-pre-linux            exit 0  56 passed, 0 failed, 0 ignored
+```
+
+The owner's application held MCP port 5056 throughout;
+`a_port_something_else_holds_is_stepped_past` passed regardless. No native
+gate: nothing under `crates/wipemark-llama*` or `local.rs` moved.
 
 ## 7. The AppImage
 
-APPIMAGE
+`ci/linux-builder/run-build.sh` with `WIPEMARK_BUILD_VOL` of its own (so
+another agent's build was not disturbed), from `daaa40c`; its log shows
+`Compiling gpui-pre-linux v0.3.8 (/work/wipemark/vendor/gpui-pre-linux)`, the
+binary carries the new log strings, and `THIRD-PARTY.md` has the row above.
+
+- `dist/Wipemark-0.1.0-x86_64.AppImage` —
+  sha256 `621b9c34c8f5c719f9e2aceeafa42be6ea080f2171d084d7752b8420ff8eb4df`
+- `dist/wipemark_0.1.0_amd64.deb` —
+  sha256 `77ac2fdba620ed21fc3309f374e9a44a3443d9c9ad11d23aca075e9ab85d8560`
+- `scripts/verify/release/appimage-gate.sh` on it: **34 pass, 0 fail**.
+
+(`dist/` is gitignored; the paths are in this branch's worktree.)
 
 ## 8. Decisions
 
