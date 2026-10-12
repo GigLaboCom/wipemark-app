@@ -83,6 +83,98 @@ gets the same answer: a `flume` channel read from `cx.spawn`. The
 registry is keyed by the `NSWindow` pointer, which is the only identity
 both halves can see.
 
+## On Linux: a drop before the file list, and the carried fix
+
+Off macOS the `ExternalPaths` road is the only one, and GPUI's Linux
+backend fills it. Until 2026-10-12 it lost a quick drop — acceptance F9:
+a file dragged onto a window was often lost on the first try and landed
+only on the second. The cause is in `gpui-pre-linux 0.3.8`, in both
+backends, and the fix is carried in this repository as
+`vendor/gpui-pre-linux` with `vendor/gpui-pre-linux.patch` (D620–D623;
+how it is carried and checked is `gpui-pin.md` §2).
+
+**X11** (`src/linux/x11/client.rs`, the published lines). A drag's file
+list is a selection. `XdndPosition` asks for it with `convert_selection`
+(`:951–981`, on every position until it has arrived), and GPUI's drag — the `FileDropEvent::Entered` that makes
+`cx.active_drag` — is created only when `SelectionNotify` brings the list
+back (`:997–1035`). An `XdndDrop` that arrives first (`:983–995`) sends
+`XdndFinished` and `Submit` with no drag to drop, which is nothing, and
+resets the state; the late `SelectionNotify` then emits `Entered` into a
+drag that has already ended, and GPUI's active drag stays behind. That is
+why the second try worked — and why it dropped what the *first* had
+carried, since GPUI's `Entered` does not replace an active drag
+(`gpui-pre 0.3.8`, `window.rs:5521–5532`).
+
+The fix, in `Xdnd` (`defer_drop`, `receive_paths`): a drop that comes
+while the list asked for has not arrived is remembered, and `XdndFinished`
+and `Submit` wait for `SelectionNotify`, which then emits `Entered`
+followed by `Submit` — GPUI turns the two into a mouse move and a mouse
+up at the drop's position, and the zone's `on_drop` fires. A
+`SelectionNotify` that nobody is waiting for — after a leave, after a
+drop already finished, before any request — is ignored rather than
+turned into a drag. A deferred drop whose answer carries no list still
+sends `XdndFinished` and clears the state, with no drag made. An
+`XdndEnter` starts from a clean state, so a later drag inherits nothing.
+
+**Wayland** (`src/linux/wayland/client.rs`). The URI list is read from a
+pipe on the background executor, and the drag's offer and window are
+installed only when that read completes (`complete_uri_read`, `:480`;
+the read is spawned by `wl_data_device.enter`, `:2803`). A
+`wl_data_device.drop` before then (`:2905`) reached `handle_drop`
+(`:464`), which invalidated the read first and then found no offer and
+returned — the drop was gone, and so was the read that would have
+brought it. Upstream fixed the sibling
+race, a *leave* before the read (zed #64122, "Discard stale Wayland file
+drag reads", merged 2026-09-12): every read carries a generation, a new
+enter or a leave invalidates the pending one, and a stale completion
+destroys its offer and makes no drag. The carried fix keeps every one of
+those invariants and changes only the drop: a drop while the current read
+is pending is recorded with its generation and position; a leave after it
+(GNOME sends one) does not invalidate the read; and when the read
+completes, `finish_pending_drop` delivers `Entered`, then `Submit`, then
+the offer's `finish()` and `destroy()`. A new enter abandons a recorded
+drop, and the old read's completion is stale as before. Motion while the
+read is pending now updates the position, so the drop lands where the
+pointer was. Upstream's test `drop_then_leave_discards_pending_drag_uri_read`
+asserted the lost drop and is replaced by
+`drop_then_leave_before_uri_read_completes_delivers_the_drop`.
+
+Zed `main` still has both losses as of 2026-10-12 — X11's `XdndDrop` and
+Wayland's `handle_drop` unchanged — and there is no upstream issue for
+it. The owner's decision is to carry the fix here only: no fork, no pull
+request.
+
+### Seeing a drop in the log
+
+Every drop that reaches a window is one line of ours, from `drop.rs`
+(target `wipemark::drop`): `a drop arrived road="external-paths"
+things=1` at INFO — `road="pasteboard"` on macOS's own destination — and
+`a drop carried nothing road=… items=…` at WARN. Counts only: no path,
+no text (`logging.md`). These are at INFO and are in every log.
+
+GPUI's side of a drag is DEBUG lines in the carried crate (target
+`gpui_linux::linux::x11::client` or `…::wayland::client`), one per
+protocol step and never per mouse move: on X11 `XdndEnter from 0x…:
+supported type found`, `XdndPosition: requested the dragged file list`
+(once per drag), `SelectionNotify: N paths, Enter`, `XdndDrop` or
+`XdndDrop: deferred until the file list arrives` then `XdndDrop: the
+deferred drop completed`, `XdndLeave`; on Wayland `drag enter: reading
+the dragged file list`, `drag enter: read N paths`, `drag drop` or `drag
+drop: deferred until the file list arrives` then `drag drop: the deferred
+drop completed`, `drag leave`. They are off by default — the default
+filter is `info` with `debug` for our own crates only — and are turned on
+with
+
+```sh
+WIPEMARK_LOG=info,gpui_linux=debug wipemark
+```
+
+`WIPEMARK_LOG=debug` shows them too, buried under the renderer's. A drop
+that shows GPUI's lines and none of ours was lost between GPUI and the
+zone; one that shows neither never reached the window.
+`scripts/verify/linux-drop/quick-drop.sh` drives all four cases on a
+virtual display and prints both kinds of line.
+
 ## What arrives, and in what order it is read
 
 One `Handed` per pasteboard **item**, because that is how a desktop
@@ -301,7 +393,7 @@ stated reason:
 | cleaning anything | not this document's job: what was dropped is cleaned by `clean.rs` when somebody presses Clean (E7) — see `docs/architecture/queue.md`, "Cleaning", and `retention.md` |
 | expanding folders and archives | needs its own rule — traversal, symlinks, a limit on how many files, cancellation |
 | paste by key (⌘V) | the toolbar's **Paste** button reads the same `Handed` off the same `NSPasteboard` (`pasteboard::from_clipboard`, `crate::clipboard`) and lands it in the queue; a key for it has to wait until it can tell a paste into the filter bar's fields from a paste into the queue |
-| Linux, Windows | E10; until then `drop::zone` offers what GPUI itself does, which is files |
+| text and images on Linux, anything on Windows | E10; until then `drop::zone` offers what GPUI itself does, which is files — on Linux with the carried fix above |
 | two zones in one window | the delivery carries the position, `Catcher` does not pass it on yet; the main window's table is most of the window, so one zone is the right number there |
 | a limit on how much can be dropped at once | nothing bounds it today except the four-kilobyte head on each read |
 

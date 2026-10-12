@@ -5,8 +5,8 @@ component library over it, gpui-component. Neither comes from a version
 range: GPUI comes from one exact snapshot version, the component from
 one commit named in this repository, because each moves faster than the
 other catches up, and two copies of `gpui` in one binary do not link.
-This page says which, why those, what we carried on top of them and why
-nothing is carried now, how upstream moved, and what moving with it
+This page says which, why those, what we carried on top of them, the one
+crate carried now and why, how upstream moved, and what moving with it
 takes.
 
 Since **2026-10-07** (the GPUI bump, Watchword
@@ -24,7 +24,10 @@ crate as cargo unpacks it under
 ```
 Cargo.toml ── gpui, gpui_platform ──► crates.io: gpui-pre, gpui-pre-platform  =0.3.8
    │                                   (a snapshot of zed 279fe07; 23 gpui-pre* crates in the lock,
-   │                                    every one from crates.io as published — nothing patched)
+   │                                    22 from crates.io as published, and one carried:)
+   ├── [patch.crates-io] gpui-pre-linux ──► vendor/gpui-pre-linux
+   │                                   (the published 0.3.8 + vendor/gpui-pre-linux.patch, §2;
+   │                                    since 2026-10-12, D620)
    │
    └── gpui-component (path) ──► vendor/gpui-component/crates/component
                                    longbridge/gpui-kit, branch next @ 24ded30c
@@ -54,9 +57,10 @@ of building two `gpui`s. `scripts/check-gpui-pin.sh` is the gate, in CI's
 gate job and in the Woodpecker lane: every `gpui-pre*` requirement in the
 root manifest is `=x.y.z` on one version equal to the component's, the
 lock holds one of each `gpui-pre*` package at that version, all from
-crates.io, no zed git source and no `[patch]` of a snapshot crate, and
-the resolved sources still hold the two upstream fixes our X11 windows
-rely on (§2). It replaces
+crates.io, no zed git source and no `[patch]` of a snapshot crate but the
+one carried (§2), which must be the published crate plus its patch and
+nothing else, and the resolved sources still hold the two upstream fixes
+our X11 windows rely on (§2). It replaces
 `scripts/pin-gpui-component.sh`, which now only says it is retired.
 
 **The vendored component.** `vendor/gpui-component` is a submodule of
@@ -111,7 +115,89 @@ and `scripts/pin-gpui-component.sh` rewrote them to ours after every
 clone, or the graph held a second `gpui` and failed with a type error
 that read like a compiler bug. The toolchain was 1.94.1.
 
-## 2. What we carried on top, and why nothing is carried now
+## 2. What we carried on top, and what is carried now
+
+### Since 2026-10-12: `gpui-pre-linux`, for a drop before the file list
+
+**What.** One snapshot crate, `gpui-pre-linux 0.3.8`, is carried in this
+repository: `vendor/gpui-pre-linux/` is the crate exactly as cargo
+unpacks the published `.crate` (sha256 `b1131746…720e`; `Cargo.toml` as
+normalised by publishing, `Cargo.toml.orig`, its `Cargo.lock` and
+`LICENSE-APACHE`; the crate was published without a
+`.cargo_vcs_info.json`, so there is none) with
+`vendor/gpui-pre-linux.patch` applied — two files,
+`src/linux/x11/client.rs` and `src/linux/wayland/client.rs`. The root
+`Cargo.toml` takes it with `[patch.crates-io] gpui-pre-linux = { path =
+"vendor/gpui-pre-linux" }` and lists the directory in `exclude`, so it is
+not a workspace member: our lints, rustfmt and the `--workspace` gates do
+not run over upstream's code, and its own tests run by name (`cargo test
+-p gpui-pre-linux --locked`, in both CI lanes). `Cargo.lock` keeps one
+`gpui-pre-linux` 0.3.8, now with no `source` and no `checksum` — a path
+package (D620). The owner's decision (2026-10-12): carried here only; no
+fork pushed anywhere, no pull request upstream.
+
+**Why.** Acceptance F9: on Linux a file dragged onto a window was often
+lost on the first try and landed only on the second. Both backends of
+the published crate lose a drop that arrives before the drag's file list
+has been read: X11 drops an `XdndDrop` that comes before the
+`SelectionNotify` carrying the list, and the late list then leaves a
+stale drag behind; Wayland drops a `wl_data_device.drop` that comes
+before the asynchronous URI read completes. Zed **#64122** ("gpui_linux:
+Discard stale Wayland file drag reads", merged 2026-09-12, in the
+snapshot) fixed the sibling race — a *leave* before the read — with the
+generation counter the carried patch keeps; zed `main` on 2026-10-12
+still has both drop losses (Wayland `handle_drop` ~471, X11 `XdndDrop`
+~983), and there is no upstream issue. The race and the fix are in
+`docs/architecture/drag-and-drop.md`, "On Linux"; the report is
+`docs/plan/reports/gpui-linux-drop-2026-10-12.md` (D622, D623). The patch
+also adds DEBUG lines for every protocol step of a drag (D624), seen with
+`WIPEMARK_LOG=info,gpui_linux=debug`.
+
+**How it is checked.** `scripts/check-gpui-pin.sh` allows exactly this
+one `[patch]` entry on a snapshot crate (step 1) and its path package in
+the lock (step 3), and step 5 proves the directory: its `Cargo.toml` must
+name `gpui-pre-linux` at the snapshot's version; the published `.crate`
+is taken from cargo's cache (`$CARGO_HOME/registry/cache`) or, when it is
+not there — after the `[patch]`, cargo no longer downloads it — from
+`static.crates.io`, and its sha256 must be the one pinned in the script;
+it is unpacked, the patch applied with `patch -p1`, and the result must
+equal `vendor/gpui-pre-linux` file for file and byte for byte. A file
+edited, added or removed other than through the patch is a red gate that
+names the file (D621). Steps A and B of §2 below now read the carried
+copy, which is the one that is built. Seen red on 2026-10-12: a space
+appended to `src/linux/headless.rs`, a changed byte in the patched
+`x11/client.rs` and a new file (all three named), the version moved to
+0.3.9 in a scratch copy, and a second `[patch]` entry on `gpui-pre-wgpu`.
+
+**Changing the fix.** Edit the file under `vendor/gpui-pre-linux/`, then
+regenerate the patch from the published crate:
+
+```sh
+mkdir -p /tmp/g && tar -xzf ~/.cargo/registry/cache/index.crates.io-*/gpui-pre-linux-0.3.8.crate -C /tmp/g
+mv /tmp/g/gpui-pre-linux-0.3.8 /tmp/g/a && cp -a vendor/gpui-pre-linux /tmp/g/b
+(cd /tmp/g && git diff --no-index --no-prefix a b) > vendor/gpui-pre-linux.patch
+scripts/check-gpui-pin.sh
+```
+
+Upstream's style: no comments where upstream has none, rustfmt's
+defaults at edition 2024 (`rustfmt --edition 2024 --config-path
+<an empty file>`, since our own `rustfmt.toml` would otherwise be found).
+
+**Dropping it.** When a snapshot fixes the race upstream — or at the next
+bump, which has to decide either way: delete `vendor/gpui-pre-linux/`
+and `vendor/gpui-pre-linux.patch`, the `[patch.crates-io]` table and the
+`exclude` entry in the root `Cargo.toml`, the `cargo test -p
+gpui-pre-linux` line in `.github/workflows/gate.yml` and
+`.woodpecker/gate.yaml`, and the `NOTICE` paragraph; run `cargo update -p
+gpui-pre-linux` so the lock takes the registry package with its checksum
+again; and `scripts/check-gpui-pin.sh` then says "carried: nothing". Run
+`scripts/verify/linux-drop/quick-drop.sh` against the new snapshot first:
+step a failing means upstream still loses the drop. A bump that keeps
+carrying it re-cuts the copy from the new published crate, re-applies the
+patch (`patch -p1`, resolving what moved), regenerates it as above and
+moves the pinned sha256 in the script — never the version alone.
+
+### Until 2026-10-12: nothing carried
 
 GPUI at the old pin had two bugs on X11 that this product hits on the
 owner's desktop: Ubuntu, GNOME Shell 46 on Xorg (mutter compositing),
@@ -519,7 +605,11 @@ painted over visible text").
    cut at that snapshot's `zed-rev`; §2 and the bump's report say how it
    was done for 0.3.8. If the `borrow_mut().windows.values_mut()` loops
    are gone from `client.rs`, the B and C checks can be retired with
-   them.
+   them. **The carried `gpui-pre-linux`** (§2) cannot stay at 0.3.8 under
+   a new snapshot — step 5 of the check fails on the version: either
+   upstream fixed the drop before the file list and the carried copy is
+   dropped, or it is re-cut from the new published crate with the patch
+   re-applied and the script's sha256 moved, as §2 says.
 4. **Our code**, compiled until it builds; a behaviour the new GPUI
    changed is fixed in our code or written down with the test that would
    catch it. The AppKit code (`pasteboard.rs`, `screen.rs`, `panel.rs`,
@@ -559,6 +649,7 @@ painted over visible text").
 - #49533, gpui(linux): Fix RefCell borrow panic when callbacks register new callbacks (the same class as patch B, another cell): <https://github.com/zed-industries/zed/pull/49533>
 - #61162, x11: Request repaint after exposure instead of within blocked loop, `ae99a867d7`: <https://github.com/zed-industries/zed/pull/61162>, <https://github.com/zed-industries/zed/commit/ae99a867d7a24682435bd1821c66b4e172a10768>
 - #64570, gpui_linux: Force a full render on X11 Expose after GPU recovery, `f25434f3c5`: <https://github.com/zed-industries/zed/pull/64570>, <https://github.com/zed-industries/zed/commit/f25434f3c5a895d52f402ab05c079aa6703825c1>
+- #64122, gpui_linux: Discard stale Wayland file drag reads (merged 2026-09-12; the generation counter the carried patch keeps): <https://github.com/zed-industries/zed/pull/64122>
 - `279fe07`, the commit gpui-pre 0.3.8 was cut from: <https://github.com/zed-industries/zed/commit/279fe070bb389b79652e52065b2f001edcc0b11b>
 - patch B's borrow on `main` (`6810cde`, 2026-10-05): <https://github.com/zed-industries/zed/blob/6810cde8968a562afb997d5f7b2ab81daafe85c9/crates/gpui_linux/src/linux/x11/client.rs#L610-L623>
 - the dropped frame on `main`: <https://github.com/zed-industries/zed/blob/6810cde8968a562afb997d5f7b2ab81daafe85c9/crates/gpui_wgpu/src/wgpu_renderer.rs#L1167-L1186>
@@ -598,6 +689,7 @@ painted over visible text").
 
 **In this repository**
 
+- `vendor/gpui-pre-linux/` and `vendor/gpui-pre-linux.patch` — the carried crate (§2); `docs/plan/reports/gpui-linux-drop-2026-10-12.md` — its report; `scripts/verify/linux-drop/` — the live check on a virtual display
 - `Cargo.toml` (the pin and its comments), `scripts/check-gpui-pin.sh`, `scripts/pin-gpui-component.sh` (retired), `CONTRIBUTING.md`, `.gitmodules`, `rust-toolchain.toml`
 - `docs/plan/reports/gpui-bump-2026-10-07.md` and `docs/plan/reports/gpui-bump-host-check.md` — the bump's report and the host's checklist
 - `docs/plan/reports/gpui-bump-startup-2026-10-07.md` — the 24 launches over the snapshot, with and without patch B, that dropped it

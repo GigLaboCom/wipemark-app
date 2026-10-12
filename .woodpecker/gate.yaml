@@ -112,6 +112,10 @@ steps:
     depends_on: [clippy]
     commands:
       - cargo test --workspace --locked
+      # The carried gpui-pre-linux (vendor/gpui-pre-linux, D620) is not a
+      # workspace member: its tests, the carried patch's among them, run
+      # only when asked for by name.
+      - cargo test -p gpui-pre-linux --locked
       # The local engine's tests over the shim (no C++ toolchain): the
       # workspace test does not enable `local-llama`, so without this line
       # its refusals are never run in CI.

@@ -52,8 +52,15 @@ UI framework
 * GPUI — https://github.com/zed-industries/zed
   Copyright Zed Industries, Inc.
   Licensed under the Apache License, Version 2.0.
-  Consumed as a git dependency, pinned by revision in the workspace
-  Cargo.toml.
+  Consumed as the `gpui-pre` snapshots of its crates on crates.io, pinned
+  to one exact version in the workspace Cargo.toml.
+  One of them, `gpui-pre-linux` 0.3.8, is carried modified under
+  `vendor/gpui-pre-linux/`: the published crate with
+  `vendor/gpui-pre-linux.patch` applied, which changes
+  `src/linux/x11/client.rs` and `src/linux/wayland/client.rs` so that a
+  file dropped before its file list has been read is not lost (Wipemark,
+  2026-10-12). Its licence file, `LICENSE-APACHE`, is kept in that
+  directory as published.
 
 * gpui-component — https://github.com/longbridge/gpui-component
   Copyright longbridge contributors and huacnlee.
