@@ -199,11 +199,20 @@ fn reconfigurations() -> Option<flume::Receiver<()>> {
     Some(changes)
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Under X11, RandR's notifications and the work area's property changes,
+/// heard on `crate::x11`'s own connection — which also signals once when
+/// it has first read the monitors, so the page does not wait a poll for
+/// them (D612). Under Wayland GPUI keeps the outputs to itself, and the
+/// poll is the whole watcher.
+#[cfg(target_os = "linux")]
 fn reconfigurations() -> Option<flume::Receiver<()>> {
-    // Windows sends `WM_DISPLAYCHANGE` and X11 has RandR events, and
-    // reaching either needs a message pump this process does not run.
-    // E10; until then the poll is the whole watcher off macOS.
+    crate::x11::get().map(crate::x11::X11::changes)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn reconfigurations() -> Option<flume::Receiver<()>> {
+    // Windows sends `WM_DISPLAYCHANGE`, and reaching it needs a message
+    // pump this process does not run; the poll is the whole watcher.
     None
 }
 

@@ -145,6 +145,27 @@ Flatpak (stage two), with `StartupWMClass` keeping the old match.
 
 The tray's icon is derived at run time (`tray.rs`, D342) and is not packaged.
 
+## XWayland by default (D611)
+
+In a Wayland session that also offers X11 (`WAYLAND_DISPLAY` and `DISPLAY`
+both set — every GNOME session, XWayland started on demand), the application
+draws through **XWayland**: under Wayland a program cannot place a window,
+and the panel is placed (`docs/architecture/window-placement.md`, "On
+Linux"). The choice is GPUI's windowing modes (`session.rs`), not an edit of
+the environment, so the programs the application opens — a file in its
+default application, a link — still start as native Wayland clients. Nothing
+in the AppImage, the `.desktop` file or the `.deb` sets it, so no packaging
+change carries it, and the `.desktop` file's `StartupWMClass=wipemark` is what
+matches the X11 windows (`WM_CLASS`, D605) in this mode.
+
+`WIPEMARK_WAYLAND=1` keeps native Wayland (the Placement page then says the
+desktop decides where windows open, D617); a session with no `DISPLAY`, or an
+X server that does not answer, is native Wayland too. The log's
+`wipemark::session` line says which was chosen and why. What XWayland costs:
+the windows draw at XWayland's scale (on a fractionally scaled display mutter
+may blur them, as with any X11 client), and the system-wide shortcut stays off
+in a Wayland session either way (D346, D618).
+
 ## The notices (D606)
 
 `scripts/release/third-party.py` writes `THIRD-PARTY.md` from `cargo metadata

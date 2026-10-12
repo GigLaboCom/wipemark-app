@@ -127,6 +127,16 @@ const LISTED: usize = 4;
 /// thrown away.
 const SETTLE: Duration = Duration::from_millis(400);
 
+/// How far the pointer travels with the button held before a press on
+/// the panel becomes a move of it, on Linux.
+///
+/// AppKit's `movableByWindowBackground` makes the whole panel its handle
+/// on macOS; GPUI has `Window::start_window_move` on both Linux backends,
+/// which hands the drag to the window manager. Four points, so a click on
+/// a button that wobbles stays a click — the same reason gpui-component's
+/// title bar waits for a move before it starts one.
+const DRAG_AFTER: f32 = 4.0;
+
 /// The panel, while there is one.
 ///
 /// A global for the reason the Settings window has one: the menu bar,
@@ -238,6 +248,10 @@ pub fn show(preferences: &Entity<Preferences>, cx: &mut App) {
             preferences.update(cx, |preferences, cx| {
                 preferences.panel_opened(handle, cx);
             });
+            #[cfg(target_os = "linux")]
+            if let Some(screen) = screen {
+                placed_by_the_window_manager(handle, screen, bounds, preferences.clone(), cx);
+            }
             cx.activate(true);
         }
         Err(error) => {
@@ -308,7 +322,94 @@ fn afloat(window: &Window) {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn afloat(_window: &Window) {}
+fn afloat(_window: &Window) {
+    // Under X11 the same three things — above other windows, on every
+    // workspace, where the zone says — are asked of the window manager
+    // once it has taken the window over, which is after this returns:
+    // see `placed_by_the_window_manager`. Under Wayland a client can ask
+    // for none of them.
+}
+
+/// Under X11: the zone, applied once the window manager has the panel,
+/// and the panel kept above other windows on every workspace (D613).
+///
+/// GPUI creates the window at the rectangle it is handed and writes no
+/// position into `WM_NORMAL_HINTS`, so mutter opens it where it opens
+/// every new window. So, in order:
+///
+/// 1. the asked-for corner goes into `WM_NORMAL_HINTS` at once — a
+///    window manager that reads the hints after this lands opens the
+///    panel there and nothing jumps;
+/// 2. once the window manager has taken the window over (`WM_STATE`, on
+///    screen), its frame is read — the title bar it drew is what makes a
+///    zone's rectangle bigger than the panel;
+/// 3. the frame is asked for at the zone, the decoration counted
+///    (`_NET_MOVERESIZE_WINDOW`, north-west gravity: the corner named is
+///    the frame's), and the asked rectangle is what
+///    [`Preferences::we_placed_it`] waits for — every report until it
+///    lands is ours (D616);
+/// 4. `_NET_WM_STATE_ABOVE` and `_NET_WM_STATE_STICKY`, the X11 half of
+///    [`afloat`]'s level and every-space.
+///
+/// Nothing here waits on the GPUI thread: the frame is awaited from a
+/// task, and every request goes to `crate::x11`'s thread.
+#[cfg(target_os = "linux")]
+fn placed_by_the_window_manager(
+    panel: AnyWindowHandle,
+    screen: Screen,
+    opened_at: Bounds<Pixels>,
+    preferences: Entity<Preferences>,
+    cx: &mut App,
+) {
+    use crate::x11::{self, Gravity};
+
+    let Some(x11) = x11::get() else {
+        return;
+    };
+    let Ok(Some((xid, scale))) = panel.update(cx, |_, window, _| {
+        x11::xid(window).map(|xid| (xid, window.scale_factor()))
+    }) else {
+        return;
+    };
+    x11.hint(xid, Gravity::Frame, screen::device(opened_at.origin, scale));
+
+    let landed = x11.frame(xid, true);
+    cx.spawn(async move |cx| {
+        let Ok(Some(frame)) = landed.recv_async().await else {
+            tracing::debug!("the panel's frame was never read; it stays where it opened");
+            return;
+        };
+        let chrome = screen::Chrome {
+            left: px(frame.extents.left as f32 / scale),
+            right: px(frame.extents.right as f32 / scale),
+            top: px(frame.extents.top as f32 / scale),
+            bottom: px(frame.extents.bottom as f32 / scale),
+        };
+        cx.update(|cx| {
+            if !cx.windows().contains(&panel) {
+                return;
+            }
+            let spot = preferences.read(cx).spot_of(&screen);
+            let wanted = placement::where_it_goes(spot, chrome.grow(SIZE), screen.visible);
+            preferences.update(cx, |preferences, _| {
+                preferences.we_placed_it(Some(wanted));
+            });
+            let client = chrome.shrink(wanted.size);
+            x11.move_window(
+                xid,
+                Gravity::Frame,
+                screen::device(wanted.origin, scale),
+                Some(screen::device(
+                    gpui::point(client.width, client.height),
+                    scale,
+                )),
+            );
+            x11.float(xid);
+            tracing::debug!(?wanted, "the panel asked of the window manager");
+        });
+    })
+    .detach();
+}
 
 /// Send the panel away, and say whether there was one.
 pub fn dismiss(cx: &mut App) -> bool {
@@ -348,6 +449,10 @@ struct PanelView {
     /// find it moved has been overtaken. The same counter the MCP
     /// restart and the credential lookup use, for the same reason.
     moves: u64,
+    /// Where the primary button went down on the panel, until it comes up
+    /// or the panel starts moving — Linux's stand-in for AppKit's
+    /// `movableByWindowBackground` (see [`DRAG_AFTER`]).
+    pressed: Option<gpui::Point<Pixels>>,
     /// What is dropped on this window, and what it turns out to be.
     ///
     /// The entity is `crate::drop`'s and knows nothing about panels —
@@ -475,22 +580,13 @@ impl PanelView {
                 preferences.panel_moved(screen.clone(), cx);
             });
 
-            // Every move reports here: ours and the user's. The one
-            // thing that tells them apart is whether we asked for this
-            // rectangle — see `Preferences::we_placed_it`.
-            let frame = window.bounds();
-            if view.preferences.read(cx).ours(frame) {
-                // Ours, and so is any settling still waiting: a resize
-                // reports the move and the new size one after the
-                // other, and the first of those is a rectangle nobody
-                // asked for. Bumping the counter throws it away.
-                view.moves += 1;
-                return;
-            }
+            // Every move reports here: ours and the user's. Which one
+            // it was is decided once the window has stopped moving —
+            // see `settle` and `Preferences::we_placed_it`.
             let Some(screen) = screen else {
                 return;
             };
-            view.settle(screen, frame, cx);
+            view.settle(screen, window, cx);
         });
 
         let caught = cx.subscribe(&catcher, |view: &mut Self, catcher, landed: &Landed, cx| {
@@ -528,6 +624,7 @@ impl PanelView {
             focus,
             _geometry: moved,
             moves: 0,
+            pressed: None,
             catcher,
             _caught: caught,
             held: None,
@@ -739,19 +836,45 @@ impl PanelView {
     /// the last one is the answer — and because each one is a row in
     /// SQLite, on the background executor, from the thread that draws
     /// the window.
-    fn settle(&mut self, screen: Screen, frame: Bounds<Pixels>, cx: &Context<Self>) {
+    ///
+    /// And only a person's: the last report is weighed against what this
+    /// application asked for and when ([`placement::Placing`], D616) — a
+    /// window manager carrying out an ask reports rectangles nobody asked
+    /// for, and filing the first of them as the person's answer was
+    /// acceptance F8's bug. Under X11 the rectangle weighed is read off
+    /// the X server once the window is still — the frame a person sees,
+    /// title bar included — rather than taken from GPUI's report, which
+    /// is the client's alone.
+    fn settle(&mut self, screen: Screen, window: &Window, cx: &Context<Self>) {
         self.moves += 1;
         let mine = self.moves;
+        let reported = std::time::Instant::now();
+        let frame = screen::frame_of(window);
+        #[cfg(target_os = "linux")]
+        let measure = crate::x11::get()
+            .zip(crate::x11::xid(window))
+            .map(|(x11, xid)| (x11, xid, window.scale_factor()));
 
         cx.spawn(async move |view, cx| {
             cx.background_executor().timer(SETTLE).await;
+            #[cfg(target_os = "linux")]
+            let frame = match measure {
+                Some((x11, xid, scale)) => match x11.frame(xid, false).recv_async().await {
+                    Ok(Some(measured)) => screen::logical(measured.outer(), scale),
+                    _ => frame,
+                },
+                None => frame,
+            };
             view.update(cx, |view, cx| {
                 if view.moves != mine {
                     // Overtaken: the drag is still going.
                     return;
                 }
+                let screen = screen::of_rect(frame, Some(screen.clone()), cx).unwrap_or(screen);
                 view.preferences.update(cx, |preferences, cx| {
-                    preferences.put_by_hand(&screen, frame, cx);
+                    if preferences.heard(frame, reported) == placement::Heard::Person {
+                        preferences.put_by_hand(&screen, frame, cx);
+                    }
                 });
             })
             .ok();
@@ -1060,6 +1183,43 @@ impl Render for PanelView {
                 // `settings`.
                 window.remove_window();
             }))
+            // Drag anywhere to move it, as the help says (`panel-help-move`):
+            // AppKit's `movableByWindowBackground` on macOS, and this on
+            // Linux, where it is the only handle the panel has under
+            // Wayland and a second one beside the title bar under X11.
+            .when(cfg!(target_os = "linux"), |panel| {
+                panel
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(|view, event: &gpui::MouseDownEvent, _, _| {
+                            view.pressed = Some(event.position);
+                        }),
+                    )
+                    .on_mouse_up(
+                        gpui::MouseButton::Left,
+                        cx.listener(|view, _: &gpui::MouseUpEvent, _, _| {
+                            view.pressed = None;
+                        }),
+                    )
+                    .on_mouse_move(
+                        cx.listener(|view, event: &gpui::MouseMoveEvent, window, _| {
+                            let Some(from) = view.pressed else {
+                                return;
+                            };
+                            if event.pressed_button != Some(gpui::MouseButton::Left) {
+                                view.pressed = None;
+                                return;
+                            }
+                            let travelled = (event.position.x - from.x)
+                                .as_f32()
+                                .hypot((event.position.y - from.y).as_f32());
+                            if travelled >= DRAG_AFTER {
+                                view.pressed = None;
+                                window.start_window_move();
+                            }
+                        }),
+                    )
+            })
             .size_full()
             .gap_2()
             .p_4()

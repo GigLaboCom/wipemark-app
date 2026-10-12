@@ -283,6 +283,9 @@ hotkey-registered = Active from any application while { -brand-name } runs.
 # $reason is the operating system's own account, in its own words.
 hotkey-refused = The system did not accept it: { $reason }
 hotkey-unavailable = Stored, and not active: system-wide shortcuts are not available on this platform yet.
+# In a Wayland session — natively or through XWayland — a key grab hears
+# only what is typed into another X11 window, so none is made.
+hotkey-unavailable-wayland = Stored, and not active: in a Wayland session { -brand-name } cannot hear a shortcut pressed in other applications.
 
 ## The sections, as the sidebar lists them.
 ##
@@ -526,6 +529,11 @@ settings-placement-attached = { $count ->
        *[other] { $count } displays attached.
     }
 settings-placement-only-window = These choices place the { -brand-name } panel — the window you summon from the menu bar. The workspace windows will open under the same rules once they arrive; the main window and this one are never placed by them.
+# Said instead of the line above when { -brand-name } draws through
+# native Wayland (WIPEMARK_WAYLAND=1, or no XWayland): there a program
+# cannot choose where its windows open, and the cells below are disabled.
+# WIPEMARK_WAYLAND is the name of a variable and is not translated.
+settings-placement-system-decides = On this desktop the system decides where a window opens, so these choices are kept and not used. Started without WIPEMARK_WAYLAND, { -brand-name } runs through XWayland and places the panel itself.
 
 settings-placement-close-title = Close after a drop
 settings-placement-close-description = Dropping the window onto a part of a screen closes this window, so you can see where it landed. Clicking a part leaves this window open.

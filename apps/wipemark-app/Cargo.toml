@@ -140,10 +140,6 @@ objc2-app-kit = { version = "0.3", features = [
     "NSWindow",
 ] }
 objc2-foundation = { version = "0.3", features = ["NSData", "NSGeometry", "NSString", "NSArray"] }
-# The `NSView` GPUI opened a window with, which is the only handle it
-# hands out. See `screen::translate`. Already in the tree via gpui, at
-# the version gpui itself pins.
-raw-window-handle = "0.6"
 
 # The menu-bar item (src/tray.rs) and the system-wide shortcut
 # (src/hotkey.rs), on macOS and on Linux. Windows wants a win32 message
@@ -166,6 +162,11 @@ tray-icon = { version = "0.21", default-features = false }
 # asked only in an X11 session (D346). Its `keyboard-types` is the one
 # `muda` already pulls.
 global-hotkey = "0.7"
+# The window GPUI opened, which is the only handle it hands out: the
+# `NSView` on macOS (`screen::translate`, the panel's float), the X window
+# on Linux (`x11::xid`). Already in the tree via gpui, at the version gpui
+# itself pins.
+raw-window-handle = "0.6"
 
 # Linux only: the GTK thread the tray lives on (src/tray.rs, D340).
 # `gtk` is the version `muda` already builds its menus with, so this is
@@ -176,6 +177,16 @@ global-hotkey = "0.7"
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
 libloading = "0.7"
+# The X server asked directly (src/x11.rs, D612–D616): the monitors
+# (RandR), the pointer, a window's frame, a move, above-and-sticky — what
+# GPUI's X11 client does not expose. Its own connection, on a thread of
+# its own. The version and feature gpui's X11 client already builds
+# (x11rb 0.13.2 with `randr`), so the lock gains an edge and no crate.
+x11rb = { version = "0.13", features = ["randr"] }
+# A display's key under X11 is the version-5 uuid of its output's name —
+# what gpui's Wayland backend makes its uuid from (D614). The version gpui
+# pins, with the `v5` feature it already turns on.
+uuid = { version = "1", features = ["v5"] }
 
 [features]
 default = []

@@ -9786,6 +9786,7 @@ dependencies = [
  "toml 0.8.23",
  "tracing",
  "tray-icon",
+ "uuid",
  "wipemark-core",
  "wipemark-engine",
  "wipemark-i18n",
@@ -9801,6 +9802,7 @@ dependencies = [
  "wipemark-queue",
  "wipemark-secret",
  "wipemark-store",
+ "x11rb",
 ]
 
 [[package]]

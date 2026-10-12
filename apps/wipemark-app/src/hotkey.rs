@@ -994,6 +994,21 @@ pub fn x11_session(compositor: &str, session_type: Option<&std::ffi::OsStr>) -> 
     compositor == "X11" && session_type.is_none_or(|kind| kind != "wayland")
 }
 
+/// What the row says when no shortcut is registered for this process.
+///
+/// In a Wayland session the reason is the session, whatever GPUI draws
+/// through — natively, or through XWayland, which is the default on Linux
+/// (D611) and where a grab would hear only keys typed into other X11
+/// windows (D346). Saying "not on this platform yet" there would blame
+/// the platform for a session (D618). Everywhere else, the general line.
+pub fn unavailable_line(session_type: Option<&std::ffi::OsStr>) -> Message {
+    if session_type.is_some_and(|kind| kind == "wayland") {
+        Message::HotkeyUnavailableWayland
+    } else {
+        Message::HotkeyUnavailable
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1268,6 +1283,22 @@ mod tests {
     /// D346: on Linux a shortcut is asked for only in an X11 session —
     /// GPUI on X11, and not XWayland inside a Wayland session, where a
     /// grab hears only other X11 clients.
+    /// A Wayland session is named as the reason, XWayland included (D618).
+    #[test]
+    fn in_a_wayland_session_the_row_names_the_session() {
+        use std::ffi::OsStr;
+
+        assert_eq!(
+            unavailable_line(Some(OsStr::new("wayland"))),
+            Message::HotkeyUnavailableWayland
+        );
+        assert_eq!(
+            unavailable_line(Some(OsStr::new("x11"))),
+            Message::HotkeyUnavailable
+        );
+        assert_eq!(unavailable_line(None), Message::HotkeyUnavailable);
+    }
+
     #[test]
     fn a_shortcut_is_asked_for_only_where_an_x11_grab_hears_the_keyboard() {
         use std::ffi::OsStr;
