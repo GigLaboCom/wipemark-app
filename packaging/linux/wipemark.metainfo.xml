@@ -10,7 +10,11 @@
 <component type="desktop-application">
   <id>com.giglabo.wipemark</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>FSL-1.1-ALv2</project_license>
+  <!-- FSL-1.1-ALv2 (LICENSE.md, D610). The appstreamcli of Ubuntu 24.04
+       predates the SPDX entry and rejects the id, so the licence is named
+       the way AppStream names one outside its database: a LicenseRef with
+       the URL of its text. -->
+  <project_license>LicenseRef-proprietary=https://fsl.software/FSL-1.1-ALv2.template.md</project_license>
   <name>Wipemark</name>
   <summary>Strips AI provenance marks from your own content</summary>
   <description>
