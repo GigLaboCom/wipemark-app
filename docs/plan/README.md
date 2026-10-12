@@ -1787,6 +1787,7 @@ the gate the overview set, and the open edges.
 
 ### E10 — packaging
 
+- **Fix. An open window is brought forward on Linux** (owner, 2026-10-12, acceptance F2). The gear, ⌘, and the tray's Settings and Show call `activate_window()`, which GPUI does not implement on Linux, so an already open window stays behind the others and the button looks dead. Wanted: the window shown on top. On Wayland that means an `xdg_activation_v1` token from the click (GPUI upstream). Meanwhile, close the window and reopen it at its remembered rectangle and section. See `reports/v1-acceptance-2026-10-12.md`.
 - **Build.** Signed and notarized `.app`, Linux AppImage/deb (CUDA /
   Vulkan), a release lane on `wipemark-v*` tags, `cargo license` into
   `NOTICE`, the size budget. Gate: on a clean machine, download → open →
