@@ -28,8 +28,11 @@
 #   `-`/`+` before a line number: a line of a hunk. `░` rows: filler — rows
 #   standing for lines only the other side has. `·` rows: the rows by which a
 #   paired line wraps taller on the other side. A line stands level with the
-#   line beside it; a filler block beside the wrong paragraph is the pairing
-#   by position inside a hunk (docs/architecture/compare.md).
+#   line beside it. Since D679 a paragraph with no partner stands beside
+#   filler where it stands and has nothing dark; before it, inside a changed
+#   passage lines were paired by position, and case 3 showed the filler
+#   beside the last paragraph and every pair after the deleted one off by one
+#   (docs/architecture/compare.md, "Which paragraph stands beside which").
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)

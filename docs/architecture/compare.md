@@ -449,10 +449,15 @@ And for long lines (E7-11, "Long lines: both panes wrap, padded level"):
 - **D670** — long lines wrap on both panes or on neither (`compare.wrap`
   and the result toolbar's button, one state), and wrapped, the shorter
   line of every pair is padded with the library's spacer rows: shared
-  lines one for one, line *i* against line *i* inside a hunk, the rest
-  against tinted blank rows at the end of the shorter block.
+  lines one for one, the pairs of D679 inside a hunk, a line with no
+  partner against tinted blank rows where it stands.
 - **D671** — a changed passage compared as one while it fits
   `SPAN_CELLS`, line against line past it.
+- **D679** — inside a changed passage the lines are paired by their
+  words, not their place: a paragraph put in or taken out among rewritten
+  ones stands beside filler where it stands, keeps its line mark and gets
+  no word marks, and moves no pair after it; two unrelated paragraphs side
+  by side are not marked word for word.
 - **D672** — padded panes scroll at one offset; D384, D386's wrapped
   reading, D433 and D449's exception are superseded.
 - **D673** — a pane asked again when the other's rows move: before the
@@ -804,21 +809,39 @@ level in its own frame. Until a comparison lands after typing (120 ms of
 quiet, as the marks) the pairing below a line put in or taken out is the
 last comparison's (D678).
 
-**What it does not do.** Inside a hunk the lines are paired by position,
-not by likeness: a paragraph put in among paragraphs that were all
-rewritten pairs every paragraph after it with the next one's partner, up
-to the end of that hunk, where the filler stands. A rewrite keeps the
-count of its paragraphs, so the owner's documents pair as they should;
-pairing by likeness inside a hunk is left open (the report's "What is
-left").
+**Which paragraph stands beside which** (D679, the owner, 2026-10-12:
+"as IntelliJ does"). Inside a changed passage the lines are paired by
+their words, the way IntelliJ's diff splits a changed block: every line
+against every line, scored by the words the two share — lowercased, cut
+to their first five characters so an inflected form counts, and weighed
+by how few of the passage's lines have them — and the pairing in order
+worth the most kept, each pair worth `PAIR_WEIGHT` (0.25) for standing
+side by side and its likeness (0 to 1) on top. So a paragraph put in among
+rewritten ones, or taken out, stands beside tinted blank rows where it
+stands, and every paragraph after it keeps its partner; paragraphs
+rewritten past recognition still stand in their order. Such a paragraph
+keeps its line mark and gets no word marks, and neither does a pair of
+paragraphs of four words or more that share less than `ALIKE` (0.2) of
+their weighed words — two unrelated paragraphs marked word for word are
+two paragraphs dark from end to end; a shorter line always is marked,
+because there one changed word, or a letter swapped for its look-alike,
+is the whole difference. The original follows the result's cursor to the
+line's partner, and from a line put in to the one it stands in front of.
+Past `PAIR_CELLS` (250 000 pairs, five hundred paragraphs a side) a
+passage is paired by place, as before. `diff::PAIR_WEIGHT`, `ALIKE`,
+`SHORT` and `STEM` are the four numbers; `scripts/verify/e7-11/pairing.sh`
+prints the pairing of a few cases as text in seconds, and
+`scripts/verify/e7-11/diff-time.sh` what it costs: 2 ms more for 200
+paragraphs, 54 ms for 500 rewritten ones at the ceiling, nothing past it.
 
-**Word marks** (D671). A changed passage is compared word against word
-as one while its table fits `SPAN_CELLS`, so a word that moved across a
-line break is a move; past the ceiling, line *i* against line *i*, each
-pair under it on its own. A rewrite of a whole document of one-line
-paragraphs was one passage past the ceiling after about two and a half
-two-hundred-word paragraphs and lost every word mark; now each paragraph
-keeps its own (`a_rewritten_document_keeps_its_word_marks`).
+**Word marks** (D671, D679). Inside a changed passage, alike pairs one
+after another are compared word against word as one run while its table
+fits `SPAN_CELLS`, so a word that moved across a line break is a move;
+past the ceiling, pair by pair, each under it on its own. A rewrite of a
+whole document of one-line paragraphs was one passage past the ceiling
+after about two and a half two-hundred-word paragraphs and lost every
+word mark; now each paragraph keeps its own
+(`a_rewritten_document_keeps_its_word_marks`).
 
 **What a resize costs** (D677). The library rewraps the whole document
 on every width change, synchronously, in the frame — now for two panes —

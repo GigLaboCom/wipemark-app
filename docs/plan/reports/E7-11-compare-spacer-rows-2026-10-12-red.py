@@ -24,7 +24,12 @@ What it does
     — run with `cargo test -p gpui-base` (or the story crate) inside the
     gpui-kit tree: `vendor/gpui-component`, which this branch points at the U2
     commit, or the clone `GPUI_KIT` names. `C…` are ours, in wipemark-app,
-    run with `cargo test -p wipemark-app` at the repository root.
+    run with `cargo test -p wipemark-app` at the repository root. `D…` are
+    the owner's D679 (pairing by likeness, asked for later the same day), in
+    `diff.rs` alone: that module is pure, with std and nothing else, so its
+    tests are compiled on their own with `rustc --test` in a temporary folder
+    — seconds, not the application's build — the same tests `cargo test -p
+    wipemark-app diff::` runs.
 
     The checks are listed in CHECKS below, each with the decision or the
     task item it guards.
@@ -65,6 +70,12 @@ KIT = os.environ.get("GPUI_KIT", os.path.join(ROOT, "vendor", "gpui-component"))
 BASE = ["-p", "gpui-base", "--lib", "--"]
 STORY = ["-p", "gpui-component-story", "--lib", "--"]
 APP = ["-p", "wipemark-app", "--"]
+PAIRED = "diff::tests::paragraphs_in_a_changed_passage_are_paired_by_their_words"
+CEILING = "diff::tests::past_the_pair_ceiling_lines_pair_by_place"
+FILLER = "diff::tests::a_paragraph_put_in_or_taken_out_among_rewritten_ones_stands_beside_filler"
+NOT_LOOKED = "diff::tests::a_paragraph_with_no_partner_and_an_unrelated_pair_are_not_looked_into"
+PARTNER = "diff::tests::a_row_inside_a_rewritten_passage_names_its_partner"
+LETTER = "diff::tests::words_mark_the_word_and_characters_mark_the_letter"
 
 STATE = "crates/base/src/input/base/state.rs"
 ELEMENT = "crates/base/src/input/base/element.rs"
@@ -256,11 +267,69 @@ CHECKS = {
         (SETTINGS, "        // ## E7-11\n        Self::CompareWrap,\n", ""),
         (SETTINGS, "    pub const ALL: [Setting; 41] = [\n", "    pub const ALL: [Setting; 40] = [\n")],
         APP + ["settings::tests::every_persisted_preference_has_a_row"]),
+    # D679: a changed passage's lines are paired by their words, not their place.
+    "D-pair-by-words": ("diff", [(DIFF,
+        "    if n.saturating_mul(m) > PAIR_CELLS {\n        return (0..n.min(m))",
+        "    if true {\n        return (0..n.min(m))")],
+        [PAIRED, CEILING, FILLER, NOT_LOOKED, PARTNER]),
+    # D679: a line with no partner stands beside filler where it stands.
+    "D-filler-in-place": ("diff", [(DIFF,
+        "                unpaired(from, (pair.original, pair.result), &mut padding);\n", "")],
+        [FILLER]),
+    # D679: a line with no partner is not looked into.
+    "D-unpaired-not-marked": ("diff", [(DIFF,
+        "                        pair.alike\n"
+        "                            && pair.original == first.original + k\n"
+        "                            && pair.result == first.result + k\n",
+        "                        pair.alike\n")],
+        [NOT_LOOKED]),
+    # D679: two unrelated paragraphs side by side are not looked into.
+    "D-alike": ("diff", [(DIFF,
+        "        self.words[i].min(self.words[self.split + j]) < SHORT || self.like(i, j) >= ALIKE\n",
+        "        true\n")],
+        [NOT_LOOKED]),
+    # D679: a short line is always looked into.
+    "D-short": ("diff", [(DIFF,
+        "        self.words[i].min(self.words[self.split + j]) < SHORT || self.like(i, j) >= ALIKE\n",
+        "        self.like(i, j) >= ALIKE\n")],
+        [NOT_LOOKED, LETTER]),
+    # D679: the original follows the result's cursor to the line's partner.
+    "D-cursor-partner": ("diff", [(DIFF,
+        "                return pairs\n"
+        "                    .iter()\n"
+        "                    .map(|pair| pair.sides(from))\n"
+        "                    .find(|&(mine, _)| mine >= row)\n"
+        "                    .map_or(there.end, |(_, theirs)| theirs);\n",
+        "                let _ = pairs;\n                return there.start;\n")],
+        [PARTNER]),
 }
 
 
 def tree(name):
     return KIT if CHECKS[name][0] == "kit" else ROOT
+
+
+def diff_tests(filters):
+    """diff.rs's own tests, compiled alone: the module as it is on disk now,
+    its inner doc comments dropped because `include!` takes items only."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as folder:
+        source = open(os.path.join(ROOT, DIFF), encoding="utf-8").read()
+        with open(os.path.join(folder, "diff_items.rs"), "w", encoding="utf-8") as out:
+            out.write("".join(line for line in source.splitlines(True) if not line.startswith("//!")))
+        with open(os.path.join(folder, "main.rs"), "w", encoding="utf-8") as out:
+            out.write('#![allow(dead_code)]\nmod diff { include!("diff_items.rs"); }\nfn main() {}\n')
+        built = subprocess.run(
+            ["rustc", "--edition", "2021", "--test", "-O", "-o", "tests", "main.rs"],
+            cwd=folder, env=dict(os.environ, RUSTUP_TOOLCHAIN="1.95.0"),
+            capture_output=True, text=True,
+        )
+        if built.returncode != 0:
+            return built
+        done = subprocess.run(
+            [os.path.join(folder, "tests"), *filters], cwd=folder, capture_output=True, text=True,
+        )
+        return done
 
 
 def run(name):
@@ -284,10 +353,13 @@ def run(name):
         for full, text in changed.items():
             with open(full, "w", encoding="utf-8") as out:
                 out.write(text)
-        done = subprocess.run(
-            ["cargo", "test", "--locked", *args],
-            cwd=base, env=env, capture_output=True, text=True,
-        )
+        if CHECKS[name][0] == "diff":
+            done = diff_tests(args)
+        else:
+            done = subprocess.run(
+                ["cargo", "test", "--locked", *args],
+                cwd=base, env=env, capture_output=True, text=True,
+            )
     finally:
         for full, text in sources.items():
             with open(full, "w", encoding="utf-8") as out:

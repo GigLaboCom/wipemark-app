@@ -687,15 +687,16 @@
   `compare.wrap`, read when a window opens, off by default until a resize
   of a wrapped window fits a frame, D677; the result's toolbar button is
   both sides', D670): the shorter side of every pair of
-  lines — shared lines one for one, line *i* against line *i* inside a
-  hunk, the rest standing against blank rows at the hunk's end
-  (`Diff::padding`) — is padded with the library's spacer rows
+  lines — shared lines one for one, inside a changed passage the lines
+  paired by their words (D679), a line with no partner standing against
+  blank rows where it stands (`Diff::padding`) — is padded with the library's spacer rows
   (gpui-kit's `SpacerProvider`, on the `glani` fork's
   `editor-spacer-rows` until upstream merges it, D675), and a pane is
   asked again when the *other* pane's rows move: before the frame for an
   edit, at the end of the frame for a rewrap (D673). Past
   `diff::SPAN_CELLS` a changed passage is compared word by word line
-  against line (D671). And the two panes **scroll together**
+  against line (D671); a line with no partner, and two unrelated
+  paragraphs side by side, get no word marks (D679). And the two panes **scroll together**
   (`compare.sync_scroll`, on by default, read when a window opens):
   padded, at one offset (D672); unwrapped, `Diff::position_across` maps
   the leading pane's top — a row and a fraction — line for line in a

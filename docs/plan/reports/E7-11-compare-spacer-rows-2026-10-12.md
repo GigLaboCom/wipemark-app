@@ -7,7 +7,11 @@
 краю, а более короткая сторона каждой пары строк дополняется пустыми рядами,
 так что каждый абзац начинается вровень со своим партнёром на любой глубине,
 как в side-by-side diff у Zed; абзац, который есть только с одной стороны,
-стоит напротив серого пустого блока на другой. Прокрутка у выровненных
+стоит напротив серого пустого блока на другой. Внутри изменённого блока
+абзацы сопоставляются по общим словам, как в IntelliJ (D679, добавлено
+вечером по слову владельца): вставленный или удалённый абзац стоит напротив
+серого блока на своём месте, не сдвигает пары ниже и не темнеет целиком, а
+два несвязанных абзаца рядом стоят без тёмных слов. Прокрутка у выровненных
 панелей общая — одно смещение на обе. Выделение слов не пропадает и в
 переписанном документе из длинных абзацев. **По умолчанию перенос выключен**:
 при включённом переносе каждое изменение ширины окна заново переносит оба
@@ -28,8 +32,9 @@ Task: Watchword `wipemark-task-compare-spacer-rows-2026-10-12` (the
 coordinator, for acceptance step A6). Built on `e7/compare-spacer-rows` from
 `feat/e0-e6-shell` `ef0aa25`; the research it rests on is
 `origin/research/compare-soft-wrap`
-(`compare-soft-wrap-research-2026-10-12.md`). Decisions **D670–D678**
-(`docs/plan/README.md` §4; D679–D689 left spare).
+(`compare-soft-wrap-research-2026-10-12.md`). Decisions **D670–D679**
+(`docs/plan/README.md` §4; D679 taken the same evening on the owner's word,
+below; D680–D689 left spare).
 
 ## What changed, in one table
 
@@ -444,6 +449,74 @@ issue below is not filed.
 > - [x] Passed `cargo run` for story tests related to the changes.
 > - [ ] Tested macOS, Windows and Linux platforms performance (if the change is platform-specific)
 
+## D679 — paragraphs paired by their words (the owner, the same evening)
+
+After the padded screenshots the owner asked how a paragraph taken out
+behaves, and for Compare to pair as IntelliJ's diff does. Pairing by
+position inside a hunk (D670, D671) put a paragraph taken out — or put in —
+among rewritten ones beside the next one's partner, shifted every pair after
+it to the end of the hunk, where the filler stood, and the joint word
+comparison marked that paragraph dark from end to end.
+`scripts/verify/e7-11/pairing.sh` shows it as text: the real `diff.rs`,
+lines wrapped at 30 columns, three cases of a paragraph taken out.
+
+IntelliJ (read in `JetBrains/intellij-community`): its aligned mode pads
+each changed block's top and bottom level (`AlignedDiffModel.kt`, soft wraps
+counted), and its word comparison splits a changed block into the groups of
+lines whose words match (`ByWordRt.compareAndSplit`), shown as one change in
+"Highlight words" and as separate changes in "Highlight split changes".
+
+Built, in `diff.rs` alone (no window code moved): inside a changed passage
+every line is weighed against every line by the words the two share —
+lowercased, the first `STEM` = 5 characters (an inflected form counts, `гавань`
+and `гавани`), each weighed `ln(1 + lines / lines having it)` over the passage
+so `the` counts for little — and the pairing in order worth the most is kept,
+a pair worth `PAIR_WEIGHT` = 0.25 plus its likeness (0 to 1): enough that
+paragraphs rewritten past recognition still stand in their order, little
+enough that one put in or taken out moves no pair after it. Then:
+
+- `Diff::padding` pads the pairs, and a line with no partner stands beside
+  filler of its height where it stands;
+- `Diff::spans` looks into alike pairs only — runs of them one after another
+  as one while they fit `SPAN_CELLS` — so a paragraph with no partner keeps
+  its line mark and nothing finer, and so does a pair of paragraphs of
+  `SHORT` = 4 words or more that share less than `ALIKE` = 0.2; a shorter
+  line always is looked into, because there one changed word, or a letter
+  swapped for its look-alike, is the whole difference (`colour`/`color`,
+  a heading with a homoglyph);
+- `original_row_of` takes the original's cursor to the line's partner, and
+  from a line put in to the one it stands in front of (before, every row of a
+  hunk named the hunk's first line — the 150th paragraph of a rewrite sent
+  the original's cursor to the first);
+- past `PAIR_CELLS` = 250 000 pairs (500 paragraphs a side) a passage is
+  paired by place and every pair looked into, as before: weighing every word
+  of an 8 MiB rewrite cost 324 ms a comparison in the first try, so it is not
+  done there.
+
+`scripts/verify/e7-11/diff-time.sh` (BASE = `cb6aae0`, the commit before),
+`rustc -O`, the median of five runs, in ms:
+
+| document | `Diff::of` before | after | `spans` before | after | `padding` |
+|---|---|---|---|---|---|
+| 60 paragraphs (the fixture) | 0.01 | 0.73 | 6.8 | 5.9 | 0.000 |
+| 200 paragraphs | 0.05 | 2.2 | 11.3 | 10.1 | 0.001 |
+| 500 paragraphs, every one rewritten (one passage at the ceiling) | 0.23 | 54 | 3.1 | 3.5 | 0.001 |
+| 8 MiB | 1.15 | 1.14 | 727 | 748 | 0.06 |
+
+`Diff::of` and `spans` run on the background executor after an edit;
+`padding` runs on the GPUI thread and did not move.
+
+Tests: `paragraphs_in_a_changed_passage_are_paired_by_their_words`,
+`past_the_pair_ceiling_lines_pair_by_place`,
+`a_paragraph_put_in_or_taken_out_among_rewritten_ones_stands_beside_filler`,
+`a_paragraph_with_no_partner_and_an_unrelated_pair_are_not_looked_into`,
+`a_row_inside_a_rewritten_passage_names_its_partner`, and the owner's
+example in `a_changed_word_is_marked_and_the_rest_of_the_line_is_not`
+(`This is black fox.` against `This is a red fox.`: `black`, then `a red`).
+One expectation changed: `a_row_of_the_original_names_a_row_of_the_result`'s
+three lines replaced by one now pair the first with it, and the two after it
+name where they would have been. Red: six checks, the `D` group below.
+
 ## Measurements (D677)
 
 `scripts/verify/e7-11/resize.sh`, release build, the container (aarch64,
@@ -534,9 +607,11 @@ host's. The native llama gates are not due (nothing under
 `docs/plan/reports/E7-11-compare-spacer-rows-2026-10-12-red.py`, every
 protection taken out once and its test seen red, then put back:
 
-28 checks, 28 red. The upstream group ran in the gpui-kit clone
+34 checks, 34 red. The upstream group ran in the gpui-kit clone
 (`GPUI_KIT=/workspace/gpui-kit-spacer`, `cargo test -p gpui-base --lib` or
-the story), the C group at the repository root.
+the story), the C group at the repository root, the D group (D679) on
+`diff.rs` compiled alone with `rustc --test` — the module is pure — in
+seconds.
 
 | check | protection taken out | red tests |
 |---|---|---|
@@ -568,6 +643,12 @@ the story), the C group at the repository root.
 | C-keep-level | no end-of-frame ask of a stale pane | `a_rewrap_pads_the_other_pane_by_the_next_frame` |
 | C-wrap-row | the row not read | `the_compare_rows_default_to_words_and_survive_a_restart` |
 | C-wrap-widget | the row without a widget | `every_persisted_preference_has_a_row` |
+| D-pair-by-words | a changed passage paired by place | `paragraphs_in_a_changed_passage_are_paired_by_their_words`, `past_the_pair_ceiling_…`, `…_stands_beside_filler`, `…_not_looked_into`, `…_names_its_partner` |
+| D-filler-in-place | no filler for a line with no partner before a pair | `a_paragraph_put_in_or_taken_out_among_rewritten_ones_stands_beside_filler` |
+| D-unpaired-not-marked | a run reaching over a line with no partner | `a_paragraph_with_no_partner_and_an_unrelated_pair_are_not_looked_into` |
+| D-alike | every pair looked into | the same |
+| D-short | a short line held to `ALIKE` too | the same, `words_mark_the_word_and_characters_mark_the_letter` |
+| D-cursor-partner | a row inside a hunk naming the hunk's first line | `a_row_inside_a_rewritten_passage_names_its_partner` |
 
 Two were green at first and their tests were made to see them.
 **C-refresh-on-edit**: GPUI's test mode paints a dirty window again at once,
@@ -616,11 +697,11 @@ both out.
 - **The remedy for a wrapped resize** (D677), upstream: `LineWrapper` for
   plain text, the rewrap off the paint path; then `compare.wrap` on by
   default.
-- **Pairing by likeness inside a hunk**: a hunk whose two blocks differ in
-  length pairs by position; aligning its paragraphs by word overlap (a small
-  dynamic programme over the block, bounded like `CELLS`) would keep a
-  paragraph put in among rewritten ones from shifting the pairs below it.
-  Both the padding and the word marks would take it.
+- **D679's four numbers** (`PAIR_WEIGHT`, `ALIKE`, `SHORT`, `STEM`) are set
+  by the cases in the tests and the fixtures, not by a corpus of the owner's
+  rewrites; a real document that pairs wrongly is a test to add and maybe a
+  number to move. A paragraph split in two, or two merged, pairs one and
+  leaves the other beside filler (IntelliJ groups them; ours are one to one).
 - **Upstream review**: #3465 and #3466 out of draft when the owner says so
   (the issue above is not filed); after the merge, the submodule back on
   `longbridge/gpui-kit` `next` and `.gitmodules` restored, and only then the
