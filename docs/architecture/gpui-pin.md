@@ -117,7 +117,7 @@ that read like a compiler bug. The toolchain was 1.94.1.
 
 ## 2. What we carried on top, and what is carried now
 
-### Since 2026-10-12: `gpui-pre-linux`, for a drop before the file list
+### Since 2026-10-12: `gpui-pre-linux`, for a drop before the file list and a dragged text
 
 **What.** One snapshot crate, `gpui-pre-linux 0.3.8`, is carried in this
 repository: `vendor/gpui-pre-linux/` is the crate exactly as cargo
@@ -125,8 +125,13 @@ unpacks the published `.crate` (sha256 `b1131746…720e`; `Cargo.toml` as
 normalised by publishing, `Cargo.toml.orig`, its `Cargo.lock` and
 `LICENSE-APACHE`; the crate was published without a
 `.cargo_vcs_info.json`, so there is none) with
-`vendor/gpui-pre-linux.patch` applied — two files,
-`src/linux/x11/client.rs` and `src/linux/wayland/client.rs`. The root
+`vendor/gpui-pre-linux.patch` applied — four files:
+`src/linux/x11/client.rs` and `src/linux/wayland/client.rs` (F9's drop
+before the file list, then F15's text), `src/linux/platform.rs` (the
+dragged text's read and its drop file, shared by both backends) and one
+word of `src/linux/wayland/clipboard.rs` (`has_mime_type` made
+`pub(crate)`, so a drag can ask its offer's types). Each changed file
+opens with a one-line notice of the change (D625). The root
 `Cargo.toml` takes it with `[patch.crates-io] gpui-pre-linux = { path =
 "vendor/gpui-pre-linux" }` and lists the directory in `exclude`, so it is
 not a workspace member: our lints, rustfmt and the `--workspace` gates do
@@ -152,6 +157,16 @@ still has both drop losses (Wayland `handle_drop` ~471, X11 `XdndDrop`
 `docs/plan/reports/gpui-linux-drop-2026-10-12.md` (D622, D623). The patch
 also adds DEBUG lines for every protocol step of a drag (D624), seen with
 `WIPEMARK_LOG=info,gpui_linux=debug`.
+
+Acceptance F15: a **text** dragged out of a browser or an editor was
+taken by no window, because both backends read `text/uri-list` alone and
+`FileDropEvent` carries `ExternalPaths` only. The patch now takes a
+text type when no file list is offered and hands the text over as a file
+of its own in a private directory, written at the drop, which the
+application reads back as a text and removes (D653–D659;
+`drag-and-drop.md`, "A dragged text, handed over as a drop file"; the
+report is `docs/plan/reports/linux-text-drop-2026-10-12.md`). No public
+type of `gpui-pre` changed.
 
 **How it is checked.** `scripts/check-gpui-pin.sh` allows exactly this
 one `[patch]` entry on a snapshot crate (step 1) and its path package in
