@@ -90,7 +90,9 @@ jobs:
         run: scripts/check-dep-direction.sh
 
       # One GPUI: `gpui-pre` at the component's exact version, once in the
-      # lock, all from crates.io, no zed git source — and the resolved
+      # lock, all from crates.io but the carried gpui-pre-linux (the
+      # published crate plus vendor/gpui-pre-linux.patch, nothing else), no
+      # zed git source — and the resolved
       # sources still carrying the upstream X11 fixes the windows rely on
       # (#62081, #61789). Replaces the retired pin script.
       - name: GPUI pin
@@ -138,6 +140,12 @@ jobs:
 
       - name: test
         run: cargo test --workspace --locked
+
+      # The carried gpui-pre-linux (vendor/gpui-pre-linux, D620) is not a
+      # workspace member, so `--workspace` does not run its tests — among
+      # them the drop-before-the-file-list ones the carried patch adds.
+      - name: test (carried gpui-pre-linux)
+        run: cargo test -p gpui-pre-linux --locked
 
       - name: check --no-default-features
         run: cargo check --workspace --no-default-features --locked

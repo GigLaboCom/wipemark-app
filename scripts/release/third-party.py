@@ -100,6 +100,11 @@ def origin(pkg):
     if src.startswith("git+"):
         return src[len("git+"):]
     rel = os.path.relpath(os.path.dirname(pkg["manifest_path"]), os.getcwd())
+    # A crates.io crate carried in this repository with a patch over it
+    # (`[patch.crates-io]`; vendor/gpui-pre-linux, D625): the published
+    # crate is still where it came from, and the patch says what changed.
+    if os.path.isfile(rel + ".patch"):
+        return f"crates.io, carried in {rel} with {rel}.patch"
     return "vendored: " + rel
 
 

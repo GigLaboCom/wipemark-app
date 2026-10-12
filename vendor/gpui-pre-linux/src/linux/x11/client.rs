@@ -156,7 +156,39 @@ pub struct Xdnd {
     other_window: xproto::Window,
     drag_type: u32,
     retrieved: bool,
+    requested: bool,
+    dropped: bool,
     position: Point<Pixels>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum XdndPaths {
+    Ignore,
+    Enter,
+    EnterAndDrop,
+    Finish,
+}
+
+impl Xdnd {
+    fn defer_drop(&mut self) -> bool {
+        self.dropped = self.requested && !self.retrieved;
+        self.dropped
+    }
+
+    fn receive_paths(&mut self, received: bool) -> XdndPaths {
+        if !self.requested || self.retrieved {
+            return XdndPaths::Ignore;
+        }
+        match (received, self.dropped) {
+            (true, false) => {
+                self.retrieved = true;
+                XdndPaths::Enter
+            }
+            (true, true) => XdndPaths::EnterAndDrop,
+            (false, true) => XdndPaths::Finish,
+            (false, false) => XdndPaths::Ignore,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -926,6 +958,10 @@ impl X11Client {
                 }
 
                 if event.type_ == state.atoms.XdndEnter {
+                    if state.xdnd_state.dropped {
+                        log::debug!("XdndEnter: a deferred drop was abandoned");
+                    }
+                    state.xdnd_state = Xdnd::default();
                     state.xdnd_state.other_window = atom;
                     if (arg1 & 0x1) == 0x1 {
                         state.xdnd_state.drag_type = xdnd_get_supported_atom(
@@ -941,7 +977,17 @@ impl X11Client {
                             state.xdnd_state.drag_type = atom;
                         }
                     }
+                    log::debug!(
+                        "XdndEnter from {:#x}: {}",
+                        state.xdnd_state.other_window,
+                        if state.xdnd_state.drag_type == 0 {
+                            "no supported type"
+                        } else {
+                            "supported type found"
+                        }
+                    );
                 } else if event.type_ == state.atoms.XdndLeave {
+                    log::debug!("XdndLeave");
                     let position = state.xdnd_state.position;
                     drop(state);
                     window
@@ -957,7 +1003,7 @@ impl X11Client {
                             Point::new(px(pos.win_x as f32), px(pos.win_y as f32));
                     }
                     if !state.xdnd_state.retrieved {
-                        check_reply(
+                        if check_reply(
                             || "Failed to convert selection for drag and drop",
                             state.xcb_connection.convert_selection(
                                 event.window,
@@ -967,7 +1013,13 @@ impl X11Client {
                                 arg3,
                             ),
                         )
-                        .log_err();
+                        .log_err()
+                        .is_some()
+                            && !state.xdnd_state.requested
+                        {
+                            log::debug!("XdndPosition: requested the dragged file list");
+                            state.xdnd_state.requested = true;
+                        }
                     }
                     xdnd_send_status(
                         &state.xcb_connection,
@@ -981,6 +1033,11 @@ impl X11Client {
                     window
                         .handle_input(PlatformInput::FileDrop(FileDropEvent::Pending { position }));
                 } else if event.type_ == state.atoms.XdndDrop {
+                    if state.xdnd_state.defer_drop() {
+                        log::debug!("XdndDrop: deferred until the file list arrives");
+                        return Some(());
+                    }
+                    log::debug!("XdndDrop");
                     xdnd_send_finished(
                         &state.xcb_connection,
                         &state.atoms,
@@ -996,7 +1053,7 @@ impl X11Client {
             }
             Event::SelectionNotify(event) => {
                 let window = self.get_window(event.requestor)?;
-                let state = self.0.borrow_mut();
+                let mut state = self.0.borrow_mut();
                 let reply = get_reply(
                     || "Failed to get XDND_DATA",
                     state.xcb_connection.get_property(
@@ -1009,10 +1066,8 @@ impl X11Client {
                     ),
                 )
                 .log_err();
-                let Some(reply) = reply else {
-                    return Some(());
-                };
-                if let Ok(file_list) = str::from_utf8(&reply.value) {
+                let paths = reply.as_ref().and_then(|reply| {
+                    let file_list = str::from_utf8(&reply.value).ok()?;
                     let paths: SmallVec<[_; 2]> = file_list
                         .lines()
                         .filter_map(|path| Url::parse(path).log_err())
@@ -1024,13 +1079,52 @@ impl X11Client {
                             }
                         })
                         .collect();
-                    let input = PlatformInput::FileDrop(FileDropEvent::Entered {
-                        position: state.xdnd_state.position,
-                        paths: gpui::ExternalPaths(paths),
-                    });
-                    drop(state);
-                    window.handle_input(input);
-                    self.0.borrow_mut().xdnd_state.retrieved = true;
+                    Some(paths)
+                });
+                let received = state.xdnd_state.receive_paths(paths.is_some());
+                log::debug!(
+                    "SelectionNotify: {} paths, {:?}",
+                    paths.as_ref().map_or(0, |paths| paths.len()),
+                    received
+                );
+                let position = state.xdnd_state.position;
+                match received {
+                    XdndPaths::Ignore => {}
+                    XdndPaths::Enter => {
+                        drop(state);
+                        window.handle_input(PlatformInput::FileDrop(FileDropEvent::Entered {
+                            position,
+                            paths: gpui::ExternalPaths(paths.unwrap_or_default()),
+                        }));
+                    }
+                    XdndPaths::EnterAndDrop => {
+                        xdnd_send_finished(
+                            &state.xcb_connection,
+                            &state.atoms,
+                            event.requestor,
+                            state.xdnd_state.other_window,
+                        );
+                        state.xdnd_state = Xdnd::default();
+                        drop(state);
+                        log::debug!("XdndDrop: the deferred drop completed");
+                        window.handle_input(PlatformInput::FileDrop(FileDropEvent::Entered {
+                            position,
+                            paths: gpui::ExternalPaths(paths.unwrap_or_default()),
+                        }));
+                        window.handle_input(PlatformInput::FileDrop(FileDropEvent::Submit {
+                            position,
+                        }));
+                    }
+                    XdndPaths::Finish => {
+                        xdnd_send_finished(
+                            &state.xcb_connection,
+                            &state.atoms,
+                            event.requestor,
+                            state.xdnd_state.other_window,
+                        );
+                        state.xdnd_state = Xdnd::default();
+                        log::debug!("XdndDrop: the deferred drop finished without a file list");
+                    }
                 }
             }
             Event::ConfigureNotify(event) => {
@@ -3208,5 +3302,45 @@ mod tests {
 
         // Assert pressing space while on the Czech layout still types a space.
         assert_eq!(key_event_state.key_get_utf8(space), " ");
+    }
+
+    fn requested_xdnd() -> Xdnd {
+        Xdnd {
+            requested: true,
+            ..Xdnd::default()
+        }
+    }
+
+    #[test]
+    fn xdnd_drop_before_paths_is_deferred_until_they_arrive() {
+        let mut xdnd = requested_xdnd();
+
+        assert!(xdnd.defer_drop());
+        assert_eq!(xdnd.receive_paths(true), XdndPaths::EnterAndDrop);
+    }
+
+    #[test]
+    fn xdnd_deferred_drop_without_paths_still_finishes() {
+        let mut xdnd = requested_xdnd();
+
+        assert!(xdnd.defer_drop());
+        assert_eq!(xdnd.receive_paths(false), XdndPaths::Finish);
+    }
+
+    #[test]
+    fn xdnd_drop_after_paths_is_not_deferred() {
+        let mut xdnd = requested_xdnd();
+
+        assert_eq!(xdnd.receive_paths(true), XdndPaths::Enter);
+        assert!(!xdnd.defer_drop());
+        assert_eq!(xdnd.receive_paths(true), XdndPaths::Ignore);
+    }
+
+    #[test]
+    fn xdnd_paths_nobody_asked_for_do_not_enter() {
+        let mut xdnd = Xdnd::default();
+
+        assert!(!xdnd.defer_drop());
+        assert_eq!(xdnd.receive_paths(true), XdndPaths::Ignore);
     }
 }

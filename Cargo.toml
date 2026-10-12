@@ -20,8 +20,10 @@ members = [
     "apps/wipemark-app",
     "apps/wipemark-cli",
 ]
-# The submodule is its own workspace and must not be pulled into ours.
-exclude = ["vendor/gpui-component"]
+# The submodule is its own workspace and must not be pulled into ours, and
+# the carried gpui-pre-linux (`[patch.crates-io]` below) is upstream's code,
+# not a member: our lints and `--workspace` gates do not run over it.
+exclude = ["vendor/gpui-component", "vendor/gpui-pre-linux"]
 
 [workspace.package]
 version = "0.1.0"
@@ -146,7 +148,9 @@ ctrlc = "3"
 # lock with no zed git source. A bump moves this and the submodule
 # together, never one alone. See docs/architecture/gpui-pin.md.
 #
-# The snapshot carries nothing of ours. Both X11 bugs the old zed pin needed
+# The snapshot carries one crate of ours: gpui-pre-linux, through
+# `[patch.crates-io]` at the end of this file, for the file drop lost on the
+# first try (D620). Both X11 bugs the old zed pin needed
 # a fork for are upstream in it: the stale first frame (zed #62081) and,
 # through the deferred appearance callback (zed #61789), the portal's
 # `RefCell already mutably borrowed` panic. `scripts/check-gpui-pin.sh`
@@ -256,4 +260,16 @@ wipemark-pixels = { opt-level = 3 }
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# One crate of the GPUI snapshot is carried: gpui-pre-linux 0.3.8 exactly as
+# crates.io publishes it, plus `vendor/gpui-pre-linux.patch` — a file dropped
+# on a window before GPUI has read its file list is no longer lost, on X11
+# (XdndDrop before SelectionNotify) or on Wayland (`wl_data_device.drop`
+# before the URI read) (D620–D623). In this repository only: no fork, no pull
+# request (the owner, 2026-10-12). `scripts/check-gpui-pin.sh` fails when the
+# directory is anything but the published crate with that patch applied. It
+# goes when upstream fixes the race: delete the directory, the patch, these
+# lines and the `exclude` entry. See docs/architecture/gpui-pin.md §2.
+[patch.crates-io]
+gpui-pre-linux = { path = "vendor/gpui-pre-linux" }
 

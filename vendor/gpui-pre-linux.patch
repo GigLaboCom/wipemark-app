@@ -1,0 +1,478 @@
+diff --git a/src/linux/wayland/client.rs b/src/linux/wayland/client.rs
+index bc73fc3..01c0312 100644
+--- a/src/linux/wayland/client.rs
++++ b/src/linux/wayland/client.rs
+@@ -414,10 +414,14 @@ struct DragState<DataOffer = wl_data_offer::WlDataOffer, Window = WaylandWindowS
+     window: Option<Window>,
+     position: Point<Pixels>,
+     uri_read_generation: u64,
++    pending_drop: Option<(u64, Point<Pixels>)>,
+ }
+ 
+ impl<DataOffer, Window> DragState<DataOffer, Window> {
+     fn begin_uri_read(&mut self) -> u64 {
++        if self.pending_drop.take().is_some() {
++            log::debug!("drag enter: a deferred drop was abandoned");
++        }
+         self.invalidate_uri_read();
+         self.uri_read_generation
+     }
+@@ -452,6 +456,10 @@ where
+     Window: Clone,
+ {
+     fn handle_leave(&mut self) -> Option<(Window, PlatformInput)> {
++        log::debug!("drag leave");
++        if self.pending_drop.is_some() {
++            return None;
++        }
+         self.invalidate_uri_read();
+         let window = self.window.clone()?;
+         let data_offer = self.data_offer.clone()?;
+@@ -462,6 +470,12 @@ where
+     }
+ 
+     fn handle_drop(&mut self) -> Option<(Window, PlatformInput)> {
++        if self.window.is_none() {
++            log::debug!("drag drop: deferred until the file list arrives");
++            self.pending_drop = Some((self.uri_read_generation, self.position));
++            return None;
++        }
++        log::debug!("drag drop");
+         self.invalidate_uri_read();
+         let window = self.window.clone()?;
+         let data_offer = self.data_offer.clone()?;
+@@ -498,6 +512,16 @@ where
+             PlatformInput::FileDrop(FileDropEvent::Entered { position, paths }),
+         ))
+     }
++
++    fn finish_pending_drop(&mut self) -> Option<(Window, PlatformInput)> {
++        let (generation, position) = self.pending_drop.take()?;
++        if !self.is_uri_read_current(generation) {
++            return None;
++        }
++        log::debug!("drag drop: the deferred drop completed");
++        self.position = position;
++        self.handle_drop()
++    }
+ }
+ 
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+@@ -1048,6 +1072,7 @@ impl WaylandConnection {
+                 window: None,
+                 position: Point::default(),
+                 uri_read_generation: 0,
++                pending_drop: None,
+             },
+             external_drag: None,
+             click: ClickState {
+@@ -2813,6 +2838,8 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+                         return;
+                     };
+                     let uri_read_generation = state.drag.begin_uri_read();
++                    state.drag.position = Point::new(x.into(), y.into());
++                    log::debug!("drag enter: reading the dragged file list");
+ 
+                     const ACTIONS: DndAction = DndAction::Copy;
+                     data_offer.set_actions(ACTIONS, ACTIONS);
+@@ -2857,6 +2884,7 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+                                 })
+                                 .collect();
+                             let position = Point::new(x.into(), y.into());
++                            log::debug!("drag enter: read {} paths", paths.len());
+ 
+                             // Prevent dropping text from other programs.
+                             if paths.is_empty() {
+@@ -2875,21 +2903,28 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+                                 position,
+                                 gpui::ExternalPaths(paths),
+                             );
++                            let dropped = input
++                                .is_some()
++                                .then(|| state.drag.finish_pending_drop())
++                                .flatten();
+ 
+                             drop(state);
+                             if let Some((drag_window, input)) = input {
+                                 drag_window.handle_input(input);
+                             }
++                            if let Some((drag_window, input)) = dropped {
++                                drag_window.handle_input(input);
++                            }
+                         })
+                         .detach();
+                 }
+             }
+             wl_data_device::Event::Motion { x, y, .. } => {
++                let position = Point::new(x.into(), y.into());
++                state.drag.position = position;
+                 let Some(drag_window) = state.drag.window.clone() else {
+                     return;
+                 };
+-                let position = Point::new(x.into(), y.into());
+-                state.drag.position = position;
+ 
+                 let input = PlatformInput::FileDrop(FileDropEvent::Pending { position });
+                 drop(state);
+@@ -3188,6 +3223,7 @@ mod tests {
+             window: None,
+             position: Point::default(),
+             uri_read_generation: 0,
++            pending_drop: None,
+         }
+     }
+ 
+@@ -3234,28 +3270,111 @@ mod tests {
+         assert!(drag.window.is_none());
+     }
+ 
++    fn submitted_position(input: Option<(&'static str, PlatformInput)>) -> Option<Point<Pixels>> {
++        match input {
++            Some((_, PlatformInput::FileDrop(FileDropEvent::Submit { position }))) => {
++                Some(position)
++            }
++            _ => None,
++        }
++    }
++
++    #[test]
++    fn drop_before_uri_read_completes_delivers_the_drop() {
++        let mut drag = drag_state();
++        let data_offer = FakeDataOffer::new("A");
++        let generation = drag.begin_uri_read();
++        let mut entered_windows = Vec::new();
++        drag.position = Point::new(px(7.), px(9.));
++
++        record_entered(drag.handle_drop(), &mut entered_windows);
++        assert!(entered_windows.is_empty());
++        record_entered(
++            complete_drag_uri_read(&mut drag, generation, data_offer.clone(), "window A"),
++            &mut entered_windows,
++        );
++
++        assert_eq!(entered_windows, ["window A"]);
++        assert_eq!(
++            submitted_position(drag.finish_pending_drop()),
++            Some(Point::new(px(7.), px(9.)))
++        );
++        assert!(data_offer.finished.get());
++        assert!(data_offer.destroyed.get());
++        assert!(drag.data_offer.is_none());
++        assert!(drag.window.is_none());
++        assert!(drag.finish_pending_drop().is_none());
++    }
++
+     #[test]
+-    fn drop_then_leave_discards_pending_drag_uri_read() {
++    fn drop_then_leave_before_uri_read_completes_delivers_the_drop() {
+         let mut drag = drag_state();
+         let data_offer = FakeDataOffer::new("A");
+         let generation = drag.begin_uri_read();
+         let mut entered_windows = Vec::new();
+ 
+         record_entered(drag.handle_drop(), &mut entered_windows);
+-        assert_ne!(drag.uri_read_generation, generation);
+         record_entered(drag.handle_leave(), &mut entered_windows);
+         record_entered(
+             complete_drag_uri_read(&mut drag, generation, data_offer.clone(), "window A"),
+             &mut entered_windows,
+         );
+ 
+-        assert!(entered_windows.is_empty());
+-        assert!(!data_offer.finished.get());
++        assert_eq!(entered_windows, ["window A"]);
++        assert!(submitted_position(drag.finish_pending_drop()).is_some());
++        assert!(data_offer.finished.get());
+         assert!(data_offer.destroyed.get());
+         assert!(drag.data_offer.is_none());
+         assert!(drag.window.is_none());
+     }
+ 
++    #[test]
++    fn new_drag_discards_a_pending_drop() {
++        let mut drag = drag_state();
++        let data_offer_a = FakeDataOffer::new("A");
++        let generation_a = drag.begin_uri_read();
++        let mut entered_windows = Vec::new();
++        record_entered(drag.handle_drop(), &mut entered_windows);
++
++        let data_offer_b = FakeDataOffer::new("B");
++        let generation_b = drag.begin_uri_read();
++        record_entered(
++            complete_drag_uri_read(&mut drag, generation_a, data_offer_a.clone(), "window A"),
++            &mut entered_windows,
++        );
++        record_entered(
++            complete_drag_uri_read(&mut drag, generation_b, data_offer_b.clone(), "window B"),
++            &mut entered_windows,
++        );
++
++        assert_eq!(entered_windows, ["window B"]);
++        assert!(drag.finish_pending_drop().is_none());
++        assert!(!data_offer_a.finished.get());
++        assert!(data_offer_a.destroyed.get());
++        assert!(!data_offer_b.finished.get());
++        assert!(!data_offer_b.destroyed.get());
++        assert_eq!(drag.window, Some("window B"));
++    }
++
++    #[test]
++    fn drop_after_uri_read_completes_is_not_deferred() {
++        let mut drag = drag_state();
++        let data_offer = FakeDataOffer::new("A");
++        let generation = drag.begin_uri_read();
++        let mut entered_windows = Vec::new();
++        record_entered(
++            complete_drag_uri_read(&mut drag, generation, data_offer.clone(), "window A"),
++            &mut entered_windows,
++        );
++
++        assert!(submitted_position(drag.handle_drop()).is_some());
++        assert!(drag.finish_pending_drop().is_none());
++        record_entered(drag.handle_leave(), &mut entered_windows);
++        assert_eq!(entered_windows, ["window A"]);
++        assert!(data_offer.finished.get());
++        assert!(drag.window.is_none());
++    }
++
+     #[test]
+     fn stale_completion_preserves_newer_drag_destination() {
+         let mut drag = drag_state();
+diff --git a/src/linux/x11/client.rs b/src/linux/x11/client.rs
+index 601eb93..730d36c 100644
+--- a/src/linux/x11/client.rs
++++ b/src/linux/x11/client.rs
+@@ -156,9 +156,41 @@ pub struct Xdnd {
+     other_window: xproto::Window,
+     drag_type: u32,
+     retrieved: bool,
++    requested: bool,
++    dropped: bool,
+     position: Point<Pixels>,
+ }
+ 
++#[derive(Debug, PartialEq, Eq)]
++enum XdndPaths {
++    Ignore,
++    Enter,
++    EnterAndDrop,
++    Finish,
++}
++
++impl Xdnd {
++    fn defer_drop(&mut self) -> bool {
++        self.dropped = self.requested && !self.retrieved;
++        self.dropped
++    }
++
++    fn receive_paths(&mut self, received: bool) -> XdndPaths {
++        if !self.requested || self.retrieved {
++            return XdndPaths::Ignore;
++        }
++        match (received, self.dropped) {
++            (true, false) => {
++                self.retrieved = true;
++                XdndPaths::Enter
++            }
++            (true, true) => XdndPaths::EnterAndDrop,
++            (false, true) => XdndPaths::Finish,
++            (false, false) => XdndPaths::Ignore,
++        }
++    }
++}
++
+ #[derive(Debug)]
+ struct PointerDeviceState {
+     horizontal: ScrollAxisState,
+@@ -926,6 +958,10 @@ impl X11Client {
+                 }
+ 
+                 if event.type_ == state.atoms.XdndEnter {
++                    if state.xdnd_state.dropped {
++                        log::debug!("XdndEnter: a deferred drop was abandoned");
++                    }
++                    state.xdnd_state = Xdnd::default();
+                     state.xdnd_state.other_window = atom;
+                     if (arg1 & 0x1) == 0x1 {
+                         state.xdnd_state.drag_type = xdnd_get_supported_atom(
+@@ -941,7 +977,17 @@ impl X11Client {
+                             state.xdnd_state.drag_type = atom;
+                         }
+                     }
++                    log::debug!(
++                        "XdndEnter from {:#x}: {}",
++                        state.xdnd_state.other_window,
++                        if state.xdnd_state.drag_type == 0 {
++                            "no supported type"
++                        } else {
++                            "supported type found"
++                        }
++                    );
+                 } else if event.type_ == state.atoms.XdndLeave {
++                    log::debug!("XdndLeave");
+                     let position = state.xdnd_state.position;
+                     drop(state);
+                     window
+@@ -957,7 +1003,7 @@ impl X11Client {
+                             Point::new(px(pos.win_x as f32), px(pos.win_y as f32));
+                     }
+                     if !state.xdnd_state.retrieved {
+-                        check_reply(
++                        if check_reply(
+                             || "Failed to convert selection for drag and drop",
+                             state.xcb_connection.convert_selection(
+                                 event.window,
+@@ -967,7 +1013,13 @@ impl X11Client {
+                                 arg3,
+                             ),
+                         )
+-                        .log_err();
++                        .log_err()
++                        .is_some()
++                            && !state.xdnd_state.requested
++                        {
++                            log::debug!("XdndPosition: requested the dragged file list");
++                            state.xdnd_state.requested = true;
++                        }
+                     }
+                     xdnd_send_status(
+                         &state.xcb_connection,
+@@ -981,6 +1033,11 @@ impl X11Client {
+                     window
+                         .handle_input(PlatformInput::FileDrop(FileDropEvent::Pending { position }));
+                 } else if event.type_ == state.atoms.XdndDrop {
++                    if state.xdnd_state.defer_drop() {
++                        log::debug!("XdndDrop: deferred until the file list arrives");
++                        return Some(());
++                    }
++                    log::debug!("XdndDrop");
+                     xdnd_send_finished(
+                         &state.xcb_connection,
+                         &state.atoms,
+@@ -996,7 +1053,7 @@ impl X11Client {
+             }
+             Event::SelectionNotify(event) => {
+                 let window = self.get_window(event.requestor)?;
+-                let state = self.0.borrow_mut();
++                let mut state = self.0.borrow_mut();
+                 let reply = get_reply(
+                     || "Failed to get XDND_DATA",
+                     state.xcb_connection.get_property(
+@@ -1009,10 +1066,8 @@ impl X11Client {
+                     ),
+                 )
+                 .log_err();
+-                let Some(reply) = reply else {
+-                    return Some(());
+-                };
+-                if let Ok(file_list) = str::from_utf8(&reply.value) {
++                let paths = reply.as_ref().and_then(|reply| {
++                    let file_list = str::from_utf8(&reply.value).ok()?;
+                     let paths: SmallVec<[_; 2]> = file_list
+                         .lines()
+                         .filter_map(|path| Url::parse(path).log_err())
+@@ -1024,13 +1079,52 @@ impl X11Client {
+                             }
+                         })
+                         .collect();
+-                    let input = PlatformInput::FileDrop(FileDropEvent::Entered {
+-                        position: state.xdnd_state.position,
+-                        paths: gpui::ExternalPaths(paths),
+-                    });
+-                    drop(state);
+-                    window.handle_input(input);
+-                    self.0.borrow_mut().xdnd_state.retrieved = true;
++                    Some(paths)
++                });
++                let received = state.xdnd_state.receive_paths(paths.is_some());
++                log::debug!(
++                    "SelectionNotify: {} paths, {:?}",
++                    paths.as_ref().map_or(0, |paths| paths.len()),
++                    received
++                );
++                let position = state.xdnd_state.position;
++                match received {
++                    XdndPaths::Ignore => {}
++                    XdndPaths::Enter => {
++                        drop(state);
++                        window.handle_input(PlatformInput::FileDrop(FileDropEvent::Entered {
++                            position,
++                            paths: gpui::ExternalPaths(paths.unwrap_or_default()),
++                        }));
++                    }
++                    XdndPaths::EnterAndDrop => {
++                        xdnd_send_finished(
++                            &state.xcb_connection,
++                            &state.atoms,
++                            event.requestor,
++                            state.xdnd_state.other_window,
++                        );
++                        state.xdnd_state = Xdnd::default();
++                        drop(state);
++                        log::debug!("XdndDrop: the deferred drop completed");
++                        window.handle_input(PlatformInput::FileDrop(FileDropEvent::Entered {
++                            position,
++                            paths: gpui::ExternalPaths(paths.unwrap_or_default()),
++                        }));
++                        window.handle_input(PlatformInput::FileDrop(FileDropEvent::Submit {
++                            position,
++                        }));
++                    }
++                    XdndPaths::Finish => {
++                        xdnd_send_finished(
++                            &state.xcb_connection,
++                            &state.atoms,
++                            event.requestor,
++                            state.xdnd_state.other_window,
++                        );
++                        state.xdnd_state = Xdnd::default();
++                        log::debug!("XdndDrop: the deferred drop finished without a file list");
++                    }
+                 }
+             }
+             Event::ConfigureNotify(event) => {
+@@ -3209,4 +3303,44 @@ mod tests {
+         // Assert pressing space while on the Czech layout still types a space.
+         assert_eq!(key_event_state.key_get_utf8(space), " ");
+     }
++
++    fn requested_xdnd() -> Xdnd {
++        Xdnd {
++            requested: true,
++            ..Xdnd::default()
++        }
++    }
++
++    #[test]
++    fn xdnd_drop_before_paths_is_deferred_until_they_arrive() {
++        let mut xdnd = requested_xdnd();
++
++        assert!(xdnd.defer_drop());
++        assert_eq!(xdnd.receive_paths(true), XdndPaths::EnterAndDrop);
++    }
++
++    #[test]
++    fn xdnd_deferred_drop_without_paths_still_finishes() {
++        let mut xdnd = requested_xdnd();
++
++        assert!(xdnd.defer_drop());
++        assert_eq!(xdnd.receive_paths(false), XdndPaths::Finish);
++    }
++
++    #[test]
++    fn xdnd_drop_after_paths_is_not_deferred() {
++        let mut xdnd = requested_xdnd();
++
++        assert_eq!(xdnd.receive_paths(true), XdndPaths::Enter);
++        assert!(!xdnd.defer_drop());
++        assert_eq!(xdnd.receive_paths(true), XdndPaths::Ignore);
++    }
++
++    #[test]
++    fn xdnd_paths_nobody_asked_for_do_not_enter() {
++        let mut xdnd = Xdnd::default();
++
++        assert!(!xdnd.defer_drop());
++        assert_eq!(xdnd.receive_paths(true), XdndPaths::Ignore);
++    }
+ }

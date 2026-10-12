@@ -242,7 +242,10 @@ fn deliveries(window: &Window, cx: &Context<Catcher>) -> Option<Task<()>> {
             let told = catcher.update(cx, |catcher, cx| match delivery {
                 Delivery::Entered => catcher.hovering(true, cx),
                 Delivery::Exited => catcher.hovering(false, cx),
-                Delivery::Dropped(handed) => catcher.land(handed, cx),
+                Delivery::Dropped(handed) => {
+                    tell(Road::Pasteboard, &handed);
+                    catcher.land(handed, cx);
+                }
             });
             if told.is_err() {
                 // The window is gone, and so is everything that would
@@ -295,9 +298,53 @@ pub fn zone(element: Div, catcher: &Entity<Catcher>, cx: &App) -> Div {
         // macOS and the fallback on it — see the module docs.
         .drag_over::<ExternalPaths>(|style, _, _, cx| style.bg(cx.theme().accent))
         .on_drop::<ExternalPaths>(move |paths, _, cx| {
-            let handed = paths.paths().iter().cloned().map(Handed::Path).collect();
+            let handed: Vec<Handed> = paths.paths().iter().cloned().map(Handed::Path).collect();
+            tell(Road::ExternalPaths, &handed);
             landing.update(cx, |catcher, cx| catcher.land(handed, cx));
         })
+}
+
+/// Which of the two roads in a drop came by — see the module docs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Road {
+    /// Our own dragging destination on macOS (`crate::pasteboard`).
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Pasteboard,
+    /// GPUI's `ExternalPaths` drag: files only, the whole story off macOS.
+    ExternalPaths,
+}
+
+impl Road {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Pasteboard => "pasteboard",
+            Self::ExternalPaths => "external-paths",
+        }
+    }
+}
+
+/// How many things a drop that reached us carried — what the log says,
+/// one line per drop, so a drop lost before it got here is told apart
+/// from one that arrived empty (acceptance F9, D624). Counts and the road
+/// only: never a path or a text, which is the document (`docs/architecture/
+/// logging.md`).
+fn things_in(handed: &[Handed]) -> usize {
+    handed.iter().filter(|handed| !handed.is_nothing()).count()
+}
+
+/// The log line for a drop that reached this window: INFO with the road
+/// and the count, WARN when it carried nothing this window can take.
+fn tell(road: Road, handed: &[Handed]) {
+    let things = things_in(handed);
+    if things == 0 {
+        tracing::warn!(
+            road = road.name(),
+            items = handed.len(),
+            "a drop carried nothing"
+        );
+    } else {
+        tracing::info!(road = road.name(), things, "a drop arrived");
+    }
 }
 
 /// Bytes, as somebody reads them off a window.
@@ -329,7 +376,23 @@ mod tests {
     use gpui::{AppContext as _, Entity, TestAppContext};
     use wipemark_intake::{Handed, Kind};
 
-    use super::{Catcher, Landed};
+    use super::{things_in, Catcher, Landed};
+
+    /// The log's count is what `land` keeps, so a drop of empty text is
+    /// the WARN "carried nothing" and not an INFO of one thing (D624).
+    #[test]
+    fn the_log_counts_what_lands() {
+        assert_eq!(things_in(&[]), 0);
+        assert_eq!(things_in(&[Handed::Text(" \n\t".into())]), 0);
+        assert_eq!(
+            things_in(&[
+                Handed::Text(String::new()),
+                Handed::Path("/tmp/a.txt".into()),
+                Handed::Text("\u{00A0}".into()),
+            ]),
+            2
+        );
+    }
 
     /// A catcher with no window behind it: everything below is about
     /// what happens *after* a delivery, and the delivery is handed in

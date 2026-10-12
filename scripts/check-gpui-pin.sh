@@ -10,25 +10,41 @@
 #   vendored gpui-component (upstream gpui-kit) pins the same snapshot. Two
 #   different snapshots in one graph do not link, and a caret requirement
 #   lets a fresh lock move onto a snapshot the component does not compile
-#   with (gpui-kit issue #3156). Nothing of ours is carried over the
-#   snapshot any more: the two X11 bugs the old zed pin needed a fork for
-#   are fixed upstream, and step 4 is what notices a snapshot that loses
-#   either fix. This replaces scripts/pin-gpui-component.sh, which rewrote
-#   the component's zed git lines and has nothing left to do. See
+#   with (gpui-kit issue #3156). The two X11 bugs the old zed pin needed a
+#   fork for are fixed upstream, and step 4 is what notices a snapshot that
+#   loses either fix. This replaces scripts/pin-gpui-component.sh, which
+#   rewrote the component's zed git lines and has nothing left to do.
+#   Since 2026-10-12 one snapshot crate is carried in this repository
+#   (the owner, acceptance F9; D620–D623): `vendor/gpui-pre-linux`, the
+#   published gpui-pre-linux plus `vendor/gpui-pre-linux.patch`, for a file
+#   drop lost on the first try on X11 and on Wayland. Step 5 is what keeps
+#   that copy honest: the published crate and the patch, nothing else. See
 #   docs/architecture/gpui-pin.md.
 #
 # What it does, step by step
 #   1. Reads the root Cargo.toml's [workspace.dependencies]: every
 #      requirement on a `gpui-pre*` package must be `=x.y.z`, all on one
 #      version, and nothing — there or in any [patch] table — is taken
-#      from a zed git repository.
+#      from a zed git repository. The one `[patch]` entry on a snapshot
+#      crate allowed is the carried one, `[patch.crates-io] gpui-pre-linux
+#      = { path = "vendor/gpui-pre-linux" }`.
 #   2. Reads vendor/gpui-component/Cargo.toml the same way and requires
 #      the same version (its `gpui-pre-reqwest` is a hand-published fork
 #      with its own version line and is left out, as gpui-kit's own
 #      script/check-gpui-pin.ts leaves it out).
 #   3. Reads Cargo.lock: every `gpui-pre*` package exactly once, from
-#      crates.io, every one but `gpui-pre-reqwest` at that version, and no
-#      package at all from a zed git repository.
+#      crates.io — the carried crate from its path, which the lock writes
+#      as no source — every one but `gpui-pre-reqwest` at that version, and
+#      no package at all from a zed git repository.
+#   5. (before step 4, which needs cargo) The carried crate: its
+#      Cargo.toml names gpui-pre-linux at the pinned version and that
+#      version is the one the sha256 below was taken for; the published
+#      `.crate` is taken from cargo's cache ($CARGO_HOME/registry/cache) or
+#      from static.crates.io, its sha256 checked against the one pinned
+#      here, unpacked into a temporary directory, the patch applied there
+#      with `patch -p1`; and that tree must equal vendor/gpui-pre-linux
+#      file for file and byte for byte. A file edited, added or removed
+#      other than through the patch fails, naming the file.
 #   4. Asks `cargo metadata --locked` where the resolved `gpui-pre-linux`
 #      and `gpui-pre` sources are, and reads them for what protects the X11
 #      windows (docs/architecture/gpui-pin.md §2):
@@ -47,23 +63,29 @@
 #           synchronously, and is harmless only while nothing observes it:
 #           no `observe_button_layout_changed` in apps/, crates/ or the
 #           vendored component.
-#      A snapshot bump that drops any of the three fails here.
+#      A snapshot bump that drops any of the three fails here. With the
+#      carried crate the resolved gpui-pre-linux is vendor/gpui-pre-linux,
+#      so A and B read the carried copy, which is the one that is built.
 #
 # How to run
 #   scripts/check-gpui-pin.sh            (from anywhere; a few seconds)
 #   ROOT_MANIFEST, COMPONENT_MANIFEST, LOCKFILE override the paths steps
-#   1–3 read — how a scratch copy is checked when the gate is seen red on
-#   purpose. SKIP_SOURCES=1 skips step 4, the only step that runs cargo
-#   (which fetches the sources once if they are not on disk).
+#   1–3 read, and CARRIED_DIR, CARRIED_PATCH the two step 5 reads — how a
+#   scratch copy is checked when the gate is seen red on purpose.
+#   SKIP_SOURCES=1 skips step 4, the only step that runs cargo (which
+#   fetches the sources once if they are not on disk).
 #
 # What it needs
-#   python3 (3.11 or newer, for tomllib); the submodule checked out; for
-#   step 4, cargo, and the network or a filled ~/.cargo.
+#   python3 (3.11 or newer, for tomllib); `patch`; the submodule checked
+#   out; for step 5, the published .crate in cargo's cache or the network
+#   (curl is not needed: Python fetches it); for step 4, cargo, and the
+#   network or a filled ~/.cargo.
 #
 # What its output means
-#   "gpui pin ok: gpui-pre =x.y.z …" and "x11 fixes ok in gpui-pre … " and
-#   exit 0, or one line per problem and exit 1. A problem names the file,
-#   the package, and for step 4 the fix (A, B or C).
+#   "gpui pin ok: gpui-pre =x.y.z …", "carried ok: gpui-pre-linux …" and
+#   "x11 fixes ok in gpui-pre … " and exit 0, or one line per problem and
+#   exit 1. A problem names the file, the package, and for step 4 the fix
+#   (A, B or C).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -84,6 +106,8 @@ LOCK = os.environ["LOCKFILE"]
 # A hand-published fork of reqwest with its own version line; gpui-kit's
 # own check leaves it out the same way.
 OWN_LINE = {"gpui-pre-reqwest"}
+# The one snapshot crate carried in this repository, and where (D620–D623).
+CARRIED = {"gpui-pre-linux": "vendor/gpui-pre-linux"}
 EXACT = re.compile(r"^=\d+\.\d+\.\d+$")
 
 problems = []
@@ -136,11 +160,19 @@ if our_versions and their_versions and our_versions != their_versions:
     )
 pin = next(iter(their_versions or our_versions), "=?").lstrip("=")
 
-# Nothing of a snapshot is patched, and no [patch] table points at zed.
+# Nothing of a snapshot is patched but the carried crate, from its path, and
+# no [patch] table points at zed.
+patched = set()
 for table, entries in root_manifest.get("patch", {}).items():
     for name, spec in entries.items():
-        if name.startswith("gpui-pre"):
-            problems.append(f"{ROOT}: [patch.{table}] {name}: the snapshot is taken as published")
+        carried = table == "crates-io" and name in CARRIED and spec == {"path": CARRIED[name]}
+        if carried:
+            patched.add(name)
+        elif name.startswith("gpui-pre"):
+            problems.append(
+                f"{ROOT}: [patch.{table}] {name}: the snapshot is taken as published, "
+                f"but for {', '.join(f'{c} from {d}' for c, d in CARRIED.items())}"
+            )
         if isinstance(spec, dict) and re.search(r"github\.com/[^/]+/zed(\.git)?$", spec.get("git", "")):
             problems.append(f"{ROOT}: [patch.{table}] {name} is taken from a zed git repository")
 
@@ -162,7 +194,10 @@ for name, entries in sorted(seen.items()):
     for version, source in entries:
         if name not in OWN_LINE and version != pin:
             problems.append(f"{LOCK}: {name} {version}, not the pinned {pin}")
-        if not source.startswith("registry+"):
+        if name in patched:
+            if source:
+                problems.append(f"{LOCK}: {name} is carried, but the lock takes it from {source}")
+        elif not source.startswith("registry+"):
             problems.append(f"{LOCK}: {name} is not from crates.io ({source})")
 if "gpui-pre" not in seen:
     problems.append(f"{LOCK}: no gpui-pre package at all")
@@ -173,10 +208,124 @@ if problems:
     sys.exit(1)
 print(
     f"gpui pin ok: gpui-pre ={pin} in both manifests, "
-    f"{len(seen)} gpui-pre crates once each in the lock, all from crates.io, "
-    "no zed git source"
+    f"{len(seen)} gpui-pre crates once each in the lock, all from crates.io"
+    + (f" but the carried {', '.join(sorted(patched))}" if patched else "")
+    + ", no zed git source"
 )
 PY
+
+# Step 5: the carried crate is the published one plus the patch, nothing else.
+ROOT_MANIFEST=${ROOT_MANIFEST:-Cargo.toml} \
+CARRIED_DIR=${CARRIED_DIR:-vendor/gpui-pre-linux} \
+CARRIED_PATCH=${CARRIED_PATCH:-vendor/gpui-pre-linux.patch} \
+python3 - <<'CARRIED'
+import filecmp
+import hashlib
+import io
+import os
+import subprocess
+import sys
+import tarfile
+import tempfile
+import tomllib
+import urllib.request
+
+NAME = "gpui-pre-linux"
+# The sha256 of the published gpui-pre-linux-0.3.8.crate — what crates.io's
+# index and our Cargo.lock held for it before it was carried (D621). A bump
+# of the snapshot moves the carried crate or drops it; it never moves alone.
+PUBLISHED = {"0.3.8": "b1131746fad5c87b5de74dc9c73105655b0c820a2dd4bb247586573e7cf5720e"}
+
+ROOT = os.environ["ROOT_MANIFEST"]
+DIR = os.environ["CARRIED_DIR"]
+PATCH = os.environ["CARRIED_PATCH"]
+
+with open(ROOT, "rb") as f:
+    root = tomllib.load(f)
+if NAME not in root.get("patch", {}).get("crates-io", {}):
+    print(f"carried: nothing ({NAME} is taken as published)")
+    sys.exit(0)
+
+
+def fail(message):
+    print(f"error: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+pin = root["workspace"]["dependencies"]["gpui"]["version"].lstrip("=")
+with open(os.path.join(DIR, "Cargo.toml"), "rb") as f:
+    package = tomllib.load(f)["package"]
+if package["name"] != NAME:
+    fail(f"{DIR}/Cargo.toml is {package['name']}, not {NAME}")
+if package["version"] != pin:
+    fail(f"{DIR} is {NAME} {package['version']}, the snapshot is {pin}: re-cut it or drop it")
+if pin not in PUBLISHED:
+    fail(f"no published sha256 pinned for {NAME} {pin} in scripts/check-gpui-pin.sh")
+
+file_name = f"{NAME}-{pin}.crate"
+cargo_home = os.environ.get("CARGO_HOME", os.path.expanduser("~/.cargo"))
+cache = os.path.join(cargo_home, "registry", "cache")
+data = None
+where = "cargo's cache"
+if os.path.isdir(cache):
+    for index in sorted(os.listdir(cache)):
+        candidate = os.path.join(cache, index, file_name)
+        if os.path.isfile(candidate):
+            with open(candidate, "rb") as f:
+                found = f.read()
+            if hashlib.sha256(found).hexdigest() == PUBLISHED[pin]:
+                data = found
+                break
+if data is None:
+    url = f"https://static.crates.io/crates/{NAME}/{file_name}"
+    request = urllib.request.Request(url, headers={"User-Agent": "wipemark check-gpui-pin.sh"})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        data = response.read()
+    where = url
+digest = hashlib.sha256(data).hexdigest()
+if digest != PUBLISHED[pin]:
+    fail(f"{where}: sha256 {digest}, not the published {PUBLISHED[pin]}")
+
+with tempfile.TemporaryDirectory() as scratch:
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as crate:
+        crate.extractall(scratch, filter="data")
+    published = os.path.join(scratch, f"{NAME}-{pin}")
+    applied = subprocess.run(
+        ["patch", "-p1", "-s", "-f", "--no-backup-if-mismatch", "-d", published,
+         "-i", os.path.abspath(PATCH)],
+        capture_output=True,
+        text=True,
+    )
+    if applied.returncode != 0:
+        fail(
+            f"{PATCH} does not apply to the published {NAME} {pin}: "
+            f"{(applied.stdout + applied.stderr).strip()}"
+        )
+
+    def tree(top):
+        return {
+            os.path.relpath(os.path.join(directory, name), top)
+            for directory, _, files in os.walk(top)
+            for name in files
+        }
+
+    expected, carried = tree(published), tree(DIR)
+    problems = [f"{DIR}/{name}: not in the published crate" for name in sorted(carried - expected)]
+    problems += [f"{DIR}/{name}: missing" for name in sorted(expected - carried)]
+    problems += [
+        f"{DIR}/{name}: differs from the published crate with {PATCH} applied"
+        for name in sorted(expected & carried)
+        if not filecmp.cmp(os.path.join(published, name), os.path.join(DIR, name), shallow=False)
+    ]
+if problems:
+    for problem in problems:
+        print(f"error: {problem}", file=sys.stderr)
+    sys.exit(1)
+print(
+    f"carried ok: {NAME} {pin} is the published crate (sha256 {PUBLISHED[pin][:12]}…, "
+    f"from {where}) with {PATCH} applied, {len(expected)} files, nothing else"
+)
+CARRIED
 
 [ "${SKIP_SOURCES:-}" = 1 ] && exit 0
 
