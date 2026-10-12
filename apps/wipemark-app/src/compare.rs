@@ -883,23 +883,7 @@ fn open_with(
         None => place(main, cx),
     };
     let opened = cx.open_window(
-        WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitlebarOptions {
-                // The name comes with the text, a moment later.
-                title: Some(
-                    Title::Compare {
-                        name: title::NAME_PENDING,
-                    }
-                    .text()
-                    .into(),
-                ),
-                ..Default::default()
-            }),
-            window_min_size: Some(MIN_SIZE),
-            display_id: screen.as_ref().map(|screen| screen.id),
-            ..Default::default()
-        },
+        window_options(bounds, screen.as_ref()),
         move |window, cx| {
             let view = cx.new(|cx| {
                 CompareView::new(subject, comparison, key, link, preferences, window, cx)
@@ -925,6 +909,30 @@ fn open_with(
             }
         }
         Err(error) => tracing::warn!(%error, "could not open the Compare window"),
+    }
+}
+
+/// The Compare window's options: at `bounds` on `screen`.
+pub(crate) fn window_options(bounds: Bounds<Pixels>, screen: Option<&Screen>) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        titlebar: Some(TitlebarOptions {
+            // The name comes with the text, a moment later.
+            title: Some(
+                Title::Compare {
+                    name: title::NAME_PENDING,
+                }
+                .text()
+                .into(),
+            ),
+            ..Default::default()
+        }),
+        window_min_size: Some(MIN_SIZE),
+        display_id: screen.as_ref().map(|screen| screen.id),
+        // What the desktop matches to `wipemark.desktop`: the dock's and
+        // Alt+Tab's icon, `WM_CLASS` on X11, `app_id` on Wayland (D605).
+        app_id: Some(crate::title::APP_ID.into()),
+        ..Default::default()
     }
 }
 

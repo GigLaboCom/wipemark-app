@@ -17,6 +17,14 @@
 
 use wipemark_i18n::{args, Localizer, Message};
 
+/// The application's id on a Linux desktop: what every window sets as
+/// `WindowOptions::app_id`, which GPUI hands on as `WM_CLASS` under X11 and
+/// as the `xdg_toplevel` `app_id` under Wayland. It must equal the
+/// `.desktop` file's name (`wipemark.desktop`), its `StartupWMClass` and
+/// its `Icon` — that match is how GNOME puts our icon in the dock and in
+/// Alt+Tab instead of a generic one (D605). A format, never translated.
+pub const APP_ID: &str = "wipemark";
+
 /// Every window title this application builds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Title<'a> {
@@ -106,5 +114,33 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// D605: every window this application opens names it to the desktop
+    /// — the main window, Settings, Compare and the panel — so GNOME can
+    /// match it to `wipemark.desktop`. Drop `app_id` from any one builder
+    /// and this is red.
+    #[test]
+    fn every_window_carries_the_app_id() {
+        use gpui::{point, px, size, Bounds};
+        let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(800.0), px(600.0)));
+        let windows = [
+            ("main", crate::main_window_options(bounds)),
+            ("settings", crate::settings::window_options(bounds, None)),
+            ("compare", crate::compare::window_options(bounds, None)),
+            ("panel", crate::panel::window_options(bounds, None)),
+        ];
+        for (name, options) in windows {
+            assert_eq!(
+                options.app_id.as_deref(),
+                Some(super::APP_ID),
+                "the {name} window does not name the application"
+            );
+        }
+        assert_eq!(
+            super::APP_ID,
+            "wipemark",
+            "the .desktop file is wipemark.desktop"
+        );
     }
 }

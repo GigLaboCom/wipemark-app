@@ -9524,40 +9524,7 @@ fn open_new(
     let slot = view_slot.clone();
 
     let opened = cx.open_window(
-        WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitlebarOptions {
-                title: Some(Title::Settings.text().into()),
-                ..Default::default()
-            }),
-            window_min_size: Some(MIN_SIZE),
-            // Without this the rectangle above is read against the
-            // primary display whatever it was measured on, and a window
-            // remembered 944 points from the left of the second monitor
-            // opens 944 points from the left of the first one. The
-            // rectangle and the display are one fact in two halves —
-            // see the note at the top of `screen`.
-            display_id: screen.as_ref().map(|screen| screen.id),
-            // An ordinary window, deliberately, and both alternatives
-            // were tried on the real thing before settling.
-            // `WindowKind::Dialog` is a macOS *sheet* — attached to the
-            // main window's titlebar, unmovable, which would retire the
-            // per-screen geometry entirely. `WindowKind::Floating` is an
-            // `NSPanel` at `NSFloatingWindowLevel`: it does keep
-            // Settings from being buried under the main window, and it
-            // hides itself when the application is deactivated rather
-            // than hovering over other applications — but coming back
-            // to the application leaves the panel *visible and not
-            // focused*, with the key window the main one, so ⌘W and the
-            // keyboard go somewhere the user is not looking. A normal
-            // window comes back focused. This is also what every macOS
-            // application does with its preferences.
-            //
-            // The cost is real and small: click the main window and
-            // Settings goes behind it, completely, because it is
-            // centred over it. Every way of opening it raises it again.
-            ..Default::default()
-        },
+        window_options(bounds, screen.as_ref()),
         move |window, cx| {
             let screen = screen.clone();
             let view = cx.new(|cx| SettingsView::new(preferences, screen, at, window, cx));
@@ -9579,6 +9546,47 @@ fn open_new(
             tracing::error!("the Settings view did not come back out of the window builder");
         }
         (Err(error), _) => tracing::warn!(%error, "could not open the Settings window"),
+    }
+}
+
+/// The Settings window's options: at `bounds` on `screen`.
+pub(crate) fn window_options(bounds: Bounds<Pixels>, screen: Option<&Screen>) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        titlebar: Some(TitlebarOptions {
+            title: Some(Title::Settings.text().into()),
+            ..Default::default()
+        }),
+        window_min_size: Some(MIN_SIZE),
+        // Without this the rectangle above is read against the
+        // primary display whatever it was measured on, and a window
+        // remembered 944 points from the left of the second monitor
+        // opens 944 points from the left of the first one. The
+        // rectangle and the display are one fact in two halves —
+        // see the note at the top of `screen`.
+        display_id: screen.as_ref().map(|screen| screen.id),
+        // An ordinary window, deliberately, and both alternatives
+        // were tried on the real thing before settling.
+        // `WindowKind::Dialog` is a macOS *sheet* — attached to the
+        // main window's titlebar, unmovable, which would retire the
+        // per-screen geometry entirely. `WindowKind::Floating` is an
+        // `NSPanel` at `NSFloatingWindowLevel`: it does keep
+        // Settings from being buried under the main window, and it
+        // hides itself when the application is deactivated rather
+        // than hovering over other applications — but coming back
+        // to the application leaves the panel *visible and not
+        // focused*, with the key window the main one, so ⌘W and the
+        // keyboard go somewhere the user is not looking. A normal
+        // window comes back focused. This is also what every macOS
+        // application does with its preferences.
+        //
+        // The cost is real and small: click the main window and
+        // Settings goes behind it, completely, because it is
+        // centred over it. Every way of opening it raises it again.
+        // What the desktop matches to `wipemark.desktop`: the dock's and
+        // Alt+Tab's icon, `WM_CLASS` on X11, `app_id` on Wayland (D605).
+        app_id: Some(crate::title::APP_ID.into()),
+        ..Default::default()
     }
 }
 

@@ -157,6 +157,38 @@ pub fn toggle(preferences: &Entity<Preferences>, cx: &mut App) {
     show(preferences, cx);
 }
 
+/// The panel's options: at `bounds` on `display`, and no titlebar.
+pub(crate) fn window_options(
+    bounds: Bounds<Pixels>,
+    display: Option<gpui::DisplayId>,
+) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        // The window list still wants a name for it, and the
+        // accessibility tree wants one more.
+        titlebar: None,
+        kind: WindowKind::Normal,
+        // Movable and resizable *by hand*, which is the second
+        // half of the placement: where the Placement page's grid
+        // puts it is an answer, and dragging it somewhere else is a
+        // better one — see `Answer::Manual`. With no titlebar there
+        // is nothing to drag it *by*, so `afloat` below asks AppKit
+        // for `movableByWindowBackground` and adds the resizable
+        // mask GPUI leaves off a titleless window.
+        is_movable: true,
+        is_resizable: true,
+        is_minimizable: false,
+        // The rectangle above is display-local, so without this it
+        // is read against the primary display whatever screen it
+        // was measured on — see the note at the top of `screen`.
+        display_id: display,
+        // What the desktop matches to `wipemark.desktop`: the dock's and
+        // Alt+Tab's icon, `WM_CLASS` on X11, `app_id` on Wayland (D605).
+        app_id: Some(crate::title::APP_ID.into()),
+        ..Default::default()
+    }
+}
+
 /// Put the panel on screen where the preferences say.
 ///
 /// Already open is a no-op that brings it forward: it is one window,
@@ -194,34 +226,10 @@ pub fn show(preferences: &Entity<Preferences>, cx: &mut App) {
     });
 
     let held = preferences.clone();
-    let opened = cx.open_window(
-        WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
-            // The window list still wants a name for it, and the
-            // accessibility tree wants one more.
-            titlebar: None,
-            kind: WindowKind::Normal,
-            // Movable and resizable *by hand*, which is the second
-            // half of the placement: where the Placement page's grid
-            // puts it is an answer, and dragging it somewhere else is a
-            // better one — see `Answer::Manual`. With no titlebar there
-            // is nothing to drag it *by*, so `afloat` below asks AppKit
-            // for `movableByWindowBackground` and adds the resizable
-            // mask GPUI leaves off a titleless window.
-            is_movable: true,
-            is_resizable: true,
-            is_minimizable: false,
-            // The rectangle above is display-local, so without this it
-            // is read against the primary display whatever screen it
-            // was measured on — see the note at the top of `screen`.
-            display_id: display,
-            ..Default::default()
-        },
-        move |window, cx| {
-            let view = cx.new(|cx| PanelView::new(held, window, cx));
-            cx.new(|cx| Root::new(view, window, cx))
-        },
-    );
+    let opened = cx.open_window(window_options(bounds, display), move |window, cx| {
+        let view = cx.new(|cx| PanelView::new(held, window, cx));
+        cx.new(|cx| Root::new(view, window, cx))
+    });
 
     match opened {
         Ok(window) => {
