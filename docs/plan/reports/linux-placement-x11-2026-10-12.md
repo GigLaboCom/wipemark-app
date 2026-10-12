@@ -277,11 +277,55 @@ checklist below.
 `docs/plan/reports/linux-placement-x11-2026-10-12-red.py` — each protection
 deleted once, the named test seen red, the source put back:
 
-RED_TABLE
+| check | protection deleted | red |
+|---|---|---|
+| `backend` | both servers on offer → XWayland (D611) | `session::…::a_wayland_session_with_xwayland_draws_through_xwayland` |
+| `opt-out` | `WIPEMARK_WAYLAND` honoured | `session::…::the_opt_out_keeps_native_wayland` |
+| `gravity` | the zone's corner sent as the frame's (north-west) (D613) | `x11::…::a_move_names_its_gravity_its_fields_and_an_application_as_its_source` |
+| `work-area` | the monitor's own work area (D612) | `x11::…::the_work_area_is_the_monitors_own` |
+| `monitor-at` | a point on no monitor goes to the nearest | `x11::…::a_point_is_on_the_monitor_that_holds_it_or_the_nearest` |
+| `display-key` | the key is the uuid-v5 of the output name (D614) | `x11::…::a_display_is_keyed_by_its_output_name_as_wayland_keys_it` |
+| `same-display` | two screens compared by key, not id | `screen::…::two_monitors_of_one_x_screen_are_two_displays` |
+| `adopted` | a nil `manual` read as the default cell (D615) | `placement::…::the_nil_row_is_adopted_by_the_primary_display` |
+| `grace` | a report within 1.5 s of an ask is ours (D616) | `placement::…::a_window_managers_offset_is_not_a_person` |
+| `landed` | where an ask landed stays ours | `placement::…::a_window_managers_offset_is_not_a_person` |
+| `can-place` | Wayland places nothing (D617) | `placement::…::only_wayland_leaves_the_placing_to_the_desktop`, `settings::…::under_wayland_the_placement_page_says_the_desktop_decides` |
+| `banner` | the page's line under Wayland | `settings::…::under_wayland_the_placement_page_says_the_desktop_decides` |
+| `hotkey-line` | the shortcut row names a Wayland session (D618) | `hotkey::…::in_a_wayland_session_the_row_names_the_session` |
+
+13 of 13 red. `monitor-at` was first written as deleting the containment test,
+which stayed green — the nearest monitor of a point inside one is that one, so
+the containment test is a shortcut, not a protection; the entry now deletes
+the nearest-fallback, which is red. The live `xvfb.sh` (b) and (d) guard the
+person's path and the adoption end to end.
 
 ## Gates
 
-GATES_TABLE
+Once, on `41b67f5`, with `--locked`, `CARGO_TARGET_DIR` in the worktree and
+`LIBRARY_PATH` holding the `libxkbcommon-x11.so` link
+(`linux-placement-x11-2026-10-12-gates.sh`):
+
+| gate | result |
+|---|---|
+| nightly `rustfmt --check` over `crates` and `apps` | clean |
+| `cargo clippy --workspace --all-targets -- -D warnings` | clean |
+| `cargo test --workspace` | **2036 passed, 0 failed, 11 ignored** |
+| `scripts/check-dep-direction.sh` | ok |
+| `scripts/check-gpui-pin.sh` | ok |
+| `scripts/check-zune-pin.sh` | ok |
+| `cargo check --workspace --no-default-features` | ok |
+| `cargo check --workspace --features local-llama` | ok |
+| `cargo test -p wipemark-engine --features local-llama` | 43 passed, 0 failed, 1 ignored |
+| `cargo test -p wipemark-app --features local-llama` | **798 passed, 0 failed, 2 ignored** |
+| `cargo clippy -p wipemark-pipeline --features local-llama --examples -- -D warnings` | clean |
+| `cargo test -p wipemark-pipeline --features local-llama --examples` | 28 passed, 0 failed |
+
+Port 5056 was free during the run; `a_port_something_else_holds_is_stepped_past`
+passed. No file under `crates/wipemark-llama*` or `engine/src/local.rs`
+changed, so the native gates were not run. The macOS paths are unchanged
+(`cfg(target_os = "macos")` blocks as they were; `screen::put`'s macOS half is
+`put_back`'s former body); they are compiled by the `macos` lane only, not
+here.
 
 ## Deviations
 
@@ -298,7 +342,26 @@ GATES_TABLE
 
 ## Builds
 
-BUILDS
+* Release binaries, `cargo build --release --locked --features llama-native
+  -p wipemark-app -p wipemark-cli` in the worktree's own target directory:
+  `target/release/wipemark` and `target/release/wipemark-cli`
+  (`/home/denis/denis-ubuntu/sources/wipemark-app/.claude/worktrees/agent-a70e5bb3542ee11de/`).
+  `xvfb.sh` with `APP=target/release/wipemark`: all seven checks ok.
+* The AppImage, `ci/linux-builder/run-build.sh` (image
+  `wipemark-linux-builder:d909735cbb42`, caches in
+  `~/wipemark-work/release-build-placement`, not the shared ones):
+  `dist/Wipemark-0.1.0-x86_64.AppImage`, sha256
+  `4e8850fb689410d12650811eb615dbb7fd45d6622fa931095d1c9b751384b993`; the .deb
+  `dist/wipemark_0.1.0_amd64.deb`, sha256
+  `bc95732237568dac5c6d379fc32cae597925f457572fe155a63f5e7e39f12c65`.
+  Built from the working tree of `41b67f5` plus the one change of the next
+  commit, a `cfg_attr(not(target_os = "linux"), allow(…))` on
+  `screen::settle_opened` (a lint attribute for the macOS lane, inactive on
+  Linux).
+* `scripts/verify/release/appimage-gate.sh` on that AppImage: **34 pass, 0
+  fail** (the window's `WM_CLASS` `wipemark`; the gate's container has no
+  `WAYLAND_DISPLAY`, so it runs the X11 path GPUI took before this branch
+  too).
 
 ## Checklist for the owner (GNOME, Wayland session)
 

@@ -221,6 +221,13 @@ pub fn device(at: Point<Pixels>, scale: f32) -> (i32, i32) {
 /// (`StaticGravity`: the corner named is the client's, so what is
 /// remembered is what is restored, title bar or not). Nothing waits on the
 /// GPUI thread. A no-op anywhere but X11.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        clippy::needless_pass_by_ref_mut,
+        reason = "the window's update that needs it is X11's"
+    )
+)]
 pub fn settle_opened(window: gpui::AnyWindowHandle, content: Bounds<Pixels>, cx: &mut App) {
     #[cfg(target_os = "linux")]
     {
