@@ -964,6 +964,10 @@ impl Render for Shell {
                             }),
                     ),
             )
+            // Over the whole content, under a modal question: a drop
+            // anywhere in the window lands, however a card or a tooltip
+            // lies on the table (acceptance F9b).
+            .child(drop::overlay(self.queue.read(cx).catcher(), cx))
             // Last, and over every overlay gpui-component defers — a
             // help popover left open included — at
             // `dialog::MODAL_PRIORITY`: neither holds a field, a select

@@ -86,6 +86,7 @@ queue-column-arrived = Arrived
 queue-column-actions = Actions
 queue-empty-invite = Nothing here yet. Drop text, an image or files, press Import, or paste from the clipboard.
 queue-empty-release = Let go, and it will say what it is.
+drop-overlay-release = Let go to add it
 queue-count = { $count ->
         [one] { $count } item
        *[other] { $count } items

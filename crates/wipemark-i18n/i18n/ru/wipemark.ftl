@@ -49,6 +49,7 @@ queue-column-arrived = Получено
 queue-column-actions = Действия
 queue-empty-invite = Пока пусто. Перетащите текст, картинку или файлы, нажмите «Импорт» — или вставьте из буфера обмена.
 queue-empty-release = Отпустите — и окно скажет, что это.
+drop-overlay-release = Отпустите, чтобы добавить
 queue-count = { $count ->
         [one] { $count } элемент
         [few] { $count } элемента

@@ -926,6 +926,12 @@ pub struct Queue {
 }
 
 impl Queue {
+    /// Where a drop on this window lands — the table's zone and the
+    /// window's overlay share it.
+    pub fn catcher(&self) -> &Entity<Catcher> {
+        &self.catcher
+    }
+
     /// Build the queue, and make the window it is in accept drops.
     ///
     /// Called while the window is being built, for the reason the panel

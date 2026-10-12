@@ -62,9 +62,14 @@
 use std::sync::Arc;
 
 use gpui::prelude::*;
-use gpui::{App, Div, Entity, EventEmitter, ExternalPaths, Task, Window};
+use gpui::{
+    deferred, div, px, AnyElement, App, Div, Entity, EventEmitter, ExternalPaths, Task, Window,
+};
 use gpui_component::ActiveTheme;
+use wipemark_i18n::{t, Message};
 use wipemark_intake::{Handed, Intake};
+
+use crate::icon::{Icon, IconName};
 
 /// One thing that arrived: what was handed over, and what it turned out
 /// to be.
@@ -302,6 +307,73 @@ pub fn zone(element: Div, catcher: &Entity<Catcher>, cx: &App) -> Div {
             tell(Road::ExternalPaths, &handed);
             landing.update(cx, |catcher, cx| catcher.land(handed, cx));
         })
+}
+
+/// The group the overlay's card answers to: shown only while files are
+/// dragged over the overlay.
+const OVERLAY_GROUP: &str = "drop-overlay";
+
+/// A drop target over the whole of a window's content, as heretic-lazy-shot
+/// has one: while files are dragged over the window it is a dashed frame and
+/// a card saying "let go", and a drop anywhere in it lands in `catcher`.
+///
+/// It exists because a drop is taken only by an element the pointer is
+/// *over* in GPUI's sense — and a hover card, a tooltip or a popover lying
+/// on the table blocks the table from being over, so a file let go there
+/// was lost with no line in the log (acceptance F9b). Deferred at just
+/// under [`dialog::MODAL_PRIORITY`](crate::dialog::MODAL_PRIORITY) it is
+/// over every overlay but a modal question, which a drop must not reach.
+/// It never blocks the mouse: its hitbox is an ordinary one, so the rows,
+/// buttons and cards under it hover and click as before, and it paints
+/// nothing unless a file is being dragged. The first element that takes a
+/// drop takes it from GPUI, so the table's own zone never sees it twice.
+pub fn overlay(catcher: &Entity<Catcher>, cx: &App) -> AnyElement {
+    let landing = catcher.clone();
+    let theme = cx.theme();
+    let (card, edge, ink) = (theme.background, theme.border, theme.foreground);
+    deferred(
+        div()
+            .id("drop-overlay")
+            .group(OVERLAY_GROUP)
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .drag_over::<ExternalPaths>(|style, _, _, cx| {
+                style
+                    .bg(cx.theme().primary.opacity(0.08))
+                    .border_2()
+                    .border_dashed()
+                    .border_color(cx.theme().primary)
+            })
+            .on_drop::<ExternalPaths>(move |paths, _, cx| {
+                let handed: Vec<Handed> = paths.paths().iter().cloned().map(Handed::Path).collect();
+                tell(Road::ExternalPaths, &handed);
+                landing.update(cx, |catcher, cx| catcher.land(handed, cx));
+            })
+            .child(
+                div()
+                    .invisible()
+                    .group_drag_over::<ExternalPaths>(OVERLAY_GROUP, |style| style.visible())
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_2()
+                    .px(px(24.0))
+                    .py(px(16.0))
+                    .rounded_lg()
+                    .border_1()
+                    .bg(card)
+                    .border_color(edge)
+                    .text_color(ink)
+                    .shadow_lg()
+                    .child(Icon::new(IconName::FileImport).large())
+                    .child(t(Message::DropOverlayRelease)),
+            ),
+    )
+    .with_priority(crate::dialog::MODAL_PRIORITY - 1)
+    .into_any_element()
 }
 
 /// Which of the two roads in a drop came by — see the module docs.

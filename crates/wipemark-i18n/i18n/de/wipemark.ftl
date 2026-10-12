@@ -44,6 +44,7 @@ queue-column-arrived = Angekommen
 queue-column-actions = Aktionen
 queue-empty-invite = Noch nichts hier. Text, ein Bild oder Dateien ablegen, Importieren drücken – oder aus der Zwischenablage einfügen.
 queue-empty-release = Loslassen, und es sagt, was es ist.
+drop-overlay-release = Zum Hinzufügen loslassen
 queue-count = { $count ->
         [one] { $count } Eintrag
        *[other] { $count } Einträge
