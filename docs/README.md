@@ -3,6 +3,11 @@
 | document | what it is |
 |---|---|
 | [plan/README.md](plan/README.md) | **the plan of record**: where the project stands, every remaining epic in order with what it is built from, the decisions taken beyond the specs, the owner's open questions — and the E1 series of self-sufficient implementer documents (`plan/E1-1` … `plan/E1-7`) |
+| [architecture/rules.md](architecture/rules.md) | every rule that is not visible in the code, in full — moved from `CLAUDE.md` on 2026-10-12, which keeps a one-line index |
+| [architecture/map.md](architecture/map.md) | every crate and every application module and what it owns — moved from `CLAUDE.md` |
+| [plan/v1-release.md](plan/v1-release.md) | the first release, 0.1.0: what ships, the release lane, the owner's acceptance, stage two (D580–D583) |
+| [plan/history.md](plan/history.md) | what exists in detail and the epic order with every merge — moved from `CLAUDE.md` |
+| [watchword.md](watchword.md) | every Watchword entry: specs, tasks, reports, statuses — moved from `CLAUDE.md` |
 | [architecture/skeleton.md](architecture/skeleton.md) | what epic E0 built, the decisions it had to make, and what is deliberately absent |
 | [architecture/gpui-pin.md](architecture/gpui-pin.md) | where GPUI and gpui-component come from (`gpui-pre` =0.3.8 from crates.io, the component on upstream gpui-kit `next`, `scripts/check-gpui-pin.sh`), the two X11 fixes once carried in a fork of zed and why the snapshot needs neither (zed #62081, #61789), how they were proved, how it was before 2026-10-07, and what a bump means |
 | [architecture/zune-jpeg-pin.md](architecture/zune-jpeg-pin.md) | where `zune-jpeg` comes from (E12-R3, D490): the `GigLaboCom/zune-image` fork — upstream `dev`'s raw output (a JPEG's components at their own resolution) plus one getter for its quantisation tables — why it is a git dependency and not a `[patch]`, what holds it (`scripts/check-zune-pin.sh` among the rest), the one place `Planes::to_rgb` is not the decoder, what `image`, `tiff` and `resvg` keep of their own, what moved with the decoder, and when the fork goes |
