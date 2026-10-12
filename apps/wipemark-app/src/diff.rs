@@ -53,6 +53,21 @@
 //! noise. A space is a token like any other, for the reason the
 //! newline is part of a line — a run of two where there was one is a
 //! change, and this product exists to notice such things.
+//!
+//! A passage too big for that ceiling as a whole — a rewrite, where every
+//! paragraph of a document of one-line paragraphs changed — is compared
+//! line against line instead: line *i* of the one side against line *i*
+//! of the other, each pair under the ceiling on its own, and the lines one
+//! side has past the other's count left with their line marks (D671).
+//!
+//! # Lines that stand level
+//!
+//! With long lines wrapped, a paragraph takes more rows on one side than
+//! on the other. [`Diff::padding`] says where blank rows go so that every
+//! line starts level with the line it is paired with: shared lines one
+//! for one, and inside a hunk line *i* against line *i* — the same pairs
+//! as above — with the rows of the lines past the shorter side's count
+//! standing at the end of the shorter side's block (D670).
 
 use std::ops::Range;
 
@@ -119,6 +134,79 @@ impl Grain {
 pub struct Spans {
     pub removed: Vec<Range<usize>>,
     pub added: Vec<Range<usize>>,
+}
+
+/// Blank rows one side of a comparison shows beside a line, so that the
+/// lines paired across the two sides start level — see [`Diff::padding`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pad {
+    /// The line the rows stand beside, counted as the editor counts
+    /// lines.
+    pub line: usize,
+    /// How many rows.
+    pub rows: usize,
+    /// Above the line rather than below it; only ever the first line.
+    pub above: bool,
+    /// Whether the rows stand for lines the other side has and this one
+    /// has none of, as against the rows by which a paired line wraps
+    /// taller over there.
+    pub filler: bool,
+}
+
+/// Where blank rows go on each side — see [`Diff::padding`].
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Padding {
+    pub original: Vec<Pad>,
+    pub result: Vec<Pad>,
+}
+
+impl Padding {
+    /// The blank rows of `side`, in line order.
+    pub fn side(&self, side: Side) -> &[Pad] {
+        match side {
+            Side::Original => &self.original,
+            Side::Result => &self.result,
+        }
+    }
+
+    fn of(&mut self, side: Side) -> &mut Vec<Pad> {
+        match side {
+            Side::Original => &mut self.original,
+            Side::Result => &mut self.result,
+        }
+    }
+
+    /// `rows` blank rows on `side` at the gap before line `at` of its
+    /// `lines`: below the line before it, or above the first one.
+    fn gap(&mut self, side: Side, at: usize, lines: usize, rows: usize) {
+        if rows == 0 || lines == 0 {
+            return;
+        }
+        let at = at.min(lines);
+        let pad = if at == 0 {
+            Pad {
+                line: 0,
+                rows,
+                above: true,
+                filler: true,
+            }
+        } else {
+            Pad {
+                line: at - 1,
+                rows,
+                above: false,
+                filler: true,
+            }
+        };
+        self.of(side).push(pad);
+    }
+}
+
+/// One side of a comparison as an editor lays it out: how many lines it
+/// has, and how many rows each one takes.
+pub struct Rows<F: Fn(usize) -> usize> {
+    pub lines: usize,
+    pub rows: F,
 }
 
 /// One stretch where the two texts part company.
@@ -334,6 +422,101 @@ impl Diff {
         (position + delta).max(0.0)
     }
 
+    /// Where blank rows go so that every line starts level with the line
+    /// it is paired with, given how many rows each line takes on each
+    /// side — see the module docs, "Lines that stand level".
+    ///
+    /// Shared lines are paired one for one; inside a hunk line *i* is
+    /// paired with line *i*; a paired line that takes fewer rows than its
+    /// partner gets the difference below it. The lines past the shorter
+    /// side's count in a hunk stand against nothing, and the shorter side
+    /// gets their rows at the end of its block, marked as filler. Lines
+    /// past the end of the comparison — the empty line after a final
+    /// newline, or a text edited since the comparison was made — are
+    /// paired the same way from the last hunk on, and a line the other side
+    /// does not have is never read: a comparison that no longer fits the
+    /// texts pads them as far as it fits.
+    ///
+    /// Linear in the lines of both sides, a lookup of rows each.
+    pub fn padding<F, G>(&self, original: Rows<F>, result: Rows<G>) -> Padding
+    where
+        F: Fn(usize) -> usize,
+        G: Fn(usize) -> usize,
+    {
+        let mut padding = Padding::default();
+        let (lines_a, lines_b) = (original.lines, result.lines);
+        let rows_a = |line: usize| {
+            if line < lines_a {
+                (original.rows)(line)
+            } else {
+                0
+            }
+        };
+        let rows_b = |line: usize| {
+            if line < lines_b {
+                (result.rows)(line)
+            } else {
+                0
+            }
+        };
+        let level = |a: usize, b: usize, padding: &mut Padding| {
+            if a >= lines_a || b >= lines_b {
+                return;
+            }
+            let (here, there) = (rows_a(a), rows_b(b));
+            if here < there {
+                padding.original.push(Pad {
+                    line: a,
+                    rows: there - here,
+                    above: false,
+                    filler: false,
+                });
+            } else if there < here {
+                padding.result.push(Pad {
+                    line: b,
+                    rows: here - there,
+                    above: false,
+                    filler: false,
+                });
+            }
+        };
+
+        let (mut a, mut b) = (0, 0);
+        for hunk in &self.hunks {
+            let (removed, added) = (&hunk.removed, &hunk.added);
+            // The shared stretch before the hunk.
+            let shared = removed
+                .start
+                .saturating_sub(a)
+                .min(added.start.saturating_sub(b));
+            for k in 0..shared {
+                level(a + k, b + k, &mut padding);
+            }
+            // The hunk, line i against line i.
+            let pairs = removed.len().min(added.len());
+            for k in 0..pairs {
+                level(removed.start + k, added.start + k, &mut padding);
+            }
+            // The rest, standing against nothing.
+            let only_a: usize = (removed.start + pairs..removed.end).map(rows_a).sum();
+            let only_b: usize = (added.start + pairs..added.end).map(rows_b).sum();
+            padding.gap(Side::Result, added.end, lines_b, only_a);
+            padding.gap(Side::Original, removed.end, lines_a, only_b);
+            a = removed.end;
+            b = added.end;
+        }
+        // The shared stretch after the last hunk, then what is past it.
+        let shared = lines_a.saturating_sub(a).min(lines_b.saturating_sub(b));
+        for k in 0..shared {
+            level(a + k, b + k, &mut padding);
+        }
+        let only_a: usize = (a + shared..lines_a).map(rows_a).sum();
+        let only_b: usize = (b + shared..lines_b).map(rows_b).sum();
+        padding.gap(Side::Result, lines_b, lines_b, only_a);
+        padding.gap(Side::Original, lines_a, lines_a, only_b);
+        padding
+    }
+
     /// Whether any passage has lines on both sides — the only kind
     /// [`spans`](Self::spans) has anything to say about. A reader that
     /// repaints on the answer can skip the repaint when this was false
@@ -364,9 +547,30 @@ impl Diff {
                 debug_assert!(false, "a hunk that does not fit the texts it was made of");
                 continue;
             };
-            let (removed, added) = aligned_within(grain, original, a, result, b);
-            spans.removed.extend(removed);
-            spans.added.extend(added);
+            // The passage as one while it fits, so a word that moved
+            // across a line break is a move; past the ceiling, line i
+            // against line i, each pair under it on its own (D671).
+            if let Some((removed, added)) = aligned_within(grain, original, a, result, b) {
+                spans.removed.extend(removed);
+                spans.added.extend(added);
+                continue;
+            }
+            let pairs = hunk.removed.len().min(hunk.added.len());
+            for k in 0..pairs {
+                let (Some(a), Some(b)) = (
+                    passage(
+                        &starts_a,
+                        &(hunk.removed.start + k..hunk.removed.start + k + 1),
+                    ),
+                    passage(&starts_b, &(hunk.added.start + k..hunk.added.start + k + 1)),
+                ) else {
+                    continue;
+                };
+                if let Some((removed, added)) = aligned_within(grain, original, a, result, b) {
+                    spans.removed.extend(removed);
+                    spans.added.extend(added);
+                }
+            }
         }
         spans
     }
@@ -415,17 +619,21 @@ fn passage(starts: &[usize], rows: &Range<usize>) -> Option<Range<usize>> {
 /// at `grain`: the bytes of each that the other does not have, as
 /// ranges into the whole texts.
 ///
+/// Byte ranges of the original the result does not have, and of the
+/// result the original did not have.
+type Marked = (Vec<Range<usize>>, Vec<Range<usize>>);
+
 /// The line algorithm again, over tokens: the shared front and back
 /// stepped over, then the table — unless it would be bigger than
-/// [`SPAN_CELLS`], in which case the passage keeps its line marks and
-/// this answers nothing.
+/// [`SPAN_CELLS`], in which case this answers `None` and the caller
+/// decides what the passage keeps.
 fn aligned_within(
     grain: Grain,
     original: &str,
     a: Range<usize>,
     result: &str,
     b: Range<usize>,
-) -> (Vec<Range<usize>>, Vec<Range<usize>>) {
+) -> Option<Marked> {
     let tokens_a = tokens(grain, &original[a.clone()]);
     let tokens_b = tokens(grain, &result[b.clone()]);
     let text_a: Vec<&str> = tokens_a
@@ -459,7 +667,7 @@ fn aligned_within(
             added: middle_b,
         }]
     } else if middle_a.len().saturating_mul(middle_b.len()) > SPAN_CELLS {
-        return (Vec::new(), Vec::new());
+        return None;
     } else {
         aligned(&text_a[middle_a.clone()], &text_b[middle_b.clone()], front)
     };
@@ -479,7 +687,7 @@ fn aligned_within(
         .filter(|hunk| !hunk.added.is_empty())
         .map(|hunk| bytes(&tokens_b, b.start, &hunk.added))
         .collect();
-    (removed, added)
+    Some((removed, added))
 }
 
 /// What a character is, for the purpose of running together into one
@@ -1085,11 +1293,14 @@ mod tests {
         assert_eq!(named(result, &spans.added), vec!["c\n"]);
     }
 
-    /// The ceiling, per passage: two lines of a thousand words each
-    /// that share nothing keep their line marks and get nothing finer,
-    /// while a small passage beside them is still looked into.
+    /// The ceiling, per passage: two lines of a thousand words each that
+    /// share nothing are over it as one passage with the line beside them,
+    /// and the passage is then compared line against line (D671) — the long
+    /// pair, over it on its own, keeps its line marks and gets nothing finer,
+    /// and the short pair beside it is marked. A small passage apart from
+    /// them is looked into as ever.
     #[test]
-    fn a_passage_too_big_to_align_keeps_its_line_marks() {
+    fn a_passage_too_big_to_align_is_compared_line_by_line() {
         let words = (SPAN_CELLS as f64).sqrt() as usize + 1;
         let long_a: String = (0..words).map(|i| format!("old{i} ")).collect();
         let long_b: String = (0..words).map(|i| format!("new{i} ")).collect();
@@ -1098,9 +1309,10 @@ mod tests {
         let diff = Diff::of(&original, &result);
         assert_eq!(diff.hunks(), &[hunk(0..2, 0..2)]);
         let spans = diff.spans(Grain::Words, &original, &result);
-        // One passage, and it is over the ceiling as a whole — the
-        // line marks stand alone.
-        assert_eq!(spans, Spans::default());
+        // One passage, over the ceiling as a whole; line by line, the long
+        // pair is over it still and the short pair is not.
+        assert_eq!(named(&original, &spans.removed), vec!["fox"]);
+        assert_eq!(named(&result, &spans.added), vec!["cat"]);
 
         let original = format!("{long_a}\nsame\nred fox\n");
         let result = format!("{long_b}\nsame\nred cat\n");
@@ -1108,6 +1320,116 @@ mod tests {
         let spans = diff.spans(Grain::Words, &original, &result);
         assert_eq!(named(&original, &spans.removed), vec!["fox"]);
         assert_eq!(named(&result, &spans.added), vec!["cat"]);
+    }
+
+    /// A rewrite, as the owner's documents have them: every paragraph a
+    /// line, and every one of six two-hundred-word paragraphs changed by a
+    /// word. One passage, past the ceiling as a whole; line by line, every
+    /// changed word is marked (D671). Compare a passage only as a whole and
+    /// none is: red.
+    #[test]
+    fn a_rewritten_document_keeps_its_word_marks() {
+        let paragraph = |i: usize, word: &str| {
+            let words: String = (0..200).map(|k| format!("w{k} ")).collect();
+            format!("{i} {words}{word} end\n")
+        };
+        let original: String = (0..6).map(|i| paragraph(i, "old")).collect();
+        let result: String = (0..6).map(|i| paragraph(i, "new")).collect();
+        let diff = Diff::of(&original, &result);
+        assert_eq!(diff.hunks(), &[hunk(0..6, 0..6)]);
+        let spans = diff.spans(Grain::Words, &original, &result);
+        assert_eq!(named(&original, &spans.removed), vec!["old"; 6]);
+        assert_eq!(named(&result, &spans.added), vec!["new"; 6]);
+    }
+
+    /// The rows each line takes, from a table: line `i` takes `rows[i]`.
+    fn rows(rows: &[usize]) -> Rows<impl Fn(usize) -> usize + '_> {
+        Rows {
+            lines: rows.len(),
+            rows: move |line| rows[line],
+        }
+    }
+
+    fn below(line: usize, rows: usize, filler: bool) -> Pad {
+        Pad {
+            line,
+            rows,
+            above: false,
+            filler,
+        }
+    }
+
+    /// Shared lines one for one, a changed line beside the line it
+    /// replaced: the shorter of each pair is padded below by the rows its
+    /// partner wraps taller (D670). Counted in editor lines, the empty one
+    /// after a final newline included.
+    #[test]
+    fn a_paired_line_is_padded_by_the_rows_its_partner_wraps_taller() {
+        let diff = Diff::of("a\nb\nc\n", "a\nB\nc\n");
+        let padding = diff.padding(rows(&[1, 2, 3, 1]), rows(&[2, 5, 3, 1]));
+        assert_eq!(
+            padding.original,
+            vec![below(0, 1, false), below(1, 3, false)]
+        );
+        assert_eq!(padding.result, vec![]);
+        assert_eq!(padding.side(Side::Original), padding.original.as_slice());
+    }
+
+    /// Inside a hunk line i stands beside line i, and the lines past the
+    /// shorter side's count stand beside blank rows at the end of its
+    /// block, marked as filler (D670) — at the top of the text above the
+    /// first line, in the middle below the line before, at the end below the
+    /// last one.
+    #[test]
+    fn lines_one_side_has_stand_beside_filler_at_the_end_of_the_others_block() {
+        // Put in at the top.
+        let padding =
+            Diff::of("a\nb\n", "x\na\nb\n").padding(rows(&[1, 1, 1]), rows(&[2, 1, 1, 1]));
+        assert_eq!(
+            padding.original,
+            vec![Pad {
+                line: 0,
+                rows: 2,
+                above: true,
+                filler: true
+            }]
+        );
+        assert_eq!(padding.result, vec![]);
+
+        // Taken out in the middle.
+        let padding =
+            Diff::of("a\nb\nc\n", "a\nc\n").padding(rows(&[1, 3, 1, 1]), rows(&[1, 1, 1]));
+        assert_eq!(padding.original, vec![]);
+        assert_eq!(padding.result, vec![below(0, 3, true)]);
+
+        // Two lines become three: two pairs, and the third against nothing.
+        let padding = Diff::of("a\nb\nc\nz\n", "a\nB\nC\nD\nz\n")
+            .padding(rows(&[1, 2, 1, 1, 1]), rows(&[1, 1, 1, 4, 1, 1]));
+        assert_eq!(padding.original, vec![below(2, 4, true)]);
+        assert_eq!(padding.result, vec![below(1, 1, false)]);
+
+        // A final newline one side has: the empty line after it.
+        let padding = Diff::of("a\nb", "a\nb\n").padding(rows(&[1, 1]), rows(&[1, 1, 1]));
+        assert_eq!(padding.original, vec![below(1, 1, true)]);
+        assert_eq!(padding.result, vec![]);
+    }
+
+    /// A comparison made before an edit pads the texts as far as it fits
+    /// them, and never reads a line a side does not have.
+    #[test]
+    fn a_comparison_that_no_longer_fits_pads_as_far_as_it_fits() {
+        let diff = Diff::of(&numbered_lines(40), &numbered_lines(45));
+        let padding = diff.padding(rows(&[2; 10]), rows(&[1; 3]));
+        for pad in padding.original {
+            assert!(pad.line < 10, "{pad:?}");
+        }
+        for pad in padding.result {
+            assert!(pad.line < 3, "{pad:?}");
+        }
+    }
+
+    fn numbered_lines(n: usize) -> String {
+        (0..n).map(|i| format!("line {i}\n")).collect()
     }
 
     #[test]

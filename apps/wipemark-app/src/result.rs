@@ -287,12 +287,16 @@ pub struct Offer {
     pub unavailable: Option<SharedString>,
 }
 
-/// Something happened to the text.
+/// Something happened to the text, or to how it is shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResultEvent {
     /// The text is not what it was a moment ago — typed, pasted, undone
     /// or set from outside, every road in.
     Changed,
+    /// The toolbar's Wrap long lines was pressed: long lines wrap now, or
+    /// no longer do. The window that holds this pane decides what else
+    /// follows it (E7-11: the original, D670).
+    Wrapped(bool),
 }
 
 /// The editor, and the strip of buttons over it.
@@ -552,14 +556,22 @@ impl ResultEditor {
         }
     }
 
+    /// Wrap long lines, or stop — what the window opens with. Says nothing:
+    /// [`toggle`](Self::toggle) is the button, and says it.
+    pub fn set_soft_wrap(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.soft_wrap = on;
+        self.state
+            .update(cx, |state, cx| state.set_soft_wrap(on, window, cx));
+        cx.notify();
+    }
+
     /// Flip `view`.
     pub fn toggle(&mut self, view: View, window: &mut Window, cx: &mut Context<Self>) {
         match view {
             View::SoftWrap => {
-                self.soft_wrap = !self.soft_wrap;
-                let on = self.soft_wrap;
-                self.state
-                    .update(cx, |state, cx| state.set_soft_wrap(on, window, cx));
+                let on = !self.soft_wrap;
+                self.set_soft_wrap(on, window, cx);
+                cx.emit(ResultEvent::Wrapped(on));
             }
             View::Whitespace => {
                 self.whitespace = !self.whitespace;

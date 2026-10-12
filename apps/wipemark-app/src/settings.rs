@@ -372,6 +372,8 @@ pub enum Setting {
     CompareAutosave,
     /// E7-10: where the line numbers sit (D461, D462).
     CompareGutters,
+    /// E7-11: long lines wrapped on both sides, padded level (D670).
+    CompareWrap,
     EngineServes,
     EngineKeep,
     EngineIdle,
@@ -450,7 +452,7 @@ impl Setting {
     /// *move*: a reader opens the window for the marks. Where the line
     /// numbers sit comes straight after, because it too is about what a
     /// pane shows rather than how it moves.
-    pub const ALL: [Setting; 40] = [
+    pub const ALL: [Setting; 41] = [
         Self::Appearance,
         Self::Language,
         Self::ShortcutShow,
@@ -463,6 +465,8 @@ impl Setting {
         Self::CompareGrain,
         // ## E7-10
         Self::CompareGutters,
+        // ## E7-11
+        Self::CompareWrap,
         Self::CompareFollow,
         Self::CompareSyncScroll,
         // ## E7-9
@@ -510,6 +514,7 @@ impl Setting {
             Self::WindowScreen | Self::CloseAfterDrop => Section::Placement,
             Self::CompareGrain
             | Self::CompareGutters
+            | Self::CompareWrap
             | Self::CompareFollow
             | Self::CompareSyncScroll
             | Self::CompareAutosave => Section::Compare,
@@ -553,6 +558,7 @@ impl Setting {
             Self::CloseAfterDrop => Message::SettingsPlacementCloseTitle,
             Self::CompareGrain => Message::SettingsCompareGrainTitle,
             Self::CompareGutters => Message::SettingsCompareGuttersTitle,
+            Self::CompareWrap => Message::SettingsCompareWrapTitle,
             Self::CompareFollow => Message::SettingsCompareFollowTitle,
             Self::CompareSyncScroll => Message::SettingsCompareSyncScrollTitle,
             Self::CompareAutosave => Message::SettingsCompareAutosaveTitle,
@@ -608,6 +614,7 @@ impl Setting {
             Self::CloseAfterDrop => Message::SettingsPlacementCloseDescription,
             Self::CompareGrain => Message::SettingsCompareGrainDescription,
             Self::CompareGutters => Message::SettingsCompareGuttersDescription,
+            Self::CompareWrap => Message::SettingsCompareWrapDescription,
             Self::CompareFollow => Message::SettingsCompareFollowDescription,
             Self::CompareSyncScroll => Message::SettingsCompareSyncScrollDescription,
             Self::CompareAutosave => Message::SettingsCompareAutosaveDescription,
@@ -678,6 +685,7 @@ impl Setting {
             Self::CloseAfterDrop => Storage::Row(config::CLOSE_AFTER_DROP_KEY),
             Self::CompareGrain => Storage::Row(config::COMPARE_GRAIN_KEY),
             Self::CompareGutters => Storage::Row(config::COMPARE_GUTTERS_KEY),
+            Self::CompareWrap => Storage::Row(config::COMPARE_WRAP_KEY),
             Self::CompareFollow => Storage::Row(config::COMPARE_FOLLOW_KEY),
             Self::CompareSyncScroll => Storage::Row(config::COMPARE_SYNC_SCROLL_KEY),
             Self::CompareAutosave => Storage::Row(config::COMPARE_AUTOSAVE_KEY),
@@ -1657,6 +1665,16 @@ impl Preferences {
         self.persist(cx, move |store| {
             config::write_compare_sync_scroll(store, sync_scroll)
         });
+    }
+
+    /// Record whether a Compare window wraps long lines on both sides.
+    pub fn wrap_lines(&mut self, wrap: bool, cx: &mut Context<Self>) {
+        if self.comparison.wrap == wrap {
+            return;
+        }
+        self.comparison.wrap = wrap;
+        cx.notify();
+        self.persist(cx, move |store| config::write_compare_wrap(store, wrap));
     }
 
     /// Record whether a Compare window saves edits as they are typed.
@@ -5029,6 +5047,7 @@ impl SettingsView {
             Setting::CloseAfterDrop => self.close_switch(cx).into_any_element(),
             Setting::CompareGrain => self.grain_choice(cx).into_any_element(),
             Setting::CompareGutters => self.gutters_choice(cx).into_any_element(),
+            Setting::CompareWrap => self.wrap_switch(cx).into_any_element(),
             Setting::CompareFollow => self.follow_switch(cx).into_any_element(),
             Setting::CompareSyncScroll => self.sync_scroll_switch(cx).into_any_element(),
             Setting::CompareAutosave => self.autosave_switch(cx).into_any_element(),
@@ -5324,6 +5343,19 @@ impl SettingsView {
                 let together = *together;
                 view.preferences.update(cx, |preferences, cx| {
                     preferences.scroll_together(together, cx);
+                });
+            }))
+    }
+
+    /// The switch that wraps long lines on both sides of a Compare window.
+    fn wrap_switch(&self, cx: &Context<Self>) -> impl IntoElement {
+        let wrap = self.preferences.read(cx).comparison().wrap;
+        Switch::new("compare-wrap")
+            .checked(wrap)
+            .on_click(cx.listener(|view, wrap: &bool, _, cx| {
+                let wrap = *wrap;
+                view.preferences.update(cx, |preferences, cx| {
+                    preferences.wrap_lines(wrap, cx);
                 });
             }))
     }

@@ -683,19 +683,30 @@
   `Diff::original_row_of` is the map, `set_cursor_position` is the only
   public way to move an editor, and the focus it steals is handed back
   in the same update, before GPUI compares focus paths at the next
-  frame. And the two panes **scroll together** (`compare.sync_scroll`,
-  on by default, read when a window opens): `Diff::position_across` maps
+  frame. **Long lines wrap on both sides, padded level** (E7-11,
+  `compare.wrap`, read when a window opens, off by default until a resize
+  of a wrapped window fits a frame, D677; the result's toolbar button is
+  both sides', D670): the shorter side of every pair of
+  lines — shared lines one for one, line *i* against line *i* inside a
+  hunk, the rest standing against blank rows at the hunk's end
+  (`Diff::padding`) — is padded with the library's spacer rows
+  (gpui-kit's `SpacerProvider`, on the `glani` fork's
+  `editor-spacer-rows` until upstream merges it, D675), and a pane is
+  asked again when the *other* pane's rows move: before the frame for an
+  edit, at the end of the frame for a rewrap (D673). Past
+  `diff::SPAN_CELLS` a changed passage is compared word by word line
+  against line (D671). And the two panes **scroll together**
+  (`compare.sync_scroll`, on by default, read when a window opens):
+  padded, at one offset (D672); unwrapped, `Diff::position_across` maps
   the leading pane's top — a row and a fraction — line for line in a
   shared stretch and in proportion through a changed passage (D380,
   D381); a scroll is seen by each editor's notification and by a look
   after every painted frame (D386) — a thumb drag included: the bar
   notifies the editor's own view, and the panes stand level in the frame
-  either moves, measured on the first frame painted (D449); a wrapped
-  result that leads is followed a frame late — a follower's landing is told from a
-  lead by what was asked (D382), the result leads the cursor follow
-  (D383), and a wrapped result lines up approximately (D384); an ask is
-  consumed or dropped by the end of the frame that lays it out (D432), and
-  the result is weighed first however its position is read (D433).
+  either moves, wrapped or not, measured on the first frame painted
+  (D449, D672) — a follower's landing is told from a lead by what was
+  asked (D382), the result leads the cursor follow (D383), and an ask is
+  consumed or dropped by the end of the frame that lays it out (D432).
   `a_follower_that_stops_short_does_not_lead_back` is the gate on the
   loop. The result is **`clean(original)`** at Layer A's defaults (E7-3),
   made by `Subject::read` in the read's own background task and kept by

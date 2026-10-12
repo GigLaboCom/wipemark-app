@@ -89,33 +89,29 @@
 //! its own horizontal scroll. The editor's scroll offset is public
 //! (`scroll_offset`, `set_scroll_offset`), so this needs nothing of the
 //! library it does not already offer. The leading pane's top is a row
-//! and the fraction of it scrolled past; [`Diff::position_across`]
-//! carries it to the other side — line for line, fraction included, in
-//! a stretch the two share, and **in proportion** through a passage
-//! that changed, holding still through lines the other side has none
-//! of (D380, D381) — and the other pane is set to stand there. A scroll
-//! is seen two ways: by the editor's notification, which a wheel and
-//! the scroll bar make at once and the library makes again after a
-//! frame in which a scroll it applied itself (the keyboard's, a caret
-//! brought into view) moved the text; and by a look at both panes once
-//! every frame they are painted in is done, the one moment a pane that
-//! wraps its lines has a layout that agrees with its offset (D386). The
-//! scroll bar notifies the view it is painted in, and here that is the
-//! editor itself — `Editor` renders its `EditorState` as a view, and the
-//! bar is painted inside it — so a drag of the thumb reaches the same
-//! observer a wheel does, and the other pane stands level in the very
-//! frame the dragged one moves: measured on the first frame painted after
-//! each step, both panes, both layouts of the gutters (D449). A wrapped
-//! result is the one exception: read only at the end of a frame, while
-//! it leads the original stands level a frame late, and no later.
-//! The pane that follows notifies too, and must not lead back: the
-//! window remembers what it asked of each pane, and a move in the asked
-//! direction no farther than asked — all of it, or what the pane's own
-//! end let it do — is that ask landing, not a lead (D382). With the
-//! result's lines wrapped the library does not say how many lines each
-//! row became, so a wrapped pane's place is read off its last layout
-//! and estimated where the row is not laid out: the two sides line up
-//! roughly there, and the page says so (D384).
+//! and the fraction of it scrolled past. Padded — long lines wrapped on
+//! both sides, see "Long lines" below — the two panes have the same rows,
+//! and the other pane is set to the same place: one offset for both
+//! (D672). Unwrapped, [`Diff::position_across`] carries it to the other
+//! side — line for line, fraction included, in a stretch the two share,
+//! and **in proportion** through a passage that changed, holding still
+//! through lines the other side has none of (D380, D381) — and the other
+//! pane is set to stand there. A scroll is seen two ways: by the editor's
+//! notification, which a wheel and the scroll bar make at once and the
+//! library makes again after a frame in which a scroll it applied itself
+//! (the keyboard's, a caret brought into view) moved the text; and by a
+//! look at both panes once every frame they are painted in is done
+//! (D386). The scroll bar notifies the view it is painted in, and here
+//! that is the editor itself — `Editor` renders its `EditorState` as a
+//! view, and the bar is painted inside it — so a drag of the thumb
+//! reaches the same observer a wheel does, and the other pane stands
+//! level in the very frame the dragged one moves: measured on the first
+//! frame painted after each step, both panes, both layouts of the
+//! gutters, wrapped and unwrapped (D449, D672). The pane that follows
+//! notifies too, and must not lead back: the window remembers what it
+//! asked of each pane, and a move in the asked direction no farther than
+//! asked — all of it, or what the pane's own end let it do — is that ask
+//! landing, not a lead (D382).
 //!
 //! **The original follows the cursor.** Whenever the result's caret
 //! changes line, the original's is put on the line that stands where
@@ -139,6 +135,27 @@
 //! puts the original's offset back as it stood (D390). An ask that moved
 //! nothing is dropped after its frame, so it cannot swallow a later move
 //! (D391).
+//!
+//! # Long lines, wrapped on both sides (E7-11)
+//!
+//! Paragraphs that are one long line each are the owner's documents. With
+//! the Compare page's `compare.wrap` — read when a window opens, and off by
+//! default until a resize of a wrapped window fits a frame (D677) — and the
+//! result toolbar's Wrap long lines, which is both sides', the two panes
+//! wrap at their own edges, and the shorter side of
+//! every pair of lines is padded with blank rows so that the two start
+//! level at any depth, the way Zed's side-by-side diff does (D670). The
+//! rows are the library's spacers: a [`Level`] works both sides'
+//! padding out of the comparison's line pairs ([`Diff::padding`]) and the
+//! rows each line takes on each side, and each pane's [`Padded`] provider
+//! hands the library its own. A paragraph only one side has stands beside
+//! blank rows tinted with the theme's muted colour. The library asks a
+//! pane again when its own rows move; when the *other* pane's rows move —
+//! a keystroke in the result, a rewrap at a new width — this window asks:
+//! before the frame for an edit, so both panes stand level in it, and at
+//! the end of the frame for a rewrap, so the pane laid out first is level
+//! a frame later (D673). Unwrapped, nothing is padded and the two sides
+//! scroll by the row map, as above.
 //!
 //! # Where the gutters sit (E7-10)
 //!
@@ -165,6 +182,7 @@
 //! The Actions item is greyed on a row that is not text, so the first
 //! refusal is one a person reaches only from the command line.
 
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
@@ -175,12 +193,14 @@ use gpui::prelude::*;
 use gpui::{
     actions, canvas, deferred, div, px, size, Anchor, AnyElement, AnyWindowHandle, App, Bounds,
     ClickEvent, Context, Entity, FocusHandle, Focusable, Global, Hsla, KeyBinding, Pixels, Rgba,
-    SharedString, Size, Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    SharedString, Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds,
+    WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{
     DocumentColorProvider, EditorState, GutterColumn, GutterMarker, LineDecoration,
-    LineDecorationCollection, LineDecorationProvider, Position, Rope,
+    LineDecorationCollection, LineDecorationProvider, Position, Rope, RopeExt as _, Spacer,
+    SpacerProvider,
 };
 use gpui_component::popover::Popover;
 use gpui_component::resizable::{h_resizable, resizable_panel};
@@ -198,7 +218,7 @@ use wipemark_store::entry::Action;
 
 use crate::chrome::Forward;
 use crate::cleaner::{self, Cleaner};
-use crate::diff::{Diff, Grain, Side};
+use crate::diff::{Diff, Grain, Padding, Rows, Side};
 use crate::icon::{Icon, IconName};
 use crate::result::{self, Offer, ResultEditor, ResultEvent, TOOLBAR_HEIGHT};
 use crate::screen::{self, Screen};
@@ -261,6 +281,11 @@ pub struct Comparison {
     pub autosave: bool,
     /// Where the two panes' line numbers sit (E7-10, D461).
     pub gutters: Gutters,
+    /// Whether long lines wrap on both sides, the shorter side of every
+    /// pair padded with blank rows so the two start level (E7-11, D670).
+    /// The result's toolbar flips it for both sides of an open window. Off
+    /// by default until a resize frame of a wrapped window fits (D677).
+    pub wrap: bool,
 }
 
 impl Default for Comparison {
@@ -269,7 +294,11 @@ impl Default for Comparison {
     /// as they are typed, so closing a window never loses them (the
     /// owner, 2026-10-08) — and the line numbers facing each other
     /// across the middle, as side-by-side diff tools have them (the
-    /// owner, 2026-10-07).
+    /// owner, 2026-10-07). Long lines unwrapped: wrapped, every width
+    /// change rewraps both texts in the frame, measured at hundreds of
+    /// milliseconds for two hundred paragraphs (D677), so wrapping and
+    /// padding (the owner, 2026-10-12) is a row to turn on, until that
+    /// rewrap is cheaper.
     fn default() -> Self {
         Self {
             grain: Grain::Words,
@@ -277,6 +306,7 @@ impl Default for Comparison {
             sync_scroll: true,
             autosave: true,
             gutters: Gutters::Middle,
+            wrap: false,
         }
     }
 }
@@ -1152,6 +1182,139 @@ pub fn per_line(text: &str, spans: &[Range<usize>]) -> Vec<lsp_types::Range> {
     out
 }
 
+/// What keeps the two panes level while they wrap their lines (E7-11,
+/// D670): the comparison the lines are paired by, the padding last worked
+/// out from it, and what each pane's spacers were last worked out from.
+///
+/// Both panes' spacer providers share one. The library asks a pane for its
+/// spacers when its own rows move — an edit, a rewrap at a new width; a
+/// pane padded against the other one's rows must also be asked when
+/// *those* move, which only this window can tell: see
+/// [`CompareView::keep_level`].
+struct Level {
+    original: WeakEntity<EditorState>,
+    result: WeakEntity<EditorState>,
+    /// The comparison, and a number that moves with it.
+    diff: RefCell<(Diff, u64)>,
+    /// Both sides' padding as last worked out, and what from — one pass
+    /// over both texts serves both panes' questions.
+    padding: RefCell<Option<(LevelKey, Padding)>>,
+    /// What each pane's spacers were last worked out from: original, result.
+    asked: [Cell<Option<LevelKey>>; 2],
+}
+
+/// What a padding is worked out from: the rows of both panes, by their
+/// versions, and the comparison's number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LevelKey {
+    original: usize,
+    result: usize,
+    diff: u64,
+}
+
+impl Level {
+    fn new(original: &Entity<EditorState>, result: &Entity<EditorState>, diff: Diff) -> Self {
+        Self {
+            original: original.downgrade(),
+            result: result.downgrade(),
+            diff: RefCell::new((diff, 0)),
+            padding: RefCell::new(None),
+            asked: [Cell::new(None), Cell::new(None)],
+        }
+    }
+
+    /// A fresh comparison to pair the lines by.
+    fn set_diff(&self, diff: Diff) {
+        let mut held = self.diff.borrow_mut();
+        let number = held.1 + 1;
+        *held = (diff, number);
+    }
+
+    /// What the padding would be worked out from now; `None` once a pane
+    /// is gone.
+    fn key(&self, cx: &App) -> Option<LevelKey> {
+        Some(LevelKey {
+            original: self.original.upgrade()?.read(cx).display_rows_version(),
+            result: self.result.upgrade()?.read(cx).display_rows_version(),
+            diff: self.diff.borrow().1,
+        })
+    }
+
+    /// Whether `side`'s spacers were worked out from rows or a comparison
+    /// that have moved since.
+    fn stale(&self, side: Side, cx: &App) -> bool {
+        self.asked[side as usize].get() != self.key(cx)
+    }
+
+    /// `side`'s spacers, for both panes' rows and the comparison as they
+    /// are now: a paired line padded by the rows its partner wraps taller,
+    /// and the lines one side has and the other has not standing against
+    /// blank rows filled with a muted tint.
+    fn spacers(&self, side: Side, cx: &App) -> Vec<Spacer> {
+        let (Some(original), Some(result), Some(key)) =
+            (self.original.upgrade(), self.result.upgrade(), self.key(cx))
+        else {
+            return Vec::new();
+        };
+        let mut padding = self.padding.borrow_mut();
+        if padding.as_ref().map(|(was, _)| *was) != Some(key) {
+            let began = std::time::Instant::now();
+            let (original, result) = (original.read(cx), result.read(cx));
+            let worked = self.diff.borrow().0.padding(
+                Rows {
+                    lines: original.text().lines_len(),
+                    rows: |line| original.buffer_line_to_display_rows(line).len(),
+                },
+                Rows {
+                    lines: result.text().lines_len(),
+                    rows: |line| result.buffer_line_to_display_rows(line).len(),
+                },
+            );
+            tracing::trace!(
+                micros = began.elapsed().as_micros() as u64,
+                lines = original.text().lines_len() + result.text().lines_len(),
+                "the padding worked out"
+            );
+            *padding = Some((key, worked));
+        }
+        self.asked[side as usize].set(Some(key));
+        let filler = cx.theme().muted.opacity(0.6);
+        let Some((_, padding)) = padding.as_ref() else {
+            return Vec::new();
+        };
+        padding
+            .side(side)
+            .iter()
+            .map(|pad| {
+                let spacer = if pad.above {
+                    Spacer::above(pad.line, pad.rows)
+                } else {
+                    Spacer::below(pad.line, pad.rows)
+                };
+                if pad.filler {
+                    spacer.with_background(filler)
+                } else {
+                    spacer
+                }
+            })
+            .collect()
+    }
+}
+
+/// One pane's spacers, out of the window's [`Level`].
+struct Padded {
+    level: Rc<Level>,
+    side: Side,
+}
+
+impl SpacerProvider for Padded {
+    fn spacers(&self, lines: Range<usize>, cx: &App) -> Vec<Spacer> {
+        let mut spacers = self.level.spacers(self.side, cx);
+        spacers.retain(|spacer| lines.contains(&spacer.line()));
+        spacers
+    }
+}
+
 /// Less than this, in pixels, and two scroll offsets are one.
 const HALF_PIXEL: f32 = 0.5;
 
@@ -1197,90 +1360,25 @@ impl Asked {
     }
 }
 
-/// Where an editor's viewport stands, as a buffer row and the fraction
-/// of it scrolled past — `None` before the editor has been laid out.
+/// Where an editor's viewport stands, as a row and the fraction of it
+/// scrolled past — `None` before the editor has been laid out.
 ///
-/// Without wrapping every row is one line high and this is the offset
-/// divided by the line height, to the pixel. With wrapping the library
-/// does not say how many lines a row became, so this is read off the
-/// last layout instead: the first row it showed, and how far the
-/// viewport's top is into that row's height (D384).
-fn top_of(state: &EditorState, wraps: bool) -> Option<f64> {
+/// Every display row is one line high, so this is the offset divided by
+/// the line height, to the pixel. Unwrapped, a display row is a buffer
+/// row; wrapped, both panes are padded to the same display rows, and a
+/// display row is the place both stand at (D672).
+fn top_of(state: &EditorState) -> Option<f64> {
     let line_height = f64::from(f32::from(state.line_height()?));
-    if !wraps {
-        return Some((-f64::from(f32::from(state.scroll_offset().y)) / line_height).max(0.0));
-    }
-    let row = state.visible_row_range()?.start;
-    let bounds = state.row_bounds(row)?;
-    let into = f32::from(state.input_bounds().origin.y - bounds.origin.y);
-    let height = f32::from(bounds.size.height).max(1.0);
-    Some(row as f64 + f64::from((into / height).clamp(0.0, 1.0)))
+    Some((-f64::from(f32::from(state.scroll_offset().y)) / line_height).max(0.0))
 }
 
-/// The vertical offset that puts `top` — a buffer row and a fraction —
-/// at the top of an editor's viewport; `None` before it has been laid
-/// out. Offsets go negative downwards, the library's way, and the
-/// library clamps whatever it is handed to the text's length.
-///
-/// With wrapping, a row's place is read off the last layout where that
-/// row is in it, and estimated from the rows that are where it is not —
-/// see [`wrapped_offset_for`].
-fn offset_for(state: &EditorState, wraps: bool, top: f64) -> Option<f32> {
-    let top = top.max(0.0);
-    if wraps {
-        return wrapped_offset_for(state, top);
-    }
+/// The vertical offset that puts `top` — a row and a fraction — at the
+/// top of an editor's viewport; `None` before it has been laid out.
+/// Offsets go negative downwards, the library's way, and the library
+/// clamps whatever it is handed to the text's length.
+fn offset_for(state: &EditorState, top: f64) -> Option<f32> {
     let line_height = f64::from(f32::from(state.line_height()?));
-    Some((-(top * line_height)) as f32)
-}
-
-/// [`offset_for`] over wrapped lines (D384).
-///
-/// Where the row is laid out, its top is known to the pixel: where it
-/// is drawn, less where the viewport is, less how far the text is
-/// scrolled. Where it is not, its top is estimated from the rows that
-/// are — above them, by the average height of every row above the
-/// first one shown (which the offset knows exactly); below them, by
-/// the average height of every row down to the last one shown. The
-/// estimate lands near the row, and the next step of the leading
-/// pane, with the row now laid out, lands on it.
-fn wrapped_offset_for(state: &EditorState, top: f64) -> Option<f32> {
-    let shown = state.visible_row_range()?;
-    let viewport = state.input_bounds().origin.y;
-    let scrolled = f64::from(f32::from(state.scroll_offset().y));
-    // A row's top in the text, from where the last layout drew it.
-    let text_top = |row: usize| {
-        state.row_bounds(row).map(|bounds| {
-            (
-                f64::from(f32::from(bounds.origin.y - viewport)) - scrolled,
-                bounds,
-            )
-        })
-    };
-    let row = top.floor() as usize;
-    let fraction = top - top.floor();
-    let y = if let Some((at, bounds)) = text_top(row) {
-        at + fraction * f64::from(f32::from(bounds.size.height))
-    } else {
-        let (first, _) = text_top(shown.start)?;
-        let last = (shown.start..shown.end)
-            .rev()
-            .find_map(|row| text_top(row).map(|(at, bounds)| (row, at, bounds)))?;
-        let (last_row, last_at, last_bounds) = last;
-        if row < shown.start {
-            let each = if shown.start == 0 {
-                0.0
-            } else {
-                first / shown.start as f64
-            };
-            top * each
-        } else {
-            let below = last_at + f64::from(f32::from(last_bounds.size.height));
-            let each = below / (last_row + 1) as f64;
-            below + (top - (last_row + 1) as f64) * each
-        }
-    };
-    Some((-y.max(0.0)) as f32)
+    Some((-(top.max(0.0) * line_height)) as f32)
 }
 
 /// Where the window is between being opened and having something to
@@ -1338,6 +1436,17 @@ struct CompareView {
     comparison: Comparison,
     /// The latest comparison, which the cursor is followed by.
     diff: Diff,
+    /// While long lines wrap, what keeps the two panes level: both panes'
+    /// spacers come from it (D670). `None` while they do not wrap.
+    level: Option<Rc<Level>>,
+    /// When the panes' frame began, for the trace line that says how long
+    /// they took to lay out and paint (E7-11's resize measurement, D677).
+    frame_began: Rc<Cell<Option<std::time::Instant>>>,
+    /// How many times the end of a frame found a pane padded against rows
+    /// that had moved, and asked it again — what the tests tell a frame of
+    /// lag by, GPUI's test mode painting until nothing is dirty (D673).
+    #[cfg(test)]
+    late: Cell<u32>,
     /// Which recomputation is the current one; an older one that
     /// finishes late is thrown away.
     generation: u64,
@@ -1481,7 +1590,8 @@ impl CompareView {
         let original = cx.new(|cx| {
             // The same editor as the result's, for the same reasons —
             // see `ResultEditor::new`. Where its gutter and scroll bar
-            // sit is `apply_gutters`'s, below.
+            // sit is `apply_gutters`'s, below; whether it wraps is
+            // `wrap`'s.
             EditorState::new(window, cx)
                 .language("text")
                 .line_number(true)
@@ -1493,10 +1603,17 @@ impl CompareView {
         let changed = cx.subscribe_in(
             &result,
             window,
-            |view, _, event: &ResultEvent, window, cx| {
-                let ResultEvent::Changed = event;
-                view.recompute(window, cx);
-                view.typed(window, cx);
+            |view, _, event: &ResultEvent, window, cx| match event {
+                ResultEvent::Changed => {
+                    // The result's rows moved with its text, before the
+                    // frame that lays it out: the original, padded against
+                    // them, is asked again in that same frame (D673).
+                    view.refresh_level(Side::Original, cx);
+                    view.recompute(window, cx);
+                    view.typed(window, cx);
+                }
+                // The toolbar's Wrap long lines is both sides' (D670).
+                ResultEvent::Wrapped(on) => view.wrap(*on, window, cx),
             },
         );
         let result_state = result.read(cx).state().clone();
@@ -1505,7 +1622,7 @@ impl CompareView {
         // which the original's cursor follows — in that order, so the
         // follow has the last word on the original (D383).
         let led_by_result = cx.observe_in(&result_state, window, |view, state, window, cx| {
-            view.look(false, cx);
+            view.look(cx);
             let row = state.read(cx).cursor_position().line;
             if row != view.followed {
                 view.followed = row;
@@ -1513,7 +1630,7 @@ impl CompareView {
             }
         });
         let led_by_original = cx.observe_in(&original, window, |view, _, _, cx| {
-            view.look(false, cx);
+            view.look(cx);
         });
         let mut subscriptions = vec![changed, led_by_result, led_by_original];
         // Where the line numbers sit is the one row an open window
@@ -1569,6 +1686,10 @@ impl CompareView {
             result,
             comparison,
             diff: Diff::of("", ""),
+            level: None,
+            frame_began: Rc::default(),
+            #[cfg(test)]
+            late: Cell::new(0),
             generation: 0,
             followed: 0,
             original_track: Track::default(),
@@ -1580,8 +1701,57 @@ impl CompareView {
             _subscriptions: subscriptions,
         };
         view.apply_gutters(comparison.gutters, cx);
+        view.result.update(cx, |result, cx| {
+            result.set_soft_wrap(comparison.wrap, window, cx)
+        });
+        view.wrap(comparison.wrap, window, cx);
         view.read(window, cx);
         view
+    }
+
+    /// Wrap long lines on both sides, each pane padded against the other so
+    /// that paired lines start level — or neither (D670). The result's own
+    /// wrapping is its toolbar's, which says so before this is called; this
+    /// makes the original follow it, and puts the padding on or takes it off.
+    fn wrap(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.original
+            .update(cx, |state, cx| state.set_soft_wrap(on, window, cx));
+        let result = self.result.read(cx).state().clone();
+        let level = on.then(|| Rc::new(Level::new(&self.original, &result, self.diff.clone())));
+        for (side, state) in [(Side::Original, &self.original), (Side::Result, &result)] {
+            let provider = level
+                .clone()
+                .map(|level| -> Rc<dyn SpacerProvider> { Rc::new(Padded { level, side }) });
+            state.update(cx, |state, cx| state.set_spacer_provider(provider, cx));
+        }
+        self.level = level;
+        cx.notify();
+    }
+
+    /// Ask `side` for its spacers again at the next layout, while the panes
+    /// are padded.
+    fn refresh_level(&self, side: Side, cx: &mut App) {
+        if self.level.is_some() {
+            self.editor(side, cx)
+                .update(cx, |state, cx| state.refresh_spacers(cx));
+        }
+    }
+
+    /// Ask again any pane whose spacers were worked out from rows or a
+    /// comparison that have moved since — the other pane's rewrap, which
+    /// the library cannot tell it about (D673). The end of a frame, where
+    /// both panes have been laid out.
+    fn keep_level(&self, cx: &mut App) {
+        let Some(level) = &self.level else {
+            return;
+        };
+        for side in [Side::Original, Side::Result] {
+            if level.stale(side, cx) {
+                #[cfg(test)]
+                self.late.set(self.late.get() + 1);
+                self.refresh_level(side, cx);
+            }
+        }
     }
 
     /// Lay both panes' gutters out as `gutters` says: the original's
@@ -1773,6 +1943,9 @@ impl CompareView {
         // side the finer answer is empty both times, and the original
         // is spared the edit — and its selection the collapse.
         let moved = self.diff.has_changed_passages() || diff.has_changed_passages();
+        if let Some(level) = &self.level {
+            level.set_diff(diff.clone());
+        }
         self.diff = diff;
         if self.comparison.grain != Grain::Lines && moved {
             self.repaint_original(window, cx);
@@ -1846,9 +2019,20 @@ impl CompareView {
         // caret was put.
         if self.comparison.sync_scroll {
             if let Some(top) = self.top_of(Side::Result, cx) {
-                let there = self.diff.position_across(Side::Result, top);
+                let there = self.across(Side::Result, top);
                 self.drive(Side::Original, there, Some(px(0.0)), cx);
             }
+        }
+    }
+
+    /// Where `top` on `side` stands on the other side. Padded, the two
+    /// panes have the same rows, and it stands at the same place (D672);
+    /// unwrapped, a changed passage is crossed in proportion (D380, D381).
+    fn across(&self, side: Side, top: f64) -> f64 {
+        if self.level.is_some() {
+            top
+        } else {
+            self.diff.position_across(side, top)
         }
     }
 
@@ -1857,15 +2041,6 @@ impl CompareView {
         match side {
             Side::Original => self.original.clone(),
             Side::Result => self.result.read(cx).state().clone(),
-        }
-    }
-
-    /// Whether `side` wraps its lines — the original never does; the
-    /// result does while its toolbar says so.
-    fn wraps(&self, side: Side, cx: &App) -> bool {
-        match side {
-            Side::Original => false,
-            Side::Result => self.result.read(cx).shows(result::View::SoftWrap),
         }
     }
 
@@ -1879,7 +2054,7 @@ impl CompareView {
     /// Where `side`'s viewport stands, as a row and a fraction of the
     /// next — see [`top_of`].
     fn top_of(&self, side: Side, cx: &App) -> Option<f64> {
-        top_of(self.editor(side, cx).read(cx), self.wraps(side, cx))
+        top_of(self.editor(side, cx).read(cx))
     }
 
     /// Whether `side` has scrolled since the window last looked, and if
@@ -1892,17 +2067,12 @@ impl CompareView {
     /// library applies while it lays the text out — the keyboard's, a
     /// caret brought into view, the other side's lead landing — with
     /// the one it makes after a frame in which its text moved. And the
-    /// end of every frame the panes are painted in (`settled`), the one
-    /// moment a *wrapping* pane's layout and offset are known to agree:
-    /// a wheel's notification comes before the frame that lays the
-    /// text out at the new offset, and a wrapped pane's top is read off
-    /// that layout, so a wrapping pane is read only there. For a pane
-    /// that does not wrap, the end of a frame is a second look that
-    /// finds nothing new.
-    fn scrolled(&mut self, side: Side, settled: bool, cx: &mut Context<Self>) -> bool {
-        if !settled && self.wraps(side, cx) {
-            return false;
-        }
+    /// end of every frame the panes are painted in, a second look that
+    /// finds nothing new unless a scroll arrived without a notification.
+    /// A pane's place is its offset whether it wraps or not — padded, the
+    /// two panes have the same rows — so neither road waits for the other
+    /// (D672).
+    fn scrolled(&mut self, side: Side, cx: &mut Context<Self>) -> bool {
         let y = f32::from(self.editor(side, cx).read(cx).scroll_offset().y);
         let track = self.track(side);
         if track.seen == Some(y) {
@@ -1924,7 +2094,7 @@ impl CompareView {
         {
             self.track(side).leads += 1;
         }
-        let there = self.diff.position_across(side, top);
+        let there = self.across(side, top);
         self.drive(side.other(), there, None, cx);
         true
     }
@@ -1936,40 +2106,18 @@ impl CompareView {
     /// The editors' notifications and the end of a frame all come here,
     /// so whichever pane happened to notify first, the result is asked
     /// first.
-    fn look(&mut self, settled: bool, cx: &mut Context<Self>) {
-        // A wrapping result is read only at the end of a frame, so between
-        // frames its move cannot be weighed yet — and once it can, it leads
-        // (D392). Until then the original does not get to lead before it:
-        // the look waits for the end of the frame, where the result is read
-        // first. However the result's position is read, it is looked at
-        // first (D433).
-        if !settled && self.wraps(Side::Result, cx) && self.moved_unseen(Side::Result, cx) {
-            return;
+    fn look(&mut self, cx: &mut Context<Self>) {
+        if self.scrolled(Side::Result, cx) {
+            self.record(Side::Original, cx);
+        } else if self.scrolled(Side::Original, cx) {
+            self.record(Side::Result, cx);
         }
-        if self.scrolled(Side::Result, settled, cx) {
-            self.record(Side::Original, settled, cx);
-        } else if self.scrolled(Side::Original, settled, cx) {
-            self.record(Side::Result, settled, cx);
-        }
-    }
-
-    /// Whether `side` has scrolled since the window last looked at it.
-    fn moved_unseen(&self, side: Side, cx: &App) -> bool {
-        let y = f32::from(self.editor(side, cx).read(cx).scroll_offset().y);
-        let seen = match side {
-            Side::Original => self.original_track.seen,
-            Side::Result => self.result_track.seen,
-        };
-        seen != Some(y)
     }
 
     /// Take note of where `side` stands without letting it lead: the
     /// side the other one has just led. Its new ask stays, to be
     /// matched when it lands.
-    fn record(&mut self, side: Side, settled: bool, cx: &App) {
-        if !settled && self.wraps(side, cx) {
-            return;
-        }
+    fn record(&mut self, side: Side, cx: &App) {
         let y = f32::from(self.editor(side, cx).read(cx).scroll_offset().y);
         self.track(side).seen = Some(y);
     }
@@ -1982,8 +2130,12 @@ impl CompareView {
     /// its landing was taken note of on another road — and, kept, would
     /// take the pane's next real move in its direction for its landing:
     /// one scroll unfollowed (D432).
+    ///
+    /// And, while the panes are padded, ask again whichever one's spacers
+    /// were worked out from the other's rows before they moved (D673).
     fn painted(&mut self, cx: &mut Context<Self>) {
-        self.look(true, cx);
+        self.keep_level(cx);
+        self.look(cx);
         for side in [Side::Result, Side::Original] {
             let track = self.track(side);
             if let Some(asked) = track.asked.as_mut() {
@@ -2009,10 +2161,9 @@ impl CompareView {
     /// now is and the old one is not mistaken for the pane's own move.
     fn drive(&mut self, side: Side, top: f64, x: Option<Pixels>, cx: &mut Context<Self>) {
         let editor = self.editor(side, cx);
-        let wraps = self.wraps(side, cx);
         let (now, to) = {
             let state = editor.read(cx);
-            let Some(to) = offset_for(state, wraps, top) else {
+            let Some(to) = offset_for(state, top) else {
                 return;
             };
             (state.scroll_offset(), to)
@@ -2101,6 +2252,19 @@ impl CompareView {
             .child(Self::caption(Message::CompareResult, cx))
             .child(div().flex_1().min_h(px(0.0)).child(self.result.clone()));
 
+        // Laid out before both editors and painted after them: how long the
+        // two panes took, a trace line with no text in it — what a window
+        // resize costs, rewrap and padding included (D677).
+        let began = self.frame_began.clone();
+        let before = canvas(
+            move |_, _, _| began.set(Some(std::time::Instant::now())),
+            |_, _, _, _| (),
+        )
+        .absolute()
+        .size_0();
+        let began = self.frame_began.clone();
+        let wrapped = self.level.is_some();
+
         // Painted after both editors, so what it reads is what they
         // were just painted at — see `scrolled`. Read once the frame is
         // done rather than inside it: a scroll asked for while a frame
@@ -2108,7 +2272,15 @@ impl CompareView {
         let view = cx.entity().downgrade();
         let after = canvas(
             |_, _, _| (),
-            move |_, _, _, cx| {
+            move |_, _, window, cx| {
+                if let Some(at) = began.take() {
+                    tracing::trace!(
+                        micros = at.elapsed().as_micros() as u64,
+                        width = f32::from(window.viewport_size().width),
+                        wrapped,
+                        "the panes laid out and painted"
+                    );
+                }
                 #[cfg(test)]
                 if let Some(view) = view.upgrade() {
                     let view = view.read(cx);
@@ -2128,6 +2300,7 @@ impl CompareView {
 
         div()
             .size_full()
+            .child(before)
             .child(
                 h_resizable("compare-split")
                     .child(resizable_panel().child(left))
@@ -4532,6 +4705,25 @@ mod tests {
         (from..from + n).map(|i| format!("line {i}\n")).collect()
     }
 
+    /// The page's rows, but long lines unwrapped: the panes this window
+    /// keeps in step by the row map — D380's, which padded panes no longer
+    /// need (D672). The default since D677, said where a test depends on it.
+    fn unwrapped() -> Comparison {
+        Comparison {
+            wrap: false,
+            ..Comparison::default()
+        }
+    }
+
+    /// The page's rows with long lines wrapped on both sides, padded level
+    /// (D670).
+    fn wrapped() -> Comparison {
+        Comparison {
+            wrap: true,
+            ..Comparison::default()
+        }
+    }
+
     /// A window on `original` whose result has been edited to `result`,
     /// compared and painted, both panes at the top.
     fn window_over<'a>(
@@ -4615,7 +4807,7 @@ mod tests {
     fn scrolling_the_result_scrolls_the_original(cx: &mut TestAppContext) {
         let original = numbered(0, 200);
         let result = format!("{}{original}", numbered(1000, 3));
-        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let (view, cx) = window_over(cx, &original, &result, unwrapped());
         let height = line_height(&view, cx);
 
         wheel(&view, Side::Result, -(10.25 * height), cx);
@@ -4640,7 +4832,7 @@ mod tests {
     fn scrolling_the_original_scrolls_the_result(cx: &mut TestAppContext) {
         let original = numbered(0, 200);
         let result = format!("{}{original}", numbered(1000, 3));
-        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let (view, cx) = window_over(cx, &original, &result, unwrapped());
         let height = line_height(&view, cx);
 
         wheel(&view, Side::Original, -(20.5 * height), cx);
@@ -4669,7 +4861,7 @@ mod tests {
     fn a_scroll_the_library_applies_is_followed_too(cx: &mut TestAppContext) {
         let original = numbered(0, 200);
         let result = format!("{}{original}", numbered(1000, 3));
-        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let (view, cx) = window_over(cx, &original, &result, unwrapped());
         let height = line_height(&view, cx);
 
         for (side, rows, other) in [
@@ -4717,10 +4909,14 @@ mod tests {
     /// written in the paint, does not (D449). A step is real time apart
     /// from the last, past the scroll bar's 120 Hz throttle, so every move
     /// is told at once rather than by its trailing timer.
+    ///
+    /// Padded, level is the same offset on both panes (D672); unwrapped, it
+    /// is the row map's (D380).
     fn level_in_the_frame(
         view: &Entity<CompareView>,
         leader: Side,
         input: Input,
+        padded: bool,
         cx: &mut gpui::VisualTestContext,
     ) -> Vec<Vec<bool>> {
         let height = line_height(view, cx);
@@ -4771,7 +4967,11 @@ mod tests {
                         led > 0.0,
                         "{leader:?} {input:?} step {step}: the leader did not move"
                     );
-                    let wanted = diff.position_across(leader, led);
+                    let wanted = if padded {
+                        led
+                    } else {
+                        diff.position_across(leader, led)
+                    };
                     (followed - wanted).abs() * f64::from(height) < 0.5
                 })
                 .collect();
@@ -4791,7 +4991,10 @@ mod tests {
     /// The owner's point (C16, D449): the two panes stand level in the very
     /// frame either one is moved — by its scroll bar's thumb, dragged, or by
     /// the wheel — with the gutters facing the middle (the original's bar on
-    /// its left) and both on the left. Measured on the first frame painted
+    /// its left) and both on the left, and with long lines wrapped and
+    /// padded as well as unwrapped. Padded, there is no frame of lag left
+    /// for a wrapping pane that leads: its place is its offset (D672, which
+    /// takes back D449's exception). Measured on the first frame painted
     /// after each step, not on what the frames after it settle on; see
     /// [`level_in_the_frame`].
     #[gpui::test]
@@ -4799,27 +5002,33 @@ mod tests {
         let original = numbered(0, 400);
         let result = format!("{}{original}", numbered(1000, 3));
         let mut seen = Vec::new();
-        for gutters in [Gutters::Middle, Gutters::Left] {
-            for leader in [Side::Original, Side::Result] {
-                for input in [Input::Thumb, Input::Wheel] {
-                    let comparison = Comparison {
-                        gutters,
-                        ..Comparison::default()
-                    };
-                    let (view, cx) = window_over(cx, &original, &result, comparison);
-                    bars_shown(cx);
-                    let level = level_in_the_frame(&view, leader, input, cx);
-                    seen.push((gutters, leader, input, level));
+        for wrap in [false, true] {
+            for gutters in [Gutters::Middle, Gutters::Left] {
+                for leader in [Side::Original, Side::Result] {
+                    for input in [Input::Thumb, Input::Wheel] {
+                        let comparison = Comparison {
+                            gutters,
+                            wrap,
+                            ..Comparison::default()
+                        };
+                        let (view, cx) = window_over(cx, &original, &result, comparison);
+                        bars_shown(cx);
+                        let level = level_in_the_frame(&view, leader, input, wrap, cx);
+                        seen.push((wrap, gutters, leader, input, level));
+                    }
                 }
             }
         }
-        for (gutters, leader, input, level) in &seen {
-            eprintln!("{gutters:?} {leader:?} {input:?}: {}", said(level));
+        for (wrap, gutters, leader, input, level) in &seen {
+            eprintln!(
+                "wrap {wrap}, {gutters:?} {leader:?} {input:?}: {}",
+                said(level)
+            );
         }
-        for (gutters, leader, input, level) in seen {
+        for (wrap, gutters, leader, input, level) in seen {
             assert!(
                 level.iter().all(|frames| frames[0]),
-                "{gutters:?}, {leader:?} led by {input:?}: the other pane was a frame behind ({level:?})"
+                "wrap {wrap}, {gutters:?}, {leader:?} led by {input:?}: the other pane was a frame behind ({level:?})"
             );
         }
     }
@@ -4840,50 +5049,6 @@ mod tests {
         format!("frames late, per step: {}", late.join(" "))
     }
 
-    /// With the result's lines wrapped (D384, D386), measured the same way
-    /// (C16, D449): the original, which never wraps, still leads in the very
-    /// frame it is moved; a wrapped result is read only at the end of a
-    /// frame, so while it leads — its thumb dragged, the wheel over it — the
-    /// original stands level one frame late, and never later.
-    #[gpui::test]
-    fn with_the_result_wrapped_it_leads_a_frame_late_and_no_later(cx: &mut TestAppContext) {
-        let original = numbered(0, 400);
-        let result = format!("{}{original}", numbered(1000, 3));
-        let mut seen = Vec::new();
-        for leader in [Side::Original, Side::Result] {
-            for input in [Input::Thumb, Input::Wheel] {
-                let (view, cx) = window_over(cx, &original, &result, Comparison::default());
-                cx.update(|window, cx| {
-                    let pane = view.read(cx).result.clone();
-                    pane.update(cx, |pane, cx| {
-                        pane.toggle(result::View::SoftWrap, window, cx)
-                    });
-                });
-                settle(cx);
-                bars_shown(cx);
-                let level = level_in_the_frame(&view, leader, input, cx);
-                seen.push((leader, input, level));
-            }
-        }
-        for (leader, input, level) in &seen {
-            eprintln!("wrapped, {leader:?} {input:?}: {}", said(level));
-        }
-        for (leader, input, level) in seen {
-            for frames in &level {
-                let late = frames.iter().position(|level| *level);
-                match leader {
-                    Side::Original => assert_eq!(late, Some(0), "{input:?}: {level:?}"),
-                    Side::Result => assert!(
-                        matches!(late, Some(0 | 1)),
-                        "{input:?}: the original was more than a frame late ({level:?})"
-                    ),
-                }
-            }
-        }
-    }
-
-    /// With `compare.sync_scroll` off a drag of one pane's thumb leaves the
-    /// other where it was — the render-time look moves nothing then (D449).
     #[gpui::test]
     fn with_the_row_off_a_drag_moves_one_pane(cx: &mut TestAppContext) {
         let original = numbered(0, 400);
@@ -4929,7 +5094,7 @@ mod tests {
         let tail = numbered(500, 200);
         let original = format!("{head}{}{tail}", numbered(100, 40));
         let result = format!("{head}{}{tail}", numbered(900, 10));
-        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let (view, cx) = window_over(cx, &original, &result, unwrapped());
         let height = line_height(&view, cx);
 
         wheel(&view, Side::Original, -(30.0 * height), cx);
@@ -4961,7 +5126,7 @@ mod tests {
     fn a_follower_that_stops_short_does_not_lead_back(cx: &mut TestAppContext) {
         let original = numbered(0, 300);
         let result = numbered(0, 100);
-        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let (view, cx) = window_over(cx, &original, &result, unwrapped());
         let height = line_height(&view, cx);
 
         wheel(&view, Side::Original, -(150.0 * height), cx);
@@ -5015,6 +5180,20 @@ mod tests {
     /// there — the result's caret out of sight: red.
     #[gpui::test]
     fn the_cursor_follow_does_not_drag_the_result(cx: &mut TestAppContext) {
+        the_cursor_follow_leaves_the_result_where_it_is(cx, unwrapped());
+    }
+
+    /// The same, padded (D672): the original's caret on the partner line and
+    /// the original at the result's own offset.
+    #[gpui::test]
+    fn the_cursor_follow_keeps_padded_panes_at_one_offset(cx: &mut TestAppContext) {
+        the_cursor_follow_leaves_the_result_where_it_is(cx, wrapped());
+    }
+
+    fn the_cursor_follow_leaves_the_result_where_it_is(
+        cx: &mut TestAppContext,
+        comparison: Comparison,
+    ) {
         let original = numbered(0, 300);
         let result = format!(
             "{}{}{}",
@@ -5022,7 +5201,7 @@ mod tests {
             numbered(1000, 30),
             numbered(100, 200)
         );
-        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let (view, cx) = window_over(cx, &original, &result, comparison);
         let height = line_height(&view, cx);
 
         cx.update(|window, cx| {
@@ -5049,46 +5228,16 @@ mod tests {
         assert_eq!(caret, 100, "the original's caret did not follow");
         let (left, right) = offsets(&view, cx);
         let top = f64::from(-right / height);
-        let expected = cx.update(|_, cx| view.read(cx).diff.position_across(Side::Result, top));
+        let expected = if comparison.wrap {
+            top
+        } else {
+            cx.update(|_, cx| view.read(cx).diff.position_across(Side::Result, top))
+        };
         assert!(
             (f64::from(-left / height) - expected).abs() < 0.01,
             "the original is not where the result's top puts it: {left} for {right}"
         );
         assert_eq!(leads(&view, cx).0, 0, "the original led the result");
-    }
-
-    /// With the result's lines wrapped, the two sides line up by the
-    /// rows the last layout showed: approximate, and never a loop. A
-    /// short text that wraps nothing is laid out exactly as an unwrapped
-    /// one, so here the alignment is still exact.
-    #[gpui::test]
-    fn a_wrapped_result_still_leads_and_follows(cx: &mut TestAppContext) {
-        let original = numbered(0, 200);
-        let result = format!("{}{original}", numbered(1000, 3));
-        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
-        cx.update(|window, cx| {
-            let pane = view.read(cx).result.clone();
-            pane.update(cx, |pane, cx| {
-                pane.toggle(result::View::SoftWrap, window, cx)
-            });
-        });
-        settle(cx);
-        let height = line_height(&view, cx);
-
-        wheel(&view, Side::Original, -(20.0 * height), cx);
-        let (left, right) = offsets(&view, cx);
-        assert_eq!(left, -(20.0 * height));
-        assert_eq!(right, -(23.0 * height), "the wrapped result did not follow");
-
-        wheel(&view, Side::Result, -(10.0 * height), cx);
-        let (left, right) = offsets(&view, cx);
-        assert_eq!(right, -(33.0 * height));
-        assert_eq!(
-            left,
-            -(30.0 * height),
-            "the original did not follow the wrapped result"
-        );
-        assert_eq!(leads(&view, cx), (1, 1));
     }
 
     /// A recompute moves neither pane (D390). A selection in the
@@ -5166,7 +5315,7 @@ mod tests {
     fn an_ask_that_moved_nothing_does_not_hide_the_next_move(cx: &mut TestAppContext) {
         let original = numbered(0, 300);
         let result = numbered(0, 100);
-        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let (view, cx) = window_over(cx, &original, &result, unwrapped());
         let height = line_height(&view, cx);
 
         wheel(&view, Side::Original, -(150.0 * height), cx);
@@ -5219,7 +5368,7 @@ mod tests {
     fn two_panes_moved_in_one_frame_end_where_the_result_put_them(cx: &mut TestAppContext) {
         let original = numbered(0, 300);
         let result = format!("{}{original}", numbered(1000, 3));
-        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
+        let (view, cx) = window_over(cx, &original, &result, unwrapped());
         let height = line_height(&view, cx);
 
         cx.update(|_, cx| {
@@ -5314,63 +5463,6 @@ mod tests {
         assert_eq!(right, left, "the result did not follow");
     }
 
-    /// Both panes moved in one frame with the result's lines wrapped: the
-    /// result still wins (D433, A-L3). The wheel turns over the result and
-    /// then over the original before a frame is drawn, so the editors'
-    /// notifications come first and the end of the frame after them; a
-    /// wrapped result is read only at the end of a frame, so its own
-    /// notification cannot weigh its move. Let the original's look lead
-    /// before it, as it did, and the original drags the result off where
-    /// the wheel put it: red.
-    #[gpui::test]
-    fn two_panes_moved_in_one_frame_end_where_a_wrapped_result_put_them(cx: &mut TestAppContext) {
-        use gpui::InputEvent as _;
-
-        let original = numbered(0, 300);
-        let result = format!("{}{original}", numbered(1000, 3));
-        let (view, cx) = window_over(cx, &original, &result, Comparison::default());
-        cx.update(|window, cx| {
-            let pane = view.read(cx).result.clone();
-            pane.update(cx, |pane, cx| {
-                pane.toggle(result::View::SoftWrap, window, cx)
-            });
-        });
-        settle(cx);
-        let height = line_height(&view, cx);
-        let leads_before = leads(&view, cx);
-
-        let over = |side: Side, cx: &mut gpui::VisualTestContext| {
-            cx.update(|_, cx| {
-                let editor = view.read(cx).editor(side, cx);
-                editor.read(cx).input_bounds().center()
-            })
-        };
-        let (right, left) = (over(Side::Result, cx), over(Side::Original, cx));
-        let turn = |at: gpui::Point<Pixels>, pixels: f32| {
-            gpui::ScrollWheelEvent {
-                position: at,
-                delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(pixels))),
-                ..Default::default()
-            }
-            .to_platform_input()
-        };
-        cx.update(|window, cx| {
-            window.dispatch_event(turn(right, -(20.0 * height)), cx);
-            window.dispatch_event(turn(left, -(50.0 * height)), cx);
-        });
-        settle(cx);
-        assert_eq!(
-            offsets(&view, cx),
-            (-(17.0 * height), -(20.0 * height)),
-            "the panes did not end where the wrapped result put them"
-        );
-        assert_eq!(
-            leads(&view, cx).0,
-            leads_before.0,
-            "the original led while the wrapped result had moved"
-        );
-    }
-
     /// A recompute does not cancel a follow on its way (D432, A-L4). The
     /// result has just led and its ask of the original has not landed —
     /// the editor holds it until its next layout — when a recompute's empty
@@ -5396,17 +5488,227 @@ mod tests {
         );
     }
 
-    /// The far side of a wrapped result: rows not laid out are placed
-    /// by the average height of the rows that are, and the next step
-    /// lands on the row. A result whose every line wraps once is two
-    /// lines a row; scrolled from the original far past what the
-    /// result has laid out, the result lands near its row, and level
-    /// after the next step.
+    // -- long lines wrapped on both sides, padded level (E7-11) --------
+
+    /// `n` paragraphs, each one long line of `words` words after its
+    /// number, so that each wraps over several rows.
+    fn paragraphs(from: usize, n: usize, words: usize) -> String {
+        (from..from + n)
+            .map(|i| format!("{i} {}\n", "word ".repeat(words)))
+            .collect()
+    }
+
+    /// The display row each of `lines` starts at, on `side`.
+    fn starts(
+        view: &Entity<CompareView>,
+        side: Side,
+        lines: impl IntoIterator<Item = usize>,
+        cx: &mut gpui::VisualTestContext,
+    ) -> Vec<usize> {
+        cx.update(|_, cx| {
+            let editor = view.read(cx).editor(side, cx);
+            let state = editor.read(cx);
+            lines
+                .into_iter()
+                .map(|line| state.buffer_line_to_display_rows(line).start)
+                .collect()
+        })
+    }
+
+    /// How many display rows `line` takes on `side`, and the pane's rows.
+    fn rows_of(
+        view: &Entity<CompareView>,
+        side: Side,
+        line: usize,
+        cx: &mut gpui::VisualTestContext,
+    ) -> (usize, usize) {
+        cx.update(|_, cx| {
+            let editor = view.read(cx).editor(side, cx);
+            let state = editor.read(cx);
+            (
+                state.buffer_line_to_display_rows(line).len(),
+                state.display_row_count(),
+            )
+        })
+    }
+
+    /// Thirty paragraphs, and the same with the fourth and the eleventh
+    /// rewritten longer and a new one put in after the fifteenth.
+    fn rewritten() -> (String, String) {
+        let original = paragraphs(0, 30, 40);
+        let mut lines: Vec<String> = original.lines().map(|line| format!("{line}\n")).collect();
+        lines[3] = format!("3 {}\n", "longer ".repeat(90));
+        lines[10] = format!("10 {}\n", "longer ".repeat(70));
+        lines.insert(15, format!("new {}\n", "added ".repeat(60)));
+        (original, lines.concat())
+    }
+
+    /// The owner's ask (D670): with long lines wrapped, every line starts
+    /// level with the line it is paired with — shared lines one for one,
+    /// a rewritten paragraph beside the paragraph it replaced, however much
+    /// taller it wraps — and a paragraph only the result has stands beside
+    /// blank rows. The two panes take the same rows. Take the padding away
+    /// and every line below the fourth paragraph drifts: red. With marks of
+    /// whole lines too, where no empty edit of the original follows a
+    /// comparison and the padding moves with the comparison's number alone.
     #[gpui::test]
-    fn a_wrapped_result_far_away_is_placed_by_estimate(cx: &mut TestAppContext) {
-        let long = "word ".repeat(250);
-        let original: String = (0..300).map(|i| format!("{i} {long}\n")).collect();
-        let (view, cx) = window_over(cx, &original, &original, Comparison::default());
+    fn paired_lines_start_level_when_both_wrap(cx: &mut TestAppContext) {
+        paired_lines_start_level(cx, Grain::Words);
+    }
+
+    #[gpui::test]
+    fn paired_lines_start_level_marked_by_whole_lines(cx: &mut TestAppContext) {
+        paired_lines_start_level(cx, Grain::Lines);
+    }
+
+    fn paired_lines_start_level(cx: &mut TestAppContext, grain: Grain) {
+        let (original, result) = rewritten();
+        let comparison = Comparison { grain, ..wrapped() };
+        let (view, cx) = window_over(cx, &original, &result, comparison);
+        let (wrapped, _) = rows_of(&view, Side::Original, 0, cx);
+        assert!(wrapped > 1, "a paragraph did not wrap");
+        let (taller, _) = rows_of(&view, Side::Result, 3, cx);
+        assert!(taller > rows_of(&view, Side::Original, 3, cx).0);
+
+        // Line i of the original stands beside line i of the result above
+        // the new paragraph, and beside line i + 1 below it.
+        let pairs: Vec<(usize, usize)> = (0..30)
+            .map(|line| (line, if line < 15 { line } else { line + 1 }))
+            .collect();
+        let left = starts(&view, Side::Original, pairs.iter().map(|pair| pair.0), cx);
+        let right = starts(&view, Side::Result, pairs.iter().map(|pair| pair.1), cx);
+        assert_eq!(left, right, "a paired line does not start level");
+        assert_eq!(
+            rows_of(&view, Side::Original, 0, cx).1,
+            rows_of(&view, Side::Result, 0, cx).1,
+            "the two panes do not take the same rows"
+        );
+
+        // The new paragraph's rows are blank on the original.
+        let new_rows = cx.update(|_, cx| {
+            let editor = view.read(cx).editor(Side::Result, cx);
+            let rows = editor.read(cx).buffer_line_to_display_rows(15);
+            rows
+        });
+        cx.update(|_, cx| {
+            let original = view.read(cx).original.read(cx);
+            assert!(new_rows.clone().all(|row| original.is_spacer_row(row)));
+        });
+    }
+
+    /// A comparison that lands makes both panes' spacers stale (D670): the
+    /// pairs move with it, whatever else does or does not move — after an
+    /// edit of the result its rows move too, but a comparison that lands with
+    /// marks of whole lines moves nothing else, and without its number the
+    /// padding would stay that of the comparison before: red.
+    #[gpui::test]
+    fn a_new_comparison_pads_both_panes_again(cx: &mut TestAppContext) {
+        let (original, result) = rewritten();
+        let (view, cx) = window_over(cx, &original, &result, wrapped());
+        cx.update(|_, cx| {
+            let level = view.read(cx).level.clone().expect("padded");
+            assert!(!level.stale(Side::Original, cx));
+            assert!(!level.stale(Side::Result, cx));
+            level.set_diff(Diff::of("a\n", "b\n"));
+            assert!(level.stale(Side::Original, cx));
+            assert!(level.stale(Side::Result, cx));
+        });
+    }
+
+    /// Unwrapped, nothing is padded (D670): the toolbar's Wrap long lines
+    /// is both sides', and turning it off takes the padding with it — and
+    /// turning it on puts both back. A window opens as the row says.
+    #[gpui::test]
+    fn the_toolbar_wraps_both_panes_and_pads_them(cx: &mut TestAppContext) {
+        let (original, result) = rewritten();
+        let (view, cx) = window_over(cx, &original, &result, unwrapped());
+        let lines_of = |side, cx: &mut gpui::VisualTestContext| {
+            cx.update(|_, cx| {
+                let editor = view.read(cx).editor(side, cx);
+                editor.read(cx).text().lines_len()
+            })
+        };
+        assert_eq!(
+            rows_of(&view, Side::Original, 0, cx),
+            (1, lines_of(Side::Original, cx))
+        );
+        assert_eq!(
+            rows_of(&view, Side::Result, 0, cx),
+            (1, lines_of(Side::Result, cx))
+        );
+
+        let toggle = |cx: &mut gpui::VisualTestContext| {
+            cx.update(|window, cx| {
+                let pane = view.read(cx).result.clone();
+                pane.update(cx, |pane, cx| {
+                    pane.toggle(result::View::SoftWrap, window, cx)
+                });
+            });
+            settle(cx);
+        };
+        toggle(cx);
+        let (left, total_left) = rows_of(&view, Side::Original, 0, cx);
+        let (right, total_right) = rows_of(&view, Side::Result, 0, cx);
+        assert!(left > 1 && right > 1, "the toolbar wrapped one side only");
+        assert_eq!(total_left, total_right, "the panes are not padded");
+
+        toggle(cx);
+        assert_eq!(
+            rows_of(&view, Side::Original, 0, cx),
+            (1, lines_of(Side::Original, cx))
+        );
+        assert_eq!(
+            rows_of(&view, Side::Result, 0, cx),
+            (1, lines_of(Side::Result, cx))
+        );
+    }
+
+    /// An edit that makes a paragraph wrap taller is padded on the original
+    /// in the very frame the result is laid out with it (D673): the result's
+    /// rows move with its text, and the original is asked again before that
+    /// frame — the end of the frame finds nothing to ask again. Leave the
+    /// original to the end-of-frame look and it stands a frame behind, which
+    /// GPUI's test mode hides by painting again, and `late` says: red.
+    #[gpui::test]
+    fn an_edit_is_padded_level_in_its_own_frame(cx: &mut TestAppContext) {
+        let original = paragraphs(0, 20, 40);
+        let (view, cx) = window_over(cx, &original, &original, wrapped());
+        let before = rows_of(&view, Side::Result, 3, cx).0;
+        let late = cx.update(|_, cx| view.read(cx).late.get());
+        cx.update(|window, cx| {
+            let editor = view.read(cx).editor(Side::Result, cx);
+            editor.update(cx, |state, cx| {
+                state.set_cursor_position(Position::new(3, 2), window, cx);
+                state.insert("more ".repeat(60), window, cx);
+            });
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            rows_of(&view, Side::Result, 3, cx).0 > before,
+            "the edit did not wrap taller"
+        );
+        assert_eq!(
+            starts(&view, Side::Original, 0..20, cx),
+            starts(&view, Side::Result, 0..20, cx),
+            "the original was a frame behind the edit"
+        );
+        assert_eq!(
+            cx.update(|_, cx| view.read(cx).late.get()),
+            late,
+            "the end of the frame had to ask the original again: it was a frame behind the edit"
+        );
+    }
+
+    /// A pane that wraps again pads the other by the next frame (D673): the
+    /// original is laid out first, against the result's rows before they
+    /// moved, and the look at the end of the frame asks it again. Without
+    /// that look nothing asks it, and it stays padded against rows that are
+    /// gone: red.
+    #[gpui::test]
+    fn a_rewrap_pads_the_other_pane_by_the_next_frame(cx: &mut TestAppContext) {
+        let (original, result) = rewritten();
+        let (view, cx) = window_over(cx, &original, &result, unwrapped());
+        let late = cx.update(|_, cx| view.read(cx).late.get());
         cx.update(|window, cx| {
             let pane = view.read(cx).result.clone();
             pane.update(cx, |pane, cx| {
@@ -5414,21 +5716,206 @@ mod tests {
             });
         });
         settle(cx);
+        let pairs = (0..30).map(|line| (line, if line < 15 { line } else { line + 1 }));
+        let (left, right): (Vec<usize>, Vec<usize>) = pairs.unzip();
+        assert_eq!(
+            starts(&view, Side::Original, left, cx),
+            starts(&view, Side::Result, right, cx)
+        );
+        // The original, laid out first, was caught at the end of the frame:
+        // the frame of lag D673 owns to.
+        assert!(cx.update(|_, cx| view.read(cx).late.get()) > late);
+    }
+
+    /// Padded, the two panes have the same rows and scroll at one offset
+    /// (D672): the original leads the result there and the result the
+    /// original, and neither leads back.
+    #[gpui::test]
+    fn padded_panes_scroll_at_one_offset(cx: &mut TestAppContext) {
+        let (original, result) = rewritten();
+        let (view, cx) = window_over(cx, &original, &result, wrapped());
         let height = line_height(&view, cx);
 
-        wheel(&view, Side::Original, -(150.0 * height), cx);
-        wheel(&view, Side::Original, -(1.0 * height), cx);
-        let shown = cx.update(|_, cx| {
-            view.read(cx)
-                .editor(Side::Result, cx)
-                .read(cx)
-                .visible_row_range()
+        wheel(&view, Side::Original, -(20.0 * height), cx);
+        assert_eq!(offsets(&view, cx), (-(20.0 * height), -(20.0 * height)));
+
+        wheel(&view, Side::Result, -(10.0 * height), cx);
+        assert_eq!(offsets(&view, cx), (-(30.0 * height), -(30.0 * height)));
+        assert_eq!(leads(&view, cx), (1, 1));
+    }
+
+    /// A line far below what either pane has laid out stands level at once
+    /// (D672, which takes back D384's estimate): padded, a row's place is
+    /// its index, laid out or not.
+    #[gpui::test]
+    fn a_line_far_below_stands_level_at_once(cx: &mut TestAppContext) {
+        let (original, result) = rewritten();
+        let (view, cx) = window_over(cx, &original, &result, wrapped());
+        let height = line_height(&view, cx);
+        let far = starts(&view, Side::Original, [28], cx)[0];
+        wheel(&view, Side::Original, -(far as f32 * height), cx);
+        let top = |side, line, cx: &mut gpui::VisualTestContext| {
+            cx.update(|_, cx| {
+                let editor = view.read(cx).editor(side, cx);
+                let bounds = editor.read(cx).row_bounds(line);
+                bounds.map(|bounds| bounds.origin.y)
+            })
+        };
+        let left = top(Side::Original, 28, cx).expect("laid out");
+        assert_eq!(top(Side::Result, 29, cx), Some(left));
+    }
+
+    /// Two panes moved in one frame end where the result put them (D392),
+    /// padded too: both turned before a frame is drawn, the result is looked
+    /// at first and the original's own move is only noted.
+    #[gpui::test]
+    fn two_padded_panes_moved_in_one_frame_end_where_the_result_put_them(cx: &mut TestAppContext) {
+        use gpui::InputEvent as _;
+
+        let (original, result) = rewritten();
+        let (view, cx) = window_over(cx, &original, &result, wrapped());
+        let height = line_height(&view, cx);
+        let leads_before = leads(&view, cx);
+        let over = |side: Side, cx: &mut gpui::VisualTestContext| {
+            cx.update(|_, cx| {
+                let editor = view.read(cx).editor(side, cx);
+                editor.read(cx).input_bounds().center()
+            })
+        };
+        let (right, left) = (over(Side::Result, cx), over(Side::Original, cx));
+        let turn = |at: gpui::Point<Pixels>, pixels: f32| {
+            gpui::ScrollWheelEvent {
+                position: at,
+                delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.0), px(pixels))),
+                ..Default::default()
+            }
+            .to_platform_input()
+        };
+        cx.update(|window, cx| {
+            window.dispatch_event(turn(right, -(20.0 * height)), cx);
+            window.dispatch_event(turn(left, -(50.0 * height)), cx);
         });
-        let shown = shown.expect("laid out");
+        settle(cx);
         assert_eq!(
-            shown.start, 151,
-            "the wrapped result is not on the original's row"
+            offsets(&view, cx),
+            (-(20.0 * height), -(20.0 * height)),
+            "the panes did not end where the result put them"
         );
+        assert_eq!(leads(&view, cx).0, leads_before.0, "the original led");
+    }
+
+    /// The visual check of E7-11 (the coordinator's task, 2026-10-12): the
+    /// window on `fixtures/compare/long-paragraphs/` — the original, and the
+    /// rewrite put in the result — drawn by GPUI's own renderer to a picture,
+    /// with no display: long lines unwrapped; only the result wrapped, as the
+    /// window was before E7-11; and both wrapped and padded level (D670).
+    /// Ignored: it needs a GPU adapter (lavapipe in the container) and writes
+    /// `unwrapped.png`, `result-wrapped.png` and `padded.png`, at the top and
+    /// then with the original scrolled `WIPEMARK_COMPARE_SCROLL` lines down and
+    /// the result placed by the window's own scrolling together, into the
+    /// folder `WIPEMARK_COMPARE_SHOTS` names. `scripts/verify/e7-11/shots.sh`
+    /// runs it.
+    #[test]
+    #[ignore]
+    fn compare_screenshots() {
+        use gpui::{AppContext as _, HeadlessAppContext};
+
+        let out = std::path::PathBuf::from(
+            std::env::var("WIPEMARK_COMPARE_SHOTS").expect("WIPEMARK_COMPARE_SHOTS"),
+        );
+        let lines_down: f32 = std::env::var("WIPEMARK_COMPARE_SCROLL")
+            .ok()
+            .and_then(|lines| lines.parse().ok())
+            .unwrap_or(40.0);
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/compare/long-paragraphs");
+        let original = std::fs::read_to_string(fixture.join("original.txt")).expect("original");
+        let rewritten = std::fs::read_to_string(fixture.join("rewritten.txt")).expect("rewrite");
+        std::fs::create_dir_all(&out).expect("the folder");
+
+        for (name, wrap, padded) in [
+            ("unwrapped", false, false),
+            ("result-wrapped", true, false),
+            ("padded", true, true),
+        ] {
+            let mut cx = HeadlessAppContext::with_platform(
+                gpui_platform::current_platform(true).text_system(),
+                Arc::new(crate::assets::WipemarkAssets),
+                gpui_platform::current_headless_renderer,
+            );
+            cx.update(gpui_component::init);
+            let comparison = Comparison {
+                wrap: padded,
+                // The pasted rewrite would be saved as a clean, which needs
+                // the application's line: not this picture's business.
+                autosave: false,
+                ..Comparison::default()
+            };
+            let slot: Rc<std::cell::RefCell<Option<Entity<CompareView>>>> = Rc::default();
+            let held = slot.clone();
+            let subject = of(Handed::Text(original.clone()));
+            let window = cx
+                .open_window(size(px(1400.0), px(820.0)), move |window, cx| {
+                    let view = cx.new(|cx| {
+                        CompareView::new(subject, comparison, None, None, None, window, cx)
+                    });
+                    *held.borrow_mut() = Some(view.clone());
+                    cx.new(|cx| Root::new(view, window, cx))
+                })
+                .expect("a window");
+            let any: gpui::AnyWindowHandle = window.into();
+            let view = slot.take().expect("the view");
+            let frame = |cx: &mut HeadlessAppContext| {
+                for _ in 0..4 {
+                    cx.run_until_parked();
+                    cx.advance_clock(Duration::from_millis(400));
+                    cx.update_window(any, |_, window, cx| window.draw(cx).clear(cx))
+                        .expect("drawn");
+                }
+            };
+            frame(&mut cx);
+            cx.update_window(any, |_, window, cx| {
+                let pane = view.read(cx).result.clone();
+                pane.update(cx, |pane, cx| {
+                    pane.set_text(&rewritten, window, cx);
+                    if wrap && !padded {
+                        // The window before E7-11: the result's own button.
+                        pane.set_soft_wrap(true, window, cx);
+                    }
+                });
+            })
+            .expect("the rewrite");
+            frame(&mut cx);
+            let save = |cx: &mut HeadlessAppContext, file: String| {
+                let image = cx.capture_screenshot(any).expect("a picture");
+                let path = out.join(file);
+                let writer = std::io::BufWriter::new(std::fs::File::create(&path).expect("file"));
+                let mut encoder = png::Encoder::new(writer, image.width(), image.height());
+                encoder.set_color(png::ColorType::Rgba);
+                encoder.set_depth(png::BitDepth::Eight);
+                encoder
+                    .write_header()
+                    .and_then(|mut png| png.write_image_data(image.as_raw()))
+                    .expect("written");
+                eprintln!("{}", path.display());
+            };
+            save(&mut cx, format!("{name}.png"));
+            cx.update_window(any, |_, _, cx| {
+                view.update(cx, |view, cx| {
+                    let height = view
+                        .editor(Side::Original, cx)
+                        .read(cx)
+                        .line_height()
+                        .map_or(20.0, f32::from);
+                    let to = gpui::point(px(0.0), px(-(lines_down * height)));
+                    view.editor(Side::Original, cx)
+                        .update(cx, |state, cx| state.set_scroll_offset(to, cx));
+                });
+            })
+            .expect("scrolled");
+            frame(&mut cx);
+            save(&mut cx, format!("{name}-scrolled.png"));
+        }
     }
 
     // -- saving an edited result (E7-9) ---------------------------------

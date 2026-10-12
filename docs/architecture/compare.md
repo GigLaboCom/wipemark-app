@@ -420,7 +420,8 @@ And for Compare's follow-ups (2026-10-09, `docs/plan/compare-followups.md`):
   pane, in both gutter layouts, is level in the same frame, because the
   bar notifies the editor's own view; a wrapped result that leads is
   followed a frame late and no later (D386); the measure, its frame
-  record and its gates stay — see "Scrolling together".
+  record and its gates stay — see "Scrolling together". Since E7-11 the
+  exception is gone: padded panes stand level in the same frame (D672).
 
 And for where the gutters sit (E7-10, "Where the gutters sit"):
 
@@ -442,6 +443,30 @@ And for where the gutters sit (E7-10, "Where the gutters sit"):
   left, not from the row's, which spans the gutter.
 - **D467** — `compare::tests::thumb_of` finds a pane's vertical thumb by
   the window's layout, for C16 to reuse.
+
+And for long lines (E7-11, "Long lines: both panes wrap, padded level"):
+
+- **D670** — long lines wrap on both panes or on neither (`compare.wrap`
+  and the result toolbar's button, one state), and wrapped, the shorter
+  line of every pair is padded with the library's spacer rows: shared
+  lines one for one, line *i* against line *i* inside a hunk, the rest
+  against tinted blank rows at the end of the shorter block.
+- **D671** — a changed passage compared as one while it fits
+  `SPAN_CELLS`, line against line past it.
+- **D672** — padded panes scroll at one offset; D384, D386's wrapped
+  reading, D433 and D449's exception are superseded.
+- **D673** — a pane asked again when the other's rows move: before the
+  frame for an edit, at the end of the frame for a rewrap.
+- **D674** — the editor's side upstream: U1 the display-row map and its
+  version, U2 spacer rows, the story's wrap and an example.
+- **D675** — the submodule on the `glani` fork's `editor-spacer-rows` on
+  this branch alone, until upstream merges.
+- **D676** — pictures drawn with no display, by GPUI's headless renderer.
+- **D677** — `compare.wrap` off by default: a resize of a wrapped window
+  costs 316 ms a frame for 200 paragraphs and 9 s for 8 MiB, the
+  library's rewrap; the remedy is upstream's.
+- **D678** — between an edit and the next comparison the pairing is the
+  last comparison's.
 
 ### What a save does not do (D419)
 
@@ -631,11 +656,10 @@ patched.
   because GPUI's test mode paints a dirty window at every flush until
   nothing is dirty, and what the panes settle on would hide a frame
   late). With the editors' observers taken out every one of those is a
-  frame late, and the gate goes red. A wrapped result is the exception
-  (D384, D386): read only at the end of a frame, while it leads the
-  original stands level one frame late, and never later
-  (`with_the_result_wrapped_it_leads_a_frame_late_and_no_later`); the
-  original leading a wrapped result is level in the same frame. With
+  frame late, and the gate goes red. Wrapped and padded, the same holds:
+  the test runs both ways, and D449's old exception — a wrapped result
+  read only at the end of a frame and followed a frame late — is gone
+  with the reading it needed (D672). With
   scrolling together off a drag moves its own pane alone
   (`with_the_row_off_a_drag_moves_one_pane`). No look was added to
   `render`: nothing was late to fix. Beyond those, a scroll the library applies while it lays
@@ -645,9 +669,10 @@ patched.
   text moved. Both reach the window's `observe` on each editor. A
   zero-sized `canvas` painted after both panes adds a look at the end
   of every frame (read after the frame, because a scroll asked while a
-  frame paints is forgotten with it): it is the one moment a pane that
-  wraps its lines has a layout that agrees with its offset, so a
-  wrapped pane is read only there.
+  frame paints is forgotten with it), which finds nothing new unless a
+  scroll arrived without a notification. A pane's place is its offset,
+  wrapped or not — padded, both panes have the same rows — so no road
+  waits for the end of a frame (D672).
 * **The guard** (D382). A pane that is scrolled to follow notifies like
   any other, and must not lead back. The window remembers, per pane,
   the offset it last saw and what it last asked (`Asked { from, to }`);
@@ -690,14 +715,10 @@ patched.
   lead of its own (D392): the two end where the result put them, in one
   frame, where before the original's notification came first (it is
   painted first), it led, and the result led back
-  (`two_panes_moved_in_one_frame_end_where_the_result_put_them`). The
-  order alone did not hold with the result's lines wrapped (D384): a
-  wrapped pane is read only at the end of a frame, so the notification
-  looks skipped it, and the original led before the result's move could
-  be weighed. A look between frames now waits while a wrapping result
-  has moved unseen, and the end of the frame looks at both, the result
-  first — the rule is the same however a position is read (D433, A-L3;
-  `two_panes_moved_in_one_frame_end_where_a_wrapped_result_put_them`). A
+  (`two_panes_moved_in_one_frame_end_where_the_result_put_them`, and
+  padded `two_padded_panes_moved_in_one_frame_end_where_the_result_put_them`;
+  D433's wait for a wrapped result, read only at the end of a frame, went
+  with that reading, D672). A
   comparison recomputed after an edit changes the map for the next
   scroll and moves neither pane (D390): its empty edit collapses a
   selection in the original to a caret the editor would bring into view
@@ -709,15 +730,14 @@ patched.
   the scroll until its next layout), where that ask goes: put back as it
   stood, it cancelled the follow (D432, A-L4;
   `a_recompute_does_not_cancel_a_follow_on_its_way`).
-* **Wrapping** (D384). With the result's lines wrapped the library does
-  not expose how many lines each row became. A wrapped pane's top is
-  read off its last layout — the first row shown and how far the
-  viewport is into it — and a wrapped pane is placed on a row by where
-  the last layout drew it, or, for a row not laid out, by the average
-  height of the rows that are; the next step of the leading pane, the
-  row now laid out, lands on it
-  (`a_wrapped_result_far_away_is_placed_by_estimate`). Approximate, and
-  the page says so. The original never wraps.
+* **Wrapping** (D670, D672). Long lines wrap on both sides or on
+  neither, and wrapped, the two panes are padded to the same rows — see
+  "Long lines" below — so a pane's place is its offset and the other
+  pane is set to the same one: exact, for a row laid out or not
+  (`padded_panes_scroll_at_one_offset`,
+  `a_line_far_below_stands_level_at_once`). D384's reading of a wrapped
+  pane off its last layout, and its estimate for rows not laid out, had
+  no caller left and went.
 
 **Following.** The original also *follows the result's cursor*: whenever the result's caret changes line, the
 original's is put on the line that stands where that one does —
@@ -729,6 +749,89 @@ is handed straight back in the same update, and GPUI notices a focus
 change only at the next frame, so nothing blurs. One direction: the
 result leads, because it is the side being written in. With scrolling
 together off, the original scrolls to show its caret, as before E7-7.
+
+## Long lines: both panes wrap, padded level (E7-11)
+
+The owner's documents are paragraphs of one long line each, and in
+acceptance step A6 (2026-10-12) he asked for what Zed's side-by-side diff
+does: both panes wrap, and the shorter side of every pair is padded with
+blank rows so that each paragraph starts level with its partner at any
+depth (D670). Before, only the result could wrap — on its own toolbar
+button, off by default — and the original never did; a paragraph of nine
+rows on the left beside twelve on the right put every pair below it
+further apart.
+
+**One wrap state.** `compare.wrap` (a Compare row, read when a window
+opens; off by default for now — see "What a resize costs") and the
+result toolbar's **Wrap long lines**, which
+now turns wrapping on and off for both panes of the open window
+(`ResultEvent::Wrapped`, `CompareView::wrap`). Zed keeps one soft-wrap
+state for the two sides of its diff for the same reason: one side wrapped
+and the other not is the worst of the arrangements for reading across.
+
+**Padding.** The rows are the library's: gpui-kit's editor gained
+**spacer rows** for this — blank display rows above or below a buffer
+line, in the display map above folding, with no line number, no caret,
+no decoration, counted by the scroll and by `row_bounds` (the
+`editor-spacer-rows` pull request, D674) — and a read of the display-row
+map (`buffer_line_to_display_rows`, `display_rows_version`; the
+`editor-display-row-map` pull request). `Diff::padding` pairs the lines:
+shared lines one for one, line *i* of a hunk against line *i* of the
+other side's block, a paired line that takes fewer rows padded below by
+the difference, and the lines past the shorter block's count standing
+against blank rows at the end of the shorter block, marked as filler and
+tinted with the theme's muted colour. The last line of a text that ends
+with a newline, the editor's empty one, is paired too. A `Level` (one per
+window) works both sides' padding out once per pair of row versions and
+comparison, and each pane's `Padded` provider hands the library its
+side. `paired_lines_start_level_when_both_wrap` is the gate on the
+pairing, `the_toolbar_wraps_both_panes_and_pads_them` on the one state.
+
+**Asked again** (D673). The library asks a pane for its spacers when its
+own rows move — an edit, a rewrap at a new width. A pane padded against
+the other pane's rows must also be asked when *those* move, and only the
+window knows that: on the result's `Changed` — before the frame that lays
+the edit out, so both panes stand level in it
+(`an_edit_is_padded_level_in_its_own_frame`) — and at the end of every
+frame, for whichever pane's spacers were worked out from rows or a
+comparison that have moved since (`a_rewrap_pads_the_other_pane_by_the_next_frame`).
+Both tests count the panes the end of a frame had to ask again (`late`, a
+test-only field): GPUI's test mode paints a dirty window again at once, so
+what the panes settle on cannot tell a frame of lag from none.
+The original is laid out before the result, so after a rewrap at a new
+width — a window resize — it stands level one frame later; an edit is
+level in its own frame. Until a comparison lands after typing (120 ms of
+quiet, as the marks) the pairing below a line put in or taken out is the
+last comparison's (D678).
+
+**What it does not do.** Inside a hunk the lines are paired by position,
+not by likeness: a paragraph put in among paragraphs that were all
+rewritten pairs every paragraph after it with the next one's partner, up
+to the end of that hunk, where the filler stands. A rewrite keeps the
+count of its paragraphs, so the owner's documents pair as they should;
+pairing by likeness inside a hunk is left open (the report's "What is
+left").
+
+**Word marks** (D671). A changed passage is compared word against word
+as one while its table fits `SPAN_CELLS`, so a word that moved across a
+line break is a move; past the ceiling, line *i* against line *i*, each
+pair under it on its own. A rewrite of a whole document of one-line
+paragraphs was one passage past the ceiling after about two and a half
+two-hundred-word paragraphs and lost every word mark; now each paragraph
+keeps its own (`a_rewritten_document_keeps_its_word_marks`).
+
+**What a resize costs** (D677). The library rewraps the whole document
+on every width change, synchronously, in the frame — now for two panes —
+and the padding is one pass over both texts after it. Measured in the
+container (release build, `scripts/verify/e7-11/resize.sh`), the panes'
+layout and paint of one resize frame: unwrapped under 1 ms for 200
+paragraphs and for 8 MiB alike; wrapped and padded, 316 ms (median) for
+200 paragraphs and 9.1 s for 8 MiB, the window's first frame 15 s. The
+padding's own share is 0.1 ms and 5 ms; the rest is the rewrap, about
+180 ms a pane for the 200 paragraphs. So the row is **off by default**
+until the rewrap is cheaper — through GPUI's `LineWrapper` for plain
+text, and off the paint path — and a person turns it on in Settings ›
+Compare or with the button.
 
 ## Where the gutters sit (E7-10)
 
@@ -800,7 +903,9 @@ editors' construction and `apply_gutters`; nothing in `panes`, `render`,
 Settings › Compare is where the choices above are made —
 `compare.grain` (`lines`, `words` or `characters`; words by default),
 `compare.gutters` (`middle` or `left`; facing the middle by default —
-"Where the gutters sit"), `compare.follow` (on by default) and
+"Where the gutters sit"), `compare.wrap` (off by default until a resize
+of a wrapped window fits a frame, D677 — "Long lines"), `compare.follow`
+(on by default) and
 `compare.sync_scroll` (on by default, the owner, 2026-10-07) and
 `compare.autosave` (on by default, the owner, 2026-10-08; see "Saving an
 edited result") — as rows in `wipemark.db` like
@@ -854,7 +959,9 @@ desktop's; `GoToDefinition` and `ToggleCodeActions` want a language
 server this product does not run. Two things on the strip are not
 actions at all — wrapping long lines and showing whitespace are ways
 of *looking* at the text, toggled through the editor's own setters —
-and they sit apart from the operations for that reason. Line numbers
+and they sit apart from the operations for that reason. Wrapping is
+both panes': the button says so to the window, which wraps the original
+with it and pads the two (D670). Line numbers
 are not a toggle: the tints are painted against the gutter, and
 turning it off would take the marks with it.
 

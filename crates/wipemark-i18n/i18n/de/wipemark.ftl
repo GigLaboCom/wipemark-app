@@ -326,8 +326,11 @@ settings-compare-gutters-left = Beide links
 settings-compare-follow-title = Das Original folgt dem Cursor
 settings-compare-follow-description = Wird der Cursor im Ergebnis bewegt, springt der Cursor des Originals auf die Zeile, die an derselben Stelle steht. Ausgeschaltet bleibt der Cursor des Originals, wo er war.
 
+settings-compare-wrap-title = Lange Zeilen umbrechen
+settings-compare-wrap-description = Lange Zeilen brechen auf beiden Seiten am Rand ihres Bereichs um, und wo eine Zeile auf einer Seite mehr Reihen einnimmt als ihr Gegenstück auf der anderen, wird die andere Seite mit leeren Reihen aufgefüllt — so beginnen zusammengehörige Zeilen auf gleicher Höhe, wie weit unten sie auch stehen. Die Schaltfläche „Lange Zeilen umbrechen“ über dem Ergebnis schaltet das für beide Seiten eines offenen Fensters ein und aus. Wird gelesen, wenn ein Vergleichsfenster öffnet. Ausgeschaltet läuft eine lange Zeile über den Rand ihres Bereichs hinaus, und jede Seite rollt für sich seitwärts.
+
 settings-compare-sync-scroll-title = Beide Seiten rollen zusammen
-settings-compare-sync-scroll-description = Wird eine Seite gerollt — mit dem Mausrad, dem Touchpad, der Bildlaufleiste oder der Tastatur —, rollt die andere mit, sodass die Zeilen, die beide Seiten gemeinsam haben, auf gleicher Höhe bleiben. Durch eine geänderte Passage bewegt sich die andere Seite im Gleichschritt durch ihre eigenen Zeilen. Solange das Ergebnis Zeilen umbricht, stehen die Seiten nur ungefähr auf gleicher Höhe. Ausgeschaltet rollt jede Seite für sich.
+settings-compare-sync-scroll-description = Wird eine Seite gerollt — mit dem Mausrad, dem Touchpad, der Bildlaufleiste oder der Tastatur —, rollt die andere mit, sodass die Zeilen, die beide Seiten gemeinsam haben, auf gleicher Höhe bleiben. Mit umbrochenen langen Zeilen sind beide Seiten auf dieselben Reihen aufgefüllt und rollen als eine. Ohne Umbruch bewegt sich die andere Seite durch eine geänderte Passage im Gleichschritt durch ihre eigenen Zeilen. Ausgeschaltet rollt jede Seite für sich.
 
 settings-compare-autosave-title = Änderungen beim Tippen speichern
 settings-compare-autosave-description = Ein Vergleichsfenster speichert ein bearbeitetes Ergebnis einen Moment, nachdem das Tippen aufhört, und noch einmal beim Schließen — über die eigene Datei des Ergebnisses oder in seiner Zeile, wenn der Text keine Datei hat, und nie über das Original. Ausgeschaltet speichert ein Fenster, wenn „Speichern“ gedrückt wird, und fragt vor dem Schließen mit ungespeicherten Änderungen.
