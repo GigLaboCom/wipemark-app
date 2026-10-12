@@ -25,7 +25,9 @@
 //! answers **every** drop on the window, because GPUI's own window
 //! refuses anything that is not a file (see that module for the line
 //! that does it). Everywhere else, GPUI's [`ExternalPaths`] drag is all
-//! there is, and it carries files.
+//! there is, and it carries files — on Linux a dragged text too, which the
+//! carried `gpui-pre-linux` hands over as a private drop file and
+//! [`handed_of`] reads back as the text it is (F15, D653).
 //!
 //! So both are wired, and only one of them fires: a window whose
 //! destination installed never reports an `ExternalPaths` drop, because
@@ -280,7 +282,15 @@ pub fn accept(window: &Window) {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn accept(_window: &Window) {}
+pub fn accept(_window: &Window) {
+    // A drop file nobody took — a text let go where no zone was, or a run
+    // that ended between GPUI's write and our read — is removed here, off
+    // the drawing thread (D656).
+    #[cfg(target_os = "linux")]
+    if let Some(dir) = dropped_text::dir() {
+        std::thread::spawn(move || dropped_text::sweep(&dir, dropped_text::STALE));
+    }
+}
 
 /// Wrap an element so that whatever is dropped on it lands in
 /// `catcher`.
@@ -303,7 +313,7 @@ pub fn zone(element: Div, catcher: &Entity<Catcher>, cx: &App) -> Div {
         // macOS and the fallback on it — see the module docs.
         .drag_over::<ExternalPaths>(|style, _, _, cx| style.bg(cx.theme().accent))
         .on_drop::<ExternalPaths>(move |paths, _, cx| {
-            let handed: Vec<Handed> = paths.paths().iter().cloned().map(Handed::Path).collect();
+            let handed = handed_of(paths);
             tell(Road::ExternalPaths, &handed);
             landing.update(cx, |catcher, cx| catcher.land(handed, cx));
         })
@@ -348,7 +358,7 @@ pub fn overlay(catcher: &Entity<Catcher>, cx: &App) -> AnyElement {
                     .border_color(cx.theme().primary)
             })
             .on_drop::<ExternalPaths>(move |paths, _, cx| {
-                let handed: Vec<Handed> = paths.paths().iter().cloned().map(Handed::Path).collect();
+                let handed = handed_of(paths);
                 tell(Road::ExternalPaths, &handed);
                 landing.update(cx, |catcher, cx| catcher.land(handed, cx));
             })
@@ -376,13 +386,150 @@ pub fn overlay(catcher: &Entity<Catcher>, cx: &App) -> AnyElement {
     .into_any_element()
 }
 
+/// What GPUI's own drop handed over, as this application takes it.
+///
+/// A path is a file the person dropped — except on Linux, where the
+/// carried `gpui-pre-linux` hands a dragged *text* over as a file of its
+/// own in a private drop directory, because GPUI's drop carries paths and
+/// nothing else (acceptance F15, D653). Such a path is not a file anybody
+/// chose: it is read as the text it holds, removed at once, and lands as a
+/// [`Handed::Text`] — what a paste lands, with no file behind it, so the
+/// Retention page treats it as a paste (D654). Read here, on the drawing
+/// thread, because it is at most 1 MiB in a private directory that GPUI
+/// wrote a moment ago, normally on the runtime directory's `tmpfs` (D655).
+fn handed_of(paths: &ExternalPaths) -> Vec<Handed> {
+    #[cfg(target_os = "linux")]
+    if let Some(dir) = dropped_text::dir() {
+        return dropped_text::handed_from(paths.paths(), &dir);
+    }
+    paths.paths().iter().cloned().map(Handed::Path).collect()
+}
+
+/// The application's half of a dragged text on Linux: where the carried
+/// `gpui-pre-linux` writes it, and the reading back.
+///
+/// The directory is the one `vendor/gpui-pre-linux/src/linux/platform.rs`
+/// (`dropped_text_dir`) writes to, by the same rule: `wipemark-dropped-text`
+/// under an absolute `$XDG_RUNTIME_DIR`, else `wipemark-dropped-text-<uid>`
+/// under the temporary directory. The two cannot share code — one is
+/// GPUI's crate, carried, and the application does not depend on it — so
+/// the rule is stated twice and the live check
+/// (`scripts/verify/linux-drop/quick-drop.sh`, its text steps) holds them
+/// together.
+#[cfg(target_os = "linux")]
+mod dropped_text {
+    use std::io;
+    use std::os::unix::fs::MetadataExt as _;
+    use std::path::{Path, PathBuf};
+    use std::time::{Duration, SystemTime};
+
+    use wipemark_intake::Handed;
+
+    /// GPUI refuses a dragged text over a mebibyte — the MCP body's limit —
+    /// and a drop file larger than that is not one it wrote.
+    const LIMIT: u64 = 1 << 20;
+
+    /// A drop file is read in the dispatch of the drop that wrote it, a
+    /// few milliseconds; one a minute old was never taken.
+    pub(super) const STALE: Duration = Duration::from_secs(60);
+
+    pub(super) fn dir() -> Option<PathBuf> {
+        match std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from) {
+            Some(dir) if dir.is_absolute() => Some(dir.join("wipemark-dropped-text")),
+            _ => {
+                // The process's own uid, without a call into libc: Linux
+                // gives `/proc/self` to the process's effective user.
+                let uid = std::fs::metadata("/proc/self").ok()?.uid();
+                Some(std::env::temp_dir().join(format!("wipemark-dropped-text-{uid}")))
+            }
+        }
+    }
+
+    /// Every path as it was handed over, except one in `dir`, which is the
+    /// text it holds — or nothing, when it cannot be read as text — and is
+    /// gone from the disk either way.
+    pub(super) fn handed_from(paths: &[PathBuf], dir: &Path) -> Vec<Handed> {
+        paths
+            .iter()
+            .filter_map(|path| {
+                if path.parent() == Some(dir) {
+                    take(path)
+                } else {
+                    Some(Handed::Path(path.clone()))
+                }
+            })
+            .collect()
+    }
+
+    fn take(path: &Path) -> Option<Handed> {
+        let read = read(path);
+        let removed = std::fs::remove_file(path);
+        if let Err(error) = removed {
+            tracing::warn!(%error, "a dragged text's drop file could not be removed");
+        }
+        match read {
+            Ok(text) => {
+                tracing::debug!(
+                    bytes = text.len(),
+                    "a dragged text was read from its drop file"
+                );
+                Some(Handed::Text(text))
+            }
+            Err(error) => {
+                tracing::warn!(%error, "a dragged text's drop file could not be read");
+                None
+            }
+        }
+    }
+
+    fn read(path: &Path) -> io::Result<String> {
+        let metadata = std::fs::symlink_metadata(path)?;
+        if !metadata.is_file() {
+            return Err(io::Error::other("not a regular file"));
+        }
+        if metadata.len() > LIMIT {
+            return Err(io::Error::other("over the limit of a dragged text"));
+        }
+        std::fs::read_to_string(path)
+    }
+
+    /// Remove the drop files in `dir` older than `stale`; how many went.
+    pub(super) fn sweep(dir: &Path, stale: Duration) -> usize {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return 0;
+        };
+        let now = SystemTime::now();
+        let mut removed = 0;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+                continue;
+            };
+            let old = metadata
+                .modified()
+                .ok()
+                .and_then(|modified| now.duration_since(modified).ok())
+                .is_some_and(|age| age >= stale);
+            let ours = path.extension().is_some_and(|extension| extension == "txt");
+            if metadata.is_file() && ours && old && std::fs::remove_file(&path).is_ok() {
+                removed += 1;
+            }
+        }
+        if removed > 0 {
+            tracing::info!(removed, "drop files nobody took were removed");
+        }
+        removed
+    }
+}
+
 /// Which of the two roads in a drop came by — see the module docs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Road {
     /// Our own dragging destination on macOS (`crate::pasteboard`).
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Pasteboard,
-    /// GPUI's `ExternalPaths` drag: files only, the whole story off macOS.
+    /// GPUI's `ExternalPaths` drag: files (and, on Linux, a dragged text
+    /// as its drop file), the whole story off macOS.
     ExternalPaths,
 }
 
@@ -464,6 +611,83 @@ mod tests {
             ]),
             2
         );
+    }
+
+    /// A private directory like the one GPUI writes a dragged text to.
+    #[cfg(target_os = "linux")]
+    fn drop_directory(name: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::DirBuilderExt as _;
+        let dir =
+            std::env::temp_dir().join(format!("wipemark-drop-test-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+        dir
+    }
+
+    /// A path in the drop directory is a dragged text, not a file anybody
+    /// chose: it lands as the text, and the file is gone at once (F15,
+    /// D654). A file the person dropped beside it is handed on untouched.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_dragged_text_lands_as_text_and_its_file_is_gone() {
+        let dir = drop_directory("text");
+        let dropped = dir.join("1-2-3.txt");
+        std::fs::write(&dropped, "words dragged out of a browser").unwrap();
+        let elsewhere = std::env::temp_dir().join(format!(
+            "wipemark-drop-test-file-{}.txt",
+            std::process::id()
+        ));
+        std::fs::write(&elsewhere, "a file somebody chose").unwrap();
+
+        let handed = super::dropped_text::handed_from(&[dropped.clone(), elsewhere.clone()], &dir);
+
+        assert_eq!(
+            handed,
+            vec![
+                Handed::Text("words dragged out of a browser".to_owned()),
+                Handed::Path(elsewhere.clone()),
+            ]
+        );
+        assert!(!dropped.exists(), "the drop file was left behind");
+        assert!(elsewhere.exists(), "a file the person dropped was touched");
+        std::fs::remove_file(&elsewhere).ok();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A drop file that is not text lands nothing — and is still removed.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_drop_file_that_is_not_text_lands_nothing_and_goes() {
+        let dir = drop_directory("binary");
+        let dropped = dir.join("1-2-4.txt");
+        std::fs::write(&dropped, [0xff, 0xfe, 0x00]).unwrap();
+
+        assert!(super::dropped_text::handed_from(std::slice::from_ref(&dropped), &dir).is_empty());
+        assert!(!dropped.exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A drop file nobody took is swept once it is stale, and one that is
+    /// still being handed over is not.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_stale_drop_file_is_swept_and_a_fresh_one_kept() {
+        let dir = drop_directory("sweep");
+        let stale = dir.join("1-2-5.txt");
+        let fresh = dir.join("1-2-6.txt");
+        std::fs::write(&stale, "old").unwrap();
+        std::fs::write(&fresh, "new").unwrap();
+        let file = std::fs::File::options().write(true).open(&stale).unwrap();
+        file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(120))
+            .unwrap();
+
+        assert_eq!(
+            super::dropped_text::sweep(&dir, super::dropped_text::STALE),
+            1
+        );
+        assert!(!stale.exists());
+        assert!(fresh.exists());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A catcher with no window behind it: everything below is about

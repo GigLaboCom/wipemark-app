@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A minimal XDND drag source, for dropping a file on a window under Xvfb.
+"""A minimal XDND drag source, for dropping a file or a text on a window under Xvfb.
 
 What it is for, and who asked
     Acceptance F9 (the owner, 2026-10-12): on Linux a file dragged onto a
@@ -14,14 +14,25 @@ What it is for, and who asked
     owner's host, and nothing may send input to the owner's own display, so
     it speaks XDND itself over libX11 (ctypes) on a virtual display.
 
+    Acceptance F15 (the owner, 2026-10-12): text dragged out of a browser or
+    an editor — not a file — was taken by no Wipemark window on Linux, because
+    GPUI's backend read only text/uri-list. The carried crate now takes a
+    text too (D653–D659); --text makes this script the text drag that checks
+    it: it offers UTF8_STRING and text/plain instead of a URI list.
+
 What it does, step by step
     1. Opens $DISPLAY, creates a 1x1 unmapped source window, makes it the
        owner of XdndSelection, and warps the pointer to the middle of the
        target window — GPUI reads the drop position with QueryPointer, not
        from the message. Warping moves the pointer of this display only and
        is not a key or a button.
-    2. Sends XdndEnter (version 5, one type: text/uri-list) and XdndPosition
-       to the target window.
+    2. Sends XdndEnter (version 5) and XdndPosition to the target window.
+       The types offered: text/uri-list for --file; UTF8_STRING and
+       text/plain for --text; both, text first, for --file with --caption
+       (a file with the text describing it — the file must win). Up to three
+       go in XdndEnter itself; --type-list puts them, with text/html and
+       text/plain;charset=utf-8 ahead of them, in the source's XdndTypeList
+       property instead (more than three types, as a browser offers).
     3. Then, by --mode:
          quick  sends XdndDrop at once, *before* answering the target's
                 SelectionRequest — the race, made certain: the target sees
@@ -31,15 +42,18 @@ What it does, step by step
          leave  answers nothing, sends XdndLeave, then answers the
                 SelectionRequest late — the file list arriving after the drag
                 has gone, which must not leave a drag behind.
-    4. Answers every SelectionRequest for XdndSelection with the file's
-       `file://` URI as text/uri-list, and waits up to --timeout seconds for
-       XdndFinished (quick and slow).
+    4. Answers every SelectionRequest for XdndSelection — text/uri-list with
+       the file's `file://` URI, a text type with the text (--text, or
+       --caption), anything else refused — and waits up to --timeout seconds
+       for XdndFinished (quick and slow).
     5. Prints one line per thing that happened (enter, position, drop or
        leave, the request served, status, finished) and exits.
 
 How to run it
     DISPLAY=:96 python3 -I scripts/verify/linux-drop/xdnd-source.py \\
         --target 0x1200003 --file /tmp/x/note.txt --mode quick
+    DISPLAY=:96 python3 -I scripts/verify/linux-drop/xdnd-source.py \\
+        --target 0x1200003 --text "words dragged out of a page" --type-list
     scripts/verify/linux-drop/quick-drop.sh runs it against the real
     application; that is the way it is meant to be used.
 
@@ -48,11 +62,13 @@ What it needs
 
 What its output means
     "finished: accepted" — the target sent XdndFinished saying it took the
-    drop. Exit 0 when the mode's last step happened (finished for quick and
-    slow, the late answer for leave), 1 when the timeout passed first, 2 on
-    a usage or display error. Whether the application *kept* the file is
-    the application's log to say (`wipemark::queue: queued count=1`), not
-    this script's.
+    drop. "served text/uri-list" or "served UTF8_STRING" (and so on) — which
+    type the target asked for, which is the type it chose. Exit 0 when the
+    mode's last step happened (finished for quick and slow, the late answer
+    for leave), 1 when the timeout passed first, 2 on a usage or display
+    error. Whether the application *kept* the file or the text is the
+    application's log to say (`wipemark::queue: queued count=1`), not this
+    script's.
 """
 
 import argparse
@@ -148,13 +164,19 @@ class XWindowAttributes(Structure):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--target", required=True, help="the target window id (0x… or decimal)")
-    parser.add_argument("--file", required=True, help="the file to drag")
+    what = parser.add_mutually_exclusive_group(required=True)
+    what.add_argument("--file", help="the file to drag")
+    what.add_argument("--text", help="a text to drag (UTF8_STRING and text/plain)")
+    parser.add_argument("--caption", help="with --file: a text offered ahead of the file")
+    parser.add_argument("--type-list", action="store_true",
+                        help="offer the types through XdndTypeList, more than three")
     parser.add_argument("--mode", choices=["quick", "slow", "leave"], default="quick")
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
 
     target = int(args.target, 0)
-    uri = "file://" + os.path.abspath(args.file) + "\r\n"
+    uri = ("file://" + os.path.abspath(args.file) + "\r\n") if args.file else None
+    text = args.text if args.text is not None else args.caption
 
     x11 = ctypes.CDLL("libX11.so.6")
     x11.XOpenDisplay.restype = c_void_p
@@ -197,9 +219,26 @@ def main():
         "XdndDrop", "XdndFinished", "XdndActionCopy",
     )}
     uri_list = atom("text/uri-list")
+    text_types = {atom(name): name for name in (
+        "UTF8_STRING", "text/plain", "text/plain;charset=utf-8",
+    )}
+    html = atom("text/html")
+    offered = []
+    if text is not None:
+        offered += [atom("UTF8_STRING"), atom("text/plain")]
+    if uri is not None:
+        offered.append(uri_list)
+    if args.type_list:
+        offered = [html, atom("text/plain;charset=utf-8")] + offered
 
     source = x11.XCreateSimpleWindow(display, root, 0, 0, 1, 1, 0, 0, 0)
     x11.XSetSelectionOwner(display, xdnd["XdndSelection"], source, 0)
+    if args.type_list:
+        types = (c_ulong * len(offered))(*offered)
+        x11.XChangeProperty(
+            display, source, atom("XdndTypeList"), atom("ATOM"), 32,
+            PROP_MODE_REPLACE, ctypes.cast(types, c_char_p), len(offered),
+        )
 
     attributes = XWindowAttributes()
     if not x11.XGetWindowAttributes(display, target, byref(attributes)):
@@ -255,10 +294,15 @@ def main():
         return until()
 
     def serve(request):
-        data = uri.encode()
-        if request.target == uri_list:
+        if request.target == uri_list and uri is not None:
+            data = uri.encode()
+        elif request.target in text_types and text is not None:
+            data = text.encode()
+        else:
+            data = None
+        if data is not None:
             x11.XChangeProperty(
-                display, request.requestor, request.property, uri_list, 8,
+                display, request.requestor, request.property, request.target, 8,
                 PROP_MODE_REPLACE, data, len(data),
             )
             prop = request.property
@@ -274,14 +318,20 @@ def main():
         x11.XSendEvent(display, request.requestor, 0, 0, byref(reply))
         x11.XFlush(display)
         served.append(request.target)
-        print(f"served the file list{' (late)' if late else ''}")
+        name = "text/uri-list" if request.target == uri_list else text_types.get(
+            request.target, "an unknown type, refused")
+        print(f"served {name}{' (late)' if late else ''}")
 
     pending = []
     answering = args.mode == "slow"
     late = False
     deadline = time.monotonic() + args.timeout
 
-    send("XdndEnter", source, 5 << 24, uri_list, 0, 0)
+    if args.type_list:
+        send("XdndEnter", source, (5 << 24) | 1, 0, 0, 0)
+    else:
+        inline = (offered + [0, 0, 0])[:3]
+        send("XdndEnter", source, 5 << 24, *inline)
     send("XdndPosition", source, 0, (x.value << 16) | y.value, 0, xdnd["XdndActionCopy"])
 
     if args.mode == "slow":

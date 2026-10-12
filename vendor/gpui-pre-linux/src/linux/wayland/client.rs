@@ -1,4 +1,4 @@
-// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost (vendor/gpui-pre-linux.patch).
+// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file (vendor/gpui-pre-linux.patch).
 use std::{
     cell::{RefCell, RefMut},
     hash::Hash,
@@ -23,7 +23,6 @@ use collections::HashMap;
 use filedescriptor::Pipe;
 use gpui_util::ResultExt as _;
 use http_client::Url;
-use smallvec::SmallVec;
 use wayland_backend::client::ObjectId;
 use wayland_backend::protocol::WEnum;
 use wayland_client::event_created_child;
@@ -86,10 +85,11 @@ use super::{
 };
 
 use crate::linux::{
-    DOUBLE_CLICK_INTERVAL, LinuxCommon, LinuxKeyboardLayout, PIPE_READ_TIMEOUT, SCROLL_LINES,
-    capslock_from_xkb, cursor_style_to_icon_names, get_xkb_compose_state, is_within_click_distance,
-    keystroke_from_xkb, keystroke_underlying_dead_key, modifiers_from_xkb, new_xkb_context,
-    open_uri_internal, read_fd_with_timeout, reveal_path_internal,
+    DOUBLE_CLICK_INTERVAL, DroppedPayload, DroppedText, LinuxCommon, LinuxKeyboardLayout,
+    PIPE_READ_TIMEOUT, SCROLL_LINES, capslock_from_xkb, cursor_style_to_icon_names,
+    get_xkb_compose_state, is_within_click_distance, keystroke_from_xkb,
+    keystroke_underlying_dead_key, modifiers_from_xkb, new_xkb_context, open_uri_internal,
+    read_fd_with_timeout, reveal_path_internal,
     wayland::{
         clipboard::{Clipboard, DataOffer, FILE_LIST_MIME_TYPE, TEXT_MIME_TYPES},
         cursor::Cursor,
@@ -416,13 +416,22 @@ struct DragState<DataOffer = wl_data_offer::WlDataOffer, Window = WaylandWindowS
     position: Point<Pixels>,
     uri_read_generation: u64,
     pending_drop: Option<(u64, Point<Pixels>)>,
+    text: Option<DroppedText>,
 }
+
+const DRAG_MIME_TYPES: [&str; 4] = [
+    FILE_LIST_MIME_TYPE,
+    "text/plain;charset=utf-8",
+    "UTF8_STRING",
+    "text/plain",
+];
 
 impl<DataOffer, Window> DragState<DataOffer, Window> {
     fn begin_uri_read(&mut self) -> u64 {
         if self.pending_drop.take().is_some() {
             log::debug!("drag enter: a deferred drop was abandoned");
         }
+        self.text = None;
         self.invalidate_uri_read();
         self.uri_read_generation
     }
@@ -462,6 +471,7 @@ where
             return None;
         }
         self.invalidate_uri_read();
+        self.text = None;
         let window = self.window.clone()?;
         let data_offer = self.data_offer.clone()?;
         data_offer.destroy();
@@ -476,10 +486,13 @@ where
             self.pending_drop = Some((self.uri_read_generation, self.position));
             return None;
         }
-        log::debug!("drag drop");
+        log::debug!("drag drop at {:?}", self.position);
         self.invalidate_uri_read();
         let window = self.window.clone()?;
         let data_offer = self.data_offer.clone()?;
+        if let Some(text) = self.text.take() {
+            text.write();
+        }
         data_offer.finish();
         data_offer.destroy();
         self.data_offer = None;
@@ -512,6 +525,22 @@ where
             window,
             PlatformInput::FileDrop(FileDropEvent::Entered { position, paths }),
         ))
+    }
+
+    fn complete_drag_read(
+        &mut self,
+        generation: u64,
+        data_offer: DataOffer,
+        window: Window,
+        position: Point<Pixels>,
+        payload: DroppedPayload,
+    ) -> Option<(Window, PlatformInput)> {
+        let paths = gpui::ExternalPaths(payload.paths());
+        let input = self.complete_uri_read(generation, data_offer, window, position, paths);
+        if let (Some(_), DroppedPayload::Text(text)) = (&input, payload) {
+            self.text = Some(text);
+        }
+        input
     }
 
     fn finish_pending_drop(&mut self) -> Option<(Window, PlatformInput)> {
@@ -1074,6 +1103,7 @@ impl WaylandConnection {
                 position: Point::default(),
                 uri_read_generation: 0,
                 pending_drop: None,
+                text: None,
             },
             external_drag: None,
             click: ClickState {
@@ -2840,23 +2870,34 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                     };
                     let uri_read_generation = state.drag.begin_uri_read();
                     state.drag.position = Point::new(x.into(), y.into());
-                    log::debug!("drag enter: reading the dragged file list");
+                    let mime_type = state
+                        .data_offers
+                        .iter()
+                        .find(|offer| offer.inner.id() == data_offer.id())
+                        .and_then(|offer| {
+                            DRAG_MIME_TYPES
+                                .into_iter()
+                                .find(|mime_type| offer.has_mime_type(mime_type))
+                        })
+                        .unwrap_or(FILE_LIST_MIME_TYPE);
+                    log::debug!("drag enter: reading the dragged {mime_type}");
 
                     const ACTIONS: DndAction = DndAction::Copy;
                     data_offer.set_actions(ACTIONS, ACTIONS);
+                    data_offer.accept(serial, Some(mime_type.to_string()));
 
                     let pipe = Pipe::new().unwrap();
-                    data_offer.receive(FILE_LIST_MIME_TYPE.to_string(), unsafe {
+                    data_offer.receive(mime_type.to_string(), unsafe {
                         BorrowedFd::borrow_raw(pipe.write.as_raw_fd())
                     });
                     let fd = pipe.read;
                     drop(pipe.write);
 
-                    let read_task = state.common.borrow().background_executor.spawn(async {
-                        let buffer = read_fd_with_timeout(fd, PIPE_READ_TIMEOUT)?;
-                        let text = String::from_utf8(buffer)?;
-                        anyhow::Ok(text)
-                    });
+                    let read_task = state
+                        .common
+                        .borrow()
+                        .background_executor
+                        .spawn(async { read_fd_with_timeout(fd, PIPE_READ_TIMEOUT) });
 
                     let this = this.clone();
                     state
@@ -2865,44 +2906,39 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                         .foreground_executor
                         .clone()
                         .spawn(async move {
-                            let file_list = match read_task.await {
-                                Ok(list) => list,
+                            let buffer = match read_task.await {
+                                Ok(buffer) => buffer,
                                 Err(err) => {
                                     log::error!("error reading drag and drop pipe: {err:?}");
                                     return;
                                 }
                             };
 
-                            let paths: SmallVec<[_; 2]> = file_list
-                                .lines()
-                                .filter_map(|path| Url::parse(path).log_err())
-                                .filter_map(|url| match url.to_file_path() {
-                                    Ok(url) => Some(url),
-                                    Err(()) => {
-                                        log::error!("Failed turn {url:?} into a file path");
-                                        None
-                                    }
-                                })
-                                .collect();
+                            let payload =
+                                DroppedPayload::read(buffer, mime_type == FILE_LIST_MIME_TYPE);
                             let position = Point::new(x.into(), y.into());
-                            log::debug!("drag enter: read {} paths", paths.len());
-
-                            // Prevent dropping text from other programs.
-                            if paths.is_empty() {
+                            let Some(payload) = payload else {
+                                log::debug!("drag enter: read nothing");
                                 data_offer.destroy();
                                 return;
+                            };
+                            match &payload {
+                                DroppedPayload::Paths(paths) => {
+                                    log::debug!("drag enter: read {} paths", paths.len())
+                                }
+                                DroppedPayload::Text(_) => log::debug!("drag enter: read text"),
                             }
                             let Some(client) = this.0.upgrade() else {
                                 data_offer.destroy();
                                 return;
                             };
                             let mut state = client.borrow_mut();
-                            let input = state.drag.complete_uri_read(
+                            let input = state.drag.complete_drag_read(
                                 uri_read_generation,
                                 data_offer,
                                 drag_window,
                                 position,
-                                gpui::ExternalPaths(paths),
+                                payload,
                             );
                             let dropped = input
                                 .is_some()
@@ -3144,6 +3180,8 @@ impl Dispatch<XdgDialogV1, ()> for WaylandClientStatePtr {
 mod tests {
     use std::cell::Cell;
 
+    use smallvec::SmallVec;
+
     use super::*;
 
     #[test]
@@ -3225,6 +3263,7 @@ mod tests {
             position: Point::default(),
             uri_read_generation: 0,
             pending_drop: None,
+            text: None,
         }
     }
 
@@ -3374,6 +3413,93 @@ mod tests {
         assert_eq!(entered_windows, ["window A"]);
         assert!(data_offer.finished.get());
         assert!(drag.window.is_none());
+    }
+
+    fn dropped_text(name: &str) -> (PathBuf, DroppedPayload) {
+        use std::os::unix::fs::DirBuilderExt as _;
+        let dir = std::env::temp_dir().join(format!("gpui-wl-drag-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+        let text = DroppedText::new(dir.clone(), b"dragged words".to_vec()).unwrap();
+        (dir, DroppedPayload::Text(text))
+    }
+
+    fn entered_paths(input: Option<(&'static str, PlatformInput)>) -> Vec<PathBuf> {
+        match input {
+            Some((_, PlatformInput::FileDrop(FileDropEvent::Entered { paths, .. }))) => {
+                paths.paths().to_vec()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn text_dropped_before_its_read_completes_is_written_before_the_drop() {
+        let (dir, payload) = dropped_text("deferred");
+        let mut drag = drag_state();
+        let data_offer = FakeDataOffer::new("A");
+        let generation = drag.begin_uri_read();
+
+        assert!(drag.handle_drop().is_none());
+        let paths = entered_paths(drag.complete_drag_read(
+            generation,
+            data_offer.clone(),
+            "window A",
+            Point::default(),
+            payload,
+        ));
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].parent(), Some(dir.as_path()));
+        assert!(!paths[0].exists());
+        assert!(submitted_position(drag.finish_pending_drop()).is_some());
+        assert_eq!(std::fs::read_to_string(&paths[0]).unwrap(), "dragged words");
+        assert!(data_offer.finished.get());
+        assert!(drag.text.is_none());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn text_of_a_drag_that_left_is_never_written() {
+        let (dir, payload) = dropped_text("left");
+        let mut drag = drag_state();
+        let data_offer = FakeDataOffer::new("A");
+        let generation = drag.begin_uri_read();
+
+        let paths = entered_paths(drag.complete_drag_read(
+            generation,
+            data_offer.clone(),
+            "window A",
+            Point::default(),
+            payload,
+        ));
+        assert_eq!(paths.len(), 1);
+        assert!(drag.handle_leave().is_some());
+        assert!(drag.text.is_none());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn stale_text_read_is_not_kept() {
+        let (dir, payload) = dropped_text("stale");
+        let mut drag = drag_state();
+        let data_offer = FakeDataOffer::new("A");
+        let generation = drag.begin_uri_read();
+        drag.begin_uri_read();
+
+        assert!(
+            drag.complete_drag_read(
+                generation,
+                data_offer.clone(),
+                "window A",
+                Point::default(),
+                payload
+            )
+            .is_none()
+        );
+        assert!(drag.text.is_none());
+        assert!(data_offer.destroyed.get());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
