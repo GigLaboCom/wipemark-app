@@ -18,9 +18,11 @@
 #      again at 640 wide (every pair rewrapped, still level), and unwrapped:
 #      `example-wrapped.png`, `example-wrapped-narrow.png`,
 #      `example-unwrapped.png`.
-#   3. The story at 1000 × 560, unwrapped (its default) and wrapped through
-#      its menu's own `set_wrap`, each scrolled so the line the two sources
-#      differ in stands six rows under the top: `story-unwrapped.png`,
+#   3. The story at 1000 × 560, unwrapped (its default), wrapped through its
+#      menu's own `set_wrap` with both spacer providers taken away (soft wrap
+#      alone — the "before" of the pull request), and wrapped and padded, each
+#      scrolled so the line the two sources differ in stands six rows under
+#      the top: `story-unwrapped.png`, `story-wrapped-unpadded.png`,
 #      `story-wrapped.png`.
 #
 # How to run it (from the repository root)

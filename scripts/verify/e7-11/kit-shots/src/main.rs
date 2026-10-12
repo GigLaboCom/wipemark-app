@@ -83,6 +83,15 @@ mod story {
             story.set_wrap(wrap, window, cx);
         }
 
+        /// Both sides without their padding: soft wrap alone, as an editor
+        /// without spacer rows shows two wrapped sources.
+        pub(crate) fn unpad(story: &EditorDiffStory, cx: &mut Context<EditorDiffStory>) {
+            for editor in [&story.original, &story.modified] {
+                editor.update(cx, |state, cx| state.set_spacer_provider(None, cx));
+            }
+            cx.notify();
+        }
+
         /// Puts the original's first changed line `above` rows under the top;
         /// the story's own scrolling together moves the other side.
         pub(crate) fn scroll_to_change(
@@ -174,7 +183,11 @@ fn example(out: &Path) {
 }
 
 fn story(out: &Path) {
-    for (name, wrap) in [("story-unwrapped", false), ("story-wrapped", true)] {
+    for (name, wrap, padded) in [
+        ("story-unwrapped", false, true),
+        ("story-wrapped-unpadded", true, false),
+        ("story-wrapped", true, true),
+    ] {
         let mut cx = headless();
         let slot = std::rc::Rc::new(std::cell::RefCell::new(None));
         let held = slot.clone();
@@ -195,6 +208,13 @@ fn story(out: &Path) {
                 });
             })
             .expect("wrapped");
+            settle(&mut cx, window);
+        }
+        if !padded {
+            cx.update_window(window, |_, _, cx| {
+                view.update(cx, |view, cx| story::shots::unpad(view, cx));
+            })
+            .expect("unpadded");
             settle(&mut cx, window);
         }
         cx.update_window(window, |_, _, cx| {
