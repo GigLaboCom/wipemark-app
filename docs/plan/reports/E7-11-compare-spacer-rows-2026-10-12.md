@@ -498,9 +498,9 @@ of the hunk, where the filler stands and the pairs are right again.
 **In the container only the gates of what was touched** (the owner,
 2026-10-12: the full list is an hour here). The full list — all of
 CLAUDE.md "Gates" with `--locked`, `local-llama`, the pipeline's examples,
-`gpui-pre-linux` — is CI's (`gate.yml` on the push of this branch, `9c3a018`,
-run `38303936205`, running when this was written) and the host check's
-(`FULL=1 …-gates.sh`).
+`gpui-pre-linux` — is CI's (`gate.yml` on the push of this branch: run
+`38303975943` on `77b7ee6`, the code of `9c3a018`, whose own run the second
+push cancelled) and the host check's (`FULL=1 …-gates.sh`).
 
 `docs/plan/reports/E7-11-compare-spacer-rows-2026-10-12-gates.sh` (scoped by
 default), on the final sources:
