@@ -1468,6 +1468,8 @@ fn main() {
             let keep_for = stored.retention.keep_for;
             let beacon_at_quit = beacon.clone();
             let opened = cx.open_window(main_window_options(bounds), move |window, cx| {
+                #[cfg(target_os = "linux")]
+                crate::x11::give_icon(window);
                 // After `gpui_component::init`, which hard-sets Light,
                 // and with the window in hand so System asks the window
                 // rather than the app for the appearance.

@@ -891,6 +891,8 @@ fn open_with(
     let opened = cx.open_window(
         window_options(bounds, screen.as_ref()),
         move |window, cx| {
+            #[cfg(target_os = "linux")]
+            crate::x11::give_icon(window);
             let view = cx.new(|cx| {
                 CompareView::new(subject, comparison, key, link, preferences, window, cx)
             });

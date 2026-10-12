@@ -26,6 +26,9 @@
 //!   `ConfigureWindow` where no window manager speaks EWMH.
 //! * **Above and on every workspace** — a `_NET_WM_STATE` request, the X11
 //!   half of what `panel::afloat` asks AppKit for.
+//! * **The window's icon** — `_NET_WM_ICON`, the application's own icon at
+//!   32, 128 and 512 pixels, so a dock and Alt+Tab show it even when no
+//!   `wipemark.desktop` is installed (an AppImage run as it is).
 //!
 //! # Nothing here blocks the GPUI thread
 //!
@@ -48,10 +51,11 @@ use x11rb::properties::{WmSizeHints, WmSizeHintsSpecification};
 use x11rb::protocol::randr::{self, ConnectionExt as _};
 use x11rb::protocol::xproto::{
     self, AtomEnum, ChangeWindowAttributesAux, ClientMessageEvent, ConfigureWindowAux,
-    ConnectionExt as _, EventMask, MapState,
+    ConnectionExt as _, EventMask, MapState, PropMode,
 };
 use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
+use x11rb::wrapper::ConnectionExt as _;
 
 x11rb::atom_manager! {
     Atoms: AtomsCookie {
@@ -64,6 +68,7 @@ x11rb::atom_manager! {
         _NET_FRAME_EXTENTS,
         _NET_WORKAREA,
         _NET_CURRENT_DESKTOP,
+        _NET_WM_ICON,
     }
 }
 
@@ -296,6 +301,9 @@ enum Ask {
         origin: (i32, i32),
         size: Option<(i32, i32)>,
     },
+    Icon {
+        window: u32,
+    },
     Float {
         window: u32,
     },
@@ -437,6 +445,11 @@ impl X11 {
             origin,
             size,
         });
+    }
+
+    /// Give `window` the application's icon (`_NET_WM_ICON`).
+    pub fn icon(&self, window: u32) {
+        let _ = self.asks.send(Ask::Icon { window });
     }
 
     /// Keep `window` above other windows and on every workspace.
@@ -671,6 +684,16 @@ fn answer(
             }
             let _ = conn.flush();
         }
+        Ask::Icon { window } => {
+            let _ = conn.change_property32(
+                PropMode::REPLACE,
+                window,
+                atoms._NET_WM_ICON,
+                AtomEnum::CARDINAL,
+                icon_cardinals(),
+            );
+            let _ = conn.flush();
+        }
         Ask::Float { window } => {
             let message = ClientMessageEvent::new(
                 32,
@@ -686,6 +709,50 @@ fn answer(
             );
             let _ = conn.flush();
         }
+    }
+}
+
+/// The application's icon as `_NET_WM_ICON` wants it: for each size, its
+/// width, its height, then its pixels as ARGB, one cardinal each. Decoded
+/// once, from the PNGs the bundle and the hicolor set are made of.
+fn icon_cardinals() -> &'static [u32] {
+    static ICON: OnceLock<Vec<u32>> = OnceLock::new();
+    ICON.get_or_init(|| {
+        let sizes: [&[u8]; 3] = [
+            include_bytes!("../assets/icon/32x32.png"),
+            include_bytes!("../assets/icon/128x128.png"),
+            include_bytes!("../assets/icon/icon.png"),
+        ];
+        sizes
+            .iter()
+            .filter_map(|png| argb_of(png))
+            .flatten()
+            .collect()
+    })
+}
+
+/// One PNG as `[width, height, ARGB…]`, or `None` when it does not decode
+/// to 8-bit RGBA.
+fn argb_of(png: &[u8]) -> Option<Vec<u32>> {
+    let mut reader = png::Decoder::new(std::io::Cursor::new(png))
+        .read_info()
+        .ok()?;
+    let mut buffer = vec![0; reader.output_buffer_size()];
+    let frame = reader.next_frame(&mut buffer).ok()?;
+    if frame.color_type != png::ColorType::Rgba || frame.bit_depth != png::BitDepth::Eight {
+        return None;
+    }
+    let mut cardinals = vec![frame.width, frame.height];
+    cardinals.extend(buffer[..frame.buffer_size()].chunks_exact(4).map(|p| {
+        u32::from(p[3]) << 24 | u32::from(p[0]) << 16 | u32::from(p[1]) << 8 | u32::from(p[2])
+    }));
+    Some(cardinals)
+}
+
+/// Give `window` the application's icon, when GPUI draws it through X11.
+pub fn give_icon(window: &gpui::Window) {
+    if let (Some(x11), Some(xid)) = (get(), xid(window)) {
+        x11.icon(xid);
     }
 }
 
@@ -847,6 +914,25 @@ fn frame_of(conn: &RustConnection, atoms: &Atoms, root: u32, window: u32) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The icon a window is given carries all three sizes, opaque where
+    /// the artwork is: a PNG that stopped decoding would leave a dock
+    /// showing a generic icon with nothing said.
+    #[test]
+    fn the_window_icon_carries_every_size() {
+        let icon = icon_cardinals();
+        let mut at = 0;
+        for side in [32u32, 128, 512] {
+            assert_eq!(&icon[at..at + 2], &[side, side], "the {side} px icon");
+            let pixels = &icon[at + 2..at + 2 + (side * side) as usize];
+            assert!(
+                pixels.iter().any(|argb| argb >> 24 == 0xff),
+                "{side} px is all transparent"
+            );
+            at += 2 + (side * side) as usize;
+        }
+        assert_eq!(at, icon.len());
+    }
 
     fn monitor(name: &str, bounds: Rect) -> Monitor {
         Monitor {

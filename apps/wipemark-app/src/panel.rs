@@ -237,6 +237,8 @@ pub fn show(preferences: &Entity<Preferences>, cx: &mut App) {
 
     let held = preferences.clone();
     let opened = cx.open_window(window_options(bounds, display), move |window, cx| {
+        #[cfg(target_os = "linux")]
+        crate::x11::give_icon(window);
         let view = cx.new(|cx| PanelView::new(held, window, cx));
         cx.new(|cx| Root::new(view, window, cx))
     });

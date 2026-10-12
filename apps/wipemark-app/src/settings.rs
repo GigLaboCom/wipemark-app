@@ -9592,6 +9592,8 @@ fn open_new(
     let opened = cx.open_window(
         window_options(bounds, screen.as_ref()),
         move |window, cx| {
+            #[cfg(target_os = "linux")]
+            crate::x11::give_icon(window);
             let screen = screen.clone();
             let view = cx.new(|cx| SettingsView::new(preferences, screen, at, window, cx));
             *slot.borrow_mut() = Some(view.clone());

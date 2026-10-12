@@ -145,6 +145,15 @@ Flatpak (stage two), with `StartupWMClass` keeping the old match.
 
 The tray's icon is derived at run time (`tray.rs`, D342) and is not packaged.
 
+**An AppImage run as it is installs no `wipemark.desktop`**, so a dock has no
+file to match the window to. Under X11 (XWayland is the default, D611) every
+window therefore also carries the icon itself: `_NET_WM_ICON`, the 32, 128 and
+512 px PNGs of `assets/icon/` decoded once on the X thread (`x11::give_icon`,
+called as each of the four windows opens; D640). GNOME shows it in the dock and
+in Alt+Tab with no desktop file. Under native Wayland there is no per-window
+icon a GNOME compositor reads, and only an installed desktop file (the `.deb`,
+or an AppImage integrator) gives one.
+
 ## XWayland by default (D611)
 
 In a Wayland session that also offers X11 (`WAYLAND_DISPLAY` and `DISPLAY`
