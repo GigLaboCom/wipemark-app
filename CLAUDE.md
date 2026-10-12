@@ -157,6 +157,7 @@ skip when unset (D186). `WIPEMARK_TEST_GGUF_QWEN38_DFLASH` (beside
 
 ## Working here
 
+* **Integration: gates once, on feat, beside the AppImage build.** Agents working in parallel run only their targeted tests (the owner, 2026-10-12). After merging, the coordinator starts the full gates and `ci/linux-builder/run-build.sh` at the same time, and hands the AppImage to the owner as soon as it is built; if the gates fail, that build is thrown away.
 * **Do not relaunch the application to watch it.** Build and run it
   **once, at the end of an implementation**, to check the thing that was
   built. A rebuild-and-relaunch after every edit costs a minute each
