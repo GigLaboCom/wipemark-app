@@ -92,7 +92,9 @@ from it.
 2. **`license = "LicenseRef-Proprietary"`, `publish = false`.** The
    product has an activation flow and a trial (spec §8), so
    heretic-amuse-merge's Apache-2.0 would be simply wrong. The EULA text
-   itself is E9's problem.
+   itself is E9's problem. *Superseded 2026-10-12 by D610:* the licence is
+   `FSL-1.1-ALv2` (`LICENSE.md`) — the source public, competing commercial
+   use excluded, Apache-2.0 two years after each release.
 3. **`directories` 6, not `dirs`.** The spec says "a dirs crate"; this
    is the one heretic-amuse-merge already uses, so both products resolve
    paths through one implementation.

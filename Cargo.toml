@@ -26,13 +26,14 @@ exclude = ["vendor/gpui-component"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-# Commercial product with an activation flow (spec §8), not an open
-# licence. `LicenseRef-` is the SPDX form for a non-listed licence; the
-# EULA text itself lands with epic E9.
-license = "LicenseRef-Proprietary"
+# The Functional Source License 1.1 with Apache-2.0 as the future licence
+# (owner, 2026-10-12, D610): the source is public and anyone may use it for
+# any purpose but a competing commercial product; each version becomes
+# Apache-2.0 two years after it is released. The text is `LICENSE.md`.
+license = "FSL-1.1-ALv2"
 publish = false
-repository = "https://github.com/heretic-tools/wipemark"
-authors = ["Wipemark contributors"]
+repository = "https://github.com/GigLaboCom/wipemark-app"
+authors = ["GigLabo", "Denis Esakov"]
 
 [workspace.dependencies]
 anyhow = "1"

@@ -88,7 +88,9 @@ Rules for P1–P8 are the repository's (CLAUDE.md):
 - `main` untouched by the agent; the tag and the merge of PR #1 are the
   coordinator's, after the owner's yes.
 
-## 2a. The product's own licence — open (found 2026-10-12)
+## 2a. The product's own licence — decided 2026-10-12 (D610)
+
+**Decided:** `FSL-1.1-ALv2`, Copyright 2026 GigLabo and Denis Esakov (`LICENSE.md`, `NOTICE`, README). The repository stays public. Still open: where 0.1.0 is downloaded from, and the packages' metainfo and `.deb` copyright moved to the new licence when `e10/appimage` is merged. What follows is how it stood when found.
 
 | | |
 |---|---|

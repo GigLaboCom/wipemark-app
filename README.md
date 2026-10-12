@@ -307,3 +307,25 @@ scripts/check-dep-direction.sh
 ```
 
 CI runs all four (`.woodpecker/gate.yaml`).
+
+## License
+
+Copyright 2026 GigLabo and Denis Esakov.
+
+Wipemark is **source-available** under the
+[Functional Source License, Version 1.1, ALv2 Future License](LICENSE.md)
+(`FSL-1.1-ALv2`). You may use, copy, modify and redistribute it for any
+purpose other than a competing commercial product or service. Internal use,
+non-commercial education and research, and professional services built on
+it are explicitly allowed. Two years after each version is released, that
+version is also available under the
+[Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+
+"Wipemark" and its logo are trademarks of GigLabo and Denis Esakov and are
+not licensed for other use. Third-party components keep their own licences:
+see [NOTICE](NOTICE) and, in every release package, `THIRD-PARTY.md`.
+
+**Acceptable use.** Wipemark is built to clean *your own* content: text and
+pictures you wrote, made or have the right to change. Do not use it to
+pass off someone else's work as your own, to remove marks you are required
+to keep, or to break a law or a platform's terms that apply to you.

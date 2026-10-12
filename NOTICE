@@ -1,5 +1,13 @@
 Wipemark
-Copyright 2026 Wipemark contributors
+Copyright 2026 GigLabo and Denis Esakov
+
+Wipemark is licensed under the Functional Source License, Version 1.1,
+ALv2 Future License (FSL-1.1-ALv2); the text is LICENSE.md. Each version
+becomes available under the Apache License, Version 2.0, on the second
+anniversary of its release.
+
+"Wipemark" and its logo are trademarks of GigLabo and Denis Esakov. The licence grants no
+right to use them except to identify the origin of the software.
 
 Third-party material redistributed inside the Wipemark binary and its
 installers. This file covers *bundled assets and vendored source*, not
