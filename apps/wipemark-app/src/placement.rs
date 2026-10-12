@@ -673,6 +673,160 @@ pub fn forget(store: &Store, screen: &Screen) -> Result<()> {
     Ok(())
 }
 
+/// Whether this application can put a window where it chooses on the
+/// desktop GPUI draws through (D617).
+///
+/// `compositor` is `App::compositor_name`. Under Wayland a client cannot
+/// position a toplevel at all — the compositor decides, and GNOME has no
+/// layer-shell — so the Placement page says the desktop decides and its
+/// zones are not offered. X11 (XWayland included, the default on Linux,
+/// D611) and macOS place; so does every other name, because saying "the
+/// system decides" where it does not would be the opposite mistake.
+pub fn can_place(compositor: &str) -> bool {
+    compositor != "Wayland"
+}
+
+/// The key GPUI's X11 backend gave **every** screen before this
+/// application read the monitors itself: the nil uuid (`x11/display.rs`,
+/// `Uuid::from_bytes([0; 16])`). One row for every display, which no
+/// display can be told apart by (D615).
+pub const NIL_KEY: &str = "00000000-0000-0000-0000-000000000000";
+
+/// What happens to a row filed under [`NIL_KEY`] once the displays have
+/// names of their own.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Adoption {
+    /// The primary display takes it, as [`adopted`] reads it.
+    To { primary: Spot },
+    /// The primary display has an answer of its own, which is newer and
+    /// stays; the nil row goes.
+    Dropped,
+}
+
+/// Whether the nil row is adopted now, and how (D615). Pure.
+///
+/// Once: only while the row is there and a display with a name of its own
+/// is attached — and never while a display still answers to the nil key,
+/// which is a desktop this application cannot tell apart yet. The primary
+/// display adopts it because a person with one row and several displays
+/// was, in practice, answering about the one GPUI calls primary.
+pub fn adoption(
+    spots: &BTreeMap<String, Spot>,
+    screens: &[screen::Connected],
+) -> Option<(String, Adoption)> {
+    let legacy = *spots.get(NIL_KEY)?;
+    if screens
+        .iter()
+        .any(|display| display.screen.key.as_deref() == Some(NIL_KEY))
+    {
+        return None;
+    }
+    let primary = screens
+        .iter()
+        .find(|display| display.primary)
+        .or_else(|| screens.first())?;
+    let key = primary.screen.key.clone()?;
+    if spots.contains_key(&key) {
+        return Some((key, Adoption::Dropped));
+    }
+    Some((
+        key,
+        Adoption::To {
+            primary: adopted(legacy),
+        },
+    ))
+}
+
+/// A nil row as the primary display takes it.
+///
+/// A cell stays the cell. A `manual` does **not** stay manual: before the
+/// monitors were read, every rectangle the window manager opened the panel
+/// at was recorded as the person's (acceptance F8, the bug D616 closes), so
+/// a hand-placed answer under the nil key is the window manager's as often
+/// as the person's. It is read as the default cell with its rectangle kept
+/// — the size, and the card's "Where I put it" to take it back.
+pub fn adopted(legacy: Spot) -> Spot {
+    match legacy.at {
+        Answer::Zone(_) => legacy,
+        Answer::Manual => Spot {
+            at: Answer::Zone(Zone::default()),
+            rect: legacy.rect,
+        },
+    }
+}
+
+/// How long after this application asks for a rectangle every report of
+/// the window's bounds is taken as the answer to that ask (D616).
+///
+/// The window manager answers an ask in several steps — it maps the
+/// window where it places new windows, reparents it into a frame, then
+/// moves the frame where it was asked — and none of those rectangles is
+/// the one asked for, because the frame's offset is the manager's. A
+/// person's drag in the first second and a half after summoning a window
+/// is not one this product needs to hear.
+pub const GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// Whose a reported rectangle is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Heard {
+    /// This application's ask, as the window manager carried it out.
+    Ours,
+    /// A person's: a drag or a pull at an edge, which is an answer.
+    Person,
+}
+
+/// Telling a placement from a person (D616).
+///
+/// The window reports every bounds change the same way, ours and a
+/// person's. A report is ours when it is the rectangle asked for, when it
+/// comes within [`GRACE`] of the ask (the window manager's steps towards
+/// it, wherever they land), or when it is again the rectangle one of those
+/// landed at — the manager re-sending where the window already is. Every
+/// other report is a person's. Pure: the caller hands in when each thing
+/// happened.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Placing {
+    asked: Option<(Bounds<Pixels>, std::time::Instant)>,
+    landed: Option<Bounds<Pixels>>,
+}
+
+impl Placing {
+    /// This application asked for `rect` at `at`.
+    pub fn asked(&mut self, rect: Bounds<Pixels>, at: std::time::Instant) {
+        self.asked = Some((rect, at));
+        self.landed = None;
+    }
+
+    /// Nothing is asked any more: the ask failed, or a person answered.
+    pub fn forget(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Whose the rectangle reported at `at` is.
+    pub fn heard(&mut self, rect: Bounds<Pixels>, at: std::time::Instant) -> Heard {
+        let Some((asked, since)) = self.asked else {
+            return Heard::Person;
+        };
+        let soon = at.saturating_duration_since(since) < GRACE;
+        let again = self.landed.is_some_and(|landed| near(landed, rect));
+        if near(asked, rect) || soon || again {
+            self.landed = Some(rect);
+            return Heard::Ours;
+        }
+        Heard::Person
+    }
+}
+
+/// The same rectangle, to a point: a frame is rounded to whole device
+/// pixels and divided by the scale, and our arithmetic is not.
+fn near(a: Bounds<Pixels>, b: Bounds<Pixels>) -> bool {
+    let close = |a: Pixels, b: Pixels| (a.as_f32() - b.as_f32()).abs() <= 1.0;
+    close(a.origin.x, b.origin.x)
+        && close(a.origin.y, b.origin.y)
+        && close(a.size.width, b.size.width)
+        && close(a.size.height, b.size.height)
+}
+
 #[cfg(test)]
 mod tests {
     use gpui::DisplayId;
@@ -1138,6 +1292,132 @@ mod tests {
             assert_eq!(Answer::parse(zone.id()), Some(Answer::Zone(zone)));
         }
         assert_eq!(Answer::parse("somewhere"), None);
+    }
+
+    /// Wayland places nothing; everything else does (D617).
+    #[test]
+    fn only_wayland_leaves_the_placing_to_the_desktop() {
+        assert!(!can_place("Wayland"));
+        assert!(can_place("X11"), "XWayland and a plain X11 session place");
+        assert!(can_place(""), "macOS, and the test platform");
+        assert!(can_place("headless"));
+    }
+
+    /// The case acceptance F8 found: the window manager opens the panel
+    /// at a place of its own and then moves it where it was asked, its
+    /// frame's offset and all — and none of those rectangles is the one
+    /// asked for, so the old exact-match rule filed the first of them as
+    /// the person's answer.
+    #[test]
+    fn a_window_managers_offset_is_not_a_person() {
+        let t0 = std::time::Instant::now();
+        let ms = |n: u64| t0 + std::time::Duration::from_millis(n);
+        let asked = bounds(2580.0, 1600.0, 420.0, 297.0);
+        // mutter's cascade, then the frame 37 points lower than asked.
+        let cascade = bounds(44.0, 906.0, 420.0, 297.0);
+        let offset = bounds(2580.0, 1637.0, 420.0, 297.0);
+
+        let mut placing = Placing::default();
+        placing.asked(asked, t0);
+        assert_eq!(placing.heard(cascade, ms(40)), Heard::Ours);
+        assert_eq!(placing.heard(offset, ms(180)), Heard::Ours);
+        // Long after, the manager says once more where the window is.
+        assert_eq!(
+            placing.heard(offset, ms(30_000)),
+            Heard::Ours,
+            "where an ask landed is ours however late it is repeated"
+        );
+        // The person drags it.
+        let dragged = bounds(1200.0, 300.0, 420.0, 297.0);
+        assert_eq!(placing.heard(dragged, ms(31_000)), Heard::Person);
+    }
+
+    /// The other half: the rule must not swallow a person.
+    #[test]
+    fn after_the_grace_a_rectangle_nobody_asked_for_is_a_person() {
+        let t0 = std::time::Instant::now();
+        let asked = bounds(100.0, 100.0, 420.0, 260.0);
+        let mut placing = Placing::default();
+        placing.asked(asked, t0);
+        let later = t0 + GRACE + std::time::Duration::from_millis(1);
+        assert_eq!(
+            placing.heard(bounds(140.0, 100.0, 420.0, 260.0), later),
+            Heard::Person
+        );
+        assert_eq!(
+            placing.heard(asked, later),
+            Heard::Ours,
+            "the rectangle asked for is ours whenever it comes"
+        );
+        assert_eq!(
+            Placing::default().heard(asked, later),
+            Heard::Person,
+            "with nothing asked, every report is a person's"
+        );
+        placing.forget();
+        assert_eq!(placing.heard(asked, later), Heard::Person);
+    }
+
+    fn connected(key: &str, primary: bool) -> screen::Connected {
+        screen::Connected {
+            screen: screen(key),
+            name: None,
+            primary,
+        }
+    }
+
+    /// The nil row goes to the primary display, once, a cell as a cell
+    /// and a hand as the default cell with its rectangle kept (D615).
+    #[test]
+    fn the_nil_row_is_adopted_by_the_primary_display() {
+        let rect = bounds(44.0, 906.0, 420.0, 260.0);
+        let screens = [connected("uuid-left", false), connected("uuid-hdmi", true)];
+
+        let mut spots = BTreeMap::new();
+        spots.insert(NIL_KEY.to_owned(), by_hand(rect));
+        assert_eq!(
+            adoption(&spots, &screens),
+            Some((
+                "uuid-hdmi".to_owned(),
+                Adoption::To {
+                    primary: Spot {
+                        at: Answer::Zone(Zone::default()),
+                        rect: Some(rect),
+                    }
+                }
+            ))
+        );
+
+        spots.insert(NIL_KEY.to_owned(), ticked(Zone::TopLeft));
+        assert_eq!(
+            adoption(&spots, &screens),
+            Some((
+                "uuid-hdmi".to_owned(),
+                Adoption::To {
+                    primary: ticked(Zone::TopLeft)
+                }
+            ))
+        );
+
+        spots.insert("uuid-hdmi".to_owned(), ticked(Zone::BottomLeft));
+        assert_eq!(
+            adoption(&spots, &screens),
+            Some(("uuid-hdmi".to_owned(), Adoption::Dropped)),
+            "the display's own answer is newer and stays"
+        );
+    }
+
+    #[test]
+    fn the_nil_row_waits_while_a_display_still_answers_to_it() {
+        let mut spots = BTreeMap::new();
+        spots.insert(NIL_KEY.to_owned(), ticked(Zone::TopLeft));
+        assert_eq!(adoption(&spots, &[connected(NIL_KEY, true)]), None);
+        assert_eq!(adoption(&spots, &[]), None, "no display read yet");
+        assert_eq!(
+            adoption(&BTreeMap::new(), &[connected("uuid-hdmi", true)]),
+            None,
+            "no nil row, nothing to adopt"
+        );
     }
 
     fn ticked(zone: Zone) -> Spot {

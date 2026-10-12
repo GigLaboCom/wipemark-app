@@ -1064,9 +1064,10 @@ pub struct Preferences {
     /// Reported rather than asked for: reading it needs a window
     /// update, and the page would be doing one per card per frame.
     panel_screen: Option<Screen>,
-    /// The rectangle this application last asked the panel to be at, if
-    /// it is still waiting to see it. See [`Preferences::we_placed_it`].
-    expected: Option<Bounds<Pixels>>,
+    /// The rectangle this application last asked the panel to be at, and
+    /// where the window manager landed it — what tells a placement from a
+    /// person (D616). See [`Preferences::we_placed_it`].
+    placing: placement::Placing,
     /// The profile `--profile=<name>` pinned for this session, if one
     /// was named.
     ///
@@ -1510,7 +1511,7 @@ impl Preferences {
             screens_read: false,
             panel: None,
             panel_screen: None,
-            expected: None,
+            placing: placement::Placing::default(),
             pinned,
             hotkeys,
             // Nothing has been asked for yet. `main::install_hotkeys`
@@ -1920,7 +1921,7 @@ impl Preferences {
     /// specific instruction than pointing at a sixth of a screen, and
     /// the page stops ticking a cell until one is clicked again.
     pub fn put_by_hand(&mut self, screen: &Screen, rect: Bounds<Pixels>, cx: &mut Context<Self>) {
-        self.expected = None;
+        self.placing.forget();
         self.answer(screen, placement::Answer::Manual, Some(rect), cx);
     }
 
@@ -1983,28 +1984,27 @@ impl Preferences {
         self.persist(cx, move |store| placement::save(store, &screen, spot));
     }
 
-    /// Remember that *we* asked the panel to be at this rectangle.
+    /// Remember that *we* asked the panel to be at this rectangle, now.
     ///
     /// The one thing that tells a placement from a person: the panel
     /// reports every bounds change the same way, and a move this
     /// application made must not be recorded as the user's answer. Held
     /// rather than consumed, because opening a window reports its
-    /// rectangle more than once and all of those are still ours.
+    /// rectangle more than once and all of those are still ours — and a
+    /// window manager carries an ask out in steps none of which is the
+    /// rectangle asked for, which is why the rule is
+    /// [`placement::Placing`]'s and not an equality (D616).
     pub fn we_placed_it(&mut self, bounds: Option<Bounds<Pixels>>) {
-        self.expected = bounds;
+        match bounds {
+            Some(bounds) => self.placing.asked(bounds, std::time::Instant::now()),
+            None => self.placing.forget(),
+        }
     }
 
-    /// Whether a rectangle the panel just reported is the one we asked
-    /// for. A point of tolerance, because AppKit rounds a frame to
-    /// whole points and our arithmetic does not.
-    pub fn ours(&self, bounds: Bounds<Pixels>) -> bool {
-        self.expected.is_some_and(|expected| {
-            let near = |a: Pixels, b: Pixels| (a.as_f32() - b.as_f32()).abs() <= 1.0;
-            near(expected.origin.x, bounds.origin.x)
-                && near(expected.origin.y, bounds.origin.y)
-                && near(expected.size.width, bounds.size.width)
-                && near(expected.size.height, bounds.size.height)
-        })
+    /// Whose the rectangle the panel reported at `at` is — ours, or a
+    /// person's answer. See [`placement::Placing::heard`].
+    pub fn heard(&mut self, bounds: Bounds<Pixels>, at: std::time::Instant) -> placement::Heard {
+        self.placing.heard(bounds, at)
     }
 
     /// The panel has been summoned, and this is it.
@@ -2070,7 +2070,50 @@ impl Preferences {
         }
         tracing::debug!(displays = screens.len(), "the displays changed");
         self.screens = screens;
+        self.adopt_nil(cx);
         cx.notify();
+    }
+
+    /// The rows filed under the nil uuid — every screen's key under X11
+    /// before the monitors were read (D615) — taken by the primary display,
+    /// once: the zone as [`placement::adopted`] reads it, the Settings
+    /// window's rectangle as it was. The nil rows are deleted, so this
+    /// happens on the first reading that names the displays and never
+    /// again.
+    fn adopt_nil(&mut self, cx: &Context<Self>) {
+        let Some((primary, adoption)) = placement::adoption(&self.spots, &self.screens) else {
+            return;
+        };
+        self.spots.remove(placement::NIL_KEY);
+        let taken = match adoption {
+            placement::Adoption::To { primary: spot } => {
+                self.spots.insert(primary.clone(), spot);
+                Some(spot)
+            }
+            placement::Adoption::Dropped => None,
+        };
+        tracing::info!(
+            display = %primary,
+            adopted = taken.is_some(),
+            "the placement filed under the nil display key is the primary display's now"
+        );
+        let nil = Screen {
+            id: gpui::DisplayId::new(0),
+            key: Some(placement::NIL_KEY.to_owned()),
+            visible: Bounds::default(),
+        };
+        let target = Screen {
+            key: Some(primary),
+            ..nil.clone()
+        };
+        self.persist(cx, move |store| {
+            if let Some(spot) = taken {
+                placement::save(store, &target, spot)?;
+            }
+            placement::forget(store, &nil)?;
+            window_state::adopt(store, &nil, &target);
+            Ok(())
+        });
     }
 
     /// Record a new answer to "who rewrites".
@@ -5009,7 +5052,12 @@ impl SettingsView {
                 t_args(Message::HotkeyRefused, &args!("reason" => reason.clone())),
                 danger,
             )),
-            Registration::Unavailable => Some((t(Message::HotkeyUnavailable), muted)),
+            Registration::Unavailable => Some((
+                t(hotkey::unavailable_line(
+                    std::env::var_os("XDG_SESSION_TYPE").as_deref(),
+                )),
+                muted,
+            )),
         };
         v_flex()
             .gap_1()
@@ -7560,6 +7608,10 @@ impl SettingsView {
     /// a card for every display attached because the question only
     /// exists once there are two.
     fn placement(&self, cx: &Context<Self>) -> impl IntoElement {
+        // Under native Wayland nothing this page says is done: the cards
+        // are drawn, so a person sees what is stored, and their zones are
+        // not offered (D617).
+        let placeable = placement::can_place(cx.compositor_name());
         v_flex()
             .gap_4()
             .child(heading(
@@ -7567,7 +7619,7 @@ impl SettingsView {
                 Some(Message::SettingsPlacementDescription),
                 cx,
             ))
-            .child(self.state_of_the_screens(cx))
+            .child(self.state_of_the_screens(placeable, cx))
             .child(self.rows(Section::Placement, cx))
             .child(
                 v_flex().gap_3().children(
@@ -7576,15 +7628,19 @@ impl SettingsView {
                         .screens()
                         .iter()
                         .enumerate()
-                        .map(|(index, display)| self.display_card(index, display, cx)),
+                        .map(|(index, display)| self.display_card(index, display, placeable, cx)),
                 ),
             )
     }
 
     /// The banner at the top of the Placement page.
-    fn state_of_the_screens(&self, cx: &Context<Self>) -> impl IntoElement {
+    fn state_of_the_screens(&self, placeable: bool, cx: &Context<Self>) -> impl IntoElement {
         let preferences = self.preferences.read(cx);
-        let lines = screens_banner(preferences.screens().len(), preferences.screens_scanned());
+        let lines = screens_banner(
+            preferences.screens().len(),
+            preferences.screens_scanned(),
+            placeable,
+        );
         notice(
             IconName::TableCellsLarge,
             cx.theme().muted_foreground,
@@ -7604,6 +7660,7 @@ impl SettingsView {
         &self,
         index: usize,
         display: &Connected,
+        placeable: bool,
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
@@ -7618,7 +7675,7 @@ impl SettingsView {
             .preferences
             .read(cx)
             .panel_screen()
-            .is_some_and(|screen| screen.id == display.screen.id);
+            .is_some_and(|screen| screen.same_display(&display.screen));
         let name = display.name.clone().unwrap_or_else(|| {
             t_args(
                 Message::SettingsPlacementDisplay,
@@ -7666,7 +7723,7 @@ impl SettingsView {
                 h_flex()
                     .gap_3()
                     .items_start()
-                    .child(zone_grid(index, display, spot, cx))
+                    .child(zone_grid(index, display, spot, placeable, cx))
                     .child(
                         v_flex()
                             .gap_2()
@@ -7700,6 +7757,7 @@ impl SettingsView {
                                             )))
                                             .small()
                                             .outline()
+                                            .disabled(!placeable)
                                             .label(SharedString::from(t(
                                                 Message::SettingsPlacementWhereItWasLeft,
                                             )))
@@ -7721,6 +7779,7 @@ impl SettingsView {
                                         Button::new(SharedString::from(format!("default-{index}")))
                                             .small()
                                             .ghost()
+                                            .disabled(!placeable)
                                             .label(SharedString::from(t(
                                                 Message::SettingsPlacementRestoreDefault,
                                             )))
@@ -7732,14 +7791,11 @@ impl SettingsView {
                                             }))
                                     })),
                             )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(muted)
-                                    .child(SharedString::from(t(
-                                        Message::SettingsPlacementDragHint,
-                                    ))),
-                            ),
+                            .when(placeable, |column| {
+                                column.child(div().text_xs().text_color(muted).child(
+                                    SharedString::from(t(Message::SettingsPlacementDragHint)),
+                                ))
+                            }),
                     ),
             )
     }
@@ -7819,9 +7875,11 @@ impl SettingsView {
     /// window it is about is on screen — otherwise the grid is a
     /// picture of a promise. But a window can only be moved *on the
     /// screen it is already on*: GPUI has no API for moving one at all
-    /// (see [`screen::translate`]), and the AppKit call underneath takes
+    /// (see [`screen::put`]), and the AppKit call underneath takes
     /// a translation rather than a destination, because the display's
-    /// global origin is the one fact GPUI's backend hides.
+    /// global origin is the one fact GPUI's backend hides. Under X11 the
+    /// move is the window manager's and absolute (D613), and the rule is
+    /// kept the same so the two platforms answer one way.
     ///
     /// So an answer given on the card for the display the panel is on
     /// takes effect now, and every other one — another card, or a panel
@@ -7847,7 +7905,7 @@ impl SettingsView {
             self.preferences
                 .read(cx)
                 .panel_screen()
-                .is_some_and(|screen| screen.id == display.screen.id),
+                .is_some_and(|screen| screen.same_display(&display.screen)),
         ) else {
             return;
         };
@@ -7862,10 +7920,12 @@ impl SettingsView {
                 return false;
             };
             // The frame, because that is what the user sees and what
-            // has to land inside the screen. Both rectangles are in
-            // this display's own coordinates, which is what makes the
-            // subtraction below mean anything.
-            let frame = window.bounds();
+            // has to land inside the screen — under X11 the client with
+            // the window manager's title bar around it. Both rectangles
+            // are in this display's own coordinates, which is what makes
+            // the move below mean anything.
+            let frame = screen::frame_of(window);
+            let size = size.map(|size| screen::chrome_of(window).grow(size));
             let wanted = placement::where_it_goes(spot, size.unwrap_or(frame.size), here.visible);
 
             // Said before the move rather than after: the window
@@ -7876,19 +7936,7 @@ impl SettingsView {
                 preferences.we_placed_it(Some(wanted));
             });
 
-            if size.is_some() {
-                // `setContentSize:` under there, which keeps the
-                // window's top-left corner — so the delta below is
-                // still the right one when it lands, and it lands on
-                // the foreground executor a moment after this returns.
-                window.resize(wanted.size);
-            }
-
-            let delta = point(
-                wanted.origin.x - frame.origin.x,
-                wanted.origin.y - frame.origin.y,
-            );
-            screen::translate(window, delta)
+            screen::put(window, frame, wanted, size.is_some())
         });
 
         if !matches!(moved, Ok(true)) {
@@ -8363,6 +8411,7 @@ fn zone_grid(
     index: usize,
     display: &Connected,
     spot: Spot,
+    placeable: bool,
     cx: &Context<SettingsView>,
 ) -> impl IntoElement {
     let theme = cx.theme();
@@ -8395,6 +8444,9 @@ fn zone_grid(
         .border_color(theme.border)
         .bg(theme.muted)
         .overflow_hidden()
+        // Drawn, so a person sees what is stored, and dimmed with every
+        // cell disabled where the desktop decides (D617).
+        .when(!placeable, |grid| grid.opacity(0.5))
         // Laid out by column and row rather than from a flat list,
         // so the picture on screen and the names in the database
         // are the same fact — `Zone::at` is the one place that
@@ -8410,7 +8462,7 @@ fn zone_grid(
                         .filter_map(move |column| Zone::at(column, row))
                         .enumerate()
                         .map(|(column, zone)| {
-                            zone_cell(index, display, zone, chosen, column > 0, cx)
+                            zone_cell(index, display, zone, chosen, column > 0, placeable, cx)
                         }),
                 )
         }))
@@ -8471,6 +8523,7 @@ fn zone_cell(
     zone: Zone,
     chosen: Option<Zone>,
     divider: bool,
+    placeable: bool,
     cx: &Context<SettingsView>,
 ) -> impl IntoElement {
     let theme = cx.theme();
@@ -8486,20 +8539,23 @@ fn zone_cell(
         // The cell the window would land in, while it is in the
         // air. Without it a drag is six identical rectangles and a
         // guess.
-        .drag_over::<DraggedWindow>(|style, _, _, cx| style.bg(cx.theme().accent))
-        .on_drop(cx.listener({
-            let display = display.clone();
-            move |view, _: &DraggedWindow, window, cx| {
-                view.choose_zone(&display, zone, cx);
-                view.make_way(window, cx);
-            }
-        }))
+        .when(placeable, |cell| {
+            cell.drag_over::<DraggedWindow>(|style, _, _, cx| style.bg(cx.theme().accent))
+                .on_drop(cx.listener({
+                    let display = display.clone();
+                    move |view, _: &DraggedWindow, window, cx| {
+                        view.choose_zone(&display, zone, cx);
+                        view.make_way(window, cx);
+                    }
+                }))
+        })
         .child(
             Button::new(SharedString::from(format!("zone-{index}-{}", zone.id())))
                 .ghost()
                 .w_full()
                 .h_full()
                 .selected(taken)
+                .disabled(!placeable)
                 .tooltip(SharedString::from(t(zone.label())))
                 .on_click(cx.listener({
                     let display = display.clone();
@@ -8567,7 +8623,13 @@ fn tag(message: Message, cx: &App) -> impl IntoElement {
 /// Settings window, the workspace windows land in E7, and a page that
 /// implied otherwise would be describing a product that does not exist
 /// yet.
-fn screens_banner(attached: usize, scanned: bool) -> Vec<String> {
+///
+/// Unless nothing is placed at all: under native Wayland the desktop
+/// decides where every window opens (`placeable` is
+/// [`placement::can_place`]), and the last line says that instead — a
+/// page of zones over a desktop that ignores them is a promise the
+/// product cannot keep (D617).
+fn screens_banner(attached: usize, scanned: bool, placeable: bool) -> Vec<String> {
     vec![
         if scanned {
             t_args(
@@ -8577,7 +8639,11 @@ fn screens_banner(attached: usize, scanned: bool) -> Vec<String> {
         } else {
             t(Message::SettingsPlacementLooking)
         },
-        t(Message::SettingsPlacementOnlyWindow),
+        if placeable {
+            t(Message::SettingsPlacementOnlyWindow)
+        } else {
+            t(Message::SettingsPlacementSystemDecides)
+        },
     ]
 }
 
@@ -9534,10 +9600,15 @@ fn open_new(
     );
 
     match (opened, view_slot.take()) {
-        (Ok(window), Some(view)) => cx.set_global(Opened {
-            window: window.into(),
-            view,
-        }),
+        (Ok(window), Some(view)) => {
+            cx.set_global(Opened {
+                window: window.into(),
+                view,
+            });
+            // Under X11 the window manager opens it where it opens every
+            // new window; this asks for the rectangle above (D613).
+            screen::settle_opened(window.into(), bounds, cx);
+        }
         (Ok(_), None) => {
             // Unreachable: the builder ran, because `opened` is `Ok`.
             // Logged rather than asserted, for the reason `main` logs
@@ -10776,7 +10847,7 @@ mod tests {
     #[test]
     fn the_placement_banner_always_says_which_windows_it_places() {
         for (attached, scanned) in [(0, false), (1, true), (3, true)] {
-            let lines = screens_banner(attached, scanned);
+            let lines = screens_banner(attached, scanned, true);
             assert!(
                 lines
                     .last()
@@ -10785,6 +10856,29 @@ mod tests {
             );
             assert_eq!(lines.len(), 2, "a banner is a state and a standing fact");
         }
+    }
+
+    /// Under native Wayland the page says the desktop decides, in place
+    /// of the promise that these choices place the panel (D617) — and
+    /// says it whatever the displays are.
+    #[test]
+    fn under_wayland_the_placement_page_says_the_desktop_decides() {
+        for (attached, scanned) in [(0, false), (1, true), (3, true)] {
+            let lines = screens_banner(attached, scanned, false);
+            assert_eq!(
+                lines.last(),
+                Some(&t(Message::SettingsPlacementSystemDecides)),
+                "{attached} displays, scanned {scanned}: {lines:?}"
+            );
+            assert!(
+                !lines.contains(&t(Message::SettingsPlacementOnlyWindow)),
+                "a desktop that places nothing is not told these choices place the panel"
+            );
+        }
+        assert!(
+            !placement::can_place("Wayland"),
+            "and Wayland is the desktop it is said on"
+        );
     }
 
     /// Every state the Retention page can be in: three destinations,
@@ -11016,7 +11110,10 @@ mod tests {
     /// desktop is ever in.
     #[test]
     fn a_machine_that_has_not_been_read_is_not_a_machine_with_no_screens() {
-        assert_ne!(screens_banner(0, false)[0], screens_banner(0, true)[0]);
+        assert_ne!(
+            screens_banner(0, false, true)[0],
+            screens_banner(0, true, true)[0]
+        );
     }
 
     #[test]

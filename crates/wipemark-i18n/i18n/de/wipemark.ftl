@@ -153,6 +153,7 @@ hotkey-taken = Wird bereits von „{ $action }“ verwendet.
 hotkey-registered = Aktiv aus jeder Anwendung, solange { -brand-name } läuft.
 hotkey-refused = Das System hat es nicht angenommen: { $reason }
 hotkey-unavailable = Gespeichert, aber nicht aktiv: systemweite Tastenkürzel gibt es auf dieser Plattform noch nicht.
+hotkey-unavailable-wayland = Gespeichert, aber nicht aktiv: In einer Wayland-Sitzung hört { -brand-name } kein Tastenkürzel, das in anderen Anwendungen gedrückt wird.
 
 ## Bereiche der Seitenleiste
 
@@ -332,6 +333,7 @@ settings-placement-attached = { $count ->
        *[other] { $count } Bildschirme angeschlossen.
     }
 settings-placement-only-window = Diese Einstellungen platzieren das { -brand-name }-Panel — das Fenster, das man aus der Menüleiste ruft. Die Fenster der Arbeitsfläche gehen nach denselben Regeln auf, sobald es sie gibt; das Hauptfenster und dieses hier platzieren sie nie.
+settings-placement-system-decides = Auf diesem Desktop bestimmt das System, wo ein Fenster erscheint; diese Einstellungen werden gespeichert, aber nicht angewendet. Ohne WIPEMARK_WAYLAND gestartet, läuft { -brand-name } über XWayland und platziert das Panel selbst.
 
 settings-placement-close-title = Nach dem Ablegen schließen
 settings-placement-close-description = Wird das Fenster auf einen Bildschirmteil gezogen, schließt sich dieses Fenster, damit sichtbar wird, wo es gelandet ist. Ein Klick auf einen Teil lässt dieses Fenster offen.

@@ -73,6 +73,7 @@ mod report;
 mod result;
 mod retention;
 mod screen;
+mod session;
 mod settings;
 mod setup;
 mod theme;
@@ -80,6 +81,8 @@ mod title;
 mod tray;
 mod window_state;
 mod wording;
+#[cfg(target_os = "linux")]
+mod x11;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -1412,11 +1415,32 @@ fn main() {
     let resolved = wipemark_i18n::init(&language, Rendering::Ui);
     tracing::info!(%resolved, requested = ?language, "language resolved");
 
+    // Which display server GPUI draws through on Linux: XWayland when a
+    // Wayland session offers it, because only X11 lets a window be
+    // placed (D611, `session`). Chosen with GPUI's own switch, so nothing
+    // in this process's environment changes and the programs it opens
+    // still start on Wayland. One log line says which and why.
+    #[cfg(target_os = "linux")]
+    let application = session::application(session::for_this_process());
+    #[cfg(not(target_os = "linux"))]
+    let application = gpui_platform::application();
+
     // Without the asset source every `Icon` paints as empty space and
     // logs a missing-asset warning — nothing fails to compile.
-    gpui_platform::application()
+    application
         .with_assets(assets::WipemarkAssets)
         .run(move |cx: &mut App| {
+            // Under X11 — XWayland included — the monitors, the pointer and
+            // the window manager's moves are asked on a connection of our
+            // own (D612). Started before anything reads the displays, so
+            // the first reading the Placement page and the panel make is
+            // already the monitors' rather than GPUI's one X screen; it
+            // returns at once, and answers "unknown" until its thread has
+            // read them.
+            #[cfg(target_os = "linux")]
+            if cx.compositor_name() == "X11" {
+                x11::start();
+            }
             // Must come before anything else touches a component or a theme.
             gpui_component::init(cx);
             // After it: `bind_keys` wants the keymap that call sets up.

@@ -151,7 +151,13 @@
   — and `screen::contained` clamps it back onto whatever that display is
   today. Storing one desktop-absolute position instead, the way
   heretic-lazy-shot does, survives a monitor being unplugged but not
-  being rearranged: the coordinates then name a different screen.
+  being rearranged: the coordinates then name a different screen. Under
+  X11 GPUI's one display is the whole X screen with the nil uuid, so a
+  display there is a RandR monitor (`x11.rs`), keyed by the uuid-v5 of
+  its output's name — the uuid GPUI's Wayland backend gives the same
+  output (D614) — and two screens are one display by key, never by id
+  alone (`Screen::same_display`); rows under the nil uuid are adopted by
+  the primary display once (D615).
 * **There are four windows, and only one of them is placed.** The
   **panel** (`apps/wipemark-app/src/panel.rs`) is the one this
   application *summons* — from the menu bar, from `--panel`, and from
@@ -208,9 +214,13 @@
   the one control that throws it away, and it deletes the row rather
   than writing one. A move *this application* made must never come back
   as the user's answer: `Preferences::we_placed_it` is told the
-  rectangle before the window is asked for it, the panel's observer
-  ignores the report that matches, and everything else is debounced by
-  400 ms because a drag is sixty rectangles a second. **Close after a
+  rectangle before the window is asked for it, every report is debounced
+  by 400 ms because a drag is sixty rectangles a second, and the last one
+  is weighed by `placement::Placing` — ours when it is the rectangle asked
+  for, came within 1.5 s of the ask, or is again where an ask landed; a
+  person's otherwise (D616). Not an equality: a window manager carries an
+  ask out in steps none of which is the rectangle asked for, and the
+  equality filed mutter's first rectangle as the person's (F8). **Close after a
   drop** (`ui.window.close_after_drop`, off unless it is asked for) is
   the one other row on that page: dropping the window onto a cell closes
   the Settings window, because "bottom right of this display" is
@@ -236,17 +246,37 @@
   on: GPUI has no API for moving a window at all, `screen::translate` is
   AppKit and takes a *translation* rather than a destination (the
   display's global origin is the one fact GPUI's macOS backend hides),
-  and a translation cannot cross displays. Everything else is honoured
+  and a translation cannot cross displays; under X11 `screen::put` asks
+  the window manager for the frame's corner (`_NET_MOVERESIZE_WINDOW`,
+  D613), under the same rule. Everything else is honoured
   the next time the panel is summoned. `placement::opening` is the
   caller with no window to measure anything off, which is why the chrome
   is stated there rather than measured — zero for the panel, whose
   content view is its whole frame. See
   `docs/architecture/window-placement.md`.
+* **On Linux the application draws through XWayland when a Wayland
+  session offers it.** `session.rs` (D611): under Wayland a client cannot
+  place a toplevel, and the panel is placed. Chosen with GPUI's windowing
+  modes (`gpui_platform::linux(X11 | HEADLESS)`), never by editing the
+  environment — a `set_var` once threads exist is undefined behaviour, and
+  the programs the application opens keep `WAYLAND_DISPLAY` this way.
+  `WIPEMARK_WAYLAND=1` keeps native Wayland, where the Placement page says
+  the desktop decides and disables its cells (`placement::can_place`,
+  D617). Under X11 GPUI places nothing either — no position in
+  `WM_NORMAL_HINTS`, no move, no above, no pointer — so `x11.rs` asks the
+  X server on a connection and a thread of its own (D612): the monitors
+  (RandR), the pointer (the one synchronous question, at most 100 ms), a
+  window's frame, a move, above-and-sticky. The panel is put in its zone
+  once the window manager has it, its **frame** in the zone, title bar
+  included (D613); the Settings window at its remembered client
+  rectangle (`screen::settle_opened`). Nothing waits on the GPUI thread
+  but that bounded pointer.
 * **The displays are watched, and a display change moves no window.**
   `display_watch.rs` is heretic-lazy-shot's module of the same name:
   `CGDisplayRegisterReconfigurationCallback` with its pre-change phase
-  skipped, and a three-second poll that is the only source off macOS,
-  both doing the same cheap thing — read the displays, hand the reading
+  skipped, RandR's notifications under X11 (`x11.rs`, D612), and a
+  three-second poll that is the only source under Wayland,
+  all doing the same cheap thing — read the displays, hand the reading
   to whoever holds the last one. The debounce sits on the *receiving*
   side rather than inside the callback, so a burst of six callbacks
   costs one reading and the half that runs on the window server's own
@@ -594,7 +624,10 @@
   it again at its rectangle (Settings on its section) — the new one first,
   because GPUI ends a Linux process when its last window closes — and
   only when `loses_nothing` says so; otherwise they activate as before
-  (D595, D596). The main window is never reopened (D597).
+  (D595, D596). The main window is never reopened (D597). Under XWayland —
+  the default on Linux since D611 — the compositor GPUI reports is
+  `"X11"`, so none of this applies there: the window is activated with
+  `_NET_ACTIVE_WINDOW` (F2').
 * **Never open a window or a dialog from inside `WindowHandle::update`.** That call
   checks the `Root` entity *out* of the app for the length of its
   closure, and everything `gpui-component` does with a dialog goes back

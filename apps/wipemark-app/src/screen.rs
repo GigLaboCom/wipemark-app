@@ -59,6 +59,254 @@ impl Screen {
             visible: display.visible_bounds(),
         }
     }
+
+    /// Whether two screens are one display.
+    ///
+    /// By key where both have one, and by the platform's id otherwise.
+    /// Not by id alone: under X11 every monitor is one GPUI display — one
+    /// X screen, one id — and only the key, the monitor's own, tells them
+    /// apart (D614).
+    pub fn same_display(&self, other: &Screen) -> bool {
+        match (&self.key, &other.key) {
+            (Some(mine), Some(theirs)) => mine == theirs,
+            _ => self.id == other.id,
+        }
+    }
+}
+
+/// What the window manager draws around a window, in GPUI's pixels:
+/// nothing on macOS (the panel's content view is its frame) and under
+/// Wayland, the title bar and borders mutter puts around a client under
+/// X11 (`_NET_FRAME_EXTENTS`).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Chrome {
+    pub left: Pixels,
+    pub right: Pixels,
+    pub top: Pixels,
+    pub bottom: Pixels,
+}
+
+impl Chrome {
+    /// The frame around a client rectangle.
+    pub fn around(self, client: Bounds<Pixels>) -> Bounds<Pixels> {
+        Bounds::new(
+            point(client.origin.x - self.left, client.origin.y - self.top),
+            self.grow(client.size),
+        )
+    }
+
+    /// A frame's size, from its client's.
+    pub fn grow(self, client: Size<Pixels>) -> Size<Pixels> {
+        size(
+            client.width + self.left + self.right,
+            client.height + self.top + self.bottom,
+        )
+    }
+
+    /// A client's size, from its frame's.
+    pub fn shrink(self, frame: Size<Pixels>) -> Size<Pixels> {
+        size(
+            frame.width - self.left - self.right,
+            frame.height - self.top - self.bottom,
+        )
+    }
+}
+
+/// The monitors under X11, as GPUI's coordinates see them (D612, D614).
+///
+/// GPUI's X11 backend reports one display per X *screen*: the whole
+/// desktop, at origin zero, keyed by the nil uuid. This is the desktop as
+/// a person has it — one [`Screen`] per RandR monitor, each keyed by its
+/// output's name ([`crate::x11::display_key`]), its visible area the work
+/// area the desktop leaves on it. Every one carries GPUI's display id: a
+/// window opens on the X screen, at a rectangle in its coordinates, which
+/// are the root window's — and those are what the monitors are in.
+#[cfg(target_os = "linux")]
+struct Monitors {
+    desktop: crate::x11::Desktop,
+    /// Device pixels per GPUI pixel: the root's width when our connection
+    /// was made over the width GPUI measured its display at.
+    scale: f32,
+    id: DisplayId,
+}
+
+#[cfg(target_os = "linux")]
+impl Monitors {
+    /// The last reading, while GPUI draws through X11 and RandR named at
+    /// least one monitor. `None` everywhere else, which is GPUI's own
+    /// displays answering, as before.
+    fn read(cx: &App) -> Option<Self> {
+        let desktop = crate::x11::get()?.desktop()?;
+        if desktop.monitors.is_empty() {
+            return None;
+        }
+        let display = cx.primary_display()?;
+        let width = display.bounds().size.width.as_f32();
+        if width <= 0.0 || desktop.setup_width <= 0 {
+            return None;
+        }
+        Some(Self {
+            scale: desktop.setup_width as f32 / width,
+            id: display.id(),
+            desktop,
+        })
+    }
+
+    fn screen(&self, monitor: &crate::x11::Monitor) -> Screen {
+        Screen {
+            id: self.id,
+            key: Some(crate::x11::display_key(&monitor.name)),
+            visible: logical(monitor.work, self.scale),
+        }
+    }
+
+    fn connected(&self) -> Vec<Connected> {
+        self.desktop
+            .monitors
+            .iter()
+            .map(|monitor| Connected {
+                screen: self.screen(monitor),
+                name: Some(monitor.name.clone()),
+                primary: monitor.primary,
+            })
+            .collect()
+    }
+
+    fn primary(&self) -> Option<Screen> {
+        let monitors = &self.desktop.monitors;
+        monitors
+            .iter()
+            .find(|monitor| monitor.primary)
+            .or_else(|| monitors.first())
+            .map(|monitor| self.screen(monitor))
+    }
+
+    /// The monitor a point in GPUI's pixels is on.
+    fn at(&self, at: Point<Pixels>) -> Option<Screen> {
+        let (x, y) = device(at, self.scale);
+        crate::x11::monitor_at(&self.desktop.monitors, x, y).map(|monitor| self.screen(monitor))
+    }
+}
+
+/// A rectangle in device pixels, in GPUI's.
+#[cfg(target_os = "linux")]
+pub fn logical(rect: crate::x11::Rect, scale: f32) -> Bounds<Pixels> {
+    Bounds::new(
+        point(px(rect.x as f32 / scale), px(rect.y as f32 / scale)),
+        size(
+            px(rect.width as f32 / scale),
+            px(rect.height as f32 / scale),
+        ),
+    )
+}
+
+/// A point in GPUI's pixels, in device pixels.
+#[cfg(target_os = "linux")]
+pub fn device(at: Point<Pixels>, scale: f32) -> (i32, i32) {
+    (
+        (at.x.as_f32() * scale).round() as i32,
+        (at.y.as_f32() * scale).round() as i32,
+    )
+}
+
+/// Under X11, put a window that has just opened where it was asked to
+/// open: `content` is the client's rectangle, the one GPUI reports and
+/// `window_state` remembers (D613).
+///
+/// GPUI hands the rectangle to `CreateWindow` and writes no position into
+/// `WM_NORMAL_HINTS`, so the window manager opens the window where it
+/// opens every new one. The hint goes in at once — a manager that reads it
+/// after this lands honours it and nothing jumps — and once the manager
+/// has the window, the client is asked for at `content`'s corner
+/// (`StaticGravity`: the corner named is the client's, so what is
+/// remembered is what is restored, title bar or not). Nothing waits on the
+/// GPUI thread. A no-op anywhere but X11.
+pub fn settle_opened(window: gpui::AnyWindowHandle, content: Bounds<Pixels>, cx: &mut App) {
+    #[cfg(target_os = "linux")]
+    {
+        use crate::x11::{self, Gravity};
+
+        let Some(x11) = x11::get() else {
+            return;
+        };
+        let Ok(Some((xid, scale))) = window.update(cx, |_, window, _| {
+            x11::xid(window).map(|xid| (xid, window.scale_factor()))
+        }) else {
+            return;
+        };
+        let corner = device(content.origin, scale);
+        x11.hint(xid, Gravity::Client, corner);
+        let landed = x11.frame(xid, true);
+        cx.background_executor()
+            .spawn(async move {
+                if let Ok(Some(frame)) = landed.recv_async().await {
+                    if (frame.client.x, frame.client.y) != corner {
+                        x11.move_window(xid, Gravity::Client, corner, None);
+                    }
+                }
+            })
+            .detach();
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (window, content, cx);
+}
+
+/// The decoration around `window`, in GPUI's pixels — zero until it has
+/// been measured, and zero off X11.
+pub fn chrome_of(window: &Window) -> Chrome {
+    #[cfg(target_os = "linux")]
+    if let (Some(x11), Some(xid)) = (crate::x11::get(), crate::x11::xid(window)) {
+        let extents = x11.extents_of(xid);
+        let scale = window.scale_factor();
+        return Chrome {
+            left: px(extents.left as f32 / scale),
+            right: px(extents.right as f32 / scale),
+            top: px(extents.top as f32 / scale),
+            bottom: px(extents.bottom as f32 / scale),
+        };
+    }
+    let _ = window;
+    Chrome::default()
+}
+
+/// The rectangle a person sees for `window`: its bounds, with the window
+/// manager's decoration around them where there is one.
+pub fn frame_of(window: &Window) -> Bounds<Pixels> {
+    chrome_of(window).around(window.bounds())
+}
+
+/// Put `window`, whose frame is at `from`, with its frame at `to` — and,
+/// with `resize`, at `to`'s size.
+///
+/// On macOS a translation by the difference, through [`translate`]; under
+/// X11 an absolute move of the frame's corner, which is what the window
+/// manager is asked for (`_NET_MOVERESIZE_WINDOW`, D613). Elsewhere —
+/// Wayland — nothing, and `false`.
+pub fn put(window: &mut Window, from: Bounds<Pixels>, to: Bounds<Pixels>, resize: bool) -> bool {
+    #[cfg(target_os = "linux")]
+    if let (Some(x11), Some(xid)) = (crate::x11::get(), crate::x11::xid(window)) {
+        let scale = window.scale_factor();
+        let client = chrome_of(window).shrink(to.size);
+        x11.move_window(
+            xid,
+            crate::x11::Gravity::Frame,
+            device(to.origin, scale),
+            Some(device(point(client.width, client.height), scale)),
+        );
+        let _ = (from, resize);
+        return true;
+    }
+    if resize {
+        // `setContentSize:` under there, which keeps the window's
+        // top-left corner — so the delta below is still the right one
+        // when it lands, and it lands on the foreground executor a
+        // moment after this returns.
+        window.resize(to.size);
+    }
+    translate(
+        window,
+        point(to.origin.x - from.origin.x, to.origin.y - from.origin.y),
+    )
 }
 
 /// One display, as the Placement page lists it.
@@ -92,6 +340,11 @@ pub struct Connected {
 /// The primary display is flagged rather than moved to the front — the
 /// cards are a list of what is attached, not a ranking.
 pub fn connected(cx: &App) -> Vec<Connected> {
+    #[cfg(target_os = "linux")]
+    if let Some(monitors) = Monitors::read(cx) {
+        return monitors.connected();
+    }
+
     let primary = cx.primary_display().map(|display| display.id());
     let named = names();
 
@@ -152,8 +405,9 @@ fn names() -> Vec<(DisplayId, String)> {
 
 #[cfg(not(target_os = "macos"))]
 fn names() -> Vec<(DisplayId, String)> {
-    // Windows has `EnumDisplayDevices` and X11 has RandR output names,
-    // and neither platform has a tray or a bundle yet. E10.
+    // Under X11 the monitors are named by RandR, in `Monitors`, before
+    // this is reached; under Wayland GPUI keeps the output's name to
+    // itself, and Windows has `EnumDisplayDevices` and no build yet.
     Vec::new()
 }
 
@@ -251,17 +505,33 @@ pub fn translate(window: &Window, delta: Point<Pixels>) -> bool {
 
 #[cfg(not(target_os = "macos"))]
 pub fn translate(_window: &Window, _delta: Point<Pixels>) -> bool {
-    // E10. Windows has `SetWindowPos` and X11 `XMoveWindow`; until a
-    // build of this product exists on either, saying "not moved" is the
-    // honest answer and the zone still applies when the window opens.
+    // Under X11 a window is moved by [`put`], absolutely, through the
+    // window manager; under Wayland it cannot be moved at all, and
+    // Windows has no build yet. "Not moved" is the honest answer here.
     false
 }
 
 /// The screen a window is currently on.
 pub fn of_window(window: &Window, cx: &App) -> Option<Screen> {
+    #[cfg(target_os = "linux")]
+    if let Some(monitors) = Monitors::read(cx) {
+        return monitors.at(window.bounds().center());
+    }
+
     window
         .display(cx)
         .map(|display| Screen::of(display.as_ref()))
+}
+
+/// The screen a rectangle is on — the one under its middle — for a
+/// rectangle measured off a window rather than the window itself.
+pub fn of_rect(rect: Bounds<Pixels>, fallback: Option<Screen>, cx: &App) -> Option<Screen> {
+    #[cfg(target_os = "linux")]
+    if let Some(monitors) = Monitors::read(cx) {
+        return monitors.at(rect.center());
+    }
+    let _ = (rect, cx);
+    fallback
 }
 
 /// The screen the pointer is on right now.
@@ -311,16 +581,36 @@ pub fn under_the_pointer(cx: &App) -> Option<Screen> {
         .map(|display| Screen::of(display.as_ref()))
 }
 
-#[cfg(not(target_os = "macos"))]
+/// How long the pointer is waited for under X11 before the question is
+/// answered "unknown" — the one synchronous X request the GPUI thread
+/// makes, bounded so a stalled X server costs this and no more.
+#[cfg(target_os = "linux")]
+const POINTER_WITHIN: std::time::Duration = std::time::Duration::from_millis(100);
+
+#[cfg(target_os = "linux")]
+pub fn under_the_pointer(cx: &App) -> Option<Screen> {
+    // `XQueryPointer` on the root, through our own connection's thread
+    // (D612); under Wayland a client cannot ask, and the answer is
+    // unknown — the caller falls back to the primary display.
+    let monitors = Monitors::read(cx)?;
+    let (x, y) = crate::x11::get()?.pointer(POINTER_WITHIN)?;
+    let at = point(px(x as f32 / monitors.scale), px(y as f32 / monitors.scale));
+    monitors.at(at)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn under_the_pointer(_cx: &App) -> Option<Screen> {
-    // Windows has `GetCursorPos` and X11 `XQueryPointer`, but neither
-    // tray exists yet (see `tray.rs`), so nothing can ask this question
-    // off macOS. E10.
+    // Windows has `GetCursorPos`, and no build yet.
     None
 }
 
 /// The display new windows land on when nothing better is known.
 pub fn primary(cx: &App) -> Option<Screen> {
+    #[cfg(target_os = "linux")]
+    if let Some(monitors) = Monitors::read(cx) {
+        return monitors.primary();
+    }
+
     cx.primary_display()
         .map(|display| Screen::of(display.as_ref()))
 }
@@ -391,6 +681,35 @@ mod tests {
         let window = bounds(100.0, 100.0, 600.0, 400.0);
         let placed = centred(size(px(200.0), px(100.0)), window);
         assert_eq!(placed, bounds(300.0, 250.0, 200.0, 100.0));
+    }
+
+    /// Under X11 every monitor is one GPUI display with one id; only the
+    /// key tells them apart (D614). Without a key, the id still does.
+    #[test]
+    fn two_monitors_of_one_x_screen_are_two_displays() {
+        let monitor = |key: Option<&str>| Screen {
+            id: DisplayId::new(0),
+            key: key.map(ToOwned::to_owned),
+            visible: bounds(0.0, 0.0, 1920.0, 1080.0),
+        };
+        assert!(!monitor(Some("uuid-left")).same_display(&monitor(Some("uuid-right"))));
+        assert!(monitor(Some("uuid-left")).same_display(&monitor(Some("uuid-left"))));
+        assert!(monitor(None).same_display(&monitor(None)));
+    }
+
+    /// The frame is the client with the window manager's decoration
+    /// around it, and a frame's size goes back to its client's.
+    #[test]
+    fn chrome_goes_around_a_client_and_comes_off_a_frame() {
+        let chrome = Chrome {
+            left: px(1.0),
+            right: px(2.0),
+            top: px(37.0),
+            bottom: px(3.0),
+        };
+        let client = bounds(100.0, 237.0, 420.0, 260.0);
+        assert_eq!(chrome.around(client), bounds(99.0, 200.0, 423.0, 300.0));
+        assert_eq!(chrome.shrink(chrome.grow(client.size)), client.size);
     }
 
     #[test]

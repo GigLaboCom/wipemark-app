@@ -92,6 +92,38 @@ pub fn save(store: &Store, screen: &Screen, bounds: Bounds<Pixels>) {
     }
 }
 
+/// Move what `from` remembered to `to`, unless `to` remembers something
+/// of its own — and forget `from` either way.
+///
+/// The one caller is the nil-uuid adoption (D615): under X11 every screen
+/// was filed under the nil uuid until the monitors were read, and the
+/// primary display takes that rectangle once. Errors are logged and
+/// swallowed, as [`save`]'s are.
+pub fn adopt(store: &Store, from: &Screen, to: &Screen) {
+    let (Some(old), Some(new)) = (key(from), key(to)) else {
+        return;
+    };
+    let settings = store.settings();
+    let held: Option<serde_json::Value> = settings.get(&old).ok().flatten();
+    let Some(held) = held else {
+        return;
+    };
+    let taken = settings
+        .get::<serde_json::Value>(&new)
+        .ok()
+        .flatten()
+        .is_some();
+    if !taken {
+        if let Err(error) = settings.set(&new, &held) {
+            tracing::warn!(%error, "could not move the Settings window's rectangle to its display");
+            return;
+        }
+    }
+    if let Err(error) = settings.delete(&old) {
+        tracing::warn!(%error, "could not forget the Settings window's nil-display rectangle");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use gpui::DisplayId;
@@ -160,6 +192,29 @@ mod tests {
             store.settings().all().expect("read").is_empty(),
             "an unidentifiable screen must not leave a row behind at all"
         );
+    }
+
+    /// The nil-uuid row goes to the primary display once, and never over
+    /// a rectangle that display already has (D615).
+    #[test]
+    fn the_nil_rectangle_is_adopted_once_and_never_over_one_of_its_own() {
+        let store = Store::in_memory().expect("open");
+        let nil = screen(Some(crate::placement::NIL_KEY));
+        let hdmi = screen(Some("uuid-hdmi"));
+
+        save(&store, &nil, bounds(120.0, 80.0, 820.0, 560.0));
+        adopt(&store, &nil, &hdmi);
+        assert_eq!(load(&store, &hdmi), Some(bounds(120.0, 80.0, 820.0, 560.0)));
+        assert_eq!(load(&store, &nil), None, "the nil row is gone");
+
+        save(&store, &nil, bounds(1.0, 2.0, 820.0, 560.0));
+        adopt(&store, &nil, &hdmi);
+        assert_eq!(
+            load(&store, &hdmi),
+            Some(bounds(120.0, 80.0, 820.0, 560.0)),
+            "the display's own rectangle stays"
+        );
+        assert_eq!(load(&store, &nil), None);
     }
 
     /// Geometry is not a preference and must never appear beside one:
