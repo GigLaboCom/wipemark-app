@@ -312,7 +312,11 @@ never used — rejected attempts carry no text.
 An engine error rejects the attempt (`Transport`, `Protocol`,
 `ContextOverflow`, `NotImplemented`) and the loop goes on; `Unavailable`
 fails the job (asking every candidate of every chunk would repeat it);
-`Cancelled` cancels it. `max_tokens`, when the options leave it unset, is
+`Cancelled` cancels it. An answer the engine says was empty
+(`EngineError::Empty` — an endpoint that streamed only its thinking, D710)
+is not an engine failure: it is `Rejection::Empty`, the report's `empty`,
+as an answer that is empty once cleaned up is, and it counts as a call
+(`Rejection::of_engine`; `an_answer_the_engine_calls_empty_is_rejected_as_empty`). `max_tokens`, when the options leave it unset, is
 `2 × estimate_tokens(input) + 64` — the estimate never undercounts by more
 than 5 %, the length guard rejects past 1.6×, and the engines clip to the
 window; without a ceiling a runaway answer costs minutes on a CPU.

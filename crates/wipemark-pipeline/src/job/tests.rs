@@ -1091,6 +1091,68 @@ impl RewriteEngine for Refusing {
     async fn unload(&self) {}
 }
 
+/// An engine whose every answer is empty by its own account — an endpoint
+/// that streamed only its thinking (acceptance F20).
+struct EmptyAnswers;
+
+#[async_trait]
+impl RewriteEngine for EmptyAnswers {
+    fn info(&self) -> EngineInfo {
+        FakeEngine::new().info()
+    }
+
+    async fn complete(
+        &self,
+        _req: ChatRequest,
+        _sink: TokenSink,
+        _cancel: CancellationToken,
+    ) -> Result<Completion, EngineError> {
+        Err(EngineError::Empty)
+    }
+
+    async fn warmup(&self) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    async fn unload(&self) {}
+}
+
+/// D710: an answer the engine says was empty rejects the attempt as
+/// `empty` — as an empty answer the engine handed back does — and never as
+/// an engine failure. The report's JSON names it `empty`, each such call is
+/// a call, and the job goes on to its end.
+#[test]
+fn an_answer_the_engine_calls_empty_is_rejected_as_empty() {
+    let events = run_on(
+        Arc::new(EmptyAnswers),
+        document(EN, TextFormat::Plain),
+        options(1, 2),
+    );
+    assert_eq!(
+        rejections(&events),
+        [Rejection::Empty { step: 1 }, Rejection::Empty { step: 1 }]
+    );
+    let outcome = outcome(&events);
+    assert_eq!(outcome.text, EN);
+    assert_eq!(
+        outcome.report.totals().calls,
+        2,
+        "an empty answer was a call"
+    );
+    let report = outcome.report.to_value();
+    let kinds: Vec<&str> = report["best_effort"]["chunks"][0]["attempts"]
+        .as_array()
+        .expect("attempts")
+        .iter()
+        .map(|attempt| {
+            attempt["verdict"]["rejected"]["kind"]
+                .as_str()
+                .expect("a kind")
+        })
+        .collect();
+    assert_eq!(kinds, ["empty", "empty"], "{report}");
+}
+
 #[test]
 fn an_unavailable_engine_fails_the_job() {
     let events = run_on(

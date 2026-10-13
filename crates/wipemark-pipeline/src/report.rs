@@ -93,6 +93,19 @@ impl Rejection {
             Rejection::MarkerInAnswer { .. } => "marker-in-answer",
         }
     }
+
+    /// What an engine error on `step` means for the attempt (D710): an
+    /// answer the engine says was empty — an endpoint that streamed only
+    /// its thinking — is [`Rejection::Empty`], as an empty answer handed
+    /// back is; any other error that leaves the job going is
+    /// [`Rejection::Engine`]. `Err` hands back an error that ends the job,
+    /// as [`EngineFailure::of`] does.
+    pub fn of_engine(step: u8, error: EngineError) -> Result<Rejection, EngineError> {
+        match error {
+            EngineError::Empty => Ok(Rejection::Empty { step }),
+            other => EngineFailure::of(other).map(|failure| Rejection::Engine { step, failure }),
+        }
+    }
 }
 
 /// An engine error that rejects one attempt and leaves the job going.
@@ -129,6 +142,12 @@ impl EngineFailure {
                 Ok(EngineFailure::ContextOverflow { used, limit })
             }
             EngineError::NotImplemented(what) => Ok(EngineFailure::NotImplemented { what }),
+            // An attempt's step reads it as `Rejection::Empty` first
+            // ([`Rejection::of_engine`]); what reaches here — a warmup — is
+            // an answer the engine could not use, in its own words.
+            EngineError::Empty => Ok(EngineFailure::Protocol {
+                detail: EngineError::Empty.to_string(),
+            }),
             other @ (EngineError::Cancelled | EngineError::Unavailable(_)) => Err(other),
         }
     }

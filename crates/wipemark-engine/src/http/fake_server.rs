@@ -9,7 +9,9 @@
 //! request is recorded (method, path, headers, body) for the assertions,
 //! and every accepted connection is counted, so a test can say a socket was
 //! never opened. A connection past the end of the script is answered `500
-//! unscripted` and recorded like the rest.
+//! unscripted` and recorded like the rest. A reply may be chosen by the
+//! request it answers ([`Reply::choosing`]): a server that answers one way
+//! unless a field asks it otherwise.
 
 use std::collections::VecDeque;
 use std::io::{Read, Write};
@@ -29,6 +31,8 @@ pub(crate) struct Reply {
     chunks: Vec<(Duration, Vec<u8>)>,
     /// Close the connection after this many bytes of body.
     drop_after: Option<usize>,
+    /// The reply is the one this picks for the request, read first.
+    choose: Option<fn(&Recorded) -> Reply>,
 }
 
 impl Reply {
@@ -63,6 +67,14 @@ impl Reply {
     pub(crate) fn drop_after(mut self, bytes: usize) -> Self {
         self.drop_after = Some(bytes);
         self
+    }
+
+    /// Whatever `choose` makes of the request this connection carries.
+    pub(crate) fn choosing(choose: fn(&Recorded) -> Reply) -> Self {
+        Self {
+            choose: Some(choose),
+            ..Self::default()
+        }
     }
 
     /// A 200 of server-sent events, one event per chunk, each a little
@@ -194,7 +206,13 @@ fn answer(
 ) {
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-    if let Some(request) = read_request(&mut stream) {
+    let request = read_request(&mut stream);
+    let chosen = match (reply.choose, &request) {
+        (Some(choose), Some(request)) => Some(choose(request)),
+        _ => None,
+    };
+    let reply = chosen.as_ref().unwrap_or(reply);
+    if let Some(request) = request {
         recorded
             .lock()
             .unwrap_or_else(PoisonError::into_inner)

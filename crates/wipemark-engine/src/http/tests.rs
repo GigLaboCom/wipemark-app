@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 use wipemark_core::Vendor;
 use wipemark_secret::Secret;
 
-use super::fake_server::{FakeServer, Reply};
+use super::fake_server::{FakeServer, Recorded, Reply};
 use super::{HttpConfig, HttpEngine, HttpProvider, Reasoning};
 use crate::{
     ChatRequest, Completion, EngineError, FinishReason, RewriteEngine, SamplingParams, Unavailable,
@@ -83,6 +83,30 @@ fn last_line(eval_count: u32) -> String {
     json!({ "message": { "role": "assistant", "content": "" }, "done": true,
             "done_reason": "stop", "eval_count": eval_count })
     .to_string()
+}
+
+/// One Ollama line of a thinking model's thinking, its content empty — the
+/// shape Ollama 0.40 streams Gemma 4's answer in when nobody says
+/// `think: false` (acceptance F20).
+fn thought(thinking: &str) -> String {
+    json!({ "message": { "role": "assistant", "content": "", "thinking": thinking },
+            "done": false })
+    .to_string()
+}
+
+/// What the thinking is, in every test that sends one: a string the
+/// assertions look for wherever it must not be.
+const THINKING: &str = "THOUGHT-7c1e: the user wants a greeting";
+
+/// A thinking model under Ollama: its answer in `thinking`, `content`
+/// empty — unless the request says `"think": false`, and then the answer
+/// in `content`.
+fn thinking_unless_told(request: &Recorded) -> Reply {
+    if request.json()["think"] == json!(false) {
+        Reply::ndjson(&[line("Hel"), line("lo"), line(" world"), last_line(3)])
+    } else {
+        Reply::ndjson(&[thought(THINKING), thought(" and so"), last_line(40)])
+    }
 }
 
 fn transport(result: Result<Completion, EngineError>) -> String {
@@ -188,14 +212,69 @@ async fn an_empty_answer_is_an_error_not_an_empty_rewrite() {
     ] {
         let server = FakeServer::start(vec![reply]);
         match ask(&openai(&server, None)).await.0 {
-            Err(EngineError::Protocol(said)) => assert_eq!(said, "the answer was empty"),
+            Err(EngineError::Empty) => {}
             other => panic!("an empty answer must be an error, got {other:?}"),
         }
     }
     let server = FakeServer::start(vec![Reply::ndjson(&[last_line(0)])]);
     match ask(&ollama(&server)).await.0 {
-        Err(EngineError::Protocol(said)) => assert_eq!(said, "the answer was empty"),
+        Err(error @ EngineError::Empty) => assert_eq!(error.to_string(), "the answer was empty"),
         other => panic!("an empty answer must be an error, got {other:?}"),
+    }
+}
+
+/// D709 (acceptance F20): Ollama is asked with thinking off. A thinking
+/// model under Ollama streams its answer in `message.thinking` and leaves
+/// `content` empty unless the request says `"think": false`; asked so, it
+/// answers in `content`, and the completion is that content. The
+/// OpenAI-compatible request carries no `think` at all: the `/v1` shim
+/// takes none, and a field a server refuses would be a new failure.
+#[tokio::test]
+async fn ollama_is_asked_with_thinking_off_and_answers_in_content() {
+    let server = FakeServer::start(vec![Reply::choosing(thinking_unless_told)]);
+    let (result, streamed) = ask(&ollama(&server)).await;
+    let sent = server.requests()[0].json();
+    assert_eq!(sent["think"], json!(false), "Ollama was not told: {sent}");
+    let completion = result.expect("the answer, in content");
+    assert_eq!(completion.text, "Hello world");
+    assert_eq!(streamed.concat(), "Hello world");
+
+    let server = FakeServer::start(vec![Reply::sse(&[delta("hi"), done()])]);
+    ask(&openai(&server, None)).await.0.expect("answered");
+    let sent = server.requests()[0].json();
+    assert!(
+        sent.get("think").is_none(),
+        "the /v1 request says think: {sent}"
+    );
+}
+
+/// D710: an Ollama that streams only its thinking — an older one that
+/// ignores `think`, still answering that way with `"think": false` — ends
+/// with nothing in `content`. That is an empty answer, its own error, which
+/// the loop rejects as `empty` rather than as an engine failure; and the
+/// thinking is kept nowhere: not streamed, not in the error.
+#[tokio::test]
+async fn an_answer_only_in_thinking_is_empty_and_its_thinking_is_kept_nowhere() {
+    let server = FakeServer::start(vec![Reply::ndjson(&[
+        thought(THINKING),
+        thought(" and so on"),
+        last_line(40),
+    ])]);
+    let (result, streamed) = ask(&ollama(&server)).await;
+    assert_eq!(server.requests()[0].json()["think"], json!(false));
+    let error = match result {
+        Err(error @ EngineError::Empty) => error,
+        other => panic!("an answer only in thinking is an empty one, got {other:?}"),
+    };
+    assert!(
+        streamed.is_empty(),
+        "the thinking was streamed: {streamed:?}"
+    );
+    for said in [error.to_string(), format!("{error:?}")] {
+        assert!(
+            !said.contains("THOUGHT"),
+            "the thinking is in the error: {said}"
+        );
     }
 }
 

@@ -301,16 +301,9 @@ pub async fn run_trial(
         let begun = Instant::now();
         let completion = match ask(engine, rendered.clone().into_request(params), cancel).await {
             Ok(completion) => completion,
-            Err(error) => match EngineFailure::of(error) {
-                Ok(failure) => {
-                    return ended(
-                        steps,
-                        Rejection::Engine {
-                            step: step.step,
-                            failure,
-                        },
-                    )
-                }
+            // An empty answer is `empty` here as in the loop (D710).
+            Err(error) => match Rejection::of_engine(step.step, error) {
+                Ok(rejection) => return ended(steps, rejection),
                 Err(EngineError::Unavailable(why)) => return TrialEnd::Unavailable(why),
                 Err(_) => return TrialEnd::Cancelled,
             },
@@ -414,6 +407,8 @@ pub async fn adapt_with(
     };
     let completion = match ask(engine, request.into_request(params), cancel).await {
         Ok(completion) => completion,
+        // An answer the engine says was empty is an empty adaptation (D710).
+        Err(EngineError::Empty) => return AdaptEnd::Empty,
         Err(error) => {
             return match EngineFailure::of(error) {
                 Ok(failure) => AdaptEnd::Failed(failure),

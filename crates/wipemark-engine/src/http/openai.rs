@@ -70,5 +70,6 @@ pub(crate) fn payload(data: &str) -> Result<Said, EngineError> {
         finish,
         tokens,
         done: false,
+        thought: 0,
     })
 }
