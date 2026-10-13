@@ -124,7 +124,10 @@
   `the_close_button_hides_only_where_show_brings_the_window_back`). Quit is
   `App::quit` on both platforms: the model is dropped and waited for, the
   item taken down, and the MCP beacon removed if it names this process
-  (`main::take_beacon_at_quit`, D344). Windows has no tray yet. Menu clicks
+  (`main::take_beacon_at_quit`, D344). SIGTERM, SIGINT and SIGHUP take the
+  same road on Unix (`signals.rs`, D717; a second one ends the process at
+  once), and a beacon a process that no longer runs left is swept as the
+  MCP supervisor starts (D718). Windows has no tray yet. Menu clicks
   reach GPUI through a `flume` channel for the same reason every long
   operation does: the `muda` callback runs with no `&mut App` in scope and
   no way to get one.

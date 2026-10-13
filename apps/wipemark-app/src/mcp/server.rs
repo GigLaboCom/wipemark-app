@@ -597,6 +597,21 @@ fn leave_beacon(beacon: Option<&Path>, listening: &Event) {
     }
 }
 
+/// Sweep a beacon a process that no longer runs left behind — a crash, a
+/// `kill -9`, anything that ended it past its quit handlers (D718). As the
+/// supervisor starts, before any command and so before this run writes its
+/// own, whether or not it serves. A beacon whose process runs stays: the
+/// CLI's own check, `Beacon::alive`.
+fn sweep_beacon(beacon: Option<&Path>) {
+    if let Some(stale) = beacon.and_then(Beacon::remove_if_dead) {
+        tracing::info!(
+            pid = stale.pid,
+            port = stale.port,
+            "MCP: a beacon left by a process that no longer runs is swept"
+        );
+    }
+}
+
 /// Take this process's beacon away, if it left one.
 fn take_beacon(beacon: Option<&Path>) {
     if let Some(path) = beacon {
@@ -614,6 +629,7 @@ fn supervise(
     services: &Services,
     beacon: Option<&Path>,
 ) {
+    sweep_beacon(beacon);
     let mut running: Option<Running> = None;
 
     while let Ok(mut command) = commands.recv() {
@@ -1121,6 +1137,60 @@ mod tests {
         );
         assert_eq!(Beacon::read(&path), None, "the beacon outlived the server");
         drop(taken);
+        let _ = std::fs::remove_dir_all(&scratch);
+    }
+
+    /// D718: a beacon a process that no longer runs left is swept as the
+    /// server starts — before any command, so a run with the server off
+    /// sweeps it too — and one naming another process that runs is not.
+    #[test]
+    fn a_beacon_a_dead_process_left_is_swept_when_the_server_starts() {
+        let scratch = std::env::temp_dir().join(format!(
+            "wipemark-mcp-stale-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&scratch);
+        let path = scratch.join(wipemark_models::beacon::FILE);
+        // Started and stopped without serving: the sweep is the supervisor's
+        // first act, and the stop's answer comes after it.
+        let start_and_stop = || {
+            let (events, heard) = flume::unbounded();
+            let supervisor =
+                Supervisor::spawn(events, tools(EngineHandle::new().0, Some(path.clone())));
+            supervisor.stop();
+            assert_eq!(
+                heard
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("an event"),
+                Event::Stopped
+            );
+        };
+
+        let stale = Beacon {
+            pid: u32::MAX - 7,
+            port: 5056,
+            address: "127.0.0.1".parse().expect("an address"),
+        };
+        stale.write(&path).expect("written");
+        start_and_stop();
+        assert_eq!(Beacon::read(&path), None, "a dead process's beacon stayed");
+
+        // Another process that runs: the one that started this test.
+        #[cfg(unix)]
+        {
+            let live = Beacon {
+                pid: std::os::unix::process::parent_id(),
+                ..stale
+            };
+            live.write(&path).expect("written");
+            start_and_stop();
+            assert_eq!(
+                Beacon::read(&path),
+                Some(live),
+                "a running process's beacon went"
+            );
+        }
         let _ = std::fs::remove_dir_all(&scratch);
     }
 

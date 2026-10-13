@@ -173,6 +173,20 @@ global-hotkey = "0.7"
 # itself pins.
 raw-window-handle = "0.6"
 
+# SIGTERM, SIGINT and SIGHUP quit the way the tray's Quit does
+# (src/signals.rs, D717). `async-signal` registers the three through
+# `signal-hook-registry` with a handler that only writes to a socket pair,
+# and hands back their numbers — what the log line and a second signal's
+# exit code need, and what `ctrlc`, the CLI's, does not say. `futures-lite`
+# reads it from a thread of its own; `libc` is `_exit`, for a second signal
+# while a quit hangs. All three already in the lock and built for this
+# binary through gpui-component's `smol` and gpui itself, so the lock gains
+# edges and no crate.
+[target.'cfg(unix)'.dependencies]
+async-signal = "0.2"
+futures-lite = "2"
+libc = "0.2"
+
 # Linux only: the GTK thread the tray lives on (src/tray.rs, D340).
 # `gtk` is the version `muda` already builds its menus with, so this is
 # one GTK, not two; its `gio` asks the session bus whether anything will

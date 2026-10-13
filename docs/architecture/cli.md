@@ -545,7 +545,10 @@ port, a loopback address), and the command sends the document to its
 `rewrite` tool — the one loaded model serves every surface (D52). The
 beacon is trusted only when its address is loopback, its process runs and
 the server there answers `initialize` as `wipemark`; otherwise the
-command loads its own engine. Once the call is sent its answer stands:
+command loads its own engine. (The application removes its beacon as it
+quits, on a SIGTERM too, and sweeps one a dead process left as its MCP
+server starts — D344, D717, D718 — so a stale beacon is rarer, and still
+checked for.) Once the call is sent its answer stands:
 a connection lost after that exits 2, and nothing is run again here.
 Ctrl-C hangs up, and the application cancels the job.
 
