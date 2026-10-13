@@ -389,5 +389,5 @@ refuses a taken name (exit 2). The result's toolbar in Compare has
 **Copy all** (D630–D634).
 
 Everything else is stage two (§4 of the release plan). The next free
-decision block is **D702** (D670–D689 are the spacer-rows task's) (D531–D569 stay free for the recon line). The
+decision block is **D703** (D702 is the macOS acceptance's Rewrite all; D670–D689 are the spacer-rows task's) (D531–D569 stay free for the recon line). The
 history of every merge is [docs/plan/history.md](docs/plan/history.md).

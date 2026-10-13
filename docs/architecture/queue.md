@@ -289,7 +289,9 @@ the status bar — never a failed item (D311). It lifts itself when the duty
 changes (`EngineHandle::when_changed`) or on Resume; it is never retried in
 a loop, because asking an endpoint means reading a key from the keychain.
 
-**The price first** (D61): Rewrite all prices every row it would take —
+**The price first** (D61): Rewrite all takes every text not rewritten yet —
+not started, cleaned, found clean — and never a row that records a rewrite
+(D702). It prices every row it would take —
 `wipemark_pipeline::job::plan` over each document and `Planned::cost` at
 the rate the last Check measured — and the shell asks before anything is
 pushed: calls, tokens, minutes, or "unknown" when the rate was never

@@ -769,7 +769,7 @@ impl Shell {
         let waiting = self.queue.read(cx).cleanable_waiting().len();
         let (rewriting, pausing, clearing) =
             (self.queue.clone(), self.queue.clone(), self.queue.clone());
-        let rewritable = self.queue.read(cx).rewritable_waiting(cx).len();
+        let rewritable = self.queue.read(cx).rewrite_all_takes(cx).len();
         let open = self.queue.read(cx).rewrites_open();
         let paused = self.queue.read(cx).rewrites_paused();
         let finished = self.queue.read(cx).any_finished();
