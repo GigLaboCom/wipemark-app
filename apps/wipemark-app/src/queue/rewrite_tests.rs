@@ -23,9 +23,10 @@ use crate::journal::{self, Journal, Work};
 use crate::retention::Destination as Goes;
 
 /// A paragraph `lang::detect` reads as English, long enough to be checked.
-const PARAGRAPH: &str = "The build takes about twelve minutes on an ordinary laptop, and the \
-                         second run is much faster because all of the dependencies are already \
-                         compiled and kept in the target directory.\n";
+pub(super) const PARAGRAPH: &str =
+    "The build takes about twelve minutes on an ordinary laptop, and the second run is much \
+     faster because all of the dependencies are already compiled and kept in the target \
+     directory.\n";
 
 /// The text a request asks to rewrite, every two neighbouring words of its
 /// first half swapped: an answer every guard accepts.
@@ -44,7 +45,7 @@ fn swapped(req: &wipemark_engine::ChatRequest) -> String {
     words.join(" ")
 }
 
-fn swapping() -> FakeEngine {
+pub(super) fn swapping() -> FakeEngine {
     FakeEngine::answering(|req, _| swapped(req))
 }
 
@@ -80,7 +81,7 @@ fn work_over(store: Arc<Store>, engine: Option<FakeEngine>) -> Work {
     work
 }
 
-fn work(engine: FakeEngine) -> Work {
+pub(super) fn work(engine: FakeEngine) -> Work {
     work_over(Arc::new(Store::in_memory().expect("memory")), Some(engine))
 }
 
@@ -88,7 +89,7 @@ fn work(engine: FakeEngine) -> Work {
 /// The engine that answers is the fake in the work's slot — the table's
 /// consent and its vacancy are the duty's (D430), and a test that pushes
 /// needs one, as a person does.
-fn here_on_duty(
+pub(super) fn here_on_duty(
     preferences: &gpui::Entity<crate::settings::Preferences>,
     cx: &mut VisualTestContext,
 ) {
@@ -106,7 +107,11 @@ fn here_on_duty(
 
 /// Run the window's tasks until `done` says so — the batch queue is a
 /// thread of its own, so this waits for it in real time, at most a minute.
-fn until(cx: &mut VisualTestContext, what: &str, done: impl Fn(&mut VisualTestContext) -> bool) {
+pub(super) fn until(
+    cx: &mut VisualTestContext,
+    what: &str,
+    done: impl Fn(&mut VisualTestContext) -> bool,
+) {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         cx.executor().advance_clock(super::rewriting::TICK);
@@ -119,11 +124,11 @@ fn until(cx: &mut VisualTestContext, what: &str, done: impl Fn(&mut VisualTestCo
     }
 }
 
-fn ids(queue: &gpui::Entity<Queue>, cx: &mut VisualTestContext) -> Vec<u64> {
+pub(super) fn ids(queue: &gpui::Entity<Queue>, cx: &mut VisualTestContext) -> Vec<u64> {
     cx.update(|_, cx| queue.read(cx).ids())
 }
 
-fn status(queue: &gpui::Entity<Queue>, cx: &mut VisualTestContext) -> &'static str {
+pub(super) fn status(queue: &gpui::Entity<Queue>, cx: &mut VisualTestContext) -> &'static str {
     statuses(queue, cx)[0]
 }
 

@@ -2350,3 +2350,20 @@ prompts-profile-unsaved-discard = Discard
 prompts-profile-import-title = The name “{ $name }” is taken
 prompts-profile-import-body = The file's templates are kept as a new profile of yours, under another name. Nothing below changes.
 prompts-profile-import-confirm = Import
+
+## Redo a row (D703–D708)
+##
+## A row that was cleaned or rewritten names its own item "again" and
+## writes over its own result. A result edited by hand asks first.
+## $name is a file name or the row's title, as the operating system or the
+## row spells it; $action is `clean` or `rewrite`, an id, never translated.
+queue-action-clean-again = Clean again
+queue-action-rewrite-again = Rewrite again
+queue-action-clean-rewritten = It was rewritten, and a rewrite contains the clean — Rewrite again redoes it.
+queue-action-again-in-place = It was processed in place: the file now holds the result, and the original is set aside as { $name }. Drop the original to process it again.
+queue-again-edited-title = Redo { $name }?
+queue-again-edited-body = Its result was edited by hand and saved. { $action ->
+        [rewrite] Rewriting it again replaces those edits.
+       *[clean] Cleaning it again replaces those edits.
+    }
+queue-again-edited-go = Redo

@@ -1664,3 +1664,15 @@ prompts-profile-unsaved-discard = Отказаться
 prompts-profile-import-title = Имя «{ $name }» занято
 prompts-profile-import-body = Шаблоны из файла сохранятся новым вашим профилем под другим именем. Ниже ничего не изменится.
 prompts-profile-import-confirm = Импортировать
+
+## Redo a row (D703–D708)
+queue-action-clean-again = Очистить снова
+queue-action-rewrite-again = Переписать снова
+queue-action-clean-rewritten = Это переписано, а переписывание включает очистку — «Переписать снова» сделает его заново.
+queue-action-again-in-place = Это обработано на месте: файл теперь содержит результат, а оригинал отложен как { $name }. Чтобы обработать его снова, перетащите сюда оригинал.
+queue-again-edited-title = Переделать { $name }?
+queue-again-edited-body = Его результат был изменён вручную и сохранён. { $action ->
+        [rewrite] Повторное переписывание заменит эти правки.
+       *[clean] Повторная очистка заменит эти правки.
+    }
+queue-again-edited-go = Переделать

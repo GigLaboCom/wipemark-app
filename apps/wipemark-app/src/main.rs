@@ -378,6 +378,31 @@ impl Shell {
                 // or waiting its turn, is taken down rather than left for
                 // an answer that would change nothing (D394).
                 QueueEvent::Unasked => shell.unask(window, cx),
+                // Clean again or Rewrite again over a result edited by hand
+                // and saved: asked before the edits are replaced (D705).
+                // Yes redoes it without asking again; anything else, nothing.
+                QueueEvent::Again { id, action } => {
+                    let Some(name) = queue.read(cx).title_of(*id) else {
+                        return;
+                    };
+                    let title = t_args(Message::QueueAgainEditedTitle, &args!("name" => name));
+                    let body = vec![t_args(
+                        Message::QueueAgainEditedBody,
+                        &args!("action" => action.id()),
+                    )];
+                    let (id, action) = (*id, *action);
+                    shell.ask(
+                        Asked {
+                            title,
+                            body,
+                            go: Message::QueueAgainEditedGo,
+                            yes: Box::new(move |queue, cx| queue.again_agreed(id, action, cx)),
+                            about: None,
+                        },
+                        window,
+                        cx,
+                    );
+                }
             },
         );
 

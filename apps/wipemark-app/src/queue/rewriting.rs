@@ -6,13 +6,13 @@
 //! journal").
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::TimeZone as _;
 use gpui::Context;
 use wipemark_i18n::{args, t, t_args, Message};
 use wipemark_intake::name::{with_infix, REWRITTEN_INFIX};
-use wipemark_intake::{Format, Handed};
+use wipemark_intake::{inplace, Format, Handed};
 use wipemark_models::manifest::Role;
 use wipemark_pipeline::asked::Asked;
 use wipemark_pipeline::cost::Executor;
@@ -26,7 +26,7 @@ use wipemark_queue::{
 use wipemark_store::entry::{Action, Entry, Origin, Phase};
 use wipemark_store::JournalRow;
 
-use super::{Look, Price, Queue, QueueEvent, Road, Row, Said, Status};
+use super::{Again, Look, Price, Queue, QueueEvent, Road, Row, Said, Status};
 use crate::clean::{self, Cleanable};
 use crate::drop::Arrival;
 use crate::duty::Performer;
@@ -642,11 +642,40 @@ impl Queue {
         }
     }
 
+    /// Rewrite again (D703): row `id`'s own item, on a row whose last action
+    /// was a rewrite that ended. It is [`Queue::rewrite`] — the plan taken
+    /// at push (D91), over the row's own result (D704) — except that a result
+    /// edited by hand and saved (D447) is asked about first (D705):
+    /// [`QueueEvent::Again`], nothing pushed until [`Queue::again_agreed`].
+    /// A row greyed for it is left alone.
+    pub fn rewrite_again(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(row) = self.rows.iter().find(|row| row.id == id) else {
+            return;
+        };
+        if super::again_of(&row.status) != Some(Again::Rewrite) {
+            return;
+        }
+        let edited = row.edited();
+        if self.why_not_rewrite(id, cx).is_some() {
+            return;
+        }
+        if edited {
+            cx.emit(QueueEvent::Again {
+                id,
+                action: Again::Rewrite,
+            });
+            return;
+        }
+        self.rewrite(&[id], cx);
+    }
+
     /// Push rows `ids` to the batch queue, each with the Retention plan
     /// taken **now** (D91), and each claiming a result of its own when it
     /// is built (D635, D636): the plain `name.rewritten.ext` when nothing is
     /// there and no item still waiting or running claims it, the row's own
-    /// `name.rewritten-<id>.ext` otherwise.
+    /// `name.rewritten-<id>.ext` otherwise. A row rewritten before carries
+    /// its own result (D704 rule 3, decided here), which the build writes
+    /// over when it is still the row's alone ([`claim`]).
     ///
     /// Every road here is the person's in a window — a row's Rewrite,
     /// Rewrite all, a drop — and every one carries `consent`, where they
@@ -686,17 +715,28 @@ impl Queue {
             // window does not know it yet (D637) and read where the request
             // is built, off this thread.
             let tag = journal::Tag::of(id, row.entry, self.writer.as_ref());
+            // Rewrite again: the row's own result, when no other row of the
+            // list records that file (D704 rule 3); the rest of the rules
+            // need the disk, and are `claim`'s.
+            let over = match super::again_of(&row.status) {
+                Some(Again::Rewrite) => self.own_result(id),
+                _ => None,
+            };
             asked.push(Wanted {
                 id,
                 arrival,
                 destination,
                 tag,
+                over,
                 consent: consent.clone(),
             });
         }
         for one in &asked {
             if let Some(row) = self.rows.iter_mut().find(|row| row.id == one.id) {
+                // A new result: an edit saved over the earlier one is not
+                // this one's (D707).
                 row.status = Status::RewriteQueued;
+                row.edited = None;
                 row.edited_at = None;
             }
         }
@@ -737,7 +777,21 @@ impl Queue {
             });
             match reserved {
                 Ok((item, request)) => {
-                    row.item = Some(item);
+                    // The row's earlier item goes once the new one is
+                    // reserved (D707, D703a): the row names the new one from
+                    // here on, and nothing reaches the old one any more — a
+                    // paste's rewritten text lives only there (В4), and a
+                    // failed delivery's text too.
+                    if let Some(earlier) = row.item.replace(item).filter(|earlier| *earlier != item)
+                    {
+                        tracing::info!(
+                            id,
+                            earlier = earlier.0,
+                            item = item.0,
+                            "a row's earlier rewrite is removed"
+                        );
+                        work.queue.remove(earlier);
+                    }
                     row.price = price;
                     let queue = std::sync::Arc::clone(&work.queue);
                     let push = move || {
@@ -1050,6 +1104,10 @@ struct Wanted {
     destination: Destination,
     /// What the row's own result is named by (D637).
     tag: journal::Tag,
+    /// Rewrite again: the row's own earlier result, no other row of the list
+    /// recording it (D704 rule 3) — what [`claim`] writes over when the rest
+    /// of the rules hold.
+    over: Option<PathBuf>,
     consent: Whereto,
 }
 
@@ -1058,9 +1116,18 @@ struct Wanted {
 /// nothing is there and nothing else claims it: an item of the batch queue
 /// still waiting or running, or a row pushed with this one. `claimed` is
 /// that set, and the name this row takes is added to it.
+///
+/// Rewrite again (D704): `over`, the row's own earlier result, becomes the
+/// destination — [`Destination::File`], written over atomically at delivery
+/// — when it is still there (rule 1), is not `source` (rule 2), is one of
+/// the names the plan taken now gives this row (rule 4: `Own { tag, plain:
+/// true }`'s), and nothing else claims it. Otherwise the row takes a result
+/// of its own as every rewrite does.
 fn claim(
     destination: Destination,
     tag: &journal::Tag,
+    over: Option<&Path>,
+    source: Option<&Path>,
     claimed: &mut HashSet<PathBuf>,
 ) -> Destination {
     let Destination::Own {
@@ -1072,12 +1139,30 @@ fn claim(
     else {
         return destination;
     };
+    let tag = tag.resolve();
+    if let Some(over) = over {
+        let names = Destination::Own {
+            folder: folder.clone(),
+            name: name.clone(),
+            tag: tag.clone(),
+            plain: true,
+        };
+        let ours = names.names().any(|named| named == over);
+        if ours
+            && !claimed.contains(over)
+            && std::fs::symlink_metadata(over).is_ok()
+            && !source.is_some_and(|source| inplace::same_file(source, over))
+        {
+            claimed.insert(over.to_path_buf());
+            return Destination::File(over.to_path_buf());
+        }
+    }
     let plain_name = folder.join(with_infix(&name, REWRITTEN_INFIX));
     let free = !claimed.contains(&plain_name) && std::fs::symlink_metadata(&plain_name).is_err();
     let own = Destination::Own {
         folder,
         name,
-        tag: tag.resolve(),
+        tag,
         plain: plain && free,
     };
     if let Some(taken) = own.file() {
@@ -1123,9 +1208,14 @@ fn build(work: &Work, asked_for: Vec<Wanted>) -> Vec<Built> {
                 arrival,
                 destination,
                 tag,
+                over,
                 consent,
             } = wanted;
-            let destination = claim(destination, &tag, &mut claimed);
+            let source = match &arrival.handed {
+                Handed::Path(path) => Some(path.as_path()),
+                Handed::Text(_) | Handed::Bytes { .. } => None,
+            };
+            let destination = claim(destination, &tag, over.as_deref(), source, &mut claimed);
             let format = format_of(arrival.intake.format);
             let options = asked(format)
                 .options(executor, overrides.clone(), pivot)
@@ -1289,10 +1379,70 @@ fn price_of(work: &Work, things: &[Arrival], away: Option<String>) -> Price {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+    use std::path::{Path, PathBuf};
+
+    use wipemark_queue::Destination;
     use wipemark_store::entry::Origin;
     use wipemark_store::JournalRow;
 
     use super::super::tests::{queue_with, Scratch};
+    use crate::journal;
+
+    /// D704 rules 1, 2 and 4 at the claim: a Rewrite again's `over` becomes
+    /// `Destination::File` only while the file is still there, is not the
+    /// source — a hard link to it under the row's own name is — is one of
+    /// the names the plan taken now gives the row, and no other item claims
+    /// it; otherwise the row claims a name of its own, as every rewrite
+    /// does. Take any one of the checks out of `claim`: red.
+    #[test]
+    fn a_rewrite_again_writes_over_only_the_rows_own_result() {
+        let scratch = Scratch::new("claim-over");
+        let source = scratch.file("x.md", b"text");
+        let tag = journal::Tag::Id(7);
+        let claim = |over: &Path, claimed: &mut HashSet<PathBuf>| {
+            let destination = Destination::Own {
+                folder: scratch.0.clone(),
+                name: "x.md".to_owned(),
+                tag: String::new(),
+                plain: true,
+            };
+            super::claim(destination, &tag, Some(over), Some(&source), claimed)
+        };
+        let over = |destination: &Destination| matches!(destination, Destination::File(_));
+        let plain = scratch.0.join("x.rewritten.md");
+        let tagged = scratch.0.join("x.rewritten-7.md");
+
+        // Rule 1: not there, so not written over — the plain name, free.
+        assert!(matches!(
+            claim(&plain, &mut HashSet::new()),
+            Destination::Own { plain: true, .. }
+        ));
+        // There and the row's own: written over, and claimed.
+        std::fs::write(&plain, b"earlier").expect("write");
+        let mut claimed = HashSet::new();
+        assert_eq!(
+            claim(&plain, &mut claimed),
+            Destination::File(plain.clone())
+        );
+        assert!(claimed.contains(&plain), "not claimed");
+        std::fs::write(&tagged, b"earlier").expect("write");
+        assert_eq!(
+            claim(&tagged, &mut HashSet::new()),
+            Destination::File(tagged.clone())
+        );
+        // Claimed by an item still waiting or running: not over it.
+        assert!(!over(&claim(&plain, &mut HashSet::from([plain.clone()]))));
+        // Rule 4: another row's name, or the name a plan no longer gives.
+        let another = scratch.file("x.rewritten-8.md", b"another row's");
+        assert!(!over(&claim(&another, &mut HashSet::new())));
+        let elsewhere = scratch.file("results/x.rewritten.md", b"another plan's");
+        assert!(!over(&claim(&elsewhere, &mut HashSet::new())));
+        // Rule 2: the source itself under the row's own name.
+        std::fs::remove_file(&plain).expect("remove");
+        std::fs::hard_link(&source, &plain).expect("a hard link");
+        assert!(!over(&claim(&plain, &mut HashSet::new())));
+    }
 
     /// D690: a read of the journal that lands before this table's writer
     /// has named a row of its own — the panel's, a window's, a launch

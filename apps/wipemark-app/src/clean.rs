@@ -305,8 +305,9 @@ pub struct Outcome {
     /// (D635): what the row, the Report, the journal's `result.path` and
     /// Compare's next save read.
     pub written: Option<PathBuf>,
-    /// Whether `written` replaced a result already there — only ever when
-    /// the Compare window's Save asked for it by name ([`save_one`]).
+    /// Whether `written` replaced a result already there — only ever the
+    /// row's own: when the Compare window's Save asked for it by name
+    /// ([`save_one`]), or Clean again over it ([`clean_over`], D704).
     pub replaced: bool,
     /// Where the source was set aside, under [`Written::Over`].
     pub set_aside: Option<PathBuf>,
@@ -443,7 +444,27 @@ pub fn clean_one(
     tag: &str,
     now: DateTime<Utc>,
 ) -> Outcome {
-    logged(row, run(arrival, plan, row, tag, now, None, None))
+    clean_over(arrival, plan, row, tag, now, None)
+}
+
+/// [`clean_one`] over the row's own earlier result — Clean again (D704).
+/// **Blocking.**
+///
+/// `replacing` is the row's own result as the window found it: no other row
+/// of the list records it (D704 rule 3, checked where the rows are). It is
+/// written over only when it is still there, is not the source, and is one
+/// of the names the plan taken now gives this row ([`publish`], rules 1, 2
+/// and 4); otherwise the clean takes a result of its own as every clean
+/// does (D635). `None` is [`clean_one`].
+pub fn clean_over(
+    arrival: &Arrival,
+    plan: &Plan,
+    row: u64,
+    tag: &str,
+    now: DateTime<Utc>,
+    replacing: Option<&Path>,
+) -> Outcome {
+    logged(row, run(arrival, plan, row, tag, now, replacing, None))
 }
 
 /// A clean whose result is `edited` — the Compare window's Save of a text
@@ -953,7 +974,10 @@ fn own_names(destination: &Path, base: Option<&str>, tag: &str) -> Vec<PathBuf> 
 /// D636): never over a file already there — passed by, and left byte for
 /// byte — unless it is the very file `replacing` names, one of these, and
 /// never over its own source, named or not. Where it went, and whether a
-/// file was replaced.
+/// file was replaced. `replacing` is the row's own result — Compare's
+/// Overwrite (D441), or Clean again (D704) — and the three checks here are
+/// D704's rules 1, 2 and 4: still there, not the source, one of the names
+/// the plan gives the row now.
 ///
 /// No check comes before a publish for anything to race with: each name is
 /// published by `write_new`, which the operating system refuses when the

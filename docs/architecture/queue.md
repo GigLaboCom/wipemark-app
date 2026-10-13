@@ -177,8 +177,34 @@ file keeps the plain name, and every other one is named for its row —
 the ID column shows. "Replace the existing result", which answered the
 old refusal (D261, D270, D357), is gone (D638). The rules — what counts
 as taken, when a name is claimed, what delivery does when a claimed name
-is taken after all, the corner cases and what a future redo of a row
-reads — are `retention.md`, "Every row gets its own result".
+is taken after all, the corner cases and what a redo of a row replaces —
+are `retention.md`, "Every row gets its own result".
+
+**Again** (D703–D708, the owner's "Redo a row", 2026-10-13). A row whose
+clean ended — however it ended — names its Clean **Clean again**, and one
+whose rewrite ended names its Rewrite **Rewrite again**: the same item and
+the same row button, renamed, never a third one (`queue::labels`, one pure
+function of the status). A cleaned row's Rewrite is a first rewrite
+(D702); a rewritten row keeps Clean greyed, its reason "a rewrite contains
+the clean — Rewrite again redoes it". Either writes over **the row's own
+result**, the file `Row::written()` names, when no other row of the list
+records that file, it is still there, it is not the source, and it is one
+of the names the plan taken now gives the row (D704) — through the line
+with the file as `replacing` for a clean, through a push to
+`Destination::File` for a rewrite. When a rule fails the row takes a result
+of its own as every run does (D635): a deleted result is written again
+under the first free name of its own, a Retention page changed since writes
+where it says now, and a clean whose own name another clean of the line
+wrote while it waited takes its own (D703b). A result edited by hand and
+saved asks first — *Redo …?*, **Redo** or Cancel (D705); a result written
+in place is not redone, and the item says the name the original was set
+aside as (D706). A redo is a new result: the row's edit marks go, its
+journal entry's outcome is the new end's, and Rewrite again takes the
+row's earlier batch-queue item out once the new one is reserved — a
+paste's only copy of its first rewrite included (D707, D703a). Clean all,
+the panel's Clean and `--clean=` (all `Queue::clean`, waiting rows only),
+Rewrite all, the command line, MCP and the parity table do not change
+(D708).
 
 **Compare saves into the row** (E7-9). A row's Compare opens on its
 result as it stands once a clean put one somewhere (`cleaned_for`,

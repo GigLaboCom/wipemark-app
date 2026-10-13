@@ -66,6 +66,16 @@
 //! taken. "Replace the existing result" is gone with the refusal it
 //! answered (D638).
 //!
+//! A row whose clean ended — whatever it came to — names its Clean **Clean
+//! again** (D703, [`labels`]), and that writes over **the row's own
+//! result** ([`Queue::clean_again`], D704): the file the row records, when
+//! no other row records it, it is still there, it is not the source and it
+//! is one of the names the plan taken now gives the row; otherwise the row
+//! takes a result of its own as every clean does. A result edited by hand
+//! and saved asks first (D705, [`QueueEvent::Again`]); one written in place
+//! is not redone (D706). [`Queue::clean`] — Clean all, the panel's Clean,
+//! `--clean=` — still takes waiting rows only (D708).
+//!
 //! # Rewriting (E4-6b)
 //!
 //! **Rewrite** in a row's Actions menu and **Rewrite all** on the toolbar
@@ -83,6 +93,15 @@
 //! shown and copied from there until the row is removed. Cleans keep their
 //! own line (D283): a picture must not wait behind a twenty-minute
 //! rewrite, and a clean asked for a row being rewritten is refused (R7).
+//!
+//! A row whose rewrite ended — done, failed or cancelled — names its
+//! Rewrite **Rewrite again** (D703), and keeps Clean greyed: the rewrite
+//! contains the clean. Rewrite again pushes over the row's own result
+//! (`Destination::File`, D704, decided where the request is built) by the
+//! same rules as Clean again, asks first over an edited result (D705), is
+//! greyed in place (D706), and takes the row's earlier batch-queue item out
+//! once the new one is reserved (D707). Rewrite all leaves rewritten rows to
+//! their own Rewrite again (D702).
 //!
 //! # The journal (E4-6b)
 //!
@@ -516,22 +535,117 @@ pub fn why_no_report(status: &Status) -> Option<String> {
     }
 }
 
+/// Which of a row's two actions it would do **again** (D703): the one its
+/// last action was, once that ended — however it ended, because a failed or
+/// cancelled run is retried the same way. A clean that ended is this
+/// session's `Done`, or the journal's clean of a text or a picture; a
+/// rewrite that ended is the journal's. `None` for a row nothing ended for
+/// yet, and for one an agent only inspected, whose Clean and Rewrite are
+/// first ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Again {
+    /// Clean again: over the row's own cleaned result.
+    Clean,
+    /// Rewrite again: over the row's own rewritten result.
+    Rewrite,
+}
+
+impl Again {
+    /// The question's `$action` (D705). An id, never translated.
+    pub fn id(self) -> &'static str {
+        match self {
+            Again::Clean => "clean",
+            Again::Rewrite => "rewrite",
+        }
+    }
+}
+
+/// [`Again`] for a row's status. Pure.
+pub fn again_of(status: &Status) -> Option<Again> {
+    match status {
+        Status::Done(_) => Some(Again::Clean),
+        Status::Recorded(said) if said.phase.is_end() => match said.action {
+            Action::Clean | Action::CleanImage => Some(Again::Clean),
+            Action::Rewrite => Some(Again::Rewrite),
+            Action::Inspect => None,
+        },
+        _ => None,
+    }
+}
+
+/// What a row's Clean and Rewrite are called — its Actions items and its
+/// row buttons alike (D703): **Clean again** on a row whose last action was
+/// a clean that ended, **Rewrite again** on one whose last action was a
+/// rewrite that ended, and Clean and Rewrite otherwise. A cleaned row's
+/// Rewrite is a first rewrite (D702), and named so. Pure.
+pub fn labels(status: &Status) -> (Message, Message) {
+    match again_of(status) {
+        Some(Again::Clean) => (Message::QueueActionCleanAgain, Message::QueueActionRewrite),
+        Some(Again::Rewrite) => (Message::QueueActionClean, Message::QueueActionRewriteAgain),
+        None => (Message::QueueActionClean, Message::QueueActionRewrite),
+    }
+}
+
+/// Why a redo of a row whose result was written **in place** is greyed
+/// (D706): the source's name holds the result now, so a redo would clean
+/// or rewrite the result itself. Said with the name the original was set
+/// aside as — this session's outcome's, or the journal's. `None` for a
+/// result written anywhere else. Pure.
+fn in_place(status: &Status) -> Option<String> {
+    let original = match status {
+        Status::Done(outcome) => outcome.set_aside.clone()?,
+        Status::Recorded(said) => match said.result.as_ref()? {
+            Delivered::File {
+                original: Some(original),
+                ..
+            } => PathBuf::from(original),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    let name = original.file_name().map_or_else(
+        || original.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    Some(t_args(
+        Message::QueueActionAgainInPlace,
+        &args!("name" => name),
+    ))
+}
+
+/// Why a thing cannot be cleaned at all, or `None` when it can: nothing
+/// behind the row, or what intake established it is.
+fn cannot_clean(cleanable: Option<Cleanable>) -> Option<String> {
+    match cleanable {
+        None => Some(t(Message::QueueActionNotKept)),
+        Some(Cleanable::No(unable)) => Some(wording::unable(unable)),
+        Some(Cleanable::Text(_) | Cleanable::Picture(_)) => None,
+    }
+}
+
 /// Why row's Clean item is greyed, or `None` when it is not: a thing
-/// that cannot be cleaned says why, and a row already in line or done
-/// says that — and a row being rewritten, whose file the rewrite reads
-/// again after a restart (R7). Pure, so the menu's rule is checked
-/// without one. `cleanable` is `None` for a row with nothing behind it.
+/// that cannot be cleaned says why, and a row already in line says that —
+/// and a row being rewritten, whose file the rewrite reads again after a
+/// restart (R7). A row whose clean ended is cleaned **again** (D703), greyed
+/// only for a thing that cannot be cleaned and for a clean written in place
+/// (D706); a row whose last action was a rewrite keeps Clean greyed, the
+/// rewrite containing the clean, and an inspected row keeps it greyed as it
+/// was. Pure, so the menu's rule is checked without one. `cleanable` is
+/// `None` for a row with nothing behind it.
 pub fn why_not_clean(status: &Status, cleanable: Option<Cleanable>) -> Option<String> {
     match status {
         Status::Queued | Status::Cleaning => Some(t(Message::QueueActionCleanBusy)),
         Status::RewriteQueued | Status::Rewriting(_) => Some(t(Message::QueueActionCleanRewriting)),
         Status::Recorded(said) if !said.phase.is_end() => Some(t(Message::QueueActionCleanBusy)),
-        Status::Done(_) | Status::Recorded(_) => Some(t(Message::QueueActionCleanDone)),
-        Status::Waiting => match cleanable {
-            None => Some(t(Message::QueueActionNotKept)),
-            Some(Cleanable::No(unable)) => Some(wording::unable(unable)),
-            Some(Cleanable::Text(_) | Cleanable::Picture(_)) => None,
+        Status::Recorded(said) => match said.action {
+            Action::Rewrite => Some(t(Message::QueueActionCleanRewritten)),
+            Action::Inspect => Some(t(Message::QueueActionCleanDone)),
+            Action::Clean | Action::CleanImage => {
+                in_place(status).or_else(|| cannot_clean(cleanable))
+            }
         },
+        Status::Done(_) => in_place(status).or_else(|| cannot_clean(cleanable)),
+        Status::Waiting => cannot_clean(cleanable),
     }
 }
 
@@ -539,7 +653,8 @@ pub fn why_not_clean(status: &Status, cleanable: Option<Cleanable>) -> Option<St
 /// nothing on duty — in the duty's own sentence, `vacant` — not text, the
 /// thing not kept, already queued or being rewritten, or being cleaned.
 /// A row cleaned or rewritten before may be rewritten (again): that is
-/// asking, and Rewrite contains the clean (В2). Pure.
+/// asking, and Rewrite contains the clean (В2) — except a rewrite written in
+/// place, whose Rewrite again is greyed (D706). Pure.
 pub fn why_not_rewrite(
     status: &Status,
     cleanable: Option<Cleanable>,
@@ -552,6 +667,11 @@ pub fn why_not_rewrite(
         }
         Status::Recorded(said) if !said.phase.is_end() => {
             return Some(t(Message::QueueActionRewriteBusy))
+        }
+        Status::Recorded(said) if said.action == Action::Rewrite => {
+            if let Some(why) = in_place(status) {
+                return Some(why);
+            }
         }
         Status::Waiting | Status::Done(_) | Status::Recorded(_) => {}
     }
@@ -849,6 +969,11 @@ pub enum QueueEvent {
     /// person resumed, or its item went: the shell takes its question down
     /// (D394).
     Unasked,
+    /// Row `id`'s own Clean again or Rewrite again, on a result edited by
+    /// hand and saved (D447): the shell asks whether redoing it may replace
+    /// those edits (D705). Yes is [`Queue::again_agreed`]; anything else
+    /// changes nothing.
+    Again { id: u64, action: Again },
 }
 
 /// The question a yes answered, so that a yes the duty no longer stands
@@ -1475,6 +1600,103 @@ impl Queue {
         cx.notify();
     }
 
+    /// Clean again (D703): row `id`'s own item, on a row whose last action
+    /// was a clean that ended. It cleans the row once more, in the one line,
+    /// by the plan taken when it starts (D279), **over the row's own result**
+    /// (D704) — never into a new `-<id>-2` file. A result edited by hand and
+    /// saved (D447) is asked about first (D705): [`QueueEvent::Again`], and
+    /// nothing changes until [`Queue::again_agreed`]. Without edits it runs
+    /// at once, as the first Clean did. A row greyed for it is left alone.
+    ///
+    /// [`Queue::clean`] stays waiting rows only: Clean all, the panel's Clean
+    /// and `--clean=` go through it, and none of them redoes a row (D708).
+    pub fn clean_again(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(row) = self.rows.iter().find(|row| row.id == id) else {
+            return;
+        };
+        if again_of(&row.status) != Some(Again::Clean)
+            || why_not_clean(&row.status, row.cleanable()).is_some()
+        {
+            return;
+        }
+        if row.edited() {
+            cx.emit(QueueEvent::Again {
+                id,
+                action: Again::Clean,
+            });
+            return;
+        }
+        self.redo_clean(id, cx);
+    }
+
+    /// Yes to the question [`QueueEvent::Again`] put (D705): redo row `id`'s
+    /// `action` without asking again. A row that moved while the question
+    /// was open — removed, in a line, its last action another — is left as
+    /// it is.
+    pub fn again_agreed(&mut self, id: u64, action: Again, cx: &mut Context<Self>) {
+        let Some(row) = self.rows.iter().find(|row| row.id == id) else {
+            return;
+        };
+        if again_of(&row.status) != Some(action) {
+            return;
+        }
+        match action {
+            Again::Clean => self.redo_clean(id, cx),
+            Again::Rewrite => self.rewrite(&[id], cx),
+        }
+    }
+
+    /// Clean row `id` again, over its own result: the line is asked with
+    /// that file as `replacing` (D704), which the clean writes over only
+    /// when it is still there, is not the source and is one of the names
+    /// the plan gives the row now.
+    fn redo_clean(&mut self, id: u64, cx: &mut Context<Self>) {
+        let replacing = self.own_result(id);
+        let Some(row) = self.rows.iter_mut().find(|row| row.id == id) else {
+            return;
+        };
+        if again_of(&row.status) != Some(Again::Clean)
+            || why_not_clean(&row.status, row.cleanable()).is_some()
+        {
+            return;
+        }
+        let Some(arrival) = row.arrival.clone() else {
+            return;
+        };
+        let tag = journal::Tag::of(id, row.entry, self.writer.as_ref());
+        tracing::info!(id, over = replacing.is_some(), "a row is cleaned again");
+        if self.cleaner.update(cx, |cleaner, cx| {
+            cleaner.ask_with(id, arrival, tag, replacing, None, cx)
+        }) {
+            row.status = Status::Queued;
+        }
+        cx.notify();
+    }
+
+    /// Row `id`'s own result — the file [`Row::written`] names — when **no
+    /// other row of the list** records the same file as its result (D704
+    /// rule 3): a plain name freed by a deletion can since have been taken
+    /// by another row, and that file is the other row's. Decided here, on
+    /// the GPUI thread, from what the rows say; nothing is read. The rules
+    /// that need the disk — still there, not the source, one of the row's
+    /// names now — are the write's.
+    fn own_result(&self, id: u64) -> Option<PathBuf> {
+        let own = self.rows.iter().find(|row| row.id == id)?.written()?;
+        let shared = self
+            .rows
+            .iter()
+            .any(|other| other.id != id && other.written().as_deref() == Some(own.as_path()));
+        (!shared).then_some(own)
+    }
+
+    /// What row `id` is called — the Again question's `$name` (D705).
+    pub fn title_of(&self, id: u64) -> Option<String> {
+        self.rows
+            .iter()
+            .find(|row| row.id == id)
+            .map(|row| row.look.title.clone())
+    }
+
     /// Which clean of how many is running — the status bar's "Cleaning 2
     /// of 5", counted over every window's cleans.
     pub fn progress(&self, cx: &App) -> Option<(usize, usize)> {
@@ -1684,6 +1906,8 @@ fn holds(row: &Row, work: Option<&Work>, action: Action, home: &Home) -> bool {
     }
 }
 
+#[cfg(test)]
+mod redo_tests;
 #[cfg(test)]
 mod rewrite_tests;
 mod rewriting;
@@ -2181,20 +2405,43 @@ fn name_cell(row: &Row, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// The row's next steps, on the row (D325): Clean and Rewrite, the same
-/// two the Actions menu starts with and down the same roads — greyed,
-/// with the menu's own reason as the tooltip, when one cannot run. A
-/// person who dropped something sees what can be done with it without
-/// opening a menu.
 /// What a row's button does when pressed.
 type Step = Box<dyn Fn(&mut Queue, &mut Context<Queue>)>;
 
+/// What a row's Clean does when pressed, item or button: Clean again's
+/// road on a row that would clean again (D703), the first Clean's
+/// otherwise.
+fn clean_step(id: u64, again: Option<Again>) -> Step {
+    match again {
+        Some(Again::Clean) => Box::new(move |queue, cx| queue.clean_again(id, cx)),
+        _ => Box::new(move |queue, cx| queue.clean(&[id], cx)),
+    }
+}
+
+/// What a row's Rewrite does when pressed, item or button: Rewrite again's
+/// road — which asks first over an edited result (D705) — on a row that
+/// would rewrite again, the first Rewrite's otherwise.
+fn rewrite_step(id: u64, again: Option<Again>) -> Step {
+    match again {
+        Some(Again::Rewrite) => Box::new(move |queue, cx| queue.rewrite_again(id, cx)),
+        _ => Box::new(move |queue, cx| queue.rewrite(&[id], cx)),
+    }
+}
+
+/// The row's next steps, on the row (D325): Clean and Rewrite — or Clean
+/// again and Rewrite again (D703) — the same two the Actions menu starts
+/// with and down the same roads, greyed, with the menu's own reason as the
+/// tooltip, when one cannot run. A person who dropped something sees what
+/// can be done with it without opening a menu.
 fn process_cell(
     id: u64,
+    status: &Status,
     clean: Option<String>,
     rewrite: Option<String>,
     queue: Entity<Queue>,
 ) -> AnyElement {
+    let again = again_of(status);
+    let (clean_label, rewrite_label) = labels(status);
     let step =
         |label: Message, icon: IconName, key: &'static str, why: Option<String>, run: Step| {
             let queue = queue.clone();
@@ -2218,18 +2465,18 @@ fn process_cell(
     h_flex()
         .gap_1()
         .child(step(
-            Message::QueueActionClean,
+            clean_label,
             IconName::Broom,
             "row-clean",
             clean,
-            Box::new(move |queue, cx| queue.clean(&[id], cx)),
+            clean_step(id, again),
         ))
         .child(step(
-            Message::QueueActionRewrite,
+            rewrite_label,
             IconName::Pen,
             "row-rewrite",
             rewrite,
-            Box::new(move |queue, cx| queue.rewrite(&[id], cx)),
+            rewrite_step(id, again),
         ))
         .into_any_element()
 }
@@ -2260,6 +2507,11 @@ struct Actions {
     /// The file behind the row, for "Open with the default app".
     path: Option<PathBuf>,
     comparable: bool,
+    /// Which of the two the row would do again (D703): what the first two
+    /// items are called, and which road each takes.
+    again: Option<Again>,
+    /// What Clean and Rewrite are called on this row ([`labels`]).
+    labels: (Message, Message),
     /// `None` when Clean can be pressed; otherwise why not.
     clean: Option<String>,
     /// `None` when Rewrite can be pressed; otherwise why not.
@@ -2284,7 +2536,10 @@ struct Actions {
 ///
 /// Clean comes first, and is greyed — with the reason under it, because
 /// a menu item has no tooltip — for a row that cannot be cleaned, is in
-/// line or is done. "Open with the default app" hands the path to the
+/// line, or was rewritten; on a row whose clean ended it is **Clean
+/// again**, and Rewrite on a row whose rewrite ended is **Rewrite again**
+/// (D703) — the same item, renamed, never a third one. "Open with the
+/// default app" hands the path to the
 /// operating system — `App::open_with_system` is `open` on macOS and
 /// `xdg-open` on Linux, on a background task — and is disabled for a
 /// row with no file behind it: a note pasted from a chat has nothing to
@@ -2311,21 +2566,25 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
             let (cleaning, comparing, copying, reporting) =
                 (queue.clone(), queue.clone(), queue.clone(), queue.clone());
             let (rewriting, cancelling, removing) = (queue.clone(), queue.clone(), queue.clone());
+            let (clean_label, rewrite_label) = actions.labels;
             // Rewrite after Clean, greyed with its reason the way Clean is
             // (D269): two actions, because they differ in cost and in where
             // the document goes (В2).
             let rewrite = match actions.rewrite.clone() {
-                None => PopupMenuItem::new(SharedString::from(t(Message::QueueActionRewrite)))
-                    .icon(IconName::Pen)
-                    .on_click(move |_, _, cx| {
-                        rewriting.update(cx, |queue, cx| queue.rewrite(&[id], cx));
-                    }),
+                None => {
+                    let run = rewrite_step(id, actions.again);
+                    PopupMenuItem::new(SharedString::from(t(rewrite_label)))
+                        .icon(IconName::Pen)
+                        .on_click(move |_, _, cx| {
+                            rewriting.update(cx, |queue, cx| run(queue, cx));
+                        })
+                }
                 Some(why) => {
                     let why = SharedString::from(why);
                     PopupMenuItem::element(move |_, cx| {
                         v_flex()
                             .max_w(px(280.0))
-                            .child(SharedString::from(t(Message::QueueActionRewrite)))
+                            .child(SharedString::from(t(rewrite_label)))
                             .child(
                                 div()
                                     .text_xs()
@@ -2338,17 +2597,20 @@ fn actions_cell(actions: Actions, queue: Entity<Queue>) -> AnyElement {
                 }
             };
             let clean = match actions.clean.clone() {
-                None => PopupMenuItem::new(SharedString::from(t(Message::QueueActionClean)))
-                    .icon(IconName::Broom)
-                    .on_click(move |_, _, cx| {
-                        cleaning.update(cx, |queue, cx| queue.clean(&[id], cx));
-                    }),
+                None => {
+                    let run = clean_step(id, actions.again);
+                    PopupMenuItem::new(SharedString::from(t(clean_label)))
+                        .icon(IconName::Broom)
+                        .on_click(move |_, _, cx| {
+                            cleaning.update(cx, |queue, cx| run(queue, cx));
+                        })
+                }
                 Some(why) => {
                     let why = SharedString::from(why);
                     PopupMenuItem::element(move |_, cx| {
                         v_flex()
                             .max_w(px(280.0))
-                            .child(SharedString::from(t(Message::QueueActionClean)))
+                            .child(SharedString::from(t(clean_label)))
                             .child(
                                 div()
                                     .text_xs()
@@ -2768,6 +3030,7 @@ impl Queue {
             )))
             .child(Column::Process.cell().child(process_cell(
                 row.id,
+                &row.status,
                 why_not_clean(&row.status, row.cleanable()),
                 rewrite.clone(),
                 cx.entity(),
@@ -2799,6 +3062,8 @@ impl Queue {
                             .as_ref()
                             .and_then(|arrival| arrival.intake.path.clone()),
                         comparable,
+                        again: again_of(&row.status),
+                        labels: labels(&row.status),
                         clean: why_not_clean(&row.status, row.cleanable()),
                         rewrite: rewrite.clone(),
                         cancel: matches!(row.status, Status::RewriteQueued | Status::Rewriting(_))
