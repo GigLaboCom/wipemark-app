@@ -46,6 +46,7 @@
 //! drops on its own window; the registry is keyed by the `NSWindow`
 //! pointer so that two windows with drop zones do not read each other's.
 
+use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::sync::Mutex;
 
@@ -58,7 +59,7 @@ use objc2_app_kit::{
     NSPasteboardTypeHTML, NSPasteboardTypePNG, NSPasteboardTypeRTF, NSPasteboardTypeString,
     NSPasteboardTypeTIFF, NSView,
 };
-use objc2_foundation::{NSArray, NSObjectProtocol, NSRect};
+use objc2_foundation::{NSArray, NSObjectProtocol, NSRect, NSString, NSURL};
 use wipemark_intake::{name, Handed};
 
 use crate::clipboard::Held;
@@ -289,7 +290,7 @@ fn from_item(item: &NSPasteboardItem) -> Option<Handed> {
     // the ordinary answer for a type the item does not carry.
     unsafe {
         if let Some(url) = item.stringForType(NSPasteboardTypeFileURL) {
-            if let Some(path) = name::path_in(&url.to_string()) {
+            if let Some(path) = path_of_file_url(&url) {
                 return Some(Handed::Path(path));
             }
         }
@@ -324,6 +325,23 @@ fn from_item(item: &NSPasteboardItem) -> Option<Handed> {
         }
     }
     None
+}
+
+/// The path a file URL on the pasteboard names.
+///
+/// Finder hands a file over as a *file reference* URL —
+/// `file:///.file/id=<volume>.<inode>` — and `/.file/id=…` is no path any
+/// POSIX call can open: read as one, every file dragged out of Finder
+/// landed as a thing of no kind that could not be cleaned (acceptance on
+/// macOS, 2026-10-13). `filePathURL` is Foundation's own resolution of a
+/// reference, and hands a path URL back as it is; a reference whose file
+/// has gone resolves to nothing. A string Foundation does not parse as a
+/// URL is read the old way.
+fn path_of_file_url(url: &NSString) -> Option<PathBuf> {
+    match NSURL::URLWithString(url) {
+        Some(parsed) => Some(PathBuf::from(parsed.filePathURL()?.path()?.to_string())),
+        None => name::path_in(&url.to_string()),
+    }
 }
 
 /// `handed`, unless it is nothing (D301).
@@ -424,7 +442,7 @@ mod tests {
         NSPasteboard, NSPasteboardTypeFileURL, NSPasteboardTypeHTML, NSPasteboardTypePNG,
         NSPasteboardTypeRTF, NSPasteboardTypeString,
     };
-    use objc2_foundation::{NSData, NSString};
+    use objc2_foundation::{NSData, NSString, NSURL};
 
     use super::{handed, held_on, Handed, Held};
 
@@ -469,6 +487,35 @@ mod tests {
             handed(&pasteboard),
             vec![Handed::Path("/tmp/a report.txt".into())]
         );
+    }
+
+    /// Finder hands a file over as a file *reference* URL,
+    /// `file:///.file/id=<volume>.<inode>`, which names no path: read as one
+    /// it landed every file dragged out of Finder as a thing of no kind
+    /// that could not be cleaned (acceptance on macOS, 2026-10-13).
+    #[test]
+    fn a_file_reference_from_finder_arrives_as_its_path() {
+        let dir = std::env::temp_dir().join(format!("wipemark-reference-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("a report.txt");
+        std::fs::write(&file, "x").unwrap();
+        // The reference resolves to the real path, `/private/var/…` for
+        // the `/var/…` the temporary directory is spelled with.
+        let file = file.canonicalize().unwrap();
+        let reference = NSURL::fileURLWithPath(&NSString::from_str(file.to_str().unwrap()))
+            .fileReferenceURL()
+            .and_then(|url| url.absoluteString())
+            .unwrap();
+        assert!(
+            reference.to_string().starts_with("file:///.file/id="),
+            "{reference}"
+        );
+
+        let pasteboard = scratch();
+        unsafe { pasteboard.setString_forType(&reference, NSPasteboardTypeFileURL) };
+        let arrived = handed(&pasteboard);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(arrived, vec![Handed::Path(file)]);
     }
 
     /// And the other half of the same rule: a screenshot dragged out of
