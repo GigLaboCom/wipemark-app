@@ -272,8 +272,8 @@ refusal and D357's refusal at push):
   thousandth row. No two rows share a journal id (`AUTOINCREMENT`), so
   two rows pushed together cannot collide and nothing is counted.
 * Should even the row's own name be taken — a file that names a row of
-  a database since reset, or this row's own earlier result when the row
-  is cleaned or rewritten again — the row takes `-<id>-2`, `-<id>-3` …
+  a database since reset, or this row's own earlier result when a redo
+  may not write over it (D704, below) — the row takes `-<id>-2`, `-<id>-3` …
   up to `-<id>-100` (`own_names`, `OWN_LIMIT`), and only past those is
   it refused as `exists`, every file left as it was (D636).
 * **Claimed when the plan is taken** (D636). A clean's plan is taken when
@@ -321,12 +321,32 @@ is the name the result really took, `-<id>` and all — a clean's from its
 the path delivery wrote (the item's `Destination::Own` is the name it
 *claimed*, and its stored result's `written` the name it *took*). The row
 keeps that entry across a restart, and a `-<id>` name carries the row in
-the file name too. So a future **redo** of a row — clean or rewrite it
-again automatically, over its own earlier result — finds that result by
-the row (`Row::written()` in `queue.rs`: this session's outcome, or the
-journal entry's `result.path` read back) and replaces **that file and
-only that one**: through `clean::save_one`'s `replacing` road for a clean,
-or a push with `Destination::File(own)` for a rewrite. The first result's
+the file name too. So **Clean again** and **Rewrite again** (D703–D708)
+find that result by the row (`Row::written()` in `queue.rs`: this
+session's outcome, or the journal entry's `result.path` read back) and
+replace **that file and only that one** (D704):
+
+* only while **no other row of the list records the same file** as its
+  result — decided on the GPUI thread from the rows; a plain name freed by
+  a deletion can since have been taken by another row, and that file is
+  the other row's;
+* a clean through the one line with that file as `replacing`
+  (`clean::clean_over`), which `publish` writes over only when it is
+  **still there**, is **not the source**, and is **one of the names the
+  plan taken when the clean starts gives the row** (`own_names`); a clean
+  of the line that writes that very name while the redo waits takes it
+  from the redo (`cleaner::Line::taken`, D703b);
+* a rewrite by a push whose destination becomes `Destination::File(own)`
+  where the request is built (`queue/rewriting.rs`, `claim`) under the same
+  three rules against the plan taken at push, and only while no item still
+  waiting or running claims that name; the queue writes over it atomically,
+  and replays it after a `kill -9` like any item.
+
+When any rule fails the row takes a result of its own, as every run does
+(D635): a result the person deleted is written again under the first free
+name of the row's own, and a plan changed since writes where it says now.
+A result edited by hand asks first (D705); a result written in place is
+not redone (D706). The first result's
 plain name carries no id; its link is the journal's `result.path` alone,
 and it lasts as long as the row does — Remove and the journal's sweep
 (`journal.keep_days`) end the link and leave the file.
