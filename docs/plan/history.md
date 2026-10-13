@@ -149,6 +149,17 @@ follow-ups** are merged (D440–D449, 2026-10-10): an edit saved at quit, a
 row cleaned since the window opened asked about, an edit mark that names
 its result, one question at a time, "…, then edited" (D447) and Report… of
 a journal row greyed (D448), both at a default the owner may switch.
+**E7-11, Compare's panes wrapped and padded level** (D670–D679) is merged
+(`cecdbce`, 2026-10-12, on the owner's word, before upstream): both panes
+wrap or neither (`compare.wrap`, off by default until a wrapped resize fits
+a frame, D677), the shorter side of every pair padded with gpui-kit's spacer
+rows from the `glani/gpui-component` fork, and inside a changed passage
+paragraphs paired by their words (D679). Its follow-up is merged too
+(`627af2b`, 2026-10-13): Compare reads the panes' rows through gpui-kit's
+`display_map()`, the shape upstream's maintainer gave #3465 (D674 amended),
+and the submodule is at `50c120a8` on #3466, rebuilt on it — still the fork
+until upstream merges both (D675;
+`docs/plan/reports/E7-11-compare-spacer-rows-2026-10-12.md`).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice
 choosable, the shipped templates unchanged. The next free decision block is
 **D531** (D490–D502 and D520–D530 are E12-R's, D503–D504 the draft's; D540–D549
