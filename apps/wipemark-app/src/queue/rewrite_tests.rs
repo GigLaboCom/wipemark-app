@@ -253,6 +253,38 @@ fn rewrite_all_prices_first_and_skips_pictures_and_queued_rows(cx: &mut TestAppC
     assert_eq!(work.queue.items().len(), 1, "the price pushed something");
 }
 
+/// D702 (the owner at the macOS acceptance, 2026-10-13): after Clean all,
+/// Rewrite all still takes the cleaned texts — every text whose own Rewrite
+/// would go and that nobody has asked to rewrite yet — and a row already
+/// rewritten is not taken again.
+#[gpui::test]
+fn rewrite_all_takes_cleaned_texts_and_not_rewritten_ones(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("rewrite-all-cleaned");
+    let marked = format!("The build\u{200B} {}", &PARAGRAPH[10..]);
+    let files: Vec<PathBuf> = ["a.md", "b.md", "c.md"]
+        .iter()
+        .map(|name| scratch.file(name, marked.as_bytes()))
+        .collect();
+    let work = work(swapping());
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| queue.hand(files, cx));
+    cx.run_until_parked();
+    let all = ids(&queue, cx);
+
+    queue.update(cx, |queue, cx| queue.clean_all(cx));
+    until(cx, "the cleans", |cx| {
+        statuses(&queue, cx) == ["cleaned"; 3]
+    });
+    let takes = cx.update(|_, cx| queue.read(cx).rewrite_all_takes(cx));
+    assert_eq!(takes, all, "Rewrite all takes the cleaned texts");
+
+    queue.update(cx, |queue, cx| queue.rewrite(&all[..1], cx));
+    until(cx, "the rewrite", |cx| status(&queue, cx) == "rewritten");
+    let takes = cx.update(|_, cx| queue.read(cx).rewrite_all_takes(cx));
+    assert_eq!(takes, all[1..], "not the row already rewritten");
+}
+
 /// R2: the job's stage events move the row's Status — which paragraph of
 /// how many — and the status bar says it.
 #[gpui::test]
@@ -1574,7 +1606,7 @@ fn the_duty_is_asked_once_per_draw_of_the_rows(cx: &mut TestAppContext) {
     queue.update(cx, |queue, cx| queue.hand(files, cx));
     cx.run_until_parked();
     assert_eq!(statuses(&queue, cx), ["waiting"; 20]);
-    let rewritable = cx.update(|_, cx| queue.read(cx).rewritable_waiting(cx).len());
+    let rewritable = cx.update(|_, cx| queue.read(cx).rewrite_all_takes(cx).len());
     assert_eq!(rewritable, 20, "every row's Rewrite is offered");
 
     queue.update(cx, |queue, _| queue.goings.set(0));

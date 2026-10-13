@@ -542,16 +542,24 @@ impl Queue {
         super::why_not_rewrite(&row.status, row.cleanable(), vacant.map(str::to_owned))
     }
 
-    /// The rows Rewrite all would take: waiting, text, with something
-    /// behind them, in the order they arrived.
-    pub fn rewritable_waiting(&self, cx: &gpui::App) -> Vec<u64> {
-        if self.vacancy(cx).is_some() {
+    /// The rows Rewrite all would take, in the order they arrived: every
+    /// text whose own Rewrite would go — not started, cleaned, found clean —
+    /// and that nobody has asked to rewrite yet (D702, the owner at the
+    /// macOS acceptance, 2026-10-13: after Clean all, Rewrite all took
+    /// nothing). A row whose rewrite ended, however it ended, is its own
+    /// Rewrite's to ask again, so a second Rewrite all does not redo the
+    /// list.
+    pub fn rewrite_all_takes(&self, cx: &gpui::App) -> Vec<u64> {
+        let vacant = self.vacancy(cx);
+        if vacant.is_some() {
             return Vec::new();
         }
         self.rows
             .iter()
-            .filter(|row| matches!(row.status, Status::Waiting))
-            .filter(|row| matches!(row.cleanable(), Some(Cleanable::Text(_))))
+            .filter(|row| {
+                !matches!(&row.status, Status::Recorded(said) if said.action == Action::Rewrite)
+            })
+            .filter(|row| super::why_not_rewrite(&row.status, row.cleanable(), None).is_none())
             .map(|row| row.id)
             .collect()
     }
@@ -596,7 +604,7 @@ impl Queue {
     /// thread, and ask the window to say it (D61). Nothing is pushed until
     /// the answer is yes.
     pub fn ask_rewrite_all(&self, cx: &Context<Self>) {
-        self.ask_price(self.rewritable_waiting(cx), cx);
+        self.ask_price(self.rewrite_all_takes(cx), cx);
     }
 
     /// The price of rewriting rows `ids`, worked out off this thread and

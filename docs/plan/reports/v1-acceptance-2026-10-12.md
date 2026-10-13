@@ -30,6 +30,30 @@ Every other finding goes to stage two (`v1-release.md` §4).
 | A4 — rewrite in the window | pass (owner, 2026-10-12) | `rewrite-ru.md` 3/3 (11.8 s load, 9 s), `long-en.md` 12/12 (12.4 s load, about 46 s), one truncated candidate rejected and replaced. **Pause works, and so does Clear finished** (owner). |
 | A5 — endpoint | partly (2026-10-13) | Ollama 0.40.3 on `127.0.0.1:11434`; after Provider → Ollama the Check and a rewrite ran, but the rewrite changed nothing (F20). F18 and F19 were found on the way. |
 | A6 — Compare | pass (owner, 2026-10-12) | The review works: scrolling together, saving, Reset and Undo. Open: soft wrap for very long lines on both panes — researched on `research/compare-soft-wrap` (owner's ask). |
+| A14 — macOS | in progress (owner, 2026-10-13) | See "macOS (A14)" below: `Wipemark.app` from `scripts/release/macos/bundle.sh` on an M3 Pro; A1's walk-through, A9, clean and Rewrite all in the window, the panel's drop into the one list pass; F21–F24 found, F21 and F22 fixed in the working tree. |
+
+## macOS (A14), 2026-10-13
+
+The build: `feat/e0-e6-shell` at `4292007` (E7-11 included), `cargo build --release
+--locked --features llama-native -p wipemark-app -p wipemark-cli` on an Apple M3 Pro
+(36 GB, macOS 26.7.1), packed by `scripts/release/macos/bundle.sh` (new, P3) into
+`dist/Wipemark.app` (51 MB) and `dist/Wipemark-0.1.0-arm64.dmg` (23 MB), signed ad hoc
+(no Developer ID). The bundle's checks: no Mach-O names a path outside it, both
+`--version`s run with llama.cpp's build directory moved away, and the app logs
+`ggml backends registered devices=BLAS, MTL0, CPU` from `Contents/MacOS`. Run as
+`open -n dist/Wipemark.app --env WIPEMARK_DATA_DIR=~/wipemark-accept/data`; inputs from
+`make-inbox.sh` (Pillow in a venv for the photo). Models: `models.dir` set to
+`~/.heretic-ml/models`, where Gemma 4 12B's file matches the catalogue's sha256
+(`cc9ff072…`), `models.rewrite` to it — no download.
+
+| step | result | notes |
+|---|---|---|
+| A1 — walk-through | pass (owner) | `engine.serves = machine`. The model step was not timed: Gemma 4 12B was found, not downloaded. |
+| A9 — CLI | pass (from the bundle) | `inspect` 1 on the marked text, the homoglyph, Gemini, Grok and C2PA, 0 on the camera photo, 2 on a missing path; `clean` 1 and writes, again 2 (D598); `audit`, `audit --json` 1; `models list` 0; `--language=ru` Russian. `grok-grey-1792` is `grok-x-dark` at its known place. |
+| A2/A3 — clean in the window | pass (log) | After F21: Clean all over ten things — Gemini, Grok blue, C2PA, the texts cleaned; Grok grey and the homoglyph `partly`; the photo nothing found, nothing written. |
+| A4 — Rewrite all | pass (log) | After F22: four texts, Gemma 4 12B on Metal loaded in 5.9 s, resident 6653 MB; `rewrite-en.md` 2/2 in 15 s, `rewrite-ru.md` 3/3 in 31 s. A second drop's texts got their own results (`name.rewritten-<row id>.ext`, D635); `marked.md` (31 bytes) kept its cleaned source, every candidate refused by a guard (`partly`). Unloaded after 15 idle minutes, as on demand says. |
+| A8 — panel | partly (log) | ⌘⌥D registered; ten things dropped on the panel are rows of the one list at once (`origin="panel"`, D690); the panel cleared itself after its quiet period (D691). Tray, close-and-Show, Quit: not yet. |
+| E7-11 — Compare | in progress (owner) | Wrap and spacer rows, first seen on this build. |
 
 ## Fixed before the tag (2026-10-12)
 
@@ -92,4 +116,8 @@ The rebuilt AppImage passes 34 of 34 in a clean `ubuntu:24.04` (window
 | F18 | A5 | **The Engine page said "not configured", and the owner could not find a Check** (2026-10-13, Ollama 0.40.3 on `127.0.0.1:11434`). The database held `engine.model = gemma4-12b-local` and `engine.serves = endpoint`, but no `engine.provider` (so "No engine") and no `engine.base_url`. The page did not say which field was missing. The endpoint's Check appears only once a provider is chosen. | research first (owner: "find out why, solutions only"): Watchword `wipemark-task-engine-page-research-2026-10-13` |
 | F19 | A5 | **Three sentences say the windows do not rewrite**, false since E4-6b: `settings-engine-local-check-note`, `settings-engine-remote-check-note` ("these windows rewrite nothing yet") and `settings-models-pending`, in en/ru/de. No gate catches a sentence that promises *less* than the product does. | **yes** (a sentence that is untrue about the product); in the same research task, with the corrected sentences and a gate proposed |
 | F20 | A5 | **A rewrite through Ollama writes nothing new, and the row still reads done** (2026-10-13; Ollama 0.40.3 in Docker, `gemma4-12b-local`, a raw import of Gemma 4 12B's GGUF). Job 18: `rewritten=0 kept=12 attempts=48 rejected=48`, every rejection `engine`. Ollama answered 200 each time in about 2 s. `long-en.rewritten-44.md` equals the cleaned source byte for byte. **Cause:** Ollama streams this model's output in `message.thinking` and leaves `message.content` empty; with `"think": false` in the request the answer comes in `content` (checked with curl). Wipemark's Ollama request sends no `think`. **Fix:** send `"think": false` on Ollama's `/api/chat` (we rewrite with thinking off, as locally, D181/D182). Say an empty answer as its own rejection reason, not `engine`. Make a job where every candidate failed read as *not rewritten*, not done. A test against a fake Ollama that answers in `thinking` only. | **yes**: a rewrite that silently changes nothing is a sentence that promises more than happened |
+| F21 | A14 | **Every file dragged out of Finder landed as a thing of no kind that could not be cleaned** (the owner, macOS 26.7.1, 09:22). Finder puts a *file reference* URL on the pasteboard, `file:///.file/id=<volume>.<inode>`; `pasteboard.rs` read it as the path `/.file/id=…`, which no POSIX call opens: ten rows `kind: unknown`, *Cannot clean*. Linux never takes this road. | **yes** (the main way in); fixed: `path_of_file_url` resolves it with `NSURL.filePathURL`; `a_file_reference_from_finder_arrives_as_its_path` is red with the old reading. Seen working by the owner at 09:37 (ten rows, Image and Text) |
+| F22 | A14 | **After Clean all, Rewrite all is greyed** (the owner, 09:38): it took only rows nobody had touched, and Clean all leaves none, while each row's own Rewrite still went. | owner: take every text not rewritten yet — **D702**, fixed; `rewrite_all_takes_cleaned_texts_and_not_rewritten_ones` red with the old rule and with rewritten rows let back in. Seen working at 09:46 (four texts, Gemma 4 12B) |
+| F23 | A14 | **`ERROR main : window not found`** at 09:37:54, three seconds after `opening the Compare window on a queued row id=8` — while E7-11's Compare (wrap and spacer rows, first seen by the owner on this build) was open. No panic; what the owner saw is not yet recorded. | to look at (CLAUDE.md: a nested update inside a key action's dispatch reads exactly like this) |
+| F24 | A14 | **`ERROR main : RefCell already borrowed`** at 09:51:22, eleven seconds before the first drop on the panel (summoned by ⌘⌥D). No panic; the app went on. | to look at |
 | F2' | A7 | **Settings blinks on every press of the gear** under Wayland. D594 closes and reopens it whenever the main window has focus, which is always when the gear is pressed there, so a Settings window already in sight is recreated too. The cause is GPUI's xdg_activation token, taken from the target surface, which mutter refuses. | no; the proper fix is in GPUI (a token from the focused surface), or XWayland as for F8 |
