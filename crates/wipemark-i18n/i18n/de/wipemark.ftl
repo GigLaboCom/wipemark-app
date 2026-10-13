@@ -1615,3 +1615,15 @@ prompts-profile-unsaved-discard = Verwerfen
 prompts-profile-import-title = Der Name „{ $name }“ ist vergeben
 prompts-profile-import-body = Die Vorlagen der Datei werden als neues Profil von Ihnen unter einem anderen Namen bewahrt. Unten ändert sich nichts.
 prompts-profile-import-confirm = Importieren
+
+## Redo a row (D703–D708)
+queue-action-clean-again = Erneut bereinigen
+queue-action-rewrite-again = Erneut umschreiben
+queue-action-clean-rewritten = Es wurde umgeschrieben, und ein Umschreiben enthält die Bereinigung — „Erneut umschreiben“ macht es noch einmal.
+queue-action-again-in-place = Es wurde anstelle der Datei bearbeitet: Die Datei enthält jetzt das Ergebnis, und das Original ist als { $name } beiseitegelegt. Ziehen Sie das Original hierher, um es erneut zu bearbeiten.
+queue-again-edited-title = { $name } erneut verarbeiten?
+queue-again-edited-body = Sein Ergebnis wurde von Hand bearbeitet und gespeichert. { $action ->
+        [rewrite] Erneutes Umschreiben ersetzt diese Änderungen.
+       *[clean] Erneutes Bereinigen ersetzt diese Änderungen.
+    }
+queue-again-edited-go = Erneut verarbeiten
