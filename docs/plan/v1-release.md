@@ -151,7 +151,7 @@ release notes' "known limitations" and the next iteration's backlog.
   - the DFlash slowdown on Vulkan;
   - an engine for 8 GB cards (Qwen3.5-9B, MoE experts in RAM).
 - **E4:** keep-voice as the shipped default, after the owner's decision.
-- **Redo a row** (the owner, 2026-10-12): re-clean or re-rewrite a row automatically into *its own* result, found by the row's SQLite id. 0.1.0 gives every row its own result, the plain name when free and otherwise `name.rewritten-<row id>.ext`, so a redo finds its file by the id (acceptance F10, `feat/own-result-per-row`).
+- **Redo a row** — **built** and merged 2026-10-13 (D703–D708, `feat/redo-a-row`, `reports/redo-a-row-2026-10-13.md`): *Clean again* and *Rewrite again* on a finished row, over the row's own result found by its journal id; an edited result asks first; a result written in place is not redone (the owner, 2026-10-12, acceptance F10).
 - **The defaults the owner may switch:**
   - D447, D448, D450, D451, D419, D361;
   - Q-C2–Q-C6;

@@ -160,6 +160,21 @@ paragraphs paired by their words (D679). Its follow-up is merged too
 and the submodule is at `50c120a8` on #3466, rebuilt on it — still the fork
 until upstream merges both (D675;
 `docs/plan/reports/E7-11-compare-spacer-rows-2026-10-12.md`).
+**The 0.1.0 acceptance fixes of 2026-10-13** are merged:
+- the macOS acceptance (`36d6220`): the bundle script (P3), a Finder drop
+  arriving as its path (F21), and Rewrite all taking cleaned texts (D702);
+- `fix/f20-f19` (D709–D714): Ollama asked with `"think": false`, an empty
+  answer rejected as `empty`, a rewrite that rewrote nothing reads *Not
+  rewritten* and writes nothing on every surface, and the three sentences
+  that said the windows do not rewrite corrected, with a gate for a
+  sentence that promises less;
+- `fix/f1-f7` (D715–D719): a model download in the log, and SIGTERM,
+  SIGINT and SIGHUP quitting the way Quit does.
+
+**Stage two's first item, Redo a row** (D703–D708), is merged the same day
+(`feat/redo-a-row`): *Clean again* and *Rewrite again* over the row's own
+result, an edited result asked about first
+(`docs/plan/reports/redo-a-row-2026-10-13.md`).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice
 choosable, the shipped templates unchanged. The next free decision block is
 **D531** (D490–D502 and D520–D530 are E12-R's, D503–D504 the draft's; D540–D549

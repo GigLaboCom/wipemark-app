@@ -32,13 +32,22 @@ git submodule sync --recursive      # picks up a moved URL in .gitmodules
 git submodule update --init --recursive
 ```
 
-The submodule is upstream **`longbridge/gpui-kit`**, branch **`next`**,
-at `24ded30c` — our four pull requests merged there: the line
-decorations, gpui-kit#3359 (2026-10-07; `docs/sdd/line-decorations.md`
-§4.1), a scroll bar on the left, #3416, and mirrored gutters for a
-side-by-side diff, #3417 (both 2026-10-09; E7-10, D460), and the text
-clipped to its own side of the gutter, #3426 (2026-10-11). Nothing of ours
-is carried on it. GPUI is the **`gpui-pre`** snapshots on
+The submodule is, **for now, the owner's fork `glani/gpui-component`**,
+branch **`editor-spacer-rows`**, at `50c120a8` (E7-11, D675, the owner's
+word, 2026-10-12). It is upstream **`longbridge/gpui-kit`** `next` at
+`24ded30c` plus our two draft pull requests for Compare's padded panes,
+#3465 (the editor's rows read through `display_map()`, approved
+2026-10-13) and #3466 (spacer rows). It goes back to upstream `next` once
+both are merged there. Upstream `next` at `24ded30c` already holds our
+four earlier pull requests:
+- the line decorations, gpui-kit#3359 (2026-10-07;
+  `docs/sdd/line-decorations.md` §4.1);
+- a scroll bar on the left, #3416 (2026-10-09);
+- mirrored gutters for a side-by-side diff, #3417 (2026-10-09; E7-10,
+  D460);
+- the text clipped to its own side of the gutter, #3426 (2026-10-11).
+
+GPUI is the **`gpui-pre`** snapshots on
 crates.io at exactly the component's version (`=0.3.8`, zed `279fe07`),
 so the graph holds one GPUI by construction; `scripts/check-gpui-pin.sh`
 is the check, and CI runs it. Until 2026-10-07 both came from forks
@@ -335,7 +344,7 @@ the gate test named there is what holds each one.
 
 **Surfaces**
 - The MCP server validates `Origin`, steps past a taken port, and refuses a call it cannot run as a result with `isError`, never an empty report.
-- The CLI finds the application by its beacon, loopback only. Exit codes: `0` clean, `1` findings, `2` usage or refusal, `3` partial (3 beats 1).
+- The CLI finds the application by its beacon, loopback only. Exit codes: `0` clean, `1` findings, `2` usage or refusal (a rewrite that rewrote nothing included, D711a), `3` partial (3 beats 1).
 - The close button only hides while there is a way back (a tray).
 - **Every way in behaves the same in every window** (the owner, 2026-10-12). A file, a picture or a text arrives by drag and drop, by Paste, or by Import, and every window that takes things — the main window and the panel today, and every future one — takes all of them the same way, on every platform. That means the same accepted kinds, the same order (a file beats its caption, image data beats a caption, plain text beats markup), and the same full-content drop overlay (`drop::overlay`). Everything goes down **one road**: the window's `Catcher::land`, into the one shared list (`Queue`, the journal). Each arrival writes the same log lines (`a drop arrived`, `queued … origin=`). A fix to one window's intake is made in the shared code or in both windows at once, never in one; a parity test drives each window through the same cases and expects the same rows.
 - **One shared list.** Rows from the main window, the panel, MCP and the CLI are one journal, shown in the main window's table. A panel drop is handed to the table as it lands (`Queue::take_from_panel`, origin `panel`). The panel's Clean acts on that row, never making a second (D690–D692). The panel clears itself on the next drop and after `ui.panel.clear_after` seconds with nothing running (D693, D694). Test launches of the app on the owner's machine isolate GNOME config: a private `XDG_CONFIG_HOME`, no `XDG_CURRENT_DESKTOP` (D641 writes gsettings).
@@ -388,6 +397,19 @@ years.
 refuses a taken name (exit 2). The result's toolbar in Compare has
 **Copy all** (D630–D634).
 
+**Redo a row is built** (stage two's first item, D703–D708). A row whose
+clean ended offers *Clean again*, and one whose rewrite ended offers
+*Rewrite again*. Each writes over the row's own result
+(`Row::written()`, by its journal id) and over nothing else. An edited
+result asks first, and a result written in place is not redone.
+
+**A rewrite that rewrote nothing writes nothing** and reads *Not
+rewritten* on every surface (D711, D712). The CLI exits 2. Ollama is asked
+with `"think": false` (D709).
+
+**SIGTERM, SIGINT and SIGHUP quit the way Quit does** (D717): the beacon
+and the socket go. A second signal ends the process at once.
+
 Everything else is stage two (§4 of the release plan). The next free
-decision block is **D703** (D702 is the macOS acceptance's Rewrite all; D670–D689 are the spacer-rows task's) (D531–D569 stay free for the recon line). The
+decision block is **D720** (D703–D708 are Redo a row's, D709–D714 F20/F19's, D715–D719 F1/F7's; D702 is the macOS acceptance's Rewrite all; D670–D689 are the spacer-rows task's) (D531–D569 stay free for the recon line). The
 history of every merge is [docs/plan/history.md](docs/plan/history.md).
