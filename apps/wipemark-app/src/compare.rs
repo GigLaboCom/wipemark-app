@@ -6690,7 +6690,12 @@ mod tests {
             wipemark_queue::Queue::on(
                 Arc::new(wipemark_store::Store::in_memory().expect("memory")),
                 wipemark_queue::Durability::Memory { detail: None },
-                Arc::new(wipemark_engine::fake::FakeEngine::new()),
+                // An answer that changes the text — its words backwards: a
+                // job that rewrote nothing writes nothing into the row (D712).
+                Arc::new(wipemark_engine::fake::FakeEngine::answering(|req, _| {
+                    let text = crate::mcp::protocol::tests::swapped(req);
+                    text.split(' ').rev().collect::<Vec<_>>().join(" ")
+                })),
             )
             .expect("opens"),
         );
