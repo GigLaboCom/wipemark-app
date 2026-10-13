@@ -50,10 +50,11 @@ pub use crate::journal::Tag;
 use crate::retention::Plan;
 use crate::settings::Preferences;
 
-/// What runs one clean: [`clean::clean_one`], or [`clean::save_one`] when
-/// the result is a text edited in the Compare window (D411). A field of the
-/// [`Cleaner`] so that a test can hand it one that panics. The `&str` is
-/// the row's tag, resolved (D637).
+/// What runs one clean: [`clean::clean_one`], [`clean::clean_over`] for
+/// Clean again over the row's own result (D704), or [`clean::save_one`] when
+/// the result is a text edited in the Compare window (D411). A field of the [`Cleaner`] so
+/// that a test can hand it one that panics. The `&str` is the row's tag,
+/// resolved (D637).
 type Run = fn(&Arrival, &Plan, u64, &str, DateTime<Utc>, Option<&Path>, Option<&str>) -> Outcome;
 
 /// What takes a clean's plan: [`Preferences::plan_for`]. A field of the
@@ -69,9 +70,11 @@ fn run(
     replacing: Option<&Path>,
     edited: Option<&str>,
 ) -> Outcome {
-    match edited {
-        Some(edited) => clean::save_one(arrival, plan, id, tag, now, replacing, edited),
-        None => clean::clean_one(arrival, plan, id, tag, now),
+    match (edited, replacing) {
+        (Some(edited), _) => clean::save_one(arrival, plan, id, tag, now, replacing, edited),
+        (None, None) => clean::clean_one(arrival, plan, id, tag, now),
+        // Clean again: over the row's own result (D704).
+        (None, Some(replacing)) => clean::clean_over(arrival, plan, id, tag, now, Some(replacing)),
     }
 }
 
@@ -81,7 +84,8 @@ fn run(
 /// D637), and, for the Compare window's Save of a text nothing was written
 /// for yet, that text as the result (D411) and the one existing result it
 /// may write over, the row's own, when the person answered Overwrite
-/// (D441).
+/// (D441). Clean again carries `replacing` too, with no text: the row's own
+/// earlier result, written over by the clean (D704).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
     pub id: u64,
@@ -143,6 +147,21 @@ impl Line {
     /// Whether `id` is waiting or running.
     pub fn holds(&self, id: u64) -> bool {
         self.running == Some(id) || self.waiting.iter().any(|job| job.id == id)
+    }
+
+    /// A clean of the line wrote `path`: no clean still waiting may write
+    /// over it as its own (D703b). A job asked to replace its row's own
+    /// result was checked against the rows as they stood when it was asked
+    /// (D704 rule 3); a clean ahead of it in the line can since have taken
+    /// that very name — the row's own file deleted, the plain name free
+    /// again, another row of the same file cleaned first. That file is the
+    /// other row's result now, and the waiting job takes a name of its own.
+    pub fn taken(&mut self, path: &Path) {
+        for job in &mut self.waiting {
+            if job.replacing.as_deref() == Some(path) {
+                job.replacing = None;
+            }
+        }
     }
 }
 
@@ -319,9 +338,13 @@ impl Cleaner {
         }
     }
 
-    /// The clean `id` is over: say so, and start the next.
+    /// The clean `id` is over: say so, and start the next — no clean behind
+    /// it writing over what it wrote (D703b).
     fn finished(&mut self, id: u64, outcome: Outcome, cx: &mut Context<Self>) {
         self.line.finish(id);
+        if let Some(written) = &outcome.written {
+            self.line.taken(written);
+        }
         cx.emit(Event::Finished(id, Arc::new(outcome)));
         self.next(cx);
         cx.notify();
@@ -380,6 +403,36 @@ mod tests {
         line.push(job(10));
         assert_eq!(line.start(), Some(job(10)));
         assert_eq!(line.progress(), Some((1, 1)));
+    }
+
+    /// D703b: a name a clean of the line wrote is taken from every job
+    /// still waiting to replace it — and from no other job. Empty `taken`
+    /// and the waiting job still names the file another clean just wrote:
+    /// red.
+    #[test]
+    fn a_name_the_line_wrote_is_no_waiting_jobs_to_replace() {
+        let (taken, other) = (
+            PathBuf::from("/f/x.cleaned.md"),
+            PathBuf::from("/f/y.cleaned.md"),
+        );
+        let job = |id, replacing: &PathBuf| Job {
+            id,
+            tag: Tag::Number(id),
+            replacing: Some(replacing.clone()),
+            edited: None,
+        };
+        let mut line = Line::default();
+        line.push(job(1, &taken));
+        line.push(job(2, &taken));
+        line.push(job(3, &other));
+        assert_eq!(line.start().map(|job| job.id), Some(1));
+        line.taken(&taken);
+        line.finish(1);
+        let second = line.start().expect("the second");
+        assert_eq!((second.id, second.replacing), (2, None));
+        line.finish(2);
+        let third = line.start().expect("the third");
+        assert_eq!((third.id, third.replacing), (3, Some(other)));
     }
 
     /// A scratch directory that takes its own files away with it.
