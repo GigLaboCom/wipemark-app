@@ -623,22 +623,35 @@ fn cannot_clean(cleanable: Option<Cleanable>) -> Option<String> {
     }
 }
 
+/// Whether a rewrite's end left the row a rewritten text — done, and
+/// delivered to a file or into the row. A rewrite that failed, was
+/// cancelled or rewrote nothing (D711, D712: delivered nowhere) left none.
+/// Pure.
+fn holds_a_rewrite(said: &Said) -> bool {
+    said.action == Action::Rewrite
+        && said.phase == Phase::Done
+        && matches!(said.result, Some(Delivered::File { .. } | Delivered::Row))
+}
+
 /// Why row's Clean item is greyed, or `None` when it is not: a thing
 /// that cannot be cleaned says why, and a row already in line says that —
 /// and a row being rewritten, whose file the rewrite reads again after a
 /// restart (R7). A row whose clean ended is cleaned **again** (D703), greyed
 /// only for a thing that cannot be cleaned and for a clean written in place
-/// (D706); a row whose last action was a rewrite keeps Clean greyed, the
-/// rewrite containing the clean, and an inspected row keeps it greyed as it
-/// was. Pure, so the menu's rule is checked without one. `cleanable` is
-/// `None` for a row with nothing behind it.
+/// (D706); a row whose rewrite left a rewritten text keeps Clean greyed, the
+/// rewrite containing the clean, while one whose rewrite failed, was
+/// cancelled or rewrote nothing is cleaned as a first clean would be (D720);
+/// and an inspected row keeps it greyed as it was. Pure, so the menu's rule
+/// is checked without one. `cleanable` is `None` for a row with nothing
+/// behind it.
 pub fn why_not_clean(status: &Status, cleanable: Option<Cleanable>) -> Option<String> {
     match status {
         Status::Queued | Status::Cleaning => Some(t(Message::QueueActionCleanBusy)),
         Status::RewriteQueued | Status::Rewriting(_) => Some(t(Message::QueueActionCleanRewriting)),
         Status::Recorded(said) if !said.phase.is_end() => Some(t(Message::QueueActionCleanBusy)),
         Status::Recorded(said) => match said.action {
-            Action::Rewrite => Some(t(Message::QueueActionCleanRewritten)),
+            Action::Rewrite if holds_a_rewrite(said) => Some(t(Message::QueueActionCleanRewritten)),
+            Action::Rewrite => cannot_clean(cleanable),
             Action::Inspect => Some(t(Message::QueueActionCleanDone)),
             Action::Clean | Action::CleanImage => {
                 in_place(status).or_else(|| cannot_clean(cleanable))
@@ -1629,6 +1642,35 @@ impl Queue {
         self.redo_clean(id, cx);
     }
 
+    /// Clean on a row whose last rewrite left no rewritten text — failed,
+    /// cancelled, or rewrote nothing (D720): a first clean of the row, in the
+    /// one line, by the plan taken when it starts (D279), into a result of
+    /// the row's own (D635). Nothing is written over, and nothing is asked:
+    /// there is no result of the rewrite to lose. A row whose rewrite left a
+    /// text keeps Clean greyed, and is left alone.
+    pub fn clean_unrewritten(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(row) = self.rows.iter_mut().find(|row| row.id == id) else {
+            return;
+        };
+        if again_of(&row.status) != Some(Again::Rewrite)
+            || why_not_clean(&row.status, row.cleanable()).is_some()
+        {
+            return;
+        }
+        let Some(arrival) = row.arrival.clone() else {
+            return;
+        };
+        let tag = journal::Tag::of(id, row.entry, self.writer.as_ref());
+        tracing::info!(id, "a row whose rewrite left nothing is cleaned");
+        if self
+            .cleaner
+            .update(cx, |cleaner, cx| cleaner.ask(id, arrival, tag, cx))
+        {
+            row.status = Status::Queued;
+        }
+        cx.notify();
+    }
+
     /// Yes to the question [`QueueEvent::Again`] put (D705): redo row `id`'s
     /// `action` without asking again. A row that moved while the question
     /// was open — removed, in a line, its last action another — is left as
@@ -2409,12 +2451,13 @@ fn name_cell(row: &Row, cx: &App) -> AnyElement {
 type Step = Box<dyn Fn(&mut Queue, &mut Context<Queue>)>;
 
 /// What a row's Clean does when pressed, item or button: Clean again's
-/// road on a row that would clean again (D703), the first Clean's
-/// otherwise.
+/// road on a row that would clean again (D703), a first clean of a row
+/// whose rewrite left nothing (D720), the first Clean's otherwise.
 fn clean_step(id: u64, again: Option<Again>) -> Step {
     match again {
         Some(Again::Clean) => Box::new(move |queue, cx| queue.clean_again(id, cx)),
-        _ => Box::new(move |queue, cx| queue.clean(&[id], cx)),
+        Some(Again::Rewrite) => Box::new(move |queue, cx| queue.clean_unrewritten(id, cx)),
+        None => Box::new(move |queue, cx| queue.clean(&[id], cx)),
     }
 }
 

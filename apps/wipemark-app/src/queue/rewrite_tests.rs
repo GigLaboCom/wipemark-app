@@ -1998,3 +1998,51 @@ fn a_save_that_cleans_never_takes_a_row_from_its_rewrite(cx: &mut TestAppContext
         subject.made
     );
 }
+
+/// D720: a row whose rewrite rewrote nothing — and so wrote nothing (D712)
+/// — keeps its Clean, named Clean, and the row's own Clean step cleans it as
+/// a first clean would: `a.cleaned.md` beside the file, the row cleaned.
+/// Grey a rewritten row's Clean whatever its rewrite left (the rule before
+/// D720) and the step does nothing: red.
+#[gpui::test]
+fn a_row_whose_rewrite_rewrote_nothing_is_cleaned_by_its_clean(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("not-rewritten-clean");
+    let marked = format!("The build\u{200B} {}\n{OTHER}", &PARAGRAPH[10..]);
+    let source = scratch.file("a.md", marked.as_bytes());
+    let work = work(FakeEngine::answering(|_, _| String::new()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| queue.hand(vec![source.clone()], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the end", |cx| status(&queue, cx) == "not-rewritten");
+
+    let (labels, why) = cx.update(|_, cx| {
+        let queue = queue.read(cx);
+        let status = queue.status_of(id).expect("the row").clone();
+        let cleanable = queue
+            .rows
+            .iter()
+            .find(|row| row.id == id)
+            .and_then(super::Row::cleanable);
+        (
+            super::labels(&status),
+            super::why_not_clean(&status, cleanable),
+        )
+    });
+    assert_eq!(labels.0, Message::QueueActionClean, "a first clean");
+    assert_eq!(
+        why, None,
+        "Clean is greyed on a row whose rewrite left nothing"
+    );
+
+    queue.update(cx, |queue, cx| {
+        super::clean_step(id, super::again_of(queue.status_of(id).expect("the row")))(queue, cx);
+    });
+    until(cx, "the clean", |cx| status(&queue, cx) == "cleaned");
+    let cleaned = scratch.0.join("a.cleaned.md");
+    let text = std::fs::read_to_string(&cleaned).expect("the cleaned result");
+    assert!(!text.contains('\u{200B}'), "{text:?}");
+    assert_eq!(std::fs::read_to_string(&source).expect("source"), marked);
+}

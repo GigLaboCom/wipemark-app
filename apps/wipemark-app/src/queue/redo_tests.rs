@@ -308,20 +308,37 @@ fn the_labels_and_their_greying_are_one_rule_of_the_status() {
         Some("nobody".to_owned())
     );
 
-    for phase in [Phase::Failed, Phase::Cancelled] {
-        let status = said(Action::Rewrite, phase, None);
+    // A rewrite that left no rewritten text — failed, cancelled, or rewrote
+    // nothing and wrote nothing (D711, D712) — leaves the row's Clean to go,
+    // a first clean (D720): saying the rewrite contains the clean would be
+    // untrue.
+    let left_nothing = [
+        said(Action::Rewrite, Phase::Failed, None),
+        said(Action::Rewrite, Phase::Cancelled, None),
+        said(Action::Rewrite, Phase::Done, Some(Delivered::Nowhere)),
+    ];
+    for status in &left_nothing {
         assert_eq!(
-            labels(&status),
+            labels(status),
             (M::QueueActionClean, M::QueueActionRewriteAgain),
-            "{phase:?}"
+            "{status:?}"
         );
-        assert_eq!(why_not_rewrite(&status, TEXT, None), None, "{phase:?}");
+        assert_eq!(why_not_rewrite(status, TEXT, None), None, "{status:?}");
+        assert_eq!(why_not_clean(status, TEXT), None, "{status:?}");
         assert_eq!(
-            why_not_clean(&status, TEXT),
-            Some(t(M::QueueActionCleanRewritten)),
-            "{phase:?}"
+            why_not_clean(status, None),
+            Some(t(M::QueueActionNotKept)),
+            "{status:?}"
         );
     }
+    // Into the row, as a paste's rewrite is, is a rewritten text like a file.
+    assert_eq!(
+        why_not_clean(
+            &said(Action::Rewrite, Phase::Done, Some(Delivered::Row)),
+            TEXT
+        ),
+        Some(t(M::QueueActionCleanRewritten))
+    );
 
     // A paste read back after a restart: nothing behind it.
     let not_kept = Some(t(M::QueueActionNotKept));
