@@ -171,3 +171,4 @@ suffix rather than replaced — and move this table to the new key.
 | `wipemark-redo-a-row-report-2026-10-13` | FILE | the Redo a row report (`docs/plan/reports/redo-a-row-2026-10-13.md`): Clean again and Rewrite again, D703–D708, D703a, D703b, the red-first table |
 | `wipemark-f1-f7-report-2026-10-13` | FILE | the F1/F7 report (`docs/plan/reports/f1-f7-2026-10-13.md`): the download's log lines, the signals, the stale beacon, D715–D719 |
 | `wipemark-f20-f19-report-2026-10-13` | FILE | the F20/F19 report (`docs/plan/reports/f20-f19-2026-10-13.md`): D709–D714 and D714a, the owner's D712 (write nothing), the stale sentences found |
+| `wipemark-status-2026-10-13-mac` | TEXT | status 2026-10-13, the macOS session: today's merges (Redo D703–D708, F20/F19 D709–D714a, F1/F7 D715–D719, D720), feat local at 0e7aeea not yet pushed, the gates on the Mac, the live F7 check (`scripts/verify/signals/live.sh`) not run, acceptance left, the disk cleaned |
