@@ -455,6 +455,80 @@ impl JobReport {
     pub fn to_json(&self) -> String {
         ascii_json(&self.to_value())
     }
+
+    /// Whether this job rewrote nothing, and why (D711) — [`nothing_rewritten`]
+    /// over its JSON form, so the application's answer and the command
+    /// line's, which holds only the JSON, cannot read one report two ways.
+    pub fn nothing_rewritten(&self) -> Option<NothingRewritten> {
+        nothing_rewritten(&self.to_value())
+    }
+}
+
+/// A job that rewrote nothing (D711): it had chunks, and every one of them
+/// kept its cleaned source. Not "partly rewritten" and not done: what every
+/// surface says in place of a rewrite — the window's row, the MCP answer,
+/// the command line's exit code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NothingRewritten {
+    /// The id the most attempts were rejected for — a [`Rejection::kind`]
+    /// (`empty`, `engine`, `guard`, …). When nothing was asked of the
+    /// engine, the chunks' own reason (`no-tactic`, `marker-in-text`).
+    /// A tie goes to the one seen first.
+    pub reason: String,
+    /// How many attempts `reason` was the rejection of — or, when nothing
+    /// was asked, how many chunks it kept.
+    pub count: u32,
+    /// Every attempt the job made, those carried over from an earlier run
+    /// included. Every one of them was rejected.
+    pub attempts: u32,
+    /// The job's chunks; none was rewritten.
+    pub chunks: u32,
+}
+
+/// Whether the report — its JSON form, [`JobReport::to_value`], as the
+/// application and the command line both hold it — is of a job that
+/// rewrote nothing, and why. `None` for a job that rewrote a chunk, for one
+/// with no chunks at all (nothing to rewrite is not a failure to), and for
+/// a report that does not say.
+pub fn nothing_rewritten(report: &Value) -> Option<NothingRewritten> {
+    let totals = &report["best_effort"]["totals"];
+    let chunks = u32::try_from(totals["chunks"].as_u64()?).ok()?;
+    if chunks == 0 || totals["rewritten"].as_u64()? > 0 {
+        return None;
+    }
+    let listed = report["best_effort"]["chunks"].as_array()?;
+    // In the order first seen, so a tie goes to the earlier.
+    let mut tally: Vec<(String, u32)> = Vec::new();
+    let mut count = |id: &str| match tally.iter_mut().find(|(seen, _)| seen == id) {
+        Some((_, n)) => *n += 1,
+        None => tally.push((id.to_owned(), 1)),
+    };
+    let mut attempts = 0u32;
+    for chunk in listed {
+        for attempt in chunk["attempts"].as_array().into_iter().flatten() {
+            attempts += 1;
+            if let Some(kind) = attempt["verdict"]["rejected"]["kind"].as_str() {
+                count(kind);
+            }
+        }
+    }
+    if attempts == 0 {
+        for chunk in listed {
+            if let Some(kept) = chunk["outcome"]["kept_source"].as_str() {
+                count(kept);
+            }
+        }
+    }
+    let (reason, count) = tally
+        .into_iter()
+        .reduce(|best, next| if next.1 > best.1 { next } else { best })
+        .unwrap_or_else(|| (Kept::NoCandidatePassed.as_str().to_owned(), 0));
+    Some(NothingRewritten {
+        reason,
+        count,
+        attempts,
+        chunks,
+    })
 }
 
 impl Serialize for JobReport {

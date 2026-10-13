@@ -482,6 +482,10 @@ pub fn recorded_badge(
         }
         Phase::Failed => (Message::QueueStatusFailed, Badge::Danger),
         Phase::Done => match (action, verdict) {
+            // Done, and nothing rewritten (D711): a warning, never a success.
+            (Action::Rewrite, "not-rewritten") => {
+                (Message::QueueStatusNotRewritten, Badge::Warning)
+            }
             (Action::Rewrite, "partly") => (Message::QueueStatusPartlyRewritten, Badge::Warning),
             (Action::Rewrite, _) => (Message::QueueStatusRewritten, Badge::Success),
             (Action::Inspect, "findings") => (Message::QueueStatusFindings, Badge::Warning),
@@ -525,6 +529,15 @@ pub fn recorded_said_in(
             &args!("reason" => reason()),
         ),
         Phase::Done => match (action, outcome) {
+            (Action::Rewrite, Some(outcome)) if outcome.verdict == "not-rewritten" => say(
+                Message::QueueSaidNotRewritten,
+                &args!("why" => not_rewritten_why_in(
+                    say,
+                    outcome.reason.as_deref().unwrap_or("-"),
+                    outcome.reason_count,
+                    outcome.attempts,
+                )),
+            ),
             (Action::Rewrite, Some(outcome)) if outcome.verdict == "partly" => say(
                 Message::QueueSaidPartlyRewritten,
                 &args!(
@@ -552,6 +565,34 @@ pub fn recorded_said_in(
             ),
             _ => say(Message::QueueSaidRecorded, &FluentArgs::new()),
         },
+    }
+}
+
+/// Why a rewrite rewrote nothing (D711), in `say`'s words: the reason
+/// every attempt was rejected for — or nothing could be asked at all —
+/// when it was one; otherwise how many attempts there were and the most
+/// frequent reason, with its count. `reason` is the id the journal keeps
+/// (`empty`, `guard`, …); a row that does not say its counts reads as one
+/// reason for every attempt.
+pub fn not_rewritten_why_in(
+    say: Say,
+    reason: &str,
+    count: Option<u32>,
+    attempts: Option<u32>,
+) -> String {
+    match (count, attempts) {
+        (Some(count), Some(attempts)) if count < attempts => say(
+            Message::NotRewrittenMost,
+            &args!(
+                "reason" => reason.to_owned(),
+                "count" => i64::from(count),
+                "attempts" => i64::from(attempts),
+            ),
+        ),
+        _ => say(
+            Message::NotRewrittenEvery,
+            &args!("reason" => reason.to_owned()),
+        ),
     }
 }
 
@@ -932,5 +973,90 @@ mod tests {
             lines.iter().all(|line| !line.contains("hello")),
             "the text itself is never a note"
         );
+    }
+
+    /// D711 (acceptance F20): a rewrite that rewrote nothing never reads as
+    /// done. In every language its badge is its own word — not
+    /// "Rewritten", not "Partly rewritten" — painted as a warning, and its
+    /// sentence names why: the one reason for every answer (each reason in
+    /// its own words, never the fallback), or the most frequent of several
+    /// with the counts.
+    #[test]
+    fn a_rewrite_that_rewrote_nothing_never_reads_as_done() {
+        use wipemark_i18n::{available_languages, FluentArgs, Localizer, Message, Rendering};
+        use wipemark_store::entry::{Action, Outcome as Recorded, Phase};
+
+        use super::{not_rewritten_why_in, recorded_badge, recorded_said_in, Badge};
+
+        let nothing = |reason: &str, count: u32, attempts: u32| Recorded {
+            verdict: "not-rewritten".to_owned(),
+            reason: Some(reason.to_owned()),
+            reason_count: Some(count),
+            attempts: Some(attempts),
+            chunks: Some(12),
+            rewritten: Some(0),
+            kept_source: Some(12),
+            ..Recorded::default()
+        };
+        let (word, badge) = recorded_badge(
+            Action::Rewrite,
+            Phase::Done,
+            Some(&nothing("empty", 48, 48)),
+        );
+        assert_eq!(word, Message::QueueStatusNotRewritten);
+        assert_eq!(badge, Badge::Warning);
+
+        for language in available_languages() {
+            let localizer =
+                Localizer::for_languages(std::slice::from_ref(&language.id), Rendering::PlainText);
+            let say = |message: Message, args: &FluentArgs| localizer.format_args(message, args);
+            let id = &language.id;
+            let word = say(Message::QueueStatusNotRewritten, &FluentArgs::new());
+            for done in [
+                Message::QueueStatusRewritten,
+                Message::QueueStatusPartlyRewritten,
+            ] {
+                assert_ne!(word, say(done, &FluentArgs::new()), "{id}: reads as done");
+            }
+
+            let fallback = not_rewritten_why_in(&say, "?", None, None);
+            for reason in [
+                "empty",
+                "engine",
+                "truncated",
+                "guard",
+                "language",
+                "restore",
+                "no-op",
+                "marker-in-answer",
+                "no-tactic",
+                "marker-in-text",
+            ] {
+                let why = not_rewritten_why_in(&say, reason, Some(4), Some(4));
+                assert_ne!(why, fallback, "{id}: `{reason}` has no words of its own");
+            }
+            let every = recorded_said_in(
+                &say,
+                Action::Rewrite,
+                Phase::Done,
+                Some(&nothing("empty", 48, 48)),
+            );
+            assert!(
+                every.contains(&not_rewritten_why_in(&say, "empty", Some(48), Some(48))),
+                "{id}: {every}"
+            );
+            let most = recorded_said_in(
+                &say,
+                Action::Rewrite,
+                Phase::Done,
+                Some(&nothing("guard", 3, 4)),
+            );
+            assert!(most.contains('3') && most.contains('4'), "{id}: {most}");
+            assert_ne!(
+                not_rewritten_why_in(&say, "guard", Some(3), Some(4)),
+                not_rewritten_why_in(&say, "guard", Some(4), Some(4)),
+                "{id}: most and every read alike"
+            );
+        }
     }
 }

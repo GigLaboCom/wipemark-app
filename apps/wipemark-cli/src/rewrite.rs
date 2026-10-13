@@ -40,11 +40,14 @@
 //!
 //! # The exit code (H17)
 //!
-//! `3` when any chunk kept its source — not every part was rewritten,
-//! which is inconclusive, and **3 beats 1** as in `audit`; else `1` when
-//! the input had Layer A findings (D31, as `clean`); else `0`. `2` for a
-//! refusal or usage — nothing written. A result that could not be written
-//! is `3`, as for `clean`.
+//! `3` when some chunk kept its source and another was rewritten — not
+//! every part was rewritten, which is inconclusive, and **3 beats 1** as in
+//! `audit`; else `1` when the input had Layer A findings (D31, as
+//! `clean`); else `0`. `2` for a refusal or usage — nothing written — and
+//! for a job in which **every** chunk kept its source (D711a): nothing was
+//! rewritten, which is the work refused rather than part of it done, and
+//! the application's MCP tool answers the same job as an error with no
+//! text. A result that could not be written is `3`, as for `clean`.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -66,7 +69,8 @@ use wipemark_pipeline::prepare::TextFormat;
 use wipemark_pipeline::prompt::profile::{self, FileRefusal, Profile};
 use wipemark_pipeline::prompt::row::{self, Laid};
 use wipemark_pipeline::prompt::{Intensity, Overrides, Tactic};
-use wipemark_pipeline::{Document, Ending, Event, JobId, PipelineError, Stage};
+use wipemark_pipeline::report::nothing_rewritten;
+use wipemark_pipeline::{Document, Ending, Event, JobId, NothingRewritten, PipelineError, Stage};
 
 use crate::app::{self, Unheard};
 use crate::input::{self, Source};
@@ -323,6 +327,17 @@ pub(crate) fn rewrite_with(flags: &Flags, io: &mut Io, roads: &Roads) -> Exit {
     journal::note(|draft| {
         draft.entry.outcome = Some(journal::rewrite_outcome(&rewritten.report, exit));
     });
+    // Every paragraph kept its cleaned original (D711, D711a): not a
+    // rewrite, so nothing is written and the run is refused, 2 — what the
+    // application's MCP tool answers for the same job, so the two roads
+    // cannot end it differently.
+    if let Some(nothing) = nothing_rewritten(&rewritten.report) {
+        let line = t_args(
+            Message::CliRewriteNotRewritten,
+            &args!("why" => not_rewritten_why(&nothing)),
+        );
+        return run::refused(io, "rewrite", path, &line, "not rewritten", exit);
+    }
     deliver(
         flags,
         &source,
@@ -336,17 +351,44 @@ pub(crate) fn rewrite_with(flags: &Flags, io: &mut Io, roads: &Roads) -> Exit {
 }
 
 /// The exit code a report reads as (H17), or `None` for a report that does
-/// not say what it has to — which is not read as clean.
+/// not say what it has to — which is not read as clean. A job that
+/// rewrote nothing is 2 (D711a): the work asked for was not done, and a
+/// script that took 3 for "some of it was" would ship the cleaned input as
+/// a rewrite.
 pub(crate) fn exit_of(report: &Value) -> Option<Exit> {
     let kept = report["best_effort"]["totals"]["kept_source"].as_u64()?;
     let suspicious = report["verifiable"]["before"]["suspicious"].as_bool()?;
-    Some(if kept > 0 {
+    Some(if nothing_rewritten(report).is_some() {
+        Exit::Usage
+    } else if kept > 0 {
         Exit::Partial
     } else if suspicious {
         Exit::Findings
     } else {
         Exit::Clean
     })
+}
+
+/// Why a run rewrote nothing, in the reader's language — the clause the
+/// window's row says it with (`not-rewritten-every`, `not-rewritten-most`),
+/// chosen by the same rule: one reason for every attempt, or the most
+/// frequent of several.
+fn not_rewritten_why(nothing: &NothingRewritten) -> String {
+    if nothing.count < nothing.attempts {
+        t_args(
+            Message::NotRewrittenMost,
+            &args!(
+                "reason" => nothing.reason.as_str(),
+                "count" => i64::from(nothing.count),
+                "attempts" => i64::from(nothing.attempts),
+            ),
+        )
+    } else {
+        t_args(
+            Message::NotRewrittenEvery,
+            &args!("reason" => nothing.reason.as_str()),
+        )
+    }
 }
 
 /// The format a document is prepared as when `--format` does not say:
@@ -1481,16 +1523,22 @@ mod tests {
                              second run is much faster because all of the dependencies are \
                              already compiled and kept in the target directory.";
 
-    /// The text a request asks to rewrite, every two neighbouring words of
-    /// its first half swapped: far enough from it for the no-op floor.
-    fn swapped(req: &wipemark_engine::ChatRequest) -> String {
+    /// The text a request asks to rewrite — between the assembler's
+    /// markers, without the context around it.
+    fn asked_text(req: &wipemark_engine::ChatRequest) -> &str {
         const BEGIN: &str = "[[[BEGIN TEXT]]]\n";
         const END: &str = "\n[[[END TEXT]]]";
         let start = req.prompt.find(BEGIN).map_or(0, |at| at + BEGIN.len());
         let stop = req.prompt[start..]
             .find(END)
             .map_or(req.prompt.len(), |at| at + start);
-        let mut words: Vec<&str> = req.prompt[start..stop].split(' ').collect();
+        &req.prompt[start..stop]
+    }
+
+    /// The text a request asks to rewrite, every two neighbouring words of
+    /// its first half swapped: far enough from it for the no-op floor.
+    fn swapped(req: &wipemark_engine::ChatRequest) -> String {
+        let mut words: Vec<&str> = asked_text(req).split(' ').collect();
         let half = words.len() / 2;
         for pair in words[..half].chunks_mut(2) {
             pair.reverse();
@@ -1587,17 +1635,29 @@ mod tests {
             .is_some_and(|text| text.starts_with("build The")));
     }
 
-    /// A paragraph no candidate passed keeps its cleaned original, and the
-    /// run is inconclusive: 3, even though the input had a finding — 3
-    /// beats 1.
+    /// A second paragraph, for a document of two.
+    const OTHER: &str = "Most of the time a clean checkout is all it takes, and the rest of \
+                         the steps are written down in the guide that ships with the source of \
+                         the project itself.";
+
+    /// A paragraph no candidate passed keeps its cleaned original while the
+    /// other is rewritten, and the run is inconclusive: 3, even though the
+    /// input had a finding — 3 beats 1.
     #[test]
     fn a_chunk_that_kept_its_source_exits_three() {
         let interrupted = AtomicBool::new(false);
         let own =
             |_: Option<&Layout>, _: &mut Io| -> Result<(Arc<dyn RewriteEngine>, Executor), Exit> {
-                // An answer no guard lets through: a fraction of the paragraph.
+                // The first paragraph gets an answer no guard lets through
+                // — a fraction of it; the second, a rewrite.
                 Ok((
-                    Arc::new(FakeEngine::answering(|_, _| "Short.".to_owned())),
+                    Arc::new(FakeEngine::answering(|req, _| {
+                        if asked_text(req).contains("twelve") {
+                            "Short.".to_owned()
+                        } else {
+                            swapped(req)
+                        }
+                    })),
                     Executor::LocalCpu,
                 ))
             };
@@ -1607,17 +1667,69 @@ mod tests {
             interrupted: &interrupted,
             own: &own,
         };
-        let marked = format!("{PARAGRAPH}\u{200B}");
+        let marked = format!("{PARAGRAPH}\u{200B}\n\n{OTHER}");
         let (exit, stdout, stderr) = run(marked.as_bytes(), |io| {
             rewrite_with(&flags(false), io, &roads)
         });
         assert_eq!(exit, Exit::Partial, "{stderr}");
-        assert_eq!(
-            stdout, PARAGRAPH,
-            "the kept paragraph is the cleaned original"
+        assert!(
+            stdout.starts_with(&format!("{PARAGRAPH}\n\n")),
+            "the kept paragraph is the cleaned original: {stdout}"
         );
+        assert!(!stdout.contains(OTHER), "the other was not rewritten");
         let kept = t_args(Message::CliRewriteKept, &args!("kept" => 1_u64));
         assert!(stderr.contains(&kept), "{stderr}");
+    }
+
+    /// D711, D711a: a run in which every paragraph kept its cleaned
+    /// original rewrote nothing. It is refused — 2, even though the input
+    /// had a finding — nothing is written, to standard output or to `-o`,
+    /// and stderr says why: here, every answer from the engine was empty.
+    #[test]
+    fn a_run_that_rewrote_nothing_exits_two_and_writes_nothing() {
+        let interrupted = AtomicBool::new(false);
+        let own =
+            |_: Option<&Layout>, _: &mut Io| -> Result<(Arc<dyn RewriteEngine>, Executor), Exit> {
+                Ok((
+                    Arc::new(FakeEngine::answering(|_, _| String::new())),
+                    Executor::LocalCpu,
+                ))
+            };
+        let roads = Roads {
+            layout: None,
+            terminal: false,
+            interrupted: &interrupted,
+            own: &own,
+        };
+        let marked = format!("{PARAGRAPH}\u{200B}\n\n{OTHER}");
+        let (exit, stdout, stderr) = run(marked.as_bytes(), |io| {
+            rewrite_with(&flags(false), io, &roads)
+        });
+        assert_eq!(exit, Exit::Usage, "{stderr}");
+        assert_eq!(stdout, "", "a rewrite that did not happen was written");
+        let why = t_args(Message::NotRewrittenEvery, &args!("reason" => "empty"));
+        let line = t_args(Message::CliRewriteNotRewritten, &args!("why" => why));
+        assert!(stderr.contains(&line), "{stderr}");
+
+        let (exit, stdout, _) = run(marked.as_bytes(), |io| {
+            rewrite_with(&flags(true), io, &roads)
+        });
+        assert_eq!((exit, stdout.as_str()), (Exit::Usage, ""), "--json");
+
+        let folder = std::env::temp_dir().join(format!(
+            "wipemark-cli-rewrote-nothing-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&folder).expect("a folder");
+        let out = folder.join("out.rewritten.md");
+        let to_file = Flags {
+            out: Some(&out),
+            ..flags(false)
+        };
+        let (exit, _, stderr) = run(marked.as_bytes(), |io| rewrite_with(&to_file, io, &roads));
+        assert_eq!(exit, Exit::Usage, "{stderr}");
+        assert!(!out.exists(), "a rewrite that did not happen was written");
+        let _ = std::fs::remove_dir_all(&folder);
     }
 
     /// The command's own model is asked with its window (E4-6c, D330, the
@@ -1670,22 +1782,23 @@ mod tests {
             "a template refusal would be recorded as a failed row"
         );
 
-        let large =
-            |_: Option<&Layout>, _: &mut Io| -> Result<(Arc<dyn RewriteEngine>, Executor), Exit> {
-                Ok((
-                    Arc::new(FakeEngine::with_model("fake-100k", 100_000)),
-                    Executor::LocalCpu,
-                ))
-            };
+        let big = FakeEngine::with_model("fake-100k", 100_000);
+        let asked = big.clone();
+        let large = move |_: Option<&Layout>,
+                          _: &mut Io|
+              -> Result<(Arc<dyn RewriteEngine>, Executor), Exit> {
+            Ok((Arc::new(big.clone()), Executor::LocalCpu))
+        };
         let roads = Roads {
             own: &large,
             ..roads
         };
-        let (exit, stdout, stderr) =
-            run(PARAGRAPH.as_bytes(), |io| rewrite_with(&flags, io, &roads));
-        assert_ne!(exit, Exit::Usage, "{stderr}");
+        let (_, _, stderr) = run(PARAGRAPH.as_bytes(), |io| rewrite_with(&flags, io, &roads));
         assert!(!stderr.contains("too-long"), "{stderr}");
-        assert!(!stdout.is_empty(), "{stderr}");
+        // It ran: the model was asked. (The rotating double answers with the
+        // whole long prompt, cut at its budget, so nothing is rewritten —
+        // its own refusal, D711a, and not this test's.)
+        assert!(!asked.asked().is_empty(), "{stderr}");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1908,6 +2021,19 @@ mod tests {
         assert_eq!(exit_of(&report(0, true)), Some(Exit::Findings));
         assert_eq!(exit_of(&report(1, false)), Some(Exit::Partial));
         assert_eq!(exit_of(&report(2, true)), Some(Exit::Partial));
+        // Every chunk kept its source: nothing rewritten, 2 (D711a) — with
+        // findings too.
+        let nothing = |suspicious: bool| {
+            json!({
+                "verifiable": {"before": {"suspicious": suspicious}},
+                "best_effort": {
+                    "totals": {"chunks": 2, "rewritten": 0, "kept_source": 2},
+                    "chunks": [],
+                },
+            })
+        };
+        assert_eq!(exit_of(&nothing(false)), Some(Exit::Usage));
+        assert_eq!(exit_of(&nothing(true)), Some(Exit::Usage));
         // A report that does not say is not read as clean.
         assert_eq!(exit_of(&json!({})), None);
     }

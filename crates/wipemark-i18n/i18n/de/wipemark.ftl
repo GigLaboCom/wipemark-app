@@ -1110,6 +1110,7 @@ cli-rewrite-kept = { $kept ->
         [one] Ein Absatz behält sein bereinigtes Original: Kein Kandidat dafür hat die Prüfungen bestanden. Nicht alles wurde umgeschrieben, deshalb ist der Exit-Code 3.
        *[other] { $kept } Absätze behalten ihr bereinigtes Original: Kein Kandidat dafür hat die Prüfungen bestanden. Nicht alles wurde umgeschrieben, deshalb ist der Exit-Code 3.
     }
+cli-rewrite-not-rewritten = Nichts wurde umgeschrieben: { $why }. Nichts wurde geschrieben, und der Exit-Code ist 2.
 cli-rewrite-attempts = { $attempts ->
         [one] Das Modell schrieb einen Kandidaten; abgelehnt: { $rejected }.
        *[other] Das Modell schrieb { $attempts } Kandidaten; abgelehnt: { $rejected }.
@@ -1278,6 +1279,7 @@ queue-status-rewritten = Umgeschrieben
 queue-status-partly-rewritten = Teilweise umgeschrieben
 queue-status-rewritten-edited = Umgeschrieben, dann bearbeitet
 queue-status-partly-rewritten-edited = Teilweise umgeschrieben, dann bearbeitet
+queue-status-not-rewritten = Nicht umgeschrieben
 queue-status-rewrite-failed = Umschreiben fehlgeschlagen
 queue-status-cancelled = Umschreiben abgebrochen
 queue-status-findings = Markierungen gefunden
@@ -1294,6 +1296,31 @@ queue-said-partly-rewritten = { $kept } von { $chunks ->
        *[other] { $chunks } Absätzen
     } behielten ihr bereinigtes Original: kein Kandidat bestand die Prüfungen.
 queue-said-recorded-refused = Nicht erledigt ({ $reason }); nichts wurde angerührt.
+queue-said-not-rewritten = Nichts wurde umgeschrieben: { $why }. Das Ergebnis ist der bereinigte Text, unverändert.
+not-rewritten-every = { $reason ->
+        [empty] jede Antwort der Engine war leer
+        [engine] die Engine scheiterte an jeder Anfrage
+        [truncated] jede Antwort wurde an ihrer Längengrenze abgeschnitten
+        [guard] eine Prüfung wies jede Antwort ab — eine Zahl, ein Name oder ein geschützter Abschnitt ging verloren, oder die Länge änderte sich zu stark
+        [language] jede Antwort war in einer anderen Sprache
+        [restore] keine Antwort ließ sich in das Dokument zurücksetzen
+        [no-op] jede Antwort ließ den Text, wie er war
+        [marker-in-answer] jede Antwort enthielt eine der eigenen Markierungen der Anfrage
+        [no-tactic] keine Art, die Engine zu fragen, passt zu diesem Dokument
+        [marker-in-text] der Text enthält eine der eigenen Markierungen der Anfrage und wurde deshalb nicht gesendet
+       *[other] keine Antwort bestand die Prüfungen
+    }
+not-rewritten-most = keine der { $attempts } Antworten bestand die Prüfungen, am häufigsten ({ $count }), weil { $reason ->
+        [empty] die Antwort der Engine leer war
+        [engine] die Engine scheiterte
+        [truncated] die Antwort an ihrer Längengrenze abgeschnitten wurde
+        [guard] eine Prüfung eine verlorene Zahl, einen verlorenen Namen oder Abschnitt oder eine zu starke Längenänderung fand
+        [language] die Antwort in einer anderen Sprache war
+        [restore] sich die Antwort nicht in das Dokument zurücksetzen ließ
+        [no-op] die Antwort den Text ließ, wie er war
+        [marker-in-answer] die Antwort eine Markierung der Anfrage enthielt
+       *[other] die Antwort sie nicht bestand
+    }
 queue-said-recorded-found = { -layer-a } fand { $findings } und behielt { $kept }.
 queue-said-recorded = So, wie das Journal es festhielt.
 queue-went-caller = An den Anfragenden zurückgegeben und nirgends behalten.
@@ -1336,6 +1363,7 @@ status-rewrites-paused = Das Umschreiben ist angehalten · { $count } warten
 status-rewrites-settling = Umschreibungen warten auf den Wechsel der Engine
 compare-rewritten-banner = Die Umschreibung, wie sie geliefert oder zuletzt gespeichert wurde — begonnen hat sie als die am stärksten veränderte Fassung, die jede Prüfung bestand.
 compare-rewritten-kept = { $kept } von { $chunks } Absätzen behielten ihr bereinigtes Original: kein Kandidat bestand die Prüfungen.
+compare-not-rewritten-banner = Nichts wurde umgeschrieben: Dies ist das bereinigte Original, unverändert — für keinen Absatz bestand ein Kandidat die Prüfungen.
 compare-reset-rewritten = Zurück zum umgeschriebenen Text
 compare-reset-rewritten-tooltip = Das Ergebnis so zurückholen, wie dieses Fenster es geöffnet hat — die Umschreibung, wie sie geliefert oder zuletzt gespeichert wurde — und die Änderungen gehen lassen. Das ist eine Änderung wie jede andere und wird gespeichert wie Änderungen.
 settings-arrival-title = Eingang verarbeiten

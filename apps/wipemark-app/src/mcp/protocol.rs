@@ -48,9 +48,11 @@
 //! tactic, an intensity, a format — said back spelled), a tactic this
 //! surface does not run, and every way a job can fail to happen — no
 //! engine on duty, an engine that cannot answer, a job that failed, a
-//! client that went away, the ceiling. Never with the input handed back as
-//! though it were a rewrite: an agent that got its own text back with no
-//! error would file it as rewritten.
+//! client that went away, the ceiling — and a job that ran to its end and
+//! rewrote nothing, every paragraph's candidates rejected (D711), which is
+//! answered as a failed job is, naming the most frequent rejection. Never
+//! with the input handed back as though it were a rewrite: an agent that
+//! got its own text back with no error would file it as rewritten.
 //!
 //! # `inspect_image` and `clean_image`
 //!
@@ -113,6 +115,7 @@ use serde_json::{json, Map, Value};
 use wipemark_pipeline::asked::{self, Asked, NotOffered};
 use wipemark_pipeline::prompt::row::Laid;
 use wipemark_pipeline::prompt::{Intensity, Tactic};
+use wipemark_pipeline::NothingRewritten;
 use wipemark_store::entry::{Action, Delivered, Entry, Origin, Outcome, Phase};
 use wipemark_store::NewRow;
 
@@ -660,16 +663,24 @@ impl Tool {
     /// back with no error would file it as rewritten.
     fn unrun(self, unrun: &Unrun) -> Value {
         tracing::info!(tool = self.name(), unrun = ?unrun, "MCP: tools/call did not run");
+        let text = match unrun {
+            // It ran, to its end, and rewrote nothing (D711).
+            Unrun::NotRewritten(_) => format!(
+                "`{name}` ran and rewrote nothing: {said}. No text comes back - the input with \
+                 only Layer A's changes is not a rewrite, and is not reported as one; `clean` \
+                 returns it.",
+                name = self.name(),
+                said = unrun_said(unrun),
+            ),
+            _ => format!(
+                "`{name}` did not run: {said}. Nothing was rewritten, and no text comes \
+                 back - a rewrite that did not happen is not reported as one.",
+                name = self.name(),
+                said = unrun_said(unrun),
+            ),
+        };
         json!({
-            "content": [{
-                "type": "text",
-                "text": format!(
-                    "`{name}` did not run: {said}. Nothing was rewritten, and no text comes \
-                     back - a rewrite that did not happen is not reported as one.",
-                    name = self.name(),
-                    said = unrun_said(unrun),
-                ),
-            }],
+            "content": [{ "type": "text", "text": text }],
             "isError": true,
         })
     }
@@ -982,6 +993,7 @@ fn unrun_said(unrun: &Unrun) -> String {
         }
         Unrun::Refused(why) => format!("the job did not start: {}", spelled(&why.to_string())),
         Unrun::Failed(error) => format!("the job failed: {}", spelled(&error.to_string())),
+        Unrun::NotRewritten(nothing) => not_rewritten_said(nothing),
         Unrun::Stopped(Some(Stop::HungUp)) => {
             "the client closed the connection, and the job was cancelled".to_owned()
         }
@@ -1005,6 +1017,44 @@ fn unrun_said(unrun: &Unrun) -> String {
         Unrun::Removed => "the document was removed from the application's list before its \
                            rewrite ended"
             .to_owned(),
+    }
+}
+
+/// Why a job rewrote nothing (D711), for an agent: the rejection id the
+/// report carries, what it means, and how many attempts it took. English,
+/// as everything the server says (`CLAUDE.md`, "Nothing the MCP server
+/// says comes from the catalogue").
+fn not_rewritten_said(nothing: &NothingRewritten) -> String {
+    let meaning = match nothing.reason.as_str() {
+        "empty" => "the engine's answer had nothing in it",
+        "engine" => "the engine failed",
+        "truncated" => "the answer was cut at its token limit",
+        "guard" => "a guard found a number, a name or a protected span lost, or the length changed too much",
+        "language" => "the answer was in another language",
+        "restore" => "the answer could not be put back into the document",
+        "no-op" => "the answer left the text as it was",
+        "marker-in-answer" => "the answer carried one of the prompt's markers",
+        "no-tactic" => "no tactic on the ladder fits this document",
+        "marker-in-text" => "the text carries one of the prompt's markers, so it was not sent",
+        _ => "it did not pass the checks",
+    };
+    let reason = spelled(&nothing.reason);
+    if nothing.attempts == 0 {
+        format!(
+            "none of its {} paragraphs could be asked of the engine (`{reason}`: {meaning})",
+            nothing.chunks
+        )
+    } else if nothing.count == nothing.attempts {
+        format!(
+            "every one of its {} answers was rejected as `{reason}` ({meaning})",
+            nothing.attempts
+        )
+    } else {
+        format!(
+            "none of its {} answers passed the checks; the most frequent rejection, {} of \
+             them, was `{reason}` ({meaning})",
+            nothing.attempts, nothing.count
+        )
     }
 }
 
@@ -3067,6 +3117,43 @@ pub(crate) mod tests {
             );
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+    }
+
+    /// D711 (acceptance F20): a rewrite that ran to its end and rewrote
+    /// nothing — every answer empty — is answered as a failed job is:
+    /// `isError`, a sentence naming the rejection and how many it took, and
+    /// neither the text nor a report. Its row is done, `not-rewritten`, and
+    /// handed nothing back. The same on the road with no queue.
+    #[test]
+    fn a_rewrite_that_rewrote_nothing_is_an_error_with_no_text() {
+        let (services, work) = working(FakeEngine::answering(|_, _| String::new()));
+        let arguments = format!(r#"{{"text":{}}}"#, json!(PARAGRAPH));
+        let response = call_with(&services, "rewrite", &arguments, "");
+        let text = refusal_text(&response);
+        assert!(text.contains("`rewrite` ran and rewrote nothing"), "{text}");
+        assert!(
+            text.contains("every one of its 2 answers was rejected as `empty`"),
+            "{text}"
+        );
+        assert!(!text.contains("twelve"), "the input came back: {text}");
+        let rows = work.journal.rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            (rows[0].action.as_str(), rows[0].state.as_str()),
+            ("rewrite", "done")
+        );
+        let entry = Entry::from_json(&rows[0].entry);
+        let outcome = entry.outcome.as_ref().expect("an outcome");
+        assert_eq!(outcome.verdict, "not-rewritten", "{entry:?}");
+        assert_eq!(outcome.reason.as_deref(), Some("empty"));
+        assert_eq!(entry.result, Some(Delivered::Nowhere), "{entry:?}");
+
+        let (bare, _) = serving(FakeEngine::answering(|_, _| String::new()));
+        let text = refusal_text(&rewritten(&bare, &arguments, &|| false));
+        assert!(
+            text.contains("rewrote nothing") && text.contains("`empty`"),
+            "{text}"
+        );
     }
 
     /// R7, В9: a window's row and two agents' calls run one at a time, in

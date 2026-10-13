@@ -26,7 +26,9 @@
 //!                was); an id not in the catalogue, a download that did not
 //!                finish; for rewrite, no engine that may answer, a tactic not
 //!                run here, a template that breaks a rule, a job that failed,
-//!                was cancelled or lost its connection — nothing written
+//!                was cancelled or lost its connection, or one that rewrote
+//!                nothing, every paragraph keeping its cleaned original
+//!                (D711a) — nothing written
 //! 3  partial     inconclusive: a file that exists and cannot be read, is not
 //!                text, is in an 8-bit encoding this version does not name or
 //!                holds an invalid sequence; a result that could not be
@@ -34,9 +36,10 @@
 //!                audit in which any file could not be read — even when
 //!                another had findings, because a scan with a hole in it is
 //!                not complete; a model file that could not be read; a
-//!                rewrite in which any paragraph kept its cleaned original —
-//!                even when the input had findings, for the reason audit's
-//!                3 beats 1: not every part was rewritten
+//!                rewrite in which a paragraph kept its cleaned original and
+//!                another was rewritten — even when the input had findings,
+//!                for the reason audit's 3 beats 1: not every part was
+//!                rewritten
 //! ```
 //!
 //! For `rewrite`, 0 and 1 read as for `clean`: 1 when the input had

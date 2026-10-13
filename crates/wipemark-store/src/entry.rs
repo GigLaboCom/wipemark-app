@@ -193,12 +193,20 @@ impl Entry {
 pub struct Outcome {
     /// The verdict, by the surface's id: a clean's `nothing-found`,
     /// `cleaned`, `partly`, `not-cleaned`, `failed`; a rewrite's
-    /// `rewritten`, `partly`, `failed`, `cancelled`; a look's `findings` or
-    /// `nothing-found`.
+    /// `rewritten`, `partly`, `not-rewritten` (every chunk kept its source,
+    /// D711), `failed`, `cancelled`; a look's `findings` or `nothing-found`.
     pub verdict: String,
-    /// Why, for a verdict that has a reason: a refusal's or a failure's id.
+    /// Why, for a verdict that has a reason: a refusal's or a failure's id —
+    /// for `not-rewritten`, the rejection most of its attempts were thrown
+    /// away for (`empty`, `guard`, …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// A rewrite that rewrote nothing (D711): every candidate it asked for,
+    /// and how many of them were rejected for `reason`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempts: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_count: Option<u32>,
     /// Layer A's findings over the input, and how many of them it kept.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub findings: Option<u64>,

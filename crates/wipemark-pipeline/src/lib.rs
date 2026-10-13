@@ -61,7 +61,7 @@ pub use job::{
     block_on, seed_for, start, start_resumable, wait, Decided, Document, Ending, JobHandle,
     Options, OptionsError, Outcome, RecordError, Refused,
 };
-pub use report::{Carried, ChunkCounts, EngineFailure, JobReport, Rejection};
+pub use report::{Carried, ChunkCounts, EngineFailure, JobReport, NothingRewritten, Rejection};
 
 /// Identifies a job for the lifetime of the process and in the persisted
 /// queue.

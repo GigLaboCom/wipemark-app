@@ -1808,6 +1808,9 @@ cli-rewrite-kept = { $kept ->
         [one] One paragraph keeps its cleaned original: no candidate for it passed the checks. Not every part was rewritten, so the exit code is 3.
        *[other] { $kept } paragraphs keep their cleaned originals: no candidate for them passed the checks. Not every part was rewritten, so the exit code is 3.
     }
+# A run in which every paragraph kept its cleaned original (D711): exit 2,
+# nothing written. $why is `not-rewritten-every` or `not-rewritten-most`.
+cli-rewrite-not-rewritten = Nothing was rewritten: { $why }. Nothing was written, and the exit code is 2.
 cli-rewrite-attempts = { $attempts ->
         [one] The model wrote one candidate; { $rejected } of it rejected.
        *[other] The model wrote { $attempts } candidates; { $rejected } of them rejected.
@@ -1989,6 +1992,8 @@ queue-status-rewritten = Rewritten
 queue-status-partly-rewritten = Partly rewritten
 queue-status-rewritten-edited = Rewritten, then edited
 queue-status-partly-rewritten-edited = Partly rewritten, then edited
+# A rewrite in which every paragraph kept its cleaned original (D711).
+queue-status-not-rewritten = Not rewritten
 queue-status-rewrite-failed = Rewrite failed
 queue-status-cancelled = Rewrite cancelled
 queue-status-findings = Marks found
@@ -2005,6 +2010,40 @@ queue-said-partly-rewritten = { $kept } of { $chunks ->
        *[other] { $chunks } paragraphs
     } kept their cleaned original: no candidate passed the checks.
 queue-said-recorded-refused = Not done ({ $reason }); nothing was touched.
+# A rewrite in which every paragraph kept its cleaned original (D711). $why
+# is `not-rewritten-every` or `not-rewritten-most`. The result was still
+# written where the Retention page said (D712): it is the cleaned text.
+queue-said-not-rewritten = Nothing was rewritten: { $why }. The result is the cleaned text, unchanged.
+# Why nothing was rewritten, when every attempt was rejected for the same
+# reason — $reason is its id — or nothing could be asked at all. Shared by
+# the window and the command line.
+not-rewritten-every = { $reason ->
+        [empty] every answer from the engine was empty
+        [engine] the engine failed on every request
+        [truncated] every answer was cut off at its length limit
+        [guard] a check refused every answer — a number, a name or a protected passage was lost, or the length changed too much
+        [language] every answer was in another language
+        [restore] no answer could be put back into the document
+        [no-op] every answer left the text as it was
+        [marker-in-answer] every answer carried one of the prompt's own markers
+        [no-tactic] no way of asking the engine fits this document
+        [marker-in-text] the text carries one of the prompt's own markers, so it was not sent
+       *[other] no answer passed the checks
+    }
+# Why nothing was rewritten, when the attempts were rejected for different
+# reasons: $reason is the most frequent one's id, $count how many it took,
+# $attempts how many there were.
+not-rewritten-most = none of the { $attempts } answers passed the checks, most often ({ $count }) because { $reason ->
+        [empty] the engine's answer was empty
+        [engine] the engine failed
+        [truncated] the answer was cut off at its length limit
+        [guard] a check found a number, a name or a protected passage lost, or the length changed too much
+        [language] the answer was in another language
+        [restore] the answer could not be put back into the document
+        [no-op] the answer left the text as it was
+        [marker-in-answer] the answer carried one of the prompt's own markers
+       *[other] the answer did not pass them
+    }
 queue-said-recorded-found = { -layer-a } found { $findings } and kept { $kept }.
 queue-said-recorded = As the journal recorded it.
 queue-went-caller = Handed back to whoever asked, and kept nowhere.
@@ -2047,6 +2086,8 @@ status-rewrites-paused = Rewriting is paused · { $count } waiting
 status-rewrites-settling = Rewrites wait for the engine to change
 compare-rewritten-banner = The rewrite, as it was delivered or last saved — it began as the most changed version that passed every check.
 compare-rewritten-kept = { $kept } of { $chunks } paragraphs kept their cleaned original: no candidate passed the checks.
+# The banner instead of the two above when no paragraph was rewritten (D711).
+compare-not-rewritten-banner = Nothing was rewritten: this is the cleaned original, unchanged — no candidate for any paragraph passed the checks.
 compare-reset-rewritten = Back to the rewritten text
 compare-reset-rewritten-tooltip = Put the result back as this window opened it — the rewrite as delivered, or as it was last saved — and let the edits go. This is an edit like any other, and is saved as edits are.
 settings-arrival-title = Process what arrives
