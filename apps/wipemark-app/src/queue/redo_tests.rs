@@ -401,6 +401,34 @@ fn a_result_written_in_place_is_not_redone() {
     assert_eq!(why_not_rewrite(&beside, TEXT, None), None);
 }
 
+/// D705: the question says which redo replaces the edits — its body is one
+/// key selecting on the action's id, so a variant misspelt falls back to
+/// the clean's sentence in silence. Every language's own words, both ways.
+#[test]
+fn the_question_says_which_redo_replaces_the_edits() {
+    use wipemark_i18n::{available_languages, Localizer, Rendering};
+    for language in available_languages() {
+        let localizer =
+            Localizer::for_languages(std::slice::from_ref(&language.id), Rendering::PlainText);
+        let said = |action: Again| {
+            localizer.format_args(
+                Message::QueueAgainEditedBody,
+                &args!("action" => action.id()),
+            )
+        };
+        let (clean, rewrite) = (said(Again::Clean), said(Again::Rewrite));
+        assert_ne!(clean, rewrite, "{}: one sentence for both", language.id);
+    }
+    let rewrite = t_args(
+        Message::QueueAgainEditedBody,
+        &args!("action" => Again::Rewrite.id()),
+    );
+    assert!(rewrite.contains("Rewriting it again"), "{rewrite}");
+    let title = t_args(Message::QueueAgainEditedTitle, &args!("name" => "x.md"));
+    assert!(title.contains("x.md"), "{title}");
+    assert_eq!(t(Message::QueueAgainEditedGo), "Redo");
+}
+
 // -- D704: over the row's own result --------------------------------------
 
 /// Test 1: Clean again writes over the row's own result and makes no new
