@@ -574,7 +574,7 @@ touched added model in full on the way to refusing
 writes a moved identity back, as `list` does.
 
 **Arguments.** `--tactic` takes every tactic's id and refuses
-`structural` (a window's, behind a confirmation) and `code` (not built)
+`structural` and `code` (neither in this version; D714a)
 by name. `--candidates`/`--rounds` have **no default** — absent is "whoever
 rewrites decides" (D61: 1 × up to 2 on a CPU, 2 × up to 2 on a GPU or an
 endpoint) — and are 1 to 8. `--format` overrides what intake says

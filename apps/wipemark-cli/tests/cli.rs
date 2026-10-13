@@ -1197,14 +1197,15 @@ fn an_invalid_prompts_file_exits_two_naming_the_rule() {
     );
 }
 
-/// The two tactics this command does not run are refused with a sentence
-/// that says why, before anything is read.
+/// The two tactics no surface of this version runs are refused with a
+/// sentence that says so, before anything is read — structural no longer
+/// said to be offered in the application, where it is not (D714a).
 #[test]
-fn a_window_only_tactic_is_refused_by_name() {
+fn a_tactic_not_in_this_version_is_refused_by_name() {
     let scratch = Scratch::new("tactic");
     scratch.file("note.txt", b"Words.\n");
     for (tactic, said) in [
-        ("structural", "only in the application"),
+        ("structural", "not in this version"),
         ("code", "not in this version"),
     ] {
         let output = scratch.run(&["rewrite", "note.txt", "--tactic", tactic]);

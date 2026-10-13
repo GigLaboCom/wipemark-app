@@ -64,7 +64,8 @@ pub struct Options {
     pub layer_a: wipemark_core::Options,
     /// The tactics, one rung per round (OV §4.3; default `[paraphrase]`).
     pub ladder: Vec<Tactic>,
-    /// `structural` is offered only behind a confirmation (D73).
+    /// `structural` runs only when this is set — a confirmation (D73) no
+    /// surface of this version asks for (D714a).
     pub structural_confirmed: bool,
     pub intensity: Intensity,
     /// Candidates per round, rounds per chunk (D61).

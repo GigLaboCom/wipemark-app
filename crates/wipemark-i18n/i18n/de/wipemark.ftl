@@ -823,7 +823,7 @@ cli-arg-out = Ausgabedatei, oder `-` für die Standardausgabe. Standard ist `<na
 cli-arg-nfkc = NFKC-Normalisierung anwenden (standardmäßig aus — sie ändert mehr als nur Herkunftsmarkierungen).
 cli-arg-aggressive = Auch einen Buchstaben aus einer anderen Schrift innerhalb eines Wortes ersetzen (ein Homoglyph). Gemeldet werden solche Buchstaben in jedem Fall; höhere Falsch-positiv-Rate, deshalb nur auf Wunsch.
 cli-arg-json = Maschinenlesbares JSON statt Fließtext.
-cli-arg-tactic = Wie das Modell gefragt wird: paraphrase (Standard), humanize oder back_translate. structural gibt es nur in der Anwendung, nach einer Bestätigung; code gibt es in dieser Version nicht.
+cli-arg-tactic = Wie das Modell gefragt wird: paraphrase (Standard), humanize oder back_translate. structural und code gibt es in dieser Version nicht.
 cli-arg-candidates = Kandidaten je Abschnitt. Ohne Angabe entscheidet, wer umschreibt: 1 für ein Modell allein auf dem Prozessor dieses Rechners, 2 für eines auf einer Grafikkarte oder einen Endpunkt.
 cli-arg-rounds = Höchstzahl der Durchgänge je Abschnitt. Ohne Angabe bis zu 2, und der zweite nur, wenn kein Kandidat des ersten bestanden hat.
 cli-arg-intensity = Wie weit paraphrase und humanize sich vom Wortlaut entfernen dürfen: light, moderate (Standard) oder strong.
@@ -1082,7 +1082,7 @@ cli-models-verify-user-unreadable = { $id }: { $path } konnte nicht gelesen werd
 
 cli-unknown-language = unbekannte Sprache `{ $requested }`, es wird zurückgefallen. Verfügbar: { $available }
 
-cli-rewrite-tactic-structural = Die Taktik structural schreibt ein Dokument aus einer Gliederung neu und ist nur in der Anwendung zu haben, nach einer Bestätigung. Nichts wurde umgeschrieben.
+cli-rewrite-tactic-structural = Die Taktik structural schreibt ein Dokument aus einer Gliederung neu und ist in dieser Version nicht dabei. Nichts wurde umgeschrieben.
 cli-rewrite-tactic-code = Die Taktik code gibt es in dieser Version nicht. Nichts wurde umgeschrieben.
 cli-rewrite-needs-app-endpoint = Das Umschreiben ist auf einen Endpunkt eingestellt, und die Kommandozeile erreicht einen nur über die laufende Anwendung { -brand-name }. Starten Sie sie und führen Sie dies erneut aus — oder lassen Sie auf ihrer Seite „Engine“ ein Modell auf diesem Rechner umschreiben. Nichts wurde umgeschrieben.
 cli-rewrite-needs-app-fallback = Das zum Umschreiben gewählte Modell ist nicht auf diesem Rechner, und der Endpunkt, der stattdessen antworten soll, ist nur über die laufende Anwendung { -brand-name } erreichbar. Laden Sie das Modell herunter, oder starten Sie die Anwendung und führen Sie dies erneut aus. Nichts wurde umgeschrieben.
@@ -1434,7 +1434,7 @@ prompts-var-protected = Der Satz zu den Platzhaltern ⟦n⟧; nichts, wenn der A
 prompts-var-intensity = Der Satz zur Intensität; bei mittlerer nichts. Nur im user-Zug, freiwillig: Ohne sie bewirkt die Intensität nichts.
 prompts-var-no-names = Für den Namen einer Sprache gibt es keine Variable: Eine Vorlage nennt ihre eigene Sprache selbst, in eigenen Worten.
 prompts-slots-title = Vorlagen
-prompts-tactic-structural-note = Wird nur nach einer Bestätigung verwendet.
+prompts-tactic-structural-note = Nicht in dieser Version: Kein Umschreiben verwendet sie, nur „Vorlage prüfen“ probiert sie aus.
 prompts-tactic-code-note = Nicht in dieser Version: bearbeitbar, aber noch von nichts verwendet.
 prompts-tag-hand = Ihre
 prompts-tag-machine = angepasst, nicht durchgesehen
