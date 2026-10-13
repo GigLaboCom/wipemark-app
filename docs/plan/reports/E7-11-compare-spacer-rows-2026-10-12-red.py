@@ -39,7 +39,7 @@ How to run
         python3 docs/plan/reports/E7-11-compare-spacer-rows-2026-10-12-red.py            # all
         python3 docs/plan/reports/E7-11-compare-spacer-rows-2026-10-12-red.py U2-click   # one
         python3 docs/plan/reports/E7-11-compare-spacer-rows-2026-10-12-red.py --check    # pieces only
-        GPUI_KIT=/workspace/gpui-kit-spacer python3 …-red.py U1-rows                    # another clone
+        GPUI_KIT=/workspace/gpui-kit-spacer python3 …-red.py U2-line-rows               # another clone
     On Linux the app's build needs libxkbcommon-x11.so on the linker path;
     set LIBRARY_PATH first, or install libxkbcommon-x11-dev.
     `CARGO_TARGET_DIR` is honoured (one directory for both groups works:
@@ -103,19 +103,21 @@ DENSE = "input::display_map::spacer_map::tests::spacer_runs_match_the_dense_proj
 
 # name: (tree, [(file, the protection as it is, what it becomes), ...], cargo test args)
 CHECKS = {
-    # U1: a line's display rows are its soft-wrapped rows, laid out or not.
-    "U1-rows": ("kit", [(STATE,
-        "        self.display_map\n"
-        "            .buffer_line_to_display_row_range(line)\n"
-        "            .unwrap_or_else(|| {\n"
-        "                let row = self.display_map.buffer_line_to_display_row(line);\n"
-        "                row..row\n"
-        "            })\n",
-        "        line..line + 1\n")], BASE + [ROW_MAP]),
-    # U1: a display row names its line and which of the line's rows it is.
-    "U1-row-within": ("kit", [(STATE,
-        "        (line, row.saturating_sub(start))\n",
-        "        let _ = start;\n        (line, 0)\n")], BASE + [ROW_MAP]),
+    # U2 on the maintainer's U1 (2026-10-13): a line's rows on the public map
+    # are its rows of text, moved down by the spacers above them. (U1-rows and
+    # U1-row-within guarded the state methods the maintainer replaced.)
+    "U2-line-rows": ("kit", [(MAP,
+        "        let rows = self.fold_row_range(line)?;\n"
+        "        Some(\n"
+        "            self.spacer_map.fold_row_to_display_row(rows.start)\n"
+        "                ..self.spacer_map.fold_row_to_display_row(rows.end - 1) + 1,\n"
+        "        )\n",
+        "        self.fold_row_range(line)\n")], BASE + [ROWS]),
+    # U2 on the maintainer's U1: the public map reads a spacer row as the line
+    # it stands beside.
+    "U2-spacer-line": ("kit", [(MAP,
+        "            DisplayRow::Spacer(index) => return self.spacer_map.run(index).line,\n",
+        "            DisplayRow::Spacer(index) => index,\n")], BASE + [ROWS]),
     # U1: a rewrap moves the version.
     "U1-version-wrap": ("kit", [(WRAPPER,
         "        self.version = self.version.wrapping_add(1);\n", "")], BASE + [ROW_MAP, ASKED]),

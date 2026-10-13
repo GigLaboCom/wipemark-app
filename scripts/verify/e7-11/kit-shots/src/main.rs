@@ -104,7 +104,11 @@ mod story {
                 .position(|line| line.contains("Everything is moving on schedule."))
                 .expect("the changed line");
             story.original.update(cx, |state, cx| {
-                let row = state.buffer_line_to_display_rows(line).start;
+                let row = state
+                    .display_map()
+                    .buffer_line_to_display_row_range(line)
+                    .expect("the changed line")
+                    .start;
                 let height = state.line_height().expect("laid out");
                 let mut offset = state.scroll_offset();
                 offset.y = -(height * row.saturating_sub(above) as f32);
