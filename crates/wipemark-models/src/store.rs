@@ -121,6 +121,318 @@ const REPORT_EVERY: Duration = Duration::from_millis(120);
 /// How long to wait for the server to answer, and for each read.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// A download's progress line waits for this long since the last one, and
+/// for a tenth of the file besides — whichever comes later (D715).
+const LOG_EVERY: Duration = Duration::from_secs(30);
+
+/// And never comes sooner than this after the last one, the end included
+/// (D715).
+const LOG_AT_MOST: Duration = Duration::from_secs(1);
+
+/// The last progress line a download wrote: when, and at which byte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Logged {
+    pub(crate) at: Instant,
+    pub(crate) done: u64,
+}
+
+/// Whether a download that has `done` of `total` bytes at `now` writes a
+/// progress line, `last` being the one it wrote before (D715, D716). Pure —
+/// the clock is handed in — so it is tested without a network.
+///
+/// * **The first byte** is always said: there is no `last`.
+/// * After it, a line waits for another **tenth of the file and
+///   [`LOG_EVERY`]** since the last one, whichever comes later: a fast
+///   download says something every thirty seconds, a slow one every tenth,
+///   and neither fills the log.
+/// * **The end** — `done` at `total` — waits for neither, and is said
+///   once.
+/// * **Never two lines within [`LOG_AT_MOST`]**, the end included: a file
+///   that comes down in under a second has said its first byte, and the
+///   end line that follows the hash says the rest.
+pub(crate) fn should_log(now: Instant, done: u64, total: u64, last: Option<Logged>) -> bool {
+    let Some(last) = last else {
+        return true;
+    };
+    let since = now.saturating_duration_since(last.at);
+    if since < LOG_AT_MOST {
+        return false;
+    }
+    if done >= total {
+        return last.done < done;
+    }
+    let a_tenth = done.saturating_sub(last.done).saturating_mul(10) >= total;
+    a_tenth && since >= LOG_EVERY
+}
+
+/// What went wrong on the wire, in words and numbers: never an error's
+/// message, which can carry the URL — the path a model is stored under, or
+/// a CDN's signed query (D715).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Wire {
+    cause: Option<&'static str>,
+    status: Option<u16>,
+    io: Option<std::io::ErrorKind>,
+}
+
+impl Wire {
+    /// The request's own failure, as ureq says it.
+    fn of(error: &ureq::Error) -> Wire {
+        let cause = |cause| Wire {
+            cause: Some(cause),
+            ..Wire::default()
+        };
+        match error {
+            ureq::Error::StatusCode(status) => Wire {
+                status: Some(*status),
+                ..cause("status")
+            },
+            ureq::Error::Timeout(_) => cause("timeout"),
+            ureq::Error::HostNotFound => cause("host not found"),
+            ureq::Error::ConnectionFailed => cause("connection failed"),
+            ureq::Error::Io(error) => Wire {
+                io: Some(error.kind()),
+                ..cause("io")
+            },
+            ureq::Error::Tls(_) => cause("tls"),
+            ureq::Error::TooManyRedirects | ureq::Error::RedirectFailed => cause("redirect"),
+            ureq::Error::BodyStalled => cause("stalled"),
+            _ => cause("other"),
+        }
+    }
+
+    /// A read of the body that failed: ureq's own error when it carries
+    /// one, the operating system's kind otherwise.
+    fn of_read(error: &std::io::Error) -> Wire {
+        match error
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<ureq::Error>())
+        {
+            Some(inner) => Wire {
+                io: Some(error.kind()),
+                ..Wire::of(inner)
+            },
+            None => Wire {
+                cause: Some("read"),
+                status: None,
+                io: Some(error.kind()),
+            },
+        }
+    }
+}
+
+/// The host a URL names, and nothing else of it — not its path, its query
+/// or its port (D715). `-` for one that does not parse.
+fn host_of(url: &str) -> String {
+    url.parse::<ureq::http::Uri>()
+        .ok()
+        .and_then(|uri| uri.host().map(str::to_owned))
+        .unwrap_or_else(|| "-".to_owned())
+}
+
+/// The first twelve hex digits of a sha256, as an end line names one.
+fn hash_prefix(sha: &str) -> &str {
+    sha.get(..12).unwrap_or(sha)
+}
+
+/// A model's download that failed outside any one file — no room, a folder
+/// that cannot be made, the sidecar that cannot be written after the last
+/// file: the `warn` line a file's failure writes, with no file in it (D715).
+fn refused(model: &str, error: &StoreError) {
+    tracing::warn!(model, kind = error.kind(), "a download failed");
+}
+
+/// What the log is told about one file's download (D715): one start, the
+/// server's answer to a resume, progress as [`should_log`] allows, and one
+/// end — verified, unchecked, mismatched, cancelled or failed. Never a URL,
+/// only its host, and nothing a person wrote: the model id and the file
+/// name are the catalogue's.
+struct FileLog<'a> {
+    model: &'a str,
+    file: &'a str,
+    /// When the start was said, for the seconds an end reports.
+    began: Instant,
+    /// The byte this attempt writes from, and when its body began to come:
+    /// what a rate is measured over.
+    from: u64,
+    flowing: Instant,
+    /// The bytes in the `.part` so far.
+    done: u64,
+    last: Option<Logged>,
+    ended: bool,
+}
+
+impl<'a> FileLog<'a> {
+    fn new(model: &'a str, file: &'a str) -> Self {
+        let now = Instant::now();
+        Self {
+            model,
+            file,
+            began: now,
+            from: 0,
+            flowing: now,
+            done: 0,
+            last: None,
+            ended: false,
+        }
+    }
+
+    /// Before the request: where from, how much, and whether it resumes.
+    fn start(&mut self, url: &str, bytes: u64, from: u64) {
+        self.began = Instant::now();
+        self.from = from;
+        self.done = from;
+        tracing::info!(
+            model = self.model,
+            file = self.file,
+            host = %host_of(url),
+            bytes,
+            resume = from > 0,
+            from,
+            "a download starts"
+        );
+    }
+
+    /// The server answered: a resume it honoured, or one it did not — a
+    /// whole file again, written from the first byte.
+    fn answered(&mut self, asked_from: u64, resumed: bool) {
+        self.flowing = Instant::now();
+        if asked_from == 0 {
+            return;
+        }
+        if resumed {
+            tracing::info!(
+                model = self.model,
+                file = self.file,
+                from = asked_from,
+                "a download resumes where it stopped"
+            );
+        } else {
+            self.from = 0;
+            self.done = 0;
+            tracing::info!(
+                model = self.model,
+                file = self.file,
+                asked_from,
+                "the server ignored the range; the download starts again from the first byte"
+            );
+        }
+    }
+
+    /// `done` of `total` bytes are in the `.part`: a line when
+    /// [`should_log`] says so.
+    fn progress(&mut self, done: u64, total: u64) {
+        self.done = done;
+        let now = Instant::now();
+        if !should_log(now, done, total, self.last) {
+            return;
+        }
+        self.last = Some(Logged { at: now, done });
+        let seconds = now.saturating_duration_since(self.flowing).as_secs_f64();
+        let mb_per_s = if seconds > 0.0 {
+            done.saturating_sub(self.from) as f64 / seconds / 1_000_000.0
+        } else {
+            0.0
+        };
+        let percent = done.saturating_mul(100).checked_div(total).unwrap_or(100);
+        tracing::info!(
+            model = self.model,
+            file = self.file,
+            done,
+            total,
+            percent,
+            mb_per_s = tenths(mb_per_s),
+            "download progress"
+        );
+    }
+
+    /// Whether the end is still to be said — and from now on, that it was.
+    fn ends(&mut self) -> bool {
+        !std::mem::replace(&mut self.ended, true)
+    }
+
+    fn seconds(&self) -> f64 {
+        tenths(self.began.elapsed().as_secs_f64())
+    }
+
+    /// In place, and its sha256 the catalogue's.
+    fn verified(&mut self, bytes: u64) {
+        if self.ends() {
+            tracing::info!(
+                model = self.model,
+                file = self.file,
+                bytes,
+                seconds = self.seconds(),
+                "a download is verified"
+            );
+        }
+    }
+
+    /// In place, with nothing to check it against: the catalogue gives
+    /// this file no sha256.
+    fn unchecked(&mut self, bytes: u64) {
+        if self.ends() {
+            tracing::info!(
+                model = self.model,
+                file = self.file,
+                bytes,
+                seconds = self.seconds(),
+                "a download is in place; the catalogue gives no sha256 to check it against"
+            );
+        }
+    }
+
+    /// Every byte came, and they are not the catalogue's. A failed
+    /// download, so a `warn`, as a failure is.
+    fn mismatched(&mut self, expected: &str, found: &str) {
+        if self.ends() {
+            tracing::warn!(
+                model = self.model,
+                file = self.file,
+                expected = hash_prefix(expected),
+                found = hash_prefix(found),
+                "a download does not match the catalogue; its bytes are thrown away"
+            );
+        }
+    }
+
+    /// It stopped: cancelled at `info`, anything else at `warn` with its
+    /// kind and, from the wire, the HTTP status and the cause.
+    fn stopped(&mut self, error: &StoreError, wire: Wire) {
+        if !self.ends() {
+            return;
+        }
+        if matches!(error, StoreError::Cancelled) {
+            tracing::info!(
+                model = self.model,
+                file = self.file,
+                done = self.done,
+                "a download is cancelled; what came is kept to resume from"
+            );
+            return;
+        }
+        let status = wire.status.or(match error {
+            StoreError::Status { status, .. } => Some(*status),
+            _ => None,
+        });
+        tracing::warn!(
+            model = self.model,
+            file = self.file,
+            kind = error.kind(),
+            status,
+            cause = wire.cause,
+            io = wire.io.map(tracing::field::debug),
+            done = self.done,
+            "a download failed"
+        );
+    }
+}
+
+/// `value` to one decimal, for a line a person reads.
+fn tenths(value: f64) -> f64 {
+    (value * 10.0).round() / 10.0
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     #[error("model id {0:?} would write outside the models directory")]
@@ -169,6 +481,26 @@ impl StoreError {
     fn io(path: impl Into<PathBuf>) -> impl FnOnce(std::io::Error) -> StoreError {
         let path = path.into();
         move |source| StoreError::Io { path, source }
+    }
+
+    /// The error in a word, for a log line — never its message, which can
+    /// carry a path or a URL. The words `wipemark-cli` logs a pull's end
+    /// with.
+    #[must_use]
+    pub fn kind(&self) -> &'static str {
+        match self {
+            StoreError::UnusableId(_) => "unusable id",
+            StoreError::UnusableUrl(_) => "unusable url",
+            StoreError::Io { .. } => "io",
+            StoreError::Transport { .. } => "transport",
+            StoreError::Status { .. } => "status",
+            StoreError::Corrupt { .. } => "mismatch",
+            StoreError::Missing { .. } => "missing",
+            StoreError::NoRoom { .. } => "no room",
+            StoreError::Cancelled => "cancelled",
+            StoreError::Occupied { .. } => "occupied",
+            StoreError::ChangedWhileRead { .. } => "changed while read",
+        }
     }
 }
 
@@ -754,29 +1086,37 @@ impl Downloads {
     /// no `meta.json` for a file the product did not fetch (D303).
     ///
     /// Blocking. `report` is called from this thread.
+    ///
+    /// Every file it downloads says so in the log — a start, its progress,
+    /// an end (D715) — and a download refused before any file started says
+    /// why, at `warn`.
     pub fn fetch(
         &self,
         entry: &ModelEntry,
         cancel: &Cancel,
         report: &dyn Fn(Progress),
     ) -> Result<PathBuf, StoreError> {
+        let failed = |error: &StoreError| refused(&entry.id, error);
         let dir = self
             .model_dir(&entry.id)
-            .ok_or_else(|| StoreError::UnusableId(entry.id.clone()))?;
+            .ok_or_else(|| StoreError::UnusableId(entry.id.clone()))
+            .inspect_err(failed)?;
         let located = self.locate(entry);
         if let (State::Present { .. }, Some(weights)) = (&located.state, &located.weights) {
             return Ok(weights
                 .parent()
                 .map_or_else(|| dir.clone(), Path::to_path_buf));
         }
-        std::fs::create_dir_all(&dir).map_err(StoreError::io(&dir))?;
-        room_for(&dir, entry)?;
+        std::fs::create_dir_all(&dir)
+            .map_err(StoreError::io(&dir))
+            .inspect_err(failed)?;
+        room_for(&dir, entry).inspect_err(failed)?;
 
         let count = entry.files.len();
         for (index, file) in entry.files.iter().enumerate() {
-            self.fetch_one(&dir, file, index + 1, count, cancel, report)?;
+            self.fetch_one(&entry.id, &dir, file, index + 1, count, cancel, report)?;
         }
-        write_meta(&dir, entry)?;
+        write_meta(&dir, entry).inspect_err(failed)?;
         Ok(dir)
     }
 
@@ -808,7 +1148,38 @@ impl Downloads {
         rx
     }
 
+    /// One file of an entry, and its lines in the log (D715): the start,
+    /// progress and end [`Downloads::fetch_file`] says, and — for whatever
+    /// error leaves the end unsaid — a failure.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one private call site; \
+        splitting it would only move the arguments into a struct nothing else uses"
+    )]
     fn fetch_one(
+        &self,
+        model: &str,
+        dir: &Path,
+        file: &FileSpec,
+        index: usize,
+        count: usize,
+        cancel: &Cancel,
+        report: &dyn Fn(Progress),
+    ) -> Result<(), StoreError> {
+        let mut told = FileLog::new(model, file.filename().unwrap_or("-"));
+        let fetched = self.fetch_file(dir, file, index, count, cancel, report, &mut told);
+        if let Err(error) = &fetched {
+            told.stopped(error, Wire::default());
+        }
+        fetched
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one private call site; \
+        splitting it would only move the arguments into a struct nothing else uses"
+    )]
+    fn fetch_file(
         &self,
         dir: &Path,
         file: &FileSpec,
@@ -816,6 +1187,7 @@ impl Downloads {
         count: usize,
         cancel: &Cancel,
         report: &dyn Fn(Progress),
+        told: &mut FileLog<'_>,
     ) -> Result<(), StoreError> {
         let name = file
             .filename()
@@ -874,7 +1246,7 @@ impl Downloads {
                 return Err(error);
             }
         }
-        self.download(file, &name, &part, index, count, cancel, report)?;
+        self.download(file, &name, &part, index, count, cancel, report, told)?;
 
         if let Some(expected) = file.sha256.as_deref() {
             let (actual, _) = self.hash(&part)?;
@@ -882,6 +1254,7 @@ impl Downloads {
                 // The bytes are wrong, so keeping them is keeping a
                 // resume point that can only ever produce the same wrong
                 // file again.
+                told.mismatched(expected, &actual);
                 if std::fs::remove_file(&part).is_ok() {
                     self.unmark(&part);
                 }
@@ -893,6 +1266,10 @@ impl Downloads {
             }
         }
         std::fs::rename(&part, &target).map_err(StoreError::io(&target))?;
+        match file.sha256 {
+            Some(_) => told.verified(told.done),
+            None => told.unchecked(told.done),
+        }
         // The mark is what makes this file ours to remove or replace
         // later; without it the file reads as another tool's — the safe
         // side, so a mark that cannot be written now, after the `.part`'s
@@ -923,6 +1300,7 @@ impl Downloads {
         count: usize,
         cancel: &Cancel,
         report: &dyn Fn(Progress),
+        told: &mut FileLog<'_>,
     ) -> Result<(), StoreError> {
         let url = file.resolved_url().map_err(StoreError::UnusableUrl)?;
         let already = std::fs::metadata(part).map(|m| m.len()).unwrap_or(0);
@@ -934,6 +1312,7 @@ impl Downloads {
         } else {
             already
         };
+        told.start(&url, file.size_bytes, already);
 
         let mut request = self
             .agent
@@ -945,9 +1324,13 @@ impl Downloads {
         if already > 0 {
             request = request.header("Range", &format!("bytes={already}-"));
         }
-        let response = request.call().map_err(|err| StoreError::Transport {
-            url: url.clone(),
-            reason: err.to_string(),
+        let response = request.call().map_err(|err| {
+            let error = StoreError::Transport {
+                url: url.clone(),
+                reason: err.to_string(),
+            };
+            told.stopped(&error, Wire::of(&err));
+            error
         })?;
         let status = response.status().as_u16();
         if !(200..300).contains(&status) {
@@ -957,6 +1340,7 @@ impl Downloads {
         // did not, and the body is the whole file — so the offset has to
         // go back to zero or the two halves are spliced together.
         let resuming = status == 206 && already > 0;
+        told.answered(already, resuming);
         let mut done = if resuming { already } else { 0 };
 
         // The caller hands over a `.part` a download of ours opened and
@@ -992,18 +1376,21 @@ impl Downloads {
                     let _ = sink.flush();
                     return Err(StoreError::Cancelled);
                 }
-                let read = reader
-                    .read(&mut buffer)
-                    .map_err(|err| StoreError::Transport {
+                let read = reader.read(&mut buffer).map_err(|err| {
+                    let error = StoreError::Transport {
                         url: url.clone(),
                         reason: err.to_string(),
-                    })?;
+                    };
+                    told.stopped(&error, Wire::of_read(&err));
+                    error
+                })?;
                 if read == 0 {
                     break;
                 }
                 sink.write_all(&buffer[..read])
                     .map_err(StoreError::io(part))?;
                 done += read as u64;
+                told.progress(done, total.max(done));
                 if last_report.elapsed() >= REPORT_EVERY {
                     last_report = Instant::now();
                     report(Progress {
@@ -1020,6 +1407,8 @@ impl Downloads {
         })();
         self.stamp_part(part, &sink);
         written?;
+        // The end, said unless a line went out within the second.
+        told.progress(done, done);
         report(Progress {
             file: name.to_string(),
             done_bytes: done,
@@ -2876,6 +3265,22 @@ mod tests {
 
     impl Server {
         fn serving(body: &'static [u8], honour_ranges: bool, requests: usize) -> Server {
+            Server::answering(requests, None, body, honour_ranges)
+        }
+
+        /// The first request answered `302` to `location` on the same
+        /// server — what Hugging Face does, to a CDN whose URL carries a
+        /// signed query — and the next with the body.
+        fn redirecting(location: &'static str, body: &'static [u8]) -> Server {
+            Server::answering(2, Some(location), body, true)
+        }
+
+        fn answering(
+            requests: usize,
+            mut redirect: Option<&'static str>,
+            body: &'static [u8],
+            honour_ranges: bool,
+        ) -> Server {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
             let port = listener.local_addr().expect("addr").port();
             let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -2900,6 +3305,15 @@ mod tests {
                                 .and_then(|r| r.trim_end_matches('-').parse::<usize>().ok());
                         }
                         line.clear();
+                    }
+                    if let Some(location) = redirect.take() {
+                        let head = format!(
+                            "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{port}{location}\r\n\
+                             Content-Length: 0\r\nConnection: close\r\n\r\n"
+                        );
+                        let _ = stream.write_all(head.as_bytes());
+                        let _ = stream.flush();
+                        continue;
                     }
                     recorder
                         .lock()
@@ -3004,15 +3418,23 @@ mod tests {
         // A download of ours that was interrupted (D351).
         store.mark_part(&model_dir.join("m.gguf.part"));
 
-        store
-            .fetch(&entry, &Cancel::new(), &|_| {})
-            .expect("resume");
+        let (fetched, lines) = logged_while(|| store.fetch(&entry, &Cancel::new(), &|_| {}));
+        fetched.expect("resume");
         assert_eq!(
             std::fs::read(model_dir.join("m.gguf")).expect("read"),
             BODY,
             "the resumed file is not the file"
         );
         assert_eq!(server.ranges(), vec!["11"], "the whole file was re-fetched");
+        // D715: the start says it resumes, and from which byte, and the
+        // server's 206 is said as the resume it is.
+        let starts = lines_with(&lines, "a download starts");
+        assert_eq!(starts.len(), 1, "{lines:#?}");
+        assert!(starts[0].contains("resume=true"), "{}", starts[0]);
+        assert!(starts[0].contains("from=11"), "{}", starts[0]);
+        let resumed = lines_with(&lines, "a download resumes where it stopped");
+        assert_eq!(resumed.len(), 1, "{lines:#?}");
+        assert!(resumed[0].contains("from=11"), "{}", resumed[0]);
     }
 
     /// A server that ignores the range answers 200 with the whole body.
@@ -3037,10 +3459,14 @@ mod tests {
         // A download of ours that was interrupted (D351).
         store.mark_part(&model_dir.join("m.gguf.part"));
 
-        store
-            .fetch(&entry, &Cancel::new(), &|_| {})
-            .expect("restart");
+        let (fetched, lines) = logged_while(|| store.fetch(&entry, &Cancel::new(), &|_| {}));
+        fetched.expect("restart");
         assert_eq!(std::fs::read(model_dir.join("m.gguf")).expect("read"), BODY);
+        // D715: the resume asked for and refused is said, and no resume.
+        let refused = lines_with(&lines, "the server ignored the range");
+        assert_eq!(refused.len(), 1, "{lines:#?}");
+        assert!(refused[0].contains("asked_from=11"), "{}", refused[0]);
+        assert!(lines_with(&lines, "a download resumes").is_empty());
     }
 
     /// Bytes that do not match the manifest are refused, and neither the
@@ -3107,6 +3533,310 @@ mod tests {
         );
         assert!(model_dir.join("template").is_file());
         store.verify(&entry).expect("re-verify");
+    }
+
+    // -- what a download says in the log (D715, D716) -------------------
+
+    /// What `body` returned, and every event logged on this thread while it
+    /// ran, one line each: the level, the message and the fields as
+    /// `name=value` — the shape `wipemark-log` writes them in.
+    fn logged_while<T>(body: impl FnOnce() -> T) -> (T, Vec<String>) {
+        use std::fmt::Write as _;
+        use std::sync::Mutex;
+
+        use tracing::field::{Field, Visit};
+        use tracing::span;
+
+        struct Line(String);
+        impl Visit for Line {
+            fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+                if field.name() == "message" {
+                    let _ = write!(self.0, " {value:?}");
+                } else {
+                    let _ = write!(self.0, " {}={value:?}", field.name());
+                }
+            }
+            fn record_str(&mut self, field: &Field, value: &str) {
+                let _ = write!(self.0, " {}={value}", field.name());
+            }
+        }
+
+        struct Capture(Arc<Mutex<Vec<String>>>);
+        impl tracing::Subscriber for Capture {
+            fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+                true
+            }
+            fn new_span(&self, _: &span::Attributes<'_>) -> span::Id {
+                span::Id::from_u64(1)
+            }
+            fn record(&self, _: &span::Id, _: &span::Record<'_>) {}
+            fn record_follows_from(&self, _: &span::Id, _: &span::Id) {}
+            fn event(&self, event: &tracing::Event<'_>) {
+                let mut line = Line(event.metadata().level().to_string());
+                event.record(&mut line);
+                self.0.lock().expect("lines").push(line.0);
+            }
+            fn enter(&self, _: &span::Id) {}
+            fn exit(&self, _: &span::Id) {}
+        }
+
+        // With exactly one dispatcher alive, `tracing-core` computes a
+        // callsite's interest from the registering thread's default: a
+        // parallel test that reaches a line first, with no subscriber of its
+        // own, caches "never" and this capture sees nothing. A second
+        // dispatcher, interested in everything and kept for the life of the
+        // test binary, keeps every callsite's interest open.
+        static OPEN: std::sync::OnceLock<tracing::Dispatch> = std::sync::OnceLock::new();
+        OPEN.get_or_init(|| tracing::Dispatch::new(Capture(Arc::default())));
+
+        let lines = Arc::new(Mutex::new(Vec::new()));
+        let returned = tracing::subscriber::with_default(Capture(Arc::clone(&lines)), body);
+        let lines = lines.lock().expect("lines").clone();
+        (returned, lines)
+    }
+
+    /// The lines of `lines` that hold `needle`.
+    fn lines_with<'a>(lines: &'a [String], needle: &str) -> Vec<&'a String> {
+        lines.iter().filter(|line| line.contains(needle)).collect()
+    }
+
+    /// D716: the throttle says the first byte; then it waits for a tenth of
+    /// the file **and** thirty seconds, whichever comes later; it never says
+    /// two lines within a second, the end included; and it says the end
+    /// without waiting for either, once.
+    #[test]
+    fn a_download_logs_its_progress_sparingly() {
+        use std::time::{Duration, Instant};
+
+        use super::{should_log, Logged};
+
+        let start = Instant::now();
+        let at = |seconds: f64| start + Duration::from_secs_f64(seconds);
+        let total = 1_000;
+        assert!(should_log(start, 1, total, None), "the first byte");
+
+        let last = Some(Logged {
+            at: start,
+            done: 100,
+        });
+        assert!(
+            !should_log(at(5.0), 300, total, last),
+            "a fifth of the file in five seconds is not thirty seconds"
+        );
+        assert!(
+            !should_log(at(45.0), 150, total, last),
+            "a twentieth in forty-five seconds is not a tenth"
+        );
+        assert!(
+            should_log(at(30.0), 200, total, last),
+            "a tenth and thirty seconds"
+        );
+        assert!(
+            !should_log(at(0.5), total, total, last),
+            "the end half a second after a line"
+        );
+
+        let near = Some(Logged {
+            at: start,
+            done: 990,
+        });
+        assert!(
+            should_log(at(2.0), total, total, near),
+            "the end waits for neither a tenth nor thirty seconds"
+        );
+        let ended = Some(Logged {
+            at: at(2.0),
+            done: total,
+        });
+        assert!(
+            !should_log(at(5.0), total, total, ended),
+            "the end said twice"
+        );
+    }
+
+    /// D715: a download says where it comes from — the host, and nothing
+    /// else of the URL — how far it has got, and how it ended. Here the
+    /// catalogue's URL has a path of its own and the server redirects, as
+    /// Hugging Face does, to a CDN path with a signed query: no line holds
+    /// either path, the query or the port.
+    #[test]
+    fn a_download_says_what_it_does_in_the_log() {
+        let server = Server::redirecting("/cdn-Qx7Path/m.gguf?X-Signature=Tok3nQz9", BODY);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Downloads::new(dir.path(), dir.path().join(".records"));
+        let entry = entry(
+            "m",
+            vec![file(
+                &server.url("Repo-Kv3Dir/resolve/m.gguf"),
+                Some(&sha_of(BODY)),
+                BODY.len() as u64,
+            )],
+        );
+
+        let (fetched, lines) = logged_while(|| store.fetch(&entry, &Cancel::new(), &|_| {}));
+        let model_dir = fetched.expect("fetched");
+        assert_eq!(std::fs::read(model_dir.join("m.gguf")).expect("read"), BODY);
+
+        let starts = lines_with(&lines, "a download starts");
+        assert_eq!(starts.len(), 1, "{lines:#?}");
+        for field in [
+            "INFO",
+            "model=m",
+            "file=m.gguf",
+            "host=127.0.0.1",
+            "bytes=23",
+            "resume=false",
+            "from=0",
+        ] {
+            assert!(starts[0].contains(field), "{field} in {}", starts[0]);
+        }
+        let progress = lines_with(&lines, "download progress");
+        assert!(!progress.is_empty(), "{lines:#?}");
+        for field in ["done=23", "total=23", "percent=100", "mb_per_s="] {
+            assert!(progress[0].contains(field), "{field} in {}", progress[0]);
+        }
+        let ends = lines_with(&lines, "a download is verified");
+        assert_eq!(ends.len(), 1, "{lines:#?}");
+        assert!(ends[0].contains("bytes=23"), "{}", ends[0]);
+        assert!(ends[0].contains("seconds="), "{}", ends[0]);
+
+        let port = format!(":{}", server.port);
+        for line in &lines {
+            for secret in [
+                "Repo-Kv3Dir",
+                "resolve",
+                "cdn-Qx7Path",
+                "X-Signature",
+                "Tok3nQz9",
+                port.as_str(),
+            ] {
+                assert!(!line.contains(secret), "{secret:?} in {line}");
+            }
+        }
+    }
+
+    /// D715: a file whose bytes are not the catalogue's ends in one `warn`
+    /// line naming twelve hex digits of each hash, and no other end.
+    #[test]
+    fn a_mismatched_download_says_both_hashes() {
+        let server = Server::serving(b"tampered", true, 1);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Downloads::new(dir.path(), dir.path().join(".records"));
+        let expected = sha_of(BODY);
+        let entry = entry("m", vec![file(&server.url("m.gguf"), Some(&expected), 8)]);
+        let (fetched, lines) = logged_while(|| store.fetch(&entry, &Cancel::new(), &|_| {}));
+        assert!(matches!(fetched, Err(StoreError::Corrupt { .. })));
+
+        let ends = lines_with(&lines, "does not match the catalogue");
+        assert_eq!(ends.len(), 1, "{lines:#?}");
+        assert!(ends[0].starts_with("WARN"), "{}", ends[0]);
+        let found = sha_of(b"tampered");
+        assert!(
+            ends[0].contains(&format!("expected={}", &expected[..12])),
+            "{}",
+            ends[0]
+        );
+        assert!(
+            ends[0].contains(&format!("found={}", &found[..12])),
+            "{}",
+            ends[0]
+        );
+        assert!(
+            !ends[0].contains(&expected[..13]),
+            "more than twelve digits"
+        );
+        assert!(lines_with(&lines, "a download is verified").is_empty());
+        assert!(
+            lines_with(&lines, "a download failed").is_empty(),
+            "{lines:#?}"
+        );
+    }
+
+    /// D715: a cancel is said once, at `info`, with what came; it is not a
+    /// failure.
+    #[test]
+    fn a_cancelled_download_says_so() {
+        let server = Server::serving(BODY, true, 1);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Downloads::new(dir.path(), dir.path().join(".records"));
+        let entry = entry(
+            "m",
+            vec![file(
+                &server.url("m.gguf"),
+                Some(&sha_of(BODY)),
+                BODY.len() as u64,
+            )],
+        );
+        let cancel = Cancel::new();
+        let pressed = cancel.clone();
+        // Pressed as the first report comes: after the server answered,
+        // before a byte is written.
+        let (fetched, lines) = logged_while(|| store.fetch(&entry, &cancel, &|_| pressed.cancel()));
+        assert!(matches!(fetched, Err(StoreError::Cancelled)));
+
+        assert_eq!(
+            lines_with(&lines, "a download starts").len(),
+            1,
+            "{lines:#?}"
+        );
+        let ends = lines_with(&lines, "a download is cancelled");
+        assert_eq!(ends.len(), 1, "{lines:#?}");
+        assert!(ends[0].starts_with("INFO"), "{}", ends[0]);
+        assert!(ends[0].contains("done=0"), "{}", ends[0]);
+        assert!(
+            lines_with(&lines, "a download failed").is_empty(),
+            "{lines:#?}"
+        );
+    }
+
+    /// D715: a failure is one `warn` line with the error's kind and the
+    /// HTTP status — never the error's message, which names the URL.
+    #[test]
+    fn a_failed_download_says_its_kind_and_status() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let port = listener.local_addr().expect("addr").port();
+        let answering = std::thread::spawn(move || {
+            use std::io::{BufRead, BufReader, Write};
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap_or(0) > 2 {
+                line.clear();
+            }
+            let _ = stream.write_all(
+                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+        });
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Downloads::new(dir.path(), dir.path().join(".records"));
+        let entry = entry(
+            "m",
+            vec![file(
+                &format!("http://127.0.0.1:{port}/Repo-Kv3Dir/m.gguf"),
+                Some(&sha_of(BODY)),
+                BODY.len() as u64,
+            )],
+        );
+        let (fetched, lines) = logged_while(|| store.fetch(&entry, &Cancel::new(), &|_| {}));
+        assert!(fetched.is_err());
+        let _ = answering.join();
+
+        let ends = lines_with(&lines, "a download failed");
+        assert_eq!(ends.len(), 1, "{lines:#?}");
+        for field in [
+            "WARN",
+            "model=m",
+            "file=m.gguf",
+            "kind=transport",
+            "status=404",
+        ] {
+            assert!(ends[0].contains(field), "{field} in {}", ends[0]);
+        }
+        for line in &lines {
+            assert!(!line.contains("Repo-Kv3Dir"), "{line}");
+        }
     }
 
     #[test]
