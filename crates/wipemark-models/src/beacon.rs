@@ -125,6 +125,22 @@ impl Beacon {
             _ => false,
         }
     }
+
+    /// Remove the beacon at `path` when the process it names does not run —
+    /// what a crash, a `kill -9` or any end that skipped the quit handlers
+    /// leaves (D718) — and say what it named. A beacon whose process runs,
+    /// this one's or another's, and a file that is not a beacon, are left as
+    /// they are.
+    ///
+    /// The file is read again before it goes: a beacon another instance
+    /// wrote in between is not the one found dead, and stays.
+    pub fn remove_if_dead(path: &Path) -> Option<Beacon> {
+        let found = Beacon::read(path)?;
+        if found.alive() {
+            return None;
+        }
+        (Beacon::read(path) == Some(found) && std::fs::remove_file(path).is_ok()).then_some(found)
+    }
 }
 
 #[cfg(test)]
@@ -218,6 +234,51 @@ mod tests {
 
         std::fs::write(&path, b"{not a beacon").expect("written");
         assert_eq!(Beacon::read(&path), None, "a broken file is no beacon");
+    }
+
+    /// D718: a beacon naming a process that does not run is removed and
+    /// said; one naming a process that runs — another one, or this one — is
+    /// not, and neither is a file that is not a beacon.
+    #[test]
+    fn a_dead_process_s_beacon_is_removed_and_a_live_one_is_not() {
+        let scratch = Scratch::new("dead");
+        let path = scratch.0.join(FILE);
+        let gone = Beacon {
+            pid: u32::MAX - 7,
+            port: 5056,
+            address: "127.0.0.1".parse().expect("an address"),
+        };
+        gone.write(&path).expect("written");
+        assert_eq!(Beacon::remove_if_dead(&path), Some(gone));
+        assert_eq!(Beacon::read(&path), None, "a dead process's beacon stayed");
+        assert_eq!(Beacon::remove_if_dead(&path), None, "nothing to remove");
+
+        // Another process that runs: the one that started this test.
+        #[cfg(unix)]
+        {
+            let another = Beacon {
+                pid: std::os::unix::process::parent_id(),
+                ..gone
+            };
+            another.write(&path).expect("written");
+            assert_eq!(Beacon::remove_if_dead(&path), None);
+            assert_eq!(Beacon::read(&path), Some(another), "a live beacon went");
+        }
+        let ours = Beacon {
+            pid: std::process::id(),
+            ..gone
+        };
+        ours.write(&path).expect("written");
+        assert_eq!(Beacon::remove_if_dead(&path), None);
+        assert_eq!(
+            Beacon::read(&path),
+            Some(ours),
+            "this process's beacon went"
+        );
+
+        std::fs::write(&path, b"{not a beacon").expect("written");
+        assert_eq!(Beacon::remove_if_dead(&path), None);
+        assert!(path.exists(), "a file that is not a beacon went");
     }
 
     /// This process is alive; a process id nobody has is not.
