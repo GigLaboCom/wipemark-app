@@ -28,7 +28,10 @@
 владельца — longbridge/gpui-kit#3465 и #3466, со скриншотами — и пример
 `cargo run -p example-editor-spacers`. По слову владельца ветка влита в
 `feat` до апстрима: подмодуль на форке `glani/gpui-component`
-`editor-spacer-rows` (`c65870fd`), пока апстрим не примет оба PR (D675).
+`editor-spacer-rows`, пока апстрим не примет оба PR (D675). 13 октября
+мейнтейнер переделал #3465 по-своему (`display_map()` вместо четырёх
+методов) и одобрил его; #3466 и Compare переведены на это API — коммит
+`50c120a8` поверх, без force-push, поведение то же.
 
 Task: Watchword `wipemark-task-compare-spacer-rows-2026-10-12` (the
 coordinator, for acceptance step A6). Built on `e7/compare-spacer-rows` from
@@ -42,8 +45,8 @@ below; D680–D689 left spare).
 
 | part | where | what |
 |---|---|---|
-| U1 | gpui-kit `editor-display-row-map` (`0555fc0a`), on `glani/gpui-component` | the editor's display-row map, read-only: `display_row_count`, `buffer_line_to_display_rows`, `display_row_to_buffer_line`, and `display_rows_version` |
-| U2 | gpui-kit `editor-spacer-rows` (`97e11d2f`, `c65870fd`), on U1 | spacer rows in the display map; `Spacer`, `SpacerProvider`, `set_spacer_provider`, `refresh_spacers`, `is_spacer_row`; the Editor Diff story wraps and pads; the example `example-editor-spacers`; docs in English and Chinese |
+| U1 | gpui-kit `editor-display-row-map` (`0555fc0a`; the maintainer's `e536d663`, `0eba5139` on 2026-10-13), on `glani/gpui-component` | the editor's display-row map, read-only: first `display_row_count`, `buffer_line_to_display_rows`, `display_row_to_buffer_line`, and `display_rows_version`; since 2026-10-13 `display_map() -> &DisplayMap` and a public `DisplayMap::version()` (below) |
+| U2 | gpui-kit `editor-spacer-rows` (`97e11d2f`, `c65870fd`; U1 merged in, `81e683ad`, and `50c120a8` on 2026-10-13), on U1 | spacer rows in the display map; `Spacer`, `SpacerProvider`, `set_spacer_provider`, `refresh_spacers`, `is_spacer_row` (on `DisplayMap` since 2026-10-13); the Editor Diff story wraps and pads; the example `example-editor-spacers`; docs in English and Chinese |
 | C | wipemark-app `e7/compare-spacer-rows` | one wrap state for both panes and the row `compare.wrap`; `Diff::padding`; the panes' spacer providers; one offset for padded panes; the line-pair split of word marks; the submodule on the fork |
 
 ## U1 — the display-row map (upstream pull request 1)
@@ -609,7 +612,11 @@ host's. The native llama gates are not due (nothing under
 `docs/plan/reports/E7-11-compare-spacer-rows-2026-10-12-red.py`, every
 protection taken out once and its test seen red, then put back:
 
-34 checks, 34 red. The upstream group ran in the gpui-kit clone
+34 checks, 34 red. On 2026-10-13, with U2 at `50c120a8` on the
+maintainer's U1, the two new ones and the three whose tests moved
+(U1-version-wrap, U1-version-fold, U2-story) were run again, and the three
+C checks on the code that now reads the map (C-diff-number, C-keep-level,
+C-padding-pairs): all red. The upstream group ran in the gpui-kit clone
 (`GPUI_KIT=/workspace/gpui-kit-spacer`, `cargo test -p gpui-base --lib` or
 the story), the C group at the repository root, the D group (D679) on
 `diff.rs` compiled alone with `rustc --test` — the module is pure — in
@@ -617,8 +624,8 @@ seconds.
 
 | check | protection taken out | red tests |
 |---|---|---|
-| U1-rows | `buffer_line_to_display_rows` answers one row a line | `the_display_row_map_is_what_the_layout_draws` |
-| U1-row-within | `display_row_to_buffer_line` answers row 0 of the line | the same |
+| U2-line-rows | a line's rows on the public map not moved down by the spacers above (since 2026-10-13; was U1-rows, on the state method the maintainer removed) | `spacer_rows_are_display_rows_…` |
+| U2-spacer-line | a spacer row read by the map as something other than the line beside it (since 2026-10-13; was U1-row-within) | the same |
 | U1-version-wrap | the wrapper's version not bumped by a rewrap | the same, `spacers_are_asked_for_when_the_rows_move` |
 | U1-version-fold | the fold map's version not bumped by an opened fold | `the_display_row_map_is_what_the_layout_draws` |
 | U2-map | a fold row not pushed down by the spacer rows above it | `spacer_runs_match_the_dense_projection`, `spacer_rows_are_display_rows_that_push_every_row_below_them` |
@@ -694,6 +701,67 @@ both out.
   padding worked out`, at `trace`, no text in them — the measurement's
   instrument, kept so the figures can be made again.
 
+## 2026-10-13 — #3465 as its maintainer shaped it, and #3466 on top
+
+Overnight upstream's maintainer (huacnlee) pushed two commits to #3465
+(`e536d663`, `0eba5139`, both on `glani/gpui-component`
+`editor-display-row-map`, maintainer edits being on), took it out of draft
+and approved it. The four state methods are gone; the editor hands out its
+map instead:
+
+- `InputBaseState::display_map(&self) -> &DisplayMap` — read-only; every
+  query lives on the map, whose `buffer_line_to_display_row_range(line)`
+  (`None` for a folded line or one past the end), `display_row_count()`,
+  `display_row_to_buffer_line(row)` (the line alone, not the row within it)
+  and the buffer/display point conversions were public already;
+- `DisplayMap::version()`, made public: moves on an edit, a rewrap or a fold
+  change, not on a scroll or a ghost line;
+- docs in English and Chinese saying the map is the text's projection, not
+  painted geometry (ghost lines), with `row_bounds` for the latter.
+
+**#3466 follows it** without a force-push (`feat` pins the branch): the
+reviewed U1 merged into `editor-spacer-rows` (`81e683ad`), and one commit on
+top (`50c120a8`, "editor: Read spacer rows through the public display map"):
+`is_spacer_row` moves from the state to `DisplayMap`; the map's
+`display_row_beside`, used only by a removed state method, goes; the
+spacer tests, the Editor Diff story, the example and both docs read rows
+through `display_map()`; the docs and `version()` say how the map reads
+spacer rows — counted by `display_row_count`, outside a line's
+`buffer_line_to_display_row_range`, read as the line beside them by
+`display_row_to_buffer_line` and `display_pos_to_buffer_pos` — and that
+setting spacers does not move the version (a provider reads it to know when
+to answer again; a version that moved with its own answer would have it
+asked after every answer). On the owner's word the reply on #3465 says it
+is good to merge from our side and that #3466 goes up for review once the
+owner has checked it; #3466 stays a draft. The same tree was first built as a rebase
+(`spacer-rows-on-map`, `7a14a0ba`) and compared: no difference. The pull
+request's text says the same in its first paragraphs and its API list.
+
+**Ours** (C): five call sites in `compare.rs` — `Level::key` reads
+`display_map().version()`, the padding's rows go through `rows_taken` (a
+line's rows of text, none past the end, as before), three tests read the map
+— and `scripts/verify/e7-11/kit-shots/src/main.rs`. Behaviour unchanged:
+`buffer_line_to_display_rows(line).len()` was the same number. The submodule
+moves to `50c120a8` on the same branch; `c65870fd` stays reachable from it.
+D673 and D674 in `docs/plan/README.md` and `compare.md`'s Padding say the
+new names; D674 is amended with the date. Checked in the container, scoped to
+what was touched: gpui-kit `cargo clippy -p gpui-base -p
+gpui-component-story -p example-editor-spacers --lib --bins --tests
+--examples -- --deny warnings` clean but for two `nonminimal_bool` lints in
+`calendar.rs`, upstream's own code that this toolchain flags (allowed for the
+run; `--all-targets` also stops on upstream's `text_view_scroll` bench,
+criterion mismatched), `cargo test -p gpui-base --lib input::` 362 passed,
+the `editor_diff` story tests 2 passed, rustfmt and `git diff --check`
+clean; wipemark-app `cargo clippy -p wipemark-app --all-targets -- -D
+warnings` clean, `cargo test -p wipemark-app compare::` 75 passed, nightly
+rustfmt clean, `kit-shots` compiled.
+
+**Red checks.** U1-rows and U1-row-within guarded the state methods that
+are gone; in their place U2-line-rows (a line's rows on the public map not
+moved down by the spacers above) and U2-spacer-line (a spacer row read as
+something other than the line beside it), both red on
+`spacer_rows_are_display_rows_that_push_every_row_below_them`.
+
 ## What is left
 
 - **The remedy for a wrapped resize** (D677), upstream: `LineWrapper` for
@@ -710,7 +778,10 @@ both out.
   amended); when upstream merges both, the submodule goes back to
   `longbridge/gpui-kit` `next` and `.gitmodules` with it. Until then
   `editor-spacer-rows` takes a review's changes on top, never by a
-  force-push, and the pin follows.
+  force-push, and the pin follows — as it did for the maintainer's #3465
+  (2026-10-13, `50c120a8`). #3465 is approved and out of draft; #3466 is
+  still a draft. If upstream squashes #3465, #3466 shows its commits until
+  `next` is merged into it once more.
 - **The host check**: Watchword `wipemark-task-compare-spacer-rows-host-check-2026-10-12`.
 - Unchanged and not touched: a wrapped pane's horizontal scroll bar is not
   drawn (the library's), and the original's toolbar strip stays blank.
@@ -730,7 +801,7 @@ Not edited (the task's rule). Sentences to change:
    `24ded30c` — our four pull requests merged there: … Nothing of ours is
    carried on it." with: "The submodule is the owner's fork
    **`glani/gpui-component`**, branch **`editor-spacer-rows`**, at
-   `c65870fd`: upstream `longbridge/gpui-kit` `next` at `24ded30c` — our four
+   `50c120a8`: upstream `longbridge/gpui-kit` `next` at `24ded30c` — our four
    earlier pull requests merged there (…, as before) — with two more of ours
    on top, still open upstream: gpui-kit #3465 (the editor's display-row map)
    and #3466 (spacer rows, the story's wrap and `examples/editor_spacers`).

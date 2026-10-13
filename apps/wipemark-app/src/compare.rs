@@ -1234,8 +1234,8 @@ impl Level {
     /// is gone.
     fn key(&self, cx: &App) -> Option<LevelKey> {
         Some(LevelKey {
-            original: self.original.upgrade()?.read(cx).display_rows_version(),
-            result: self.result.upgrade()?.read(cx).display_rows_version(),
+            original: self.original.upgrade()?.read(cx).display_map().version(),
+            result: self.result.upgrade()?.read(cx).display_map().version(),
             diff: self.diff.borrow().1,
         })
     }
@@ -1263,11 +1263,11 @@ impl Level {
             let worked = self.diff.borrow().0.padding(
                 Rows {
                     lines: original.text().lines_len(),
-                    rows: |line| original.buffer_line_to_display_rows(line).len(),
+                    rows: |line| rows_taken(original, line),
                 },
                 Rows {
                     lines: result.text().lines_len(),
-                    rows: |line| result.buffer_line_to_display_rows(line).len(),
+                    rows: |line| rows_taken(result, line),
                 },
             );
             tracing::trace!(
@@ -1299,6 +1299,14 @@ impl Level {
             })
             .collect()
     }
+}
+
+/// How many display rows a pane's buffer `line` takes once wrapped, its
+/// spacers apart; none past its last line.
+fn rows_taken(pane: &EditorState, line: usize) -> usize {
+    pane.display_map()
+        .buffer_line_to_display_row_range(line)
+        .map_or(0, |rows| rows.len())
 }
 
 /// One pane's spacers, out of the window's [`Level`].
@@ -5510,7 +5518,10 @@ mod tests {
             let state = editor.read(cx);
             lines
                 .into_iter()
-                .map(|line| state.buffer_line_to_display_rows(line).start)
+                .map(|line| {
+                    let rows = state.display_map().buffer_line_to_display_row_range(line);
+                    rows.expect("a line of the pane").start
+                })
                 .collect()
         })
     }
@@ -5526,8 +5537,8 @@ mod tests {
             let editor = view.read(cx).editor(side, cx);
             let state = editor.read(cx);
             (
-                state.buffer_line_to_display_rows(line).len(),
-                state.display_row_count(),
+                rows_taken(state, line),
+                state.display_map().display_row_count(),
             )
         })
     }
@@ -5587,12 +5598,16 @@ mod tests {
         // The new paragraph's rows are blank on the original.
         let new_rows = cx.update(|_, cx| {
             let editor = view.read(cx).editor(Side::Result, cx);
-            let rows = editor.read(cx).buffer_line_to_display_rows(15);
-            rows
+            let rows = editor
+                .read(cx)
+                .display_map()
+                .buffer_line_to_display_row_range(15);
+            rows.expect("the new paragraph")
         });
         cx.update(|_, cx| {
             let original = view.read(cx).original.read(cx);
-            assert!(new_rows.clone().all(|row| original.is_spacer_row(row)));
+            let map = original.display_map();
+            assert!(new_rows.clone().all(|row| map.is_spacer_row(row)));
         });
     }
 

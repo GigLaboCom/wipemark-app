@@ -781,8 +781,10 @@ and the other not is the worst of the arrangements for reading across.
 line, in the display map above folding, with no line number, no caret,
 no decoration, counted by the scroll and by `row_bounds` (the
 `editor-spacer-rows` pull request, D674) — and a read of the display-row
-map (`buffer_line_to_display_rows`, `display_rows_version`; the
-`editor-display-row-map` pull request). `Diff::padding` pairs the lines:
+map (`display_map()`, a `&DisplayMap` whose `buffer_line_to_display_row_range`
+gives a line's rows of text and whose `version()` moves with them; the
+`editor-display-row-map` pull request, in the shape its maintainer gave
+it). `Diff::padding` pairs the lines:
 shared lines one for one, line *i* of a hunk against line *i* of the
 other side's block, a paired line that takes fewer rows padded below by
 the difference, and the lines past the shorter block's count standing
