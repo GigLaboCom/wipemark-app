@@ -85,6 +85,9 @@ mod screen;
 mod session;
 mod settings;
 mod setup;
+// SIGTERM, SIGINT and SIGHUP quit the way the tray's Quit does (D717).
+#[cfg(unix)]
+mod signals;
 mod theme;
 mod title;
 mod tray;
@@ -1535,6 +1538,12 @@ fn main() {
     application
         .with_assets(assets::WipemarkAssets)
         .run(move |cx: &mut App| {
+            // First, so a signal at any moment from here on quits through
+            // every `on_app_quit` handler rather than ending the process
+            // where it stands (D717). Not before `run`: `--version` and a
+            // handed-over summons have returned by now (D719).
+            #[cfg(unix)]
+            signals::quit_on_signals(cx);
             // Under X11 — XWayland included — the monitors, the pointer and
             // the window manager's moves are asked on a connection of our
             // own (D612). Started before anything reads the displays, so

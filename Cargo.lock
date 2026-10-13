@@ -9765,15 +9765,18 @@ name = "wipemark-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-signal",
  "base64 0.22.1",
  "chrono",
  "flume 0.11.1",
+ "futures-lite",
  "global-hotkey",
  "gpui-base",
  "gpui-component",
  "gpui-pre",
  "gpui-pre-platform",
  "gtk",
+ "libc",
  "libloading 0.7.4",
  "lsp-types",
  "objc2 0.6.4",
