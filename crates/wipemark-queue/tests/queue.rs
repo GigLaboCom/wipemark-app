@@ -811,6 +811,67 @@ fn every_row_gets_its_own_result_and_none_fails_for_a_taken_name() {
     );
 }
 
+/// D712 (the owner, 2026-10-13): a job that rewrote nothing — every chunk
+/// kept its cleaned source — writes nothing. No file beside, none of the
+/// row's own names, nothing over the source in place, and no text kept in a
+/// paste's row: the item ends done, with nothing written, and its folder
+/// holds the source as it was and nothing else. Take the check out of the
+/// worker's `finish` and every destination is written: red.
+#[test]
+fn a_job_that_rewrote_nothing_writes_nothing() {
+    let scratch = Scratch::new("nothing");
+    let queue = in_memory(&FakeEngine::answering(|_, _| String::new()));
+    let events = queue.events();
+    let source = scratch.path("x.md");
+    // A finding, so the cleaned text differs from the source and an
+    // in-place delivery would have something to write.
+    let marked = format!("{}\u{200B}\n\n{}\n", PARAGRAPHS[0], PARAGRAPHS[1]);
+    std::fs::write(&source, &marked).expect("source");
+    for destination in [
+        Destination::beside(&source).expect("named"),
+        Destination::Own {
+            folder: scratch.0.clone(),
+            name: "x.md".to_owned(),
+            tag: "7".to_owned(),
+            plain: true,
+        },
+        Destination::InPlace(Keep::Original),
+    ] {
+        let shown = format!("{destination:?}");
+        let item = queue
+            .push(file_request(&source, destination))
+            .expect("pushed");
+        let done = done(end_of(&events, item));
+        assert!(done.report.nothing_rewritten().is_some(), "{shown}");
+        assert_eq!(done.written, None, "{shown}");
+        let stored = queue.result(item).expect("reads").expect("a result");
+        assert!(stored["written"].is_null(), "{shown}: {stored}");
+        assert!(stored.get("text").is_none(), "{shown}");
+    }
+    let mut names: Vec<String> = std::fs::read_dir(&scratch.0)
+        .expect("list")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    assert_eq!(names, ["x.md"], "a rewrite that did not happen was written");
+    assert_eq!(std::fs::read_to_string(&source).expect("source"), marked);
+
+    let item = queue.push(text_request(PARAGRAPHS[3])).expect("pushed");
+    let done = done(end_of(&events, item));
+    assert_eq!(done.written, None);
+    let stored = queue.result(item).expect("reads").expect("a result");
+    assert!(
+        stored.get("text").is_none(),
+        "a paste's row kept a text that is not a rewrite: {stored}"
+    );
+}
+
 #[test]
 fn a_database_that_will_not_open_is_left_alone_and_the_queue_runs_in_memory() {
     let scratch = Scratch::new("garbage");

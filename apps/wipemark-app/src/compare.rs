@@ -3374,7 +3374,9 @@ pub fn banner_lines(kind: MadeKind) -> Vec<String> {
     match kind {
         MadeKind::Cleaned => vec![t(Message::ComparePending)],
         // Every paragraph kept its cleaned original (D711): the result is
-        // not a rewrite, and the banner does not call it one.
+        // not a rewrite, and the banner does not call it one. Since D712 no
+        // such result is written; this is a file an earlier build wrote,
+        // its row read back from the journal as `partly`.
         MadeKind::Rewritten {
             kept: Some((kept, chunks)),
         } if kept > 0 && kept == chunks => vec![t(Message::CompareNotRewrittenBanner)],

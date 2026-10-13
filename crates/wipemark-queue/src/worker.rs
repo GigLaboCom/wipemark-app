@@ -591,6 +591,16 @@ impl Worker {
             return;
         };
         let report = outcome.report.to_value();
+        // A job that rewrote nothing writes nothing (D712, the owner,
+        // 2026-10-13): no file, wherever the item said, and no text kept in
+        // a paste's row. The result would be the cleaned source under a
+        // rewrite's name; the item ends done, with nothing written, and the
+        // surfaces say it was not rewritten (D711).
+        if wipemark_pipeline::report::nothing_rewritten(&report).is_some() {
+            tracing::info!(item = id.0, "the job rewrote nothing; nothing is written");
+            let result = json!({"end": "done", "report": report, "written": null});
+            return self.done(id, outcome, None, &result);
+        }
         if request.destination == Destination::Row {
             let result =
                 json!({"end": "done", "report": report, "text": outcome.text, "written": null});

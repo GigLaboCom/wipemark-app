@@ -696,10 +696,10 @@ pub fn book(journal: &Journal, event: &QueueEvent) {
 ///
 /// A job that rewrote nothing — every chunk kept its source — is
 /// `not-rewritten` (D711), never `partly`, with the rejection most of its
-/// attempts were thrown away for as its reason. A window's result is
-/// still delivered where its plan said (D712: it is the cleaned text);
-/// a caller is handed nothing back, because the MCP tool answers such a
-/// job as an error with no text.
+/// attempts were thrown away for as its reason — and nothing was
+/// delivered, whoever asked (D712, the owner): the batch queue writes no
+/// file and keeps no text for such a job, and the MCP tool answers it as
+/// an error with no text.
 pub fn rewrite_end(end: &End, caller: bool) -> (Outcome, Option<Delivered>) {
     match end {
         End::Done(done) => {
@@ -728,7 +728,7 @@ pub fn rewrite_end(end: &End, caller: bool) -> (Outcome, Option<Delivered>) {
                 profile: Some(done.report.profile.clone()),
                 ..Outcome::default()
             };
-            let delivered = if caller && nothing.is_some() {
+            let delivered = if nothing.is_some() {
                 Delivered::Nowhere
             } else if caller {
                 Delivered::Caller

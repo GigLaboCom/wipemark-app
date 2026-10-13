@@ -1399,7 +1399,7 @@ cli-arg-out = Output file, or `-` for standard output. Defaults to `<name>.clean
 cli-arg-nfkc = Apply NFKC normalisation (off by default — it rewrites more than provenance marks).
 cli-arg-aggressive = Also replace a letter borrowed from another script inside a word (a homoglyph). Such letters are reported either way; higher false-positive rate, hence opt-in.
 cli-arg-json = Machine-readable JSON instead of prose.
-cli-arg-tactic = How the model is asked: paraphrase (the default), humanize or back_translate. structural is offered only in the application, behind a confirmation; code is not in this version.
+cli-arg-tactic = How the model is asked: paraphrase (the default), humanize or back_translate. structural and code are not in this version.
 cli-arg-candidates = Candidates generated per chunk. Without it, whoever rewrites decides: 1 for a model on this machine's processor alone, 2 for one on a graphics card or an endpoint.
 cli-arg-rounds = Rewrite rounds per chunk, at most. Without it, up to 2, and the second only when no candidate of the first passed.
 cli-arg-intensity = How far a paraphrase or humanize may move from the wording: light, moderate (the default) or strong.
@@ -1781,7 +1781,7 @@ cli-unknown-language = unknown language `{ $requested }`, falling back. Availabl
 ## refusal exits 2 and writes nothing. $reason is an engine's, a server's
 ## or the operating system's own words, never translated.
 
-cli-rewrite-tactic-structural = The tactic structural rewrites a document from an outline of it, and is offered only in the application, behind a confirmation. Nothing was rewritten.
+cli-rewrite-tactic-structural = The tactic structural rewrites a document from an outline of it, and is not in this version. Nothing was rewritten.
 cli-rewrite-tactic-code = The tactic code is not in this version. Nothing was rewritten.
 cli-rewrite-needs-app-endpoint = Rewriting is set to use an endpoint, and the command line reaches one only through the running { -brand-name } application. Start it and run this again — or, on its Engine page, let a model on this machine rewrite. Nothing was rewritten.
 cli-rewrite-needs-app-fallback = The model chosen for rewriting is not on this machine, and the endpoint set to answer instead is reached only through the running { -brand-name } application. Download the model, or start the application and run this again. Nothing was rewritten.
@@ -2012,9 +2012,9 @@ queue-said-partly-rewritten = { $kept } of { $chunks ->
     } kept their cleaned original: no candidate passed the checks.
 queue-said-recorded-refused = Not done ({ $reason }); nothing was touched.
 # A rewrite in which every paragraph kept its cleaned original (D711). $why
-# is `not-rewritten-every` or `not-rewritten-most`. The result was still
-# written where the Retention page said (D712): it is the cleaned text.
-queue-said-not-rewritten = Nothing was rewritten: { $why }. The result is the cleaned text, unchanged.
+# is `not-rewritten-every` or `not-rewritten-most`. Nothing was written,
+# file or row (D712, the owner).
+queue-said-not-rewritten = Nothing was rewritten: { $why }. Nothing was written.
 # Why nothing was rewritten, when every attempt was rejected for the same
 # reason — $reason is its id — or nothing could be asked at all. Shared by
 # the window and the command line.
@@ -2087,7 +2087,9 @@ status-rewrites-paused = Rewriting is paused · { $count } waiting
 status-rewrites-settling = Rewrites wait for the engine to change
 compare-rewritten-banner = The rewrite, as it was delivered or last saved — it began as the most changed version that passed every check.
 compare-rewritten-kept = { $kept } of { $chunks } paragraphs kept their cleaned original: no candidate passed the checks.
-# The banner instead of the two above when no paragraph was rewritten (D711).
+# The banner instead of the two above when no paragraph was rewritten
+# (D711): a result an earlier build wrote for such a job (since D712 none
+# is written).
 compare-not-rewritten-banner = Nothing was rewritten: this is the cleaned original, unchanged — no candidate for any paragraph passed the checks.
 compare-reset-rewritten = Back to the rewritten text
 compare-reset-rewritten-tooltip = Put the result back as this window opened it — the rewrite as delivered, or as it was last saved — and let the edits go. This is an edit like any other, and is saved as edits are.
@@ -2176,7 +2178,7 @@ prompts-var-protected = The sentence about ⟦n⟧ placeholders; nothing when th
 prompts-var-intensity = The intensity clause; nothing for moderate. User turn only, optional: without it the intensity does nothing.
 prompts-var-no-names = There is no variable for a language's name: a template names its own language, in its own words.
 prompts-slots-title = Templates
-prompts-tactic-structural-note = Used only after a confirmation.
+prompts-tactic-structural-note = Not in this version: no rewrite runs it, and only Check template tries it.
 prompts-tactic-code-note = Not in this version: editable, and used by nothing yet.
 prompts-tag-hand = yours
 prompts-tag-machine = adapted, not reviewed

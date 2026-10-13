@@ -858,8 +858,8 @@ pub fn listed_slots() -> Vec<Slot> {
 }
 
 /// A sentence about a tactic beside its name in the list, when it has one
-/// (Г4): `structural` runs only after a confirmation (D73), `code` is not
-/// in this version.
+/// (Г4): `structural` is not in this version — no rewrite runs it, and
+/// only the Check here tries it (D714a) — and `code` is not either.
 pub fn tactic_note(tactic: Tactic) -> Option<Message> {
     match tactic {
         Tactic::Structural => Some(Message::PromptsTacticStructuralNote),

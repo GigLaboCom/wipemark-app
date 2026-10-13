@@ -238,8 +238,9 @@ them for one run; and — when the endpoint on duty is not this machine —
 that a rewrite sends the rendered prompt with the document there), the
 variables table, the pivot row, and the list of **every** slot
 `Slot::new` accepts, by language, tactic, step and turn — `structural`
-marked "used only after a confirmation" (D73), `code` "not in this
-version" (Г4). `every_template_slot_has_a_row` holds the list to
+marked "not in this version: no rewrite runs it, and only Check template
+tries it" (D714a; it said "used only after a confirmation", D73, and no
+surface asks for one), `code` "not in this version" (Г4). `every_template_slot_has_a_row` holds the list to
 `Slot::all()`. The chosen slot shows the template **as it will be used**,
 who wrote it (shipped; by hand; by the model, not reviewed; by the model,
 reviewed), the shipped text and the fragments under it read-only (Г7,

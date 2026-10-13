@@ -498,8 +498,9 @@ rewritten — the CLI's exit 3), *Not rewritten* (every paragraph kept its
 cleaned original: a warning, never a success, its tooltip naming the
 rejection most attempts were thrown away for — "every answer from the
 engine was empty" — D711; the journal's verdict `not-rewritten`, its
-`reason`, `attempts` and `reason_count`; the result is still written where
-the plan said, the cleaned text unchanged, D712), *Rewrite failed*,
+`reason`, `attempts` and `reason_count`; **nothing is written** — no file,
+no text kept in a paste's row, the row delivered nowhere and Compare on
+the cleaning of the original, D712 as the owner chose it), *Rewrite failed*,
 *Rewrite cancelled*; the status bar says "Rewriting 2 of
 5 · paragraph 7 of 52", or why the line waits, after a model's load and a
 clean (D324). **Pause** and **Resume** are on the toolbar while anything

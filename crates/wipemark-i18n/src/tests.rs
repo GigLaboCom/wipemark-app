@@ -596,6 +596,60 @@ fn no_language_promises_less_than_the_product_does() {
         "schreiben noch nichts um",
         "schreiben damit noch nichts um",
     ];
+    for (language, id, text) in lowercase_values() {
+        if ALLOWED.contains(&id.as_str()) {
+            continue;
+        }
+        for claim in LESS {
+            assert!(
+                !text.contains(claim),
+                "{language}: `{id}` says {claim:?} — the windows rewrite, through the \
+                 batch queue, as an agent over MCP and the command line do: {text:?}"
+            );
+        }
+    }
+}
+
+/// D714a (found with F19): no value offers the `structural` tactic. Three
+/// sentences in every language said it was offered "only in the
+/// application, behind a confirmation"; the application offers it nowhere —
+/// the window asks `paraphrase` (`queue/rewriting.rs`), the MCP tool and the
+/// command line refuse it (`asked::offered`), and no confirmation for it
+/// exists. A sentence that promises more than the product does, in a
+/// direction [`no_language_promises_more_than_the_product_does`]'s list of
+/// evasion claims does not cover. Over every value and variant, as
+/// [`no_language_promises_less_than_the_product_does`] reads them. The day
+/// a confirmation for it ships, this list goes, with the sentences.
+#[test]
+fn no_language_offers_a_tactic_the_application_does_not_run() {
+    const OFFERED: [&str; 6] = [
+        // en: "offered only in the application, behind a confirmation",
+        // "Used only after a confirmation."
+        "behind a confirmation",
+        "after a confirmation",
+        // ru: "есть только в приложении, после подтверждения"
+        "только в приложении",
+        "после подтверждения",
+        // de: "nur in der Anwendung, nach einer Bestätigung"
+        "nur in der anwendung",
+        "nach einer bestätigung",
+    ];
+    for (language, id, text) in lowercase_values() {
+        for claim in OFFERED {
+            assert!(
+                !text.contains(claim),
+                "{language}: `{id}` says {claim:?} — structural is run nowhere in this \
+                 version, behind a confirmation or otherwise: {text:?}"
+            );
+        }
+    }
+}
+
+/// Every message's and term's value in every shipped language, attributes
+/// and every variant of a selector included, lower-cased: `(language, id,
+/// text)`.
+fn lowercase_values() -> Vec<(LanguageIdentifier, String, String)> {
+    let mut values = Vec::new();
     for language in languages() {
         let source = catalogue::source(&language).expect("shipped catalogue");
         for entry in &parse(&source).body {
@@ -606,9 +660,6 @@ fn no_language_promises_less_than_the_product_does() {
                 ast::Entry::Term(term) => (term.id.name, Some(&term.value), &term.attributes),
                 _ => continue,
             };
-            if ALLOWED.contains(&id) {
-                continue;
-            }
             let mut text = String::new();
             for pattern in value
                 .into_iter()
@@ -616,16 +667,10 @@ fn no_language_promises_less_than_the_product_does() {
             {
                 text_of(pattern, &mut text);
             }
-            let text = text.to_lowercase();
-            for claim in LESS {
-                assert!(
-                    !text.contains(claim),
-                    "{language}: `{id}` says {claim:?} — the windows rewrite, through the \
-                     batch queue, as an agent over MCP and the command line do: {text:?}"
-                );
-            }
+            values.push((language.clone(), id.to_owned(), text.to_lowercase()));
         }
     }
+    values
 }
 
 /// The product's own rule, turned on the product's own strings.

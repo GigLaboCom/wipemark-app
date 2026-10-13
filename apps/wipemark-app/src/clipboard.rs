@@ -208,25 +208,47 @@ fn extension_of(format: gpui::ImageFormat) -> &'static str {
     }
 }
 
+/// What is on the clipboard, by kind: on macOS the pasteboard's own
+/// policy — except in a test, which reads GPUI's clipboard, the test
+/// platform's, so that no test reads, or depends on, the clipboard of the
+/// person at the keyboard. The pasteboard's road has tests of its own over
+/// a scratch pasteboard (`pasteboard::held_on`).
 #[cfg(target_os = "macos")]
-fn peek(_cx: &App) -> Vec<Held> {
+fn peek(cx: &App) -> Vec<Held> {
+    if cfg!(test) {
+        return gpui_held(cx);
+    }
     crate::pasteboard::held()
 }
 
 #[cfg(not(target_os = "macos"))]
 fn peek(cx: &App) -> Vec<Held> {
-    cx.read_from_clipboard()
-        .map(|item| held_of(&item))
-        .unwrap_or_default()
+    gpui_held(cx)
 }
 
+/// [`peek`]'s twin for the data, with the same exception for a test.
 #[cfg(target_os = "macos")]
-fn read(_cx: &App) -> Vec<Handed> {
+fn read(cx: &App) -> Vec<Handed> {
+    if cfg!(test) {
+        return gpui_handed(cx);
+    }
     crate::pasteboard::from_clipboard()
 }
 
 #[cfg(not(target_os = "macos"))]
 fn read(cx: &App) -> Vec<Handed> {
+    gpui_handed(cx)
+}
+
+/// GPUI's clipboard, by kind — the other desktops' road, and a test's.
+fn gpui_held(cx: &App) -> Vec<Held> {
+    cx.read_from_clipboard()
+        .map(|item| held_of(&item))
+        .unwrap_or_default()
+}
+
+/// GPUI's clipboard, as what a drop would carry.
+fn gpui_handed(cx: &App) -> Vec<Handed> {
     cx.read_from_clipboard()
         .map(|item| handed_of(&item))
         .unwrap_or_default()

@@ -13,9 +13,9 @@
 //!
 //! * **What is offered** ([`offered`]): `paraphrase`, `humanize`,
 //!   `back_translate`. `structural` rewrites a document from an outline of
-//!   it and is offered only behind a confirmation (D73) — an argument is
-//!   not one; `code` is not built. Both are refused by name, never
-//!   swapped for another tactic.
+//!   it and runs only with a confirmation (D73) that no surface of this
+//!   version asks for — an argument is not one (D714a); `code` is not
+//!   built. Both are refused by name, never swapped for another tactic.
 //! * **How many** ([`MOST`]): candidates and rounds are 1 to 8 each when
 //!   given, and decided by who rewrites when not (D61).
 //! * **The base seed** ([`fresh_seed`], D83): a fresh one for every job
@@ -50,9 +50,9 @@ pub const FORMATS: [TextFormat; 3] = [TextFormat::Plain, TextFormat::Markdown, T
 /// them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum NotOffered {
-    /// `structural` is offered only behind a confirmation in a window
-    /// (D73).
-    #[error("structural is offered only behind a confirmation in a window")]
+    /// `structural` runs only with a confirmation (D73), which no surface
+    /// of this version asks for (D714a).
+    #[error("structural is not offered in this version")]
     Structural,
     /// The `code` tactic needs a preparation of its own, which is not
     /// built.
