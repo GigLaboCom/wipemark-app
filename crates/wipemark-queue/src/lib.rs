@@ -187,8 +187,9 @@ pub struct Done {
     /// The document, rewritten.
     pub text: String,
     pub report: JobReport,
-    /// What was written, `None` for [`Destination::Row`] — and for an
-    /// in-place item whose text did not change, which touches nothing.
+    /// What was written, `None` for [`Destination::Row`] — for an in-place
+    /// item whose text did not change, which touches nothing — and for a
+    /// job that rewrote nothing, which writes nothing anywhere (D712).
     pub written: Option<Written>,
 }
 

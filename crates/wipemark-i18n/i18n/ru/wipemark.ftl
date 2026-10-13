@@ -1341,7 +1341,7 @@ queue-said-partly-rewritten = { $kept } из { $chunks ->
        *[other] { $chunks } абзацев
     } остались очищенным оригиналом: ни один кандидат не прошёл проверки.
 queue-said-recorded-refused = Не сделано ({ $reason }); ничего не тронуто.
-queue-said-not-rewritten = Ничего не переписано: { $why }. Результат — очищенный текст без изменений.
+queue-said-not-rewritten = Ничего не переписано: { $why }. Ничего не записано.
 not-rewritten-every = { $reason ->
         [empty] все ответы движка оказались пустыми
         [engine] движок не справился ни с одним запросом

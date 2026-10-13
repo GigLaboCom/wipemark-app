@@ -2012,9 +2012,9 @@ queue-said-partly-rewritten = { $kept } of { $chunks ->
     } kept their cleaned original: no candidate passed the checks.
 queue-said-recorded-refused = Not done ({ $reason }); nothing was touched.
 # A rewrite in which every paragraph kept its cleaned original (D711). $why
-# is `not-rewritten-every` or `not-rewritten-most`. The result was still
-# written where the Retention page said (D712): it is the cleaned text.
-queue-said-not-rewritten = Nothing was rewritten: { $why }. The result is the cleaned text, unchanged.
+# is `not-rewritten-every` or `not-rewritten-most`. Nothing was written,
+# file or row (D712, the owner).
+queue-said-not-rewritten = Nothing was rewritten: { $why }. Nothing was written.
 # Why nothing was rewritten, when every attempt was rejected for the same
 # reason — $reason is its id — or nothing could be asked at all. Shared by
 # the window and the command line.
@@ -2087,7 +2087,9 @@ status-rewrites-paused = Rewriting is paused · { $count } waiting
 status-rewrites-settling = Rewrites wait for the engine to change
 compare-rewritten-banner = The rewrite, as it was delivered or last saved — it began as the most changed version that passed every check.
 compare-rewritten-kept = { $kept } of { $chunks } paragraphs kept their cleaned original: no candidate passed the checks.
-# The banner instead of the two above when no paragraph was rewritten (D711).
+# The banner instead of the two above when no paragraph was rewritten
+# (D711): a result an earlier build wrote for such a job (since D712 none
+# is written).
 compare-not-rewritten-banner = Nothing was rewritten: this is the cleaned original, unchanged — no candidate for any paragraph passed the checks.
 compare-reset-rewritten = Back to the rewritten text
 compare-reset-rewritten-tooltip = Put the result back as this window opened it — the rewrite as delivered, or as it was last saved — and let the edits go. This is an edit like any other, and is saved as edits are.

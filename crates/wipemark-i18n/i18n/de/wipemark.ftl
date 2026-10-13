@@ -1296,7 +1296,7 @@ queue-said-partly-rewritten = { $kept } von { $chunks ->
        *[other] { $chunks } Absätzen
     } behielten ihr bereinigtes Original: kein Kandidat bestand die Prüfungen.
 queue-said-recorded-refused = Nicht erledigt ({ $reason }); nichts wurde angerührt.
-queue-said-not-rewritten = Nichts wurde umgeschrieben: { $why }. Das Ergebnis ist der bereinigte Text, unverändert.
+queue-said-not-rewritten = Nichts wurde umgeschrieben: { $why }. Nichts wurde geschrieben.
 not-rewritten-every = { $reason ->
         [empty] jede Antwort der Engine war leer
         [engine] die Engine scheiterte an jeder Anfrage

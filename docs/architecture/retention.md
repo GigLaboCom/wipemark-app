@@ -247,7 +247,14 @@ stays in the queue's row. `retention::rewrite_destination` is the map, and
 `every_plan_is_a_rewrite_destination` its gate. The page's banner says
 both rules. A rewrite's result is a file **of the row's own**
 (`Destination::Own`, below); the command line's default
-`name.rewritten.ext` still refuses a taken name, exit 2 (D362).
+`name.rewritten.ext` still refuses a taken name, exit 2 (D362). **A job
+that rewrote nothing writes nothing** (D712, the owner, 2026-10-13):
+every paragraph kept its cleaned original, so the batch queue's worker
+ends it done with nothing written, whatever the destination — no file
+beside, in the results folder or in place, and no text in a paste's row
+(`a_job_that_rewrote_nothing_writes_nothing`). A Rewrite again that
+rewrites nothing leaves the earlier result on disk as it was. The
+command line writes nothing for such a job either (exit 2, D711a).
 
 ### Every row gets its own result (D635–D639)
 

@@ -371,14 +371,18 @@ fn a_kept_chunk_ends_as_partly(cx: &mut TestAppContext) {
     until(cx, "the end", |cx| status(&queue, cx) == "partly-rewritten");
 }
 
-/// D711, D712 (acceptance F20): a rewrite whose every answer came back
-/// empty rewrote nothing. The row ends as not rewritten — a warning, never
-/// a success — its sentence says why, and its journal row says
-/// `not-rewritten`, the reason and the counts. The result is still written
-/// beside the file, and it is the cleaned text, unchanged; Compare's banner
-/// does not call it a rewrite.
+/// D711, D712 (acceptance F20; D712 as the owner chose it, 2026-10-13): a
+/// rewrite whose every answer came back empty rewrote nothing. The row ends
+/// as not rewritten — a warning, never a success — its sentence says why,
+/// and its journal row says `not-rewritten`, the reason and the counts.
+/// **Nothing is written**: no `a.rewritten*.md` beside the file, the row
+/// delivered nowhere, its went-line "Nothing was written", and Compare
+/// opens on the cleaning of the original, not on a rewrite that does not
+/// exist. Put the batch queue's old delivery back and the file is there:
+/// red.
 #[gpui::test]
 fn a_rewrite_whose_every_answer_was_empty_ends_as_not_rewritten(cx: &mut TestAppContext) {
+    use crate::compare::Made;
     use crate::wording::{self, Badge};
 
     let scratch = Scratch::new("not-rewritten");
@@ -387,7 +391,7 @@ fn a_rewrite_whose_every_answer_was_empty_ends_as_not_rewritten(cx: &mut TestApp
     let work = work(FakeEngine::answering(|_, _| String::new()));
     let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
     here_on_duty(&preferences, cx);
-    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    queue.update(cx, |queue, cx| queue.hand(vec![source.clone()], cx));
     cx.run_until_parked();
     let id = ids(&queue, cx)[0];
     queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
@@ -407,6 +411,11 @@ fn a_rewrite_whose_every_answer_was_empty_ends_as_not_rewritten(cx: &mut TestApp
     let sentence = wording::recorded_said(said.action, said.phase, said.outcome.as_ref());
     let why = wording::not_rewritten_why_in(&wording::window, "empty", Some(4), Some(4));
     assert!(sentence.contains(&why), "{sentence}");
+    assert_eq!(said.result, Some(Delivered::Nowhere));
+    assert_eq!(
+        wording::delivered_went(said.result.as_ref()),
+        [t(Message::QueueWentNothing)]
+    );
 
     until(cx, "the journal", |_| {
         work.journal
@@ -420,20 +429,73 @@ fn a_rewrite_whose_every_answer_was_empty_ends_as_not_rewritten(cx: &mut TestApp
     assert_eq!(outcome.reason.as_deref(), Some("empty"));
     assert_eq!((outcome.rewritten, outcome.kept_source), (Some(0), Some(2)));
     assert_eq!((outcome.reason_count, outcome.attempts), (Some(4), Some(4)));
+    assert_eq!(entry.result, Some(Delivered::Nowhere), "{entry:?}");
 
-    // D712: written where the plan said, and it is the cleaned text.
-    let written = std::fs::read_to_string(scratch.0.join("a.rewritten.md")).expect("the result");
-    assert_eq!(
-        written,
-        wipemark_core::clean(&marked, &wipemark_core::Options::default()).text
-    );
+    // D712: nothing written beside the file, which is as it was.
+    let results: Vec<String> = std::fs::read_dir(&scratch.0)
+        .expect("list")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name.starts_with("a.rewritten"))
+        .collect();
     assert!(
-        matches!(&entry.result, Some(Delivered::File { path, .. }) if path.ends_with("a.rewritten.md")),
-        "{entry:?}"
+        results.is_empty(),
+        "a rewrite that did not happen was written: {results:?}"
     );
+    assert_eq!(std::fs::read_to_string(&source).expect("source"), marked);
+    let subject = cx
+        .update(|_, cx| queue.read(cx).subject_of(id))
+        .expect("comparable");
+    assert!(
+        !matches!(subject.made, Made::Rewritten { .. }),
+        "Compare offers a rewrite that does not exist: {subject:?}"
+    );
+    // A result an earlier build wrote for such a job is not called one.
     assert_eq!(
         crate::compare::banner_lines(crate::compare::MadeKind::Rewritten { kept: Some((2, 2)) }),
         [t(Message::CompareNotRewrittenBanner)]
+    );
+}
+
+/// D712 for a paste: a text rewritten into its row that rewrote nothing
+/// keeps nothing there — the batch queue's row holds no text — and the
+/// row is delivered nowhere, with nothing for Compare to call a rewrite.
+#[gpui::test]
+fn a_paste_that_rewrote_nothing_keeps_nothing_in_its_row(cx: &mut TestAppContext) {
+    use crate::compare::Made;
+
+    let scratch = Scratch::new("paste-not-rewritten");
+    let work = work(FakeEngine::answering(|_, _| String::new()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| {
+        queue.land(vec![Handed::Text(PARAGRAPH.to_owned())], cx)
+    });
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the push", |_| !work.queue.items().is_empty());
+    let item = work.queue.items()[0].id;
+    until(cx, "the end", |cx| status(&queue, cx) == "not-rewritten");
+    let stored = work.queue.result(item).expect("reads").expect("a result");
+    assert!(
+        stored.get("text").is_none(),
+        "the row kept a text that is not a rewrite: {stored}"
+    );
+    let said = cx.update(|_, cx| match queue.read(cx).status_of(id) {
+        Some(Status::Recorded(said)) => (**said).clone(),
+        other => panic!("not a recorded status: {other:?}"),
+    });
+    assert_eq!(said.result, Some(Delivered::Nowhere));
+    let subject = cx.update(|_, cx| queue.read(cx).subject_of(id));
+    assert!(
+        !subject.is_some_and(|subject| matches!(subject.made, Made::Rewritten { .. })),
+        "Compare offers a rewrite that does not exist"
     );
 }
 
