@@ -103,6 +103,11 @@ rust-embed = { version = "8", features = ["interpolate-folder-path", "include-ex
 # `debug_bounds` exist — the icon size regression can only be caught
 # by measuring what actually painted.
 gpui = { workspace = true, features = ["test-support"] }
+# `current_headless_renderer`: the Compare window drawn to a picture with no
+# display, for E7-11's screenshots (`compare::tests::compare_screenshots`,
+# ignored, run by `scripts/verify/e7-11/shots.sh`). The feature turns on
+# crates already in the tree (`image`), nothing new.
+gpui_platform = { workspace = true, features = ["test-support"] }
 # `gpui_base::POPUP_PRIORITY`, which gpui-component does not re-export:
 # the gate on `dialog::MODAL_PRIORITY` reads it rather than a copy of it,
 # so a bump that moves it is a red test. Already in the tree through

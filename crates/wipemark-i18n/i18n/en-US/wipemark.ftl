@@ -529,8 +529,11 @@ settings-compare-gutters-left = Both on the left
 settings-compare-follow-title = The original follows the cursor
 settings-compare-follow-description = Moving the cursor in the result puts the original's cursor on the line that stands where that one does. Off, the original's cursor stays where it was.
 
+settings-compare-wrap-title = Wrap long lines
+settings-compare-wrap-description = Long lines wrap at the edge of their pane on both sides, and where a line takes more rows on one side than its partner takes on the other, the other side is padded with blank rows, so paired lines start level however far down they are. The Wrap long lines button over the result turns it on and off for both sides of an open window. Read when a Compare window opens. Off, a long line runs past the edge of its pane, and each side scrolls sideways on its own.
+
 settings-compare-sync-scroll-title = Both sides scroll together
-settings-compare-sync-scroll-description = Scrolling either side — with the wheel, the touchpad, the scroll bar or the keyboard — scrolls the other, so the lines the two sides share stay level. Through a passage that changed, the other side moves in step through its own lines. While the result wraps its lines, the two sides line up only roughly. Off, each side scrolls on its own.
+settings-compare-sync-scroll-description = Scrolling either side — with the wheel, the touchpad, the scroll bar or the keyboard — scrolls the other, so the lines the two sides share stay level. With long lines wrapped, the two sides are padded to the same rows and scroll as one. Unwrapped, through a passage that changed, the other side moves in step through its own lines. Off, each side scrolls on its own.
 
 settings-compare-autosave-title = Save edits as they are typed
 settings-compare-autosave-description = A Compare window saves an edited result a moment after typing stops, and again as it closes — over the result's own file, or in its row for a text with no file, and never over the original. Off, a window saves when Save is pressed, and asks before closing with edits that are not saved.
