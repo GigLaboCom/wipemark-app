@@ -3373,6 +3373,11 @@ fn file_name(path: &std::path::Path) -> String {
 pub fn banner_lines(kind: MadeKind) -> Vec<String> {
     match kind {
         MadeKind::Cleaned => vec![t(Message::ComparePending)],
+        // Every paragraph kept its cleaned original (D711): the result is
+        // not a rewrite, and the banner does not call it one.
+        MadeKind::Rewritten {
+            kept: Some((kept, chunks)),
+        } if kept > 0 && kept == chunks => vec![t(Message::CompareNotRewrittenBanner)],
         MadeKind::Rewritten { kept } => {
             let mut lines = vec![t(Message::CompareRewrittenBanner)];
             if let Some((kept, chunks)) = kept.filter(|(kept, _)| *kept > 0) {

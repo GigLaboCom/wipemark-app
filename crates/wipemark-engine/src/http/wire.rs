@@ -32,7 +32,8 @@
 //!   breaks it is refused before a socket opens.
 //!
 //! Nothing here logs a prompt, a completion, a header value or a key:
-//! status codes, byte counts, timings and the origin.
+//! status codes, byte counts, timings and the origin — and, for a model's
+//! thinking, that it came and how long it was (D710).
 
 use std::io::Read;
 use std::time::{Duration, Instant};
@@ -335,10 +336,21 @@ fn streamed(
         bytes = assembled.bytes,
         pieces = assembled.pieces,
         done = assembled.done,
+        thinking_pieces = assembled.thinking_pieces,
+        thinking_chars = assembled.thinking_chars,
         first_piece_ms = ?first,
         elapsed_ms = started.elapsed().as_millis(),
         "the answer was read"
     );
+    // That it came, and how long it was — never what it said (D710).
+    if assembled.done && assembled.pieces == 0 && assembled.thinking_pieces > 0 {
+        tracing::info!(
+            origin = request.origin,
+            thinking_pieces = assembled.thinking_pieces,
+            thinking_chars = assembled.thinking_chars,
+            "the endpoint answered only in its thinking; the answer itself is empty"
+        );
+    }
     assembled.completion()
 }
 

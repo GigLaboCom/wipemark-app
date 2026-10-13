@@ -48,7 +48,7 @@ it in E7). Layer A itself is `docs/architecture/layer-a.md`.
 | `models rm <id>` | 0 (removed, or nothing to remove) · 2 (unknown id, a model you added, could not remove) | what was removed, and what the application will show | refusal |
 | `models add <path> [--name] [--role] [--ctx]` | 0 (read in full and recorded) · 2 (not a GGUF, not a model that writes text, a name, purpose or context refused, no database or not this build's schema, the file could not be read) | `<id>: …` — the id, the file, the name | the chat-format verdict, progress, refusal |
 | `models forget <id>` | 0 (the row removed; the file never) · 2 (unknown id, a catalogue id, no database or not this build's schema) | what was forgotten, and what the application will show | refusal |
-| `rewrite <path\|->` | 0 (every paragraph rewritten, no Layer A findings in the input) · 1 (every paragraph rewritten, findings in the input — cleaned, D31) · 2 (no engine that may answer, a tactic not run here, a template that breaks a rule, a job that failed, was cancelled or lost its connection; nothing written) · **3 when any paragraph kept its cleaned original, findings or not** — and when the result could not be written | the report (the text with `-o -` or stdin) | price and progress on a terminal, who rewrote it, refusal |
+| `rewrite <path\|->` | 0 (every paragraph rewritten, no Layer A findings in the input) · 1 (every paragraph rewritten, findings in the input — cleaned, D31) · 2 (no engine that may answer, a tactic not run here, a template that breaks a rule, a job that failed, was cancelled or lost its connection; and a job that rewrote nothing, every paragraph keeping its cleaned original — D711a, the reason on stderr, the application's MCP tool answering the same job as an error; nothing written) · **3 when a paragraph kept its cleaned original and another was rewritten, findings or not** — and when the result could not be written | the report (the text with `-o -` or stdin) | price and progress on a terminal, who rewrote it, refusal |
 | `rewrite --json` | as above | `{"report","written"\|"text","served_by"}` | who rewrote it, refusal |
 
 Standard output carries one product; the human report moves to stderr
@@ -641,7 +641,9 @@ schema 3), and the command line's runs are among them.
 A row holds metadata only (D312): origin `cli`, the action, done or
 failed, the file's name, absolute path, kind, format, encoding and size,
 the verdict (`nothing-found`, `cleaned`, `partly`, `not-cleaned`,
-`failed`; `findings` for a look; `rewritten` for a rewrite) with its
+`failed`; `findings` for a look; `rewritten`, `partly` or `not-rewritten`
+for a rewrite — the last with the most frequent rejection as its reason,
+D711) with its
 counts, and where the result went (`file`, `caller` for standard output,
 `nowhere`) — never the text. A run refused before its input was read
 records nothing, and neither does a `rewrite` whose `--prompts` template

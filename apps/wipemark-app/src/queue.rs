@@ -3745,6 +3745,7 @@ pub(crate) mod tests {
                     Some(Status::Recorded(said)) => match said.phase {
                         Phase::Done => match said.outcome.as_ref().map(|o| o.verdict.as_str()) {
                             Some("partly") => "partly-rewritten",
+                            Some("not-rewritten") => "not-rewritten",
                             _ => "rewritten",
                         },
                         Phase::Failed => "rewrite-failed",

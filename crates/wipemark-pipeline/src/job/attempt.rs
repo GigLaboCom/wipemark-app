@@ -31,7 +31,7 @@ use super::Options;
 use crate::lang::{self, Lang};
 use crate::prepare::{estimate_tokens, without_placeholders, Chunk};
 use crate::prompt::{clean_response, render, Input, RenderError};
-use crate::report::{Attempt, EngineFailure, Rejection, StepRecord, Verdict};
+use crate::report::{Attempt, Rejection, StepRecord, Verdict};
 use crate::select::{self, Scorer, Scores, LANGUAGE_CHECK_WORDS, NO_OP_FLOOR};
 use crate::PipelineError;
 
@@ -181,23 +181,36 @@ pub(super) fn run(
         );
         let completion = match answer {
             Ok(completion) => completion,
-            Err(error) => match EngineFailure::of(error) {
-                Ok(failure) => {
+            Err(error) => match Rejection::of_engine(step.step, error) {
+                // An answer that came back empty (D710): a step that
+                // answered, with nothing in it — counted as a call, and
+                // rejected as `empty`, as an empty answer handed back is.
+                Ok(rejection @ Rejection::Empty { .. }) => {
                     tracing::info!(
                         round,
                         candidate,
                         step = step.step,
-                        failure = ?failure,
+                        "an attempt's answer was empty"
+                    );
+                    steps.push(StepRecord {
+                        step: step.step,
+                        system: step.system.version.clone(),
+                        user: step.user.version.clone(),
+                        tokens_out: 0,
+                        finish: FinishReason::Stop,
+                        stripped: Vec::new(),
+                    });
+                    return done(steps, None, rejected(rejection));
+                }
+                Ok(rejection) => {
+                    tracing::info!(
+                        round,
+                        candidate,
+                        step = step.step,
+                        rejection = ?rejection,
                         "an attempt failed in the engine"
                     );
-                    return done(
-                        steps,
-                        None,
-                        rejected(Rejection::Engine {
-                            step: step.step,
-                            failure,
-                        }),
-                    );
+                    return done(steps, None, rejected(rejection));
                 }
                 Err(EngineError::Unavailable(why)) => return Ended::Unavailable(why),
                 Err(_) => return Ended::Cancelled,

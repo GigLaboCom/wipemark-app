@@ -8,10 +8,11 @@
 //! over every message and every language rather than over the ones
 //! someone thought to spot-check.
 //!
-//! Two of these are product rules rather than i18n hygiene, and they
+//! Three of these are product rules rather than i18n hygiene, and they
 //! are the ones to delete first when checking that this suite can fail:
-//! [`the_third_shelf_is_never_empty_in_any_language`] and
-//! [`no_language_promises_more_than_the_product_does`].
+//! [`the_third_shelf_is_never_empty_in_any_language`],
+//! [`no_language_promises_more_than_the_product_does`] and its other half,
+//! [`no_language_promises_less_than_the_product_does`].
 
 use fluent_syntax::{ast, parser};
 use unic_langid::LanguageIdentifier;
@@ -564,6 +565,63 @@ fn no_language_promises_more_than_the_product_does() {
                     "{language}: `{}` claims {claim:?} — there is no oracle for that \
                      (spec §0.1 rule 3)",
                     message.id()
+                );
+            }
+        }
+    }
+}
+
+/// The other half of [`no_language_promises_more_than_the_product_does`]
+/// (D714, acceptance F19): no value says the windows rewrite nothing. They
+/// do — Rewrite and Rewrite all, through the batch queue, since E4-6b —
+/// and three sentences said otherwise in every language for weeks, because
+/// nothing checks a sentence that promises *less*. Over the **values** of
+/// every message and term, every variant of a selector included, as
+/// [`no_catalogue_value_carries_an_epic_number`] reads them. The phrases
+/// are the claim in each language, the ones the old sentences used among
+/// them; a sentence that must say a window does not rewrite something goes
+/// here by key, with the reason. None does.
+#[test]
+fn no_language_promises_less_than_the_product_does() {
+    const ALLOWED: [&str; 0] = [];
+    const LESS: [&str; 7] = [
+        // en
+        "rewrite nothing",
+        "rewrites nothing",
+        // ru: "these windows rewrite nothing yet", "… do not rewrite with it yet"
+        "ничего не переписывают",
+        "ею не переписывают",
+        // de: "Diese Fenster schreiben noch nichts um", "… damit noch nichts um"
+        "schreiben nichts um",
+        "schreiben noch nichts um",
+        "schreiben damit noch nichts um",
+    ];
+    for language in languages() {
+        let source = catalogue::source(&language).expect("shipped catalogue");
+        for entry in &parse(&source).body {
+            let (id, value, attributes) = match entry {
+                ast::Entry::Message(message) => {
+                    (message.id.name, message.value.as_ref(), &message.attributes)
+                }
+                ast::Entry::Term(term) => (term.id.name, Some(&term.value), &term.attributes),
+                _ => continue,
+            };
+            if ALLOWED.contains(&id) {
+                continue;
+            }
+            let mut text = String::new();
+            for pattern in value
+                .into_iter()
+                .chain(attributes.iter().map(|attribute| &attribute.value))
+            {
+                text_of(pattern, &mut text);
+            }
+            let text = text.to_lowercase();
+            for claim in LESS {
+                assert!(
+                    !text.contains(claim),
+                    "{language}: `{id}` says {claim:?} — the windows rewrite, through the \
+                     batch queue, as an agent over MCP and the command line do: {text:?}"
                 );
             }
         }

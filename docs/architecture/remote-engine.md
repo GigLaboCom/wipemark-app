@@ -6,11 +6,11 @@ trait the local model is behind, built by the same `duty::engine_for` and
 held by the same `EngineHost`. Epic **E2-3** (spec S2.2–S2.4, decisions
 D57–D59 in [`docs/plan/README.md`](../plan/README.md) §4).
 
-The windows rewrite nothing yet; the MCP tool `rewrite` and
-`wipemark-cli rewrite` (E4-6a) do, through the pipeline, which puts Layer A
-and the guards around a model (D56) — and with an endpoint on duty they
-send it the document. The one request the windows send is the Engine
-page's **Check** — a fixed sentence. A stored key no request could carry
+Rewrite in the main window (through the batch queue, E4-6b), the MCP tool
+`rewrite` and `wipemark-cli rewrite` (E4-6a) all rewrite through the
+pipeline, which puts Layer A and the guards around a model (D56) — and with
+an endpoint on duty they send it the document. The Engine page's **Check**
+sends a fixed sentence, and is not a rewrite. A stored key no request could carry
 is refused before a socket opens as `Unavailable::KeyUnsendable` (D79),
 which fails the job rather than rejecting one candidate after another.
 
@@ -73,13 +73,31 @@ this provider, whatever the configuration holds):
     { "role": "system", "content": "You are a terse assistant." },
     { "role": "user", "content": "Count from one to twenty in words, separated by spaces." }
   ],
-  "options": { "temperature": 0.0, "top_p": 1.0, "seed": 0, "num_predict": 16 }
+  "options": { "temperature": 0.0, "top_p": 1.0, "seed": 0, "num_predict": 16 },
+  "think": false
 }
 ```
 
 The answer is one JSON object per line: `message.content` is a piece,
 `done: true` ends it, `done_reason: "length"` is `Length`, and
 `eval_count` is `tokens_out`.
+
+**`"think": false`, always (D709).** A thinking model under Ollama — Gemma 4
+imported from its GGUF, Qwen3 — streams its answer in `message.thinking`
+and leaves `message.content` empty unless the request turns thinking off.
+Acceptance F20 (Ollama 0.40.3, 2026-10-13) was exactly that: 48 candidates,
+every one empty, read as engine failures. We rewrite with thinking off, as
+the local engine does (D181, D182). What an older Ollama that ignores the
+field still streams as `thinking` is **measured and dropped** (D710): the
+end-of-answer debug line carries `thinking_pieces` and `thinking_chars`, an
+answer that came only as thinking is one INFO line ("the endpoint answered
+only in its thinking; the answer itself is empty") with the same two
+numbers — and the text itself is never logged, streamed, kept or put in an
+error (`an_answer_only_in_thinking_is_empty_and_its_thinking_is_kept_nowhere`,
+`ollama_thinking_is_measured_and_never_kept`). The OpenAI-compatible request
+carries no `think`: the `/v1` shim takes none, and a field a server refuses
+would be a new failure (`ollama_is_asked_with_thinking_off_and_answers_in_content`
+checks both).
 
 **Deliberately not sent:** `min_p` to either (it is not part of the
 OpenAI API, and a server that rejects unknown fields would refuse the
@@ -128,7 +146,7 @@ is added.
 | the server silent for `timeout` | `EngineError::Transport("no answer within <n> s")` |
 | the connection dropped mid-stream | `EngineError::Transport("the stream ended early")` — no retry |
 | a stream that ended without `[DONE]` / `done: true` | `EngineError::Transport("the stream ended early")` |
-| a 200 with no body, or an ended stream with no text | `EngineError::Protocol("the answer was empty")` |
+| a 200 with no body, or an ended stream with no text — an Ollama model that streamed only its thinking included | `EngineError::Empty` ("the answer was empty"; D710) — the loop rejects the attempt as `empty`, not as an engine failure |
 | an unparseable payload | `EngineError::Protocol(<what, at most 200 characters of it>)` |
 | an `error` object in the stream | `EngineError::Protocol(<its message>)` |
 | the key could not be read from the credential store | `Unavailable::KeyUnreadable { reason }` (the host, at the first ask, before the engine exists) |

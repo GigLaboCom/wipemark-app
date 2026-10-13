@@ -493,8 +493,14 @@ rather than send it on B's answer.
 
 The Status column says *Queued for rewrite*, *Waiting for an engine*,
 *Rewriting…* (paragraph k of n in the tooltip), *Rewritten*, *Partly
-rewritten* (a paragraph kept its cleaned original — the CLI's exit 3),
-*Rewrite failed*, *Rewrite cancelled*; the status bar says "Rewriting 2 of
+rewritten* (a paragraph kept its cleaned original and another was
+rewritten — the CLI's exit 3), *Not rewritten* (every paragraph kept its
+cleaned original: a warning, never a success, its tooltip naming the
+rejection most attempts were thrown away for — "every answer from the
+engine was empty" — D711; the journal's verdict `not-rewritten`, its
+`reason`, `attempts` and `reason_count`; the result is still written where
+the plan said, the cleaned text unchanged, D712), *Rewrite failed*,
+*Rewrite cancelled*; the status bar says "Rewriting 2 of
 5 · paragraph 7 of 52", or why the line waits, after a model's load and a
 clean (D324). **Pause** and **Resume** are on the toolbar while anything
 is in the line — every surface's. What the toolbar and the status bar read

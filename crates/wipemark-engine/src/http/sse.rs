@@ -71,6 +71,9 @@ pub(crate) struct Said {
     pub tokens: Option<u32>,
     /// The end marker: `[DONE]`, or `done: true`.
     pub done: bool,
+    /// Characters of a thinking model's `thinking` in this payload — how
+    /// long it was, never what it said (D710). Ollama's only.
+    pub thought: u64,
 }
 
 /// One answer format, line by line.
@@ -207,6 +210,10 @@ pub(crate) struct Assembled {
     pub done: bool,
     /// Bytes of body received at all.
     pub bytes: u64,
+    /// Payloads that carried thinking, and its length in characters: that
+    /// it arrived and how long it was is all that is kept of it (D710).
+    pub thinking_pieces: u32,
+    pub thinking_chars: u64,
 }
 
 impl Assembled {
@@ -219,6 +226,10 @@ impl Assembled {
             self.tokens = said.tokens;
         }
         self.done |= said.done;
+        if said.thought > 0 {
+            self.thinking_pieces = self.thinking_pieces.saturating_add(1);
+            self.thinking_chars = self.thinking_chars.saturating_add(said.thought);
+        }
         let piece = said.piece?;
         self.text.push_str(&piece);
         self.pieces = self.pieces.saturating_add(1);
@@ -229,7 +240,8 @@ impl Assembled {
     ///
     /// Three refusals, in this order: a body with no bytes at all is an
     /// empty answer; a stream without its end marker ended early, whatever
-    /// it carried; an ended stream with no text in it is an empty answer.
+    /// it carried; an ended stream with no text in it is an empty answer —
+    /// [`EngineError::Empty`], however much thinking came before it (D710).
     /// `tokens_out` is the server's count when it gave one, otherwise the
     /// number of content pieces — a count of pieces, not of tokens.
     pub(crate) fn completion(self) -> Result<crate::Completion, EngineError> {
@@ -255,8 +267,10 @@ pub(crate) fn ended_early() -> EngineError {
     EngineError::Transport("the stream ended early".to_owned())
 }
 
+/// An answer with nothing in it (D710): its own error, which the loop
+/// rejects as `empty` rather than as an engine failure.
 fn empty() -> EngineError {
-    EngineError::Protocol("the answer was empty".to_owned())
+    EngineError::Empty
 }
 
 #[cfg(test)]
@@ -333,6 +347,36 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// D710: a thinking model's `thinking` is measured — the payloads that
+    /// carried it and its length in characters, for the log — and never
+    /// kept: the answer is `content` alone, and a stream with only thinking
+    /// in it is an empty answer.
+    #[test]
+    fn ollama_thinking_is_measured_and_never_kept() {
+        let stream = concat!(
+            r#"{"message":{"content":"","thinking":"été"},"done":false}"#,
+            "\n",
+            r#"{"message":{"content":"","thinking":"ab"},"done":false}"#,
+            "\n",
+            r#"{"message":{"content":""},"done":true}"#,
+            "\n",
+        );
+        let mut lines = Lines::default();
+        let mut assembled = Assembled {
+            bytes: stream.len() as u64,
+            ..Assembled::default()
+        };
+        for line in lines.push(stream.as_bytes()).expect("lines") {
+            if let Some(said) = Ndjson.line(&line).expect("a payload") {
+                assert_eq!(assembled.take(said), None, "thinking was streamed");
+            }
+        }
+        assert_eq!(assembled.thinking_pieces, 2);
+        assert_eq!(assembled.thinking_chars, 5, "characters, not bytes");
+        assert!(assembled.text.is_empty());
+        assert!(matches!(assembled.completion(), Err(EngineError::Empty)));
     }
 
     #[test]

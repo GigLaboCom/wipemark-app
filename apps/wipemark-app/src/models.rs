@@ -10,11 +10,12 @@
 //! # What this page is not
 //!
 //! It is not the Engine page. That one points Layer B at a *server*;
-//! this one fills the machine a server would run on. A downloaded model
-//! is a file on disk in this build and nothing else — loading one is
-//! epic E2, the catalogue and the download are E3 — and
-//! [`Message::SettingsModelsPending`] says so in every state the page
-//! can be in, the same bargain the Engine banner and the MCP tools make.
+//! this one fills the machine a server would run on. What a downloaded
+//! model is for — loaded and checked on the Engine page, rewriting in the
+//! main window, over MCP and with `wipemark-cli rewrite` —
+//! [`Message::SettingsModelsPending`] says in every state the page can be
+//! in (D713; the key keeps its old name), the same bargain the Engine
+//! banner and the MCP tools make.
 //!
 //! # Purpose, not size
 //!

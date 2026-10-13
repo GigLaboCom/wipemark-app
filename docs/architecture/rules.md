@@ -1715,8 +1715,11 @@
   hook that reads that as success is worse than no hook. So `audit`
   exits 3 when any file could not be read **even if another had
   findings**: 3 beats 1, because a hook must not read a scan with a
-  hole in it as a complete one — and `rewrite` exits 3 when any paragraph
-  kept its cleaned original, 3 beating 1 the same way. Stubs refuse loudly at **2** and say
+  hole in it as a complete one — and `rewrite` exits 3 when a paragraph
+  kept its cleaned original and another was rewritten, 3 beating 1 the
+  same way, and **2** when every paragraph kept it: a rewrite that
+  rewrote nothing is the work refused, nothing is written, and the
+  application's MCP tool answers the same job as an error (D711a). Stubs refuse loudly at **2** and say
   what did not run; never exit 0 for work that did not happen. A model
   that `models verify` finds absent or not matching exits **1**: a
   finding, like a mark. A picture keeps the four: `inspect` exits 1 on

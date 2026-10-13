@@ -1091,6 +1091,153 @@ impl RewriteEngine for Refusing {
     async fn unload(&self) {}
 }
 
+/// An engine whose every answer is empty by its own account — an endpoint
+/// that streamed only its thinking (acceptance F20).
+struct EmptyAnswers;
+
+#[async_trait]
+impl RewriteEngine for EmptyAnswers {
+    fn info(&self) -> EngineInfo {
+        FakeEngine::new().info()
+    }
+
+    async fn complete(
+        &self,
+        _req: ChatRequest,
+        _sink: TokenSink,
+        _cancel: CancellationToken,
+    ) -> Result<Completion, EngineError> {
+        Err(EngineError::Empty)
+    }
+
+    async fn warmup(&self) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    async fn unload(&self) {}
+}
+
+/// D710: an answer the engine says was empty rejects the attempt as
+/// `empty` — as an empty answer the engine handed back does — and never as
+/// an engine failure. The report's JSON names it `empty`, each such call is
+/// a call, and the job goes on to its end.
+#[test]
+fn an_answer_the_engine_calls_empty_is_rejected_as_empty() {
+    let events = run_on(
+        Arc::new(EmptyAnswers),
+        document(EN, TextFormat::Plain),
+        options(1, 2),
+    );
+    assert_eq!(
+        rejections(&events),
+        [Rejection::Empty { step: 1 }, Rejection::Empty { step: 1 }]
+    );
+    let outcome = outcome(&events);
+    assert_eq!(outcome.text, EN);
+    assert_eq!(
+        outcome.report.totals().calls,
+        2,
+        "an empty answer was a call"
+    );
+    let report = outcome.report.to_value();
+    let kinds: Vec<&str> = report["best_effort"]["chunks"][0]["attempts"]
+        .as_array()
+        .expect("attempts")
+        .iter()
+        .map(|attempt| {
+            attempt["verdict"]["rejected"]["kind"]
+                .as_str()
+                .expect("a kind")
+        })
+        .collect();
+    assert_eq!(kinds, ["empty", "empty"], "{report}");
+}
+
+/// D711: a job whose every chunk kept its source rewrote nothing, and says
+/// why — the rejection most of its attempts were thrown away for, counted
+/// against every attempt; a tie goes to the one seen first. A job that
+/// rewrote one chunk of two did not rewrite nothing, and neither did one
+/// with nothing to rewrite.
+#[test]
+fn a_job_whose_every_chunk_kept_its_source_rewrote_nothing() {
+    use crate::report::NothingRewritten;
+
+    let two = format!("{EN}\n\n{EN_2}\n");
+    // Every answer empty, F20's job in small: two chunks, two rounds.
+    let engine = FakeEngine::answering(|_, _| String::new());
+    let events = run(&engine, document(&two, TextFormat::Plain), options(1, 2));
+    assert_eq!(
+        outcome(&events).report.nothing_rewritten(),
+        Some(NothingRewritten {
+            reason: "empty".to_owned(),
+            count: 4,
+            attempts: 4,
+            chunks: 2,
+        })
+    );
+
+    // Mixed: an empty answer, then answers that change nothing.
+    let first_empty = || {
+        FakeEngine::answering(|req, call| {
+            if call == 0 {
+                String::new()
+            } else {
+                text_of(req)
+            }
+        })
+    };
+    let events = run(
+        &first_empty(),
+        document(EN, TextFormat::Plain),
+        options(3, 1),
+    );
+    let nothing = outcome(&events)
+        .report
+        .nothing_rewritten()
+        .expect("nothing");
+    assert_eq!(
+        (nothing.reason.as_str(), nothing.count, nothing.attempts),
+        ("no-op", 2, 3)
+    );
+
+    // A tie, one of each: the first seen.
+    let events = run(
+        &first_empty(),
+        document(EN, TextFormat::Plain),
+        options(2, 1),
+    );
+    let nothing = outcome(&events)
+        .report
+        .nothing_rewritten()
+        .expect("nothing");
+    assert_eq!((nothing.reason.as_str(), nothing.count), ("empty", 1));
+
+    // One chunk of two rewritten: partly, not nothing.
+    let engine = FakeEngine::answering(|req, _| {
+        let text = text_of(req);
+        if text.starts_with("When") {
+            text
+        } else {
+            swap(&text)
+        }
+    });
+    let events = run(&engine, document(&two, TextFormat::Plain), options(1, 1));
+    let report = &outcome(&events).report;
+    assert_eq!(
+        (report.totals().rewritten, report.totals().kept_source),
+        (1, 1)
+    );
+    assert_eq!(report.nothing_rewritten(), None);
+
+    // Nothing to rewrite at all.
+    let events = run(
+        &FakeEngine::new(),
+        document("fn main() {}\n", TextFormat::Code),
+        options(1, 1),
+    );
+    assert_eq!(outcome(&events).report.nothing_rewritten(), None);
+}
+
 #[test]
 fn an_unavailable_engine_fails_the_job() {
     let events = run_on(

@@ -333,22 +333,38 @@ fn chunk_events_move_the_status(cx: &mut TestAppContext) {
     assert_eq!(now, Some((7, 52)));
 }
 
-/// R2: a paragraph no candidate passed keeps its cleaned source, and the
-/// row ends as partly rewritten — the CLI's exit 3.
+/// A second paragraph, for a document of two.
+const OTHER: &str = "Most of the time a clean checkout is all it takes, and the rest of the \
+                     steps are written down in the guide that ships with the source of the \
+                     project itself.\n";
+
+/// The text a request asks to rewrite — between the assembler's markers,
+/// without the context around it.
+fn asked_text(req: &wipemark_engine::ChatRequest) -> &str {
+    const BEGIN: &str = "[[[BEGIN TEXT]]]\n";
+    const END: &str = "\n[[[END TEXT]]]";
+    let start = req.prompt.find(BEGIN).map_or(0, |at| at + BEGIN.len());
+    let stop = req.prompt[start..]
+        .find(END)
+        .map_or(req.prompt.len(), |at| at + start);
+    &req.prompt[start..stop]
+}
+
+/// R2: a paragraph no candidate passed keeps its cleaned source while the
+/// other is rewritten, and the row ends as partly rewritten — the CLI's
+/// exit 3.
 #[gpui::test]
 fn a_kept_chunk_ends_as_partly(cx: &mut TestAppContext) {
     let scratch = Scratch::new("partly");
-    let source = scratch.file("a.md", PARAGRAPH.as_bytes());
-    // An engine that answers with the paragraph as it was: the no-op floor
-    // refuses every candidate.
+    let source = scratch.file("a.md", format!("{PARAGRAPH}\n{OTHER}").as_bytes());
+    // The first paragraph is answered as it was — the no-op floor refuses
+    // every candidate — and the second is rewritten.
     let echo = FakeEngine::answering(|req, _| {
-        const BEGIN: &str = "[[[BEGIN TEXT]]]\n";
-        const END: &str = "\n[[[END TEXT]]]";
-        let start = req.prompt.find(BEGIN).map_or(0, |at| at + BEGIN.len());
-        let stop = req.prompt[start..]
-            .find(END)
-            .map_or(req.prompt.len(), |at| at + start);
-        req.prompt[start..stop].to_owned()
+        if asked_text(req).contains("twelve") {
+            asked_text(req).to_owned()
+        } else {
+            swapped(req)
+        }
     });
     let work = work(echo);
     let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work));
@@ -358,6 +374,72 @@ fn a_kept_chunk_ends_as_partly(cx: &mut TestAppContext) {
     let id = ids(&queue, cx)[0];
     queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
     until(cx, "the end", |cx| status(&queue, cx) == "partly-rewritten");
+}
+
+/// D711, D712 (acceptance F20): a rewrite whose every answer came back
+/// empty rewrote nothing. The row ends as not rewritten — a warning, never
+/// a success — its sentence says why, and its journal row says
+/// `not-rewritten`, the reason and the counts. The result is still written
+/// beside the file, and it is the cleaned text, unchanged; Compare's banner
+/// does not call it a rewrite.
+#[gpui::test]
+fn a_rewrite_whose_every_answer_was_empty_ends_as_not_rewritten(cx: &mut TestAppContext) {
+    use crate::wording::{self, Badge};
+
+    let scratch = Scratch::new("not-rewritten");
+    let marked = format!("The build\u{200B} {}\n{OTHER}", &PARAGRAPH[10..]);
+    let source = scratch.file("a.md", marked.as_bytes());
+    let work = work(FakeEngine::answering(|_, _| String::new()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the end", |cx| status(&queue, cx) == "not-rewritten");
+
+    let said = cx.update(|_, cx| match queue.read(cx).status_of(id) {
+        Some(Status::Recorded(said)) => (**said).clone(),
+        other => panic!("not a recorded status: {other:?}"),
+    });
+    let (word, badge) = wording::recorded_badge(said.action, said.phase, said.outcome.as_ref());
+    assert_eq!(word, Message::QueueStatusNotRewritten);
+    assert_ne!(
+        badge,
+        Badge::Success,
+        "a rewrite that rewrote nothing reads as done"
+    );
+    let sentence = wording::recorded_said(said.action, said.phase, said.outcome.as_ref());
+    let why = wording::not_rewritten_why_in(&wording::window, "empty", Some(4), Some(4));
+    assert!(sentence.contains(&why), "{sentence}");
+
+    until(cx, "the journal", |_| {
+        work.journal
+            .rows()
+            .first()
+            .is_some_and(|row| row.state == "done" && row.action == "rewrite")
+    });
+    let entry = Entry::from_json(&work.journal.rows()[0].entry);
+    let outcome = entry.outcome.as_ref().expect("an outcome");
+    assert_eq!(outcome.verdict, "not-rewritten", "{entry:?}");
+    assert_eq!(outcome.reason.as_deref(), Some("empty"));
+    assert_eq!((outcome.rewritten, outcome.kept_source), (Some(0), Some(2)));
+    assert_eq!((outcome.reason_count, outcome.attempts), (Some(4), Some(4)));
+
+    // D712: written where the plan said, and it is the cleaned text.
+    let written = std::fs::read_to_string(scratch.0.join("a.rewritten.md")).expect("the result");
+    assert_eq!(
+        written,
+        wipemark_core::clean(&marked, &wipemark_core::Options::default()).text
+    );
+    assert!(
+        matches!(&entry.result, Some(Delivered::File { path, .. }) if path.ends_with("a.rewritten.md")),
+        "{entry:?}"
+    );
+    assert_eq!(
+        crate::compare::banner_lines(crate::compare::MadeKind::Rewritten { kept: Some((2, 2)) }),
+        [t(Message::CompareNotRewrittenBanner)]
+    );
 }
 
 /// R2: Cancel ends a queued rewrite as cancelled, and nothing is written.

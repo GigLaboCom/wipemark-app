@@ -312,7 +312,22 @@ never used — rejected attempts carry no text.
 An engine error rejects the attempt (`Transport`, `Protocol`,
 `ContextOverflow`, `NotImplemented`) and the loop goes on; `Unavailable`
 fails the job (asking every candidate of every chunk would repeat it);
-`Cancelled` cancels it. `max_tokens`, when the options leave it unset, is
+`Cancelled` cancels it. An answer the engine says was empty
+(`EngineError::Empty` — an endpoint that streamed only its thinking, D710)
+is not an engine failure: it is `Rejection::Empty`, the report's `empty`,
+as an answer that is empty once cleaned up is, and it counts as a call
+(`Rejection::of_engine`; `an_answer_the_engine_calls_empty_is_rejected_as_empty`).
+
+**A job that rewrote nothing** — chunks, and every one of them kept its
+source — is not "partly" (D711). `report::nothing_rewritten`, over the
+report's JSON so the application and the command line read one report one
+way, says so with the rejection most attempts were thrown away for (a tie
+to the one seen first; with no attempts, the chunks' `kept_source` reason)
+and its count against every attempt (`NothingRewritten`). The window's row
+reads *Not rewritten*, the MCP tool answers it as an error with no text,
+and the command line exits 2 and writes nothing
+(`a_job_whose_every_chunk_kept_its_source_rewrote_nothing`). A job with no
+chunks at all is not one. `max_tokens`, when the options leave it unset, is
 `2 × estimate_tokens(input) + 64` — the estimate never undercounts by more
 than 5 %, the length guard rejects past 1.6×, and the engines clip to the
 window; without a ceiling a runaway answer costs minutes on a CPU.

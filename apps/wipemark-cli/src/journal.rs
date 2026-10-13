@@ -322,12 +322,19 @@ pub(crate) fn rewrite_outcome(report: &serde_json::Value, exit: Exit) -> Outcome
     let totals = &report["best_effort"]["totals"];
     let count = |key: &str| totals[key].as_u64().and_then(|n| u32::try_from(n).ok());
     let kept_source = count("kept_source");
+    // Every chunk kept its source (D711): `not-rewritten`, and why.
+    let nothing = wipemark_pipeline::report::nothing_rewritten(report);
     Outcome {
-        verdict: if exit == Exit::Partial || kept_source.is_some_and(|kept| kept > 0) {
+        verdict: if nothing.is_some() {
+            "not-rewritten".to_owned()
+        } else if exit == Exit::Partial || kept_source.is_some_and(|kept| kept > 0) {
             "partly".to_owned()
         } else {
             "rewritten".to_owned()
         },
+        reason: nothing.as_ref().map(|nothing| nothing.reason.clone()),
+        attempts: nothing.as_ref().map(|nothing| nothing.attempts),
+        reason_count: nothing.as_ref().map(|nothing| nothing.count),
         findings: report["verifiable"]["before"]["findings"]
             .as_array()
             .map(|findings| findings.len() as u64),
@@ -374,6 +381,38 @@ mod tests {
         let outcome = super::rewrite_outcome(&report, Exit::Clean);
         assert_eq!(outcome.profile.as_deref(), Some("legal"));
         assert_eq!(outcome.verdict, "rewritten");
+    }
+
+    /// D711: a run that rewrote nothing is a done row that says so — never
+    /// `partly` — with the most frequent rejection and its counts, the
+    /// window's words for the same job; nothing was delivered.
+    #[test]
+    fn a_run_that_rewrote_nothing_is_recorded_as_not_rewritten() {
+        let empty = serde_json::json!({"verdict": {"rejected": {"kind": "empty"}}});
+        let guard = serde_json::json!({"verdict": {"rejected": {"kind": "guard"}}});
+        let report = serde_json::json!({
+            "verifiable": {"before": {"findings": []}},
+            "best_effort": {
+                "engine": {"model_id": "m"},
+                "totals": {"chunks": 2, "rewritten": 0, "kept_source": 2},
+                "chunks": [
+                    {"attempts": [empty, guard]},
+                    {"attempts": [empty]},
+                ],
+            },
+        });
+        begin(Action::Rewrite, "-");
+        note(|draft| {
+            draft.read = true;
+            draft.entry.outcome = Some(super::rewrite_outcome(&report, Exit::Usage));
+        });
+        let (phase, entry) = closed(take(), Exit::Usage);
+        assert_eq!(phase, Phase::Done);
+        let outcome = entry.outcome.expect("an outcome");
+        assert_eq!(outcome.verdict, "not-rewritten");
+        assert_eq!(outcome.reason.as_deref(), Some("empty"));
+        assert_eq!((outcome.reason_count, outcome.attempts), (Some(2), Some(3)));
+        assert_eq!(entry.result, Some(Delivered::Nowhere));
     }
 
     #[test]

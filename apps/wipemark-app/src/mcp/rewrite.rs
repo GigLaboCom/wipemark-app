@@ -63,7 +63,7 @@ use wipemark_pipeline::lang::Lang;
 use wipemark_pipeline::prompt::profile::{self, Profile};
 use wipemark_pipeline::prompt::row::{self, Laid};
 use wipemark_pipeline::prompt::Overrides;
-use wipemark_pipeline::{Document, Ending, JobId, PipelineError, Refused};
+use wipemark_pipeline::{Document, Ending, JobId, NothingRewritten, PipelineError, Refused};
 use wipemark_queue::{Destination, End, ItemId, QueueEvent, Request, Source};
 use wipemark_store::entry::{Action, Delivered, Entry, Origin, Phase};
 use wipemark_store::{Change, NewRow};
@@ -199,6 +199,11 @@ pub enum Unrun {
     Refused(Refused),
     /// The job failed.
     Failed(PipelineError),
+    /// The job ran to its end and rewrote nothing: every chunk kept its
+    /// cleaned source (D711). Answered as a job that failed is — `isError`,
+    /// and no text: the input with only Layer A's changes handed back
+    /// without an error would be filed as rewritten.
+    NotRewritten(NothingRewritten),
     /// The job was cancelled, and why.
     Stopped(Option<Stop>),
     /// The job's thread ended without a word.
@@ -379,6 +384,9 @@ impl Rewriter {
                     seconds = elapsed.as_secs_f64(),
                     "MCP: tools/call answered"
                 );
+                if let Some(nothing) = outcome.report.nothing_rewritten() {
+                    return Err(Unrun::NotRewritten(nothing));
+                }
                 Ok(Done::Rewritten {
                     report: outcome.report.to_json(),
                     text: outcome.text,
@@ -536,6 +544,10 @@ impl Rewriter {
                     kept = totals.kept_source,
                     "MCP: tools/call answered"
                 );
+                // Nothing rewritten (D711): said as an error, with no text.
+                if let Some(nothing) = done.report.nothing_rewritten() {
+                    return Err(Unrun::NotRewritten(nothing));
+                }
                 Ok(Done::Rewritten {
                     report: done.report.to_json(),
                     text: done.text,

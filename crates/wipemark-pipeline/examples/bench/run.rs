@@ -24,7 +24,7 @@ use wipemark_pipeline::prepare::{estimate_tokens, Chunk, TextFormat};
 use wipemark_pipeline::prompt::{
     clean_response, render, Input, Intensity, RenderError, Slot, Stripped, Tactic,
 };
-use wipemark_pipeline::report::{rejection_value, EngineFailure, Rejection};
+use wipemark_pipeline::report::{rejection_value, Rejection};
 use wipemark_pipeline::select::{self, Scorer};
 use wipemark_pipeline::{seed_for, Document, Options};
 
@@ -172,13 +172,16 @@ pub fn attempt(
         let completion = match answer {
             Ok(completion) => completion,
             Err(error) => {
-                match EngineFailure::of(error) {
-                    Ok(failure) => {
-                        steps.push(json!({"step": step.step, "secs": secs, "error": format!("{failure:?}")}));
-                        verdict_of = Some(Rejection::Engine {
-                            step: step.step,
-                            failure,
-                        });
+                // An answer the engine says was empty is `empty`, as in the
+                // loop (D710).
+                match Rejection::of_engine(step.step, error) {
+                    Ok(rejection) => {
+                        let error = match &rejection {
+                            Rejection::Engine { failure, .. } => format!("{failure:?}"),
+                            other => format!("{other:?}"),
+                        };
+                        steps.push(json!({"step": step.step, "secs": secs, "error": error}));
+                        verdict_of = Some(rejection);
                         break;
                     }
                     Err(EngineError::Unavailable(why)) => {

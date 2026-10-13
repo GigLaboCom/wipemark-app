@@ -693,17 +693,30 @@ pub fn book(journal: &Journal, event: &QueueEvent) {
 
 /// What a rewrite's end comes to, for its row: the outcome, and where the
 /// result went — the caller, for an agent's or the command line's.
+///
+/// A job that rewrote nothing — every chunk kept its source — is
+/// `not-rewritten` (D711), never `partly`, with the rejection most of its
+/// attempts were thrown away for as its reason. A window's result is
+/// still delivered where its plan said (D712: it is the cleaned text);
+/// a caller is handed nothing back, because the MCP tool answers such a
+/// job as an error with no text.
 pub fn rewrite_end(end: &End, caller: bool) -> (Outcome, Option<Delivered>) {
     match end {
         End::Done(done) => {
             let totals = done.report.totals();
+            let nothing = done.report.nothing_rewritten();
+            let verdict = if nothing.is_some() {
+                "not-rewritten"
+            } else if totals.kept_source > 0 {
+                "partly"
+            } else {
+                "rewritten"
+            };
             let outcome = Outcome {
-                verdict: if totals.kept_source > 0 {
-                    "partly"
-                } else {
-                    "rewritten"
-                }
-                .to_owned(),
+                verdict: verdict.to_owned(),
+                reason: nothing.as_ref().map(|nothing| nothing.reason.clone()),
+                attempts: nothing.as_ref().map(|nothing| nothing.attempts),
+                reason_count: nothing.as_ref().map(|nothing| nothing.count),
                 findings: Some(done.report.before.findings.len() as u64),
                 kept: Some(done.report.before.kept.len() as u64),
                 chunks: Some(totals.chunks),
@@ -715,7 +728,9 @@ pub fn rewrite_end(end: &End, caller: bool) -> (Outcome, Option<Delivered>) {
                 profile: Some(done.report.profile.clone()),
                 ..Outcome::default()
             };
-            let delivered = if caller {
+            let delivered = if caller && nothing.is_some() {
+                Delivered::Nowhere
+            } else if caller {
                 Delivered::Caller
             } else {
                 match &done.written {

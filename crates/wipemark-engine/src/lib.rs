@@ -227,6 +227,13 @@ pub enum EngineError {
     /// The endpoint answered, but not in a shape we can read.
     #[error("protocol: {0}")]
     Protocol(String),
+    /// The engine answered, and the answer has no text in it: a 200 with
+    /// no body, or a stream that ended properly with nothing in its
+    /// content — an Ollama model that streamed only its thinking (D710).
+    /// Not an engine failure: the loop rejects the attempt as `empty`, as
+    /// it does an empty answer handed back.
+    #[error("the answer was empty")]
+    Empty,
     #[error("context overflow: {used} tokens over a {limit}-token window")]
     ContextOverflow { used: u32, limit: u32 },
     /// Refused before doing anything, and why — as a value, so that the
