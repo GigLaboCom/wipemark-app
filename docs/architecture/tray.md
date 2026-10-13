@@ -191,6 +191,34 @@ window saves its rectangle, and two handlers added here —
 Then GPUI's run loop returns, `main` returns, and the process exits —
 every window with it, the tray's thread and the MCP threads included.
 
+**D717 — SIGTERM, SIGINT and SIGHUP take the same road.** Acceptance F7
+(2026-10-12): a `SIGTERM` ended the process where it stood, and the beacon
+stayed behind naming the dead pid — and so did `wipemark.sock`, the model
+was not dropped and waited for, Settings did not save its rectangle.
+`signals::quit_on_signals`, the first call in `main`'s run closure,
+registers the three through `async-signal`, whose handler only writes the
+signal's number to a socket pair. A thread of ours, `wipemark-signals`,
+reads it and hands the first signal to the GPUI side over a `flume`
+channel; there one line, `quitting on SIGTERM`, and `App::quit` — the call
+Quit makes, so every handler above runs. A second signal while that quit
+runs ends the process at once, `_exit(128 + n)` (143 for a second
+`SIGTERM`), so a quit that hangs can still be ended from a terminal. The
+handler is installed after `--version` has printed and returned, and
+after a summons was handed to a running instance; the CLI installs none
+(D719). The test platform's `App::quit` does nothing, so the gates hold
+the plumbing up to the call (`the_first_signal_quits_and_a_second_ends_at_once`,
+`a_signal_handed_over_quits_on_the_gpui_thread`); `kill -TERM` against a
+running application, then `mcp.json` gone, is a live check.
+
+**D718 — a beacon a dead process left is swept at the next start.** A
+`SIGKILL` cannot be caught. The MCP supervisor's first act, before any
+command and whether or not the server is on, is
+`Beacon::remove_if_dead`: a beacon whose process does not run (the CLI's
+own check, `Beacon::alive`) is removed with a line in the log; one whose
+process runs is left
+(`a_beacon_a_dead_process_left_is_swept_when_the_server_starts`). Until
+then a stale beacon went only when the server wrote its own over it.
+
 ## The theme tick
 
 **D345 — the tick is put back on every click.** A check item in a GTK

@@ -438,6 +438,58 @@ Deleting six gigabytes because somebody closed a window is not a
 kindness, and the tone of that message is a warning only when something
 actually failed — `stopping_a_download_is_not_reported_as_a_fault`.
 
+### What a download says in the log (D715, D716)
+
+Acceptance F1 (2026-10-12): 9.4 GB of 12 GB landed in ten minutes and the
+log had nothing from the downloader — no start, no host, no progress, no
+end — so a failed download was visible only in the window. Now every file
+`Downloads::fetch` downloads writes, through `FileLog` in `store.rs`:
+
+| line | level | fields |
+|---|---|---|
+| `a download starts` | info | `model`, `file`, `host` — the URL's host and nothing else of it, no path, query or port — `bytes` (the catalogue's size), `resume`, `from` |
+| `a download resumes where it stopped` | info | `from` — the server answered the `Range` with 206 |
+| `the server ignored the range; …` | info | `asked_from` — a 200 to a resume, written from the first byte |
+| `download progress` | info | `done`, `total`, `percent`, `mb_per_s` (this attempt's bytes over the time since the server answered) |
+| `a download is verified` | info | `bytes`, `seconds` — the sha256 matched and the file is in place |
+| `a download is in place; the catalogue gives no sha256 …` | info | `bytes`, `seconds` |
+| `a download does not match the catalogue; …` | warn | `expected`, `found` — twelve hex digits of each |
+| `a download is cancelled; …` | info | `done` |
+| `a download failed` | warn | `kind` (`StoreError::kind`, the words `wipemark-cli` logs a pull with), `status` (the HTTP status, when there was one), `cause` and `io` (what the wire said: `timeout`, `host not found`, `connection failed`, `status`, the I/O error's kind …), `done` |
+
+One end per file, whichever way it ends. A model's download that fails
+outside any one file — no room, a folder that cannot be made, the sidecar
+after the last file — is one `a download failed` line with `model` and
+`kind`. An error's message is never logged: it carries the URL, which for
+Hugging Face is a CDN path with a signed query.
+
+**Progress is throttled by a pure function**, `store::should_log(now,
+done, total, last)` (D716): the first byte is always said; after it a
+line waits for another tenth of the file **and** thirty seconds since the
+last one, whichever comes later — a fast download says something every
+thirty seconds, a slow one every tenth, and a file is a dozen lines at
+most; the end is said without waiting for either, once; and no two lines
+come within a second, the end included (a file that comes down in under a
+second has said its first byte, and the end line after the hash says the
+rest).
+
+There is no retry of a dropped connection: it ends as `a download failed`
+(`kind=transport`, `io=…`), the `.part` is kept, and the next Download (or
+`wipemark-cli models pull`) resumes it — its start says `resume=true` and
+the byte, and the server's 206 is the resume line. The CLI's pull goes
+through the same `fetch`, so its log file says the same. A model the
+person adds (E8-1) is a file already on the disk: nothing downloads it.
+
+Gates: `a_download_logs_its_progress_sparingly` (the throttle),
+`a_download_says_what_it_does_in_the_log` (a fake server that redirects,
+as Hugging Face does, to a path with a signed query: start, progress,
+verified, and no line with either path, the query or the port),
+`a_mismatched_download_says_both_hashes`, `a_cancelled_download_says_so`,
+`a_failed_download_says_its_kind_and_status` (a 404),
+`an_interrupted_download_asks_only_for_the_rest` and
+`a_server_that_ignores_a_range_does_not_corrupt_the_file` (the resume and
+the ignored range).
+
 ### No credentials, so redirects are safe
 
 There are none. The catalogue holds public weights, the downloader sends
