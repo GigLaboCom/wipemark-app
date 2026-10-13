@@ -471,7 +471,7 @@ settings-engine-local-check-speed = Токенов: { $tokens }, { $rate } в с
 settings-engine-local-check-speed-unknown = Токенов: { $tokens } — слишком мало, чтобы измерить скорость.
 settings-engine-local-check-failed = Проверка не выполнена: { $reason }
 settings-engine-local-check-cancelled = Проверка отменена.
-settings-engine-local-check-note = Проверка показывает, что модель загружается и пишет. Это не переписывание: эти окна пока ничего не переписывают, а агент по MCP и командная строка переписывают этой моделью.
+settings-engine-local-check-note = Проверка показывает, что модель загружается и пишет. Это не переписывание: «Переписать» в главном окне, агент по MCP и командная строка — все переписывают этой моделью.
 settings-engine-local-no-tray = На этой системе нет значка в строке меню, поэтому закрытие главного окна завершает { -brand-name } и освобождает модель.
 
 settings-engine-remote-title = Сервер
@@ -482,7 +482,7 @@ settings-engine-remote-check-answered = Сервер ответил: «{ $text }
 settings-engine-remote-check-first = Первый фрагмент пришёл через { $seconds } с.
 settings-engine-remote-check-speed = Фрагментов: { $pieces }, { $rate } в секунду после первого.
 settings-engine-remote-check-speed-unknown = Фрагментов: { $pieces } — слишком мало, чтобы измерить скорость.
-settings-engine-remote-check-note = Проверка показывает, что сервер отвечает. Это не переписывание: эти окна пока ничего не переписывают, а агент по MCP и командная строка отправляют документы сюда.
+settings-engine-remote-check-note = Проверка показывает, что сервер отвечает. Это не переписывание: «Переписать» в главном окне, агент по MCP и командная строка — все отправляют документы сюда.
 settings-engine-remote-check-sent-to = Её запрос — заранее заданная фраза, никогда не документ — отправляется на { $origin }, а это не этот компьютер.
 
 engine-refusal-not-built = В этой сборке нет локального движка.
@@ -577,7 +577,7 @@ settings-engine-timeout-description = Сколько секунд ждать о�
 settings-section-models = Модели
 settings-models-title = Локальные модели
 settings-models-description = Открытые веса, загруженные на эту машину и сверенные с контрольной суммой из каталога { -brand-name }. Ничего не загружается, пока вы не попросите.
-settings-models-pending = Загруженную модель можно загрузить в память и проверить на странице «Движок»; эти окна пока ею не переписывают, а агент по MCP и wipemark-cli rewrite — могут. Очистке она не нужна.
+settings-models-pending = Загруженную модель можно загрузить в память и проверить на странице «Движок», и она переписывает в главном окне, по MCP и в wipemark-cli rewrite. Очистке она не нужна.
 settings-models-folder-title = Папка моделей
 settings-models-folder-description = Куда складываются загрузки и где { -brand-name } ищет файлы моделей — в этой папке и во всех вложенных. Пустое поле возвращает папку по умолчанию.
 settings-models-folder-choose = Выбрать…

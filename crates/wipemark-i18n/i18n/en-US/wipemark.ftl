@@ -737,7 +737,7 @@ settings-engine-local-check-speed = { $tokens } tokens, { $rate } per second aft
 settings-engine-local-check-speed-unknown = { $tokens } tokens — too few to time.
 settings-engine-local-check-failed = The check did not run: { $reason }
 settings-engine-local-check-cancelled = The check was cancelled.
-settings-engine-local-check-note = A check proves the model loads and writes. It is not a rewrite: these windows rewrite nothing yet, and an agent over MCP or the command line does it with this model.
+settings-engine-local-check-note = A check proves the model loads and writes. It is not a rewrite: Rewrite in the main window, an agent over MCP and the command line all use this model.
 settings-engine-local-no-tray = There is no menu-bar item on this system, so closing the main window quits { -brand-name } and frees the model.
 
 ## The endpoint on duty, in the same place: where a check goes, and what it
@@ -757,7 +757,7 @@ settings-engine-remote-check-first = The first piece arrived after { $seconds } 
 # with one decimal.
 settings-engine-remote-check-speed = { $pieces } pieces, { $rate } per second after the first.
 settings-engine-remote-check-speed-unknown = { $pieces } pieces — too few to time.
-settings-engine-remote-check-note = A check proves the endpoint answers. It is not a rewrite: these windows rewrite nothing yet, and an agent over MCP or the command line sends its documents here.
+settings-engine-remote-check-note = A check proves the endpoint answers. It is not a rewrite: Rewrite in the main window, an agent over MCP and the command line all send their documents here.
 # Shown only when the endpoint is not this machine. $origin is scheme, host
 # and port.
 settings-engine-remote-check-sent-to = Its prompt — a fixed sentence, never a document — is sent to { $origin }, which is not this machine.
@@ -938,8 +938,9 @@ settings-section-models = Models
 settings-models-title = Local models
 settings-models-description = Open weights downloaded to this machine, verified against the checksum in { -brand-name }'s catalogue. Nothing is downloaded until you ask for it.
 
-# The honest half, and it stays until E2 and E3 both land.
-settings-models-pending = A downloaded model can be loaded and checked on the Engine page; these windows rewrite nothing with it yet, while an agent over MCP and wipemark-cli rewrite can. Cleaning needs none of it.
+# What a downloaded model is for, said in every state of the page. The key
+# keeps its old name ("pending"); what it says is no longer pending (D713).
+settings-models-pending = A downloaded model can be loaded and checked on the Engine page, and rewrites in the main window, over MCP and with wipemark-cli rewrite. Cleaning needs none of it.
 
 ## The folder. One row, because the question it answers is "which
 ## disk", and it is read recursively because a folder another tool

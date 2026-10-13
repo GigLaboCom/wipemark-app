@@ -454,7 +454,7 @@ settings-engine-local-check-speed = { $tokens } Tokens, { $rate } pro Sekunde na
 settings-engine-local-check-speed-unknown = { $tokens } Tokens — zu wenige, um sie zu messen.
 settings-engine-local-check-failed = Die Prüfung lief nicht: { $reason }
 settings-engine-local-check-cancelled = Die Prüfung wurde abgebrochen.
-settings-engine-local-check-note = Eine Prüfung zeigt, dass das Modell lädt und schreibt. Sie ist keine Umschreibung: Diese Fenster schreiben noch nichts um, ein Agent über MCP und die Kommandozeile schreiben mit diesem Modell um.
+settings-engine-local-check-note = Eine Prüfung zeigt, dass das Modell lädt und schreibt. Sie ist keine Umschreibung: „Umschreiben“ im Hauptfenster, ein Agent über MCP und die Kommandozeile verwenden alle dieses Modell.
 settings-engine-local-no-tray = Auf diesem System gibt es keinen Eintrag in der Menüleiste; das Schließen des Hauptfensters beendet { -brand-name } also und gibt das Modell frei.
 
 settings-engine-remote-title = Der Endpunkt
@@ -465,7 +465,7 @@ settings-engine-remote-check-answered = Der Endpunkt antwortete: „{ $text }“
 settings-engine-remote-check-first = Das erste Stück kam nach { $seconds } s.
 settings-engine-remote-check-speed = { $pieces } Stücke, { $rate } pro Sekunde nach dem ersten.
 settings-engine-remote-check-speed-unknown = { $pieces } Stücke — zu wenige, um sie zu messen.
-settings-engine-remote-check-note = Eine Prüfung zeigt, dass der Endpunkt antwortet. Sie ist keine Umschreibung: Diese Fenster schreiben noch nichts um, ein Agent über MCP und die Kommandozeile schicken ihre Dokumente hierher.
+settings-engine-remote-check-note = Eine Prüfung zeigt, dass der Endpunkt antwortet. Sie ist keine Umschreibung: „Umschreiben“ im Hauptfenster, ein Agent über MCP und die Kommandozeile schicken alle ihre Dokumente hierher.
 settings-engine-remote-check-sent-to = Ihre Eingabe — ein fester Satz, nie ein Dokument — geht an { $origin }, und das ist nicht dieser Rechner.
 
 engine-refusal-not-built = Dieser Build hat keine lokale Engine.
@@ -560,7 +560,7 @@ settings-engine-timeout-description = Sekunden, die auf eine Antwort gewartet wi
 settings-section-models = Modelle
 settings-models-title = Lokale Modelle
 settings-models-description = Offene Gewichte, die auf dieses Gerät geladen und gegen die Prüfsumme im Katalog von { -brand-name } geprüft werden. Nichts wird geladen, bevor Sie es verlangen.
-settings-models-pending = Ein heruntergeladenes Modell kann auf der Seite „Engine“ geladen und geprüft werden; diese Fenster schreiben damit noch nichts um, ein Agent über MCP und wipemark-cli rewrite schon. Die Bereinigung braucht davon nichts.
+settings-models-pending = Ein heruntergeladenes Modell kann auf der Seite „Engine“ geladen und geprüft werden, und es schreibt im Hauptfenster, über MCP und mit wipemark-cli rewrite um. Die Bereinigung braucht davon nichts.
 settings-models-folder-title = Modellordner
 settings-models-folder-description = Wohin Downloads gelegt werden und wo { -brand-name } nach Modelldateien sucht — in diesem Ordner und in jedem Ordner darunter. Ein geleertes Feld stellt den Standard wieder her.
 settings-models-folder-choose = Auswählen…

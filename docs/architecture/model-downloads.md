@@ -651,8 +651,11 @@ can. A panic in the reader still frees the path and wakes the waiters
 
 ## What is deliberately not here
 
-* **Loading a model.** E2. The banner says so in every state
-  (`the_models_banner_always_says_the_weights_are_not_used_yet`).
+* **Loading a model.** E2 (`local-engine.md`), on the Engine page. The
+  banner's last line says, in every state, what a downloaded model is for:
+  loaded and checked there, rewriting in the main window, over MCP and with
+  `wipemark-cli rewrite` (D713;
+  `the_models_banner_always_says_what_the_weights_are_for`).
 * **A signed remote manifest.** The embedded copy is trusted because it
   is compiled in; a mirrored one needs the Ed25519 check that lands with
   E9. Every parse rule is already written as though the manifest were

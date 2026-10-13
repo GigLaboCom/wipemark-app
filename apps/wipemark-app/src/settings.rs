@@ -8947,11 +8947,10 @@ impl Tone {
 /// sentences a user reads are decided here, over plain values, so they
 /// can be checked without a window.
 ///
-/// Always ends with [`Message::SettingsModelsPending`]. A downloaded
-/// model is a file on disk and nothing more in this build — loading one
-/// is epic E2 and this catalogue is E3 — and a page that let somebody
-/// spend seven gigabytes without saying so would be selling work that
-/// has not been done.
+/// Always ends with [`Message::SettingsModelsPending`]: what a downloaded
+/// model is for — loaded and checked on the Engine page, rewriting in the
+/// main window, over MCP and with `wipemark-cli rewrite` (D713) — so a
+/// page that lets somebody spend seven gigabytes says what they buy.
 fn models_banner(
     host: Option<Host>,
     scanned: bool,
@@ -10396,9 +10395,9 @@ mod tests {
     }
 
     /// The bargain the MCP pane makes, kept on this page too: the last
-    /// line of the banner says that these windows do not rewrite yet — and
-    /// that an agent over MCP and the command line do, with what this page
-    /// puts on duty — in every state the page can be in.
+    /// line of the banner says who rewrites with what this page puts on
+    /// duty — Rewrite in the main window, an agent over MCP and the command
+    /// line — in every state the page can be in.
     ///
     /// The failure it exists for is the one that ships: somebody adds a
     /// state, writes a cheerful first line for it, and a user reads
@@ -10574,9 +10573,9 @@ mod tests {
     /// The same promise the Engine banner makes, on the page where it
     /// costs the most to break: a user can spend seven gigabytes of
     /// disk and an hour of bandwidth here, and every state has to say
-    /// that nothing loads the file yet.
+    /// what the file is for (D713).
     #[test]
-    fn the_models_banner_always_says_the_weights_are_not_used_yet() {
+    fn the_models_banner_always_says_what_the_weights_are_for() {
         for state in every_models_state() {
             let (_, lines) = models_banner(
                 state.host,
@@ -10588,7 +10587,7 @@ mod tests {
             let last = lines.last().expect("a banner is never empty");
             assert!(
                 reads_as(last, Message::SettingsModelsPending),
-                "{state:?} does not say the weights are not used yet: {last:?}"
+                "{state:?} does not say what the weights are for: {last:?}"
             );
             for line in &lines {
                 assert!(!line.is_empty(), "{state:?} produced an empty line");
