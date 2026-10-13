@@ -555,6 +555,14 @@ settings-placement-system-decides = On this desktop the system decides where a w
 
 settings-placement-close-title = Close after a drop
 settings-placement-close-description = Dropping the window onto a part of a screen closes this window, so you can see where it landed. Clicking a part leaves this window open.
+settings-panel-clear-title = Clear the panel
+settings-panel-clear-description = After this long with nothing being looked at or cleaned, the panel lets go of what was dropped on it and invites the next drop. What was dropped stays in the main window's list either way.
+settings-panel-clear-seconds = After { $count } seconds
+settings-panel-clear-minutes = { $count ->
+        [one] After a minute
+       *[other] After { $count } minutes
+    }
+settings-panel-clear-never = Never
 
 settings-placement-screen-title = Open on
 settings-placement-screen-description = The active screen is the one the pointer is on when the window opens. The primary screen is the one the desktop puts the menu bar on, wherever the pointer happens to be.

@@ -1,3 +1,4 @@
+// Modified by GigLabo and Denis Esakov, 2026-10-12: a dragged text is read and handed over as a private drop file, and drag types are ranked by name (vendor/gpui-pre-linux.patch).
 use std::{
     cell::RefCell,
     env,
@@ -1289,6 +1290,202 @@ pub(super) fn read_fd_with_timeout(
 }
 
 #[cfg(any(feature = "wayland", feature = "x11"))]
+pub(super) const DROPPED_TEXT_LIMIT: usize = 1 << 20;
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+const DRAG_TYPES: [&str; 6] = [
+    "text/uri-list",
+    "text/plain;charset=utf-8",
+    "utf8_string",
+    "text/plain",
+    "string",
+    "text",
+];
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+pub(super) fn drag_type_rank(name: &str) -> Option<usize> {
+    let name = name
+        .to_ascii_lowercase()
+        .replace([' ', '"'], "")
+        .replace("charset=utf8", "charset=utf-8");
+    DRAG_TYPES.iter().position(|known| *known == name)
+}
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+pub(super) fn drag_types_in_order<T: Copy + PartialEq>(offered: &[(T, String)]) -> Vec<T> {
+    let mut ranked: Vec<(usize, T)> = offered
+        .iter()
+        .filter_map(|(id, name)| drag_type_rank(name).map(|rank| (rank, *id)))
+        .collect();
+    ranked.sort_by_key(|(rank, _)| *rank);
+    let mut types = Vec::new();
+    for (_, id) in ranked {
+        if !types.contains(&id) {
+            types.push(id);
+        }
+    }
+    types
+}
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+pub(super) enum DroppedPayload {
+    Paths(smallvec::SmallVec<[PathBuf; 2]>),
+    Text(DroppedText),
+}
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+impl DroppedPayload {
+    pub(super) fn read(bytes: Vec<u8>, uri_list: bool) -> Option<Self> {
+        if uri_list {
+            let file_list = std::str::from_utf8(&bytes).ok()?;
+            let paths: smallvec::SmallVec<[PathBuf; 2]> = file_list
+                .lines()
+                .filter_map(|path| url::Url::parse(path).log_err())
+                .filter_map(|url| match url.to_file_path() {
+                    Ok(path) => Some(path),
+                    Err(()) => {
+                        log::debug!("dragged URI {url} is not a file, kept as text");
+                        None
+                    }
+                })
+                .collect();
+            if !paths.is_empty() {
+                return Some(Self::Paths(paths));
+            }
+        }
+        DroppedText::new(dropped_text_dir(), bytes).map(Self::Text)
+    }
+
+    pub(super) fn paths(&self) -> smallvec::SmallVec<[PathBuf; 2]> {
+        match self {
+            Self::Paths(paths) => paths.clone(),
+            Self::Text(text) => smallvec::smallvec![text.path.clone()],
+        }
+    }
+}
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+pub(super) struct DroppedText {
+    path: PathBuf,
+    text: String,
+}
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+impl std::fmt::Debug for DroppedText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DroppedText")
+            .field("path", &self.path)
+            .field("len", &self.text.len())
+            .finish()
+    }
+}
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+impl DroppedText {
+    pub(super) fn new(dir: PathBuf, bytes: Vec<u8>) -> Option<Self> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+
+        if bytes.is_empty() {
+            log::debug!("dragged text: empty, nothing to drop");
+            return None;
+        }
+        if bytes.len() > DROPPED_TEXT_LIMIT {
+            log::warn!(
+                "dragged text refused: {} bytes, over the limit of {DROPPED_TEXT_LIMIT}",
+                bytes.len()
+            );
+            return None;
+        }
+        let Ok(text) = String::from_utf8(bytes) else {
+            log::warn!("dragged text refused: not UTF-8");
+            return None;
+        };
+        let text = text.replace("\r\n", "\n");
+        log::debug!("dragged text read: {} bytes", text.len());
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_nanos());
+        let name = format!(
+            "{}-{nanos}-{}.txt",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        Some(Self {
+            path: dir.join(name),
+            text,
+        })
+    }
+
+    pub(super) fn write(self) -> bool {
+        use std::{
+            fs::{DirBuilder, OpenOptions},
+            io::Write as _,
+            os::unix::fs::{DirBuilderExt as _, MetadataExt as _, OpenOptionsExt as _},
+        };
+
+        let Some(dir) = self.path.parent() else {
+            return false;
+        };
+        let private = match DirBuilder::new().mode(0o700).create(dir) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
+                std::fs::symlink_metadata(dir).and_then(|metadata| {
+                    let uid = unsafe { libc::getuid() };
+                    if metadata.is_dir() && metadata.uid() == uid && metadata.mode() & 0o077 == 0 {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::other(
+                            "not a private directory of this user",
+                        ))
+                    }
+                })
+            }
+            Err(err) => Err(err),
+        };
+        if let Err(err) = private {
+            log::warn!("dragged text not written: {}: {err}", dir.display());
+            return false;
+        }
+        let written = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&self.path)
+            .and_then(|mut file| match file.write_all(self.text.as_bytes()) {
+                Ok(()) => Ok(()),
+                Err(err) => {
+                    std::fs::remove_file(&self.path).ok();
+                    Err(err)
+                }
+            });
+        match written {
+            Ok(()) => {
+                log::debug!(
+                    "dragged text written to its drop file: {} bytes",
+                    self.text.len()
+                );
+                true
+            }
+            Err(err) => {
+                log::warn!("dragged text not written: {err}");
+                false
+            }
+        }
+    }
+}
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
+pub(super) fn dropped_text_dir() -> PathBuf {
+    match env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from) {
+        Some(dir) if dir.is_absolute() => dir.join("wipemark-dropped-text"),
+        _ => env::temp_dir().join(format!("wipemark-dropped-text-{}", unsafe {
+            libc::getuid()
+        })),
+    }
+}
+
+#[cfg(any(feature = "wayland", feature = "x11"))]
 pub(super) const DEFAULT_CURSOR_ICON_NAME: &str = "left_ptr";
 
 #[cfg(any(feature = "wayland", feature = "x11"))]
@@ -1812,6 +2009,95 @@ mod tests {
             ActivityGuard::new(move || {
                 released.fetch_add(1, SeqCst);
             })
+        }
+    }
+
+    #[cfg(any(feature = "wayland", feature = "x11"))]
+    mod dropped_text {
+        use super::super::{DROPPED_TEXT_LIMIT, DroppedPayload, DroppedText, dropped_text_dir};
+        use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+        use std::path::PathBuf;
+
+        fn test_dir(name: &str) -> PathBuf {
+            let dir = std::env::temp_dir()
+                .join(format!("gpui-dropped-text-{name}-{}", std::process::id()));
+            std::fs::remove_dir_all(&dir).ok();
+            dir
+        }
+
+        fn mode(path: &std::path::Path) -> u32 {
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+        }
+
+        #[test]
+        fn drag_types_are_ranked_by_name_whatever_their_case() {
+            use super::super::{drag_type_rank, drag_types_in_order};
+            assert_eq!(drag_type_rank("text/uri-list"), Some(0));
+            assert_eq!(drag_type_rank("text/plain;charset=UTF-8"), Some(1));
+            assert_eq!(drag_type_rank("text/plain; charset=\"utf8\""), Some(1));
+            assert_eq!(drag_type_rank("UTF8_STRING"), Some(2));
+            assert_eq!(drag_type_rank("text/html"), None);
+            let offered = [
+                (1, "text/html".to_string()),
+                (2, "STRING".to_string()),
+                (3, "UTF8_STRING".to_string()),
+                (4, "text/plain;charset=UTF-8".to_string()),
+                (5, "text/uri-list".to_string()),
+                (3, "UTF8_STRING".to_string()),
+            ];
+            assert_eq!(drag_types_in_order(&offered), vec![5, 4, 3, 2]);
+        }
+
+        #[test]
+        fn a_file_list_is_paths_and_anything_else_is_text() {
+            let payload = DroppedPayload::read(b"file:///tmp/a%20b.txt\r\n".to_vec(), true);
+            assert!(
+                matches!(&payload, Some(DroppedPayload::Paths(paths)) if paths[..] == [PathBuf::from("/tmp/a b.txt")])
+            );
+
+            let payload = DroppedPayload::read(b"https://example.com/\r\n".to_vec(), true);
+            assert!(matches!(&payload, Some(DroppedPayload::Text(_))));
+            let payload = DroppedPayload::read(b"plain words".to_vec(), false).unwrap();
+            let paths = payload.paths();
+            assert_eq!(paths.len(), 1);
+            assert_eq!(paths[0].parent(), Some(dropped_text_dir().as_path()));
+            assert!(!paths[0].exists());
+        }
+
+        #[test]
+        fn a_text_that_cannot_be_dropped_is_refused() {
+            assert!(DroppedPayload::read(Vec::new(), false).is_none());
+            assert!(DroppedPayload::read(vec![0xff, 0xfe], false).is_none());
+            assert!(DroppedPayload::read(vec![b'a'; DROPPED_TEXT_LIMIT + 1], false).is_none());
+            assert!(DroppedPayload::read(vec![b'a'; DROPPED_TEXT_LIMIT], false).is_some());
+        }
+
+        #[test]
+        fn a_dropped_text_is_written_privately() {
+            let dir = test_dir("private");
+            let text = DroppedText::new(dir.clone(), b"one\r\ntwo\n".to_vec()).unwrap();
+            let path = text.path.clone();
+            assert!(text.write());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "one\ntwo\n");
+            assert_eq!(mode(&dir), 0o700);
+            assert_eq!(mode(&path), 0o600);
+
+            let other = DroppedText::new(dir.clone(), b"three".to_vec()).unwrap();
+            assert_ne!(other.path, path);
+            assert!(other.write());
+            std::fs::remove_dir_all(&dir).ok();
+        }
+
+        #[test]
+        fn a_directory_others_can_enter_is_not_written_to() {
+            let dir = test_dir("shared");
+            std::fs::DirBuilder::new().mode(0o755).create(&dir).unwrap();
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let text = DroppedText::new(dir.clone(), b"words".to_vec()).unwrap();
+            let path = text.path.clone();
+            assert!(!text.write());
+            assert!(!path.exists());
+            std::fs::remove_dir_all(&dir).ok();
         }
     }
 

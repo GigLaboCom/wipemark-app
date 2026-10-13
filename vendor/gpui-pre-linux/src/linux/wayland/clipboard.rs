@@ -1,3 +1,4 @@
+// Modified by GigLabo and Denis Esakov, 2026-10-12: a drag reads which types its offer has (vendor/gpui-pre-linux.patch).
 use std::{
     fs::File,
     io::{ErrorKind, Write},
@@ -70,6 +71,10 @@ impl<T: ReceiveData> DataOffer<T> {
 
     pub fn add_mime_type(&mut self, mime_type: String) {
         self.mime_types.push(mime_type)
+    }
+
+    pub(crate) fn mime_types(&self) -> &[String] {
+        &self.mime_types
     }
 
     fn has_mime_type(&self, mime_type: &str) -> bool {

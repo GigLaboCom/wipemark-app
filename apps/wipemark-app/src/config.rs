@@ -97,6 +97,20 @@ pub const WINDOW_SCREEN_KEY: &str = "ui.window.screen";
 /// afterwards.
 pub const CLOSE_AFTER_DROP_KEY: &str = "ui.window.close_after_drop";
 
+/// After how many seconds of quiet the panel clears what it shows — a
+/// whole number from [`PANEL_CLEAR_SECONDS`], `0` for never; a minute by
+/// default (D694). Clearing the panel takes nothing out of the main
+/// window's list: the rows stay where every drop put them (D690).
+pub const PANEL_CLEAR_AFTER_KEY: &str = "ui.panel.clear_after";
+
+/// The quiet periods the Placement page offers for the panel, in seconds;
+/// `0` is never.
+pub const PANEL_CLEAR_SECONDS: [u32; 4] = [15, 60, 300, 0];
+
+/// A minute: long enough to read what a drop was and press Clean, short
+/// enough that the next summons is not met by the last one's things.
+pub const PANEL_CLEAR_AFTER_DEFAULT: u32 = 60;
+
 /// Whether the user wants the MCP server running.
 ///
 /// `mcp.` and not `ui.`: this is not a preference about the window, and
@@ -440,11 +454,12 @@ pub fn model_key(role: Role) -> &'static str {
 /// below name their own key — and `-D warnings` fails a bin target on
 /// dead code. Same idiom as `TrayCommand::ALL`.
 #[cfg(test)]
-pub const PERSISTED: [&str; 40] = [
+pub const PERSISTED: [&str; 41] = [
     THEME_KEY,
     LANGUAGE_KEY,
     WINDOW_SCREEN_KEY,
     CLOSE_AFTER_DROP_KEY,
+    PANEL_CLEAR_AFTER_KEY,
     SETUP_DONE_KEY,
     COMPARE_GRAIN_KEY,
     COMPARE_FOLLOW_KEY,
@@ -528,6 +543,8 @@ pub struct Stored {
     pub onto: Onto,
     /// Whether a drop onto a zone closes the Settings window.
     pub close_after_drop: bool,
+    /// After how many seconds of quiet the panel clears; `0` is never.
+    pub panel_clear_after: u32,
     /// What each display was told — a cell, or the rectangle the
     /// window was put at by hand — by display uuid. Absent for a
     /// display nobody has answered for, which is most of them and
@@ -580,6 +597,7 @@ pub fn read_all(store: &Store) -> Stored {
         hotkeys: read_hotkeys(store),
         onto: read_window_screen(store),
         close_after_drop: read_close_after_drop(store),
+        panel_clear_after: read_panel_clear_after(store),
         // One prefix scan at startup rather than a query per display
         // per frame: the Placement page draws a card for every screen
         // attached, and it redraws whenever the pointer moves over it.
@@ -1145,6 +1163,29 @@ pub fn read_close_after_drop(store: &Store) -> bool {
 /// Persist whether a drop onto a zone closes the Settings window.
 pub fn write_close_after_drop(store: &Store, close: bool) -> Result<()> {
     store.settings().set(CLOSE_AFTER_DROP_KEY, &close)?;
+    Ok(())
+}
+
+/// Read after how many seconds of quiet the panel clears: a minute unless
+/// a row names one of [`PANEL_CLEAR_SECONDS`]. Anything else is the
+/// default, warned about and left in the row.
+pub fn read_panel_clear_after(store: &Store) -> u32 {
+    match read_json::<u32>(store, PANEL_CLEAR_AFTER_KEY) {
+        None => PANEL_CLEAR_AFTER_DEFAULT,
+        Some(seconds) if PANEL_CLEAR_SECONDS.contains(&seconds) => seconds,
+        Some(seconds) => {
+            tracing::warn!(
+                seconds,
+                "unusable {PANEL_CLEAR_AFTER_KEY}, expected one of {PANEL_CLEAR_SECONDS:?}"
+            );
+            PANEL_CLEAR_AFTER_DEFAULT
+        }
+    }
+}
+
+/// Persist after how many seconds of quiet the panel clears.
+pub fn write_panel_clear_after(store: &Store, seconds: u32) -> Result<()> {
+    store.settings().set(PANEL_CLEAR_AFTER_KEY, &seconds)?;
     Ok(())
 }
 
@@ -2268,6 +2309,44 @@ mod tests {
 
         write_close_after_drop(&store, false).expect("rewrite");
         assert!(!read_close_after_drop(&store));
+    }
+
+    /// The panel clears after a minute of quiet until it is told
+    /// otherwise; a period the page offers survives a restart, and one it
+    /// does not offer reads as the minute and stays in the row (D694).
+    #[test]
+    fn the_panel_clears_after_a_minute_unless_told_otherwise() {
+        use super::{
+            read_panel_clear_after, write_panel_clear_after, PANEL_CLEAR_AFTER_KEY,
+            PANEL_CLEAR_SECONDS,
+        };
+        let dir = scratch("panel-clear-after");
+        let path = dir.join("wipemark.db");
+
+        let store = Store::open(&path).expect("open");
+        assert_eq!(read_panel_clear_after(&store), 60);
+        for seconds in PANEL_CLEAR_SECONDS {
+            write_panel_clear_after(&store, seconds).expect("write");
+            assert_eq!(read_panel_clear_after(&store), seconds);
+        }
+        write_panel_clear_after(&store, 300).expect("write");
+        drop(store);
+
+        let store = Store::open(&path).expect("reopen");
+        assert_eq!(read_panel_clear_after(&store), 300);
+        store
+            .settings()
+            .set(PANEL_CLEAR_AFTER_KEY, &7_u32)
+            .expect("seed");
+        assert_eq!(read_panel_clear_after(&store), 60);
+        assert_eq!(
+            store
+                .settings()
+                .get::<u32>(PANEL_CLEAR_AFTER_KEY)
+                .expect("read"),
+            Some(7),
+            "the unusable row was corrected"
+        );
     }
 
     /// The walk-through opens by itself on a fresh install and never

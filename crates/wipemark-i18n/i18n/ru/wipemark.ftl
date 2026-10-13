@@ -359,6 +359,19 @@ settings-placement-system-decides = На этом рабочем столе ме
 
 settings-placement-close-title = Закрывать после перетаскивания
 settings-placement-close-description = Когда окно бросают на часть экрана, это окно закрывается — чтобы было видно, куда оно встало. По клику по части экрана это окно остаётся открытым.
+settings-panel-clear-title = Очищать панель
+settings-panel-clear-description = Когда столько времени ничего не просматривается и не очищается, панель отпускает то, что на неё бросили, и ждёт следующего. Брошенное остаётся в списке главного окна в любом случае.
+settings-panel-clear-seconds = { $count ->
+        [one] Через { $count } секунду
+        [few] Через { $count } секунды
+       *[other] Через { $count } секунд
+    }
+settings-panel-clear-minutes = { $count ->
+        [one] Через { $count } минуту
+        [few] Через { $count } минуты
+       *[other] Через { $count } минут
+    }
+settings-panel-clear-never = Никогда
 
 settings-placement-screen-title = Открывать на
 settings-placement-screen-description = Активный экран — тот, на котором находится указатель в момент открытия окна. Основной — тот, на котором рабочий стол держит строку меню, где бы ни был указатель.

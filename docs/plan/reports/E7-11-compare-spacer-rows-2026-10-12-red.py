@@ -227,13 +227,12 @@ CHECKS = {
         "        let number = held.1;\n")],
         APP + ["compare::tests::a_new_comparison_pads_both_panes_again"]),
     # C, D671: past the ceiling, a changed passage is compared line against line.
-    "C-pair-split": ("ours", [(DIFF,
-        "            let pairs = hunk.removed.len().min(hunk.added.len());\n"
-        "            for k in 0..pairs {\n",
-        "            let pairs = hunk.removed.len().min(hunk.added.len());\n"
-        "            for k in 0..pairs * 0 {\n")],
-        APP + ["diff::tests::a_rewritten_document_keeps_its_word_marks",
-               "diff::tests::a_passage_too_big_to_align"]),
+    # (Since D679 the pairs are a run's, and the check runs in the D group's way.)
+    "C-pair-split": ("diff", [(DIFF,
+        "                for pair in whole {\n",
+        "                for pair in whole.iter().take(0) {\n")],
+        ["diff::tests::a_rewritten_document_keeps_its_word_marks",
+         "diff::tests::a_passage_too_big_to_align"]),
     # C, D670: the toolbar's Wrap long lines is both sides'.
     "C-one-wrap-state": ("ours", [(COMPARE,
         "                ResultEvent::Wrapped(on) => view.wrap(*on, window, cx),\n",
@@ -265,7 +264,7 @@ CHECKS = {
     # C, D670: the row has a widget.
     "C-wrap-widget": ("ours", [
         (SETTINGS, "        // ## E7-11\n        Self::CompareWrap,\n", ""),
-        (SETTINGS, "    pub const ALL: [Setting; 41] = [\n", "    pub const ALL: [Setting; 40] = [\n")],
+        (SETTINGS, "    pub const ALL: [Setting; 42] = [\n", "    pub const ALL: [Setting; 41] = [\n")],
         APP + ["settings::tests::every_persisted_preference_has_a_row"]),
     # D679: a changed passage's lines are paired by their words, not their place.
     "D-pair-by-words": ("diff", [(DIFF,

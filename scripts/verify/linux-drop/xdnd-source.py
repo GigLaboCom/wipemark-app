@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A minimal XDND drag source, for dropping a file on a window under Xvfb.
+"""A minimal XDND drag source, for dropping a file or a text on a window under Xvfb.
 
 What it is for, and who asked
     Acceptance F9 (the owner, 2026-10-12): on Linux a file dragged onto a
@@ -14,14 +14,41 @@ What it is for, and who asked
     owner's host, and nothing may send input to the owner's own display, so
     it speaks XDND itself over libX11 (ctypes) on a virtual display.
 
+    Acceptance F15 (the owner, 2026-10-12): text dragged out of a browser or
+    an editor — not a file — was taken by no Wipemark window on Linux, because
+    GPUI's backend read only text/uri-list. The carried crate now takes a
+    text too (D653–D659); --text makes this script the text drag that checks
+    it: it offers UTF8_STRING and text/plain instead of a URI list.
+
+    Acceptance F15b (the owner, 2026-10-12, GNOME on Wayland, the
+    application under XWayland): a text dragged out of a Wayland-native
+    application was still refused — the XWayland bridge answered every
+    conversion of the type Wipemark chose with property None, 47 times —
+    and a picture dropped on the panel landed at -2025,-5, because GPUI took
+    the position from the X pointer, which XWayland leaves where it last was
+    over an X window. This script answered every target and kept the pointer
+    on the window, so it could see neither. --types, --serve-only and
+    --leave-after-drop make it refuse as a real source does and leave as
+    mutter does; --stale-pointer leaves the pointer far away and says the
+    position only in XdndPosition (D696–D701).
+
 What it does, step by step
     1. Opens $DISPLAY, creates a 1x1 unmapped source window, makes it the
        owner of XdndSelection, and warps the pointer to the middle of the
-       target window — GPUI reads the drop position with QueryPointer, not
-       from the message. Warping moves the pointer of this display only and
-       is not a key or a button.
-    2. Sends XdndEnter (version 5, one type: text/uri-list) and XdndPosition
-       to the target window.
+       target window — or, with --stale-pointer, to the screen's corner
+       farthest from it; XdndPosition always carries the window's middle in root
+       coordinates. Warping moves the pointer of this display only and is
+       not a key or a button.
+    2. Sends XdndEnter (version 5) and XdndPosition to the target window.
+       The types offered: text/uri-list for --file; UTF8_STRING and
+       text/plain for --text; both, text first, for --file with --caption
+       (a file with the text describing it — the file must win). Up to three
+       go in XdndEnter itself; --type-list puts them, with text/html and
+       text/plain;charset=utf-8 ahead of them, in the source's XdndTypeList
+       property instead (more than three types, as a browser offers).
+       --types names the offered types outright, in the source's order
+       (more than three go in XdndTypeList, as mutter puts a Wayland
+       source's types there).
     3. Then, by --mode:
          quick  sends XdndDrop at once, *before* answering the target's
                 SelectionRequest — the race, made certain: the target sees
@@ -31,15 +58,25 @@ What it does, step by step
          leave  answers nothing, sends XdndLeave, then answers the
                 SelectionRequest late — the file list arriving after the drag
                 has gone, which must not leave a drag behind.
-    4. Answers every SelectionRequest for XdndSelection with the file's
-       `file://` URI as text/uri-list, and waits up to --timeout seconds for
-       XdndFinished (quick and slow).
+       --leave-after-drop sends XdndLeave right after XdndDrop, before any
+       answer, as mutter does when an XWayland window is dropped on.
+    4. Answers every SelectionRequest for XdndSelection — text/uri-list with
+       the file's `file://` URI, a text type with the text (--text, or
+       --caption), TARGETS with the atoms it serves, anything else refused;
+       with --serve-only NAME only NAME (and TARGETS, which then lists it),
+       with --serve-only none nothing — and waits up to --timeout seconds
+       for XdndFinished (quick and slow).
     5. Prints one line per thing that happened (enter, position, drop or
        leave, the request served, status, finished) and exits.
 
 How to run it
     DISPLAY=:96 python3 -I scripts/verify/linux-drop/xdnd-source.py \\
         --target 0x1200003 --file /tmp/x/note.txt --mode quick
+    DISPLAY=:96 python3 -I scripts/verify/linux-drop/xdnd-source.py \\
+        --target 0x1200003 --text "words dragged out of a page" --type-list
+    DISPLAY=:96 python3 -I scripts/verify/linux-drop/xdnd-source.py \\
+        --target 0x1200003 --text "words" --serve-only text/plain \\
+        --types "text/plain;charset=utf-8,UTF8_STRING,TEXT,STRING,text/plain"
     scripts/verify/linux-drop/quick-drop.sh runs it against the real
     application; that is the way it is meant to be used.
 
@@ -48,11 +85,14 @@ What it needs
 
 What its output means
     "finished: accepted" — the target sent XdndFinished saying it took the
-    drop. Exit 0 when the mode's last step happened (finished for quick and
-    slow, the late answer for leave), 1 when the timeout passed first, 2 on
-    a usage or display error. Whether the application *kept* the file is
-    the application's log to say (`wipemark::queue: queued count=1`), not
-    this script's.
+    drop, "finished: refused" that it did not. "served text/uri-list",
+    "served UTF8_STRING" (and so on) — the type the target asked for and got;
+    "refused text/plain;charset=utf-8" — one it asked for and was refused. Exit 0 when the
+    mode's last step happened (finished for quick and slow, the late answer
+    for leave), 1 when the timeout passed first, 2 on a usage or display
+    error. Whether the application *kept* the file or the text is the
+    application's log to say (`wipemark::queue: queued count=1`), not this
+    script's.
 """
 
 import argparse
@@ -148,13 +188,30 @@ class XWindowAttributes(Structure):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--target", required=True, help="the target window id (0x… or decimal)")
-    parser.add_argument("--file", required=True, help="the file to drag")
+    what = parser.add_mutually_exclusive_group(required=True)
+    what.add_argument("--file", help="the file to drag")
+    what.add_argument("--text", help="a text to drag (UTF8_STRING and text/plain)")
+    parser.add_argument("--caption", help="with --file: a text offered ahead of the file")
+    parser.add_argument("--type-list", action="store_true",
+                        help="offer the types through XdndTypeList, more than three")
+    parser.add_argument("--types",
+                        help="the offered types by name, comma-separated, in the source's order"
+                             " (replaces the defaults; more than three go in XdndTypeList)")
+    parser.add_argument("--serve-only",
+                        help="answer only this target (and TARGETS), refuse every other; "
+                             "'none' refuses everything")
+    parser.add_argument("--leave-after-drop", action="store_true",
+                        help="send XdndLeave right after XdndDrop, as mutter does for XWayland")
+    parser.add_argument("--stale-pointer", action="store_true",
+                        help="leave the pointer in the far corner of the screen; the position "
+                             "is only in XdndPosition, as under XWayland with a Wayland source")
     parser.add_argument("--mode", choices=["quick", "slow", "leave"], default="quick")
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
 
     target = int(args.target, 0)
-    uri = "file://" + os.path.abspath(args.file) + "\r\n"
+    uri = ("file://" + os.path.abspath(args.file) + "\r\n") if args.file else None
+    text = args.text if args.text is not None else args.caption
 
     x11 = ctypes.CDLL("libX11.so.6")
     x11.XOpenDisplay.restype = c_void_p
@@ -197,9 +254,34 @@ def main():
         "XdndDrop", "XdndFinished", "XdndActionCopy",
     )}
     uri_list = atom("text/uri-list")
+    textual = {"UTF8_STRING", "STRING", "TEXT", "text/plain", "text/plain;charset=utf-8",
+               "text/plain;charset=UTF-8"}
+    if args.types:
+        offered_names = args.types.split(",")
+    else:
+        offered_names = []
+        if text is not None:
+            offered_names += ["UTF8_STRING", "text/plain"]
+        if uri is not None:
+            offered_names.append("text/uri-list")
+        if args.type_list:
+            offered_names = ["text/html", "text/plain;charset=utf-8"] + offered_names
+    type_list = args.type_list or len(offered_names) > 3
+    names = {atom(name): name for name in offered_names + sorted(textual) + ["TARGETS"]}
+    targets_atom = atom("TARGETS")
+    offered = [atom(name) for name in offered_names]
+    serve_only = args.serve_only
+    if serve_only and serve_only != "none":
+        names[atom(serve_only)] = serve_only
 
     source = x11.XCreateSimpleWindow(display, root, 0, 0, 1, 1, 0, 0, 0)
     x11.XSetSelectionOwner(display, xdnd["XdndSelection"], source, 0)
+    if type_list:
+        types = (c_ulong * len(offered))(*offered)
+        x11.XChangeProperty(
+            display, source, atom("XdndTypeList"), atom("ATOM"), 32,
+            PROP_MODE_REPLACE, ctypes.cast(types, c_char_p), len(offered),
+        )
 
     attributes = XWindowAttributes()
     if not x11.XGetWindowAttributes(display, target, byref(attributes)):
@@ -210,7 +292,16 @@ def main():
         display, target, root, attributes.width // 2, attributes.height // 2,
         byref(x), byref(y), byref(child),
     )
-    x11.XWarpPointer(display, 0, root, 0, 0, 0, 0, x.value, y.value)
+    if args.stale_pointer:
+        screen = XWindowAttributes()
+        x11.XGetWindowAttributes(display, root, byref(screen))
+        corners = [(0, 0), (screen.width - 1, 0), (0, screen.height - 1),
+                   (screen.width - 1, screen.height - 1)]
+        far = max(corners, key=lambda c: (c[0] - x.value) ** 2 + (c[1] - y.value) ** 2)
+        x11.XWarpPointer(display, 0, root, 0, 0, 0, 0, far[0], far[1])
+        print(f"pointer left at {far[0]},{far[1]}; XdndPosition says {x.value},{y.value}")
+    else:
+        x11.XWarpPointer(display, 0, root, 0, 0, 0, 0, x.value, y.value)
     x11.XFlush(display)
 
     def send(message, *data):
@@ -255,15 +346,36 @@ def main():
         return until()
 
     def serve(request):
-        data = uri.encode()
-        if request.target == uri_list:
+        name = names.get(request.target, f"atom {request.target}")
+        data = None
+        if request.target == targets_atom:
+            if serve_only == "none":
+                listed = [targets_atom]
+            elif serve_only:
+                listed = [atom(serve_only), targets_atom]
+            else:
+                listed = offered + [targets_atom]
+            atoms = (c_ulong * len(listed))(*listed)
             x11.XChangeProperty(
-                display, request.requestor, request.property, uri_list, 8,
-                PROP_MODE_REPLACE, data, len(data),
+                display, request.requestor, request.property, atom("ATOM"), 32,
+                PROP_MODE_REPLACE, ctypes.cast(atoms, c_char_p), len(listed),
             )
             prop = request.property
         else:
-            prop = 0
+            if serve_only and name != serve_only:
+                data = None
+            elif name == "text/uri-list" and uri is not None:
+                data = uri.encode()
+            elif name in textual and text is not None:
+                data = text.encode()
+            if data is not None:
+                x11.XChangeProperty(
+                    display, request.requestor, request.property, request.target, 8,
+                    PROP_MODE_REPLACE, data, len(data),
+                )
+                prop = request.property
+            else:
+                prop = 0
         reply = XEvent()
         reply.xselection.type = SELECTION_NOTIFY
         reply.xselection.requestor = request.requestor
@@ -273,15 +385,20 @@ def main():
         reply.xselection.time = request.time
         x11.XSendEvent(display, request.requestor, 0, 0, byref(reply))
         x11.XFlush(display)
-        served.append(request.target)
-        print(f"served the file list{' (late)' if late else ''}")
+        if prop:
+            served.append(request.target)
+        print(f"{'served' if prop else 'refused'} {name}{' (late)' if late else ''}")
 
     pending = []
     answering = args.mode == "slow"
     late = False
     deadline = time.monotonic() + args.timeout
 
-    send("XdndEnter", source, 5 << 24, uri_list, 0, 0)
+    if type_list:
+        send("XdndEnter", source, (5 << 24) | 1, 0, 0, 0)
+    else:
+        inline = (offered + [0, 0, 0])[:3]
+        send("XdndEnter", source, 5 << 24, *inline)
     send("XdndPosition", source, 0, (x.value << 16) | y.value, 0, xdnd["XdndActionCopy"])
 
     if args.mode == "slow":
@@ -290,6 +407,8 @@ def main():
         send("XdndDrop", source, 0, 0, 0, 0)
     elif args.mode == "quick":
         send("XdndDrop", source, 0, 0, 0, 0)
+        if args.leave_after_drop:
+            send("XdndLeave", source, 0, 0, 0, 0)
         pump(lambda: bool(pending), deadline)
         answering = True
         for request in pending:
@@ -304,7 +423,7 @@ def main():
             serve(request)
         # Anything the target asks for meanwhile is answered too.
         pump(lambda: False, time.monotonic() + 1.0)
-        return 0 if served else 1
+        return 0 if served or serve_only else 1
 
     done = pump(lambda: "finished" in seen, deadline)
     if not done:

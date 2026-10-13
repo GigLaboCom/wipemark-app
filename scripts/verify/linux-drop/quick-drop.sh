@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# A file dropped on the main window on X11 lands on the first try — the
-# live check of the carried gpui-pre-linux fix, on a virtual display only.
+# A file dropped on the main window on X11 lands on the first try, and a
+# dragged text lands as a text on the main window and on the panel — the live
+# check of the carried gpui-pre-linux fixes, on a virtual display only.
 #
 # What it is for, and who asked
 #   Acceptance F9 (the owner, 2026-10-12): on Linux a file dragged onto a
@@ -12,14 +13,30 @@
 #   docs/architecture/gpui-pin.md §2, docs/architecture/drag-and-drop.md).
 #   The unit tests hold the decision; this holds the whole road — a real X
 #   server, the real application, its queue — with the race made certain.
+#   Acceptance F15 (the owner, 2026-10-12): a text dragged out of a browser
+#   or an editor was taken by no window on Linux; the carried crate now hands
+#   it over as a private drop file that drop.rs reads back as a text and
+#   removes (D653–D659, docs/plan/reports/linux-text-drop-2026-10-12.md).
+#   Steps e–i check that road.
+#   Acceptance F15b (the owner, 2026-10-12, GNOME on Wayland, the
+#   application under XWayland): a text from a Wayland-native application was
+#   refused — every conversion of the chosen type answered with property
+#   None — and a picture dropped on the panel landed at -2025,-5, the X
+#   pointer being stale while a Wayland client drags. Steps j–o check the
+#   fallback through the offered types and TARGETS, a refusal of everything,
+#   mutter's XdndLeave right after XdndDrop, and the position taken from
+#   XdndPosition (D696–D701, docs/plan/reports/linux-text-drop-2-2026-10-12.md).
 #
 # What it does, step by step
 #   1. Starts Xvfb on $XDISPLAY (default :96; refused if taken) and a private
 #      session bus (dbus-run-session), so no window, tray item or key grab
 #      reaches the desktop of whoever is at the keyboard; Vulkan is lavapipe
-#      ($VK_ICD, the software ICD), because Xvfb has no GPU.
+#      ($VK_ICD, the software ICD), because Xvfb has no GPU. The desktop is
+#      said to be none (XDG_CURRENT_DESKTOP unset) and XDG_CONFIG_HOME is
+#      private, so the application never reaches for GNOME's shortcuts in the
+#      person's own dconf database (D641; added 2026-10-12 with F15).
 #   2. Makes a scratch WIPEMARK_DATA_DIR with `ui.setup.done = true` (no
-#      walk-through over the window) and four small text files A–D.
+#      walk-through over the window) and six small text files A–F.
 #   3. Starts the application with WIPEMARK_LOG=info,gpui_linux=debug and
 #      waits for its "Wipemark" window and for XdndAware on it.
 #   4. Drags with xdnd-source.py, waiting after each for the queue's log line:
@@ -32,6 +49,32 @@
 #        d. D, --mode quick — expects a third `queued count=1`, and the
 #           journal's newest row to name D, not C: a stale drag from c
 #           would have dropped C here.
+#        e. a text, --mode quick, UTF8_STRING and text/plain in XdndEnter —
+#           expects a fourth `queued count=1`, the newest row a text (no
+#           path) of the text's size, and the drop directory empty;
+#        f. a text, --mode slow, through XdndTypeList (four types) — a
+#           fifth row, a text, the drop directory empty;
+#        g. E with a caption offered ahead of it — expects a sixth row that
+#           names E: a file beats the text describing it;
+#        h. a text, --mode leave — expects no row and no drop file;
+#        i. `wipemark --panel` (the running application is summoned), then
+#           a text, --mode quick, on the panel — expects
+#           `something was dropped on the panel kinds=[Text]` and no drop file.
+#        j. a text offered as GTK's seven types through XdndTypeList, the
+#           source answering only text/plain — expects two refusals, then a
+#           text row;
+#        k. a text offered as text/html and text/plain;charset=utf-8, the
+#           source answering only UTF8_STRING, which it does not offer but
+#           lists in TARGETS (as mutter does) — expects a text row;
+#        l. a text whose source refuses everything, dropped at once and left
+#           right after (mutter's order) — expects no row, `finished:
+#           refused`, no drop file;
+#        m. a text dropped at once and left right after, its data answered
+#           only then — expects a text row: the leave does not lose the drop;
+#        n. F, the pointer left in the screen's far corner, the position only
+#           in XdndPosition — expects a row naming F;
+#        o. a text on the panel, the pointer far away — expects the panel to
+#           take it.
 #   5. Prints the GPUI drag lines and our drop lines from the log, one line
 #      per step (ok or FAIL), kills everything it started — Xvfb, the bus,
 #      the application — and nothing else.
@@ -41,7 +84,8 @@
 #   (default: $CARGO_TARGET_DIR or target, then release/wipemark). Build it
 #   first: `cargo build --release -p wipemark-app --locked` (on the owner's
 #   host with LIBRARY_PATH pointing at the libxkbcommon-x11.so symlink).
-#   XDISPLAY=:97 picks another display; KEEP=1 keeps the scratch directory.
+#   XDISPLAY=:97 picks another display; KEEP=1 keeps the scratch directory;
+#   SKIP="j k" skips those of steps j–o (to see a later one on an old build).
 #
 # What it needs
 #   Xvfb, xwininfo and xprop (x11-utils), dbus-run-session, python3 with
@@ -49,11 +93,14 @@
 #   (mesa-vulkan-drivers' lvp_icd.json).
 #
 # What its output means
-#   `step a: ok …` … `step d: ok …` and `quick-drop: all four steps passed`,
+#   `step a: ok …` … `step o: ok …` and `quick-drop: all fifteen steps passed`,
 #   exit 0; a failing step prints FAIL with what was expected and the tail
 #   of the application's log, exit 1; exit 2 when the display or the
-#   application could not be started. On the unpatched crate step a fails
-#   (nothing queued after a quick drop) and step d names C.
+#   application could not be started. On the published crate step a fails
+#   (nothing queued after a quick drop) and step d names C; on the crate
+#   before F15, step e fails (no row for a dragged text); on the crate before
+#   F15b, step j fails (the refused type is asked for again and again) and
+#   step n fails (the drop lands at the stale pointer, outside the window).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -86,8 +133,8 @@ done
 [ -e "/tmp/.X11-unix/X${xdisplay#:}" ] || { echo "quick-drop: Xvfb did not start" >&2; exit 2; }
 
 data="$work/data"
-mkdir -p "$data" "$work/files" "$work/run"
-chmod 700 "$work/run"
+mkdir -p "$data" "$work/files" "$work/run" "$work/config"
+chmod 700 "$work/run" "$work/config"
 python3 -I - "$data/wipemark.db" <<'PY'
 import sqlite3, sys
 db = sqlite3.connect(sys.argv[1])
@@ -95,7 +142,7 @@ db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEX
 db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ui.setup.done', 'true')")
 db.commit()
 PY
-for name in A B C D; do
+for name in A B C D E F; do
     printf 'note %s\n' "$name" >"$work/files/drop-$name.txt"
 done
 
@@ -103,8 +150,13 @@ done
 inner=$(cat <<'INNER'
 set -euo pipefail
 unset WAYLAND_DISPLAY
+# Not GNOME, and a dconf of its own: on a GNOME desktop the application
+# would otherwise reach for the person's own custom shortcuts (D641) —
+# `gsettings` on the private bus still writes ~/.config/dconf/user.
+unset XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION GNOME_SETUP_DISPLAY
+export XDG_CONFIG_HOME="$WORK/config"
 log="$WORK/app.log"
-WIPEMARK_DATA_DIR="$DATA" WIPEMARK_LOG="info,gpui_linux=debug" \
+WIPEMARK_DATA_DIR="$DATA" WIPEMARK_LOG="info,gpui_linux=debug,wipemark::drop=debug" \
     VK_ICD_FILENAMES="$VK_ICD" XDG_RUNTIME_DIR="$WORK/run" NO_AT_BRIDGE=1 \
     "$APP" >"$log" 2>&1 &
 app_pid=$!
@@ -112,12 +164,19 @@ trap 'kill "$app_pid" 2>/dev/null || true; wait "$app_pid" 2>/dev/null || true' 
 
 window=""
 for _ in $(seq 1 600); do
-    window=$(xwininfo -root -tree 2>/dev/null | awk '/"Wipemark"/ {print $1; exit}')
+    # The window *named* Wipemark: the 10x10 one GTK makes carries the class
+    # "Wipemark" too, and has no XdndAware.
+    window=$(xwininfo -root -tree 2>/dev/null | awk '$2 == "\"Wipemark\":" {print $1; exit}')
     [ -n "$window" ] && xprop -id "$window" XdndAware 2>/dev/null | grep -q '=' && break
     window=""
     sleep 0.1
 done
-[ -n "$window" ] || { echo "quick-drop: no Wipemark window on $DISPLAY"; tail -20 "$log"; exit 2; }
+[ -n "$window" ] || {
+    echo "quick-drop: no Wipemark window on $DISPLAY; the windows there:"
+    xwininfo -root -tree 2>&1 | grep -E "^ +0x" | head -20
+    tail -20 "$log"
+    exit 2
+}
 sleep 2
 
 queued() { grep -c 'queued count=1' "$log" || true; }
@@ -132,18 +191,22 @@ wait_queued() {
 newest() {
     python3 -I - "$DATA/wipemark.db" <<'PY'
 import sqlite3, sys
+import json
 row = sqlite3.connect(sys.argv[1]).execute(
     "SELECT entry FROM journal ORDER BY id DESC LIMIT 1").fetchone()
-for name in "ABCD":
-    if row and f"drop-{name}.txt" in row[0]:
+entry = json.loads(row[0]) if row else {}
+for name in "ABCDEF":
+    if f"drop-{name}.txt" in json.dumps(entry):
         print(name)
         break
 else:
-    print("none")
+    print(f"text {entry['size']}" if row and "path" not in entry else "none")
 PY
 }
+dropped_files() { find "$XDG_RUNTIME_DIR/wipemark-dropped-text" -type f 2>/dev/null | wc -l; }
+text() { python3 -I "$HERE/xdnd-source.py" --target "$1" --text "$TEXT" "${@:2}" | sed 's/^/    /'; }
 fail() { echo "step $1: FAIL — $2"; echo "--- the log's last lines"; tail -40 "$log"; exit 1; }
-drag() { python3 -I "$HERE/xdnd-source.py" --target "$window" --file "$FILES/drop-$1.txt" --mode "$2" | sed 's/^/    /'; }
+drag() { python3 -I "$HERE/xdnd-source.py" --target "$window" --file "$FILES/drop-$1.txt" --mode "$2" "${@:3}" | sed 's/^/    /'; }
 
 echo "window $window"
 drag A quick
@@ -165,13 +228,131 @@ landed=$(newest)
 [ "$landed" = D ] && echo "step d: ok (the newest row is D — no stale drag from C)" \
     || fail d "the newest row is $landed, not D"
 
+size=$(printf '%s' "$TEXT" | wc -c)
+text "$window" --mode quick
+wait_queued 4 || fail e "no fourth 'queued count=1' after a dragged text"
+landed=$(newest)
+[ "$landed" = "text $size" ] || fail e "the newest row is '$landed', not a text of $size bytes"
+[ "$(dropped_files)" -eq 0 ] || fail e "a drop file was left behind"
+echo "step e: ok (a dragged text landed as a text row; no drop file left)"
+
+text "$window" --mode slow --type-list
+wait_queued 5 || fail f "no fifth 'queued count=1' after a text offered through XdndTypeList"
+landed=$(newest)
+[ "$landed" = "text $size" ] || fail f "the newest row is '$landed', not a text of $size bytes"
+[ "$(dropped_files)" -eq 0 ] || fail f "a drop file was left behind"
+echo "step f: ok (a text among four offered types landed as a text row)"
+
+drag E quick --caption "drop-E.txt, the file's name as a caption"
+wait_queued 6 || fail g "no sixth 'queued count=1' after a file offered with a caption"
+landed=$(newest)
+[ "$landed" = E ] || fail g "the newest row is '$landed', not the file E"
+echo "step g: ok (the file beat the text describing it)"
+
+text "$window" --mode leave
+sleep 1
+[ "$(queued)" -eq 6 ] || fail h "something was queued by a text drag that left"
+[ "$(dropped_files)" -eq 0 ] || fail h "a text drag that left wrote a drop file"
+echo "step h: ok (a text drag that left queued nothing and wrote nothing)"
+
+# The running application is summoned through its single-instance socket,
+# which the same data directory and runtime directory find.
+WIPEMARK_DATA_DIR="$DATA" VK_ICD_FILENAMES="$VK_ICD" NO_AT_BRIDGE=1 \
+    "$APP" --panel >>"$WORK/summons.log" 2>&1 || true
+panel=""
+for _ in $(seq 1 300); do
+    for id in $(xwininfo -root -children 2>/dev/null | awk '/0x/ {print $1}'); do
+        xprop -id "$id" WM_CLASS 2>/dev/null | grep -q '"wipemark"' || continue
+        xprop -id "$id" _NET_WM_NAME 2>/dev/null | grep -q '"' && continue
+        xprop -id "$id" XdndAware 2>/dev/null | grep -q '=' || continue
+        panel="$id"
+    done
+    [ -n "$panel" ] && break
+    sleep 0.1
+done
+[ -n "$panel" ] || fail i "no panel window after 'wipemark --panel'"
+sleep 4
+on_panel() { grep -c 'something was dropped on the panel kinds=\[Text\]' "$log" || true; }
+text "$panel" --mode quick
+for _ in $(seq 1 100); do [ "$(on_panel)" -ge 1 ] && break; sleep 0.1; done
+[ "$(on_panel)" -ge 1 ] || fail i "the panel did not take the dragged text"
+[ "$(dropped_files)" -eq 0 ] || fail i "a drop file was left behind"
+echo "step i: ok (the panel $panel took a dragged text; no drop file left)"
+
+gtk="text/plain;charset=utf-8,UTF8_STRING,TEXT,STRING,COMPOUND_TEXT,text/plain,text/html"
+run() {
+    case " ${SKIP:-} " in *" $1 "*) echo "step $1: skipped (SKIP)"; return 1 ;; esac
+}
+
+if run j; then
+    before=$(queued)
+    # A text of its own size: a stale XDND_DATA from an earlier drop, read
+    # in place of a refusal, would land with the earlier size.
+    TEXT="$TEXT (the source answers text/plain only)" \
+        text "$window" --mode quick --types "$gtk" --serve-only text/plain || true
+    wait_queued $((before + 1)) || fail j "no row after a text the source served only as text/plain"
+    landed=$(newest)
+    size_j=$(printf '%s' "$TEXT (the source answers text/plain only)" | wc -c)
+    [ "$landed" = "text $size_j" ] || fail j "the newest row is '$landed', not a text of $size_j bytes"
+    grep -q 'text/plain;charset=utf-8 was refused.*requesting UTF8_STRING' "$log" \
+        || fail j "no fallback from text/plain;charset=utf-8 to UTF8_STRING in the log"
+    [ "$(dropped_files)" -eq 0 ] || fail j "a drop file was left behind"
+    echo "step j: ok (two refused types, then text/plain: a text row)"
+fi
+
+if run k; then
+    before=$(queued)
+    text "$window" --mode slow --types "text/html,text/plain;charset=utf-8" --serve-only UTF8_STRING || true
+    wait_queued $((before + 1)) || fail k "no row after a text served only as UTF8_STRING"
+    grep -q 'TARGETS lists \[UTF8_STRING, TARGETS\]' "$log" \
+        || fail k "TARGETS was not asked for, or not read"
+    echo "step k: ok (the type the source serves was found through TARGETS)"
+fi
+
+if run l; then
+    before=$(queued)
+    refused=$(text "$window" --mode quick --types "$gtk" --serve-only none --leave-after-drop || true)
+    echo "$refused"
+    sleep 1
+    [ "$(queued)" -eq "$before" ] || fail l "something was queued from a source that served nothing"
+    echo "$refused" | grep -q 'finished: refused' \
+        || fail l "the source was not told the drop was not accepted"
+    [ "$(dropped_files)" -eq 0 ] || fail l "a drop file was written for nothing"
+    echo "step l: ok (nothing served: no row, XdndFinished not accepted)"
+fi
+
+if run m; then
+    before=$(queued)
+    text "$window" --mode quick --types "$gtk" --leave-after-drop || true
+    wait_queued $((before + 1)) || fail m "a drop followed by XdndLeave before its data was lost"
+    echo "step m: ok (mutter's leave right after the drop did not lose it)"
+fi
+
+if run n; then
+    before=$(queued)
+    drag F slow --stale-pointer || true
+    wait_queued $((before + 1)) || fail n "no row after a drop with the pointer far away"
+    landed=$(newest)
+    [ "$landed" = F ] || fail n "the newest row is '$landed', not F"
+    echo "step n: ok (the position came from XdndPosition, not the stale pointer)"
+fi
+
+if run o; then
+    panel_before=$(on_panel)
+    text "$panel" --mode quick --stale-pointer || true
+    for _ in $(seq 1 100); do [ "$(on_panel)" -gt "$panel_before" ] && break; sleep 0.1; done
+    [ "$(on_panel)" -gt "$panel_before" ] || fail o "the panel did not take a text dropped with the pointer far away"
+    echo "step o: ok (the panel took it at the position XdndPosition said)"
+fi
+
 echo "--- GPUI's drag lines and ours"
-grep -E 'gpui_linux.*(Xdnd|SelectionNotify)|a drop (arrived|carried)|queued count' "$log" \
+grep -E 'gpui_linux.*(Xdnd|SelectionNotify|dragged)|a drop (arrived|carried)|dragged text|queued count|dropped on the panel' "$log" \
     | sed -E 's/^[0-9-]+ [0-9:.]+ +//' || true
-echo "quick-drop: all four steps passed"
+echo "quick-drop: all fifteen steps passed"
 INNER
 )
 
 DISPLAY="$xdisplay" WORK="$work" DATA="$data" APP="$app" VK_ICD="$vk_icd" \
-    HERE="$here" FILES="$work/files" \
+    HERE="$here" FILES="$work/files" XDG_RUNTIME_DIR="$work/run" \
+    TEXT="Words dragged out of a page, not a file." \
     dbus-run-session -- bash -c "$inner"

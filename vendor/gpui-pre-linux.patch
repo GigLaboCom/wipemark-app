@@ -1,17 +1,350 @@
+diff --git a/src/linux/platform.rs b/src/linux/platform.rs
+index 44aa658..1d22515 100644
+--- a/src/linux/platform.rs
++++ b/src/linux/platform.rs
+@@ -1,3 +1,4 @@
++// Modified by GigLabo and Denis Esakov, 2026-10-12: a dragged text is read and handed over as a private drop file, and drag types are ranked by name (vendor/gpui-pre-linux.patch).
+ use std::{
+     cell::RefCell,
+     env,
+@@ -1288,6 +1289,202 @@ pub(super) fn read_fd_with_timeout(
+     }
+ }
+ 
++#[cfg(any(feature = "wayland", feature = "x11"))]
++pub(super) const DROPPED_TEXT_LIMIT: usize = 1 << 20;
++
++#[cfg(any(feature = "wayland", feature = "x11"))]
++const DRAG_TYPES: [&str; 6] = [
++    "text/uri-list",
++    "text/plain;charset=utf-8",
++    "utf8_string",
++    "text/plain",
++    "string",
++    "text",
++];
++
++#[cfg(any(feature = "wayland", feature = "x11"))]
++pub(super) fn drag_type_rank(name: &str) -> Option<usize> {
++    let name = name
++        .to_ascii_lowercase()
++        .replace([' ', '"'], "")
++        .replace("charset=utf8", "charset=utf-8");
++    DRAG_TYPES.iter().position(|known| *known == name)
++}
++
++#[cfg(any(feature = "wayland", feature = "x11"))]
++pub(super) fn drag_types_in_order<T: Copy + PartialEq>(offered: &[(T, String)]) -> Vec<T> {
++    let mut ranked: Vec<(usize, T)> = offered
++        .iter()
++        .filter_map(|(id, name)| drag_type_rank(name).map(|rank| (rank, *id)))
++        .collect();
++    ranked.sort_by_key(|(rank, _)| *rank);
++    let mut types = Vec::new();
++    for (_, id) in ranked {
++        if !types.contains(&id) {
++            types.push(id);
++        }
++    }
++    types
++}
++
++#[cfg(any(feature = "wayland", feature = "x11"))]
++pub(super) enum DroppedPayload {
++    Paths(smallvec::SmallVec<[PathBuf; 2]>),
++    Text(DroppedText),
++}
++
++#[cfg(any(feature = "wayland", feature = "x11"))]
++impl DroppedPayload {
++    pub(super) fn read(bytes: Vec<u8>, uri_list: bool) -> Option<Self> {
++        if uri_list {
++            let file_list = std::str::from_utf8(&bytes).ok()?;
++            let paths: smallvec::SmallVec<[PathBuf; 2]> = file_list
++                .lines()
++                .filter_map(|path| url::Url::parse(path).log_err())
++                .filter_map(|url| match url.to_file_path() {
++                    Ok(path) => Some(path),
++                    Err(()) => {
++                        log::debug!("dragged URI {url} is not a file, kept as text");
++                        None
++                    }
++                })
++                .collect();
++            if !paths.is_empty() {
++                return Some(Self::Paths(paths));
++            }
++        }
++        DroppedText::new(dropped_text_dir(), bytes).map(Self::Text)
++    }
++
++    pub(super) fn paths(&self) -> smallvec::SmallVec<[PathBuf; 2]> {
++        match self {
++            Self::Paths(paths) => paths.clone(),
++            Self::Text(text) => smallvec::smallvec![text.path.clone()],
++        }
++    }
++}
++
++#[cfg(any(feature = "wayland", feature = "x11"))]
++pub(super) struct DroppedText {
++    path: PathBuf,
++    text: String,
++}
++
++#[cfg(any(feature = "wayland", feature = "x11"))]
++impl std::fmt::Debug for DroppedText {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("DroppedText")
++            .field("path", &self.path)
++            .field("len", &self.text.len())
++            .finish()
++    }
++}
++
++#[cfg(any(feature = "wayland", feature = "x11"))]
++impl DroppedText {
++    pub(super) fn new(dir: PathBuf, bytes: Vec<u8>) -> Option<Self> {
++        use std::sync::atomic::{AtomicU64, Ordering};
++        static NEXT: AtomicU64 = AtomicU64::new(0);
++
++        if bytes.is_empty() {
++            log::debug!("dragged text: empty, nothing to drop");
++            return None;
++        }
++        if bytes.len() > DROPPED_TEXT_LIMIT {
++            log::warn!(
++                "dragged text refused: {} bytes, over the limit of {DROPPED_TEXT_LIMIT}",
++                bytes.len()
++            );
++            return None;
++        }
++        let Ok(text) = String::from_utf8(bytes) else {
++            log::warn!("dragged text refused: not UTF-8");
++            return None;
++        };
++        let text = text.replace("\r\n", "\n");
++        log::debug!("dragged text read: {} bytes", text.len());
++        let nanos = std::time::SystemTime::now()
++            .duration_since(std::time::UNIX_EPOCH)
++            .map_or(0, |since| since.as_nanos());
++        let name = format!(
++            "{}-{nanos}-{}.txt",
++            std::process::id(),
++            NEXT.fetch_add(1, Ordering::Relaxed)
++        );
++        Some(Self {
++            path: dir.join(name),
++            text,
++        })
++    }
++
++    pub(super) fn write(self) -> bool {
++        use std::{
++            fs::{DirBuilder, OpenOptions},
++            io::Write as _,
++            os::unix::fs::{DirBuilderExt as _, MetadataExt as _, OpenOptionsExt as _},
++        };
++
++        let Some(dir) = self.path.parent() else {
++            return false;
++        };
++        let private = match DirBuilder::new().mode(0o700).create(dir) {
++            Ok(()) => Ok(()),
++            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {
++                std::fs::symlink_metadata(dir).and_then(|metadata| {
++                    let uid = unsafe { libc::getuid() };
++                    if metadata.is_dir() && metadata.uid() == uid && metadata.mode() & 0o077 == 0 {
++                        Ok(())
++                    } else {
++                        Err(std::io::Error::other(
++                            "not a private directory of this user",
++                        ))
++                    }
++                })
++            }
++            Err(err) => Err(err),
++        };
++        if let Err(err) = private {
++            log::warn!("dragged text not written: {}: {err}", dir.display());
++            return false;
++        }
++        let written = OpenOptions::new()
++            .write(true)
++            .create_new(true)
++            .mode(0o600)
++            .open(&self.path)
++            .and_then(|mut file| match file.write_all(self.text.as_bytes()) {
++                Ok(()) => Ok(()),
++                Err(err) => {
++                    std::fs::remove_file(&self.path).ok();
++                    Err(err)
++                }
++            });
++        match written {
++            Ok(()) => {
++                log::debug!(
++                    "dragged text written to its drop file: {} bytes",
++                    self.text.len()
++                );
++                true
++            }
++            Err(err) => {
++                log::warn!("dragged text not written: {err}");
++                false
++            }
++        }
++    }
++}
++
++#[cfg(any(feature = "wayland", feature = "x11"))]
++pub(super) fn dropped_text_dir() -> PathBuf {
++    match env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from) {
++        Some(dir) if dir.is_absolute() => dir.join("wipemark-dropped-text"),
++        _ => env::temp_dir().join(format!("wipemark-dropped-text-{}", unsafe {
++            libc::getuid()
++        })),
++    }
++}
++
+ #[cfg(any(feature = "wayland", feature = "x11"))]
+ pub(super) const DEFAULT_CURSOR_ICON_NAME: &str = "left_ptr";
+ 
+@@ -1815,6 +2012,95 @@ mod tests {
+         }
+     }
+ 
++    #[cfg(any(feature = "wayland", feature = "x11"))]
++    mod dropped_text {
++        use super::super::{DROPPED_TEXT_LIMIT, DroppedPayload, DroppedText, dropped_text_dir};
++        use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
++        use std::path::PathBuf;
++
++        fn test_dir(name: &str) -> PathBuf {
++            let dir = std::env::temp_dir()
++                .join(format!("gpui-dropped-text-{name}-{}", std::process::id()));
++            std::fs::remove_dir_all(&dir).ok();
++            dir
++        }
++
++        fn mode(path: &std::path::Path) -> u32 {
++            std::fs::metadata(path).unwrap().permissions().mode() & 0o777
++        }
++
++        #[test]
++        fn drag_types_are_ranked_by_name_whatever_their_case() {
++            use super::super::{drag_type_rank, drag_types_in_order};
++            assert_eq!(drag_type_rank("text/uri-list"), Some(0));
++            assert_eq!(drag_type_rank("text/plain;charset=UTF-8"), Some(1));
++            assert_eq!(drag_type_rank("text/plain; charset=\"utf8\""), Some(1));
++            assert_eq!(drag_type_rank("UTF8_STRING"), Some(2));
++            assert_eq!(drag_type_rank("text/html"), None);
++            let offered = [
++                (1, "text/html".to_string()),
++                (2, "STRING".to_string()),
++                (3, "UTF8_STRING".to_string()),
++                (4, "text/plain;charset=UTF-8".to_string()),
++                (5, "text/uri-list".to_string()),
++                (3, "UTF8_STRING".to_string()),
++            ];
++            assert_eq!(drag_types_in_order(&offered), vec![5, 4, 3, 2]);
++        }
++
++        #[test]
++        fn a_file_list_is_paths_and_anything_else_is_text() {
++            let payload = DroppedPayload::read(b"file:///tmp/a%20b.txt\r\n".to_vec(), true);
++            assert!(
++                matches!(&payload, Some(DroppedPayload::Paths(paths)) if paths[..] == [PathBuf::from("/tmp/a b.txt")])
++            );
++
++            let payload = DroppedPayload::read(b"https://example.com/\r\n".to_vec(), true);
++            assert!(matches!(&payload, Some(DroppedPayload::Text(_))));
++            let payload = DroppedPayload::read(b"plain words".to_vec(), false).unwrap();
++            let paths = payload.paths();
++            assert_eq!(paths.len(), 1);
++            assert_eq!(paths[0].parent(), Some(dropped_text_dir().as_path()));
++            assert!(!paths[0].exists());
++        }
++
++        #[test]
++        fn a_text_that_cannot_be_dropped_is_refused() {
++            assert!(DroppedPayload::read(Vec::new(), false).is_none());
++            assert!(DroppedPayload::read(vec![0xff, 0xfe], false).is_none());
++            assert!(DroppedPayload::read(vec![b'a'; DROPPED_TEXT_LIMIT + 1], false).is_none());
++            assert!(DroppedPayload::read(vec![b'a'; DROPPED_TEXT_LIMIT], false).is_some());
++        }
++
++        #[test]
++        fn a_dropped_text_is_written_privately() {
++            let dir = test_dir("private");
++            let text = DroppedText::new(dir.clone(), b"one\r\ntwo\n".to_vec()).unwrap();
++            let path = text.path.clone();
++            assert!(text.write());
++            assert_eq!(std::fs::read_to_string(&path).unwrap(), "one\ntwo\n");
++            assert_eq!(mode(&dir), 0o700);
++            assert_eq!(mode(&path), 0o600);
++
++            let other = DroppedText::new(dir.clone(), b"three".to_vec()).unwrap();
++            assert_ne!(other.path, path);
++            assert!(other.write());
++            std::fs::remove_dir_all(&dir).ok();
++        }
++
++        #[test]
++        fn a_directory_others_can_enter_is_not_written_to() {
++            let dir = test_dir("shared");
++            std::fs::DirBuilder::new().mode(0o755).create(&dir).unwrap();
++            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
++            let text = DroppedText::new(dir.clone(), b"words".to_vec()).unwrap();
++            let path = text.path.clone();
++            assert!(!text.write());
++            assert!(!path.exists());
++            std::fs::remove_dir_all(&dir).ok();
++        }
++    }
++
+     #[cfg(any(feature = "wayland", feature = "x11"))]
+     mod read_fd_with_timeout {
+         use super::super::{PIPE_READ_TIMEOUT, read_fd_with_timeout};
 diff --git a/src/linux/wayland/client.rs b/src/linux/wayland/client.rs
-index bc73fc3..a5ca63f 100644
+index bc73fc3..3d161ea 100644
 --- a/src/linux/wayland/client.rs
 +++ b/src/linux/wayland/client.rs
 @@ -1,3 +1,4 @@
-+// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost (vendor/gpui-pre-linux.patch).
++// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; the offer's types are ranked by name (vendor/gpui-pre-linux.patch).
  use std::{
      cell::{RefCell, RefMut},
      hash::Hash,
-@@ -414,10 +415,14 @@ struct DragState<DataOffer = wl_data_offer::WlDataOffer, Window = WaylandWindowS
+@@ -22,7 +23,6 @@ use collections::HashMap;
+ use filedescriptor::Pipe;
+ use gpui_util::ResultExt as _;
+ use http_client::Url;
+-use smallvec::SmallVec;
+ use wayland_backend::client::ObjectId;
+ use wayland_backend::protocol::WEnum;
+ use wayland_client::event_created_child;
+@@ -85,10 +85,11 @@ use super::{
+ };
+ 
+ use crate::linux::{
+-    DOUBLE_CLICK_INTERVAL, LinuxCommon, LinuxKeyboardLayout, PIPE_READ_TIMEOUT, SCROLL_LINES,
+-    capslock_from_xkb, cursor_style_to_icon_names, get_xkb_compose_state, is_within_click_distance,
+-    keystroke_from_xkb, keystroke_underlying_dead_key, modifiers_from_xkb, new_xkb_context,
+-    open_uri_internal, read_fd_with_timeout, reveal_path_internal,
++    DOUBLE_CLICK_INTERVAL, DroppedPayload, DroppedText, LinuxCommon, LinuxKeyboardLayout,
++    PIPE_READ_TIMEOUT, SCROLL_LINES, capslock_from_xkb, cursor_style_to_icon_names, drag_type_rank,
++    drag_types_in_order, get_xkb_compose_state, is_within_click_distance, keystroke_from_xkb,
++    keystroke_underlying_dead_key, modifiers_from_xkb, new_xkb_context, open_uri_internal,
++    read_fd_with_timeout, reveal_path_internal,
+     wayland::{
+         clipboard::{Clipboard, DataOffer, FILE_LIST_MIME_TYPE, TEXT_MIME_TYPES},
+         cursor::Cursor,
+@@ -414,10 +415,16 @@ struct DragState<DataOffer = wl_data_offer::WlDataOffer, Window = WaylandWindowS
      window: Option<Window>,
      position: Point<Pixels>,
      uri_read_generation: u64,
 +    pending_drop: Option<(u64, Point<Pixels>)>,
++    text: Option<DroppedText>,
  }
  
  impl<DataOffer, Window> DragState<DataOffer, Window> {
@@ -19,10 +352,11 @@ index bc73fc3..a5ca63f 100644
 +        if self.pending_drop.take().is_some() {
 +            log::debug!("drag enter: a deferred drop was abandoned");
 +        }
++        self.text = None;
          self.invalidate_uri_read();
          self.uri_read_generation
      }
-@@ -452,6 +457,10 @@ where
+@@ -452,7 +459,12 @@ where
      Window: Clone,
  {
      fn handle_leave(&mut self) -> Option<(Window, PlatformInput)> {
@@ -31,9 +365,11 @@ index bc73fc3..a5ca63f 100644
 +            return None;
 +        }
          self.invalidate_uri_read();
++        self.text = None;
          let window = self.window.clone()?;
          let data_offer = self.data_offer.clone()?;
-@@ -462,6 +471,12 @@ where
+         data_offer.destroy();
+@@ -462,9 +474,18 @@ where
      }
  
      fn handle_drop(&mut self) -> Option<(Window, PlatformInput)> {
@@ -42,14 +378,36 @@ index bc73fc3..a5ca63f 100644
 +            self.pending_drop = Some((self.uri_read_generation, self.position));
 +            return None;
 +        }
-+        log::debug!("drag drop");
++        log::debug!("drag drop at {:?}", self.position);
          self.invalidate_uri_read();
          let window = self.window.clone()?;
          let data_offer = self.data_offer.clone()?;
-@@ -498,6 +513,16 @@ where
++        if let Some(text) = self.text.take() {
++            text.write();
++        }
+         data_offer.finish();
+         data_offer.destroy();
+         self.data_offer = None;
+@@ -498,6 +519,32 @@ where
              PlatformInput::FileDrop(FileDropEvent::Entered { position, paths }),
          ))
      }
++
++    fn complete_drag_read(
++        &mut self,
++        generation: u64,
++        data_offer: DataOffer,
++        window: Window,
++        position: Point<Pixels>,
++        payload: DroppedPayload,
++    ) -> Option<(Window, PlatformInput)> {
++        let paths = gpui::ExternalPaths(payload.paths());
++        let input = self.complete_uri_read(generation, data_offer, window, position, paths);
++        if let (Some(_), DroppedPayload::Text(text)) = (&input, payload) {
++            self.text = Some(text);
++        }
++        input
++    }
 +
 +    fn finish_pending_drop(&mut self) -> Option<(Window, PlatformInput)> {
 +        let (generation, position) = self.pending_drop.take()?;
@@ -63,34 +421,119 @@ index bc73fc3..a5ca63f 100644
  }
  
  #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-@@ -1048,6 +1073,7 @@ impl WaylandConnection {
+@@ -1048,6 +1095,8 @@ impl WaylandConnection {
                  window: None,
                  position: Point::default(),
                  uri_read_generation: 0,
 +                pending_drop: None,
++                text: None,
              },
              external_drag: None,
              click: ClickState {
-@@ -2813,6 +2839,8 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+@@ -2813,22 +2862,43 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
                          return;
                      };
                      let uri_read_generation = state.drag.begin_uri_read();
 +                    state.drag.position = Point::new(x.into(), y.into());
-+                    log::debug!("drag enter: reading the dragged file list");
++                    let offered: Vec<(usize, String)> = state
++                        .data_offers
++                        .iter()
++                        .find(|offer| offer.inner.id() == data_offer.id())
++                        .map(|offer| offer.mime_types().iter().cloned().enumerate().collect())
++                        .unwrap_or_default();
++                    let mime_type = drag_types_in_order(&offered).first().map_or_else(
++                        || FILE_LIST_MIME_TYPE.to_string(),
++                        |i| offered[*i].1.clone(),
++                    );
++                    let uri_list = drag_type_rank(&mime_type) == Some(0);
++                    log::debug!(
++                        "drag enter: offered [{}], accepting and reading {mime_type}",
++                        offered
++                            .iter()
++                            .map(|(_, mime)| mime.as_str())
++                            .collect::<Vec<_>>()
++                            .join(", ")
++                    );
  
                      const ACTIONS: DndAction = DndAction::Copy;
                      data_offer.set_actions(ACTIONS, ACTIONS);
-@@ -2857,6 +2885,7 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
-                                 })
-                                 .collect();
-                             let position = Point::new(x.into(), y.into());
-+                            log::debug!("drag enter: read {} paths", paths.len());
++                    data_offer.accept(serial, Some(mime_type.clone()));
  
-                             // Prevent dropping text from other programs.
-                             if paths.is_empty() {
-@@ -2875,21 +2904,28 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+                     let pipe = Pipe::new().unwrap();
+-                    data_offer.receive(FILE_LIST_MIME_TYPE.to_string(), unsafe {
++                    data_offer.receive(mime_type, unsafe {
+                         BorrowedFd::borrow_raw(pipe.write.as_raw_fd())
+                     });
+                     let fd = pipe.read;
+                     drop(pipe.write);
+ 
+-                    let read_task = state.common.borrow().background_executor.spawn(async {
+-                        let buffer = read_fd_with_timeout(fd, PIPE_READ_TIMEOUT)?;
+-                        let text = String::from_utf8(buffer)?;
+-                        anyhow::Ok(text)
+-                    });
++                    let read_task = state
++                        .common
++                        .borrow()
++                        .background_executor
++                        .spawn(async { read_fd_with_timeout(fd, PIPE_READ_TIMEOUT) });
+ 
+                     let this = this.clone();
+                     state
+@@ -2837,59 +2907,61 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for WaylandClientStatePtr {
+                         .foreground_executor
+                         .clone()
+                         .spawn(async move {
+-                            let file_list = match read_task.await {
+-                                Ok(list) => list,
++                            let buffer = match read_task.await {
++                                Ok(buffer) => buffer,
+                                 Err(err) => {
+                                     log::error!("error reading drag and drop pipe: {err:?}");
+                                     return;
+                                 }
+                             };
+ 
+-                            let paths: SmallVec<[_; 2]> = file_list
+-                                .lines()
+-                                .filter_map(|path| Url::parse(path).log_err())
+-                                .filter_map(|url| match url.to_file_path() {
+-                                    Ok(url) => Some(url),
+-                                    Err(()) => {
+-                                        log::error!("Failed turn {url:?} into a file path");
+-                                        None
+-                                    }
+-                                })
+-                                .collect();
++                            let payload = DroppedPayload::read(buffer, uri_list);
+                             let position = Point::new(x.into(), y.into());
+-
+-                            // Prevent dropping text from other programs.
+-                            if paths.is_empty() {
++                            let Some(payload) = payload else {
++                                log::debug!("drag enter: read nothing");
+                                 data_offer.destroy();
+                                 return;
++                            };
++                            match &payload {
++                                DroppedPayload::Paths(paths) => {
++                                    log::debug!("drag enter: read {} paths", paths.len())
++                                }
++                                DroppedPayload::Text(_) => log::debug!("drag enter: read text"),
+                             }
+                             let Some(client) = this.0.upgrade() else {
+                                 data_offer.destroy();
+                                 return;
+                             };
+                             let mut state = client.borrow_mut();
+-                            let input = state.drag.complete_uri_read(
++                            let input = state.drag.complete_drag_read(
+                                 uri_read_generation,
+                                 data_offer,
+                                 drag_window,
                                  position,
-                                 gpui::ExternalPaths(paths),
+-                                gpui::ExternalPaths(paths),
++                                payload,
                              );
 +                            let dropped = input
 +                                .is_some()
@@ -119,15 +562,25 @@ index bc73fc3..a5ca63f 100644
  
                  let input = PlatformInput::FileDrop(FileDropEvent::Pending { position });
                  drop(state);
-@@ -3188,6 +3224,7 @@ mod tests {
+@@ -3108,6 +3180,8 @@ impl Dispatch<XdgDialogV1, ()> for WaylandClientStatePtr {
+ mod tests {
+     use std::cell::Cell;
+ 
++    use smallvec::SmallVec;
++
+     use super::*;
+ 
+     #[test]
+@@ -3188,6 +3262,8 @@ mod tests {
              window: None,
              position: Point::default(),
              uri_read_generation: 0,
 +            pending_drop: None,
++            text: None,
          }
      }
  
-@@ -3234,28 +3271,111 @@ mod tests {
+@@ -3234,28 +3310,198 @@ mod tests {
          assert!(drag.window.is_none());
      }
  
@@ -240,32 +693,177 @@ index bc73fc3..a5ca63f 100644
 +        assert!(drag.window.is_none());
 +    }
 +
++    fn dropped_text(name: &str) -> (PathBuf, DroppedPayload) {
++        use std::os::unix::fs::DirBuilderExt as _;
++        let dir = std::env::temp_dir().join(format!("gpui-wl-drag-{name}-{}", std::process::id()));
++        std::fs::remove_dir_all(&dir).ok();
++        std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
++        let text = DroppedText::new(dir.clone(), b"dragged words".to_vec()).unwrap();
++        (dir, DroppedPayload::Text(text))
++    }
++
++    fn entered_paths(input: Option<(&'static str, PlatformInput)>) -> Vec<PathBuf> {
++        match input {
++            Some((_, PlatformInput::FileDrop(FileDropEvent::Entered { paths, .. }))) => {
++                paths.paths().to_vec()
++            }
++            _ => Vec::new(),
++        }
++    }
++
++    #[test]
++    fn text_dropped_before_its_read_completes_is_written_before_the_drop() {
++        let (dir, payload) = dropped_text("deferred");
++        let mut drag = drag_state();
++        let data_offer = FakeDataOffer::new("A");
++        let generation = drag.begin_uri_read();
++
++        assert!(drag.handle_drop().is_none());
++        let paths = entered_paths(drag.complete_drag_read(
++            generation,
++            data_offer.clone(),
++            "window A",
++            Point::default(),
++            payload,
++        ));
++        assert_eq!(paths.len(), 1);
++        assert_eq!(paths[0].parent(), Some(dir.as_path()));
++        assert!(!paths[0].exists());
++        assert!(submitted_position(drag.finish_pending_drop()).is_some());
++        assert_eq!(std::fs::read_to_string(&paths[0]).unwrap(), "dragged words");
++        assert!(data_offer.finished.get());
++        assert!(drag.text.is_none());
++        std::fs::remove_dir_all(&dir).ok();
++    }
++
++    #[test]
++    fn text_of_a_drag_that_left_is_never_written() {
++        let (dir, payload) = dropped_text("left");
++        let mut drag = drag_state();
++        let data_offer = FakeDataOffer::new("A");
++        let generation = drag.begin_uri_read();
++
++        let paths = entered_paths(drag.complete_drag_read(
++            generation,
++            data_offer.clone(),
++            "window A",
++            Point::default(),
++            payload,
++        ));
++        assert_eq!(paths.len(), 1);
++        assert!(drag.handle_leave().is_some());
++        assert!(drag.text.is_none());
++        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
++        std::fs::remove_dir_all(&dir).ok();
++    }
++
++    #[test]
++    fn stale_text_read_is_not_kept() {
++        let (dir, payload) = dropped_text("stale");
++        let mut drag = drag_state();
++        let data_offer = FakeDataOffer::new("A");
++        let generation = drag.begin_uri_read();
++        drag.begin_uri_read();
++
++        assert!(
++            drag.complete_drag_read(
++                generation,
++                data_offer.clone(),
++                "window A",
++                Point::default(),
++                payload
++            )
++            .is_none()
++        );
++        assert!(drag.text.is_none());
++        assert!(data_offer.destroyed.get());
++        std::fs::remove_dir_all(&dir).ok();
++    }
++
      #[test]
      fn stale_completion_preserves_newer_drag_destination() {
          let mut drag = drag_state();
+diff --git a/src/linux/wayland/clipboard.rs b/src/linux/wayland/clipboard.rs
+index 86dc7da..395de6f 100644
+--- a/src/linux/wayland/clipboard.rs
++++ b/src/linux/wayland/clipboard.rs
+@@ -1,3 +1,4 @@
++// Modified by GigLabo and Denis Esakov, 2026-10-12: a drag reads which types its offer has (vendor/gpui-pre-linux.patch).
+ use std::{
+     fs::File,
+     io::{ErrorKind, Write},
+@@ -72,6 +73,10 @@ impl<T: ReceiveData> DataOffer<T> {
+         self.mime_types.push(mime_type)
+     }
+ 
++    pub(crate) fn mime_types(&self) -> &[String] {
++        &self.mime_types
++    }
++
+     fn has_mime_type(&self, mime_type: &str) -> bool {
+         self.mime_types.iter().any(|t| t == mime_type)
+     }
 diff --git a/src/linux/x11/client.rs b/src/linux/x11/client.rs
-index 601eb93..7d6a178 100644
+index 601eb93..f86195f 100644
 --- a/src/linux/x11/client.rs
 +++ b/src/linux/x11/client.rs
 @@ -1,3 +1,4 @@
-+// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost (vendor/gpui-pre-linux.patch).
++// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; a refused type falls back to the next, and the drop is placed where XdndPosition says (vendor/gpui-pre-linux.patch).
  use anyhow::{Context as _, anyhow};
  use ashpd::WindowIdentifier;
  use calloop::{
-@@ -156,9 +157,41 @@ pub struct Xdnd {
+@@ -5,10 +6,8 @@ use calloop::{
+     generic::{FdWrapper, Generic},
+ };
+ use collections::HashMap;
+-use core::str;
+ use gpui::{Capslock, GraphicalEnvironment};
+ use gpui_util::ResultExt as _;
+-use http_client::Url;
+ use log::Level;
+ use smallvec::SmallVec;
+ use std::{
+@@ -52,7 +51,10 @@ use crate::linux::{
+     DEFAULT_CURSOR_ICON_NAME, capslock_from_xkb, cursor_style_to_icon_names, get_xkb_compose_state,
+     is_within_click_distance, keystroke_from_xkb, keystroke_underlying_dead_key,
+     log_cursor_icon_warning, modifiers_from_xkb, new_xkb_context, open_uri_internal,
+-    platform::{DOUBLE_CLICK_INTERVAL, SCROLL_LINES},
++    platform::{
++        DOUBLE_CLICK_INTERVAL, DROPPED_TEXT_LIMIT, DroppedPayload, DroppedText, SCROLL_LINES,
++        drag_type_rank, drag_types_in_order,
++    },
+     reveal_path_internal,
+     xdg_desktop_portal::{Event as XDPEvent, XDPEventSource},
+ };
+@@ -156,7 +158,147 @@ pub struct Xdnd {
      other_window: xproto::Window,
      drag_type: u32,
      retrieved: bool,
 +    requested: bool,
 +    dropped: bool,
      position: Point<Pixels>,
- }
- 
++    text: Option<DroppedText>,
++    offered: Vec<(u32, String)>,
++    tried: Vec<u32>,
++    targets: Option<u32>,
++    exhausted: bool,
++    time: u32,
++    root: Option<(i16, i16)>,
++}
++
 +#[derive(Debug, PartialEq, Eq)]
 +enum XdndPaths {
 +    Ignore,
 +    Enter,
 +    EnterAndDrop,
++    Finish,
++}
++
++#[derive(Debug, PartialEq, Eq)]
++enum XdndRefused {
++    Ignore,
++    Request(u32),
++    Exhausted,
 +    Finish,
 +}
 +
@@ -289,12 +887,103 @@ index 601eb93..7d6a178 100644
 +            (false, false) => XdndPaths::Ignore,
 +        }
 +    }
-+}
 +
++    fn receive(&mut self, payload: Option<DroppedPayload>) -> (XdndPaths, SmallVec<[PathBuf; 2]>) {
++        let received = self.receive_paths(payload.is_some());
++        let paths = payload
++            .as_ref()
++            .map(|payload| payload.paths())
++            .unwrap_or_default();
++        if let (XdndPaths::Enter | XdndPaths::EnterAndDrop, Some(DroppedPayload::Text(text))) =
++            (&received, payload)
++        {
++            self.text = Some(text);
++        }
++        (received, paths)
++    }
++
++    fn write_text(&mut self) {
++        if let Some(text) = self.text.take() {
++            text.write();
++        }
++    }
++
++    fn offer(&mut self, offered: Vec<(u32, String)>) {
++        self.offered = offered;
++        self.drag_type = self.next_type().unwrap_or(0);
++    }
++
++    fn next_type(&self) -> Option<u32> {
++        drag_types_in_order(&self.offered)
++            .into_iter()
++            .find(|atom| !self.tried.contains(atom))
++    }
++
++    fn name_of(&self, atom: u32) -> String {
++        if Some(atom) == self.targets {
++            return "TARGETS".to_string();
++        }
++        self.offered
++            .iter()
++            .find(|(offered, _)| *offered == atom)
++            .map_or_else(|| format!("atom {atom}"), |(_, name)| name.clone())
++    }
++
++    fn is_uri_list(&self, atom: u32) -> bool {
++        self.offered
++            .iter()
++            .any(|(offered, name)| *offered == atom && drag_type_rank(name) == Some(0))
++    }
++
++    fn request(&mut self) -> Option<u32> {
++        if self.requested || self.retrieved || self.exhausted || self.drag_type == 0 {
++            return None;
++        }
++        self.requested = true;
++        self.tried.push(self.drag_type);
++        Some(self.drag_type)
++    }
++
++    fn refused(&mut self, targets: u32) -> XdndRefused {
++        if !self.requested || self.retrieved {
++            return XdndRefused::Ignore;
++        }
++        if let Some(next) = self.next_type() {
++            self.drag_type = next;
++            self.tried.push(next);
++            return XdndRefused::Request(next);
++        }
++        if self.targets.is_none() && targets != 0 {
++            self.targets = Some(targets);
++            self.drag_type = targets;
++            return XdndRefused::Request(targets);
++        }
++        self.drag_type = 0;
++        self.requested = false;
++        self.exhausted = true;
++        if self.dropped {
++            XdndRefused::Finish
++        } else {
++            XdndRefused::Exhausted
++        }
++    }
++
++    fn served(&mut self, served: Vec<(u32, String)>) -> XdndRefused {
++        for (atom, name) in served {
++            if !self.offered.iter().any(|(offered, _)| *offered == atom) {
++                self.offered.push((atom, name));
++            }
++        }
++        self.refused(0)
++    }
++
++    fn keep_after_leave(&self) -> bool {
++        self.dropped && self.requested && !self.retrieved
++    }
+ }
+ 
  #[derive(Debug)]
- struct PointerDeviceState {
-     horizontal: ScrollAxisState,
-@@ -926,6 +959,10 @@ impl X11Client {
+@@ -926,22 +1068,47 @@ impl X11Client {
                  }
  
                  if event.type_ == state.atoms.XdndEnter {
@@ -303,51 +992,106 @@ index 601eb93..7d6a178 100644
 +                    }
 +                    state.xdnd_state = Xdnd::default();
                      state.xdnd_state.other_window = atom;
-                     if (arg1 & 0x1) == 0x1 {
-                         state.xdnd_state.drag_type = xdnd_get_supported_atom(
-@@ -941,7 +978,17 @@ impl X11Client {
-                             state.xdnd_state.drag_type = atom;
-                         }
-                     }
+-                    if (arg1 & 0x1) == 0x1 {
+-                        state.xdnd_state.drag_type = xdnd_get_supported_atom(
++                    let offered = if (arg1 & 0x1) == 0x1 {
++                        xdnd_get_offered_atoms(
+                             &state.xcb_connection,
+                             &state.atoms,
+                             state.xdnd_state.other_window,
+-                        );
++                        )
+                     } else {
+-                        if let Some(atom) = [arg2, arg3, arg4]
+-                            .into_iter()
+-                            .find(|atom| xdnd_is_atom_supported(*atom, &state.atoms))
+-                        {
+-                            state.xdnd_state.drag_type = atom;
++                        vec![arg2, arg3, arg4]
++                    };
++                    let offered = xdnd_atom_names(&state.xcb_connection, &offered);
++                    state.xdnd_state.offer(offered);
 +                    log::debug!(
-+                        "XdndEnter from {:#x}: {}",
++                        "XdndEnter from {:#x}: offered [{}], {}",
 +                        state.xdnd_state.other_window,
++                        state
++                            .xdnd_state
++                            .offered
++                            .iter()
++                            .map(|(_, name)| name.as_str())
++                            .collect::<Vec<_>>()
++                            .join(", "),
 +                        if state.xdnd_state.drag_type == 0 {
-+                            "no supported type"
++                            "no supported type".to_string()
 +                        } else {
-+                            "supported type found"
-+                        }
++                            format!(
++                                "taking {}",
++                                state.xdnd_state.name_of(state.xdnd_state.drag_type)
++                            )
+                         }
+-                    }
 +                    );
                  } else if event.type_ == state.atoms.XdndLeave {
++                    if state.xdnd_state.keep_after_leave() {
++                        log::debug!("XdndLeave after a deferred drop: kept until its data arrives");
++                        return Some(());
++                    }
 +                    log::debug!("XdndLeave");
                      let position = state.xdnd_state.position;
                      drop(state);
                      window
-@@ -957,7 +1004,7 @@ impl X11Client {
+@@ -949,25 +1116,47 @@ impl X11Client {
+                     window.handle_input(PlatformInput::FileDrop(FileDropEvent::Exited {}));
+                     self.0.borrow_mut().xdnd_state = Xdnd::default();
+                 } else if event.type_ == state.atoms.XdndPosition {
+-                    if let Ok(pos) = get_reply(
++                    let root_window = state.xcb_connection.setup().roots[state.x_root_index].root;
++                    state.xdnd_state.root = xdnd_root_position(arg2);
++                    let translated = state.xdnd_state.root.and_then(|(x, y)| {
++                        get_reply(
++                            || "Failed to translate the drag position",
++                            state.xcb_connection.translate_coordinates(
++                                root_window,
++                                event.window,
++                                x,
++                                y,
++                            ),
++                        )
++                        .log_err()
++                        .map(|reply| (reply.dst_x, reply.dst_y))
++                    });
++                    if let Some((x, y)) = translated {
++                        state.xdnd_state.position = Point::new(px(x as f32), px(y as f32));
++                    } else if let Ok(pos) = get_reply(
+                         || "Failed to query pointer position",
+                         state.xcb_connection.query_pointer(event.window),
+                     ) {
+                         state.xdnd_state.position =
                              Point::new(px(pos.win_x as f32), px(pos.win_y as f32));
                      }
-                     if !state.xdnd_state.retrieved {
--                        check_reply(
-+                        if check_reply(
+-                    if !state.xdnd_state.retrieved {
++                    state.xdnd_state.time = arg3;
++                    if let Some(target) = state.xdnd_state.request() {
+                         check_reply(
                              || "Failed to convert selection for drag and drop",
                              state.xcb_connection.convert_selection(
                                  event.window,
-@@ -967,7 +1014,13 @@ impl X11Client {
+                                 state.atoms.XdndSelection,
+-                                state.xdnd_state.drag_type,
++                                target,
+                                 state.atoms.XDND_DATA,
                                  arg3,
                              ),
                          )
--                        .log_err();
-+                        .log_err()
-+                        .is_some()
-+                            && !state.xdnd_state.requested
-+                        {
-+                            log::debug!("XdndPosition: requested the dragged file list");
-+                            state.xdnd_state.requested = true;
-+                        }
+                         .log_err();
++                        log::debug!(
++                            "XdndPosition: requested {}",
++                            state.xdnd_state.name_of(target)
++                        );
                      }
                      xdnd_send_status(
                          &state.xcb_connection,
-@@ -981,6 +1034,11 @@ impl X11Client {
+@@ -981,13 +1170,43 @@ impl X11Client {
                      window
                          .handle_input(PlatformInput::FileDrop(FileDropEvent::Pending { position }));
                  } else if event.type_ == state.atoms.XdndDrop {
@@ -355,36 +1099,203 @@ index 601eb93..7d6a178 100644
 +                        log::debug!("XdndDrop: deferred until the file list arrives");
 +                        return Some(());
 +                    }
-+                    log::debug!("XdndDrop");
++                    let position = state.xdnd_state.position;
++                    log::debug!(
++                        "XdndDrop at {position:?} (root {:?}) on {:#x}",
++                        state.xdnd_state.root,
++                        event.window
++                    );
++                    if state.xdnd_state.exhausted {
++                        xdnd_send_finished(
++                            &state.xcb_connection,
++                            &state.atoms,
++                            event.window,
++                            state.xdnd_state.other_window,
++                            false,
++                        );
++                        state.xdnd_state = Xdnd::default();
++                        drop(state);
++                        log::debug!(
++                            "XdndDrop: nothing this window can take was served; not accepted"
++                        );
++                        window.handle_input(PlatformInput::FileDrop(FileDropEvent::Pending {
++                            position,
++                        }));
++                        window.handle_input(PlatformInput::FileDrop(FileDropEvent::Exited {}));
++                        return Some(());
++                    }
++                    state.xdnd_state.write_text();
                      xdnd_send_finished(
                          &state.xcb_connection,
                          &state.atoms,
-@@ -996,7 +1054,7 @@ impl X11Client {
+                         event.window,
+                         state.xdnd_state.other_window,
++                        true,
+                     );
+-                    let position = state.xdnd_state.position;
+                     drop(state);
+                     window
+                         .handle_input(PlatformInput::FileDrop(FileDropEvent::Submit { position }));
+@@ -996,41 +1215,179 @@ impl X11Client {
              }
              Event::SelectionNotify(event) => {
                  let window = self.get_window(event.requestor)?;
 -                let state = self.0.borrow_mut();
+-                let reply = get_reply(
+-                    || "Failed to get XDND_DATA",
+-                    state.xcb_connection.get_property(
+-                        false,
+-                        event.requestor,
+-                        state.atoms.XDND_DATA,
+-                        AtomEnum::ANY,
+-                        0,
+-                        1024,
 +                let mut state = self.0.borrow_mut();
-                 let reply = get_reply(
-                     || "Failed to get XDND_DATA",
-                     state.xcb_connection.get_property(
-@@ -1009,10 +1067,8 @@ impl X11Client {
++                let target = state.xdnd_state.drag_type;
++                let name = state.xdnd_state.name_of(target);
++                if !state.xdnd_state.requested || state.xdnd_state.retrieved {
++                    log::debug!("SelectionNotify for {name}: nobody is waiting, ignored");
++                    return Some(());
++                }
++                let reply = if event.property == x11rb::NONE {
++                    None
++                } else {
++                    get_reply(
++                        || "Failed to get XDND_DATA",
++                        state.xcb_connection.get_property(
++                            true,
++                            event.requestor,
++                            state.atoms.XDND_DATA,
++                            AtomEnum::ANY,
++                            0,
++                            (DROPPED_TEXT_LIMIT / 4) as u32,
++                        ),
++                    )
++                    .log_err()
++                };
++                let mut decided = None;
++                let (payload, refusal) = match reply {
++                    None if event.property == x11rb::NONE => {
++                        let owner = get_reply(
++                            || "Failed to get the XdndSelection owner",
++                            state
++                                .xcb_connection
++                                .get_selection_owner(state.atoms.XdndSelection),
++                        )
++                        .log_err()
++                        .map_or(0, |reply| reply.owner);
++                        (
++                            None,
++                            format!("was refused (property None; selection owner {owner:#x})"),
++                        )
++                    }
++                    None => (None, "could not be read".to_string()),
++                    Some(reply) if reply.format == 0 || reply.value.is_empty() => {
++                        (None, "came back empty".to_string())
++                    }
++                    Some(reply) if Some(target) == state.xdnd_state.targets => {
++                        let atoms: Vec<u32> = reply
++                            .value32()
++                            .map(|atoms| atoms.collect())
++                            .unwrap_or_default();
++                        let served = xdnd_atom_names(&state.xcb_connection, &atoms);
++                        let served_names = served
++                            .iter()
++                            .map(|(_, name)| name.as_str())
++                            .collect::<Vec<_>>()
++                            .join(", ");
++                        decided = Some(state.xdnd_state.served(served));
++                        (None, format!("lists [{served_names}]"))
++                    }
++                    Some(reply) if reply.format != 8 || reply.bytes_after > 0 => (
++                        None,
++                        format!(
++                            "was refused here: format {}, {} bytes past the limit",
++                            reply.format, reply.bytes_after
++                        ),
                      ),
-                 )
-                 .log_err();
+-                )
+-                .log_err();
 -                let Some(reply) = reply else {
--                    return Some(());
--                };
++                    Some(reply) => {
++                        let uri_list = state.xdnd_state.is_uri_list(target);
++                        match DroppedPayload::read(reply.value, uri_list) {
++                            Some(payload) => (Some(payload), String::new()),
++                            None => (None, "held nothing this window can take".to_string()),
++                        }
++                    }
++                };
++                let Some(payload) = payload else {
++                    let next = match decided {
++                        Some(next) => next,
++                        None => {
++                            let targets = get_reply(
++                                || "Failed to intern TARGETS",
++                                state.xcb_connection.intern_atom(false, b"TARGETS"),
++                            )
++                            .log_err()
++                            .map_or(0, |reply| reply.atom);
++                            state.xdnd_state.refused(targets)
++                        }
++                    };
++                    match next {
++                        XdndRefused::Ignore => {}
++                        XdndRefused::Request(next) => {
++                            log::debug!(
++                                "SelectionNotify: {name} {refusal}; requesting {}",
++                                state.xdnd_state.name_of(next)
++                            );
++                            check_reply(
++                                || "Failed to convert selection for drag and drop",
++                                state.xcb_connection.convert_selection(
++                                    event.requestor,
++                                    state.atoms.XdndSelection,
++                                    next,
++                                    state.atoms.XDND_DATA,
++                                    state.xdnd_state.time,
++                                ),
++                            )
++                            .log_err();
++                        }
++                        XdndRefused::Exhausted => {
++                            log::debug!(
++                                "SelectionNotify: {name} {refusal}; no other type to ask for"
++                            );
++                        }
++                        XdndRefused::Finish => {
++                            xdnd_send_finished(
++                                &state.xcb_connection,
++                                &state.atoms,
++                                event.requestor,
++                                state.xdnd_state.other_window,
++                                false,
++                            );
++                            let position = state.xdnd_state.position;
++                            state.xdnd_state = Xdnd::default();
++                            drop(state);
++                            log::debug!(
++                                "SelectionNotify: {name} {refusal}; the deferred drop finished, not accepted"
++                            );
++                            window.handle_input(PlatformInput::FileDrop(FileDropEvent::Pending {
++                                position,
++                            }));
++                            window.handle_input(PlatformInput::FileDrop(FileDropEvent::Exited {}));
++                        }
++                    }
+                     return Some(());
+                 };
 -                if let Ok(file_list) = str::from_utf8(&reply.value) {
-+                let paths = reply.as_ref().and_then(|reply| {
-+                    let file_list = str::from_utf8(&reply.value).ok()?;
-                     let paths: SmallVec<[_; 2]> = file_list
-                         .lines()
-                         .filter_map(|path| Url::parse(path).log_err())
-@@ -1024,13 +1080,52 @@ impl X11Client {
-                             }
-                         })
-                         .collect();
+-                    let paths: SmallVec<[_; 2]> = file_list
+-                        .lines()
+-                        .filter_map(|path| Url::parse(path).log_err())
+-                        .filter_map(|url| match url.to_file_path() {
+-                            Ok(url) => Some(url),
+-                            Err(()) => {
+-                                log::error!("Failed turn {url:?} into a file path");
+-                                None
+-                            }
+-                        })
+-                        .collect();
 -                    let input = PlatformInput::FileDrop(FileDropEvent::Entered {
 -                        position: state.xdnd_state.position,
 -                        paths: gpui::ExternalPaths(paths),
@@ -392,56 +1303,129 @@ index 601eb93..7d6a178 100644
 -                    drop(state);
 -                    window.handle_input(input);
 -                    self.0.borrow_mut().xdnd_state.retrieved = true;
-+                    Some(paths)
-+                });
-+                let received = state.xdnd_state.receive_paths(paths.is_some());
++                let text = matches!(payload, DroppedPayload::Text(_));
++                let (received, paths) = state.xdnd_state.receive(Some(payload));
 +                log::debug!(
-+                    "SelectionNotify: {} paths, {:?}",
-+                    paths.as_ref().map_or(0, |paths| paths.len()),
++                    "SelectionNotify: {name} gave {} {}, {:?}",
++                    paths.len(),
++                    if text { "text" } else { "paths" },
 +                    received
 +                );
 +                let position = state.xdnd_state.position;
 +                match received {
-+                    XdndPaths::Ignore => {}
++                    XdndPaths::Ignore | XdndPaths::Finish => {}
 +                    XdndPaths::Enter => {
 +                        drop(state);
 +                        window.handle_input(PlatformInput::FileDrop(FileDropEvent::Entered {
 +                            position,
-+                            paths: gpui::ExternalPaths(paths.unwrap_or_default()),
++                            paths: gpui::ExternalPaths(paths),
 +                        }));
 +                    }
 +                    XdndPaths::EnterAndDrop => {
++                        state.xdnd_state.write_text();
 +                        xdnd_send_finished(
 +                            &state.xcb_connection,
 +                            &state.atoms,
 +                            event.requestor,
 +                            state.xdnd_state.other_window,
++                            true,
 +                        );
++                        let root = state.xdnd_state.root;
 +                        state.xdnd_state = Xdnd::default();
 +                        drop(state);
-+                        log::debug!("XdndDrop: the deferred drop completed");
++                        log::debug!(
++                            "XdndDrop: the deferred drop completed at {position:?} (root {root:?}) on {:#x}",
++                            event.requestor
++                        );
 +                        window.handle_input(PlatformInput::FileDrop(FileDropEvent::Entered {
 +                            position,
-+                            paths: gpui::ExternalPaths(paths.unwrap_or_default()),
++                            paths: gpui::ExternalPaths(paths),
 +                        }));
 +                        window.handle_input(PlatformInput::FileDrop(FileDropEvent::Submit {
 +                            position,
 +                        }));
 +                    }
-+                    XdndPaths::Finish => {
-+                        xdnd_send_finished(
-+                            &state.xcb_connection,
-+                            &state.atoms,
-+                            event.requestor,
-+                            state.xdnd_state.other_window,
-+                        );
-+                        state.xdnd_state = Xdnd::default();
-+                        log::debug!("XdndDrop: the deferred drop finished without a file list");
-+                    }
                  }
              }
              Event::ConfigureNotify(event) => {
-@@ -3209,4 +3304,44 @@ mod tests {
+@@ -2369,20 +2726,31 @@ fn check_gtk_frame_extents_supported(
+     supported_atom_ids.contains(&atoms._GTK_FRAME_EXTENTS)
+ }
+ 
+-fn xdnd_is_atom_supported(atom: u32, atoms: &XcbAtoms) -> bool {
+-    atom == atoms.TEXT
+-        || atom == atoms.STRING
+-        || atom == atoms.UTF8_STRING
+-        || atom == atoms.TEXT_PLAIN
+-        || atom == atoms.TEXT_PLAIN_UTF8
+-        || atom == atoms.TextUriList
++fn xdnd_root_position(data: u32) -> Option<(i16, i16)> {
++    (data != 0).then(|| ((data >> 16) as u16 as i16, (data & 0xffff) as u16 as i16))
++}
++
++fn xdnd_atom_names(xcb_connection: &XCBConnection, atoms: &[u32]) -> Vec<(u32, String)> {
++    atoms
++        .iter()
++        .copied()
++        .filter(|atom| *atom != 0)
++        .filter_map(|atom| {
++            let reply = get_reply(
++                || "Failed to get an XDnD type's name",
++                xcb_connection.get_atom_name(atom),
++            )
++            .log_err()?;
++            Some((atom, String::from_utf8_lossy(&reply.name).into_owned()))
++        })
++        .collect()
+ }
+ 
+-fn xdnd_get_supported_atom(
++fn xdnd_get_offered_atoms(
+     xcb_connection: &XCBConnection,
+     supported_atoms: &XcbAtoms,
+     target: xproto::Window,
+-) -> u32 {
++) -> Vec<u32> {
+     if let Some(reply) = get_reply(
+         || "Failed to get XDnD supported atoms",
+         xcb_connection.get_property(
+@@ -2397,13 +2765,9 @@ fn xdnd_get_supported_atom(
+     .log_with_level(Level::Warn)
+         && let Some(atoms) = reply.value32()
+     {
+-        for atom in atoms {
+-            if xdnd_is_atom_supported(atom, supported_atoms) {
+-                return atom;
+-            }
+-        }
++        return atoms.collect();
+     }
+-    0
++    Vec::new()
+ }
+ 
+ fn xdnd_send_finished(
+@@ -2411,12 +2775,18 @@ fn xdnd_send_finished(
+     atoms: &XcbAtoms,
+     source: xproto::Window,
+     target: xproto::Window,
++    accepted: bool,
+ ) {
++    let (accepted, action) = if accepted {
++        (1, atoms.XdndActionCopy)
++    } else {
++        (0, 0)
++    };
+     let message = ClientMessageEvent {
+         format: 32,
+         window: target,
+         type_: atoms.XdndFinished,
+-        data: ClientMessageData::from([source, 1, atoms.XdndActionCopy, 0, 0]),
++        data: ClientMessageData::from([source, accepted, action, 0, 0]),
+         sequence: 0,
+         response_type: xproto::CLIENT_MESSAGE_EVENT,
+     };
+@@ -3209,4 +3579,185 @@ mod tests {
          // Assert pressing space while on the Czech layout still types a space.
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
@@ -451,6 +1435,147 @@ index 601eb93..7d6a178 100644
 +            requested: true,
 +            ..Xdnd::default()
 +        }
++    }
++
++    fn private_test_dir(name: &str) -> PathBuf {
++        use std::os::unix::fs::DirBuilderExt as _;
++        let dir = std::env::temp_dir().join(format!("gpui-xdnd-{name}-{}", std::process::id()));
++        std::fs::remove_dir_all(&dir).ok();
++        std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
++        dir
++    }
++
++    fn dropped_text(dir: &PathBuf, text: &str) -> Option<DroppedPayload> {
++        DroppedText::new(dir.clone(), text.as_bytes().to_vec()).map(DroppedPayload::Text)
++    }
++
++    #[test]
++    fn xdnd_prefers_a_file_list_then_text() {
++        let mut xdnd = Xdnd::default();
++        xdnd.offer(offered(&[
++            (1, "text/html"),
++            (2, "UTF8_STRING"),
++            (3, "text/plain;charset=UTF-8"),
++            (4, "text/uri-list"),
++        ]));
++        assert_eq!(xdnd.drag_type, 4);
++        assert!(xdnd.is_uri_list(4));
++
++        let mut xdnd = Xdnd::default();
++        xdnd.offer(offered(&[(1, "text/html"), (2, "UTF8_STRING")]));
++        assert_eq!(xdnd.drag_type, 2);
++
++        let mut xdnd = Xdnd::default();
++        xdnd.offer(offered(&[(1, "text/html")]));
++        assert_eq!(xdnd.drag_type, 0);
++        assert_eq!(xdnd.request(), None);
++    }
++
++    fn offered(types: &[(u32, &str)]) -> Vec<(u32, String)> {
++        types
++            .iter()
++            .map(|(atom, name)| (*atom, name.to_string()))
++            .collect()
++    }
++
++    #[test]
++    fn xdnd_a_refused_type_falls_back_to_the_next_and_is_not_asked_again() {
++        let mut xdnd = Xdnd::default();
++        xdnd.offer(offered(&[
++            (1, "text/html"),
++            (2, "UTF8_STRING"),
++            (3, "text/plain;charset=utf-8"),
++        ]));
++        assert_eq!(xdnd.request(), Some(3));
++        assert_eq!(xdnd.request(), None);
++        assert_eq!(xdnd.refused(99), XdndRefused::Request(2));
++        assert_eq!(xdnd.refused(99), XdndRefused::Request(99));
++        assert_eq!(xdnd.name_of(99), "TARGETS");
++        assert_eq!(
++            xdnd.served(offered(&[(2, "UTF8_STRING"), (5, "text/plain")])),
++            XdndRefused::Request(5)
++        );
++        assert_eq!(xdnd.refused(99), XdndRefused::Exhausted);
++        assert_eq!(xdnd.tried, vec![3, 2, 5]);
++        assert_eq!(xdnd.request(), None);
++        assert!(!xdnd.defer_drop());
++    }
++
++    #[test]
++    fn xdnd_a_deferred_drop_with_nothing_left_finishes() {
++        let mut xdnd = Xdnd::default();
++        xdnd.offer(offered(&[(2, "UTF8_STRING")]));
++        assert_eq!(xdnd.request(), Some(2));
++        assert!(xdnd.defer_drop());
++        assert!(xdnd.keep_after_leave());
++        assert_eq!(xdnd.refused(0), XdndRefused::Finish);
++        assert!(!xdnd.keep_after_leave());
++    }
++
++    #[test]
++    fn xdnd_a_leave_after_a_deferred_drop_keeps_it() {
++        let mut xdnd = Xdnd::default();
++        xdnd.offer(offered(&[(2, "UTF8_STRING")]));
++        assert!(!xdnd.keep_after_leave());
++        assert_eq!(xdnd.request(), Some(2));
++        assert!(!xdnd.keep_after_leave());
++        assert!(xdnd.defer_drop());
++        assert!(xdnd.keep_after_leave());
++        assert_eq!(xdnd.receive_paths(true), XdndPaths::EnterAndDrop);
++    }
++
++    #[test]
++    fn xdnd_the_position_is_the_message_s_own() {
++        assert_eq!(xdnd_root_position((300 << 16) | 200), Some((300, 200)));
++        assert_eq!(xdnd_root_position((2560 << 16) | 1439), Some((2560, 1439)));
++        assert_eq!(xdnd_root_position(0), None);
++    }
++
++    #[test]
++    fn xdnd_text_dropped_before_it_arrives_is_written_before_the_drop() {
++        let dir = private_test_dir("deferred-text");
++        let mut xdnd = requested_xdnd();
++
++        assert!(xdnd.defer_drop());
++        let (received, paths) = xdnd.receive(dropped_text(&dir, "dragged words"));
++        assert_eq!(received, XdndPaths::EnterAndDrop);
++        assert_eq!(paths.len(), 1);
++        assert_eq!(paths[0].parent(), Some(dir.as_path()));
++        assert!(!paths[0].exists());
++        xdnd.write_text();
++        assert_eq!(std::fs::read_to_string(&paths[0]).unwrap(), "dragged words");
++        std::fs::remove_dir_all(&dir).ok();
++    }
++
++    #[test]
++    fn xdnd_text_dropped_after_it_arrives_is_written_at_the_drop() {
++        let dir = private_test_dir("entered-text");
++        let mut xdnd = requested_xdnd();
++
++        let (received, paths) = xdnd.receive(dropped_text(&dir, "dragged words"));
++        assert_eq!(received, XdndPaths::Enter);
++        assert!(!xdnd.defer_drop());
++        assert!(!paths[0].exists());
++        xdnd.write_text();
++        assert_eq!(std::fs::read_to_string(&paths[0]).unwrap(), "dragged words");
++        std::fs::remove_dir_all(&dir).ok();
++    }
++
++    #[test]
++    fn xdnd_text_of_a_drag_that_left_is_never_written() {
++        let dir = private_test_dir("left-text");
++        let mut xdnd = requested_xdnd();
++
++        let (received, paths) = xdnd.receive(dropped_text(&dir, "dragged words"));
++        assert_eq!(received, XdndPaths::Enter);
++        xdnd = Xdnd::default();
++        xdnd.write_text();
++        assert!(!paths[0].exists());
++        let (received, _) = xdnd.receive(dropped_text(&dir, "late words"));
++        assert_eq!(received, XdndPaths::Ignore);
++        xdnd.write_text();
++        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
++        std::fs::remove_dir_all(&dir).ok();
 +    }
 +
 +    #[test]

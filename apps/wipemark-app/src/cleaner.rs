@@ -255,6 +255,7 @@ impl Cleaner {
     }
 
     /// Whether the clean `id` is waiting or running.
+    #[cfg(test)]
     pub fn pending(&self, id: u64) -> bool {
         self.line.holds(id)
     }

@@ -1,4 +1,4 @@
-// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost (vendor/gpui-pre-linux.patch).
+// Modified by GigLabo and Denis Esakov, 2026-10-12: a file dropped before its file list is read is delivered, not lost; a dragged text is delivered as a private drop file; a refused type falls back to the next, and the drop is placed where XdndPosition says (vendor/gpui-pre-linux.patch).
 use anyhow::{Context as _, anyhow};
 use ashpd::WindowIdentifier;
 use calloop::{
@@ -6,10 +6,8 @@ use calloop::{
     generic::{FdWrapper, Generic},
 };
 use collections::HashMap;
-use core::str;
 use gpui::{Capslock, GraphicalEnvironment};
 use gpui_util::ResultExt as _;
-use http_client::Url;
 use log::Level;
 use smallvec::SmallVec;
 use std::{
@@ -53,7 +51,10 @@ use crate::linux::{
     DEFAULT_CURSOR_ICON_NAME, capslock_from_xkb, cursor_style_to_icon_names, get_xkb_compose_state,
     is_within_click_distance, keystroke_from_xkb, keystroke_underlying_dead_key,
     log_cursor_icon_warning, modifiers_from_xkb, new_xkb_context, open_uri_internal,
-    platform::{DOUBLE_CLICK_INTERVAL, SCROLL_LINES},
+    platform::{
+        DOUBLE_CLICK_INTERVAL, DROPPED_TEXT_LIMIT, DroppedPayload, DroppedText, SCROLL_LINES,
+        drag_type_rank, drag_types_in_order,
+    },
     reveal_path_internal,
     xdg_desktop_portal::{Event as XDPEvent, XDPEventSource},
 };
@@ -160,6 +161,13 @@ pub struct Xdnd {
     requested: bool,
     dropped: bool,
     position: Point<Pixels>,
+    text: Option<DroppedText>,
+    offered: Vec<(u32, String)>,
+    tried: Vec<u32>,
+    targets: Option<u32>,
+    exhausted: bool,
+    time: u32,
+    root: Option<(i16, i16)>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -167,6 +175,14 @@ enum XdndPaths {
     Ignore,
     Enter,
     EnterAndDrop,
+    Finish,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum XdndRefused {
+    Ignore,
+    Request(u32),
+    Exhausted,
     Finish,
 }
 
@@ -189,6 +205,99 @@ impl Xdnd {
             (false, true) => XdndPaths::Finish,
             (false, false) => XdndPaths::Ignore,
         }
+    }
+
+    fn receive(&mut self, payload: Option<DroppedPayload>) -> (XdndPaths, SmallVec<[PathBuf; 2]>) {
+        let received = self.receive_paths(payload.is_some());
+        let paths = payload
+            .as_ref()
+            .map(|payload| payload.paths())
+            .unwrap_or_default();
+        if let (XdndPaths::Enter | XdndPaths::EnterAndDrop, Some(DroppedPayload::Text(text))) =
+            (&received, payload)
+        {
+            self.text = Some(text);
+        }
+        (received, paths)
+    }
+
+    fn write_text(&mut self) {
+        if let Some(text) = self.text.take() {
+            text.write();
+        }
+    }
+
+    fn offer(&mut self, offered: Vec<(u32, String)>) {
+        self.offered = offered;
+        self.drag_type = self.next_type().unwrap_or(0);
+    }
+
+    fn next_type(&self) -> Option<u32> {
+        drag_types_in_order(&self.offered)
+            .into_iter()
+            .find(|atom| !self.tried.contains(atom))
+    }
+
+    fn name_of(&self, atom: u32) -> String {
+        if Some(atom) == self.targets {
+            return "TARGETS".to_string();
+        }
+        self.offered
+            .iter()
+            .find(|(offered, _)| *offered == atom)
+            .map_or_else(|| format!("atom {atom}"), |(_, name)| name.clone())
+    }
+
+    fn is_uri_list(&self, atom: u32) -> bool {
+        self.offered
+            .iter()
+            .any(|(offered, name)| *offered == atom && drag_type_rank(name) == Some(0))
+    }
+
+    fn request(&mut self) -> Option<u32> {
+        if self.requested || self.retrieved || self.exhausted || self.drag_type == 0 {
+            return None;
+        }
+        self.requested = true;
+        self.tried.push(self.drag_type);
+        Some(self.drag_type)
+    }
+
+    fn refused(&mut self, targets: u32) -> XdndRefused {
+        if !self.requested || self.retrieved {
+            return XdndRefused::Ignore;
+        }
+        if let Some(next) = self.next_type() {
+            self.drag_type = next;
+            self.tried.push(next);
+            return XdndRefused::Request(next);
+        }
+        if self.targets.is_none() && targets != 0 {
+            self.targets = Some(targets);
+            self.drag_type = targets;
+            return XdndRefused::Request(targets);
+        }
+        self.drag_type = 0;
+        self.requested = false;
+        self.exhausted = true;
+        if self.dropped {
+            XdndRefused::Finish
+        } else {
+            XdndRefused::Exhausted
+        }
+    }
+
+    fn served(&mut self, served: Vec<(u32, String)>) -> XdndRefused {
+        for (atom, name) in served {
+            if !self.offered.iter().any(|(offered, _)| *offered == atom) {
+                self.offered.push((atom, name));
+            }
+        }
+        self.refused(0)
+    }
+
+    fn keep_after_leave(&self) -> bool {
+        self.dropped && self.requested && !self.retrieved
     }
 }
 
@@ -964,30 +1073,41 @@ impl X11Client {
                     }
                     state.xdnd_state = Xdnd::default();
                     state.xdnd_state.other_window = atom;
-                    if (arg1 & 0x1) == 0x1 {
-                        state.xdnd_state.drag_type = xdnd_get_supported_atom(
+                    let offered = if (arg1 & 0x1) == 0x1 {
+                        xdnd_get_offered_atoms(
                             &state.xcb_connection,
                             &state.atoms,
                             state.xdnd_state.other_window,
-                        );
+                        )
                     } else {
-                        if let Some(atom) = [arg2, arg3, arg4]
-                            .into_iter()
-                            .find(|atom| xdnd_is_atom_supported(*atom, &state.atoms))
-                        {
-                            state.xdnd_state.drag_type = atom;
-                        }
-                    }
+                        vec![arg2, arg3, arg4]
+                    };
+                    let offered = xdnd_atom_names(&state.xcb_connection, &offered);
+                    state.xdnd_state.offer(offered);
                     log::debug!(
-                        "XdndEnter from {:#x}: {}",
+                        "XdndEnter from {:#x}: offered [{}], {}",
                         state.xdnd_state.other_window,
+                        state
+                            .xdnd_state
+                            .offered
+                            .iter()
+                            .map(|(_, name)| name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
                         if state.xdnd_state.drag_type == 0 {
-                            "no supported type"
+                            "no supported type".to_string()
                         } else {
-                            "supported type found"
+                            format!(
+                                "taking {}",
+                                state.xdnd_state.name_of(state.xdnd_state.drag_type)
+                            )
                         }
                     );
                 } else if event.type_ == state.atoms.XdndLeave {
+                    if state.xdnd_state.keep_after_leave() {
+                        log::debug!("XdndLeave after a deferred drop: kept until its data arrives");
+                        return Some(());
+                    }
                     log::debug!("XdndLeave");
                     let position = state.xdnd_state.position;
                     drop(state);
@@ -996,31 +1116,47 @@ impl X11Client {
                     window.handle_input(PlatformInput::FileDrop(FileDropEvent::Exited {}));
                     self.0.borrow_mut().xdnd_state = Xdnd::default();
                 } else if event.type_ == state.atoms.XdndPosition {
-                    if let Ok(pos) = get_reply(
+                    let root_window = state.xcb_connection.setup().roots[state.x_root_index].root;
+                    state.xdnd_state.root = xdnd_root_position(arg2);
+                    let translated = state.xdnd_state.root.and_then(|(x, y)| {
+                        get_reply(
+                            || "Failed to translate the drag position",
+                            state.xcb_connection.translate_coordinates(
+                                root_window,
+                                event.window,
+                                x,
+                                y,
+                            ),
+                        )
+                        .log_err()
+                        .map(|reply| (reply.dst_x, reply.dst_y))
+                    });
+                    if let Some((x, y)) = translated {
+                        state.xdnd_state.position = Point::new(px(x as f32), px(y as f32));
+                    } else if let Ok(pos) = get_reply(
                         || "Failed to query pointer position",
                         state.xcb_connection.query_pointer(event.window),
                     ) {
                         state.xdnd_state.position =
                             Point::new(px(pos.win_x as f32), px(pos.win_y as f32));
                     }
-                    if !state.xdnd_state.retrieved {
-                        if check_reply(
+                    state.xdnd_state.time = arg3;
+                    if let Some(target) = state.xdnd_state.request() {
+                        check_reply(
                             || "Failed to convert selection for drag and drop",
                             state.xcb_connection.convert_selection(
                                 event.window,
                                 state.atoms.XdndSelection,
-                                state.xdnd_state.drag_type,
+                                target,
                                 state.atoms.XDND_DATA,
                                 arg3,
                             ),
                         )
-                        .log_err()
-                        .is_some()
-                            && !state.xdnd_state.requested
-                        {
-                            log::debug!("XdndPosition: requested the dragged file list");
-                            state.xdnd_state.requested = true;
-                        }
+                        .log_err();
+                        log::debug!(
+                            "XdndPosition: requested {}",
+                            state.xdnd_state.name_of(target)
+                        );
                     }
                     xdnd_send_status(
                         &state.xcb_connection,
@@ -1038,14 +1174,39 @@ impl X11Client {
                         log::debug!("XdndDrop: deferred until the file list arrives");
                         return Some(());
                     }
-                    log::debug!("XdndDrop");
+                    let position = state.xdnd_state.position;
+                    log::debug!(
+                        "XdndDrop at {position:?} (root {:?}) on {:#x}",
+                        state.xdnd_state.root,
+                        event.window
+                    );
+                    if state.xdnd_state.exhausted {
+                        xdnd_send_finished(
+                            &state.xcb_connection,
+                            &state.atoms,
+                            event.window,
+                            state.xdnd_state.other_window,
+                            false,
+                        );
+                        state.xdnd_state = Xdnd::default();
+                        drop(state);
+                        log::debug!(
+                            "XdndDrop: nothing this window can take was served; not accepted"
+                        );
+                        window.handle_input(PlatformInput::FileDrop(FileDropEvent::Pending {
+                            position,
+                        }));
+                        window.handle_input(PlatformInput::FileDrop(FileDropEvent::Exited {}));
+                        return Some(());
+                    }
+                    state.xdnd_state.write_text();
                     xdnd_send_finished(
                         &state.xcb_connection,
                         &state.atoms,
                         event.window,
                         state.xdnd_state.other_window,
+                        true,
                     );
-                    let position = state.xdnd_state.position;
                     drop(state);
                     window
                         .handle_input(PlatformInput::FileDrop(FileDropEvent::Submit { position }));
@@ -1055,76 +1216,177 @@ impl X11Client {
             Event::SelectionNotify(event) => {
                 let window = self.get_window(event.requestor)?;
                 let mut state = self.0.borrow_mut();
-                let reply = get_reply(
-                    || "Failed to get XDND_DATA",
-                    state.xcb_connection.get_property(
-                        false,
-                        event.requestor,
-                        state.atoms.XDND_DATA,
-                        AtomEnum::ANY,
-                        0,
-                        1024,
+                let target = state.xdnd_state.drag_type;
+                let name = state.xdnd_state.name_of(target);
+                if !state.xdnd_state.requested || state.xdnd_state.retrieved {
+                    log::debug!("SelectionNotify for {name}: nobody is waiting, ignored");
+                    return Some(());
+                }
+                let reply = if event.property == x11rb::NONE {
+                    None
+                } else {
+                    get_reply(
+                        || "Failed to get XDND_DATA",
+                        state.xcb_connection.get_property(
+                            true,
+                            event.requestor,
+                            state.atoms.XDND_DATA,
+                            AtomEnum::ANY,
+                            0,
+                            (DROPPED_TEXT_LIMIT / 4) as u32,
+                        ),
+                    )
+                    .log_err()
+                };
+                let mut decided = None;
+                let (payload, refusal) = match reply {
+                    None if event.property == x11rb::NONE => {
+                        let owner = get_reply(
+                            || "Failed to get the XdndSelection owner",
+                            state
+                                .xcb_connection
+                                .get_selection_owner(state.atoms.XdndSelection),
+                        )
+                        .log_err()
+                        .map_or(0, |reply| reply.owner);
+                        (
+                            None,
+                            format!("was refused (property None; selection owner {owner:#x})"),
+                        )
+                    }
+                    None => (None, "could not be read".to_string()),
+                    Some(reply) if reply.format == 0 || reply.value.is_empty() => {
+                        (None, "came back empty".to_string())
+                    }
+                    Some(reply) if Some(target) == state.xdnd_state.targets => {
+                        let atoms: Vec<u32> = reply
+                            .value32()
+                            .map(|atoms| atoms.collect())
+                            .unwrap_or_default();
+                        let served = xdnd_atom_names(&state.xcb_connection, &atoms);
+                        let served_names = served
+                            .iter()
+                            .map(|(_, name)| name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        decided = Some(state.xdnd_state.served(served));
+                        (None, format!("lists [{served_names}]"))
+                    }
+                    Some(reply) if reply.format != 8 || reply.bytes_after > 0 => (
+                        None,
+                        format!(
+                            "was refused here: format {}, {} bytes past the limit",
+                            reply.format, reply.bytes_after
+                        ),
                     ),
-                )
-                .log_err();
-                let paths = reply.as_ref().and_then(|reply| {
-                    let file_list = str::from_utf8(&reply.value).ok()?;
-                    let paths: SmallVec<[_; 2]> = file_list
-                        .lines()
-                        .filter_map(|path| Url::parse(path).log_err())
-                        .filter_map(|url| match url.to_file_path() {
-                            Ok(url) => Some(url),
-                            Err(()) => {
-                                log::error!("Failed turn {url:?} into a file path");
-                                None
-                            }
-                        })
-                        .collect();
-                    Some(paths)
-                });
-                let received = state.xdnd_state.receive_paths(paths.is_some());
+                    Some(reply) => {
+                        let uri_list = state.xdnd_state.is_uri_list(target);
+                        match DroppedPayload::read(reply.value, uri_list) {
+                            Some(payload) => (Some(payload), String::new()),
+                            None => (None, "held nothing this window can take".to_string()),
+                        }
+                    }
+                };
+                let Some(payload) = payload else {
+                    let next = match decided {
+                        Some(next) => next,
+                        None => {
+                            let targets = get_reply(
+                                || "Failed to intern TARGETS",
+                                state.xcb_connection.intern_atom(false, b"TARGETS"),
+                            )
+                            .log_err()
+                            .map_or(0, |reply| reply.atom);
+                            state.xdnd_state.refused(targets)
+                        }
+                    };
+                    match next {
+                        XdndRefused::Ignore => {}
+                        XdndRefused::Request(next) => {
+                            log::debug!(
+                                "SelectionNotify: {name} {refusal}; requesting {}",
+                                state.xdnd_state.name_of(next)
+                            );
+                            check_reply(
+                                || "Failed to convert selection for drag and drop",
+                                state.xcb_connection.convert_selection(
+                                    event.requestor,
+                                    state.atoms.XdndSelection,
+                                    next,
+                                    state.atoms.XDND_DATA,
+                                    state.xdnd_state.time,
+                                ),
+                            )
+                            .log_err();
+                        }
+                        XdndRefused::Exhausted => {
+                            log::debug!(
+                                "SelectionNotify: {name} {refusal}; no other type to ask for"
+                            );
+                        }
+                        XdndRefused::Finish => {
+                            xdnd_send_finished(
+                                &state.xcb_connection,
+                                &state.atoms,
+                                event.requestor,
+                                state.xdnd_state.other_window,
+                                false,
+                            );
+                            let position = state.xdnd_state.position;
+                            state.xdnd_state = Xdnd::default();
+                            drop(state);
+                            log::debug!(
+                                "SelectionNotify: {name} {refusal}; the deferred drop finished, not accepted"
+                            );
+                            window.handle_input(PlatformInput::FileDrop(FileDropEvent::Pending {
+                                position,
+                            }));
+                            window.handle_input(PlatformInput::FileDrop(FileDropEvent::Exited {}));
+                        }
+                    }
+                    return Some(());
+                };
+                let text = matches!(payload, DroppedPayload::Text(_));
+                let (received, paths) = state.xdnd_state.receive(Some(payload));
                 log::debug!(
-                    "SelectionNotify: {} paths, {:?}",
-                    paths.as_ref().map_or(0, |paths| paths.len()),
+                    "SelectionNotify: {name} gave {} {}, {:?}",
+                    paths.len(),
+                    if text { "text" } else { "paths" },
                     received
                 );
                 let position = state.xdnd_state.position;
                 match received {
-                    XdndPaths::Ignore => {}
+                    XdndPaths::Ignore | XdndPaths::Finish => {}
                     XdndPaths::Enter => {
                         drop(state);
                         window.handle_input(PlatformInput::FileDrop(FileDropEvent::Entered {
                             position,
-                            paths: gpui::ExternalPaths(paths.unwrap_or_default()),
+                            paths: gpui::ExternalPaths(paths),
                         }));
                     }
                     XdndPaths::EnterAndDrop => {
+                        state.xdnd_state.write_text();
                         xdnd_send_finished(
                             &state.xcb_connection,
                             &state.atoms,
                             event.requestor,
                             state.xdnd_state.other_window,
+                            true,
                         );
+                        let root = state.xdnd_state.root;
                         state.xdnd_state = Xdnd::default();
                         drop(state);
-                        log::debug!("XdndDrop: the deferred drop completed");
+                        log::debug!(
+                            "XdndDrop: the deferred drop completed at {position:?} (root {root:?}) on {:#x}",
+                            event.requestor
+                        );
                         window.handle_input(PlatformInput::FileDrop(FileDropEvent::Entered {
                             position,
-                            paths: gpui::ExternalPaths(paths.unwrap_or_default()),
+                            paths: gpui::ExternalPaths(paths),
                         }));
                         window.handle_input(PlatformInput::FileDrop(FileDropEvent::Submit {
                             position,
                         }));
-                    }
-                    XdndPaths::Finish => {
-                        xdnd_send_finished(
-                            &state.xcb_connection,
-                            &state.atoms,
-                            event.requestor,
-                            state.xdnd_state.other_window,
-                        );
-                        state.xdnd_state = Xdnd::default();
-                        log::debug!("XdndDrop: the deferred drop finished without a file list");
                     }
                 }
             }
@@ -2464,20 +2726,31 @@ fn check_gtk_frame_extents_supported(
     supported_atom_ids.contains(&atoms._GTK_FRAME_EXTENTS)
 }
 
-fn xdnd_is_atom_supported(atom: u32, atoms: &XcbAtoms) -> bool {
-    atom == atoms.TEXT
-        || atom == atoms.STRING
-        || atom == atoms.UTF8_STRING
-        || atom == atoms.TEXT_PLAIN
-        || atom == atoms.TEXT_PLAIN_UTF8
-        || atom == atoms.TextUriList
+fn xdnd_root_position(data: u32) -> Option<(i16, i16)> {
+    (data != 0).then(|| ((data >> 16) as u16 as i16, (data & 0xffff) as u16 as i16))
 }
 
-fn xdnd_get_supported_atom(
+fn xdnd_atom_names(xcb_connection: &XCBConnection, atoms: &[u32]) -> Vec<(u32, String)> {
+    atoms
+        .iter()
+        .copied()
+        .filter(|atom| *atom != 0)
+        .filter_map(|atom| {
+            let reply = get_reply(
+                || "Failed to get an XDnD type's name",
+                xcb_connection.get_atom_name(atom),
+            )
+            .log_err()?;
+            Some((atom, String::from_utf8_lossy(&reply.name).into_owned()))
+        })
+        .collect()
+}
+
+fn xdnd_get_offered_atoms(
     xcb_connection: &XCBConnection,
     supported_atoms: &XcbAtoms,
     target: xproto::Window,
-) -> u32 {
+) -> Vec<u32> {
     if let Some(reply) = get_reply(
         || "Failed to get XDnD supported atoms",
         xcb_connection.get_property(
@@ -2492,13 +2765,9 @@ fn xdnd_get_supported_atom(
     .log_with_level(Level::Warn)
         && let Some(atoms) = reply.value32()
     {
-        for atom in atoms {
-            if xdnd_is_atom_supported(atom, supported_atoms) {
-                return atom;
-            }
-        }
+        return atoms.collect();
     }
-    0
+    Vec::new()
 }
 
 fn xdnd_send_finished(
@@ -2506,12 +2775,18 @@ fn xdnd_send_finished(
     atoms: &XcbAtoms,
     source: xproto::Window,
     target: xproto::Window,
+    accepted: bool,
 ) {
+    let (accepted, action) = if accepted {
+        (1, atoms.XdndActionCopy)
+    } else {
+        (0, 0)
+    };
     let message = ClientMessageEvent {
         format: 32,
         window: target,
         type_: atoms.XdndFinished,
-        data: ClientMessageData::from([source, 1, atoms.XdndActionCopy, 0, 0]),
+        data: ClientMessageData::from([source, accepted, action, 0, 0]),
         sequence: 0,
         response_type: xproto::CLIENT_MESSAGE_EVENT,
     };
@@ -3310,6 +3585,147 @@ mod tests {
             requested: true,
             ..Xdnd::default()
         }
+    }
+
+    fn private_test_dir(name: &str) -> PathBuf {
+        use std::os::unix::fs::DirBuilderExt as _;
+        let dir = std::env::temp_dir().join(format!("gpui-xdnd-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+        dir
+    }
+
+    fn dropped_text(dir: &PathBuf, text: &str) -> Option<DroppedPayload> {
+        DroppedText::new(dir.clone(), text.as_bytes().to_vec()).map(DroppedPayload::Text)
+    }
+
+    #[test]
+    fn xdnd_prefers_a_file_list_then_text() {
+        let mut xdnd = Xdnd::default();
+        xdnd.offer(offered(&[
+            (1, "text/html"),
+            (2, "UTF8_STRING"),
+            (3, "text/plain;charset=UTF-8"),
+            (4, "text/uri-list"),
+        ]));
+        assert_eq!(xdnd.drag_type, 4);
+        assert!(xdnd.is_uri_list(4));
+
+        let mut xdnd = Xdnd::default();
+        xdnd.offer(offered(&[(1, "text/html"), (2, "UTF8_STRING")]));
+        assert_eq!(xdnd.drag_type, 2);
+
+        let mut xdnd = Xdnd::default();
+        xdnd.offer(offered(&[(1, "text/html")]));
+        assert_eq!(xdnd.drag_type, 0);
+        assert_eq!(xdnd.request(), None);
+    }
+
+    fn offered(types: &[(u32, &str)]) -> Vec<(u32, String)> {
+        types
+            .iter()
+            .map(|(atom, name)| (*atom, name.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn xdnd_a_refused_type_falls_back_to_the_next_and_is_not_asked_again() {
+        let mut xdnd = Xdnd::default();
+        xdnd.offer(offered(&[
+            (1, "text/html"),
+            (2, "UTF8_STRING"),
+            (3, "text/plain;charset=utf-8"),
+        ]));
+        assert_eq!(xdnd.request(), Some(3));
+        assert_eq!(xdnd.request(), None);
+        assert_eq!(xdnd.refused(99), XdndRefused::Request(2));
+        assert_eq!(xdnd.refused(99), XdndRefused::Request(99));
+        assert_eq!(xdnd.name_of(99), "TARGETS");
+        assert_eq!(
+            xdnd.served(offered(&[(2, "UTF8_STRING"), (5, "text/plain")])),
+            XdndRefused::Request(5)
+        );
+        assert_eq!(xdnd.refused(99), XdndRefused::Exhausted);
+        assert_eq!(xdnd.tried, vec![3, 2, 5]);
+        assert_eq!(xdnd.request(), None);
+        assert!(!xdnd.defer_drop());
+    }
+
+    #[test]
+    fn xdnd_a_deferred_drop_with_nothing_left_finishes() {
+        let mut xdnd = Xdnd::default();
+        xdnd.offer(offered(&[(2, "UTF8_STRING")]));
+        assert_eq!(xdnd.request(), Some(2));
+        assert!(xdnd.defer_drop());
+        assert!(xdnd.keep_after_leave());
+        assert_eq!(xdnd.refused(0), XdndRefused::Finish);
+        assert!(!xdnd.keep_after_leave());
+    }
+
+    #[test]
+    fn xdnd_a_leave_after_a_deferred_drop_keeps_it() {
+        let mut xdnd = Xdnd::default();
+        xdnd.offer(offered(&[(2, "UTF8_STRING")]));
+        assert!(!xdnd.keep_after_leave());
+        assert_eq!(xdnd.request(), Some(2));
+        assert!(!xdnd.keep_after_leave());
+        assert!(xdnd.defer_drop());
+        assert!(xdnd.keep_after_leave());
+        assert_eq!(xdnd.receive_paths(true), XdndPaths::EnterAndDrop);
+    }
+
+    #[test]
+    fn xdnd_the_position_is_the_message_s_own() {
+        assert_eq!(xdnd_root_position((300 << 16) | 200), Some((300, 200)));
+        assert_eq!(xdnd_root_position((2560 << 16) | 1439), Some((2560, 1439)));
+        assert_eq!(xdnd_root_position(0), None);
+    }
+
+    #[test]
+    fn xdnd_text_dropped_before_it_arrives_is_written_before_the_drop() {
+        let dir = private_test_dir("deferred-text");
+        let mut xdnd = requested_xdnd();
+
+        assert!(xdnd.defer_drop());
+        let (received, paths) = xdnd.receive(dropped_text(&dir, "dragged words"));
+        assert_eq!(received, XdndPaths::EnterAndDrop);
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0].parent(), Some(dir.as_path()));
+        assert!(!paths[0].exists());
+        xdnd.write_text();
+        assert_eq!(std::fs::read_to_string(&paths[0]).unwrap(), "dragged words");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn xdnd_text_dropped_after_it_arrives_is_written_at_the_drop() {
+        let dir = private_test_dir("entered-text");
+        let mut xdnd = requested_xdnd();
+
+        let (received, paths) = xdnd.receive(dropped_text(&dir, "dragged words"));
+        assert_eq!(received, XdndPaths::Enter);
+        assert!(!xdnd.defer_drop());
+        assert!(!paths[0].exists());
+        xdnd.write_text();
+        assert_eq!(std::fs::read_to_string(&paths[0]).unwrap(), "dragged words");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn xdnd_text_of_a_drag_that_left_is_never_written() {
+        let dir = private_test_dir("left-text");
+        let mut xdnd = requested_xdnd();
+
+        let (received, paths) = xdnd.receive(dropped_text(&dir, "dragged words"));
+        assert_eq!(received, XdndPaths::Enter);
+        xdnd = Xdnd::default();
+        xdnd.write_text();
+        assert!(!paths[0].exists());
+        let (received, _) = xdnd.receive(dropped_text(&dir, "late words"));
+        assert_eq!(received, XdndPaths::Ignore);
+        xdnd.write_text();
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

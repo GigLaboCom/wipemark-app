@@ -465,9 +465,9 @@ And for long lines (E7-11, "Long lines: both panes wrap, padded level"):
 - **D674** — the editor's side upstream: U1 the display-row map and its
   version, U2 spacer rows, the story's wrap and an example.
 - **D675** — the submodule on the `glani` fork's `editor-spacer-rows` until
-  upstream merges #3465 and #3466 — on `feat` too once merged, as the owner
-  asked the same evening; the fork's branch is never force-pushed while
-  `feat` pins it.
+  upstream merges #3465 and #3466 — on `feat` too since the owner's word of
+  the same evening; the fork's branch is never force-pushed while `feat`
+  pins it.
 - **D676** — pictures drawn with no display, by GPUI's headless renderer.
 - **D677** — `compare.wrap` off by default: a resize of a wrapped window
   costs 316 ms a frame for 200 paragraphs and 9 s for 8 MiB, the

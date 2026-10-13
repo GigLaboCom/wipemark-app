@@ -366,6 +366,8 @@ pub enum Setting {
     Setup,
     WindowScreen,
     CloseAfterDrop,
+    /// After how long a quiet panel clears what it shows (D694).
+    PanelClearAfter,
     CompareGrain,
     CompareFollow,
     CompareSyncScroll,
@@ -452,7 +454,7 @@ impl Setting {
     /// *move*: a reader opens the window for the marks. Where the line
     /// numbers sit comes straight after, because it too is about what a
     /// pane shows rather than how it moves.
-    pub const ALL: [Setting; 41] = [
+    pub const ALL: [Setting; 42] = [
         Self::Appearance,
         Self::Language,
         Self::ShortcutShow,
@@ -462,6 +464,7 @@ impl Setting {
         Self::ProcessArrivals,
         Self::WindowScreen,
         Self::CloseAfterDrop,
+        Self::PanelClearAfter,
         Self::CompareGrain,
         // ## E7-10
         Self::CompareGutters,
@@ -511,7 +514,7 @@ impl Setting {
             | Self::ShortcutShow
             | Self::ShortcutPanel
             | Self::Setup => Section::General,
-            Self::WindowScreen | Self::CloseAfterDrop => Section::Placement,
+            Self::WindowScreen | Self::CloseAfterDrop | Self::PanelClearAfter => Section::Placement,
             Self::CompareGrain
             | Self::CompareGutters
             | Self::CompareWrap
@@ -556,6 +559,7 @@ impl Setting {
             Self::Setup => Message::SettingsSetupTitle,
             Self::WindowScreen => Message::SettingsPlacementScreenTitle,
             Self::CloseAfterDrop => Message::SettingsPlacementCloseTitle,
+            Self::PanelClearAfter => Message::SettingsPanelClearTitle,
             Self::CompareGrain => Message::SettingsCompareGrainTitle,
             Self::CompareGutters => Message::SettingsCompareGuttersTitle,
             Self::CompareWrap => Message::SettingsCompareWrapTitle,
@@ -612,6 +616,7 @@ impl Setting {
             Self::Setup => Message::SettingsSetupDescription,
             Self::WindowScreen => Message::SettingsPlacementScreenDescription,
             Self::CloseAfterDrop => Message::SettingsPlacementCloseDescription,
+            Self::PanelClearAfter => Message::SettingsPanelClearDescription,
             Self::CompareGrain => Message::SettingsCompareGrainDescription,
             Self::CompareGutters => Message::SettingsCompareGuttersDescription,
             Self::CompareWrap => Message::SettingsCompareWrapDescription,
@@ -683,6 +688,7 @@ impl Setting {
             Self::Setup => Storage::Row(config::SETUP_DONE_KEY),
             Self::WindowScreen => Storage::Row(config::WINDOW_SCREEN_KEY),
             Self::CloseAfterDrop => Storage::Row(config::CLOSE_AFTER_DROP_KEY),
+            Self::PanelClearAfter => Storage::Row(config::PANEL_CLEAR_AFTER_KEY),
             Self::CompareGrain => Storage::Row(config::COMPARE_GRAIN_KEY),
             Self::CompareGutters => Storage::Row(config::COMPARE_GUTTERS_KEY),
             Self::CompareWrap => Storage::Row(config::COMPARE_WRAP_KEY),
@@ -1031,6 +1037,9 @@ pub struct Preferences {
     /// about the gesture rather than about a monitor, which is why it
     /// is a row above the cards instead of a control on one.
     close_after_drop: bool,
+    /// After how many seconds of quiet the panel clears what it shows;
+    /// `0` is never (D694).
+    panel_clear_after: u32,
     /// What each display was told, by uuid — a cell from the
     /// drag-and-drop grid, or the rectangle the window was put at by
     /// hand. A display that is **missing** from here has not been
@@ -1382,6 +1391,7 @@ impl Preferences {
             hotkeys,
             onto,
             close_after_drop,
+            panel_clear_after,
             spots,
             setup_done,
             retention,
@@ -1513,6 +1523,7 @@ impl Preferences {
             gpu: None,
             onto,
             close_after_drop,
+            panel_clear_after,
             spots,
             // Filled by the watch above, which takes its first reading
             // as soon as this task runs. Empty for those few frames,
@@ -1941,6 +1952,24 @@ impl Preferences {
         cx.notify();
         self.persist(cx, move |store| {
             config::write_close_after_drop(store, close)
+        });
+    }
+
+    /// After how many seconds of quiet the panel clears what it shows;
+    /// `0` is never (D694).
+    pub fn panel_clear_after(&self) -> u32 {
+        self.panel_clear_after
+    }
+
+    /// Record a new quiet period for the panel.
+    pub fn select_panel_clear_after(&mut self, seconds: u32, cx: &mut Context<Self>) {
+        if self.panel_clear_after == seconds {
+            return;
+        }
+        self.panel_clear_after = seconds;
+        cx.notify();
+        self.persist(cx, move |store| {
+            config::write_panel_clear_after(store, seconds)
         });
     }
 
@@ -3998,6 +4027,8 @@ struct SettingsView {
     arrival_select: Entity<SelectState<Vec<Choice<crate::queue::OnArrival>>>>,
     /// How many days a finished journal row stays.
     journal_select: Entity<SelectState<Vec<Choice<u32>>>>,
+    /// After how long a quiet panel clears (D694).
+    clear_select: Entity<SelectState<Vec<Choice<u32>>>>,
     /// How many idle minutes unload an on-demand model. Five fixed spans.
     idle_select: Entity<SelectState<Vec<Choice<u32>>>>,
     /// E4-6c: the Prompts section — its slots, its editor, its check —
@@ -4048,6 +4079,7 @@ struct SettingsView {
     // ## E4-6b
     _arrival: Subscription,
     _journal: Subscription,
+    _clear: Subscription,
     _idle: Subscription,
     /// Repaints the page when the model loads, unloads or is checked.
     _host: Option<Subscription>,
@@ -4572,6 +4604,26 @@ impl SettingsView {
                 }
             },
         );
+        let clear_select = cx.new(|cx| {
+            let choices = clear_choices();
+            let seconds = preferences.read(cx).panel_clear_after();
+            let row = engine::row_of(&choices, &seconds).map(IndexPath::new);
+            SelectState::new(choices, row, window, cx)
+        });
+        let chose_clear = cx.subscribe_in(
+            &clear_select,
+            window,
+            |view, _, event: &SelectEvent<Vec<Choice<u32>>>, _, cx| {
+                let SelectEvent::Confirm(Some(value)) = event else {
+                    return;
+                };
+                if let Some(seconds) = engine::from_value(&clear_choices(), value) {
+                    view.preferences.update(cx, |preferences, cx| {
+                        preferences.select_panel_clear_after(seconds, cx);
+                    });
+                }
+            },
+        );
 
         let chose_period = cx.subscribe_in(
             &period_select,
@@ -4749,6 +4801,7 @@ impl SettingsView {
             period_select,
             arrival_select,
             journal_select,
+            clear_select,
             idle_select,
             prompts,
             host,
@@ -4777,6 +4830,7 @@ impl SettingsView {
             _period: chose_period,
             _arrival: chose_arrival,
             _journal: chose_journal,
+            _clear: chose_clear,
             _idle: chose_idle,
             _host: watched_host,
             _preferences: observed,
@@ -4892,6 +4946,13 @@ impl SettingsView {
         let choices = journal_choices();
         let row = engine::row_of(&choices, &days).map(IndexPath::new);
         self.journal_select.update(cx, |select, cx| {
+            select.set_items(choices, window, cx);
+            select.set_selected_index(row, window, cx);
+        });
+        let seconds = self.preferences.read(cx).panel_clear_after();
+        let choices = clear_choices();
+        let row = engine::row_of(&choices, &seconds).map(IndexPath::new);
+        self.clear_select.update(cx, |select, cx| {
             select.set_items(choices, window, cx);
             select.set_selected_index(row, window, cx);
         });
@@ -5045,6 +5106,10 @@ impl SettingsView {
             Setting::Setup => Self::setup_control(cx).into_any_element(),
             Setting::WindowScreen => self.screen_choice(cx).into_any_element(),
             Setting::CloseAfterDrop => self.close_switch(cx).into_any_element(),
+            Setting::PanelClearAfter => Select::new(&self.clear_select)
+                .small()
+                .menu_width(CONTROL_COLUMN)
+                .into_any_element(),
             Setting::CompareGrain => self.grain_choice(cx).into_any_element(),
             Setting::CompareGutters => self.gutters_choice(cx).into_any_element(),
             Setting::CompareWrap => self.wrap_switch(cx).into_any_element(),
@@ -9897,6 +9962,25 @@ fn journal_choices() -> Vec<Choice<u32>> {
                 t_args(Message::SettingsJournalDays, &args!("days" => days)),
                 days.to_string(),
             )
+        })
+        .collect()
+}
+
+/// "Clear the panel", as a selector's rows: [`config::PANEL_CLEAR_SECONDS`],
+/// `0` said as never.
+fn clear_choices() -> Vec<Choice<u32>> {
+    config::PANEL_CLEAR_SECONDS
+        .into_iter()
+        .map(|seconds| {
+            let label = match seconds {
+                0 => t(Message::SettingsPanelClearNever),
+                s if s % 60 == 0 => t_args(
+                    Message::SettingsPanelClearMinutes,
+                    &args!("count" => s / 60),
+                ),
+                s => t_args(Message::SettingsPanelClearSeconds, &args!("count" => s)),
+            };
+            Choice::new(seconds, label, seconds.to_string())
         })
         .collect()
 }
