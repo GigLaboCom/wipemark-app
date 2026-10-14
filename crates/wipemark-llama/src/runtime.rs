@@ -13,9 +13,11 @@
 //! order:
 //!
 //! 1. the directories the caller names (`extra_dirs`);
-//! 2. the directory of the running executable — where a packaged build
-//!    will put them (E10);
-//! 3. in a native development build, `$OUT_DIR/backends` of
+//! 2. the directory of the program itself — the running executable with
+//!    every link resolved, where a packaged build puts them (E10, D734);
+//! 3. the directory the executable was started from, when a link made it
+//!    another one;
+//! 4. in a native development build, `$OUT_DIR/backends` of
 //!    `wipemark-llama-sys`, where its cmake build installed them.
 //!
 //! Registration is global and one-shot in ggml, so the first call wins and
@@ -107,15 +109,43 @@ impl Runtime {
 }
 
 /// The directories [`Runtime::init`] searches, in order and without
-/// repeats: `extra`, the running executable's directory, and the native
-/// build's own backends directory (`None` in a shim build).
+/// repeats: `extra`, the program's own directory, the directory it was
+/// started from when that is another, and the native build's own backends
+/// directory (`None` in a shim build) — [`dirs_for`] the running
+/// executable.
 pub fn search_dirs(extra: &[PathBuf]) -> Vec<PathBuf> {
-    let exe_dir = std::env::current_exe()
-        .ok()
+    dirs_for(
+        extra,
+        std::env::current_exe().ok().as_deref(),
+        wipemark_llama_sys::BACKENDS_DIR.map(PathBuf::from),
+    )
+}
+
+/// The directories searched for `exe`, as the OS named it to the process.
+///
+/// **The program's own directory is the link's target** (D734). macOS hands
+/// `current_exe` the path the program was started by, so a `wipemark-cli`
+/// linked into the PATH named the link's folder (`/usr/local/bin`) and
+/// never `Wipemark.app/Contents/MacOS`, where the bundle's backends are
+/// (F29). The executable with every link resolved comes first.
+///
+/// The folder it was started from is still searched, after it, when it is
+/// another directory and not the same one spelled through a link: a
+/// backend put beside a link — the only place that worked before — keeps
+/// working, the program's own copies win every backend they offer (a later
+/// directory's copy of one is unloaded), and an executable that cannot be
+/// resolved any more (replaced while it runs) still has the folder it was
+/// started from.
+fn dirs_for(extra: &[PathBuf], exe: Option<&Path>, built: Option<PathBuf>) -> Vec<PathBuf> {
+    let own = exe
+        .and_then(|exe| exe.canonicalize().ok())
         .and_then(|exe| exe.parent().map(Path::to_path_buf));
-    let built = wipemark_llama_sys::BACKENDS_DIR.map(PathBuf::from);
+    let started = exe
+        .and_then(Path::parent)
+        .filter(|started| own.is_none() || started.canonicalize().ok() != own)
+        .map(Path::to_path_buf);
     let mut dirs: Vec<PathBuf> = Vec::new();
-    for dir in extra.iter().cloned().chain(exe_dir).chain(built) {
+    for dir in extra.iter().cloned().chain(own).chain(started).chain(built) {
         if !dirs.contains(&dir) {
             dirs.push(dir);
         }
@@ -210,7 +240,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::threads::{decode_threads, distinct};
-    use super::{classify, search_dirs, BackendKind, Runtime};
+    use super::{classify, dirs_for, search_dirs, BackendKind, Runtime};
 
     #[test]
     fn two_siblings_on_one_core_are_one_core() {
@@ -246,6 +276,8 @@ mod tests {
         );
         let exe_dir = std::env::current_exe()
             .unwrap()
+            .canonicalize()
+            .unwrap()
             .parent()
             .unwrap()
             .to_path_buf();
@@ -254,6 +286,38 @@ mod tests {
             Some(built) => assert_eq!(dirs.last(), Some(&PathBuf::from(built))),
             None => assert_eq!(dirs.len(), 2, "{dirs:?}"),
         }
+    }
+
+    /// D734 (F29): a program started through a link — `wipemark-cli`
+    /// linked into the PATH — searches the directory it lives in, the
+    /// bundle's, before the link's; a program started by its own path
+    /// searches its directory once, however that path was spelled.
+    #[cfg(unix)]
+    #[test]
+    fn a_program_started_through_a_link_searches_its_own_directory_first() {
+        let root = std::env::temp_dir().join(format!("wipemark-llama-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let bundle = root.join("Wipemark.app/Contents/MacOS");
+        let bin = root.join("bin");
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::create_dir_all(&bin).unwrap();
+        let program = bundle.join("wipemark-cli");
+        std::fs::write(&program, b"").unwrap();
+        let link = bin.join("wipemark-cli");
+        std::os::unix::fs::symlink(&program, &link).unwrap();
+        let own = bundle.canonicalize().unwrap();
+        let built = PathBuf::from("/built/backends");
+
+        let through_link = dirs_for(&[], Some(&link), Some(built.clone()));
+        let by_name = dirs_for(&[], Some(&program), None);
+        std::fs::remove_dir_all(&root).ok();
+
+        assert_eq!(
+            through_link,
+            vec![own.clone(), bin, built],
+            "the program's own directory first, then the link's"
+        );
+        assert_eq!(by_name, vec![own], "one directory, however spelled");
     }
 
     #[test]
