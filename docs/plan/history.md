@@ -204,6 +204,20 @@ result, an edited result asked about first
   Red first, each guard deleted once:
   `a_rewrites_end_written_late_never_lands_on_the_rows_next_action`, then
   `a_clean_that_ended_is_not_undone_by_a_read_from_before_it`.
+**The macOS acceptance of 2026-10-15** brought, all merged on `feat`:
+- `fix/f29-cli-symlink` (D734; F29): a `wipemark-cli` linked into the PATH
+  finds the bundle's llama.cpp backends, because the program's own
+  directory is the link's target;
+- `fix/f30-panel-no-activate` (D735–D739; F30): on macOS the panel comes
+  and goes on its own, a non-activating panel that `afloat` puts in
+  front. A minimised or closed main window stays where it was
+  (`scripts/verify/f30/panel-activation.py`);
+- `fix/f31-cli-metal-exit` (D740–D743, and D744 on `feat`; F31): no
+  process reaches `exit` with a local model loaded. On Metal the CLI's
+  exit went 134 → 0/1/2, and the application's quit during a rewrite
+  134 → 0 (`scripts/verify/f31/`).
+
+The release notes draft is `docs/release/0.1.0.md` (P7).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice
 choosable, the shipped templates unchanged. The next free decision block is
 **D531** (D490–D502 and D520–D530 are E12-R's, D503–D504 the draft's; D540–D549
