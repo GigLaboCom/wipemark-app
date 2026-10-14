@@ -58,8 +58,8 @@ pub mod select;
 use std::time::Duration;
 
 pub use job::{
-    block_on, seed_for, start, start_resumable, wait, Decided, Document, Ending, JobHandle,
-    Options, OptionsError, Outcome, RecordError, Refused,
+    block_on, released, seed_for, start, start_resumable, wait, Decided, Document, Ending,
+    JobHandle, Options, OptionsError, Outcome, RecordError, Refused,
 };
 pub use report::{Carried, ChunkCounts, EngineFailure, JobReport, NothingRewritten, Rejection};
 

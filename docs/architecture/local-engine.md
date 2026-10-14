@@ -404,6 +404,31 @@ runs a child that uses a model and drops it, three times, and fails on a
 signal — on a GPU build; a CPU-only build has no driver to tear down and
 cannot fail it.
 
+**On Metal a model still loaded at `exit` is an abort, idle or not** (F31,
+2026-10-15). ggml keeps its Metal devices in a static vector whose
+destructor asserts that every residency set is gone
+(`ggml-metal-device.m:962`, `GGML_ASSERT([rsets->data count] == 0)`), so a
+process that reaches `exit` with a model loaded ends 134 after all its
+work. Two roads did:
+- **the CLI's rewrite.** A job's thread held the engine's last reference
+  and `wipemark_pipeline::wait` returned at the job's terminal event, before
+  that thread had let go of it. The job's thread now lets go of its engine
+  before it closes its events (D740), and `wait` returns only once they are
+  closed (`released`, D741), so the CLI hands back its exit code with the
+  model freed (D742).
+- **the application's quit with a job of the batch queue running.** The
+  job held a clone, so emptying the slot freed nothing. The quit now calls
+  `RewriteEngine::shut_down` on the slot's engine first (D743): the stop
+  `Drop` sets, then the unload, on the worker, before it returns — whoever
+  else holds the engine. The job is told `Stopped` and its item waits with
+  its decided chunks; nothing loads again.
+
+`a_process_that_shuts_its_engine_down_under_a_running_job_exits_cleanly`
+is the live gate for the second (a child whose job thread still holds the
+engine, three times; SIGBUS without the shut-down on Metal). The CLI's
+second Ctrl-C still leaves through `std::process::exit` while the job may
+hold the model; the application's second signal ends with `_exit` (D717).
+
 Cancellation is not best-effort. Each `complete` job carries an
 `Arc<AtomicBool>`; `complete` awaits the answer through
 `CancellationToken::run_until_cancelled`, and when the token fires it

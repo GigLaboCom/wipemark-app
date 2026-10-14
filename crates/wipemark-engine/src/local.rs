@@ -317,6 +317,31 @@ impl RewriteEngine for LocalEngine {
     fn watch_loads(&self, sink: LoadSink) {
         *self.loads.lock().unwrap_or_else(PoisonError::into_inner) = Some(sink);
     }
+
+    /// The stop `Drop` sets, set now, and the model freed on the worker
+    /// before this returns — while another holder may still have the
+    /// engine (D743). A decode in flight stops at its next piece, a load
+    /// at its next tensor; then the unload queued behind it runs, which a
+    /// stopping worker still does. Whatever is asked after is refused
+    /// `Stopped`, and nothing loads again. The worker itself is joined by
+    /// the last reference's drop, as before.
+    fn shut_down(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+        // Never asked of the worker by itself; if it were, waiting for its
+        // own answer would never return.
+        if self
+            .worker
+            .as_ref()
+            .is_some_and(|worker| worker.thread().id() == std::thread::current().id())
+        {
+            return;
+        }
+        let (reply, answer) = flume::bounded(1);
+        if self.send(Job::Unload { reply }).is_ok() {
+            let _ = answer.recv();
+        }
+        tracing::info!(model = %self.info.model_id, "the local engine is shut down");
+    }
 }
 
 /// What the worker thread owns.
@@ -784,6 +809,37 @@ mod tests {
                 other => panic!("a missing file must be refused by name, got {other:?}"),
             }
         }
+    }
+
+    /// D743 (F31): an engine shut down while somebody else still holds it —
+    /// the application's quit, with a job of the batch queue running —
+    /// stops for good: it loads nothing more, and every call after is
+    /// refused `Stopped` rather than tried. Here the weights are missing,
+    /// so a call that is tried names the file; one refused for the stop
+    /// does not. A `shut_down` that does nothing (the trait's default)
+    /// tries it: red.
+    #[tokio::test]
+    async fn an_engine_shut_down_while_another_holds_it_stops_for_good() {
+        use std::sync::Arc;
+
+        let weights = PathBuf::from("/nonexistent/models/qwen3-4b.gguf");
+        let engine: Arc<dyn RewriteEngine> = Arc::new(LocalEngine::new(config(weights)));
+        let job = Arc::clone(&engine);
+        engine.shut_down();
+        drop(engine);
+        let (sink, streamed) = flume::unbounded();
+        for refused in [
+            job.warmup().await.map(|()| None),
+            job.complete(request(), sink, CancellationToken::new())
+                .await
+                .map(Some),
+        ] {
+            match refused {
+                Err(EngineError::Unavailable(Unavailable::Stopped)) => {}
+                other => panic!("a shut-down engine must refuse with Stopped, got {other:?}"),
+            }
+        }
+        assert!(streamed.is_empty(), "the sink was handed text");
     }
 
     /// E8-1: a model whose chat format this build does not write is
