@@ -1868,16 +1868,11 @@ fn install_hotkeys(window: WindowHandle<Root>, preferences: Entity<Preferences>,
         while let Ok(action) = presses.recv_async().await {
             cx.update(|cx| match action {
                 hotkey::Action::Show => show_main_window(window, cx),
-                // The same two statements the menu-bar item runs, and
-                // the same reason for the first: a window summoned
-                // behind a hidden application is worse than no window.
-                // This is the road that matters for the panel — the
-                // chord reaches it from inside whatever the user is
-                // reading, which is where they are when they want it.
-                hotkey::Action::Panel => {
-                    cx.activate(true);
-                    panel::toggle(&preferences, cx);
-                }
+                // The road the menu-bar item takes. This is the one that
+                // matters for the panel: the chord reaches it from inside
+                // whatever the user is reading, which is where they are
+                // when they want it — and where they stay (D736).
+                hotkey::Action::Panel => panel::summon(&preferences, cx),
             });
         }
     })
@@ -1933,10 +1928,7 @@ fn answer_summonses(
         while let Ok(summons) = summonses.recv_async().await {
             cx.update(|cx| match summons {
                 instance::Summons::Show => show_main_window(window, cx),
-                instance::Summons::Panel => {
-                    cx.activate(true);
-                    panel::toggle(&preferences, cx);
-                }
+                instance::Summons::Panel => panel::summon(&preferences, cx),
             });
         }
     })
@@ -2045,14 +2037,10 @@ fn adopt_tray(
         while let Ok(command) = commands.recv_async().await {
             cx.update(|cx| match command {
                 TrayCommand::Show => show_main_window(window, cx),
-                TrayCommand::Panel => {
-                    // Bring the application forward first, for the
-                    // reason `Settings` does: a window put on screen
-                    // behind a hidden application is worse than no
-                    // window.
-                    cx.activate(true);
-                    panel::toggle(&preferences, cx);
-                }
+                // The application brought forward first where the panel
+                // needs it, and never on macOS, where that is what brought
+                // a hidden or minimised main window back with it (D736).
+                TrayCommand::Panel => panel::summon(&preferences, cx),
                 TrayCommand::Theme(choice) => {
                     let applied = window.update(cx, |_, window, cx| {
                         preferences.update(cx, |preferences, cx| {
