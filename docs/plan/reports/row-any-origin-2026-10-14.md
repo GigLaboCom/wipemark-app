@@ -13,23 +13,31 @@
 «Переписать снова», нажатое в таблице на строке командной строки, — это
 ваше действие: результат пишется поверх собственного результата строки, а
 не «вызывающему», которого давно нет. Такую переделку журнал завершает сам,
-и следующий запуск её не отменяет. Каждый серый пункт теперь говорит,
+и следующий запуск её не отменяет. Пока она ждёт или идёт, «Убрать из
+списка» доступно, как на строке окна: серым с причиной D355 оно остаётся
+только там, где действительно ждёт вызывающий. Каждый серый пункт теперь говорит,
 почему он серый (D731): «Открыть», «Сравнить», «Открыть результат»,
 «Показать в папке» и «Скопировать результат» — строкой под названием. Эта
 строка называет то, чего не хватает: файла больше нет там, где он был;
 ничего из текста не сохранено; результата пока нет; результат вернулся к
-тому, кто просил. Откуда пришла строка, она не называет. Строка агента без
+тому, кто просил. Откуда пришла строка, она не называет. Так же говорят
+«Очистить» и «Переписать» на строке, чей файл исчез: «Файла больше нет там,
+где он был»; прежняя фраза «пришло без файла, текст не сохранён» осталась
+только для строки, у которой файла не было никогда. Строка агента без
 пути по-прежнему не сравнивается — журнал хранит метаданные, а не текст, —
 но теперь так и говорит. Тест паритета (D732) проводит один файл через
 окно, панель, командную строку и агента и сверяет меню. Приложение я не
-запускал. Проверить глазами нужно три вещи: строку 36 в «Сравнении», серые
-пункты с причинами и «Переписать снова» на строке командной строки.
+запускал. Проверить глазами нужно четыре вещи: строку 36 в «Сравнении»,
+серые пункты с причинами, «Переписать снова» на строке командной строки и
+«Убрать из списка», пока эта переделка ждёт.
 
 Branch `fix/row-any-origin`, from the local `feat/e0-e6-shell` at
 `42222d0` (fetched from the main checkout, as the task says). Decisions
 **D729–D733**; nothing at D734 or above. Task: Watchword FILE
 `wipemark-task-row-any-origin-2026-10-14` (the owner, macOS acceptance,
-row 36). Five commits, each built and clippy-clean, then this report:
+row 36). Seven commits, each built and clippy-clean, then this report
+(written after the fifth, updated after the seventh, at the coordinator's
+word closing the two follow-ups):
 
 | commit | what |
 |---|---|
@@ -38,6 +46,8 @@ row 36). Five commits, each built and clippy-clean, then this report:
 | `0c31f02` | D731 (a reason under every greyed item; seven sentences in en-US, ru, de) |
 | `b59552a` | D732 (the parity test across origins) |
 | `a3f4e78` | D729, tightened: a named path is absolute and not under `/dev` or `/proc` (`journal::named_file`) |
+| `60799fb` | D730 for Remove: `why_not_remove` reads `callers_call` (`Row::consented`) |
+| `cf18bb4` | D731 for Clean and Rewrite: a gone named file is said as gone (`Row::clean_why`, `Row::rewrite_why`) |
 
 ## What was built, by file
 
@@ -58,8 +68,18 @@ row 36). Five commits, each built and clippy-clean, then this report:
   * `Row::named` — the file a row read back names, gone or not. It is what
     tells "the file is no longer where it was" from "nothing of this text
     was kept".
+  * `Row::consented` — whether the row's batch-queue item was pushed with
+    the person's consent (D730). `why_not_remove(status, origin,
+    consented)` reads `journal::callers_call`: Remove waits (D355) only for
+    a caller's call.
   * The pure reasons (D731): `why_not_open`, `why_not_compare`,
     `why_no_result_file`, `why_not_copy`, and `nothing_behind`.
+  * Clean and Rewrite worded from `Row::named` (D731): `clean_greyed` and
+    `rewrite_greyed` take `named`, and `not_behind` says the file is gone
+    where a row names one. `Row::clean_why` and `Row::rewrite_why` are what
+    the row buttons, the menu and `Queue::why_not_rewrite[_given]` read.
+    `why_not_clean` and `why_not_rewrite` stay, as the same rule for a row
+    that names no file — the gates and the tests that call them.
   * `Queue::comparable` (D733) over `Queue::compare_greyed`. The item, its
     reason and the double click read one rule.
   * `Queue::actions_for` builds a row's `Actions` (it was inline in `row()`).
@@ -76,7 +96,11 @@ row 36). Five commits, each built and clippy-clean, then this report:
   * `Look::of_entry`'s comment.
 * **`apps/wipemark-app/src/queue/rewriting.rs`**
   * `merge` looks up a row whose `named_file` is some — a named path too
-    (D729) — and sets `Row::named`.
+    (D729) — and sets `Row::named`. It sets `Row::consented` for a row read
+    back from the queue's list, read once per journal read and only when a
+    new row names an item.
+  * `push_rewrites` sets `Row::consented` at the person's press (D730).
+  * `remove` passes `Row::consented`.
   * `heard_batch`'s end reads `journal::callers_call(Some(row.origin),
     journal::consented(..))` (D730).
   * `look_up`'s doc.
@@ -155,6 +179,12 @@ caller's, whatever the queue lists.
 | `queue/rewriting.rs:341` → `:354`, `heard_batch`, a rewrite's end in the table | `matches!(row.origin, Agent \| Cli)` | `callers_call(Some(row.origin), consented(item))` | `rewrite_again_on_a_command_line_row_writes_the_rows_own_result` |
 | `journal.rs:659` → `:707`, `book`, who writes the end | origin | `callers_call(origin, consented(item))`; `book` takes `consented` | the same test |
 | `journal.rs:992` → `:1054`, `settle`, what a launch abandons | origin | `callers_call(origin, the item's consent)` | `a_launch_leaves_a_redo_from_the_window_to_the_queue` |
+| `queue.rs:708`, `:713` → `:740`, `why_not_remove`, whether Remove waits (D355) | origin | `callers_call(Some(origin), row.consented)` (`60799fb`) | `remove_waits_for_a_caller_and_never_for_the_persons_redo` |
+
+For Remove the table reads its own fact, `Row::consented`, rather than the
+queue's list: Remove is asked on every frame, and `Queue::items` clones every
+item. The fact is set at the person's press (`push_rewrites`), and for a
+row read back it comes from the queue's list, read once per journal read.
 
 What it fixed, beyond the result going "to the caller": with the origin
 read in `book`, a redo on a CLI row was **never ended** in the journal
@@ -165,13 +195,14 @@ read in `book`, a redo on a CLI row was **never ended** in the journal
 
 After a redo, the row's journal entry is the window's own
 (`journal::entry_of`): the file is recorded as `path` and `said_path` goes,
-as for any window rewrite. D355's Remove is untouched (below).
+as for any window rewrite. D355 stands for a caller's own waiting call:
+Remove is greyed there with its reason, and `Queue::remove` refuses it.
 
 ## Every origin test found, and what became of it
 
 | file:line (now) | what it decides | what became of it |
 |---|---|---|
-| `queue.rs:708`, `:713` — `why_not_remove` (D355) | Remove greyed while an agent's or the CLI's rewrite is in flight | **kept**, as the task says. Called from `queue.rs:3285` (`actions_for`) and `queue/rewriting.rs:901` (`remove`). Follow-up below. |
+| `queue.rs:740` (was `:708`, `:713`) — `why_not_remove` (D355) | Remove greyed while a caller waits for the row's rewrite | kept at first, as the task said; then, at the coordinator's word, **`callers_call`** over `Row::consented` (`60799fb`). Called from `queue.rs:3335` (`actions_for`) and `queue/rewriting.rs:924` (`remove`). |
 | `queue/rewriting.rs:224` — `merge` | a non-initial read skips rows this table writes itself (window, launch flag, panel; D690) | **kept**: it is about which writer names a row, not what a row can do |
 | `queue/rewriting.rs:354` (was `:341`) — `heard_batch` | where a rewrite's end went | **`callers_call`** (D730) |
 | `journal.rs:707` (was `:659`) — `book` | whether the bookkeeper writes the end | **`callers_call`** (D730) |
@@ -196,6 +227,11 @@ and the protection put back.
 | 8 | `settle` reads the origin | `a_launch_leaves_a_redo_from_the_window_to_the_queue` ("a redo the person asked for on a caller's row was abandoned"); `a_launch_settles_what_the_last_run_left` stayed green, as it should |
 | 9 | Compare greyed with a bare `.disabled(actions.compare.is_some())` | `a_greyed_compare_says_why_in_the_menu` ("the menu greys compare and does not say why"; the test opens the real menu with a click and looks for each reason's line) |
 | 10 | `nothing_behind` ignores `named` (a gone file said as "not kept") | `every_greyed_item_says_what_is_missing`, `a_greyed_compare_says_why_in_the_menu` |
+| 11 | `why_not_remove` reads the bare origin (`matches!(origin, Agent \| Cli)`, `consented` ignored) | `remove_waits_for_a_caller_and_never_for_the_persons_redo`: "Remove on the person's redo waits for a caller, at the press", `left: Greyed(Some("An agent or the command line is waiting for this rewrite. …"))`; `remove_is_greyed_while_a_caller_waits_for_the_rewrite` stayed green, as it should (it holds D355) |
+| 12 | `push_rewrites` does not mark the person's push (`row.consented = false`) | the same test, the same assertion ("… at the press") |
+| 13 | `merge` reads every listed item as consented | the same test: "a caller's waiting call can be removed" — D355 lost for the caller's own call |
+| 14 | `Row::clean_why` words "nothing behind" without `Row::named` (D269's sentence) | `clean_and_rewrite_on_a_gone_file_say_it_is_gone`: "clean on a row whose file went", `left: Greyed(Some("It arrived with no file behind it and its text was not kept, so it cannot be processed again."))` |
+| 15 | `Row::rewrite_why` likewise, Clean's restored | the same test: "rewrite on a row whose file went", the same `left` |
 
 The task's tests, by number:
 1. `journal::tests::a_named_path_is_looked_at_like_a_recorded_one`
@@ -241,9 +277,29 @@ The task's tests, by number:
      then for the CLI's and the agent's after the person's Clean again.
 6. The rest still holds (below).
 
+The two follow-ups, closed at the coordinator's word:
+* **Remove (D730):**
+  `queue::origin_tests::remove_waits_for_a_caller_and_never_for_the_persons_redo`
+  (`origin_tests.rs:959`) — rows 11, 12, 13. A command line call queued as
+  `mcp::rewrite` queues it (the row names the item, the item carries no
+  window consent) keeps Remove greyed with D355's reason, and `remove`
+  refuses it. On row 36, the person's Rewrite again leaves Remove live
+  from the press and once pushed, and `remove` takes the row and its item.
+* **Clean and Rewrite (D731):**
+  `queue::origin_tests::clean_and_rewrite_on_a_gone_file_say_it_is_gone`
+  (`origin_tests.rs:884`) — rows 14, 15. `clean_greyed` and
+  `rewrite_greyed` are checked over four statuses, gone versus never had a
+  file. Then the menu of a command line row whose named file was moved
+  away (both items say it is gone) beside an agent's text-only row (both
+  keep D269's "not kept").
+
 ### Existing tests adjusted
 
-Only these four; none of the others asserted "`said_path` is never opened".
+Only these five; none of the others asserted "`said_path` is never opened".
+* **`queue::tests::remove_is_greyed_while_a_caller_waits_for_the_rewrite`**:
+  `why_not_remove`'s new `consented` argument — `false` for the agent's
+  and the command line's own calls, `true` for the window's. The
+  assertions are unchanged; D355 holds.
 * **`mcp::protocol::tests::a_meta_path_is_said_and_never_a_file_behind_the_row`**
   is renamed `a_meta_path_is_said_and_a_terminal_is_no_file_behind_the_row`
   (`protocol.rs:3400`). Its name asserted D356's old sentence, and its doc
@@ -268,7 +324,7 @@ not launched, and no `wipemark` process was touched.
 
 | command | result |
 |---|---|
-| `cargo test -p wipemark-app --locked -- queue:: journal:: mcp:: compare::` | **244 passed**, 0 failed, 1 ignored (`compare::tests::compare_screenshots`, ignored before too). By module: queue 78, journal 6, mcp 85, compare 76. At `42222d0`: 237 passed, 1 ignored — seven tests are new. `a_port_something_else_holds_is_stepped_past` passed, with the owner's acceptance build running. |
+| `cargo test -p wipemark-app --locked -- queue:: journal:: mcp:: compare::` | **246 passed**, 0 failed, 1 ignored (`compare::tests::compare_screenshots`, ignored before too). By module: queue 80, journal 6, mcp 85, compare 76. At `42222d0`: 237 passed, 1 ignored — nine tests are new (seven, then the follow-ups' two). `a_port_something_else_holds_is_stepped_past` passed, with the owner's acceptance build running. |
 | `cargo test -p wipemark-i18n --locked` | 41 passed, and 2 (doc tests) — every new key in every language, same variables, no character Layer A would strip |
 | `cargo clippy -p wipemark-app --all-targets --locked -- -D warnings` | clean, after every commit |
 | `rustup run nightly rustfmt --edition 2021 --check` on every `.rs` touched | clean |
@@ -294,9 +350,14 @@ not launched, and no `wipemark` process was touched.
   This is D356's command-line half applied to a name another process gave;
   the task said "keep D356's protection exactly", and without it D729 would
   have opened the application's own descriptors.
-* **`book` and `settle` changed signature** (a `consented` closure; items
-  with their consent) — the cheapest way to make the rule testable without
-  a queue.
+* **`book`, `settle` and `why_not_remove` changed signature** (a
+  `consented` closure; items with their consent; the row's consent) — the
+  cheapest way to make the rule testable without a queue.
+* **`why_not_clean` and `why_not_rewrite` keep their signatures** and say
+  "nothing behind" as for a row that names no file. The row's own items
+  read `clean_greyed` and `rewrite_greyed` through `Row::clean_why` and
+  `Row::rewrite_why`. So the gates and some forty test calls are unchanged,
+  and only what a person reads moved.
 * **The parity test is not beside an intake parity test**: none exists yet
   (README §7 E7, "Build — intake parity", still open). It lives in
   `queue/origin_tests.rs`, beside the queue's other test modules.
@@ -311,10 +372,14 @@ not launched, and no `wipemark` process was touched.
 | | | |
 |---|---|---|
 | **D729** | *(the owner, 2026-10-14, macOS acceptance, row 36: "the behaviour must not break the UI depending on where a thing came from")* **A named path is looked at like any other.** `journal::arrival_of` takes the row's `path`, else its `said_path` (`journal::named_file`): absolute, not under `/dev` or `/proc` (the command line's own D356 rule, for a name another process gave), then D356 exactly — `metadata` first, a regular file or a folder only, no head read from a FIFO, terminal, socket or device, in the look-up's own task off the GPUI thread. A row of the command line or of an agent has its file behind it whenever it is on disk. Safe because the head is read on this side and sent to nobody; Open, Compare, Clean again and Rewrite again open the file only on the person's click; a file changed since the call is a window row's file changed since its drop. A named file's head shows in the window's preview, locally. | `journal::a_named_path_is_looked_at_like_a_recorded_one` (red reading `path` alone, without `metadata`, without the absolute and `/dev`/`/proc` filters); `a_journal_row_naming_a_fifo_never_blocks_the_read` and `a_meta_path_is_said_and_a_terminal_is_no_file_behind_the_row` hold. Supersedes D356's "a path an MCP client names in `_meta` is shown and never opened". |
-| **D730** | **A row's actions depend only on what is there; a caller's call is the action's, not the row's.** With an `Arrival`, a command line's or an agent's row offers the same Actions as a window row in the same status. A rewrite is a caller's call (`journal::callers_call`) when its row's origin is an agent's or the command line's **and** its batch-queue item carries no window consent (D361, D393; `journal::consented`) — read in the table's `heard_batch` (where the end went), the bookkeeper's `book` (who writes it) and the launch's `settle` (what is abandoned). So Rewrite again from the table on such a row (D703) is the person's: over the row's own result (`Row::written()`, by journal id), ended by the bookkeeper, kept at a launch. D355 (Remove waits for a caller) unchanged. | `queue::origin_tests::rewrite_again_on_a_command_line_row_writes_the_rows_own_result` (red with the origin read in `heard_batch`, and in `book`); `journal::a_launch_leaves_a_redo_from_the_window_to_the_queue` (red with it in `settle`). |
-| **D731** | **Every greyed row action says why.** Open, Compare, Open the result, Show the result in its folder and Copy the result carry their reason on the line under the label (D269's look, one `queue::menu_item`), naming what is missing, never the origin: nothing of this text was kept; the file is no longer where it was; it arrived with no file behind it; there is no result yet; the result went back to whoever asked; nothing was written; the result is a file (Copy). `queue-action-why-*`, en-US, ru, de; Compare on a picture says `compare-refused-not-text`. An agent's text-only row keeps Compare greyed (a row is metadata, D312) and says so. | `queue::origin_tests::every_greyed_item_says_what_is_missing`; `a_greyed_compare_says_why_in_the_menu` (opens the menu; red with a bare `.disabled(..)`). |
+| **D730** | **A row's actions depend only on what is there; a caller's call is the action's, not the row's.** With an `Arrival`, a command line's or an agent's row offers the same Actions as a window row in the same status. A rewrite is a caller's call (`journal::callers_call`) when its row's origin is an agent's or the command line's **and** its batch-queue item carries no window consent (D361, D393; `journal::consented`) — read in the table's `heard_batch` (where the end went), the bookkeeper's `book` (who writes it) and the launch's `settle` (what is abandoned). So Rewrite again from the table on such a row (D703) is the person's: over the row's own result (`Row::written()`, by journal id), ended by the bookkeeper, kept at a launch, and removable while it waits or runs, as a window row's rewrite is — `why_not_remove` reads `callers_call` over `Row::consented` (set at the press, read off the queue's list for a row read back). D355's Remove stays greyed, with its reason, for a caller's own waiting call. | `queue::origin_tests::rewrite_again_on_a_command_line_row_writes_the_rows_own_result` (red with the origin read in `heard_batch`, and in `book`); `journal::a_launch_leaves_a_redo_from_the_window_to_the_queue` (red with it in `settle`); `queue::origin_tests::remove_waits_for_a_caller_and_never_for_the_persons_redo` (red with the bare origin in `why_not_remove`, with the press not marked, with every item read as consented). |
+| **D731** | **Every greyed row action says why.** Open, Compare, Open the result, Show the result in its folder and Copy the result carry their reason on the line under the label (D269's look, one `queue::menu_item`), naming what is missing, never the origin: nothing of this text was kept; the file is no longer where it was; it arrived with no file behind it; there is no result yet; the result went back to whoever asked; nothing was written; the result is a file (Copy). `queue-action-why-*`, en-US, ru, de; Compare on a picture says `compare-refused-not-text`. Clean and Rewrite, D269's items, word "nothing behind the row" the same way from `Row::named` (`Row::clean_why`, `Row::rewrite_why`): "The file is no longer where it was" on a row whose named file went; `queue-action-not-kept` only on a row that never had a file. An agent's text-only row keeps Compare greyed (a row is metadata, D312) and says so. | `queue::origin_tests::every_greyed_item_says_what_is_missing`; `a_greyed_compare_says_why_in_the_menu` (opens the menu; red with a bare `.disabled(..)`); `clean_and_rewrite_on_a_gone_file_say_it_is_gone` (red with Clean's, and with Rewrite's, wording read without `Row::named`). |
 | **D732** | **One file, every road, one menu.** The window, the panel, the command line through the application and an agent naming `wipemark/path`: rows in the same status get the same Actions items with the same reasons; an agent's call with no path is the one row whose document-needing items (Clean, Rewrite, Open, Compare) are greyed, each with its reason. | `queue::origin_tests::where_a_thing_came_from_never_changes_what_its_row_can_do` (red without D729). |
 | **D733** | **Compare opens a command line row exactly as a window row.** For row 36's shape (`said_path` a regular file, `result.to = file`), `made_for` gives `Handed::Path(said_path)` and `Made::Rewritten { from: File(result) }`: a window row's panes and save, the save over the row's own result (D410), told to the row through the link (D412, D417). | `queue::origin_tests::row_36_opens_in_compare_as_a_window_rows_rewrite` (red without D729). |
+
+D355's row, after *"**Remove** is greyed on a row an agent or the command
+line waits for while its rewrite is queued or running"*: *"— a caller's
+call, never a redo the person pressed on such a row (D730)"*.
 
 And D356's row, its last sentence: *"a path an MCP client names in `_meta`
 is `Entry::said_path`, shown and never opened"* → *"a path an MCP client
@@ -340,6 +405,10 @@ client names in `_meta` is shown, never opened (`Entry::said_path`, D356;
 > action's, not the row's: a rewrite is a caller's when its item carries
 > no window consent, and a redo from the table is the person's (D730).
 
+And in the same paragraph, *"and Remove is greyed on such a row while it
+waits (D355)"* becomes *"and Remove is greyed while a caller's call waits —
+never on a redo the person pressed on such a row (D355, D730)"*.
+
 ### `CLAUDE.md`
 
 * "Where it stands": the next free decision block is **D734** (D729–D733
@@ -355,22 +424,15 @@ client names in `_meta` is shown, never opened (`Entry::said_path`, D356;
   * row 36 opens in Compare — the original `a10-rewrite.md`, the result
     `a10-rewrite.rewritten.md` — and a save there marks the row edited;
   * the greyed items say why, on the line under each: an agent's
-    text-only row, a row whose file was moved away, a waiting row's result
-    items, a paste's Open;
+    text-only row, a row whose file was moved away (Clean and Rewrite
+    there say the file is no longer where it was, as Open and Compare do),
+    a waiting row's result items, a paste's Open;
   * Rewrite again on a command line row writes over that row's own result,
     the row and its journal entry end "Rewritten" with the file, and a
-    relaunch while it waits does not cancel it.
-* **Remove during a redo on a caller's row** (D355, kept as the task says):
-  while a Rewrite again the person pressed on a command line's or an
-  agent's row is queued or running, Remove is greyed with *"An agent or
-  the command line is waiting for this rewrite"*, which is not true then
-  (Cancel works). The fix would read `why_not_remove` through
-  `callers_call` too. It is left for the owner's word.
-* **Clean and Rewrite on a row whose named file is gone** still say D269's
-  `queue-action-not-kept` (*"It arrived with no file behind it and its
-  text was not kept…"*), while Open and Compare on the same row now say
-  *"The file is no longer where it was."* D731 named only the five
-  items; the same `Row::named` could word those two alike.
+    relaunch while it waits does not cancel it;
+  * while that redo waits or runs, Remove is live and removes it, while a
+    `wipemark-cli rewrite` still waiting through the application keeps
+    Remove greyed with D355's reason.
 * The intake parity test of the "Every way in" rule (README §7 E7).
 * The full gates (the coordinator's, on `feat`), and the edits above to
   `CLAUDE.md`, `docs/plan/README.md` and `docs/architecture/rules.md`.
