@@ -494,11 +494,20 @@
   `PRAGMA data_version` once a second, the application's own by a notes
   channel (D316); a launch settles what the last run left (D317). An
   agent's or the CLI's call waiting for its rewrite ends as a refusal if
-  its item is removed, and Remove is greyed on such a row while it waits
-  (D355). Nothing reading the journal back opens a path that is not a
-  regular file — a FIFO, a terminal, a socket, a device — and a path an
-  MCP client names in `_meta` is shown, never opened (`Entry::said_path`,
-  D356; `a_journal_row_naming_a_fifo_never_blocks_the_read`). A row names
+  its item is removed, and Remove is greyed while a caller's call waits —
+  never on a redo the person pressed on such a row (D355, D730). Nothing
+  reading the journal back opens a path that is not a regular file — a
+  FIFO, a terminal, a socket, a device (D356;
+  `a_journal_row_naming_a_fifo_never_blocks_the_read`). A path an MCP
+  client names in `_meta` (`Entry::said_path`) is looked at like a
+  recorded one, under that rule and the command line's own — absolute,
+  nothing under `/dev` or `/proc` — so a command line's or an agent's row
+  has its file behind it whenever the file is on disk (D729,
+  `a_named_path_is_looked_at_like_a_recorded_one`). A caller's call is the
+  action's, not the row's: a rewrite is a caller's when its item carries
+  no window consent, and a redo from the table is the person's (D730). A
+  row's actions depend only on what is there, and every greyed one says
+  why (D731, D732). A row names
   its queue item before the item can start (`Queue::reserve`, then
   `push_reserved` after the row is written, D358); a template refused is
   no row on any road (D360). See `docs/architecture/queue.md`, "The

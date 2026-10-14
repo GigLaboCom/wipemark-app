@@ -175,6 +175,21 @@ until upstream merges both (D675;
 (`feat/redo-a-row`): *Clean again* and *Rewrite again* over the row's own
 result, an edited result asked about first
 (`docs/plan/reports/redo-a-row-2026-10-13.md`).
+**The macOS acceptance of 2026-10-14** brought, all merged on `feat`:
+- D720: a rewrite that rewrote nothing is cleaned by its row's Clean;
+- D721: Compare's panes wrap by default;
+- D722: the tray's panel item says Show or Hide as the panel is;
+- `feat/panel-anchors` (D723–D727): the panel's nine anchors, flush on
+  the visible edges, the Placement page to scale, a turned display keeping
+  its anchor (`docs/plan/reports/panel-anchors-2026-10-14.md`);
+- D728 (F24): AppKit window changes made once the GPUI update returns,
+  `scripts/verify/f24/panel-toggle.sh` 4 errors in 6 toggles before, 0
+  after;
+- `fix/row-any-origin` (D729–D733; F25): a row's actions depend on what is
+  on disk, never on where the row came from — a path the command line or
+  an agent named is looked at like a recorded one, a redo from the table
+  is the person's, every greyed item says why, and one file down every road
+  gets one menu (`docs/plan/reports/row-any-origin-2026-10-14.md`).
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice
 choosable, the shipped templates unchanged. The next free decision block is
 **D531** (D490–D502 and D520–D530 are E12-R's, D503–D504 the draft's; D540–D549
