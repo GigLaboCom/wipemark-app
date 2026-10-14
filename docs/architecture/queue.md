@@ -281,6 +281,25 @@ holds — arrived and happened from the entry, the counts, "the full report
 was not kept" on the verifiable shelf, the third shelf from
 `not_established::ids()`, Copy JSON greyed.
 
+**Every greyed item says why** (D731). Open, Compare, Open the result,
+Show the result in its folder and Copy the result, greyed, carry their
+reason on the line under the label, as Clean's does (D269) — one
+`menu_item` draws every item greyed for a reason. The reason names what is
+missing, never who handed the thing over (`why_not_open`,
+`why_not_compare`, `why_no_result_file`, `why_not_copy`): nothing of the
+text was kept (no file named, its text gone back to whoever sent it); the
+file is no longer where it was (a file named, none behind the row now); it
+arrived with no file behind it (a paste, whose result lives in the row);
+there is no result yet; the result went back to whoever asked; nothing was
+written, which the status says; the result is a file, which Open the
+result opens (Copy copies a text); and, for Compare on a picture, the
+Compare window's own "this is not text". An agent's text-only row — no
+path, its result handed back — keeps Compare greyed, as a row is metadata
+and never the text (D312), and now says so
+(`a_greyed_compare_says_why_in_the_menu`, which opens the menu and finds
+each line drawn). Cancel, and Report… on a row nothing has happened to,
+stay greyed with nothing to add.
+
 ## Rewriting (E4-6b)
 
 ```

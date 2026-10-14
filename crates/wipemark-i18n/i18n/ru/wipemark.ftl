@@ -1708,3 +1708,13 @@ queue-again-edited-body = Его результат был изменён вру
        *[clean] Повторная очистка заменит эти правки.
     }
 queue-again-edited-go = Переделать
+
+## Why an item of a row's Actions menu is greyed, on the line under it
+## (D731). Each names what is missing, never who handed the thing over.
+queue-action-why-not-kept = Ничего из этого текста не сохранено: он вернулся к тому, кто его прислал.
+queue-action-why-gone = Файла больше нет там, где он был.
+queue-action-why-no-result = Результата пока нет.
+queue-action-why-to-caller = Результат вернулся к тому, кто его просил; здесь ничего не записано.
+queue-action-why-no-file = Пришло без файла.
+queue-action-why-nothing-written = Для него ничего не записано; почему — говорит статус.
+queue-action-why-result-file = Результат — файл; его открывает «Открыть результат».

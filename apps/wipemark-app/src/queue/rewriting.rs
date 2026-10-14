@@ -250,6 +250,16 @@ impl Queue {
                 keyword: None,
                 // Filled in by the look below, once the file answers.
                 arrival: None,
+                named: entry
+                    .path
+                    .clone()
+                    .or_else(|| {
+                        entry
+                            .said_path
+                            .clone()
+                            .filter(|named| Path::new(named).is_absolute())
+                    })
+                    .map(PathBuf::from),
                 preview: Preview::None,
                 arrived_at,
                 status: status_of(action, phase, &entry),

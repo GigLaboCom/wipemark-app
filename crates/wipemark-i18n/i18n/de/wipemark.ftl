@@ -1659,3 +1659,13 @@ queue-again-edited-body = Sein Ergebnis wurde von Hand bearbeitet und gespeicher
        *[clean] Erneutes Bereinigen ersetzt diese Änderungen.
     }
 queue-again-edited-go = Erneut verarbeiten
+
+## Why an item of a row's Actions menu is greyed, on the line under it
+## (D731). Each names what is missing, never who handed the thing over.
+queue-action-why-not-kept = Von diesem Text wurde nichts behalten: Er ging an den zurück, der ihn geschickt hat.
+queue-action-why-gone = Die Datei ist nicht mehr dort, wo sie war.
+queue-action-why-no-result = Es gibt noch kein Ergebnis.
+queue-action-why-to-caller = Das Ergebnis ging an den zurück, der es angefordert hat; hier wurde nichts geschrieben.
+queue-action-why-no-file = Kam ohne Datei.
+queue-action-why-nothing-written = Dafür wurde nichts geschrieben; der Status sagt, warum.
+queue-action-why-result-file = Das Ergebnis ist eine Datei; „Ergebnis öffnen“ öffnet sie.
