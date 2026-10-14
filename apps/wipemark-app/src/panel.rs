@@ -9,7 +9,8 @@
 //! # No titlebar, and what stands in for one
 //!
 //! A summoned window is not dragged into position, it *arrives* in
-//! position — which is what the six zones on the Placement page decide.
+//! position — which is what the nine anchors on the Placement page
+//! decide, and where it stays when its display turns (D723–D726).
 //! A titlebar would be a second answer to that question, so there is
 //! none: `WindowOptions::titlebar: None`, and [`afloat`] replaces the
 //! style mask GPUI builds for such a window with one that has no
@@ -119,7 +120,7 @@ const CONTEXT: &str = "Panel";
 
 /// How big the panel is.
 ///
-/// Small enough to sit in a sixth of a laptop panel without covering
+/// Small enough to sit in a corner of a laptop panel without covering
 /// what is underneath, which is the size a summoned window has to be:
 /// it arrives over somebody else's work.
 pub const SIZE: Size<Pixels> = Size {
@@ -471,6 +472,43 @@ fn placed_by_the_window_manager(
         });
     })
     .detach();
+}
+
+/// Put the open panel where its display's answer says in the display's
+/// new shape — what the display watcher does when the display the panel
+/// is on turns to portrait, changes resolution or loses a strip to the
+/// Dock (D725, `Preferences::follow_the_panel`).
+///
+/// At the same anchor, at the size the panel has now; put there by hand,
+/// the hand's rectangle pulled back onto the screen and never rescaled
+/// ([`placement::placed_again`]). The rectangle is said to
+/// [`Preferences::we_placed_it`] before the move, as every move this
+/// application makes is, so it never comes back as a person's answer.
+/// `now` is the display as the reading has it, not as the window does:
+/// a window the turn left off the screen may have no display to ask.
+pub fn follow(preferences: &Entity<Preferences>, now: &Screen, cx: &mut App) {
+    let Some(panel) = preferences.read(cx).panel_window() else {
+        return;
+    };
+    let spot = preferences.read(cx).spot_of(now);
+    let visible = now.visible;
+    let held = preferences.clone();
+    let moved = panel.update(cx, |_, window, cx| {
+        let frame = screen::frame_of(window);
+        let wanted = placement::placed_again(spot, frame.size, visible);
+        held.update(cx, |preferences, _| {
+            preferences.we_placed_it(Some(wanted));
+        });
+        (wanted, screen::put(window, frame, wanted, false))
+    });
+    match moved {
+        Ok((wanted, true)) => tracing::info!(?wanted, "the panel followed its display"),
+        Ok((wanted, false)) => tracing::debug!(
+            ?wanted,
+            "the panel did not move; it opens there the next time it is summoned"
+        ),
+        Err(error) => tracing::debug!(%error, "the panel went before its display settled"),
+    }
 }
 
 /// Send the panel away, and say whether there was one.
@@ -1042,6 +1080,14 @@ impl PanelView {
                 }
                 let screen = screen::of_rect(frame, Some(screen.clone()), cx).unwrap_or(screen);
                 view.preferences.update(cx, |preferences, cx| {
+                    // The display changed shape and has not been read
+                    // since: the move is the platform keeping the panel
+                    // on it, and the reading that follows puts the panel
+                    // at its anchor (D725).
+                    if preferences.reading_behind(&screen) {
+                        tracing::debug!("the panel moved while its display changed; not an answer");
+                        return;
+                    }
                     if preferences.heard(frame, reported) == placement::Heard::Person {
                         preferences.put_by_hand(&screen, frame, cx);
                     }
@@ -1862,6 +1908,65 @@ mod tests {
             !cx.cx.read(super::is_shown),
             "a panel whose window went still reads as on screen"
         );
+    }
+
+    /// D725: a move of the panel reported while the last reading of the
+    /// displays is behind the display it is on — the display turned under
+    /// it and the platform kept the window on it, before the watcher read
+    /// the turn — is not a person's answer: the anchor stays, for the
+    /// watcher to put the panel at a reading later. Once the reading has
+    /// caught up, the same kind of move is a person's again. Take the check
+    /// out of `settle` and the turn is filed as a hand: red.
+    #[gpui::test]
+    fn a_move_while_the_display_turns_is_not_a_persons(cx: &mut gpui::TestAppContext) {
+        use crate::placement::{Answer, Spot};
+        use crate::screen::Connected;
+
+        let (listed, cx) = Listed::new("turning", false, cx);
+        let here = cx
+            .update(|window, cx| screen::of_window(window, cx))
+            .expect("the test display");
+        let visible = here.visible;
+        let turned = Screen {
+            visible: Bounds::new(
+                visible.origin,
+                gpui::size(visible.size.height, visible.size.width),
+            ),
+            ..here.clone()
+        };
+        let reading = |screen: Screen| {
+            vec![Connected {
+                screen,
+                name: None,
+                primary: true,
+            }]
+        };
+        let settled = |cx: &mut gpui::VisualTestContext| {
+            cx.executor().advance_clock(SETTLE * 2);
+            cx.run_until_parked();
+        };
+        let spot = |cx: &mut gpui::VisualTestContext| {
+            cx.update(|_, cx| listed.preferences.read(cx).spot_of(&here))
+        };
+
+        // The reading still has the display the way it stood before.
+        listed.preferences.update(cx, |preferences, cx| {
+            preferences.screens_changed(reading(turned), cx);
+        });
+        cx.simulate_resize(gpui::size(px(430.0), px(270.0)));
+        settled(cx);
+        assert_eq!(
+            spot(cx),
+            Spot::default(),
+            "a move while the display turned was filed as a person's"
+        );
+
+        listed.preferences.update(cx, |preferences, cx| {
+            preferences.screens_changed(reading(here.clone()), cx);
+        });
+        cx.simulate_resize(gpui::size(px(440.0), px(280.0)));
+        settled(cx);
+        assert_eq!(spot(cx).at, Answer::Manual, "a person's move was not heard");
     }
 
     /// The live check's case 13, as a test: a drop of a marked text, a

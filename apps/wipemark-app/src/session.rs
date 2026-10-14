@@ -5,7 +5,7 @@
 //! whenever `WAYLAND_DISPLAY` is set, and under Wayland a client cannot
 //! put a window anywhere — the protocol leaves every position to the
 //! compositor, and GNOME has no layer-shell. The panel is the window this
-//! product *places* (the Placement page's six zones), so under Wayland the
+//! product *places* (the Placement page's nine anchors), so under Wayland the
 //! page would be a promise the product cannot keep (acceptance F8).
 //!
 //! Under X11 — XWayland included — a client can ask the window manager to

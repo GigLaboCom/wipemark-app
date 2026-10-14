@@ -74,9 +74,9 @@ Most of this repository's decisions live in `apps/wipemark-app/src/`:
 | `title.rs` | every window title, built as plain text |
 | `panel.rs` | the third window: summoned from the menu bar, no titlebar, placed by nothing but the Placement page; a findings line under each listed thing, and Clean beside the dismissal line — it cleans, and says rewriting is in the main window |
 | `setup.rs` | the first-launch walk-through: five steps over the main window, the recommendation the machine's memory makes, and the rows it writes through the pages' own methods |
-| `placement.rs` | which screen the panel opens on, and which sixth of it — one answer per display |
+| `placement.rs` | which screen the panel opens on, and which of nine anchors on its edges — one answer per display |
 | `retention.rs` | where a result goes, what happens to the file it came from, what the product keeps of its own and for how long — and the plan for one thing that arrived: a clean's, taken when it starts, and a rewrite's (`rewrite_destination`, `name.rewritten.ext`), taken when it is pushed |
-| `display_watch.rs` | noticing that the displays changed, from two sources |
+| `display_watch.rs` | noticing that the displays changed, from two sources, and which change moves the open panel to its anchor (D725) |
 | `screen.rs` | a display reduced to the three facts placing a window needs, the displays as a page lists them, and the one call that moves a window |
 | `icon.rs` | `IconName` — the only glyph names that resolve — and the `Icon` element |
 | `assets.rs` | `WipemarkAssets`, the single `AssetSource` GPUI resolves every `svg()` against |

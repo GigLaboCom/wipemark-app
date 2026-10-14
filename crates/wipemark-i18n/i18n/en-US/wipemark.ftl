@@ -586,11 +586,16 @@ settings-placement-where-it-was-left = Where I put it
 settings-placement-restore-default = Restore default
 settings-placement-drag-hint = Drag it onto a part of the screen, or click one. Moving or resizing the panel itself wins over both.
 
-# The six parts a screen is divided into, as the sentence above reads
-# them: "A window opens at the top left of this display."
+# The nine places a window is put against on a screen — the four
+# corners, the middle of each edge, and the centre — flush with the
+# screen's edges, as the sentence above reads them: "A window opens at
+# the top left of this display."
 settings-placement-zone-top-left = top left
 settings-placement-zone-top-centre = top centre
 settings-placement-zone-top-right = top right
+settings-placement-zone-middle-left = middle left
+settings-placement-zone-centre = centre
+settings-placement-zone-middle-right = middle right
 settings-placement-zone-bottom-left = bottom left
 settings-placement-zone-bottom-centre = bottom centre
 settings-placement-zone-bottom-right = bottom right

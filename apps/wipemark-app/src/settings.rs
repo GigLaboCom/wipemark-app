@@ -166,10 +166,10 @@ const SETTLE: Duration = Duration::from_millis(500);
 
 /// How tall one display's grid of zones is drawn.
 ///
-/// The width follows the display's own shape, so the card for a
-/// portrait monitor is portrait — a grid that ignored the aspect ratio
-/// would be six rectangles that are not the six rectangles the
-/// preference means.
+/// The width follows the display's own shape as it stands now, so the
+/// card for a portrait monitor — or one just rotated — is portrait, and
+/// the window drawn flush at an anchor on it sits where it will open
+/// (D725, D726).
 const GRID_HEIGHT: Pixels = px(96.0);
 
 /// The name a copy of `name` is offered under — "Legal (copy)" — rendered
@@ -274,7 +274,7 @@ impl Section {
         match self {
             Self::General => IconName::Sliders,
             // A grid of cells, which is the control this page is: a
-            // screen divided into sixths, one of them ticked.
+            // screen's nine anchors, three by three, one of them ticked.
             // Deliberately not the plain `Display` the System theme
             // button wears — two rows of this window carrying one
             // glyph is how a sidebar stops being scannable — and not
@@ -2003,7 +2003,7 @@ impl Preferences {
     /// that is now the answer.
     ///
     /// A hand beats a cell: dragging a window somewhere is a more
-    /// specific instruction than pointing at a sixth of a screen, and
+    /// specific instruction than pointing at an anchor on a screen, and
     /// the page stops ticking a cell until one is clicked again.
     pub fn put_by_hand(&mut self, screen: &Screen, rect: Bounds<Pixels>, cx: &mut Context<Self>) {
         self.placing.forget();
@@ -2146,7 +2146,7 @@ impl Preferences {
     /// hand over a reading on a timer without knowing whether anything
     /// has moved — and so a repaint is a repaint rather than a wake-up
     /// for every view in the application three times a second.
-    fn screens_changed(&mut self, screens: Vec<Connected>, cx: &mut Context<Self>) {
+    pub(crate) fn screens_changed(&mut self, screens: Vec<Connected>, cx: &mut Context<Self>) {
         // The first reading is always news, even when it is the empty
         // list it started as: what changed is that somebody looked.
         let first = !std::mem::replace(&mut self.screens_read, true);
@@ -2154,9 +2154,40 @@ impl Preferences {
             return;
         }
         tracing::debug!(displays = screens.len(), "the displays changed");
-        self.screens = screens;
+        let known = std::mem::replace(&mut self.screens, screens);
         self.adopt_nil(cx);
+        self.follow_the_panel(&known, cx);
         cx.notify();
+    }
+
+    /// The display the open panel is on has changed shape since `known`
+    /// — turned to portrait, a new resolution, the Dock moved — so the
+    /// panel goes to the same anchor in the new shape, or a hand's
+    /// rectangle is pulled back onto it (D725).
+    ///
+    /// Deferred: the move is an update of the panel's window, made from
+    /// outside this entity's, the way the Placement page's move is
+    /// (`SettingsView::put_back`).
+    fn follow_the_panel(&self, known: &[Connected], cx: &mut Context<Self>) {
+        let Some(on) = self.panel.and(self.panel_screen.as_ref()) else {
+            return;
+        };
+        let Some(now) = display_watch::reshaped(known, &self.screens, on) else {
+            return;
+        };
+        tracing::info!(
+            visible = ?now.visible,
+            "the panel's display changed shape; the panel follows its answer"
+        );
+        let preferences = cx.entity();
+        cx.defer(move |cx| panel::follow(&preferences, &now, cx));
+    }
+
+    /// Whether the last reading of the displays is behind `measured` —
+    /// a display that has changed shape since it was read
+    /// ([`display_watch::behind`], D725).
+    pub fn reading_behind(&self, measured: &Screen) -> bool {
+        display_watch::behind(&self.screens, measured)
     }
 
     /// The rows filed under the nil uuid — every screen's key under X11
@@ -3864,11 +3895,11 @@ type Remembered = (SettingsStore, Screen, Bounds<Pixels>);
 /// would otherwise take the very keys being recorded; macOS is unchanged.
 const SUSPEND_WHILE_RECORDING: bool = cfg!(target_os = "linux");
 
-/// The smallest the window is drawn on a card when it was put somewhere by
-/// hand: the chip is the handle a person presses to pick the window up, and
-/// at a 3840-point display's scale a 420-point panel would be a handle a
-/// few pixels wide (D648).
-const MANUAL_CHIP: Size<Pixels> = Size {
+/// The smallest the window is drawn on a card, at an anchor or where a hand
+/// put it: the chip is the handle a person presses to pick the window up,
+/// and at a 3840-point display's scale a 420-point panel would be a handle
+/// a few pixels wide (D648, D726).
+const SMALLEST_CHIP: Size<Pixels> = Size {
     width: px(24.0),
     height: px(16.0),
 };
@@ -8573,14 +8604,16 @@ pub(crate) fn notice(
         ))
 }
 
-/// One display's six zones, drawn to that display's own shape — and the
-/// window on it.
+/// One display's nine anchors, drawn to that display's own shape — and
+/// the window on it.
 ///
-/// The window is drawn twice over, in one of two ways and never both: in
-/// the cell it was given, or — when it was put somewhere by hand — as
-/// that rectangle, to scale, wherever on the screen it actually is.
-/// The second is the whole of how "by hand" reads at a glance: no cell
-/// is lit, and the window is sitting off the grid lines.
+/// The cells are where a click or a drop lands, three by three, and the
+/// one in force is lit. The window is drawn over them where it will open
+/// (D726): at its anchor, to scale and flush against the card's edges as
+/// the panel will be against the screen's — or, when it was put somewhere
+/// by hand, as that rectangle, to scale, wherever on the screen it
+/// actually is. The second is the whole of how "by hand" reads at a
+/// glance: no cell is lit, and the window is not on an anchor.
 fn zone_grid(
     index: usize,
     display: &Connected,
@@ -8597,10 +8630,13 @@ fn zone_grid(
     let ratio =
         (visible.size.width.as_f32() / visible.size.height.as_f32().max(1.0)).clamp(0.6, 2.4);
     let width = GRID_HEIGHT.as_f32() * ratio;
+    // The inside of the card — less its one-point border on each side —
+    // which is what the cells fill and what the window is drawn in.
+    let window = drawn_at(spot, visible, size(px(width - 2.0), GRID_HEIGHT - px(2.0)));
 
     // The lines *between* the cells are the page's own background and
     // not `border`: a border colour on a muted ground is a hairline
-    // nobody sees, and six invisible cells are one rectangle. Against
+    // nobody sees, and nine invisible cells are one rectangle. Against
     // the card the same colour reads as a gutter — which is what it is.
     let gutter = theme.background;
     let chosen = match spot.at {
@@ -8640,45 +8676,56 @@ fn zone_grid(
                         }),
                 )
         }))
-        // Over the cells rather than in one, because a rectangle a hand
-        // chose does not belong to any of them.
-        .children(chosen.is_none().then(|| {
-            let rect = spot.rect.unwrap_or(visible);
-            let across = |value: Pixels, from: Pixels, of: Pixels, onto: f32| {
-                (value.as_f32() - from.as_f32()) / of.as_f32().max(1.0) * onto
-            };
-            let left = across(rect.origin.x, visible.origin.x, visible.size.width, width);
-            let top = across(
-                rect.origin.y,
-                visible.origin.y,
-                visible.size.height,
-                GRID_HEIGHT.as_f32(),
-            );
-            let across_width = across(rect.size.width, px(0.0), visible.size.width, width);
-            let across_height = across(
-                rect.size.height,
-                px(0.0),
-                visible.size.height,
-                GRID_HEIGHT.as_f32(),
-            );
-
-            // Small enough to be lost at this scale otherwise: a
-            // 420-point panel on a 3840-point display is four pixels of
-            // card — and the chip is what a person has to press to pick
-            // the window up, so it is never smaller than a thing a
-            // pointer lands on (D648).
-            let chip_size = size(
-                px(across_width.max(MANUAL_CHIP.width.as_f32())),
-                px(across_height.max(MANUAL_CHIP.height.as_f32())),
-            );
+        // Over the cells rather than in one: an anchor is an edge of
+        // the screen and not a cell's middle, and a rectangle a hand
+        // chose does not belong to any cell at all.
+        .child(
             div()
                 .absolute()
-                .left(px(left))
-                .top(px(top))
-                .w(chip_size.width)
-                .h(chip_size.height)
-                .child(chip(index, chip_size, cx))
-        }))
+                .left(window.origin.x)
+                .top(window.origin.y)
+                .w(window.size.width)
+                .h(window.size.height)
+                .child(chip(index, window.size, cx)),
+        )
+}
+
+/// Where the window is drawn on a display's card whose inside is
+/// `inside`, in the card's own points (D726).
+///
+/// At its anchor, to scale and flush — the same [`placement::at`] the
+/// panel is put by, applied to the card — at the size it opens at: the
+/// size a hand last gave it, or the panel's own. Put somewhere by hand, it
+/// is drawn where it was put. Never smaller than [`SMALLEST_CHIP`] — at
+/// this scale a 420-point panel on a 3840-point display is a few pixels of
+/// card, and the drawn window is the handle a person presses to pick it up
+/// (D648). Grown before it is anchored, so a grown window is still flush.
+fn drawn_at(spot: Spot, visible: Bounds<Pixels>, inside: Size<Pixels>) -> Bounds<Pixels> {
+    let across = inside.width.as_f32() / visible.size.width.as_f32().max(1.0);
+    let down = inside.height.as_f32() / visible.size.height.as_f32().max(1.0);
+    let scaled = |of: Size<Pixels>| {
+        size(
+            px((of.width.as_f32() * across).max(SMALLEST_CHIP.width.as_f32())),
+            px((of.height.as_f32() * down).max(SMALLEST_CHIP.height.as_f32())),
+        )
+    };
+    match spot.at {
+        placement::Answer::Zone(zone) => placement::at(
+            zone,
+            scaled(spot.rect.map_or(panel::SIZE, |rect| rect.size)),
+            Bounds::new(point(px(0.0), px(0.0)), inside),
+        ),
+        placement::Answer::Manual => {
+            let rect = spot.rect.unwrap_or(visible);
+            Bounds::new(
+                point(
+                    px((rect.origin.x - visible.origin.x).as_f32() * across),
+                    px((rect.origin.y - visible.origin.y).as_f32() * down),
+                ),
+                scaled(rect.size),
+            )
+        }
+    }
 }
 
 /// One cell: a drop target, a button, and the window itself when this
@@ -8716,17 +8763,17 @@ fn zone_cell(
             cell.border_l_1().border_color(theme.background)
         })
         // The lit cell *is* the window, as far as a hand can tell: it is
-        // picked up anywhere in it, not only by the 26-point chip drawn in
-        // its middle. A press beside the chip started nothing, logged
+        // picked up anywhere in it, not only by the chip drawn at its
+        // anchor. A press beside the chip started nothing, logged
         // nothing and looked exactly like a drag that did not work
-        // (acceptance F12, D648). The chip inside still starts the same
-        // drag — it is the first to hear the press — and a press with no
-        // movement is still the button's click.
+        // (acceptance F12, D648). The chip, drawn over the cells, still
+        // starts the same drag — it is the first to hear the press — and
+        // a press with no movement is still the button's click.
         .when(taken && placeable, |cell| {
             cell.on_drag(DraggedWindow, |_, _, _, cx| cx.new(|_| WindowChip))
         })
         // The cell the window would land in, while it is in the
-        // air. Without it a drag is six identical rectangles and a
+        // air. Without it a drag is nine identical rectangles and a
         // guess.
         .when(placeable, |cell| {
             cell.drag_over::<DraggedWindow>(|style, _, _, cx| style.bg(cx.theme().accent))
@@ -8751,19 +8798,16 @@ fn zone_cell(
                     move |view, _, _, cx| {
                         view.choose_zone(&display, zone, cx);
                     }
-                }))
-                .when(taken, |cell| {
-                    cell.child(chip(index, size(px(26.0), px(18.0)), cx))
-                }),
+                })),
         )
 }
 
 /// The window, as something that can be picked up.
 ///
-/// One per card, wherever it happens to be sitting — in the chosen
-/// cell, or beside the sentence when no cell is chosen. One id per card
-/// is therefore enough, and is what keeps two cards' chips from being
-/// one element as far as GPUI is concerned.
+/// One per card, wherever it happens to be sitting — at the anchor in
+/// force, or where a hand put the window when no cell is chosen
+/// ([`drawn_at`]). One id per card is therefore enough, and is what keeps
+/// two cards' chips from being one element as far as GPUI is concerned.
 ///
 /// A free function, like [`tag`] and [`heading`]: nothing about a
 /// window-shaped rectangle depends on which view is drawing it.
@@ -12574,7 +12618,7 @@ mod tests {
     }
 
     /// F12, D648: the lit cell is the window — a press anywhere in it picks
-    /// the window up, not only one on the chip in its middle, and the drop
+    /// the window up, not only one on the chip drawn in it, and the drop
     /// on another cell puts the window there. Before, a press beside the
     /// chip started nothing and logged nothing; remove the cell's `on_drag`
     /// and the zone stays where it was: red.
@@ -12612,6 +12656,194 @@ mod tests {
             .expect("the bottom-centre cell");
         drag(page, chip.center(), target.center());
         assert_eq!(zone_held(&preferences, page), Some(Zone::BottomCentre));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D725, the road: the display the open panel is on turns to portrait
+    /// — the same uuid, its width and height swapped — and the reading the
+    /// display watcher hands over (`screens_changed`) puts the panel at the
+    /// same anchor in the new shape; turned back with the panel put there
+    /// by hand, the hand's rectangle is pulled back onto the screen and
+    /// not rescaled. What was asked is read through `heard`, after the
+    /// grace: the asked rectangle is ours, any other a person's. Take the
+    /// re-placement out of `screens_changed` and nothing is asked: red.
+    #[gpui::test]
+    fn a_rotated_display_puts_the_open_panel_at_the_same_anchor(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("placement-rotated");
+        cx.update(gpui_component::init);
+        cx.update(crate::dialog::init);
+        let (preferences, vcx) = added_bench(cx, &root);
+        let display = |width: f32, height: f32| Connected {
+            screen: Screen {
+                id: gpui::DisplayId::new(1),
+                key: Some("display-turned".to_owned()),
+                visible: Bounds::new(point(px(0.0), px(25.0)), size(px(width), px(height))),
+            },
+            name: Some("Test".to_owned()),
+            primary: true,
+        };
+        let landscape = display(1512.0, 957.0);
+        let portrait = display(957.0, 1512.0);
+        let rect = |x: f32, y: f32| Bounds::new(point(px(x), px(y)), size(px(420.0), px(260.0)));
+        let asked = |preferences: &Entity<Preferences>, vcx: &mut gpui::VisualTestContext, at| {
+            let later = std::time::Instant::now() + placement::GRACE * 2;
+            preferences.update(vcx, |preferences, _| preferences.heard(at, later))
+        };
+
+        preferences.update(vcx, |preferences, cx| {
+            preferences.screens_changed(vec![landscape.clone()], cx);
+        });
+        // The panel, open at the bottom right of the landscape shape.
+        let opened_at = placement::at(Zone::BottomRight, panel::SIZE, landscape.screen.visible);
+        assert_eq!(opened_at, rect(1092.0, 722.0));
+        let window = vcx
+            .update(|_, cx| {
+                cx.open_window(panel::window_options(opened_at, None), |_, cx| {
+                    cx.new(|_| gpui::EmptyView)
+                })
+            })
+            .expect("the panel's window");
+        preferences.update(vcx, |preferences, cx| {
+            preferences.panel_opened(window.into(), cx);
+            preferences.panel_moved(Some(landscape.screen.clone()), cx);
+        });
+
+        preferences.update(vcx, |preferences, cx| {
+            preferences.screens_changed(vec![portrait.clone()], cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            asked(&preferences, vcx, rect(537.0, 1277.0)),
+            placement::Heard::Ours,
+            "the panel was not put at the bottom right of the portrait shape"
+        );
+        assert_eq!(
+            asked(&preferences, vcx, opened_at),
+            placement::Heard::Person,
+            "the landscape rectangle is still what was asked"
+        );
+
+        // By hand, low on the portrait screen; turned back, the rectangle
+        // is pulled up onto the landscape one at the size it has.
+        preferences.update(vcx, |preferences, cx| {
+            preferences.put_by_hand(&portrait.screen, rect(300.0, 1200.0), cx);
+        });
+        preferences.update(vcx, |preferences, cx| {
+            preferences.screens_changed(vec![landscape.clone()], cx);
+        });
+        vcx.run_until_parked();
+        assert_eq!(
+            asked(&preferences, vcx, rect(300.0, 722.0)),
+            placement::Heard::Ours,
+            "a hand's rectangle was not contained, or was rescaled"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// The bounds the page drew `selector` at — a selector built at run
+    /// time, which `debug_bounds` wants for the life of the test.
+    fn drawn(page: &mut gpui::VisualTestContext, selector: String) -> Option<Bounds<Pixels>> {
+        page.debug_bounds(Box::leak(selector.into_boxed_str()))
+    }
+
+    /// D726: the grid is nine cells in reading order — three rows of
+    /// three, left to right, top to bottom — and the window is drawn at
+    /// its anchor, to scale and flush where it will open, rather than in
+    /// the middle of a cell; a window put by hand is drawn where it was
+    /// put. Draw the chip back in the middle of its cell and every flush
+    /// check goes red.
+    #[gpui::test]
+    fn the_grid_is_nine_cells_and_the_window_is_drawn_at_its_anchor(cx: &mut gpui::TestAppContext) {
+        let root = scratch_root("placement-anchors");
+        let (preferences, page) = placement_page(cx, &root, false);
+
+        let cells: Vec<Bounds<Pixels>> = Zone::ALL
+            .into_iter()
+            .map(|zone| {
+                drawn(page, format!("cell-0-{}", zone.id()))
+                    .unwrap_or_else(|| panic!("no cell for {zone:?}"))
+            })
+            .collect();
+        assert_eq!(cells.len(), 9);
+        let close = |a: Pixels, b: Pixels| (a.as_f32() - b.as_f32()).abs() <= 1.0;
+        for (index, cell) in cells.iter().enumerate() {
+            let (row, column) = (index / Zone::COLUMNS, index % Zone::COLUMNS);
+            let first_in_row = cells[row * Zone::COLUMNS];
+            let first_in_column = cells[column];
+            assert!(
+                close(cell.origin.y, first_in_row.origin.y),
+                "{index} is off its row"
+            );
+            assert!(
+                close(cell.origin.x, first_in_column.origin.x),
+                "{index} is off its column"
+            );
+            if column > 0 {
+                assert!(
+                    cell.origin.x > cells[index - 1].origin.x,
+                    "{index} is not right of {}",
+                    index - 1
+                );
+            }
+            if row > 0 {
+                let above = cells[index - Zone::COLUMNS];
+                assert!(
+                    cell.origin.y > above.origin.y,
+                    "{index} is not below the row above"
+                );
+            }
+        }
+
+        // The inside of the card: from the first cell's corner to the last
+        // one's far corner.
+        let inside = Bounds::from_corners(cells[0].origin, cells[8].bottom_right());
+        // The display is 1920×1080 and the panel 420×260.
+        let width = inside.size.width * (420.0 / 1920.0);
+        let height = inside.size.height * (260.0 / 1080.0);
+
+        let screen = gpui::TestAppContext::update(page, |cx| {
+            preferences.read(cx).screens()[0].screen.clone()
+        });
+        for (index, zone) in Zone::ALL.into_iter().enumerate() {
+            page.simulate_click(cells[index].center(), gpui::Modifiers::default());
+            page.run_until_parked();
+            assert_eq!(zone_held(&preferences, page), Some(zone));
+            let chip = page.debug_bounds("chip-0").expect("the window on the card");
+            assert!(
+                close(chip.size.width, width) && close(chip.size.height, height),
+                "{zone:?}: {chip:?} is not the panel to scale"
+            );
+            let across = match zone.column() {
+                0 => close(chip.left(), inside.left()),
+                1 => close(chip.center().x, inside.center().x),
+                _ => close(chip.right(), inside.right()),
+            };
+            let down = match zone.row() {
+                0 => close(chip.top(), inside.top()),
+                1 => close(chip.center().y, inside.center().y),
+                _ => close(chip.bottom(), inside.bottom()),
+            };
+            assert!(
+                across && down,
+                "{zone:?}: {chip:?} is not flush in {inside:?}"
+            );
+        }
+
+        // By hand: where it was put, to scale.
+        let put = Bounds::new(point(px(960.0), px(540.0)), size(px(420.0), px(260.0)));
+        gpui::TestAppContext::update(page, |cx| {
+            preferences.update(cx, |preferences, cx| {
+                preferences.put_by_hand(&screen, put, cx)
+            });
+        });
+        page.run_until_parked();
+        let chip = page
+            .debug_bounds("chip-0")
+            .expect("the window, put by hand");
+        assert!(
+            close(chip.origin.x, inside.center().x) && close(chip.origin.y, inside.center().y),
+            "{chip:?} is not where the hand put it"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 

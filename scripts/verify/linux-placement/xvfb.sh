@@ -32,7 +32,9 @@
 #      (D611) sees it, without a compositor to connect to;
 #        a. `--panel` on an empty database: the panel's client rectangle
 #           must be the bottom-right zone of the 3840×1080 monitor
-#           (2990,680 420×260) and no `window.zone.*` row may be written;
+#           (3420,820 420×260: flush in the corner since D724; it was
+#           2990,680, centred on a sixth, before) and no `window.zone.*`
+#           row may be written;
 #        b. the panel is then moved by another X client (XMoveWindow through
 #           libX11, as a person's drag reaches the application): a
 #           `window.zone.<key>` row with `"at":"manual"` and that rectangle
@@ -184,8 +186,8 @@ if [ -z "$ID" ]; then
     say "a. the panel opened" "FAIL (no panel window; log $A.log)"
 else
     got=$(rect "$ID")
-    [ "$got" = "2990,680,420,260" ] && say "a. the panel is in the bottom-right zone (2990,680 420x260)" ok \
-        || say "a. the panel is in the bottom-right zone (2990,680 420x260)" "FAIL (at $got)"
+    [ "$got" = "3420,820,420,260" ] && say "a. the panel is in the bottom-right zone (3420,820 420x260, flush in the corner)" ok \
+        || say "a. the panel is in the bottom-right zone (3420,820 420x260, flush in the corner)" "FAIL (at $got)"
     rows=$(zones "$A/wipemark.db")
     [ -z "$rows" ] && say "a. no zone row written by our own placement" ok \
         || say "a. no zone row written by our own placement" "FAIL ($rows)"
@@ -219,7 +221,7 @@ seed "$D/wipemark.db" "window.zone.$NIL={\"at\":\"manual\",\"rect\":{\"x\":44.0,
 start "$D" --panel
 ID=$(wait_panel)
 got=$( [ -n "$ID" ] && rect "$ID")
-[ "$got" = "2990,680,420,260" ] && say "d. the old manual is not obeyed: the panel is in the default zone" ok \
+[ "$got" = "3420,820,420,260" ] && say "d. the old manual is not obeyed: the panel is in the default zone" ok \
     || say "d. the old manual is not obeyed: the panel is in the default zone" "FAIL (at ${got:-nowhere})"
 stop
 rows=$(zones "$D/wipemark.db")
