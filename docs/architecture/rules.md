@@ -171,7 +171,13 @@
   (`movableByWindowBackground`, and the `Resizable` bit `afloat` adds
   back), because a rectangle somebody dragged a window to is the most
   specific answer there is — that is `Answer::Manual`, and it beats a
-  cell. It is also the first window that **takes a drop**, which is its
+  cell. On macOS it **comes and goes on its own** (the owner, 2026-10-15,
+  F30, D735–D739): a non-activating panel that `afloat` puts in front with
+  `orderFrontRegardless` and makes key, never by activating the
+  application. So summoning it never brings back a minimised or closed
+  main window, and sending it away hands the keyboard back to the
+  application the person was in (`panel::summon`, the one road for the
+  shortcut, the tray and a second launch). It is also the first window that **takes a drop**, which is its
   own rule below, and since E7 it cleans what it took: under each listed
   thing a findings line — `clean::inspect_one`, the very read a clean
   makes, once per drop on the background executor (D278), and by the plan
