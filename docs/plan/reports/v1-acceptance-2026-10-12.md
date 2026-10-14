@@ -30,7 +30,7 @@ Every other finding goes to stage two (`v1-release.md` §4).
 | A4 — rewrite in the window | pass (owner, 2026-10-12) | `rewrite-ru.md` 3/3 (11.8 s load, 9 s), `long-en.md` 12/12 (12.4 s load, about 46 s), one truncated candidate rejected and replaced. **Pause works, and so does Clear finished** (owner). |
 | A5 — endpoint | partly (2026-10-13) | Ollama 0.40.3 on `127.0.0.1:11434`; after Provider → Ollama the Check and a rewrite ran, but the rewrite changed nothing (F20). F18 and F19 were found on the way. |
 | A6 — Compare | pass (owner, 2026-10-12) | The review works: scrolling together, saving, Reset and Undo. Open: soft wrap for very long lines on both panes — researched on `research/compare-soft-wrap` (owner's ask). |
-| A14 — macOS | in progress (owner, 2026-10-13) | See "macOS (A14)" below: `Wipemark.app` from `scripts/release/macos/bundle.sh` on an M3 Pro; A1's walk-through, A9, clean and Rewrite all in the window, the panel's drop into the one list pass; F21–F24 found, F21 and F22 fixed in the working tree. |
+| A14 — macOS | in progress (owner, 2026-10-13) | See "macOS (A14)" below: `Wipemark.app` from `scripts/release/macos/bundle.sh` on an M3 Pro; A1's walk-through, A9, clean and Rewrite all in the window, the panel's drop into the one list pass; F21–F24 found, F21 and F22 fixed (merged, `36d6220`). 2026-10-14: a new build from `d8ab57a`; Compare (A6, wrapped by default) passes. |
 
 ## macOS (A14), 2026-10-13
 
@@ -53,7 +53,7 @@ The build: `feat/e0-e6-shell` at `4292007` (E7-11 included), `cargo build --rele
 | A2/A3 — clean in the window | pass (log) | After F21: Clean all over ten things — Gemini, Grok blue, C2PA, the texts cleaned; Grok grey and the homoglyph `partly`; the photo nothing found, nothing written. |
 | A4 — Rewrite all | pass (log) | After F22: four texts, Gemma 4 12B on Metal loaded in 5.9 s, resident 6653 MB; `rewrite-en.md` 2/2 in 15 s, `rewrite-ru.md` 3/3 in 31 s. A second drop's texts got their own results (`name.rewritten-<row id>.ext`, D635); `marked.md` (31 bytes) kept its cleaned source, every candidate refused by a guard (`partly`). Unloaded after 15 idle minutes, as on demand says. |
 | A8 — panel | partly (log) | ⌘⌥D registered; ten things dropped on the panel are rows of the one list at once (`origin="panel"`, D690); the panel cleared itself after its quiet period (D691). Tray, close-and-Show, Quit: not yet. |
-| E7-11 — Compare | in progress (owner) | Wrap and spacer rows, first seen on this build. |
+| A6 / E7-11 — Compare | pass (owner, 2026-10-14) | On the build of `d8ab57a` (2026-10-14: Redo, F1/F7, F19/F20, D720, and `compare.wrap` on by default, D721), Compare opens wrapped and padded level: "Compare all OK, the paragraphs are right" — paired paragraphs start level, a paragraph with no partner stands against filler. Edit, Save, autosave, the gutters, scrolling together and Undo of Reset passed on Linux on 2026-10-12 (A6 above). |
 
 ## Fixed before the tag (2026-10-12)
 
