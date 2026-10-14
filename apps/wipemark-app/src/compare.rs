@@ -294,11 +294,11 @@ impl Default for Comparison {
     /// as they are typed, so closing a window never loses them (the
     /// owner, 2026-10-08) — and the line numbers facing each other
     /// across the middle, as side-by-side diff tools have them (the
-    /// owner, 2026-10-07). Long lines unwrapped: wrapped, every width
-    /// change rewraps both texts in the frame, measured at hundreds of
-    /// milliseconds for two hundred paragraphs (D677), so wrapping and
-    /// padding (the owner, 2026-10-12) is a row to turn on, until that
-    /// rewrap is cheaper.
+    /// owner, 2026-10-07). Long lines wrapped on both sides and padded
+    /// level, as IntelliJ's diff does (the owner, 2026-10-14, D721): every
+    /// width change still rewraps both texts in the frame, measured at
+    /// hundreds of milliseconds for two hundred paragraphs (D677), and the
+    /// Settings row turns it off for a reader of long documents.
     fn default() -> Self {
         Self {
             grain: Grain::Words,
@@ -306,7 +306,7 @@ impl Default for Comparison {
             sync_scroll: true,
             autosave: true,
             gutters: Gutters::Middle,
-            wrap: false,
+            wrap: true,
         }
     }
 }

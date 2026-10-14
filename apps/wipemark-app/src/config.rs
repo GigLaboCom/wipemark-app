@@ -333,8 +333,9 @@ pub const COMPARE_FOLLOW_KEY: &str = "compare.follow";
 pub const COMPARE_SYNC_SCROLL_KEY: &str = "compare.sync_scroll";
 
 /// Whether the Compare window wraps long lines on both sides, padded
-/// level (E7-11, D670): off unless it is turned on, until a resize of a
-/// wrapped window fits a frame (D677).
+/// level (E7-11, D670): on unless it is turned off (the owner, 2026-10-14,
+/// D721), though a resize of a wrapped window still costs more than a
+/// frame (D677).
 pub const COMPARE_WRAP_KEY: &str = "compare.wrap";
 
 /// Whether the Compare window saves an edited result a moment after
@@ -2640,11 +2641,12 @@ mod tests {
                 sync_scroll: true,
                 autosave: true,
                 gutters: Gutters::Middle,
-                wrap: false,
+                wrap: true,
             },
             "the Compare defaults moved; check what a fresh install now marks — \
              and that edits are still saved as they are typed (the owner, 2026-10-08); \
-             wrapping is off until a resize of a wrapped window fits a frame (D677)"
+             both panes wrap and stay level by default, as IntelliJ's diff does \
+             (the owner, 2026-10-14, D721)"
         );
 
         write_compare_grain(&store, Grain::Characters).expect("grain");
@@ -2652,7 +2654,7 @@ mod tests {
         write_compare_sync_scroll(&store, false).expect("sync scroll");
         write_compare_autosave(&store, false).expect("autosave");
         write_compare_gutters(&store, Gutters::Left).expect("gutters");
-        write_compare_wrap(&store, true).expect("wrap");
+        write_compare_wrap(&store, false).expect("wrap");
         drop(store);
         let store = Store::open(&path).expect("reopen");
         assert_eq!(
@@ -2663,7 +2665,7 @@ mod tests {
                 sync_scroll: false,
                 autosave: false,
                 gutters: Gutters::Left,
-                wrap: true,
+                wrap: false,
             }
         );
         // The row spells the grain by its id, not by a number or a

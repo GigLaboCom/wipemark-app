@@ -700,8 +700,8 @@
   public way to move an editor, and the focus it steals is handed back
   in the same update, before GPUI compares focus paths at the next
   frame. **Long lines wrap on both sides, padded level** (E7-11,
-  `compare.wrap`, read when a window opens, off by default until a resize
-  of a wrapped window fits a frame, D677; the result's toolbar button is
+  `compare.wrap`, read when a window opens, on by default (D721), a
+  resize of a wrapped window costing more than a frame (D677); the result's toolbar button is
   both sides', D670): the shorter side of every pair of
   lines — shared lines one for one, inside a changed passage the lines
   paired by their words (D679), a line with no partner standing against

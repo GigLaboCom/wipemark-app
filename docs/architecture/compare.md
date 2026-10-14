@@ -471,7 +471,8 @@ And for long lines (E7-11, "Long lines: both panes wrap, padded level"):
 - **D676** — pictures drawn with no display, by GPUI's headless renderer.
 - **D677** — `compare.wrap` off by default: a resize of a wrapped window
   costs 316 ms a frame for 200 paragraphs and 9 s for 8 MiB, the
-  library's rewrap; the remedy is upstream's.
+  library's rewrap; the remedy is upstream's. **Superseded as a default by
+  D721** (the owner, 2026-10-14): on by default; the measurement stands.
 - **D678** — between an edit and the next comparison the pairing is the
   last comparison's.
 
@@ -855,10 +856,12 @@ layout and paint of one resize frame: unwrapped under 1 ms for 200
 paragraphs and for 8 MiB alike; wrapped and padded, 316 ms (median) for
 200 paragraphs and 9.1 s for 8 MiB, the window's first frame 15 s. The
 padding's own share is 0.1 ms and 5 ms; the rest is the rewrap, about
-180 ms a pane for the 200 paragraphs. So the row is **off by default**
-until the rewrap is cheaper — through GPUI's `LineWrapper` for plain
-text, and off the paint path — and a person turns it on in Settings ›
-Compare or with the button.
+180 ms a pane for the 200 paragraphs. So the row was **off by default**
+(D677) until the owner put it on (2026-10-14, D721: the panes level, as
+IntelliJ's diff has them, are what a reader of a rewrite wants first); the
+remedy is still to make the rewrap cheaper — through GPUI's `LineWrapper` for plain
+text, and off the paint path — and a reader of a long document turns it
+off in Settings › Compare or with the button.
 
 ## Where the gutters sit (E7-10)
 
@@ -930,8 +933,8 @@ editors' construction and `apply_gutters`; nothing in `panes`, `render`,
 Settings › Compare is where the choices above are made —
 `compare.grain` (`lines`, `words` or `characters`; words by default),
 `compare.gutters` (`middle` or `left`; facing the middle by default —
-"Where the gutters sit"), `compare.wrap` (off by default until a resize
-of a wrapped window fits a frame, D677 — "Long lines"), `compare.follow`
+"Where the gutters sit"), `compare.wrap` (on by default, D721, though a
+resize of a wrapped window costs more than a frame, D677 — "Long lines"), `compare.follow`
 (on by default) and
 `compare.sync_scroll` (on by default, the owner, 2026-10-07) and
 `compare.autosave` (on by default, the owner, 2026-10-08; see "Saving an
