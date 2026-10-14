@@ -233,7 +233,9 @@ impl Queue {
                 .timestamp_millis_opt(record.arrived)
                 .single()
                 .unwrap_or_else(chrono::Local::now);
-            if entry.path.is_some() {
+            // A file recorded, or one its caller named (D729): either is
+            // looked at, and becomes what the row has behind it.
+            if entry.path.is_some() || entry.said_path.is_some() {
                 added.push((id, entry.clone()));
             }
             self.rows.push(Row {
@@ -276,11 +278,11 @@ impl Queue {
         cx.notify();
     }
 
-    /// Look at the file row `id`'s journal entry names — what it is now and
-    /// its preview — off this thread, as a task of its own (D356). A row
-    /// whose path is gone, or not a regular file, is a row with nothing
-    /// behind it; one whose look never answers stays so, and holds nothing
-    /// else up.
+    /// Look at the file row `id`'s journal entry names — the one recorded,
+    /// or the one its caller named (D729) — what it is now and its preview,
+    /// off this thread, as a task of its own (D356). A row whose path is
+    /// gone, or not a regular file, is a row with nothing behind it; one
+    /// whose look never answers stays so, and holds nothing else up.
     fn look_up(&mut self, id: u64, entry: Entry, cx: &Context<Self>) {
         if let Some(row) = self.rows.iter_mut().find(|row| row.id == id) {
             row.preview = Preview::Pending;

@@ -121,7 +121,9 @@ pub struct Call {
 pub struct Asker {
     pub origin: Origin,
     pub name: Option<String>,
-    /// The path `_meta` named — shown, never opened (D356).
+    /// The path `_meta` named: the row's `said_path`, shown and looked at
+    /// as a recorded path is (D729) — never a FIFO or a device (D356), and
+    /// nothing read from it goes back to the caller.
     pub path: Option<String>,
     pub size: Option<u64>,
 }
@@ -143,7 +145,8 @@ impl Asker {
         Entry {
             name: self.name.clone(),
             // A caller's word, not a file this application recorded: shown
-            // beside the row and never opened (D356).
+            // beside the row, and looked at by the table as a recorded file
+            // is (D729) — its head read only if it is a regular file (D356).
             said_path: self.path.clone(),
             kind: Some("text".to_owned()),
             size: self.size.or(Some(text.len() as u64)),

@@ -847,16 +847,29 @@ pub fn entry_of(arrival: &Arrival) -> Entry {
 }
 
 /// The thing a row names, read again from its file — what a row from an
-/// earlier session or another surface can still be cleaned or rewritten
-/// from. `None` when the row has no file behind it — and when its path is
-/// not a regular file (or a folder) any more: a FIFO with no writer, a
-/// terminal's `/dev/stdin`, a device, a socket. Opening one of those to
-/// read its head blocks for as long as nobody writes, and a read of the
-/// journal must never wait on a row (D356). A path a caller only named
-/// (`said_path`) is never looked at. Blocking: it reads the head of the
-/// file.
+/// earlier session or another surface can still be opened, compared,
+/// cleaned or rewritten from.
+///
+/// The file is the row's `path`, one this machine's own surfaces recorded,
+/// or else its `said_path`, the path a caller named in `_meta` (D729): a
+/// named path is looked at like any other, so a row the command line or an
+/// agent made behaves as a window's row whenever the same file is on disk.
+/// A named path that is not absolute names nothing here — it was the
+/// caller's, relative to a directory this side never knew.
+///
+/// `None` when the row names no file, and when its path is not a regular
+/// file (or a folder) any more: a FIFO with no writer, a terminal's
+/// `/dev/stdin`, a device, a socket. Opening one of those to read its head
+/// blocks for as long as nobody writes, and a read of the journal must
+/// never wait on a row (D356) — so `metadata` decides first, and nothing
+/// else is ever opened. Blocking: it reads the head of the file, and is
+/// called in a look-up task of its own, off the GPUI thread.
 pub fn arrival_of(entry: &Entry) -> Option<Arrival> {
-    let path = PathBuf::from(entry.path.as_ref()?);
+    let path = match (&entry.path, &entry.said_path) {
+        (Some(recorded), _) => PathBuf::from(recorded),
+        (None, Some(named)) => Some(PathBuf::from(named)).filter(|path| path.is_absolute())?,
+        (None, None) => return None,
+    };
     // `metadata` follows a link: a link to a regular file is the file.
     let meta = std::fs::metadata(&path).ok()?;
     if !(meta.is_file() || meta.is_dir()) {
@@ -1211,6 +1224,92 @@ mod tests {
             assert_eq!(kind_of(Some(kind_id(kind))), kind);
         }
         assert_eq!(kind_of(None), Kind::Unknown);
+    }
+
+    /// `arrival_of` on a thread of its own, waited for at most five seconds:
+    /// a check that opened a FIFO would wait for a writer for ever, and the
+    /// test says so rather than hang the suite.
+    fn arrival_in_time(entry: Entry) -> Option<Option<Handed>> {
+        let (answer, answered) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = answer.send(arrival_of(&entry).map(|arrival| arrival.handed));
+        });
+        answered
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .ok()
+    }
+
+    /// D729: a row's file is its recorded `path`, else the path its caller
+    /// named — `said_path`, which is all a row of the command line or of an
+    /// agent has — looked at like a recorded one. A regular file named is
+    /// an `Arrival` handed as that path; a recorded path wins over a named
+    /// one; a named path that is not absolute is nothing. And D356 holds
+    /// for a named path exactly: a FIFO with no writer, `/dev/stdin` and a
+    /// device are nothing behind the row, answered at once. Read
+    /// `entry.path` alone, as before, and the named file is no arrival:
+    /// red. Take the `metadata` check out and the FIFO and the devices are
+    /// files behind their rows — or, should intake ever read their heads,
+    /// never answer: red either way, in five seconds at most.
+    #[test]
+    fn a_named_path_is_looked_at_like_a_recorded_one() {
+        let scratch = std::env::temp_dir().join(format!("wipemark-d729-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch");
+        let named = scratch.join("a10-rewrite.md");
+        let recorded = scratch.join("recorded.md");
+        for path in [&named, &recorded] {
+            std::fs::write(path, "A note.\n").expect("a file");
+        }
+        let said = |path: &std::path::Path| Entry {
+            said_path: Some(path.to_string_lossy().into_owned()),
+            ..Entry::default()
+        };
+
+        assert_eq!(
+            arrival_in_time(said(&named)),
+            Some(Some(Handed::Path(named.clone()))),
+            "a file the command line named is nothing behind its row"
+        );
+        let both = Entry {
+            path: Some(recorded.to_string_lossy().into_owned()),
+            ..said(&named)
+        };
+        assert_eq!(
+            arrival_in_time(both),
+            Some(Some(Handed::Path(recorded.clone()))),
+            "a named path won over the recorded one"
+        );
+        // `Cargo.toml` is a file in the directory the suite runs in: a
+        // relative name the caller meant in its own is never looked for
+        // in this one.
+        assert_eq!(
+            arrival_in_time(said(std::path::Path::new("Cargo.toml"))),
+            Some(None),
+            "a relative name was looked for in the application's own directory"
+        );
+
+        #[cfg(unix)]
+        {
+            let fifo = scratch.join("pipe");
+            let made = std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .expect("mkfifo runs");
+            assert!(made.success());
+            for nothing in [
+                fifo.as_path(),
+                std::path::Path::new("/dev/stdin"),
+                std::path::Path::new("/dev/null"),
+            ] {
+                assert_eq!(
+                    arrival_in_time(said(nothing)),
+                    Some(None),
+                    "{} is a file behind the row, or was opened to find out",
+                    nothing.display()
+                );
+            }
+        }
+        std::fs::remove_dir_all(&scratch).ok();
     }
 
     /// A row never carries the document: what a pasted text says is not in

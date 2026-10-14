@@ -51,7 +51,7 @@ pub(super) fn swapping() -> FakeEngine {
 
 /// A batch queue and a journal over `store`, the engine on duty `engine`,
 /// and the bookkeeper the application starts.
-fn work_over(store: Arc<Store>, engine: Option<FakeEngine>) -> Work {
+pub(super) fn work_over(store: Arc<Store>, engine: Option<FakeEngine>) -> Work {
     let handle = match engine {
         Some(engine) => {
             EngineHandle::serving(

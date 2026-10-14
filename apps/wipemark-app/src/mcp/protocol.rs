@@ -3391,9 +3391,13 @@ pub(crate) mod tests {
         assert!(work.queue.asking().is_none());
     }
 
-    /// never a file behind the row the window would open.
+    /// D356, as D729 leaves it: a path `_meta` names is the row's
+    /// `said_path`, never its `path`, and the table looks at it as it looks
+    /// at a recorded one — so `/dev/stdin`, a terminal or a pipe, never a
+    /// regular file while the suite runs, is nothing behind the row, and is
+    /// never opened to find out.
     #[test]
-    fn a_meta_path_is_said_and_never_a_file_behind_the_row() {
+    fn a_meta_path_is_said_and_a_terminal_is_no_file_behind_the_row() {
         let (services, work) = working(FakeEngine::answering(|req, _| swapped(req)));
         call_with(
             &services,

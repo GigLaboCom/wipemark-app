@@ -148,11 +148,15 @@ pub struct Entry {
     /// one, D266).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
-    /// A path a caller **named** — an MCP client's `_meta["wipemark/path"]`
-    /// — and nothing more: shown beside the row, never opened, never read
-    /// to clean or rewrite the row again (D356). Whoever can reach the
-    /// server can put any string here; only a path this machine's own
-    /// surfaces recorded is a file behind a row.
+    /// A path a caller **named** — an MCP client's `_meta["wipemark/path"]`,
+    /// the command line's own file when the application runs its rewrite —
+    /// rather than one this machine's own surfaces recorded. Shown beside
+    /// the row, and looked at like `path` when the row is read back
+    /// (D729): an absolute path to a regular file (or a folder) is the file
+    /// behind the row, its head read off the GPUI thread and nothing ever
+    /// opened that is not one — a FIFO, a terminal, a device (D356). The
+    /// file is opened, cleaned or rewritten again only when the person asks
+    /// from the row, and nothing read from it goes back to whoever named it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub said_path: Option<String>,
     /// What it is, by intake's word: `text`, `image`, … A format.

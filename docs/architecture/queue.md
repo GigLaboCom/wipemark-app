@@ -608,9 +608,21 @@ own number stays the element id (two id spaces). A row says who asked
   task of its own, so a file that will not answer holds nothing else up
   and the read always ends. A path that is not a regular file or a folder
   — a FIFO, a terminal's `/dev/stdin`, a device — is never opened: the row
-  has nothing behind it. The command line records such a path as no file,
-  and a path an MCP client names in `_meta` is the row's `said_path`,
-  shown and never opened.
+  has nothing behind it. The command line records such a path as no file.
+* **A named path is looked at like any other** (D729, the owner's row 36
+  at the macOS acceptance, 2026-10-14: "the behaviour must not break the
+  UI depending on where a thing came from"). A path an MCP client names in
+  `_meta` — the command line's own file, when the application runs its
+  rewrite — is the row's `said_path`, and `journal::arrival_of` takes it
+  when the row recorded no `path`, under D356's rule exactly: `metadata`
+  first, a regular file or a folder only, an absolute path only, its head
+  read in the look-up's own task. So a row of the command line or of an
+  agent has its file behind it whenever the file is on disk, and is a
+  window's row from there on. It is safe because nothing goes the other
+  way: the head is read on this side and sent to nobody; Open, Compare,
+  Clean again and Rewrite again open the file only when the person clicks;
+  and a file changed since the call is a window row's file changed since
+  its drop.
 * **It survives a restart** (В3). At launch (D317) a window clean left
   mid-way waits again — or, with no file behind it, goes, its text never
   having been kept — an agent's or the command line's rewrite still queued

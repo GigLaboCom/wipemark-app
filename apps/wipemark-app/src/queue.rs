@@ -753,8 +753,8 @@ impl Look {
 
     fn of_entry(entry: &Entry) -> Self {
         let kind = journal::kind_of(entry.kind.as_deref());
-        // A path a caller named is shown as a file's would be (D356); it
-        // is only never opened.
+        // A path a caller named is shown as a recorded one is — and looked
+        // at like one too (D729).
         let path = entry
             .path
             .as_deref()
@@ -1949,6 +1949,8 @@ fn holds(row: &Row, work: Option<&Work>, action: Action, home: &Home) -> bool {
 }
 
 #[cfg(test)]
+mod origin_tests;
+#[cfg(test)]
 mod redo_tests;
 #[cfg(test)]
 mod rewrite_tests;
@@ -2886,6 +2888,19 @@ impl Queue {
         self.preferences.read(cx).comparison()
     }
 
+    /// Whether `row`'s Compare opens — the item and the double click alike:
+    /// a rewrite's result to put beside its original, or a text behind the
+    /// row. A row of the command line or of an agent has its text behind it
+    /// once its named file is looked at (D729), and opens as a window row
+    /// with the same things on disk does (D733).
+    fn comparable(&self, row: &Row) -> bool {
+        self.made_for(row).is_some()
+            || row
+                .arrival
+                .as_ref()
+                .is_some_and(|arrival| Subject::comparable(&arrival.intake))
+    }
+
     /// What the Compare window is opened on for row `id`, if the row
     /// is still here: the thing as it arrived and what it was
     /// established to be, so the window need not examine it again.
@@ -3038,11 +3053,7 @@ impl Queue {
             (None, None, None) => Vec::new(),
         };
 
-        let comparable = self.made_for(row).is_some()
-            || row
-                .arrival
-                .as_ref()
-                .is_some_and(|arrival| Subject::comparable(&arrival.intake));
+        let comparable = self.comparable(row);
         let open = comparable.then(|| {
             let id = row.id;
             let queue = cx.entity();
