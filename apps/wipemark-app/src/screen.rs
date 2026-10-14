@@ -290,7 +290,13 @@ pub fn frame_of(window: &Window) -> Bounds<Pixels> {
 /// X11 an absolute move of the frame's corner, which is what the window
 /// manager is asked for (`_NET_MOVERESIZE_WINDOW`, D613). Elsewhere —
 /// Wayland — nothing, and `false`.
-pub fn put(window: &mut Window, from: Bounds<Pixels>, to: Bounds<Pixels>, resize: bool) -> bool {
+pub fn put(
+    window: &mut Window,
+    cx: &App,
+    from: Bounds<Pixels>,
+    to: Bounds<Pixels>,
+    resize: bool,
+) -> bool {
     #[cfg(target_os = "linux")]
     if let (Some(x11), Some(xid)) = (crate::x11::get(), crate::x11::xid(window)) {
         let scale = window.scale_factor();
@@ -313,6 +319,7 @@ pub fn put(window: &mut Window, from: Bounds<Pixels>, to: Bounds<Pixels>, resize
     }
     translate(
         window,
+        cx,
         point(to.origin.x - from.origin.x, to.origin.y - from.origin.y),
     )
 }
@@ -488,31 +495,59 @@ pub fn native_view(window: &Window) -> Option<objc2::rc::Retained<objc2_app_kit:
 /// display whose card was clicked. Everything else lands the next time
 /// the window opens.
 ///
-/// Returns whether the window actually moved, for the caller's log line.
+/// The move itself lands a moment later, through [`later`]: every caller
+/// is inside a GPUI update, and AppKit answers a frame change on the spot.
+///
+/// Returns whether the window will move, for the caller's log line.
 #[cfg(target_os = "macos")]
-pub fn translate(window: &Window, delta: Point<Pixels>) -> bool {
+pub fn translate(window: &Window, cx: &App, delta: Point<Pixels>) -> bool {
     use objc2_foundation::NSPoint;
 
     if delta.x == Pixels::ZERO && delta.y == Pixels::ZERO {
         return true;
     }
 
+    later(window, cx, move |native| {
+        let frame = native.frame();
+        native.setFrameOrigin(NSPoint::new(
+            frame.origin.x + f64::from(delta.x.as_f32()),
+            // Up is positive in AppKit and down is positive in GPUI, so the
+            // one thing this function does is negate this line.
+            frame.origin.y - f64::from(delta.y.as_f32()),
+        ));
+    })
+}
+
+/// Do `apply` to `window`'s `NSWindow` on the main thread **once the GPUI
+/// update in progress has returned** (acceptance F24, D728).
+///
+/// A style mask, a level or a frame set on an `NSWindow` is answered by
+/// AppKit at once, from inside the call — `windowDidResize:`,
+/// `windowDidMove:` — and GPUI's delegate hands that answer to the
+/// application. Called from inside a `WindowHandle::update` or a window's
+/// builder, the application is borrowed, the answer cannot be delivered,
+/// and GPUI logs `RefCell already borrowed` with no target and drops it —
+/// what the owner's log showed each time the panel was summoned. A task
+/// on the foreground executor runs after the update returns, with nothing
+/// borrowed, so AppKit's answer reaches GPUI like a person's move would.
+/// `false` when the window has no `NSWindow` — a test's.
+#[cfg(target_os = "macos")]
+pub fn later(
+    window: &Window,
+    cx: &App,
+    apply: impl FnOnce(&objc2_app_kit::NSWindow) + 'static,
+) -> bool {
     let Some(native) = native(window) else {
         return false;
     };
-
-    let frame = native.frame();
-    native.setFrameOrigin(NSPoint::new(
-        frame.origin.x + f64::from(delta.x.as_f32()),
-        // Up is positive in AppKit and down is positive in GPUI, so the
-        // one thing this function does is negate this line.
-        frame.origin.y - f64::from(delta.y.as_f32()),
-    ));
+    cx.foreground_executor()
+        .spawn(async move { apply(&native) })
+        .detach();
     true
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn translate(_window: &Window, _delta: Point<Pixels>) -> bool {
+pub fn translate(_window: &Window, _cx: &App, _delta: Point<Pixels>) -> bool {
     // Under X11 a window is moved by [`put`], absolutely, through the
     // window manager; under Wayland it cannot be moved at all, and
     // Windows has no build yet. "Not moved" is the honest answer here.

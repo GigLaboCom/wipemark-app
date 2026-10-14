@@ -361,31 +361,34 @@ pub fn show(preferences: &Entity<Preferences>, cx: &mut App) {
 /// A no-op off macOS, where a window that is merely ordinary is still a
 /// window. E10.
 #[cfg(target_os = "macos")]
-fn afloat(window: &Window) {
+fn afloat(window: &Window, cx: &App) {
     use objc2_app_kit::{NSFloatingWindowLevel, NSWindowCollectionBehavior, NSWindowStyleMask};
 
-    let Some(native) = screen::native(window) else {
+    // After the window's builder returns (F24, D728): the style mask is a
+    // frame change AppKit answers at once, and from inside the builder the
+    // application is borrowed and the answer is dropped.
+    let applied = screen::later(window, cx, |native| {
+        native.setLevel(NSFloatingWindowLevel);
+        native.setHidesOnDeactivate(false);
+        native.setCollectionBehavior(
+            native.collectionBehavior()
+                | NSWindowCollectionBehavior::CanJoinAllSpaces
+                | NSWindowCollectionBehavior::FullScreenAuxiliary,
+        );
+        native.setStyleMask(
+            NSWindowStyleMask::Borderless
+                | NSWindowStyleMask::Resizable
+                | NSWindowStyleMask::FullSizeContentView,
+        );
+        native.setMovableByWindowBackground(true);
+    });
+    if !applied {
         tracing::warn!("the panel could not be made a floating window");
-        return;
-    };
-
-    native.setLevel(NSFloatingWindowLevel);
-    native.setHidesOnDeactivate(false);
-    native.setCollectionBehavior(
-        native.collectionBehavior()
-            | NSWindowCollectionBehavior::CanJoinAllSpaces
-            | NSWindowCollectionBehavior::FullScreenAuxiliary,
-    );
-    native.setStyleMask(
-        NSWindowStyleMask::Borderless
-            | NSWindowStyleMask::Resizable
-            | NSWindowStyleMask::FullSizeContentView,
-    );
-    native.setMovableByWindowBackground(true);
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
-fn afloat(_window: &Window) {
+fn afloat(_window: &Window, _cx: &App) {
     // Under X11 the same three things — above other windows, on every
     // workspace, where the zone says — are asked of the window manager
     // once it has taken the window over, which is after this returns:
@@ -499,7 +502,7 @@ pub fn follow(preferences: &Entity<Preferences>, now: &Screen, cx: &mut App) {
         held.update(cx, |preferences, _| {
             preferences.we_placed_it(Some(wanted));
         });
-        (wanted, screen::put(window, frame, wanted, false))
+        (wanted, screen::put(window, cx, frame, wanted, false))
     });
     match moved {
         Ok((wanted, true)) => tracing::info!(?wanted, "the panel followed its display"),
@@ -685,7 +688,7 @@ fn something_found(found: &Findings) -> bool {
 
 impl PanelView {
     fn new(preferences: Entity<Preferences>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        afloat(window);
+        afloat(window, cx);
 
         // The drop zone, and the AppKit destination behind it. Both
         // belong here rather than in `show`: a window that is not built

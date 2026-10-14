@@ -8141,7 +8141,7 @@ impl SettingsView {
                 preferences.we_placed_it(Some(wanted));
             });
 
-            screen::put(window, frame, wanted, size.is_some())
+            screen::put(window, cx, frame, wanted, size.is_some())
         });
 
         if !matches!(moved, Ok(true)) {
