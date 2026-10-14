@@ -41,6 +41,14 @@
 //! the application it belongs to is not in front. [`afloat`] is where
 //! those three live, and each is a call GPUI does not expose.
 //!
+//! And it comes and goes **on its own** (D735–D739). On macOS it is a
+//! non-activating panel that stays on screen while its application is
+//! hidden, and it is put in front with the keyboard without bringing the
+//! application forward: a minimised main window stays minimised, a main
+//! window closed to the tray stays hidden, and when the panel goes, the
+//! keyboard goes back to the application that had it (the owner,
+//! 2026-10-15, F30).
+//!
 //! # What it contains
 //!
 //! The middle of the panel is a **drop zone**: text, an image or files,
@@ -110,6 +118,7 @@ use crate::queue::{Queue, Standing, Table};
 use crate::retention::Plan;
 use crate::screen::{self, Screen};
 use crate::settings::Preferences;
+use crate::tray::Platform;
 use crate::wording::{self, would_happen, Badge, Tone};
 
 actions!(wipemark, [ClosePanel]);
@@ -220,6 +229,60 @@ pub fn toggle(preferences: &Entity<Preferences>, cx: &mut App) {
     show(preferences, cx);
 }
 
+/// [`toggle`], from the system-wide shortcut, the menu-bar item or a
+/// second launch: the application brought forward first only where the
+/// panel needs that to take the keyboard ([`summon_activates`], D736).
+pub fn summon(preferences: &Entity<Preferences>, cx: &mut App) {
+    if summon_activates(Platform::THIS) {
+        cx.activate(true);
+    }
+    toggle(preferences, cx);
+}
+
+/// What kind of window the panel is on `platform` (D735).
+///
+/// On macOS a **non-activating panel** — GPUI's [`WindowKind::PopUp`],
+/// an `NSPanel` with `NonactivatingPanel` in its style mask, which
+/// [`afloat`] keeps. Such a window takes the keyboard without bringing
+/// its application forward: summoning it leaves a minimised main
+/// window minimised, a hidden application hidden, and the application
+/// the person was in still in front, and sending it away hands the
+/// keyboard back to that application (the owner, 2026-10-15, F30). An
+/// ordinary window could have the keyboard only by activating the
+/// application, and activating it unhid the main window and raised it.
+/// Elsewhere an ordinary window, as before.
+pub(crate) fn kind_on(platform: Platform) -> WindowKind {
+    match platform {
+        Platform::MacOs => WindowKind::PopUp,
+        Platform::Linux | Platform::Other => WindowKind::Normal,
+    }
+}
+
+/// Whether summoning the panel brings the application forward first
+/// (D736): not on macOS, where the panel is a non-activating panel
+/// ([`kind_on`]) and activating the application is what brought a
+/// hidden or minimised main window back with it; elsewhere, as before.
+pub(crate) fn summon_activates(platform: Platform) -> bool {
+    match platform {
+        Platform::MacOs => false,
+        Platform::Linux | Platform::Other => true,
+    }
+}
+
+/// Whether the panel opens unshown and unfocused, and [`afloat`] puts it
+/// in front and gives it the keyboard (D738): on macOS, where GPUI's own
+/// `orderFront:` — any window ordered in while the application is hidden
+/// — unhid the application, and the main window closed to the tray with
+/// it, before [`afloat`] could say the panel stays when its application
+/// hides; and its `makeKeyAndOrderFront:` made the panel key before
+/// [`never_main`] had run. Elsewhere GPUI shows it, as before.
+pub(crate) fn raised_by_afloat(platform: Platform) -> bool {
+    match platform {
+        Platform::MacOs => true,
+        Platform::Linux | Platform::Other => false,
+    }
+}
+
 /// The panel's options: at `bounds` on `display`, and no titlebar.
 pub(crate) fn window_options(
     bounds: Bounds<Pixels>,
@@ -230,7 +293,11 @@ pub(crate) fn window_options(
         // The window list still wants a name for it, and the
         // accessibility tree wants one more.
         titlebar: None,
-        kind: WindowKind::Normal,
+        kind: kind_on(Platform::THIS),
+        // Not shown and not focused by GPUI where [`afloat`] puts it in
+        // front and gives it the keyboard itself (D738).
+        focus: !raised_by_afloat(Platform::THIS),
+        show: !raised_by_afloat(Platform::THIS),
         // Movable and resizable *by hand*, which is the second
         // half of the placement: where the Placement page's grid
         // puts it is an answer, and dragging it somewhere else is a
@@ -260,7 +327,7 @@ pub fn show(preferences: &Entity<Preferences>, cx: &mut App) {
     if let Some(open) = cx.try_global::<Opened>() {
         let handle = open.0;
         if cx.windows().contains(&handle) {
-            if let Err(error) = handle.update(cx, |_, window, _| window.activate_window()) {
+            if let Err(error) = handle.update(cx, |_, window, cx| raise(window, cx)) {
                 tracing::warn!(%error, "could not bring the panel forward");
             }
             return;
@@ -315,7 +382,11 @@ pub fn show(preferences: &Entity<Preferences>, cx: &mut App) {
             if let Some(screen) = screen {
                 placed_by_the_window_manager(handle, screen, bounds, preferences.clone(), cx);
             }
-            cx.activate(true);
+            // On macOS [`afloat`] puts it in front and gives it the
+            // keyboard without this (D736, D738).
+            if summon_activates(Platform::THIS) {
+                cx.activate(true);
+            }
         }
         Err(error) => {
             // Nothing is going to report that rectangle now, and a
@@ -332,8 +403,8 @@ pub fn show(preferences: &Entity<Preferences>, cx: &mut App) {
 /// Make the panel float over everything, stay where it is when the
 /// application is not in front, and be movable and resizable by hand.
 ///
-/// Five calls AppKit has and GPUI does not expose, and each one is here
-/// for a reason a summoned window has:
+/// Calls AppKit has and GPUI does not expose, and each one is here for a
+/// reason a summoned window has:
 ///
 /// * **Level.** `NSFloatingWindowLevel` is what "topmost" means: above
 ///   every ordinary window, including other applications'. A panel you
@@ -357,17 +428,34 @@ pub fn show(preferences: &Entity<Preferences>, cx: &mut App) {
 /// * **`movableByWindowBackground`.** With no titlebar there is nothing
 ///   to drag the window *by*. This makes the whole panel its own handle,
 ///   which is what every titleless panel on this desktop does.
+/// * **`canHide: false`** (D737), first. The close button hides the
+///   *application* while there is a tray (D343), and the panel is
+///   summoned into exactly that state: it stays on screen while its
+///   application is hidden, and a summon no longer unhides the
+///   application — which is what brought the main window back with it.
+/// * **Never the main window** ([`never_main`], D739).
+/// * **In front, with the keyboard, the application left where it is**
+///   (D738): `orderFrontRegardless` and `makeKeyWindow`, never
+///   `activateIgnoringOtherApps` — GPUI opened it unshown and unfocused
+///   ([`raised_by_afloat`]). A non-activating panel ([`kind_on`]) can be
+///   key while another application is active, so Escape, a paste and the
+///   drop reach it; and when it goes, the keyboard goes back to that
+///   application, not to the main window.
 ///
 /// A no-op off macOS, where a window that is merely ordinary is still a
 /// window. E10.
 #[cfg(target_os = "macos")]
 fn afloat(window: &Window, cx: &App) {
-    use objc2_app_kit::{NSFloatingWindowLevel, NSWindowCollectionBehavior, NSWindowStyleMask};
+    use objc2_app_kit::{NSFloatingWindowLevel, NSWindowCollectionBehavior};
 
     // After the window's builder returns (F24, D728): the style mask is a
     // frame change AppKit answers at once, and from inside the builder the
     // application is borrowed and the answer is dropped.
     let applied = screen::later(window, cx, |native| {
+        native.setCanHide(false);
+        if !never_main(native) {
+            tracing::warn!("the panel could not be kept from becoming the main window");
+        }
         native.setLevel(NSFloatingWindowLevel);
         native.setHidesOnDeactivate(false);
         native.setCollectionBehavior(
@@ -375,16 +463,118 @@ fn afloat(window: &Window, cx: &App) {
                 | NSWindowCollectionBehavior::CanJoinAllSpaces
                 | NSWindowCollectionBehavior::FullScreenAuxiliary,
         );
-        native.setStyleMask(
-            NSWindowStyleMask::Borderless
-                | NSWindowStyleMask::Resizable
-                | NSWindowStyleMask::FullSizeContentView,
-        );
+        native.setStyleMask(style_mask());
         native.setMovableByWindowBackground(true);
+        native.orderFrontRegardless();
+        native.makeKeyWindow();
     });
     if !applied {
         tracing::warn!("the panel could not be made a floating window");
     }
+}
+
+/// Bring the panel that is already open forward, with the keyboard: on
+/// macOS the way [`afloat`] first did, without activating the application
+/// (D738) — GPUI's `activate_window` is `makeKeyAndOrderFront:`, which
+/// unhides a hidden application; elsewhere `activate_window`, as before.
+fn raise(window: &Window, cx: &App) {
+    #[cfg(target_os = "macos")]
+    if !screen::later(window, cx, |native| {
+        native.orderFrontRegardless();
+        native.makeKeyWindow();
+    }) {
+        tracing::warn!("the panel could not be brought forward");
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = cx;
+        window.activate_window();
+    }
+}
+
+/// Keep the panel from ever becoming the **main** window: key, and never
+/// main (D739). `false`, and nothing changed, when the window is not of
+/// the class GPUI builds a pop-up from, or that class does not answer the
+/// question itself.
+///
+/// GPUI's panel class, `GPUIPanel`, answers yes to `canBecomeMainWindow`
+/// as its window class does, where AppKit's own `NSPanel` — and the
+/// non-activating panel of the owner's lazy-shot, the recipe measured
+/// there on macOS 26.7 — answers no: a panel is key for its keystrokes
+/// and leaves "main" to the application's document window. Made main,
+/// the panel takes that role from the main window, and on macOS 26 the
+/// one run without this change (F30's script) gave the keyboard to a
+/// third application when the panel went and lost an Escape meant for
+/// it; with it, every step came and went with the person's application
+/// in front. `NSApplication.isActive` reads true while the panel is key
+/// either way — AppKit's own state; the application does not come in
+/// front, and a hidden one stays hidden.
+///
+/// So that one answer of `GPUIPanel`'s is changed to no, once, on the
+/// class: in this application the panel is the only window of that class
+/// (the only [`WindowKind::PopUp`], and nothing opens a `Floating` or
+/// `Dialog` one), and a pop-up that is never the main window is what the
+/// kind is for. Not by moving the window to a subclass, as lazy-shot does
+/// for its overlay: AppKit's title bar view observes the window with
+/// key-value observing, and an object whose class changes under an
+/// observer throws `NSRangeException` when the observer leaves — which is
+/// what the first try here did, at the style mask in [`afloat`]. The
+/// panel is opened unfocused ([`raised_by_afloat`]) so that GPUI's
+/// `makeKeyAndOrderFront:` never runs before this has.
+#[cfg(target_os = "macos")]
+fn never_main(native: &objc2_app_kit::NSWindow) -> bool {
+    use std::sync::OnceLock;
+
+    use objc2::runtime::{AnyClass, AnyObject, Bool, Imp, NSObjectProtocol as _, Sel};
+    use objc2::sel;
+
+    extern "C-unwind" fn no(_: &AnyObject, _: Sel) -> Bool {
+        Bool::NO
+    }
+
+    static CHANGED: OnceLock<bool> = OnceLock::new();
+    let Some(panel) = AnyClass::get(c"GPUIPanel") else {
+        return false;
+    };
+    if !native.isKindOfClass(panel) {
+        return false;
+    }
+    *CHANGED.get_or_init(|| {
+        // The class's own method, never one it inherits: changing
+        // `NSWindow`'s would change every window of the application.
+        let methods = panel.instance_methods();
+        let Some(own) = methods
+            .iter()
+            .find(|method| method.name() == sel!(canBecomeMainWindow))
+        else {
+            return false;
+        };
+        let no: extern "C-unwind" fn(&AnyObject, Sel) -> Bool = no;
+        // SAFETY: `no` has the method's signature — the receiver, the
+        // selector, a BOOL back — and `Imp` is how the runtime holds any
+        // implementation. This runs once, on the main thread.
+        unsafe {
+            own.set_implementation(std::mem::transmute::<
+                extern "C-unwind" fn(&AnyObject, Sel) -> Bool,
+                Imp,
+            >(no));
+        }
+        true
+    })
+}
+
+/// The panel's style mask on macOS, which [`afloat`] puts in place of
+/// the one GPUI builds: no `Titled` (no zoom), `Resizable`, and
+/// `NonactivatingPanel` kept from [`WindowKind::PopUp`] — replaced
+/// without it, the panel would activate the application again the
+/// moment it took the keyboard (D735).
+#[cfg(target_os = "macos")]
+fn style_mask() -> objc2_app_kit::NSWindowStyleMask {
+    use objc2_app_kit::NSWindowStyleMask;
+    NSWindowStyleMask::Borderless
+        | NSWindowStyleMask::Resizable
+        | NSWindowStyleMask::FullSizeContentView
+        | NSWindowStyleMask::NonactivatingPanel
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -1575,6 +1765,62 @@ mod tests {
                 "A folder is not cleaned as one thing; drop the files in it instead.",
             ),
         ]
+    }
+
+    /// D735: on macOS the panel is a non-activating panel — the kind that
+    /// takes the keyboard without bringing its application, and so a
+    /// minimised or hidden main window, forward — and the options it
+    /// opens with say so; elsewhere an ordinary window, as before. An
+    /// ordinary window on macOS is F30 again: red.
+    #[test]
+    fn the_panel_comes_without_its_application_on_macos() {
+        assert_eq!(kind_on(Platform::MacOs), WindowKind::PopUp);
+        assert_eq!(kind_on(Platform::Linux), WindowKind::Normal);
+        assert_eq!(kind_on(Platform::Other), WindowKind::Normal);
+        assert_eq!(
+            window_options(Bounds::default(), None).kind,
+            kind_on(Platform::THIS)
+        );
+    }
+
+    /// D738: on macOS GPUI opens the panel unshown and unfocused, and
+    /// `afloat` puts it in front itself once it may stay while its
+    /// application is hidden. Shown by GPUI there, an `orderFront:` into
+    /// a hidden application unhides it, and the main window closed to the
+    /// tray comes back with the panel (F30): red. Elsewhere GPUI shows and
+    /// focuses it, as before.
+    #[test]
+    fn on_macos_the_panel_is_put_in_front_by_afloat_and_not_by_gpui() {
+        assert!(raised_by_afloat(Platform::MacOs));
+        assert!(!raised_by_afloat(Platform::Linux));
+        assert!(!raised_by_afloat(Platform::Other));
+        let options = window_options(Bounds::default(), None);
+        assert_eq!(options.show, !raised_by_afloat(Platform::THIS));
+        assert_eq!(options.focus, !raised_by_afloat(Platform::THIS));
+    }
+
+    /// D736: a summon brings the application forward first only off
+    /// macOS. Activated there, a hidden application unhides and its main
+    /// window comes back with the panel (F30): red.
+    #[test]
+    fn a_summon_brings_the_application_forward_only_off_macos() {
+        assert!(!summon_activates(Platform::MacOs));
+        assert!(summon_activates(Platform::Linux));
+        assert!(summon_activates(Platform::Other));
+    }
+
+    /// D735: the style mask [`afloat`] puts in place keeps the
+    /// non-activating bit GPUI's pop-up kind built the panel with, and
+    /// still has no title (no zoom, D660). Without the bit the panel
+    /// activates its application the moment it takes the keyboard: red.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_panels_mask_keeps_it_non_activating() {
+        use objc2_app_kit::NSWindowStyleMask;
+        let mask = style_mask();
+        assert!(mask.contains(NSWindowStyleMask::NonactivatingPanel));
+        assert!(mask.contains(NSWindowStyleMask::Resizable));
+        assert!(!mask.contains(NSWindowStyleMask::Titled));
     }
 
     /// The findings line, case by case — and "Looking…" until the look
