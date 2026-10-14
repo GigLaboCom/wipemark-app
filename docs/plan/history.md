@@ -189,7 +189,21 @@ result, an edited result asked about first
   on disk, never on where the row came from — a path the command line or
   an agent named is looked at like a recorded one, a redo from the table
   is the person's, every greyed item says why, and one file down every road
-  gets one menu (`docs/plan/reports/row-any-origin-2026-10-14.md`).
+  gets one menu (`docs/plan/reports/row-any-origin-2026-10-14.md`);
+- `fix/clean-after-not-rewritten-race`, from CI's macOS lane (gate run
+  38630126228, a timeout in
+  `a_row_whose_rewrite_rewrote_nothing_is_cleaned_by_its_clean`). It fixes
+  two races at the moment a row says *Not rewritten* and the person presses
+  Clean (D720):
+  - a rewrite's end written late now lands only while the journal row
+    still names its item (`Journal::update_item`; `update_open` checks the
+    same);
+  - a journal read from before a clean of this session no longer undoes
+    it (`refreshed`).
+
+  Red first, each guard deleted once:
+  `a_rewrites_end_written_late_never_lands_on_the_rows_next_action`, then
+  `a_clean_that_ended_is_not_undone_by_a_read_from_before_it`.
 **E4-9, template profiles** (D510–D516) is merged (2026-10-10): Keep voice
 choosable, the shipped templates unchanged. The next free decision block is
 **D531** (D490–D502 and D520–D530 are E12-R's, D503–D504 the draft's; D540–D549
