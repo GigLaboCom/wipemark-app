@@ -941,6 +941,75 @@ fn the_bookkeeper_writes_a_window_rewrites_end() {
     let _ = Source::Text(String::new());
 }
 
+/// The bookkeeper is a thread of its own: it reads the item's row, then
+/// writes the end into it. A Clean pressed on the row the moment the table
+/// says *Not rewritten* (D720) can land between the two — the window's
+/// writer changes the row to the clean, naming no item — and the end must
+/// not then write the rewrite back over it: the row says the clean, for
+/// good. The gap is opened here by `consented`, which `book` asks between
+/// its read and its write. Write the end whatever the row names now and the
+/// row says the rewrite again, over a clean that ran: red. CI caught it as
+/// `a_row_whose_rewrite_rewrote_nothing_is_cleaned_by_its_clean` timing out
+/// (gate run 38630126228, macOS, 2026-10-14).
+#[test]
+fn a_rewrites_end_written_late_never_lands_on_the_rows_next_action() {
+    let store = Arc::new(Store::in_memory().expect("memory"));
+    let journal = Journal::new(Arc::clone(&store));
+    let id = journal
+        .record(&wipemark_store::NewRow {
+            origin: "window",
+            action: "rewrite",
+            state: "running",
+            item: Some(3),
+            arrived: 1,
+            ended: None,
+            entry: "{}",
+        })
+        .expect("a row");
+    let cleaned = Entry {
+        outcome: Some(wipemark_store::entry::Outcome {
+            verdict: "cleaned".to_owned(),
+            ..wipemark_store::entry::Outcome::default()
+        }),
+        ..Entry::default()
+    }
+    .to_json();
+    // The window's writer, between the bookkeeper's read and its write:
+    // the row's clean, as `Queue::heard` writes it.
+    let clean_lands = |_: ItemId| {
+        journal.change(
+            id,
+            &wipemark_store::Change {
+                action: "clean",
+                state: "done",
+                item: None,
+                ended: Some(5),
+                entry: &cleaned,
+            },
+        );
+        true
+    };
+    journal::book(
+        &journal,
+        &BatchEvent::Ended {
+            item: ItemId(3),
+            end: wipemark_queue::End::Cancelled,
+        },
+        &clean_lands,
+    );
+    let row = journal
+        .rows()
+        .into_iter()
+        .find(|row| row.id == id)
+        .expect("row");
+    assert_eq!(
+        (row.action.as_str(), row.state.as_str(), row.item),
+        ("clean", "done", None),
+        "the rewrite's end landed over the clean"
+    );
+    assert_eq!(row.entry, cleaned);
+}
+
 /// В1, D318: with "Process what arrives" set, a drop goes straight into a
 /// line — cleaned, or queued for rewrite — and is never left not started.
 #[gpui::test]
@@ -2056,4 +2125,82 @@ fn a_row_whose_rewrite_rewrote_nothing_is_cleaned_by_its_clean(cx: &mut TestAppC
     let text = std::fs::read_to_string(&cleaned).expect("the cleaned result");
     assert!(!text.contains('\u{200B}'), "{text:?}");
     assert_eq!(std::fs::read_to_string(&source).expect("source"), marked);
+}
+
+/// The journal is read off the GPUI thread, and the window's writer is a
+/// thread of its own: a read can come back with the row as it stood before
+/// the window's last writes reached the database. A row whose clean has
+/// ended here (D720, after a rewrite that rewrote nothing) keeps it against
+/// such a read — the read says the rewrite, which is older than the clean
+/// on the row, not newer. The writer is held so the clean's writes wait,
+/// and an agent's row recorded meanwhile makes the table read the journal.
+/// Let a read put the journal's word over a clean that ended here and the
+/// row says *Not rewritten* again: red — and once the writer catches up it
+/// is the clean's summary, never the clean, which is how CI saw it
+/// (`a_row_whose_rewrite_rewrote_nothing_is_cleaned_by_its_clean` timing
+/// out, gate run 38630126228, macOS, 2026-10-14).
+#[gpui::test]
+fn a_clean_that_ended_is_not_undone_by_a_read_from_before_it(cx: &mut TestAppContext) {
+    let scratch = Scratch::new("clean-against-stale-read");
+    let marked = format!("The build\u{200B} {}\n{OTHER}", &PARAGRAPH[10..]);
+    let source = scratch.file("a.md", marked.as_bytes());
+    let work = work(FakeEngine::answering(|_, _| String::new()));
+    let (queue, preferences, cx) = queue_with(cx, &scratch, Some(work.clone()));
+    here_on_duty(&preferences, cx);
+    queue.update(cx, |queue, cx| queue.hand(vec![source], cx));
+    cx.run_until_parked();
+    let id = ids(&queue, cx)[0];
+    queue.update(cx, |queue, cx| queue.rewrite(&[id], cx));
+    until(cx, "the end", |cx| status(&queue, cx) == "not-rewritten");
+    // The bookkeeper has written the rewrite's end: that is the journal's
+    // word on the row while the clean's writes wait.
+    until(cx, "the end in the journal", |_| {
+        work.journal.rows().first().map(|row| row.state.as_str()) == Some("done")
+    });
+
+    let go = cx.update(|_, cx| {
+        queue
+            .read(cx)
+            .writer
+            .as_ref()
+            .expect("the window's writer")
+            .gate()
+    });
+    queue.update(cx, |queue, cx| {
+        super::clean_step(id, super::again_of(queue.status_of(id).expect("the row")))(queue, cx);
+    });
+    until(cx, "the clean", |cx| status(&queue, cx) == "cleaned");
+    assert_eq!(
+        work.journal.rows()[0].action,
+        "rewrite",
+        "the writer was held: the journal still says the rewrite"
+    );
+
+    work.journal
+        .record(&wipemark_store::NewRow {
+            origin: "agent",
+            action: "clean",
+            state: "done",
+            item: None,
+            arrived: 2,
+            ended: Some(3),
+            entry: "{\"name\":\"b.md\"}",
+        })
+        .expect("an agent's row");
+    until(cx, "the read", |cx| ids(&queue, cx).len() == 2);
+    assert_eq!(
+        status(&queue, cx),
+        "cleaned",
+        "a read from before the clean undid it"
+    );
+
+    drop(go);
+    until(cx, "the clean in the journal", |_| {
+        work.journal.rows()[0].action == "clean"
+    });
+    for _ in 0..3 {
+        cx.executor().advance_clock(super::rewriting::TICK * 10);
+        cx.run_until_parked();
+    }
+    assert_eq!(status(&queue, cx), "cleaned");
 }

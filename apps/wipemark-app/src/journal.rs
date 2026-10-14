@@ -115,11 +115,28 @@ impl Journal {
         }
     }
 
-    /// Change row `id` unless it has ended. Blocking.
+    /// Change row `id` unless it has ended or names another item than
+    /// `change.item`. Blocking.
     pub fn change_open(&self, id: i64, change: &Change) {
         match self.store.journal().update_open(id, change) {
             Ok(true) => self.say(Note::Changed),
             Ok(false) => {}
+            Err(error) => tracing::warn!(%error, id, "the journal could not change a row"),
+        }
+    }
+
+    /// Change row `id` while it still names `change.item` — the end of an
+    /// item, written after the row was read, over nothing the row was moved
+    /// on to since: a clean pressed the moment the table heard the end
+    /// stands. Blocking.
+    pub fn change_item(&self, id: i64, change: &Change) {
+        match self.store.journal().update_item(id, change) {
+            Ok(true) => self.say(Note::Changed),
+            Ok(false) => tracing::info!(
+                id,
+                item = change.item,
+                "an item's end found its row moved on, and is not written over it"
+            ),
             Err(error) => tracing::warn!(%error, id, "the journal could not change a row"),
         }
     }
@@ -710,7 +727,10 @@ pub fn book(journal: &Journal, event: &QueueEvent, consented: &dyn Fn(ItemId) ->
     let (outcome, delivered) = rewrite_end(end, false);
     entry.outcome = Some(outcome);
     entry.result = delivered.or(entry.result);
-    journal.change(
+    // Only while the row still names the item: the window's writer may have
+    // moved it on since it was read — a Clean pressed the moment the table
+    // said *Not rewritten* (D720) — and that stands.
+    journal.change_item(
         row.id,
         &Change {
             action: &row.action,
